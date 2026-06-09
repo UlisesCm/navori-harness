@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.10.0",
+    "@navori/core": "workspace:*",
     "citty": "^0.1.6"
   },
   "devDependencies": {
