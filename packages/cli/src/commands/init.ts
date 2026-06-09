@@ -2,6 +2,7 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { writeConfig } from "../lib/config.ts";
 import { detectProject, type DetectedProject, type ClaudeInfraInventory } from "../lib/detect.ts";
 import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
@@ -42,10 +43,16 @@ export const initCommand = defineCommand({
       type: "string",
       description: "Workspace to inherit defaults from (must exist via 'workspace init')",
     },
+    recommended: {
+      type: "boolean",
+      description: "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh if GitHub repo)",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const configPath = `${cwd}/navori.config.json`;
+    // --recommended implies --yes (skip wizard)
+    const autoYes = Boolean(args.yes || args.recommended);
 
     p.intro("navori-ai init");
 
@@ -57,7 +64,9 @@ export const initCommand = defineCommand({
     const detected = detectProject(cwd);
 
     // Handle existing Claude infrastructure first — before showing stack detection
-    const mode = await chooseAdoptionMode(cwd, detected.claudeInfra, detected.name, args);
+    const mode = await chooseAdoptionMode(cwd, detected.claudeInfra, detected.name, {
+      yes: autoYes,
+    });
     if (mode === null) return cancel();
 
     // Load workspace defaults (cascade: detection → workspace defaults → user overrides)
@@ -93,12 +102,23 @@ export const initCommand = defineCommand({
     const defaultLanguage: "es" | "en" = wsDefaults?.language ?? "es";
     const defaultCommits = wsDefaults?.commits;
 
-    if (args.yes) {
+    if (autoYes) {
       if (!detected.name) {
-        p.cancel("Could not detect project name. Run without --yes to provide one.");
+        p.cancel("Could not detect project name. Run without --yes/--recommended to provide one.");
         process.exit(1);
       }
-      const wsPlugins = wsDefaults?.plugins;
+      const wsPlugins = wsDefaults?.plugins ?? {};
+      const recommendedPlugins = args.recommended
+        ? buildRecommendedPlugins(cwd)
+        : {};
+      const mergedPlugins = { ...wsPlugins, ...recommendedPlugins };
+
+      if (args.recommended && Object.keys(recommendedPlugins).length > 0) {
+        p.log.info(
+          `Recommended plugins enabled: ${Object.keys(recommendedPlugins).join(", ")}`,
+        );
+      }
+
       writeConfig(configPath, {
         name: detected.name,
         ...(args.workspace ? { workspace: args.workspace } : {}),
@@ -108,7 +128,7 @@ export const initCommand = defineCommand({
         branchBase: defaultBranchBase,
         ...(defaultCommits ? { commits: defaultCommits } : {}),
         ...(detected.qualityGate ? { qualityGate: detected.qualityGate } : {}),
-        ...(wsPlugins ? { plugins: wsPlugins } : {}),
+        ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
       });
       p.log.success(`Wrote ${configPath}`);
       if (mode === "coexist") {
@@ -478,6 +498,33 @@ async function pickAgentAssignments(
   }
 
   return overrides;
+}
+
+/**
+ * Recommended plugin set for opinionated --recommended mode:
+ * - engram: always (persistent memory is universally useful)
+ * - gh: only if the repo's git origin points to github.com
+ *
+ * Intentionally conservative — semgrep/jscpd/cognitive require external tools
+ * that may not be installed; users add those explicitly.
+ */
+function buildRecommendedPlugins(cwd: string): Record<string, { enabled: boolean }> {
+  const result: Record<string, { enabled: boolean }> = {
+    engram: { enabled: true },
+  };
+  if (isGitHubRepo(cwd)) {
+    result.gh = { enabled: true };
+  }
+  return result;
+}
+
+function isGitHubRepo(cwd: string): boolean {
+  const r = spawnSync("git", ["-C", cwd, "config", "--get", "remote.origin.url"], {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (r.status !== 0) return false;
+  return /github\.com/i.test(r.stdout);
 }
 
 function renderInline(cwd: string): void {
