@@ -4,6 +4,7 @@ import { renderCommand } from "./commands/render.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 import { syncCommand } from "./commands/sync.ts";
 import { addCommand } from "./commands/add.ts";
+import { workspaceCommand } from "./commands/workspace.ts";
 
 const main = defineCommand({
   meta: {
@@ -17,6 +18,7 @@ const main = defineCommand({
     render: renderCommand,
     sync: syncCommand,
     doctor: doctorCommand,
+    workspace: workspaceCommand,
   },
 });
 
