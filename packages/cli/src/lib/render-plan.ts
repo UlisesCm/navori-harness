@@ -25,6 +25,8 @@ export interface RenderPlan {
   entries: AssetPlanEntry[];
   /** Plugins declared as enabled in the config but missing on disk. */
   missingPlugins: Array<{ id: string; reason: string }>;
+  /** Assets that fell back to Spanish because the requested language is not available. */
+  languageFallbacks: string[];
 }
 
 /**
@@ -37,7 +39,9 @@ export interface RenderPlan {
 export function computeRenderPlan(existing: string, config: NavoriConfig): RenderPlan {
   let working = existing;
   const entries: AssetPlanEntry[] = [];
+  const languageFallbacks: string[] = [];
   const configRecord = config as unknown as Record<string, unknown>;
+  const language = config.language;
 
   // 1) Core assets
   for (const asset of CORE_MANAGED_ASSETS) {
@@ -55,7 +59,9 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
         continue;
       }
     }
-    const content = readFileSync(resolveAssetPath(asset), "utf-8");
+    const resolved = resolveAssetPath(asset, language);
+    if (resolved.fallback) languageFallbacks.push(asset.id);
+    const content = readFileSync(resolved.path, "utf-8");
     const result = injectManagedSection(working, asset.id, content);
     entries.push({
       asset,
@@ -122,6 +128,7 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
     changed: working !== existing,
     entries,
     missingPlugins: missing,
+    languageFallbacks,
   };
 }
 
@@ -143,7 +150,8 @@ export function applyPlanWithSkips(
       working = removeManagedSection(working, asset.id);
       continue;
     }
-    const content = readFileSync(resolveAssetPath(asset), "utf-8");
+    const resolved = resolveAssetPath(asset, config.language);
+    const content = readFileSync(resolved.path, "utf-8");
     const result = injectManagedSection(working, asset.id, content);
     working = result.output;
   }

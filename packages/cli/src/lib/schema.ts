@@ -72,6 +72,7 @@ export const NavoriConfigSchema = z.object({
   workspace: z.string().optional(),
   engines: z.array(z.enum(ENGINES)).min(1),
   preset: z.string().min(1),
+  language: z.enum(["es", "en"]).default("es"),
   branchBase: z.string().default("main"),
   commits: z.enum(["conventional", "conventional-es", "free"]).default("conventional-es"),
   qualityGate: QualityGateSchema.optional(),

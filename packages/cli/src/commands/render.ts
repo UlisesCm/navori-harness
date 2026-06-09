@@ -6,6 +6,49 @@ import { readConfig } from "../lib/config.ts";
 import { computeRenderPlan, type AssetPlanEntry } from "../lib/render-plan.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
 
+/**
+ * Run the render flow against `cwd`. Reusable from other commands (e.g. init).
+ * Returns the plan summary for the caller to print.
+ */
+export function runRender(cwd: string, dryRun = false): {
+  ok: boolean;
+  reason?: string;
+  filePath: string;
+  entries: AssetPlanEntry[];
+  written: boolean;
+  languageFallbacks: string[];
+} {
+  const configPath = `${cwd}/navori.config.json`;
+  const claudeMdPath = `${cwd}/CLAUDE.md`;
+
+  if (!existsSync(configPath)) {
+    return {
+      ok: false,
+      reason: `No navori.config.json at ${configPath}`,
+      filePath: claudeMdPath,
+      entries: [],
+      written: false,
+      languageFallbacks: [],
+    };
+  }
+
+  const config = readConfig(configPath);
+  const existing = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, "utf-8") : "";
+  const plan = computeRenderPlan(existing, config);
+
+  if (plan.changed && !dryRun) {
+    writeFileAtomic(claudeMdPath, plan.next);
+  }
+
+  return {
+    ok: true,
+    filePath: claudeMdPath,
+    entries: plan.entries,
+    written: plan.changed && !dryRun,
+    languageFallbacks: plan.languageFallbacks,
+  };
+}
+
 export const renderCommand = defineCommand({
   meta: {
     name: "render",
@@ -17,26 +60,21 @@ export const renderCommand = defineCommand({
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
-    const configPath = `${cwd}/navori.config.json`;
-    const claudeMdPath = `${cwd}/CLAUDE.md`;
 
     p.intro("navori-ai render");
 
-    if (!existsSync(configPath)) {
-      p.cancel(`No navori.config.json at ${configPath}. Run 'navori-ai init' first.`);
+    const result = runRender(cwd, Boolean(args["dry-run"]));
+    if (!result.ok) {
+      p.cancel(`${result.reason}. Run 'navori-ai init' first.`);
       process.exit(1);
     }
 
-    const config = readConfig(configPath);
-    const existing = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, "utf-8") : "";
-    const plan = computeRenderPlan(existing, config);
-
-    reportPlan(claudeMdPath, plan.entries, plan.changed, Boolean(args["dry-run"]));
-
-    if (plan.changed && !args["dry-run"]) {
-      writeFileAtomic(claudeMdPath, plan.next);
+    reportPlan(result.filePath, result.entries, result.written, Boolean(args["dry-run"]));
+    if (result.languageFallbacks.length > 0) {
+      p.log.warn(
+        `Language fallback to Spanish for: ${result.languageFallbacks.join(", ")} (English version not available yet)`,
+      );
     }
-
     p.outro(args["dry-run"] ? "Dry-run complete (no files written)" : "Done");
   },
 });
