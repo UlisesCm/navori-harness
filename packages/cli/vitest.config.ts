@@ -4,5 +4,6 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     environment: "node",
+    testTimeout: 15_000, // e2e specs spawn the CLI several times
   },
 });
