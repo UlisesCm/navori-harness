@@ -18,6 +18,7 @@
   "dependencies": {
     "@clack/prompts": "^0.10.0",
     "@navori/core": "workspace:*",
+    "@navori/plugin-engram": "workspace:*",
     "citty": "^0.1.6",
     "zod": "^4.4.3"
   },

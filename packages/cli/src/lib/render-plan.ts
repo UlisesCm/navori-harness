@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { CORE_MANAGED_ASSETS, resolveAssetPath, type CoreManagedAsset } from "@navori/core";
 import { injectManagedSection, removeManagedSection, resolveCondition, type InjectResult } from "./marker.ts";
+import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
 import type { NavoriConfig } from "./config.ts";
 
 export type AssetStatus =
@@ -9,9 +10,11 @@ export type AssetStatus =
 
 export interface AssetPlanEntry {
   asset: CoreManagedAsset;
+  /** "core" or the plugin id this asset comes from. */
+  source: "core" | string;
   status: AssetStatus;
   details?: InjectResult["details"];
-  /** New content from the Core (or null when condition is falsy). */
+  /** New content from disk (or null when condition is falsy). */
   newContent: string | null;
 }
 
@@ -20,17 +23,23 @@ export interface RenderPlan {
   next: string;
   changed: boolean;
   entries: AssetPlanEntry[];
+  /** Plugins declared as enabled in the config but missing on disk. */
+  missingPlugins: Array<{ id: string; reason: string }>;
 }
 
 /**
- * Compute the next content of the target file by walking CORE_MANAGED_ASSETS.
- * Pure: does NOT touch disk for writing. Reads asset files from @navori/core.
+ * Compute the next content of the target file by walking CORE_MANAGED_ASSETS
+ * + the managed entries declared by enabled plugins.
+ *
+ * Pure: does NOT touch disk for writing. Reads asset files from @navori/core
+ * and from each plugin's package root.
  */
 export function computeRenderPlan(existing: string, config: NavoriConfig): RenderPlan {
   let working = existing;
   const entries: AssetPlanEntry[] = [];
   const configRecord = config as unknown as Record<string, unknown>;
 
+  // 1) Core assets
   for (const asset of CORE_MANAGED_ASSETS) {
     if (asset.condition) {
       const truthy = resolveCondition(configRecord, asset.condition);
@@ -39,17 +48,18 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
         working = removeManagedSection(working, asset.id);
         entries.push({
           asset,
+          source: "core",
           status: before === working ? "unchanged" : "removed-condition-false",
           newContent: null,
         });
         continue;
       }
     }
-
     const content = readFileSync(resolveAssetPath(asset), "utf-8");
     const result = injectManagedSection(working, asset.id, content);
     entries.push({
       asset,
+      source: "core",
       status: result.status,
       details: result.details,
       newContent: content,
@@ -57,11 +67,61 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
     working = result.output;
   }
 
+  // 2) Plugins declared in config (enabled or disabled).
+  // Loading the manifest even when disabled lets us strip its managed blocks.
+  const missing: Array<{ id: string; reason: string }> = [];
+  const declaredEntries = Object.entries(config.plugins ?? {});
+
+  for (const [declaredId, settings] of declaredEntries) {
+    let plugin;
+    try {
+      plugin = loadPlugin(declaredId);
+    } catch (err) {
+      if (err instanceof PluginNotFoundError) {
+        missing.push({ id: declaredId, reason: "unknown plugin id" });
+      } else if (err instanceof PluginManifestError) {
+        missing.push({ id: declaredId, reason: err.message });
+      } else {
+        throw err;
+      }
+      continue;
+    }
+
+    const enabled = settings.enabled === true;
+
+    if (enabled) {
+      for (const entry of plugin.managedAssets) {
+        const content = readFileSync(entry.absPath, "utf-8");
+        const result = injectManagedSection(working, entry.id, content);
+        entries.push({
+          asset: { id: entry.id, relPath: entry.absPath },
+          source: plugin.manifest.id,
+          status: result.status,
+          details: result.details,
+          newContent: content,
+        });
+        working = result.output;
+      }
+    } else {
+      for (const entry of plugin.managedAssets) {
+        const before = working;
+        working = removeManagedSection(working, entry.id);
+        entries.push({
+          asset: { id: entry.id, relPath: entry.absPath },
+          source: plugin.manifest.id,
+          status: before === working ? "unchanged" : "removed-condition-false",
+          newContent: null,
+        });
+      }
+    }
+  }
+
   return {
     existing,
     next: working,
     changed: working !== existing,
     entries,
+    missingPlugins: missing,
   };
 }
 
@@ -74,11 +134,11 @@ export function applyPlanWithSkips(
   config: NavoriConfig,
   skipIds: ReadonlySet<string>,
 ): string {
-  const filteredAssets = CORE_MANAGED_ASSETS.filter((a) => !skipIds.has(a.id));
   let working = existing;
   const configRecord = config as unknown as Record<string, unknown>;
 
-  for (const asset of filteredAssets) {
+  for (const asset of CORE_MANAGED_ASSETS) {
+    if (skipIds.has(asset.id)) continue;
     if (asset.condition && !resolveCondition(configRecord, asset.condition)) {
       working = removeManagedSection(working, asset.id);
       continue;
@@ -87,5 +147,26 @@ export function applyPlanWithSkips(
     const result = injectManagedSection(working, asset.id, content);
     working = result.output;
   }
+
+  for (const [declaredId, settings] of Object.entries(config.plugins ?? {})) {
+    let plugin;
+    try {
+      plugin = loadPlugin(declaredId);
+    } catch {
+      continue;
+    }
+    const enabled = settings.enabled === true;
+    for (const entry of plugin.managedAssets) {
+      if (skipIds.has(entry.id)) continue;
+      if (enabled) {
+        const content = readFileSync(entry.absPath, "utf-8");
+        const result = injectManagedSection(working, entry.id, content);
+        working = result.output;
+      } else {
+        working = removeManagedSection(working, entry.id);
+      }
+    }
+  }
+
   return working;
 }

@@ -14,9 +14,11 @@ export function writeConfig(path: string, input: NavoriConfigInput): void {
 }
 
 export class ConfigError extends Error {
-  constructor(message: string, public readonly issues?: z.ZodIssue[]) {
+  readonly issues?: z.ZodIssue[];
+  constructor(message: string, issues?: z.ZodIssue[]) {
     super(message);
     this.name = "ConfigError";
+    this.issues = issues;
   }
 }
 

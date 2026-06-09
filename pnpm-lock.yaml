@@ -16,6 +16,9 @@ importers:
       '@navori/core':
         specifier: workspace:*
         version: link:../core
+      '@navori/plugin-engram':
+        specifier: workspace:*
+        version: link:../plugins/engram
       citty:
         specifier: ^0.1.6
         version: 0.1.6
@@ -37,6 +40,8 @@ importers:
         version: 4.1.8(@types/node@22.19.20)(vite@8.0.16(@types/node@22.19.20)(esbuild@0.27.7))
 
   packages/core: {}
+
+  packages/plugins/engram: {}
 
 packages:
 
