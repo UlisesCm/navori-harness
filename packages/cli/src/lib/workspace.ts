@@ -1,10 +1,11 @@
-import { existsSync, readFileSync, readdirSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, mkdirSync, statSync, copyFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { z } from "zod";
 import { writeFileAtomic } from "./atomic.ts";
 
 const WORKSPACES_ROOT = join(homedir(), ".navori", "workspaces");
+const MANIFEST_NAME = "workspace.json";
 
 const RepoEntrySchema = z.object({
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "repo name must be kebab-case"),
@@ -49,26 +50,66 @@ export function workspacesRoot(): string {
   return WORKSPACES_ROOT;
 }
 
-export function workspacePath(name: string): string {
-  return join(WORKSPACES_ROOT, `${name}.json`);
-}
-
 export function workspaceDirectory(name: string): string {
   return join(WORKSPACES_ROOT, name);
+}
+
+export function workspacePath(name: string): string {
+  return join(workspaceDirectory(name), MANIFEST_NAME);
+}
+
+/** Legacy layout: <name>.json next to the workspaces root. Used only by migration. */
+function legacyWorkspacePath(name: string): string {
+  return join(WORKSPACES_ROOT, `${name}.json`);
 }
 
 export function ensureWorkspacesRoot(): void {
   mkdirSync(WORKSPACES_ROOT, { recursive: true });
 }
 
+/**
+ * Migrate from the legacy layout `<name>.json + <name>/` to the new
+ * `<name>/workspace.json + <name>/tickets/`. Idempotent: if already migrated
+ * or never existed in the old form, this is a no-op.
+ */
+function migrateLegacyLayoutIfNeeded(name: string): void {
+  const legacy = legacyWorkspacePath(name);
+  const current = workspacePath(name);
+  if (!existsSync(legacy) || existsSync(current)) return;
+  const dir = workspaceDirectory(name);
+  mkdirSync(dir, { recursive: true });
+  copyFileSync(legacy, current);
+  try {
+    rmSync(legacy, { force: true });
+  } catch {
+    // best-effort; the new manifest is already in place
+  }
+}
+
 export function listWorkspaces(): string[] {
   if (!existsSync(WORKSPACES_ROOT)) return [];
-  return readdirSync(WORKSPACES_ROOT)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => f.replace(/\.json$/, ""));
+  // Migrate any legacy .json sitting at the root before listing
+  for (const entry of readdirSync(WORKSPACES_ROOT)) {
+    if (entry.endsWith(".json")) {
+      const name = entry.replace(/\.json$/, "");
+      migrateLegacyLayoutIfNeeded(name);
+    }
+  }
+  const names: string[] = [];
+  for (const entry of readdirSync(WORKSPACES_ROOT)) {
+    const full = join(WORKSPACES_ROOT, entry);
+    try {
+      if (!statSync(full).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    if (existsSync(join(full, MANIFEST_NAME))) names.push(entry);
+  }
+  return names.sort();
 }
 
 export function loadWorkspace(name: string): WorkspaceConfig | null {
+  migrateLegacyLayoutIfNeeded(name);
   const path = workspacePath(name);
   if (!existsSync(path)) return null;
   let raw: string;
@@ -92,12 +133,11 @@ export function loadWorkspace(name: string): WorkspaceConfig | null {
 
 export function writeWorkspace(workspace: WorkspaceConfig): string {
   ensureWorkspacesRoot();
-  const path = workspacePath(workspace.name);
   const dir = workspaceDirectory(workspace.name);
-  // Ensure the per-workspace directory exists too (for tickets/, etc.)
   mkdirSync(dir, { recursive: true });
   mkdirSync(join(dir, workspace.ticketsDir), { recursive: true });
 
+  const path = workspacePath(workspace.name);
   const validated = WorkspaceConfigSchema.parse({
     $schema: "https://navori.dev/schema/navori.workspace.v1.json",
     ...workspace,
