@@ -1,0 +1,19 @@
+{
+  "name": "@navori/plugin-semgrep",
+  "version": "0.0.1",
+  "description": "Security + pattern analysis via semgrep",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json",
+    "./plugin.json": "./plugin.json"
+  },
+  "files": [
+    "src",
+    "managed",
+    "plugin.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

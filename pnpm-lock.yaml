@@ -16,9 +16,24 @@ importers:
       '@navori/core':
         specifier: workspace:*
         version: link:../core
+      '@navori/plugin-acli':
+        specifier: workspace:*
+        version: link:../plugins/acli
+      '@navori/plugin-cognitive':
+        specifier: workspace:*
+        version: link:../plugins/cognitive
       '@navori/plugin-engram':
         specifier: workspace:*
         version: link:../plugins/engram
+      '@navori/plugin-gh':
+        specifier: workspace:*
+        version: link:../plugins/gh
+      '@navori/plugin-jscpd':
+        specifier: workspace:*
+        version: link:../plugins/jscpd
+      '@navori/plugin-semgrep':
+        specifier: workspace:*
+        version: link:../plugins/semgrep
       citty:
         specifier: ^0.1.6
         version: 0.1.6
@@ -41,7 +56,17 @@ importers:
 
   packages/core: {}
 
+  packages/plugins/acli: {}
+
+  packages/plugins/cognitive: {}
+
   packages/plugins/engram: {}
+
+  packages/plugins/gh: {}
+
+  packages/plugins/jscpd: {}
+
+  packages/plugins/semgrep: {}
 
 packages:
 

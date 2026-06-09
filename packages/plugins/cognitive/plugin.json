@@ -1,0 +1,12 @@
+{
+  "id": "cognitive",
+  "name": "Cognitive complexity guardrails",
+  "description": "Detección de complejidad cognitiva alta via ESLint rule SonarJS",
+  "version": "0.0.1",
+  "managed": [
+    {
+      "id": "cognitive-protocol",
+      "file": "managed/cognitive-protocol.md"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "acli",
+  "name": "Atlassian CLI (Jira tickets)",
+  "description": "Lectura de tickets de Jira desde la terminal sin abrir el browser",
+  "version": "0.0.1",
+  "managed": [
+    {
+      "id": "acli-protocol",
+      "file": "managed/acli-protocol.md"
+    }
+  ],
+  "externalTool": {
+    "name": "acli",
+    "checkBinary": "acli",
+    "install": {
+      "darwin": "brew install atlassian-labs/acli/acli",
+      "linux": "curl -fsSL https://acli-releases.atlassian.com/install.sh | bash"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "jscpd",
+  "name": "jscpd (code duplication detector)",
+  "description": "Detección de duplicación de código en el diff vs branch base",
+  "version": "0.0.1",
+  "managed": [
+    {
+      "id": "jscpd-protocol",
+      "file": "managed/jscpd-protocol.md"
+    }
+  ],
+  "externalTool": {
+    "name": "jscpd",
+    "checkBinary": "jscpd",
+    "install": {
+      "darwin": "pnpm add -g jscpd",
+      "linux": "pnpm add -g jscpd"
+    }
+  }
+}

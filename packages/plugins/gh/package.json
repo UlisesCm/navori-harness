@@ -1,0 +1,19 @@
+{
+  "name": "@navori/plugin-gh",
+  "version": "0.0.1",
+  "description": "GitHub Issues, PRs and repos via gh CLI",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json",
+    "./plugin.json": "./plugin.json"
+  },
+  "files": [
+    "src",
+    "managed",
+    "plugin.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

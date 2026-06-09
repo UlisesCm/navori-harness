@@ -1,0 +1,21 @@
+{
+  "id": "gh",
+  "name": "GitHub CLI (issues + PRs)",
+  "description": "Acceso a Issues, PRs y repos de GitHub desde la terminal",
+  "version": "0.0.1",
+  "managed": [
+    {
+      "id": "gh-protocol",
+      "file": "managed/gh-protocol.md"
+    }
+  ],
+  "externalTool": {
+    "name": "gh",
+    "checkBinary": "gh",
+    "install": {
+      "darwin": "brew install gh",
+      "linux": "(see https://github.com/cli/cli/blob/trunk/docs/install_linux.md)"
+    },
+    "postInstall": "gh auth status || gh auth login"
+  }
+}

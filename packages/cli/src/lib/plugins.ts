@@ -46,6 +46,11 @@ export interface LoadedPlugin {
  */
 export const KNOWN_PLUGINS: Record<string, string> = {
   engram: "@navori/plugin-engram",
+  acli: "@navori/plugin-acli",
+  gh: "@navori/plugin-gh",
+  jscpd: "@navori/plugin-jscpd",
+  semgrep: "@navori/plugin-semgrep",
+  cognitive: "@navori/plugin-cognitive",
 };
 
 const require = createRequire(import.meta.url);

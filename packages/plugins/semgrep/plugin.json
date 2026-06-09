@@ -1,0 +1,20 @@
+{
+  "id": "semgrep",
+  "name": "semgrep (security + pattern analysis)",
+  "description": "Detección de vulnerabilidades y patrones inseguros local opt-in",
+  "version": "0.0.1",
+  "managed": [
+    {
+      "id": "semgrep-protocol",
+      "file": "managed/semgrep-protocol.md"
+    }
+  ],
+  "externalTool": {
+    "name": "semgrep",
+    "checkBinary": "semgrep",
+    "install": {
+      "darwin": "brew install semgrep",
+      "linux": "pipx install semgrep"
+    }
+  }
+}
