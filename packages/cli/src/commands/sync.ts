@@ -39,6 +39,13 @@ export const syncCommand = defineCommand({
 
     reportPlan(plan.entries);
 
+    if (plan.updatesAvailable.length > 0) {
+      const lines = plan.updatesAvailable.map(
+        (u) => `  ⇡ ${u.id}  (${u.source}  ${u.fromVersion} → ${u.toVersion})`,
+      );
+      p.log.info(`Updates available (${plan.updatesAvailable.length}):\n${lines.join("\n")}`);
+    }
+
     const conflicts = plan.entries.filter((e) => e.status === "user-modified-skipped");
     const hasOtherChanges = plan.changed;
 

@@ -20,6 +20,13 @@ export interface AssetPlanEntry {
   newContent: string | null;
 }
 
+export interface UpdateAvailable {
+  id: string;
+  source: string;
+  fromVersion: string;
+  toVersion: string;
+}
+
 export interface RenderPlan {
   existing: string;
   next: string;
@@ -29,6 +36,9 @@ export interface RenderPlan {
   missingPlugins: Array<{ id: string; reason: string }>;
   /** Assets that fell back to Spanish because the requested language is not available. */
   languageFallbacks: string[];
+  /** Markers whose existing version is older than the source package's current
+   * version. Listed regardless of whether the content changed. */
+  updatesAvailable: UpdateAvailable[];
 }
 
 /**
@@ -42,6 +52,7 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
   let working = existing;
   const entries: AssetPlanEntry[] = [];
   const languageFallbacks: string[] = [];
+  const updatesAvailable: UpdateAvailable[] = [];
   const configRecord = config as unknown as Record<string, unknown>;
   const language = config.language;
 
@@ -68,6 +79,14 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
       source: CORE_SOURCE_ID,
       version: CORE_VERSION,
     });
+    if (result.details?.versionDrift && result.details.existingVersion) {
+      updatesAvailable.push({
+        id: asset.id,
+        source: CORE_SOURCE_ID,
+        fromVersion: result.details.existingVersion,
+        toVersion: CORE_VERSION,
+      });
+    }
     entries.push({
       asset,
       source: "core",
@@ -101,12 +120,21 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
     const enabled = settings.enabled === true;
 
     if (enabled) {
+      const pluginSource = `@navori/plugin-${plugin.manifest.id}`;
       for (const entry of plugin.managedAssets) {
         const content = readFileSync(entry.absPath, "utf-8");
         const result = injectManagedSection(working, entry.id, content, {
-          source: `@navori/plugin-${plugin.manifest.id}`,
+          source: pluginSource,
           version: plugin.manifest.version,
         });
+        if (result.details?.versionDrift && result.details.existingVersion) {
+          updatesAvailable.push({
+            id: entry.id,
+            source: pluginSource,
+            fromVersion: result.details.existingVersion,
+            toVersion: plugin.manifest.version,
+          });
+        }
         entries.push({
           asset: { id: entry.id, relPath: entry.absPath },
           source: plugin.manifest.id,
@@ -137,6 +165,7 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
     entries,
     missingPlugins: missing,
     languageFallbacks,
+    updatesAvailable,
   };
 }
 

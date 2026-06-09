@@ -17,6 +17,7 @@ export function runRender(cwd: string, dryRun = false): {
   entries: AssetPlanEntry[];
   written: boolean;
   languageFallbacks: string[];
+  updatesAvailable: Array<{ id: string; source: string; fromVersion: string; toVersion: string }>;
 } {
   const configPath = `${cwd}/navori.config.json`;
   const claudeMdPath = `${cwd}/CLAUDE.md`;
@@ -29,6 +30,7 @@ export function runRender(cwd: string, dryRun = false): {
       entries: [],
       written: false,
       languageFallbacks: [],
+      updatesAvailable: [],
     };
   }
 
@@ -46,6 +48,7 @@ export function runRender(cwd: string, dryRun = false): {
     entries: plan.entries,
     written: plan.changed && !dryRun,
     languageFallbacks: plan.languageFallbacks,
+    updatesAvailable: plan.updatesAvailable,
   };
 }
 

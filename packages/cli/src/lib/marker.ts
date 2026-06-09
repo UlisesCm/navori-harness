@@ -88,6 +88,9 @@ export interface InjectResult {
     newHash: string;
     existingVersion?: string | null;
     existingSource?: string | null;
+    /** True when the existing marker declared a version distinct from the
+     * one being injected. Useful to surface "update available" in sync. */
+    versionDrift?: boolean;
   };
 }
 
@@ -135,12 +138,18 @@ export function injectManagedSection(
   const expectedHash = match.existingHash;
   const userModified = expectedHash !== null && expectedHash !== actualHash;
 
+  const versionDrift =
+    match.existingVersion !== null &&
+    meta.version !== undefined &&
+    match.existingVersion !== meta.version;
+
   const details = {
     existingHash: expectedHash,
     actualHash,
     newHash,
     existingVersion: match.existingVersion,
     existingSource: match.existingSource,
+    versionDrift,
   };
 
   if (canonicalContent === match.content) {
