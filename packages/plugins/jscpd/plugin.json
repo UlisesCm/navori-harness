@@ -6,7 +6,8 @@
   "managed": [
     {
       "id": "jscpd-protocol",
-      "file": "managed/jscpd-protocol.md"
+      "file": "managed/jscpd-protocol.md",
+      "recommendedAgent": "reviewer"
     }
   ],
   "externalTool": {

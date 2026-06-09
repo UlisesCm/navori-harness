@@ -6,7 +6,8 @@
   "managed": [
     {
       "id": "gh-protocol",
-      "file": "managed/gh-protocol.md"
+      "file": "managed/gh-protocol.md",
+      "recommendedAgent": "commit-pr-pilot"
     }
   ],
   "externalTool": {

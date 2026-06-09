@@ -3,9 +3,23 @@ import { resolve, dirname } from "node:path";
 import { createRequire } from "node:module";
 import { z } from "zod";
 
+const AGENT_ROLES = [
+  "leader",
+  "implementer",
+  "reviewer",
+  "researcher",
+  "ticket-audit",
+  "commit-pr-pilot",
+  "explorer",
+] as const;
+
+export type AgentRole = (typeof AGENT_ROLES)[number];
+
 const ManagedEntrySchema = z.object({
   id: z.string().min(1),
   file: z.string().min(1),
+  /** Agent that the plugin recommends for this skill/protocol. */
+  recommendedAgent: z.enum(AGENT_ROLES).optional(),
 });
 
 const ExternalToolSchema = z.object({

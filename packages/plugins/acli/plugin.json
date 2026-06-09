@@ -6,7 +6,8 @@
   "managed": [
     {
       "id": "acli-protocol",
-      "file": "managed/acli-protocol.md"
+      "file": "managed/acli-protocol.md",
+      "recommendedAgent": "researcher"
     }
   ],
   "externalTool": {

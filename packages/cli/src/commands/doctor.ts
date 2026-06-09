@@ -3,6 +3,7 @@ import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
+import { loadPlugin } from "../lib/plugins.ts";
 
 interface MarkerInfo {
   id: string;
@@ -117,10 +118,53 @@ export const doctorCommand = defineCommand({
       }
     }
 
+    // Skill → agent assignments report (effective: plugin recommendation + config overrides)
+    const assignments = collectAssignments(config);
+    if (assignments.length > 0) {
+      p.log.message(`Skill → agent assignments (${assignments.length}):`);
+      for (const a of assignments) {
+        const override = a.override ? `  ${grey("(overridden)")}` : "";
+        p.log.message(`  · ${a.id}  →  ${a.agent}${override}`);
+      }
+    }
+
     p.outro("OK");
   },
 });
 
 function mark(ok: boolean): string {
   return ok ? "✓" : "○";
+}
+
+function grey(s: string): string {
+  return `\x1b[90m${s}\x1b[0m`;
+}
+
+interface AssignmentRow {
+  id: string;
+  agent: string;
+  override: boolean;
+}
+
+function collectAssignments(config: NavoriConfig): AssignmentRow[] {
+  const overrides = config.agentAssignments ?? {};
+  const out: AssignmentRow[] = [];
+  for (const [pluginId, settings] of Object.entries(config.plugins ?? {})) {
+    if (settings.enabled !== true) continue;
+    let plugin;
+    try {
+      plugin = loadPlugin(pluginId);
+    } catch {
+      continue;
+    }
+    for (const entry of plugin.manifest.managed) {
+      const overrideValue = overrides[entry.id];
+      if (overrideValue) {
+        out.push({ id: entry.id, agent: overrideValue, override: true });
+      } else if (entry.recommendedAgent) {
+        out.push({ id: entry.id, agent: entry.recommendedAgent, override: false });
+      }
+    }
+  }
+  return out;
 }

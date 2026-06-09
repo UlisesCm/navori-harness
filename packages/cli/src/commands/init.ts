@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { writeConfig } from "../lib/config.ts";
 import { detectProject, type DetectedProject, type ClaudeInfraInventory } from "../lib/detect.ts";
-import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
+import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
 import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
 import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
 import { runRender } from "./render.ts";
@@ -259,6 +259,10 @@ export const initCommand = defineCommand({
       {},
     );
 
+    // Skill → agent assignments (only ask if plugins selected with recommendations)
+    const agentAssignments = await pickAgentAssignments(pluginsToEnable);
+    if (agentAssignments === null) return cancel();
+
     // Merge workspace-default plugins with user-selected plugins
     const wsPlugins = wsDefaults?.plugins ?? {};
     const mergedPlugins = { ...wsPlugins, ...pluginsConfig };
@@ -273,6 +277,7 @@ export const initCommand = defineCommand({
       ...(defaultCommits ? { commits: defaultCommits } : {}),
       ...(qualityGate ? { qualityGate } : {}),
       ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
+      ...(Object.keys(agentAssignments).length > 0 ? { agentAssignments } : {}),
     });
 
     p.log.success(`Wrote ${configPath}`);
@@ -401,6 +406,78 @@ async function pickPlugins(): Promise<string[] | null> {
   });
   if (p.isCancel(selected)) return null;
   return selected as string[];
+}
+
+/**
+ * Build skill → agent assignments based on plugin recommendations, then offer
+ * the user a chance to review/override. Returns user-overridden entries only
+ * (defaults stay implicit and live in the plugin manifest, not in the config).
+ */
+async function pickAgentAssignments(
+  enabledPlugins: string[],
+): Promise<Record<string, AgentRole> | null> {
+  if (enabledPlugins.length === 0) return {};
+
+  type Recommendation = { id: string; pluginId: string; recommendedAgent: AgentRole };
+  const recommendations: Recommendation[] = [];
+  for (const pluginId of enabledPlugins) {
+    let plugin;
+    try {
+      plugin = loadPlugin(pluginId);
+    } catch {
+      continue;
+    }
+    for (const entry of plugin.manifest.managed) {
+      if (entry.recommendedAgent) {
+        recommendations.push({
+          id: entry.id,
+          pluginId,
+          recommendedAgent: entry.recommendedAgent,
+        });
+      }
+    }
+  }
+
+  if (recommendations.length === 0) return {};
+
+  // Show defaults
+  const summary = recommendations
+    .map((r) => `  · ${r.id} (${r.pluginId})  →  ${r.recommendedAgent}`)
+    .join("\n");
+  p.log.message(`Recommended skill → agent assignments:\n${summary}`);
+
+  const accept = await p.confirm({
+    message: "Use these assignments?",
+    initialValue: true,
+  });
+  if (p.isCancel(accept)) return null;
+  if (accept) return {};
+
+  // Let the user override one or more
+  const overrides: Record<string, AgentRole> = {};
+  const agentOptions: Array<{ value: AgentRole; label: string }> = [
+    { value: "leader", label: "leader (orquestador)" },
+    { value: "implementer", label: "implementer (escribe código)" },
+    { value: "reviewer", label: "reviewer (revisa diff)" },
+    { value: "researcher", label: "researcher (lee, no escribe)" },
+    { value: "ticket-audit", label: "ticket-audit (análisis profundo)" },
+    { value: "commit-pr-pilot", label: "commit-pr-pilot (commits + PRs)" },
+    { value: "explorer", label: "explorer (exploración inicial)" },
+  ];
+
+  for (const rec of recommendations) {
+    const choice = await p.select<AgentRole>({
+      message: `Agent for '${rec.id}' (${rec.pluginId})`,
+      options: agentOptions,
+      initialValue: rec.recommendedAgent,
+    });
+    if (p.isCancel(choice)) return null;
+    if (choice !== rec.recommendedAgent) {
+      overrides[rec.id] = choice;
+    }
+  }
+
+  return overrides;
 }
 
 function renderInline(cwd: string): void {

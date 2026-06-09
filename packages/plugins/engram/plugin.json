@@ -6,7 +6,8 @@
   "managed": [
     {
       "id": "engram-protocol",
-      "file": "managed/engram-protocol.md"
+      "file": "managed/engram-protocol.md",
+      "recommendedAgent": "leader"
     }
   ],
   "externalTool": {

@@ -52,6 +52,18 @@ const PluginEntrySchema = z.object({
   enabled: z.boolean(),
 });
 
+const AGENT_ROLES_FOR_SCHEMA = [
+  "leader",
+  "implementer",
+  "reviewer",
+  "researcher",
+  "ticket-audit",
+  "commit-pr-pilot",
+  "explorer",
+] as const;
+
+const AgentAssignmentsSchema = z.record(z.string(), z.enum(AGENT_ROLES_FOR_SCHEMA));
+
 const SkillsSchema = z.object({
   auto: z.array(z.string()).default([]),
   optIn: z.array(z.string()).default([]),
@@ -80,6 +92,9 @@ export const NavoriConfigSchema = z.object({
   harness: HarnessSchema.optional(),
   models: ModelsSchema.optional(),
   plugins: z.record(z.string(), PluginEntrySchema).optional(),
+  /** Override of which agent owns which skill/managed-block id. Plugins
+   * declare their own recommendedAgent; entries here override that. */
+  agentAssignments: AgentAssignmentsSchema.optional(),
   skills: SkillsSchema.optional(),
   progress: ProgressSchema.optional(),
   monorepo: MonorepoSchema.optional(),

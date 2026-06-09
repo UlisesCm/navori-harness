@@ -6,7 +6,8 @@
   "managed": [
     {
       "id": "semgrep-protocol",
-      "file": "managed/semgrep-protocol.md"
+      "file": "managed/semgrep-protocol.md",
+      "recommendedAgent": "reviewer"
     }
   ],
   "externalTool": {

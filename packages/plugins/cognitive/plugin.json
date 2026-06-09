@@ -6,7 +6,8 @@
   "managed": [
     {
       "id": "cognitive-protocol",
-      "file": "managed/cognitive-protocol.md"
+      "file": "managed/cognitive-protocol.md",
+      "recommendedAgent": "reviewer"
     }
   ]
 }
