@@ -1,0 +1,18 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Local Claude state (not committed per workspace convention)
+.claude/
+CLAUDE.md
+
+# navori-ai runtime state in dev/test repos
+.navori/
+
+# build artifacts
+**/*.tsbuildinfo
+
+# editor
+.vscode/
+.idea/

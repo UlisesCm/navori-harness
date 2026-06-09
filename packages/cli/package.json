@@ -1,0 +1,28 @@
+{
+  "name": "navori-ai",
+  "version": "0.0.1",
+  "description": "Multi-agent harness + SDD scaffolder for Claude Code and other AI engines",
+  "type": "module",
+  "bin": {
+    "navori-ai": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.10.0",
+    "citty": "^0.1.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
