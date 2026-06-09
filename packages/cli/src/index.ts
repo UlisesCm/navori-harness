@@ -5,6 +5,7 @@ import { doctorCommand } from "./commands/doctor.ts";
 import { syncCommand } from "./commands/sync.ts";
 import { addCommand } from "./commands/add.ts";
 import { workspaceCommand } from "./commands/workspace.ts";
+import { ticketCommand } from "./commands/ticket.ts";
 
 const main = defineCommand({
   meta: {
@@ -19,6 +20,7 @@ const main = defineCommand({
     sync: syncCommand,
     doctor: doctorCommand,
     workspace: workspaceCommand,
+    ticket: ticketCommand,
   },
 });
 
