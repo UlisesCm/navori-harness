@@ -6,6 +6,7 @@ import { writeConfig } from "../lib/config.ts";
 import { detectProject, type DetectedProject, type ClaudeInfraInventory } from "../lib/detect.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
 import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
+import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
 import { runRender } from "./render.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
@@ -37,6 +38,10 @@ export const initCommand = defineCommand({
       type: "boolean",
       description: "Do not render CLAUDE.md after writing config",
     },
+    workspace: {
+      type: "string",
+      description: "Workspace to inherit defaults from (must exist via 'workspace init')",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
@@ -55,26 +60,55 @@ export const initCommand = defineCommand({
     const mode = await chooseAdoptionMode(cwd, detected.claudeInfra, detected.name, args);
     if (mode === null) return cancel();
 
+    // Load workspace defaults (cascade: detection → workspace defaults → user overrides)
+    let workspaceConfig: WorkspaceConfig | null = null;
+    if (args.workspace) {
+      try {
+        workspaceConfig = loadWorkspace(args.workspace);
+      } catch (err) {
+        if (err instanceof WorkspaceError) {
+          p.cancel(err.message);
+          process.exit(1);
+        }
+        throw err;
+      }
+      if (!workspaceConfig) {
+        p.cancel(
+          `Workspace '${args.workspace}' not found. Create it with 'navori-ai workspace init ${args.workspace}'.`,
+        );
+        process.exit(1);
+      }
+      p.log.message(formatWorkspaceSummary(workspaceConfig));
+    }
+
     p.log.message(formatDetectionSummary(detected));
 
-    const defaultEngines = detected.existingEngines.length > 0
-      ? (detected.existingEngines as EngineId[])
-      : (["claude"] as EngineId[]);
-    const defaultBranchBase = detected.branchBase ?? "main";
-    const defaultLanguage: "es" | "en" = "es";
+    // Cascade: workspace defaults take precedence over detection when present
+    const wsDefaults = workspaceConfig?.defaults;
+    const defaultEngines = (wsDefaults?.engines as EngineId[] | undefined) ??
+      (detected.existingEngines.length > 0
+        ? (detected.existingEngines as EngineId[])
+        : (["claude"] as EngineId[]));
+    const defaultBranchBase = wsDefaults?.branchBase ?? detected.branchBase ?? "main";
+    const defaultLanguage: "es" | "en" = wsDefaults?.language ?? "es";
+    const defaultCommits = wsDefaults?.commits;
 
     if (args.yes) {
       if (!detected.name) {
         p.cancel("Could not detect project name. Run without --yes to provide one.");
         process.exit(1);
       }
+      const wsPlugins = wsDefaults?.plugins;
       writeConfig(configPath, {
         name: detected.name,
+        ...(args.workspace ? { workspace: args.workspace } : {}),
         engines: defaultEngines,
         preset: detected.suggestedPreset,
         language: defaultLanguage,
         branchBase: defaultBranchBase,
+        ...(defaultCommits ? { commits: defaultCommits } : {}),
         ...(detected.qualityGate ? { qualityGate: detected.qualityGate } : {}),
+        ...(wsPlugins ? { plugins: wsPlugins } : {}),
       });
       p.log.success(`Wrote ${configPath}`);
       if (mode === "coexist") {
@@ -98,7 +132,7 @@ export const initCommand = defineCommand({
     let name = detected.name;
     let engines = defaultEngines;
     let branchBase = defaultBranchBase;
-    let workspace: string | undefined;
+    let workspace: string | undefined = args.workspace as string | undefined;
     let preset = detected.suggestedPreset;
     let qualityGate = detected.qualityGate;
     let language: "es" | "en" = defaultLanguage;
@@ -225,6 +259,10 @@ export const initCommand = defineCommand({
       {},
     );
 
+    // Merge workspace-default plugins with user-selected plugins
+    const wsPlugins = wsDefaults?.plugins ?? {};
+    const mergedPlugins = { ...wsPlugins, ...pluginsConfig };
+
     writeConfig(configPath, {
       name,
       ...(workspace ? { workspace } : {}),
@@ -232,8 +270,9 @@ export const initCommand = defineCommand({
       preset,
       language,
       branchBase,
+      ...(defaultCommits ? { commits: defaultCommits } : {}),
       ...(qualityGate ? { qualityGate } : {}),
-      ...(pluginsToEnable.length > 0 ? { plugins: pluginsConfig } : {}),
+      ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
     });
 
     p.log.success(`Wrote ${configPath}`);
@@ -416,6 +455,21 @@ function formatDetectionSummary(d: DetectedProject): string {
   if (d.qualityGate) {
     lines.push(`  qualityGate    : ${d.qualityGate.full}  ${grey("(from package.json scripts)")}`);
   }
+  return lines.join("\n");
+}
+
+function formatWorkspaceSummary(ws: WorkspaceConfig): string {
+  const lines: string[] = [`Inheriting defaults from workspace '${ws.name}':`];
+  const d = ws.defaults;
+  if (d.branchBase) lines.push(`  branchBase  : ${d.branchBase}`);
+  if (d.commits) lines.push(`  commits     : ${d.commits}`);
+  if (d.language) lines.push(`  language    : ${d.language}`);
+  if (d.engines && d.engines.length > 0) lines.push(`  engines     : ${d.engines.join(", ")}`);
+  if (d.plugins && Object.keys(d.plugins).length > 0) {
+    const enabled = Object.entries(d.plugins).filter(([, v]) => v.enabled).map(([k]) => k);
+    lines.push(`  plugins     : ${enabled.join(", ") || "(none enabled)"}`);
+  }
+  if (lines.length === 1) lines.push(`  ${grey("(workspace has no defaults configured)")}`);
   return lines.join("\n");
 }
 
