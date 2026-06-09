@@ -13,11 +13,6 @@ export interface CoreManagedAsset {
 export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
   { id: "idioma-rol", relPath: "core-assets/managed/idioma-rol.md" },
   { id: "formato-respuesta", relPath: "core-assets/managed/formato-respuesta.md" },
-  {
-    id: "engram-protocol",
-    relPath: "core-assets/managed/engram-protocol.md",
-    condition: "plugins.engram.enabled",
-  },
   { id: "tipado-fuerte", relPath: "core-assets/managed/tipado-fuerte.md" },
   { id: "cierre-sesion", relPath: "core-assets/managed/cierre-sesion.md" },
 ] as const;
