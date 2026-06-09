@@ -1,6 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+
+export const CORE_SOURCE_ID = "@navori/core" as const;
 
 export type AssetLanguage = "es" | "en";
 
@@ -23,6 +25,17 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
 ] as const;
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+export function getCoreVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(PACKAGE_ROOT, "package.json"), "utf-8")) as {
+      version?: string;
+    };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
 /**
  * Resolve the absolute path to an asset, trying the requested language first

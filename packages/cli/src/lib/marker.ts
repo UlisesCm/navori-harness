@@ -13,8 +13,18 @@ function hashContent(content: string): string {
   return createHash("sha1").update(normalize(content), "utf-8").digest("hex").slice(0, 8);
 }
 
-function openMarker(id: string, hash: string): string {
-  return `${MARKER_OPEN_PREFIX} id="${id}" hash="${hash}" ${MARKER_SUFFIX}`;
+export interface MarkerMeta {
+  /** Source package id (e.g. "@navori/core", "@navori/plugin-engram"). */
+  source?: string;
+  /** Version of the source package that wrote this block. */
+  version?: string;
+}
+
+function openMarker(id: string, hash: string, meta: MarkerMeta = {}): string {
+  const parts = [`${MARKER_OPEN_PREFIX} id="${id}"`, `hash="${hash}"`];
+  if (meta.version) parts.push(`version="${meta.version}"`);
+  if (meta.source) parts.push(`source="${meta.source}"`);
+  return parts.join(" ") + ` ${MARKER_SUFFIX}`;
 }
 
 function closeMarker(id: string): string {
@@ -27,12 +37,20 @@ interface MarkerMatch {
   closeStart: number;
   closeEnd: number;
   existingHash: string | null;
+  existingVersion: string | null;
+  existingSource: string | null;
   content: string;
 }
 
+function extractAttr(open: string, name: string): string | null {
+  const m = open.match(new RegExp(`${name}="([^"]+)"`));
+  return m?.[1] ?? null;
+}
+
 function findMarker(existing: string, id: string): MarkerMatch | null {
+  // Match the entire open marker (attributes in any order)
   const openRegex = new RegExp(
-    `${escapeRegex(MARKER_OPEN_PREFIX)}\\s+id="${escapeRegex(id)}"(?:\\s+hash="([a-f0-9]+)")?\\s*${escapeRegex(MARKER_SUFFIX)}`,
+    `${escapeRegex(MARKER_OPEN_PREFIX)}\\s+id="${escapeRegex(id)}"[^>]*${escapeRegex(MARKER_SUFFIX)}`,
   );
   const openMatch = openRegex.exec(existing);
   if (!openMatch) return null;
@@ -43,7 +61,6 @@ function findMarker(existing: string, id: string): MarkerMatch | null {
 
   const openEnd = openMatch.index + openMatch[0].length;
   const contentRaw = existing.slice(openEnd, closeStart);
-  // strip leading \n (we always write one) and any trailing whitespace
   const content = normalize(contentRaw.replace(/^\n/, ""));
 
   return {
@@ -51,7 +68,9 @@ function findMarker(existing: string, id: string): MarkerMatch | null {
     openEnd,
     closeStart,
     closeEnd: closeStart + close.length,
-    existingHash: openMatch[1] ?? null,
+    existingHash: extractAttr(openMatch[0], "hash"),
+    existingVersion: extractAttr(openMatch[0], "version"),
+    existingSource: extractAttr(openMatch[0], "source"),
     content,
   };
 }
@@ -67,6 +86,8 @@ export interface InjectResult {
     existingHash: string | null;
     actualHash: string;
     newHash: string;
+    existingVersion?: string | null;
+    existingSource?: string | null;
   };
 }
 
@@ -84,24 +105,29 @@ export function injectManagedSection(
   existing: string,
   id: string,
   newContent: string,
+  meta: MarkerMeta = {},
 ): InjectResult {
   const newHash = hashContent(newContent);
   const match = findMarker(existing, id);
-
   const canonicalContent = normalize(newContent);
 
   if (!match) {
-    // First adoption: append at end
     const sep = existing.length === 0 || existing.endsWith("\n\n")
       ? ""
       : existing.endsWith("\n")
         ? "\n"
         : "\n\n";
-    const block = `${openMarker(id, newHash)}\n${canonicalContent}\n${closeMarker(id)}\n`;
+    const block = `${openMarker(id, newHash, meta)}\n${canonicalContent}\n${closeMarker(id)}\n`;
     return {
       output: existing + sep + block,
       status: "created",
-      details: { existingHash: null, actualHash: newHash, newHash },
+      details: {
+        existingHash: null,
+        actualHash: newHash,
+        newHash,
+        existingVersion: null,
+        existingSource: null,
+      },
     };
   }
 
@@ -109,45 +135,37 @@ export function injectManagedSection(
   const expectedHash = match.existingHash;
   const userModified = expectedHash !== null && expectedHash !== actualHash;
 
+  const details = {
+    existingHash: expectedHash,
+    actualHash,
+    newHash,
+    existingVersion: match.existingVersion,
+    existingSource: match.existingSource,
+  };
+
   if (canonicalContent === match.content) {
-    if (expectedHash === newHash) {
-      // Already in sync
-      return {
-        output: existing,
-        status: "unchanged",
-        details: { existingHash: expectedHash, actualHash, newHash },
-      };
+    const sameMeta =
+      expectedHash === newHash &&
+      match.existingVersion === (meta.version ?? null) &&
+      match.existingSource === (meta.source ?? null);
+    if (sameMeta) {
+      return { output: existing, status: "unchanged", details };
     }
-    // Same content but hash drifted (or first time we add a hash) — refresh marker hash only
     const replaced =
       existing.slice(0, match.openStart) +
-      openMarker(id, newHash) +
+      openMarker(id, newHash, meta) +
       existing.slice(match.openEnd, match.closeEnd);
-    return {
-      output: replaced,
-      status: "updated",
-      details: { existingHash: expectedHash, actualHash, newHash },
-    };
+    return { output: replaced, status: "updated", details };
   }
 
   if (userModified) {
-    // Conflict: user changed content + new content differs from theirs
-    return {
-      output: existing,
-      status: "user-modified-skipped",
-      details: { existingHash: expectedHash, actualHash, newHash },
-    };
+    return { output: existing, status: "user-modified-skipped", details };
   }
 
-  // Normal update: content matches old hash (or never had hash) → replace silently
-  const block = `${openMarker(id, newHash)}\n${canonicalContent}\n${closeMarker(id)}`;
+  const block = `${openMarker(id, newHash, meta)}\n${canonicalContent}\n${closeMarker(id)}`;
   const replaced =
     existing.slice(0, match.openStart) + block + existing.slice(match.closeEnd);
-  return {
-    output: replaced,
-    status: "updated",
-    details: { existingHash: expectedHash, actualHash, newHash },
-  };
+  return { output: replaced, status: "updated", details };
 }
 
 /**

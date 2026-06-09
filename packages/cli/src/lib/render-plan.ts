@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
-import { CORE_MANAGED_ASSETS, resolveAssetPath, type CoreManagedAsset } from "@navori/core";
+import { CORE_MANAGED_ASSETS, resolveAssetPath, CORE_SOURCE_ID, getCoreVersion, type CoreManagedAsset } from "@navori/core";
 import { injectManagedSection, removeManagedSection, resolveCondition, type InjectResult } from "./marker.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
 import type { NavoriConfig } from "./config.ts";
+
+const CORE_VERSION = getCoreVersion();
 
 export type AssetStatus =
   | InjectResult["status"]
@@ -62,7 +64,10 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
     const resolved = resolveAssetPath(asset, language);
     if (resolved.fallback) languageFallbacks.push(asset.id);
     const content = readFileSync(resolved.path, "utf-8");
-    const result = injectManagedSection(working, asset.id, content);
+    const result = injectManagedSection(working, asset.id, content, {
+      source: CORE_SOURCE_ID,
+      version: CORE_VERSION,
+    });
     entries.push({
       asset,
       source: "core",
@@ -98,7 +103,10 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
     if (enabled) {
       for (const entry of plugin.managedAssets) {
         const content = readFileSync(entry.absPath, "utf-8");
-        const result = injectManagedSection(working, entry.id, content);
+        const result = injectManagedSection(working, entry.id, content, {
+          source: `@navori/plugin-${plugin.manifest.id}`,
+          version: plugin.manifest.version,
+        });
         entries.push({
           asset: { id: entry.id, relPath: entry.absPath },
           source: plugin.manifest.id,
@@ -152,7 +160,10 @@ export function applyPlanWithSkips(
     }
     const resolved = resolveAssetPath(asset, config.language);
     const content = readFileSync(resolved.path, "utf-8");
-    const result = injectManagedSection(working, asset.id, content);
+    const result = injectManagedSection(working, asset.id, content, {
+      source: CORE_SOURCE_ID,
+      version: CORE_VERSION,
+    });
     working = result.output;
   }
 
@@ -168,7 +179,10 @@ export function applyPlanWithSkips(
       if (skipIds.has(entry.id)) continue;
       if (enabled) {
         const content = readFileSync(entry.absPath, "utf-8");
-        const result = injectManagedSection(working, entry.id, content);
+        const result = injectManagedSection(working, entry.id, content, {
+          source: `@navori/plugin-${plugin.manifest.id}`,
+          version: plugin.manifest.version,
+        });
         working = result.output;
       } else {
         working = removeManagedSection(working, entry.id);

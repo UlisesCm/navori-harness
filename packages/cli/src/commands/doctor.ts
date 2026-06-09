@@ -1,23 +1,41 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
+
+interface MarkerInfo {
+  id: string;
+  hash: string | null;
+  version: string | null;
+  source: string | null;
+}
+
+function listMarkers(filePath: string): MarkerInfo[] {
+  if (!existsSync(filePath)) return [];
+  const content = readFileSync(filePath, "utf-8");
+  const re = /<!-- navori:managed [^>]*-->/g;
+  const result: MarkerInfo[] = [];
+  for (const match of content.matchAll(re)) {
+    const tag = match[0];
+    if (tag.startsWith("<!-- /navori:managed")) continue;
+    const id = tag.match(/id="([^"]+)"/)?.[1] ?? "?";
+    const hash = tag.match(/hash="([^"]+)"/)?.[1] ?? null;
+    const version = tag.match(/version="([^"]+)"/)?.[1] ?? null;
+    const source = tag.match(/source="([^"]+)"/)?.[1] ?? null;
+    result.push({ id, hash, version, source });
+  }
+  return result;
+}
 
 export const doctorCommand = defineCommand({
   meta: {
     name: "doctor",
-    description: "Inspect navori.config.json and report resolved state",
+    description: "Inspect navori.config.json and report resolved state + managed blocks",
   },
   args: {
-    cwd: {
-      type: "string",
-      description: "Directory to inspect (default: current working directory)",
-    },
-    json: {
-      type: "boolean",
-      description: "Output as JSON (pipeable)",
-    },
+    cwd: { type: "string", description: "Directory to inspect (default: cwd)" },
+    json: { type: "boolean", description: "Output as JSON (pipeable)" },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
@@ -55,6 +73,7 @@ export const doctorCommand = defineCommand({
       throw err;
     }
 
+    const markers = listMarkers(claudeMdPath);
     const report = {
       ok: true,
       configPath,
@@ -65,6 +84,7 @@ export const doctorCommand = defineCommand({
         claudeDirExists: existsSync(`${cwd}/.claude`),
         progressDirExists: existsSync(`${cwd}/${config.progress?.dir ?? "progress"}`),
       },
+      managedBlocks: markers,
     };
 
     if (args.json) {
@@ -78,6 +98,7 @@ export const doctorCommand = defineCommand({
     p.log.message(`  workspace : ${config.workspace ?? "(none)"}`);
     p.log.message(`  engines   : ${config.engines.join(", ")}`);
     p.log.message(`  preset    : ${config.preset}`);
+    p.log.message(`  language  : ${config.language}`);
     p.log.message(`  branchBase: ${config.branchBase}`);
     p.log.message(`  commits   : ${config.commits}`);
 
@@ -86,6 +107,15 @@ export const doctorCommand = defineCommand({
     p.log.message(`  ${mark(report.checks.agentsMdExists)} AGENTS.md`);
     p.log.message(`  ${mark(report.checks.claudeDirExists)} .claude/`);
     p.log.message(`  ${mark(report.checks.progressDirExists)} ${config.progress?.dir ?? "progress"}/`);
+
+    if (markers.length > 0) {
+      p.log.message(`Managed blocks in CLAUDE.md (${markers.length}):`);
+      for (const m of markers) {
+        const ver = m.version ? ` v${m.version}` : " (no version)";
+        const src = m.source ?? "(unknown source)";
+        p.log.message(`  · ${m.id}  ←  ${src}${ver}`);
+      }
+    }
 
     p.outro("OK");
   },
