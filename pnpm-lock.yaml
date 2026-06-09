@@ -13,6 +13,13 @@ importers:
       '@clack/prompts':
         specifier: ^0.10.0
         version: 0.10.1
+      citty:
+        specifier: ^0.1.6
+        version: 0.1.6
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
       '@navori/core':
         specifier: workspace:*
         version: link:../core
@@ -34,13 +41,6 @@ importers:
       '@navori/plugin-semgrep':
         specifier: workspace:*
         version: link:../plugins/semgrep
-      citty:
-        specifier: ^0.1.6
-        version: 0.1.6
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-    devDependencies:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.20

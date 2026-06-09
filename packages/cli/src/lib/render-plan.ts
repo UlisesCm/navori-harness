@@ -1,10 +1,40 @@
-import { readFileSync } from "node:fs";
-import { CORE_MANAGED_ASSETS, resolveAssetPath, CORE_SOURCE_ID, getCoreVersion, type CoreManagedAsset } from "@navori/core";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { injectManagedSection, removeManagedSection, resolveCondition, type InjectResult } from "./marker.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
+import { getCoreRoot, readBundledCoreVersion } from "./bundled-assets.ts";
 import type { NavoriConfig } from "./config.ts";
 
-const CORE_VERSION = getCoreVersion();
+export const CORE_SOURCE_ID = "@navori/core" as const;
+
+export type AssetLanguage = "es" | "en";
+
+export interface CoreManagedAsset {
+  id: string;
+  relPath: string;
+  condition?: string;
+  availableLanguages?: readonly AssetLanguage[];
+}
+
+export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
+  { id: "idioma-rol", relPath: "core-assets/managed/idioma-rol.md", availableLanguages: ["es"] },
+  { id: "formato-respuesta", relPath: "core-assets/managed/formato-respuesta.md", availableLanguages: ["es"] },
+  { id: "tipado-fuerte", relPath: "core-assets/managed/tipado-fuerte.md", availableLanguages: ["es"] },
+  { id: "cierre-sesion", relPath: "core-assets/managed/cierre-sesion.md", availableLanguages: ["es"] },
+] as const;
+
+const CORE_VERSION = readBundledCoreVersion();
+
+function resolveAssetPath(asset: CoreManagedAsset, language: AssetLanguage = "es"): { path: string; fallback: boolean } {
+  const root = getCoreRoot();
+  if (language === "es") {
+    return { path: resolve(root, asset.relPath), fallback: false };
+  }
+  const langPath = asset.relPath.replace(/^core-assets\/managed\//, `core-assets/managed/${language}/`);
+  const abs = resolve(root, langPath);
+  if (existsSync(abs)) return { path: abs, fallback: false };
+  return { path: resolve(root, asset.relPath), fallback: true };
+}
 
 export type AssetStatus =
   | InjectResult["status"]

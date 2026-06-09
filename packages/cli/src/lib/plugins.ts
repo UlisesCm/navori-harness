@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { createRequire } from "node:module";
+import { resolve } from "node:path";
 import { z } from "zod";
+import { bundledPluginManifestPath, getPluginPath, listBundledPluginIds } from "./bundled-assets.ts";
 
 const AGENT_ROLES = [
   "leader",
@@ -67,8 +67,6 @@ export const KNOWN_PLUGINS: Record<string, string> = {
   cognitive: "@navori/plugin-cognitive",
 };
 
-const require = createRequire(import.meta.url);
-
 export class PluginNotFoundError extends Error {
   readonly pluginId: string;
   constructor(pluginId: string) {
@@ -88,28 +86,25 @@ export class PluginManifestError extends Error {
 }
 
 export function listKnownPluginIds(): string[] {
-  return Object.keys(KNOWN_PLUGINS);
+  // Bundled assets win when present (published CLI); fall back to the static map.
+  const bundled = listBundledPluginIds();
+  return bundled.length > 0 ? bundled : Object.keys(KNOWN_PLUGINS);
 }
 
 /**
  * Load a plugin by id. Throws PluginNotFoundError if id is unknown, or
  * PluginManifestError if plugin.json is malformed.
+ *
+ * Resolution: first try bundled assets in dist/assets/plugins/<id>/; if not
+ * present (dev mode without build), fall back to the workspace package root.
  */
 export function loadPlugin(pluginId: string): LoadedPlugin {
-  const packageName = KNOWN_PLUGINS[pluginId];
-  if (!packageName) throw new PluginNotFoundError(pluginId);
-
-  let packageJsonPath: string;
-  try {
-    packageJsonPath = require.resolve(`${packageName}/package.json`);
-  } catch {
-    throw new PluginManifestError(
-      `Plugin package '${packageName}' not installed. Run 'pnpm install' or 'npm i'.`,
-    );
+  if (!KNOWN_PLUGINS[pluginId] && !listBundledPluginIds().includes(pluginId)) {
+    throw new PluginNotFoundError(pluginId);
   }
 
-  const packageRoot = dirname(packageJsonPath);
-  const manifestPath = resolve(packageRoot, "plugin.json");
+  const packageRoot = getPluginPath(pluginId);
+  const manifestPath = bundledPluginManifestPath(pluginId);
 
   if (!existsSync(manifestPath)) {
     throw new PluginManifestError(`plugin.json not found at ${manifestPath}`);

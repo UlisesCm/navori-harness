@@ -10,13 +10,18 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/copy-assets.mjs",
     "dev": "tsup --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepack": "pnpm build"
   },
   "dependencies": {
     "@clack/prompts": "^0.10.0",
+    "citty": "^0.1.6",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
     "@navori/core": "workspace:*",
     "@navori/plugin-acli": "workspace:*",
     "@navori/plugin-cognitive": "workspace:*",
@@ -24,10 +29,6 @@
     "@navori/plugin-gh": "workspace:*",
     "@navori/plugin-jscpd": "workspace:*",
     "@navori/plugin-semgrep": "workspace:*",
-    "citty": "^0.1.6",
-    "zod": "^4.4.3"
-  },
-  "devDependencies": {
     "@types/node": "^22.0.0",
     "tsup": "^8.3.0",
     "typescript": "^5.6.0",
