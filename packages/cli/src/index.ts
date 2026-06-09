@@ -7,6 +7,7 @@ import { addCommand } from "./commands/add.ts";
 import { workspaceCommand } from "./commands/workspace.ts";
 import { ticketCommand } from "./commands/ticket.ts";
 import { configureCommand } from "./commands/configure.ts";
+import { updateCommand } from "./commands/update.ts";
 
 const main = defineCommand({
   meta: {
@@ -18,6 +19,7 @@ const main = defineCommand({
     init: initCommand,
     add: addCommand,
     configure: configureCommand,
+    update: updateCommand,
     render: renderCommand,
     sync: syncCommand,
     doctor: doctorCommand,
