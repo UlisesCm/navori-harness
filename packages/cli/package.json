@@ -7,8 +7,19 @@
     "navori-ai": "./dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
+  "keywords": [
+    "claude-code",
+    "ai",
+    "scaffolder",
+    "harness",
+    "agents",
+    "sdd",
+    "multi-agent"
+  ],
+  "license": "ISC",
   "scripts": {
     "build": "tsup && node scripts/copy-assets.mjs",
     "dev": "tsup --watch",
