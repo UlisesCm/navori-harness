@@ -11,7 +11,7 @@
   ],
   "externalTool": {
     "name": "engram",
-    "checkCommand": "command -v engram",
+    "checkBinary": "engram",
     "install": {
       "darwin": "brew install gentleman-programming/tap/engram",
       "linux": "curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/engram/main/scripts/install.sh | bash"

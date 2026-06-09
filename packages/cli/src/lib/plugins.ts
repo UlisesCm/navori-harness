@@ -10,7 +10,9 @@ const ManagedEntrySchema = z.object({
 
 const ExternalToolSchema = z.object({
   name: z.string().min(1),
-  checkCommand: z.string().optional(),
+  /** Binary name to look up in PATH. Safer than checkCommand because it
+   * never spawns a shell — we walk PATH directories manually. */
+  checkBinary: z.string().regex(/^[a-zA-Z0-9_\-.]+$/, "binary name must be alphanumeric").optional(),
   install: z.record(z.string(), z.string()).optional(),
   postInstall: z.string().optional(),
 });
