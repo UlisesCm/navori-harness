@@ -163,6 +163,15 @@ export function removeManagedSection(existing: string, id: string): string {
 }
 
 /**
+ * Extract the current managed content for an id, if it exists.
+ * Returns null when the marker is not present.
+ */
+export function extractManagedContent(existing: string, id: string): string | null {
+  const match = findMarker(existing, id);
+  return match ? match.content : null;
+}
+
+/**
  * Resolve a config path like "plugins.engram.enabled" against a config object
  * to a truthy/falsy value. Returns false if any segment is missing.
  */

@@ -2,6 +2,7 @@ import { defineCommand, runMain } from "citty";
 import { initCommand } from "./commands/init.ts";
 import { renderCommand } from "./commands/render.ts";
 import { doctorCommand } from "./commands/doctor.ts";
+import { syncCommand } from "./commands/sync.ts";
 
 const main = defineCommand({
   meta: {
@@ -12,6 +13,7 @@ const main = defineCommand({
   subCommands: {
     init: initCommand,
     render: renderCommand,
+    sync: syncCommand,
     doctor: doctorCommand,
   },
 });
