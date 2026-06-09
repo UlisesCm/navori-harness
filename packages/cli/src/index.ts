@@ -6,6 +6,7 @@ import { syncCommand } from "./commands/sync.ts";
 import { addCommand } from "./commands/add.ts";
 import { workspaceCommand } from "./commands/workspace.ts";
 import { ticketCommand } from "./commands/ticket.ts";
+import { configureCommand } from "./commands/configure.ts";
 
 const main = defineCommand({
   meta: {
@@ -16,6 +17,7 @@ const main = defineCommand({
   subCommands: {
     init: initCommand,
     add: addCommand,
+    configure: configureCommand,
     render: renderCommand,
     sync: syncCommand,
     doctor: doctorCommand,
