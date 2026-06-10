@@ -12,6 +12,7 @@ import { ticketCommand } from "./commands/ticket.ts";
 import { configureCommand } from "./commands/configure.ts";
 import { updateCommand } from "./commands/update.ts";
 import { backupCommand } from "./commands/backup.ts";
+import { migrationsCommand } from "./commands/migrations.ts";
 
 function readVersion(): string {
   // dist/index.js → ../package.json (both in dev and published layouts)
@@ -47,6 +48,7 @@ const main = defineCommand({
     workspace: workspaceCommand,
     ticket: ticketCommand,
     backup: backupCommand,
+    migrations: migrationsCommand,
   },
 });
 
