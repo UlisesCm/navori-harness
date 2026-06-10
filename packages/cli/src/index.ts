@@ -1,4 +1,7 @@
 import { defineCommand, runMain } from "citty";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { initCommand } from "./commands/init.ts";
 import { renderCommand } from "./commands/render.ts";
 import { doctorCommand } from "./commands/doctor.ts";
@@ -9,10 +12,27 @@ import { ticketCommand } from "./commands/ticket.ts";
 import { configureCommand } from "./commands/configure.ts";
 import { updateCommand } from "./commands/update.ts";
 
+function readVersion(): string {
+  // dist/index.js → ../package.json (both in dev and published layouts)
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const candidate of [
+    resolve(here, "..", "package.json"),
+    resolve(here, "package.json"),
+  ]) {
+    try {
+      const pkg = JSON.parse(readFileSync(candidate, "utf-8")) as { version?: string };
+      if (pkg.version) return pkg.version;
+    } catch {
+      // try next candidate
+    }
+  }
+  return "0.0.0";
+}
+
 const main = defineCommand({
   meta: {
     name: "navori-ai",
-    version: "0.0.1",
+    version: readVersion(),
     description: "Multi-agent harness + SDD scaffolder",
   },
   subCommands: {
