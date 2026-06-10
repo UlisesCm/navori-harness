@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "../lib/plugins.ts";
-import { check, dim as grey, color, sym, brand } from "../lib/style.ts";
+import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
 
 interface MarkerInfo {
   id: string;
@@ -105,39 +105,47 @@ export const doctorCommand = defineCommand({
       return;
     }
 
-    p.log.message(`Config: ${configPath}`);
-    p.log.message(`  name      : ${config.name}`);
-    p.log.message(`  version   : ${config.version}`);
-    p.log.message(`  workspace : ${config.workspace ?? "(none)"}`);
-    p.log.message(`  engines   : ${config.engines.join(", ")}`);
-    p.log.message(`  preset    : ${config.preset}`);
-    p.log.message(`  language  : ${config.language}`);
-    p.log.message(`  branchBase: ${config.branchBase}`);
-    p.log.message(`  commits   : ${config.commits}`);
+    p.note(
+      kv([
+        ["name", accent(config.name)],
+        ["version", config.version],
+        ["workspace", config.workspace ?? grey("(none)")],
+        ["engines", config.engines.join(", ")],
+        ["preset", config.preset],
+        ["language", config.language],
+        ["branchBase", config.branchBase],
+        ["commits", config.commits],
+      ]),
+      `Config · ${grey(configPath)}`,
+    );
 
-    p.log.message("Filesystem checks:");
-    p.log.message(`  ${mark(report.checks.claudeMdExists)} CLAUDE.md`);
-    p.log.message(`  ${mark(report.checks.agentsMdExists)} AGENTS.md`);
-    p.log.message(`  ${mark(report.checks.claudeDirExists)} .claude/`);
-    p.log.message(`  ${mark(report.checks.progressDirExists)} ${config.progress?.dir ?? "progress"}/`);
+    p.note(
+      [
+        `  ${check(report.checks.claudeMdExists)} CLAUDE.md`,
+        `  ${check(report.checks.agentsMdExists)} AGENTS.md`,
+        `  ${check(report.checks.claudeDirExists)} .claude/`,
+        `  ${check(report.checks.progressDirExists)} ${config.progress?.dir ?? "progress"}/`,
+      ].join("\n"),
+      "Filesystem checks",
+    );
 
     if (markers.length > 0) {
-      p.log.message(`Managed blocks in CLAUDE.md (${markers.length}):`);
-      for (const m of markers) {
-        const ver = m.version ? ` v${m.version}` : " (no version)";
-        const src = m.source ?? "(unknown source)";
-        p.log.message(`  · ${m.id}  ←  ${src}${ver}`);
-      }
+      const lines = markers.map((m) => {
+        const ver = m.version ? grey(` v${m.version}`) : grey(" (no version)");
+        const src = m.source ?? grey("(unknown source)");
+        return `  ${color.cyan(sym.bullet)} ${accent(m.id)}  ${grey("←")}  ${src}${ver}`;
+      });
+      p.note(lines.join("\n"), `Managed blocks in CLAUDE.md · ${markers.length}`);
     }
 
     // Skill → agent assignments report (effective: plugin recommendation + config overrides)
     const assignments = collectAssignments(config);
     if (assignments.length > 0) {
-      p.log.message(`Skill → agent assignments (${assignments.length}):`);
-      for (const a of assignments) {
+      const lines = assignments.map((a) => {
         const override = a.override ? `  ${grey("(overridden)")}` : "";
-        p.log.message(`  · ${a.id}  →  ${a.agent}${override}`);
-      }
+        return `  ${color.cyan(sym.bullet)} ${accent(a.id)}  ${grey("→")}  ${a.agent}${override}`;
+      });
+      p.note(lines.join("\n"), `Skill → agent assignments · ${assignments.length}`);
     }
 
     if (missingPlugins.length > 0) {
@@ -148,10 +156,6 @@ export const doctorCommand = defineCommand({
     p.outro(missingPlugins.length > 0 ? color.red("Issues found") : color.green("OK"));
   },
 });
-
-function mark(ok: boolean): string {
-  return check(ok);
-}
 
 interface AssignmentRow {
   id: string;
