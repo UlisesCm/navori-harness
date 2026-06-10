@@ -120,7 +120,11 @@ const showSubCommand = defineCommand({
       throw err;
     }
     if (!workspace) {
-      console.error(`Workspace '${name}' not found at ${workspacePath(name)}`);
+      process.stderr.write(
+        `Workspace '${name}' not found at ${workspacePath(name)}.\n` +
+          `Create it with: navori-ai workspace init ${name}\n` +
+          `Or list known workspaces: navori-ai workspace ls\n`,
+      );
       process.exit(1);
     }
     if (args.json) {

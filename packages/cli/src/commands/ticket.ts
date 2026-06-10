@@ -71,7 +71,10 @@ const showSubCommand = defineCommand({
       handleTicketError(err);
     }
     if (!ticket) {
-      console.error(`Ticket '${args.id}' not found in workspace '${args.workspace}'`);
+      process.stderr.write(
+        `Ticket '${args.id}' not found in workspace '${args.workspace}'.\n` +
+          `Create it with: navori-ai ticket new ${args.workspace} ${args.id}\n`,
+      );
       process.exit(1);
     }
 

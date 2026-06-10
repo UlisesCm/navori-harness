@@ -14,16 +14,16 @@ const ENGINE_OPTIONS = [
 
 type EngineId = "claude" | "agents-md" | "cursor" | "copilot";
 
+function fail(msg: string): never {
+  // Use stderr so success output on stdout stays clean for piping/JSON.
+  process.stderr.write(`navori-ai: ${msg}\n`);
+  process.exit(1);
+}
+
 function loadOrExit(cwd: string): { config: NavoriConfig; path: string; raw: Record<string, unknown> } {
-  if (!existsSync(cwd)) {
-    console.error(`Directory not found: ${cwd}`);
-    process.exit(1);
-  }
+  if (!existsSync(cwd)) fail(`Directory not found: ${cwd}`);
   const configPath = resolve(cwd, "navori.config.json");
-  if (!existsSync(configPath)) {
-    console.error(`No navori.config.json at ${configPath}. Run 'navori-ai init' first.`);
-    process.exit(1);
-  }
+  if (!existsSync(configPath)) fail(`No navori.config.json at ${configPath}. Run 'navori-ai init' first.`);
   const config = readConfig(configPath);
   const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
   return { config, path: configPath, raw };
@@ -236,22 +236,42 @@ const workspaceSubCommand = defineCommand({
   args: {
     cwd: { type: "string", description: "Directory (default: cwd)" },
     value: { type: "positional", description: "Workspace name (empty to remove)", required: false },
+    yes: { type: "boolean", description: "Skip confirmation when removing" },
   },
-  run({ args }) {
+  async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const { path, raw } = loadOrExit(cwd);
     const value = (args.value as string | undefined)?.trim();
 
+    p.intro("navori-ai configure workspace");
+
     if (!value) {
+      const currentWorkspace = raw.workspace as string | undefined;
+      if (!currentWorkspace) {
+        p.outro("No workspace associated. Nothing to remove.");
+        return;
+      }
+      if (!args.yes) {
+        const ok = await p.confirm({
+          message: `Remove workspace association '${currentWorkspace}'? Plugins inherited from the workspace defaults will no longer be applied on next render.`,
+          initialValue: false,
+        });
+        if (p.isCancel(ok) || !ok) {
+          p.cancel("Aborted");
+          return;
+        }
+      }
       delete raw.workspace;
       persist(path, raw);
-      console.log("workspace association removed");
+      p.log.success("Workspace association removed");
+      p.outro("Run 'navori-ai render' to apply.");
       return;
     }
 
     raw.workspace = value;
     persist(path, raw);
-    console.log(`workspace → ${value}`);
+    p.log.success(`workspace → ${value}`);
+    p.outro("Run 'navori-ai render' to apply.");
   },
 });
 
