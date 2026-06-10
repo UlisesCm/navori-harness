@@ -15,7 +15,8 @@
     "checkBinary": "gh",
     "install": {
       "darwin": "brew install gh",
-      "linux": "(see https://github.com/cli/cli/blob/trunk/docs/install_linux.md)"
+      "linux": "(see https://github.com/cli/cli/blob/trunk/docs/install_linux.md)",
+      "win32": "winget install --id GitHub.cli"
     },
     "postInstall": "gh auth status || gh auth login"
   }

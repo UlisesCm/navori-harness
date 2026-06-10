@@ -15,7 +15,8 @@
     "checkBinary": "jscpd",
     "install": {
       "darwin": "pnpm add -g jscpd",
-      "linux": "pnpm add -g jscpd"
+      "linux": "pnpm add -g jscpd",
+      "win32": "pnpm add -g jscpd"
     }
   }
 }
