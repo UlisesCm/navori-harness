@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseAsset, AssetParseError } from "../parse-asset.ts";
+import { parseAsset } from "../parse-asset.ts";
 
 const HTML_ASSET = `---
 name: leader
@@ -50,8 +50,12 @@ describe("parseAsset — html", () => {
     expect(p.managedBody).toBe("# Body only");
   });
 
-  it("throws when frontmatter missing", () => {
-    expect(() => parseAsset("# No frontmatter\n", "html")).toThrow(AssetParseError);
+  it("allows assets without frontmatter (shell hooks with shebang first line)", () => {
+    const raw = `#!/usr/bin/env bash\nset -euo pipefail\necho hi\n`;
+    const p = parseAsset(raw, "shell");
+    expect(p.frontmatter).toEqual({});
+    expect(p.managedBody).toContain("#!/usr/bin/env bash");
+    expect(p.userTemplate).toBeNull();
   });
 });
 

@@ -37,20 +37,25 @@ export interface ParsedAsset {
 
 export function parseAsset(raw: string, commentStyle: CommentStyle): ParsedAsset {
   const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!fmMatch) {
-    throw new AssetParseError(
-      "asset must start with a YAML frontmatter block delimited by `---` lines",
-    );
-  }
 
-  const frontmatter: Record<string, string> = {};
-  for (const line of fmMatch[1].split("\n")) {
-    const kv = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
-    if (kv) frontmatter[kv[1]] = kv[2].trim();
+  let frontmatter: Record<string, string> = {};
+  let afterFm: string;
+
+  if (fmMatch) {
+    frontmatter = {};
+    for (const line of fmMatch[1].split("\n")) {
+      const kv = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
+      if (kv) frontmatter[kv[1]] = kv[2].trim();
+    }
+    afterFm = fmMatch[2];
+  } else {
+    // Assets without frontmatter are valid (e.g. shell hooks whose first
+    // line is a shebang). The whole file becomes managedBody + optional
+    // userTemplate per the sentinel.
+    afterFm = raw;
   }
 
   const sentinel = SENTINEL_BY_STYLE[commentStyle];
-  const afterFm = fmMatch[2];
   const sentinelIdx = findSentinel(afterFm, sentinel, commentStyle);
 
   if (sentinelIdx < 0) {
