@@ -567,7 +567,12 @@ function formatDetectionSummary(d: DetectedProject): string {
       ? `  engines        : ${d.existingEngines.join(", ")}  ${grey("(found in repo)")}`
       : `  engines        : claude  ${grey("(default — nothing detected)")}`,
   );
-  lines.push(`  language       : ${d.stack.language}`);
+  // Skip the stack language line entirely when we couldn't detect anything —
+  // showing "unknown" right above "language: es (default)" causes a confusing
+  // label collision where two distinct concepts share a label.
+  if (d.stack.language !== "unknown") {
+    lines.push(`  stack lang     : ${d.stack.language}`);
+  }
   if (d.stack.framework) lines.push(`  framework      : ${d.stack.framework}`);
   if (d.stack.ui) lines.push(`  ui             : ${d.stack.ui}`);
   if (d.stack.forms) lines.push(`  forms          : ${d.stack.forms}`);
@@ -580,7 +585,7 @@ function formatDetectionSummary(d: DetectedProject): string {
     lines.push(`  monorepo       : ${d.monorepo.tool}  ${grey(`(from ${d.monorepo.source})`)}`);
   }
   lines.push(`  preset         : ${d.suggestedPreset}  ${grey("(suggested)")}`);
-  lines.push(`  language       : es  ${grey("(default — change in wizard if you need 'en' fallback)")}`);
+  lines.push(`  asset lang     : es  ${grey("(default — change in wizard if you need 'en' fallback)")}`);
   if (d.qualityGate) {
     lines.push(`  qualityGate    : ${d.qualityGate.full}  ${grey("(from package.json scripts)")}`);
   }
