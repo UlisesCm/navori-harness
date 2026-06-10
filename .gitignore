@@ -11,6 +11,9 @@ CLAUDE.md
 # navori-ai runtime state in dev/test repos
 .navori/
 
+# navori.config.json generated when dogfooding the CLI in the repo itself
+/navori.config.json
+
 # build artifacts
 **/*.tsbuildinfo
 
