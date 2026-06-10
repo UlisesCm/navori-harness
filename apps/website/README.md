@@ -1,6 +1,6 @@
 # @navori/website
 
-Landing + docs de navori-ai. Astro + Tailwind v4, bilingüe es/en, deploy a GitHub Pages.
+Landing + docs de navori. Astro + Tailwind v4, bilingüe es/en, deploy a GitHub Pages.
 
 ## Dev
 

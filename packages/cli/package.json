@@ -1,10 +1,10 @@
 {
-  "name": "navori-ai",
+  "name": "navori",
   "version": "0.0.1",
   "description": "Multi-agent harness + SDD scaffolder for Claude Code and other AI engines",
   "type": "module",
   "bin": {
-    "navori-ai": "./dist/index.js"
+    "navori": "./dist/index.js"
   },
   "files": [
     "dist",

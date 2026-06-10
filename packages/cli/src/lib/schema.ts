@@ -102,7 +102,7 @@ export const NavoriConfigSchema = z
   })
   // Preserve unknown top-level fields so downgrades / forward-compat
   // don't silently destroy data the user added (custom tooling fields,
-  // fields from a newer version of navori-ai, etc).
+  // fields from a newer version of navori, etc).
   .passthrough();
 
 export type NavoriConfig = z.infer<typeof NavoriConfigSchema>;

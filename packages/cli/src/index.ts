@@ -33,7 +33,7 @@ function readVersion(): string {
 
 const main = defineCommand({
   meta: {
-    name: "navori-ai",
+    name: "navori",
     version: readVersion(),
     description: "Multi-agent harness + SDD scaffolder",
   },

@@ -1,15 +1,15 @@
-# navori-ai
+# navori
 
 Multi-agent harness + SDD scaffolder for Claude Code (and other AI engines).
 
-`navori-ai` lleva tu setup de Claude Code (agentes, skills, hooks, CLAUDE.md, AGENTS.md) a múltiples repos con un solo comando — sin perder customización local, sin sobrescribir lo que ya tenías.
+`navori` lleva tu setup de Claude Code (agentes, skills, hooks, CLAUDE.md, AGENTS.md) a múltiples repos con un solo comando — sin perder customización local, sin sobrescribir lo que ya tenías.
 
 ## Instalación
 
 ```bash
-npm i -g navori-ai
+npm i -g navori
 # o sin instalar
-npx navori-ai init
+npx navori init
 ```
 
 ## Quick start
@@ -17,10 +17,10 @@ npx navori-ai init
 ```bash
 # Modo opinado: cero preguntas, todo configurado
 cd ~/tu-repo
-navori-ai init --recommended
+navori init --recommended
 
 # O wizard interactivo con detección de stack
-navori-ai init
+navori init
 ```
 
 El `init` detecta automáticamente del repo:
@@ -62,8 +62,8 @@ Y genera:
 
 Activar uno:
 ```bash
-navori-ai add engram          # te ofrece instalar la tool externa si falta
-navori-ai add engram --skip-install   # solo registra el plugin
+navori add engram          # te ofrece instalar la tool externa si falta
+navori add engram --skip-install   # solo registra el plugin
 ```
 
 ## Workspace + tickets cross-repo
@@ -72,32 +72,32 @@ Si un ticket toca varios repos (frontend + backend + microservicio), el workspac
 
 ```bash
 # Crear workspace
-navori-ai workspace init bonum --description "Bonum platform"
+navori workspace init bonum --description "Bonum platform"
 
 # Registrar repos del workspace
-navori-ai workspace add-repo bonum --name webapp --path ~/dev/bonum/webapp --stack vite-react-ts-mantine
-navori-ai workspace add-repo bonum --name backend --path ~/dev/bonum/nexus --stack nestjs
+navori workspace add-repo bonum --name webapp --path ~/dev/bonum/webapp --stack vite-react-ts-mantine
+navori workspace add-repo bonum --name backend --path ~/dev/bonum/nexus --stack nestjs
 
 # Crear ticket
-navori-ai ticket new bonum BNM-123 --title "Checkout flow rebuild"
+navori ticket new bonum BNM-123 --title "Checkout flow rebuild"
 
 # En cada repo que tocás el ticket, agregá una referencia:
 # echo "ticket: BNM-123" >> progress/current.md
 
 # Ver el ticket + en qué repos aparece
-navori-ai ticket show bonum BNM-123
+navori ticket show bonum BNM-123
 ```
 
 El workspace también guarda defaults heredables:
 ```bash
-navori-ai init --workspace bonum    # hereda engines, plugins, branchBase, etc.
+navori init --workspace bonum    # hereda engines, plugins, branchBase, etc.
 ```
 
 Storage: `~/.navori/workspaces/<name>/` (manifest + tickets/ + backups/).
 
 ## Managed blocks con versionado
 
-Cada bloque que `navori-ai` inyecta en tu `CLAUDE.md` lleva metadata:
+Cada bloque que `navori` inyecta en tu `CLAUDE.md` lleva metadata:
 
 ```html
 <!-- navori:managed id="idioma-rol" hash="3fbef743" version="0.0.1" source="@navori/core" -->
@@ -124,11 +124,11 @@ Backups automáticos en `~/.navori/backups/<timestamp>/` antes de cada `sync` (r
 Cambiar una sola cosa sin re-init:
 
 ```bash
-navori-ai configure plugins              # multiselect de plugins activos
-navori-ai configure quality-gate         # nuevo comando de quality gate
-navori-ai configure language en          # switch a inglés (fallback a es)
-navori-ai configure engines              # multiselect: claude / agents-md / cursor / copilot
-navori-ai configure workspace bonum      # asociar a un workspace
+navori configure plugins              # multiselect de plugins activos
+navori configure quality-gate         # nuevo comando de quality gate
+navori configure language en          # switch a inglés (fallback a es)
+navori configure engines              # multiselect: claude / agents-md / cursor / copilot
+navori configure workspace bonum      # asociar a un workspace
 ```
 
 ## Filosofía

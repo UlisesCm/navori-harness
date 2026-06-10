@@ -76,7 +76,7 @@ export const renderCommand = defineCommand({
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
 
-    p.intro("navori-ai render");
+    p.intro("navori render");
 
     if (!existsSync(cwd)) {
       p.cancel(`Directory not found: ${cwd}`);
@@ -85,7 +85,7 @@ export const renderCommand = defineCommand({
 
     const result = runRender(cwd, Boolean(args["dry-run"]));
     if (!result.ok) {
-      p.cancel(`${result.reason}. Run 'navori-ai init' first.`);
+      p.cancel(`${result.reason}. Run 'navori init' first.`);
       process.exit(1);
     }
 

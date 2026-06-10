@@ -102,7 +102,7 @@ const restoreSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const backupDir = join(backupRoot(), ts);
 
-    p.intro(`navori-ai backup restore ${ts}`);
+    p.intro(`navori backup restore ${ts}`);
 
     if (!existsSync(backupDir)) {
       p.cancel(`Backup not found: ${backupDir}`);
@@ -153,7 +153,7 @@ function humanAge(mtimeMs: number): string {
 export const backupCommand = defineCommand({
   meta: {
     name: "backup",
-    description: "List and restore navori-ai backups",
+    description: "List and restore navori backups",
   },
   subCommands: {
     list: listSubCommand,

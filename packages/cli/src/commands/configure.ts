@@ -16,14 +16,14 @@ type EngineId = "claude" | "agents-md" | "cursor" | "copilot";
 
 function fail(msg: string): never {
   // Use stderr so success output on stdout stays clean for piping/JSON.
-  process.stderr.write(`navori-ai: ${msg}\n`);
+  process.stderr.write(`navori: ${msg}\n`);
   process.exit(1);
 }
 
 function loadOrExit(cwd: string): { config: NavoriConfig; path: string; raw: Record<string, unknown> } {
   if (!existsSync(cwd)) fail(`Directory not found: ${cwd}`);
   const configPath = resolve(cwd, "navori.config.json");
-  if (!existsSync(configPath)) fail(`No navori.config.json at ${configPath}. Run 'navori-ai init' first.`);
+  if (!existsSync(configPath)) fail(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
   const config = readConfig(configPath);
   const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
   return { config, path: configPath, raw };
@@ -48,7 +48,7 @@ const pluginsSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
 
-    p.intro("navori-ai configure plugins");
+    p.intro("navori configure plugins");
 
     const allIds = listKnownPluginIds();
     const current = config.plugins ?? {};
@@ -94,7 +94,7 @@ const pluginsSubCommand = defineCommand({
     if (added.length > 0) p.log.success(`Enabled: ${added.join(", ")}`);
     if (removed.length > 0) p.log.warn(`Disabled: ${removed.join(", ")}`);
     if (added.length === 0 && removed.length === 0) p.log.info("No changes");
-    p.outro("Run 'navori-ai render' or 'navori-ai sync' to apply.");
+    p.outro("Run 'navori render' or 'navori sync' to apply.");
   },
 });
 
@@ -112,7 +112,7 @@ const qualityGateSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
 
-    p.intro("navori-ai configure quality-gate");
+    p.intro("navori configure quality-gate");
 
     let fast = args.fast as string | undefined;
     let full = args.full as string | undefined;
@@ -165,7 +165,7 @@ const languageSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
 
-    p.intro("navori-ai configure language");
+    p.intro("navori configure language");
 
     let value = args.value as string | undefined;
     if (!value) {
@@ -192,7 +192,7 @@ const languageSubCommand = defineCommand({
     raw.language = value;
     persist(path, raw);
     p.log.success(`language → ${value}`);
-    p.outro("Run 'navori-ai render' to re-render managed blocks in the new language.");
+    p.outro("Run 'navori render' to re-render managed blocks in the new language.");
   },
 });
 
@@ -208,7 +208,7 @@ const enginesSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
 
-    p.intro("navori-ai configure engines");
+    p.intro("navori configure engines");
 
     const selected = await p.multiselect<string>({
       message: "Engines to target",
@@ -243,7 +243,7 @@ const workspaceSubCommand = defineCommand({
     const { path, raw } = loadOrExit(cwd);
     const value = (args.value as string | undefined)?.trim();
 
-    p.intro("navori-ai configure workspace");
+    p.intro("navori configure workspace");
 
     if (!value) {
       const currentWorkspace = raw.workspace as string | undefined;
@@ -264,14 +264,14 @@ const workspaceSubCommand = defineCommand({
       delete raw.workspace;
       persist(path, raw);
       p.log.success("Workspace association removed");
-      p.outro("Run 'navori-ai render' to apply.");
+      p.outro("Run 'navori render' to apply.");
       return;
     }
 
     raw.workspace = value;
     persist(path, raw);
     p.log.success(`workspace → ${value}`);
-    p.outro("Run 'navori-ai render' to apply.");
+    p.outro("Run 'navori render' to apply.");
   },
 });
 

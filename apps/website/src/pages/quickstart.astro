@@ -10,7 +10,7 @@ const steps = [
     title: "Instala el CLI",
     body:
       "No necesitas instalación global. Usa npx, pnpm dlx o bunx — lo que uses normalmente.",
-    code: "# npm\nnpx navori-ai init\n\n# pnpm\npnpm dlx navori-ai init\n\n# bun\nbunx navori-ai init",
+    code: "# npm\nnpx navori init\n\n# pnpm\npnpm dlx navori init\n\n# bun\nbunx navori init",
   },
   {
     n: "02",
@@ -24,14 +24,14 @@ const steps = [
     title: "Commitea y trabaja normal",
     body:
       "El navori.config.json es la única fuente de verdad. Los bloques managed están marcados — el resto es tuyo.",
-    code: "$ git add navori.config.json .claude/ .cursor/ AGENTS.md\n$ git commit -m \"chore: bootstrap navori-ai harness\"",
+    code: "$ git add navori.config.json .claude/ .cursor/ AGENTS.md\n$ git commit -m \"chore: bootstrap navori harness\"",
   },
   {
     n: "04",
     title: "Cuando cambies algo, vuelve a renderizar",
     body:
       "Agrega plugins, cambia engines o actualiza la versión. sync solo toca los bloques managed, tu código personalizado queda intacto.",
-    code: "# Agregar un plugin\n$ npx navori-ai add engram\n$ npx navori-ai render\n\n# Actualizar a la última versión\n$ npx navori-ai@latest sync",
+    code: "# Agregar un plugin\n$ npx navori add engram\n$ npx navori render\n\n# Actualizar a la última versión\n$ npx navori@latest sync",
   },
 ];
 
@@ -45,7 +45,7 @@ const checklist = [
 <BaseLayout
   lang={lang}
   title="Quickstart"
-  description="De cero a productivo con navori-ai en 4 pasos."
+  description="De cero a productivo con navori en 4 pasos."
 >
   <section
     class="relative overflow-hidden border-b"
@@ -153,19 +153,19 @@ const checklist = [
             <li>
               <a
                 class="hover:text-sky-700 dark:hover:text-sky-300"
-                href={localizedPath(lang, "/docs/init")}>navori-ai init</a
+                href={localizedPath(lang, "/docs/init")}>navori init</a
               >
             </li>
             <li>
               <a
                 class="hover:text-sky-700 dark:hover:text-sky-300"
-                href={localizedPath(lang, "/docs/add")}>navori-ai add</a
+                href={localizedPath(lang, "/docs/add")}>navori add</a
               >
             </li>
             <li>
               <a
                 class="hover:text-sky-700 dark:hover:text-sky-300"
-                href={localizedPath(lang, "/docs/sync")}>navori-ai sync</a
+                href={localizedPath(lang, "/docs/sync")}>navori sync</a
               >
             </li>
           </ul>

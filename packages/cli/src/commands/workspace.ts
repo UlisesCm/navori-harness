@@ -34,7 +34,7 @@ const initSubCommand = defineCommand({
       process.exit(1);
     }
 
-    p.intro(`navori-ai workspace init ${name}`);
+    p.intro(`navori workspace init ${name}`);
 
     let description = args.description ?? "";
     if (!args.yes && !description) {
@@ -60,7 +60,7 @@ const initSubCommand = defineCommand({
     const written = writeWorkspace(workspace);
     p.log.success(`Wrote ${written}`);
     p.log.message(`Tickets directory: ${workspaceDirectory(name)}/tickets/`);
-    p.outro(`Run 'navori-ai workspace show ${name}' to inspect, or add it to a repo with 'navori-ai init --workspace ${name}'.`);
+    p.outro(`Run 'navori workspace show ${name}' to inspect, or add it to a repo with 'navori init --workspace ${name}'.`);
   },
 });
 
@@ -79,7 +79,7 @@ const lsSubCommand = defineCommand({
       return;
     }
     if (names.length === 0) {
-      console.log("No workspaces found. Create one with 'navori-ai workspace init <name>'.");
+      console.log("No workspaces found. Create one with 'navori workspace init <name>'.");
       return;
     }
     for (const name of names) {
@@ -122,8 +122,8 @@ const showSubCommand = defineCommand({
     if (!workspace) {
       process.stderr.write(
         `Workspace '${name}' not found at ${workspacePath(name)}.\n` +
-          `Create it with: navori-ai workspace init ${name}\n` +
-          `Or list known workspaces: navori-ai workspace ls\n`,
+          `Create it with: navori workspace init ${name}\n` +
+          `Or list known workspaces: navori workspace ls\n`,
       );
       process.exit(1);
     }
@@ -179,14 +179,14 @@ const renameSubCommand = defineCommand({
       process.exit(1);
     }
 
-    p.intro(`navori-ai workspace rename ${from} → ${to}`);
+    p.intro(`navori workspace rename ${from} → ${to}`);
     p.log.message(
       `Will rename the workspace directory and update the manifest's 'name' field. ` +
         `${ws.repos.length} repo registration(s) and any tickets will be preserved.`,
     );
     p.log.warn(
       `Repos that have 'workspace: ${from}' in their navori.config.json must be updated ` +
-        `manually: cd to each repo and run 'navori-ai configure workspace ${to}'.`,
+        `manually: cd to each repo and run 'navori configure workspace ${to}'.`,
     );
 
     if (!args.yes) {
@@ -229,7 +229,7 @@ const deleteSubCommand = defineCommand({
     }
     const dir = workspaceDirectory(name);
 
-    p.intro(`navori-ai workspace delete ${name}`);
+    p.intro(`navori workspace delete ${name}`);
     p.log.warn(
       `Will move ${dir} to ~/.navori/.trash/. Includes ${ws.repos.length} repo registration(s) and any tickets in that workspace.`,
     );

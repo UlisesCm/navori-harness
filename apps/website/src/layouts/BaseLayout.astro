@@ -22,15 +22,15 @@ const t = useTranslations(lang);
 const altLang = alternateLang(lang);
 
 const pageTitle = title
-  ? `${title} — navori-ai`
-  : `navori-ai — ${t("site.tagline")}`;
+  ? `${title} — navori`
+  : `navori — ${t("site.tagline")}`;
 const pageDescription = description ?? t("site.tagline");
 
-const canonicalUrl = new URL(pathname, Astro.site ?? "https://navori-ai.github.io").toString();
+const canonicalUrl = new URL(pathname, Astro.site ?? "https://navori.github.io").toString();
 const altPath = pathname.replace(/^\/en/, "") || "/";
 const altHref = new URL(
   localizedPath(altLang, altPath),
-  Astro.site ?? "https://navori-ai.github.io",
+  Astro.site ?? "https://navori.github.io",
 ).toString();
 ---
 

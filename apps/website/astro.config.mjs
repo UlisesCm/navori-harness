@@ -4,7 +4,7 @@ import sitemap from "@astrojs/sitemap";
 import tailwindcss from "@tailwindcss/vite";
 
 // Production site. Override via env when deploying behind a project path.
-const SITE = process.env.SITE_URL ?? "https://navori-ai.github.io";
+const SITE = process.env.SITE_URL ?? "https://navori.github.io";
 const BASE = process.env.SITE_BASE ?? "/";
 
 export default defineConfig({

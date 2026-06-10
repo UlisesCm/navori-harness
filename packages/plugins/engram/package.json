@@ -1,7 +1,7 @@
 {
   "name": "@navori/plugin-engram",
   "version": "0.0.1",
-  "description": "Engram persistent memory plugin for navori-ai",
+  "description": "Engram persistent memory plugin for navori",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

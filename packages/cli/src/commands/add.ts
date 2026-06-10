@@ -46,7 +46,7 @@ function runShellCommand(cmd: string): void {
     throw new Error(
       `Install command timed out after ${INSTALL_TIMEOUT_MS / 1000}s. ` +
         `It may be waiting for interactive input (run from a TTY) or hung. ` +
-        `Install the tool manually and re-run navori-ai with --skip-install.`,
+        `Install the tool manually and re-run navori with --skip-install.`,
     );
   }
   if (result.signal) {
@@ -85,7 +85,7 @@ export const addCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const configPath = `${cwd}/navori.config.json`;
 
-    p.intro(`navori-ai add ${args.plugin}`);
+    p.intro(`navori add ${args.plugin}`);
 
     if (!existsSync(cwd)) {
       p.cancel(`Directory not found: ${cwd}`);
@@ -93,7 +93,7 @@ export const addCommand = defineCommand({
     }
 
     if (!existsSync(configPath)) {
-      p.cancel(`No navori.config.json at ${configPath}. Run 'navori-ai init' first.`);
+      p.cancel(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
       process.exit(1);
     }
 
@@ -134,14 +134,14 @@ export const addCommand = defineCommand({
     // Handle external tool
     const tool = plugin.manifest.externalTool;
     if (!tool) {
-      p.outro("Done — run 'navori-ai render' to apply");
+      p.outro("Done — run 'navori render' to apply");
       return;
     }
 
     const installed = tool.checkBinary ? hasBinary(tool.checkBinary) : true;
     if (installed) {
       p.log.success(`External tool '${tool.name}' is already installed`);
-      p.outro("Done — run 'navori-ai render' to apply");
+      p.outro("Done — run 'navori render' to apply");
       return;
     }
 
@@ -186,6 +186,6 @@ export const addCommand = defineCommand({
       return;
     }
 
-    p.outro("Done — run 'navori-ai render' to apply");
+    p.outro("Done — run 'navori render' to apply");
   },
 });

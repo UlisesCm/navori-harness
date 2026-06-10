@@ -26,7 +26,7 @@ export const syncCommand = defineCommand({
     const configPath = `${cwd}/navori.config.json`;
     const claudeMdPath = `${cwd}/CLAUDE.md`;
 
-    p.intro("navori-ai sync");
+    p.intro("navori sync");
 
     if (!existsSync(cwd)) {
       p.cancel(`Directory not found: ${cwd}`);
@@ -34,7 +34,7 @@ export const syncCommand = defineCommand({
     }
 
     if (!existsSync(configPath)) {
-      p.cancel(`No navori.config.json at ${configPath}. Run 'navori-ai init' first.`);
+      p.cancel(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
       process.exit(1);
     }
 

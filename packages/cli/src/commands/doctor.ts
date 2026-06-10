@@ -43,7 +43,7 @@ export const doctorCommand = defineCommand({
     const configPath = `${cwd}/navori.config.json`;
     const claudeMdPath = `${cwd}/CLAUDE.md`;
 
-    if (!args.json) p.intro("navori-ai doctor");
+    if (!args.json) p.intro("navori doctor");
 
     if (!existsSync(cwd)) {
       if (args.json) {
@@ -58,7 +58,7 @@ export const doctorCommand = defineCommand({
       if (args.json) {
         console.log(JSON.stringify({ ok: false, error: "config-missing", configPath }));
       } else {
-        p.cancel(`No navori.config.json at ${configPath}. Run 'navori-ai init' first.`);
+        p.cancel(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
       }
       process.exit(1);
     }

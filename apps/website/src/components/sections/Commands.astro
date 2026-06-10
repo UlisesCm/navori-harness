@@ -12,7 +12,7 @@ const commands = [
     id: "init",
     desc: t("commands.init.desc"),
     output: [
-      "$ navori-ai init",
+      "$ navori init",
       "? Project name › your-app",
       "? Engines (space to toggle) ›",
       "  ◉ claude   ◉ cursor   ◯ copilot   ◉ agents-md",
@@ -25,7 +25,7 @@ const commands = [
     id: "add",
     desc: t("commands.add.desc"),
     output: [
-      "$ navori-ai add engram",
+      "$ navori add engram",
       "→ resolving dependencies",
       "  ✓ engram@0.4.2",
       "  ✓ requires: settings.json patch",
@@ -37,7 +37,7 @@ const commands = [
     id: "render",
     desc: t("commands.render.desc"),
     output: [
-      "$ navori-ai render",
+      "$ navori render",
       "→ resolving 5 layers",
       "→ writing managed blocks",
       "  ✓ .claude/  ·  9 files",
@@ -50,7 +50,7 @@ const commands = [
     id: "sync",
     desc: t("commands.sync.desc"),
     output: [
-      "$ navori-ai sync",
+      "$ navori sync",
       "→ checking managed markers",
       "  · 12 unchanged",
       "  ↑ 2 updated  (.claude/agents/leader.md, AGENTS.md)",
@@ -62,12 +62,12 @@ const commands = [
     id: "doctor",
     desc: t("commands.doctor.desc"),
     output: [
-      "$ navori-ai doctor",
+      "$ navori doctor",
       "✓ config schema valid",
       "✓ all plugins resolvable",
       "✓ no engine conflicts",
       "! drift: .cursor/rules/navori.mdc edited outside markers",
-      "→ run `navori-ai sync --force` to reconcile",
+      "→ run `navori sync --force` to reconcile",
     ],
   },
 ];
@@ -131,7 +131,7 @@ const commands = [
                 <span class="terminal-dot" style="background: #f59e0baa;"></span>
                 <span class="terminal-dot" style="background: #10b981aa;"></span>
                 <span class="ml-3 text-[11px] uppercase tracking-wider text-slate-400">
-                  navori-ai {c.id}
+                  navori {c.id}
                 </span>
               </div>
               <pre class="overflow-auto px-5 py-4 text-[13px] leading-[1.7]">

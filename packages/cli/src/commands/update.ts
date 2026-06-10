@@ -84,7 +84,7 @@ export const updateCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const configPath = `${cwd}/navori.config.json`;
 
-    p.intro("navori-ai update");
+    p.intro("navori update");
 
     if (!existsSync(cwd)) {
       p.cancel(`Directory not found: ${cwd}`);
@@ -92,7 +92,7 @@ export const updateCommand = defineCommand({
     }
 
     if (!existsSync(configPath)) {
-      p.cancel(`No navori.config.json at ${configPath}. Run 'navori-ai init' first.`);
+      p.cancel(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
       process.exit(1);
     }
 
@@ -156,7 +156,7 @@ export const updateCommand = defineCommand({
     }
 
     if (args["config-only"]) {
-      p.outro("Config updated. Run 'navori-ai sync' when ready to refresh CLAUDE.md.");
+      p.outro("Config updated. Run 'navori sync' when ready to refresh CLAUDE.md.");
       return;
     }
 
@@ -169,7 +169,7 @@ export const updateCommand = defineCommand({
 
       if (fresheConflicts.length > 0 && !args.yes) {
         p.log.warn(
-          `${fresheConflicts.length} conflict(s) detected — run 'navori-ai sync' to resolve interactively`,
+          `${fresheConflicts.length} conflict(s) detected — run 'navori sync' to resolve interactively`,
         );
         p.outro("Done (config updated, sync deferred due to conflicts)");
         return;

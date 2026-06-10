@@ -72,7 +72,7 @@ export const ui = {
     "engines.eyebrow": "Multi-engine",
     "engines.title": "Una config. Todos los engines.",
     "engines.subtitle":
-      "navori-ai renderiza la misma fuente de verdad al formato nativo de cada engine.",
+      "navori renderiza la misma fuente de verdad al formato nativo de cada engine.",
 
     "quickstart.eyebrow": "Quickstart",
     "quickstart.title": "De cero a productivo en tres pasos",
@@ -96,12 +96,12 @@ export const ui = {
     "faq.q3": "¿Por qué un monorepo y no un solo paquete?",
     "faq.a3":
       "@navori/core es engine-agnostic y publicable como librería. @navori/cli es el binario. Los plugins viven en @navori/plugin-*. Mantiene límites claros.",
-    "faq.q4": "¿Necesito Claude Code para usar navori-ai?",
+    "faq.q4": "¿Necesito Claude Code para usar navori?",
     "faq.a4":
-      "No. navori-ai es un scaffolder. Genera config para Claude Code (entre otros), pero la herramienta corre en cualquier Node 20+.",
+      "No. navori es un scaffolder. Genera config para Claude Code (entre otros), pero la herramienta corre en cualquier Node 20+.",
     "faq.q5": "¿Cómo actualizo mi proyecto cuando sale una versión nueva?",
     "faq.a5":
-      "npx navori-ai@latest sync. Actualiza solo los bloques managed sin tocar tu código.",
+      "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código.",
 
     "footer.tagline":
       "Open source, MIT. Hecho por developers que trabajan con muchos repos.",
@@ -172,7 +172,7 @@ export const ui = {
     "engines.eyebrow": "Multi-engine",
     "engines.title": "One config. Every engine.",
     "engines.subtitle":
-      "navori-ai renders the same source of truth into each engine's native format.",
+      "navori renders the same source of truth into each engine's native format.",
 
     "quickstart.eyebrow": "Quickstart",
     "quickstart.title": "From zero to productive in three steps",
@@ -196,12 +196,12 @@ export const ui = {
     "faq.q3": "Why a monorepo and not a single package?",
     "faq.a3":
       "@navori/core is engine-agnostic and publishable as a library. @navori/cli is the binary. Plugins live in @navori/plugin-*. Clean boundaries.",
-    "faq.q4": "Do I need Claude Code to use navori-ai?",
+    "faq.q4": "Do I need Claude Code to use navori?",
     "faq.a4":
-      "No. navori-ai is a scaffolder. It generates config for Claude Code (and others), but the tool runs on any Node 20+.",
+      "No. navori is a scaffolder. It generates config for Claude Code (and others), but the tool runs on any Node 20+.",
     "faq.q5": "How do I upgrade my project when a new version ships?",
     "faq.a5":
-      "npx navori-ai@latest sync. It refreshes only managed blocks without touching your code.",
+      "npx navori@latest sync. It refreshes only managed blocks without touching your code.",
 
     "footer.tagline":
       "Open source, MIT. Built by developers who juggle many repos.",

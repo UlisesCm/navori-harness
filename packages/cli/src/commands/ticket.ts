@@ -43,7 +43,7 @@ const listSubCommand = defineCommand({
       return;
     }
     if (filtered.length === 0) {
-      console.log(`No tickets in workspace '${args.workspace}'. Create one with 'navori-ai ticket new ${args.workspace} <id>'.`);
+      console.log(`No tickets in workspace '${args.workspace}'. Create one with 'navori ticket new ${args.workspace} <id>'.`);
       return;
     }
     for (const t of filtered) {
@@ -73,7 +73,7 @@ const showSubCommand = defineCommand({
     if (!ticket) {
       process.stderr.write(
         `Ticket '${args.id}' not found in workspace '${args.workspace}'.\n` +
-          `Create it with: navori-ai ticket new ${args.workspace} ${args.id}\n`,
+          `Create it with: navori ticket new ${args.workspace} ${args.id}\n`,
       );
       process.exit(1);
     }
@@ -120,7 +120,7 @@ const newSubCommand = defineCommand({
     title: { type: "string", description: "Ticket title (default: id)" },
   },
   async run({ args }) {
-    p.intro(`navori-ai ticket new ${args.id}`);
+    p.intro(`navori ticket new ${args.id}`);
 
     // Validate the id BEFORE prompting for a title, otherwise the user
     // writes the title only to discover the id is rejected.
@@ -193,7 +193,7 @@ const deleteSubCommand = defineCommand({
     yes: { type: "boolean", description: "Skip confirmation" },
   },
   async run({ args }) {
-    p.intro(`navori-ai ticket delete ${args.id}`);
+    p.intro(`navori ticket delete ${args.id}`);
     if (!args.yes) {
       const ok = await p.confirm({
         message: `Permanently delete ticket '${args.id}' from workspace '${args.workspace}'?`,

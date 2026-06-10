@@ -16,7 +16,7 @@ const es: Record<string, CommandDoc> = {
     title: "init",
     summary:
       "Inicializa un repo con navori. Detecta el stack, hace 4 preguntas y deja todo listo en un minuto.",
-    usage: "navori-ai init [--preset <name>] [--engines <list>] [--yes]",
+    usage: "navori init [--preset <name>] [--engines <list>] [--yes]",
     flags: [
       { flag: "--preset <name>", desc: "Preset a usar: pnpm-monorepo, nextjs, nestjs, custom." },
       { flag: "--engines <list>", desc: "Lista separada por comas: claude,cursor,copilot,agents-md." },
@@ -26,11 +26,11 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Interactivo",
-        code: "$ npx navori-ai init\n? Project name › my-app\n? Engines › claude, cursor, agents-md\n? Preset › pnpm-monorepo\n✓ navori.config.json written\n✓ 14 managed files rendered",
+        code: "$ npx navori init\n? Project name › my-app\n? Engines › claude, cursor, agents-md\n? Preset › pnpm-monorepo\n✓ navori.config.json written\n✓ 14 managed files rendered",
       },
       {
         title: "Sin prompts (CI)",
-        code: "npx navori-ai init --yes \\\n  --preset pnpm-monorepo \\\n  --engines claude,cursor",
+        code: "npx navori init --yes \\\n  --preset pnpm-monorepo \\\n  --engines claude,cursor",
       },
     ],
     notes: [
@@ -43,7 +43,7 @@ const es: Record<string, CommandDoc> = {
     title: "add",
     summary:
       "Agrega un plugin al proyecto. Resuelve dependencias automáticamente.",
-    usage: "navori-ai add <plugin> [--dry-run]",
+    usage: "navori add <plugin> [--dry-run]",
     flags: [
       { flag: "<plugin>", desc: "Nombre del plugin: engram, semgrep, jscpd, acli, gh, cognitive." },
       { flag: "--dry-run", desc: "Muestra qué cambiaría sin escribir." },
@@ -51,7 +51,7 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Agregar engram",
-        code: "$ navori-ai add engram\n→ resolving dependencies\n  ✓ engram@0.4.2\n  ✓ requires: settings.json patch\n  ✓ requires: skill engram-protocol\n✓ plugin engram added · rerun render",
+        code: "$ navori add engram\n→ resolving dependencies\n  ✓ engram@0.4.2\n  ✓ requires: settings.json patch\n  ✓ requires: skill engram-protocol\n✓ plugin engram added · rerun render",
       },
     ],
     notes: [
@@ -63,7 +63,7 @@ const es: Record<string, CommandDoc> = {
     title: "render",
     summary:
       "Reconstruye todos los assets managed desde navori.config.json. Idempotente.",
-    usage: "navori-ai render [--engine <name>] [--check]",
+    usage: "navori render [--engine <name>] [--check]",
     flags: [
       { flag: "--engine <name>", desc: "Renderiza solo para un engine." },
       { flag: "--check", desc: "Verifica que el output coincida con lo esperado sin escribir (CI)." },
@@ -71,7 +71,7 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Render completo",
-        code: "$ navori-ai render\n→ resolving 5 layers\n→ writing managed blocks\n  ✓ .claude/  ·  9 files\n  ✓ .cursor/  ·  3 files\n  ✓ AGENTS.md\n✓ Done in 0.9s",
+        code: "$ navori render\n→ resolving 5 layers\n→ writing managed blocks\n  ✓ .claude/  ·  9 files\n  ✓ .cursor/  ·  3 files\n  ✓ AGENTS.md\n✓ Done in 0.9s",
       },
     ],
     notes: [
@@ -84,14 +84,14 @@ const es: Record<string, CommandDoc> = {
     title: "sync",
     summary:
       "Actualiza solo los bloques managed. Preserva tu código personalizado intacto.",
-    usage: "navori-ai sync [--force]",
+    usage: "navori sync [--force]",
     flags: [
       { flag: "--force", desc: "Reconcilia drift sobrescribiendo. Usar con cuidado." },
     ],
     example: [
       {
         title: "Sync seguro",
-        code: "$ navori-ai sync\n→ checking managed markers\n  · 12 unchanged\n  ↑ 2 updated  (.claude/agents/leader.md, AGENTS.md)\n  ! 0 conflicts\n✓ Custom code preserved",
+        code: "$ navori sync\n→ checking managed markers\n  · 12 unchanged\n  ↑ 2 updated  (.claude/agents/leader.md, AGENTS.md)\n  ! 0 conflicts\n✓ Custom code preserved",
       },
     ],
     notes: [
@@ -103,14 +103,14 @@ const es: Record<string, CommandDoc> = {
     title: "doctor",
     summary:
       "Diagnóstico del proyecto: schema, plugins, drift y conflictos entre engines.",
-    usage: "navori-ai doctor [--json]",
+    usage: "navori doctor [--json]",
     flags: [
       { flag: "--json", desc: "Output estructurado para CI." },
     ],
     example: [
       {
         title: "Diagnóstico",
-        code: "$ navori-ai doctor\n✓ config schema valid\n✓ all plugins resolvable\n✓ no engine conflicts\n! drift: .cursor/rules/navori.mdc edited outside markers\n→ run `navori-ai sync --force` to reconcile",
+        code: "$ navori doctor\n✓ config schema valid\n✓ all plugins resolvable\n✓ no engine conflicts\n! drift: .cursor/rules/navori.mdc edited outside markers\n→ run `navori sync --force` to reconcile",
       },
     ],
     notes: [
@@ -125,7 +125,7 @@ const en: Record<string, CommandDoc> = {
     title: "init",
     summary:
       "Bootstrap a repo with navori. Detects the stack, asks 4 questions, and leaves everything ready in a minute.",
-    usage: "navori-ai init [--preset <name>] [--engines <list>] [--yes]",
+    usage: "navori init [--preset <name>] [--engines <list>] [--yes]",
     flags: [
       { flag: "--preset <name>", desc: "Preset to use: pnpm-monorepo, nextjs, nestjs, custom." },
       { flag: "--engines <list>", desc: "Comma-separated list: claude,cursor,copilot,agents-md." },
@@ -135,11 +135,11 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "Interactive",
-        code: "$ npx navori-ai init\n? Project name › my-app\n? Engines › claude, cursor, agents-md\n? Preset › pnpm-monorepo\n✓ navori.config.json written\n✓ 14 managed files rendered",
+        code: "$ npx navori init\n? Project name › my-app\n? Engines › claude, cursor, agents-md\n? Preset › pnpm-monorepo\n✓ navori.config.json written\n✓ 14 managed files rendered",
       },
       {
         title: "Non-interactive (CI)",
-        code: "npx navori-ai init --yes \\\n  --preset pnpm-monorepo \\\n  --engines claude,cursor",
+        code: "npx navori init --yes \\\n  --preset pnpm-monorepo \\\n  --engines claude,cursor",
       },
     ],
     notes: [
@@ -151,7 +151,7 @@ const en: Record<string, CommandDoc> = {
     id: "add",
     title: "add",
     summary: "Add a plugin to the project. Resolves dependencies automatically.",
-    usage: "navori-ai add <plugin> [--dry-run]",
+    usage: "navori add <plugin> [--dry-run]",
     flags: [
       { flag: "<plugin>", desc: "Plugin name: engram, semgrep, jscpd, acli, gh, cognitive." },
       { flag: "--dry-run", desc: "Print what would change without writing." },
@@ -159,7 +159,7 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "Add engram",
-        code: "$ navori-ai add engram\n→ resolving dependencies\n  ✓ engram@0.4.2\n  ✓ requires: settings.json patch\n  ✓ requires: skill engram-protocol\n✓ plugin engram added · rerun render",
+        code: "$ navori add engram\n→ resolving dependencies\n  ✓ engram@0.4.2\n  ✓ requires: settings.json patch\n  ✓ requires: skill engram-protocol\n✓ plugin engram added · rerun render",
       },
     ],
     notes: [
@@ -171,7 +171,7 @@ const en: Record<string, CommandDoc> = {
     title: "render",
     summary:
       "Rebuilds every managed asset from navori.config.json. Idempotent.",
-    usage: "navori-ai render [--engine <name>] [--check]",
+    usage: "navori render [--engine <name>] [--check]",
     flags: [
       { flag: "--engine <name>", desc: "Render only for one engine." },
       { flag: "--check", desc: "Verify the output matches expectations without writing (CI)." },
@@ -179,7 +179,7 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "Full render",
-        code: "$ navori-ai render\n→ resolving 5 layers\n→ writing managed blocks\n  ✓ .claude/  ·  9 files\n  ✓ .cursor/  ·  3 files\n  ✓ AGENTS.md\n✓ Done in 0.9s",
+        code: "$ navori render\n→ resolving 5 layers\n→ writing managed blocks\n  ✓ .claude/  ·  9 files\n  ✓ .cursor/  ·  3 files\n  ✓ AGENTS.md\n✓ Done in 0.9s",
       },
     ],
     notes: [
@@ -192,14 +192,14 @@ const en: Record<string, CommandDoc> = {
     title: "sync",
     summary:
       "Updates only managed blocks. Your custom code is preserved untouched.",
-    usage: "navori-ai sync [--force]",
+    usage: "navori sync [--force]",
     flags: [
       { flag: "--force", desc: "Reconcile drift by overwriting. Use with care." },
     ],
     example: [
       {
         title: "Safe sync",
-        code: "$ navori-ai sync\n→ checking managed markers\n  · 12 unchanged\n  ↑ 2 updated  (.claude/agents/leader.md, AGENTS.md)\n  ! 0 conflicts\n✓ Custom code preserved",
+        code: "$ navori sync\n→ checking managed markers\n  · 12 unchanged\n  ↑ 2 updated  (.claude/agents/leader.md, AGENTS.md)\n  ! 0 conflicts\n✓ Custom code preserved",
       },
     ],
     notes: [
@@ -211,14 +211,14 @@ const en: Record<string, CommandDoc> = {
     title: "doctor",
     summary:
       "Project diagnostics: schema, plugins, drift and cross-engine conflicts.",
-    usage: "navori-ai doctor [--json]",
+    usage: "navori doctor [--json]",
     flags: [
       { flag: "--json", desc: "Structured output for CI." },
     ],
     example: [
       {
         title: "Diagnose",
-        code: "$ navori-ai doctor\n✓ config schema valid\n✓ all plugins resolvable\n✓ no engine conflicts\n! drift: .cursor/rules/navori.mdc edited outside markers\n→ run `navori-ai sync --force` to reconcile",
+        code: "$ navori doctor\n✓ config schema valid\n✓ all plugins resolvable\n✓ no engine conflicts\n! drift: .cursor/rules/navori.mdc edited outside markers\n→ run `navori sync --force` to reconcile",
       },
     ],
     notes: [

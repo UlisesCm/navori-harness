@@ -16,7 +16,7 @@ export function safeHomedir(): string {
   if (!home || !isAbsolute(home)) {
     throw new Error(
       "Could not determine home directory: HOME env var is empty or not absolute. " +
-        "Set HOME explicitly (e.g. 'HOME=/home/runner') before running navori-ai.",
+        "Set HOME explicitly (e.g. 'HOME=/home/runner') before running navori.",
     );
   }
   return home;

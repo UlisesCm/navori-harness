@@ -29,7 +29,7 @@ type EngineId = "claude" | "agents-md" | "cursor" | "copilot";
 export const initCommand = defineCommand({
   meta: {
     name: "init",
-    description: "Adopt navori-ai in the current repo (auto-detects stack, presets, quality gate)",
+    description: "Adopt navori in the current repo (auto-detects stack, presets, quality gate)",
   },
   args: {
     yes: {
@@ -59,7 +59,7 @@ export const initCommand = defineCommand({
     // --recommended implies --yes (skip wizard)
     const autoYes = Boolean(args.yes || args.recommended);
 
-    p.intro("navori-ai init");
+    p.intro("navori init");
 
     if (!existsSync(cwd)) {
       p.cancel(`Directory not found: ${cwd}`);
@@ -93,7 +93,7 @@ export const initCommand = defineCommand({
       }
       if (!workspaceConfig) {
         p.cancel(
-          `Workspace '${args.workspace}' not found. Create it with 'navori-ai workspace init ${args.workspace}'.`,
+          `Workspace '${args.workspace}' not found. Create it with 'navori workspace init ${args.workspace}'.`,
         );
         process.exit(1);
       }
@@ -142,7 +142,7 @@ export const initCommand = defineCommand({
       });
       p.log.success(`Wrote ${configPath}`);
       if (mode === "coexist") {
-        p.outro("Done — existing files not touched. Run 'navori-ai render' when ready.");
+        p.outro("Done — existing files not touched. Run 'navori render' when ready.");
         return;
       }
       if (!args["no-render"]) renderInline(cwd);
@@ -313,7 +313,7 @@ export const initCommand = defineCommand({
     p.log.success(`Wrote ${configPath}`);
 
     if (mode === "coexist") {
-      p.outro("Done — existing files not touched. Run 'navori-ai render' when ready.");
+      p.outro("Done — existing files not touched. Run 'navori render' when ready.");
       return;
     }
 
@@ -328,7 +328,7 @@ export const initCommand = defineCommand({
       initialValue: true,
     });
     if (p.isCancel(shouldRender) || !shouldRender) {
-      p.outro("Done (run 'navori-ai render' when ready)");
+      p.outro("Done (run 'navori render' when ready)");
       return;
     }
 
@@ -354,7 +354,7 @@ async function chooseAdoptionMode(
   p.log.warn(formatInfraSummary(infra));
 
   const choice = await p.select<AdoptionMode>({
-    message: "How do you want to adopt navori-ai?",
+    message: "How do you want to adopt navori?",
     options: [
       {
         value: "coexist",

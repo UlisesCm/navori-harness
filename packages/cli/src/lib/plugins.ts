@@ -54,7 +54,7 @@ export interface LoadedPlugin {
 }
 
 /**
- * Known plugins shipped with navori-ai. Each entry maps a plugin id to its
+ * Known plugins shipped with navori. Each entry maps a plugin id to its
  * npm package name. The CLI uses createRequire to resolve the package
  * regardless of whether we are in dev (workspace) or installed via npm.
  */

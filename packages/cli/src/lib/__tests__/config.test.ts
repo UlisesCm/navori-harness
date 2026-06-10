@@ -68,7 +68,7 @@ describe("writeConfig", () => {
     const dir = makeTmpDir();
     const path = join(dir, "navori.config.json");
     try {
-      // Simulate a config written by a future version of navori-ai
+      // Simulate a config written by a future version of navori
       writeFileSync(
         path,
         JSON.stringify({
