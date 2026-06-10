@@ -109,12 +109,95 @@ export interface InjectResult {
  * - if user modified content AND new content differs → SKIP (returns user-modified-skipped)
  *   The caller decides whether to prompt for conflict resolution.
  */
+/**
+ * Strip orphan open or close markers for a given id from the document.
+ * An orphan open marker has no matching close, or vice versa — usually the
+ * result of a user editing CLAUDE.md by hand and accidentally deleting one
+ * half of a managed block. Left in place they would cause injectManagedSection
+ * to append a new block AND leave the orphan, corrupting the document.
+ *
+ * Returns the cleaned string.
+ */
+function stripOrphanMarkers(existing: string, id: string): string {
+  const close = closeMarker(id);
+  // Find every open and close marker for this id
+  const openRegex = new RegExp(
+    `${escapeRegex(MARKER_OPEN_PREFIX)}\\s+id="${escapeRegex(id)}"[^>]*${escapeRegex(MARKER_SUFFIX)}`,
+    "g",
+  );
+  const opens: number[] = [];
+  for (const m of existing.matchAll(openRegex)) {
+    if (m.index !== undefined) opens.push(m.index);
+  }
+  const closes: number[] = [];
+  let from = 0;
+  for (;;) {
+    const idx = existing.indexOf(close, from);
+    if (idx < 0) break;
+    closes.push(idx);
+    from = idx + close.length;
+  }
+
+  // The "good" pairs are the first N open/close pairs in document order that
+  // are actually matching (open before close). The rest are orphans.
+  let cleaned = existing;
+  let pairedOpens = 0;
+  let pairedCloses = 0;
+  let oi = 0;
+  let ci = 0;
+  while (oi < opens.length && ci < closes.length) {
+    if (closes[ci]! > opens[oi]!) {
+      pairedOpens++;
+      pairedCloses++;
+      oi++;
+      ci++;
+    } else {
+      // close before any open — definitely orphan
+      ci++;
+    }
+  }
+
+  const orphanOpens = opens.length - pairedOpens;
+  const orphanCloses = closes.length - pairedCloses;
+  if (orphanOpens === 0 && orphanCloses === 0) return existing;
+
+  // Strip excess closes from the end, then excess opens from the end.
+  // Working backwards keeps earlier indices valid.
+  const allCloses = [...closes].reverse();
+  for (let i = 0; i < orphanCloses; i++) {
+    const idx = allCloses[i]!;
+    cleaned = cleaned.slice(0, idx) + cleaned.slice(idx + close.length);
+  }
+  // Recompute opens against the cleaned string because closes removal may
+  // have shifted them. The number of opens hasn't changed (we didn't touch
+  // any), but their indices may differ if removed close was before them.
+  // For simplicity: re-find opens in the cleaned string.
+  const openMatchesAfter = [...cleaned.matchAll(openRegex)].map((m) => m.index ?? -1).filter((i) => i >= 0);
+  const opensToStrip = openMatchesAfter.slice(-orphanOpens);
+  for (let i = opensToStrip.length - 1; i >= 0; i--) {
+    const idx = opensToStrip[i]!;
+    // Find the full open marker length
+    openRegex.lastIndex = 0;
+    const matchHere = openRegex.exec(cleaned.slice(idx));
+    const len = matchHere?.[0]?.length ?? 0;
+    if (len > 0) cleaned = cleaned.slice(0, idx) + cleaned.slice(idx + len);
+  }
+
+  // Collapse triple newlines that may result from marker removal
+  return cleaned.replace(/\n{3,}/g, "\n\n");
+}
+
 export function injectManagedSection(
   existing: string,
   id: string,
   newContent: string,
   meta: MarkerMeta = {},
 ): InjectResult {
+  // Clean any orphan markers for this id first so a half-deleted block
+  // (open without close, or vice versa) doesn't cause us to append a
+  // duplicate.
+  existing = stripOrphanMarkers(existing, id);
+
   const newHash = hashContent(newContent);
   const match = findMarker(existing, id);
   const canonicalContent = normalize(newContent);

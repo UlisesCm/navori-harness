@@ -74,6 +74,30 @@ describe("injectManagedSection", () => {
     expect(match![1]).toHaveLength(8);
   });
 
+  it("cleans an orphan open marker (no matching close) before injecting", () => {
+    // The user accidentally deleted the close marker, leaving just the open
+    const corrupted =
+      '<!-- navori:managed id="x" hash="aaaaaaaa" -->\n\nrandom user content that does not belong\n\nmore stuff\n';
+    const result = injectManagedSection(corrupted, "x", "Fresh content\n");
+    expect(result.status).toBe("created");
+    // Must NOT have two opens
+    const openCount = (result.output.match(/<!-- navori:managed id="x"/g) ?? []).length;
+    expect(openCount).toBe(1);
+    // Must have the new content
+    expect(result.output).toContain("Fresh content");
+    // Must have a close
+    expect(result.output).toContain('<!-- /navori:managed id="x" -->');
+  });
+
+  it("cleans an orphan close marker (no matching open) before injecting", () => {
+    const corrupted =
+      "Some pre-existing content\n\n<!-- /navori:managed id=\"y\" -->\n\nmore\n";
+    const result = injectManagedSection(corrupted, "y", "Hello\n");
+    expect(result.status).toBe("created");
+    const closeCount = (result.output.match(/<!-- \/navori:managed id="y" -->/g) ?? []).length;
+    expect(closeCount).toBe(1);
+  });
+
   it("treats CRLF line endings as equivalent to LF (no phantom conflicts)", () => {
     // First write with LF (the canonical form the CLI uses)
     const first = injectManagedSection("", "x", "## Title\n\n- Item one\n- Item two\n");
