@@ -26,7 +26,7 @@ export class ConfigError extends Error {
 export function readConfig(path: string): NavoriConfig {
   let raw: string;
   try {
-    raw = readFileSync(path, "utf-8");
+    raw = readFileSync(path, "utf-8").replace(/^﻿/, ""); // strip BOM if present
   } catch (err) {
     throw new ConfigError(`Cannot read ${path}: ${(err as Error).message}`);
   }

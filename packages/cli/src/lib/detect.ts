@@ -68,9 +68,12 @@ export function detectProject(cwd: string): DetectedProject {
   const pyproject = readPyproject(cwd);
   const cargo = readCargoToml(cwd);
 
-  const fromPackageJson = pkg?.name ?? null;
-  const fromPyproject = pyproject?.name ?? null;
-  const fromCargo = cargo?.name ?? null;
+  // Only accept string names — manifest readers may surface non-string values
+  // (e.g. pkg.name: { value: "..." } from malformed package.json). Falling
+  // back to null here lets the `??` chain continue to git/basename detection.
+  const fromPackageJson = typeof pkg?.name === "string" ? pkg.name : null;
+  const fromPyproject = typeof pyproject?.name === "string" ? pyproject.name : null;
+  const fromCargo = typeof cargo?.name === "string" ? cargo.name : null;
   const fromGit = detectGitRepoName(cwd);
   const fromBasename = basename(cwd);
 
@@ -119,8 +122,10 @@ export function detectProject(cwd: string): DetectedProject {
 // Name normalization
 // ============================================================
 
-function normalizeName(raw: string | null): string | null {
-  if (!raw) return null;
+function normalizeName(raw: unknown): string | null {
+  // Defensive: package.json / pyproject.toml / Cargo.toml are user-controlled
+  // and may have non-string values in fields we expected to be strings.
+  if (typeof raw !== "string" || !raw) return null;
   const cleaned = raw
     .trim()
     .toLowerCase()
@@ -149,7 +154,9 @@ function readPackageJson(cwd: string): PackageJson | null {
   const path = join(cwd, "package.json");
   if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readFileSync(path, "utf-8")) as PackageJson;
+    // Strip BOM (Windows editors sometimes prepend U+FEFF to UTF-8 files).
+    const raw = readFileSync(path, "utf-8").replace(/^﻿/, "");
+    return JSON.parse(raw) as PackageJson;
   } catch {
     return null;
   }

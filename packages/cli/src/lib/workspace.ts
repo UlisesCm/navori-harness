@@ -114,7 +114,7 @@ export function loadWorkspace(name: string): WorkspaceConfig | null {
   if (!existsSync(path)) return null;
   let raw: string;
   try {
-    raw = readFileSync(path, "utf-8");
+    raw = readFileSync(path, "utf-8").replace(/^﻿/, ""); // strip BOM if present
   } catch (err) {
     throw new WorkspaceError(`Cannot read workspace '${name}': ${(err as Error).message}`);
   }

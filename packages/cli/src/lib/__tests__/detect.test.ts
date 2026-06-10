@@ -21,6 +21,35 @@ describe("detectProject — name detection", () => {
     }
   });
 
+  it("does not crash when package.json name is not a string", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: { value: "object-name" } }),
+      );
+      // Must not throw; should fall back to directory name.
+      const d = detectProject(dir);
+      expect(d.name).not.toBeNull();
+      expect(d.name).not.toContain("object");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("reads package.json with UTF-8 BOM at the start", () => {
+    const dir = makeTmp();
+    try {
+      const content = "﻿" + JSON.stringify({ name: "bom-app" });
+      writeFileSync(join(dir, "package.json"), content);
+      const d = detectProject(dir);
+      expect(d.name).toBe("bom-app");
+      expect(d.sources.name).toBe("package.json");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   it("strips npm scope from package name", () => {
     const dir = makeTmp();
     try {
