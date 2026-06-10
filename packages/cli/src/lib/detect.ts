@@ -388,7 +388,11 @@ function detectStack(
   }
   const hasTs = nodeDeps.has("typescript") || existsSync(join(cwd, "tsconfig.json"));
 
+  // Order matters: more specific frameworks before the generic build tools
+  // they sit on top of (vite/react). Otherwise a Svelte+Vite repo would
+  // get classified as 'vite' with a vite-react-ts preset.
   const framework =
+    // Application frameworks (they own the project)
     pick(nodeDeps, "next") ??
     pick(nodeDeps, "@nestjs/core") ??
     pick(nodeDeps, "@medusajs/medusa") ??
@@ -396,13 +400,23 @@ function detectStack(
     pick(nodeDeps, "expo") ??
     pick(nodeDeps, "react-native") ??
     pick(nodeDeps, "remix") ??
+    // Meta-frameworks on top of build tools — check before vite/react
+    pick(nodeDeps, "astro") ??
+    pick(nodeDeps, "@sveltejs/kit") ??
+    pick(nodeDeps, "@builder.io/qwik") ??
+    pick(nodeDeps, "solid-js") ??
+    pick(nodeDeps, "@tauri-apps/api") ??
+    pick(nodeDeps, "electron") ??
+    pick(nodeDeps, "svelte") ??
+    pick(nodeDeps, "vue") ??
+    // Build tools / generic frontend
     pick(nodeDeps, "vite") ??
     pick(nodeDeps, "react") ??
-    pick(nodeDeps, "vue") ??
-    pick(nodeDeps, "svelte") ??
+    // Backend frameworks
     pick(nodeDeps, "@angular/core") ??
     pick(nodeDeps, "fastify") ??
     pick(nodeDeps, "hono") ??
+    pick(nodeDeps, "elysia") ??
     pick(nodeDeps, "express") ??
     null;
 
@@ -457,6 +471,7 @@ function suggestPreset(stack: StackInfo, monorepo: MonorepoInfo | null): string 
   if (monorepo) {
     if (monorepo.tool === "turbo") return "monorepo-turbopnpm";
     if (monorepo.tool === "pnpm") return "monorepo-pnpm";
+    if (monorepo.tool === "npm" || monorepo.tool === "lerna") return "monorepo-npm";
   }
 
   if (stack.language === "python") {
@@ -479,6 +494,15 @@ function suggestPreset(stack: StackInfo, monorepo: MonorepoInfo | null): string 
   }
   if (fw === "@nestjs/core") return "nestjs";
   if (fw === "expo" || fw === "react-native") return "react-native-expo";
+  // Modern meta-frameworks — must come before vite generic
+  if (fw === "astro") return "astro";
+  if (fw === "@sveltejs/kit" || fw === "svelte") return "sveltekit";
+  if (fw === "@builder.io/qwik") return "qwik";
+  if (fw === "solid-js") return "solid";
+  if (fw === "@tauri-apps/api") return "tauri";
+  if (fw === "electron") return "electron";
+  if (fw === "vue") return "vue";
+  if (fw === "@angular/core") return "angular";
   if (fw === "vite") {
     if (ui === "@mantine/core") return "vite-react-ts-mantine";
     return "vite-react-ts";
@@ -487,6 +511,7 @@ function suggestPreset(stack: StackInfo, monorepo: MonorepoInfo | null): string 
   if (fw === "remix") return "remix";
   if (fw === "fastify") return "fastify";
   if (fw === "hono") return "hono";
+  if (fw === "elysia") return "elysia";
   if (fw === "express") return "express-microservice";
 
   return "custom";
@@ -632,9 +657,12 @@ function guessQualityGate(
     return { fast: `${runner} run typecheck`, full: `${runner} run check:all` };
   }
 
-  // Compose from common script names
+  // Compose from common script names. 'check' is a common alias for typecheck
+  // in projects that use Biome or Skia conventions.
   const fastParts: string[] = [];
   if (has("typecheck")) fastParts.push(`${runner} run typecheck`);
+  else if (has("type-check")) fastParts.push(`${runner} run type-check`);
+  else if (has("check")) fastParts.push(`${runner} run check`);
   else if (has("compile")) fastParts.push(`${runner} run compile`);
 
   const fullParts: string[] = [...fastParts];
