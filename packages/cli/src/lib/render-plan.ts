@@ -36,6 +36,34 @@ function resolveAssetPath(asset: CoreManagedAsset, language: AssetLanguage = "es
   return { path: resolve(root, asset.relPath), fallback: true };
 }
 
+/**
+ * Replace `{{path.to.value}}` placeholders in an asset's content using values
+ * from the config. Missing values fall back to a friendly literal so the
+ * generated CLAUDE.md never ships a raw `{{...}}` to the user.
+ */
+function interpolateTemplate(content: string, config: NavoriConfig): string {
+  const configRecord = config as unknown as Record<string, unknown>;
+  return content.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (match, path: string) => {
+    const segments = path.split(".");
+    let cursor: unknown = configRecord;
+    for (const seg of segments) {
+      if (cursor === null || cursor === undefined || typeof cursor !== "object") {
+        cursor = undefined;
+        break;
+      }
+      cursor = (cursor as Record<string, unknown>)[seg];
+    }
+    if (cursor === undefined || cursor === null) {
+      // Leave a readable hint instead of the raw {{...}}
+      return `<not configured: ${path}>`;
+    }
+    if (typeof cursor === "string" || typeof cursor === "number" || typeof cursor === "boolean") {
+      return String(cursor);
+    }
+    return match;
+  });
+}
+
 export type AssetStatus =
   | InjectResult["status"]
   | "removed-condition-false";
@@ -104,7 +132,8 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
     }
     const resolved = resolveAssetPath(asset, language);
     if (resolved.fallback) languageFallbacks.push(asset.id);
-    const content = readFileSync(resolved.path, "utf-8");
+    const rawContent = readFileSync(resolved.path, "utf-8");
+    const content = interpolateTemplate(rawContent, config);
     const result = injectManagedSection(working, asset.id, content, {
       source: CORE_SOURCE_ID,
       version: CORE_VERSION,
@@ -152,7 +181,8 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
     if (enabled) {
       const pluginSource = `@navori/plugin-${plugin.manifest.id}`;
       for (const entry of plugin.managedAssets) {
-        const content = readFileSync(entry.absPath, "utf-8");
+        const rawContent = readFileSync(entry.absPath, "utf-8");
+        const content = interpolateTemplate(rawContent, config);
         const result = injectManagedSection(working, entry.id, content, {
           source: pluginSource,
           version: plugin.manifest.version,
@@ -218,7 +248,8 @@ export function applyPlanWithSkips(
       continue;
     }
     const resolved = resolveAssetPath(asset, config.language);
-    const content = readFileSync(resolved.path, "utf-8");
+    const rawContent = readFileSync(resolved.path, "utf-8");
+    const content = interpolateTemplate(rawContent, config);
     const result = injectManagedSection(working, asset.id, content, {
       source: CORE_SOURCE_ID,
       version: CORE_VERSION,
@@ -245,7 +276,8 @@ export function applyPlanWithSkips(
     for (const entry of plugin.managedAssets) {
       if (skipIds.has(entry.id)) continue;
       if (enabled) {
-        const content = readFileSync(entry.absPath, "utf-8");
+        const rawContent = readFileSync(entry.absPath, "utf-8");
+        const content = interpolateTemplate(rawContent, config);
         const result = injectManagedSection(working, entry.id, content, {
           source: `@navori/plugin-${plugin.manifest.id}`,
           version: plugin.manifest.version,
