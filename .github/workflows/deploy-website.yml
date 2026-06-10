@@ -17,6 +17,12 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+env:
+  # Opt into Node 24 ahead of GitHub's forced switch on 2026-06-16.
+  # Removes the "Node.js 20 actions are deprecated" warnings on
+  # checkout/setup-node/upload-artifact/deploy-pages/action-setup.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -35,10 +41,11 @@ jobs:
 
       - name: Build website
         env:
-          # GitHub Pages serves at <user>.github.io/<repo>/ — adjust BASE if you
-          # publish under a project path. For a user/org page (root), leave as "/".
-          SITE_URL: ${{ vars.SITE_URL || 'https://navori.github.io' }}
-          SITE_BASE: ${{ vars.SITE_BASE || '/' }}
+          # Project Pages serve at https://<owner>.github.io/<repo>/.
+          # Auto-derived so any fork works without configuration.
+          # Override via vars.SITE_URL / vars.SITE_BASE for custom domains.
+          SITE_URL: ${{ vars.SITE_URL || format('https://{0}.github.io', github.repository_owner) }}
+          SITE_BASE: ${{ vars.SITE_BASE || format('/{0}/', github.event.repository.name) }}
         run: pnpm --filter @navori/website build
 
       - name: Upload artifact
