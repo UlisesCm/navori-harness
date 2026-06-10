@@ -10,6 +10,7 @@ import type { RenderStatus } from "../../lib/style.ts";
 import { isNavoriOwnedSettings } from "./settings-detection.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
 import { renderManagedFile } from "./render-managed-file.ts";
+import { interpolate } from "./interpolate.ts";
 
 /**
  * Claude engine adapter — entry point. Orchestrates the full render of a
@@ -127,7 +128,29 @@ export function renderClaudeEngine(
     );
   }
 
-  // 5. Hook quality-gate (only if config has a fast gate)
+  // 5. progress/ bootstrap (one-shot, never overwritten)
+  applyBootstrapPlan(
+    planBootstrapFile({
+      cwd,
+      assetRelPath: "progress/current.md",
+      destRelPath: `${config.progress?.dir ?? "progress"}/${config.progress?.currentFile ?? "current.md"}`,
+      config,
+    }),
+    cwd,
+    pending,
+  );
+  applyBootstrapPlan(
+    planBootstrapFile({
+      cwd,
+      assetRelPath: "progress/history.md",
+      destRelPath: `${config.progress?.dir ?? "progress"}/${config.progress?.historyFile ?? "history.md"}`,
+      config,
+    }),
+    cwd,
+    pending,
+  );
+
+  // 6. Hook quality-gate (only if config has a fast gate)
   if (config.qualityGate?.fast) {
     applyManagedFilePlan(
       planManagedFile({
@@ -300,4 +323,37 @@ function applyManagedFilePlan(
     return;
   }
   pending.push({ path: plan.path, content: plan.content, status: plan.status, chmodExec });
+}
+
+interface BootstrapFilePlanInput {
+  cwd: string;
+  assetRelPath: string;     // relative to core-assets/
+  destRelPath: string;      // relative to cwd
+  config: NavoriConfig;
+}
+
+type BootstrapPlan =
+  | { kind: "noop" }
+  | { kind: "write"; path: string; content: string };
+
+/**
+ * Bootstrap a one-shot file: copy + interpolate ONCE if the destination
+ * doesn't exist; never overwrite after. Used for progress/ files whose
+ * content is live state owned by the user.
+ */
+function planBootstrapFile(input: BootstrapFilePlanInput): BootstrapPlan {
+  const destPath = join(input.cwd, input.destRelPath);
+  if (existsSync(destPath)) return { kind: "noop" };
+  const assetPath = resolve(getCoreRoot(), "core-assets", input.assetRelPath);
+  const raw = readFileSync(assetPath, "utf-8");
+  return { kind: "write", path: destPath, content: interpolate(raw, input.config) };
+}
+
+function applyBootstrapPlan(
+  plan: BootstrapPlan,
+  _cwd: string,
+  pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>,
+): void {
+  if (plan.kind === "noop") return;
+  pending.push({ path: plan.path, content: plan.content, status: "created" });
 }

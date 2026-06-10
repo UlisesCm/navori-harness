@@ -136,6 +136,39 @@ describe("renderClaudeEngine — settings.json adoption guard (DT-2)", () => {
   });
 });
 
+describe("renderClaudeEngine — progress bootstrap (E2)", () => {
+  it("creates progress/current.md and progress/history.md on first render", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(existsSync(join(cwd, "progress/current.md"))).toBe(true);
+    expect(existsSync(join(cwd, "progress/history.md"))).toBe(true);
+    expect(readFileSync(join(cwd, "progress/current.md"), "utf-8")).toMatch(/Estado.*idle/);
+  });
+
+  it("never overwrites a pre-existing progress file (user-owned live state)", () => {
+    mkdirSync(join(cwd, "progress"), { recursive: true });
+    writeFileSync(join(cwd, "progress/current.md"), "# MY CUSTOM CURRENT\n", "utf-8");
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(readFileSync(join(cwd, "progress/current.md"), "utf-8")).toBe("# MY CUSTOM CURRENT\n");
+  });
+
+  it("respects custom progress paths from config.progress", () => {
+    const customConfig = {
+      ...CONFIG_FULL,
+      progress: {
+        dir: "progress",
+        currentFile: "now.md",
+        historyFile: "log.md",
+        checkpointsDir: "progress/checkpoints",
+        archiveAfterDays: 30,
+      },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, customConfig);
+    expect(existsSync(join(cwd, "progress/now.md"))).toBe(true);
+    expect(existsSync(join(cwd, "progress/log.md"))).toBe(true);
+    expect(existsSync(join(cwd, "progress/current.md"))).toBe(false);
+  });
+});
+
 describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
