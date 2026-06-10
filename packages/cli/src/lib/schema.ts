@@ -77,6 +77,18 @@ const ProgressSchema = z.object({
   archiveAfterDays: z.number().int().positive().default(30),
 });
 
+// Source-of-truth for project-shape facts that user-section templates
+// interpolate via `{{project.X}}` (see spec 0002 §DT-5). Plugins can
+// extend with arbitrary keys via their `prompts[]` entries; passthrough
+// preserves those.
+const ProjectSchema = z
+  .object({
+    legacyPaths: z.array(z.string()).default([]),
+    criticalAreas: z.array(z.string()).default([]),
+    testRunner: z.string().optional(),
+  })
+  .passthrough();
+
 export const NavoriConfigSchema = z
   .object({
     $schema: z.string().optional(),
@@ -98,6 +110,7 @@ export const NavoriConfigSchema = z
     agentAssignments: AgentAssignmentsSchema.optional(),
     skills: SkillsSchema.optional(),
     progress: ProgressSchema.optional(),
+    project: ProjectSchema.optional(),
     monorepo: MonorepoSchema.optional(),
   })
   // Preserve unknown top-level fields so downgrades / forward-compat

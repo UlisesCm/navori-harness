@@ -137,6 +137,49 @@ describe("writeConfig", () => {
     }
   });
 
+  it("accepts a `project` block with defaults and preserves custom keys (passthrough)", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      writeConfig(path, {
+        name: "test",
+        engines: ["claude"],
+        preset: "custom",
+        project: {
+          legacyPaths: ["src/legacy"],
+          criticalAreas: ["src/auth"],
+          testRunner: "vitest",
+          // Custom key contributed by a plugin prompt — must survive
+          customRule: "no-default-export",
+        } as never,
+      });
+      const cfg = readConfig(path);
+      expect(cfg.project?.legacyPaths).toEqual(["src/legacy"]);
+      expect(cfg.project?.testRunner).toBe("vitest");
+      expect((cfg.project as unknown as { customRule: string }).customRule).toBe(
+        "no-default-export",
+      );
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("project field is optional", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      writeConfig(path, {
+        name: "no-project",
+        engines: ["claude"],
+        preset: "custom",
+      });
+      const cfg = readConfig(path);
+      expect(cfg.project).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   it("rejects unknown model in models override", () => {
     const dir = makeTmpDir();
     const path = join(dir, "navori.config.json");
