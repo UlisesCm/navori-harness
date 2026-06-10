@@ -4,9 +4,12 @@ const MARKER_OPEN_PREFIX = "<!-- navori:managed";
 const MARKER_CLOSE_PREFIX = "<!-- /navori:managed";
 const MARKER_SUFFIX = "-->";
 
-/** Normalize content for hashing and storage: drop trailing whitespace/newlines. */
+/** Normalize content for hashing and storage:
+ * - Convert CRLF / CR to LF so files written on Windows or repos with
+ *   .gitattributes that normalize to CRLF don't produce phantom conflicts.
+ * - Drop trailing whitespace/newlines. */
 function normalize(content: string): string {
-  return content.replace(/\s+$/, "");
+  return content.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
 }
 
 function hashContent(content: string): string {
@@ -61,7 +64,9 @@ function findMarker(existing: string, id: string): MarkerMatch | null {
 
   const openEnd = openMatch.index + openMatch[0].length;
   const contentRaw = existing.slice(openEnd, closeStart);
-  const content = normalize(contentRaw.replace(/^\n/, ""));
+  // Normalize first (CRLF → LF + trim trailing whitespace), then strip the
+  // leading newline that the writer always inserts after the open marker.
+  const content = normalize(contentRaw).replace(/^\n/, "");
 
   return {
     openStart: openMatch.index,

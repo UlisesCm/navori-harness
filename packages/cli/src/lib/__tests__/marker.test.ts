@@ -74,6 +74,19 @@ describe("injectManagedSection", () => {
     expect(match![1]).toHaveLength(8);
   });
 
+  it("treats CRLF line endings as equivalent to LF (no phantom conflicts)", () => {
+    // First write with LF (the canonical form the CLI uses)
+    const first = injectManagedSection("", "x", "## Title\n\n- Item one\n- Item two\n");
+    expect(first.status).toBe("created");
+
+    // Simulate a Windows editor / .gitattributes converting the whole file to CRLF
+    const crlfVersion = first.output.replace(/\n/g, "\r\n");
+
+    // Re-injecting the same content must be unchanged, not flagged as user-modified
+    const second = injectManagedSection(crlfVersion, "x", "## Title\n\n- Item one\n- Item two\n");
+    expect(second.status).toBe("unchanged");
+  });
+
   it("ignores partial marker strings (text containing 'navori:managed' but not as comment)", () => {
     const fake = "Plain text mentioning navori:managed in passing.\n";
     const result = injectManagedSection(fake, "x", CONTENT);
