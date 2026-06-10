@@ -77,28 +77,33 @@ const ProgressSchema = z.object({
   archiveAfterDays: z.number().int().positive().default(30),
 });
 
-export const NavoriConfigSchema = z.object({
-  $schema: z.string().optional(),
-  name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "name must be kebab-case"),
-  version: z.string().default("1.0.0"),
-  workspace: z.string().optional(),
-  engines: z.array(z.enum(ENGINES)).min(1),
-  preset: z.string().min(1),
-  language: z.enum(["es", "en"]).default("es"),
-  branchBase: z.string().default("main"),
-  commits: z.enum(["conventional", "conventional-es", "free"]).default("conventional-es"),
-  qualityGate: QualityGateSchema.optional(),
-  sdd: SddSchema.optional(),
-  harness: HarnessSchema.optional(),
-  models: ModelsSchema.optional(),
-  plugins: z.record(z.string(), PluginEntrySchema).optional(),
-  /** Override of which agent owns which skill/managed-block id. Plugins
-   * declare their own recommendedAgent; entries here override that. */
-  agentAssignments: AgentAssignmentsSchema.optional(),
-  skills: SkillsSchema.optional(),
-  progress: ProgressSchema.optional(),
-  monorepo: MonorepoSchema.optional(),
-});
+export const NavoriConfigSchema = z
+  .object({
+    $schema: z.string().optional(),
+    name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "name must be kebab-case"),
+    version: z.string().default("1.0.0"),
+    workspace: z.string().optional(),
+    engines: z.array(z.enum(ENGINES)).min(1),
+    preset: z.string().min(1),
+    language: z.enum(["es", "en"]).default("es"),
+    branchBase: z.string().default("main"),
+    commits: z.enum(["conventional", "conventional-es", "free"]).default("conventional-es"),
+    qualityGate: QualityGateSchema.optional(),
+    sdd: SddSchema.optional(),
+    harness: HarnessSchema.optional(),
+    models: ModelsSchema.optional(),
+    plugins: z.record(z.string(), PluginEntrySchema).optional(),
+    /** Override of which agent owns which skill/managed-block id. Plugins
+     * declare their own recommendedAgent; entries here override that. */
+    agentAssignments: AgentAssignmentsSchema.optional(),
+    skills: SkillsSchema.optional(),
+    progress: ProgressSchema.optional(),
+    monorepo: MonorepoSchema.optional(),
+  })
+  // Preserve unknown top-level fields so downgrades / forward-compat
+  // don't silently destroy data the user added (custom tooling fields,
+  // fields from a newer version of navori-ai, etc).
+  .passthrough();
 
 export type NavoriConfig = z.infer<typeof NavoriConfigSchema>;
 export type NavoriConfigInput = z.input<typeof NavoriConfigSchema>;

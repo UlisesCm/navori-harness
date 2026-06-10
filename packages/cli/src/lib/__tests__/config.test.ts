@@ -64,6 +64,42 @@ describe("writeConfig", () => {
     }
   });
 
+  it("preserves unknown fields through a read/write roundtrip (forward compat)", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      // Simulate a config written by a future version of navori-ai
+      writeFileSync(
+        path,
+        JSON.stringify({
+          $schema: "https://navori.dev/schema/navori.config.v1.json",
+          name: "future-app",
+          engines: ["claude"],
+          preset: "custom",
+          // Fields unknown to v0.1
+          futureFeature: { enabled: true, settings: { x: 1 } },
+          customTeamField: "internal",
+        }),
+        "utf-8",
+      );
+      const config = readConfig(path);
+      // The known fields validate
+      expect(config.name).toBe("future-app");
+      // Unknown fields survive in the parsed object
+      expect((config as unknown as { futureFeature: unknown }).futureFeature).toEqual({
+        enabled: true,
+        settings: { x: 1 },
+      });
+      // Round-trip: writing preserves them
+      writeConfig(path, config);
+      const reread = JSON.parse(readFileSync(path, "utf-8"));
+      expect(reread.futureFeature).toEqual({ enabled: true, settings: { x: 1 } });
+      expect(reread.customTeamField).toBe("internal");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   it("rejects unknown engine", () => {
     const dir = makeTmpDir();
     const path = join(dir, "navori.config.json");
