@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { z } from "zod";
+import { writeFileAtomic } from "./atomic.ts";
 import {
   NavoriConfigSchema,
   type NavoriConfig,
@@ -10,7 +11,7 @@ const SCHEMA_URL = "https://navori.dev/schema/navori.config.v1.json";
 
 export function writeConfig(path: string, input: NavoriConfigInput): void {
   const validated = NavoriConfigSchema.parse({ $schema: SCHEMA_URL, ...input });
-  writeFileSync(path, JSON.stringify(validated, null, 2) + "\n", "utf-8");
+  writeFileAtomic(path, JSON.stringify(validated, null, 2) + "\n");
 }
 
 export class ConfigError extends Error {

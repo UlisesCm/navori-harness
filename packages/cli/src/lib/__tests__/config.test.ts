@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { writeFileSync, readFileSync, rmSync, mkdtempSync } from "node:fs";
+import { writeFileSync, readFileSync, rmSync, mkdtempSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { writeConfig, readConfig, ConfigError } from "../config.ts";
@@ -41,6 +41,24 @@ describe("writeConfig", () => {
           preset: "custom",
         }),
       ).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("writes atomically: no .tmp file remains in the directory", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      writeConfig(path, {
+        name: "atomic-test",
+        engines: ["claude"],
+        preset: "custom",
+      });
+      const remaining = readdirSync(dir);
+      const tmps = remaining.filter((e) => e.includes(".navori.tmp."));
+      expect(tmps).toHaveLength(0);
+      expect(remaining).toContain("navori.config.json");
     } finally {
       rmSync(dir, { recursive: true });
     }
