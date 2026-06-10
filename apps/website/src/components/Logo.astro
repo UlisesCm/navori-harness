@@ -1,14 +1,18 @@
 ---
+import { getLangFromUrl, localizedPath } from "../i18n/utils";
+
 interface Props {
   size?: number;
   withWordmark?: boolean;
   class?: string;
 }
 const { size = 28, withWordmark = true, class: className = "" } = Astro.props;
+const lang = getLangFromUrl(Astro.url);
+const homeHref = localizedPath(lang, "/");
 ---
 
 <a
-  href="/"
+  href={homeHref}
   class:list={["inline-flex items-center gap-2.5 group", className]}
   aria-label="navori home"
 >

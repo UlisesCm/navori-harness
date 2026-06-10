@@ -26,12 +26,17 @@ const pageTitle = title
   : `navori — ${t("site.tagline")}`;
 const pageDescription = description ?? t("site.tagline");
 
-const canonicalUrl = new URL(pathname, Astro.site ?? "https://navori.github.io").toString();
-const altPath = pathname.replace(/^\/en/, "") || "/";
-const altHref = new URL(
-  localizedPath(altLang, altPath),
-  Astro.site ?? "https://navori.github.io",
-).toString();
+const siteOrigin = Astro.site ?? new URL("https://navori.github.io");
+const canonicalUrl = new URL(pathname, siteOrigin).toString();
+
+// Strip both the base path and any /en locale prefix to get the canonical
+// path, then localize it into the alternate language.
+const baseTrimmed = import.meta.env.BASE_URL.replace(/\/$/, "");
+const pathnameNoBase = baseTrimmed && pathname.startsWith(baseTrimmed)
+  ? pathname.slice(baseTrimmed.length)
+  : pathname;
+const altPath = pathnameNoBase.replace(/^\/en(?=\/|$)/, "") || "/";
+const altHref = new URL(localizedPath(altLang, altPath), siteOrigin).toString();
 ---
 
 <!doctype html>
@@ -50,7 +55,7 @@ const altHref = new URL(
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonicalUrl} />
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}favicon.svg`} />
   </head>
   <body>
     <Header lang={lang} />
