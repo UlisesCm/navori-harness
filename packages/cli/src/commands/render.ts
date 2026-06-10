@@ -1,16 +1,19 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig } from "../lib/config.ts";
-import { computeRenderPlan, type AssetPlanEntry } from "../lib/render-plan.ts";
-import { writeFileAtomic } from "../lib/atomic.ts";
-import { createBackup, purgeOldBackups } from "../lib/backup.ts";
+import type { AssetPlanEntry, UpdateAvailable } from "../lib/render-plan.ts";
+import {
+  renderClaudeEngine,
+  type ClaudeEngineResult,
+} from "../engines/claude/index.ts";
 import { renderStatusSymbol, renderStatusLabel, dim, color, brand } from "../lib/style.ts";
 
 /**
  * Run the render flow against `cwd`. Reusable from other commands (e.g. init).
- * Returns the plan summary for the caller to print.
+ * Returns a back-compat shape so existing callers (init.ts) keep working,
+ * plus the full engine result for new callers.
  */
 export function runRender(cwd: string, dryRun = false): {
   ok: boolean;
@@ -19,8 +22,9 @@ export function runRender(cwd: string, dryRun = false): {
   entries: AssetPlanEntry[];
   written: boolean;
   languageFallbacks: string[];
-  updatesAvailable: Array<{ id: string; source: string; fromVersion: string; toVersion: string }>;
+  updatesAvailable: UpdateAvailable[];
   backupPath?: string | null;
+  engineResult?: ClaudeEngineResult;
 } {
   const configPath = `${cwd}/navori.config.json`;
   const claudeMdPath = `${cwd}/CLAUDE.md`;
@@ -39,36 +43,24 @@ export function runRender(cwd: string, dryRun = false): {
   }
 
   const config = readConfig(configPath);
-  const existing = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, "utf-8") : "";
-  const plan = computeRenderPlan(existing, config);
-
-  let backupPath: string | null = null;
-  if (plan.changed && !dryRun) {
-    // Backup BEFORE writing, only when the target file exists (first
-    // render has nothing to back up).
-    if (existsSync(claudeMdPath)) {
-      const handle = createBackup(cwd, ["CLAUDE.md"]);
-      backupPath = handle.path;
-      purgeOldBackups();
-    }
-    writeFileAtomic(claudeMdPath, plan.next);
-  }
+  const engineResult = renderClaudeEngine(cwd, config, { dryRun });
 
   return {
     ok: true,
     filePath: claudeMdPath,
-    entries: plan.entries,
-    written: plan.changed && !dryRun,
-    languageFallbacks: plan.languageFallbacks,
-    updatesAvailable: plan.updatesAvailable,
-    backupPath,
+    entries: engineResult.claudeMdEntries,
+    written: engineResult.written.length > 0,
+    languageFallbacks: engineResult.languageFallbacks,
+    updatesAvailable: engineResult.updatesAvailable,
+    backupPath: engineResult.backupPath,
+    engineResult,
   };
 }
 
 export const renderCommand = defineCommand({
   meta: {
     name: "render",
-    description: "Render managed Core blocks into CLAUDE.md based on navori.config.json",
+    description: "Render managed Core blocks into CLAUDE.md + .claude/ from navori.config.json",
   },
   args: {
     cwd: { type: "string", description: "Directory to render into (default: cwd)" },
@@ -90,7 +82,10 @@ export const renderCommand = defineCommand({
       process.exit(1);
     }
 
-    reportPlan(result.filePath, result.entries, result.written, Boolean(args["dry-run"]));
+    reportClaudeMd(result.filePath, result.entries, result.written, Boolean(args["dry-run"]));
+    if (result.engineResult) {
+      reportEngineFiles(result.engineResult);
+    }
     if (result.languageFallbacks.length > 0) {
       p.log.warn(
         `Language fallback to Spanish for: ${result.languageFallbacks.join(", ")} (English version not available yet)`,
@@ -124,7 +119,7 @@ function summarize(entries: AssetPlanEntry[]): string {
   return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
 }
 
-function reportPlan(file: string, entries: AssetPlanEntry[], changed: boolean, dryRun: boolean): void {
+function reportClaudeMd(file: string, entries: AssetPlanEntry[], changed: boolean, dryRun: boolean): void {
   const lines: string[] = [file];
   for (const e of entries) {
     const sym = renderStatusSymbol(e.status);
@@ -134,5 +129,23 @@ function reportPlan(file: string, entries: AssetPlanEntry[], changed: boolean, d
   if (changed && !dryRun) lines.push(`  ${dim("→ written")}`);
   else if (dryRun) lines.push(`  ${dim("→ dry-run, no write")}`);
   else lines.push(`  ${dim("→ no changes")}`);
+  p.log.message(lines.join("\n"));
+}
+
+function reportEngineFiles(engine: ClaudeEngineResult): void {
+  if (engine.written.length === 0 && engine.skipped.length === 0) return;
+  const lines: string[] = [".claude/"];
+  for (const w of engine.written) {
+    const sym = renderStatusSymbol(w.status);
+    const label = renderStatusLabel(w.status);
+    lines.push(`  ${sym} ${w.path}  ${dim("(")}${label}${dim(")")}`);
+  }
+  for (const s of engine.skipped) {
+    lines.push(`  ${color.yellow("!")} ${s.path}  ${dim("(")}${color.yellow("skipped")}${dim(")")}`);
+    lines.push(`      ${dim(s.reason)}`);
+  }
+  for (const w of engine.warnings) {
+    lines.push(`  ${dim("·")} ${dim(w)}`);
+  }
   p.log.message(lines.join("\n"));
 }

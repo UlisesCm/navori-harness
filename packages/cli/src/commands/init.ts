@@ -720,6 +720,22 @@ function renderInline(cwd: string): void {
   } else {
     p.log.info(`No render needed${summary}`);
   }
+
+  // Surface engine-tree results (agents/skills/settings/hooks)
+  if (result.engineResult) {
+    const written = result.engineResult.written.filter((w) => w.path !== "CLAUDE.md");
+    if (written.length > 0) {
+      const lines = written
+        .slice(0, 12)
+        .map((w) => `  ${dim("+")} ${w.path}`)
+        .join("\n");
+      const more = written.length > 12 ? `\n  ${dim(`… +${written.length - 12} more`)}` : "";
+      p.log.message(`${dim(".claude/ written:")}\n${lines}${more}`);
+    }
+    for (const s of result.engineResult.skipped) {
+      p.log.warn(`Skipped ${s.path}: ${s.reason}`);
+    }
+  }
 }
 
 function cancel(lang: Lang): void {
