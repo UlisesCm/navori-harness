@@ -1,0 +1,115 @@
+---
+// Animated terminal mock for the hero. Lines reveal sequentially via CSS keyframes
+// with staggered animation-delay; no JS needed at runtime.
+const lines = [
+  { kind: "cmd", text: "navori-ai init" },
+  { kind: "info", text: "✓ pnpm monorepo detected" },
+  { kind: "info", text: "✓ engine: claude · cursor · agents-md" },
+  { kind: "info", text: "✓ preset: pnpm-monorepo" },
+  { kind: "render", text: "→ rendering managed assets" },
+  { kind: "ok", text: "  ✓ .claude/agents/leader.md" },
+  { kind: "ok", text: "  ✓ .claude/skills/ticket-intake/SKILL.md" },
+  { kind: "ok", text: "  ✓ .cursor/rules/navori.mdc" },
+  { kind: "ok", text: "  ✓ AGENTS.md" },
+  { kind: "done", text: "Ready in 1.2s · 14 files written" },
+];
+
+const colorByKind: Record<string, string> = {
+  cmd: "text-slate-100",
+  info: "text-sky-300",
+  render: "text-violet-300",
+  ok: "text-emerald-300",
+  done: "text-slate-300",
+};
+---
+
+<div class="relative">
+  {/* floating engine chips */}
+  <div
+    class="absolute -top-3 -left-3 z-10 float-chip"
+    style="animation-delay: 0s;"
+  >
+    <div
+      class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg"
+      style="border-color: var(--color-border-soft); background: white;"
+    >
+      <span class="h-1.5 w-1.5 rounded-full bg-sky-500"></span>
+      Claude Code
+    </div>
+  </div>
+  <div
+    class="absolute -top-3 right-6 z-10 float-chip"
+    style="animation-delay: 1.2s;"
+  >
+    <div
+      class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg"
+      style="border-color: var(--color-border-soft); background: white;"
+    >
+      <span class="h-1.5 w-1.5 rounded-full bg-violet-500"></span>
+      Cursor
+    </div>
+  </div>
+  <div
+    class="absolute bottom-10 -right-4 z-10 float-chip hidden sm:block"
+    style="animation-delay: 2.4s;"
+  >
+    <div
+      class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg"
+      style="border-color: var(--color-border-soft); background: white;"
+    >
+      <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>
+      Copilot
+    </div>
+  </div>
+  <div
+    class="absolute -bottom-2 left-4 z-10 float-chip"
+    style="animation-delay: 3.6s;"
+  >
+    <div
+      class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg"
+      style="border-color: var(--color-border-soft); background: white;"
+    >
+      <span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span>
+      AGENTS.md
+    </div>
+  </div>
+
+  <div class="terminal">
+    <div class="terminal-titlebar">
+      <span class="terminal-dot" style="background: #ef4444aa;"></span>
+      <span class="terminal-dot" style="background: #f59e0baa;"></span>
+      <span class="terminal-dot" style="background: #10b981aa;"></span>
+      <span
+        class="ml-3 text-[11px] uppercase tracking-wider text-slate-400 select-none"
+      >
+        ~/your-repo &nbsp;·&nbsp; zsh
+      </span>
+    </div>
+    <pre
+      class="px-5 py-4 text-[13px] leading-[1.65] whitespace-pre overflow-hidden">
+      {
+        lines.map((line, i) => {
+          const cls = colorByKind[line.kind] ?? "text-slate-300";
+          const delay = `${i * 0.32}s`;
+          const isCmd = line.kind === "cmd";
+          const isLast = i === lines.length - 1;
+          return (
+            <div
+              class:list={["term-line", cls, isLast ? "term-caret" : ""]}
+              style={`animation-delay: ${delay};`}
+            >
+              {isCmd ? (
+                <span>
+                  <span class="text-violet-400 select-none">$</span>{" "}
+                  <span>{line.text}</span>
+                </span>
+              ) : (
+                <span>{line.text}</span>
+              )}
+            </div>
+          );
+        })
+      }
+    </pre>
+  </div>
+</div>

@@ -1,0 +1,125 @@
+---
+import Logo from "./Logo.astro";
+import { useTranslations, alternateLang, localizedPath } from "../i18n/utils";
+import type { Lang } from "../i18n/ui";
+
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+const altLang = alternateLang(lang);
+const altHref = localizedPath(altLang, "/");
+---
+
+<header
+  class="sticky top-0 z-40 w-full border-b backdrop-blur-md"
+  style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 30%);"
+  data-header
+>
+  <div class="container-prose flex h-14 items-center justify-between">
+    <Logo />
+
+    <nav class="flex items-center gap-1 text-sm">
+      <a
+        href={localizedPath(lang, "/docs/init")}
+        class="px-3 py-2 rounded-md hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
+      >
+        {t("nav.docs")}
+      </a>
+      <a
+        href={localizedPath(lang, "/quickstart")}
+        class="px-3 py-2 rounded-md hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
+      >
+        {t("nav.quickstart")}
+      </a>
+      <span
+        class="mx-2 hidden h-4 w-px sm:inline-block"
+        style="background: var(--color-border-soft);"></span>
+      <a
+        href="https://github.com/navori-ai/navori-ai"
+        target="_blank"
+        rel="noreferrer"
+        class="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-md hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.22 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.74.54 1.49v2.2c0 .21.15.46.55.38A8 8 0 0016 8c0-4.42-3.58-8-8-8z"
+          ></path>
+        </svg>
+        GitHub
+      </a>
+
+      <button
+        type="button"
+        class="ml-1 inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+        aria-label="Toggle theme"
+        data-theme-toggle
+      >
+        <svg
+          class="hidden dark:inline-block"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+        </svg>
+        <svg
+          class="dark:hidden"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+        </svg>
+      </button>
+
+      <a
+        href={altHref}
+        class="ml-1 inline-flex items-center justify-center h-9 px-3 rounded-md text-xs font-medium uppercase tracking-wider hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+        aria-label={`Switch language to ${t("lang.switchTo")}`}
+      >
+        {altLang.toUpperCase()}
+      </a>
+    </nav>
+  </div>
+</header>
+
+<script is:inline>
+  // theme bootstrap and toggle — runs inline to avoid FOUC
+  (function () {
+    const stored = localStorage.getItem("navori-theme");
+    const prefersDark = window.matchMedia(
+      "(prefers-color-scheme: dark)",
+    ).matches;
+    const initial = stored ?? (prefersDark ? "dark" : "light");
+    if (initial === "dark") document.documentElement.classList.add("dark");
+
+    document.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const btn = target.closest("[data-theme-toggle]");
+      if (!btn) return;
+      const isDark = document.documentElement.classList.toggle("dark");
+      localStorage.setItem("navori-theme", isDark ? "dark" : "light");
+    });
+  })();
+</script>

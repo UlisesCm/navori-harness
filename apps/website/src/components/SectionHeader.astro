@@ -1,0 +1,44 @@
+---
+interface Props {
+  eyebrow: string;
+  title: string;
+  subtitle?: string;
+  align?: "center" | "left";
+}
+const { eyebrow, title, subtitle, align = "center" } = Astro.props;
+---
+
+<div
+  class:list={[
+    "max-w-3xl",
+    align === "center" ? "mx-auto text-center" : "text-left",
+  ]}
+>
+  <span
+    class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+  >
+    {eyebrow}
+  </span>
+  <h2
+    class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+  >
+    <span class="font-sans font-semibold">{title.split(",")[0]}</span>{
+      title.includes(",") && (
+        <>
+          <span class="font-sans font-semibold">,</span>
+          <span class="display-italic gradient-text">
+            {" "}
+            {title.split(",").slice(1).join(",").trim()}
+          </span>
+        </>
+      )
+    }
+  </h2>
+  {
+    subtitle && (
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        {subtitle}
+      </p>
+    )
+  }
+</div>

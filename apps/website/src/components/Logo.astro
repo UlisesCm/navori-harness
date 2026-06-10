@@ -1,0 +1,62 @@
+---
+interface Props {
+  size?: number;
+  withWordmark?: boolean;
+  class?: string;
+}
+const { size = 28, withWordmark = true, class: className = "" } = Astro.props;
+---
+
+<a
+  href="/"
+  class:list={["inline-flex items-center gap-2.5 group", className]}
+  aria-label="navori-ai home"
+>
+  <span
+    class="relative inline-flex items-center justify-center rounded-md"
+    style={`width:${size}px;height:${size}px;`}
+  >
+    <svg
+      viewBox="0 0 32 32"
+      width={size}
+      height={size}
+      fill="none"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id="navori-mark" x1="0" y1="0" x2="32" y2="32">
+          <stop offset="0" stop-color="var(--color-sky-500)" />
+          <stop offset="1" stop-color="var(--color-violet-600)" />
+        </linearGradient>
+      </defs>
+      <rect
+        x="1.5"
+        y="1.5"
+        width="29"
+        height="29"
+        rx="7"
+        fill="url(#navori-mark)"
+      />
+      <path
+        d="M9 22 L9 10 L16 19 L16 10 M19 10 L23 22 L23 10"
+        stroke="white"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        fill="none"
+      />
+    </svg>
+  </span>
+  {
+    withWordmark && (
+      <span class="flex items-baseline gap-1">
+        <span class="font-sans font-semibold tracking-tight text-[15px]">
+          navori
+        </span>
+        <span class="display-italic text-[16px] text-sky-700 dark:text-sky-300">
+          ai
+        </span>
+      </span>
+    )
+  }
+</a>

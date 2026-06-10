@@ -1,0 +1,176 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { localizedPath } from "../../i18n/utils";
+
+const lang = "en" as const;
+
+const steps = [
+  {
+    n: "01",
+    title: "Install the CLI",
+    body:
+      "No global install required. Use npx, pnpm dlx, or bunx — whatever you use day-to-day.",
+    code: "# npm\nnpx navori-ai init\n\n# pnpm\npnpm dlx navori-ai init\n\n# bun\nbunx navori-ai init",
+  },
+  {
+    n: "02",
+    title: "Answer the wizard",
+    body:
+      "init detects your stack and asks 4 questions. In under a minute you get navori.config.json + the managed assets.",
+    code: "? Project name › my-app\n? Engines (space to toggle) ›\n  ◉ claude   ◉ cursor   ◯ copilot   ◉ agents-md\n? Preset › pnpm-monorepo\n? Branch base › main\n\n✓ navori.config.json written\n✓ 14 managed files rendered to:\n   .claude/  ·  9 files\n   .cursor/  ·  3 files\n   AGENTS.md\n   .gitignore (updated)",
+  },
+  {
+    n: "03",
+    title: "Commit and work as usual",
+    body:
+      "navori.config.json is the single source of truth. Managed blocks are clearly marked — everything else is yours.",
+    code: "$ git add navori.config.json .claude/ .cursor/ AGENTS.md\n$ git commit -m \"chore: bootstrap navori-ai harness\"",
+  },
+  {
+    n: "04",
+    title: "Re-render whenever you change something",
+    body:
+      "Add plugins, change engines, or bump the version. sync only touches managed blocks; your custom code is left alone.",
+    code: "# Add a plugin\n$ npx navori-ai add engram\n$ npx navori-ai render\n\n# Upgrade to the latest version\n$ npx navori-ai@latest sync",
+  },
+];
+
+const checklist = [
+  "You have Node.js 20 or higher installed.",
+  "You're inside a git repo (init doesn't touch .git but assumes it exists).",
+  "You know which AI engines you'll use — you can always add more later.",
+];
+---
+
+<BaseLayout
+  lang={lang}
+  title="Quickstart"
+  description="From zero to productive with navori-ai in 4 steps."
+>
+  <section
+    class="relative overflow-hidden border-b"
+    style="border-color: var(--color-border-soft);"
+  >
+    <div class="absolute inset-0 grid-bg opacity-50 pointer-events-none"></div>
+    <div class="absolute inset-0 glow-hero opacity-70 pointer-events-none"></div>
+
+    <div class="container-prose relative py-16 sm:py-24">
+      <span class="eyebrow">
+        <span class="h-1.5 w-1.5 rounded-full bg-violet-500"></span>
+        Quickstart
+      </span>
+      <h1
+        class="mt-5 text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] tracking-tight"
+      >
+        <span class="font-sans font-semibold">From zero to productive</span>
+        <br />
+        <span class="display-italic gradient-text">in four steps.</span>
+      </h1>
+      <p
+        class="mt-5 max-w-2xl text-base sm:text-lg text-slate-700 dark:text-slate-300"
+      >
+        This guide assumes Node 20+ and an initialized git repo. If you already
+        have a hand-rolled .claude/, navori coexists without overwriting it.
+      </p>
+    </div>
+  </section>
+
+  <section class="container-prose py-16">
+    <div class="grid gap-8 lg:grid-cols-[1fr_320px]">
+      <div class="space-y-12">
+        {
+          steps.map((s) => (
+            <article class="grid gap-5 sm:grid-cols-[80px_1fr]">
+              <div>
+                <span
+                  class="display-italic text-5xl gradient-text leading-none block"
+                  aria-hidden="true"
+                >
+                  {s.n}
+                </span>
+              </div>
+              <div class="min-w-0">
+                <h2 class="text-xl sm:text-2xl font-semibold tracking-tight">
+                  {s.title}
+                </h2>
+                <p class="mt-2 text-base text-slate-600 dark:text-slate-400 max-w-2xl">
+                  {s.body}
+                </p>
+                <pre
+                  class="mt-4 rounded-lg border px-5 py-4 text-[13px] font-mono leading-relaxed overflow-auto"
+                  style="background: var(--color-night); color: rgb(226 232 240); border-color: var(--color-border-soft);"
+                >{s.code}</pre>
+              </div>
+            </article>
+          ))
+        }
+      </div>
+
+      <aside class="lg:sticky lg:top-20 lg:self-start">
+        <div
+          class="rounded-xl border p-6"
+          style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 40%);"
+        >
+          <h3
+            class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >
+            Before you start
+          </h3>
+          <ul class="mt-4 space-y-3">
+            {
+              checklist.map((c) => (
+                <li class="flex gap-3 text-sm text-slate-700 dark:text-slate-300">
+                  <svg
+                    class="mt-0.5 shrink-0 text-sky-600 dark:text-sky-400"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>{c}</span>
+                </li>
+              ))
+            }
+          </ul>
+        </div>
+
+        <div
+          class="mt-6 rounded-xl border p-6"
+          style="border-color: var(--color-border-soft);"
+        >
+          <h3
+            class="text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+          >
+            Next
+          </h3>
+          <ul class="mt-4 space-y-2 text-sm">
+            <li>
+              <a
+                class="hover:text-sky-700 dark:hover:text-sky-300"
+                href={localizedPath(lang, "/docs/init")}>navori-ai init</a
+              >
+            </li>
+            <li>
+              <a
+                class="hover:text-sky-700 dark:hover:text-sky-300"
+                href={localizedPath(lang, "/docs/add")}>navori-ai add</a
+              >
+            </li>
+            <li>
+              <a
+                class="hover:text-sky-700 dark:hover:text-sky-300"
+                href={localizedPath(lang, "/docs/sync")}>navori-ai sync</a
+              >
+            </li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </section>
+</BaseLayout>

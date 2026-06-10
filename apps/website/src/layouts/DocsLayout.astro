@@ -1,0 +1,64 @@
+---
+import BaseLayout from "./BaseLayout.astro";
+import { commandOrder } from "../content/commands";
+import { localizedPath, useTranslations } from "../i18n/utils";
+import type { Lang } from "../i18n/ui";
+
+interface Props {
+  lang: Lang;
+  title: string;
+  description?: string;
+  current?: string;
+}
+
+const { lang, title, description, current } = Astro.props;
+const t = useTranslations(lang);
+
+const docsLabel = lang === "es" ? "Comandos" : "Commands";
+---
+
+<BaseLayout lang={lang} title={title} description={description}>
+  <div class="container-prose py-12 grid gap-10 lg:grid-cols-[220px_1fr]">
+    <aside class="lg:sticky lg:top-20 lg:self-start">
+      <h2
+        class="text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+      >
+        {docsLabel}
+      </h2>
+      <nav class="mt-4 flex flex-col gap-0.5">
+        {
+          commandOrder.map((c) => (
+            <a
+              href={localizedPath(lang, `/docs/${c}`)}
+              class:list={[
+                "rounded-md px-3 py-1.5 text-sm font-mono transition-colors",
+                current === c
+                  ? "bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300"
+                  : "text-slate-600 dark:text-slate-400 hover:text-ink dark:hover:text-slate-100",
+              ]}
+            >
+              navori-ai {c}
+            </a>
+          ))
+        }
+      </nav>
+
+      <div
+        class="mt-8 rounded-lg border p-4 text-xs"
+        style="border-color: var(--color-border-soft);"
+      >
+        <p class="text-slate-500 dark:text-slate-400">
+          {
+            lang === "es"
+              ? "Sin manual aún. Esta página es la referencia."
+              : "No manpage yet. This page is the reference."
+          }
+        </p>
+      </div>
+    </aside>
+
+    <article class="min-w-0">
+      <slot />
+    </article>
+  </div>
+</BaseLayout>

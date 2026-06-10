@@ -1,0 +1,40 @@
+---
+import { useTranslations } from "../../i18n/utils";
+import type { Lang } from "../../i18n/ui";
+
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+const tags = [
+  { label: "MIT License" },
+  { label: "Node 20+" },
+  { label: "Zero runtime deps" },
+  { label: "Works with Claude Code" },
+  { label: "Works with Cursor" },
+  { label: "Works with AGENTS.md" },
+];
+---
+
+<section
+  class="border-y py-6"
+  style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 40%);"
+>
+  <div
+    class="container-prose flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-500"
+  >
+    {
+      tags.map((t, i) => (
+        <>
+          <span class="flex items-center gap-2">
+            <span class="h-1 w-1 rounded-full bg-violet-500" />
+            {t.label}
+          </span>
+          {i < tags.length - 1 && (
+            <span class="hidden h-px w-4 bg-slate-300 dark:bg-slate-700 sm:inline-block" />
+          )}
+        </>
+      ))
+    }
+  </div>
+</section>

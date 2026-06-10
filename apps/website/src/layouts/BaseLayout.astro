@@ -1,0 +1,62 @@
+---
+import "../styles/global.css";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import { useTranslations, alternateLang, localizedPath } from "../i18n/utils";
+import type { Lang } from "../i18n/ui";
+
+interface Props {
+  lang: Lang;
+  title?: string;
+  description?: string;
+  pathname?: string;
+}
+
+const {
+  lang,
+  title,
+  description,
+  pathname = Astro.url.pathname,
+} = Astro.props;
+const t = useTranslations(lang);
+const altLang = alternateLang(lang);
+
+const pageTitle = title
+  ? `${title} — navori-ai`
+  : `navori-ai — ${t("site.tagline")}`;
+const pageDescription = description ?? t("site.tagline");
+
+const canonicalUrl = new URL(pathname, Astro.site ?? "https://navori-ai.github.io").toString();
+const altPath = pathname.replace(/^\/en/, "") || "/";
+const altHref = new URL(
+  localizedPath(altLang, altPath),
+  Astro.site ?? "https://navori-ai.github.io",
+).toString();
+---
+
+<!doctype html>
+<html lang={lang === "es" ? "es-MX" : "en"}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{pageTitle}</title>
+    <meta name="description" content={pageDescription} />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="alternate" hreflang={altLang} href={altHref} />
+    <link rel="alternate" hreflang={lang} href={canonicalUrl} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <Header lang={lang} />
+    <main>
+      <slot />
+    </main>
+    <Footer lang={lang} />
+  </body>
+</html>

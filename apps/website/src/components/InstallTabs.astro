@@ -1,0 +1,109 @@
+---
+const cmds = [
+  { id: "npx", label: "npx", value: "npx navori-ai init" },
+  { id: "pnpm", label: "pnpm", value: "pnpm dlx navori-ai init" },
+  { id: "bun", label: "bun", value: "bunx navori-ai init" },
+];
+---
+
+<div
+  class="rounded-lg border overflow-hidden font-mono text-sm"
+  style="border-color: var(--color-border-soft); background: color-mix(in oklab, white, transparent 40%);"
+  data-install-tabs
+>
+  <div
+    class="flex items-center justify-between border-b px-3 py-1.5"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 20%);"
+  >
+    <div class="flex items-center gap-0.5">
+      {
+        cmds.map((c, i) => (
+          <button
+            type="button"
+            class:list={[
+              "px-2.5 py-1 rounded-md text-xs transition-colors",
+              i === 0
+                ? "bg-white dark:bg-slate-800/60 shadow-sm text-ink dark:text-slate-100"
+                : "text-slate-500 dark:text-slate-400 hover:text-ink dark:hover:text-slate-200",
+            ]}
+            data-tab={c.id}
+            aria-selected={i === 0 ? "true" : "false"}
+          >
+            {c.label}
+          </button>
+        ))
+      }
+    </div>
+    <button
+      type="button"
+      class="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
+      data-copy
+      aria-label="Copy command"
+    >
+      <span data-copy-label>copy</span>
+    </button>
+  </div>
+
+  <div class="px-4 py-3 flex items-center gap-2 bg-white/0">
+    <span class="text-violet-600 dark:text-violet-400 select-none">$</span>
+    {
+      cmds.map((c, i) => (
+        <code
+          class:list={["flex-1", i === 0 ? "block" : "hidden"]}
+          data-panel={c.id}
+          data-value={c.value}
+        >
+          {c.value}
+        </code>
+      ))
+    }
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-install-tabs]").forEach((root) => {
+    const tabs = root.querySelectorAll<HTMLButtonElement>("[data-tab]");
+    const panels = root.querySelectorAll<HTMLElement>("[data-panel]");
+    const copyBtn = root.querySelector<HTMLButtonElement>("[data-copy]");
+    const copyLabel = root.querySelector<HTMLElement>("[data-copy-label]");
+
+    let active = tabs[0]?.dataset.tab ?? "";
+
+    tabs.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        active = btn.dataset.tab ?? "";
+        tabs.forEach((t) => {
+          const on = t.dataset.tab === active;
+          t.setAttribute("aria-selected", on ? "true" : "false");
+          t.classList.toggle("bg-white", on);
+          t.classList.toggle("dark:bg-slate-800/60", on);
+          t.classList.toggle("shadow-sm", on);
+          t.classList.toggle("text-ink", on);
+          t.classList.toggle("dark:text-slate-100", on);
+          t.classList.toggle("text-slate-500", !on);
+          t.classList.toggle("dark:text-slate-400", !on);
+        });
+        panels.forEach((p) => {
+          p.classList.toggle("hidden", p.dataset.panel !== active);
+          p.classList.toggle("block", p.dataset.panel === active);
+        });
+      });
+    });
+
+    copyBtn?.addEventListener("click", async () => {
+      const panel = root.querySelector<HTMLElement>(`[data-panel="${active}"]`);
+      const value = panel?.dataset.value ?? "";
+      try {
+        await navigator.clipboard.writeText(value);
+        if (copyLabel) {
+          copyLabel.textContent = "copied";
+          setTimeout(() => {
+            if (copyLabel) copyLabel.textContent = "copy";
+          }, 1400);
+        }
+      } catch {
+        // noop
+      }
+    });
+  });
+</script>

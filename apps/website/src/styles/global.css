@@ -1,0 +1,349 @@
+@import "tailwindcss";
+
+@import "@fontsource/instrument-serif/400.css";
+@import "@fontsource/instrument-serif/400-italic.css";
+@import "@fontsource/geist-sans/400.css";
+@import "@fontsource/geist-sans/500.css";
+@import "@fontsource/geist-sans/600.css";
+@import "@fontsource/geist-sans/700.css";
+@import "@fontsource/geist-mono/400.css";
+@import "@fontsource/geist-mono/500.css";
+
+/* dark mode strategy: opt-in via the `.dark` class on <html> */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans:
+    "Geist Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  --font-display: "Instrument Serif", "Times New Roman", serif;
+
+  /* sky (primary) */
+  --color-sky-50: #f0f9ff;
+  --color-sky-100: #e0f2fe;
+  --color-sky-300: #7dd3fc;
+  --color-sky-400: #38bdf8;
+  --color-sky-500: #0ea5e9;
+  --color-sky-600: #0284c7;
+  --color-sky-700: #0369a1;
+  --color-sky-900: #0c4a6e;
+
+  /* violet (secondary) */
+  --color-violet-300: #c4b5fd;
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #8b5cf6;
+  --color-violet-600: #7c3aed;
+  --color-violet-700: #6d28d9;
+  --color-violet-900: #4c1d95;
+
+  /* surfaces (intentionally not pure white / pure black) */
+  --color-ivory: #fafaf7;
+  --color-ivory-2: #f4f3ec;
+  --color-ink: #0f172a;
+  --color-night: #0a0e1a;
+  --color-night-2: #0e1426;
+  --color-night-3: #141b32;
+
+  /* semantic */
+  --color-border-soft: #e6e4d8;
+  --color-border-soft-dark: #1f2742;
+
+  --radius-pill: 9999px;
+}
+
+/* base reset / typography */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-ivory text-ink font-sans;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  html.dark body {
+    @apply bg-night text-slate-100;
+  }
+
+  ::selection {
+    background: var(--color-violet-400);
+    color: var(--color-night);
+  }
+
+  /* focus ring */
+  :focus-visible {
+    outline: 2px solid var(--color-sky-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  .container-prose {
+    @apply mx-auto w-full max-w-6xl px-6 sm:px-8;
+  }
+
+  .container-narrow {
+    @apply mx-auto w-full max-w-4xl px-6 sm:px-8;
+  }
+
+  .display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    line-height: 0.98;
+  }
+
+  .display-italic {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: -0.025em;
+    line-height: 0.96;
+  }
+
+  .eyebrow {
+    @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] font-medium;
+    border-color: var(--color-border-soft);
+    color: var(--color-sky-700);
+    background: color-mix(in oklab, var(--color-sky-50), transparent 30%);
+  }
+
+  html.dark .eyebrow {
+    border-color: var(--color-border-soft-dark);
+    color: var(--color-sky-300);
+    background: color-mix(in oklab, var(--color-violet-900), transparent 70%);
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all;
+  }
+
+  .btn-primary {
+    color: white;
+    background: linear-gradient(
+      135deg,
+      var(--color-sky-500) 0%,
+      var(--color-violet-600) 100%
+    );
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.15) inset,
+      0 6px 24px -10px rgba(124, 58, 237, 0.55),
+      0 2px 10px -4px rgba(14, 165, 233, 0.45);
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    filter: saturate(1.08);
+  }
+
+  .btn-ghost {
+    @apply border;
+    border-color: var(--color-border-soft);
+    color: var(--color-ink);
+  }
+
+  html.dark .btn-ghost {
+    border-color: var(--color-border-soft-dark);
+    color: rgb(226 232 240);
+  }
+
+  .btn-ghost:hover {
+    border-color: var(--color-sky-500);
+    color: var(--color-sky-700);
+  }
+
+  html.dark .btn-ghost:hover {
+    color: var(--color-sky-300);
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+    background-size: 56px 56px;
+    background-position: -1px -1px;
+  }
+
+  html.dark .grid-bg {
+    background-image:
+      linear-gradient(to right, rgba(148, 163, 184, 0.07) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
+  }
+
+  .glow-hero {
+    background:
+      radial-gradient(
+        60% 60% at 15% 10%,
+        color-mix(in oklab, var(--color-sky-400), transparent 75%) 0%,
+        transparent 70%
+      ),
+      radial-gradient(
+        50% 50% at 85% 30%,
+        color-mix(in oklab, var(--color-violet-500), transparent 80%) 0%,
+        transparent 70%
+      );
+  }
+
+  .card {
+    @apply rounded-xl border p-6 transition-all;
+    border-color: var(--color-border-soft);
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(6px);
+  }
+
+  html.dark .card {
+    border-color: var(--color-border-soft-dark);
+    background: color-mix(in oklab, var(--color-night-2), transparent 25%);
+  }
+
+  .card:hover {
+    border-color: var(--color-sky-500);
+    transform: translateY(-2px);
+  }
+
+  .terminal {
+    @apply rounded-xl border overflow-hidden font-mono text-sm;
+    border-color: var(--color-border-soft);
+    background: var(--color-night);
+    color: rgb(226 232 240);
+    box-shadow:
+      0 20px 60px -25px rgba(14, 165, 233, 0.35),
+      0 30px 80px -30px rgba(124, 58, 237, 0.45);
+  }
+
+  html.dark .terminal {
+    border-color: var(--color-border-soft-dark);
+  }
+
+  .terminal-titlebar {
+    @apply flex items-center gap-2 border-b px-4 py-2.5;
+    border-color: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .terminal-dot {
+    @apply h-2.5 w-2.5 rounded-full;
+  }
+
+  .gradient-text {
+    background: linear-gradient(
+      120deg,
+      var(--color-sky-600) 0%,
+      var(--color-violet-600) 60%,
+      var(--color-violet-500) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  html.dark .gradient-text {
+    background: linear-gradient(
+      120deg,
+      var(--color-sky-300) 0%,
+      var(--color-violet-300) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* divider used between bands */
+  .hairline {
+    @apply h-px w-full;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--color-border-soft) 30%,
+      var(--color-border-soft) 70%,
+      transparent 100%
+    );
+  }
+
+  html.dark .hairline {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--color-border-soft-dark) 30%,
+      var(--color-border-soft-dark) 70%,
+      transparent 100%
+    );
+  }
+}
+
+/* terminal typewriter — staged reveal of lines */
+@keyframes lineIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes caret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes floatChip {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.term-line {
+  opacity: 0;
+  animation: lineIn 0.35s ease-out forwards;
+}
+
+.term-caret::after {
+  content: "▍";
+  margin-left: 2px;
+  animation: caret 1.05s steps(1) infinite;
+  color: var(--color-sky-400);
+}
+
+.float-chip {
+  animation: floatChip 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .term-line {
+    animation: none;
+    opacity: 1;
+  }
+  .term-caret::after {
+    animation: none;
+  }
+  .float-chip {
+    animation: none;
+  }
+}

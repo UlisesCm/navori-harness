@@ -1,0 +1,24 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Hero from "../components/Hero.astro";
+import Trustband from "../components/sections/Trustband.astro";
+import Problem from "../components/sections/Problem.astro";
+import Layers from "../components/sections/Layers.astro";
+import Commands from "../components/sections/Commands.astro";
+import Engines from "../components/sections/Engines.astro";
+import Quickstart from "../components/sections/Quickstart.astro";
+import FAQ from "../components/sections/FAQ.astro";
+
+const lang = "es" as const;
+---
+
+<BaseLayout lang={lang}>
+  <Hero lang={lang} />
+  <Trustband lang={lang} />
+  <Problem lang={lang} />
+  <Layers lang={lang} />
+  <Commands lang={lang} />
+  <Engines lang={lang} />
+  <Quickstart lang={lang} />
+  <FAQ lang={lang} />
+</BaseLayout>

@@ -1,0 +1,189 @@
+---
+import SectionHeader from "../SectionHeader.astro";
+import { useTranslations } from "../../i18n/utils";
+import type { Lang } from "../../i18n/ui";
+
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+const commands = [
+  {
+    id: "init",
+    desc: t("commands.init.desc"),
+    output: [
+      "$ navori-ai init",
+      "? Project name › your-app",
+      "? Engines (space to toggle) ›",
+      "  ◉ claude   ◉ cursor   ◯ copilot   ◉ agents-md",
+      "? Preset › pnpm-monorepo",
+      "✓ navori.config.json written",
+      "✓ 14 managed files rendered",
+    ],
+  },
+  {
+    id: "add",
+    desc: t("commands.add.desc"),
+    output: [
+      "$ navori-ai add engram",
+      "→ resolving dependencies",
+      "  ✓ engram@0.4.2",
+      "  ✓ requires: settings.json patch",
+      "  ✓ requires: skill engram-protocol",
+      "✓ plugin engram added · rerun render",
+    ],
+  },
+  {
+    id: "render",
+    desc: t("commands.render.desc"),
+    output: [
+      "$ navori-ai render",
+      "→ resolving 5 layers",
+      "→ writing managed blocks",
+      "  ✓ .claude/  ·  9 files",
+      "  ✓ .cursor/  ·  3 files",
+      "  ✓ AGENTS.md",
+      "✓ Done in 0.9s",
+    ],
+  },
+  {
+    id: "sync",
+    desc: t("commands.sync.desc"),
+    output: [
+      "$ navori-ai sync",
+      "→ checking managed markers",
+      "  · 12 unchanged",
+      "  ↑ 2 updated  (.claude/agents/leader.md, AGENTS.md)",
+      "  ! 0 conflicts",
+      "✓ Custom code preserved",
+    ],
+  },
+  {
+    id: "doctor",
+    desc: t("commands.doctor.desc"),
+    output: [
+      "$ navori-ai doctor",
+      "✓ config schema valid",
+      "✓ all plugins resolvable",
+      "✓ no engine conflicts",
+      "! drift: .cursor/rules/navori.mdc edited outside markers",
+      "→ run `navori-ai sync --force` to reconcile",
+    ],
+  },
+];
+---
+
+<section class="py-24 sm:py-28">
+  <div class="container-prose">
+    <SectionHeader
+      eyebrow={t("commands.eyebrow")}
+      title={t("commands.title")}
+    />
+
+    <div
+      class="mt-14 grid gap-6 lg:grid-cols-[280px_1fr]"
+      data-commands
+    >
+      {/* tabs */}
+      <div
+        role="tablist"
+        aria-label="commands"
+        class="flex flex-row overflow-x-auto lg:flex-col lg:overflow-visible gap-1 border-l-0 lg:border-l"
+        style="border-color: var(--color-border-soft);"
+      >
+        {
+          commands.map((c, i) => (
+            <button
+              type="button"
+              role="tab"
+              data-cmd={c.id}
+              aria-selected={i === 0 ? "true" : "false"}
+              class:list={[
+                "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors rounded-md lg:rounded-none lg:border-l-2 lg:-ml-px",
+                i === 0
+                  ? "bg-white dark:bg-night-2 lg:bg-transparent lg:border-sky-500"
+                  : "lg:border-transparent text-slate-600 dark:text-slate-400 hover:text-ink dark:hover:text-slate-100",
+              ]}
+              style={i === 0 ? "border-color: var(--color-sky-500);" : ""}
+            >
+              <span class="font-mono text-xs text-slate-400 mt-0.5">/</span>
+              <span class="flex-1 min-w-0">
+                <span class="font-mono text-sm font-medium">{c.id}</span>
+                <span class="block mt-0.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
+                  {c.desc}
+                </span>
+              </span>
+            </button>
+          ))
+        }
+      </div>
+
+      {/* panel — terminal output */}
+      <div class="min-h-[320px]">
+        {
+          commands.map((c, i) => (
+            <div
+              data-panel={c.id}
+              class:list={["terminal", i === 0 ? "block" : "hidden"]}
+            >
+              <div class="terminal-titlebar">
+                <span class="terminal-dot" style="background: #ef4444aa;"></span>
+                <span class="terminal-dot" style="background: #f59e0baa;"></span>
+                <span class="terminal-dot" style="background: #10b981aa;"></span>
+                <span class="ml-3 text-[11px] uppercase tracking-wider text-slate-400">
+                  navori-ai {c.id}
+                </span>
+              </div>
+              <pre class="overflow-auto px-5 py-4 text-[13px] leading-[1.7]">
+{c.output.map((line) => {
+                  const isCmd = line.startsWith("$ ");
+                  const isOk = line.startsWith("✓");
+                  const isWarn = line.startsWith("!");
+                  const isArrow = line.startsWith("→") || line.startsWith("↑");
+                  const cls = isCmd
+                    ? "text-slate-100"
+                    : isOk
+                    ? "text-emerald-300"
+                    : isWarn
+                    ? "text-amber-300"
+                    : isArrow
+                    ? "text-violet-300"
+                    : "text-slate-300";
+                  return <div class={cls}>{line}</div>;
+                })}
+              </pre>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-commands]").forEach((root) => {
+    const tabs = root.querySelectorAll<HTMLButtonElement>("[data-cmd]");
+    const panels = root.querySelectorAll<HTMLElement>("[data-panel]");
+
+    tabs.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const target = btn.dataset.cmd;
+        tabs.forEach((t) => {
+          const on = t.dataset.cmd === target;
+          t.setAttribute("aria-selected", on ? "true" : "false");
+          t.classList.toggle("bg-white", on);
+          t.classList.toggle("dark:bg-night-2", on);
+          t.classList.toggle("lg:bg-transparent", on);
+          t.classList.toggle("lg:border-sky-500", on);
+          t.classList.toggle("lg:border-transparent", !on);
+          t.classList.toggle("text-slate-600", !on);
+          t.classList.toggle("dark:text-slate-400", !on);
+        });
+        panels.forEach((p) => {
+          p.classList.toggle("hidden", p.dataset.panel !== target);
+          p.classList.toggle("block", p.dataset.panel === target);
+        });
+      });
+    });
+  });
+</script>

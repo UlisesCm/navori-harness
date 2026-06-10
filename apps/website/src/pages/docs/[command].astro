@@ -1,0 +1,26 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CommandDocBody from "../../components/CommandDocBody.astro";
+import { commandDocs, commandOrder } from "../../content/commands";
+
+export function getStaticPaths() {
+  return commandOrder.map((c) => ({ params: { command: c } }));
+}
+
+const { command } = Astro.params;
+const lang = "es" as const;
+const doc = commandDocs[lang][command as string];
+
+if (!doc) {
+  throw new Error(`Unknown command: ${command}`);
+}
+---
+
+<DocsLayout
+  lang={lang}
+  title={`navori-ai ${doc.title}`}
+  description={doc.summary}
+  current={doc.id}
+>
+  <CommandDocBody doc={doc} lang={lang} />
+</DocsLayout>

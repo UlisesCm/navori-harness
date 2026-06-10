@@ -1,0 +1,77 @@
+---
+import SectionHeader from "../SectionHeader.astro";
+import { useTranslations, localizedPath } from "../../i18n/utils";
+import type { Lang } from "../../i18n/ui";
+
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+const steps = [
+  {
+    n: "01",
+    title: t("quickstart.step1.title"),
+    body: t("quickstart.step1.body"),
+    code: "npx navori-ai init",
+  },
+  {
+    n: "02",
+    title: t("quickstart.step2.title"),
+    body: t("quickstart.step2.body"),
+    code: "? Project › my-app\n? Engines › claude, cursor\n? Preset › pnpm-monorepo\n✓ Ready",
+  },
+  {
+    n: "03",
+    title: t("quickstart.step3.title"),
+    body: t("quickstart.step3.body"),
+    code: "$ vim navori.config.json\n$ npx navori-ai render\n$ git add . && git commit",
+  },
+];
+---
+
+<section class="py-24 sm:py-28">
+  <div class="container-prose">
+    <SectionHeader
+      eyebrow={t("quickstart.eyebrow")}
+      title={t("quickstart.title")}
+    />
+
+    <div class="mt-14 grid gap-6 md:grid-cols-3">
+      {
+        steps.map((s) => (
+          <article class="relative">
+            <div
+              class="rounded-xl border p-6 h-full flex flex-col"
+              style="border-color: var(--color-border-soft); background: white;"
+            >
+              <span
+                class="display-italic text-4xl gradient-text leading-none"
+                aria-hidden="true"
+              >
+                {s.n}
+              </span>
+              <h3 class="mt-4 text-lg font-semibold tracking-tight">
+                {s.title}
+              </h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {s.body}
+              </p>
+              <pre
+                class="mt-5 rounded-md px-4 py-3 text-xs font-mono leading-relaxed overflow-auto"
+                style="background: var(--color-night); color: rgb(226 232 240);">{s.code}</pre>
+            </div>
+          </article>
+        ))
+      }
+    </div>
+
+    <div class="mt-10 flex justify-center">
+      <a class="btn btn-ghost" href={localizedPath(lang, "/quickstart")}>
+        {lang === "es" ? "Quickstart completo" : "Full quickstart"}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14M13 5l7 7-7 7"></path>
+        </svg>
+      </a>
+    </div>
+  </div>
+</section>

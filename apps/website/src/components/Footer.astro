@@ -1,0 +1,82 @@
+---
+import Logo from "./Logo.astro";
+import { useTranslations, localizedPath } from "../i18n/utils";
+import type { Lang } from "../i18n/ui";
+
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+---
+
+<footer
+  class="mt-32 border-t"
+  style="border-color: var(--color-border-soft);"
+>
+  <div class="container-prose py-12 grid gap-10 md:grid-cols-3">
+    <div class="space-y-3">
+      <Logo />
+      <p class="text-sm text-slate-600 dark:text-slate-400 max-w-sm">
+        {t("footer.tagline")}
+      </p>
+    </div>
+
+    <div class="space-y-3">
+      <h3
+        class="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400"
+      >
+        {t("footer.links")}
+      </h3>
+      <ul class="space-y-2 text-sm">
+        <li>
+          <a
+            class="hover:text-sky-700 dark:hover:text-sky-300"
+            href={localizedPath(lang, "/quickstart")}>{t("nav.quickstart")}</a
+          >
+        </li>
+        <li>
+          <a
+            class="hover:text-sky-700 dark:hover:text-sky-300"
+            href={localizedPath(lang, "/docs/init")}>{t("nav.docs")}</a
+          >
+        </li>
+        <li>
+          <a
+            class="hover:text-sky-700 dark:hover:text-sky-300"
+            href="https://github.com/navori-ai/navori-ai"
+            target="_blank"
+            rel="noreferrer">{t("nav.github")}</a
+          >
+        </li>
+        <li>
+          <a
+            class="hover:text-sky-700 dark:hover:text-sky-300"
+            href="https://www.npmjs.com/package/navori-ai"
+            target="_blank"
+            rel="noreferrer">{t("nav.npm")}</a
+          >
+        </li>
+      </ul>
+    </div>
+
+    <div class="space-y-3">
+      <h3
+        class="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400"
+      >
+        {t("footer.legal")}
+      </h3>
+      <p class="text-sm text-slate-600 dark:text-slate-400">
+        MIT &middot; 2026
+      </p>
+    </div>
+  </div>
+  <div class="hairline"></div>
+  <div
+    class="container-prose flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between py-6 text-xs text-slate-500 dark:text-slate-500"
+  >
+    <span>navori-ai</span>
+    <span class="font-mono">v0.0.1</span>
+  </div>
+</footer>
