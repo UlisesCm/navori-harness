@@ -43,13 +43,15 @@
   --color-ivory: #fafaf7;
   --color-ivory-2: #f4f3ec;
   --color-ink: #0f172a;
-  --color-night: #0a0e1a;
-  --color-night-2: #0e1426;
-  --color-night-3: #141b32;
+  /* Night palette tuned with a slight blue→violet drift so it stays cohesive
+   * with the sky/violet brand accents instead of reading as flat grey. */
+  --color-night: #0a0f1f;
+  --color-night-2: #131a30;
+  --color-night-3: #1d2547;
 
   /* semantic */
   --color-border-soft: #e6e4d8;
-  --color-border-soft-dark: #1f2742;
+  --color-border-soft-dark: #2a3460;
 
   --radius-pill: 9999px;
 }
@@ -77,6 +79,18 @@
 
   html.dark body {
     @apply bg-night text-slate-100;
+  }
+
+  /* Semantic surface remap for dark mode.
+   * Components use `var(--color-ivory)` / `var(--color-ivory-2)` / `var(--color-border-soft)`
+   * inline as "soft surface / softer surface / hairline border" tokens. Inline
+   * styles can't be overridden by Tailwind's `dark:` variant, so we remap the
+   * underlying CSS variables here. Every inline `var(--color-ivory)` becomes
+   * a night-2 surface in dark mode without touching the component markup. */
+  html.dark {
+    --color-ivory: var(--color-night-2);
+    --color-ivory-2: var(--color-night-3);
+    --color-border-soft: var(--color-border-soft-dark);
   }
 
   ::selection {
