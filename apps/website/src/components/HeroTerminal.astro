@@ -7,10 +7,10 @@ const lines = [
   { kind: "info", text: "✓ engine: claude · cursor · agents-md" },
   { kind: "info", text: "✓ preset: pnpm-monorepo" },
   { kind: "render", text: "→ rendering managed assets" },
-  { kind: "ok", text: "  ✓ .claude/agents/leader.md" },
-  { kind: "ok", text: "  ✓ .claude/skills/ticket-intake/SKILL.md" },
-  { kind: "ok", text: "  ✓ .cursor/rules/navori.mdc" },
-  { kind: "ok", text: "  ✓ AGENTS.md" },
+  { kind: "ok", text: "✓ .claude/agents/leader.md" },
+  { kind: "ok", text: "✓ .claude/skills/ticket-intake/SKILL.md" },
+  { kind: "ok", text: "✓ .cursor/rules/navori.mdc" },
+  { kind: "ok", text: "✓ AGENTS.md" },
   { kind: "done", text: "Ready in 1.2s · 14 files written" },
 ];
 
@@ -31,19 +31,19 @@ const colorByKind: Record<string, string> = {
   >
     <div
       class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg"
-      style="border-color: var(--color-border-soft); background: white;"
+      style="border-color: var(--color-border-soft); background: var(--color-ivory);"
     >
       <span class="h-1.5 w-1.5 rounded-full bg-sky-500"></span>
       Claude Code
     </div>
   </div>
   <div
-    class="absolute -top-3 right-6 z-10 float-chip"
+    class="absolute -top-3 right-6 z-10 float-chip hidden md:block"
     style="animation-delay: 1.2s;"
   >
     <div
       class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg"
-      style="border-color: var(--color-border-soft); background: white;"
+      style="border-color: var(--color-border-soft); background: var(--color-ivory);"
     >
       <span class="h-1.5 w-1.5 rounded-full bg-violet-500"></span>
       Cursor
@@ -55,19 +55,19 @@ const colorByKind: Record<string, string> = {
   >
     <div
       class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg"
-      style="border-color: var(--color-border-soft); background: white;"
+      style="border-color: var(--color-border-soft); background: var(--color-ivory);"
     >
       <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>
       Copilot
     </div>
   </div>
   <div
-    class="absolute -bottom-2 left-4 z-10 float-chip"
+    class="absolute -bottom-2 left-4 z-10 float-chip hidden md:block"
     style="animation-delay: 3.6s;"
   >
     <div
       class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg"
-      style="border-color: var(--color-border-soft); background: white;"
+      style="border-color: var(--color-border-soft); background: var(--color-ivory);"
     >
       <span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span>
       AGENTS.md
@@ -85,24 +85,29 @@ const colorByKind: Record<string, string> = {
         ~/your-repo &nbsp;·&nbsp; zsh
       </span>
     </div>
-    <pre
-      class="px-5 py-4 text-[13px] leading-[1.65] whitespace-pre overflow-hidden">
+    <div class="px-4 sm:px-5 py-4 text-[12px] sm:text-[13px] leading-[1.7] font-mono overflow-hidden">
       {
         lines.map((line, i) => {
           const cls = colorByKind[line.kind] ?? "text-slate-300";
           const delay = `${i * 0.32}s`;
           const isCmd = line.kind === "cmd";
+          const isOk = line.kind === "ok";
           const isLast = i === lines.length - 1;
           return (
             <div
-              class:list={["term-line", cls, isLast ? "term-caret" : ""]}
+              class:list={[
+                "term-line",
+                cls,
+                isLast ? "term-caret" : "",
+                isOk ? "pl-3" : "",
+              ]}
               style={`animation-delay: ${delay};`}
             >
               {isCmd ? (
-                <span>
+                <>
                   <span class="text-violet-400 select-none">$</span>{" "}
                   <span>{line.text}</span>
-                </span>
+                </>
               ) : (
                 <span>{line.text}</span>
               )}
@@ -110,6 +115,6 @@ const colorByKind: Record<string, string> = {
           );
         })
       }
-    </pre>
+    </div>
   </div>
 </div>
