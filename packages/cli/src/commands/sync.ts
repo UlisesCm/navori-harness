@@ -20,7 +20,11 @@ export const syncCommand = defineCommand({
     "dry-run": { type: "boolean", description: "Show plan, do not write" },
     apply: { type: "boolean", description: "Apply changes (skip interactive prompt)" },
     yes: { type: "boolean", description: "Auto-confirm. Implies --apply. Fails with exit 1 if conflicts exist." },
-    "no-backup": { type: "boolean", description: "Skip backup before writing (not recommended)" },
+    backup: {
+      type: "boolean",
+      default: true,
+      description: "Backup CLAUDE.md before writing. Disable with --no-backup (not recommended).",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
@@ -121,8 +125,7 @@ export const syncCommand = defineCommand({
       return;
     }
 
-    // Backup before writing. citty translates --no-backup to args.backup === false.
-    // Reading args["no-backup"] would always be undefined, which made the flag a silent no-op.
+    // citty negates booleans on --no-X, so args.backup === false when --no-backup is passed.
     let backupPath: string | null = null;
     const wantsBackup = args.backup !== false;
     if (wantsBackup) {

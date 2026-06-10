@@ -41,9 +41,10 @@ export const initCommand = defineCommand({
       type: "string",
       description: "Directory to initialize (default: current working directory)",
     },
-    "no-render": {
+    render: {
       type: "boolean",
-      description: "Do not render CLAUDE.md after writing config",
+      default: true,
+      description: "Render CLAUDE.md after writing config. Disable with --no-render.",
     },
     workspace: {
       type: "string",
@@ -146,7 +147,8 @@ export const initCommand = defineCommand({
         p.outro("Done — existing files not touched. Run 'navori render' when ready.");
         return;
       }
-      if (!args["no-render"]) renderInline(cwd);
+      // citty negates booleans on --no-X, so args.render === false when --no-render is passed.
+      if (args.render !== false) renderInline(cwd);
       p.outro("Done");
       return;
     }
@@ -319,7 +321,7 @@ export const initCommand = defineCommand({
     }
 
     // Final: render or not
-    if (args["no-render"]) {
+    if (args.render === false) {
       p.outro("Done (skipped render)");
       return;
     }
