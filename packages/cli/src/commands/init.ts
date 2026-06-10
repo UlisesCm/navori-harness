@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { writeConfig } from "../lib/config.ts";
-import { detectProject, type DetectedProject, type ClaudeInfraInventory } from "../lib/detect.ts";
+import { detectProject, type ClaudeInfraInventory } from "../lib/detect.ts";
 import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
 import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
 import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
@@ -15,6 +15,7 @@ import {
   formatWorkspaceSummary,
 } from "./init-format.ts";
 import { color, dim, brand } from "../lib/style.ts";
+import { t, type Lang } from "../lib/i18n.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
 
@@ -54,6 +55,10 @@ export const initCommand = defineCommand({
       type: "boolean",
       description: "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh if GitHub repo)",
     },
+    lang: {
+      type: "string",
+      description: "Wizard language (es|en). Default: es. Skipped in --yes/--recommended.",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
@@ -63,23 +68,51 @@ export const initCommand = defineCommand({
 
     p.intro(brand("init"));
 
+    // Bootstrap-language: errors that fire before the wizard runs are shown in
+    // the lang chosen via --lang (or "es" if none/invalid). The wizard itself
+    // re-prompts the user for the real choice right after.
+    const bootstrapLang = normalizeLang(args.lang as string | undefined) ?? "es";
+    const bootstrapT = t(bootstrapLang);
+
     if (!existsSync(cwd)) {
-      p.cancel(`Directory not found: ${cwd}`);
+      p.cancel(bootstrapT.dirNotFound(cwd));
       process.exit(1);
     }
 
     if (existsSync(configPath)) {
-      p.cancel(`navori.config.json already exists at ${configPath}.`);
+      p.cancel(bootstrapT.configExists(configPath));
       process.exit(1);
     }
+
+    // --- Step 0 — pick wizard language (skipped in auto mode) ---
+    let lang: Lang = bootstrapLang;
+    if (!autoYes) {
+      const explicit = normalizeLang(args.lang as string | undefined);
+      if (explicit) {
+        lang = explicit;
+      } else {
+        const picked = await p.select<Lang>({
+          message: bootstrapT.pickLanguage,
+          options: [
+            { value: "es", label: bootstrapT.pickLanguageEs },
+            { value: "en", label: bootstrapT.pickLanguageEn },
+          ],
+          initialValue: "es",
+        });
+        if (p.isCancel(picked)) return cancel(bootstrapLang);
+        lang = picked;
+      }
+    }
+    const tr = t(lang);
 
     const detected = detectProject(cwd);
 
     // Handle existing Claude infrastructure first — before showing stack detection
     const mode = await chooseAdoptionMode(cwd, detected.claudeInfra, detected.name, {
       yes: autoYes,
+      lang,
     });
-    if (mode === null) return cancel();
+    if (mode === null) return cancel(lang);
 
     // Load workspace defaults (cascade: detection → workspace defaults → user overrides)
     let workspaceConfig: WorkspaceConfig | null = null;
@@ -99,10 +132,13 @@ export const initCommand = defineCommand({
         );
         process.exit(1);
       }
-      p.note(formatWorkspaceSummary(workspaceConfig), `Workspace defaults · ${workspaceConfig.name}`);
+      p.note(
+        formatWorkspaceSummary(workspaceConfig, lang),
+        tr.workspaceDefaultsTitle(workspaceConfig.name),
+      );
     }
 
-    p.note(formatDetectionSummary(detected), "Detected from this repo");
+    p.note(formatDetectionSummary(detected, lang), tr.detectedTitle);
 
     // Cascade: workspace defaults take precedence over detection when present
     const wsDefaults = workspaceConfig?.defaults;
@@ -111,12 +147,14 @@ export const initCommand = defineCommand({
         ? (detected.existingEngines as EngineId[])
         : (["claude"] as EngineId[]));
     const defaultBranchBase = wsDefaults?.branchBase ?? detected.branchBase ?? "main";
-    const defaultLanguage: "es" | "en" = wsDefaults?.language ?? "es";
+    // Asset language defaults to the wizard language. The user can still
+    // override via the "language" multi-select adjustment below.
+    const defaultLanguage: "es" | "en" = wsDefaults?.language ?? lang;
     const defaultCommits = wsDefaults?.commits;
 
     if (autoYes) {
       if (!detected.name) {
-        p.cancel("Could not detect project name. Run without --yes/--recommended to provide one.");
+        p.cancel(tr.detectionFailedYes);
         process.exit(1);
       }
       const wsPlugins = wsDefaults?.plugins ?? {};
@@ -126,9 +164,7 @@ export const initCommand = defineCommand({
       const mergedPlugins = { ...wsPlugins, ...recommendedPlugins };
 
       if (args.recommended && Object.keys(recommendedPlugins).length > 0) {
-        p.log.info(
-          `Recommended plugins enabled: ${Object.keys(recommendedPlugins).join(", ")}`,
-        );
+        p.log.info(tr.recPluginsEnabled(Object.keys(recommendedPlugins).join(", ")));
       }
 
       writeConfig(configPath, {
@@ -142,25 +178,23 @@ export const initCommand = defineCommand({
         ...(detected.qualityGate ? { qualityGate: detected.qualityGate } : {}),
         ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
       });
-      p.log.success(`Wrote ${configPath}`);
+      p.log.success(tr.wroteConfig(configPath));
       if (mode === "coexist") {
-        p.outro("Done — existing files not touched. Run 'navori render' when ready.");
+        p.outro(tr.doneExistingUntouched);
         return;
       }
       // citty negates booleans on --no-X, so args.render === false when --no-render is passed.
       if (args.render !== false) renderInline(cwd);
-      p.outro("Done");
+      p.outro(tr.done);
       return;
     }
 
     // Confirm or adjust
     const accept = await p.confirm({
-      message: detected.name
-        ? `Use these values?`
-        : `Project name could not be detected. Adjust?`,
+      message: detected.name ? tr.useTheseValues : tr.projectNameUndetectedAdjust,
       initialValue: Boolean(detected.name),
     });
-    if (p.isCancel(accept)) return cancel();
+    if (p.isCancel(accept)) return cancel(lang);
 
     let name = detected.name;
     let engines = defaultEngines;
@@ -172,103 +206,111 @@ export const initCommand = defineCommand({
 
     if (!accept || !detected.name) {
       const toAdjust = await p.multiselect<string>({
-        message: "What do you want to change?",
+        message: tr.whatToChange,
         options: [
-          { value: "name", label: `Project name${detected.name ? ` (${detected.name})` : " (not detected)"}` },
-          { value: "language", label: `Language (${defaultLanguage} — default)` },
-          { value: "workspace", label: "Workspace" },
-          { value: "engines", label: `Engines (${defaultEngines.join(", ")})` },
-          { value: "preset", label: `Preset (${preset})` },
-          { value: "branchBase", label: `Base branch (${defaultBranchBase})` },
-          { value: "qualityGate", label: qualityGate ? `Quality gate (${qualityGate.full})` : "Quality gate (not detected)" },
+          {
+            value: "name",
+            label: `${tr.labelProjectName}${detected.name ? ` (${detected.name})` : ` ${tr.notDetectedParen}`}`,
+          },
+          { value: "language", label: `${tr.labelLanguage} (${defaultLanguage} — ${tr.defaultParen})` },
+          { value: "workspace", label: tr.labelWorkspace },
+          { value: "engines", label: `${tr.labelEngines} (${defaultEngines.join(", ")})` },
+          { value: "preset", label: `${tr.labelPreset} (${preset})` },
+          { value: "branchBase", label: `${tr.labelBranchBase} (${defaultBranchBase})` },
+          {
+            value: "qualityGate",
+            label: qualityGate
+              ? `${tr.labelQualityGate} (${qualityGate.full})`
+              : `${tr.labelQualityGate} ${tr.notDetectedParen}`,
+          },
         ],
         required: !detected.name,
         initialValues: detected.name ? [] : ["name"],
       });
-      if (p.isCancel(toAdjust)) return cancel();
+      if (p.isCancel(toAdjust)) return cancel(lang);
       const adjustments = toAdjust as string[];
 
       if (adjustments.includes("name") || !name) {
         const value = await p.text({
-          message: "Project name (kebab-case)",
+          message: tr.projectNameKebab,
           placeholder: detected.name ?? "my-project",
           defaultValue: detected.name ?? "",
           validate(v) {
-            if (!/^[a-z0-9][a-z0-9-]*$/.test(v)) return "Must be kebab-case (lowercase, hyphens)";
+            if (!/^[a-z0-9][a-z0-9-]*$/.test(v)) return tr.mustBeKebab;
             return undefined;
           },
         });
-        if (p.isCancel(value)) return cancel();
+        if (p.isCancel(value)) return cancel(lang);
         name = value as string;
       }
 
       if (adjustments.includes("language")) {
         const value = await p.select<"es" | "en">({
-          message: "Language for managed Core assets",
+          message: tr.languageForAssets,
           options: [
-            { value: "es", label: "Español (default — full coverage)" },
-            { value: "en", label: "English (limited — falls back to es if asset not localized)" },
+            { value: "es", label: tr.assetEsLabel },
+            { value: "en", label: tr.assetEnLabel },
           ],
           initialValue: defaultLanguage,
         });
-        if (p.isCancel(value)) return cancel();
+        if (p.isCancel(value)) return cancel(lang);
         language = value;
       }
 
       if (adjustments.includes("workspace")) {
         const value = await p.text({
-          message: "Workspace (optional, e.g. bonum, navori)",
-          placeholder: "leave empty for none",
+          message: tr.workspaceOptional,
+          placeholder: tr.leaveEmpty,
         });
-        if (p.isCancel(value)) return cancel();
+        if (p.isCancel(value)) return cancel(lang);
         const trimmed = (value as string).trim();
         if (trimmed) workspace = trimmed;
       }
 
       if (adjustments.includes("engines")) {
         const value = await p.multiselect<string>({
-          message: "Engines to target",
+          message: tr.enginesToTarget,
           options: ENGINE_OPTIONS,
           required: true,
           initialValues: defaultEngines,
         });
-        if (p.isCancel(value)) return cancel();
+        if (p.isCancel(value)) return cancel(lang);
         engines = value as EngineId[];
       }
 
       if (adjustments.includes("preset")) {
         const value = await p.text({
-          message: "Stack preset (free text for v1)",
+          message: tr.stackPresetFreeText,
           placeholder: preset,
           defaultValue: preset,
         });
-        if (p.isCancel(value)) return cancel();
+        if (p.isCancel(value)) return cancel(lang);
         preset = value as string;
       }
 
       if (adjustments.includes("branchBase")) {
         const value = await p.text({
-          message: "Base branch",
+          message: tr.baseBranch,
           placeholder: defaultBranchBase,
           defaultValue: defaultBranchBase,
         });
-        if (p.isCancel(value)) return cancel();
+        if (p.isCancel(value)) return cancel(lang);
         branchBase = value as string;
       }
 
       if (adjustments.includes("qualityGate")) {
         const fastVal = await p.text({
-          message: "Quality gate (fast — runs on Stop hook)",
+          message: tr.qualityGateFast,
           placeholder: qualityGate?.fast ?? "pnpm tsc --noEmit",
           defaultValue: qualityGate?.fast ?? "",
         });
-        if (p.isCancel(fastVal)) return cancel();
+        if (p.isCancel(fastVal)) return cancel(lang);
         const fullVal = await p.text({
-          message: "Quality gate (full — runs before close session)",
+          message: tr.qualityGateFull,
           placeholder: qualityGate?.full ?? (fastVal as string),
           defaultValue: qualityGate?.full ?? (fastVal as string),
         });
-        if (p.isCancel(fullVal)) return cancel();
+        if (p.isCancel(fullVal)) return cancel(lang);
         if ((fastVal as string).trim() && (fullVal as string).trim()) {
           qualityGate = { fast: (fastVal as string).trim(), full: (fullVal as string).trim() };
         }
@@ -276,13 +318,13 @@ export const initCommand = defineCommand({
     }
 
     if (!name) {
-      p.cancel("Project name is required");
+      p.cancel(tr.projectNameRequired);
       process.exit(1);
     }
 
     // Plugin selection
-    const pluginsToEnable = await pickPlugins();
-    if (pluginsToEnable === null) return cancel();
+    const pluginsToEnable = await pickPlugins(lang);
+    if (pluginsToEnable === null) return cancel(lang);
 
     const pluginsConfig = pluginsToEnable.reduce<Record<string, { enabled: boolean }>>(
       (acc, id) => {
@@ -293,8 +335,8 @@ export const initCommand = defineCommand({
     );
 
     // Skill → agent assignments (only ask if plugins selected with recommendations)
-    const agentAssignments = await pickAgentAssignments(pluginsToEnable);
-    if (agentAssignments === null) return cancel();
+    const agentAssignments = await pickAgentAssignments(pluginsToEnable, lang);
+    if (agentAssignments === null) return cancel(lang);
 
     // Merge workspace-default plugins with user-selected plugins
     const wsPlugins = wsDefaults?.plugins ?? {};
@@ -313,63 +355,64 @@ export const initCommand = defineCommand({
       ...(Object.keys(agentAssignments).length > 0 ? { agentAssignments } : {}),
     });
 
-    p.log.success(`Wrote ${configPath}`);
+    p.log.success(tr.wroteConfig(configPath));
 
     if (mode === "coexist") {
-      p.outro("Done — existing files not touched. Run 'navori render' when ready.");
+      p.outro(tr.doneExistingUntouched);
       return;
     }
 
     // Final: render or not
     if (args.render === false) {
-      p.outro("Done (skipped render)");
+      p.outro(tr.doneSkippedRender);
       return;
     }
 
     const shouldRender = await p.confirm({
-      message: "Render CLAUDE.md now?",
+      message: tr.renderNow,
       initialValue: true,
     });
     if (p.isCancel(shouldRender) || !shouldRender) {
-      p.outro("Done (run 'navori render' when ready)");
+      p.outro(tr.doneRunLater);
       return;
     }
 
     renderInline(cwd);
-    p.outro("Your harness is ready");
+    p.outro(tr.harnessReady);
   },
 });
+
+function normalizeLang(raw: string | undefined): Lang | null {
+  if (!raw) return null;
+  const v = raw.toLowerCase().trim();
+  if (v === "es" || v === "en") return v;
+  return null;
+}
 
 async function chooseAdoptionMode(
   cwd: string,
   infra: ClaudeInfraInventory,
   projectName: string | null,
-  args: { yes?: boolean },
+  args: { yes?: boolean; lang: Lang },
 ): Promise<AdoptionMode | null> {
   if (!infra.present) return "fresh";
 
+  const tr = t(args.lang);
+
   if (args.yes) {
     // --yes implies coexist for safety: never replaces user infra silently
-    p.log.warn("Existing Claude infrastructure detected — using 'coexist' mode (safe)");
+    p.log.warn(tr.existingInfraYesMode);
     return "coexist";
   }
 
-  p.log.warn("Existing Claude infrastructure detected:");
-  p.note(formatInfraSummary(infra), "Files found");
+  p.log.warn(tr.existingInfraDetected);
+  p.note(formatInfraSummary(infra, args.lang), tr.filesFoundTitle);
 
   const choice = await p.select<AdoptionMode>({
-    message: "How do you want to adopt navori?",
+    message: tr.howToAdopt,
     options: [
-      {
-        value: "coexist",
-        label: "Coexist (recommended)",
-        hint: "add what's missing, never modify existing files",
-      },
-      {
-        value: "replace",
-        label: "Replace",
-        hint: "backup everything to ~/.navori/migrations/<ts>/ and start fresh",
-      },
+      { value: "coexist", label: tr.coexistLabel, hint: tr.coexistHint },
+      { value: "replace", label: tr.replaceLabel, hint: tr.replaceHint },
     ],
     initialValue: "coexist",
   });
@@ -377,22 +420,22 @@ async function chooseAdoptionMode(
 
   if (choice === "replace") {
     const confirm = await p.confirm({
-      message: `This will move .claude/, CLAUDE.md, AGENTS.md, CHECKPOINTS.md, feature_list.json, progress/, specs/ to ~/.navori/migrations/. Continue?`,
+      message: tr.replaceConfirm,
       initialValue: false,
     });
     if (p.isCancel(confirm) || !confirm) return null;
 
     const backup = createMigrationBackup(cwd, projectName ?? "unknown");
-    p.log.success(`Backed up ${backup.movedPaths.length} item(s) to ${backup.path}`);
+    p.log.success(tr.backedUp(backup.movedPaths.length, backup.path));
     removeOriginals(cwd, backup.movedPaths);
-    p.log.info(`Removed originals from ${cwd}`);
+    p.log.info(tr.removedOriginals(cwd));
     return "replace";
   }
 
   return "coexist";
 }
 
-async function pickPlugins(): Promise<string[] | null> {
+async function pickPlugins(lang: Lang): Promise<string[] | null> {
   const ids = listKnownPluginIds();
   if (ids.length === 0) return [];
 
@@ -412,7 +455,7 @@ async function pickPlugins(): Promise<string[] | null> {
   });
 
   const selected = await p.multiselect<string>({
-    message: "Plugins to enable",
+    message: t(lang).pluginsToEnable,
     options,
     required: false,
     initialValues: [],
@@ -428,8 +471,10 @@ async function pickPlugins(): Promise<string[] | null> {
  */
 async function pickAgentAssignments(
   enabledPlugins: string[],
+  lang: Lang,
 ): Promise<Record<string, AgentRole> | null> {
   if (enabledPlugins.length === 0) return {};
+  const tr = t(lang);
 
   type Recommendation = { id: string; pluginId: string; recommendedAgent: AgentRole };
   const recommendations: Recommendation[] = [];
@@ -457,10 +502,10 @@ async function pickAgentAssignments(
   const summary = recommendations
     .map((r) => `  · ${r.id} (${r.pluginId})  →  ${r.recommendedAgent}`)
     .join("\n");
-  p.log.message(`Recommended skill → agent assignments:\n${summary}`);
+  p.log.message(`${tr.recommendedAssignments}\n${summary}`);
 
   const accept = await p.confirm({
-    message: "Use these assignments?",
+    message: tr.useAssignments,
     initialValue: true,
   });
   if (p.isCancel(accept)) return null;
@@ -469,18 +514,18 @@ async function pickAgentAssignments(
   // Let the user override one or more
   const overrides: Record<string, AgentRole> = {};
   const agentOptions: Array<{ value: AgentRole; label: string }> = [
-    { value: "leader", label: "leader (orquestador)" },
-    { value: "implementer", label: "implementer (escribe código)" },
-    { value: "reviewer", label: "reviewer (revisa diff)" },
-    { value: "researcher", label: "researcher (lee, no escribe)" },
-    { value: "ticket-audit", label: "ticket-audit (análisis profundo)" },
-    { value: "commit-pr-pilot", label: "commit-pr-pilot (commits + PRs)" },
-    { value: "explorer", label: "explorer (exploración inicial)" },
+    { value: "leader", label: tr.roleLeader },
+    { value: "implementer", label: tr.roleImplementer },
+    { value: "reviewer", label: tr.roleReviewer },
+    { value: "researcher", label: tr.roleResearcher },
+    { value: "ticket-audit", label: tr.roleTicketAudit },
+    { value: "commit-pr-pilot", label: tr.roleCommitPrPilot },
+    { value: "explorer", label: tr.roleExplorer },
   ];
 
   for (const rec of recommendations) {
     const choice = await p.select<AgentRole>({
-      message: `Agent for '${rec.id}' (${rec.pluginId})`,
+      message: tr.agentFor(rec.id, rec.pluginId),
       options: agentOptions,
       initialValue: rec.recommendedAgent,
     });
@@ -544,7 +589,7 @@ function renderInline(cwd: string): void {
   }
 }
 
-function cancel(): void {
-  p.cancel("Cancelled");
+function cancel(lang: Lang): void {
+  p.cancel(t(lang).cancelled);
   process.exit(0);
 }

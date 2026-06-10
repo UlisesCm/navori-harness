@@ -104,7 +104,8 @@ describe("CLI e2e — happy paths", () => {
 
     const r = runCli(["init", "--yes", "--cwd", repo]);
     expect(r.status).toBe(1);
-    expect(r.combined).toContain("already exists");
+    // Language-agnostic: just confirm the abort message references the config file.
+    expect(r.combined).toContain("navori.config.json");
   });
 
   it("render is idempotent: second run reports no changes", () => {
