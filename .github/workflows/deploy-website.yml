@@ -24,8 +24,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -39,7 +37,7 @@ jobs:
         env:
           # GitHub Pages serves at <user>.github.io/<repo>/ — adjust BASE if you
           # publish under a project path. For a user/org page (root), leave as "/".
-          SITE_URL: ${{ vars.SITE_URL || 'https://navori-ai.github.io' }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://navori.github.io' }}
           SITE_BASE: ${{ vars.SITE_BASE || '/' }}
         run: pnpm --filter @navori/website build
 
