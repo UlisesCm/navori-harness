@@ -120,15 +120,19 @@ export const syncCommand = defineCommand({
       return;
     }
 
-    // Backup before writing
+    // Backup before writing. citty translates --no-backup to args.backup === false.
+    // Reading args["no-backup"] would always be undefined, which made the flag a silent no-op.
     let backupPath: string | null = null;
-    if (!args["no-backup"]) {
+    const wantsBackup = args.backup !== false;
+    if (wantsBackup) {
       const handle = createBackup(cwd, ["CLAUDE.md"]);
       backupPath = handle.path;
       const purged = purgeOldBackups();
       if (purged.length > 0) {
         p.log.info(`Purged ${purged.length} backup(s) older than 30 days`);
       }
+    } else {
+      p.log.warn("Backup omitted (--no-backup). No automatic undo for this sync.");
     }
 
     writeFileAtomic(claudeMdPath, finalContent);
