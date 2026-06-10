@@ -1,8 +1,46 @@
 import { createHash } from "node:crypto";
 
-const MARKER_OPEN_PREFIX = "<!-- navori:managed";
-const MARKER_CLOSE_PREFIX = "<!-- /navori:managed";
-const MARKER_SUFFIX = "-->";
+/**
+ * Managed-section markers. Two syntaxes are supported:
+ *   - `"html"` (default, back-compat): `<!-- navori:managed id="..." ... -->`
+ *     used for Markdown files (CLAUDE.md, agents/*.md, skills/*.md).
+ *   - `"shell"`: `# navori:managed start id="..." ...` / `# navori:managed end id="..."`
+ *     used for shell scripts under `.claude/hooks/` and `.claude/scripts/`.
+ *
+ * The terminator differs between styles (HTML closes with `-->`, shell ends
+ * at the line break) so the regex and emitted suffix are syntax-specific.
+ * Everything else (hash, attribute order, content normalization, conflict
+ * detection, orphan cleanup) is shared.
+ */
+export type CommentStyle = "html" | "shell";
+
+interface MarkerSyntax {
+  openPrefix: string;
+  closePrefix: string;
+  /** Suffix appended to the marker line (HTML: ` -->`, shell: empty). */
+  suffix: string;
+  /** Raw regex pattern that matches whatever comes after `id="..."` up to and
+   * including the terminator. HTML: `[^>]*-->`, shell: `[^\n]*`. */
+  attrsAndTerminatorPattern: string;
+}
+
+const HTML_SYNTAX: MarkerSyntax = {
+  openPrefix: "<!-- navori:managed",
+  closePrefix: "<!-- /navori:managed",
+  suffix: " -->",
+  attrsAndTerminatorPattern: `[^>]*-->`,
+};
+
+const SHELL_SYNTAX: MarkerSyntax = {
+  openPrefix: "# navori:managed start",
+  closePrefix: "# navori:managed end",
+  suffix: "",
+  attrsAndTerminatorPattern: `[^\\n]*`,
+};
+
+function syntaxFor(style: CommentStyle): MarkerSyntax {
+  return style === "shell" ? SHELL_SYNTAX : HTML_SYNTAX;
+}
 
 /** Normalize content for hashing and storage:
  * - Convert CRLF / CR to LF so files written on Windows or repos with
@@ -23,15 +61,15 @@ export interface MarkerMeta {
   version?: string;
 }
 
-function openMarker(id: string, hash: string, meta: MarkerMeta = {}): string {
-  const parts = [`${MARKER_OPEN_PREFIX} id="${id}"`, `hash="${hash}"`];
+function openMarker(id: string, hash: string, meta: MarkerMeta, syntax: MarkerSyntax): string {
+  const parts = [`${syntax.openPrefix} id="${id}"`, `hash="${hash}"`];
   if (meta.version) parts.push(`version="${meta.version}"`);
   if (meta.source) parts.push(`source="${meta.source}"`);
-  return parts.join(" ") + ` ${MARKER_SUFFIX}`;
+  return parts.join(" ") + syntax.suffix;
 }
 
-function closeMarker(id: string): string {
-  return `${MARKER_CLOSE_PREFIX} id="${id}" ${MARKER_SUFFIX}`;
+function closeMarker(id: string, syntax: MarkerSyntax): string {
+  return `${syntax.closePrefix} id="${id}"${syntax.suffix}`;
 }
 
 interface MarkerMatch {
@@ -50,15 +88,15 @@ function extractAttr(open: string, name: string): string | null {
   return m?.[1] ?? null;
 }
 
-function findMarker(existing: string, id: string): MarkerMatch | null {
+function findMarker(existing: string, id: string, syntax: MarkerSyntax): MarkerMatch | null {
   // Match the entire open marker (attributes in any order)
   const openRegex = new RegExp(
-    `${escapeRegex(MARKER_OPEN_PREFIX)}\\s+id="${escapeRegex(id)}"[^>]*${escapeRegex(MARKER_SUFFIX)}`,
+    `${escapeRegex(syntax.openPrefix)}\\s+id="${escapeRegex(id)}"${syntax.attrsAndTerminatorPattern}`,
   );
   const openMatch = openRegex.exec(existing);
   if (!openMatch) return null;
 
-  const close = closeMarker(id);
+  const close = closeMarker(id, syntax);
   const closeStart = existing.indexOf(close, openMatch.index + openMatch[0].length);
   if (closeStart < 0) return null;
 
@@ -100,29 +138,19 @@ export interface InjectResult {
 }
 
 /**
- * Inject or update a managed block with the given id.
- *
- * Behavior matches DESIGN §14.5:
- * - if no marker exists → append at end of file
- * - if marker exists and content matches expected hash → replace
- * - if user modified content (hash mismatch) AND new content equals current → only update hash
- * - if user modified content AND new content differs → SKIP (returns user-modified-skipped)
- *   The caller decides whether to prompt for conflict resolution.
- */
-/**
  * Strip orphan open or close markers for a given id from the document.
  * An orphan open marker has no matching close, or vice versa — usually the
- * result of a user editing CLAUDE.md by hand and accidentally deleting one
+ * result of a user editing the file by hand and accidentally deleting one
  * half of a managed block. Left in place they would cause injectManagedSection
  * to append a new block AND leave the orphan, corrupting the document.
  *
  * Returns the cleaned string.
  */
-function stripOrphanMarkers(existing: string, id: string): string {
-  const close = closeMarker(id);
+function stripOrphanMarkers(existing: string, id: string, syntax: MarkerSyntax): string {
+  const close = closeMarker(id, syntax);
   // Find every open and close marker for this id
   const openRegex = new RegExp(
-    `${escapeRegex(MARKER_OPEN_PREFIX)}\\s+id="${escapeRegex(id)}"[^>]*${escapeRegex(MARKER_SUFFIX)}`,
+    `${escapeRegex(syntax.openPrefix)}\\s+id="${escapeRegex(id)}"${syntax.attrsAndTerminatorPattern}`,
     "g",
   );
   const opens: number[] = [];
@@ -187,19 +215,35 @@ function stripOrphanMarkers(existing: string, id: string): string {
   return cleaned.replace(/\n{3,}/g, "\n\n");
 }
 
+/**
+ * Inject or update a managed block with the given id.
+ *
+ * Behavior:
+ * - if no marker exists → append at end of file
+ * - if marker exists and content matches expected hash → replace
+ * - if user modified content (hash mismatch) AND new content equals current → only update hash
+ * - if user modified content AND new content differs → SKIP (returns user-modified-skipped)
+ *   The caller decides whether to prompt for conflict resolution.
+ *
+ * @param commentStyle "html" (default — Markdown/HTML files) or "shell"
+ *   (shell scripts under `.claude/hooks/` and `.claude/scripts/`).
+ */
 export function injectManagedSection(
   existing: string,
   id: string,
   newContent: string,
   meta: MarkerMeta = {},
+  commentStyle: CommentStyle = "html",
 ): InjectResult {
+  const syntax = syntaxFor(commentStyle);
+
   // Clean any orphan markers for this id first so a half-deleted block
   // (open without close, or vice versa) doesn't cause us to append a
   // duplicate.
-  existing = stripOrphanMarkers(existing, id);
+  existing = stripOrphanMarkers(existing, id, syntax);
 
   const newHash = hashContent(newContent);
-  const match = findMarker(existing, id);
+  const match = findMarker(existing, id, syntax);
   const canonicalContent = normalize(newContent);
 
   if (!match) {
@@ -208,7 +252,7 @@ export function injectManagedSection(
       : existing.endsWith("\n")
         ? "\n"
         : "\n\n";
-    const block = `${openMarker(id, newHash, meta)}\n${canonicalContent}\n${closeMarker(id)}\n`;
+    const block = `${openMarker(id, newHash, meta, syntax)}\n${canonicalContent}\n${closeMarker(id, syntax)}\n`;
     return {
       output: existing + sep + block,
       status: "created",
@@ -250,7 +294,7 @@ export function injectManagedSection(
     }
     const replaced =
       existing.slice(0, match.openStart) +
-      openMarker(id, newHash, meta) +
+      openMarker(id, newHash, meta, syntax) +
       existing.slice(match.openEnd, match.closeEnd);
     return { output: replaced, status: "updated", details };
   }
@@ -259,7 +303,7 @@ export function injectManagedSection(
     return { output: existing, status: "user-modified-skipped", details };
   }
 
-  const block = `${openMarker(id, newHash, meta)}\n${canonicalContent}\n${closeMarker(id)}`;
+  const block = `${openMarker(id, newHash, meta, syntax)}\n${canonicalContent}\n${closeMarker(id, syntax)}`;
   const replaced =
     existing.slice(0, match.openStart) + block + existing.slice(match.closeEnd);
   return { output: replaced, status: "updated", details };
@@ -268,8 +312,13 @@ export function injectManagedSection(
 /**
  * Remove a managed block by id. No-op if the block doesn't exist.
  */
-export function removeManagedSection(existing: string, id: string): string {
-  const match = findMarker(existing, id);
+export function removeManagedSection(
+  existing: string,
+  id: string,
+  commentStyle: CommentStyle = "html",
+): string {
+  const syntax = syntaxFor(commentStyle);
+  const match = findMarker(existing, id, syntax);
   if (!match) return existing;
   // Drop the block + the trailing newline if present (avoid double-blank lines)
   let endCut = match.closeEnd;
@@ -281,8 +330,13 @@ export function removeManagedSection(existing: string, id: string): string {
  * Extract the current managed content for an id, if it exists.
  * Returns null when the marker is not present.
  */
-export function extractManagedContent(existing: string, id: string): string | null {
-  const match = findMarker(existing, id);
+export function extractManagedContent(
+  existing: string,
+  id: string,
+  commentStyle: CommentStyle = "html",
+): string | null {
+  const syntax = syntaxFor(commentStyle);
+  const match = findMarker(existing, id, syntax);
   return match ? match.content : null;
 }
 
