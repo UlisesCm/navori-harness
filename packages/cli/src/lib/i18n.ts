@@ -49,6 +49,17 @@ interface Strings {
   recommendedAssignments: string;
   agentFor: (id: string, plugin: string) => string;
 
+  // Preview + edit loop
+  previewTitle: string;
+  previewAction: string;
+  saveAndContinue: string;
+  cancelAndExit: string;
+  editField: (label: string) => string;
+  pluginsValueLabel: (list: string) => string;
+  pluginsNone: string;
+  assignmentsValueLabel: (n: number) => string;
+  assignmentsNone: string;
+
   // Agent role descriptions
   roleLeader: string;
   roleImplementer: string;
@@ -144,6 +155,16 @@ const ES: Strings = {
   recommendedAssignments: "Asignaciones recomendadas skill → agente:",
   agentFor: (id, plugin) => `Agente para '${id}' (${plugin})`,
 
+  previewTitle: "Resumen del config",
+  previewAction: "¿Qué hacés con esto?",
+  saveAndContinue: "Guardar y continuar",
+  cancelAndExit: "Cancelar y salir",
+  editField: (label) => `Editar ${label}`,
+  pluginsValueLabel: (list) => list,
+  pluginsNone: "(ninguno)",
+  assignmentsValueLabel: (n) => `${n} override(s)`,
+  assignmentsNone: "(defaults)",
+
   roleLeader: "leader (orquestador)",
   roleImplementer: "implementer (escribe código)",
   roleReviewer: "reviewer (revisa diff)",
@@ -237,6 +258,16 @@ const EN: Strings = {
   useAssignments: "Use these assignments?",
   recommendedAssignments: "Recommended skill → agent assignments:",
   agentFor: (id, plugin) => `Agent for '${id}' (${plugin})`,
+
+  previewTitle: "Config summary",
+  previewAction: "What do you want to do?",
+  saveAndContinue: "Save and continue",
+  cancelAndExit: "Cancel and exit",
+  editField: (label) => `Edit ${label}`,
+  pluginsValueLabel: (list) => list,
+  pluginsNone: "(none)",
+  assignmentsValueLabel: (n) => `${n} override(s)`,
+  assignmentsNone: "(defaults)",
 
   roleLeader: "leader (orchestrator)",
   roleImplementer: "implementer (writes code)",

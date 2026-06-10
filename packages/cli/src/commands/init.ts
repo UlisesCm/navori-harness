@@ -14,7 +14,7 @@ import {
   formatDetectionSummary,
   formatWorkspaceSummary,
 } from "./init-format.ts";
-import { color, dim, brand } from "../lib/style.ts";
+import { color, dim, brand, kv } from "../lib/style.ts";
 import { t, type Lang } from "../lib/i18n.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
@@ -323,20 +323,153 @@ export const initCommand = defineCommand({
     }
 
     // Plugin selection
-    const pluginsToEnable = await pickPlugins(lang);
+    let pluginsToEnable = await pickPlugins(lang);
     if (pluginsToEnable === null) return cancel(lang);
 
-    const pluginsConfig = pluginsToEnable.reduce<Record<string, { enabled: boolean }>>(
-      (acc, id) => {
-        acc[id] = { enabled: true };
-        return acc;
-      },
-      {},
-    );
+    let pluginsConfig = buildPluginsConfig(pluginsToEnable);
 
     // Skill → agent assignments (only ask if plugins selected with recommendations)
-    const agentAssignments = await pickAgentAssignments(pluginsToEnable, lang);
+    let agentAssignments = await pickAgentAssignments(pluginsToEnable, lang);
     if (agentAssignments === null) return cancel(lang);
+
+    // Preview + edit loop — last chance to fix any field before writing.
+    // Each edit re-runs the field's prompt; cancelling a re-prompt just
+    // returns to the preview (no exit), so a typo never forces you to
+    // restart from scratch.
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const summary = buildConfigPreview(
+        {
+          name: name ?? "",
+          workspace,
+          engines,
+          preset,
+          language,
+          branchBase,
+          qualityGate,
+          plugins: pluginsToEnable,
+          agentAssignments,
+        },
+        lang,
+      );
+      p.note(summary, tr.previewTitle);
+
+      const choice = await p.select<string>({
+        message: tr.previewAction,
+        options: [
+          { value: "save", label: color.green(tr.saveAndContinue) },
+          { value: "edit:name", label: tr.editField(tr.labelProjectName) },
+          { value: "edit:language", label: tr.editField(tr.labelLanguage) },
+          { value: "edit:engines", label: tr.editField(tr.labelEngines) },
+          { value: "edit:preset", label: tr.editField(tr.labelPreset) },
+          { value: "edit:branchBase", label: tr.editField(tr.labelBranchBase) },
+          { value: "edit:qualityGate", label: tr.editField(tr.labelQualityGate) },
+          { value: "edit:plugins", label: tr.editField("plugins") },
+          { value: "edit:agentAssignments", label: tr.editField("agent assignments") },
+          { value: "cancel", label: color.red(tr.cancelAndExit) },
+        ],
+        initialValue: "save",
+      });
+      if (p.isCancel(choice)) return cancel(lang);
+      if (choice === "save") break;
+      if (choice === "cancel") return cancel(lang);
+
+      const field = (choice as string).replace(/^edit:/, "");
+      switch (field) {
+        case "name": {
+          const v = await p.text({
+            message: tr.projectNameKebab,
+            placeholder: name ?? "my-project",
+            defaultValue: name ?? "",
+            validate: (val) => (/^[a-z0-9][a-z0-9-]*$/.test(val) ? undefined : tr.mustBeKebab),
+          });
+          if (!p.isCancel(v)) name = v as string;
+          break;
+        }
+        case "language": {
+          const v = await p.select<"es" | "en">({
+            message: tr.languageForAssets,
+            options: [
+              { value: "es", label: tr.assetEsLabel },
+              { value: "en", label: tr.assetEnLabel },
+            ],
+            initialValue: language,
+          });
+          if (!p.isCancel(v)) language = v;
+          break;
+        }
+        case "engines": {
+          const v = await p.multiselect<string>({
+            message: tr.enginesToTarget,
+            options: ENGINE_OPTIONS,
+            required: true,
+            initialValues: engines,
+          });
+          if (!p.isCancel(v)) engines = v as EngineId[];
+          break;
+        }
+        case "preset": {
+          const v = await p.text({
+            message: tr.stackPresetFreeText,
+            placeholder: preset,
+            defaultValue: preset,
+          });
+          if (!p.isCancel(v)) preset = v as string;
+          break;
+        }
+        case "branchBase": {
+          const v = await p.text({
+            message: tr.baseBranch,
+            placeholder: branchBase,
+            defaultValue: branchBase,
+          });
+          if (!p.isCancel(v)) branchBase = v as string;
+          break;
+        }
+        case "qualityGate": {
+          const fastVal = await p.text({
+            message: tr.qualityGateFast,
+            placeholder: qualityGate?.fast ?? "pnpm tsc --noEmit",
+            defaultValue: qualityGate?.fast ?? "",
+          });
+          if (p.isCancel(fastVal)) break;
+          const fullVal = await p.text({
+            message: tr.qualityGateFull,
+            placeholder: qualityGate?.full ?? (fastVal as string),
+            defaultValue: qualityGate?.full ?? (fastVal as string),
+          });
+          if (p.isCancel(fullVal)) break;
+          if ((fastVal as string).trim() && (fullVal as string).trim()) {
+            qualityGate = {
+              fast: (fastVal as string).trim(),
+              full: (fullVal as string).trim(),
+            };
+          }
+          break;
+        }
+        case "plugins": {
+          const v = await pickPlugins(lang);
+          if (v !== null) {
+            pluginsToEnable = v;
+            pluginsConfig = buildPluginsConfig(v);
+            // Drop assignments whose plugin id is no longer enabled
+            const enabledPluginIds = new Set(v);
+            for (const skillId of Object.keys(agentAssignments)) {
+              const ownerPlugin = findPluginIdForSkill(skillId);
+              if (ownerPlugin && !enabledPluginIds.has(ownerPlugin)) {
+                delete agentAssignments[skillId];
+              }
+            }
+          }
+          break;
+        }
+        case "agentAssignments": {
+          const v = await pickAgentAssignments(pluginsToEnable, lang);
+          if (v !== null) agentAssignments = v;
+          break;
+        }
+      }
+    }
 
     // Merge workspace-default plugins with user-selected plugins
     const wsPlugins = wsDefaults?.plugins ?? {};
@@ -592,4 +725,73 @@ function renderInline(cwd: string): void {
 function cancel(lang: Lang): void {
   p.cancel(t(lang).cancelled);
   process.exit(0);
+}
+
+function buildPluginsConfig(ids: string[]): Record<string, { enabled: boolean }> {
+  return ids.reduce<Record<string, { enabled: boolean }>>((acc, id) => {
+    acc[id] = { enabled: true };
+    return acc;
+  }, {});
+}
+
+/**
+ * Find which plugin id owns a given managed asset id. Used when the user
+ * edits the plugin list in the preview loop, so assignments tied to plugins
+ * that are now disabled get pruned.
+ *
+ * Returns null if the skill id is not owned by any known plugin (e.g. a
+ * future-core skill, or stale assignment).
+ */
+function findPluginIdForSkill(skillId: string): string | null {
+  for (const pluginId of listKnownPluginIds()) {
+    try {
+      const plugin = loadPlugin(pluginId);
+      if (plugin.manifest.managed.some((m) => m.id === skillId)) {
+        return pluginId;
+      }
+    } catch {
+      // unknown / broken plugin — skip
+    }
+  }
+  return null;
+}
+
+interface PreviewState {
+  name: string;
+  workspace: string | undefined;
+  engines: string[];
+  preset: string;
+  language: "es" | "en";
+  branchBase: string;
+  qualityGate: { fast: string; full: string } | undefined;
+  plugins: string[];
+  agentAssignments: Record<string, AgentRole>;
+}
+
+function buildConfigPreview(state: PreviewState, lang: Lang): string {
+  const tr = t(lang);
+  const rows: Array<[string, string]> = [];
+  rows.push(["name", state.name || dim(tr.notDetectedParen)]);
+  if (state.workspace) rows.push(["workspace", state.workspace]);
+  rows.push(["language", state.language]);
+  rows.push(["engines", state.engines.join(", ")]);
+  rows.push(["preset", state.preset]);
+  rows.push(["branchBase", state.branchBase]);
+  if (state.qualityGate) {
+    rows.push(["qualityGate.fast", state.qualityGate.fast]);
+    rows.push(["qualityGate.full", state.qualityGate.full]);
+  }
+  rows.push([
+    "plugins",
+    state.plugins.length > 0
+      ? tr.pluginsValueLabel(state.plugins.join(", "))
+      : dim(tr.pluginsNone),
+  ]);
+  rows.push([
+    "agentAssignments",
+    Object.keys(state.agentAssignments).length > 0
+      ? tr.assignmentsValueLabel(Object.keys(state.agentAssignments).length)
+      : dim(tr.assignmentsNone),
+  ]);
+  return kv(rows);
 }
