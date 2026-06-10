@@ -117,12 +117,20 @@ const newSubCommand = defineCommand({
   async run({ args }) {
     p.intro(`navori-ai ticket new ${args.id}`);
 
+    // Validate the id BEFORE prompting for a title, otherwise the user
+    // writes the title only to discover the id is rejected.
+    const id = args.id as string;
+    if (!/^[A-Za-z0-9][A-Za-z0-9-_]*$/.test(id)) {
+      p.cancel(`Invalid ticket id '${id}'. Use letters, digits, hyphens, underscores (must start alphanumeric).`);
+      process.exit(1);
+    }
+
     let title = args.title;
     if (!title) {
       const value = await p.text({
         message: "Ticket title",
-        placeholder: args.id as string,
-        defaultValue: args.id as string,
+        placeholder: id,
+        defaultValue: id,
       });
       if (p.isCancel(value)) {
         p.cancel("Cancelled");

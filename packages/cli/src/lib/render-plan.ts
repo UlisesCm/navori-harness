@@ -230,7 +230,15 @@ export function applyPlanWithSkips(
     let plugin;
     try {
       plugin = loadPlugin(declaredId);
-    } catch {
+    } catch (err) {
+      // Surface the failure to stderr instead of silently dropping it. The
+      // caller (sync) cannot easily recover, but the user must know that a
+      // declared plugin couldn't be loaded — otherwise its blocks would
+      // become zombies with no diagnostic.
+      const reason = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[navori-ai] warning: failed to load plugin '${declaredId}': ${reason}\n`,
+      );
       continue;
     }
     const enabled = settings.enabled === true;
