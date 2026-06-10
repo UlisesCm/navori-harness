@@ -1,10 +1,9 @@
 import type { DetectedProject } from "../lib/detect.ts";
 import type { ClaudeInfraInventory } from "../lib/claude-infra.ts";
 import type { WorkspaceConfig } from "../lib/workspace.ts";
+import { dim as grey } from "../lib/style.ts";
 
-export function grey(s: string): string {
-  return `\x1b[90m${s}\x1b[0m`;
-}
+export { grey };
 
 export function formatInfraSummary(infra: ClaudeInfraInventory): string {
   const lines: string[] = ["Existing Claude infrastructure detected:"];

@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "../lib/plugins.ts";
+import { check, dim as grey, color, sym } from "../lib/style.ts";
 
 interface MarkerInfo {
   id: string;
@@ -140,20 +141,16 @@ export const doctorCommand = defineCommand({
     }
 
     if (missingPlugins.length > 0) {
-      const lines = missingPlugins.map((m) => `  ✗ ${m.id}  ${grey(`— ${m.reason}`)}`);
+      const lines = missingPlugins.map((m) => `  ${color.red(sym.fail)} ${m.id}  ${grey(`— ${m.reason}`)}`);
       p.log.warn(`Plugins declared in config but not loadable (${missingPlugins.length}):\n${lines.join("\n")}`);
     }
 
-    p.outro(missingPlugins.length > 0 ? "Issues found" : "OK");
+    p.outro(missingPlugins.length > 0 ? color.red("Issues found") : color.green("OK"));
   },
 });
 
 function mark(ok: boolean): string {
-  return ok ? "✓" : "○";
-}
-
-function grey(s: string): string {
-  return `\x1b[90m${s}\x1b[0m`;
+  return check(ok);
 }
 
 interface AssignmentRow {

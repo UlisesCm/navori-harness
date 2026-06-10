@@ -6,6 +6,7 @@ import { readConfig } from "../lib/config.ts";
 import { computeRenderPlan, type AssetPlanEntry } from "../lib/render-plan.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../lib/backup.ts";
+import { renderStatusSymbol, renderStatusLabel, dim } from "../lib/style.ts";
 
 /**
  * Run the render flow against `cwd`. Reusable from other commands (e.g. init).
@@ -105,26 +106,12 @@ export const renderCommand = defineCommand({
 function reportPlan(file: string, entries: AssetPlanEntry[], changed: boolean, dryRun: boolean): void {
   const lines: string[] = [file];
   for (const e of entries) {
-    const sym = symbolFor(e.status);
-    lines.push(`  ${sym} ${e.asset.id}  (${e.status})`);
+    const sym = renderStatusSymbol(e.status);
+    const label = renderStatusLabel(e.status);
+    lines.push(`  ${sym} ${e.asset.id}  ${dim("(")}${label}${dim(")")}`);
   }
-  if (changed && !dryRun) lines.push("  → written");
-  else if (dryRun) lines.push("  → dry-run, no write");
-  else lines.push("  → no changes");
+  if (changed && !dryRun) lines.push(`  ${dim("→ written")}`);
+  else if (dryRun) lines.push(`  ${dim("→ dry-run, no write")}`);
+  else lines.push(`  ${dim("→ no changes")}`);
   p.log.message(lines.join("\n"));
-}
-
-function symbolFor(status: AssetPlanEntry["status"]): string {
-  switch (status) {
-    case "created":
-      return "+";
-    case "updated":
-      return "~";
-    case "unchanged":
-      return "·";
-    case "user-modified-skipped":
-      return "!";
-    case "removed-condition-false":
-      return "-";
-  }
 }

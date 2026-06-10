@@ -8,6 +8,7 @@ import { extractManagedContent } from "../lib/marker.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../lib/backup.ts";
 import { formatLineDiff } from "../lib/diff.ts";
+import { renderStatusSymbol, renderStatusLabel, dim, color, sym } from "../lib/style.ts";
 
 export const syncCommand = defineCommand({
   meta: {
@@ -46,7 +47,7 @@ export const syncCommand = defineCommand({
 
     if (plan.updatesAvailable.length > 0) {
       const lines = plan.updatesAvailable.map(
-        (u) => `  ⇡ ${u.id}  (${u.source}  ${u.fromVersion} → ${u.toVersion})`,
+        (u) => `  ${color.cyan(sym.update)} ${u.id}  ${dim(`(${u.source}  ${u.fromVersion} → ${u.toVersion})`)}`,
       );
       p.log.info(`Updates available (${plan.updatesAvailable.length}):\n${lines.join("\n")}`);
     }
@@ -146,9 +147,10 @@ export const syncCommand = defineCommand({
 function reportPlan(entries: AssetPlanEntry[]): void {
   const lines: string[] = [];
   for (const e of entries) {
-    const sym = symbolFor(e.status);
-    const cond = e.asset.condition ? ` [cond: ${e.asset.condition}]` : "";
-    lines.push(`  ${sym} ${e.asset.id}  (${e.status})${cond}`);
+    const symStr = renderStatusSymbol(e.status);
+    const label = renderStatusLabel(e.status);
+    const cond = e.asset.condition ? dim(` [cond: ${e.asset.condition}]`) : "";
+    lines.push(`  ${symStr} ${e.asset.id}  ${dim("(")}${label}${dim(")")}${cond}`);
   }
   p.log.message(["Plan:", ...lines].join("\n"));
 }
@@ -158,20 +160,5 @@ function renderConflictDiffs(existing: string, conflicts: AssetPlanEntry[]): voi
     const current = extractManagedContent(existing, c.asset.id);
     const diff = formatLineDiff(current, c.newContent);
     p.log.warn(`Conflict in '${c.asset.id}':\n${diff}`);
-  }
-}
-
-function symbolFor(status: AssetPlanEntry["status"]): string {
-  switch (status) {
-    case "created":
-      return "+";
-    case "updated":
-      return "~";
-    case "unchanged":
-      return "·";
-    case "user-modified-skipped":
-      return "!";
-    case "removed-condition-false":
-      return "-";
   }
 }

@@ -3,6 +3,8 @@
  * Not Myers diff — just a sequential a/b comparison good enough for
  * showing a "your version" vs "core version" side-by-side hint.
  */
+import { color } from "./style.ts";
+
 export function formatLineDiff(
   current: string | null,
   proposed: string | null,
@@ -16,10 +18,10 @@ export function formatLineDiff(
     const ai = a[i] ?? "";
     const bi = b[i] ?? "";
     if (ai === bi) {
-      lines.push(`   ${ai}`);
+      lines.push(color.dim(`   ${ai}`));
     } else {
-      if (i < a.length) lines.push(`- ${ai}`);
-      if (i < b.length) lines.push(`+ ${bi}`);
+      if (i < a.length) lines.push(color.red(`- ${ai}`));
+      if (i < b.length) lines.push(color.green(`+ ${bi}`));
     }
   }
   return lines.join("\n");
