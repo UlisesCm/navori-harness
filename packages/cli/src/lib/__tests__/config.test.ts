@@ -81,6 +81,26 @@ describe("writeConfig", () => {
     }
   });
 
+  it("accepts every MonorepoTool that detect.ts can return", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      for (const tool of ["pnpm", "turbo", "nx", "rush", "lerna", "npm"] as const) {
+        writeConfig(path, {
+          name: `mono-${tool}`,
+          engines: ["claude"],
+          preset: "custom",
+          monorepo: { enabled: true, tool, workspaces: [] },
+        });
+        const cfg = readConfig(path);
+        expect(cfg.monorepo?.tool).toBe(tool);
+        rmSync(path);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unknown model in models override", () => {
     const dir = makeTmpDir();
     const path = join(dir, "navori.config.json");

@@ -310,7 +310,7 @@ function detectMonorepo(cwd: string): MonorepoInfo | null {
   // workspaces field in package.json
   const pkg = readPackageJson(cwd);
   if (pkg?.workspaces) {
-    return { tool: "npm", source: "package.json workspaces" } as MonorepoInfo;
+    return { tool: "npm", source: "package.json workspaces" };
   }
   return null;
 }

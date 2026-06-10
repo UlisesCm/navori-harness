@@ -17,7 +17,7 @@ const MonorepoWorkspaceSchema = z.object({
 
 const MonorepoSchema = z.object({
   enabled: z.boolean(),
-  tool: z.enum(["pnpm", "turbo", "nx", "rush"]).optional(),
+  tool: z.enum(["pnpm", "turbo", "nx", "rush", "lerna", "npm"]).optional(),
   workspaces: z.array(MonorepoWorkspaceSchema).default([]),
 });
 
