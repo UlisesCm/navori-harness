@@ -138,11 +138,35 @@ export const syncCommand = defineCommand({
 
     writeFileAtomic(claudeMdPath, finalContent);
     p.log.success(`Wrote ${claudeMdPath}`);
-    if (backupPath) p.log.message(`Backup: ${backupPath}`);
+    if (backupPath) p.log.message(`${dim("Backup:")} ${backupPath}`);
 
-    p.outro("Done");
+    p.outro(`${color.green("Done")} ${summarize(plan.entries, conflicts.length, applyConflicts)}`);
   },
 });
+
+function summarize(
+  entries: AssetPlanEntry[],
+  conflictCount: number,
+  appliedConflicts: boolean,
+): string {
+  const counts = entries.reduce<Record<string, number>>((acc, e) => {
+    acc[e.status] = (acc[e.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const parts: string[] = [];
+  if (counts.created) parts.push(color.green(`${counts.created} created`));
+  if (counts.updated) parts.push(color.yellow(`${counts.updated} updated`));
+  if (conflictCount > 0) {
+    parts.push(
+      appliedConflicts
+        ? color.red(`${conflictCount} conflict overwritten`)
+        : color.red(`${conflictCount} conflict kept`),
+    );
+  }
+  if (counts["removed-condition-false"]) parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
+  if (counts.unchanged) parts.push(dim(`${counts.unchanged} unchanged`));
+  return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
+}
 
 function reportPlan(entries: AssetPlanEntry[]): void {
   const lines: string[] = [];

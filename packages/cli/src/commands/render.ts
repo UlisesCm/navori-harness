@@ -6,7 +6,7 @@ import { readConfig } from "../lib/config.ts";
 import { computeRenderPlan, type AssetPlanEntry } from "../lib/render-plan.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../lib/backup.ts";
-import { renderStatusSymbol, renderStatusLabel, dim } from "../lib/style.ts";
+import { renderStatusSymbol, renderStatusLabel, dim, color } from "../lib/style.ts";
 
 /**
  * Run the render flow against `cwd`. Reusable from other commands (e.g. init).
@@ -97,11 +97,32 @@ export const renderCommand = defineCommand({
       );
     }
     if (result.backupPath) {
-      p.log.message(`Backup: ${result.backupPath}`);
+      p.log.message(`${dim("Backup:")} ${result.backupPath}`);
     }
-    p.outro(args["dry-run"] ? "Dry-run complete (no files written)" : "Done");
+    const summary = summarize(result.entries);
+    if (args["dry-run"]) {
+      p.outro(`${dim("Dry-run complete")} ${summary}`);
+    } else if (result.written) {
+      p.outro(`${color.green("Done")} ${summary}`);
+    } else {
+      p.outro(`${dim("Up to date")} ${summary}`);
+    }
   },
 });
+
+function summarize(entries: AssetPlanEntry[]): string {
+  const counts = entries.reduce<Record<string, number>>((acc, e) => {
+    acc[e.status] = (acc[e.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const parts: string[] = [];
+  if (counts.created) parts.push(color.green(`${counts.created} created`));
+  if (counts.updated) parts.push(color.yellow(`${counts.updated} updated`));
+  if (counts["user-modified-skipped"]) parts.push(color.red(`${counts["user-modified-skipped"]} conflict`));
+  if (counts["removed-condition-false"]) parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
+  if (counts.unchanged) parts.push(dim(`${counts.unchanged} unchanged`));
+  return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
+}
 
 function reportPlan(file: string, entries: AssetPlanEntry[], changed: boolean, dryRun: boolean): void {
   const lines: string[] = [file];

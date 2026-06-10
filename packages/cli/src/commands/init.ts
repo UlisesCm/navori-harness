@@ -14,6 +14,7 @@ import {
   formatDetectionSummary,
   formatWorkspaceSummary,
 } from "./init-format.ts";
+import { color, dim } from "../lib/style.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
 
@@ -527,11 +528,17 @@ function renderInline(cwd: string): void {
     acc[e.status] = (acc[e.status] ?? 0) + 1;
     return acc;
   }, {});
-  const parts = Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(", ");
+  const parts: string[] = [];
+  if (counts.created) parts.push(color.green(`${counts.created} created`));
+  if (counts.updated) parts.push(color.yellow(`${counts.updated} updated`));
+  if (counts["user-modified-skipped"]) parts.push(color.red(`${counts["user-modified-skipped"]} conflict`));
+  if (counts["removed-condition-false"]) parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
+  if (counts.unchanged) parts.push(dim(`${counts.unchanged} unchanged`));
+  const summary = parts.length > 0 ? ` ${dim("—")} ${parts.join(dim(", "))}` : "";
   if (result.written) {
-    p.log.success(`Rendered ${result.filePath} (${parts})`);
+    p.log.success(`Rendered ${result.filePath}${summary}`);
   } else {
-    p.log.info(`No render needed (${parts})`);
+    p.log.info(`No render needed${summary}`);
   }
 }
 
