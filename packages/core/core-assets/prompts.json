@@ -1,0 +1,36 @@
+{
+  "$schema": "https://navori.dev/schema/prompts.v1.json",
+  "description": "Preguntas base genéricas. El wizard de `init` las muestra después del preview-edit y persiste las respuestas en config.project.<key>. Las plantillas de agents/skills interpolan via {{project.<key>}}.",
+  "prompts": [
+    {
+      "key": "project.legacyPaths",
+      "question": {
+        "es": "¿Qué carpetas considerás legacy en este repo? (separá con comas, vacío = ninguna)",
+        "en": "Which folders are legacy in this repo? (comma-separated, empty = none)"
+      },
+      "type": "string-list",
+      "placeholder": "ej: src/legacy, lib/old",
+      "optional": true
+    },
+    {
+      "key": "project.criticalAreas",
+      "question": {
+        "es": "¿Qué áreas requieren review extra? (auth, billing, infra, etc.)",
+        "en": "Which areas need extra review? (auth, billing, infra, etc.)"
+      },
+      "type": "string-list",
+      "placeholder": "ej: src/auth, src/billing",
+      "optional": true
+    },
+    {
+      "key": "project.testRunner",
+      "question": {
+        "es": "¿Cuál es tu test runner principal?",
+        "en": "What's your main test runner?"
+      },
+      "type": "string",
+      "placeholder": "vitest | jest | mocha | playwright | (otro)",
+      "optional": true
+    }
+  ]
+}
