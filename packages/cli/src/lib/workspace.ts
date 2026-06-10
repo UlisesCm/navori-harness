@@ -29,8 +29,20 @@ export const WorkspaceConfigSchema = z.object({
   $schema: z.string().optional(),
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "workspace name must be kebab-case"),
   description: z.string().optional(),
-  /** Folder for cross-repo tickets (relative to workspace dir). */
-  ticketsDir: z.string().default("tickets"),
+  /** Folder for cross-repo tickets (relative to workspace dir).
+   * Restricted to a simple relative segment to prevent path traversal
+   * (e.g. "../etc/passwd") and to avoid silent failure of absolute
+   * paths under path.join. */
+  ticketsDir: z
+    .string()
+    .regex(
+      /^[a-zA-Z0-9][a-zA-Z0-9_\-./]*$/,
+      "ticketsDir must be a relative path (alphanumeric, '-', '_', '.', '/'). No leading '/' or '..'.",
+    )
+    .refine((s) => !s.split("/").includes(".."), {
+      message: "ticketsDir must not contain '..' segments",
+    })
+    .default("tickets"),
   defaults: WorkspaceDefaultsSchema.default({}),
   repos: z.array(RepoEntrySchema).default([]),
 });

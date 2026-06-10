@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { z } from "zod";
 import { bundledPluginManifestPath, getPluginPath, listBundledPluginIds } from "./bundled-assets.ts";
 
@@ -123,10 +123,19 @@ export function loadPlugin(pluginId: string): LoadedPlugin {
   }
 
   const manifest = result.data;
-  const managedAssets = manifest.managed.map((entry) => ({
-    id: entry.id,
-    absPath: resolve(packageRoot, entry.file),
-  }));
+  // Containment check: a malicious or buggy plugin.json could declare
+  // 'file: "../../../etc/passwd"'. Reject anything that escapes the
+  // package root, so plugin content can never read arbitrary files.
+  const rootPrefix = packageRoot.endsWith(sep) ? packageRoot : packageRoot + sep;
+  const managedAssets = manifest.managed.map((entry) => {
+    const absPath = resolve(packageRoot, entry.file);
+    if (absPath !== packageRoot && !absPath.startsWith(rootPrefix)) {
+      throw new PluginManifestError(
+        `Plugin '${pluginId}' declared managed.file '${entry.file}' that resolves outside the package root.`,
+      );
+    }
+    return { id: entry.id, absPath };
+  });
 
   return { manifest, packageRoot, managedAssets };
 }
