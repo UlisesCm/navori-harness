@@ -97,10 +97,10 @@ export const initCommand = defineCommand({
         );
         process.exit(1);
       }
-      p.log.message(formatWorkspaceSummary(workspaceConfig));
+      p.note(formatWorkspaceSummary(workspaceConfig), `Workspace defaults · ${workspaceConfig.name}`);
     }
 
-    p.log.message(formatDetectionSummary(detected));
+    p.note(formatDetectionSummary(detected), "Detected from this repo");
 
     // Cascade: workspace defaults take precedence over detection when present
     const wsDefaults = workspaceConfig?.defaults;
@@ -351,7 +351,8 @@ async function chooseAdoptionMode(
     return "coexist";
   }
 
-  p.log.warn(formatInfraSummary(infra));
+  p.log.warn("Existing Claude infrastructure detected:");
+  p.note(formatInfraSummary(infra), "Files found");
 
   const choice = await p.select<AdoptionMode>({
     message: "How do you want to adopt navori?",
