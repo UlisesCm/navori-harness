@@ -146,6 +146,71 @@ const showSubCommand = defineCommand({
   },
 });
 
+const renameSubCommand = defineCommand({
+  meta: {
+    name: "rename",
+    description: "Rename a workspace (preserves tickets, repos, defaults)",
+  },
+  args: {
+    from: { type: "positional", description: "Current workspace name", required: true },
+    to: { type: "positional", description: "New workspace name (kebab-case)", required: true },
+    yes: { type: "boolean", description: "Skip confirmation" },
+  },
+  async run({ args }) {
+    const from = args.from as string;
+    const to = args.to as string;
+
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(to)) {
+      console.error(`Workspace name must be kebab-case: ${to}`);
+      process.exit(1);
+    }
+    if (from === to) {
+      console.error("Source and destination names are the same");
+      process.exit(1);
+    }
+
+    const ws = loadWorkspace(from);
+    if (!ws) {
+      console.error(`Workspace '${from}' not found`);
+      process.exit(1);
+    }
+    if (loadWorkspace(to)) {
+      console.error(`Workspace '${to}' already exists. Choose a different name or delete it first.`);
+      process.exit(1);
+    }
+
+    p.intro(`navori-ai workspace rename ${from} → ${to}`);
+    p.log.message(
+      `Will rename the workspace directory and update the manifest's 'name' field. ` +
+        `${ws.repos.length} repo registration(s) and any tickets will be preserved.`,
+    );
+    p.log.warn(
+      `Repos that have 'workspace: ${from}' in their navori.config.json must be updated ` +
+        `manually: cd to each repo and run 'navori-ai configure workspace ${to}'.`,
+    );
+
+    if (!args.yes) {
+      const ok = await p.confirm({
+        message: `Rename workspace '${from}' to '${to}'?`,
+        initialValue: false,
+      });
+      if (p.isCancel(ok) || !ok) {
+        p.cancel("Aborted");
+        return;
+      }
+    }
+
+    const { renameSync } = await import("node:fs");
+    const oldDir = workspaceDirectory(from);
+    const newDir = workspaceDirectory(to);
+    renameSync(oldDir, newDir);
+    // Update the manifest's name field in place
+    const renamed = { ...ws, name: to };
+    writeWorkspace(renamed);
+    p.outro(`Renamed. New path: ${newDir}`);
+  },
+});
+
 const deleteSubCommand = defineCommand({
   meta: {
     name: "delete",
@@ -235,6 +300,7 @@ export const workspaceCommand = defineCommand({
     ls: lsSubCommand,
     show: showSubCommand,
     "add-repo": addRepoSubCommand,
+    rename: renameSubCommand,
     delete: deleteSubCommand,
   },
 });
