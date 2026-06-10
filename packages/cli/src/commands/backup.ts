@@ -3,6 +3,7 @@ import * as p from "@clack/prompts";
 import { existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node:fs";
 import { join, relative, resolve, dirname } from "node:path";
 import { backupRoot } from "../lib/backup.ts";
+import { brand, dim, accent, color, sym } from "../lib/style.ts";
 
 interface BackupEntry {
   timestamp: string;
@@ -67,23 +68,28 @@ const listSubCommand = defineCommand({
       return;
     }
 
+    p.intro(brand("backup list"));
     if (backups.length === 0) {
-      console.log("No backups found. They are created automatically before each 'sync' or 'render' that modifies files.");
+      p.log.info("No backups found. They are created automatically before each 'sync' or 'render' that modifies files.");
+      p.outro(dim("Done"));
       return;
     }
 
-    console.log(`${backups.length} backup(s) total. Showing ${truncated.length}:`);
+    const lines: string[] = [];
+    lines.push(dim(`${backups.length} backup(s) total. Showing ${truncated.length}:`));
     for (const b of truncated) {
       const date = new Date(b.mtimeMs);
-      const ago = humanAge(b.mtimeMs);
-      console.log(`  ${b.timestamp}  ${date.toISOString()}  ${ago}`);
+      const ago = dim(humanAge(b.mtimeMs));
+      lines.push(`  ${color.cyan(sym.bullet)} ${accent(b.timestamp)}  ${dim(date.toISOString())}  ${ago}`);
       for (const f of b.files) {
-        console.log(`    · ${f}`);
+        lines.push(`      ${dim(sym.bullet)} ${dim(f)}`);
       }
     }
     if (backups.length > truncated.length) {
-      console.log(`  ... ${backups.length - truncated.length} more (use --limit to show)`);
+      lines.push(dim(`  ... ${backups.length - truncated.length} more (use --limit to show)`));
     }
+    p.log.message(lines.join("\n"));
+    p.outro(dim("Done"));
   },
 });
 

@@ -11,6 +11,7 @@ import {
   TicketError,
 } from "../lib/tickets.ts";
 import { loadWorkspace } from "../lib/workspace.ts";
+import { brand, dim, accent, color, sym, kv } from "../lib/style.ts";
 
 function handleTicketError(err: unknown): never {
   if (err instanceof TicketError) {
@@ -42,14 +43,18 @@ const listSubCommand = defineCommand({
       console.log(JSON.stringify(filtered, null, 2));
       return;
     }
+    p.intro(brand(`ticket list ${accent(args.workspace as string)}`));
     if (filtered.length === 0) {
-      console.log(`No tickets in workspace '${args.workspace}'. Create one with 'navori ticket new ${args.workspace} <id>'.`);
+      p.log.info(`No tickets. Create one with 'navori ticket new ${args.workspace} <id>'.`);
+      p.outro(dim("Done"));
       return;
     }
-    for (const t of filtered) {
-      const badge = t.state === "archive" ? " [archive]" : "";
-      console.log(`  ${t.id}${badge}  ${t.title}`);
-    }
+    const lines = filtered.map((t) => {
+      const badge = t.state === "archive" ? color.magenta(" [archive]") : "";
+      return `  ${color.cyan(sym.bullet)} ${accent(t.id)}${badge}  ${t.title}`;
+    });
+    p.log.message(lines.join("\n"));
+    p.outro(dim(`${filtered.length} ticket${filtered.length === 1 ? "" : "s"}`));
   },
 });
 
@@ -88,24 +93,26 @@ const showSubCommand = defineCommand({
       return;
     }
 
-    console.log(`Ticket: ${ticket.id}`);
-    console.log(`  title       : ${ticket.title}`);
-    console.log(`  state       : ${ticket.state}`);
-    console.log(`  path        : ${ticket.path}`);
-    console.log("");
-    console.log("--- Content ---");
-    console.log(readFileSync(ticket.path, "utf-8"));
-    console.log("--- Referenced in ---");
+    p.intro(brand(`ticket show ${accent(ticket.id)}`));
+    p.log.message(
+      kv([
+        ["title", ticket.title],
+        ["state", ticket.state],
+        ["path", ticket.path],
+      ]),
+    );
+    p.note(readFileSync(ticket.path, "utf-8"), "Content");
+
     if (referencing.length === 0) {
-      console.log("  (no repo's progress/current.md mentions this ticket)");
+      p.log.message(dim("Referenced in: (no repo's progress/current.md mentions this ticket)"));
     } else {
-      for (const ref of referencing) {
-        console.log(`  ${ref.path}`);
-        for (const match of ref.matches) {
-          console.log(`    > ${match}`);
-        }
-      }
+      const refLines = referencing.flatMap((ref) => [
+        `  ${color.cyan(sym.bullet)} ${ref.path}`,
+        ...ref.matches.map((match) => `      ${dim(">")} ${dim(match)}`),
+      ]);
+      p.log.message(`Referenced in:\n${refLines.join("\n")}`);
     }
+    p.outro(dim("Done"));
   },
 });
 
@@ -171,7 +178,9 @@ const archiveSubCommand = defineCommand({
   run({ args }) {
     try {
       const result = archiveTicket(args.workspace as string, args.id as string);
-      console.log(`Archived: ${result.path}`);
+      p.intro(brand(`ticket archive ${accent(args.id as string)}`));
+      p.log.success(`Archived → ${dim(result.path)}`);
+      p.outro(dim("Done"));
     } catch (err) {
       if (err instanceof TicketError) {
         console.error(err.message);

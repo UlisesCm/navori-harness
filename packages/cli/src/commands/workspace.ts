@@ -10,6 +10,7 @@ import {
   WorkspaceError,
   type WorkspaceConfig,
 } from "../lib/workspace.ts";
+import { brand, dim, kv, color, sym, accent, err as errStyle } from "../lib/style.ts";
 
 const initSubCommand = defineCommand({
   meta: {
@@ -78,20 +79,27 @@ const lsSubCommand = defineCommand({
       console.log(JSON.stringify(names, null, 2));
       return;
     }
+    p.intro(brand("workspace ls"));
     if (names.length === 0) {
-      console.log("No workspaces found. Create one with 'navori workspace init <name>'.");
+      p.log.info("No workspaces found. Create one with 'navori workspace init <name>'.");
+      p.outro(dim("Done"));
       return;
     }
+    const lines: string[] = [];
     for (const name of names) {
       try {
         const ws = loadWorkspace(name);
         if (!ws) continue;
-        const desc = ws.description ? ` — ${ws.description}` : "";
-        console.log(`  ${name}${desc}  (${ws.repos.length} repo${ws.repos.length === 1 ? "" : "s"})`);
+        const desc = ws.description ? dim(` — ${ws.description}`) : "";
+        const count = ws.repos.length;
+        const repoLabel = `${count} repo${count === 1 ? "" : "s"}`;
+        lines.push(`  ${color.cyan(sym.bullet)} ${accent(name)}${desc}  ${dim(`(${repoLabel})`)}`);
       } catch {
-        console.log(`  ${name}  (invalid manifest)`);
+        lines.push(`  ${color.red(sym.fail)} ${name}  ${dim("(invalid manifest)")}`);
       }
     }
+    p.log.message(lines.join("\n"));
+    p.outro(dim(`${names.length} workspace${names.length === 1 ? "" : "s"}`));
   },
 });
 
@@ -131,18 +139,26 @@ const showSubCommand = defineCommand({
       console.log(JSON.stringify(workspace, null, 2));
       return;
     }
-    console.log(`Workspace: ${workspace.name}`);
-    if (workspace.description) console.log(`  description : ${workspace.description}`);
-    console.log(`  path        : ${workspacePath(name)}`);
-    console.log(`  directory   : ${workspaceDirectory(name)}`);
-    console.log(`  ticketsDir  : ${workspace.ticketsDir}`);
-    console.log(`  defaults    : ${JSON.stringify(workspace.defaults)}`);
-    console.log(`  repos       : ${workspace.repos.length}`);
-    for (const repo of workspace.repos) {
-      const stack = repo.stack ? ` [${repo.stack}]` : "";
-      const desc = repo.description ? ` — ${repo.description}` : "";
-      console.log(`    · ${repo.name}${stack}  ${repo.path}${desc}`);
+    p.intro(brand(`workspace show ${accent(workspace.name)}`));
+
+    const rows: Array<[string, string]> = [];
+    if (workspace.description) rows.push(["description", workspace.description]);
+    rows.push(["path", workspacePath(name)]);
+    rows.push(["directory", workspaceDirectory(name)]);
+    rows.push(["ticketsDir", workspace.ticketsDir]);
+    rows.push(["defaults", JSON.stringify(workspace.defaults)]);
+    rows.push(["repos", String(workspace.repos.length)]);
+    p.log.message(kv(rows));
+
+    if (workspace.repos.length > 0) {
+      const repoLines = workspace.repos.map((repo) => {
+        const stack = repo.stack ? dim(` [${repo.stack}]`) : "";
+        const desc = repo.description ? dim(` — ${repo.description}`) : "";
+        return `    ${color.cyan(sym.bullet)} ${accent(repo.name)}${stack}  ${dim(repo.path)}${desc}`;
+      });
+      p.log.message(`Repos:\n${repoLines.join("\n")}`);
     }
+    p.outro(dim("Done"));
   },
 });
 
@@ -286,7 +302,9 @@ const addRepoSubCommand = defineCommand({
       ...(args.description ? { description: args.description as string } : {}),
     });
     const written = writeWorkspace(ws);
-    console.log(`Registered '${args.name}' in '${ws.name}' (${written})`);
+    p.intro(brand(`workspace add-repo ${accent(ws.name)}`));
+    p.log.success(`Registered '${accent(args.name as string)}' (${dim(written)})`);
+    p.outro(dim("Done"));
   },
 });
 

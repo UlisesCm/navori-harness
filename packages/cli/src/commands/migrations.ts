@@ -3,6 +3,7 @@ import * as p from "@clack/prompts";
 import { existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node:fs";
 import { join, relative, resolve, dirname } from "node:path";
 import { migrationsRoot } from "../lib/migrate.ts";
+import { brand, dim, accent, color, sym } from "../lib/style.ts";
 
 interface MigrationEntry {
   timestamp: string;
@@ -77,22 +78,29 @@ const listSubCommand = defineCommand({
       return;
     }
 
+    p.intro(brand("migrations list"));
     if (migrations.length === 0) {
-      console.log("No migrations found. They are created when 'init --replace' is used to start fresh on a repo with existing Claude infrastructure.");
+      p.log.info("No migrations found. They are created when 'init --replace' is used to start fresh on a repo with existing Claude infrastructure.");
+      p.outro(dim("Done"));
       return;
     }
 
-    console.log(`${migrations.length} migration(s) total. Showing ${truncated.length}:`);
+    const lines: string[] = [];
+    lines.push(dim(`${migrations.length} migration(s) total. Showing ${truncated.length}:`));
     for (const m of truncated) {
       const date = new Date(m.mtimeMs);
-      console.log(`  ${m.timestamp}  repo='${m.repoName}'  ${date.toISOString()}`);
+      lines.push(
+        `  ${color.cyan(sym.bullet)} ${accent(m.timestamp)}  ${dim(`repo='${m.repoName}'`)}  ${dim(date.toISOString())}`,
+      );
       for (const f of m.files) {
-        console.log(`    · ${f}`);
+        lines.push(`      ${dim(sym.bullet)} ${dim(f)}`);
       }
     }
     if (migrations.length > truncated.length) {
-      console.log(`  ... ${migrations.length - truncated.length} more (use --limit to show)`);
+      lines.push(dim(`  ... ${migrations.length - truncated.length} more (use --limit to show)`));
     }
+    p.log.message(lines.join("\n"));
+    p.outro(dim("Done"));
   },
 });
 
