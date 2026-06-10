@@ -33,11 +33,25 @@ function currentPlatform(): Platform {
  * - If the plugin itself is malicious, this is no worse than `npm install`
  *   on a malicious package: trust boundary is "plugins you choose to add".
  */
+const INSTALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min — generous for brew install + downloads
+
 function runShellCommand(cmd: string): void {
   const result = spawnSync(cmd, {
     shell: true,
     stdio: "inherit",
+    timeout: INSTALL_TIMEOUT_MS,
   });
+  // spawnSync sets result.error with the killed signal when timeout fires
+  if (result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
+    throw new Error(
+      `Install command timed out after ${INSTALL_TIMEOUT_MS / 1000}s. ` +
+        `It may be waiting for interactive input (run from a TTY) or hung. ` +
+        `Install the tool manually and re-run navori-ai with --skip-install.`,
+    );
+  }
+  if (result.signal) {
+    throw new Error(`Command killed by signal ${result.signal}`);
+  }
   if (result.status !== 0) {
     throw new Error(`Command exited with status ${result.status}`);
   }
