@@ -45,6 +45,15 @@ export const doctorCommand = defineCommand({
 
     if (!args.json) p.intro("navori-ai doctor");
 
+    if (!existsSync(cwd)) {
+      if (args.json) {
+        console.log(JSON.stringify({ ok: false, error: "directory-missing", cwd }));
+      } else {
+        p.cancel(`Directory not found: ${cwd}`);
+      }
+      process.exit(1);
+    }
+
     if (!existsSync(configPath)) {
       if (args.json) {
         console.log(JSON.stringify({ ok: false, error: "config-missing", configPath }));

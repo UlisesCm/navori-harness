@@ -85,6 +85,11 @@ export const updateCommand = defineCommand({
 
     p.intro("navori-ai update");
 
+    if (!existsSync(cwd)) {
+      p.cancel(`Directory not found: ${cwd}`);
+      process.exit(1);
+    }
+
     if (!existsSync(configPath)) {
       p.cancel(`No navori.config.json at ${configPath}. Run 'navori-ai init' first.`);
       process.exit(1);

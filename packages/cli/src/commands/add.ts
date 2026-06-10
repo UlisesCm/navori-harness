@@ -73,6 +73,11 @@ export const addCommand = defineCommand({
 
     p.intro(`navori-ai add ${args.plugin}`);
 
+    if (!existsSync(cwd)) {
+      p.cancel(`Directory not found: ${cwd}`);
+      process.exit(1);
+    }
+
     if (!existsSync(configPath)) {
       p.cancel(`No navori.config.json at ${configPath}. Run 'navori-ai init' first.`);
       process.exit(1);

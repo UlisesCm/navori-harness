@@ -15,6 +15,10 @@ const ENGINE_OPTIONS = [
 type EngineId = "claude" | "agents-md" | "cursor" | "copilot";
 
 function loadOrExit(cwd: string): { config: NavoriConfig; path: string; raw: Record<string, unknown> } {
+  if (!existsSync(cwd)) {
+    console.error(`Directory not found: ${cwd}`);
+    process.exit(1);
+  }
   const configPath = resolve(cwd, "navori.config.json");
   if (!existsSync(configPath)) {
     console.error(`No navori.config.json at ${configPath}. Run 'navori-ai init' first.`);

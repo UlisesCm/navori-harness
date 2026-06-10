@@ -56,6 +56,11 @@ export const initCommand = defineCommand({
 
     p.intro("navori-ai init");
 
+    if (!existsSync(cwd)) {
+      p.cancel(`Directory not found: ${cwd}`);
+      process.exit(1);
+    }
+
     if (existsSync(configPath)) {
       p.cancel(`navori.config.json already exists at ${configPath}.`);
       process.exit(1);
