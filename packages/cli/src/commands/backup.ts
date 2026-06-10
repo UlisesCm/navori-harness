@@ -108,7 +108,7 @@ const restoreSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const backupDir = join(backupRoot(), ts);
 
-    p.intro(`navori backup restore ${ts}`);
+    p.intro(brand(`backup restore ${accent(ts)}`));
 
     if (!existsSync(backupDir)) {
       p.cancel(`Backup not found: ${backupDir}`);

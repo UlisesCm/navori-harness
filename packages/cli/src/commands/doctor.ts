@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "../lib/plugins.ts";
-import { check, dim as grey, color, sym } from "../lib/style.ts";
+import { check, dim as grey, color, sym, brand } from "../lib/style.ts";
 
 interface MarkerInfo {
   id: string;
@@ -44,7 +44,7 @@ export const doctorCommand = defineCommand({
     const configPath = `${cwd}/navori.config.json`;
     const claudeMdPath = `${cwd}/CLAUDE.md`;
 
-    if (!args.json) p.intro("navori doctor");
+    if (!args.json) p.intro(brand("doctor"));
 
     if (!existsSync(cwd)) {
       if (args.json) {

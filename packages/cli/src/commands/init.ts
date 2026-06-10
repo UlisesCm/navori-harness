@@ -14,7 +14,7 @@ import {
   formatDetectionSummary,
   formatWorkspaceSummary,
 } from "./init-format.ts";
-import { color, dim } from "../lib/style.ts";
+import { color, dim, brand } from "../lib/style.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
 
@@ -60,7 +60,7 @@ export const initCommand = defineCommand({
     // --recommended implies --yes (skip wizard)
     const autoYes = Boolean(args.yes || args.recommended);
 
-    p.intro("navori init");
+    p.intro(brand("init"));
 
     if (!existsSync(cwd)) {
       p.cancel(`Directory not found: ${cwd}`);

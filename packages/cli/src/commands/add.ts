@@ -11,6 +11,7 @@ import {
   listKnownPluginIds,
 } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
+import { brand, dim, accent, color } from "../lib/style.ts";
 
 type Platform = "darwin" | "linux" | "win32";
 
@@ -85,7 +86,7 @@ export const addCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const configPath = `${cwd}/navori.config.json`;
 
-    p.intro(`navori add ${args.plugin}`);
+    p.intro(brand(`add ${accent(args.plugin)}`));
 
     if (!existsSync(cwd)) {
       p.cancel(`Directory not found: ${cwd}`);
@@ -172,20 +173,21 @@ export const addCommand = defineCommand({
       return;
     }
 
+    const spin = p.spinner();
     try {
-      p.log.message(`Running: ${installCmd}`);
+      spin.start(`Installing ${accent(tool.name)} — ${dim(installCmd)}`);
       runShellCommand(installCmd);
       if (tool.postInstall) {
-        p.log.message(`Running post-install: ${tool.postInstall}`);
+        spin.message(`Post-install — ${dim(tool.postInstall)}`);
         runShellCommand(tool.postInstall);
       }
-      p.log.success(`Installed '${tool.name}'`);
+      spin.stop(`${color.green("✓")} Installed ${accent(tool.name)}`);
     } catch (err) {
-      p.log.error(`Install failed: ${(err as Error).message}`);
-      p.outro("Plugin registered but external tool install failed. Install manually.");
+      spin.stop(`${color.red("✗")} Install failed: ${(err as Error).message}`, 1);
+      p.outro(dim("Plugin registered but external tool install failed. Install manually."));
       return;
     }
 
-    p.outro("Done — run 'navori render' to apply");
+    p.outro(`${color.green("Done")} ${dim("— run 'navori render' to apply")}`);
   },
 });

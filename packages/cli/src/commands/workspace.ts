@@ -35,7 +35,7 @@ const initSubCommand = defineCommand({
       process.exit(1);
     }
 
-    p.intro(`navori workspace init ${name}`);
+    p.intro(brand(`workspace init ${accent(name)}`));
 
     let description = args.description ?? "";
     if (!args.yes && !description) {
@@ -195,7 +195,7 @@ const renameSubCommand = defineCommand({
       process.exit(1);
     }
 
-    p.intro(`navori workspace rename ${from} → ${to}`);
+    p.intro(brand(`workspace rename ${accent(from)} ${dim("→")} ${accent(to)}`));
     p.log.message(
       `Will rename the workspace directory and update the manifest's 'name' field. ` +
         `${ws.repos.length} repo registration(s) and any tickets will be preserved.`,
@@ -245,7 +245,7 @@ const deleteSubCommand = defineCommand({
     }
     const dir = workspaceDirectory(name);
 
-    p.intro(`navori workspace delete ${name}`);
+    p.intro(brand(`workspace delete ${accent(name)}`));
     p.log.warn(
       `Will move ${dir} to ~/.navori/.trash/. Includes ${ws.repos.length} repo registration(s) and any tickets in that workspace.`,
     );

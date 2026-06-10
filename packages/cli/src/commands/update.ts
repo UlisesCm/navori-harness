@@ -7,6 +7,7 @@ import { detectProject } from "../lib/detect.ts";
 import { computeRenderPlan } from "../lib/render-plan.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../lib/backup.ts";
+import { brand, dim, color, accent, sym } from "../lib/style.ts";
 
 interface ConfigDiff {
   field: string;
@@ -84,7 +85,7 @@ export const updateCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const configPath = `${cwd}/navori.config.json`;
 
-    p.intro("navori update");
+    p.intro(brand("update"));
 
     if (!existsSync(cwd)) {
       p.cancel(`Directory not found: ${cwd}`);
@@ -111,7 +112,9 @@ export const updateCommand = defineCommand({
     }
 
     if (diffs.length > 0) {
-      const lines = diffs.map((d) => `  ${d.field}: ${d.before}  →  ${d.after}`);
+      const lines = diffs.map(
+        (d) => `  ${color.yellow(sym.updated)} ${accent(d.field)}${dim(":")} ${color.red(d.before)} ${dim("→")} ${color.green(d.after)}`,
+      );
       p.log.info(`Config drift detected (${diffs.length}):\n${lines.join("\n")}`);
     } else {
       p.log.info("Config is in sync with the repo");
@@ -119,7 +122,7 @@ export const updateCommand = defineCommand({
 
     if (plan.updatesAvailable.length > 0) {
       const lines = plan.updatesAvailable.map(
-        (u) => `  ⇡ ${u.id}  (${u.source}  ${u.fromVersion} → ${u.toVersion})`,
+        (u) => `  ${color.cyan(sym.update)} ${u.id}  ${dim(`(${u.source}  ${u.fromVersion} → ${u.toVersion})`)}`,
       );
       p.log.info(`Managed block updates available (${plan.updatesAvailable.length}):\n${lines.join("\n")}`);
     }

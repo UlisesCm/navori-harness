@@ -6,7 +6,7 @@ import { readConfig } from "../lib/config.ts";
 import { computeRenderPlan, type AssetPlanEntry } from "../lib/render-plan.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../lib/backup.ts";
-import { renderStatusSymbol, renderStatusLabel, dim, color } from "../lib/style.ts";
+import { renderStatusSymbol, renderStatusLabel, dim, color, brand } from "../lib/style.ts";
 
 /**
  * Run the render flow against `cwd`. Reusable from other commands (e.g. init).
@@ -77,7 +77,7 @@ export const renderCommand = defineCommand({
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
 
-    p.intro("navori render");
+    p.intro(brand("render"));
 
     if (!existsSync(cwd)) {
       p.cancel(`Directory not found: ${cwd}`);

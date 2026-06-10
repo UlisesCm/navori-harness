@@ -8,7 +8,7 @@ import { extractManagedContent } from "../lib/marker.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../lib/backup.ts";
 import { formatLineDiff } from "../lib/diff.ts";
-import { renderStatusSymbol, renderStatusLabel, dim, color, sym } from "../lib/style.ts";
+import { renderStatusSymbol, renderStatusLabel, dim, color, sym, brand } from "../lib/style.ts";
 
 export const syncCommand = defineCommand({
   meta: {
@@ -27,7 +27,7 @@ export const syncCommand = defineCommand({
     const configPath = `${cwd}/navori.config.json`;
     const claudeMdPath = `${cwd}/CLAUDE.md`;
 
-    p.intro("navori sync");
+    p.intro(brand("sync"));
 
     if (!existsSync(cwd)) {
       p.cancel(`Directory not found: ${cwd}`);

@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, writeConfig, type NavoriConfig } from "../lib/config.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
+import { brand, dim, accent } from "../lib/style.ts";
 
 const ENGINE_OPTIONS = [
   { value: "claude", label: "Claude Code (.claude/)" },
@@ -48,7 +49,7 @@ const pluginsSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
 
-    p.intro("navori configure plugins");
+    p.intro(brand("configure plugins"));
 
     const allIds = listKnownPluginIds();
     const current = config.plugins ?? {};
@@ -112,7 +113,7 @@ const qualityGateSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
 
-    p.intro("navori configure quality-gate");
+    p.intro(brand("configure quality-gate"));
 
     let fast = args.fast as string | undefined;
     let full = args.full as string | undefined;
@@ -165,7 +166,7 @@ const languageSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
 
-    p.intro("navori configure language");
+    p.intro(brand("configure language"));
 
     let value = args.value as string | undefined;
     if (!value) {
@@ -208,7 +209,7 @@ const enginesSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
 
-    p.intro("navori configure engines");
+    p.intro(brand("configure engines"));
 
     const selected = await p.multiselect<string>({
       message: "Engines to target",
@@ -243,7 +244,7 @@ const workspaceSubCommand = defineCommand({
     const { path, raw } = loadOrExit(cwd);
     const value = (args.value as string | undefined)?.trim();
 
-    p.intro("navori configure workspace");
+    p.intro(brand("configure workspace"));
 
     if (!value) {
       const currentWorkspace = raw.workspace as string | undefined;

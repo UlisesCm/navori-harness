@@ -127,7 +127,7 @@ const newSubCommand = defineCommand({
     title: { type: "string", description: "Ticket title (default: id)" },
   },
   async run({ args }) {
-    p.intro(`navori ticket new ${args.id}`);
+    p.intro(brand(`ticket new ${accent(args.id as string)}`));
 
     // Validate the id BEFORE prompting for a title, otherwise the user
     // writes the title only to discover the id is rejected.
@@ -202,7 +202,7 @@ const deleteSubCommand = defineCommand({
     yes: { type: "boolean", description: "Skip confirmation" },
   },
   async run({ args }) {
-    p.intro(`navori ticket delete ${args.id}`);
+    p.intro(brand(`ticket delete ${accent(args.id as string)}`));
     if (!args.yes) {
       const ok = await p.confirm({
         message: `Permanently delete ticket '${args.id}' from workspace '${args.workspace}'?`,

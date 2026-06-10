@@ -121,7 +121,7 @@ const restoreSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const migrationDir = join(migrationsRoot(), ts, repoName);
 
-    p.intro(`navori migrations restore ${ts}/${repoName}`);
+    p.intro(brand(`migrations restore ${accent(`${ts}/${repoName}`)}`));
 
     if (!existsSync(migrationDir)) {
       p.cancel(`Migration not found: ${migrationDir}`);
