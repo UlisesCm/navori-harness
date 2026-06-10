@@ -4,7 +4,7 @@
   "description": "Multi-agent harness + SDD scaffolder for Claude Code and other AI engines",
   "type": "module",
   "bin": {
-    "navori": "./dist/index.js"
+    "navori": "dist/index.js"
   },
   "files": [
     "dist",
