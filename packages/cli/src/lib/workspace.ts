@@ -1,10 +1,12 @@
 import { existsSync, readFileSync, readdirSync, mkdirSync, statSync, copyFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { z } from "zod";
 import { writeFileAtomic } from "./atomic.ts";
+import { safeHomedir } from "./home.ts";
 
-const WORKSPACES_ROOT = join(homedir(), ".navori", "workspaces");
+function workspacesRootLazy(): string {
+  return join(safeHomedir(), ".navori", "workspaces");
+}
 const MANIFEST_NAME = "workspace.json";
 
 const RepoEntrySchema = z.object({
@@ -47,11 +49,11 @@ export class WorkspaceError extends Error {
 }
 
 export function workspacesRoot(): string {
-  return WORKSPACES_ROOT;
+  return workspacesRootLazy();
 }
 
 export function workspaceDirectory(name: string): string {
-  return join(WORKSPACES_ROOT, name);
+  return join(workspacesRootLazy(), name);
 }
 
 export function workspacePath(name: string): string {
@@ -60,11 +62,11 @@ export function workspacePath(name: string): string {
 
 /** Legacy layout: <name>.json next to the workspaces root. Used only by migration. */
 function legacyWorkspacePath(name: string): string {
-  return join(WORKSPACES_ROOT, `${name}.json`);
+  return join(workspacesRootLazy(), `${name}.json`);
 }
 
 export function ensureWorkspacesRoot(): void {
-  mkdirSync(WORKSPACES_ROOT, { recursive: true });
+  mkdirSync(workspacesRootLazy(), { recursive: true });
 }
 
 /**
@@ -87,17 +89,17 @@ function migrateLegacyLayoutIfNeeded(name: string): void {
 }
 
 export function listWorkspaces(): string[] {
-  if (!existsSync(WORKSPACES_ROOT)) return [];
+  if (!existsSync(workspacesRootLazy())) return [];
   // Migrate any legacy .json sitting at the root before listing
-  for (const entry of readdirSync(WORKSPACES_ROOT)) {
+  for (const entry of readdirSync(workspacesRootLazy())) {
     if (entry.endsWith(".json")) {
       const name = entry.replace(/\.json$/, "");
       migrateLegacyLayoutIfNeeded(name);
     }
   }
   const names: string[] = [];
-  for (const entry of readdirSync(WORKSPACES_ROOT)) {
-    const full = join(WORKSPACES_ROOT, entry);
+  for (const entry of readdirSync(workspacesRootLazy())) {
+    const full = join(workspacesRootLazy(), entry);
     try {
       if (!statSync(full).isDirectory()) continue;
     } catch {

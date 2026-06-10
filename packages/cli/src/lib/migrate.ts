@@ -1,8 +1,10 @@
 import { mkdirSync, existsSync, copyFileSync, readdirSync, statSync, rmSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
-import { homedir } from "node:os";
+import { safeHomedir } from "./home.ts";
 
-const MIGRATIONS_ROOT = join(homedir(), ".navori", "migrations");
+function migrationsRootLazy(): string {
+  return join(safeHomedir(), ".navori", "migrations");
+}
 
 function timestamp(): string {
   const d = new Date();
@@ -62,7 +64,7 @@ export interface MigrationResult {
  * symlinks and cross-device cases.
  */
 export function createMigrationBackup(repoRoot: string, repoName: string): MigrationResult {
-  const dir = join(MIGRATIONS_ROOT, timestamp(), repoName);
+  const dir = join(migrationsRootLazy(), timestamp(), repoName);
   mkdirSync(dir, { recursive: true });
 
   const candidates = [
@@ -100,5 +102,5 @@ export function removeOriginals(repoRoot: string, paths: string[]): void {
 }
 
 export function migrationsRoot(): string {
-  return MIGRATIONS_ROOT;
+  return migrationsRootLazy();
 }

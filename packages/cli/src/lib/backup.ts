@@ -1,8 +1,12 @@
 import { mkdirSync, copyFileSync, existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { homedir } from "node:os";
+import { safeHomedir } from "./home.ts";
 
-const BACKUP_ROOT = join(homedir(), ".navori", "backups");
+// Lazy so importing this module doesn't throw if HOME isn't set yet — the
+// throw happens only when someone actually tries to use a backup operation.
+function backupRootLazy(): string {
+  return join(safeHomedir(), ".navori", "backups");
+}
 const DEFAULT_RETENTION_DAYS = 30;
 
 /** ISO-like timestamp safe for paths: YYYY-MM-DDTHH-mm-ss */
@@ -35,7 +39,7 @@ export interface BackupHandle {
  * Files that do not exist are skipped silently (first-time render has nothing to back up).
  */
 export function createBackup(repoRoot: string, files: string[]): BackupHandle {
-  const dir = join(BACKUP_ROOT, timestamp());
+  const dir = join(backupRootLazy(), timestamp());
   mkdirSync(dir, { recursive: true });
 
   const copied: string[] = [];
@@ -57,11 +61,12 @@ export function createBackup(repoRoot: string, files: string[]): BackupHandle {
  * Silent if BACKUP_ROOT does not exist yet.
  */
 export function purgeOldBackups(retentionDays = DEFAULT_RETENTION_DAYS): string[] {
-  if (!existsSync(BACKUP_ROOT)) return [];
+  const root = backupRootLazy();
+  if (!existsSync(root)) return [];
   const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
   const pruned: string[] = [];
-  for (const entry of readdirSync(BACKUP_ROOT)) {
-    const full = join(BACKUP_ROOT, entry);
+  for (const entry of readdirSync(root)) {
+    const full = join(root, entry);
     const stat = statSync(full);
     if (!stat.isDirectory()) continue;
     if (stat.mtimeMs < cutoff) {
@@ -73,5 +78,5 @@ export function purgeOldBackups(retentionDays = DEFAULT_RETENTION_DAYS): string[
 }
 
 export function backupRoot(): string {
-  return BACKUP_ROOT;
+  return backupRootLazy();
 }
