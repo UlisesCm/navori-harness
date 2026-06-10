@@ -106,7 +106,12 @@ export interface RenderPlan {
  * Pure: does NOT touch disk for writing. Reads asset files from @navori/core
  * and from each plugin's package root.
  */
-export function computeRenderPlan(existing: string, config: NavoriConfig): RenderPlan {
+export function computeRenderPlan(
+  existing: string,
+  config: NavoriConfig,
+  options: { skipIds?: ReadonlySet<string> } = {},
+): RenderPlan {
+  const skipIds = options.skipIds ?? new Set<string>();
   let working = existing;
   const entries: AssetPlanEntry[] = [];
   const languageFallbacks: string[] = [];
@@ -116,6 +121,11 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
 
   // 1) Core assets
   for (const asset of CORE_MANAGED_ASSETS) {
+    if (skipIds.has(asset.id)) {
+      // The caller asked us to leave this block alone (user-modified that
+      // they chose to keep during conflict resolution).
+      continue;
+    }
     if (asset.condition) {
       const truthy = resolveCondition(configRecord, asset.condition);
       if (!truthy) {
@@ -181,6 +191,7 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
     if (enabled) {
       const pluginSource = `@navori/plugin-${plugin.manifest.id}`;
       for (const entry of plugin.managedAssets) {
+        if (skipIds.has(entry.id)) continue;
         const rawContent = readFileSync(entry.absPath, "utf-8");
         const content = interpolateTemplate(rawContent, config);
         const result = injectManagedSection(working, entry.id, content, {
@@ -206,6 +217,7 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
       }
     } else {
       for (const entry of plugin.managedAssets) {
+        if (skipIds.has(entry.id)) continue;
         const before = working;
         working = removeManagedSection(working, entry.id);
         entries.push({
@@ -230,64 +242,17 @@ export function computeRenderPlan(existing: string, config: NavoriConfig): Rende
 }
 
 /**
- * Re-apply the same plan but skipping ids marked "user-modified-skipped".
+ * Re-render the same plan but skipping ids marked "user-modified-skipped".
  * Used by sync after the user resolved conflicts (decides to keep theirs).
+ *
+ * Thin wrapper around computeRenderPlan with skipIds option — keeps a
+ * single source of truth for the inject/remove logic, including plugin
+ * error visibility, template interpolation and version drift tracking.
  */
 export function applyPlanWithSkips(
   existing: string,
   config: NavoriConfig,
   skipIds: ReadonlySet<string>,
 ): string {
-  let working = existing;
-  const configRecord = config as unknown as Record<string, unknown>;
-
-  for (const asset of CORE_MANAGED_ASSETS) {
-    if (skipIds.has(asset.id)) continue;
-    if (asset.condition && !resolveCondition(configRecord, asset.condition)) {
-      working = removeManagedSection(working, asset.id);
-      continue;
-    }
-    const resolved = resolveAssetPath(asset, config.language);
-    const rawContent = readFileSync(resolved.path, "utf-8");
-    const content = interpolateTemplate(rawContent, config);
-    const result = injectManagedSection(working, asset.id, content, {
-      source: CORE_SOURCE_ID,
-      version: CORE_VERSION,
-    });
-    working = result.output;
-  }
-
-  for (const [declaredId, settings] of Object.entries(config.plugins ?? {})) {
-    let plugin;
-    try {
-      plugin = loadPlugin(declaredId);
-    } catch (err) {
-      // Surface the failure to stderr instead of silently dropping it. The
-      // caller (sync) cannot easily recover, but the user must know that a
-      // declared plugin couldn't be loaded — otherwise its blocks would
-      // become zombies with no diagnostic.
-      const reason = err instanceof Error ? err.message : String(err);
-      process.stderr.write(
-        `[navori-ai] warning: failed to load plugin '${declaredId}': ${reason}\n`,
-      );
-      continue;
-    }
-    const enabled = settings.enabled === true;
-    for (const entry of plugin.managedAssets) {
-      if (skipIds.has(entry.id)) continue;
-      if (enabled) {
-        const rawContent = readFileSync(entry.absPath, "utf-8");
-        const content = interpolateTemplate(rawContent, config);
-        const result = injectManagedSection(working, entry.id, content, {
-          source: `@navori/plugin-${plugin.manifest.id}`,
-          version: plugin.manifest.version,
-        });
-        working = result.output;
-      } else {
-        working = removeManagedSection(working, entry.id);
-      }
-    }
-  }
-
-  return working;
+  return computeRenderPlan(existing, config, { skipIds }).next;
 }
