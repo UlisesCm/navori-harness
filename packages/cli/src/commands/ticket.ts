@@ -6,6 +6,8 @@ import {
   findTicket,
   createTicket,
   findReferencingRepos,
+  archiveTicket,
+  deleteTicket,
   TicketError,
 } from "../lib/tickets.ts";
 import { loadWorkspace } from "../lib/workspace.ts";
@@ -154,6 +156,64 @@ const newSubCommand = defineCommand({
   },
 });
 
+const archiveSubCommand = defineCommand({
+  meta: {
+    name: "archive",
+    description: "Move a ticket to the _archive folder (reversible)",
+  },
+  args: {
+    workspace: { type: "positional", description: "Workspace name", required: true },
+    id: { type: "positional", description: "Ticket id", required: true },
+  },
+  run({ args }) {
+    try {
+      const result = archiveTicket(args.workspace as string, args.id as string);
+      console.log(`Archived: ${result.path}`);
+    } catch (err) {
+      if (err instanceof TicketError) {
+        console.error(err.message);
+        process.exit(1);
+      }
+      throw err;
+    }
+  },
+});
+
+const deleteSubCommand = defineCommand({
+  meta: {
+    name: "delete",
+    description: "Delete a ticket permanently",
+  },
+  args: {
+    workspace: { type: "positional", description: "Workspace name", required: true },
+    id: { type: "positional", description: "Ticket id", required: true },
+    yes: { type: "boolean", description: "Skip confirmation" },
+  },
+  async run({ args }) {
+    p.intro(`navori-ai ticket delete ${args.id}`);
+    if (!args.yes) {
+      const ok = await p.confirm({
+        message: `Permanently delete ticket '${args.id}' from workspace '${args.workspace}'?`,
+        initialValue: false,
+      });
+      if (p.isCancel(ok) || !ok) {
+        p.cancel("Aborted");
+        return;
+      }
+    }
+    try {
+      deleteTicket(args.workspace as string, args.id as string);
+      p.outro("Deleted");
+    } catch (err) {
+      if (err instanceof TicketError) {
+        p.cancel(err.message);
+        process.exit(1);
+      }
+      throw err;
+    }
+  },
+});
+
 export const ticketCommand = defineCommand({
   meta: {
     name: "ticket",
@@ -163,5 +223,7 @@ export const ticketCommand = defineCommand({
     list: listSubCommand,
     show: showSubCommand,
     new: newSubCommand,
+    archive: archiveSubCommand,
+    delete: deleteSubCommand,
   },
 });

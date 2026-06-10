@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { writeFileAtomic } from "./atomic.ts";
 import { workspaceDirectory, loadWorkspace } from "./workspace.ts";
@@ -93,6 +93,24 @@ function defaultTemplate(id: string, title: string): string {
     "- ",
     "",
   ].join("\n");
+}
+
+export function archiveTicket(workspaceName: string, id: string): TicketSummary {
+  const summary = findTicket(workspaceName, id);
+  if (!summary) throw new TicketError(`Ticket '${id}' not found in workspace '${workspaceName}'`);
+  if (summary.state === "archive") return summary;
+  const dir = ticketsDir(workspaceName);
+  const archiveDir = join(dir, "_archive");
+  mkdirSync(archiveDir, { recursive: true });
+  const dest = join(archiveDir, `${id}.md`);
+  renameSync(summary.path, dest);
+  return { id, path: dest, title: summary.title, state: "archive" };
+}
+
+export function deleteTicket(workspaceName: string, id: string): void {
+  const summary = findTicket(workspaceName, id);
+  if (!summary) throw new TicketError(`Ticket '${id}' not found in workspace '${workspaceName}'`);
+  rmSync(summary.path, { force: true });
 }
 
 export function createTicket(workspaceName: string, id: string, title?: string): TicketSummary {

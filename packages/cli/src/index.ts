@@ -11,6 +11,7 @@ import { workspaceCommand } from "./commands/workspace.ts";
 import { ticketCommand } from "./commands/ticket.ts";
 import { configureCommand } from "./commands/configure.ts";
 import { updateCommand } from "./commands/update.ts";
+import { backupCommand } from "./commands/backup.ts";
 
 function readVersion(): string {
   // dist/index.js → ../package.json (both in dev and published layouts)
@@ -45,6 +46,7 @@ const main = defineCommand({
     doctor: doctorCommand,
     workspace: workspaceCommand,
     ticket: ticketCommand,
+    backup: backupCommand,
   },
 });
 

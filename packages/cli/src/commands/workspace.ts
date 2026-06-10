@@ -142,6 +142,52 @@ const showSubCommand = defineCommand({
   },
 });
 
+const deleteSubCommand = defineCommand({
+  meta: {
+    name: "delete",
+    description: "Delete a workspace (move to ~/.navori/.trash for safety)",
+  },
+  args: {
+    name: { type: "positional", description: "Workspace name", required: true },
+    yes: { type: "boolean", description: "Skip confirmation" },
+  },
+  async run({ args }) {
+    const name = args.name as string;
+    const ws = loadWorkspace(name);
+    if (!ws) {
+      console.error(`Workspace '${name}' not found`);
+      process.exit(1);
+    }
+    const dir = workspaceDirectory(name);
+
+    p.intro(`navori-ai workspace delete ${name}`);
+    p.log.warn(
+      `Will move ${dir} to ~/.navori/.trash/. Includes ${ws.repos.length} repo registration(s) and any tickets in that workspace.`,
+    );
+
+    if (!args.yes) {
+      const ok = await p.confirm({
+        message: `Delete workspace '${name}'?`,
+        initialValue: false,
+      });
+      if (p.isCancel(ok) || !ok) {
+        p.cancel("Aborted");
+        return;
+      }
+    }
+
+    const { renameSync, existsSync, mkdirSync } = await import("node:fs");
+    const { join: joinPath } = await import("node:path");
+    const { homedir } = await import("node:os");
+    const trashRoot = joinPath(homedir(), ".navori", ".trash");
+    mkdirSync(trashRoot, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const dest = joinPath(trashRoot, `${name}-${ts}`);
+    if (existsSync(dir)) renameSync(dir, dest);
+    p.outro(`Moved to ${dest}. Restore manually if needed.`);
+  },
+});
+
 const addRepoSubCommand = defineCommand({
   meta: {
     name: "add-repo",
@@ -185,5 +231,6 @@ export const workspaceCommand = defineCommand({
     ls: lsSubCommand,
     show: showSubCommand,
     "add-repo": addRepoSubCommand,
+    delete: deleteSubCommand,
   },
 });
