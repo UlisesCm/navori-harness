@@ -3,7 +3,7 @@ import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
-import { loadPlugin } from "../lib/plugins.ts";
+import { loadPlugin, PluginNotFoundError, PluginManifestError } from "../lib/plugins.ts";
 
 interface MarkerInfo {
   id: string;
@@ -84,8 +84,9 @@ export const doctorCommand = defineCommand({
     }
 
     const markers = listMarkers(claudeMdPath);
+    const missingPlugins = collectMissingPlugins(config);
     const report = {
-      ok: true,
+      ok: missingPlugins.length === 0,
       configPath,
       config,
       checks: {
@@ -95,6 +96,7 @@ export const doctorCommand = defineCommand({
         progressDirExists: existsSync(`${cwd}/${config.progress?.dir ?? "progress"}`),
       },
       managedBlocks: markers,
+      missingPlugins,
     };
 
     if (args.json) {
@@ -137,7 +139,12 @@ export const doctorCommand = defineCommand({
       }
     }
 
-    p.outro("OK");
+    if (missingPlugins.length > 0) {
+      const lines = missingPlugins.map((m) => `  ✗ ${m.id}  ${grey(`— ${m.reason}`)}`);
+      p.log.warn(`Plugins declared in config but not loadable (${missingPlugins.length}):\n${lines.join("\n")}`);
+    }
+
+    p.outro(missingPlugins.length > 0 ? "Issues found" : "OK");
   },
 });
 
@@ -153,6 +160,30 @@ interface AssignmentRow {
   id: string;
   agent: string;
   override: boolean;
+}
+
+interface MissingPlugin {
+  id: string;
+  reason: string;
+}
+
+function collectMissingPlugins(config: NavoriConfig): MissingPlugin[] {
+  const missing: MissingPlugin[] = [];
+  for (const [id, settings] of Object.entries(config.plugins ?? {})) {
+    if (settings.enabled !== true) continue;
+    try {
+      loadPlugin(id);
+    } catch (err) {
+      if (err instanceof PluginNotFoundError) {
+        missing.push({ id, reason: "unknown plugin id" });
+      } else if (err instanceof PluginManifestError) {
+        missing.push({ id, reason: err.message });
+      } else {
+        missing.push({ id, reason: (err as Error).message });
+      }
+    }
+  }
+  return missing;
 }
 
 function collectAssignments(config: NavoriConfig): AssignmentRow[] {

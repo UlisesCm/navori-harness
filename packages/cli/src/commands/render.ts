@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { readConfig } from "../lib/config.ts";
 import { computeRenderPlan, type AssetPlanEntry } from "../lib/render-plan.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
+import { createBackup, purgeOldBackups } from "../lib/backup.ts";
 
 /**
  * Run the render flow against `cwd`. Reusable from other commands (e.g. init).
@@ -18,6 +19,7 @@ export function runRender(cwd: string, dryRun = false): {
   written: boolean;
   languageFallbacks: string[];
   updatesAvailable: Array<{ id: string; source: string; fromVersion: string; toVersion: string }>;
+  backupPath?: string | null;
 } {
   const configPath = `${cwd}/navori.config.json`;
   const claudeMdPath = `${cwd}/CLAUDE.md`;
@@ -31,6 +33,7 @@ export function runRender(cwd: string, dryRun = false): {
       written: false,
       languageFallbacks: [],
       updatesAvailable: [],
+      backupPath: null,
     };
   }
 
@@ -38,7 +41,15 @@ export function runRender(cwd: string, dryRun = false): {
   const existing = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, "utf-8") : "";
   const plan = computeRenderPlan(existing, config);
 
+  let backupPath: string | null = null;
   if (plan.changed && !dryRun) {
+    // Backup BEFORE writing, only when the target file exists (first
+    // render has nothing to back up).
+    if (existsSync(claudeMdPath)) {
+      const handle = createBackup(cwd, ["CLAUDE.md"]);
+      backupPath = handle.path;
+      purgeOldBackups();
+    }
     writeFileAtomic(claudeMdPath, plan.next);
   }
 
@@ -49,6 +60,7 @@ export function runRender(cwd: string, dryRun = false): {
     written: plan.changed && !dryRun,
     languageFallbacks: plan.languageFallbacks,
     updatesAvailable: plan.updatesAvailable,
+    backupPath,
   };
 }
 
@@ -82,6 +94,9 @@ export const renderCommand = defineCommand({
       p.log.warn(
         `Language fallback to Spanish for: ${result.languageFallbacks.join(", ")} (English version not available yet)`,
       );
+    }
+    if (result.backupPath) {
+      p.log.message(`Backup: ${result.backupPath}`);
     }
     p.outro(args["dry-run"] ? "Dry-run complete (no files written)" : "Done");
   },

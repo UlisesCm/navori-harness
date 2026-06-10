@@ -6,6 +6,7 @@ import { readConfig, writeConfig, type NavoriConfig } from "../lib/config.ts";
 import { detectProject } from "../lib/detect.ts";
 import { computeRenderPlan } from "../lib/render-plan.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
+import { createBackup, purgeOldBackups } from "../lib/backup.ts";
 
 interface ConfigDiff {
   field: string;
@@ -175,6 +176,11 @@ export const updateCommand = defineCommand({
       }
 
       if (freshPlan.changed) {
+        if (existsSync(`${cwd}/CLAUDE.md`)) {
+          const handle = createBackup(cwd, ["CLAUDE.md"]);
+          purgeOldBackups();
+          p.log.message(`Backup: ${handle.path}`);
+        }
         writeFileAtomic(`${cwd}/CLAUDE.md`, freshPlan.next);
         p.log.success(`Re-rendered ${cwd}/CLAUDE.md`);
       } else {
