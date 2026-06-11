@@ -2,7 +2,7 @@
   "id": "engram",
   "name": "Engram persistent memory",
   "description": "Memory persistence across Claude Code sessions via MCP server",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "managed": [
     {
       "id": "engram-protocol",
@@ -18,5 +18,13 @@
       "linux": "curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/engram/main/scripts/install.sh | bash"
     },
     "postInstall": "claude plugin install engram"
-  }
+  },
+  "skills": [
+    {
+      "id": "engram-leader-extension",
+      "file": "skills/engram-leader.md",
+      "recommendedAgent": "leader",
+      "injectInto": ".claude/agents/leader.md"
+    }
+  ]
 }

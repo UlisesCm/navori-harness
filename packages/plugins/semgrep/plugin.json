@@ -2,7 +2,7 @@
   "id": "semgrep",
   "name": "semgrep (security + pattern analysis)",
   "description": "Detección de vulnerabilidades y patrones inseguros local opt-in",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "managed": [
     {
       "id": "semgrep-protocol",
@@ -17,5 +17,21 @@
       "darwin": "brew install semgrep",
       "linux": "pipx install semgrep"
     }
-  }
+  },
+  "scripts": [
+    {
+      "src": "scripts/check-semgrep.sh",
+      "dest": "check-semgrep.sh",
+      "exec": true
+    }
+  ],
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "bash .claude/scripts/check-semgrep.sh",
+      "timeout": 180,
+      "statusMessage": "navori/semgrep: security scan"
+    }
+  ]
 }

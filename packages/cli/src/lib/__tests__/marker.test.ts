@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   injectManagedSection,
   removeManagedSection,
+  extractManagedContent,
   resolveCondition,
 } from "../marker.ts";
 
@@ -141,6 +142,114 @@ describe("removeManagedSection", () => {
     expect(after).toContain("Keep me");
     expect(after).not.toContain("Drop me");
     expect(after).not.toContain('id="drop"');
+  });
+});
+
+describe("injectManagedSection — shell commentStyle", () => {
+  const SHELL_BODY = "pnpm run typecheck || exit 2\n";
+
+  it("creates block with shell markers", () => {
+    const result = injectManagedSection("#!/bin/bash\n", "qg-fast", SHELL_BODY, {}, "shell");
+    expect(result.status).toBe("created");
+    expect(result.output).toContain('# navori:managed start id="qg-fast"');
+    expect(result.output).toContain('# navori:managed end id="qg-fast"');
+    expect(result.output).toContain("pnpm run typecheck");
+    // Must NOT contain HTML markers
+    expect(result.output).not.toContain("<!-- navori:managed");
+  });
+
+  it("is idempotent in shell mode", () => {
+    const first = injectManagedSection("#!/bin/bash\n", "qg-fast", SHELL_BODY, {}, "shell");
+    const second = injectManagedSection(first.output, "qg-fast", SHELL_BODY, {}, "shell");
+    expect(second.status).toBe("unchanged");
+    expect(second.output).toBe(first.output);
+  });
+
+  it("detects user modification in shell mode and skips overwrite", () => {
+    const first = injectManagedSection("#!/bin/bash\n", "qg-fast", SHELL_BODY, {}, "shell");
+    const modified = first.output.replace("typecheck", "USER-CHANGED-CMD");
+    const next = injectManagedSection(modified, "qg-fast", "echo new\n", {}, "shell");
+    expect(next.status).toBe("user-modified-skipped");
+    expect(next.output).toContain("USER-CHANGED-CMD");
+  });
+
+  it("updates content in shell mode when user did not modify", () => {
+    const first = injectManagedSection("#!/bin/bash\n", "qg-fast", SHELL_BODY, {}, "shell");
+    const newBody = "pnpm run lint && pnpm run typecheck || exit 2\n";
+    const second = injectManagedSection(first.output, "qg-fast", newBody, {}, "shell");
+    expect(second.status).toBe("updated");
+    expect(second.output).toContain("pnpm run lint");
+  });
+
+  it("hash in shell marker is 8 hex chars", () => {
+    const result = injectManagedSection("", "x", SHELL_BODY, {}, "shell");
+    const match = result.output.match(/hash="([a-f0-9]+)"/);
+    expect(match).not.toBeNull();
+    expect(match![1]).toHaveLength(8);
+  });
+
+  it("preserves user-section after the managed block (free-form below)", () => {
+    const first = injectManagedSection("#!/bin/bash\n", "qg-fast", SHELL_BODY, {}, "shell");
+    const withUserAddition = first.output + "\n# user: my custom check\nbash extra.sh\n";
+    const second = injectManagedSection(withUserAddition, "qg-fast", SHELL_BODY, {}, "shell");
+    expect(second.status).toBe("unchanged");
+    expect(second.output).toContain("# user: my custom check");
+    expect(second.output).toContain("bash extra.sh");
+  });
+
+  it("CRLF in shell scripts is treated as LF (no phantom conflicts)", () => {
+    const first = injectManagedSection("#!/bin/bash\n", "qg-fast", SHELL_BODY, {}, "shell");
+    const crlf = first.output.replace(/\n/g, "\r\n");
+    const second = injectManagedSection(crlf, "qg-fast", SHELL_BODY, {}, "shell");
+    expect(second.status).toBe("unchanged");
+  });
+
+  it("cleans an orphan shell open marker before injecting", () => {
+    const corrupted =
+      '# navori:managed start id="x" hash="aaaaaaaa"\nrandom user content\nthat should not stay\n';
+    const result = injectManagedSection(corrupted, "x", "echo fresh\n", {}, "shell");
+    expect(result.status).toBe("created");
+    const openCount = (result.output.match(/# navori:managed start id="x"/g) ?? []).length;
+    expect(openCount).toBe(1);
+    expect(result.output).toContain("echo fresh");
+  });
+
+  it("ignores text containing 'navori:managed' that is not a real marker", () => {
+    const noisy = '# A comment mentioning navori:managed-something\necho hello\n';
+    const result = injectManagedSection(noisy, "x", SHELL_BODY, {}, "shell");
+    expect(result.status).toBe("created");
+    expect(result.output).toMatch(/A comment mentioning/);
+  });
+});
+
+describe("removeManagedSection — shell commentStyle", () => {
+  it("removes shell block by id", () => {
+    const withBlock = injectManagedSection("#!/bin/bash\n", "x", "echo hi\n", {}, "shell").output;
+    const removed = removeManagedSection(withBlock, "x", "shell");
+    expect(removed).not.toContain("navori:managed");
+    expect(removed).not.toContain("echo hi");
+  });
+
+  it("no-op when block does not exist in shell mode", () => {
+    const input = "#!/bin/bash\necho hi\n";
+    expect(removeManagedSection(input, "missing", "shell")).toBe(input);
+  });
+});
+
+describe("extractManagedContent — both styles", () => {
+  it("returns the managed body for an html block", () => {
+    const withBlock = injectManagedSection("", "x", "Hello\n", {}, "html").output;
+    expect(extractManagedContent(withBlock, "x", "html")).toBe("Hello");
+  });
+
+  it("returns the managed body for a shell block", () => {
+    const withBlock = injectManagedSection("", "x", "echo hi\n", {}, "shell").output;
+    expect(extractManagedContent(withBlock, "x", "shell")).toBe("echo hi");
+  });
+
+  it("returns null for the wrong commentStyle (markers do not cross styles)", () => {
+    const htmlBlock = injectManagedSection("", "x", "Hello\n", {}, "html").output;
+    expect(extractManagedContent(htmlBlock, "x", "shell")).toBeNull();
   });
 });
 

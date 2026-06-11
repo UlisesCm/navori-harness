@@ -1,9 +1,10 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "../lib/plugins.ts";
+import { readBundledCoreVersion } from "../lib/bundled-assets.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
 
 interface MarkerInfo {
@@ -86,7 +87,11 @@ export const doctorCommand = defineCommand({
 
     const markers = listMarkers(claudeMdPath);
     const missingPlugins = collectMissingPlugins(config);
+    const drifts = scanManagedDrift(cwd, config);
     const report = {
+      // Drift is informational ("update available"), not an error — don't
+      // flip `ok` for it. A missing plugin is, since the render plan
+      // referencing it will fail.
       ok: missingPlugins.length === 0,
       configPath,
       config,
@@ -98,6 +103,7 @@ export const doctorCommand = defineCommand({
       },
       managedBlocks: markers,
       missingPlugins,
+      drifts,
     };
 
     if (args.json) {
@@ -153,6 +159,16 @@ export const doctorCommand = defineCommand({
       p.log.warn(`Plugins declared in config but not loadable (${missingPlugins.length}):\n${lines.join("\n")}`);
     }
 
+    if (drifts.length > 0) {
+      const lines = drifts.map(
+        (d) =>
+          `  ${color.yellow(sym.update)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`${d.fromVersion} → ${d.toVersion}`)}  ${grey(`(${d.source})`)}`,
+      );
+      p.log.warn(
+        `Updates available — corré 'navori render' o 'navori sync' (${drifts.length}):\n${lines.join("\n")}`,
+      );
+    }
+
     p.outro(missingPlugins.length > 0 ? color.red("Issues found") : color.green("OK"));
   },
 });
@@ -185,6 +201,71 @@ function collectMissingPlugins(config: NavoriConfig): MissingPlugin[] {
     }
   }
   return missing;
+}
+
+interface DriftReport {
+  /** Repo-relative path of the file with the drifted marker. */
+  filePath: string;
+  markerId: string;
+  source: string;
+  fromVersion: string;
+  toVersion: string;
+}
+
+/**
+ * Walk `.claude/agents/` and `.claude/skills/` and report version drift
+ * for any managed marker whose `source`+`version` no longer matches what
+ * the current bundle (core or plugin) declares. Drift means the rendered
+ * file is older than the asset we'd produce now — `navori render` or
+ * `sync` will bring it up to date.
+ *
+ * Missing version attrs are skipped (legacy markers without `version=`).
+ * Unknown sources (deleted plugin, hand-edited) are skipped — we have
+ * nothing to compare against.
+ */
+function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport[] {
+  const out: DriftReport[] = [];
+  const coreVersion = readBundledCoreVersion();
+  const pluginVersions = new Map<string, string>();
+  for (const [id, settings] of Object.entries(config.plugins ?? {})) {
+    if (settings.enabled !== true) continue;
+    try {
+      const plugin = loadPlugin(id);
+      pluginVersions.set(`@navori/plugin-${id}`, plugin.manifest.version);
+    } catch {
+      // unknown / broken plugin — reported elsewhere via missingPlugins
+    }
+  }
+
+  for (const dir of [".claude/agents", ".claude/skills"]) {
+    const absDir = join(cwd, dir);
+    if (!existsSync(absDir)) continue;
+    let entries: string[];
+    try {
+      entries = readdirSync(absDir);
+    } catch {
+      continue;
+    }
+    for (const file of entries) {
+      if (!file.endsWith(".md")) continue;
+      const rel = `${dir}/${file}`;
+      const markers = listMarkers(join(cwd, rel));
+      for (const m of markers) {
+        if (!m.version || !m.source) continue;
+        const expected =
+          m.source === "@navori/core" ? coreVersion : pluginVersions.get(m.source);
+        if (!expected || expected === m.version) continue;
+        out.push({
+          filePath: rel,
+          markerId: m.id,
+          source: m.source,
+          fromVersion: m.version,
+          toVersion: expected,
+        });
+      }
+    }
+  }
+  return out;
 }
 
 function collectAssignments(config: NavoriConfig): AssignmentRow[] {

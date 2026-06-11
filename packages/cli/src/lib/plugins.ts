@@ -31,18 +31,80 @@ const ExternalToolSchema = z.object({
   postInstall: z.string().optional(),
 });
 
-const PluginManifestSchema = z.object({
+// Spec 0002 — extensions for the Claude engine adapter.
+// All fields below are optional and additive: existing plugins keep
+// validating without changes.
+
+const HOOK_EVENTS = ["PreToolUse", "PostToolUse", "Stop"] as const;
+
+const HookEntrySchema = z.object({
+  event: z.enum(HOOK_EVENTS),
+  /** Claude Code matcher (regex against tool name). */
+  matcher: z.string().optional(),
+  command: z.string().min(1),
+  timeout: z.number().int().positive().optional(),
+  statusMessage: z.string().optional(),
+});
+
+/** Containment-safe relative path (no leading slash, no `..` segment). */
+const safeRelPath = z
+  .string()
+  .min(1)
+  .refine(
+    (v) => !v.startsWith("/") && !v.split(/[\\/]/).includes(".."),
+    "path must be relative and must not contain '..'",
+  );
+
+const ScriptEntrySchema = z.object({
+  /** Path relative to the plugin package root. */
+  src: safeRelPath,
+  /** Path relative to `.claude/scripts/` in the target repo. */
+  dest: safeRelPath,
+  /** chmod +x after copy. Defaults to true (shell scripts need it). */
+  exec: z.boolean().default(true),
+});
+
+const SkillEntrySchema = z.object({
+  id: z.string().min(1),
+  file: safeRelPath,
+  recommendedAgent: z.enum(AGENT_ROLES).optional(),
+  /** If set, inject this skill content as a sub-block (managed marker)
+   * inside the target file instead of writing a standalone skill. Used
+   * when a plugin extends an agent (e.g. engram → leader.md). */
+  injectInto: safeRelPath.optional(),
+});
+
+const PromptEntrySchema = z.object({
+  /** Dot-path under config.project that the answer is written to. */
+  key: z.string().regex(/^[a-z][a-zA-Z0-9_.]*$/, "key must be a config dot-path"),
+  question: z.object({ es: z.string().min(1), en: z.string().min(1) }),
+  type: z.enum(["string", "string-list", "boolean", "number"]),
+  placeholder: z.string().optional(),
+  optional: z.boolean().default(false),
+});
+
+export const PluginManifestSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "plugin id must be kebab-case"),
   name: z.string(),
   description: z.string(),
   version: z.string(),
   managed: z.array(ManagedEntrySchema).default([]),
   externalTool: ExternalToolSchema.optional(),
+  /** Deep-merged into `.claude/settings.json` at render time. */
+  settingsFragment: z.record(z.string(), z.unknown()).optional(),
+  hooks: z.array(HookEntrySchema).optional(),
+  scripts: z.array(ScriptEntrySchema).optional(),
+  skills: z.array(SkillEntrySchema).optional(),
+  prompts: z.array(PromptEntrySchema).optional(),
 });
 
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 export type PluginManagedEntry = z.infer<typeof ManagedEntrySchema>;
 export type PluginExternalTool = z.infer<typeof ExternalToolSchema>;
+export type PluginHookEntry = z.infer<typeof HookEntrySchema>;
+export type PluginScriptEntry = z.infer<typeof ScriptEntrySchema>;
+export type PluginSkillEntry = z.infer<typeof SkillEntrySchema>;
+export type PluginPromptEntry = z.infer<typeof PromptEntrySchema>;
 
 /** Resolved manifest with its package root and computed asset paths. */
 export interface LoadedPlugin {
@@ -51,6 +113,15 @@ export interface LoadedPlugin {
   packageRoot: string;
   /** Resolved absolute paths for each managed entry. */
   managedAssets: Array<{ id: string; absPath: string }>;
+  /** Resolved absolute paths for each script entry (source side). */
+  scriptAssets: Array<{ src: string; dest: string; exec: boolean }>;
+  /** Resolved absolute paths for each skill entry (source side). */
+  skillAssets: Array<{
+    id: string;
+    absPath: string;
+    recommendedAgent?: AgentRole;
+    injectInto?: string;
+  }>;
 }
 
 /**
@@ -127,17 +198,35 @@ export function loadPlugin(pluginId: string): LoadedPlugin {
   // 'file: "../../../etc/passwd"'. Reject anything that escapes the
   // package root, so plugin content can never read arbitrary files.
   const rootPrefix = packageRoot.endsWith(sep) ? packageRoot : packageRoot + sep;
-  const managedAssets = manifest.managed.map((entry) => {
-    const absPath = resolve(packageRoot, entry.file);
+  const containAgainstRoot = (entryFile: string, fieldLabel: string): string => {
+    const absPath = resolve(packageRoot, entryFile);
     if (absPath !== packageRoot && !absPath.startsWith(rootPrefix)) {
       throw new PluginManifestError(
-        `Plugin '${pluginId}' declared managed.file '${entry.file}' that resolves outside the package root.`,
+        `Plugin '${pluginId}' declared ${fieldLabel} '${entryFile}' that resolves outside the package root.`,
       );
     }
-    return { id: entry.id, absPath };
-  });
+    return absPath;
+  };
 
-  return { manifest, packageRoot, managedAssets };
+  const managedAssets = manifest.managed.map((entry) => ({
+    id: entry.id,
+    absPath: containAgainstRoot(entry.file, "managed.file"),
+  }));
+
+  const scriptAssets = (manifest.scripts ?? []).map((entry) => ({
+    src: containAgainstRoot(entry.src, "scripts.src"),
+    dest: entry.dest,
+    exec: entry.exec,
+  }));
+
+  const skillAssets = (manifest.skills ?? []).map((entry) => ({
+    id: entry.id,
+    absPath: containAgainstRoot(entry.file, "skills.file"),
+    recommendedAgent: entry.recommendedAgent,
+    injectInto: entry.injectInto,
+  }));
+
+  return { manifest, packageRoot, managedAssets, scriptAssets, skillAssets };
 }
 
 /**

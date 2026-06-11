@@ -56,7 +56,7 @@ describe("CLI e2e — happy paths", () => {
     dirs = [];
   });
 
-  it("init --recommended on empty dir writes config + renders CLAUDE.md", () => {
+  it("init --recommended on empty dir writes config + renders CLAUDE.md + .claude/", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
 
@@ -75,6 +75,15 @@ describe("CLI e2e — happy paths", () => {
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
     expect(claudeMd).toContain("navori:managed id=\"idioma-rol\"");
     expect(claudeMd).toContain("navori:managed id=\"engram-protocol\"");
+
+    // E1c: .claude/ tree now also exists
+    expect(existsSync(join(repo, ".claude/agents/leader.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude/agents/implementer.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude/skills/verify-before-done.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude/settings.json"))).toBe(true);
+
+    const settings = JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8"));
+    expect(settings.$navori?.managed).toBe(true);
   });
 
   it("init --yes detects stack from package.json", () => {
@@ -104,7 +113,8 @@ describe("CLI e2e — happy paths", () => {
 
     const r = runCli(["init", "--yes", "--cwd", repo]);
     expect(r.status).toBe(1);
-    expect(r.combined).toContain("already exists");
+    // Language-agnostic: just confirm the abort message references the config file.
+    expect(r.combined).toContain("navori.config.json");
   });
 
   it("render is idempotent: second run reports no changes", () => {
@@ -161,6 +171,36 @@ describe("CLI e2e — happy paths", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.config.name).toBeDefined();
     expect(parsed.managedBlocks.length).toBeGreaterThanOrEqual(5);
+    // G1: drifts array shipped (empty after a fresh render)
+    expect(Array.isArray(parsed.drifts)).toBe(true);
+    expect(parsed.drifts).toHaveLength(0);
+  });
+
+  it("doctor reports version drift when an agent file is older than the bundle", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // Tamper with leader.md: replace the version="..." attr with an older one.
+    const leaderPath = join(repo, ".claude/agents/leader.md");
+    const tampered = readFileSync(leaderPath, "utf-8").replace(
+      /version="\d+\.\d+\.\d+"/,
+      'version="0.0.0"',
+    );
+    writeFileSync(leaderPath, tampered, "utf-8");
+
+    const r = runCli(["doctor", "--json", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(r.stdout);
+    const drift = parsed.drifts.find(
+      (d: { filePath: string; markerId: string }) =>
+        d.filePath === ".claude/agents/leader.md" && d.markerId === "leader-base",
+    );
+    expect(drift).toBeDefined();
+    expect(drift.fromVersion).toBe("0.0.0");
+    expect(drift.toVersion).toMatch(/^\d+\.\d+\.\d+$/);
+    // ok stays true — drift is informational, not an error
+    expect(parsed.ok).toBe(true);
   });
 
   it("configure language changes the config field", () => {

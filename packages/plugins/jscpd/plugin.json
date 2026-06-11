@@ -2,7 +2,7 @@
   "id": "jscpd",
   "name": "jscpd (code duplication detector)",
   "description": "Detección de duplicación de código en el diff vs branch base",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "managed": [
     {
       "id": "jscpd-protocol",
@@ -18,5 +18,21 @@
       "linux": "pnpm add -g jscpd",
       "win32": "pnpm add -g jscpd"
     }
-  }
+  },
+  "scripts": [
+    {
+      "src": "scripts/check-jscpd.sh",
+      "dest": "check-jscpd.sh",
+      "exec": true
+    }
+  ],
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "bash .claude/scripts/check-jscpd.sh",
+      "timeout": 180,
+      "statusMessage": "navori/jscpd: dup check"
+    }
+  ]
 }

@@ -33,7 +33,12 @@ cpSync(resolve(coreSrc, "core-assets"), resolve(coreDest, "core-assets"), {
   recursive: true,
 });
 
-// Plugins
+// Plugins. Whitelist of asset directories each plugin may ship — keep this
+// in sync with the categories the engine adapter consumes (managed[],
+// scripts[], skills[], hooks[]). Anything else (node_modules, src/, dist/)
+// is intentionally excluded from the published tarball.
+const PLUGIN_ASSET_DIRS = ["managed", "scripts", "skills", "hooks"];
+
 const pluginsDest = resolve(ASSETS_DIR, "plugins");
 mkdirSync(pluginsDest, { recursive: true });
 for (const id of plugins) {
@@ -41,9 +46,11 @@ for (const id of plugins) {
   const dest = resolve(pluginsDest, id);
   mkdirSync(dest, { recursive: true });
   cpSync(resolve(src, "plugin.json"), resolve(dest, "plugin.json"));
-  const managedSrc = resolve(src, "managed");
-  if (existsSync(managedSrc)) {
-    cpSync(managedSrc, resolve(dest, "managed"), { recursive: true });
+  for (const assetDir of PLUGIN_ASSET_DIRS) {
+    const assetSrc = resolve(src, assetDir);
+    if (existsSync(assetSrc)) {
+      cpSync(assetSrc, resolve(dest, assetDir), { recursive: true });
+    }
   }
 }
 

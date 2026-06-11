@@ -1,0 +1,18 @@
+{
+  "$navori": {
+    "managed": true,
+    "version": "{{coreVersion}}",
+    "notes": "Archivo generado por navori. NO editar a mano — los cambios se pierden en el próximo `navori render`. Per-user / per-machine permissions van a settings.local.json (gitignored)."
+  },
+  "hooks": {},
+  "permissions": {
+    "allow": [
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git fetch*)",
+      "Bash(git stash*)"
+    ]
+  }
+}

@@ -33,27 +33,70 @@ export interface BackupHandle {
   files: string[];
 }
 
+export interface BackupOptions {
+  /** Repo-relative paths to skip while copying. Matching rule: a candidate
+   * `rel` is excluded if `rel === ex` OR `rel.startsWith(ex + "/")`. Use the
+   * directory form (without trailing slash) to exclude a whole subtree. */
+  exclude?: string[];
+}
+
 /**
- * Create a backup directory under ~/.navori/backups/<timestamp>/
- * Copies each existing source file preserving its repo-relative path.
- * Files that do not exist are skipped silently (first-time render has nothing to back up).
+ * Create a backup directory under ~/.navori/backups/<timestamp>/.
+ * Each path can be a file or a directory; directories are walked
+ * recursively. Missing sources are skipped silently (a first-time render
+ * has nothing to back up). Exclusions match by repo-relative path.
  */
-export function createBackup(repoRoot: string, files: string[]): BackupHandle {
+export function createBackup(
+  repoRoot: string,
+  paths: string[],
+  options: BackupOptions = {},
+): BackupHandle {
   const dir = join(backupRootLazy(), timestamp());
   mkdirSync(dir, { recursive: true });
 
+  const exclude = (options.exclude ?? []).map((e) => e.replace(/\/+$/, ""));
   const copied: string[] = [];
-  for (const file of files) {
-    const abs = resolve(repoRoot, file);
+
+  for (const p of paths) {
+    const abs = resolve(repoRoot, p);
     if (!existsSync(abs)) continue;
-    const rel = relative(repoRoot, abs);
-    const dest = join(dir, rel);
-    mkdirSync(dirname(dest), { recursive: true });
-    copyFileSync(abs, dest);
-    copied.push(rel);
+    copyRecursive(abs, dir, repoRoot, exclude, copied);
   }
 
   return { path: dir, files: copied };
+}
+
+function copyRecursive(
+  abs: string,
+  backupDir: string,
+  repoRoot: string,
+  exclude: string[],
+  copied: string[],
+): void {
+  const rel = relative(repoRoot, abs);
+  if (isExcluded(rel, exclude)) return;
+
+  const stat = statSync(abs);
+  if (stat.isDirectory()) {
+    for (const entry of readdirSync(abs)) {
+      copyRecursive(join(abs, entry), backupDir, repoRoot, exclude, copied);
+    }
+    return;
+  }
+  if (!stat.isFile()) return; // skip symlinks, sockets, etc.
+
+  const dest = join(backupDir, rel);
+  mkdirSync(dirname(dest), { recursive: true });
+  copyFileSync(abs, dest);
+  copied.push(rel);
+}
+
+function isExcluded(rel: string, exclude: string[]): boolean {
+  for (const ex of exclude) {
+    if (rel === ex) return true;
+    if (rel.startsWith(ex + "/")) return true;
+  }
+  return false;
 }
 
 /**
