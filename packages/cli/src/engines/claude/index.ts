@@ -186,14 +186,20 @@ export function renderClaudeEngine(
   }
 
   if (!dryRun) {
-    // Backup only the files that already exist and will be overwritten.
-    const existingTargets = pending
-      .map((p) => relative(cwd, p.path))
-      .filter((rel) => existsSync(join(cwd, rel)));
-    if (existingTargets.length > 0) {
-      const handle = createBackup(cwd, existingTargets);
-      backupPath = handle.path;
-      purgeOldBackups();
+    // Backup the full pre-render state of files navori owns. Recursive over
+    // .claude/ but skipping settings.local.json (per-user, gitignored) and
+    // progress/ (live state, not the kind of thing a snapshot helps with).
+    // The CLAUDE.md file is included explicitly; future engines will add
+    // their own roots here.
+    const hasExistingTarget = pending.some((p) => existsSync(p.path));
+    if (hasExistingTarget) {
+      const handle = createBackup(cwd, ["CLAUDE.md", ".claude"], {
+        exclude: [".claude/settings.local.json", ".claude/progress"],
+      });
+      if (handle.files.length > 0) {
+        backupPath = handle.path;
+        purgeOldBackups();
+      }
     }
 
     for (const p of pending) {
