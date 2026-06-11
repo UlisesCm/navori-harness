@@ -169,7 +169,22 @@ export function renderClaudeEngine(
     warnings.push("quality-gate hook skipped: config.qualityGate.fast no está set");
   }
 
-  // 6. Backup + atomic writes
+  // 7. Plugin scripts (copy + interpolate to .claude/scripts/)
+  for (const plugin of loadEnabledPlugins(config.plugins).loaded) {
+    for (const script of plugin.scriptAssets) {
+      const plan = planPluginScript(cwd, script, config);
+      if (plan.kind === "write") {
+        pending.push({
+          path: plan.path,
+          content: plan.content,
+          status: plan.status,
+          chmodExec: plan.exec,
+        });
+      }
+    }
+  }
+
+  // 8. Backup + atomic writes
   let backupPath: string | null = null;
   const written: Array<{ path: string; status: RenderStatus }> = [];
 
@@ -362,4 +377,40 @@ function applyBootstrapPlan(
 ): void {
   if (plan.kind === "noop") return;
   pending.push({ path: plan.path, content: plan.content, status: "created" });
+}
+
+type PluginScriptPlan =
+  | { kind: "noop" }
+  | {
+      kind: "write";
+      path: string;
+      content: string;
+      status: RenderStatus;
+      exec: boolean;
+    };
+
+/**
+ * Plan one plugin script: read from the plugin package, interpolate
+ * `{{...}}` placeholders against the config, compare to current dest
+ * content. Plugin scripts are navori-owned entire files (no managed
+ * markers / no user-section); any user edits are overwritten on the
+ * next render that changes the rendered content.
+ */
+function planPluginScript(
+  cwd: string,
+  script: { src: string; dest: string; exec: boolean },
+  config: NavoriConfig,
+): PluginScriptPlan {
+  const destPath = join(cwd, ".claude/scripts", script.dest);
+  const raw = readFileSync(script.src, "utf-8");
+  const interpolated = interpolate(raw, config);
+  const existing = existsSync(destPath) ? readFileSync(destPath, "utf-8") : null;
+  if (existing === interpolated) return { kind: "noop" };
+  return {
+    kind: "write",
+    path: destPath,
+    content: interpolated,
+    status: existing === null ? "created" : "updated",
+    exec: script.exec,
+  };
 }

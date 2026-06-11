@@ -169,6 +169,57 @@ describe("renderClaudeEngine — progress bootstrap (E2)", () => {
   });
 });
 
+describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
+  it("copies jscpd script with interpolation, +x, and hook in settings", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { jscpd: { enabled: true } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+
+    const scriptPath = join(cwd, ".claude/scripts/check-jscpd.sh");
+    expect(existsSync(scriptPath)).toBe(true);
+    const script = readFileSync(scriptPath, "utf-8");
+    // {{branchBase}} → "main" interpolated
+    expect(script).toContain("git rev-parse --verify main");
+    expect(script).not.toContain("{{branchBase}}");
+
+    const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
+    const pre = settings.hooks.PreToolUse;
+    const jscpdHook = pre.flatMap((entry: { hooks: Array<{ command: string }> }) => entry.hooks)
+      .find((h: { command: string }) => h.command.includes("check-jscpd.sh"));
+    expect(jscpdHook).toBeDefined();
+  });
+
+  it("renders both jscpd and semgrep scripts when both plugins enabled", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { jscpd: { enabled: true }, semgrep: { enabled: true } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+
+    expect(existsSync(join(cwd, ".claude/scripts/check-jscpd.sh"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/scripts/check-semgrep.sh"))).toBe(true);
+  });
+
+  it("does NOT render plugin scripts when plugin is disabled", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL); // no jscpd / semgrep in CONFIG_FULL.plugins
+    expect(existsSync(join(cwd, ".claude/scripts/check-jscpd.sh"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/scripts/check-semgrep.sh"))).toBe(false);
+  });
+
+  it("is idempotent: second render of the same plugin script reports unchanged", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { jscpd: { enabled: true } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+    const second = renderClaudeEngine(cwd, cfg);
+    const jscpdWrite = second.written.find((w) => w.path.endsWith("check-jscpd.sh"));
+    expect(jscpdWrite).toBeUndefined();
+  });
+});
+
 describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
