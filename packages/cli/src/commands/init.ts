@@ -16,6 +16,7 @@ import {
 } from "./init-format.ts";
 import { color, dim, brand, kv } from "../lib/style.ts";
 import { t, type Lang } from "../lib/i18n.ts";
+import { loadPrompts, type LoadedPrompt } from "../engines/claude/prompts-loader.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
 
@@ -471,6 +472,19 @@ export const initCommand = defineCommand({
       }
     }
 
+    // Project prompts (interactive only). Collect customization answers
+    // after the preview-edit loop closes so the user has confirmed the
+    // base config first.
+    let project: Record<string, unknown> | undefined;
+    const promptsResult = loadPrompts(pluginsConfig);
+    if (promptsResult.prompts.length > 0) {
+      const collected = await runProjectPrompts(promptsResult.prompts, lang);
+      if (collected === null) return cancel(lang);
+      if (Object.keys(collected).length > 0) {
+        project = collected;
+      }
+    }
+
     // Merge workspace-default plugins with user-selected plugins
     const wsPlugins = wsDefaults?.plugins ?? {};
     const mergedPlugins = { ...wsPlugins, ...pluginsConfig };
@@ -486,6 +500,7 @@ export const initCommand = defineCommand({
       ...(qualityGate ? { qualityGate } : {}),
       ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
       ...(Object.keys(agentAssignments).length > 0 ? { agentAssignments } : {}),
+      ...(project ? { project } : {}),
     });
 
     p.log.success(tr.wroteConfig(configPath));
@@ -782,6 +797,7 @@ interface PreviewState {
   qualityGate: { fast: string; full: string } | undefined;
   plugins: string[];
   agentAssignments: Record<string, AgentRole>;
+  project?: Record<string, unknown>;
 }
 
 function buildConfigPreview(state: PreviewState, lang: Lang): string {
@@ -809,5 +825,113 @@ function buildConfigPreview(state: PreviewState, lang: Lang): string {
       ? tr.assignmentsValueLabel(Object.keys(state.agentAssignments).length)
       : dim(tr.assignmentsNone),
   ]);
+  if (state.project) {
+    for (const [k, v] of Object.entries(state.project)) {
+      rows.push([`project.${k}`, formatProjectValue(v)]);
+    }
+  }
   return kv(rows);
+}
+
+/**
+ * Sequential prompt walk after the preview-edit loop. Asks an upfront
+ * gate ("answer them now?") so users in a hurry can skip the whole batch.
+ * Each prompt routes by its declared type and treats blank / optional
+ * answers as "leave the key unset" (so the rendered template surfaces
+ * the absence as `<not configured: ...>` instead of an empty value).
+ *
+ * Returns `null` only when the user actively cancels (Ctrl+C on the gate).
+ * Returns `{}` when the user picks "skip" or answers nothing.
+ */
+async function runProjectPrompts(
+  prompts: LoadedPrompt[],
+  lang: Lang,
+): Promise<Record<string, unknown> | null> {
+  const tr = t(lang);
+  p.note(tr.projectPromptsIntro, "project");
+
+  const choice = await p.select<"run" | "skip">({
+    message: tr.projectPromptsAsk,
+    options: [
+      { value: "run", label: tr.projectPromptsRun },
+      { value: "skip", label: tr.projectPromptsSkip },
+    ],
+    initialValue: "run",
+  });
+  if (p.isCancel(choice)) return null;
+  if (choice === "skip") {
+    p.log.info(tr.projectPromptsSkipNote);
+    return {};
+  }
+
+  const collected: Record<string, unknown> = {};
+  for (const prompt of prompts) {
+    const subKey = prompt.key.startsWith("project.")
+      ? prompt.key.slice("project.".length)
+      : null;
+    if (!subKey) continue; // non-project keys not supported yet
+    const value = await askProjectPrompt(prompt, lang);
+    if (value === null) return null; // user cancelled mid-walk
+    if (value === undefined) continue; // optional, skipped
+    collected[subKey] = value;
+  }
+  return collected;
+}
+
+async function askProjectPrompt(
+  prompt: LoadedPrompt,
+  lang: Lang,
+): Promise<unknown | null | undefined> {
+  const tr = t(lang);
+  const question = prompt.question[lang] ?? prompt.question.es;
+  const message = prompt.optional ? `${question} ${dim(tr.projectPromptsOptional)}` : question;
+
+  switch (prompt.type) {
+    case "string": {
+      const v = await p.text({
+        message,
+        placeholder: prompt.placeholder ?? "",
+      });
+      if (p.isCancel(v)) return null;
+      const trimmed = (v as string).trim();
+      return trimmed ? trimmed : undefined;
+    }
+    case "string-list": {
+      const v = await p.text({
+        message,
+        placeholder: prompt.placeholder ?? "",
+      });
+      if (p.isCancel(v)) return null;
+      const items = (v as string)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return items.length > 0 ? items : undefined;
+    }
+    case "boolean": {
+      const v = await p.confirm({ message, initialValue: false });
+      if (p.isCancel(v)) return null;
+      return v;
+    }
+    case "number": {
+      const v = await p.text({
+        message,
+        placeholder: prompt.placeholder ?? "",
+        validate: (val) => {
+          if (!val.trim()) return undefined;
+          return /^-?\d+(\.\d+)?$/.test(val.trim()) ? undefined : "número inválido";
+        },
+      });
+      if (p.isCancel(v)) return null;
+      const trimmed = (v as string).trim();
+      return trimmed ? Number(trimmed) : undefined;
+    }
+  }
+}
+
+function formatProjectValue(v: unknown): string {
+  if (Array.isArray(v)) return v.length > 0 ? v.join(", ") : "(empty)";
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (v === null || v === undefined) return "(none)";
+  return String(v);
 }

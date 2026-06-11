@@ -60,6 +60,14 @@ interface Strings {
   assignmentsValueLabel: (n: number) => string;
   assignmentsNone: string;
 
+  // Project prompts (E4)
+  projectPromptsIntro: string;
+  projectPromptsAsk: string;
+  projectPromptsSkip: string;
+  projectPromptsRun: string;
+  projectPromptsOptional: string;
+  projectPromptsSkipNote: string;
+
   // Agent role descriptions
   roleLeader: string;
   roleImplementer: string;
@@ -165,6 +173,13 @@ const ES: Strings = {
   assignmentsValueLabel: (n) => `${n} override(s)`,
   assignmentsNone: "(defaults)",
 
+  projectPromptsIntro: "Ahora podés personalizar el harness con info específica del proyecto (paths legacy, áreas críticas, test runner). Las respuestas se guardan en `project.*` del config y los agents las interpolan.",
+  projectPromptsAsk: "¿Querés contestarlas ahora?",
+  projectPromptsSkip: "Saltear (después con 'navori configure')",
+  projectPromptsRun: "Contestar",
+  projectPromptsOptional: "(opcional — dejá vacío para skipear)",
+  projectPromptsSkipNote: "Skipeé las preguntas de proyecto. Corré 'navori configure' cuando quieras llenarlas.",
+
   roleLeader: "leader (orquestador)",
   roleImplementer: "implementer (escribe código)",
   roleReviewer: "reviewer (revisa diff)",
@@ -268,6 +283,13 @@ const EN: Strings = {
   pluginsNone: "(none)",
   assignmentsValueLabel: (n) => `${n} override(s)`,
   assignmentsNone: "(defaults)",
+
+  projectPromptsIntro: "You can now personalize the harness with project-specific info (legacy paths, critical areas, test runner). Answers are saved under `project.*` and interpolated into agent prompts.",
+  projectPromptsAsk: "Answer them now?",
+  projectPromptsSkip: "Skip (run 'navori configure' later)",
+  projectPromptsRun: "Answer",
+  projectPromptsOptional: "(optional — leave empty to skip)",
+  projectPromptsSkipNote: "Skipped project prompts. Run 'navori configure' when you want to fill them.",
 
   roleLeader: "leader (orchestrator)",
   roleImplementer: "implementer (writes code)",
