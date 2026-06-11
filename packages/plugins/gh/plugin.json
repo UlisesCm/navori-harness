@@ -2,7 +2,7 @@
   "id": "gh",
   "name": "GitHub CLI (issues + PRs)",
   "description": "Acceso a Issues, PRs y repos de GitHub desde la terminal",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "managed": [
     {
       "id": "gh-protocol",
@@ -19,5 +19,23 @@
       "win32": "winget install --id GitHub.cli"
     },
     "postInstall": "gh auth status || gh auth login"
+  },
+  "settingsFragment": {
+    "permissions": {
+      "allow": [
+        "Bash(gh auth status*)",
+        "Bash(gh issue view*)",
+        "Bash(gh issue list*)",
+        "Bash(gh issue comment*)",
+        "Bash(gh pr view*)",
+        "Bash(gh pr list*)",
+        "Bash(gh pr checks*)",
+        "Bash(gh pr create*)",
+        "Bash(gh pr comment*)",
+        "Bash(gh repo view*)",
+        "Bash(gh run list*)",
+        "Bash(gh run view*)"
+      ]
+    }
   }
 }

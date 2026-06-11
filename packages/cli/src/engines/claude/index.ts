@@ -3,9 +3,10 @@ import { dirname, join, relative, resolve } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
-import { loadEnabledPlugins } from "../../lib/plugins.ts";
+import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { computeRenderPlan, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
 import { getCoreRoot, readBundledCoreVersion } from "../../lib/bundled-assets.ts";
+import { injectManagedSection } from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { isNavoriOwnedSettings } from "./settings-detection.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
@@ -170,7 +171,8 @@ export function renderClaudeEngine(
   }
 
   // 7. Plugin scripts (copy + interpolate to .claude/scripts/)
-  for (const plugin of loadEnabledPlugins(config.plugins).loaded) {
+  const enabledPlugins = loadEnabledPlugins(config.plugins).loaded;
+  for (const plugin of enabledPlugins) {
     for (const script of plugin.scriptAssets) {
       const plan = planPluginScript(cwd, script, config);
       if (plan.kind === "write") {
@@ -184,7 +186,25 @@ export function renderClaudeEngine(
     }
   }
 
-  // 8. Backup + atomic writes
+  // 8. Plugin skills with `injectInto`: append as a managed sub-block at
+  // the bottom of the target file. `injectManagedSection` handles dedup
+  // by id (idempotent) and surfaces user-modified conflicts the same way
+  // CLAUDE.md does.
+  for (const plugin of enabledPlugins) {
+    for (const skill of plugin.skillAssets) {
+      if (!skill.injectInto) continue;
+      applySubBlockInject({
+        cwd,
+        plugin,
+        skill,
+        config,
+        pending,
+        skipped,
+      });
+    }
+  }
+
+  // 9. Backup + atomic writes
   let backupPath: string | null = null;
   const written: Array<{ path: string; status: RenderStatus }> = [];
 
@@ -377,6 +397,77 @@ function applyBootstrapPlan(
 ): void {
   if (plan.kind === "noop") return;
   pending.push({ path: plan.path, content: plan.content, status: "created" });
+}
+
+/**
+ * Append a plugin skill (declared with `injectInto`) as a managed sub-block
+ * at the end of the target file. The sub-block is its own managed section
+ * with id = skill id and source = the plugin package; it lives alongside
+ * the base block (e.g. `leader-base`) and is regenerated independently.
+ *
+ * If the target file isn't being touched this render and doesn't exist on
+ * disk (e.g. the corresponding agent is disabled in config.harness), the
+ * inject is skipped silently — there's nothing to inject into.
+ */
+function applySubBlockInject(input: {
+  cwd: string;
+  plugin: LoadedPlugin;
+  skill: LoadedPlugin["skillAssets"][number];
+  config: NavoriConfig;
+  pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>;
+  skipped: Array<{ path: string; reason: string }>;
+}): void {
+  const targetAbs = join(input.cwd, input.skill.injectInto!);
+
+  let currentContent: string;
+  let pendingEntry: (typeof input.pending)[number] | undefined;
+  pendingEntry = input.pending.find((p) => p.path === targetAbs);
+  if (pendingEntry) {
+    currentContent = pendingEntry.content;
+  } else if (existsSync(targetAbs)) {
+    currentContent = readFileSync(targetAbs, "utf-8");
+  } else {
+    return; // target absent (likely disabled agent) — nothing to inject into
+  }
+
+  const rawSkill = readFileSync(input.skill.absPath, "utf-8");
+  const skillBody = stripFrontmatter(rawSkill);
+  const interpolated = interpolate(skillBody, input.config);
+
+  const result = injectManagedSection(
+    currentContent,
+    input.skill.id,
+    interpolated,
+    {
+      source: `@navori/plugin-${input.plugin.manifest.id}`,
+      version: input.plugin.manifest.version,
+    },
+    "html",
+  );
+
+  if (result.status === "user-modified-skipped") {
+    input.skipped.push({
+      path: relative(input.cwd, targetAbs),
+      reason: `sub-bloque '${input.skill.id}' (de @navori/plugin-${input.plugin.manifest.id}) editado por el user; resolvé con 'navori sync'`,
+    });
+    return;
+  }
+  if (result.status === "unchanged") return;
+
+  if (pendingEntry) {
+    pendingEntry.content = result.output;
+    return;
+  }
+  input.pending.push({
+    path: targetAbs,
+    content: result.output,
+    status: result.status,
+  });
+}
+
+function stripFrontmatter(raw: string): string {
+  const m = raw.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
+  return m ? m[1].trim() : raw.trim();
 }
 
 type PluginScriptPlan =

@@ -220,6 +220,70 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
   });
 });
 
+describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () => {
+  it("gh plugin merges its allow permissions into settings.json", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { gh: { enabled: true } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+
+    const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
+    const allow: string[] = settings.permissions.allow;
+    expect(allow).toContain("Bash(gh pr create*)");
+    expect(allow).toContain("Bash(gh issue view*)");
+    // Base permissions still present (deep-merge concat)
+    expect(allow).toContain("Bash(git status*)");
+  });
+
+  it("engram plugin injects a managed sub-block into leader.md", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { engram: { enabled: true } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+
+    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    expect(leader).toContain('<!-- navori:managed id="engram-leader-extension"');
+    expect(leader).toContain("source=\"@navori/plugin-engram\"");
+    expect(leader).toContain("mem_search");
+    // Base block is still there
+    expect(leader).toContain('<!-- navori:managed id="leader-base"');
+  });
+
+  it("removes nothing when injectInto target is missing (agent disabled in harness)", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { engram: { enabled: true } },
+      harness: {
+        leader: false,
+        implementer: true,
+        reviewer: true,
+        researcher: false,
+        ticketAudit: false,
+        commitPrPilot: false,
+        explorer: false,
+      },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+
+    expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
+    // No crash; settings still rendered
+    expect(existsSync(join(cwd, ".claude/settings.json"))).toBe(true);
+  });
+
+  it("is idempotent: second render of plugin sub-block reports unchanged", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { engram: { enabled: true } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+    const second = renderClaudeEngine(cwd, cfg);
+    const leaderWrite = second.written.find((w) => w.path === ".claude/agents/leader.md");
+    expect(leaderWrite).toBeUndefined();
+  });
+});
+
 describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
