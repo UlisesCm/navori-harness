@@ -86,6 +86,19 @@ describe("CLI e2e — happy paths", () => {
     expect(settings.$navori?.managed).toBe(true);
   });
 
+  it("init --recommended warns when no qualityGate is detected (P0-fix B1+U6)", () => {
+    const repo = makeTmpRepo(); // no package.json → no qualityGate detected
+    dirs.push(repo);
+    const r = runCli(["init", "--recommended", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    // Warning surfaces explicitly so the user knows about the placeholders
+    expect(r.combined).toMatch(/quality gate|qualityGate/i);
+    // Engine warning about the skipped hook is also propagated to the user
+    expect(r.combined).toContain("quality-gate hook skipped");
+    // The hook file is NOT generated in that case
+    expect(existsSync(join(repo, ".claude/hooks/quality-gate-pre-commit.sh"))).toBe(false);
+  });
+
   it("init --yes detects stack from package.json", () => {
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({

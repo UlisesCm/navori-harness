@@ -68,6 +68,9 @@ interface Strings {
   projectPromptsOptional: string;
   projectPromptsSkipNote: string;
 
+  // Init completeness warnings (P0-fix)
+  qualityGateNotDetected: string;
+
   // Agent role descriptions
   roleLeader: string;
   roleImplementer: string;
@@ -180,6 +183,8 @@ const ES: Strings = {
   projectPromptsOptional: "(opcional — dejá vacío para skipear)",
   projectPromptsSkipNote: "Skipeé las preguntas de proyecto. Corré 'navori configure' cuando quieras llenarlas.",
 
+  qualityGateNotDetected: "No detecté quality gate en package.json. El harness va a tener placeholders `<not configured: qualityGate.*>` y el hook pre-commit no se va a generar. Corré 'navori configure qualityGate' o agregá scripts (`typecheck`, `lint`, `test`) en package.json y re-renderea.",
+
   roleLeader: "leader (orquestador)",
   roleImplementer: "implementer (escribe código)",
   roleReviewer: "reviewer (revisa diff)",
@@ -290,6 +295,8 @@ const EN: Strings = {
   projectPromptsRun: "Answer",
   projectPromptsOptional: "(optional — leave empty to skip)",
   projectPromptsSkipNote: "Skipped project prompts. Run 'navori configure' when you want to fill them.",
+
+  qualityGateNotDetected: "No quality gate detected in package.json. The harness will keep `<not configured: qualityGate.*>` placeholders and the pre-commit hook will not be generated. Run 'navori configure qualityGate' or add scripts (`typecheck`, `lint`, `test`) to package.json and re-render.",
 
   roleLeader: "leader (orchestrator)",
   roleImplementer: "implementer (writes code)",
