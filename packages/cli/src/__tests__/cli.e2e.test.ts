@@ -86,6 +86,19 @@ describe("CLI e2e — happy paths", () => {
     expect(settings.$navori?.managed).toBe(true);
   });
 
+  it("init --recommended warns when no qualityGate is detected (P0-fix B1+U6)", () => {
+    const repo = makeTmpRepo(); // no package.json → no qualityGate detected
+    dirs.push(repo);
+    const r = runCli(["init", "--recommended", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    // Warning surfaces explicitly so the user knows about the placeholders
+    expect(r.combined).toMatch(/quality gate|qualityGate/i);
+    // Engine warning about the skipped hook is also propagated to the user
+    expect(r.combined).toContain("quality-gate hook skipped");
+    // The hook file is NOT generated in that case
+    expect(existsSync(join(repo, ".claude/hooks/quality-gate-pre-commit.sh"))).toBe(false);
+  });
+
   it("init --yes detects stack from package.json", () => {
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({
@@ -132,6 +145,29 @@ describe("CLI e2e — happy paths", () => {
     expect(r.combined).toMatch(/no changes|unchanged/);
   });
 
+  it("sync --apply --yes fails with exit 1 when user edited a .claude/ agent (P0-fix B2)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // Edit the body of leader-base WITHOUT touching the marker line.
+    const leaderPath = join(repo, ".claude/agents/leader.md");
+    const tampered = readFileSync(leaderPath, "utf-8").replace(
+      "Tu único trabajo es",
+      "USER-EDIT — Tu único trabajo es",
+    );
+    writeFileSync(leaderPath, tampered, "utf-8");
+
+    const r = runCli(["sync", "--apply", "--yes", "--cwd", repo]);
+    expect(r.status).toBe(1);
+    expect(r.combined).toMatch(/conflict/i);
+    expect(r.combined).toContain(".claude/agents/leader.md");
+
+    // The user edit must be preserved (sync refused to overwrite)
+    const after = readFileSync(leaderPath, "utf-8");
+    expect(after).toContain("USER-EDIT — Tu único trabajo es");
+  });
+
   it("sync --apply --yes fails with exit 1 when user modified a managed block", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
@@ -176,6 +212,35 @@ describe("CLI e2e — happy paths", () => {
     expect(parsed.drifts).toHaveLength(0);
   });
 
+  it("doctor reports content drift when user edited inside the managed block (P0-fix B3)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // Inject text inside the leader-base managed block WITHOUT touching the
+    // marker line — the marker still claims its original hash but the body
+    // now differs.
+    const leaderPath = join(repo, ".claude/agents/leader.md");
+    const original = readFileSync(leaderPath, "utf-8");
+    const tampered = original.replace(
+      "# Agente Líder (Orquestador)",
+      "# Agente Líder (Orquestador)\n\nINJECTED LINE BY USER",
+    );
+    writeFileSync(leaderPath, tampered, "utf-8");
+
+    const r = runCli(["doctor", "--json", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(r.stdout);
+    const contentDrift = parsed.drifts.find(
+      (d: { kind: string; filePath: string }) =>
+        d.kind === "content" && d.filePath === ".claude/agents/leader.md",
+    );
+    expect(contentDrift).toBeDefined();
+    expect(contentDrift.expectedHash).toMatch(/^[a-f0-9]{8}$/);
+    expect(contentDrift.actualHash).toMatch(/^[a-f0-9]{8}$/);
+    expect(contentDrift.expectedHash).not.toBe(contentDrift.actualHash);
+  });
+
   it("doctor reports version drift when an agent file is older than the bundle", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
@@ -193,8 +258,10 @@ describe("CLI e2e — happy paths", () => {
     expect(r.status).toBe(0);
     const parsed = JSON.parse(r.stdout);
     const drift = parsed.drifts.find(
-      (d: { filePath: string; markerId: string }) =>
-        d.filePath === ".claude/agents/leader.md" && d.markerId === "leader-base",
+      (d: { filePath: string; markerId: string; kind: string }) =>
+        d.filePath === ".claude/agents/leader.md" &&
+        d.markerId === "leader-base" &&
+        d.kind === "version",
     );
     expect(drift).toBeDefined();
     expect(drift.fromVersion).toBe("0.0.0");

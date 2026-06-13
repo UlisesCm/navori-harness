@@ -54,6 +54,16 @@ function hashContent(content: string): string {
   return createHash("sha1").update(normalize(content), "utf-8").digest("hex").slice(0, 8);
 }
 
+/**
+ * Public helper for callers (doctor, sync) that have a managed block's body
+ * and want to know the canonical hash to compare against the `hash=` attr
+ * on the marker. Same algorithm injectManagedSection uses; same CRLF/LF
+ * and trailing-whitespace normalization.
+ */
+export function computeManagedHash(body: string): string {
+  return hashContent(body);
+}
+
 export interface MarkerMeta {
   /** Source package id (e.g. "@navori/core", "@navori/plugin-engram"). */
   source?: string;
