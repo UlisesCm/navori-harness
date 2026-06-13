@@ -145,6 +145,29 @@ describe("CLI e2e — happy paths", () => {
     expect(r.combined).toMatch(/no changes|unchanged/);
   });
 
+  it("sync --apply --yes fails with exit 1 when user edited a .claude/ agent (P0-fix B2)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // Edit the body of leader-base WITHOUT touching the marker line.
+    const leaderPath = join(repo, ".claude/agents/leader.md");
+    const tampered = readFileSync(leaderPath, "utf-8").replace(
+      "Tu único trabajo es",
+      "USER-EDIT — Tu único trabajo es",
+    );
+    writeFileSync(leaderPath, tampered, "utf-8");
+
+    const r = runCli(["sync", "--apply", "--yes", "--cwd", repo]);
+    expect(r.status).toBe(1);
+    expect(r.combined).toMatch(/conflict/i);
+    expect(r.combined).toContain(".claude/agents/leader.md");
+
+    // The user edit must be preserved (sync refused to overwrite)
+    const after = readFileSync(leaderPath, "utf-8");
+    expect(after).toContain("USER-EDIT — Tu único trabajo es");
+  });
+
   it("sync --apply --yes fails with exit 1 when user modified a managed block", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);

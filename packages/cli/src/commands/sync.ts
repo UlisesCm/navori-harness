@@ -1,35 +1,38 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig } from "../lib/config.ts";
-import { computeRenderPlan, applyPlanWithSkips, type AssetPlanEntry } from "../lib/render-plan.ts";
-import { extractManagedContent } from "../lib/marker.ts";
-import { writeFileAtomic } from "../lib/atomic.ts";
-import { createBackup, purgeOldBackups } from "../lib/backup.ts";
-import { formatLineDiff } from "../lib/diff.ts";
+import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { renderStatusSymbol, renderStatusLabel, dim, color, sym, brand } from "../lib/style.ts";
 
+/**
+ * `sync` re-runs the Claude engine but exposes the plan up front so the
+ * user can pick what to do about user-modified conflicts:
+ *
+ *   - `.claude/` and CLAUDE.md are both covered (P0-fix B2 — before this,
+ *     sync only knew about CLAUDE.md and silently ignored agent / skill /
+ *     hook conflicts that doctor was telling the user to "run sync" for).
+ *   - Modes mirror render: dry-run shows only, --apply / --yes write,
+ *     --yes aborts with exit 1 if there are conflicts (CI gate).
+ *   - The "apply-all (overwrite my edits)" choice from the legacy sync is
+ *     no longer offered: navori prefers losing user edits never. Users who
+ *     want to overwrite a conflict resolve it by hand and re-run.
+ */
 export const syncCommand = defineCommand({
   meta: {
     name: "sync",
-    description: "Pull updates from managed Core into local files (with backups and conflict prompts)",
+    description: "Sync managed blocks from the bundle into CLAUDE.md and .claude/, prompting on conflicts",
   },
   args: {
     cwd: { type: "string", description: "Directory to sync (default: cwd)" },
     "dry-run": { type: "boolean", description: "Show plan, do not write" },
     apply: { type: "boolean", description: "Apply changes (skip interactive prompt)" },
     yes: { type: "boolean", description: "Auto-confirm. Implies --apply. Fails with exit 1 if conflicts exist." },
-    backup: {
-      type: "boolean",
-      default: true,
-      description: "Backup CLAUDE.md before writing. Disable with --no-backup (not recommended).",
-    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const configPath = `${cwd}/navori.config.json`;
-    const claudeMdPath = `${cwd}/CLAUDE.md`;
 
     p.intro(brand("sync"));
 
@@ -44,67 +47,59 @@ export const syncCommand = defineCommand({
     }
 
     const config = readConfig(configPath);
-    const existing = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, "utf-8") : "";
-    const plan = computeRenderPlan(existing, config);
 
-    reportPlan(plan.entries);
+    // Dry-run pass: get the full plan without writing anything.
+    const plan = renderClaudeEngine(cwd, config, { dryRun: true });
 
-    if (plan.updatesAvailable.length > 0) {
-      const lines = plan.updatesAvailable.map(
-        (u) => `  ${color.cyan(sym.update)} ${u.id}  ${dim(`(${u.source}  ${u.fromVersion} → ${u.toVersion})`)}`,
-      );
-      p.log.info(`Updates available (${plan.updatesAvailable.length}):\n${lines.join("\n")}`);
-    }
+    reportPlan(plan);
 
-    const conflicts = plan.entries.filter((e) => e.status === "user-modified-skipped");
-    const hasOtherChanges = plan.changed;
+    const conflicts = collectConflicts(plan);
+    const hasOtherChanges = plan.written.length > 0;
 
     if (!hasOtherChanges && conflicts.length === 0) {
       p.outro("Up to date — no changes");
       return;
     }
 
-    // --dry-run: just report, never write
+    // --dry-run: report only, never write
     if (args["dry-run"]) {
-      if (conflicts.length > 0) renderConflictDiffs(existing, conflicts);
       const summary = [
         conflicts.length > 0 ? `${conflicts.length} conflict(s)` : null,
-        hasOtherChanges ? "other changes pending" : null,
+        hasOtherChanges ? `${plan.written.length} pending` : null,
       ].filter(Boolean).join(", ");
       p.outro(`Dry-run complete${summary ? ` — ${summary}` : ""}`);
       return;
     }
 
-    // --yes implies --apply
     const autoApply = Boolean(args.yes || args.apply);
 
     if (args.yes && conflicts.length > 0) {
-      p.cancel(`${conflicts.length} conflict(s) detected with --yes. Resolve interactively or use --apply alone.`);
+      const lines = conflicts.map((c) => `  - ${c.path}: ${c.reason}`).join("\n");
+      p.cancel(
+        `${conflicts.length} conflict(s) detected with --yes. Resolvelos a mano o corré 'sync --apply' sin --yes para el flujo interactivo.\n${lines}`,
+      );
       process.exit(1);
     }
 
-    // Interactive flow
-    let applyConflicts = false;
-
     if (!autoApply) {
       if (conflicts.length > 0) {
-        renderConflictDiffs(existing, conflicts);
         const choice = await p.select({
-          message: `Found ${conflicts.length} conflict(s). What do you want to do?`,
+          message: `Encontré ${conflicts.length} conflict(s). ¿Qué hago?`,
           options: [
-            { value: "skip-conflicts", label: "Apply non-conflict changes, keep my edits in conflicts" },
-            { value: "apply-all", label: "Apply ALL changes (overwrite my edits in conflicts)" },
-            { value: "abort", label: "Abort — write nothing" },
+            {
+              value: "skip-conflicts",
+              label: "Aplicar los cambios sin conflict, dejar mis ediciones intactas",
+            },
+            { value: "abort", label: "Abortar — no escribir nada" },
           ],
         });
         if (p.isCancel(choice) || choice === "abort") {
           p.cancel("Aborted");
           process.exit(0);
         }
-        applyConflicts = choice === "apply-all";
       } else {
         const ok = await p.confirm({
-          message: "Apply changes?",
+          message: "Aplicar cambios?",
           initialValue: true,
         });
         if (p.isCancel(ok) || !ok) {
@@ -114,78 +109,88 @@ export const syncCommand = defineCommand({
       }
     }
 
-    // Build the final content
-    const skipIds = !applyConflicts
-      ? new Set(conflicts.map((c) => c.asset.id))
-      : new Set<string>();
-    const finalContent = applyPlanWithSkips(existing, config, skipIds);
+    // Apply pass: actually write. The engine already skips conflict files
+    // automatically (user-modified-skipped never lands in `pending`), so
+    // "skip-conflicts" is the default behavior — no extra wiring needed.
+    const applied = renderClaudeEngine(cwd, config);
 
-    if (finalContent === existing) {
-      p.outro("Nothing to apply after conflict resolution");
-      return;
+    p.log.success(`Wrote ${applied.written.length} file(s)`);
+    if (applied.backupPath) {
+      p.log.message(`${dim("Backup:")} ${applied.backupPath}`);
     }
 
-    // citty negates booleans on --no-X, so args.backup === false when --no-backup is passed.
-    let backupPath: string | null = null;
-    const wantsBackup = args.backup !== false;
-    if (wantsBackup) {
-      const handle = createBackup(cwd, ["CLAUDE.md"]);
-      backupPath = handle.path;
-      const purged = purgeOldBackups();
-      if (purged.length > 0) {
-        p.log.info(`Purged ${purged.length} backup(s) older than 30 days`);
-      }
-    } else {
-      p.log.warn("Backup omitted (--no-backup). No automatic undo for this sync.");
-    }
-
-    writeFileAtomic(claudeMdPath, finalContent);
-    p.log.success(`Wrote ${claudeMdPath}`);
-    if (backupPath) p.log.message(`${dim("Backup:")} ${backupPath}`);
-
-    p.outro(`${color.green("Done")} ${summarize(plan.entries, conflicts.length, applyConflicts)}`);
+    p.outro(`${color.green("Done")} ${summarize(applied, conflicts.length)}`);
   },
 });
 
-function summarize(
-  entries: AssetPlanEntry[],
-  conflictCount: number,
-  appliedConflicts: boolean,
-): string {
-  const counts = entries.reduce<Record<string, number>>((acc, e) => {
-    acc[e.status] = (acc[e.status] ?? 0) + 1;
-    return acc;
-  }, {});
-  const parts: string[] = [];
-  if (counts.created) parts.push(color.green(`${counts.created} created`));
-  if (counts.updated) parts.push(color.yellow(`${counts.updated} updated`));
-  if (conflictCount > 0) {
-    parts.push(
-      appliedConflicts
-        ? color.red(`${conflictCount} conflict overwritten`)
-        : color.red(`${conflictCount} conflict kept`),
-    );
-  }
-  if (counts["removed-condition-false"]) parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
-  if (counts.unchanged) parts.push(dim(`${counts.unchanged} unchanged`));
-  return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
+interface Conflict {
+  path: string;
+  reason: string;
 }
 
-function reportPlan(entries: AssetPlanEntry[]): void {
-  const lines: string[] = [];
-  for (const e of entries) {
+function collectConflicts(plan: ClaudeEngineResult): Conflict[] {
+  const out: Conflict[] = [];
+  // CLAUDE.md conflicts surface via claudeMdEntries (legacy flow inside
+  // renderClaudeEngine still uses computeRenderPlan).
+  for (const e of plan.claudeMdEntries) {
+    if (e.status === "user-modified-skipped") {
+      out.push({ path: `CLAUDE.md (${e.asset.id})`, reason: "managed block edited" });
+    }
+  }
+  // `.claude/` conflicts come through engine.skipped. The adapter uses the
+  // word "editado" / "edited" in the reason for user-modified cases.
+  for (const s of plan.skipped) {
+    if (/editad|edit/i.test(s.reason)) {
+      out.push({ path: s.path, reason: s.reason });
+    }
+  }
+  return out;
+}
+
+function reportPlan(plan: ClaudeEngineResult): void {
+  const lines: string[] = ["Plan:"];
+
+  // CLAUDE.md managed blocks
+  for (const e of plan.claudeMdEntries) {
     const symStr = renderStatusSymbol(e.status);
     const label = renderStatusLabel(e.status);
     const cond = e.asset.condition ? dim(` [cond: ${e.asset.condition}]`) : "";
-    lines.push(`  ${symStr} ${e.asset.id}  ${dim("(")}${label}${dim(")")}${cond}`);
+    lines.push(`  ${symStr} CLAUDE.md:${e.asset.id}  ${dim("(")}${label}${dim(")")}${cond}`);
   }
-  p.log.message(["Plan:", ...lines].join("\n"));
+
+  // .claude/ files (engine.written in dryRun mode lists what WOULD be written)
+  for (const w of plan.written) {
+    if (w.path === "CLAUDE.md") continue; // already shown via claudeMdEntries
+    const symStr = renderStatusSymbol(w.status);
+    const label = renderStatusLabel(w.status);
+    lines.push(`  ${symStr} ${w.path}  ${dim("(")}${label}${dim(")")}`);
+  }
+
+  for (const s of plan.skipped) {
+    lines.push(`  ${color.yellow(sym.conflict)} ${s.path}  ${dim("(skipped:")} ${dim(s.reason)}${dim(")")}`);
+  }
+
+  if (plan.updatesAvailable.length > 0) {
+    lines.push("");
+    lines.push(`  ${dim("Updates available:")}`);
+    for (const u of plan.updatesAvailable) {
+      lines.push(`    ${color.cyan(sym.update)} ${u.id}  ${dim(`${u.fromVersion} → ${u.toVersion}`)}`);
+    }
+  }
+
+  p.log.message(lines.join("\n"));
 }
 
-function renderConflictDiffs(existing: string, conflicts: AssetPlanEntry[]): void {
-  for (const c of conflicts) {
-    const current = extractManagedContent(existing, c.asset.id);
-    const diff = formatLineDiff(current, c.newContent);
-    p.log.warn(`Conflict in '${c.asset.id}':\n${diff}`);
+function summarize(result: ClaudeEngineResult, conflictCount: number): string {
+  const parts: string[] = [];
+  const counts = result.written.reduce<Record<string, number>>((acc, w) => {
+    acc[w.status] = (acc[w.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  if (counts.created) parts.push(color.green(`${counts.created} created`));
+  if (counts.updated) parts.push(color.yellow(`${counts.updated} updated`));
+  if (conflictCount > 0) {
+    parts.push(color.red(`${conflictCount} conflict kept`));
   }
+  return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
 }
