@@ -15,7 +15,7 @@ import { renderStatusSymbol, renderStatusLabel, dim, color, brand } from "../lib
  * Returns a back-compat shape so existing callers (init.ts) keep working,
  * plus the full engine result for new callers.
  */
-export function runRender(cwd: string, dryRun = false): {
+export function runRender(cwd: string, dryRun = false, force = false): {
   ok: boolean;
   reason?: string;
   filePath: string;
@@ -43,7 +43,7 @@ export function runRender(cwd: string, dryRun = false): {
   }
 
   const config = readConfig(configPath);
-  const engineResult = renderClaudeEngine(cwd, config, { dryRun });
+  const engineResult = renderClaudeEngine(cwd, config, { dryRun, force });
 
   return {
     ok: true,
@@ -65,6 +65,11 @@ export const renderCommand = defineCommand({
   args: {
     cwd: { type: "string", description: "Directory to render into (default: cwd)" },
     "dry-run": { type: "boolean", description: "Show what would change without writing" },
+    force: {
+      type: "boolean",
+      description:
+        "Regenerate settings.json even if corrupted or missing the $navori marker. The previous file is backed up.",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
@@ -76,7 +81,7 @@ export const renderCommand = defineCommand({
       process.exit(1);
     }
 
-    const result = runRender(cwd, Boolean(args["dry-run"]));
+    const result = runRender(cwd, Boolean(args["dry-run"]), Boolean(args.force));
     if (!result.ok) {
       p.cancel(`${result.reason}. Run 'navori init' first.`);
       process.exit(1);

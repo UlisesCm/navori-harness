@@ -68,9 +68,10 @@ const CORE_META = { source: "@navori/core" as const, version: readBundledCoreVer
 export function renderClaudeEngine(
   cwd: string,
   config: NavoriConfig,
-  options: { dryRun?: boolean } = {},
+  options: { dryRun?: boolean; force?: boolean } = {},
 ): ClaudeEngineResult {
   const dryRun = options.dryRun === true;
+  const force = options.force === true;
   const skipped: Array<{ path: string; reason: string }> = [];
   const warnings: string[] = [];
   const pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }> = [];
@@ -94,7 +95,7 @@ export function renderClaudeEngine(
   }
 
   // 2. .claude/settings.json
-  const settingsResult = planSettings(cwd, config);
+  const settingsResult = planSettings(cwd, config, force);
   inspected += 1;
   if (settingsResult.kind === "skip") {
     skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
@@ -301,7 +302,7 @@ type SettingsPlan =
   | { kind: "skip"; path: string; reason: string }
   | { kind: "write"; path: string; content: string; status: RenderStatus };
 
-function planSettings(cwd: string, config: NavoriConfig): SettingsPlan {
+function planSettings(cwd: string, config: NavoriConfig, force = false): SettingsPlan {
   const path = join(cwd, ".claude/settings.json");
   const plugins = loadEnabledPlugins(config.plugins).loaded;
   const newSettings = buildClaudeSettings(config, plugins);
@@ -315,18 +316,30 @@ function planSettings(cwd: string, config: NavoriConfig): SettingsPlan {
   try {
     parsed = JSON.parse(readFileSync(path, "utf-8"));
   } catch (err) {
+    // Issue #4: with --force, regenerate even on parse error. The pre-render
+    // backup (createBackup over .claude/) still snapshots the corrupt file
+    // so the user can recover by hand if needed.
+    if (force) {
+      return { kind: "write", path, content: newJson, status: "updated" };
+    }
     return {
       kind: "skip",
       path,
-      reason: `settings.json no se pudo parsear como JSON: ${(err as Error).message}`,
+      reason: `settings.json no se pudo parsear como JSON: ${(err as Error).message}. Corré 'navori render --force' para regenerar.`,
     };
   }
 
   if (!isNavoriOwnedSettings(parsed)) {
+    // Issue #4: --force also lets the user adopt a hand-written settings.json
+    // explicitly. Without --force we still refuse so navori never overwrites
+    // a harness it didn't create.
+    if (force) {
+      return { kind: "write", path, content: newJson, status: "updated" };
+    }
     return {
       kind: "skip",
       path,
-      reason: "settings.json existe sin `$navori.managed = true`. Corré 'navori init' en modo replace para adoptar.",
+      reason: "settings.json existe sin `$navori.managed = true`. Corré 'navori init' en modo replace o 'navori render --force' para adoptar.",
     };
   }
 
