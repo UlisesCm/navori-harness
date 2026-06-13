@@ -46,6 +46,9 @@ export interface ClaudeEngineResult {
   updatesAvailable: UpdateAvailable[];
   /** CLAUDE.md assets that fell back to Spanish because language="en" lacks them. */
   languageFallbacks: string[];
+  /** Total number of destination files inspected this render. `inspected -
+   * written.length - skipped.length` = how many were already up to date. */
+  inspected: number;
 }
 
 const CORE_AGENTS: ReadonlyArray<{ id: string; harnessKey: keyof NonNullable<NavoriConfig["harness"]> }> = [
@@ -71,11 +74,17 @@ export function renderClaudeEngine(
   const skipped: Array<{ path: string; reason: string }> = [];
   const warnings: string[] = [];
   const pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }> = [];
+  // `inspected` counts every destination file the adapter looked at this
+  // render (whether it changed or not). The render command uses it to
+  // surface "n unchanged" so a no-op render doesn't look like the engine
+  // never ran.
+  let inspected = 0;
 
   // 1. CLAUDE.md — delegated to existing planner
   const claudeMdPath = join(cwd, "CLAUDE.md");
   const claudeMdExisting = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, "utf-8") : "";
   const claudeMdPlan = computeRenderPlan(claudeMdExisting, config);
+  inspected += 1;
   if (claudeMdPlan.changed) {
     pending.push({
       path: claudeMdPath,
@@ -86,6 +95,7 @@ export function renderClaudeEngine(
 
   // 2. .claude/settings.json
   const settingsResult = planSettings(cwd, config);
+  inspected += 1;
   if (settingsResult.kind === "skip") {
     skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
   } else if (settingsResult.kind === "write") {
@@ -99,6 +109,7 @@ export function renderClaudeEngine(
   // 3. Agents
   for (const agent of CORE_AGENTS) {
     if (!isAgentEnabled(config, agent.harnessKey)) continue;
+    inspected += 1;
     applyManagedFilePlan(
       planManagedFile({
         cwd,
@@ -115,6 +126,7 @@ export function renderClaudeEngine(
 
   // 4. Skills (always on for now)
   for (const skillId of CORE_SKILLS) {
+    inspected += 1;
     applyManagedFilePlan(
       planManagedFile({
         cwd,
@@ -130,6 +142,7 @@ export function renderClaudeEngine(
   }
 
   // 5. progress/ bootstrap (one-shot, never overwritten)
+  inspected += 2;
   applyBootstrapPlan(
     planBootstrapFile({
       cwd,
@@ -153,6 +166,7 @@ export function renderClaudeEngine(
 
   // 6. Hook quality-gate (only if config has a fast gate)
   if (config.qualityGate?.fast) {
+    inspected += 1;
     applyManagedFilePlan(
       planManagedFile({
         cwd,
@@ -174,6 +188,7 @@ export function renderClaudeEngine(
   const enabledPlugins = loadEnabledPlugins(config.plugins).loaded;
   for (const plugin of enabledPlugins) {
     for (const script of plugin.scriptAssets) {
+      inspected += 1;
       const plan = planPluginScript(cwd, script, config);
       if (plan.kind === "write") {
         pending.push({
@@ -193,6 +208,7 @@ export function renderClaudeEngine(
   for (const plugin of enabledPlugins) {
     for (const skill of plugin.skillAssets) {
       if (!skill.injectInto) continue;
+      inspected += 1;
       applySubBlockInject({
         cwd,
         plugin,
@@ -200,6 +216,7 @@ export function renderClaudeEngine(
         config,
         pending,
         skipped,
+        warnings,
       });
     }
   }
@@ -217,6 +234,7 @@ export function renderClaudeEngine(
       claudeMdEntries: claudeMdPlan.entries,
       updatesAvailable: claudeMdPlan.updatesAvailable,
       languageFallbacks: claudeMdPlan.languageFallbacks,
+      inspected,
     };
   }
 
@@ -263,6 +281,7 @@ export function renderClaudeEngine(
     claudeMdEntries: claudeMdPlan.entries,
     updatesAvailable: claudeMdPlan.updatesAvailable,
     languageFallbacks: claudeMdPlan.languageFallbacks,
+    inspected,
   };
 }
 
@@ -416,6 +435,7 @@ function applySubBlockInject(input: {
   config: NavoriConfig;
   pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>;
   skipped: Array<{ path: string; reason: string }>;
+  warnings: string[];
 }): void {
   const targetAbs = join(input.cwd, input.skill.injectInto!);
 
@@ -427,7 +447,13 @@ function applySubBlockInject(input: {
   } else if (existsSync(targetAbs)) {
     currentContent = readFileSync(targetAbs, "utf-8");
   } else {
-    return; // target absent (likely disabled agent) — nothing to inject into
+    // Target absent — typically because the agent (`leader.md` and friends)
+    // is disabled in `config.harness`. Surface this so the user knows the
+    // plugin contribution was dropped silently, not lost to a bug.
+    input.warnings.push(
+      `skill '${input.skill.id}' (de @navori/plugin-${input.plugin.manifest.id}) no inyectado: target ${input.skill.injectInto} ausente (¿agente disabled en config.harness?)`,
+    );
+    return;
   }
 
   const rawSkill = readFileSync(input.skill.absPath, "utf-8");
@@ -448,7 +474,7 @@ function applySubBlockInject(input: {
   if (result.status === "user-modified-skipped") {
     input.skipped.push({
       path: relative(input.cwd, targetAbs),
-      reason: `sub-bloque '${input.skill.id}' (de @navori/plugin-${input.plugin.manifest.id}) editado por el user; resolvé con 'navori sync'`,
+      reason: `sub-bloque '${input.skill.id}' (de @navori/plugin-${input.plugin.manifest.id}) editado por el usuario; resolvé con 'navori sync'`,
     });
     return;
   }
