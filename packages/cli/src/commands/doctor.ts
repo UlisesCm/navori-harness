@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "../lib/plugins.ts";
 import { readBundledCoreVersion } from "../lib/bundled-assets.ts";
+import { computeManagedHash, extractManagedContent } from "../lib/marker.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
 
 interface MarkerInfo {
@@ -160,13 +161,17 @@ export const doctorCommand = defineCommand({
     }
 
     if (drifts.length > 0) {
-      const lines = drifts.map(
-        (d) =>
-          `  ${color.yellow(sym.update)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`${d.fromVersion} → ${d.toVersion}`)}  ${grey(`(${d.source})`)}`,
-      );
-      p.log.warn(
-        `Updates available — corré 'navori render' o 'navori sync' (${drifts.length}):\n${lines.join("\n")}`,
-      );
+      const lines = drifts.map((d) => {
+        if (d.kind === "content") {
+          return `  ${color.red(sym.conflict)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`hash ${d.expectedHash} ≠ ${d.actualHash}`)}  ${grey(`(${d.source}, content edited)`)}`;
+        }
+        return `  ${color.yellow(sym.update)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`${d.fromVersion} → ${d.toVersion}`)}  ${grey(`(${d.source})`)}`;
+      });
+      const hint =
+        drifts.some((d) => d.kind === "content")
+          ? "corré 'navori sync' para resolver conflicts; 'navori render' para actualizar versiones"
+          : "corré 'navori render' o 'navori sync'";
+      p.log.warn(`Drift detectado (${drifts.length}) — ${hint}:\n${lines.join("\n")}`);
     }
 
     p.outro(missingPlugins.length > 0 ? color.red("Issues found") : color.green("OK"));
@@ -208,20 +213,30 @@ interface DriftReport {
   filePath: string;
   markerId: string;
   source: string;
-  fromVersion: string;
-  toVersion: string;
+  /** "version" — the bundle moved ahead. "content" — the body of the
+   * managed block no longer matches its `hash=` attribute, i.e. the user
+   * edited inside the marker. */
+  kind: "version" | "content";
+  fromVersion?: string;
+  toVersion?: string;
+  expectedHash?: string;
+  actualHash?: string;
 }
 
 /**
- * Walk `.claude/agents/` and `.claude/skills/` and report version drift
- * for any managed marker whose `source`+`version` no longer matches what
- * the current bundle (core or plugin) declares. Drift means the rendered
- * file is older than the asset we'd produce now — `navori render` or
- * `sync` will bring it up to date.
+ * Walk `.claude/agents/` and `.claude/skills/` and report drift for each
+ * managed marker found:
  *
- * Missing version attrs are skipped (legacy markers without `version=`).
- * Unknown sources (deleted plugin, hand-edited) are skipped — we have
- * nothing to compare against.
+ *   - **version drift** — the marker's `version=` is older than what the
+ *     bundle (core or plugin) currently ships. `navori render` will bring
+ *     the body up to date.
+ *   - **content drift** — the body inside the markers no longer hashes to
+ *     the marker's `hash=` attribute, i.e. someone edited the managed
+ *     content by hand. `navori sync` will surface this as a conflict.
+ *
+ * Markers without `version=` or `hash=` are skipped for the respective
+ * check. Unknown sources (plugin removed, marker hand-written) are
+ * skipped — there's nothing to compare against.
  */
 function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport[] {
   const out: DriftReport[] = [];
@@ -249,19 +264,54 @@ function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport[] {
     for (const file of entries) {
       if (!file.endsWith(".md")) continue;
       const rel = `${dir}/${file}`;
-      const markers = listMarkers(join(cwd, rel));
+      const abs = join(cwd, rel);
+      const fileContent = (() => {
+        try {
+          return readFileSync(abs, "utf-8");
+        } catch {
+          return null;
+        }
+      })();
+      const markers = listMarkers(abs);
+
       for (const m of markers) {
-        if (!m.version || !m.source) continue;
-        const expected =
-          m.source === "@navori/core" ? coreVersion : pluginVersions.get(m.source);
-        if (!expected || expected === m.version) continue;
-        out.push({
-          filePath: rel,
-          markerId: m.id,
-          source: m.source,
-          fromVersion: m.version,
-          toVersion: expected,
-        });
+        if (!m.source) continue;
+
+        // Version drift: requires version attr and a known source.
+        if (m.version) {
+          const expected =
+            m.source === "@navori/core" ? coreVersion : pluginVersions.get(m.source);
+          if (expected && expected !== m.version) {
+            out.push({
+              filePath: rel,
+              markerId: m.id,
+              source: m.source,
+              kind: "version",
+              fromVersion: m.version,
+              toVersion: expected,
+            });
+          }
+        }
+
+        // Content drift: recompute the body's hash and compare against the
+        // marker's `hash=` attr. Surfaces hand-edits inside the managed zone
+        // that `version=`-based scan can't see.
+        if (m.hash && fileContent !== null) {
+          const body = extractManagedContent(fileContent, m.id, "html");
+          if (body !== null) {
+            const actual = computeManagedHash(body);
+            if (actual !== m.hash) {
+              out.push({
+                filePath: rel,
+                markerId: m.id,
+                source: m.source,
+                kind: "content",
+                expectedHash: m.hash,
+                actualHash: actual,
+              });
+            }
+          }
+        }
       }
     }
   }
