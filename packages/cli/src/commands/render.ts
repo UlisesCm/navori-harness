@@ -133,9 +133,25 @@ function reportClaudeMd(file: string, entries: AssetPlanEntry[], changed: boolea
 }
 
 function reportEngineFiles(engine: ClaudeEngineResult): void {
-  if (engine.written.length === 0 && engine.skipped.length === 0) return;
+  // CLAUDE.md is reported separately by reportClaudeMd; filter it out here
+  // so the user sees ".claude/" entries under the ".claude/" header only.
+  const written = engine.written.filter((w) => w.path !== "CLAUDE.md");
+  const unchangedCount = Math.max(
+    0,
+    engine.inspected - engine.written.length - engine.skipped.length,
+  );
+
+  if (
+    written.length === 0 &&
+    engine.skipped.length === 0 &&
+    engine.warnings.length === 0 &&
+    unchangedCount === 0
+  ) {
+    return;
+  }
+
   const lines: string[] = [".claude/"];
-  for (const w of engine.written) {
+  for (const w of written) {
     const sym = renderStatusSymbol(w.status);
     const label = renderStatusLabel(w.status);
     lines.push(`  ${sym} ${w.path}  ${dim("(")}${label}${dim(")")}`);
@@ -144,8 +160,15 @@ function reportEngineFiles(engine: ClaudeEngineResult): void {
     lines.push(`  ${color.yellow("!")} ${s.path}  ${dim("(")}${color.yellow("skipped")}${dim(")")}`);
     lines.push(`      ${dim(s.reason)}`);
   }
+  if (unchangedCount > 0 && written.length === 0 && engine.skipped.length === 0) {
+    // All inspected files were already up to date — give the user a positive
+    // signal so they don't wonder whether the engine even ran.
+    lines.push(`  ${dim(`· ${unchangedCount} unchanged`)}`);
+  } else if (unchangedCount > 0) {
+    lines.push(`  ${dim(`· (+${unchangedCount} unchanged)`)}`);
+  }
   for (const w of engine.warnings) {
-    lines.push(`  ${dim("·")} ${dim(w)}`);
+    lines.push(`  ${color.yellow("·")} ${dim(w)}`);
   }
   p.log.message(lines.join("\n"));
 }

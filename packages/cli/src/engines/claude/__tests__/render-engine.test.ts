@@ -220,6 +220,43 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
   });
 });
 
+describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U1+U2)", () => {
+  it("reports inspected count on first render and on second", () => {
+    const first = renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(first.inspected).toBeGreaterThanOrEqual(11); // CLAUDE.md + settings + 7 agents + 2 skills + 2 progress = 13
+    expect(first.written.length).toBeGreaterThan(0);
+
+    const second = renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(second.written.length).toBe(0);
+    // All inspected files were already up to date this second time around.
+    expect(second.inspected).toBe(first.inspected);
+  });
+});
+
+describe("renderClaudeEngine — injectInto warns when target absent (P0-fix U4)", () => {
+  it("emits a warning instead of silently dropping the sub-block", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { engram: { enabled: true } },
+      harness: {
+        leader: false, // target disabled
+        implementer: true,
+        reviewer: true,
+        researcher: false,
+        ticketAudit: false,
+        commitPrPilot: false,
+        explorer: false,
+      },
+    } as unknown as NavoriConfig;
+    const r = renderClaudeEngine(cwd, cfg);
+    expect(
+      r.warnings.some((w) =>
+        /engram-leader-extension.*\.claude\/agents\/leader\.md/.test(w),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () => {
   it("gh plugin merges its allow permissions into settings.json", () => {
     const cfg = {
