@@ -180,6 +180,16 @@ export const initCommand = defineCommand({
         ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
       });
       p.log.success(tr.wroteConfig(configPath));
+
+      // Surface gaps that the user can't see otherwise — autoYes skipped the
+      // wizard so they never had a chance to fill these in. Without a
+      // qualityGate the render emits `<not configured: qualityGate.fast>`
+      // in agent prompts and skips the pre-commit hook entirely; users
+      // following `--recommended` need that hint up front.
+      if (!detected.qualityGate) {
+        p.log.warn(tr.qualityGateNotDetected);
+      }
+
       if (mode === "coexist") {
         p.outro(tr.doneExistingUntouched);
         return;
@@ -749,6 +759,13 @@ function renderInline(cwd: string): void {
     }
     for (const s of result.engineResult.skipped) {
       p.log.warn(`Skipped ${s.path}: ${s.reason}`);
+    }
+    // Engine-emitted warnings (e.g. quality-gate hook skipped because the
+    // fast gate isn't set). These would otherwise be invisible to anyone
+    // running `init --recommended` since the render output is the only
+    // signal the user sees.
+    for (const w of result.engineResult.warnings) {
+      p.log.warn(w);
     }
   }
 }
