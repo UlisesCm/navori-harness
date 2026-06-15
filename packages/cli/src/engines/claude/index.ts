@@ -5,6 +5,7 @@ import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { computeRenderPlan, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
+import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { getCoreRoot, readBundledCoreVersion } from "../../lib/bundled-assets.ts";
 import { injectManagedSection } from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
@@ -183,6 +184,48 @@ export function renderClaudeEngine(
     );
   } else {
     warnings.push("quality-gate hook skipped: config.qualityGate.fast no está set");
+  }
+
+  // 6.5. Preset extras — stack-specific agents/skills/hooks the active preset
+  // contributes on top of the core baseline. Same managed-file semantics as
+  // CORE_AGENTS/CORE_SKILLS; the preset's `extras.{agents,skills,hooks}[]`
+  // declares its own destination paths so a preset can target either the
+  // `.claude/` tree or extend specific managed sub-blocks elsewhere.
+  // A missing preset file is silent; a malformed preset surfaces via warning.
+  if (config.preset && config.preset !== "custom") {
+    let preset = null;
+    try {
+      preset = loadPreset(config.preset);
+    } catch (err) {
+      if (err instanceof PresetError) {
+        warnings.push(`preset '${config.preset}' invalid: ${err.message}`);
+      } else {
+        throw err;
+      }
+    }
+    if (preset) {
+      const allFileExtras: Array<{ extra: PresetExtraFile; exec: boolean }> = [
+        ...preset.extras.agents.map((e) => ({ extra: e, exec: false })),
+        ...preset.extras.skills.map((e) => ({ extra: e, exec: false })),
+        ...preset.extras.hooks.map((e) => ({ extra: e, exec: true })),
+      ];
+      for (const { extra, exec } of allFileExtras) {
+        inspected += 1;
+        applyManagedFilePlan(
+          planManagedFile({
+            cwd,
+            assetRelPath: extra.relPath,
+            destRelPath: extra.destRelPath,
+            managedId: extra.id,
+            config,
+          }),
+          cwd,
+          pending,
+          skipped,
+          exec,
+        );
+      }
+    }
   }
 
   // 7. Plugin scripts (copy + interpolate to .claude/scripts/)

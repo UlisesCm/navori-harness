@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { injectManagedSection, removeManagedSection, resolveCondition, type InjectResult } from "./marker.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
 import { getCoreRoot, readBundledCoreVersion } from "./bundled-assets.ts";
+import { loadPreset, PresetError } from "./presets.ts";
 import type { NavoriConfig } from "./config.ts";
 
 export const CORE_SOURCE_ID = "@navori/core" as const;
@@ -166,9 +167,58 @@ export function computeRenderPlan(
     working = result.output;
   }
 
+  // 1.5) Preset extras — managed blocks the active preset contributes on top
+  // of the core baseline. Same inject/conflict semantics as core; source is
+  // `@navori/preset-<id>` so version drift / future updates can be tracked
+  // independently. A missing preset file is silent (preset = "custom" or a
+  // stack with no extras yet); a malformed preset throws and surfaces.
+  const presetMissing: Array<{ id: string; reason: string }> = [];
+  if (config.preset && config.preset !== "custom") {
+    let preset = null;
+    try {
+      preset = loadPreset(config.preset);
+    } catch (err) {
+      if (err instanceof PresetError) {
+        presetMissing.push({ id: config.preset, reason: err.message });
+      } else {
+        throw err;
+      }
+    }
+    if (preset) {
+      // Preset extras live inside @navori/core for now; when presets move to
+      // standalone packages we'll switch this to a preset-specific source.
+      for (const extra of preset.extras.managed) {
+        if (skipIds.has(extra.id)) continue;
+        const absPath = resolve(getCoreRoot(), "core-assets", extra.relPath);
+        const rawContent = readFileSync(absPath, "utf-8");
+        const content = interpolateTemplate(rawContent, config);
+        const result = injectManagedSection(working, extra.id, content, {
+          source: CORE_SOURCE_ID,
+          version: CORE_VERSION,
+        });
+        if (result.details?.versionDrift && result.details.existingVersion) {
+          updatesAvailable.push({
+            id: extra.id,
+            source: CORE_SOURCE_ID,
+            fromVersion: result.details.existingVersion,
+            toVersion: CORE_VERSION,
+          });
+        }
+        entries.push({
+          asset: { id: extra.id, relPath: extra.relPath },
+          source: preset.id,
+          status: result.status,
+          details: result.details,
+          newContent: content,
+        });
+        working = result.output;
+      }
+    }
+  }
+
   // 2) Plugins declared in config (enabled or disabled).
   // Loading the manifest even when disabled lets us strip its managed blocks.
-  const missing: Array<{ id: string; reason: string }> = [];
+  const missing: Array<{ id: string; reason: string }> = presetMissing;
   const declaredEntries = Object.entries(config.plugins ?? {});
 
   for (const [declaredId, settings] of declaredEntries) {
