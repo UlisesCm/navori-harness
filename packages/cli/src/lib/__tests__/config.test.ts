@@ -231,6 +231,48 @@ describe("writeConfig", () => {
     }
   });
 
+  it("rejects monorepo.workspaces[].path that is absolute", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      expect(() =>
+        writeConfig(path, {
+          name: "test",
+          engines: ["claude"],
+          preset: "custom",
+          monorepo: {
+            enabled: true,
+            tool: "pnpm",
+            workspaces: [{ name: "backend", path: "/etc/backend" }],
+          } as never,
+        }),
+      ).toThrow(/relative|must not contain/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("rejects monorepo.workspaces[].path containing `..`", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      expect(() =>
+        writeConfig(path, {
+          name: "test",
+          engines: ["claude"],
+          preset: "custom",
+          monorepo: {
+            enabled: true,
+            tool: "pnpm",
+            workspaces: [{ name: "backend", path: "apps/../../escape" }],
+          } as never,
+        }),
+      ).toThrow(/relative|must not contain/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   it("rejects unknown model in models override", () => {
     const dir = makeTmpDir();
     const path = join(dir, "navori.config.json");
