@@ -9,11 +9,27 @@ import {
   type ClaudeEngineResult,
 } from "../engines/claude/index.ts";
 import { renderStatusSymbol, renderStatusLabel, dim, color, brand } from "../lib/style.ts";
+import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
+
+export interface WorkspaceRenderResult {
+  /** Workspace path relative to the repo root (e.g. "apps/backend"). */
+  workspacePath: string;
+  /** Workspace display name from monorepo.workspaces[].name. */
+  workspaceName: string;
+  filePath: string;
+  entries: AssetPlanEntry[];
+  written: boolean;
+  languageFallbacks: string[];
+  updatesAvailable: UpdateAvailable[];
+  backupPath?: string | null;
+  engineResult: ClaudeEngineResult;
+}
 
 /**
  * Run the render flow against `cwd`. Reusable from other commands (e.g. init).
- * Returns a back-compat shape so existing callers (init.ts) keep working,
- * plus the full engine result for new callers.
+ * The top-level fields always describe the repo root render so existing callers
+ * (init.ts) keep working unchanged. When `config.monorepo.workspaces[]` is
+ * non-empty, each workspace is also rendered and reported under `workspaces`.
  */
 export function runRender(cwd: string, dryRun = false, force = false): {
   ok: boolean;
@@ -25,6 +41,7 @@ export function runRender(cwd: string, dryRun = false, force = false): {
   updatesAvailable: UpdateAvailable[];
   backupPath?: string | null;
   engineResult?: ClaudeEngineResult;
+  workspaces: WorkspaceRenderResult[];
 } {
   const configPath = `${cwd}/navori.config.json`;
   const claudeMdPath = `${cwd}/CLAUDE.md`;
@@ -39,11 +56,30 @@ export function runRender(cwd: string, dryRun = false, force = false): {
       languageFallbacks: [],
       updatesAvailable: [],
       backupPath: null,
+      workspaces: [],
     };
   }
 
   const config = readConfig(configPath);
   const engineResult = renderClaudeEngine(cwd, config, { dryRun, force });
+
+  const workspaces: WorkspaceRenderResult[] = [];
+  for (const ws of config.monorepo?.workspaces ?? []) {
+    const wsCwd = resolve(cwd, ws.path);
+    const wsConfig = effectiveConfigForWorkspace(config, ws);
+    const wsResult = renderClaudeEngine(wsCwd, wsConfig, { dryRun, force });
+    workspaces.push({
+      workspacePath: ws.path,
+      workspaceName: ws.name,
+      filePath: `${wsCwd}/CLAUDE.md`,
+      entries: wsResult.claudeMdEntries,
+      written: wsResult.written.length > 0,
+      languageFallbacks: wsResult.languageFallbacks,
+      updatesAvailable: wsResult.updatesAvailable,
+      backupPath: wsResult.backupPath,
+      engineResult: wsResult,
+    });
+  }
 
   return {
     ok: true,
@@ -54,6 +90,7 @@ export function runRender(cwd: string, dryRun = false, force = false): {
     updatesAvailable: engineResult.updatesAvailable,
     backupPath: engineResult.backupPath,
     engineResult,
+    workspaces,
   };
 }
 
@@ -87,6 +124,10 @@ export const renderCommand = defineCommand({
       process.exit(1);
     }
 
+    const hasWorkspaces = result.workspaces.length > 0;
+    if (hasWorkspaces) {
+      p.log.message(`${dim("root")}`);
+    }
     reportClaudeMd(result.filePath, result.entries, result.written, Boolean(args["dry-run"]));
     if (result.engineResult) {
       reportEngineFiles(result.engineResult);
@@ -99,10 +140,27 @@ export const renderCommand = defineCommand({
     if (result.backupPath) {
       p.log.message(`${dim("Backup:")} ${result.backupPath}`);
     }
-    const summary = summarize(result.entries);
+
+    for (const ws of result.workspaces) {
+      p.log.message(`${dim("workspace")} ${color.cyan(ws.workspaceName)} ${dim(`(${ws.workspacePath})`)}`);
+      reportClaudeMd(ws.filePath, ws.entries, ws.written, Boolean(args["dry-run"]));
+      reportEngineFiles(ws.engineResult);
+      if (ws.languageFallbacks.length > 0) {
+        p.log.warn(
+          `[${ws.workspaceName}] Language fallback to Spanish for: ${ws.languageFallbacks.join(", ")} (English version not available yet)`,
+        );
+      }
+      if (ws.backupPath) {
+        p.log.message(`${dim("Backup:")} ${ws.backupPath}`);
+      }
+    }
+
+    const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
+    const anyWritten = result.written || result.workspaces.some((w) => w.written);
+    const summary = summarize(allEntries);
     if (args["dry-run"]) {
       p.outro(`${dim("Dry-run complete")} ${summary}`);
-    } else if (result.written) {
+    } else if (anyWritten) {
       p.outro(`${color.green("Done")} ${summary}`);
     } else {
       p.outro(`${dim("Up to date")} ${summary}`);
