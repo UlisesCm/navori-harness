@@ -1,0 +1,23 @@
+{
+  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "id": "medusa",
+  "displayName": "Medusa.js v2 backend",
+  "extends": "core",
+  "extras": {
+    "managed": [],
+    "agents": [],
+    "skills": [
+      {
+        "id": "medusa-modules",
+        "relPath": "presets/medusa/skills/medusa-modules.md",
+        "destRelPath": ".claude/skills/medusa-modules.md"
+      },
+      {
+        "id": "medusa-api-routes",
+        "relPath": "presets/medusa/skills/medusa-api-routes.md",
+        "destRelPath": ".claude/skills/medusa-api-routes.md"
+      }
+    ],
+    "hooks": []
+  }
+}
