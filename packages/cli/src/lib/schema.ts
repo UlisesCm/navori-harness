@@ -11,7 +11,7 @@ const QualityGateSchema = z.object({
 
 const MonorepoWorkspaceSchema = z.object({
   name: z.string().min(1),
-  path: z.string().min(1),
+  path: safeRelPath,
   preset: z.string().optional(),
   qualityGate: QualityGateSchema.optional(),
 });
