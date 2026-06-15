@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { z } from "zod";
 import { bundledPluginManifestPath, getPluginPath, listBundledPluginIds } from "./bundled-assets.ts";
+import { safeRelPath } from "./zod-helpers.ts";
 
 const AGENT_ROLES = [
   "leader",
@@ -45,15 +46,6 @@ const HookEntrySchema = z.object({
   timeout: z.number().int().positive().optional(),
   statusMessage: z.string().optional(),
 });
-
-/** Containment-safe relative path (no leading slash, no `..` segment). */
-const safeRelPath = z
-  .string()
-  .min(1)
-  .refine(
-    (v) => !v.startsWith("/") && !v.split(/[\\/]/).includes(".."),
-    "path must be relative and must not contain '..'",
-  );
 
 const ScriptEntrySchema = z.object({
   /** Path relative to the plugin package root. */

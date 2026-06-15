@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { safeRelPath } from "./zod-helpers.ts";
 
 const ENGINES = ["claude", "agents-md", "cursor", "copilot"] as const;
 const MODELS = ["opus", "sonnet", "haiku"] as const;
@@ -69,11 +70,15 @@ const SkillsSchema = z.object({
   optIn: z.array(z.string()).default([]),
 });
 
+// Progress files live inside the repo by definition — accepting absolute
+// paths or `..` segments would let the adapter write outside the workspace
+// (issue #5). Reuse the same containment regex plugins already use for
+// script/skill paths.
 const ProgressSchema = z.object({
-  dir: z.string().default("progress"),
-  currentFile: z.string().default("current.md"),
-  historyFile: z.string().default("history.md"),
-  checkpointsDir: z.string().default("progress/checkpoints"),
+  dir: safeRelPath.default("progress"),
+  currentFile: safeRelPath.default("current.md"),
+  historyFile: safeRelPath.default("history.md"),
+  checkpointsDir: safeRelPath.default("progress/checkpoints"),
   archiveAfterDays: z.number().int().positive().default(30),
 });
 

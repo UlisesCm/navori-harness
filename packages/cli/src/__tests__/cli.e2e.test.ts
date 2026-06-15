@@ -212,6 +212,43 @@ describe("CLI e2e — happy paths", () => {
     expect(parsed.drifts).toHaveLength(0);
   });
 
+  it("doctor reports corrupted settings.json + render --force regenerates (#4)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // Break the JSON
+    const settingsPath = join(repo, ".claude/settings.json");
+    writeFileSync(settingsPath, "{ this is not valid json", "utf-8");
+
+    // 1. doctor sees it
+    const dr = runCli(["doctor", "--json", "--cwd", repo]);
+    expect(dr.status).toBe(0);
+    const dreport = JSON.parse(dr.stdout);
+    expect(dreport.ok).toBe(false);
+    expect(dreport.corruptedSettings).toHaveLength(1);
+    expect(dreport.corruptedSettings[0].path).toBe(".claude/settings.json");
+    expect(dreport.corruptedSettings[0].error.length).toBeGreaterThan(0);
+
+    // 2. plain render skips (refuses to overwrite without --force)
+    const rr = runCli(["render", "--cwd", repo]);
+    expect(rr.status).toBe(0);
+    expect(rr.combined).toContain("--force");
+    expect(readFileSync(settingsPath, "utf-8")).toBe("{ this is not valid json");
+
+    // 3. render --force regenerates the file from the bundle
+    const fr = runCli(["render", "--force", "--cwd", repo]);
+    expect(fr.status).toBe(0);
+    const regenerated = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(regenerated.$navori?.managed).toBe(true);
+
+    // 4. doctor now reports OK
+    const dr2 = runCli(["doctor", "--json", "--cwd", repo]);
+    const dreport2 = JSON.parse(dr2.stdout);
+    expect(dreport2.ok).toBe(true);
+    expect(dreport2.corruptedSettings).toHaveLength(0);
+  });
+
   it("doctor reports content drift when user edited inside the managed block (P0-fix B3)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);

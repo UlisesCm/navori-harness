@@ -180,6 +180,57 @@ describe("writeConfig", () => {
     }
   });
 
+  it("rejects progress.dir that escapes the cwd (absolute path)", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      expect(() =>
+        writeConfig(path, {
+          name: "test",
+          engines: ["claude"],
+          preset: "custom",
+          progress: { dir: "/etc/escape" } as never,
+        }),
+      ).toThrow(/relative|must not contain/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("rejects progress.dir containing `..` (traversal)", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      expect(() =>
+        writeConfig(path, {
+          name: "test",
+          engines: ["claude"],
+          preset: "custom",
+          progress: { dir: "progress/../../escape" } as never,
+        }),
+      ).toThrow(/relative|must not contain/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("rejects progress.currentFile that escapes via traversal", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      expect(() =>
+        writeConfig(path, {
+          name: "test",
+          engines: ["claude"],
+          preset: "custom",
+          progress: { currentFile: "../escape.md" } as never,
+        }),
+      ).toThrow(/relative|must not contain/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   it("rejects unknown model in models override", () => {
     const dir = makeTmpDir();
     const path = join(dir, "navori.config.json");

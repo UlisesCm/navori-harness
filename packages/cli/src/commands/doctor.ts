@@ -89,11 +89,12 @@ export const doctorCommand = defineCommand({
     const markers = listMarkers(claudeMdPath);
     const missingPlugins = collectMissingPlugins(config);
     const drifts = scanManagedDrift(cwd, config);
+    const corruptedSettings = scanCorruptedSettings(cwd);
     const report = {
       // Drift is informational ("update available"), not an error — don't
-      // flip `ok` for it. A missing plugin is, since the render plan
-      // referencing it will fail.
-      ok: missingPlugins.length === 0,
+      // flip `ok` for it. Missing plugins and corrupted settings.json ARE
+      // errors: the next render will fail or silently skip the file.
+      ok: missingPlugins.length === 0 && corruptedSettings.length === 0,
       configPath,
       config,
       checks: {
@@ -105,6 +106,7 @@ export const doctorCommand = defineCommand({
       managedBlocks: markers,
       missingPlugins,
       drifts,
+      corruptedSettings,
     };
 
     if (args.json) {
@@ -174,7 +176,17 @@ export const doctorCommand = defineCommand({
       p.log.warn(`Drift detectado (${drifts.length}) — ${hint}:\n${lines.join("\n")}`);
     }
 
-    p.outro(missingPlugins.length > 0 ? color.red("Issues found") : color.green("OK"));
+    if (corruptedSettings.length > 0) {
+      const lines = corruptedSettings.map(
+        (c) => `  ${color.red(sym.fail)} ${accent(c.path)}  ${grey(`— JSON inválido: ${c.error}`)}`,
+      );
+      p.log.error(
+        `Settings.json corrupto (${corruptedSettings.length}) — corré 'navori render --force' para regenerar desde el bundle (el archivo actual se respalda):\n${lines.join("\n")}`,
+      );
+    }
+
+    const hasIssues = missingPlugins.length > 0 || corruptedSettings.length > 0;
+    p.outro(hasIssues ? color.red("Issues found") : color.green("OK"));
   },
 });
 
@@ -316,6 +328,27 @@ function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport[] {
     }
   }
   return out;
+}
+
+interface CorruptedSettingsReport {
+  path: string;
+  error: string;
+}
+
+/**
+ * Detect `.claude/settings.json` files whose JSON is unparseable. The render
+ * adapter (planSettings) would silently skip them today; the doctor surfaces
+ * the problem so users know to run `render --force`. Issue #4.
+ */
+function scanCorruptedSettings(cwd: string): CorruptedSettingsReport[] {
+  const path = join(cwd, ".claude/settings.json");
+  if (!existsSync(path)) return [];
+  try {
+    JSON.parse(readFileSync(path, "utf-8"));
+    return [];
+  } catch (err) {
+    return [{ path: ".claude/settings.json", error: (err as Error).message }];
+  }
 }
 
 function collectAssignments(config: NavoriConfig): AssignmentRow[] {
