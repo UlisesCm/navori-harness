@@ -99,6 +99,93 @@ describe("CLI e2e — happy paths", () => {
     expect(existsSync(join(repo, ".claude/hooks/quality-gate-pre-commit.sh"))).toBe(false);
   });
 
+  it("init --recommended falls back to 'pm tsc --noEmit' when TS detected without scripts", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "ts-no-scripts",
+        dependencies: { typescript: "^5" },
+      }),
+      "tsconfig.json": "{}",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    });
+    dirs.push(repo);
+
+    const r = runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.qualityGate?.fast).toBe("pnpm tsc --noEmit");
+    expect(config.qualityGate?.full).toBe("pnpm tsc --noEmit");
+    // Surface the fallback in stdout so the user knows it wasn't detected
+    expect(r.combined).toMatch(/fallback/i);
+  });
+
+  it("init --recommended writes project block with empty arrays + detected testRunner", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "vitest-app",
+        dependencies: { vitest: "^4" },
+      }),
+    });
+    dirs.push(repo);
+
+    const r = runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.project).toBeDefined();
+    expect(config.project.legacyPaths).toEqual([]);
+    expect(config.project.criticalAreas).toEqual([]);
+    expect(config.project.testRunner).toBe("vitest");
+  });
+
+  it("init --recommended on TS+test stack renders agents without <not configured> placeholders", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "full-stack",
+        dependencies: { typescript: "^5", vitest: "^4" },
+      }),
+      "tsconfig.json": "{}",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    });
+    dirs.push(repo);
+
+    const r = runCli(["init", "--recommended", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    // The 4 most-visible managed assets must NOT show placeholders
+    for (const rel of [
+      ".claude/agents/leader.md",
+      ".claude/agents/implementer.md",
+      ".claude/agents/reviewer.md",
+      ".claude/skills/verify-before-done.md",
+    ]) {
+      const content = readFileSync(join(repo, rel), "utf-8");
+      expect(content, `${rel} should have no <not configured> placeholders`).not.toMatch(
+        /<not configured:/,
+      );
+    }
+  });
+
+  it("init --yes plain (without --recommended) keeps conservative no-fallback behavior", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "ts-no-scripts",
+        dependencies: { typescript: "^5" },
+      }),
+      "tsconfig.json": "{}",
+    });
+    dirs.push(repo);
+
+    const r = runCli(["init", "--yes", "--no-render", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    // No qualityGate fallback for plain --yes — back-compat
+    expect(config.qualityGate).toBeUndefined();
+    expect(config.project).toBeUndefined();
+  });
+
   it("init --yes detects stack from package.json", () => {
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({
@@ -221,9 +308,9 @@ describe("CLI e2e — happy paths", () => {
     const settingsPath = join(repo, ".claude/settings.json");
     writeFileSync(settingsPath, "{ this is not valid json", "utf-8");
 
-    // 1. doctor sees it
+    // 1. doctor sees it — exit 2 because corrupted settings is a hard issue
     const dr = runCli(["doctor", "--json", "--cwd", repo]);
-    expect(dr.status).toBe(0);
+    expect(dr.status).toBe(2);
     const dreport = JSON.parse(dr.stdout);
     expect(dreport.ok).toBe(false);
     expect(dreport.corruptedSettings).toHaveLength(1);
@@ -276,6 +363,52 @@ describe("CLI e2e — happy paths", () => {
     expect(contentDrift.expectedHash).toMatch(/^[a-f0-9]{8}$/);
     expect(contentDrift.actualHash).toMatch(/^[a-f0-9]{8}$/);
     expect(contentDrift.expectedHash).not.toBe(contentDrift.actualHash);
+  });
+
+  it("doctor --strict exits 1 when drift is detected (CI gate)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // Inject content drift
+    const leaderPath = join(repo, ".claude/agents/leader.md");
+    const original = readFileSync(leaderPath, "utf-8");
+    writeFileSync(
+      leaderPath,
+      original.replace("# Agente Líder (Orquestador)", "# Agente Líder INJECTED"),
+      "utf-8",
+    );
+
+    // Default (no --strict): exit 0 even with drift (back-compat)
+    const lenient = runCli(["doctor", "--cwd", repo]);
+    expect(lenient.status).toBe(0);
+
+    // --strict: drift fails the gate
+    const strict = runCli(["doctor", "--strict", "--cwd", repo]);
+    expect(strict.status).toBe(1);
+  });
+
+  it("doctor --strict exits 0 on a clean repo (no drift, no issues)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    const r = runCli(["doctor", "--strict", "--cwd", repo]);
+    expect(r.status).toBe(0);
+  });
+
+  it("doctor exits 2 on hard issues (corrupted settings.json) regardless of --strict", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    writeFileSync(join(repo, ".claude/settings.json"), "{ broken json", "utf-8");
+
+    const lenient = runCli(["doctor", "--cwd", repo]);
+    expect(lenient.status).toBe(2);
+
+    const strict = runCli(["doctor", "--strict", "--cwd", repo]);
+    expect(strict.status).toBe(2);
   });
 
   it("doctor reports version drift when an agent file is older than the bundle", () => {
@@ -452,7 +585,7 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
       config.monorepo.workspaces.map((w: { name: string }) => [w.name, w]),
     );
     expect(byName.backend.path).toBe("apps/backend");
-    expect(byName.backend.preset).toBe("medusa-v2");
+    expect(byName.backend.preset).toBe("medusa");
     expect(byName.storefront.path).toBe("apps/storefront");
     expect(byName.storefront.preset).toBe("nextjs");
   });

@@ -191,7 +191,9 @@ export function renderClaudeEngine(
   // CORE_AGENTS/CORE_SKILLS; the preset's `extras.{agents,skills,hooks}[]`
   // declares its own destination paths so a preset can target either the
   // `.claude/` tree or extend specific managed sub-blocks elsewhere.
-  // A missing preset file is silent; a malformed preset surfaces via warning.
+  // A malformed preset surfaces via warning. A missing preset file also
+  // surfaces — silent-skip masked the medusa-v2/medusa.json mismatch in
+  // moonar where the backend workspace was missing the medusa skills.
   if (config.preset && config.preset !== "custom") {
     let preset = null;
     try {
@@ -202,6 +204,12 @@ export function renderClaudeEngine(
       } else {
         throw err;
       }
+    }
+    if (!preset) {
+      warnings.push(
+        `preset '${config.preset}' not found in core-assets/presets/. ` +
+          `Workspace will render with the core baseline only.`,
+      );
     }
     if (preset) {
       const allFileExtras: Array<{ extra: PresetExtraFile; exec: boolean }> = [
