@@ -40,6 +40,10 @@ export const doctorCommand = defineCommand({
   args: {
     cwd: { type: "string", description: "Directory to inspect (default: cwd)" },
     json: { type: "boolean", description: "Output as JSON (pipeable)" },
+    strict: {
+      type: "boolean",
+      description: "Exit 1 when drift is detected (intended for CI gates)",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
@@ -111,6 +115,13 @@ export const doctorCommand = defineCommand({
 
     if (args.json) {
       console.log(JSON.stringify(report, null, 2));
+      // JSON consumers (CI pipelines) need the same exit-code semantics as
+      // the text output so a piped check ($navori doctor --json --strict)
+      // fails the build the same way the human-readable run would.
+      if (missingPlugins.length > 0 || corruptedSettings.length > 0) {
+        process.exit(2);
+      }
+      if (Boolean(args.strict) && drifts.length > 0) process.exit(1);
       return;
     }
 
@@ -186,7 +197,20 @@ export const doctorCommand = defineCommand({
     }
 
     const hasIssues = missingPlugins.length > 0 || corruptedSettings.length > 0;
-    p.outro(hasIssues ? color.red("Issues found") : color.green("OK"));
+    const strictFail = Boolean(args.strict) && drifts.length > 0;
+    p.outro(
+      hasIssues
+        ? color.red("Issues found")
+        : strictFail
+          ? color.yellow("Drift detected (--strict)")
+          : color.green("OK"),
+    );
+    // Exit codes for CI gates:
+    //   0 = clean (no issues, no drift in --strict)
+    //   1 = drift only, --strict mode
+    //   2 = hard issues (missing plugins, corrupted settings)
+    if (hasIssues) process.exit(2);
+    if (strictFail) process.exit(1);
   },
 });
 
