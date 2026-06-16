@@ -99,6 +99,93 @@ describe("CLI e2e — happy paths", () => {
     expect(existsSync(join(repo, ".claude/hooks/quality-gate-pre-commit.sh"))).toBe(false);
   });
 
+  it("init --recommended falls back to 'pm tsc --noEmit' when TS detected without scripts", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "ts-no-scripts",
+        dependencies: { typescript: "^5" },
+      }),
+      "tsconfig.json": "{}",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    });
+    dirs.push(repo);
+
+    const r = runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.qualityGate?.fast).toBe("pnpm tsc --noEmit");
+    expect(config.qualityGate?.full).toBe("pnpm tsc --noEmit");
+    // Surface the fallback in stdout so the user knows it wasn't detected
+    expect(r.combined).toMatch(/fallback/i);
+  });
+
+  it("init --recommended writes project block with empty arrays + detected testRunner", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "vitest-app",
+        dependencies: { vitest: "^4" },
+      }),
+    });
+    dirs.push(repo);
+
+    const r = runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.project).toBeDefined();
+    expect(config.project.legacyPaths).toEqual([]);
+    expect(config.project.criticalAreas).toEqual([]);
+    expect(config.project.testRunner).toBe("vitest");
+  });
+
+  it("init --recommended on TS+test stack renders agents without <not configured> placeholders", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "full-stack",
+        dependencies: { typescript: "^5", vitest: "^4" },
+      }),
+      "tsconfig.json": "{}",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    });
+    dirs.push(repo);
+
+    const r = runCli(["init", "--recommended", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    // The 4 most-visible managed assets must NOT show placeholders
+    for (const rel of [
+      ".claude/agents/leader.md",
+      ".claude/agents/implementer.md",
+      ".claude/agents/reviewer.md",
+      ".claude/skills/verify-before-done.md",
+    ]) {
+      const content = readFileSync(join(repo, rel), "utf-8");
+      expect(content, `${rel} should have no <not configured> placeholders`).not.toMatch(
+        /<not configured:/,
+      );
+    }
+  });
+
+  it("init --yes plain (without --recommended) keeps conservative no-fallback behavior", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "ts-no-scripts",
+        dependencies: { typescript: "^5" },
+      }),
+      "tsconfig.json": "{}",
+    });
+    dirs.push(repo);
+
+    const r = runCli(["init", "--yes", "--no-render", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    // No qualityGate fallback for plain --yes — back-compat
+    expect(config.qualityGate).toBeUndefined();
+    expect(config.project).toBeUndefined();
+  });
+
   it("init --yes detects stack from package.json", () => {
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({

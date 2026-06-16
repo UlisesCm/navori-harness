@@ -183,6 +183,14 @@ export const initCommand = defineCommand({
         rootPreset: detected.suggestedPreset,
       });
 
+      // --recommended applies sensible fallbacks for qualityGate + project so
+      // the first render doesn't emit `<not configured: ...>` placeholders all
+      // over agents/skills. --yes plain keeps the conservative behavior.
+      const fallbackQg = args.recommended
+        ? detected.qualityGate ?? buildRecommendedQualityGate(detected)
+        : detected.qualityGate;
+      const recommendedProject = args.recommended ? buildRecommendedProject(detected) : null;
+
       writeConfig(configPath, {
         name: detected.name,
         ...(args.workspace ? { workspace: args.workspace } : {}),
@@ -191,18 +199,22 @@ export const initCommand = defineCommand({
         language: defaultLanguage,
         branchBase: defaultBranchBase,
         ...(defaultCommits ? { commits: defaultCommits } : {}),
-        ...(detected.qualityGate ? { qualityGate: detected.qualityGate } : {}),
+        ...(fallbackQg ? { qualityGate: fallbackQg } : {}),
         ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
+        ...(recommendedProject ? { project: recommendedProject } : {}),
         ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),
       });
       p.log.success(tr.wroteConfig(configPath));
 
+      if (args.recommended && !detected.qualityGate && fallbackQg) {
+        p.log.info(`Quality gate fallback aplicado: ${fallbackQg.fast}`);
+      }
       // Surface gaps that the user can't see otherwise — autoYes skipped the
       // wizard so they never had a chance to fill these in. Without a
       // qualityGate the render emits `<not configured: qualityGate.fast>`
       // in agent prompts and skips the pre-commit hook entirely; users
       // following `--recommended` need that hint up front.
-      if (!detected.qualityGate) {
+      if (!fallbackQg) {
         p.log.warn(tr.qualityGateNotDetected);
       }
 
@@ -736,6 +748,43 @@ function buildRecommendedPlugins(cwd: string): Record<string, { enabled: boolean
     result.gh = { enabled: true };
   }
   return result;
+}
+
+/**
+ * Build a reasonable quality-gate fallback for `--recommended` when detect
+ * couldn't infer one from package.json scripts. Avoids leaving 27+ visible
+ * `<not configured: qualityGate.*>` placeholders in the rendered harness.
+ *
+ * Strategy (most specific first):
+ *   - TypeScript (tsconfig.json or 'typescript' dep): `<pm> tsc --noEmit`
+ *   - Python without pyproject was already handled in guessQualityGate
+ *   - Otherwise: null (warn instead of writing a noisy command)
+ */
+function buildRecommendedQualityGate(
+  detected: ReturnType<typeof detectProject>,
+): { fast: string; full: string } | null {
+  if (detected.stack.language === "ts") {
+    const pm = detected.packageManager ?? "pnpm";
+    const cmd = `${pm} tsc --noEmit`;
+    return { fast: cmd, full: cmd };
+  }
+  return null;
+}
+
+/**
+ * Build a minimal `project` block for `--recommended` so the rendered agents
+ * don't show `<not configured: project.criticalAreas>` etc. The arrays are
+ * empty by design (we can't infer them) — the user can fill in later via
+ * `navori configure project`. testRunner is inferred from detected stack.
+ */
+function buildRecommendedProject(
+  detected: ReturnType<typeof detectProject>,
+): { legacyPaths: string[]; criticalAreas: string[]; testRunner?: string } {
+  return {
+    legacyPaths: [],
+    criticalAreas: [],
+    ...(detected.stack.test ? { testRunner: detected.stack.test } : {}),
+  };
 }
 
 function isGitHubRepo(cwd: string): boolean {
