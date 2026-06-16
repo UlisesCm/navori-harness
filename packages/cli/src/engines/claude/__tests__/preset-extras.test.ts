@@ -76,9 +76,13 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
   it("preset.extras files are reported in `written` and counted in `inspected`", () => {
     const config = { ...BASE_CONFIG, preset: "medusa" } as unknown as NavoriConfig;
     const r = renderClaudeEngine(cwd, config);
-    const medusaWritten = r.written.filter((w) => w.path.includes("medusa"));
-    expect(medusaWritten).toHaveLength(2);
-    // inspected covers core + preset extras (among others); must be >= 4 (2 core skills + 2 medusa)
-    expect(r.inspected).toBeGreaterThanOrEqual(4);
+    expect(r.written.filter((w) => w.path.includes("medusa")).map((w) => w.path).sort()).toEqual([
+      ".claude/skills/medusa-api-routes.md",
+      ".claude/skills/medusa-modules.md",
+    ]);
+    // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 7 agents + 2 core
+    // skills + 2 progress files + 2 medusa skills + 2 CLAUDE.md managed blocks
+    // counted independently of the file = 16 inspected.
+    expect(r.inspected).toBe(16);
   });
 });

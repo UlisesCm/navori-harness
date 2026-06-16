@@ -133,10 +133,11 @@ describe("CLI e2e — happy paths", () => {
     expect(r.status).toBe(0);
 
     const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
-    expect(config.project).toBeDefined();
-    expect(config.project.legacyPaths).toEqual([]);
-    expect(config.project.criticalAreas).toEqual([]);
-    expect(config.project.testRunner).toBe("vitest");
+    expect(config.project).toEqual({
+      legacyPaths: [],
+      criticalAreas: [],
+      testRunner: "vitest",
+    });
   });
 
   it("init --recommended on TS+test stack renders agents without <not configured> placeholders", () => {
@@ -292,8 +293,17 @@ describe("CLI e2e — happy paths", () => {
 
     const parsed = JSON.parse(r.stdout);
     expect(parsed.ok).toBe(true);
-    expect(parsed.config.name).toBeDefined();
-    expect(parsed.managedBlocks.length).toBeGreaterThanOrEqual(5);
+    expect(parsed.config.name).toBe(repo.split("/").pop()?.toLowerCase());
+    // The 5 core managed blocks injected into CLAUDE.md by --recommended:
+    // idioma-rol, formato-respuesta, tipado-fuerte, cierre-sesion, engram-protocol
+    const blockIds = parsed.managedBlocks.map((m: { id: string }) => m.id).sort();
+    expect(blockIds).toEqual([
+      "cierre-sesion",
+      "engram-protocol",
+      "formato-respuesta",
+      "idioma-rol",
+      "tipado-fuerte",
+    ]);
     // G1: drifts array shipped (empty after a fresh render)
     expect(Array.isArray(parsed.drifts)).toBe(true);
     expect(parsed.drifts).toHaveLength(0);
@@ -315,7 +325,9 @@ describe("CLI e2e — happy paths", () => {
     expect(dreport.ok).toBe(false);
     expect(dreport.corruptedSettings).toHaveLength(1);
     expect(dreport.corruptedSettings[0].path).toBe(".claude/settings.json");
-    expect(dreport.corruptedSettings[0].error.length).toBeGreaterThan(0);
+    // The error message comes from JSON.parse and surfaces the position of
+    // the syntax problem — verify it mentions the cause, not just any text.
+    expect(dreport.corruptedSettings[0].error).toMatch(/JSON|Unexpected|token/i);
 
     // 2. plain render skips (refuses to overwrite without --force)
     const rr = runCli(["render", "--cwd", repo]);

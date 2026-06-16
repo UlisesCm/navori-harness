@@ -819,7 +819,9 @@ function renderInline(cwd: string): void {
     p.log.info(`No render needed${summary}`);
   }
 
-  // Surface engine-tree results (agents/skills/settings/hooks)
+  // Surface engine-tree results (agents/skills/settings/hooks + progress/).
+  // The header used to say ".claude/ written:" which was misleading because
+  // progress/ lives outside .claude/. "Files written" describes the union.
   if (result.engineResult) {
     const written = result.engineResult.written.filter((w) => w.path !== "CLAUDE.md");
     if (written.length > 0) {
@@ -828,7 +830,7 @@ function renderInline(cwd: string): void {
         .map((w) => `  ${dim("+")} ${w.path}`)
         .join("\n");
       const more = written.length > 12 ? `\n  ${dim(`… +${written.length - 12} more`)}` : "";
-      p.log.message(`${dim(".claude/ written:")}\n${lines}${more}`);
+      p.log.message(`${dim("Files written:")}\n${lines}${more}`);
     }
     for (const s of result.engineResult.skipped) {
       p.log.warn(`Skipped ${s.path}: ${s.reason}`);

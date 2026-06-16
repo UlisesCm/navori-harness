@@ -59,9 +59,19 @@ describe("renderClaudeEngine — first render with full config", () => {
     expect(existsSync(join(cwd, ".claude/hooks/quality-gate-pre-commit.sh"))).toBe(true);
 
     const agentPaths = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
-    expect(agentPaths).toHaveLength(7);
-    expect(r.written.find((w) => w.path === "CLAUDE.md")).toBeDefined();
-    expect(r.written.find((w) => w.path === ".claude/settings.json")).toBeDefined();
+    expect(agentPaths.map((w) => w.path).sort()).toEqual([
+      ".claude/agents/commit-pr-pilot.md",
+      ".claude/agents/explorer.md",
+      ".claude/agents/implementer.md",
+      ".claude/agents/leader.md",
+      ".claude/agents/researcher.md",
+      ".claude/agents/reviewer.md",
+      ".claude/agents/ticket-audit.md",
+    ]);
+    const claudeMd = r.written.find((w) => w.path === "CLAUDE.md");
+    expect(claudeMd?.status).toBe("created");
+    const settings = r.written.find((w) => w.path === ".claude/settings.json");
+    expect(settings?.status).toBe("created");
   });
 
   it("settings.json carries the $navori marker and the qg hook", () => {
@@ -188,7 +198,7 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     const pre = settings.hooks.PreToolUse;
     const jscpdHook = pre.flatMap((entry: { hooks: Array<{ command: string }> }) => entry.hooks)
       .find((h: { command: string }) => h.command.includes("check-jscpd.sh"));
-    expect(jscpdHook).toBeDefined();
+    expect(jscpdHook?.command).toContain(".claude/scripts/check-jscpd.sh");
   });
 
   it("renders both jscpd and semgrep scripts when both plugins enabled", () => {
@@ -223,8 +233,13 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
 describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U1+U2)", () => {
   it("reports inspected count on first render and on second", () => {
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
-    expect(first.inspected).toBeGreaterThanOrEqual(11); // CLAUDE.md + settings + 7 agents + 2 skills + 2 progress = 13
-    expect(first.written.length).toBeGreaterThan(0);
+    // Inspected counts every managed asset processed:
+    //   1 CLAUDE.md + 1 settings.json + 7 agents + 2 skills + 1 qg hook +
+    //   2 progress files + 1 engram-leader-extension sub-block = 15.
+    expect(first.inspected).toBe(15);
+    // Written counts files actually emitted. engram-leader-extension is a
+    // sub-block injected into leader.md, not a separate file, so written = 14.
+    expect(first.written.length).toBe(14);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -324,7 +339,9 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
 describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
-    expect(r.written.length).toBeGreaterThan(0);
+    // Dry-run still reports the would-write set: the full 14 files.
+    expect(r.written).toHaveLength(14);
+    expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
   });
