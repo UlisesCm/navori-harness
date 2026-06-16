@@ -2,8 +2,9 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { readConfig } from "../lib/config.ts";
+import { readConfig, type NavoriConfig } from "../lib/config.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
+import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
 import { renderStatusSymbol, renderStatusLabel, dim, color, sym, brand } from "../lib/style.ts";
 
 /**
@@ -13,6 +14,8 @@ import { renderStatusSymbol, renderStatusLabel, dim, color, sym, brand } from ".
  *   - `.claude/` and CLAUDE.md are both covered (P0-fix B2 — before this,
  *     sync only knew about CLAUDE.md and silently ignored agent / skill /
  *     hook conflicts that doctor was telling the user to "run sync" for).
+ *   - Monorepos: sync iterates the root + every declared workspace, mirroring
+ *     `render`. `--workspace <name>` acota la operación a uno solo (fase 4).
  *   - Modes mirror render: dry-run shows only, --apply / --yes write,
  *     --yes aborts with exit 1 if there are conflicts (CI gate).
  *   - The "apply-all (overwrite my edits)" choice from the legacy sync is
@@ -29,6 +32,11 @@ export const syncCommand = defineCommand({
     "dry-run": { type: "boolean", description: "Show plan, do not write" },
     apply: { type: "boolean", description: "Apply changes (skip interactive prompt)" },
     yes: { type: "boolean", description: "Auto-confirm. Implies --apply. Fails with exit 1 if conflicts exist." },
+    workspace: {
+      type: "string",
+      description:
+        "Sync only one workspace by name (skips root). Requires a monorepo config with declared workspaces.",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
@@ -47,14 +55,25 @@ export const syncCommand = defineCommand({
     }
 
     const config = readConfig(configPath);
+    const workspaceFilter = (args.workspace as string | undefined) ?? null;
 
-    // Dry-run pass: get the full plan without writing anything.
-    const plan = renderClaudeEngine(cwd, config, { dryRun: true });
+    const targetsResult = resolveSyncTargets(cwd, config, workspaceFilter);
+    if (!targetsResult.ok) {
+      p.cancel(targetsResult.reason);
+      process.exit(1);
+    }
+    const targets = targetsResult.targets;
 
-    reportPlan(plan);
+    // Dry-run pass: get the full plan for every target without writing anything.
+    const plans: TargetPlan[] = targets.map((t) => ({
+      target: t,
+      plan: renderClaudeEngine(t.cwd, t.config, { dryRun: true }),
+    }));
 
-    const conflicts = collectConflicts(plan);
-    const hasOtherChanges = plan.written.length > 0;
+    reportPlans(plans);
+
+    const conflicts = collectAllConflicts(plans);
+    const hasOtherChanges = plans.some((p) => p.plan.written.length > 0);
 
     if (!hasOtherChanges && conflicts.length === 0) {
       p.outro("Up to date — no changes");
@@ -63,9 +82,10 @@ export const syncCommand = defineCommand({
 
     // --dry-run: report only, never write
     if (args["dry-run"]) {
+      const pending = plans.reduce((acc, p) => acc + p.plan.written.length, 0);
       const summary = [
         conflicts.length > 0 ? `${conflicts.length} conflict(s)` : null,
-        hasOtherChanges ? `${plan.written.length} pending` : null,
+        hasOtherChanges ? `${pending} pending` : null,
       ].filter(Boolean).join(", ");
       p.outro(`Dry-run complete${summary ? ` — ${summary}` : ""}`);
       return;
@@ -112,45 +132,124 @@ export const syncCommand = defineCommand({
     // Apply pass: actually write. The engine already skips conflict files
     // automatically (user-modified-skipped never lands in `pending`), so
     // "skip-conflicts" is the default behavior — no extra wiring needed.
-    const applied = renderClaudeEngine(cwd, config);
-
-    p.log.success(`Wrote ${applied.written.length} file(s)`);
-    if (applied.backupPath) {
-      p.log.message(`${dim("Backup:")} ${applied.backupPath}`);
+    let writtenTotal = 0;
+    for (const t of targets) {
+      const applied = renderClaudeEngine(t.cwd, t.config);
+      writtenTotal += applied.written.length;
+      if (applied.backupPath) {
+        p.log.message(`${dim(`Backup [${t.label}]:`)} ${applied.backupPath}`);
+      }
     }
 
-    p.outro(`${color.green("Done")} ${summarize(applied, conflicts.length)}`);
+    p.log.success(`Wrote ${writtenTotal} file(s)`);
+    p.outro(`${color.green("Done")} ${summarize(writtenTotal, conflicts.length)}`);
   },
 });
+
+interface SyncTarget {
+  /** Display label (e.g. "root", "workspace:backend"). */
+  label: string;
+  /** Absolute path the engine writes into. */
+  cwd: string;
+  /** Effective config for this target (root config or workspace-effective). */
+  config: NavoriConfig;
+}
+
+interface TargetPlan {
+  target: SyncTarget;
+  plan: ClaudeEngineResult;
+}
+
+type SyncTargetsResult =
+  | { ok: true; targets: SyncTarget[] }
+  | { ok: false; reason: string };
+
+function resolveSyncTargets(
+  cwd: string,
+  config: NavoriConfig,
+  workspaceFilter: string | null,
+): SyncTargetsResult {
+  const declared = config.monorepo?.workspaces ?? [];
+
+  if (workspaceFilter) {
+    if (declared.length === 0) {
+      return {
+        ok: false,
+        reason: `--workspace requires a monorepo with declared workspaces; this config has none. Run 'navori scan' first.`,
+      };
+    }
+    const match = declared.find((w) => w.name === workspaceFilter);
+    if (!match) {
+      const known = declared.map((w) => w.name).join(", ");
+      return {
+        ok: false,
+        reason: `Workspace '${workspaceFilter}' not found. Known: ${known}`,
+      };
+    }
+    return {
+      ok: true,
+      targets: [
+        {
+          label: `workspace:${match.name}`,
+          cwd: resolve(cwd, match.path),
+          config: effectiveConfigForWorkspace(config, match),
+        },
+      ],
+    };
+  }
+
+  const targets: SyncTarget[] = [{ label: "root", cwd, config }];
+  for (const ws of declared) {
+    targets.push({
+      label: `workspace:${ws.name}`,
+      cwd: resolve(cwd, ws.path),
+      config: effectiveConfigForWorkspace(config, ws),
+    });
+  }
+  return { ok: true, targets };
+}
 
 interface Conflict {
   path: string;
   reason: string;
 }
 
-function collectConflicts(plan: ClaudeEngineResult): Conflict[] {
+function collectAllConflicts(plans: TargetPlan[]): Conflict[] {
   const out: Conflict[] = [];
-  // CLAUDE.md conflicts surface via claudeMdEntries (legacy flow inside
-  // renderClaudeEngine still uses computeRenderPlan).
+  for (const tp of plans) {
+    for (const c of collectTargetConflicts(tp)) out.push(c);
+  }
+  return out;
+}
+
+function collectTargetConflicts({ target, plan }: TargetPlan): Conflict[] {
+  const out: Conflict[] = [];
+  const prefix = target.label === "root" ? "" : `[${target.label}] `;
   for (const e of plan.claudeMdEntries) {
     if (e.status === "user-modified-skipped") {
-      out.push({ path: `CLAUDE.md (${e.asset.id})`, reason: "managed block edited" });
+      out.push({
+        path: `${prefix}CLAUDE.md (${e.asset.id})`,
+        reason: "managed block edited",
+      });
     }
   }
-  // `.claude/` conflicts come through engine.skipped. The adapter uses the
-  // word "editado" / "edited" in the reason for user-modified cases.
   for (const s of plan.skipped) {
     if (/editad|edit/i.test(s.reason)) {
-      out.push({ path: s.path, reason: s.reason });
+      out.push({ path: `${prefix}${s.path}`, reason: s.reason });
     }
   }
   return out;
 }
 
-function reportPlan(plan: ClaudeEngineResult): void {
-  const lines: string[] = ["Plan:"];
+function reportPlans(plans: TargetPlan[]): void {
+  for (const tp of plans) {
+    reportTargetPlan(tp);
+  }
+}
 
-  // CLAUDE.md managed blocks
+function reportTargetPlan({ target, plan }: TargetPlan): void {
+  const lines: string[] = [`Plan [${target.label}]:`];
+
   for (const e of plan.claudeMdEntries) {
     const symStr = renderStatusSymbol(e.status);
     const label = renderStatusLabel(e.status);
@@ -158,7 +257,6 @@ function reportPlan(plan: ClaudeEngineResult): void {
     lines.push(`  ${symStr} CLAUDE.md:${e.asset.id}  ${dim("(")}${label}${dim(")")}${cond}`);
   }
 
-  // .claude/ files (engine.written in dryRun mode lists what WOULD be written)
   for (const w of plan.written) {
     if (w.path === "CLAUDE.md") continue; // already shown via claudeMdEntries
     const symStr = renderStatusSymbol(w.status);
@@ -181,16 +279,9 @@ function reportPlan(plan: ClaudeEngineResult): void {
   p.log.message(lines.join("\n"));
 }
 
-function summarize(result: ClaudeEngineResult, conflictCount: number): string {
+function summarize(writtenCount: number, conflictCount: number): string {
   const parts: string[] = [];
-  const counts = result.written.reduce<Record<string, number>>((acc, w) => {
-    acc[w.status] = (acc[w.status] ?? 0) + 1;
-    return acc;
-  }, {});
-  if (counts.created) parts.push(color.green(`${counts.created} created`));
-  if (counts.updated) parts.push(color.yellow(`${counts.updated} updated`));
-  if (conflictCount > 0) {
-    parts.push(color.red(`${conflictCount} conflict kept`));
-  }
+  if (writtenCount > 0) parts.push(color.green(`${writtenCount} written`));
+  if (conflictCount > 0) parts.push(color.red(`${conflictCount} conflict kept`));
   return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
 }
