@@ -146,7 +146,7 @@ export const syncCommand = defineCommand({
   },
 });
 
-interface SyncTarget {
+export interface SyncTarget {
   /** Display label (e.g. "root", "workspace:backend"). */
   label: string;
   /** Absolute path the engine writes into. */
@@ -160,11 +160,11 @@ interface TargetPlan {
   plan: ClaudeEngineResult;
 }
 
-type SyncTargetsResult =
+export type SyncTargetsResult =
   | { ok: true; targets: SyncTarget[] }
   | { ok: false; reason: string };
 
-function resolveSyncTargets(
+export function resolveSyncTargets(
   cwd: string,
   config: NavoriConfig,
   workspaceFilter: string | null,
@@ -209,7 +209,7 @@ function resolveSyncTargets(
   return { ok: true, targets };
 }
 
-interface Conflict {
+export interface Conflict {
   path: string;
   reason: string;
 }

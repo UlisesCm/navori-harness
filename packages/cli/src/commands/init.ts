@@ -20,6 +20,10 @@ import { loadPrompts, type LoadedPrompt } from "../engines/claude/prompts-loader
 import { scanMonorepoWorkspaces, type DetectedWorkspace } from "../lib/scan.ts";
 import type { MonorepoWorkspace } from "../lib/monorepo.ts";
 import type { NavoriConfigInput } from "../lib/schema.ts";
+import {
+  buildRecommendedQualityGate,
+  buildRecommendedProject,
+} from "../lib/recommended.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
 
@@ -748,43 +752,6 @@ function buildRecommendedPlugins(cwd: string): Record<string, { enabled: boolean
     result.gh = { enabled: true };
   }
   return result;
-}
-
-/**
- * Build a reasonable quality-gate fallback for `--recommended` when detect
- * couldn't infer one from package.json scripts. Avoids leaving 27+ visible
- * `<not configured: qualityGate.*>` placeholders in the rendered harness.
- *
- * Strategy (most specific first):
- *   - TypeScript (tsconfig.json or 'typescript' dep): `<pm> tsc --noEmit`
- *   - Python without pyproject was already handled in guessQualityGate
- *   - Otherwise: null (warn instead of writing a noisy command)
- */
-function buildRecommendedQualityGate(
-  detected: ReturnType<typeof detectProject>,
-): { fast: string; full: string } | null {
-  if (detected.stack.language === "ts") {
-    const pm = detected.packageManager ?? "pnpm";
-    const cmd = `${pm} tsc --noEmit`;
-    return { fast: cmd, full: cmd };
-  }
-  return null;
-}
-
-/**
- * Build a minimal `project` block for `--recommended` so the rendered agents
- * don't show `<not configured: project.criticalAreas>` etc. The arrays are
- * empty by design (we can't infer them) — the user can fill in later via
- * `navori configure project`. testRunner is inferred from detected stack.
- */
-function buildRecommendedProject(
-  detected: ReturnType<typeof detectProject>,
-): { legacyPaths: string[]; criticalAreas: string[]; testRunner?: string } {
-  return {
-    legacyPaths: [],
-    criticalAreas: [],
-    ...(detected.stack.test ? { testRunner: detected.stack.test } : {}),
-  };
 }
 
 function isGitHubRepo(cwd: string): boolean {
