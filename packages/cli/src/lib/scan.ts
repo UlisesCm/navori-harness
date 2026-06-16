@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { detectProject } from "./detect.ts";
+import type { MonorepoWorkspace } from "./monorepo.ts";
 
 export interface DetectedWorkspace {
   /** Workspace package name (from package.json#name, normalized to kebab) or directory basename. */
@@ -214,6 +215,39 @@ function walk(cwd: string, accum: string[], remaining: string[]): string[] {
 // ============================================================
 // Per-workspace describe
 // ============================================================
+
+// ============================================================
+// Diff vs configured workspaces
+// ============================================================
+
+export interface ScanDiff {
+  /** Workspaces present on disk but missing from config.monorepo.workspaces[]. */
+  added: DetectedWorkspace[];
+  /** Workspaces already in config (matched by path). */
+  existing: MonorepoWorkspace[];
+  /** Workspaces in config whose path no longer exists on disk. */
+  orphan: MonorepoWorkspace[];
+}
+
+/**
+ * Compare what the filesystem says vs what `navori.config.json` says.
+ * Match is by `path` because `name` can drift (rename of package.json) while
+ * the path stays stable. `orphan` catches stale config entries after the
+ * user moved or deleted a workspace dir.
+ */
+export function diffWorkspaces(
+  detected: DetectedWorkspace[],
+  configured: MonorepoWorkspace[],
+): ScanDiff {
+  const detectedByPath = new Map(detected.map((d) => [d.path, d]));
+  const configuredByPath = new Map(configured.map((c) => [c.path, c]));
+
+  const added = detected.filter((d) => !configuredByPath.has(d.path));
+  const existing = configured.filter((c) => detectedByPath.has(c.path));
+  const orphan = configured.filter((c) => !detectedByPath.has(c.path));
+
+  return { added, existing, orphan };
+}
 
 function describeWorkspace(cwd: string, relPath: string): DetectedWorkspace | null {
   const abs = join(cwd, relPath);
