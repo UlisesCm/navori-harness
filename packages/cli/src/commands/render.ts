@@ -296,8 +296,10 @@ function reportClaudeMd(file: string, entries: AssetPlanEntry[], changed: boolea
 }
 
 function reportEngineFiles(engine: ClaudeEngineResult): void {
-  // CLAUDE.md is reported separately by reportClaudeMd; filter it out here
-  // so the user sees ".claude/" entries under the ".claude/" header only.
+  // CLAUDE.md is reported separately by reportClaudeMd; filter it out here.
+  // Header used to say ".claude/" which was misleading — progress/ also lands
+  // here. "Engine files" describes the union (settings, agents, skills, hooks,
+  // progress).
   const written = engine.written.filter((w) => w.path !== "CLAUDE.md");
   const unchangedCount = Math.max(
     0,
@@ -313,7 +315,7 @@ function reportEngineFiles(engine: ClaudeEngineResult): void {
     return;
   }
 
-  const lines: string[] = [".claude/"];
+  const lines: string[] = ["Engine files:"];
   for (const w of written) {
     const sym = renderStatusSymbol(w.status);
     const label = renderStatusLabel(w.status);
