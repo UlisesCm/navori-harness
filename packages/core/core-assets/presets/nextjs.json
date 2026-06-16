@@ -1,0 +1,23 @@
+{
+  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "id": "nextjs",
+  "displayName": "Next.js (App Router) app",
+  "extends": "core",
+  "extras": {
+    "managed": [],
+    "agents": [],
+    "skills": [
+      {
+        "id": "nextjs-app-router",
+        "relPath": "presets/nextjs/skills/nextjs-app-router.md",
+        "destRelPath": ".claude/skills/nextjs-app-router.md"
+      },
+      {
+        "id": "nextjs-data-fetching",
+        "relPath": "presets/nextjs/skills/nextjs-data-fetching.md",
+        "destRelPath": ".claude/skills/nextjs-data-fetching.md"
+      }
+    ],
+    "hooks": []
+  }
+}

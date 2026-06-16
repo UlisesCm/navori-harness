@@ -1,0 +1,23 @@
+{
+  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "id": "nestjs",
+  "displayName": "NestJS backend",
+  "extends": "core",
+  "extras": {
+    "managed": [],
+    "agents": [],
+    "skills": [
+      {
+        "id": "nestjs-modules",
+        "relPath": "presets/nestjs/skills/nestjs-modules.md",
+        "destRelPath": ".claude/skills/nestjs-modules.md"
+      },
+      {
+        "id": "nestjs-dtos-validation",
+        "relPath": "presets/nestjs/skills/nestjs-dtos-validation.md",
+        "destRelPath": ".claude/skills/nestjs-dtos-validation.md"
+      }
+    ],
+    "hooks": []
+  }
+}
