@@ -85,4 +85,42 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // counted independently of the file = 16 inspected.
     expect(r.inspected).toBe(16);
   });
+
+  describe("bundled stack presets (B4)", () => {
+    // Each B4 preset should render its skills without errors. The skill
+    // contents themselves are validated by skills-assets.test.ts.
+    const BUNDLED = [
+      {
+        id: "nextjs",
+        skills: [".claude/skills/nextjs-app-router.md", ".claude/skills/nextjs-data-fetching.md"],
+      },
+      {
+        id: "nestjs",
+        skills: [".claude/skills/nestjs-modules.md", ".claude/skills/nestjs-dtos-validation.md"],
+      },
+      {
+        id: "vite-react-ts-mantine",
+        skills: [".claude/skills/mantine-ui-patterns.md"],
+      },
+      {
+        id: "astro",
+        skills: [".claude/skills/astro-islands.md"],
+      },
+    ];
+
+    for (const preset of BUNDLED) {
+      it(`preset '${preset.id}' renders ${preset.skills.length} skill(s) without warnings`, () => {
+        const config = { ...BASE_CONFIG, preset: preset.id } as unknown as NavoriConfig;
+        const r = renderClaudeEngine(cwd, config);
+
+        // No 'preset not found' warning
+        const missing = r.warnings.find((w) => w.includes(preset.id) && w.includes("not found"));
+        expect(missing).toBeUndefined();
+
+        for (const skill of preset.skills) {
+          expect(existsSync(join(cwd, skill))).toBe(true);
+        }
+      });
+    }
+  });
 });

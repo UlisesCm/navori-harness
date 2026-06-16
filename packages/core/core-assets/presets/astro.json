@@ -1,0 +1,18 @@
+{
+  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "id": "astro",
+  "displayName": "Astro static / SSR site",
+  "extends": "core",
+  "extras": {
+    "managed": [],
+    "agents": [],
+    "skills": [
+      {
+        "id": "astro-islands",
+        "relPath": "presets/astro/skills/astro-islands.md",
+        "destRelPath": ".claude/skills/astro-islands.md"
+      }
+    ],
+    "hooks": []
+  }
+}
