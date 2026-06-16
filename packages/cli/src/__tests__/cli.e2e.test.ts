@@ -371,3 +371,166 @@ describe("CLI e2e — coexist mode", () => {
     expect(claudeMd).toBe("# CLAUDE.md a mano"); // untouched
   });
 });
+
+describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
+  const dirs: string[] = [];
+
+  beforeAll(() => {
+    if (!existsSync(CLI)) {
+      throw new Error(`CLI not built at ${CLI}. Run 'pnpm build' before tests.`);
+    }
+  });
+
+  afterEach(() => {
+    for (const d of dirs) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+    dirs.length = 0;
+  });
+
+  function seedMonorepo(): string {
+    const repo = makeTmpRepo({
+      "pnpm-workspace.yaml": `packages:\n  - 'apps/*'\n`,
+      "package.json": JSON.stringify({ name: "demo-monorepo", private: true }),
+    });
+    const apps = join(repo, "apps");
+    const fs = require("node:fs");
+    fs.mkdirSync(join(apps, "backend"), { recursive: true });
+    fs.mkdirSync(join(apps, "storefront"), { recursive: true });
+    writeFileSync(
+      join(apps, "backend/package.json"),
+      JSON.stringify({
+        name: "backend",
+        dependencies: { "@medusajs/medusa": "^2.0.0" },
+      }),
+    );
+    writeFileSync(
+      join(apps, "storefront/package.json"),
+      JSON.stringify({
+        name: "storefront",
+        dependencies: { next: "^15.0.0" },
+      }),
+    );
+    return repo;
+  }
+
+  it("init --recommended writes monorepo block with empty workspaces when no --scan-monorepo", () => {
+    const repo = seedMonorepo();
+    dirs.push(repo);
+
+    const r = runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.monorepo).toBeDefined();
+    expect(config.monorepo.enabled).toBe(true);
+    expect(config.monorepo.tool).toBe("pnpm");
+    expect(config.monorepo.workspaces).toEqual([]);
+  });
+
+  it("init --recommended --scan-monorepo populates workspaces[] with detected presets", () => {
+    const repo = seedMonorepo();
+    dirs.push(repo);
+
+    const r = runCli([
+      "init",
+      "--recommended",
+      "--scan-monorepo",
+      "--no-render",
+      "--cwd",
+      repo,
+    ]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.monorepo.workspaces).toHaveLength(2);
+    const byName = Object.fromEntries(
+      config.monorepo.workspaces.map((w: { name: string }) => [w.name, w]),
+    );
+    expect(byName.backend.path).toBe("apps/backend");
+    expect(byName.backend.preset).toBe("medusa-v2");
+    expect(byName.storefront.path).toBe("apps/storefront");
+    expect(byName.storefront.preset).toBe("nextjs");
+  });
+
+  it("init --scan-monorepo does not write 'monorepo' for single-app repos", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "single-app" }),
+    });
+    dirs.push(repo);
+
+    const r = runCli([
+      "init",
+      "--recommended",
+      "--scan-monorepo",
+      "--no-render",
+      "--cwd",
+      repo,
+    ]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.monorepo).toBeUndefined();
+  });
+
+  it("scan --yes is a no-op when init already populated workspaces", () => {
+    const repo = seedMonorepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
+
+    const before = readFileSync(join(repo, "navori.config.json"), "utf-8");
+    const r = runCli(["scan", "--yes", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    const after = readFileSync(join(repo, "navori.config.json"), "utf-8");
+    expect(after).toBe(before);
+  });
+
+  it("scan --yes adds a new workspace when one is created after init", () => {
+    const repo = seedMonorepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
+
+    // Add a new workspace after init
+    const fs = require("node:fs");
+    fs.mkdirSync(join(repo, "apps/admin"), { recursive: true });
+    writeFileSync(
+      join(repo, "apps/admin/package.json"),
+      JSON.stringify({ name: "admin", dependencies: { astro: "^5.0.0" } }),
+    );
+
+    const r = runCli(["scan", "--yes", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.monorepo.workspaces).toHaveLength(3);
+    const admin = config.monorepo.workspaces.find((w: { name: string }) => w.name === "admin");
+    expect(admin.path).toBe("apps/admin");
+    expect(admin.preset).toBe("astro");
+  });
+
+  it("scan fails with helpful message when navori.config.json is missing", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+
+    const r = runCli(["scan", "--yes", "--cwd", repo]);
+    expect(r.status).not.toBe(0);
+    expect(r.combined).toContain("navori.config.json");
+    expect(r.combined).toContain("navori init");
+  });
+
+  it("scan fails with helpful message when config has no 'monorepo' field", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "single-app" }),
+    });
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+
+    const r = runCli(["scan", "--yes", "--cwd", repo]);
+    expect(r.status).not.toBe(0);
+    expect(r.combined).toContain("no declara 'monorepo'");
+  });
+});

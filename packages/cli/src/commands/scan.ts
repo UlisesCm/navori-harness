@@ -127,21 +127,23 @@ export const scanCommand = defineCommand({
     const dryRun = runScan({ cwd, yes: false });
 
     if (dryRun.kind === "no-config") {
-      p.cancel(`No navori.config.json at ${dryRun.configPath}. Run 'navori init' first.`);
+      p.cancel(
+        `No encontré navori.config.json en ${dryRun.configPath}. Corre 'navori init' primero.`,
+      );
       process.exit(1);
     }
     if (dryRun.kind === "not-monorepo") {
       p.cancel(
-        `${dryRun.configPath} does not declare 'monorepo'. ` +
-          `Edit the config to add { monorepo: { enabled: true, tool: '...' } } and re-run scan.`,
+        `${dryRun.configPath} no declara 'monorepo'. ` +
+          `Edita el config para agregar { monorepo: { enabled: true, tool: '...' } } y vuelve a correr scan.`,
       );
       process.exit(1);
     }
     if (dryRun.kind === "no-patterns") {
       p.log.info(
-        `No workspace patterns found in pnpm-workspace.yaml or package.json#workspaces.`,
+        `No encontré patrones de workspace en pnpm-workspace.yaml ni en package.json#workspaces.`,
       );
-      p.outro(dim("Nothing to scan"));
+      p.outro(dim("Nada que escanear"));
       return;
     }
 
@@ -151,24 +153,24 @@ export const scanCommand = defineCommand({
     if (dryRun.added.length === 0) {
       if (dryRun.orphan.length > 0) {
         p.log.warn(
-          `${dryRun.orphan.length} workspace(s) in config no longer exist on disk. ` +
-            `Edit navori.config.json to remove them.`,
+          `${dryRun.orphan.length} workspace(s) en config ya no existen en disco. ` +
+            `Edita navori.config.json para removerlos.`,
         );
       }
-      p.outro(dim("Config is up to date"));
+      p.outro(dim("Config al día"));
       return;
     }
 
     let overrides: Record<string, string> = {};
     if (args.yes) {
-      // Accept all suggestions as-is.
+      // Acepta todas las sugerencias.
     } else {
       const ok = await p.confirm({
-        message: `Add ${dryRun.added.length} workspace(s) to navori.config.json?`,
+        message: `¿Agregar ${dryRun.added.length} workspace(s) a navori.config.json?`,
         initialValue: true,
       });
       if (p.isCancel(ok) || !ok) {
-        p.cancel("Cancelled");
+        p.cancel("Cancelado");
         return;
       }
 
@@ -177,14 +179,14 @@ export const scanCommand = defineCommand({
 
     const final = runScan({ cwd, yes: true, presetOverrides: overrides });
     if (final.kind !== "ok") {
-      p.cancel(`Unexpected outcome: ${final.kind}`);
+      p.cancel(`Resultado inesperado: ${final.kind}`);
       process.exit(1);
     }
 
     p.log.success(
-      `Added ${final.added.length} workspace(s) to ${final.configPath}`,
+      `Agregué ${final.added.length} workspace(s) a ${final.configPath}`,
     );
-    p.outro(dim("Run 'navori render' to generate per-workspace CLAUDE.md + .claude/"));
+    p.outro(dim("Corre 'navori render' para generar CLAUDE.md + .claude/ por workspace"));
   },
 });
 
@@ -213,21 +215,20 @@ function showSummary(outcome: Extract<ScanOutcome, { kind: "ok" }>): void {
         return `  ${color.green("+")} ${w.path}${fw}  ${dim("→")} ${w.suggestedPreset}`;
       })
       .join("\n");
-    p.log.message(`${dim("New workspaces:")}\n${lines}`);
+    p.log.message(`${dim("Workspaces nuevos:")}\n${lines}`);
   }
 
   if (outcome.orphan.length > 0) {
     const lines = outcome.orphan.map((w) => `  ${color.yellow("?")} ${w.path}`).join("\n");
-    p.log.message(`${dim("Orphan (in config, missing on disk):")}\n${lines}`);
+    p.log.message(`${dim("Huérfanos (en config, no existen en disco):")}\n${lines}`);
   }
 }
 
 async function collectPresetOverrides(
   added: MonorepoWorkspace[],
 ): Promise<Record<string, string>> {
-  // Quick path: if user accepts all suggestions, no per-workspace prompt.
   const acceptAll = await p.confirm({
-    message: `Use suggested preset for every new workspace?`,
+    message: `¿Usar preset sugerido en cada workspace nuevo?`,
     initialValue: true,
   });
   if (p.isCancel(acceptAll)) return {};
@@ -236,8 +237,8 @@ async function collectPresetOverrides(
   const overrides: Record<string, string> = {};
   for (const ws of added) {
     const value = await p.text({
-      message: `Preset for ${ws.path}`,
-      placeholder: ws.preset ?? "inherit-from-root",
+      message: `Preset para ${ws.path}`,
+      placeholder: ws.preset ?? "(heredar del root)",
       defaultValue: ws.preset ?? "",
     });
     if (p.isCancel(value)) return overrides;
