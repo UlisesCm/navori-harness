@@ -341,8 +341,11 @@ describe("readConfig", () => {
         expect.fail("should have thrown");
       } catch (err) {
         expect(err).toBeInstanceOf(ConfigError);
-        expect((err as ConfigError).issues).toBeDefined();
-        expect((err as ConfigError).issues!.length).toBeGreaterThan(0);
+        const issues = (err as ConfigError).issues ?? [];
+        // The only invalid field is `name: 42` (expected string in kebab format)
+        // and `preset` is missing, so we expect at least the name issue.
+        const nameIssue = issues.find((i) => i.path.join(".") === "name");
+        expect(nameIssue?.code).toBe("invalid_type");
       }
     } finally {
       rmSync(dir, { recursive: true });
