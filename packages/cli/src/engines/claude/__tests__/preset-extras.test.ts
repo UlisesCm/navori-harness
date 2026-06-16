@@ -61,10 +61,15 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     expect(existsSync(join(cwd, ".claude/skills/medusa-api-routes.md"))).toBe(false);
   });
 
-  it("preset with no matching file is silent (no warning, no error)", () => {
+  it("preset declared in config but missing on disk surfaces a warning", () => {
+    // The medusa-v2 vs medusa.json mismatch in moonar silently rendered the
+    // backend workspace with no preset extras. Loud-fail prevents that.
     const config = { ...BASE_CONFIG, preset: "ghost-preset" } as unknown as NavoriConfig;
     const r = renderClaudeEngine(cwd, config);
-    expect(r.warnings.find((w) => w.includes("ghost-preset"))).toBeUndefined();
+    const found = r.warnings.find((w) => w.includes("ghost-preset"));
+    expect(found).toBeDefined();
+    expect(found).toContain("not found");
+    // Core baseline still renders normally
     expect(existsSync(join(cwd, ".claude/skills/verify-before-done.md"))).toBe(true);
   });
 

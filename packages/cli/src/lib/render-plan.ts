@@ -184,6 +184,15 @@ export function computeRenderPlan(
         throw err;
       }
     }
+    if (!preset && presetMissing.length === 0) {
+      // Surface missing preset (not just malformed). Silent-skip masked the
+      // medusa-v2/medusa.json mismatch and the workspace silently rendered
+      // with no preset extras.
+      presetMissing.push({
+        id: config.preset,
+        reason: `preset '${config.preset}' not found in core-assets/presets/`,
+      });
+    }
     if (preset) {
       // Preset extras live inside @navori/core for now; when presets move to
       // standalone packages we'll switch this to a preset-specific source.

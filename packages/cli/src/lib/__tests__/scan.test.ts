@@ -151,7 +151,7 @@ describe("scanMonorepoWorkspaces", () => {
     const storefront = result.find((w) => w.path === "apps/storefront")!;
 
     expect(backend.name).toBe("backend");
-    expect(backend.suggestedPreset).toBe("medusa-v2");
+    expect(backend.suggestedPreset).toBe("medusa");
     expect(backend.framework).toBe("@medusajs/medusa");
 
     expect(storefront.name).toBe("storefront");

@@ -475,7 +475,7 @@ function suggestPreset(stack: StackInfo, monorepo: MonorepoInfo | null): string 
   const ui = stack.ui;
   const state = stack.state;
 
-  if (fw === "@medusajs/medusa") return "medusa-v2";
+  if (fw === "@medusajs/medusa") return "medusa";
   if (fw === "@keystone-6/core") return "bun-keystone";
   if (fw === "next") {
     if (state === "@apollo/client") return "nextjs-apollo";

@@ -83,7 +83,7 @@ describe("runScan", () => {
     expect(after.monorepo?.workspaces).toHaveLength(2);
     const backend = after.monorepo!.workspaces!.find((w) => w.name === "backend")!;
     expect(backend.path).toBe("apps/backend");
-    expect(backend.preset).toBe("medusa-v2");
+    expect(backend.preset).toBe("medusa");
     const storefront = after.monorepo!.workspaces!.find((w) => w.name === "storefront")!;
     expect(storefront.preset).toBe("nextjs");
   });
@@ -215,7 +215,7 @@ describe("runScan", () => {
       monorepo: {
         enabled: true,
         tool: "turbo",
-        workspaces: [{ name: "backend", path: "apps/backend", preset: "medusa-v2" }],
+        workspaces: [{ name: "backend", path: "apps/backend", preset: "medusa" }],
       },
     });
 
