@@ -17,6 +17,9 @@ import {
 import { color, dim, brand, kv } from "../lib/style.ts";
 import { t, type Lang } from "../lib/i18n.ts";
 import { loadPrompts, type LoadedPrompt } from "../engines/claude/prompts-loader.ts";
+import { scanMonorepoWorkspaces, type DetectedWorkspace } from "../lib/scan.ts";
+import type { MonorepoWorkspace } from "../lib/monorepo.ts";
+import type { NavoriConfigInput } from "../lib/schema.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
 
@@ -59,6 +62,11 @@ export const initCommand = defineCommand({
     lang: {
       type: "string",
       description: "Wizard language (es|en). Default: es. Skipped in --yes/--recommended.",
+    },
+    "scan-monorepo": {
+      type: "boolean",
+      description:
+        "When a monorepo is detected, scan pnpm-workspace.yaml / package.json#workspaces and populate monorepo.workspaces[] with a preset per app",
     },
   },
   async run({ args }) {
@@ -168,6 +176,13 @@ export const initCommand = defineCommand({
         p.log.info(tr.recPluginsEnabled(Object.keys(recommendedPlugins).join(", ")));
       }
 
+      const monorepoBlock = await buildMonorepoBlock(cwd, detected, {
+        scanMonorepo: Boolean((args as { "scan-monorepo"?: boolean })["scan-monorepo"]),
+        autoYes: true,
+        lang,
+        rootPreset: detected.suggestedPreset,
+      });
+
       writeConfig(configPath, {
         name: detected.name,
         ...(args.workspace ? { workspace: args.workspace } : {}),
@@ -178,6 +193,7 @@ export const initCommand = defineCommand({
         ...(defaultCommits ? { commits: defaultCommits } : {}),
         ...(detected.qualityGate ? { qualityGate: detected.qualityGate } : {}),
         ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
+        ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),
       });
       p.log.success(tr.wroteConfig(configPath));
 
@@ -499,6 +515,13 @@ export const initCommand = defineCommand({
     const wsPlugins = wsDefaults?.plugins ?? {};
     const mergedPlugins = { ...wsPlugins, ...pluginsConfig };
 
+    const monorepoBlock = await buildMonorepoBlock(cwd, detected, {
+      scanMonorepo: Boolean((args as { "scan-monorepo"?: boolean })["scan-monorepo"]),
+      autoYes: false,
+      lang,
+      rootPreset: preset,
+    });
+
     writeConfig(configPath, {
       name,
       ...(workspace ? { workspace } : {}),
@@ -511,6 +534,7 @@ export const initCommand = defineCommand({
       ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
       ...(Object.keys(agentAssignments).length > 0 ? { agentAssignments } : {}),
       ...(project ? { project } : {}),
+      ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),
     });
 
     p.log.success(tr.wroteConfig(configPath));
@@ -944,6 +968,101 @@ async function askProjectPrompt(
       return trimmed ? Number(trimmed) : undefined;
     }
   }
+}
+
+/**
+ * Build the `monorepo` block for the navori.config.json being written.
+ *
+ * Whenever the project is a monorepo, write the slot so subsequent `scan` and
+ * `render` calls have a stable home for workspace metadata. With
+ * `scanMonorepo: true`, also walks pnpm-workspace.yaml / package.json#workspaces,
+ * runs detection per workspace, and pushes each into `workspaces[]` with a
+ * preset (only stored when it differs from the root preset — workspaces inherit
+ * by default to keep the config minimal).
+ *
+ * Returns `undefined` for single-app repos so the writeConfig spread doesn't
+ * add an empty `monorepo` key.
+ */
+async function buildMonorepoBlock(
+  cwd: string,
+  detected: ReturnType<typeof detectProject>,
+  opts: { scanMonorepo: boolean; autoYes: boolean; lang: Lang; rootPreset: string },
+): Promise<NonNullable<NavoriConfigInput["monorepo"]> | undefined> {
+  if (!detected.monorepo) return undefined;
+
+  const block: NonNullable<NavoriConfigInput["monorepo"]> = {
+    enabled: true,
+    tool: detected.monorepo.tool,
+    workspaces: [],
+  };
+
+  if (!opts.scanMonorepo) return block;
+
+  const found = scanMonorepoWorkspaces(cwd);
+  if (found.length === 0) {
+    if (!opts.autoYes) {
+      p.log.info(
+        "Monorepo detectado pero no se encontraron workspaces en pnpm-workspace.yaml/package.json#workspaces.",
+      );
+    }
+    return block;
+  }
+
+  if (opts.autoYes) {
+    block.workspaces = found.map((d) => buildWorkspaceEntry(d, opts.rootPreset, d.suggestedPreset));
+    p.log.info(
+      `Detectados ${found.length} workspace(s) en monorepo: ${found.map((w) => w.path).join(", ")}`,
+    );
+    return block;
+  }
+
+  const overview = found
+    .map((w) => {
+      const fw = w.framework ? dim(` [${w.framework}]`) : "";
+      return `  · ${w.path}${fw} ${dim("→")} ${w.suggestedPreset}`;
+    })
+    .join("\n");
+  p.log.message(`${dim("Workspaces detectados en el monorepo:")}\n${overview}`);
+
+  const addAll = await p.confirm({
+    message: `¿Agregar ${found.length} workspace(s) a monorepo.workspaces[]?`,
+    initialValue: true,
+  });
+  if (p.isCancel(addAll) || !addAll) return block;
+
+  const useSuggested = await p.confirm({
+    message: "¿Usar el preset sugerido en cada workspace?",
+    initialValue: true,
+  });
+  if (p.isCancel(useSuggested)) return block;
+
+  for (const d of found) {
+    let preset = d.suggestedPreset;
+    if (!useSuggested) {
+      const value = await p.text({
+        message: `Preset para ${d.path}`,
+        placeholder: preset,
+        defaultValue: preset,
+      });
+      if (!p.isCancel(value) && (value as string).trim()) {
+        preset = (value as string).trim();
+      }
+    }
+    block.workspaces!.push(buildWorkspaceEntry(d, opts.rootPreset, preset));
+  }
+  return block;
+}
+
+function buildWorkspaceEntry(
+  detected: DetectedWorkspace,
+  rootPreset: string,
+  preset: string,
+): MonorepoWorkspace {
+  const entry: MonorepoWorkspace = { name: detected.name, path: detected.path };
+  if (preset && preset !== rootPreset) {
+    entry.preset = preset;
+  }
+  return entry;
 }
 
 function formatProjectValue(v: unknown): string {

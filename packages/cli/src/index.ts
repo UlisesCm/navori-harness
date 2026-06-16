@@ -13,6 +13,7 @@ import { configureCommand } from "./commands/configure.ts";
 import { updateCommand } from "./commands/update.ts";
 import { backupCommand } from "./commands/backup.ts";
 import { migrationsCommand } from "./commands/migrations.ts";
+import { scanCommand } from "./commands/scan.ts";
 
 function readVersion(): string {
   // dist/index.js → ../package.json (both in dev and published layouts)
@@ -44,6 +45,7 @@ const main = defineCommand({
     update: updateCommand,
     render: renderCommand,
     sync: syncCommand,
+    scan: scanCommand,
     doctor: doctorCommand,
     workspace: workspaceCommand,
     ticket: ticketCommand,
