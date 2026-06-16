@@ -25,13 +25,32 @@ export interface WorkspaceRenderResult {
   engineResult: ClaudeEngineResult;
 }
 
+export interface RunRenderOptions {
+  dryRun?: boolean;
+  force?: boolean;
+  /**
+   * When set, skip the root render and only render the workspace whose name
+   * matches. Returns `ok: false` with a clear reason if no monorepo is
+   * declared or no workspace by that name exists. Spec 0001 fase 4.
+   */
+  workspaceFilter?: string | null;
+}
+
 /**
  * Run the render flow against `cwd`. Reusable from other commands (e.g. init).
  * The top-level fields always describe the repo root render so existing callers
  * (init.ts) keep working unchanged. When `config.monorepo.workspaces[]` is
  * non-empty, each workspace is also rendered and reported under `workspaces`.
+ *
+ * With `workspaceFilter`, only that workspace is rendered — root is skipped,
+ * `engineResult` is undefined, and the top-level fields are empty stubs. This
+ * is the "iterate one app" path for monorepos.
  */
-export function runRender(cwd: string, dryRun = false, force = false): {
+export function runRender(
+  cwd: string,
+  dryRunOrOptions: boolean | RunRenderOptions = false,
+  force = false,
+): {
   ok: boolean;
   reason?: string;
   filePath: string;
@@ -43,6 +62,15 @@ export function runRender(cwd: string, dryRun = false, force = false): {
   engineResult?: ClaudeEngineResult;
   workspaces: WorkspaceRenderResult[];
 } {
+  // Back-compat: callers passing (cwd, dryRun, force) keep working.
+  const opts: RunRenderOptions =
+    typeof dryRunOrOptions === "boolean"
+      ? { dryRun: dryRunOrOptions, force }
+      : dryRunOrOptions;
+  const dryRun = Boolean(opts.dryRun);
+  const forceFlag = Boolean(opts.force);
+  const workspaceFilter = opts.workspaceFilter ?? null;
+
   const configPath = `${cwd}/navori.config.json`;
   const claudeMdPath = `${cwd}/CLAUDE.md`;
 
@@ -61,13 +89,73 @@ export function runRender(cwd: string, dryRun = false, force = false): {
   }
 
   const config = readConfig(configPath);
-  const engineResult = renderClaudeEngine(cwd, config, { dryRun, force });
+
+  // --workspace filter path: skip root, render only the matching workspace.
+  if (workspaceFilter) {
+    const declared = config.monorepo?.workspaces ?? [];
+    if (declared.length === 0) {
+      return {
+        ok: false,
+        reason: `--workspace requires a monorepo with declared workspaces; this config has none. Run 'navori scan' first.`,
+        filePath: claudeMdPath,
+        entries: [],
+        written: false,
+        languageFallbacks: [],
+        updatesAvailable: [],
+        backupPath: null,
+        workspaces: [],
+      };
+    }
+    const match = declared.find((w) => w.name === workspaceFilter);
+    if (!match) {
+      const known = declared.map((w) => w.name).join(", ");
+      return {
+        ok: false,
+        reason: `Workspace '${workspaceFilter}' not found. Known: ${known}`,
+        filePath: claudeMdPath,
+        entries: [],
+        written: false,
+        languageFallbacks: [],
+        updatesAvailable: [],
+        backupPath: null,
+        workspaces: [],
+      };
+    }
+    const wsCwd = resolve(cwd, match.path);
+    const wsConfig = effectiveConfigForWorkspace(config, match);
+    const wsResult = renderClaudeEngine(wsCwd, wsConfig, { dryRun, force: forceFlag });
+    return {
+      ok: true,
+      filePath: claudeMdPath,
+      entries: [],
+      written: false,
+      languageFallbacks: [],
+      updatesAvailable: [],
+      backupPath: null,
+      engineResult: undefined,
+      workspaces: [
+        {
+          workspacePath: match.path,
+          workspaceName: match.name,
+          filePath: `${wsCwd}/CLAUDE.md`,
+          entries: wsResult.claudeMdEntries,
+          written: wsResult.written.length > 0,
+          languageFallbacks: wsResult.languageFallbacks,
+          updatesAvailable: wsResult.updatesAvailable,
+          backupPath: wsResult.backupPath,
+          engineResult: wsResult,
+        },
+      ],
+    };
+  }
+
+  const engineResult = renderClaudeEngine(cwd, config, { dryRun, force: forceFlag });
 
   const workspaces: WorkspaceRenderResult[] = [];
   for (const ws of config.monorepo?.workspaces ?? []) {
     const wsCwd = resolve(cwd, ws.path);
     const wsConfig = effectiveConfigForWorkspace(config, ws);
-    const wsResult = renderClaudeEngine(wsCwd, wsConfig, { dryRun, force });
+    const wsResult = renderClaudeEngine(wsCwd, wsConfig, { dryRun, force: forceFlag });
     workspaces.push({
       workspacePath: ws.path,
       workspaceName: ws.name,
@@ -107,6 +195,11 @@ export const renderCommand = defineCommand({
       description:
         "Regenerate settings.json even if corrupted or missing the $navori marker. The previous file is backed up.",
     },
+    workspace: {
+      type: "string",
+      description:
+        "Render only one workspace by name (skips root). Requires a monorepo config with declared workspaces.",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
@@ -118,18 +211,25 @@ export const renderCommand = defineCommand({
       process.exit(1);
     }
 
-    const result = runRender(cwd, Boolean(args["dry-run"]), Boolean(args.force));
+    const workspaceFilter = (args.workspace as string | undefined) ?? null;
+    const result = runRender(cwd, {
+      dryRun: Boolean(args["dry-run"]),
+      force: Boolean(args.force),
+      workspaceFilter,
+    });
     if (!result.ok) {
-      p.cancel(`${result.reason}. Run 'navori init' first.`);
+      // Workspace errors are user-recoverable (typo in name, no monorepo yet);
+      // 'navori init' is not always the right fix, so emit the raw reason.
+      p.cancel(result.reason ?? "Render failed");
       process.exit(1);
     }
 
     const hasWorkspaces = result.workspaces.length > 0;
-    if (hasWorkspaces) {
+    if (hasWorkspaces && result.engineResult) {
       p.log.message(`${dim("root")}`);
     }
-    reportClaudeMd(result.filePath, result.entries, result.written, Boolean(args["dry-run"]));
     if (result.engineResult) {
+      reportClaudeMd(result.filePath, result.entries, result.written, Boolean(args["dry-run"]));
       reportEngineFiles(result.engineResult);
     }
     if (result.languageFallbacks.length > 0) {

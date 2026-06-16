@@ -145,4 +145,70 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
     expect(existsSync(join(cwd, "apps/web/CLAUDE.md"))).toBe(false);
     expect(existsSync(join(cwd, "apps/web/.claude/settings.json"))).toBe(false);
   });
+
+  describe("--workspace filter (spec 0001 fase 4)", () => {
+    function seedMonorepo(): void {
+      mkdirSync(join(cwd, "apps/backend"), { recursive: true });
+      mkdirSync(join(cwd, "apps/storefront"), { recursive: true });
+      writeConfig(join(cwd, "navori.config.json"), {
+        name: "demo",
+        engines: ["claude"],
+        preset: "monorepo-turbopnpm",
+        qualityGate: { fast: "pnpm -w lint", full: "pnpm -w test" },
+        monorepo: {
+          enabled: true,
+          tool: "turbo",
+          workspaces: [
+            { name: "backend", path: "apps/backend" },
+            { name: "storefront", path: "apps/storefront" },
+          ],
+        },
+      });
+    }
+
+    it("renders only the matched workspace, skips root", () => {
+      seedMonorepo();
+      const result = runRender(cwd, { workspaceFilter: "backend" });
+
+      expect(result.ok).toBe(true);
+      expect(result.workspaces).toHaveLength(1);
+      expect(result.workspaces[0]!.workspaceName).toBe("backend");
+      // Root render should NOT have been performed
+      expect(result.engineResult).toBeUndefined();
+      expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
+      expect(existsSync(join(cwd, ".claude/settings.json"))).toBe(false);
+      // Backend SHOULD have been rendered
+      expect(existsSync(join(cwd, "apps/backend/CLAUDE.md"))).toBe(true);
+      // Storefront should NOT have been rendered
+      expect(existsSync(join(cwd, "apps/storefront/CLAUDE.md"))).toBe(false);
+    });
+
+    it("returns ok:false when the workspace name does not match", () => {
+      seedMonorepo();
+      const result = runRender(cwd, { workspaceFilter: "missing" });
+      expect(result.ok).toBe(false);
+      expect(result.reason).toContain("Workspace 'missing' not found");
+      expect(result.reason).toContain("backend");
+      expect(result.reason).toContain("storefront");
+    });
+
+    it("returns ok:false when there's no monorepo in config", () => {
+      writeConfig(join(cwd, "navori.config.json"), {
+        name: "single-app",
+        engines: ["claude"],
+        preset: "nextjs",
+      });
+      const result = runRender(cwd, { workspaceFilter: "backend" });
+      expect(result.ok).toBe(false);
+      expect(result.reason).toContain("requires a monorepo");
+    });
+
+    it("dry-run with --workspace does not write the target workspace", () => {
+      seedMonorepo();
+      const result = runRender(cwd, { workspaceFilter: "backend", dryRun: true });
+      expect(result.ok).toBe(true);
+      expect(result.workspaces).toHaveLength(1);
+      expect(existsSync(join(cwd, "apps/backend/CLAUDE.md"))).toBe(false);
+    });
+  });
 });

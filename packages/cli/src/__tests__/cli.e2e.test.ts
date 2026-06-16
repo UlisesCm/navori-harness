@@ -666,4 +666,63 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     expect(r.status).not.toBe(0);
     expect(r.combined).toContain("no declara 'monorepo'");
   });
+
+  it("render --workspace acota la operación a un solo workspace", () => {
+    const repo = seedMonorepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
+
+    const r = runCli(["render", "--workspace", "backend", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    // Only backend was rendered
+    expect(existsSync(join(repo, "apps/backend/CLAUDE.md"))).toBe(true);
+    expect(existsSync(join(repo, "apps/storefront/CLAUDE.md"))).toBe(false);
+    expect(existsSync(join(repo, "CLAUDE.md"))).toBe(false);
+  });
+
+  it("render --workspace falla con mensaje claro cuando el nombre no matchea", () => {
+    const repo = seedMonorepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
+
+    const r = runCli(["render", "--workspace", "ghost", "--cwd", repo]);
+    expect(r.status).not.toBe(0);
+    expect(r.combined).toContain("ghost");
+    expect(r.combined).toContain("backend");
+  });
+
+  it("sync default itera root + workspaces en un monorepo", () => {
+    const repo = seedMonorepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--scan-monorepo", "--cwd", repo]);
+
+    const r = runCli(["sync", "--dry-run", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).toContain("Plan [root]");
+    expect(r.combined).toContain("Plan [workspace:backend]");
+    expect(r.combined).toContain("Plan [workspace:storefront]");
+  });
+
+  it("sync --workspace acota al workspace especificado", () => {
+    const repo = seedMonorepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--scan-monorepo", "--cwd", repo]);
+
+    const r = runCli(["sync", "--workspace", "backend", "--dry-run", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).toContain("Plan [workspace:backend]");
+    expect(r.combined).not.toContain("Plan [root]");
+    expect(r.combined).not.toContain("Plan [workspace:storefront]");
+  });
+
+  it("sync --workspace falla con mensaje claro cuando el nombre no matchea", () => {
+    const repo = seedMonorepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--scan-monorepo", "--cwd", repo]);
+
+    const r = runCli(["sync", "--workspace", "ghost", "--cwd", repo]);
+    expect(r.status).not.toBe(0);
+    expect(r.combined).toContain("ghost");
+  });
 });
