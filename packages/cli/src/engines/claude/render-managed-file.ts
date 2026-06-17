@@ -134,7 +134,7 @@ function rerender(
   commentStyle: CommentStyle,
 ): RenderManagedFileResult {
   const fmMatch = existing.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  let destFm: Record<string, string> = {};
+  const destFm: Record<string, string> = {};
   let restOfDest: string;
   if (fmMatch) {
     for (const line of fmMatch[1].split("\n")) {

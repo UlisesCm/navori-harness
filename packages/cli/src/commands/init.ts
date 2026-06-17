@@ -386,7 +386,6 @@ export const initCommand = defineCommand({
     // Each edit re-runs the field's prompt; cancelling a re-prompt just
     // returns to the preview (no exit), so a typo never forces you to
     // restart from scratch.
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const summary = buildConfigPreview(
         {

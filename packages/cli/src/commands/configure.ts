@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, writeConfig, type NavoriConfig } from "../lib/config.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
-import { brand, dim, accent } from "../lib/style.ts";
+import { brand } from "../lib/style.ts";
 
 const ENGINE_OPTIONS = [
   { value: "claude", label: "Claude Code (.claude/)" },

@@ -8,7 +8,7 @@ import { color } from "./style.ts";
 export function formatLineDiff(
   current: string | null,
   proposed: string | null,
-  options: { context?: number } = {},
+  _options: { context?: number } = {},
 ): string {
   const a = (current ?? "").split("\n");
   const b = (proposed ?? "").split("\n");

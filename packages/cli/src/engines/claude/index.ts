@@ -515,8 +515,7 @@ function applySubBlockInject(input: {
   const targetAbs = join(input.cwd, input.skill.injectInto!);
 
   let currentContent: string;
-  let pendingEntry: (typeof input.pending)[number] | undefined;
-  pendingEntry = input.pending.find((p) => p.path === targetAbs);
+  const pendingEntry = input.pending.find((p) => p.path === targetAbs);
   if (pendingEntry) {
     currentContent = pendingEntry.content;
   } else if (existsSync(targetAbs)) {
