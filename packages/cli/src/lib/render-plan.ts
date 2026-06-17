@@ -110,9 +110,12 @@ export interface RenderPlan {
 export function computeRenderPlan(
   existing: string,
   config: NavoriConfig,
-  options: { skipIds?: ReadonlySet<string> } = {},
+  options: { skipIds?: ReadonlySet<string>; forceIds?: ReadonlySet<string> } = {},
 ): RenderPlan {
   const skipIds = options.skipIds ?? new Set<string>();
+  // forceIds: blocks the user chose "accept new" for in sync --interactive —
+  // overwrite even though they were hand-edited.
+  const forceIds = options.forceIds ?? new Set<string>();
   let working = existing;
   const entries: AssetPlanEntry[] = [];
   const languageFallbacks: string[] = [];
@@ -148,7 +151,7 @@ export function computeRenderPlan(
     const result = injectManagedSection(working, asset.id, content, {
       source: CORE_SOURCE_ID,
       version: CORE_VERSION,
-    });
+    }, "html", forceIds.has(asset.id));
     if (result.details?.versionDrift && result.details.existingVersion) {
       updatesAvailable.push({
         id: asset.id,
@@ -204,7 +207,7 @@ export function computeRenderPlan(
         const result = injectManagedSection(working, extra.id, content, {
           source: CORE_SOURCE_ID,
           version: CORE_VERSION,
-        });
+        }, "html", forceIds.has(extra.id));
         if (result.details?.versionDrift && result.details.existingVersion) {
           updatesAvailable.push({
             id: extra.id,
@@ -256,7 +259,7 @@ export function computeRenderPlan(
         const result = injectManagedSection(working, entry.id, content, {
           source: pluginSource,
           version: plugin.manifest.version,
-        });
+        }, "html", forceIds.has(entry.id));
         if (result.details?.versionDrift && result.details.existingVersion) {
           updatesAvailable.push({
             id: entry.id,

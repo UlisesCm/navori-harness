@@ -268,6 +268,12 @@ export function injectManagedSection(
   newContent: string,
   meta: MarkerMeta = {},
   commentStyle: CommentStyle = "html",
+  /**
+   * When true, overwrite the block even if the user edited it (hash mismatch)
+   * — i.e. the "accept new" resolution of `sync --interactive`. Default false
+   * keeps the safe behavior: a user-modified block is never silently clobbered.
+   */
+  forceOverwrite = false,
 ): InjectResult {
   const syntax = syntaxFor(commentStyle);
 
@@ -333,7 +339,7 @@ export function injectManagedSection(
     return { output: replaced, status: "updated", details };
   }
 
-  if (userModified) {
+  if (userModified && !forceOverwrite) {
     return { output: existing, status: "user-modified-skipped", details };
   }
 

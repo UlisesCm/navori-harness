@@ -302,6 +302,54 @@ describe("CLI e2e — happy paths", () => {
     expect(after).toContain("USER-EDIT — Tu único trabajo es");
   });
 
+  it("status reports a clean snapshot after init (spec 0003 §3.5.3)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    const r = runCli(["status", "--json", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    const report = JSON.parse(r.stdout);
+    expect(report.ok).toBe(true);
+    expect(report.claudeMdExists).toBe(true);
+    expect(report.enabledPlugins).toContain("engram");
+    expect(report.drift).toBe(0);
+    expect(report.nextSteps).toEqual(expect.arrayContaining([expect.stringMatching(/al día/i)]));
+  });
+
+  it("add --suggest recommends engram when not enabled (spec 0003 §3.5.2)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    // --yes (not --recommended) → engram is NOT enabled.
+    runCli(["init", "--yes", "--no-render", "--cwd", repo]);
+
+    const r = runCli(["add", "--suggest", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).toMatch(/engram/);
+  });
+
+  it("add --suggest is quiet when engram is already enabled", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    // --recommended enables engram; empty tmp repo → no stack → preset stays custom.
+    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+
+    const r = runCli(["add", "--suggest", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).toContain("Nada que sugerir");
+  });
+
+  it("bench reports percentiles over N runs (spec 0003 §3.5.4)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    const r = runCli(["bench", "--runs", "3", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).toMatch(/p50/);
+    expect(r.combined).toMatch(/p95/);
+  });
+
   it("sync --apply --yes fails with exit 1 when user modified a managed block", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);

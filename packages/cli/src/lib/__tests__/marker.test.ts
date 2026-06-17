@@ -62,6 +62,22 @@ describe("injectManagedSection", () => {
     expect(next.output).toContain("CHANGED-BY-USER");
   });
 
+  it("forceOverwrite=true overwrites a user-modified block (sync accept-new, spec 0003 §3.1.4)", () => {
+    const first = injectManagedSection("", "idioma-rol", CONTENT);
+    const modified = first.output.replace("inglés", "USER-EDIT");
+    const newContent = "## Idioma y rol\n\n- New content.\n";
+
+    // Default (no force): the edit is preserved.
+    const skipped = injectManagedSection(modified, "idioma-rol", newContent);
+    expect(skipped.status).toBe("user-modified-skipped");
+
+    // accept-new: force overwrites the hand-edited block.
+    const forced = injectManagedSection(modified, "idioma-rol", newContent, {}, "html", true);
+    expect(forced.status).toBe("updated");
+    expect(forced.output).toContain("- New content.");
+    expect(forced.output).not.toContain("USER-EDIT");
+  });
+
   it("updates content when user did not modify but new content differs", () => {
     const first = injectManagedSection("", "idioma-rol", CONTENT);
     const newContent = "## Idioma y rol\n\n- Updated.\n";

@@ -1,11 +1,13 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve, join } from "node:path";
 import { readConfig, type NavoriConfig } from "../lib/config.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
-import { renderStatusSymbol, renderStatusLabel, dim, color, sym, brand } from "../lib/style.ts";
+import { extractManagedContent } from "../lib/marker.ts";
+import { formatLineDiff } from "../lib/diff.ts";
+import { renderStatusSymbol, renderStatusLabel, dim, color, sym, brand, accent } from "../lib/style.ts";
 
 /**
  * `sync` re-runs the Claude engine but exposes the plan up front so the
@@ -31,6 +33,11 @@ export const syncCommand = defineCommand({
     cwd: { type: "string", description: "Directory to sync (default: cwd)" },
     "dry-run": { type: "boolean", description: "Show plan, do not write" },
     apply: { type: "boolean", description: "Apply changes (skip interactive prompt)" },
+    interactive: {
+      type: "boolean",
+      description:
+        "Resolve each CLAUDE.md conflict one by one: see the diff and pick keep-mine or accept-new.",
+    },
     yes: { type: "boolean", description: "Auto-confirm. Implies --apply. Fails with exit 1 if conflicts exist." },
     workspace: {
       type: "string",
@@ -101,8 +108,26 @@ export const syncCommand = defineCommand({
       process.exit(1);
     }
 
+    // Per-target conflict resolutions chosen in --interactive mode.
+    let resolutions: Map<string, ConflictResolution> = new Map();
+
     if (!autoApply) {
-      if (conflicts.length > 0) {
+      if (conflicts.length > 0 && Boolean(args.interactive)) {
+        const resolved = await resolveConflictsInteractively(plans);
+        if (resolved === null) {
+          p.cancel("Aborted");
+          process.exit(0);
+        }
+        resolutions = resolved;
+        // .claude/ file conflicts aren't resolved block-by-block (they're whole
+        // managed files). They stay as-is; surface that explicitly.
+        const fileConflicts = conflicts.filter((c) => !c.path.includes("CLAUDE.md"));
+        if (fileConflicts.length > 0) {
+          p.log.warn(
+            `${fileConflicts.length} conflicto(s) en archivos .claude/ se mantienen — la resolución interactiva cubre CLAUDE.md; resolvé los de .claude/ a mano y re-corré sync.`,
+          );
+        }
+      } else if (conflicts.length > 0) {
         const choice = await p.select({
           message: `Encontré ${conflicts.length} conflict(s). ¿Qué hago?`,
           options: [
@@ -110,12 +135,21 @@ export const syncCommand = defineCommand({
               value: "skip-conflicts",
               label: "Aplicar los cambios sin conflict, dejar mis ediciones intactas",
             },
+            { value: "interactive", label: "Resolver uno por uno (ver diff, keep/accept)" },
             { value: "abort", label: "Abortar — no escribir nada" },
           ],
         });
         if (p.isCancel(choice) || choice === "abort") {
           p.cancel("Aborted");
           process.exit(0);
+        }
+        if (choice === "interactive") {
+          const resolved = await resolveConflictsInteractively(plans);
+          if (resolved === null) {
+            p.cancel("Aborted");
+            process.exit(0);
+          }
+          resolutions = resolved;
         }
       } else {
         const ok = await p.confirm({
@@ -129,12 +163,16 @@ export const syncCommand = defineCommand({
       }
     }
 
-    // Apply pass: actually write. The engine already skips conflict files
-    // automatically (user-modified-skipped never lands in `pending`), so
-    // "skip-conflicts" is the default behavior — no extra wiring needed.
+    // Apply pass: actually write. The engine skips conflict files automatically
+    // (user-modified-skipped never lands in `pending`); accept-new resolutions
+    // are passed as forceIds so those CLAUDE.md blocks are overwritten.
     let writtenTotal = 0;
     for (const t of targets) {
-      const applied = renderClaudeEngine(t.cwd, t.config);
+      const res = resolutions.get(t.label);
+      const applied = renderClaudeEngine(t.cwd, t.config, {
+        skipIds: res?.skipIds,
+        forceIds: res?.forceIds,
+      });
       writtenTotal += applied.written.length;
       if (applied.backupPath) {
         p.log.message(`${dim(`Backup [${t.label}]:`)} ${applied.backupPath}`);
@@ -212,6 +250,59 @@ export function resolveSyncTargets(
 export interface Conflict {
   path: string;
   reason: string;
+}
+
+interface ConflictResolution {
+  /** CLAUDE.md block ids to keep the user's edit (skip render). */
+  skipIds: Set<string>;
+  /** CLAUDE.md block ids to overwrite with the rendered version (accept-new). */
+  forceIds: Set<string>;
+}
+
+/**
+ * Walk each target's CLAUDE.md conflicts and ask, per block, whether to keep
+ * the user's edit or accept the newly rendered version — showing the diff.
+ * Returns per-target {skipIds, forceIds}, or null if the user cancelled.
+ *
+ * Only CLAUDE.md managed blocks are resolved here; .claude/ file conflicts are
+ * whole-file and stay as-is (reported separately by the caller).
+ */
+async function resolveConflictsInteractively(
+  plans: TargetPlan[],
+): Promise<Map<string, ConflictResolution> | null> {
+  const resolutions = new Map<string, ConflictResolution>();
+  for (const tp of plans) {
+    const cmConflicts = tp.plan.claudeMdEntries.filter(
+      (e) => e.status === "user-modified-skipped",
+    );
+    if (cmConflicts.length === 0) continue;
+
+    const claudeMdPath = join(tp.target.cwd, "CLAUDE.md");
+    const existing = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, "utf-8") : "";
+    const skipIds = new Set<string>();
+    const forceIds = new Set<string>();
+
+    for (const e of cmConflicts) {
+      const actual = extractManagedContent(existing, e.asset.id) ?? "";
+      const proposed = e.newContent ?? "";
+      p.log.message(
+        `${color.yellow("Conflict")} [${tp.target.label}] CLAUDE.md:${accent(e.asset.id)}\n` +
+          `${dim("(- your edit, + rendered)")}\n${formatLineDiff(actual, proposed)}`,
+      );
+      const choice = await p.select({
+        message: `${e.asset.id}: keep your edit or accept the new version?`,
+        options: [
+          { value: "keep", label: "Keep mine — skip, your edit stays" },
+          { value: "accept", label: "Accept new — overwrite with the rendered version" },
+        ],
+      });
+      if (p.isCancel(choice)) return null;
+      if (choice === "accept") forceIds.add(e.asset.id);
+      else skipIds.add(e.asset.id);
+    }
+    resolutions.set(tp.target.label, { skipIds, forceIds });
+  }
+  return resolutions;
 }
 
 function collectAllConflicts(plans: TargetPlan[]): Conflict[] {

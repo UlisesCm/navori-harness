@@ -72,7 +72,14 @@ const CORE_META = { source: "@navori/core" as const, version: readBundledCoreVer
 export function renderClaudeEngine(
   cwd: string,
   config: NavoriConfig,
-  options: { dryRun?: boolean; force?: boolean } = {},
+  options: {
+    dryRun?: boolean;
+    force?: boolean;
+    /** CLAUDE.md managed-block ids to leave untouched (keep-mine resolution). */
+    skipIds?: ReadonlySet<string>;
+    /** CLAUDE.md managed-block ids to overwrite even if hand-edited (accept-new). */
+    forceIds?: ReadonlySet<string>;
+  } = {},
 ): ClaudeEngineResult {
   const dryRun = options.dryRun === true;
   const force = options.force === true;
@@ -88,7 +95,10 @@ export function renderClaudeEngine(
   // 1. CLAUDE.md — delegated to existing planner
   const claudeMdPath = join(cwd, "CLAUDE.md");
   const claudeMdExisting = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, "utf-8") : "";
-  const claudeMdPlan = computeRenderPlan(claudeMdExisting, config);
+  const claudeMdPlan = computeRenderPlan(claudeMdExisting, config, {
+    skipIds: options.skipIds,
+    forceIds: options.forceIds,
+  });
   inspected += 1;
   if (claudeMdPlan.changed) {
     pending.push({

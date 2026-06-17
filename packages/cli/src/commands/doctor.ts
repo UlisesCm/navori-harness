@@ -3,35 +3,15 @@ import * as p from "@clack/prompts";
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join, resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
-import { loadPlugin, PluginNotFoundError, PluginManifestError } from "../lib/plugins.ts";
+import { loadPlugin } from "../lib/plugins.ts";
 import { loadPreset } from "../lib/presets.ts";
-import { readBundledCoreVersion } from "../lib/bundled-assets.ts";
-import { computeManagedHash, extractManagedContent } from "../lib/marker.ts";
+import {
+  listMarkers,
+  collectMissingPlugins,
+  scanManagedDrift,
+  suggestNextSteps,
+} from "../lib/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
-
-interface MarkerInfo {
-  id: string;
-  hash: string | null;
-  version: string | null;
-  source: string | null;
-}
-
-function listMarkers(filePath: string): MarkerInfo[] {
-  if (!existsSync(filePath)) return [];
-  const content = readFileSync(filePath, "utf-8");
-  const re = /<!-- navori:managed [^>]*-->/g;
-  const result: MarkerInfo[] = [];
-  for (const match of content.matchAll(re)) {
-    const tag = match[0];
-    if (tag.startsWith("<!-- /navori:managed")) continue;
-    const id = tag.match(/id="([^"]+)"/)?.[1] ?? "?";
-    const hash = tag.match(/hash="([^"]+)"/)?.[1] ?? null;
-    const version = tag.match(/version="([^"]+)"/)?.[1] ?? null;
-    const source = tag.match(/source="([^"]+)"/)?.[1] ?? null;
-    result.push({ id, hash, version, source });
-  }
-  return result;
-}
 
 export const doctorCommand = defineCommand({
   meta: {
@@ -212,6 +192,16 @@ export const doctorCommand = defineCommand({
       );
     }
 
+    const nextSteps = suggestNextSteps({
+      claudeMdExists: report.checks.claudeMdExists,
+      missingPlugins,
+      drifts,
+    });
+    p.note(
+      nextSteps.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"),
+      "Próximos pasos",
+    );
+
     const hasIssues =
       missingPlugins.length > 0 || corruptedSettings.length > 0 || missingInvariants.length > 0;
     const strictFail = Boolean(args.strict) && drifts.length > 0;
@@ -235,140 +225,6 @@ interface AssignmentRow {
   id: string;
   agent: string;
   override: boolean;
-}
-
-interface MissingPlugin {
-  id: string;
-  reason: string;
-}
-
-function collectMissingPlugins(config: NavoriConfig): MissingPlugin[] {
-  const missing: MissingPlugin[] = [];
-  for (const [id, settings] of Object.entries(config.plugins ?? {})) {
-    if (settings.enabled !== true) continue;
-    try {
-      loadPlugin(id);
-    } catch (err) {
-      if (err instanceof PluginNotFoundError) {
-        missing.push({ id, reason: "unknown plugin id" });
-      } else if (err instanceof PluginManifestError) {
-        missing.push({ id, reason: err.message });
-      } else {
-        missing.push({ id, reason: (err as Error).message });
-      }
-    }
-  }
-  return missing;
-}
-
-interface DriftReport {
-  /** Repo-relative path of the file with the drifted marker. */
-  filePath: string;
-  markerId: string;
-  source: string;
-  /** "version" — the bundle moved ahead. "content" — the body of the
-   * managed block no longer matches its `hash=` attribute, i.e. the user
-   * edited inside the marker. */
-  kind: "version" | "content";
-  fromVersion?: string;
-  toVersion?: string;
-  expectedHash?: string;
-  actualHash?: string;
-}
-
-/**
- * Walk `.claude/agents/` and `.claude/skills/` and report drift for each
- * managed marker found:
- *
- *   - **version drift** — the marker's `version=` is older than what the
- *     bundle (core or plugin) currently ships. `navori render` will bring
- *     the body up to date.
- *   - **content drift** — the body inside the markers no longer hashes to
- *     the marker's `hash=` attribute, i.e. someone edited the managed
- *     content by hand. `navori sync` will surface this as a conflict.
- *
- * Markers without `version=` or `hash=` are skipped for the respective
- * check. Unknown sources (plugin removed, marker hand-written) are
- * skipped — there's nothing to compare against.
- */
-function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport[] {
-  const out: DriftReport[] = [];
-  const coreVersion = readBundledCoreVersion();
-  const pluginVersions = new Map<string, string>();
-  for (const [id, settings] of Object.entries(config.plugins ?? {})) {
-    if (settings.enabled !== true) continue;
-    try {
-      const plugin = loadPlugin(id);
-      pluginVersions.set(`@navori/plugin-${id}`, plugin.manifest.version);
-    } catch {
-      // unknown / broken plugin — reported elsewhere via missingPlugins
-    }
-  }
-
-  for (const dir of [".claude/agents", ".claude/skills"]) {
-    const absDir = join(cwd, dir);
-    if (!existsSync(absDir)) continue;
-    let entries: string[];
-    try {
-      entries = readdirSync(absDir);
-    } catch {
-      continue;
-    }
-    for (const file of entries) {
-      if (!file.endsWith(".md")) continue;
-      const rel = `${dir}/${file}`;
-      const abs = join(cwd, rel);
-      const fileContent = (() => {
-        try {
-          return readFileSync(abs, "utf-8");
-        } catch {
-          return null;
-        }
-      })();
-      const markers = listMarkers(abs);
-
-      for (const m of markers) {
-        if (!m.source) continue;
-
-        // Version drift: requires version attr and a known source.
-        if (m.version) {
-          const expected =
-            m.source === "@navori/core" ? coreVersion : pluginVersions.get(m.source);
-          if (expected && expected !== m.version) {
-            out.push({
-              filePath: rel,
-              markerId: m.id,
-              source: m.source,
-              kind: "version",
-              fromVersion: m.version,
-              toVersion: expected,
-            });
-          }
-        }
-
-        // Content drift: recompute the body's hash and compare against the
-        // marker's `hash=` attr. Surfaces hand-edits inside the managed zone
-        // that `version=`-based scan can't see.
-        if (m.hash && fileContent !== null) {
-          const body = extractManagedContent(fileContent, m.id, "html");
-          if (body !== null) {
-            const actual = computeManagedHash(body);
-            if (actual !== m.hash) {
-              out.push({
-                filePath: rel,
-                markerId: m.id,
-                source: m.source,
-                kind: "content",
-                expectedHash: m.hash,
-                actualHash: actual,
-              });
-            }
-          }
-        }
-      }
-    }
-  }
-  return out;
 }
 
 interface CorruptedSettingsReport {
