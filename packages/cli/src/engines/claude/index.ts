@@ -13,6 +13,7 @@ import { isNavoriOwnedSettings } from "./settings-detection.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
 import { renderManagedFile } from "./render-managed-file.ts";
 import { interpolate } from "./interpolate.ts";
+import { benchMark } from "../../lib/bench.ts";
 
 /**
  * Claude engine adapter — entry point. Orchestrates the full render of a
@@ -275,6 +276,7 @@ export function renderClaudeEngine(
 
   // 9. Backup + atomic writes
   let backupPath: string | null = null;
+  benchMark("plan");
   const written: Array<{ path: string; status: RenderStatus }> = [];
 
   if (pending.length === 0) {
@@ -325,6 +327,7 @@ export function renderClaudeEngine(
     }
   }
 
+  benchMark("write");
   return {
     written,
     skipped,
