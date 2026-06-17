@@ -1,9 +1,10 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { resolve } from "node:path";
-import { existsSync } from "node:fs";
+import { resolve, join, dirname, relative } from "node:path";
+import { existsSync, mkdirSync, chmodSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { writeConfig } from "../lib/config.ts";
+import { writeFileAtomic } from "../lib/atomic.ts";
 import { detectProject, type ClaudeInfraInventory } from "../lib/detect.ts";
 import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
 import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
@@ -71,6 +72,11 @@ export const initCommand = defineCommand({
       type: "boolean",
       description:
         "When a monorepo is detected, scan pnpm-workspace.yaml / package.json#workspaces and populate monorepo.workspaces[] with a preset per app",
+    },
+    "pre-commit-hook": {
+      type: "boolean",
+      description:
+        "Scaffold a local pre-commit hook that runs 'navori doctor --strict'. Opt-in; in interactive mode you're asked instead.",
     },
   },
   async run({ args }) {
@@ -228,6 +234,7 @@ export const initCommand = defineCommand({
       }
       // citty negates booleans on --no-X, so args.render === false when --no-render is passed.
       if (args.render !== false) renderInline(cwd);
+      await offerPreCommitHook(cwd, { autoYes, force: Boolean(args["pre-commit-hook"]), lang });
       p.outro(tr.done);
       return;
     }
@@ -576,6 +583,7 @@ export const initCommand = defineCommand({
     }
 
     renderInline(cwd);
+    await offerPreCommitHook(cwd, { autoYes, force: Boolean(args["pre-commit-hook"]), lang });
     p.outro(tr.harnessReady);
   },
 });
@@ -810,6 +818,76 @@ function renderInline(cwd: string): void {
       p.log.warn(w);
     }
   }
+}
+
+/**
+ * Spec 0003 §3.1.7 — offer to scaffold an opt-in pre-commit hook that runs
+ * `navori doctor --strict`, catching drift before it lands in a commit.
+ *
+ * Opt-in by design: in interactive mode we ask (default no); in auto mode
+ * (--yes/--recommended) we only scaffold when --pre-commit-hook is explicit.
+ * No-op outside a git repo. The hook is local (never committed) so a teammate
+ * who doesn't want it simply never runs init; `git commit --no-verify` skips it.
+ */
+async function offerPreCommitHook(
+  cwd: string,
+  opts: { autoYes: boolean; force: boolean; lang: Lang },
+): Promise<void> {
+  if (!existsSync(join(cwd, ".git"))) return;
+
+  let wanted = opts.force;
+  if (!wanted && !opts.autoYes) {
+    const answer = await p.confirm({
+      message: t(opts.lang).preCommitHookPrompt,
+      initialValue: false,
+    });
+    if (p.isCancel(answer)) return;
+    wanted = answer;
+  }
+  if (!wanted) return;
+
+  const result = writePreCommitHook(cwd);
+  if (result.ok) {
+    p.log.success(t(opts.lang).preCommitHookWritten(result.path!));
+  } else {
+    p.log.warn(t(opts.lang).preCommitHookExists(result.path!));
+  }
+}
+
+/**
+ * Write the pre-commit hook. Prefers `.husky/pre-commit` when husky is already
+ * set up (versioned, shared); otherwise falls back to the native
+ * `.git/hooks/pre-commit` (zero deps, local). Never clobbers an existing hook.
+ */
+function writePreCommitHook(cwd: string): { ok: boolean; path: string } {
+  const huskyDir = join(cwd, ".husky");
+  const hookPath = existsSync(huskyDir)
+    ? join(huskyDir, "pre-commit")
+    : join(cwd, ".git", "hooks", "pre-commit");
+  const relPath = relative(cwd, hookPath);
+
+  if (existsSync(hookPath)) return { ok: false, path: relPath };
+
+  const body = [
+    "#!/usr/bin/env sh",
+    "# navori pre-commit drift gate — scaffolded by 'navori init' (opt-in).",
+    "# Bypass with: git commit --no-verify",
+    "if command -v navori >/dev/null 2>&1; then",
+    "  navori doctor --strict || exit 1",
+    "elif command -v npx >/dev/null 2>&1; then",
+    "  npx --no-install navori doctor --strict || exit 1",
+    "fi",
+    "",
+  ].join("\n");
+
+  mkdirSync(dirname(hookPath), { recursive: true });
+  writeFileAtomic(hookPath, body);
+  try {
+    chmodSync(hookPath, 0o755);
+  } catch {
+    // best-effort; some filesystems (FAT) won't grant +x
+  }
+  return { ok: true, path: relPath };
 }
 
 function cancel(lang: Lang): void {

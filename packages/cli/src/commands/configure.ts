@@ -95,7 +95,7 @@ const pluginsSubCommand = defineCommand({
     if (added.length > 0) p.log.success(`Enabled: ${added.join(", ")}`);
     if (removed.length > 0) p.log.warn(`Disabled: ${removed.join(", ")}`);
     if (added.length === 0 && removed.length === 0) p.log.info("No changes");
-    p.outro("Run 'navori render' or 'navori sync' to apply.");
+    p.outro("Run 'navori render --apply' or 'navori sync' to apply.");
   },
 });
 
@@ -193,7 +193,7 @@ const languageSubCommand = defineCommand({
     raw.language = value;
     persist(path, raw);
     p.log.success(`language → ${value}`);
-    p.outro("Run 'navori render' to re-render managed blocks in the new language.");
+    p.outro("Run 'navori render --apply' to re-render managed blocks in the new language.");
   },
 });
 
@@ -265,14 +265,14 @@ const workspaceSubCommand = defineCommand({
       delete raw.workspace;
       persist(path, raw);
       p.log.success("Workspace association removed");
-      p.outro("Run 'navori render' to apply.");
+      p.outro("Run 'navori render --apply' to apply.");
       return;
     }
 
     raw.workspace = value;
     persist(path, raw);
     p.log.success(`workspace → ${value}`);
-    p.outro("Run 'navori render' to apply.");
+    p.outro("Run 'navori render --apply' to apply.");
   },
 });
 

@@ -19,6 +19,12 @@
     "sdd",
     "multi-agent"
   ],
+  "features": {
+    "plugins": 6,
+    "presets": 5,
+    "coreAgents": 7,
+    "coreSkills": 2
+  },
   "license": "ISC",
   "scripts": {
     "build": "tsup && node scripts/copy-assets.mjs",

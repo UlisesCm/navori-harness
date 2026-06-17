@@ -26,5 +26,6 @@
       "recommendedAgent": "leader",
       "injectInto": ".claude/agents/leader.md"
     }
-  ]
+  ],
+  "invariants": ["mem_save", "mem_session_summary"]
 }

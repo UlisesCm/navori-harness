@@ -43,6 +43,12 @@ export const PresetDefinitionSchema = z.object({
       hooks: z.array(PresetExtraFileSchema).default([]),
     })
     .default({ managed: [], agents: [], skills: [], hooks: [] }),
+  /**
+   * Load-bearing substrings that MUST appear verbatim in the rendered output
+   * when this preset is active. Same contract as PluginManifest.invariants —
+   * `navori doctor` fails when any disappears. Spec 0003 §3.1.1.
+   */
+  invariants: z.array(z.string().min(1)).default([]),
 });
 
 export type PresetDefinition = z.infer<typeof PresetDefinitionSchema>;

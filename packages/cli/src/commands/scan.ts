@@ -186,7 +186,7 @@ export const scanCommand = defineCommand({
     p.log.success(
       `Agregué ${final.added.length} workspace(s) a ${final.configPath}`,
     );
-    p.outro(dim("Corre 'navori render' para generar CLAUDE.md + .claude/ por workspace"));
+    p.outro(dim("Corre 'navori render --apply' para generar CLAUDE.md + .claude/ por workspace"));
   },
 });
 

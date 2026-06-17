@@ -1,9 +1,10 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join, resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "../lib/plugins.ts";
+import { loadPreset } from "../lib/presets.ts";
 import { readBundledCoreVersion } from "../lib/bundled-assets.ts";
 import { computeManagedHash, extractManagedContent } from "../lib/marker.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
@@ -94,11 +95,16 @@ export const doctorCommand = defineCommand({
     const missingPlugins = collectMissingPlugins(config);
     const drifts = scanManagedDrift(cwd, config);
     const corruptedSettings = scanCorruptedSettings(cwd);
+    const missingInvariants = scanMissingInvariants(cwd, config);
     const report = {
       // Drift is informational ("update available"), not an error — don't
-      // flip `ok` for it. Missing plugins and corrupted settings.json ARE
-      // errors: the next render will fail or silently skip the file.
-      ok: missingPlugins.length === 0 && corruptedSettings.length === 0,
+      // flip `ok` for it. Missing plugins, corrupted settings.json and missing
+      // invariants ARE errors: the next render will fail, silently skip the
+      // file, or a load-bearing rule has vanished from the output.
+      ok:
+        missingPlugins.length === 0 &&
+        corruptedSettings.length === 0 &&
+        missingInvariants.length === 0,
       configPath,
       config,
       checks: {
@@ -111,6 +117,7 @@ export const doctorCommand = defineCommand({
       missingPlugins,
       drifts,
       corruptedSettings,
+      missingInvariants,
     };
 
     if (args.json) {
@@ -118,7 +125,7 @@ export const doctorCommand = defineCommand({
       // JSON consumers (CI pipelines) need the same exit-code semantics as
       // the text output so a piped check ($navori doctor --json --strict)
       // fails the build the same way the human-readable run would.
-      if (missingPlugins.length > 0 || corruptedSettings.length > 0) {
+      if (missingPlugins.length > 0 || corruptedSettings.length > 0 || missingInvariants.length > 0) {
         process.exit(2);
       }
       if (Boolean(args.strict) && drifts.length > 0) process.exit(1);
@@ -182,8 +189,8 @@ export const doctorCommand = defineCommand({
       });
       const hint =
         drifts.some((d) => d.kind === "content")
-          ? "corré 'navori sync' para resolver conflicts; 'navori render' para actualizar versiones"
-          : "corré 'navori render' o 'navori sync'";
+          ? "corré 'navori sync' para resolver conflicts; 'navori render --apply' para actualizar versiones"
+          : "corré 'navori render --apply' o 'navori sync'";
       p.log.warn(`Drift detectado (${drifts.length}) — ${hint}:\n${lines.join("\n")}`);
     }
 
@@ -192,11 +199,21 @@ export const doctorCommand = defineCommand({
         (c) => `  ${color.red(sym.fail)} ${accent(c.path)}  ${grey(`— JSON inválido: ${c.error}`)}`,
       );
       p.log.error(
-        `Settings.json corrupto (${corruptedSettings.length}) — corré 'navori render --force' para regenerar desde el bundle (el archivo actual se respalda):\n${lines.join("\n")}`,
+        `Settings.json corrupto (${corruptedSettings.length}) — corré 'navori render --force --apply' para regenerar desde el bundle (el archivo actual se respalda):\n${lines.join("\n")}`,
       );
     }
 
-    const hasIssues = missingPlugins.length > 0 || corruptedSettings.length > 0;
+    if (missingInvariants.length > 0) {
+      const lines = missingInvariants.map(
+        (m) => `  ${color.red(sym.fail)} ${accent(m.invariant)}  ${grey(`— declarado por ${m.source}`)}`,
+      );
+      p.log.error(
+        `Invariantes ausentes en el output (${missingInvariants.length}) — una regla load-bearing desapareció; corré 'navori render --apply' o revisá el template:\n${lines.join("\n")}`,
+      );
+    }
+
+    const hasIssues =
+      missingPlugins.length > 0 || corruptedSettings.length > 0 || missingInvariants.length > 0;
     const strictFail = Boolean(args.strict) && drifts.length > 0;
     p.outro(
       hasIssues
@@ -372,6 +389,100 @@ function scanCorruptedSettings(cwd: string): CorruptedSettingsReport[] {
     return [];
   } catch (err) {
     return [{ path: ".claude/settings.json", error: (err as Error).message }];
+  }
+}
+
+interface MissingInvariant {
+  /** The load-bearing substring that should have been in the output. */
+  invariant: string;
+  /** Who declared it, e.g. "plugin:engram" or "preset:nextjs". */
+  source: string;
+}
+
+const TEXT_EXTENSIONS = [".md", ".json", ".sh"];
+
+/**
+ * Spec 0003 §3.1.1 — each enabled plugin and the active preset may declare
+ * `invariants[]`: load-bearing substrings that MUST survive into the rendered
+ * output. We concatenate every rendered text file (CLAUDE.md + .claude/**) and
+ * flag any declared invariant that no longer appears verbatim. Catches the
+ * whole class of "a template refactor silently ate a load-bearing rule".
+ *
+ * Skipped when the repo has no rendered output yet — there is nothing to check
+ * until the first `navori render --apply`.
+ */
+function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvariant[] {
+  const sources: Array<{ source: string; invariants: string[] }> = [];
+
+  try {
+    const preset = loadPreset(config.preset);
+    if (preset && preset.invariants.length > 0) {
+      sources.push({ source: `preset:${preset.id}`, invariants: preset.invariants });
+    }
+  } catch {
+    // A malformed preset is surfaced by the render path; nothing to check here.
+  }
+
+  for (const [id, settings] of Object.entries(config.plugins ?? {})) {
+    if (settings.enabled !== true) continue;
+    try {
+      const plugin = loadPlugin(id);
+      if (plugin.manifest.invariants.length > 0) {
+        sources.push({ source: `plugin:${id}`, invariants: plugin.manifest.invariants });
+      }
+    } catch {
+      // Missing / broken plugin is reported via missingPlugins.
+    }
+  }
+
+  if (sources.length === 0) return [];
+
+  const output = readRenderedText(cwd);
+  if (output.trim() === "") return []; // nothing rendered yet
+
+  const missing: MissingInvariant[] = [];
+  for (const { source, invariants } of sources) {
+    for (const inv of invariants) {
+      if (!output.includes(inv)) missing.push({ invariant: inv, source });
+    }
+  }
+  return missing;
+}
+
+/** Concatenate every rendered text file navori owns: CLAUDE.md + .claude/**. */
+function readRenderedText(cwd: string): string {
+  const parts: string[] = [];
+  const claudeMd = join(cwd, "CLAUDE.md");
+  if (existsSync(claudeMd)) {
+    try {
+      parts.push(readFileSync(claudeMd, "utf-8"));
+    } catch {
+      // unreadable — treat as absent
+    }
+  }
+  const claudeDir = join(cwd, ".claude");
+  if (existsSync(claudeDir)) collectText(claudeDir, parts);
+  return parts.join("\n");
+}
+
+function collectText(dir: string, parts: string[]): void {
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const abs = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectText(abs, parts);
+    } else if (entry.isFile() && TEXT_EXTENSIONS.some((e) => entry.name.endsWith(e))) {
+      try {
+        parts.push(readFileSync(abs, "utf-8"));
+      } catch {
+        // skip unreadable
+      }
+    }
   }
 }
 

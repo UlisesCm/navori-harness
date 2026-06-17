@@ -225,12 +225,58 @@ describe("CLI e2e — happy paths", () => {
     runCli(["init", "--recommended", "--cwd", repo]);
     const first = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
 
-    const r = runCli(["render", "--cwd", repo]);
+    // --apply exercises the write path; a second apply must be a no-op.
+    const r = runCli(["render", "--apply", "--cwd", repo]);
     expect(r.status).toBe(0);
 
     const second = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
     expect(second).toBe(first);
     expect(r.combined).toMatch(/no changes|unchanged/);
+  });
+
+  it("render previews by default and only writes with --apply (spec 0003 §3.1.3)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+
+    // Config present, nothing rendered yet.
+    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+    expect(existsSync(join(repo, "CLAUDE.md"))).toBe(false);
+
+    // Preview (default): reports pending changes but touches no files.
+    const preview = runCli(["render", "--cwd", repo]);
+    expect(preview.status).toBe(0);
+    expect(preview.combined).toMatch(/[Pp]review/);
+    expect(existsSync(join(repo, "CLAUDE.md"))).toBe(false);
+
+    // --apply writes to disk.
+    const applied = runCli(["render", "--apply", "--cwd", repo]);
+    expect(applied.status).toBe(0);
+    expect(existsSync(join(repo, "CLAUDE.md"))).toBe(true);
+  });
+
+  it("init --pre-commit-hook scaffolds a doctor --strict git hook (spec 0003 §3.1.7)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    spawnSync("git", ["init"], { cwd: repo, stdio: "ignore" });
+
+    const r = runCli(["init", "--recommended", "--pre-commit-hook", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const hookPath = join(repo, ".git/hooks/pre-commit");
+    expect(existsSync(hookPath)).toBe(true);
+    const body = readFileSync(hookPath, "utf-8");
+    expect(body).toContain("navori doctor --strict");
+    expect(body).toContain("--no-verify");
+  });
+
+  it("init --recommended does not scaffold a pre-commit hook without the flag (opt-in)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    spawnSync("git", ["init"], { cwd: repo, stdio: "ignore" });
+
+    const r = runCli(["init", "--recommended", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(existsSync(join(repo, ".git/hooks/pre-commit"))).toBe(false);
   });
 
   it("sync --apply --yes fails with exit 1 when user edited a .claude/ agent (P0-fix B2)", () => {
@@ -329,14 +375,14 @@ describe("CLI e2e — happy paths", () => {
     // the syntax problem — verify it mentions the cause, not just any text.
     expect(dreport.corruptedSettings[0].error).toMatch(/JSON|Unexpected|token/i);
 
-    // 2. plain render skips (refuses to overwrite without --force)
-    const rr = runCli(["render", "--cwd", repo]);
+    // 2. render --apply skips the corrupted file (refuses to overwrite without --force)
+    const rr = runCli(["render", "--apply", "--cwd", repo]);
     expect(rr.status).toBe(0);
     expect(rr.combined).toContain("--force");
     expect(readFileSync(settingsPath, "utf-8")).toBe("{ this is not valid json");
 
-    // 3. render --force regenerates the file from the bundle
-    const fr = runCli(["render", "--force", "--cwd", repo]);
+    // 3. render --force --apply regenerates the file from the bundle
+    const fr = runCli(["render", "--force", "--apply", "--cwd", repo]);
     expect(fr.status).toBe(0);
     const regenerated = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(regenerated.$navori?.managed).toBe(true);
@@ -346,6 +392,39 @@ describe("CLI e2e — happy paths", () => {
     const dreport2 = JSON.parse(dr2.stdout);
     expect(dreport2.ok).toBe(true);
     expect(dreport2.corruptedSettings).toHaveLength(0);
+  });
+
+  it("doctor flags missing invariants when a load-bearing rule is gutted (spec 0003 §3.1.1)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // Fresh render: engram declares invariants (mem_save, mem_session_summary)
+    // and they are present in the output, so doctor is clean.
+    const clean = JSON.parse(runCli(["doctor", "--json", "--cwd", repo]).stdout);
+    expect(clean.missingInvariants).toHaveLength(0);
+
+    // Simulate a template refactor eating the engram protocol everywhere it
+    // lives in the output: CLAUDE.md and the injected sub-block in leader.md.
+    for (const rel of ["CLAUDE.md", ".claude/agents/leader.md"]) {
+      const path = join(repo, rel);
+      const gutted = readFileSync(path, "utf-8")
+        .replaceAll("mem_save", "XXX")
+        .replaceAll("mem_session_summary", "YYY");
+      writeFileSync(path, gutted);
+    }
+
+    const broken = runCli(["doctor", "--json", "--cwd", repo]);
+    expect(broken.status).toBe(2);
+    const report = JSON.parse(broken.stdout);
+    expect(report.ok).toBe(false);
+    const missing = report.missingInvariants
+      .map((m: { invariant: string }) => m.invariant)
+      .sort();
+    expect(missing).toEqual(["mem_save", "mem_session_summary"]);
+    expect(
+      report.missingInvariants.every((m: { source: string }) => m.source === "plugin:engram"),
+    ).toBe(true);
   });
 
   it("doctor reports content drift when user edited inside the managed block (P0-fix B3)", () => {
@@ -684,7 +763,7 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     dirs.push(repo);
     runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
 
-    const r = runCli(["render", "--workspace", "backend", "--cwd", repo]);
+    const r = runCli(["render", "--workspace", "backend", "--apply", "--cwd", repo]);
     expect(r.status).toBe(0);
 
     // Only backend was rendered

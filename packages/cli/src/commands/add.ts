@@ -135,14 +135,14 @@ export const addCommand = defineCommand({
     // Handle external tool
     const tool = plugin.manifest.externalTool;
     if (!tool) {
-      p.outro("Done — run 'navori render' to apply");
+      p.outro("Done — run 'navori render --apply' to apply");
       return;
     }
 
     const installed = tool.checkBinary ? hasBinary(tool.checkBinary) : true;
     if (installed) {
       p.log.success(`External tool '${tool.name}' is already installed`);
-      p.outro("Done — run 'navori render' to apply");
+      p.outro("Done — run 'navori render --apply' to apply");
       return;
     }
 
@@ -188,6 +188,6 @@ export const addCommand = defineCommand({
       return;
     }
 
-    p.outro(`${color.green("Done")} ${dim("— run 'navori render' to apply")}`);
+    p.outro(`${color.green("Done")} ${dim("— run 'navori render --apply' to apply")}`);
   },
 });
