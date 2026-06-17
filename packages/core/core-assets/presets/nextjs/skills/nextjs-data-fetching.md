@@ -1,6 +1,7 @@
 ---
 name: nextjs-data-fetching
 description: Reglas para data fetching en Next.js App Router — cache, revalidate, parallel loading, Suspense. Aplica al tocar páginas con fetch o queries server-side.
+type: reference
 ---
 
 # Next.js Data Fetching — convenciones del proyecto

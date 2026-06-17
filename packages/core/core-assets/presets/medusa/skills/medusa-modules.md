@@ -1,6 +1,7 @@
 ---
 name: medusa-modules
 description: Reglas para crear/modificar módulos de Medusa v2 — entidades, services, workflows. Aplica antes de tocar src/modules/.
+type: reference
 ---
 
 # Medusa Modules — convenciones del proyecto

@@ -1,6 +1,8 @@
 ---
 name: astro-islands
 description: Reglas para Astro Islands — client directives, framework components, performance. Aplica al agregar interactividad a un site Astro.
+type: reference
+maxWords: 520
 ---
 
 # Astro Islands — convenciones del proyecto

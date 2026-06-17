@@ -1,6 +1,7 @@
 ---
 name: nextjs-app-router
 description: Reglas para Next.js App Router — Server vs Client Components, Server Actions, layouts. Aplica antes de tocar app/ o components/.
+type: reference
 ---
 
 # Next.js App Router — convenciones del proyecto

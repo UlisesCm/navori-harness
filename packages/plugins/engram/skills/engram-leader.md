@@ -1,6 +1,7 @@
 ---
 name: engram-leader-extension
 description: Protocolo Engram para el agente líder. Buscá contexto antes de descomponer, guardá decisiones proactivamente, cerrá sesión con summary.
+type: behavior
 ---
 
 ## Engram (memoria persistente)
