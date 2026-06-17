@@ -1,6 +1,7 @@
 ---
 name: nestjs-modules
 description: Reglas para módulos NestJS — controllers, services, providers, DI scopes. Aplica al crear o modificar src/<feature>/.
+type: reference
 ---
 
 # NestJS Modules — convenciones del proyecto

@@ -31,6 +31,28 @@ describe("injectManagedSection", () => {
     expect(second.output).toBe(first.output);
   });
 
+  it("collapses an empty HTML section to one line (spec 0003 §3.2.4)", () => {
+    const result = injectManagedSection("", "skills", "");
+    expect(result.status).toBe("created");
+    // open marker immediately followed by close marker — no blank body line
+    expect(result.output).toMatch(/id="skills"[^\n]*--><!-- \/navori:managed id="skills" -->/);
+    // round-trips: re-injecting empty content is a no-op
+    const again = injectManagedSection(result.output, "skills", "");
+    expect(again.status).toBe("unchanged");
+    expect(again.output).toBe(result.output);
+  });
+
+  it("collapses an empty shell section to two lines, no blank body", () => {
+    const result = injectManagedSection("", "guard", "", {}, "shell");
+    expect(result.status).toBe("created");
+    expect(result.output).toMatch(
+      /# navori:managed start id="guard"[^\n]*\n# navori:managed end id="guard"/,
+    );
+    const again = injectManagedSection(result.output, "guard", "", {}, "shell");
+    expect(again.status).toBe("unchanged");
+    expect(again.output).toBe(result.output);
+  });
+
   it("detects user modification and skips overwrite", () => {
     const first = injectManagedSection("", "idioma-rol", CONTENT);
     const modified = first.output.replace("inglés", "CHANGED-BY-USER");

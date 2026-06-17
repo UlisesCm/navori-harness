@@ -82,6 +82,30 @@ function closeMarker(id: string, syntax: MarkerSyntax): string {
   return `${syntax.closePrefix} id="${id}"${syntax.suffix}`;
 }
 
+/**
+ * Build the marker block body. Spec 0003 §3.2.4 — an empty managed section
+ * collapses its blank body to save tokens:
+ *   - HTML markers carry their own terminator (` -->`) so open and close can
+ *     share one line: `<!-- ...start... --><!-- ...end... -->`.
+ *   - Shell markers terminate at the line break, so they stay on two lines
+ *     (open, then close) — but still drop the empty body line.
+ * Non-empty sections keep the canonical `open / content / close` shape.
+ */
+function buildBlock(
+  id: string,
+  hash: string,
+  meta: MarkerMeta,
+  syntax: MarkerSyntax,
+  canonicalContent: string,
+): string {
+  const open = openMarker(id, hash, meta, syntax);
+  const close = closeMarker(id, syntax);
+  if (canonicalContent === "") {
+    return syntax.suffix === "" ? `${open}\n${close}` : `${open}${close}`;
+  }
+  return `${open}\n${canonicalContent}\n${close}`;
+}
+
 interface MarkerMatch {
   openStart: number;
   openEnd: number;
@@ -262,7 +286,7 @@ export function injectManagedSection(
       : existing.endsWith("\n")
         ? "\n"
         : "\n\n";
-    const block = `${openMarker(id, newHash, meta, syntax)}\n${canonicalContent}\n${closeMarker(id, syntax)}\n`;
+    const block = buildBlock(id, newHash, meta, syntax, canonicalContent) + "\n";
     return {
       output: existing + sep + block,
       status: "created",
@@ -313,7 +337,7 @@ export function injectManagedSection(
     return { output: existing, status: "user-modified-skipped", details };
   }
 
-  const block = `${openMarker(id, newHash, meta, syntax)}\n${canonicalContent}\n${closeMarker(id, syntax)}`;
+  const block = buildBlock(id, newHash, meta, syntax, canonicalContent);
   const replaced =
     existing.slice(0, match.openStart) + block + existing.slice(match.closeEnd);
   return { output: replaced, status: "updated", details };

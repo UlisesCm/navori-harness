@@ -1,6 +1,8 @@
 ---
 name: loop-back-debug
 description: Protocolo para cuando un fix no funciona la primera vez. Forza re-leer el síntoma original, validar la hipótesis vs el diff aplicado, y NO tirar más patches sin entender qué falló.
+type: behavior
+maxWords: 1000
 ---
 
 # Loop-Back Debug

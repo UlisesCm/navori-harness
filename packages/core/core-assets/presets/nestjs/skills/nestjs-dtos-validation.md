@@ -1,6 +1,7 @@
 ---
 name: nestjs-dtos-validation
 description: Reglas para DTOs y validación en NestJS — class-validator, ValidationPipe, transform. Aplica al definir contratos HTTP de entrada/salida.
+type: reference
 ---
 
 # NestJS DTOs + Validation — convenciones del proyecto

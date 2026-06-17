@@ -1,6 +1,8 @@
 ---
 name: verify-before-done
 description: Iron Law del cierre de tarea — no afirmar éxito sin evidencia fresca del comando que respalda el claim. Aplica a implementer, reviewer, commit-pr-pilot y a cualquier respuesta que declare "listo".
+type: behavior
+maxWords: 1000
 ---
 
 # Verify Before Done

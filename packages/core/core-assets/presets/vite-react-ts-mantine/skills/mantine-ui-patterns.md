@@ -1,6 +1,7 @@
 ---
 name: mantine-ui-patterns
 description: Reglas para UI con Mantine — usar componentes del lib en vez de raw HTML, theming, responsive. Aplica al crear o modificar componentes React.
+type: reference
 ---
 
 # Mantine UI patterns — convenciones del proyecto
