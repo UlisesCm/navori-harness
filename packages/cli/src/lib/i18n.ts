@@ -207,10 +207,10 @@ const ES: Strings = {
   removedOriginals: (cwd) => `Borré los originales de ${cwd}`,
 
   doneExistingUntouched:
-    "Listo — archivos existentes intactos. Corré 'navori render' cuando quieras.",
+    "Listo — archivos existentes intactos. Corré 'navori render --apply' cuando quieras.",
   done: "Listo",
   doneSkippedRender: "Listo (skipeé el render)",
-  doneRunLater: "Listo (corré 'navori render' cuando quieras)",
+  doneRunLater: "Listo (corré 'navori render --apply' cuando quieras)",
   harnessReady: "Tu harness está listo",
 
   dirNotFound: (dir) => `Directorio no encontrado: ${dir}`,
@@ -320,10 +320,10 @@ const EN: Strings = {
   removedOriginals: (cwd) => `Removed originals from ${cwd}`,
 
   doneExistingUntouched:
-    "Done — existing files not touched. Run 'navori render' when ready.",
+    "Done — existing files not touched. Run 'navori render --apply' when ready.",
   done: "Done",
   doneSkippedRender: "Done (skipped render)",
-  doneRunLater: "Done (run 'navori render' when ready)",
+  doneRunLater: "Done (run 'navori render --apply' when ready)",
   harnessReady: "Your harness is ready",
 
   dirNotFound: (dir) => `Directory not found: ${dir}`,

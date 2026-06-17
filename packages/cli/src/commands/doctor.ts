@@ -182,8 +182,8 @@ export const doctorCommand = defineCommand({
       });
       const hint =
         drifts.some((d) => d.kind === "content")
-          ? "corré 'navori sync' para resolver conflicts; 'navori render' para actualizar versiones"
-          : "corré 'navori render' o 'navori sync'";
+          ? "corré 'navori sync' para resolver conflicts; 'navori render --apply' para actualizar versiones"
+          : "corré 'navori render --apply' o 'navori sync'";
       p.log.warn(`Drift detectado (${drifts.length}) — ${hint}:\n${lines.join("\n")}`);
     }
 
@@ -192,7 +192,7 @@ export const doctorCommand = defineCommand({
         (c) => `  ${color.red(sym.fail)} ${accent(c.path)}  ${grey(`— JSON inválido: ${c.error}`)}`,
       );
       p.log.error(
-        `Settings.json corrupto (${corruptedSettings.length}) — corré 'navori render --force' para regenerar desde el bundle (el archivo actual se respalda):\n${lines.join("\n")}`,
+        `Settings.json corrupto (${corruptedSettings.length}) — corré 'navori render --force --apply' para regenerar desde el bundle (el archivo actual se respalda):\n${lines.join("\n")}`,
       );
     }
 

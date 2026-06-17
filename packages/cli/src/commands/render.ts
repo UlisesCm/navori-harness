@@ -189,7 +189,14 @@ export const renderCommand = defineCommand({
   },
   args: {
     cwd: { type: "string", description: "Directory to render into (default: cwd)" },
-    "dry-run": { type: "boolean", description: "Show what would change without writing" },
+    apply: {
+      type: "boolean",
+      description: "Write changes to disk. Without it, render only previews (no files touched).",
+    },
+    "dry-run": {
+      type: "boolean",
+      description: "Deprecated: preview is the default now. Kept as an explicit alias for --no-apply.",
+    },
     force: {
       type: "boolean",
       description:
@@ -211,9 +218,15 @@ export const renderCommand = defineCommand({
       process.exit(1);
     }
 
+    // Preview-default (spec 0003 §3.1.3, breaking change v0.1→v0.2): render
+    // never touches disk unless --apply is passed. --dry-run is kept as a
+    // back-compat alias; when combined with --apply, preview wins (safer).
+    const apply = Boolean(args.apply);
+    const preview = !apply || Boolean(args["dry-run"]);
+
     const workspaceFilter = (args.workspace as string | undefined) ?? null;
     const result = runRender(cwd, {
-      dryRun: Boolean(args["dry-run"]),
+      dryRun: preview,
       force: Boolean(args.force),
       workspaceFilter,
     });
@@ -229,7 +242,7 @@ export const renderCommand = defineCommand({
       p.log.message(`${dim("root")}`);
     }
     if (result.engineResult) {
-      reportClaudeMd(result.filePath, result.entries, result.written, Boolean(args["dry-run"]));
+      reportClaudeMd(result.filePath, result.entries, result.written, preview);
       reportEngineFiles(result.engineResult);
     }
     if (result.languageFallbacks.length > 0) {
@@ -243,7 +256,7 @@ export const renderCommand = defineCommand({
 
     for (const ws of result.workspaces) {
       p.log.message(`${dim("workspace")} ${color.cyan(ws.workspaceName)} ${dim(`(${ws.workspacePath})`)}`);
-      reportClaudeMd(ws.filePath, ws.entries, ws.written, Boolean(args["dry-run"]));
+      reportClaudeMd(ws.filePath, ws.entries, ws.written, preview);
       reportEngineFiles(ws.engineResult);
       if (ws.languageFallbacks.length > 0) {
         p.log.warn(
@@ -256,11 +269,17 @@ export const renderCommand = defineCommand({
     }
 
     const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
-    const anyWritten = result.written || result.workspaces.some((w) => w.written);
+    // In preview mode `written` means "would write" — the engine populates it
+    // with pending changes without touching disk.
+    const anyPending = result.written || result.workspaces.some((w) => w.written);
     const summary = summarize(allEntries);
-    if (args["dry-run"]) {
-      p.outro(`${dim("Dry-run complete")} ${summary}`);
-    } else if (anyWritten) {
+    if (preview) {
+      if (anyPending) {
+        p.outro(`${color.yellow("Preview")} ${summary} ${dim("· corré 'navori render --apply' para escribir")}`);
+      } else {
+        p.outro(`${dim("Up to date")} ${summary} ${dim("· nada que aplicar")}`);
+      }
+    } else if (anyPending) {
       p.outro(`${color.green("Done")} ${summary}`);
     } else {
       p.outro(`${dim("Up to date")} ${summary}`);
@@ -282,15 +301,15 @@ function summarize(entries: AssetPlanEntry[]): string {
   return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
 }
 
-function reportClaudeMd(file: string, entries: AssetPlanEntry[], changed: boolean, dryRun: boolean): void {
+function reportClaudeMd(file: string, entries: AssetPlanEntry[], changed: boolean, preview: boolean): void {
   const lines: string[] = [file];
   for (const e of entries) {
     const sym = renderStatusSymbol(e.status);
     const label = renderStatusLabel(e.status);
     lines.push(`  ${sym} ${e.asset.id}  ${dim("(")}${label}${dim(")")}`);
   }
-  if (changed && !dryRun) lines.push(`  ${dim("→ written")}`);
-  else if (dryRun) lines.push(`  ${dim("→ dry-run, no write")}`);
+  if (preview) lines.push(`  ${dim(changed ? "→ preview (se escribiría)" : "→ sin cambios")}`);
+  else if (changed) lines.push(`  ${dim("→ written")}`);
   else lines.push(`  ${dim("→ no changes")}`);
   p.log.message(lines.join("\n"));
 }

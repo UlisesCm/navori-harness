@@ -376,7 +376,7 @@ function planSettings(cwd: string, config: NavoriConfig, force = false): Setting
     return {
       kind: "skip",
       path,
-      reason: `settings.json no se pudo parsear como JSON: ${(err as Error).message}. Corré 'navori render --force' para regenerar.`,
+      reason: `settings.json no se pudo parsear como JSON: ${(err as Error).message}. Corré 'navori render --force --apply' para regenerar.`,
     };
   }
 
@@ -390,7 +390,7 @@ function planSettings(cwd: string, config: NavoriConfig, force = false): Setting
     return {
       kind: "skip",
       path,
-      reason: "settings.json existe sin `$navori.managed = true`. Corré 'navori init' en modo replace o 'navori render --force' para adoptar.",
+      reason: "settings.json existe sin `$navori.managed = true`. Corré 'navori init' en modo replace o 'navori render --force --apply' para adoptar.",
     };
   }
 
