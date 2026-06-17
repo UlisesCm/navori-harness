@@ -96,8 +96,13 @@ export function renderClaudeEngine(
     });
   }
 
+  // Load enabled plugins once and thread the result through the steps that
+  // need it (settings, scripts, skill injects). Was loaded twice before — once
+  // here via planSettings and again for scripts/skills (issue #10).
+  const enabledPlugins = loadEnabledPlugins(config.plugins).loaded;
+
   // 2. .claude/settings.json
-  const settingsResult = planSettings(cwd, config, force);
+  const settingsResult = planSettings(cwd, config, enabledPlugins, force);
   inspected += 1;
   if (settingsResult.kind === "skip") {
     skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
@@ -238,7 +243,6 @@ export function renderClaudeEngine(
   }
 
   // 7. Plugin scripts (copy + interpolate to .claude/scripts/)
-  const enabledPlugins = loadEnabledPlugins(config.plugins).loaded;
   for (const plugin of enabledPlugins) {
     for (const script of plugin.scriptAssets) {
       inspected += 1;
@@ -356,9 +360,13 @@ type SettingsPlan =
   | { kind: "skip"; path: string; reason: string }
   | { kind: "write"; path: string; content: string; status: RenderStatus };
 
-function planSettings(cwd: string, config: NavoriConfig, force = false): SettingsPlan {
+function planSettings(
+  cwd: string,
+  config: NavoriConfig,
+  plugins: LoadedPlugin[],
+  force = false,
+): SettingsPlan {
   const path = join(cwd, ".claude/settings.json");
-  const plugins = loadEnabledPlugins(config.plugins).loaded;
   const newSettings = buildClaudeSettings(config, plugins);
   const newJson = JSON.stringify(newSettings, null, 2) + "\n";
 
