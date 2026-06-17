@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { z } from "zod";
+import { NavoriError } from "./errors.ts";
 import { bundledPluginManifestPath, getPluginPath, listBundledPluginIds } from "./bundled-assets.ts";
 import { safeRelPath } from "./zod-helpers.ts";
 
@@ -136,20 +137,18 @@ export const KNOWN_PLUGINS: Record<string, string> = {
   cognitive: "@navori/plugin-cognitive",
 };
 
-export class PluginNotFoundError extends Error {
+export class PluginNotFoundError extends NavoriError {
   readonly pluginId: string;
   constructor(pluginId: string) {
-    super(`Unknown plugin: '${pluginId}'`);
-    this.name = "PluginNotFoundError";
+    super("plugin-not-found", `Unknown plugin: '${pluginId}'`);
     this.pluginId = pluginId;
   }
 }
 
-export class PluginManifestError extends Error {
+export class PluginManifestError extends NavoriError {
   readonly issues?: z.ZodIssue[];
   constructor(message: string, issues?: z.ZodIssue[]) {
-    super(message);
-    this.name = "PluginManifestError";
+    super("plugin-manifest-invalid", message);
     this.issues = issues;
   }
 }

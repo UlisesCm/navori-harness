@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # Opt into Node 24 ahead of GitHub's forced switch — silences the
+  # "Node.js 20 actions are deprecated" warnings (matches deploy-website.yml).
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Build first: the e2e suite runs against dist/index.js + bundled assets.
+      - name: Build
+        run: pnpm --filter navori build
+
+      - name: Bundle size guard
+        run: pnpm --filter navori check:size
+
+      - name: Lint
+        run: pnpm --filter navori lint
+
+      # test:coverage runs the full suite AND enforces the lib/ coverage gate.
+      - name: Test + coverage gate
+        run: pnpm --filter navori test:coverage

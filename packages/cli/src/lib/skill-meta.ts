@@ -7,6 +7,8 @@
  * override when the length is justified — the override is loud, not silent.
  */
 
+import { splitFrontmatter, getFrontmatterField } from "./frontmatter.ts";
+
 export const SKILL_TYPE_CAPS = {
   /** Dictates how the agent behaves (e.g. tdd-workflow). Keep it tight. */
   behavior: 200,
@@ -27,18 +29,10 @@ export interface SkillMeta {
   maxWords: number | null;
 }
 
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/;
-
 /** Split a SKILL.md into its frontmatter metadata and its body. */
 export function parseSkillFrontmatter(raw: string): { meta: SkillMeta; body: string } {
-  const m = raw.match(FRONTMATTER_RE);
-  const fm = m ? m[1]! : "";
-  const body = m ? raw.slice(m[0].length) : raw;
-
-  const get = (key: string): string | null => {
-    const line = fm.match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
-    return line ? line[1]!.trim() : null;
-  };
+  const { frontmatter, body } = splitFrontmatter(raw);
+  const get = (key: string): string | null => getFrontmatterField(frontmatter, key);
 
   const typeRaw = get("type");
   const type = typeRaw && typeRaw in SKILL_TYPE_CAPS ? (typeRaw as SkillType) : null;

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "./atomic.ts";
+import { NavoriError } from "./errors.ts";
 import {
   NavoriConfigSchema,
   type NavoriConfig,
@@ -14,11 +15,10 @@ export function writeConfig(path: string, input: NavoriConfigInput): void {
   writeFileAtomic(path, JSON.stringify(validated, null, 2) + "\n");
 }
 
-export class ConfigError extends Error {
+export class ConfigError extends NavoriError {
   readonly issues?: z.ZodIssue[];
   constructor(message: string, issues?: z.ZodIssue[]) {
-    super(message);
-    this.name = "ConfigError";
+    super("config-invalid", message);
     this.issues = issues;
   }
 }

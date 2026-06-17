@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
+import { HomeError } from "./errors.ts";
 
 /**
  * Like `os.homedir()` but validates that the result is a usable absolute path.
@@ -14,7 +15,7 @@ import { isAbsolute } from "node:path";
 export function safeHomedir(): string {
   const home = homedir();
   if (!home || !isAbsolute(home)) {
-    throw new Error(
+    throw new HomeError(
       "Could not determine home directory: HOME env var is empty or not absolute. " +
         "Set HOME explicitly (e.g. 'HOME=/home/runner') before running navori.",
     );

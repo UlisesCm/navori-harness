@@ -10,7 +10,7 @@ import {
   WorkspaceError,
   type WorkspaceConfig,
 } from "../lib/workspace.ts";
-import { brand, dim, kv, color, sym, accent, err as errStyle } from "../lib/style.ts";
+import { brand, dim, kv, color, sym, accent } from "../lib/style.ts";
 
 const initSubCommand = defineCommand({
   meta: {
