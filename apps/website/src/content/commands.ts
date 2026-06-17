@@ -15,106 +15,164 @@ const es: Record<string, CommandDoc> = {
     id: "init",
     title: "init",
     summary:
-      "Inicializa un repo con navori. Detecta el stack, hace 4 preguntas y deja todo listo en un minuto.",
-    usage: "navori init [--preset <name>] [--engines <list>] [--yes]",
+      "Inicializa un repo con navori. Detecta el stack, hace unas preguntas y deja todo listo en un minuto.",
+    usage: "navori init [--recommended] [--yes] [--scan-monorepo] [--pre-commit-hook]",
     flags: [
-      { flag: "--preset <name>", desc: "Preset a usar: pnpm-monorepo, nextjs, nestjs, custom." },
-      { flag: "--engines <list>", desc: "Lista separada por comas: claude,cursor,copilot,agents-md." },
-      { flag: "--yes, -y", desc: "Acepta los defaults sin preguntar (CI-friendly)." },
-      { flag: "--cwd <path>", desc: "Directorio de trabajo. Default: directorio actual." },
+      { flag: "--recommended", desc: "Modo opinado: --yes + habilita plugins recomendados (engram, +gh si es repo GitHub)." },
+      { flag: "--yes, -y", desc: "Acepta todo lo detectado sin preguntar (CI-friendly)." },
+      { flag: "--lang <es|en>", desc: "Idioma del wizard. Default: es." },
+      { flag: "--scan-monorepo", desc: "Si detecta un monorepo, escanea los workspaces y les asigna un preset." },
+      { flag: "--pre-commit-hook", desc: "Opt-in: scaffolda un pre-commit hook que corre 'navori doctor --strict'." },
+      { flag: "--no-render", desc: "Escribe el config pero no renderiza todavía." },
     ],
     example: [
       {
         title: "Interactivo",
-        code: "$ npx navori init\n? Project name › my-app\n? Engines › claude, cursor, agents-md\n? Preset › pnpm-monorepo\n✓ navori.config.json written\n✓ 14 managed files rendered",
+        code: "$ npx navori init\n? Wizard › Español\n→ stack: Next.js · pnpm\n? Preset › nextjs\n✓ navori.config.json\n✓ Done — 5 created",
       },
       {
         title: "Sin prompts (CI)",
-        code: "npx navori init --yes \\\n  --preset pnpm-monorepo \\\n  --engines claude,cursor",
+        code: "npx navori init --recommended --yes",
       },
     ],
     notes: [
       "Si ya existe un .claude/ hecho a mano, init coexiste: solo agrega los bloques con marcadores managed.",
-      "El archivo navori.config.json es la fuente de verdad. Commitealo al repo.",
+      "navori.config.json es la fuente de verdad. Commitealo al repo.",
     ],
   },
   add: {
     id: "add",
     title: "add",
     summary:
-      "Agrega un plugin al proyecto. Resuelve dependencias automáticamente.",
-    usage: "navori add <plugin> [--dry-run]",
+      "Registra un plugin en navori.config.json, o sugiere qué agregar según tu stack.",
+    usage: "navori add <plugin> | navori add --suggest",
     flags: [
-      { flag: "<plugin>", desc: "Nombre del plugin: engram, semgrep, jscpd, acli, gh, cognitive." },
-      { flag: "--dry-run", desc: "Muestra qué cambiaría sin escribir." },
+      { flag: "<plugin>", desc: "Plugin a registrar: engram, semgrep, jscpd, acli, gh, cognitive." },
+      { flag: "--suggest", desc: "Detecta el stack y sugiere preset + plugins (no instala nada)." },
+      { flag: "--yes", desc: "Sin prompts; instala la herramienta externa si hace falta." },
+      { flag: "--skip-install", desc: "Registra el plugin sin instalar su herramienta externa." },
     ],
     example: [
       {
         title: "Agregar engram",
-        code: "$ navori add engram\n→ resolving dependencies\n  ✓ engram@0.4.2\n  ✓ requires: settings.json patch\n  ✓ requires: skill engram-protocol\n✓ plugin engram added · rerun render",
+        code: "$ navori add engram\n✓ Added 'engram' to navori.config.json\nDone — run 'navori render --apply' to apply",
+      },
+      {
+        title: "Sugerencias por stack",
+        code: "$ navori add --suggest\nSugerencias:\n · Plugin engram: memoria persistente entre sesiones — 'navori add engram'",
       },
     ],
     notes: [
-      "add solo modifica navori.config.json. Después tienes que correr render para aplicar.",
+      "add solo modifica navori.config.json. Después corré 'navori render --apply' para aplicar.",
     ],
   },
   render: {
     id: "render",
     title: "render",
     summary:
-      "Reconstruye todos los assets managed desde navori.config.json. Idempotente.",
-    usage: "navori render [--engine <name>] [--check]",
+      "Reconstruye CLAUDE.md y .claude/ desde navori.config.json. Idempotente. Preview por default.",
+    usage: "navori render [--apply] [--force] [--workspace <name>]",
     flags: [
-      { flag: "--engine <name>", desc: "Renderiza solo para un engine." },
-      { flag: "--check", desc: "Verifica que el output coincida con lo esperado sin escribir (CI)." },
+      { flag: "--apply", desc: "Escribe a disco. Sin el flag, render solo hace preview (no toca archivos)." },
+      { flag: "--force", desc: "Regenera settings.json aunque esté corrupto o sin el marcador $navori (respalda el previo)." },
+      { flag: "--workspace <name>", desc: "Renderiza solo un workspace por nombre (monorepo)." },
+      { flag: "--dry-run", desc: "Deprecado: preview ya es el default. Alias explícito." },
     ],
     example: [
       {
-        title: "Render completo",
-        code: "$ navori render\n→ resolving 5 layers\n→ writing managed blocks\n  ✓ .claude/  ·  9 files\n  ✓ .cursor/  ·  3 files\n  ✓ AGENTS.md\n✓ Done in 0.9s",
+        title: "Preview (default)",
+        code: "$ navori render\n  + CLAUDE.md  (created)\n  + .claude/settings.json  (created)\n  + .claude/agents/  (5)\nPreview — 5 created · corré 'navori render --apply' para escribir",
+      },
+      {
+        title: "Aplicar",
+        code: "$ navori render --apply\nDone — 5 created",
       },
     ],
     notes: [
-      "render sobrescribe los bloques managed. El código entre marcadores managed se reemplaza por completo.",
-      "Para no perder ediciones manuales, usá sync en vez de render.",
+      "Preview por default: render no escribe sin --apply. Cero sorpresas en disco.",
+      "Solo regenera el contenido entre marcadores managed. Lo que escribís fuera de ellos nunca se toca.",
     ],
   },
   sync: {
     id: "sync",
     title: "sync",
     summary:
-      "Actualiza solo los bloques managed. Preserva tu código personalizado intacto.",
-    usage: "navori sync [--force]",
+      "Trae cambios del bundle a los bloques managed. Tu código fuera de los markers nunca se pisa.",
+    usage: "navori sync [--interactive] [--apply] [--workspace <name>]",
     flags: [
-      { flag: "--force", desc: "Reconcilia drift sobrescribiendo. Usar con cuidado." },
+      { flag: "--interactive", desc: "Resuelve cada conflicto de CLAUDE.md uno por uno: ves el diff y elegís keep-mine o accept-new." },
+      { flag: "--apply", desc: "Aplica los cambios sin el prompt interactivo." },
+      { flag: "--yes", desc: "Auto-confirma. Falla con exit 1 si hay conflictos (CI gate)." },
+      { flag: "--workspace <name>", desc: "Sincroniza solo un workspace (monorepo)." },
     ],
     example: [
       {
-        title: "Sync seguro",
-        code: "$ navori sync\n→ checking managed markers\n  · 12 unchanged\n  ↑ 2 updated  (.claude/agents/leader.md, AGENTS.md)\n  ! 0 conflicts\n✓ Custom code preserved",
+        title: "Resolución interactiva",
+        code: "$ navori sync --interactive\nConflict CLAUDE.md:idioma-rol\n  - tu edición\n  + versión nueva del render\n? keep mine / accept new",
       },
     ],
     notes: [
-      "sync es el comando recomendado para upgrades de versión. render es solo para regenerar from scratch.",
+      "Si editaste un bloque managed a mano, sync lo detecta (hash drift) y NO lo pisa: lo resolvés vos.",
+      "sync es el comando para upgrades de versión; render --apply es para regenerar.",
     ],
   },
   doctor: {
     id: "doctor",
     title: "doctor",
     summary:
-      "Diagnóstico del proyecto: schema, plugins, drift y conflictos entre engines.",
-    usage: "navori doctor [--json]",
+      "Audit del proyecto: config, plugins, drift, invariants y próximos pasos sugeridos.",
+    usage: "navori doctor [--json] [--strict]",
     flags: [
-      { flag: "--json", desc: "Output estructurado para CI." },
+      { flag: "--json", desc: "Output estructurado para CI (pipeable)." },
+      { flag: "--strict", desc: "Exit 1 cuando hay drift (intended for CI gates)." },
     ],
     example: [
       {
         title: "Diagnóstico",
-        code: "$ navori doctor\n✓ config schema valid\n✓ all plugins resolvable\n✓ no engine conflicts\n! drift: .cursor/rules/navori.mdc edited outside markers\n→ run `navori sync --force` to reconcile",
+        code: "$ navori doctor\nConfig · navori.config.json\nManaged blocks · 5\n! drift: .claude/agents/leader.md editado a mano\nPróximos pasos · corré 'navori sync --interactive'",
       },
     ],
     notes: [
-      "Corre doctor en CI con --json para fallar el build si hay drift no resuelto.",
+      "Corré doctor en CI con --strict para fallar el build si hay drift no resuelto.",
+      "Valida invariants: substrings load-bearing que deben sobrevivir en el output (exit 2 si faltan).",
+    ],
+  },
+  status: {
+    id: "status",
+    title: "status",
+    summary:
+      "Snapshot rápido: config, plugins habilitados, drift y próximos pasos. El '¿cómo quedó esto?' en un comando.",
+    usage: "navori status [--json]",
+    flags: [
+      { flag: "--json", desc: "Output estructurado (pipeable)." },
+    ],
+    example: [
+      {
+        title: "Snapshot",
+        code: "$ navori status\nname · my-app   preset · nextjs\nplugins · engram   drift · 0\nPróximos pasos · Todo al día",
+      },
+    ],
+    notes: [
+      "status es la vista al vuelo; doctor es el audit verboso. Comparten la misma lógica de health-check.",
+    ],
+  },
+  bench: {
+    id: "bench",
+    title: "bench",
+    summary:
+      "Mide render sobre N corridas y reporta p50/p95. Para detectar regresiones locales antes de commitear.",
+    usage: "navori bench [--runs <n>]",
+    flags: [
+      { flag: "--runs <n>", desc: "Número de iteraciones. Default: 20." },
+    ],
+    example: [
+      {
+        title: "Benchmark",
+        code: "$ navori bench --runs 20\nrender (dry-run)\n  min  1.1ms\n  p50  1.3ms\n  p95  1.6ms",
+      },
+    ],
+    notes: [
+      "Complementa NAVORI_BENCH=1, que instrumenta los tiempos de una sola corrida.",
     ],
   },
 };
@@ -124,22 +182,24 @@ const en: Record<string, CommandDoc> = {
     id: "init",
     title: "init",
     summary:
-      "Bootstrap a repo with navori. Detects the stack, asks 4 questions, and leaves everything ready in a minute.",
-    usage: "navori init [--preset <name>] [--engines <list>] [--yes]",
+      "Bootstrap a repo with navori. Detects the stack, asks a few questions, and leaves everything ready in a minute.",
+    usage: "navori init [--recommended] [--yes] [--scan-monorepo] [--pre-commit-hook]",
     flags: [
-      { flag: "--preset <name>", desc: "Preset to use: pnpm-monorepo, nextjs, nestjs, custom." },
-      { flag: "--engines <list>", desc: "Comma-separated list: claude,cursor,copilot,agents-md." },
-      { flag: "--yes, -y", desc: "Accept defaults without prompting (CI-friendly)." },
-      { flag: "--cwd <path>", desc: "Working directory. Default: current directory." },
+      { flag: "--recommended", desc: "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh on GitHub repos)." },
+      { flag: "--yes, -y", desc: "Accept everything detected without prompting (CI-friendly)." },
+      { flag: "--lang <es|en>", desc: "Wizard language. Default: es." },
+      { flag: "--scan-monorepo", desc: "If a monorepo is detected, scan its workspaces and assign a preset to each." },
+      { flag: "--pre-commit-hook", desc: "Opt-in: scaffold a pre-commit hook that runs 'navori doctor --strict'." },
+      { flag: "--no-render", desc: "Write the config but don't render yet." },
     ],
     example: [
       {
         title: "Interactive",
-        code: "$ npx navori init\n? Project name › my-app\n? Engines › claude, cursor, agents-md\n? Preset › pnpm-monorepo\n✓ navori.config.json written\n✓ 14 managed files rendered",
+        code: "$ npx navori init\n? Wizard › English\n→ stack: Next.js · pnpm\n? Preset › nextjs\n✓ navori.config.json\n✓ Done — 5 created",
       },
       {
         title: "Non-interactive (CI)",
-        code: "npx navori init --yes \\\n  --preset pnpm-monorepo \\\n  --engines claude,cursor",
+        code: "npx navori init --recommended --yes",
       },
     ],
     notes: [
@@ -150,83 +210,139 @@ const en: Record<string, CommandDoc> = {
   add: {
     id: "add",
     title: "add",
-    summary: "Add a plugin to the project. Resolves dependencies automatically.",
-    usage: "navori add <plugin> [--dry-run]",
+    summary: "Register a plugin in navori.config.json, or suggest what to add based on your stack.",
+    usage: "navori add <plugin> | navori add --suggest",
     flags: [
-      { flag: "<plugin>", desc: "Plugin name: engram, semgrep, jscpd, acli, gh, cognitive." },
-      { flag: "--dry-run", desc: "Print what would change without writing." },
+      { flag: "<plugin>", desc: "Plugin to register: engram, semgrep, jscpd, acli, gh, cognitive." },
+      { flag: "--suggest", desc: "Detect the stack and suggest a preset + plugins (installs nothing)." },
+      { flag: "--yes", desc: "No prompts; install the external tool if needed." },
+      { flag: "--skip-install", desc: "Register the plugin without installing its external tool." },
     ],
     example: [
       {
         title: "Add engram",
-        code: "$ navori add engram\n→ resolving dependencies\n  ✓ engram@0.4.2\n  ✓ requires: settings.json patch\n  ✓ requires: skill engram-protocol\n✓ plugin engram added · rerun render",
+        code: "$ navori add engram\n✓ Added 'engram' to navori.config.json\nDone — run 'navori render --apply' to apply",
+      },
+      {
+        title: "Stack suggestions",
+        code: "$ navori add --suggest\nSuggestions:\n · Plugin engram: persistent memory across sessions — 'navori add engram'",
       },
     ],
     notes: [
-      "add only updates navori.config.json. You still need to run render to apply.",
+      "add only updates navori.config.json. Then run 'navori render --apply' to apply.",
     ],
   },
   render: {
     id: "render",
     title: "render",
     summary:
-      "Rebuilds every managed asset from navori.config.json. Idempotent.",
-    usage: "navori render [--engine <name>] [--check]",
+      "Rebuilds CLAUDE.md and .claude/ from navori.config.json. Idempotent. Preview by default.",
+    usage: "navori render [--apply] [--force] [--workspace <name>]",
     flags: [
-      { flag: "--engine <name>", desc: "Render only for one engine." },
-      { flag: "--check", desc: "Verify the output matches expectations without writing (CI)." },
+      { flag: "--apply", desc: "Write to disk. Without it, render only previews (no files touched)." },
+      { flag: "--force", desc: "Regenerate settings.json even if corrupted or missing the $navori marker (backs up the previous one)." },
+      { flag: "--workspace <name>", desc: "Render only one workspace by name (monorepo)." },
+      { flag: "--dry-run", desc: "Deprecated: preview is the default now. Explicit alias." },
     ],
     example: [
       {
-        title: "Full render",
-        code: "$ navori render\n→ resolving 5 layers\n→ writing managed blocks\n  ✓ .claude/  ·  9 files\n  ✓ .cursor/  ·  3 files\n  ✓ AGENTS.md\n✓ Done in 0.9s",
+        title: "Preview (default)",
+        code: "$ navori render\n  + CLAUDE.md  (created)\n  + .claude/settings.json  (created)\n  + .claude/agents/  (5)\nPreview — 5 created · run 'navori render --apply' to write",
+      },
+      {
+        title: "Apply",
+        code: "$ navori render --apply\nDone — 5 created",
       },
     ],
     notes: [
-      "render overwrites managed blocks. Code between managed markers is fully replaced.",
-      "To keep manual edits, use sync instead.",
+      "Preview by default: render writes nothing without --apply. Zero surprises on disk.",
+      "Only regenerates content between managed markers. Anything you write outside them is never touched.",
     ],
   },
   sync: {
     id: "sync",
     title: "sync",
     summary:
-      "Updates only managed blocks. Your custom code is preserved untouched.",
-    usage: "navori sync [--force]",
+      "Pulls bundle changes into the managed blocks. Your code outside the markers is never overwritten.",
+    usage: "navori sync [--interactive] [--apply] [--workspace <name>]",
     flags: [
-      { flag: "--force", desc: "Reconcile drift by overwriting. Use with care." },
+      { flag: "--interactive", desc: "Resolve each CLAUDE.md conflict one by one: see the diff and pick keep-mine or accept-new." },
+      { flag: "--apply", desc: "Apply changes without the interactive prompt." },
+      { flag: "--yes", desc: "Auto-confirm. Exits 1 if there are conflicts (CI gate)." },
+      { flag: "--workspace <name>", desc: "Sync only one workspace (monorepo)." },
     ],
     example: [
       {
-        title: "Safe sync",
-        code: "$ navori sync\n→ checking managed markers\n  · 12 unchanged\n  ↑ 2 updated  (.claude/agents/leader.md, AGENTS.md)\n  ! 0 conflicts\n✓ Custom code preserved",
+        title: "Interactive resolution",
+        code: "$ navori sync --interactive\nConflict CLAUDE.md:idioma-rol\n  - your edit\n  + new rendered version\n? keep mine / accept new",
       },
     ],
     notes: [
-      "sync is the recommended command for version upgrades. render is only for regenerating from scratch.",
+      "If you hand-edited a managed block, sync detects it (hash drift) and won't overwrite — you resolve it.",
+      "sync is for version upgrades; render --apply is for regenerating.",
     ],
   },
   doctor: {
     id: "doctor",
     title: "doctor",
     summary:
-      "Project diagnostics: schema, plugins, drift and cross-engine conflicts.",
-    usage: "navori doctor [--json]",
+      "Project audit: config, plugins, drift, invariants and suggested next steps.",
+    usage: "navori doctor [--json] [--strict]",
     flags: [
-      { flag: "--json", desc: "Structured output for CI." },
+      { flag: "--json", desc: "Structured output for CI (pipeable)." },
+      { flag: "--strict", desc: "Exit 1 when drift is detected (intended for CI gates)." },
     ],
     example: [
       {
         title: "Diagnose",
-        code: "$ navori doctor\n✓ config schema valid\n✓ all plugins resolvable\n✓ no engine conflicts\n! drift: .cursor/rules/navori.mdc edited outside markers\n→ run `navori sync --force` to reconcile",
+        code: "$ navori doctor\nConfig · navori.config.json\nManaged blocks · 5\n! drift: .claude/agents/leader.md edited by hand\nNext steps · run 'navori sync --interactive'",
       },
     ],
     notes: [
-      "Run doctor in CI with --json to fail the build if there's unresolved drift.",
+      "Run doctor in CI with --strict to fail the build on unresolved drift.",
+      "Validates invariants: load-bearing substrings that must survive in the output (exit 2 if missing).",
+    ],
+  },
+  status: {
+    id: "status",
+    title: "status",
+    summary:
+      "Quick snapshot: config, enabled plugins, drift, and next steps. The 'where did this land?' in one command.",
+    usage: "navori status [--json]",
+    flags: [
+      { flag: "--json", desc: "Structured output (pipeable)." },
+    ],
+    example: [
+      {
+        title: "Snapshot",
+        code: "$ navori status\nname · my-app   preset · nextjs\nplugins · engram   drift · 0\nNext steps · All clear",
+      },
+    ],
+    notes: [
+      "status is the at-a-glance view; doctor is the verbose audit. They share the same health-check logic.",
+    ],
+  },
+  bench: {
+    id: "bench",
+    title: "bench",
+    summary:
+      "Times render over N runs and reports p50/p95. Spots local regressions before you commit.",
+    usage: "navori bench [--runs <n>]",
+    flags: [
+      { flag: "--runs <n>", desc: "Number of iterations. Default: 20." },
+    ],
+    example: [
+      {
+        title: "Benchmark",
+        code: "$ navori bench --runs 20\nrender (dry-run)\n  min  1.1ms\n  p50  1.3ms\n  p95  1.6ms",
+      },
+    ],
+    notes: [
+      "Complements NAVORI_BENCH=1, which instruments the timings of a single run.",
     ],
   },
 };
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
 
-export const commandOrder = ["init", "add", "render", "sync", "doctor"] as const;
+export const commandOrder = ["init", "add", "render", "sync", "doctor", "status", "bench"] as const;

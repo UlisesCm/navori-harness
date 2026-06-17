@@ -1,0 +1,204 @@
+---
+import SectionHeader from "../SectionHeader.astro";
+import { useTranslations } from "../../i18n/utils";
+import type { Lang } from "../../i18n/ui";
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+// Layer selector. Reuses the canonical layer names from how.layer*.
+const layers = [
+  { id: "all", label: t("flow.all"), color: "#64748b" },
+  { id: "core", label: t("how.layer1.name"), color: "#0ea5e9" },
+  { id: "preset", label: t("how.layer2.name"), color: "#8b5cf6" },
+  { id: "workspace", label: t("how.layer3.name"), color: "#f59e0b" },
+  { id: "project", label: t("how.layer4.name"), color: "#10b981" },
+];
+
+const colorByLayer: Record<string, string> = {
+  core: "#0ea5e9",
+  preset: "#8b5cf6",
+  workspace: "#f59e0b",
+  project: "#10b981",
+};
+
+// Output tree — each row attributed to the layer that contributes it.
+// Engine (Claude) is the adapter that materializes all of this; not a content layer.
+const output = [
+  {
+    file: "CLAUDE.md",
+    items: [
+      { label: "idioma-rol · formato-respuesta · tipado-fuerte · cierre-sesion", layer: "core" },
+      { label: "engram-protocol", layer: "project" },
+    ],
+  },
+  {
+    file: ".claude/agents/",
+    items: [{ label: "leader · implementer · reviewer · researcher · …", layer: "core" }],
+  },
+  {
+    file: ".claude/skills/",
+    items: [
+      { label: "verify-before-done · loop-back-debug", layer: "core" },
+      { label: "nextjs-app-router · nextjs-data-fetching", layer: "preset" },
+    ],
+  },
+  {
+    file: ".claude/settings.json",
+    items: [
+      { label: "permisos + hooks base", layer: "core" },
+      { label: "hooks de plugins (engram, gh)", layer: "project" },
+    ],
+  },
+  {
+    file: ".claude/hooks/quality-gate-pre-commit.sh",
+    items: [{ label: "qualityGate.fast heredado", layer: "workspace" }],
+  },
+  {
+    file: "progress/",
+    items: [{ label: "current.md · history.md", layer: "core" }],
+  },
+];
+
+const notes = {
+  all: t("flow.hint"),
+  core: t("flow.core.note"),
+  preset: t("flow.preset.note"),
+  workspace: t("flow.workspace.note"),
+  project: t("flow.project.note"),
+};
+---
+
+<section class="py-24 sm:py-28">
+  <div class="container-prose">
+    <SectionHeader
+      eyebrow={t("flow.eyebrow")}
+      title={t("flow.title")}
+      subtitle={t("flow.subtitle")}
+    />
+
+    <div
+      class="flow mt-14 grid gap-6 lg:grid-cols-[260px_1fr] lg:gap-8"
+      data-flow
+      data-active="all"
+      data-notes={JSON.stringify(notes)}
+    >
+      {/* layer selector */}
+      <div class="flex flex-col gap-2">
+        {
+          layers.map((l) => (
+            <button
+              type="button"
+              class="flow-btn flex items-center gap-2.5 rounded-lg border px-4 py-2.5 text-left text-sm font-medium transition-colors"
+              style={`border-color: var(--color-border-soft); --dot: ${l.color};`}
+              data-flow-layer={l.id}
+              aria-pressed={l.id === "all"}
+            >
+              <span
+                class="h-2 w-2 rounded-full"
+                style={`background: ${l.color};`}
+              />
+              {l.label}
+            </button>
+          ))
+        }
+        <p
+          class="mt-3 min-h-[3rem] text-sm leading-relaxed text-slate-600 dark:text-slate-400"
+          data-flow-note
+        >
+          {notes.all}
+        </p>
+      </div>
+
+      {/* output preview */}
+      <div
+        class="rounded-xl border overflow-hidden"
+        style="border-color: var(--color-border-soft);"
+      >
+        <div
+          class="flex items-center justify-between border-b px-4 py-2 text-xs"
+          style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+        >
+          <span class="font-mono text-slate-500 dark:text-slate-400">
+            {t("flow.engineLabel")} .claude/ + CLAUDE.md
+          </span>
+          <span
+            class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+          >
+            output
+          </span>
+        </div>
+        <div
+          class="space-y-4 p-4 sm:p-5 font-mono text-[12px] sm:text-[13px]"
+          style="background: var(--color-night); color: rgb(226 232 240);"
+        >
+          {
+            output.map((group) => (
+              <div>
+                <div class="text-slate-400">{group.file}</div>
+                <ul class="mt-1 space-y-1">
+                  {group.items.map((it) => (
+                    <li
+                      class="flow-item flex items-center justify-between gap-3 rounded border-l-2 bg-white/5 px-3 py-1.5"
+                      style={`border-left-color: ${colorByLayer[it.layer]};`}
+                      data-layer={it.layer}
+                    >
+                      <span class="text-slate-200">{it.label}</span>
+                      <span
+                        class="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-wider"
+                        style={`color: ${colorByLayer[it.layer]}; border: 1px solid ${colorByLayer[it.layer]}55;`}
+                      >
+                        {it.layer}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .flow-item {
+    transition: opacity 0.25s ease;
+  }
+  .flow-item.flow-dim {
+    opacity: 0.2;
+  }
+  .flow-btn[aria-pressed="true"] {
+    background: color-mix(in oklab, var(--dot), transparent 88%);
+    border-color: var(--dot) !important;
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-flow]").forEach((flow) => {
+    const buttons = flow.querySelectorAll<HTMLButtonElement>("[data-flow-layer]");
+    const items = flow.querySelectorAll<HTMLElement>(".flow-item");
+    const note = flow.querySelector<HTMLElement>("[data-flow-note]");
+    const notes: Record<string, string> = JSON.parse(flow.dataset.notes ?? "{}");
+
+    function setActive(layer: string): void {
+      flow.dataset.active = layer;
+      buttons.forEach((b) =>
+        b.setAttribute("aria-pressed", String(b.dataset.flowLayer === layer)),
+      );
+      items.forEach((it) => {
+        const match = layer === "all" || it.dataset.layer === layer;
+        it.classList.toggle("flow-dim", !match);
+      });
+      if (note) note.textContent = notes[layer] ?? "";
+    }
+
+    buttons.forEach((b) =>
+      b.addEventListener("click", () => setActive(b.dataset.flowLayer ?? "all")),
+    );
+  });
+</script>

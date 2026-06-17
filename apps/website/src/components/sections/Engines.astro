@@ -2,6 +2,10 @@
 import SectionHeader from "../SectionHeader.astro";
 import { useTranslations } from "../../i18n/utils";
 import type { Lang } from "../../i18n/ui";
+import claudeSvg from "../../assets/engines/claude.svg?raw";
+import cursorSvg from "../../assets/engines/cursor.svg?raw";
+import copilotSvg from "../../assets/engines/githubcopilot.svg?raw";
+import agentsSvg from "../../assets/engines/agents.svg?raw";
 
 interface Props { lang: Lang }
 const { lang } = Astro.props;
@@ -13,30 +17,41 @@ const engines = [
     path: ".claude/",
     detail: "agents · skills · hooks · settings.json",
     color: "from-sky-400 to-sky-600",
-    status: "v0.1",
+    status: "disponible",
+    logo: claudeSvg,
   },
   {
     name: "Cursor",
     path: ".cursor/rules/",
     detail: ".mdc rules · project context",
     color: "from-violet-400 to-violet-600",
-    status: "v0.2",
+    status: "roadmap",
+    logo: cursorSvg,
   },
   {
     name: "Copilot",
     path: ".github/copilot-instructions.md",
     detail: "workspace instructions",
     color: "from-sky-400 to-violet-500",
-    status: "v0.2",
+    status: "roadmap",
+    logo: copilotSvg,
   },
   {
     name: "AGENTS.md",
     path: "AGENTS.md",
     detail: "engine-agnostic universal spec",
     color: "from-violet-500 to-sky-500",
-    status: "v0.2",
+    status: "roadmap",
+    logo: agentsSvg,
   },
 ];
+
+// Official brand SVGs ship with a baked-in fill; recolor them to inherit the
+// tile's white text and size them consistently.
+const renderLogo = (svg: string): string =>
+  svg
+    .replace(/fill="#[0-9A-Fa-f]+"/, 'fill="currentColor"')
+    .replace("<svg ", '<svg class="h-6 w-6" aria-hidden="true" ');
 ---
 
 <section
@@ -61,11 +76,10 @@ const engines = [
                 class:list={[
                   "h-11 w-11 rounded-lg bg-gradient-to-br",
                   e.color,
-                  "flex items-center justify-center text-white font-mono text-sm font-semibold",
+                  "flex items-center justify-center text-white",
                 ]}
-              >
-                {e.name.charAt(0)}
-              </div>
+                set:html={renderLogo(e.logo)}
+              />
               <span
                 class="rounded-full px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider"
                 style="border:1px solid var(--color-border-soft); color: var(--color-slate-500);"

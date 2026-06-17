@@ -17,11 +17,11 @@ export const ui = {
     "nav.npm": "npm",
     "lang.switchTo": "English",
 
-    "hero.eyebrow": "open source · multi-engine",
+    "hero.eyebrow": "open source · Claude Code",
     "hero.headlineA": "El harness multi-agente",
     "hero.headlineB": "para cualquier repo.",
     "hero.subhead":
-      "Instala SDD, skills y hooks en segundos. Una sola config, todos los engines: Claude Code, Cursor, Copilot, AGENTS.md.",
+      "Harness multi-agente + SDD en segundos: skills, hooks y agents desde una sola config. Hoy para Claude Code; multi-engine (Cursor, Copilot, AGENTS.md) en el roadmap.",
     "hero.cta.primary": "Empezar",
     "hero.cta.secondary": "Ver en GitHub",
     "hero.install.label": "Instalación",
@@ -51,28 +51,44 @@ export const ui = {
     "how.layer3.name": "Workspace",
     "how.layer3.body": "Reglas de toda tu organización compartidas entre repos.",
     "how.layer4.name": "Project",
-    "how.layer4.body": "Lo específico del repo en navori.config.json.",
+    "how.layer4.body": "Lo específico del repo en navori.config.json, incluidos los plugins que habilitás.",
     "how.layer5.name": "Adapters",
-    "how.layer5.body": "Renderizado por engine: Claude, Cursor, Copilot, AGENTS.md.",
+    "how.layer5.body": "Renderizado por engine. Hoy Claude Code; multi-engine en el roadmap.",
     "how.config.label": "navori.config.json",
 
+    "flow.eyebrow": "En vivo",
+    "flow.title": "Mirá qué aporta cada capa",
+    "flow.subtitle":
+      "Hacé click en una capa para resaltar qué parte del harness genera. El engine (Claude) materializa todo en .claude/ + CLAUDE.md.",
+    "flow.all": "Todas",
+    "flow.engineLabel": "Claude engine →",
+    "flow.hint": "Seleccioná una capa para ver su aporte.",
+    "flow.core.note": "Baseline: agents, skills y los bloques de reglas siempre presentes.",
+    "flow.preset.note": "Skills específicas del stack — acá, Next.js.",
+    "flow.workspace.note": "Defaults heredados de tu org: quality gate, branch base.",
+    "flow.project.note": "Lo del repo: los plugins que habilitás (engram) y su protocolo.",
+
     "commands.eyebrow": "Comandos",
-    "commands.title": "Cinco comandos. Todo el ciclo.",
+    "commands.title": "El ciclo completo, comando a comando.",
     "commands.init.desc":
-      "Detecta el stack, hace preguntas claves y deja el repo listo en un minuto.",
+      "Detecta el stack, hace unas preguntas y deja el repo listo en un minuto.",
     "commands.add.desc":
-      "Agrega plugins (engram, semgrep, jscpd, acli, gh, cognitive) con resolución de dependencias.",
+      "Registra plugins (engram, semgrep, jscpd, acli, gh, cognitive) o sugiere según tu stack.",
     "commands.render.desc":
-      "Reconstruye .claude/, .cursor/, AGENTS.md y demás desde el config.",
+      "Reconstruye CLAUDE.md y .claude/ desde el config. Preview por default; --apply escribe.",
     "commands.sync.desc":
-      "Actualiza solo los bloques managed. Tu código personalizado nunca se sobrescribe.",
+      "Actualiza solo los bloques managed. Con --interactive resolvés cada conflicto por bloque.",
     "commands.doctor.desc":
-      "Diagnóstico: detecta drift, plugins rotos y conflictos entre engines.",
+      "Audit: drift, plugins rotos, invariants y próximos pasos sugeridos.",
+    "commands.status.desc":
+      "Snapshot al vuelo: config, plugins, drift y qué hacer ahora.",
+    "commands.bench.desc":
+      "Mide render sobre N corridas y reporta p50/p95. Detecta regresiones locales.",
 
     "engines.eyebrow": "Multi-engine",
-    "engines.title": "Una config. Todos los engines.",
+    "engines.title": "Una config, lista para multi-engine.",
     "engines.subtitle":
-      "navori renderiza la misma fuente de verdad al formato nativo de cada engine.",
+      "Hoy navori renderiza Claude Code (.claude/). El core es engine-agnostic por diseño: Cursor, Copilot y AGENTS.md están en el roadmap.",
 
     "quickstart.eyebrow": "Quickstart",
     "quickstart.title": "De cero a productivo en tres pasos",
@@ -80,10 +96,10 @@ export const ui = {
     "quickstart.step1.body": "Sin instalación global. Usa npx.",
     "quickstart.step2.title": "Inicializa",
     "quickstart.step2.body":
-      "Responde 4 preguntas y obtén navori.config.json + .claude/ listos.",
+      "Responde unas preguntas y obtené navori.config.json + .claude/ listos.",
     "quickstart.step3.title": "Renderiza cuando cambies algo",
     "quickstart.step3.body":
-      "Edita el config, corre render y commitea. Todo idempotente.",
+      "Edita el config, corré 'render --apply' y commitea. Todo idempotente.",
 
     "faq.eyebrow": "Preguntas frecuentes",
     "faq.title": "Lo que probablemente te estás preguntando",
@@ -92,13 +108,13 @@ export const ui = {
       "navori coexiste. El comando init detecta tu harness existente y solo agrega bloques managed con marcadores. Tu código personalizado queda intacto.",
     "faq.q2": "¿Cuándo sale soporte para Cursor y Copilot?",
     "faq.a2":
-      "El core ya es engine-agnostic. v0.1 renderiza .claude/. v0.2 agrega adapters para Cursor, Copilot y AGENTS.md.",
+      "El core ya es engine-agnostic por diseño. Hoy navori renderiza .claude/ (Claude Code). Los adapters para Cursor, Copilot y AGENTS.md están en el roadmap, sin fecha comprometida.",
     "faq.q3": "¿Por qué un monorepo y no un solo paquete?",
     "faq.a3":
       "@navori/core es engine-agnostic y publicable como librería. @navori/cli es el binario. Los plugins viven en @navori/plugin-*. Mantiene límites claros.",
     "faq.q4": "¿Necesito Claude Code para usar navori?",
     "faq.a4":
-      "No. navori es un scaffolder. Genera config para Claude Code (entre otros), pero la herramienta corre en cualquier Node 20+.",
+      "No. navori es un scaffolder. Genera el harness para Claude Code, pero la herramienta corre en cualquier Node 20+.",
     "faq.q5": "¿Cómo actualizo mi proyecto cuando sale una versión nueva?",
     "faq.a5":
       "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código.",
@@ -116,11 +132,11 @@ export const ui = {
     "nav.npm": "npm",
     "lang.switchTo": "Español",
 
-    "hero.eyebrow": "open source · multi-engine",
+    "hero.eyebrow": "open source · Claude Code",
     "hero.headlineA": "The multi-agent harness",
     "hero.headlineB": "for any repo.",
     "hero.subhead":
-      "Drop-in SDD, skills, and hooks in seconds. One config, every engine: Claude Code, Cursor, Copilot, AGENTS.md.",
+      "Multi-agent harness + SDD in seconds: skills, hooks and agents from one config. Claude Code today; multi-engine (Cursor, Copilot, AGENTS.md) on the roadmap.",
     "hero.cta.primary": "Get started",
     "hero.cta.secondary": "View on GitHub",
     "hero.install.label": "Install",
@@ -150,29 +166,45 @@ export const ui = {
     "how.layer3.name": "Workspace",
     "how.layer3.body": "Org-wide rules shared across repos.",
     "how.layer4.name": "Project",
-    "how.layer4.body": "What's unique to this repo in navori.config.json.",
+    "how.layer4.body": "What's unique to this repo in navori.config.json, including the plugins you enable.",
     "how.layer5.name": "Adapters",
     "how.layer5.body":
-      "Per-engine rendering: Claude, Cursor, Copilot, AGENTS.md.",
+      "Per-engine rendering. Claude Code today; multi-engine on the roadmap.",
     "how.config.label": "navori.config.json",
 
+    "flow.eyebrow": "Live",
+    "flow.title": "See what each layer contributes",
+    "flow.subtitle":
+      "Click a layer to highlight the part of the harness it generates. The engine (Claude) materializes everything into .claude/ + CLAUDE.md.",
+    "flow.all": "All",
+    "flow.engineLabel": "Claude engine →",
+    "flow.hint": "Pick a layer to see what it adds.",
+    "flow.core.note": "Baseline: agents, skills and the rule blocks that are always present.",
+    "flow.preset.note": "Stack-specific skills — here, Next.js.",
+    "flow.workspace.note": "Defaults inherited from your org: quality gate, branch base.",
+    "flow.project.note": "Repo-level: the plugins you enable (engram) and its protocol.",
+
     "commands.eyebrow": "Commands",
-    "commands.title": "Five commands. Whole lifecycle.",
+    "commands.title": "The whole lifecycle, command by command.",
     "commands.init.desc":
-      "Detects the stack, asks a few targeted questions, and leaves the repo ready in a minute.",
+      "Detects the stack, asks a few questions, and leaves the repo ready in a minute.",
     "commands.add.desc":
-      "Adds plugins (engram, semgrep, jscpd, acli, gh, cognitive) with dependency resolution.",
+      "Registers plugins (engram, semgrep, jscpd, acli, gh, cognitive) or suggests based on your stack.",
     "commands.render.desc":
-      "Rebuilds .claude/, .cursor/, AGENTS.md and friends from the config.",
+      "Rebuilds CLAUDE.md and .claude/ from the config. Preview by default; --apply writes.",
     "commands.sync.desc":
-      "Updates only managed blocks. Your custom code is never overwritten.",
+      "Updates only managed blocks. With --interactive you resolve each conflict block by block.",
     "commands.doctor.desc":
-      "Diagnostics: drift, broken plugins, cross-engine conflicts.",
+      "Audit: drift, broken plugins, invariants and suggested next steps.",
+    "commands.status.desc":
+      "At-a-glance snapshot: config, plugins, drift, and what to do next.",
+    "commands.bench.desc":
+      "Times render over N runs and reports p50/p95. Spots local regressions.",
 
     "engines.eyebrow": "Multi-engine",
-    "engines.title": "One config. Every engine.",
+    "engines.title": "One config, ready for multi-engine.",
     "engines.subtitle":
-      "navori renders the same source of truth into each engine's native format.",
+      "Today navori renders Claude Code (.claude/). The core is engine-agnostic by design: Cursor, Copilot and AGENTS.md are on the roadmap.",
 
     "quickstart.eyebrow": "Quickstart",
     "quickstart.title": "From zero to productive in three steps",
@@ -180,10 +212,10 @@ export const ui = {
     "quickstart.step1.body": "No global install needed. Use npx.",
     "quickstart.step2.title": "Initialize",
     "quickstart.step2.body":
-      "Answer 4 prompts and get navori.config.json + .claude/ ready.",
+      "Answer a few prompts and get navori.config.json + .claude/ ready.",
     "quickstart.step3.title": "Render whenever you change something",
     "quickstart.step3.body":
-      "Edit the config, run render, commit. Fully idempotent.",
+      "Edit the config, run render --apply, commit. Fully idempotent.",
 
     "faq.eyebrow": "FAQ",
     "faq.title": "What you're probably wondering",
@@ -192,13 +224,13 @@ export const ui = {
       "navori coexists. init detects your existing harness and only adds managed blocks marked with delimiters. Your custom code stays put.",
     "faq.q2": "When do Cursor and Copilot ship?",
     "faq.a2":
-      "The core is already engine-agnostic. v0.1 renders .claude/. v0.2 adds adapters for Cursor, Copilot, and AGENTS.md.",
+      "The core is engine-agnostic by design. Today navori renders .claude/ (Claude Code). Adapters for Cursor, Copilot and AGENTS.md are on the roadmap, with no committed date.",
     "faq.q3": "Why a monorepo and not a single package?",
     "faq.a3":
       "@navori/core is engine-agnostic and publishable as a library. @navori/cli is the binary. Plugins live in @navori/plugin-*. Clean boundaries.",
     "faq.q4": "Do I need Claude Code to use navori?",
     "faq.a4":
-      "No. navori is a scaffolder. It generates config for Claude Code (and others), but the tool runs on any Node 20+.",
+      "No. navori is a scaffolder. It generates the harness for Claude Code, but the tool runs on any Node 20+.",
     "faq.q5": "How do I upgrade my project when a new version ships?",
     "faq.a5":
       "npx navori@latest sync. It refreshes only managed blocks without touching your code.",
