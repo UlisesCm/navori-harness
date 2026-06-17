@@ -317,6 +317,17 @@ describe("CLI e2e — happy paths", () => {
     expect(report.nextSteps).toEqual(expect.arrayContaining([expect.stringMatching(/al día/i)]));
   });
 
+  it("bench reports percentiles over N runs (spec 0003 §3.5.4)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    const r = runCli(["bench", "--runs", "3", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).toMatch(/p50/);
+    expect(r.combined).toMatch(/p95/);
+  });
+
   it("sync --apply --yes fails with exit 1 when user modified a managed block", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);

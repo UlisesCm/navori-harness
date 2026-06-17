@@ -15,6 +15,7 @@ import { backupCommand } from "./commands/backup.ts";
 import { migrationsCommand } from "./commands/migrations.ts";
 import { scanCommand } from "./commands/scan.ts";
 import { statusCommand } from "./commands/status.ts";
+import { benchCommand } from "./commands/bench.ts";
 
 function readVersion(): string {
   // dist/index.js → ../package.json (both in dev and published layouts)
@@ -49,6 +50,7 @@ const main = defineCommand({
     scan: scanCommand,
     doctor: doctorCommand,
     status: statusCommand,
+    bench: benchCommand,
     workspace: workspaceCommand,
     ticket: ticketCommand,
     backup: backupCommand,
