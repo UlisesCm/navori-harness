@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { getCoreRoot } from "./bundled-assets.ts";
 import { safeRelPath } from "./zod-helpers.ts";
+import { NavoriError } from "./errors.ts";
 
 /**
  * Preset definition — describes EXTRA managed assets a stack-specific preset
@@ -55,11 +56,10 @@ export type PresetDefinition = z.infer<typeof PresetDefinitionSchema>;
 export type PresetExtraManaged = z.infer<typeof PresetExtraManagedSchema>;
 export type PresetExtraFile = z.infer<typeof PresetExtraFileSchema>;
 
-export class PresetError extends Error {
+export class PresetError extends NavoriError {
   readonly issues?: z.ZodIssue[];
   constructor(message: string, issues?: z.ZodIssue[]) {
-    super(message);
-    this.name = "PresetError";
+    super("preset-invalid", message);
     this.issues = issues;
   }
 }

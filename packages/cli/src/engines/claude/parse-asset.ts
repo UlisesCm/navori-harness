@@ -1,5 +1,6 @@
 import type { CommentStyle } from "../../lib/marker.ts";
 import { splitFrontmatter, parseFrontmatterFields } from "../../lib/frontmatter.ts";
+import { NavoriError } from "../../lib/errors.ts";
 
 /**
  * A bundled asset (agent, skill, hook) parsed into its three zones:
@@ -22,10 +23,9 @@ const SENTINEL_BY_STYLE: Record<CommentStyle, string> = {
   shell: "# navori:user-section",
 };
 
-export class AssetParseError extends Error {
+export class AssetParseError extends NavoriError {
   constructor(message: string) {
-    super(message);
-    this.name = "AssetParseError";
+    super("asset-parse-error", message);
   }
 }
 

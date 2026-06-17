@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { writeFileAtomic } from "./atomic.ts";
 import { safeHomedir } from "./home.ts";
+import { NavoriError } from "./errors.ts";
 
 function workspacesRootLazy(): string {
   return join(safeHomedir(), ".navori", "workspaces");
@@ -51,11 +52,10 @@ export type WorkspaceConfig = z.infer<typeof WorkspaceConfigSchema>;
 export type WorkspaceRepoEntry = z.infer<typeof RepoEntrySchema>;
 export type WorkspaceDefaults = z.infer<typeof WorkspaceDefaultsSchema>;
 
-export class WorkspaceError extends Error {
+export class WorkspaceError extends NavoriError {
   readonly issues?: z.ZodIssue[];
   constructor(message: string, issues?: z.ZodIssue[]) {
-    super(message);
-    this.name = "WorkspaceError";
+    super("workspace-invalid", message);
     this.issues = issues;
   }
 }

@@ -15,6 +15,7 @@ import { renderManagedFile } from "./render-managed-file.ts";
 import { interpolate } from "./interpolate.ts";
 import { benchMark } from "../../lib/bench.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
+import { log } from "../../lib/log.ts";
 
 /**
  * Claude engine adapter — entry point. Orchestrates the full render of a
@@ -317,6 +318,7 @@ export function renderClaudeEngine(
     for (const p of pending) {
       mkdirSync(dirname(p.path), { recursive: true });
       writeFileAtomic(p.path, p.content);
+      log.debug("wrote", { path: relative(cwd, p.path), status: p.status });
       if (p.chmodExec) {
         try {
           chmodSync(p.path, 0o755);

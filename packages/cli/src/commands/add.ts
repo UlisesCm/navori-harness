@@ -11,6 +11,7 @@ import {
   listKnownPluginIds,
 } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
+import { InstallError } from "../lib/errors.ts";
 import { brand, dim, accent, color } from "../lib/style.ts";
 
 type Platform = "darwin" | "linux" | "win32";
@@ -44,17 +45,17 @@ function runShellCommand(cmd: string): void {
   });
   // spawnSync sets result.error with the killed signal when timeout fires
   if (result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
-    throw new Error(
+    throw new InstallError(
       `Install command timed out after ${INSTALL_TIMEOUT_MS / 1000}s. ` +
         `It may be waiting for interactive input (run from a TTY) or hung. ` +
         `Install the tool manually and re-run navori with --skip-install.`,
     );
   }
   if (result.signal) {
-    throw new Error(`Command killed by signal ${result.signal}`);
+    throw new InstallError(`Command killed by signal ${result.signal}`);
   }
   if (result.status !== 0) {
-    throw new Error(`Command exited with status ${result.status}`);
+    throw new InstallError(`Command exited with status ${result.status}`);
   }
 }
 

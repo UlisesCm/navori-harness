@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, renameSync,
 import { join, resolve } from "node:path";
 import { writeFileAtomic } from "./atomic.ts";
 import { workspaceDirectory, loadWorkspace } from "./workspace.ts";
+import { NavoriError } from "./errors.ts";
 
 export interface TicketSummary {
   id: string;
@@ -13,7 +14,11 @@ export interface TicketSummary {
   state: "active" | "archive";
 }
 
-export class TicketError extends Error {}
+export class TicketError extends NavoriError {
+  constructor(message: string) {
+    super("ticket-error", message);
+  }
+}
 
 export function ticketsDir(workspaceName: string): string {
   const ws = loadWorkspace(workspaceName);
