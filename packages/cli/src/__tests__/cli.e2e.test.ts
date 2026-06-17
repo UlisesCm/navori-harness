@@ -317,6 +317,28 @@ describe("CLI e2e — happy paths", () => {
     expect(report.nextSteps).toEqual(expect.arrayContaining([expect.stringMatching(/al día/i)]));
   });
 
+  it("add --suggest recommends engram when not enabled (spec 0003 §3.5.2)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    // --yes (not --recommended) → engram is NOT enabled.
+    runCli(["init", "--yes", "--no-render", "--cwd", repo]);
+
+    const r = runCli(["add", "--suggest", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).toMatch(/engram/);
+  });
+
+  it("add --suggest is quiet when engram is already enabled", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    // --recommended enables engram; empty tmp repo → no stack → preset stays custom.
+    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+
+    const r = runCli(["add", "--suggest", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).toContain("Nada que sugerir");
+  });
+
   it("bench reports percentiles over N runs (spec 0003 §3.5.4)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);

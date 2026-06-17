@@ -12,7 +12,8 @@ import {
 } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
 import { InstallError } from "../lib/errors.ts";
-import { brand, dim, accent, color } from "../lib/style.ts";
+import { detectProject } from "../lib/detect.ts";
+import { brand, dim, accent, color, sym } from "../lib/style.ts";
 
 type Platform = "darwin" | "linux" | "win32";
 
@@ -67,8 +68,12 @@ export const addCommand = defineCommand({
   args: {
     plugin: {
       type: "positional",
-      description: "Plugin id to add (e.g. engram)",
-      required: true,
+      description: "Plugin id to add (e.g. engram). Omit with --suggest.",
+      required: false,
+    },
+    suggest: {
+      type: "boolean",
+      description: "Detect the stack and suggest a preset + plugins (does not install anything).",
     },
     cwd: {
       type: "string",
@@ -87,7 +92,15 @@ export const addCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const configPath = `${cwd}/navori.config.json`;
 
-    p.intro(brand(`add ${accent(args.plugin)}`));
+    if (args.suggest) {
+      p.intro(brand("add --suggest"));
+    } else if (!args.plugin) {
+      p.intro(brand("add"));
+      p.cancel("Pasá un plugin id (ej. 'navori add engram') o usá --suggest para ver recomendaciones.");
+      process.exit(1);
+    } else {
+      p.intro(brand(`add ${accent(args.plugin)}`));
+    }
 
     if (!existsSync(cwd)) {
       p.cancel(`Directory not found: ${cwd}`);
@@ -99,12 +112,20 @@ export const addCommand = defineCommand({
       process.exit(1);
     }
 
+    if (args.suggest) {
+      printSuggestions(cwd, configPath);
+      return;
+    }
+
+    // Validated above: without --suggest a missing plugin already exited.
+    const pluginId = args.plugin as string;
+
     let plugin;
     try {
-      plugin = loadPlugin(args.plugin);
+      plugin = loadPlugin(pluginId);
     } catch (err) {
       if (err instanceof PluginNotFoundError) {
-        p.cancel(`Unknown plugin '${args.plugin}'. Known: ${listKnownPluginIds().join(", ") || "(none)"}`);
+        p.cancel(`Unknown plugin '${pluginId}'. Known: ${listKnownPluginIds().join(", ") || "(none)"}`);
         process.exit(1);
       }
       if (err instanceof PluginManifestError) {
@@ -192,3 +213,44 @@ export const addCommand = defineCommand({
     p.outro(`${color.green("Done")} ${dim("— run 'navori render --apply' to apply")}`);
   },
 });
+
+/**
+ * Spec 0003 §3.5.2 — suggest (never install) based on the detected stack:
+ * the preset that fits if it differs from the current one, and engram if not
+ * enabled. Skills tied to a stack (mantine, nextjs…) live in presets, so the
+ * actionable suggestion is the preset, not a plugin.
+ */
+function printSuggestions(cwd: string, configPath: string): void {
+  const detected = detectProject(cwd);
+  const config = readConfig(configPath);
+  const lines: string[] = [];
+
+  const sp = detected.suggestedPreset;
+  if (sp && sp !== "custom" && sp !== config.preset) {
+    const what = detected.stack.ui ?? detected.stack.framework ?? detected.stack.language;
+    lines.push(
+      `${color.cyan(sym.bullet)} Preset: detecté ${accent(what)} → sugerido ${accent(sp)} ` +
+        `${dim(`(actual: ${config.preset})`)} — cambialo con 'navori configure' o editá navori.config.json.`,
+    );
+  }
+
+  const enabled = new Set(
+    Object.entries(config.plugins ?? {})
+      .filter(([, v]) => v.enabled === true)
+      .map(([k]) => k),
+  );
+  if (!enabled.has("engram")) {
+    lines.push(
+      `${color.cyan(sym.bullet)} Plugin ${accent("engram")}: memoria persistente entre sesiones — 'navori add engram'.`,
+    );
+  }
+
+  if (lines.length === 0) {
+    p.outro(
+      `${color.green("Nada que sugerir")} ${dim("— el preset matchea el stack y engram ya está habilitado.")}`,
+    );
+    return;
+  }
+  p.note(lines.join("\n"), "Sugerencias");
+  p.outro(dim("Sugerencias, no aplicadas — corré 'navori add <id>' o 'navori configure'."));
+}
