@@ -10,6 +10,7 @@ import {
 } from "../engines/claude/index.ts";
 import { renderStatusSymbol, renderStatusLabel, dim, color, brand } from "../lib/style.ts";
 import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
+import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
 
 export interface WorkspaceRenderResult {
   /** Workspace path relative to the repo root (e.g. "apps/backend"). */
@@ -89,6 +90,7 @@ export function runRender(
   }
 
   const config = readConfig(configPath);
+  benchMark("loadConfig");
 
   // --workspace filter path: skip root, render only the matching workspace.
   if (workspaceFilter) {
@@ -209,6 +211,7 @@ export const renderCommand = defineCommand({
     },
   },
   async run({ args }) {
+    benchStart();
     const cwd = resolve(args.cwd ?? process.cwd());
 
     p.intro(brand("render"));
@@ -284,6 +287,8 @@ export const renderCommand = defineCommand({
     } else {
       p.outro(`${dim("Up to date")} ${summary}`);
     }
+
+    benchReport();
   },
 });
 
