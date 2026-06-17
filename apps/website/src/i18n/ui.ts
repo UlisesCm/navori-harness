@@ -51,7 +51,7 @@ export const ui = {
     "how.layer3.name": "Workspace",
     "how.layer3.body": "Reglas de toda tu organización compartidas entre repos.",
     "how.layer4.name": "Project",
-    "how.layer4.body": "Lo específico del repo en navori.config.json.",
+    "how.layer4.body": "Lo específico del repo en navori.config.json, incluidos los plugins que habilitás.",
     "how.layer5.name": "Adapters",
     "how.layer5.body": "Renderizado por engine. Hoy Claude Code; multi-engine en el roadmap.",
     "how.config.label": "navori.config.json",
@@ -154,7 +154,7 @@ export const ui = {
     "how.layer3.name": "Workspace",
     "how.layer3.body": "Org-wide rules shared across repos.",
     "how.layer4.name": "Project",
-    "how.layer4.body": "What's unique to this repo in navori.config.json.",
+    "how.layer4.body": "What's unique to this repo in navori.config.json, including the plugins you enable.",
     "how.layer5.name": "Adapters",
     "how.layer5.body":
       "Per-engine rendering. Claude Code today; multi-engine on the roadmap.",

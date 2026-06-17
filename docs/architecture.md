@@ -7,29 +7,36 @@
 
 ## 1. Modelo de capas — de dónde sale el contenido
 
-La configuración resuelve en cascada: cada capa agrega o sobrescribe sobre la
-anterior. El engine es la última capa y hoy solo renderiza a Claude Code,
-aunque el core es engine-agnostic por diseño.
+Las 5 capas en cascada (decisión de diseño del proyecto): cada una compone
+sobre la anterior. `navori.config.json` es la fuente de verdad checked-in y
+materializa la **capa 4 (Project config)**: declara qué preset usar, de qué
+workspace heredar y qué **plugins** habilitar. Los plugins son addons opt-in
+*dentro* del Project config — no una capa aparte. La capa 5 (Engine adapters)
+renderiza todo; hoy solo Claude Code, aunque el core es engine-agnostic por
+diseño. (En monorepos, `monorepo.workspaces[]` aplica un override por app
+dentro de la capa Project.)
 
 ```mermaid
 flowchart TD
-    CFG["navori.config.json<br/>source of truth (checked-in)"]
-    CORE["Capa 1 · Core baseline<br/>agents, skills, managed blocks"]
+    CORE["Capa 1 · Core<br/>baseline: agents, skills, managed blocks"]
     PRESET["Capa 2 · Preset (por stack)<br/>nextjs / nestjs / medusa / astro / mantine"]
-    PLUGINS["Capa 3 · Plugins (opt-in)<br/>engram / gh / jscpd / semgrep / acli / cognitive"]
-    WS["Capa 4 · Workspace override<br/>(solo monorepo: preset/qualityGate por app)"]
-    ENGINE["Capa 5 · Engine adapter<br/>Claude (.claude/) — agnostico por diseno"]
+    WS["Capa 3 · Workspace<br/>defaults compartidos por la org ('workspace init')"]
+    PROJ["Capa 4 · Project config<br/>navori.config.json del repo + plugins opt-in"]
+    ENGINE["Capa 5 · Engine adapters<br/>Claude (.claude/) hoy; multi-engine en roadmap"]
     OUT["CLAUDE.md + .claude/ + progress/"]
 
-    CFG --> CORE --> PRESET --> PLUGINS --> WS --> ENGINE --> OUT
+    CORE --> PRESET --> WS --> PROJ --> ENGINE --> OUT
 
-    click CFG "../packages/cli/src/lib/schema.ts" "Config schema (Zod)"
     click CORE "../packages/core/core-assets" "Core assets"
     click PRESET "../packages/core/core-assets/presets" "Presets"
-    click PLUGINS "../packages/plugins" "Plugins"
-    click WS "../packages/cli/src/lib/monorepo.ts" "Monorepo / workspace"
+    click WS "../packages/cli/src/lib/workspace.ts" "Workspace defaults"
+    click PROJ "../packages/cli/src/lib/schema.ts" "Config schema (Zod)"
     click ENGINE "../packages/cli/src/engines/claude/index.ts" "Claude engine"
 ```
+
+> Los **plugins** (engram / gh / jscpd / semgrep / acli / cognitive) se declaran
+> en la capa Project config y el render los aplica junto a core + preset — ver
+> el pipeline abajo. [packages/plugins/](../packages/plugins)
 
 ## 2. Pipeline de render — `navori render [--apply]`
 
