@@ -13,8 +13,17 @@ cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null || true)
 
 case "$cmd" in
   'git commit'*|'git push'*)
-    echo "[navori] running quality-gate fast: {{qualityGate.fast}}" >&2
-    {{qualityGate.fast}} || {
+    gate="{{qualityGate.fast}}"
+    # Defensive: skip cleanly (exit 0) when the gate's runtime isn't on PATH —
+    # e.g. a Nix/nvm shell that hasn't loaded the project env. Never block a
+    # commit just because the tool is missing from THIS shell.
+    gate_bin="${gate%% *}"
+    if ! command -v "$gate_bin" >/dev/null 2>&1; then
+      echo "[navori] '$gate_bin' no está en PATH — skip quality-gate (¿shell sin el entorno del proyecto?)" >&2
+      exit 0
+    fi
+    echo "[navori] running quality-gate fast: $gate" >&2
+    eval "$gate" || {
       echo "[navori] quality-gate fast failed. Commit/push aborted." >&2
       exit 2
     }
