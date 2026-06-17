@@ -302,6 +302,21 @@ describe("CLI e2e — happy paths", () => {
     expect(after).toContain("USER-EDIT — Tu único trabajo es");
   });
 
+  it("status reports a clean snapshot after init (spec 0003 §3.5.3)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    const r = runCli(["status", "--json", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    const report = JSON.parse(r.stdout);
+    expect(report.ok).toBe(true);
+    expect(report.claudeMdExists).toBe(true);
+    expect(report.enabledPlugins).toContain("engram");
+    expect(report.drift).toBe(0);
+    expect(report.nextSteps).toEqual(expect.arrayContaining([expect.stringMatching(/al día/i)]));
+  });
+
   it("sync --apply --yes fails with exit 1 when user modified a managed block", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
