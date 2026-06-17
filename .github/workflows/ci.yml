@@ -33,5 +33,6 @@ jobs:
       - name: Lint
         run: pnpm --filter navori lint
 
-      - name: Test
-        run: pnpm --filter navori test
+      # test:coverage runs the full suite AND enforces the lib/ coverage gate.
+      - name: Test + coverage gate
+        run: pnpm --filter navori test:coverage
