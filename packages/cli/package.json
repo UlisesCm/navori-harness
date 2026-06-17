@@ -33,6 +33,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src",
+    "check:size": "node scripts/check-bundle-size.mjs",
     "prepack": "pnpm build"
   },
   "dependencies": {

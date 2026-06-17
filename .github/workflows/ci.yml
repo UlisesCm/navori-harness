@@ -30,6 +30,9 @@ jobs:
       - name: Build
         run: pnpm --filter navori build
 
+      - name: Bundle size guard
+        run: pnpm --filter navori check:size
+
       - name: Lint
         run: pnpm --filter navori lint
 
