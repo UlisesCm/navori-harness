@@ -254,6 +254,31 @@ describe("CLI e2e — happy paths", () => {
     expect(existsSync(join(repo, "CLAUDE.md"))).toBe(true);
   });
 
+  it("init --pre-commit-hook scaffolds a doctor --strict git hook (spec 0003 §3.1.7)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    spawnSync("git", ["init"], { cwd: repo, stdio: "ignore" });
+
+    const r = runCli(["init", "--recommended", "--pre-commit-hook", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const hookPath = join(repo, ".git/hooks/pre-commit");
+    expect(existsSync(hookPath)).toBe(true);
+    const body = readFileSync(hookPath, "utf-8");
+    expect(body).toContain("navori doctor --strict");
+    expect(body).toContain("--no-verify");
+  });
+
+  it("init --recommended does not scaffold a pre-commit hook without the flag (opt-in)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    spawnSync("git", ["init"], { cwd: repo, stdio: "ignore" });
+
+    const r = runCli(["init", "--recommended", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(existsSync(join(repo, ".git/hooks/pre-commit"))).toBe(false);
+  });
+
   it("sync --apply --yes fails with exit 1 when user edited a .claude/ agent (P0-fix B2)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);

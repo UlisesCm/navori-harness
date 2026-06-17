@@ -98,6 +98,9 @@ interface Strings {
   doneSkippedRender: string;
   doneRunLater: string;
   harnessReady: string;
+  preCommitHookPrompt: string;
+  preCommitHookWritten: (path: string) => string;
+  preCommitHookExists: (path: string) => string;
 
   // Errors / status
   dirNotFound: (dir: string) => string;
@@ -212,6 +215,10 @@ const ES: Strings = {
   doneSkippedRender: "Listo (skipeé el render)",
   doneRunLater: "Listo (corré 'navori render --apply' cuando quieras)",
   harnessReady: "Tu harness está listo",
+  preCommitHookPrompt: "¿Scaffoldear un pre-commit hook que corra 'navori doctor --strict'? (opt-in)",
+  preCommitHookWritten: (path) =>
+    `Pre-commit hook escrito en ${path} — saltealo con 'git commit --no-verify'`,
+  preCommitHookExists: (path) => `Ya existe un pre-commit hook en ${path} — no lo piso`,
 
   dirNotFound: (dir) => `Directorio no encontrado: ${dir}`,
   configExists: (path) => `navori.config.json ya existe en ${path}.`,
@@ -325,6 +332,10 @@ const EN: Strings = {
   doneSkippedRender: "Done (skipped render)",
   doneRunLater: "Done (run 'navori render --apply' when ready)",
   harnessReady: "Your harness is ready",
+  preCommitHookPrompt: "Scaffold a pre-commit hook that runs 'navori doctor --strict'? (opt-in)",
+  preCommitHookWritten: (path) =>
+    `Pre-commit hook written to ${path} — bypass with 'git commit --no-verify'`,
+  preCommitHookExists: (path) => `A pre-commit hook already exists at ${path} — leaving it alone`,
 
   dirNotFound: (dir) => `Directory not found: ${dir}`,
   configExists: (path) => `navori.config.json already exists at ${path}.`,
