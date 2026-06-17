@@ -56,6 +56,18 @@ export const ui = {
     "how.layer5.body": "Renderizado por engine. Hoy Claude Code; multi-engine en el roadmap.",
     "how.config.label": "navori.config.json",
 
+    "flow.eyebrow": "En vivo",
+    "flow.title": "Mirá qué aporta cada capa",
+    "flow.subtitle":
+      "Hacé click en una capa para resaltar qué parte del harness genera. El engine (Claude) materializa todo en .claude/ + CLAUDE.md.",
+    "flow.all": "Todas",
+    "flow.engineLabel": "Claude engine →",
+    "flow.hint": "Seleccioná una capa para ver su aporte.",
+    "flow.core.note": "Baseline: agents, skills y los bloques de reglas siempre presentes.",
+    "flow.preset.note": "Skills específicas del stack — acá, Next.js.",
+    "flow.workspace.note": "Defaults heredados de tu org: quality gate, branch base.",
+    "flow.project.note": "Lo del repo: los plugins que habilitás (engram) y su protocolo.",
+
     "commands.eyebrow": "Comandos",
     "commands.title": "El ciclo completo, comando a comando.",
     "commands.init.desc":
@@ -159,6 +171,18 @@ export const ui = {
     "how.layer5.body":
       "Per-engine rendering. Claude Code today; multi-engine on the roadmap.",
     "how.config.label": "navori.config.json",
+
+    "flow.eyebrow": "Live",
+    "flow.title": "See what each layer contributes",
+    "flow.subtitle":
+      "Click a layer to highlight the part of the harness it generates. The engine (Claude) materializes everything into .claude/ + CLAUDE.md.",
+    "flow.all": "All",
+    "flow.engineLabel": "Claude engine →",
+    "flow.hint": "Pick a layer to see what it adds.",
+    "flow.core.note": "Baseline: agents, skills and the rule blocks that are always present.",
+    "flow.preset.note": "Stack-specific skills — here, Next.js.",
+    "flow.workspace.note": "Defaults inherited from your org: quality gate, branch base.",
+    "flow.project.note": "Repo-level: the plugins you enable (engram) and its protocol.",
 
     "commands.eyebrow": "Commands",
     "commands.title": "The whole lifecycle, command by command.",
