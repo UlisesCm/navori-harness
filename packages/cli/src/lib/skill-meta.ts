@@ -64,3 +64,15 @@ export function skillWordCap(meta: SkillMeta): number | null {
   if (meta.type !== null) return SKILL_TYPE_CAPS[meta.type];
   return null;
 }
+
+/**
+ * Spec 0003 §3.2.2 — a skill `description` must carry an explicit activation
+ * trigger so Claude Code can load it on-demand instead of always-on. We accept
+ * the natural trigger verbs in both locales (es/en); the harness language is
+ * Spanish so "Aplica … / cuando / antes de" are the common forms.
+ */
+const TRIGGER_RE = /\b(aplica|us[aá]r?|use\s+(when|this)|para cuando|cuando|antes de)\b/i;
+
+export function hasTrigger(description: string | null): boolean {
+  return description !== null && TRIGGER_RE.test(description);
+}
