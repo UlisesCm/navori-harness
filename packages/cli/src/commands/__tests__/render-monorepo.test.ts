@@ -62,6 +62,9 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
     const backendHook = readFileSync(join(cwd, "apps/backend/.claude/hooks/quality-gate-pre-commit.sh"), "utf-8");
     expect(backendHook).toContain("pnpm -F backend lint");
     expect(backendHook).not.toContain("pnpm -w lint");
+    // Defensive wrapping (spec 0003 §3.6.4): skip cleanly if the runtime is absent.
+    expect(backendHook).toContain("command -v");
+    expect(backendHook).toMatch(/exit 0/);
 
     const storefrontHook = readFileSync(
       join(cwd, "apps/storefront/.claude/hooks/quality-gate-pre-commit.sh"),
