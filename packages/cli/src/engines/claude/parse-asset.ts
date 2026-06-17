@@ -1,4 +1,5 @@
 import type { CommentStyle } from "../../lib/marker.ts";
+import { splitFrontmatter, parseFrontmatterFields } from "../../lib/frontmatter.ts";
 
 /**
  * A bundled asset (agent, skill, hook) parsed into its three zones:
@@ -36,24 +37,11 @@ export interface ParsedAsset {
 }
 
 export function parseAsset(raw: string, commentStyle: CommentStyle): ParsedAsset {
-  const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-
-  let frontmatter: Record<string, string> = {};
-  let afterFm: string;
-
-  if (fmMatch) {
-    frontmatter = {};
-    for (const line of fmMatch[1].split("\n")) {
-      const kv = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
-      if (kv) frontmatter[kv[1]] = kv[2].trim();
-    }
-    afterFm = fmMatch[2];
-  } else {
-    // Assets without frontmatter are valid (e.g. shell hooks whose first
-    // line is a shebang). The whole file becomes managedBody + optional
-    // userTemplate per the sentinel.
-    afterFm = raw;
-  }
+  // Assets without frontmatter are valid (e.g. shell hooks whose first line is
+  // a shebang) — splitFrontmatter then returns the whole file as body, which
+  // becomes managedBody + optional userTemplate per the sentinel.
+  const { frontmatter: fmText, body: afterFm } = splitFrontmatter(raw);
+  const frontmatter = parseFrontmatterFields(fmText);
 
   const sentinel = SENTINEL_BY_STYLE[commentStyle];
   const sentinelIdx = findSentinel(afterFm, sentinel, commentStyle);

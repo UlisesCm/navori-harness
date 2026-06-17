@@ -14,6 +14,7 @@ import { buildClaudeSettings } from "./build-settings.ts";
 import { renderManagedFile } from "./render-managed-file.ts";
 import { interpolate } from "./interpolate.ts";
 import { benchMark } from "../../lib/bench.ts";
+import { stripFrontmatter } from "../../lib/frontmatter.ts";
 
 /**
  * Claude engine adapter — entry point. Orchestrates the full render of a
@@ -563,11 +564,6 @@ function applySubBlockInject(input: {
     content: result.output,
     status: result.status,
   });
-}
-
-function stripFrontmatter(raw: string): string {
-  const m = raw.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
-  return m ? m[1].trim() : raw.trim();
 }
 
 type PluginScriptPlan =
