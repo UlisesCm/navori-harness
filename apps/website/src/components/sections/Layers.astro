@@ -16,14 +16,13 @@ const layers = [
 ];
 
 const configJson = `{
-  "$schema": "https://navori.dev/schema/v1.json",
+  "$schema": "https://navori.dev/schema/navori.config.v1.json",
   "name": "your-app",
-  "version": "1.0.0",
-  "engines": ["claude", "cursor", "agents-md"],
-  "preset": "pnpm-monorepo",
+  "engines": ["claude"],
+  "preset": "nextjs",
   "branchBase": "main",
   "commits": "conventional-es",
-  "plugins": ["engram", "semgrep", "gh"]
+  "plugins": { "engram": { "enabled": true }, "gh": { "enabled": true } }
 }`;
 ---
 

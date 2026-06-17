@@ -16,21 +16,21 @@ const steps = [
     n: "02",
     title: "Answer the wizard",
     body:
-      "init detects your stack and asks 4 questions. In under a minute you get navori.config.json + the managed assets.",
-    code: "? Project name › my-app\n? Engines (space to toggle) ›\n  ◉ claude   ◉ cursor   ◯ copilot   ◉ agents-md\n? Preset › pnpm-monorepo\n? Branch base › main\n\n✓ navori.config.json written\n✓ 14 managed files rendered to:\n   .claude/  ·  9 files\n   .cursor/  ·  3 files\n   AGENTS.md\n   .gitignore (updated)",
+      "init detects your stack and asks a few questions. In under a minute you get navori.config.json + the managed Claude Code harness.",
+    code: "? Wizard › English\n→ stack: Next.js · pnpm\n? Preset › nextjs\n? Plugins › engram\n\n✓ navori.config.json\n✓ rendered:\n   CLAUDE.md\n   .claude/  ·  agents · skills · settings\n✓ Done — 5 created",
   },
   {
     n: "03",
     title: "Commit and work as usual",
     body:
       "navori.config.json is the single source of truth. Managed blocks are clearly marked — everything else is yours.",
-    code: "$ git add navori.config.json .claude/ .cursor/ AGENTS.md\n$ git commit -m \"chore: bootstrap navori harness\"",
+    code: "$ git add navori.config.json CLAUDE.md .claude/\n$ git commit -m \"chore: bootstrap navori harness\"",
   },
   {
     n: "04",
     title: "Re-render whenever you change something",
     body:
-      "Add plugins, change engines, or bump the version. sync only touches managed blocks; your custom code is left alone.",
+      "Add plugins or bump the version. render previews by default; --apply writes. sync only touches managed blocks; your custom code is left alone.",
     code: "# Add a plugin\n$ npx navori add engram\n$ npx navori render --apply\n\n# Upgrade to the latest version\n$ npx navori@latest sync",
   },
 ];
@@ -38,7 +38,7 @@ const steps = [
 const checklist = [
   "You have Node.js 20 or higher installed.",
   "You're inside a git repo (init doesn't touch .git but assumes it exists).",
-  "You know which AI engines you'll use — you can always add more later.",
+  "navori today generates your Claude Code harness (.claude/ + CLAUDE.md).",
 ];
 ---
 

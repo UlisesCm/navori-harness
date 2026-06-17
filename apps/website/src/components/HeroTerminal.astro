@@ -2,16 +2,15 @@
 // Animated terminal mock for the hero. Lines reveal sequentially via CSS keyframes
 // with staggered animation-delay; no JS needed at runtime.
 const lines = [
-  { kind: "cmd", text: "navori init" },
-  { kind: "info", text: "✓ pnpm monorepo detected" },
-  { kind: "info", text: "✓ engine: claude · cursor · agents-md" },
-  { kind: "info", text: "✓ preset: pnpm-monorepo" },
+  { kind: "cmd", text: "navori init --recommended" },
+  { kind: "info", text: "✓ stack: Next.js · pnpm" },
+  { kind: "info", text: "✓ engine: claude" },
+  { kind: "info", text: "✓ preset: nextjs · plugin: engram" },
   { kind: "render", text: "→ rendering managed assets" },
+  { kind: "ok", text: "✓ CLAUDE.md" },
   { kind: "ok", text: "✓ .claude/agents/leader.md" },
-  { kind: "ok", text: "✓ .claude/skills/ticket-intake/SKILL.md" },
-  { kind: "ok", text: "✓ .cursor/rules/navori.mdc" },
-  { kind: "ok", text: "✓ AGENTS.md" },
-  { kind: "done", text: "Ready in 1.2s · 14 files written" },
+  { kind: "ok", text: "✓ .claude/settings.json" },
+  { kind: "done", text: "✓ Done — 5 created" },
 ];
 
 const colorByKind: Record<string, string> = {
