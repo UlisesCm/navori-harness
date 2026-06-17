@@ -88,6 +88,12 @@ export const PluginManifestSchema = z.object({
   scripts: z.array(ScriptEntrySchema).optional(),
   skills: z.array(SkillEntrySchema).optional(),
   prompts: z.array(PromptEntrySchema).optional(),
+  /**
+   * Load-bearing substrings that MUST appear verbatim in the rendered output
+   * while this plugin is enabled. `navori doctor` fails when any disappears —
+   * a guard against a template refactor silently eating a rule. Spec 0003 §3.1.1.
+   */
+  invariants: z.array(z.string().min(1)).default([]),
 });
 
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;

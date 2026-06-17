@@ -369,6 +369,39 @@ describe("CLI e2e — happy paths", () => {
     expect(dreport2.corruptedSettings).toHaveLength(0);
   });
 
+  it("doctor flags missing invariants when a load-bearing rule is gutted (spec 0003 §3.1.1)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // Fresh render: engram declares invariants (mem_save, mem_session_summary)
+    // and they are present in the output, so doctor is clean.
+    const clean = JSON.parse(runCli(["doctor", "--json", "--cwd", repo]).stdout);
+    expect(clean.missingInvariants).toHaveLength(0);
+
+    // Simulate a template refactor eating the engram protocol everywhere it
+    // lives in the output: CLAUDE.md and the injected sub-block in leader.md.
+    for (const rel of ["CLAUDE.md", ".claude/agents/leader.md"]) {
+      const path = join(repo, rel);
+      const gutted = readFileSync(path, "utf-8")
+        .replaceAll("mem_save", "XXX")
+        .replaceAll("mem_session_summary", "YYY");
+      writeFileSync(path, gutted);
+    }
+
+    const broken = runCli(["doctor", "--json", "--cwd", repo]);
+    expect(broken.status).toBe(2);
+    const report = JSON.parse(broken.stdout);
+    expect(report.ok).toBe(false);
+    const missing = report.missingInvariants
+      .map((m: { invariant: string }) => m.invariant)
+      .sort();
+    expect(missing).toEqual(["mem_save", "mem_session_summary"]);
+    expect(
+      report.missingInvariants.every((m: { source: string }) => m.source === "plugin:engram"),
+    ).toBe(true);
+  });
+
   it("doctor reports content drift when user edited inside the managed block (P0-fix B3)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
