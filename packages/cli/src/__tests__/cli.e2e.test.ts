@@ -128,6 +128,37 @@ describe("CLI e2e — happy paths", () => {
     expect(JSON.stringify(settings.hooks?.Stop ?? [])).toContain("check-jscpd.sh");
   });
 
+  it("project.localSkills renders a skills-index block; doctor flags a missing file", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "ls-app", dependencies: { typescript: "^5" } }),
+      "tsconfig.json": "{}",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    });
+    dirs.push(repo);
+
+    expect(runCli(["init", "--recommended", "--no-render", "--cwd", repo]).status).toBe(0);
+
+    // Declare a project-local skill the user owns (navori indexes but never writes it).
+    const cfgPath = join(repo, "navori.config.json");
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    cfg.project = { ...(cfg.project ?? {}), localSkills: ["rest-nexus-workflow"] };
+    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), "utf-8");
+
+    expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
+
+    const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
+    expect(claudeMd).toContain('navori:managed id="skills-index"');
+    expect(claudeMd).toContain("rest-nexus-workflow");
+    expect(claudeMd).toContain("project-local");
+
+    // doctor warns: the declared skill has no file on disk.
+    expect(runCli(["doctor", "--cwd", repo]).combined).toMatch(/project-local.*sin archivo/);
+
+    // Once the user writes the file, the warning clears.
+    writeFileSync(join(repo, ".claude/skills/rest-nexus-workflow.md"), "# local skill\n", "utf-8");
+    expect(runCli(["doctor", "--cwd", repo]).combined).not.toMatch(/sin archivo/);
+  });
+
   it("init --recommended warns when no qualityGate is detected (P0-fix B1+U6)", () => {
     const repo = makeTmpRepo(); // no package.json → no qualityGate detected
     dirs.push(repo);
@@ -178,6 +209,7 @@ describe("CLI e2e — happy paths", () => {
     expect(config.project).toEqual({
       legacyPaths: [],
       criticalAreas: [],
+      localSkills: [],
       testRunner: "vitest",
     });
   });

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, chmodSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
@@ -7,7 +7,7 @@ import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { computeRenderPlan, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { getCoreRoot, readBundledCoreVersion } from "../../lib/bundled-assets.ts";
-import { injectManagedSection } from "../../lib/marker.ts";
+import { injectManagedSection, removeManagedSection } from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { isNavoriOwnedSettings } from "./settings-detection.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
@@ -69,6 +69,43 @@ const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-deb
 
 const CORE_META = { source: "@navori/core" as const, version: readBundledCoreVersion() };
 
+/** Managed-block id for the skills index injected into CLAUDE.md. */
+const SKILLS_INDEX_ID = "skills-index";
+
+/**
+ * Build the body of the skills index — a navigation map of the skills agents
+ * can apply: core (navori), preset (stack), and project-local (the user's own,
+ * declared in `project.localSkills`). navori indexes the local ones so agents
+ * discover them, but never owns their `.md` content.
+ */
+function buildSkillsIndexBody(config: NavoriConfig, localSkills: readonly string[]): string {
+  const rows: string[] = [];
+  for (const id of CORE_SKILLS) rows.push(`- \`${id}\` — navori`);
+  if (config.preset && config.preset !== "custom") {
+    try {
+      const preset = loadPreset(config.preset);
+      for (const e of preset.extras.skills) {
+        const name = basename(e.destRelPath).replace(/\.md$/, "");
+        rows.push(`- \`${name}\` — preset (\`${config.preset}\`)`);
+      }
+    } catch {
+      // Preset problems are surfaced elsewhere; the index degrades gracefully.
+    }
+  }
+  for (const name of localSkills) {
+    rows.push(`- \`${name}\` — project-local (\`.claude/skills/${name}.md\`)`);
+  }
+  return [
+    "## Skills disponibles",
+    "",
+    "Skills que los agentes pueden aplicar; cada uno vive en `.claude/skills/<id>.md`.",
+    "Los `project-local` son tuyos — navori los indexa pero no toca su contenido.",
+    "",
+    ...rows,
+    "",
+  ].join("\n");
+}
+
 export function renderClaudeEngine(
   cwd: string,
   config: NavoriConfig,
@@ -100,10 +137,37 @@ export function renderClaudeEngine(
     forceIds: options.forceIds,
   });
   inspected += 1;
-  if (claudeMdPlan.changed) {
+
+  // 1b. Skills index — a managed block in CLAUDE.md listing the skills agents
+  // can apply (core + preset + project-local). Only present when the repo
+  // declares project-local skills; otherwise the block is stripped. This is the
+  // discoverability wiring for skills navori does not own.
+  const localSkills = config.project?.localSkills ?? [];
+  let claudeMdContent = claudeMdPlan.next;
+  if (localSkills.length > 0) {
+    const result = injectManagedSection(
+      claudeMdContent,
+      SKILLS_INDEX_ID,
+      buildSkillsIndexBody(config, localSkills),
+      CORE_META,
+      "html",
+      options.forceIds?.has(SKILLS_INDEX_ID) ?? false,
+    );
+    claudeMdContent = result.output;
+    claudeMdPlan.entries.push({
+      asset: { id: SKILLS_INDEX_ID, relPath: "(computed)" },
+      source: "core",
+      status: result.status,
+      newContent: null,
+    });
+  } else {
+    claudeMdContent = removeManagedSection(claudeMdContent, SKILLS_INDEX_ID);
+  }
+
+  if (claudeMdContent !== claudeMdExisting) {
     pending.push({
       path: claudeMdPath,
-      content: claudeMdPlan.next,
+      content: claudeMdContent,
       status: claudeMdExisting.length === 0 ? "created" : "updated",
     });
   }

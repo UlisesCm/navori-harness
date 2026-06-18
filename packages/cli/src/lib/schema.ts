@@ -91,6 +91,9 @@ const ProjectSchema = z
     legacyPaths: z.array(z.string()).default([]),
     criticalAreas: z.array(z.string()).default([]),
     testRunner: z.string().optional(),
+    /** Skill ids the user owns under `.claude/skills/<id>.md`. navori never
+     * writes their content — it only indexes them so agents discover them. */
+    localSkills: z.array(z.string()).default([]),
   })
   .passthrough();
 
