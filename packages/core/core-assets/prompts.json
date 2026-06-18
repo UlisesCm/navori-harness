@@ -1,35 +1,71 @@
 {
   "$schema": "https://navori.dev/schema/prompts.v1.json",
-  "description": "Preguntas base genéricas. El wizard de `init` las muestra después del preview-edit y persiste las respuestas en config.project.<key>. Las plantillas de agents/skills interpolan via {{project.<key>}}.",
+  "description": "Preguntas base del wizard de `init`, en 2 fases: 'general' (postura del repo) y 'specific' (reglas concretas). Las respuestas se persisten en config.project.<key> y se renderizan como reglas activas en el bloque managed `contexto-proyecto` de CLAUDE.md (no como hints en comentarios).",
   "prompts": [
     {
-      "key": "project.legacyPaths",
+      "key": "project.posture",
+      "phase": "general",
       "question": {
-        "es": "¿Qué carpetas considerás legacy en este repo? (separá con comas, vacío = ninguna)",
-        "en": "Which folders are legacy in this repo? (comma-separated, empty = none)"
+        "es": "¿En qué etapa está este repo?",
+        "en": "What stage is this repo in?"
       },
-      "type": "string-list",
-      "placeholder": "ej: src/legacy, lib/old",
+      "type": "select",
+      "options": [
+        { "value": "greenfield", "label": { "es": "Greenfield — código nuevo, mové rápido", "en": "Greenfield — new code, move fast" } },
+        { "value": "production", "label": { "es": "En producción — cuidá regresiones", "en": "In production — guard against regressions" } },
+        { "value": "migration", "label": { "es": "Migración legacy — cuidá compatibilidad legacy↔nuevo", "en": "Legacy migration — watch legacy↔new compatibility" } }
+      ],
+      "optional": true
+    },
+    {
+      "key": "project.reviewRigor",
+      "phase": "general",
+      "question": {
+        "es": "¿Qué tan estricto querés el review?",
+        "en": "How strict should review be?"
+      },
+      "type": "select",
+      "options": [
+        { "value": "strict", "label": { "es": "Estricto — bloqueá también dudas de confianza media", "en": "Strict — also block medium-confidence issues" } },
+        { "value": "pragmatic", "label": { "es": "Pragmático — bloqueá solo lo claramente grave", "en": "Pragmatic — block only clearly serious issues" } }
+      ],
+      "optional": true
+    },
+    {
+      "key": "project.architectureRule",
+      "phase": "specific",
+      "question": {
+        "es": "¿Cuál es la regla de arquitectura/data-flow que el código nuevo DEBE seguir? (1 línea)",
+        "en": "What architecture/data-flow rule must new code follow? (1 line)"
+      },
+      "type": "string",
+      "placeholder": "ej: axios → service → adapter → component; forms = mantine + zod",
       "optional": true
     },
     {
       "key": "project.criticalAreas",
+      "phase": "specific",
       "question": {
-        "es": "¿Qué áreas requieren review extra? (auth, billing, infra, etc.)",
-        "en": "Which areas need extra review? (auth, billing, infra, etc.)"
+        "es": "¿Qué áreas necesitan review extra? (separá con comas)",
+        "en": "Which areas need extra review? (comma-separated)"
       },
       "type": "string-list",
       "placeholder": "ej: src/auth, src/billing",
       "optional": true
     },
     {
-      "key": "project.testRunner",
+      "key": "project.testsForNewCode",
+      "phase": "specific",
       "question": {
-        "es": "¿Cuál es tu test runner principal?",
-        "en": "What's your main test runner?"
+        "es": "¿El código nuevo debe traer tests?",
+        "en": "Must new code ship with tests?"
       },
-      "type": "string",
-      "placeholder": "vitest | jest | mocha | playwright | (otro)",
+      "type": "select",
+      "options": [
+        { "value": "always", "label": { "es": "Siempre", "en": "Always" } },
+        { "value": "when-applicable", "label": { "es": "Cuando aplique (lógica no trivial)", "en": "When applicable (non-trivial logic)" } },
+        { "value": "none", "label": { "es": "No exijo tests para código nuevo", "en": "Not required for new code" } }
+      ],
       "optional": true
     }
   ]

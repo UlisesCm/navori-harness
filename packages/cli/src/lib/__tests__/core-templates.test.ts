@@ -87,8 +87,12 @@ describe("prompts.json", () => {
   const raw = readCoreAsset("prompts.json");
   const PromptEntrySchema = z.object({
     key: z.string().regex(/^[a-z][a-zA-Z0-9_.]*$/),
+    phase: z.enum(["general", "specific"]).optional(),
     question: z.object({ es: z.string().min(1), en: z.string().min(1) }),
-    type: z.enum(["string", "string-list", "boolean", "number"]),
+    type: z.enum(["string", "string-list", "boolean", "number", "select"]),
+    options: z
+      .array(z.object({ value: z.string().min(1), label: z.object({ es: z.string().min(1), en: z.string().min(1) }) }))
+      .optional(),
     placeholder: z.string().optional(),
     optional: z.boolean().default(false),
   });
@@ -111,12 +115,17 @@ describe("prompts.json", () => {
     expect(result.success).toBe(true);
   });
 
-  it("declares the three core project.* prompt keys", () => {
-    const parsed = JSON.parse(raw) as { prompts: Array<{ key: string }> };
+  it("declares the core project.* prompt keys (2 general + 3 specific)", () => {
+    const parsed = JSON.parse(raw) as { prompts: Array<{ key: string; phase?: string }> };
     const keys = parsed.prompts.map((p) => p.key);
-    expect(keys).toContain("project.legacyPaths");
+    expect(keys).toContain("project.posture");
+    expect(keys).toContain("project.reviewRigor");
+    expect(keys).toContain("project.architectureRule");
     expect(keys).toContain("project.criticalAreas");
-    expect(keys).toContain("project.testRunner");
+    expect(keys).toContain("project.testsForNewCode");
+    // Two-phase split
+    const general = parsed.prompts.filter((p) => p.phase === "general").map((p) => p.key);
+    expect(general).toEqual(["project.posture", "project.reviewRigor"]);
   });
 
   it("every prompt has both es and en translations", () => {

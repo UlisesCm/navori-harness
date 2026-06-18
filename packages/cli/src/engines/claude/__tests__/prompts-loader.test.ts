@@ -2,13 +2,17 @@ import { describe, it, expect } from "vitest";
 import { loadPrompts } from "../prompts-loader.ts";
 
 describe("loadPrompts", () => {
-  it("loads the 3 core prompts shipped in @navori/core", () => {
+  it("loads the core project prompts shipped in @navori/core", () => {
     const r = loadPrompts(undefined);
     expect(r.warnings).toEqual([]);
     const keys = r.prompts.map((p) => p.key);
-    expect(keys).toContain("project.legacyPaths");
-    expect(keys).toContain("project.criticalAreas");
-    expect(keys).toContain("project.testRunner");
+    expect(keys).toContain("project.posture");
+    expect(keys).toContain("project.architectureRule");
+    expect(keys).toContain("project.testsForNewCode");
+    // select-type prompts carry their options through the loader
+    const posture = r.prompts.find((p) => p.key === "project.posture");
+    expect(posture?.type).toBe("select");
+    expect(posture?.options?.length).toBe(3);
   });
 
   it("attributes each core prompt to source 'core'", () => {
