@@ -100,7 +100,7 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       },
       {
         id: "vite-react-ts-mantine",
-        skills: [".claude/skills/mantine-ui-patterns.md"],
+        skills: [".claude/skills/mantine-ui-patterns.md", ".claude/skills/new-feature.md"],
       },
       {
         id: "astro",
