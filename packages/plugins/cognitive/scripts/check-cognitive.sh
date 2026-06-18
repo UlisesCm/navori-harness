@@ -9,17 +9,21 @@
 # it once:
 #   (cd .claude/scripts/cognitive-tool && bun install)
 #
-# Triggered as a PreToolUse(Bash) hook, gated inline to fire only on
-# `git commit` / `git push`. Skips silently when the toolchain is not
-# bootstrapped — the gate is optional.
+# Triggered as a PreToolUse(Bash) hook (gated to git commit/push) and as a
+# Stop hook (runs unconditionally at session close). Skips silently when the
+# toolchain is not bootstrapped — the gate is optional.
 
 set -euo pipefail
 
+# PreToolUse(Bash) passes the command — gate to commit/push. The Stop hook
+# passes no command — run unconditionally at session close.
 cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null || true)
-case "$cmd" in
-  'git commit'*|'git push'*) ;;
-  *) exit 0 ;;
-esac
+if [ -n "$cmd" ]; then
+  case "$cmd" in
+    'git commit'*|'git push'*) ;;
+    *) exit 0 ;;
+  esac
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL_DIR="$SCRIPT_DIR/cognitive-tool"

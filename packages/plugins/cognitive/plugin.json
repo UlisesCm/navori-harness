@@ -2,7 +2,7 @@
   "id": "cognitive",
   "name": "Cognitive complexity guardrails",
   "description": "Detección de complejidad cognitiva alta via ESLint rule SonarJS",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "managed": [
     {
       "id": "cognitive-protocol",
@@ -34,6 +34,12 @@
       "command": "bash .claude/scripts/check-cognitive.sh",
       "timeout": 180,
       "statusMessage": "navori/cognitive: complexity scan"
+    },
+    {
+      "event": "Stop",
+      "command": "bash .claude/scripts/check-cognitive.sh",
+      "timeout": 180,
+      "statusMessage": "navori/cognitive: complexity scan (cierre de sesión)"
     }
   ]
 }

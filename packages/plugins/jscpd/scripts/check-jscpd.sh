@@ -3,16 +3,20 @@
 # `{{branchBase}}`. Skips silently if jscpd or git are absent — the tool is
 # optional, not a hard dependency of the project.
 #
-# Triggered as a PreToolUse(Bash) hook, but only fires on `git commit` /
-# `git push` (the gate is inline below).
+# Triggered as a PreToolUse(Bash) hook (gated to git commit/push) and as a
+# Stop hook (runs unconditionally at session close).
 
 set -euo pipefail
 
+# PreToolUse(Bash) passes the command — gate to commit/push. The Stop hook
+# passes no command — run unconditionally at session close.
 cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null || true)
-case "$cmd" in
-  'git commit'*|'git push'*) ;;
-  *) exit 0 ;;
-esac
+if [ -n "$cmd" ]; then
+  case "$cmd" in
+    'git commit'*|'git push'*) ;;
+    *) exit 0 ;;
+  esac
+fi
 
 if ! command -v jscpd >/dev/null 2>&1; then
   echo "⊘ jscpd no instalado localmente — skip (install: pnpm add -g jscpd)" >&2
@@ -28,22 +32,31 @@ if ! git rev-parse --verify {{branchBase}} >/dev/null 2>&1; then
   exit 0
 fi
 
-files=$(git diff --name-only --diff-filter=ACMRT {{branchBase}} 2>/dev/null | grep -E '\.tsx?$' || true)
-if [ -z "$files" ]; then
+# Run from the repo root so changed paths stay relative — robust to spaces in
+# the repo's absolute path. NUL-delimited read handles spaces in filenames too.
+# The `-- '*.ts' '*.tsx'` pathspec filters by extension without a pipe.
+cd "$(git rev-parse --show-toplevel)"
+
+files=()
+while IFS= read -r -d '' f; do
+  files+=("$f")
+done < <(git diff --name-only -z --diff-filter=ACMRT {{branchBase}} -- '*.ts' '*.tsx' 2>/dev/null)
+
+if [ ${#files[@]} -eq 0 ]; then
   echo "✓ jscpd: sin cambios vs {{branchBase}}" >&2
   exit 0
 fi
 
-count=$(echo "$files" | wc -l | tr -d ' ')
-echo "▶ jscpd: $count archivo(s) modificados vs {{branchBase}}" >&2
+echo "▶ jscpd: ${#files[@]} archivo(s) modificados vs {{branchBase}}" >&2
 
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
-echo "$files" | xargs jscpd \
+jscpd \
   --min-tokens 100 \
   --min-lines 10 \
   --mode strict \
   --threshold 3 \
   --reporters console \
-  --output "$tmpdir"
+  --output "$tmpdir" \
+  "${files[@]}"

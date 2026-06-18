@@ -110,6 +110,24 @@ describe("CLI e2e — happy paths", () => {
     expect(gate).not.toContain("{{branchBase}}");
   });
 
+  it("gate plugins register both a PreToolUse and a Stop hook (gates run at session close)", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "stop-app", dependencies: { typescript: "^5" } }),
+      "tsconfig.json": "{}",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    });
+    dirs.push(repo);
+
+    expect(runCli(["init", "--recommended", "--no-render", "--cwd", repo]).status).toBe(0);
+    expect(runCli(["add", "jscpd", "--skip-install", "--yes", "--cwd", repo]).status).toBe(0);
+    expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
+
+    const settings = JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8"));
+    // The gate fires both before commit/push (PreToolUse) and at session close (Stop).
+    expect(JSON.stringify(settings.hooks?.PreToolUse ?? [])).toContain("check-jscpd.sh");
+    expect(JSON.stringify(settings.hooks?.Stop ?? [])).toContain("check-jscpd.sh");
+  });
+
   it("init --recommended warns when no qualityGate is detected (P0-fix B1+U6)", () => {
     const repo = makeTmpRepo(); // no package.json → no qualityGate detected
     dirs.push(repo);
