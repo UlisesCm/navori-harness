@@ -160,6 +160,21 @@ export const doctorCommand = defineCommand({
       p.log.warn(`Plugins declared in config but not loadable (${missingPlugins.length}):\n${lines.join("\n")}`);
     }
 
+    // Project-local skills declared in config must have a file on disk — navori
+    // indexes them but never writes their content, so a missing one is dead
+    // weight in the index.
+    const missingLocalSkills = (config.project?.localSkills ?? []).filter(
+      (name) => !existsSync(join(cwd, ".claude/skills", `${name}.md`)),
+    );
+    if (missingLocalSkills.length > 0) {
+      const lines = missingLocalSkills.map(
+        (n) => `  ${color.red(sym.fail)} ${accent(n)}  ${grey(`— falta .claude/skills/${n}.md`)}`,
+      );
+      p.log.warn(
+        `Skills project-local declarados sin archivo (${missingLocalSkills.length}) — creá el .md o quitá el id de project.localSkills:\n${lines.join("\n")}`,
+      );
+    }
+
     if (drifts.length > 0) {
       const lines = drifts.map((d) => {
         if (d.kind === "content") {
