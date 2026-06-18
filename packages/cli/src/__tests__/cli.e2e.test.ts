@@ -159,6 +159,27 @@ describe("CLI e2e — happy paths", () => {
     expect(runCli(["doctor", "--cwd", repo]).combined).not.toMatch(/sin archivo/);
   });
 
+  it("renders the review-diff core skill; the reviewer references it", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "rv-app", dependencies: { typescript: "^5" } }),
+      "tsconfig.json": "{}",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    });
+    dirs.push(repo);
+
+    expect(runCli(["init", "--recommended", "--cwd", repo]).status).toBe(0);
+
+    const skillPath = join(repo, ".claude/skills/review-diff.md");
+    expect(existsSync(skillPath)).toBe(true);
+    const skill = readFileSync(skillPath, "utf-8");
+    expect(skill).toContain("CRÍTICO");
+    expect(skill).not.toContain("{{"); // all placeholders interpolated
+
+    // The reviewer agent applies the skill in its quality pass.
+    const reviewer = readFileSync(join(repo, ".claude/agents/reviewer.md"), "utf-8");
+    expect(reviewer).toContain("review-diff.md");
+  });
+
   it("init --recommended warns when no qualityGate is detected (P0-fix B1+U6)", () => {
     const repo = makeTmpRepo(); // no package.json → no qualityGate detected
     dirs.push(repo);
@@ -462,10 +483,11 @@ describe("CLI e2e — happy paths", () => {
     const parsed = JSON.parse(r.stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.config.name).toBe(repo.split("/").pop()?.toLowerCase());
-    // The 5 core managed blocks injected into CLAUDE.md by --recommended:
-    // idioma-rol, formato-respuesta, tipado-fuerte, cierre-sesion, engram-protocol
+    // The 6 core managed blocks injected into CLAUDE.md by --recommended:
+    // arranque-sesion, idioma-rol, formato-respuesta, tipado-fuerte, cierre-sesion, engram-protocol
     const blockIds = parsed.managedBlocks.map((m: { id: string }) => m.id).sort();
     expect(blockIds).toEqual([
+      "arranque-sesion",
       "cierre-sesion",
       "engram-protocol",
       "formato-respuesta",

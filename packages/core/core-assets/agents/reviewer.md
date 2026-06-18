@@ -43,7 +43,7 @@ Sos un revisor estricto. Tu única función es **aprobar o rechazar**. No editá
 
 ¿El código matchea las convenciones del repo? Acá sí revisás estilo/naming/tipos.
 
-Para cada archivo, validá contra `CLAUDE.md` y las "Reglas del proyecto" del leader. Checklist genérico:
+Aplicá `.claude/skills/review-diff.md` — la checklist completa por dimensiones (tipos, capa de datos, errores, seguridad, hardcode, naming, dead code) con severidades. Sus CRÍTICO/ALTO mapean a los issues ≥80 de abajo; MEDIO a las observaciones informativas. Resumen de lo mínimo a validar contra `CLAUDE.md` y las "Reglas del proyecto" del leader:
 
 - **Convenciones**: naming, path aliases, estructura de carpetas.
 - **Tipos centralizados**: no `type`/`interface` inline donde la convención dice "afuera".

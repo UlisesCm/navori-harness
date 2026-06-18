@@ -21,6 +21,7 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
   { id: "idioma-rol", relPath: "core-assets/managed/idioma-rol.md", availableLanguages: ["es"] },
   { id: "formato-respuesta", relPath: "core-assets/managed/formato-respuesta.md", availableLanguages: ["es"] },
   { id: "tipado-fuerte", relPath: "core-assets/managed/tipado-fuerte.md", availableLanguages: ["es"] },
+  { id: "arranque-sesion", relPath: "core-assets/managed/arranque-sesion.md", availableLanguages: ["es"] },
   { id: "cierre-sesion", relPath: "core-assets/managed/cierre-sesion.md", availableLanguages: ["es"] },
 ] as const;
 
