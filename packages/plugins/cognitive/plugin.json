@@ -2,12 +2,38 @@
   "id": "cognitive",
   "name": "Cognitive complexity guardrails",
   "description": "Detección de complejidad cognitiva alta via ESLint rule SonarJS",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "managed": [
     {
       "id": "cognitive-protocol",
       "file": "managed/cognitive-protocol.md",
       "recommendedAgent": "reviewer"
+    }
+  ],
+  "scripts": [
+    {
+      "src": "scripts/check-cognitive.sh",
+      "dest": "check-cognitive.sh",
+      "exec": true
+    },
+    {
+      "src": "scripts/cognitive-tool/package.json",
+      "dest": "cognitive-tool/package.json",
+      "exec": false
+    },
+    {
+      "src": "scripts/cognitive-tool/eslint.config.mjs",
+      "dest": "cognitive-tool/eslint.config.mjs",
+      "exec": false
+    }
+  ],
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "bash .claude/scripts/check-cognitive.sh",
+      "timeout": 180,
+      "statusMessage": "navori/cognitive: complexity scan"
     }
   ]
 }
