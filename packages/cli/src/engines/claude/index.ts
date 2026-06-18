@@ -65,7 +65,7 @@ const CORE_AGENTS: ReadonlyArray<{ id: string; harnessKey: keyof NonNullable<Nav
   { id: "explorer", harnessKey: "explorer" },
 ];
 
-const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug"];
+const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
 
 const CORE_META = { source: "@navori/core" as const, version: readBundledCoreVersion() };
 

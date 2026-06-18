@@ -23,7 +23,7 @@
     "plugins": 6,
     "presets": 5,
     "coreAgents": 7,
-    "coreSkills": 2
+    "coreSkills": 3
   },
   "license": "ISC",
   "scripts": {
