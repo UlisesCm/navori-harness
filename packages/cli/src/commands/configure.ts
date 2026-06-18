@@ -197,6 +197,47 @@ const languageSubCommand = defineCommand({
   },
 });
 
+const branchBaseSubCommand = defineCommand({
+  meta: {
+    name: "branch-base",
+    description: "Set the base branch gates diff against (e.g. main, develop)",
+  },
+  args: {
+    cwd: { type: "string", description: "Directory (default: cwd)" },
+    value: { type: "positional", description: "Branch name (e.g. develop)", required: false },
+  },
+  async run({ args }) {
+    const cwd = resolve(args.cwd ?? process.cwd());
+    const { config, path, raw } = loadOrExit(cwd);
+
+    p.intro(brand("configure branch-base"));
+
+    let value = (args.value as string | undefined)?.trim();
+    if (!value) {
+      const input = await p.text({
+        message: "Base branch that gates (semgrep / jscpd / cognitive) diff against",
+        placeholder: config.branchBase,
+        defaultValue: config.branchBase,
+      });
+      if (p.isCancel(input)) {
+        p.cancel("Cancelled");
+        return;
+      }
+      value = (input as string).trim();
+    }
+
+    if (!value) {
+      p.cancel("Branch name cannot be empty");
+      return;
+    }
+
+    raw.branchBase = value;
+    persist(path, raw);
+    p.log.success(`branchBase → ${value}`);
+    p.outro("Run 'navori render --apply' to update the gate scripts.");
+  },
+});
+
 const enginesSubCommand = defineCommand({
   meta: {
     name: "engines",
@@ -284,6 +325,7 @@ export const configureCommand = defineCommand({
   subCommands: {
     plugins: pluginsSubCommand,
     "quality-gate": qualityGateSubCommand,
+    "branch-base": branchBaseSubCommand,
     language: languageSubCommand,
     engines: enginesSubCommand,
     workspace: workspaceSubCommand,
