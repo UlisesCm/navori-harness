@@ -91,6 +91,14 @@ const ProjectSchema = z
     legacyPaths: z.array(z.string()).default([]),
     criticalAreas: z.array(z.string()).default([]),
     testRunner: z.string().optional(),
+    /** Repo stage / risk posture: greenfield | production | migration. */
+    posture: z.string().optional(),
+    /** Review strictness: strict | pragmatic. */
+    reviewRigor: z.string().optional(),
+    /** One-line architecture/data-flow rule new code must follow. */
+    architectureRule: z.string().optional(),
+    /** Tests policy for new code: always | when-applicable | none. */
+    testsForNewCode: z.string().optional(),
     /** Skill ids the user owns under `.claude/skills/<id>.md`. navori never
      * writes their content — it only indexes them so agents discover them. */
     localSkills: z.array(z.string()).default([]),

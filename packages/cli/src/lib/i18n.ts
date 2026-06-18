@@ -53,6 +53,9 @@ interface Strings {
   previewTitle: string;
   previewAction: string;
   saveAndContinue: string;
+  adjustSomething: string;
+  whatToEdit: string;
+  backToPreview: string;
   cancelAndExit: string;
   editField: (label: string) => string;
   pluginsValueLabel: (list: string) => string;
@@ -67,6 +70,9 @@ interface Strings {
   projectPromptsRun: string;
   projectPromptsOptional: string;
   projectPromptsSkipNote: string;
+  phaseGeneral: string;
+  phaseSpecific: string;
+  projectPromptSkipOption: string;
 
   // Init completeness warnings (P0-fix)
   qualityGateNotDetected: string;
@@ -170,8 +176,11 @@ const ES: Strings = {
   agentFor: (id, plugin) => `Agente para '${id}' (${plugin})`,
 
   previewTitle: "Resumen del config",
-  previewAction: "¿Qué hacés con esto?",
-  saveAndContinue: "Guardar y continuar",
+  previewAction: "¿Está bien?",
+  saveAndContinue: "Sí, continuar",
+  adjustSomething: "Ajustar algo",
+  whatToEdit: "¿Qué querés ajustar?",
+  backToPreview: "← volver al resumen",
   cancelAndExit: "Cancelar y salir",
   editField: (label) => `Editar ${label}`,
   pluginsValueLabel: (list) => list,
@@ -179,12 +188,15 @@ const ES: Strings = {
   assignmentsValueLabel: (n) => `${n} override(s)`,
   assignmentsNone: "(defaults)",
 
-  projectPromptsIntro: "Ahora podés personalizar el harness con info específica del proyecto (paths legacy, áreas críticas, test runner). Las respuestas se guardan en `project.*` del config y los agents las interpolan.",
+  projectPromptsIntro: "Ahora unas preguntas para afinar el harness a tu repo (lo que navori no puede detectar). Las respuestas se vuelven reglas activas que los agentes siguen.",
   projectPromptsAsk: "¿Querés contestarlas ahora?",
   projectPromptsSkip: "Saltear (después con 'navori configure')",
   projectPromptsRun: "Contestar",
   projectPromptsOptional: "(opcional — dejá vacío para skipear)",
   projectPromptsSkipNote: "Skipeé las preguntas de proyecto. Corré 'navori configure' cuando quieras llenarlas.",
+  phaseGeneral: "Fase 1 · general — postura del repo",
+  phaseSpecific: "Fase 2 · específica — reglas concretas",
+  projectPromptSkipOption: "— sin preferencia / saltar —",
 
   qualityGateNotDetected: "No detecté quality gate en package.json. El harness va a tener placeholders `<not configured: qualityGate.*>` y el hook pre-commit no se va a generar. Corré 'navori configure qualityGate' o agregá scripts (`typecheck`, `lint`, `test`) en package.json y re-renderea.",
 
@@ -287,8 +299,11 @@ const EN: Strings = {
   agentFor: (id, plugin) => `Agent for '${id}' (${plugin})`,
 
   previewTitle: "Config summary",
-  previewAction: "What do you want to do?",
-  saveAndContinue: "Save and continue",
+  previewAction: "Does this look right?",
+  saveAndContinue: "Yes, continue",
+  adjustSomething: "Adjust something",
+  whatToEdit: "What do you want to adjust?",
+  backToPreview: "← back to summary",
   cancelAndExit: "Cancel and exit",
   editField: (label) => `Edit ${label}`,
   pluginsValueLabel: (list) => list,
@@ -296,12 +311,15 @@ const EN: Strings = {
   assignmentsValueLabel: (n) => `${n} override(s)`,
   assignmentsNone: "(defaults)",
 
-  projectPromptsIntro: "You can now personalize the harness with project-specific info (legacy paths, critical areas, test runner). Answers are saved under `project.*` and interpolated into agent prompts.",
+  projectPromptsIntro: "A few questions to tune the harness to your repo (what navori can't detect). Answers become active rules the agents follow.",
   projectPromptsAsk: "Answer them now?",
   projectPromptsSkip: "Skip (run 'navori configure' later)",
   projectPromptsRun: "Answer",
   projectPromptsOptional: "(optional — leave empty to skip)",
   projectPromptsSkipNote: "Skipped project prompts. Run 'navori configure' when you want to fill them.",
+  phaseGeneral: "Phase 1 · general — repo posture",
+  phaseSpecific: "Phase 2 · specific — concrete rules",
+  projectPromptSkipOption: "— no preference / skip —",
 
   qualityGateNotDetected: "No quality gate detected in package.json. The harness will keep `<not configured: qualityGate.*>` placeholders and the pre-commit hook will not be generated. Run 'navori configure qualityGate' or add scripts (`typecheck`, `lint`, `test`) to package.json and re-render.",
 

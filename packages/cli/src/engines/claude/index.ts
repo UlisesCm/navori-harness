@@ -106,6 +106,66 @@ function buildSkillsIndexBody(config: NavoriConfig, localSkills: readonly string
   ].join("\n");
 }
 
+/** Managed-block id for the project-context rules injected into CLAUDE.md. */
+const CONTEXTO_PROYECTO_ID = "contexto-proyecto";
+
+/**
+ * Turn the init questionnaire answers (project.* posture, review rigor,
+ * architecture rule, critical areas, tests policy) into ACTIVE rules the
+ * agents follow — not user-section hints. Returns null when nothing is set so
+ * the block is stripped rather than rendered empty.
+ */
+function buildContextoProyectoBody(config: NavoriConfig): string | null {
+  const proj = config.project ?? {};
+  const rows: string[] = [];
+
+  const posture = proj.posture as string | undefined;
+  if (posture === "greenfield") {
+    rows.push("- **Etapa:** greenfield — priorizá velocidad y menos ceremonia, pero el quality gate igual debe pasar.");
+  } else if (posture === "production") {
+    rows.push("- **Etapa:** en producción — priorizá NO romper regresiones. Los cambios de blast radius alto piden validación humana antes de mergear.");
+  } else if (posture === "migration") {
+    rows.push("- **Etapa:** migración legacy — cuidá la compatibilidad legacy↔nuevo. El reviewer marca CRÍTICO si un cambio lee de un lado y escribe en el otro.");
+  }
+
+  const rigor = proj.reviewRigor as string | undefined;
+  if (rigor === "strict") {
+    rows.push("- **Rigor del review:** estricto — el reviewer bloquea APPROVED también con issues de confidence 65-79, no solo ≥80.");
+  } else if (rigor === "pragmatic") {
+    rows.push("- **Rigor del review:** pragmático — el reviewer bloquea solo issues ≥80; lo demás queda como observación informativa.");
+  }
+
+  const arch = (proj.architectureRule as string | undefined)?.trim();
+  if (arch) {
+    rows.push(`- **Arquitectura:** el código nuevo DEBE seguir \`${arch}\`. El reviewer marca los desvíos como ALTO.`);
+  }
+
+  const critical = (proj.criticalAreas as string[] | undefined) ?? [];
+  if (critical.length > 0) {
+    rows.push(`- **Áreas críticas** (review extra, severidad +1): ${critical.join(", ")}.`);
+  }
+
+  const tests = proj.testsForNewCode as string | undefined;
+  if (tests === "always") {
+    rows.push("- **Tests:** el código nuevo DEBE traer tests. El reviewer bloquea APPROVED si faltan.");
+  } else if (tests === "when-applicable") {
+    rows.push("- **Tests:** pedí tests para lógica no trivial; en código simple son opcionales.");
+  } else if (tests === "none") {
+    rows.push("- **Tests:** el repo no exige tests para código nuevo.");
+  }
+
+  if (rows.length === 0) return null;
+
+  return [
+    "## Contexto del proyecto",
+    "",
+    "Reglas activas derivadas de tu config (`project.*`). Aplican a todos los agentes.",
+    "",
+    ...rows,
+    "",
+  ].join("\n");
+}
+
 export function renderClaudeEngine(
   cwd: string,
   config: NavoriConfig,
@@ -162,6 +222,30 @@ export function renderClaudeEngine(
     });
   } else {
     claudeMdContent = removeManagedSection(claudeMdContent, SKILLS_INDEX_ID);
+  }
+
+  // 1c. Project context — the init questionnaire answers turned into active
+  // rules (posture, rigor, architecture, critical areas, tests). Stripped when
+  // nothing is set. Replaces the old user-section comment hints.
+  const contextoBody = buildContextoProyectoBody(config);
+  if (contextoBody !== null) {
+    const result = injectManagedSection(
+      claudeMdContent,
+      CONTEXTO_PROYECTO_ID,
+      contextoBody,
+      CORE_META,
+      "html",
+      options.forceIds?.has(CONTEXTO_PROYECTO_ID) ?? false,
+    );
+    claudeMdContent = result.output;
+    claudeMdPlan.entries.push({
+      asset: { id: CONTEXTO_PROYECTO_ID, relPath: "(computed)" },
+      source: "core",
+      status: result.status,
+      newContent: null,
+    });
+  } else {
+    claudeMdContent = removeManagedSection(claudeMdContent, CONTEXTO_PROYECTO_ID);
   }
 
   if (claudeMdContent !== claudeMdExisting) {

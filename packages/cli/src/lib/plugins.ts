@@ -67,11 +67,20 @@ const SkillEntrySchema = z.object({
   injectInto: safeRelPath.optional(),
 });
 
+const PromptSelectOptionSchema = z.object({
+  value: z.string().min(1),
+  label: z.object({ es: z.string().min(1), en: z.string().min(1) }),
+});
+
 const PromptEntrySchema = z.object({
   /** Dot-path under config.project that the answer is written to. */
   key: z.string().regex(/^[a-z][a-zA-Z0-9_.]*$/, "key must be a config dot-path"),
+  /** Wizard grouping: "general" questions first, then "specific" ones. */
+  phase: z.enum(["general", "specific"]).optional(),
   question: z.object({ es: z.string().min(1), en: z.string().min(1) }),
-  type: z.enum(["string", "string-list", "boolean", "number"]),
+  type: z.enum(["string", "string-list", "boolean", "number", "select"]),
+  /** Required when type === "select". */
+  options: z.array(PromptSelectOptionSchema).optional(),
   placeholder: z.string().optional(),
   optional: z.boolean().default(false),
 });

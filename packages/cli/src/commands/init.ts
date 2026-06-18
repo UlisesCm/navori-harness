@@ -403,27 +403,37 @@ export const initCommand = defineCommand({
       );
       p.note(summary, tr.previewTitle);
 
-      const choice = await p.select<string>({
+      // Confirm-first: the happy path is a single keystroke. The full field
+      // list only appears if the user chooses to adjust — no 10-option wall.
+      const action = await p.select<"ok" | "edit" | "cancel">({
         message: tr.previewAction,
         options: [
-          { value: "save", label: color.green(tr.saveAndContinue) },
-          { value: "edit:name", label: tr.editField(tr.labelProjectName) },
-          { value: "edit:language", label: tr.editField(tr.labelLanguage) },
-          { value: "edit:engines", label: tr.editField(tr.labelEngines) },
-          { value: "edit:preset", label: tr.editField(tr.labelPreset) },
-          { value: "edit:branchBase", label: tr.editField(tr.labelBranchBase) },
-          { value: "edit:qualityGate", label: tr.editField(tr.labelQualityGate) },
-          { value: "edit:plugins", label: tr.editField("plugins") },
-          { value: "edit:agentAssignments", label: tr.editField("agent assignments") },
+          { value: "ok", label: color.green(tr.saveAndContinue) },
+          { value: "edit", label: tr.adjustSomething },
           { value: "cancel", label: color.red(tr.cancelAndExit) },
         ],
-        initialValue: "save",
+        initialValue: "ok",
       });
-      if (p.isCancel(choice)) return cancel(lang);
-      if (choice === "save") break;
-      if (choice === "cancel") return cancel(lang);
+      if (p.isCancel(action) || action === "cancel") return cancel(lang);
+      if (action === "ok") break;
 
-      const field = (choice as string).replace(/^edit:/, "");
+      const choice = await p.select<string>({
+        message: tr.whatToEdit,
+        options: [
+          { value: "name", label: tr.editField(tr.labelProjectName) },
+          { value: "language", label: tr.editField(tr.labelLanguage) },
+          { value: "engines", label: tr.editField(tr.labelEngines) },
+          { value: "preset", label: tr.editField(tr.labelPreset) },
+          { value: "branchBase", label: tr.editField(tr.labelBranchBase) },
+          { value: "qualityGate", label: tr.editField(tr.labelQualityGate) },
+          { value: "plugins", label: tr.editField("plugins") },
+          { value: "agentAssignments", label: tr.editField("agent assignments") },
+          { value: "__back", label: tr.backToPreview },
+        ],
+      });
+      if (p.isCancel(choice) || choice === "__back") continue;
+
+      const field = choice as string;
       switch (field) {
         case "name": {
           const v = await p.text({
@@ -1001,15 +1011,25 @@ async function runProjectPrompts(
   }
 
   const collected: Record<string, unknown> = {};
-  for (const prompt of prompts) {
-    const subKey = prompt.key.startsWith("project.")
-      ? prompt.key.slice("project.".length)
-      : null;
-    if (!subKey) continue; // non-project keys not supported yet
-    const value = await askProjectPrompt(prompt, lang);
-    if (value === null) return null; // user cancelled mid-walk
-    if (value === undefined) continue; // optional, skipped
-    collected[subKey] = value;
+  // Two phases: general (repo posture) first, then specific (concrete rules).
+  // A prompt with no declared phase falls into the specific group.
+  const phases: Array<{ header: string; group: LoadedPrompt[] }> = [
+    { header: tr.phaseGeneral, group: prompts.filter((q) => (q.phase ?? "specific") === "general") },
+    { header: tr.phaseSpecific, group: prompts.filter((q) => (q.phase ?? "specific") === "specific") },
+  ];
+  for (const { header, group } of phases) {
+    if (group.length === 0) continue;
+    p.note(header);
+    for (const prompt of group) {
+      const subKey = prompt.key.startsWith("project.")
+        ? prompt.key.slice("project.".length)
+        : null;
+      if (!subKey) continue; // non-project keys not supported yet
+      const value = await askProjectPrompt(prompt, lang);
+      if (value === null) return null; // user cancelled mid-walk
+      if (value === undefined) continue; // optional, skipped
+      collected[subKey] = value;
+    }
   }
   return collected;
 }
@@ -1027,6 +1047,9 @@ async function askProjectPrompt(
       const v = await p.text({
         message,
         placeholder: prompt.placeholder ?? "",
+        // Without defaultValue, @clack/prompts returns the placeholder text on
+        // an empty submit — which would persist the hint as a real value.
+        defaultValue: "",
       });
       if (p.isCancel(v)) return null;
       const trimmed = (v as string).trim();
@@ -1036,6 +1059,7 @@ async function askProjectPrompt(
       const v = await p.text({
         message,
         placeholder: prompt.placeholder ?? "",
+        defaultValue: "",
       });
       if (p.isCancel(v)) return null;
       const items = (v as string)
@@ -1043,6 +1067,19 @@ async function askProjectPrompt(
         .map((s) => s.trim())
         .filter(Boolean);
       return items.length > 0 ? items : undefined;
+    }
+    case "select": {
+      const opts = (prompt.options ?? []).map((o) => ({
+        value: o.value,
+        label: o.label[lang] ?? o.label.es,
+      }));
+      if (opts.length === 0) return undefined;
+      // Optional selects get an explicit skip choice (you pick it, not "leave
+      // empty"), so use the bare question without the "leave empty" hint.
+      if (prompt.optional) opts.push({ value: "__skip__", label: tr.projectPromptSkipOption });
+      const v = await p.select<string>({ message: question, options: opts });
+      if (p.isCancel(v)) return null;
+      return v === "__skip__" ? undefined : v;
     }
     case "boolean": {
       const v = await p.confirm({ message, initialValue: false });
@@ -1053,6 +1090,7 @@ async function askProjectPrompt(
       const v = await p.text({
         message,
         placeholder: prompt.placeholder ?? "",
+        defaultValue: "",
         validate: (val) => {
           if (!val.trim()) return undefined;
           return /^-?\d+(\.\d+)?$/.test(val.trim()) ? undefined : "número inválido";

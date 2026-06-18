@@ -180,6 +180,38 @@ describe("CLI e2e — happy paths", () => {
     expect(reviewer).toContain("review-diff.md");
   });
 
+  it("project.* answers render an active contexto-proyecto block of rules", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "ctx-app", dependencies: { typescript: "^5" } }),
+      "tsconfig.json": "{}",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    });
+    dirs.push(repo);
+
+    expect(runCli(["init", "--recommended", "--no-render", "--cwd", repo]).status).toBe(0);
+
+    // Simulate the questionnaire answers (posture, rigor, architecture, tests).
+    const cfgPath = join(repo, "navori.config.json");
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    cfg.project = {
+      ...(cfg.project ?? {}),
+      posture: "production",
+      reviewRigor: "strict",
+      architectureRule: "axios -> service -> adapter -> component",
+      testsForNewCode: "always",
+    };
+    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), "utf-8");
+
+    expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
+
+    const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
+    expect(claudeMd).toContain('navori:managed id="contexto-proyecto"');
+    expect(claudeMd).toContain("en producción"); // posture rule
+    expect(claudeMd).toContain("axios -> service -> adapter -> component"); // architecture rule
+    expect(claudeMd).toContain("65-79"); // strict rigor rule
+    expect(claudeMd).not.toContain("{{"); // no raw placeholders
+  });
+
   it("init --recommended warns when no qualityGate is detected (P0-fix B1+U6)", () => {
     const repo = makeTmpRepo(); // no package.json → no qualityGate detected
     dirs.push(repo);

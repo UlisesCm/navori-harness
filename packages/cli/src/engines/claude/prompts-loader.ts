@@ -18,10 +18,19 @@ import { loadEnabledPlugins, type PluginPromptEntry } from "../../lib/plugins.ts
  * caller as a `warnings` string instead.
  */
 
+const SelectOptionSchema = z.object({
+  value: z.string().min(1),
+  label: z.object({ es: z.string().min(1), en: z.string().min(1) }),
+});
+
 const CorePromptSchema = z.object({
   key: z.string().regex(/^[a-z][a-zA-Z0-9_.]*$/),
+  /** Wizard grouping: "general" questions first, then "specific" ones. */
+  phase: z.enum(["general", "specific"]).optional(),
   question: z.object({ es: z.string().min(1), en: z.string().min(1) }),
-  type: z.enum(["string", "string-list", "boolean", "number"]),
+  type: z.enum(["string", "string-list", "boolean", "number", "select"]),
+  /** Required when type === "select": the choices the user picks from. */
+  options: z.array(SelectOptionSchema).optional(),
   placeholder: z.string().optional(),
   optional: z.boolean().default(false),
 });
