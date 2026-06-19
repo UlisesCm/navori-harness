@@ -52,6 +52,22 @@ describe("buildClaudeSettings — base shape", () => {
     expect(allow).toContain("Bash(git diff*)");
   });
 
+  it("ships permissions.deny for catastrophic, no-legit-use commands (hard block)", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const deny = (s.permissions as { deny: string[] }).deny;
+    expect(deny).toContain("Bash(rm -rf /*)");
+    expect(deny).toContain("Bash(sudo rm *)");
+    expect(deny).toContain("Bash(mkfs*)");
+  });
+
+  it("ships permissions.ask for destructive-but-sometimes-legit commands (human confirm)", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const ask = (s.permissions as { ask: string[] }).ask;
+    expect(ask).toContain("Bash(rm -rf *)");
+    expect(ask).toContain("Bash(git push --force*)");
+    expect(ask).toContain("Bash(git reset --hard*)");
+  });
+
   it("does NOT inject quality-gate hook when config.qualityGate.fast is unset", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
     const hooks = s.hooks as Record<string, unknown>;
