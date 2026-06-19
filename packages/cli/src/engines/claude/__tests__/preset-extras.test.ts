@@ -82,8 +82,8 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     ]);
     // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 7 agents + 3 core
     // skills + 2 progress files + 2 medusa skills + 2 CLAUDE.md managed blocks
-    // counted independently of the file = 17 inspected.
-    expect(r.inspected).toBe(17);
+    // counted independently of the file + 1 always-on guard hook = 18 inspected.
+    expect(r.inspected).toBe(18);
   });
 
   describe("bundled stack presets (B4)", () => {
