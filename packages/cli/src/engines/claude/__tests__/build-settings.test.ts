@@ -52,10 +52,35 @@ describe("buildClaudeSettings — base shape", () => {
     expect(allow).toContain("Bash(git diff*)");
   });
 
+  it("ships permissions.deny for catastrophic, no-legit-use commands (hard block)", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const deny = (s.permissions as { deny: string[] }).deny;
+    expect(deny).toContain("Bash(rm -rf /*)");
+    expect(deny).toContain("Bash(sudo rm *)");
+    expect(deny).toContain("Bash(mkfs*)");
+  });
+
+  it("ships permissions.ask for destructive-but-sometimes-legit commands (human confirm)", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const ask = (s.permissions as { ask: string[] }).ask;
+    expect(ask).toContain("Bash(rm -rf *)");
+    expect(ask).toContain("Bash(git push --force*)");
+    expect(ask).toContain("Bash(git reset --hard*)");
+  });
+
+  it("always injects the defensive guard PreToolUse(Bash) hook, regardless of config", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const pre = (s.hooks as { PreToolUse: Array<{ matcher?: string; hooks: Array<{ command: string }> }> }).PreToolUse;
+    const guard = pre.find((b) => b.hooks.some((h) => h.command.includes("guard-destructive.sh")));
+    expect(guard).toBeDefined();
+    expect(guard?.matcher).toBe("Bash");
+  });
+
   it("does NOT inject quality-gate hook when config.qualityGate.fast is unset", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
-    const hooks = s.hooks as Record<string, unknown>;
-    expect(hooks.PreToolUse).toBeUndefined();
+    const pre = (s.hooks as { PreToolUse?: Array<{ hooks: Array<{ command: string }> }> }).PreToolUse ?? [];
+    const qg = pre.find((b) => b.hooks.some((h) => h.command.includes("quality-gate-pre-commit.sh")));
+    expect(qg).toBeUndefined();
   });
 });
 
@@ -63,10 +88,11 @@ describe("buildClaudeSettings — quality-gate hook", () => {
   it("injects PreToolUse Bash hook referencing the QG script when qualityGate.fast set", () => {
     const s = buildClaudeSettings(withQG(), []);
     const pre = (s.hooks as { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string; timeout?: number }> }> }).PreToolUse;
-    expect(pre).toHaveLength(1);
-    expect(pre[0].matcher).toBe("Bash");
-    expect(pre[0].hooks[0].command).toContain("quality-gate-pre-commit.sh");
-    expect(pre[0].hooks[0].timeout).toBe(180);
+    const qg = pre.find((b) => b.hooks.some((h) => h.command.includes("quality-gate-pre-commit.sh")));
+    expect(qg).toBeDefined();
+    expect(qg?.matcher).toBe("Bash");
+    const qgHook = qg?.hooks.find((h) => h.command.includes("quality-gate-pre-commit.sh"));
+    expect(qgHook?.timeout).toBe(180);
   });
 });
 
@@ -98,8 +124,10 @@ describe("buildClaudeSettings — plugin merging", () => {
       PreToolUse?: Array<{ matcher?: string; hooks: Array<{ command: string }> }>;
       PostToolUse?: Array<{ matcher?: string; hooks: Array<{ command: string }> }>;
     };
-    expect(hooks.PreToolUse?.[0].matcher).toBe("Bash");
-    expect(hooks.PreToolUse?.[0].hooks[0].command).toBe("bash check.sh");
+    // The always-on guard occupies a PreToolUse bucket; find the plugin's.
+    const pluginPre = hooks.PreToolUse?.find((b) => b.hooks.some((h) => h.command === "bash check.sh"));
+    expect(pluginPre?.matcher).toBe("Bash");
+    expect(pluginPre?.hooks[0].command).toBe("bash check.sh");
     expect(hooks.PostToolUse?.[0].matcher).toBeUndefined();
     expect(hooks.PostToolUse?.[0].hooks[0].command).toBe("echo done");
   });
@@ -114,7 +142,9 @@ describe("buildClaudeSettings — plugin merging", () => {
     });
     const s = buildClaudeSettings(MINIMAL_CONFIG, [plugin]);
     const pre = (s.hooks as { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string }> }> }).PreToolUse;
-    expect(pre).toHaveLength(1);
-    expect(pre[0].hooks.map((h) => h.command)).toEqual(["a", "b"]);
+    // The plugin's two same-event+matcher hooks collapse into one bucket
+    // (a separate bucket from the always-on guard hook).
+    const pluginBucket = pre.find((b) => b.hooks.some((h) => h.command === "a"));
+    expect(pluginBucket?.hooks.map((h) => h.command)).toEqual(["a", "b"]);
   });
 });

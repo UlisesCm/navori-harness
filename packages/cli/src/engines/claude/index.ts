@@ -25,6 +25,7 @@ import { log } from "../../lib/log.ts";
  *   - .claude/settings.json   (built from settings-base + plugins + qg hook)
  *   - .claude/agents/<role>.md  for each role enabled in config.harness
  *   - .claude/skills/<id>.md    for each core skill (always-on for now)
+ *   - .claude/hooks/guard-destructive.sh        (always — defensive guard)
  *   - .claude/hooks/quality-gate-pre-commit.sh  (only if qualityGate.fast set)
  *
  * Safety:
@@ -332,7 +333,23 @@ export function renderClaudeEngine(
     pending,
   );
 
-  // 6. Hook quality-gate (only if config has a fast gate)
+  // 6. Defensive guard hook (always rendered — no config dependency).
+  inspected += 1;
+  applyManagedFilePlan(
+    planManagedFile({
+      cwd,
+      assetRelPath: `hooks/guard-destructive.sh`,
+      destRelPath: `.claude/hooks/guard-destructive.sh`,
+      managedId: "guard-destructive-base",
+      config,
+    }),
+    cwd,
+    pending,
+    skipped,
+    /* chmodExec */ true,
+  );
+
+  // 6.1. Hook quality-gate (only if config has a fast gate)
   if (config.qualityGate?.fast) {
     inspected += 1;
     applyManagedFilePlan(

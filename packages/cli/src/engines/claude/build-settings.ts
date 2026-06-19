@@ -13,6 +13,10 @@ import { deepMerge } from "./deep-merge.ts";
  *
  * Layering (deep-merged in order):
  *   1. settings-base.json from @navori/core (interpolated with coreVersion).
+ *      Ships permissions.allow (read-only git), .ask (destructive-but-legit)
+ *      and .deny (catastrophic, no-legit-use) baseline rules.
+ *   1b. Defensive guard PreToolUse(Bash) hook — always registered, references
+ *      `.claude/hooks/guard-destructive.sh`. Exit 2 precedes permission rules.
  *   2. Quality-gate PreToolUse hook, only if `config.qualityGate.fast` is
  *      set. The hook entry references `.claude/hooks/quality-gate-pre-commit.sh`
  *      (rendered separately by the file pipeline).
@@ -25,6 +29,7 @@ import { deepMerge } from "./deep-merge.ts";
  */
 
 const QG_HOOK_DEST = ".claude/hooks/quality-gate-pre-commit.sh";
+const GUARD_HOOK_DEST = ".claude/hooks/guard-destructive.sh";
 const SETTINGS_BASE_REL = "core-assets/settings/settings-base.json";
 
 export function buildClaudeSettings(
@@ -37,6 +42,27 @@ export function buildClaudeSettings(
     extraVars: { coreVersion: readBundledCoreVersion() },
   });
   let settings = JSON.parse(baseInterp) as Record<string, unknown>;
+
+  // Defensive guard hook — always registered (unlike the quality gate, it has
+  // no config dependency). Exit 2 here precedes permission rules, so it's the
+  // hard backstop for destructive patterns static deny globs can't catch.
+  settings = deepMerge(settings, {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "Bash",
+          hooks: [
+            {
+              type: "command",
+              command: `bash ${GUARD_HOOK_DEST}`,
+              timeout: 10,
+              statusMessage: "navori: guard-destructive",
+            },
+          ],
+        },
+      ],
+    },
+  });
 
   if (config.qualityGate?.fast) {
     settings = deepMerge(settings, {

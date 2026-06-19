@@ -515,8 +515,9 @@ describe("CLI e2e — happy paths", () => {
     const parsed = JSON.parse(r.stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.config.name).toBe(repo.split("/").pop()?.toLowerCase());
-    // The 6 core managed blocks injected into CLAUDE.md by --recommended:
-    // arranque-sesion, idioma-rol, formato-respuesta, tipado-fuerte, cierre-sesion, engram-protocol
+    // The 7 core managed blocks injected into CLAUDE.md by --recommended:
+    // arranque-sesion, idioma-rol, formato-respuesta, tipado-fuerte,
+    // operaciones-seguras, cierre-sesion, engram-protocol
     const blockIds = parsed.managedBlocks.map((m: { id: string }) => m.id).sort();
     expect(blockIds).toEqual([
       "arranque-sesion",
@@ -524,6 +525,7 @@ describe("CLI e2e — happy paths", () => {
       "engram-protocol",
       "formato-respuesta",
       "idioma-rol",
+      "operaciones-seguras",
       "tipado-fuerte",
     ]);
     // G1: drifts array shipped (empty after a fresh render)
