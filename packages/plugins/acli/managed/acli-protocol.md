@@ -1,6 +1,6 @@
 ## Tickets de Jira (acli)
 
-Para leer tickets de Jira usá **acli** (no el MCP de Atlassian).
+Para leer tickets de Jira usa **acli** (no el MCP de Atlassian).
 
 - Ver un ticket: `acli jira workitem view <KEY>` (ej. `acli jira workitem view BNM-123`)
 - Buscar tickets: `acli jira workitem search --jql "<JQL>"`

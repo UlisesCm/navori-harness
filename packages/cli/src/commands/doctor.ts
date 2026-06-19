@@ -171,7 +171,7 @@ export const doctorCommand = defineCommand({
         (n) => `  ${color.red(sym.fail)} ${accent(n)}  ${grey(`— falta .claude/skills/${n}.md`)}`,
       );
       p.log.warn(
-        `Skills project-local declarados sin archivo (${missingLocalSkills.length}) — creá el .md o quitá el id de project.localSkills:\n${lines.join("\n")}`,
+        `Skills project-local declarados sin archivo (${missingLocalSkills.length}) — crea el .md o quita el id de project.localSkills:\n${lines.join("\n")}`,
       );
     }
 
@@ -184,8 +184,8 @@ export const doctorCommand = defineCommand({
       });
       const hint =
         drifts.some((d) => d.kind === "content")
-          ? "corré 'navori sync' para resolver conflicts; 'navori render --apply' para actualizar versiones"
-          : "corré 'navori render --apply' o 'navori sync'";
+          ? "corre 'navori sync' para resolver conflicts; 'navori render --apply' para actualizar versiones"
+          : "corre 'navori render --apply' o 'navori sync'";
       p.log.warn(`Drift detectado (${drifts.length}) — ${hint}:\n${lines.join("\n")}`);
     }
 
@@ -194,7 +194,7 @@ export const doctorCommand = defineCommand({
         (c) => `  ${color.red(sym.fail)} ${accent(c.path)}  ${grey(`— JSON inválido: ${c.error}`)}`,
       );
       p.log.error(
-        `Settings.json corrupto (${corruptedSettings.length}) — corré 'navori render --force --apply' para regenerar desde el bundle (el archivo actual se respalda):\n${lines.join("\n")}`,
+        `Settings.json corrupto (${corruptedSettings.length}) — corre 'navori render --force --apply' para regenerar desde el bundle (el archivo actual se respalda):\n${lines.join("\n")}`,
       );
     }
 
@@ -203,7 +203,7 @@ export const doctorCommand = defineCommand({
         (m) => `  ${color.red(sym.fail)} ${accent(m.invariant)}  ${grey(`— declarado por ${m.source}`)}`,
       );
       p.log.error(
-        `Invariantes ausentes en el output (${missingInvariants.length}) — una regla load-bearing desapareció; corré 'navori render --apply' o revisá el template:\n${lines.join("\n")}`,
+        `Invariantes ausentes en el output (${missingInvariants.length}) — una regla load-bearing desapareció; corre 'navori render --apply' o revisa el template:\n${lines.join("\n")}`,
       );
     }
 

@@ -278,7 +278,7 @@ export const renderCommand = defineCommand({
     const summary = summarize(allEntries);
     if (preview) {
       if (anyPending) {
-        p.outro(`${color.yellow("Preview")} ${summary} ${dim("· corré 'navori render --apply' para escribir")}`);
+        p.outro(`${color.yellow("Preview")} ${summary} ${dim("· corre 'navori render --apply' para escribir")}`);
       } else {
         p.outro(`${dim("Up to date")} ${summary} ${dim("· nada que aplicar")}`);
       }

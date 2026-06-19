@@ -12,11 +12,11 @@ Antes de agregar `fetch()`, cliente de DB o llamadas a APIs externas dentro de S
 
 ## Reglas duras
 
-1. **`fetch()` cachea por default** (igual que `cache: "force-cache"`). Para data fresca usá `fetch(url, { cache: "no-store" })` o `next: { revalidate: <segundos> }`.
+1. **`fetch()` cachea por default** (igual que `cache: "force-cache"`). Para data fresca usa `fetch(url, { cache: "no-store" })` o `next: { revalidate: <segundos> }`.
 2. **Una request `cache: "no-store"` en un Server Component hace toda la ruta dinámica.** Eso significa que Next NO la pre-renderea en build — cada request hits server. Decisión deliberada.
-3. **`revalidateTag` > `revalidatePath`** para invalidaciones precisas. Etiquetá los fetches con `next: { tags: ["user", "user-orders"] }` y revalidá granular.
-4. **Llamadas paralelas: `Promise.all`, no encadenadas.** Si necesitás dos datasets independientes, `await Promise.all([fetchA(), fetchB()])`. Encadenar (`const a = await A(); const b = await B()`) duplica el round-trip.
-5. **Streaming con Suspense para slow data.** Si una parte de la página es lenta, envolvela en `<Suspense>` con un componente async dentro. El resto del HTML se manda mientras esa pieza carga.
+3. **`revalidateTag` > `revalidatePath`** para invalidaciones precisas. Etiqueta los fetches con `next: { tags: ["user", "user-orders"] }` y revalida granular.
+4. **Llamadas paralelas: `Promise.all`, no encadenadas.** Si necesitas dos datasets independientes, `await Promise.all([fetchA(), fetchB()])`. Encadenar (`const a = await A(); const b = await B()`) duplica el round-trip.
+5. **Streaming con Suspense para slow data.** Si una parte de la página es lenta, envuélvela en `<Suspense>` con un componente async dentro. El resto del HTML se manda mientras esa pieza carga.
 
 ## Patrón típico
 
@@ -63,6 +63,6 @@ async function OrdersList({ userId }: { userId: string }) {
 ## Antes de declarar el cambio "listo"
 
 - `{{qualityGate.fast}}` en verde.
-- Probá la página en `next start` (production build), no solo en `next dev`. El cache se comporta distinto.
-- Si agregaste un fetch nuevo: documentá su política de cache (¿estática? ¿revalidate cada cuánto? ¿no-store?). Una request sin política explícita usa el default y puede dar data stale.
-- Si tocaste un Server Action que muta datos: confirmá que `revalidateTag` / `revalidatePath` se llama, sino la UI no se actualiza.
+- Prueba la página en `next start` (production build), no solo en `next dev`. El cache se comporta distinto.
+- Si agregaste un fetch nuevo: documenta su política de cache (¿estática? ¿revalidate cada cuánto? ¿no-store?). Una request sin política explícita usa el default y puede dar data stale.
+- Si tocaste un Server Action que muta datos: confirma que `revalidateTag` / `revalidatePath` se llama, sino la UI no se actualiza.

@@ -211,7 +211,7 @@ describe("PluginManifestSchema — prompts", () => {
       prompts: [
         {
           key: "project.testRunner",
-          question: { es: "¿Qué runner usás?" },
+          question: { es: "¿Qué runner usas?" },
           type: "string",
         },
       ],

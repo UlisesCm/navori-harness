@@ -1,6 +1,6 @@
 ## GitHub CLI (gh)
 
-Para interactuar con GitHub (issues, PRs, repos) usá **gh**:
+Para interactuar con GitHub (issues, PRs, repos) usa **gh**:
 
 - Ver issue: `gh issue view <number>` o `gh issue view <number> --comments`
 - Buscar issues: `gh issue list --search "<query>"` o `gh issue list --label bug --state open`

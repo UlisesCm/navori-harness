@@ -21,7 +21,7 @@ base="{{branchBase}}"
 block() {
   echo "[navori] BLOQUEADO por guard-destructive: $1" >&2
   echo "[navori] comando: $cmd" >&2
-  echo "[navori] si es intencional, corré el comando vos mismo fuera del agente." >&2
+  echo "[navori] si es intencional, corre el comando tú mismo fuera del agente." >&2
   exit 2
 }
 
@@ -56,7 +56,7 @@ if printf '%s' "$cmd" | grep -qE '(of=/dev/(sd|nvme|disk|hd)|>[[:space:]]*/dev/(
 fi
 
 # navori:user-section
-# user: agregá guards adicionales acá. `$cmd` ya tiene el comando completo
+# user: agrega guards adicionales acá. `$cmd` ya tiene el comando completo
 # (incluye comandos compuestos) y `block "<motivo>"` aborta con exit 2.
 # Ejemplo:
 #

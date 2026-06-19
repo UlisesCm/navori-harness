@@ -9,12 +9,12 @@ maxWords: 520
 
 ## Cuándo usar este skill
 
-Antes de importar un componente de React/Vue/Svelte/Solid en una página Astro, o cuando agregás interactividad a un site que era static. El modelo Islands es el diferencial de Astro vs Next/Nuxt — usado mal, el bundle infla y se pierde el beneficio.
+Antes de importar un componente de React/Vue/Svelte/Solid en una página Astro, o cuando agregas interactividad a un site que era static. El modelo Islands es el diferencial de Astro vs Next/Nuxt — usado mal, el bundle infla y se pierde el beneficio.
 
 ## Reglas duras
 
 1. **Por default todo es server-rendered + zero JS.** Los componentes `.astro` se ejecutan en build / server y mandan HTML puro. No agregues JS al cliente a menos que necesites interactividad.
-2. **`client:*` directives son opt-in y explícitas.** Cada componente con `client:` corre en el navegador y suma al bundle. Usá la directiva mínima:
+2. **`client:*` directives son opt-in y explícitas.** Cada componente con `client:` corre en el navegador y suma al bundle. Usa la directiva mínima:
    - `client:load` — hydrate inmediatamente al cargar la página (caro).
    - `client:idle` — cuando el browser esté idle (mejor para widgets no-críticos).
    - `client:visible` — solo cuando entra al viewport (mejor para below-fold).
@@ -22,7 +22,7 @@ Antes de importar un componente de React/Vue/Svelte/Solid en una página Astro, 
    - `client:only="react"` — skip SSR; renderiza solo en cliente. Útil para libs que tocan `window` en SSR.
 3. **`client:visible` > `client:load` para todo lo que no esté above-the-fold.** Carrouseles, formularios secundarios, modales que viven al final de la página: `client:visible` evita hydratar al inicio.
 4. **Compartir state entre Islands = Nano Stores, no Context.** Los Islands están aislados — React Context no cruza fronteras. `@nanostores/persistent` o `@nanostores/react` son el patrón oficial.
-5. **`.astro` para layout / structure, framework component solo para interactividad.** Si el componente no tiene estado/handler, escribilo en `.astro` (más rápido, menos bundle).
+5. **`.astro` para layout / structure, framework component solo para interactividad.** Si el componente no tiene estado/handler, escríbelo en `.astro` (más rápido, menos bundle).
 
 ## Patrón típico
 
@@ -61,7 +61,7 @@ import CommentsSection from "../components/CommentsSection.tsx";  // React islan
 ## Antes de declarar el cambio "listo"
 
 - `{{qualityGate.fast}}` en verde.
-- Corré `astro build` y revisá el output de bundle size por página. Cada island agrega JS — confirmá que el delta es justificable.
+- Corre `astro build` y revisa el output de bundle size por página. Cada island agrega JS — confirma que el delta es justificable.
 - Lighthouse (Performance + Best Practices) en `astro preview`. Astro debería sostener 95+ en sites mostly-static; si bajó mucho, hidrataste algo que podía ser server-only.
-- Si agregaste `client:load`: justificalo en el PR. ¿Por qué no `client:idle` o `client:visible`?
-- Si tenés 2 islands que comparten state: confirmá que usás Nano Stores, no que duplicaste fetch / estado en cada uno.
+- Si agregaste `client:load`: justifícalo en el PR. ¿Por qué no `client:idle` o `client:visible`?
+- Si tienes 2 islands que comparten state: confirma que usas Nano Stores, no que duplicaste fetch / estado en cada uno.
