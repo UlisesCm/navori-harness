@@ -20,7 +20,7 @@ src/<feature>/
 ├── dto/
 │   ├── create-<x>.dto.ts
 │   └── update-<x>.dto.ts
-├── entities/                 # Si usás ORM (TypeORM/Mongoose schemas)
+├── entities/                 # Si usas ORM (TypeORM/Mongoose schemas)
 │   └── <x>.entity.ts
 └── __tests__/
     ├── <feature>.controller.spec.ts
@@ -30,8 +30,8 @@ src/<feature>/
 ## Reglas duras
 
 1. **Un módulo expone solo lo que otros consumen.** El `exports: []` del `@Module` declara explícitamente qué providers son públicos. Si no está exportado, otro módulo NO debería importarlo (rompe encapsulación).
-2. **Inyección por constructor, no por propiedad.** `constructor(private readonly users: UsersService) {}`. Property injection (`@Inject() users: UsersService`) es para casos raros (circular deps, factory tokens). Si lo necesitás, es señal de que el módulo debería estar dividido.
-3. **Default scope es singleton.** Solo usá `@Injectable({ scope: Scope.REQUEST })` cuando el provider necesite contexto por-request (current user, request-scoped cache). Cada provider request-scoped fuerza a sus consumidores a serlo también — propaga rápido.
+2. **Inyección por constructor, no por propiedad.** `constructor(private readonly users: UsersService) {}`. Property injection (`@Inject() users: UsersService`) es para casos raros (circular deps, factory tokens). Si lo necesitas, es señal de que el módulo debería estar dividido.
+3. **Default scope es singleton.** Solo usa `@Injectable({ scope: Scope.REQUEST })` cuando el provider necesite contexto por-request (current user, request-scoped cache). Cada provider request-scoped fuerza a sus consumidores a serlo también — propaga rápido.
 4. **Controllers NO tienen lógica.** Reciben DTO, llaman service, devuelven response DTO. Toda transformación, validación de negocio o coordinación va en el service.
 5. **Imports vs providers.** `imports` para módulos completos (`TypeOrmModule.forFeature([User])`); `providers` para clases del propio módulo. Confundir los dos es bug común.
 
@@ -41,7 +41,7 @@ src/<feature>/
 |---|---|
 | Endpoint HTTP nuevo | `<feature>.controller.ts` + DTO de entrada/salida |
 | Lógica de negocio | `<feature>.service.ts` |
-| Llamar otra feature | Import el módulo de la otra; resolvé su service exportado por DI |
+| Llamar otra feature | Import el módulo de la otra; resuelve su service exportado por DI |
 | Connection a DB | `TypeOrmModule.forFeature(...)` en `imports` del módulo |
 | Validación de DTO | `class-validator` decorators en el DTO + `ValidationPipe` global |
 | Cross-cutting (logging, auth) | Interceptor / Guard / Pipe en `app.module.ts` global |
@@ -51,6 +51,6 @@ src/<feature>/
 
 - `{{qualityGate.fast}}` en verde.
 - Si agregaste un módulo: aparece en `app.module.ts` (imports) o como sub-import de otro módulo declarado.
-- Si exportaste un provider: documentá por qué. Solo se exporta lo que otros van a consumir desde fuera.
-- Si tocaste DI scopes: confirmá que el cambio no convirtió un provider singleton en request-scoped por accidente (busca cascada).
+- Si exportaste un provider: documenta por qué. Solo se exporta lo que otros van a consumir desde fuera.
+- Si tocaste DI scopes: confirma que el cambio no convirtió un provider singleton en request-scoped por accidente (busca cascada).
 - Spec del controller llama al service mockeado (no a la implementación real).

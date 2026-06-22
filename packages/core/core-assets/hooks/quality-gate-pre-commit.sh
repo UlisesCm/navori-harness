@@ -31,7 +31,7 @@ case "$cmd" in
 esac
 
 # navori:user-section
-# user: agregá checks adicionales acá. `$cmd` ya está parseado del input
+# user: agrega checks adicionales acá. `$cmd` ya está parseado del input
 # de la tool. Ejemplo:
 #
 #   case "$cmd" in

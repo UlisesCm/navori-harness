@@ -103,7 +103,7 @@ export const syncCommand = defineCommand({
     if (args.yes && conflicts.length > 0) {
       const lines = conflicts.map((c) => `  - ${c.path}: ${c.reason}`).join("\n");
       p.cancel(
-        `${conflicts.length} conflict(s) detected with --yes. Resolvelos a mano o corré 'sync --apply' sin --yes para el flujo interactivo.\n${lines}`,
+        `${conflicts.length} conflict(s) detected with --yes. Resuélvelos a mano o corre 'sync --apply' sin --yes para el flujo interactivo.\n${lines}`,
       );
       process.exit(1);
     }
@@ -124,7 +124,7 @@ export const syncCommand = defineCommand({
         const fileConflicts = conflicts.filter((c) => !c.path.includes("CLAUDE.md"));
         if (fileConflicts.length > 0) {
           p.log.warn(
-            `${fileConflicts.length} conflicto(s) en archivos .claude/ se mantienen — la resolución interactiva cubre CLAUDE.md; resolvé los de .claude/ a mano y re-corré sync.`,
+            `${fileConflicts.length} conflicto(s) en archivos .claude/ se mantienen — la resolución interactiva cubre CLAUDE.md; resuelve los de .claude/ a mano y vuelve a correr sync.`,
           );
         }
       } else if (conflicts.length > 0) {

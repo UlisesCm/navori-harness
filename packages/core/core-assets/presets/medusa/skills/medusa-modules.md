@@ -23,7 +23,7 @@ src/modules/<module-name>/
 
 ## Reglas duras
 
-1. **Nunca editar migraciones generadas a mano.** Si cambia el modelo, regenerá con `npx medusa db:generate <ModuleName>`. La excepción son data migrations explícitas — esas sí se escriben, pero en archivo aparte.
+1. **Nunca editar migraciones generadas a mano.** Si cambia el modelo, regenera con `npx medusa db:generate <ModuleName>`. La excepción son data migrations explícitas — esas sí se escriben, pero en archivo aparte.
 2. **El service extiende `MedusaService<{ Entity: typeof Entity, ... }>`.** No reimplementar CRUD — los métodos `list/create/update/delete` salen del factory automáticamente.
 3. **Entidades con DML (`model.define(...)`)**, no con decoradores de MikroORM directos. DML es la API pública v2 estable; los decoradores son internos y pueden cambiar.
 4. **Resolver del module via container key.** Inyectar con `container.resolve(Modules.<NAME>)` o el key string del manifest, nunca importar el service directo desde otro módulo (rompe el aislamiento del DI).
@@ -43,4 +43,4 @@ src/modules/<module-name>/
 
 - `pnpm tsc --noEmit` (o el `{{qualityGate.fast}}` del proyecto) en verde.
 - Si tocaste un modelo: la migración nueva está commited.
-- Si tocaste el service: arrancá el server y probá la ruta o método que consume el cambio.
+- Si tocaste el service: arranca el server y prueba la ruta o método que consume el cambio.

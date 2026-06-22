@@ -13,7 +13,7 @@ maxWords: 1000
 NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 ```
 
-Si no corriste el comando de verificación EN ESTE TURNO, no podés afirmar el claim. "Should work", "previous run was green", "looks fine" NO son evidencia.
+Si no corriste el comando de verificación EN ESTE TURNO, no puedes afirmar el claim. "Should work", "previous run was green", "looks fine" NO son evidencia.
 
 ## Por qué este skill existe
 
@@ -30,12 +30,12 @@ Inferencia ≠ evidencia. Este skill fuerza el rigor.
 ANTES de afirmar cualquier "listo / done / completed / approved":
 
 1. **IDENTIFY**: ¿qué comando prueba este claim?
-2. **RUN**: ejecutá el comando COMPLETO en este turno (no parcial, no cached).
+2. **RUN**: ejecuta el comando COMPLETO en este turno (no parcial, no cached).
 3. **READ**: output completo, exit code, contar failures.
 4. **VERIFY**: ¿el output confirma el claim?
-   - NO → declará el estado real con evidencia.
-   - SÍ → afirmá el claim CON el evidence visible.
-5. **ONLY THEN**: hacé el claim.
+   - NO → declara el estado real con evidencia.
+   - SÍ → afirma el claim CON el evidence visible.
+5. **ONLY THEN**: haz el claim.
 
 Saltarse cualquier step = mentira, no verificación.
 
@@ -54,24 +54,24 @@ Saltarse cualquier step = mentira, no verificación.
 | Tests pasan | Suite corrida fresca con exit 0 en este turno + conteo de tests | "no tocamos tests", "deberían seguir verdes" |
 | Type-check limpio | `tsc --noEmit` (o equivalente del runtime) exit 0 en este turno | "TS no se quejó cuando lo guardé" |
 
-## Red flags (PARÁ)
+## Red flags (PARA)
 
 - Estás por escribir "listo" / "done" / "perfect" / "should work".
 - Estás por hacer `git commit` sin haber corrido `{{qualityGate.fast}}` en este turno.
 - Estás por marcar `APPROVED` un review sin haber leído el diff completo.
-- Estás cansado y querés cerrar.
+- Estás cansado y quieres cerrar.
 - "Just this once" — NO. Cero excepciones.
-- Confiás en el reporte de un subagente sin verificar el diff vos.
+- Confías en el reporte de un subagente sin verificar el diff tú mismo.
 
 ## Rationalization prevention
 
 | Excusa | Realidad |
 |---|---|
 | "Tengo confianza" | Confianza ≠ evidencia. |
-| "Si compila, anda" | TS con `strict: false` no atrapa undefined runtime. Verificá UI / runtime. |
-| "El check pasó hace 10 min" | Re-corré. Fresh. |
+| "Si compila, anda" | TS con `strict: false` no atrapa undefined runtime. Verifica UI / runtime. |
+| "El check pasó hace 10 min" | Re-corre. Fresh. |
 | "Es trivial, no hace falta" | Trivialidad no exime de verificación. |
-| "El subagente dijo done" | Mirá el diff vos. Trust pero verify. |
+| "El subagente dijo done" | Mira el diff tú mismo. Trust pero verify. |
 | "El usuario tiene prisa" | Prisa ≠ excusa. Verificación rápida es más rápida que rollback. |
 | "Same words diferentes = la regla no aplica" | Spirit > letter. |
 
@@ -111,7 +111,7 @@ Al aplicarla, el output al usuario debe incluir:
 <!-- navori:user-section -->
 ## Checks específicos del proyecto
 
-<!-- user: agregá acá claims específicos de tu repo y su evidencia requerida. Sugerencias:
+<!-- user: agrega acá claims específicos de tu repo y su evidencia requerida. Sugerencias:
      - Migraciones de DB: comando para validar el estado (ej. `prisma migrate status`).
      - Áreas críticas: {{project.criticalAreas}} → checks específicos por área.
      - Scripts del repo que cuentan como "evidencia válida" (ej. `pnpm e2e:smoke`).

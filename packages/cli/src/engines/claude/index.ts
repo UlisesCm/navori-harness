@@ -122,11 +122,11 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
 
   const posture = proj.posture as string | undefined;
   if (posture === "greenfield") {
-    rows.push("- **Etapa:** greenfield — priorizá velocidad y menos ceremonia, pero el quality gate igual debe pasar.");
+    rows.push("- **Etapa:** greenfield — prioriza velocidad y menos ceremonia, pero el quality gate igual debe pasar.");
   } else if (posture === "production") {
-    rows.push("- **Etapa:** en producción — priorizá NO romper regresiones. Los cambios de blast radius alto piden validación humana antes de mergear.");
+    rows.push("- **Etapa:** en producción — prioriza NO romper regresiones. Los cambios de blast radius alto piden validación humana antes de mergear.");
   } else if (posture === "migration") {
-    rows.push("- **Etapa:** migración legacy — cuidá la compatibilidad legacy↔nuevo. El reviewer marca CRÍTICO si un cambio lee de un lado y escribe en el otro.");
+    rows.push("- **Etapa:** migración legacy — cuida la compatibilidad legacy↔nuevo. El reviewer marca CRÍTICO si un cambio lee de un lado y escribe en el otro.");
   }
 
   const rigor = proj.reviewRigor as string | undefined;
@@ -150,7 +150,7 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
   if (tests === "always") {
     rows.push("- **Tests:** el código nuevo DEBE traer tests. El reviewer bloquea APPROVED si faltan.");
   } else if (tests === "when-applicable") {
-    rows.push("- **Tests:** pedí tests para lógica no trivial; en código simple son opcionales.");
+    rows.push("- **Tests:** pide tests para lógica no trivial; en código simple son opcionales.");
   } else if (tests === "none") {
     rows.push("- **Tests:** el repo no exige tests para código nuevo.");
   }
@@ -617,7 +617,7 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
     return {
       kind: "skip",
       path: destPath,
-      reason: "bloque managed editado por el usuario; resolvé con 'navori sync' o ajustá el destino a mano",
+      reason: "bloque managed editado por el usuario; resuelve con 'navori sync' o ajusta el destino a mano",
     };
   }
   return { kind: "write", path: destPath, content: result.content, status: result.status };
@@ -726,7 +726,7 @@ function applySubBlockInject(input: {
   if (result.status === "user-modified-skipped") {
     input.skipped.push({
       path: relative(input.cwd, targetAbs),
-      reason: `sub-bloque '${input.skill.id}' (de @navori/plugin-${input.plugin.manifest.id}) editado por el usuario; resolvé con 'navori sync'`,
+      reason: `sub-bloque '${input.skill.id}' (de @navori/plugin-${input.plugin.manifest.id}) editado por el usuario; resuelve con 'navori sync'`,
     });
     return;
   }

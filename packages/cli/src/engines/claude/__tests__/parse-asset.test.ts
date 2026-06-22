@@ -28,7 +28,7 @@ set -euo pipefail
 {{qualityGate.fast}}
 
 # navori:user-section
-# user: agregá checks
+# user: agrega checks
 `;
 
 describe("parseAsset — html", () => {
@@ -65,7 +65,7 @@ describe("parseAsset — shell", () => {
     expect(p.frontmatter.name).toBe("qg-fast");
     expect(p.managedBody).toContain("#!/usr/bin/env bash");
     expect(p.managedBody).toContain("{{qualityGate.fast}}");
-    expect(p.userTemplate).toMatch(/agregá checks/);
+    expect(p.userTemplate).toMatch(/agrega checks/);
   });
 
   it("does NOT split on text that contains the sentinel string inline", () => {

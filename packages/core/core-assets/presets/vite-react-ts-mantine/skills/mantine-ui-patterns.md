@@ -12,9 +12,9 @@ Antes de escribir un componente React nuevo o modificar uno existente. Mantine y
 
 ## Reglas duras
 
-1. **`<Button>` antes que `<button>`.** Lo mismo con `<TextInput>` (no `<input>`), `<Stack>` (no `<div style={{ display: 'flex', flexDirection: 'column' }}>`), `<Group>` (no flex horizontal), `<Title>` (no `<h1>`). Si el componente Mantine no cubre tu caso, primero confirmá que no exista — la lib es enorme.
+1. **`<Button>` antes que `<button>`.** Lo mismo con `<TextInput>` (no `<input>`), `<Stack>` (no `<div style={{ display: 'flex', flexDirection: 'column' }}>`), `<Group>` (no flex horizontal), `<Title>` (no `<h1>`). Si el componente Mantine no cubre tu caso, primero confirma que no exista — la lib es enorme.
 2. **Theming centralizado en `theme.ts`.** Colores, espacios, radios, breakpoints viven en el objeto `MantineThemeOverride`. No hardcodear `#3b82f6` o `padding: 12px` en componentes — usa `var(--mantine-color-blue-6)`, `theme.spacing.sm` o el prop `c="blue.6"`.
-3. **Props sobre `style={{ ... }}`.** Mantine acepta `mt`, `mb`, `p`, `gap`, `c`, `bg`, etc. como props directos. Sigan el sistema de tokens del theme. `style={{ marginTop: 16 }}` rompe responsive + theming.
+3. **Props sobre `style={{ ... }}`.** Mantine acepta `mt`, `mb`, `p`, `gap`, `c`, `bg`, etc. como props directos. Siguen el sistema de tokens del theme. `style={{ marginTop: 16 }}` rompe responsive + theming.
 4. **Responsive con `visibleFrom` / `hiddenFrom` o `responsive prop`.** No condicionar render con `window.innerWidth`. Mantine ya tiene breakpoints + hooks (`useMediaQuery`).
 5. **Forms con `@mantine/form`, no estado a mano.** Validación, dirty/pristine, errores granulares vienen incluidos. `useState` para cada input es bug-prone.
 
@@ -73,7 +73,7 @@ export function CreateUserForm({ onSubmit }: Props) {
 ## Antes de declarar el cambio "listo"
 
 - `{{qualityGate.fast}}` en verde.
-- Probá el componente en dark mode (toggle Mantine ColorScheme) — si rompe, usaste color hardcoded.
-- Probá responsive: ancho mobile (< 768px) y desktop. Si requiere breakpoint manual, usá `useMediaQuery` o `visibleFrom`.
-- Cero `<div style={{...}}>` con flex/grid: convertí a `<Stack>` / `<Group>` / `<SimpleGrid>`.
-- Cero strings hex en código de componente: si necesitás un color custom, sumalo al `theme.colors`.
+- Prueba el componente en dark mode (toggle Mantine ColorScheme) — si rompe, usaste color hardcoded.
+- Prueba responsive: ancho mobile (< 768px) y desktop. Si requiere breakpoint manual, usa `useMediaQuery` o `visibleFrom`.
+- Cero `<div style={{...}}>` con flex/grid: convierte a `<Stack>` / `<Group>` / `<SimpleGrid>`.
+- Cero strings hex en código de componente: si necesitas un color custom, súmalo al `theme.colors`.

@@ -11,9 +11,9 @@
       },
       "type": "select",
       "options": [
-        { "value": "greenfield", "label": { "es": "Greenfield — código nuevo, mové rápido", "en": "Greenfield — new code, move fast" } },
-        { "value": "production", "label": { "es": "En producción — cuidá regresiones", "en": "In production — guard against regressions" } },
-        { "value": "migration", "label": { "es": "Migración legacy — cuidá compatibilidad legacy↔nuevo", "en": "Legacy migration — watch legacy↔new compatibility" } }
+        { "value": "greenfield", "label": { "es": "Greenfield — código nuevo, muévete rápido", "en": "Greenfield — new code, move fast" } },
+        { "value": "production", "label": { "es": "En producción — cuida regresiones", "en": "In production — guard against regressions" } },
+        { "value": "migration", "label": { "es": "Migración legacy — cuida compatibilidad legacy↔nuevo", "en": "Legacy migration — watch legacy↔new compatibility" } }
       ],
       "optional": true
     },
@@ -21,13 +21,13 @@
       "key": "project.reviewRigor",
       "phase": "general",
       "question": {
-        "es": "¿Qué tan estricto querés el review?",
+        "es": "¿Qué tan estricto quieres el review?",
         "en": "How strict should review be?"
       },
       "type": "select",
       "options": [
-        { "value": "strict", "label": { "es": "Estricto — bloqueá también dudas de confianza media", "en": "Strict — also block medium-confidence issues" } },
-        { "value": "pragmatic", "label": { "es": "Pragmático — bloqueá solo lo claramente grave", "en": "Pragmatic — block only clearly serious issues" } }
+        { "value": "strict", "label": { "es": "Estricto — bloquea también dudas de confianza media", "en": "Strict — also block medium-confidence issues" } },
+        { "value": "pragmatic", "label": { "es": "Pragmático — bloquea solo lo claramente grave", "en": "Pragmatic — block only clearly serious issues" } }
       ],
       "optional": true
     },
@@ -46,7 +46,7 @@
       "key": "project.criticalAreas",
       "phase": "specific",
       "question": {
-        "es": "¿Qué áreas necesitan review extra? (separá con comas)",
+        "es": "¿Qué áreas necesitan review extra? (separa con comas)",
         "en": "Which areas need extra review? (comma-separated)"
       },
       "type": "string-list",

@@ -7,7 +7,7 @@ maxWords: 1200
 
 # Code review — checklist de un diff
 
-Aplicá esta checklist a un diff (staged, branch vs `{{branchBase}}`, o un PR puntual). El esqueleto es agnóstico al stack; las reglas específicas de tu repo viven en la user-section del final.
+Aplica esta checklist a un diff (staged, branch vs `{{branchBase}}`, o un PR puntual). El esqueleto es agnóstico al stack; las reglas específicas de tu repo viven en la user-section del final.
 
 ## Cómo reportar
 
@@ -28,8 +28,8 @@ Si no llega a MEDIO, no lo reportes. Nada de "nitpick" ni "consider also". (Mape
 ## 0. Pre-pasada (antes de leer línea por línea)
 
 - ¿El diff toca infra/config (`tsconfig*`, config de lint/build, `.env*`, CI, `settings.json`)? Flag → validar que el cambio es intencional.
-- ¿Borra archivos? Verificá que no queden imports residuales (`grep -rn "<archivo>"`).
-- ¿Mezcla cambios no relacionados (feature + refactor + format-only)? → MEDIO, pedí separar.
+- ¿Borra archivos? Verifica que no queden imports residuales (`grep -rn "<archivo>"`).
+- ¿Mezcla cambios no relacionados (feature + refactor + format-only)? → MEDIO, pide separar.
 
 ## 1. Tipos y contratos
 
@@ -86,24 +86,24 @@ Si no llega a MEDIO, no lo reportes. Nada de "nitpick" ni "consider also". (Mape
 
 ## Áreas críticas
 
-Prestá atención extra si el diff toca las áreas críticas que declara tu repo (en `navori.config.json` / CLAUDE.md). Un hallazgo en esas zonas sube un nivel de severidad.
+Presta atención extra si el diff toca las áreas críticas que declara tu repo (en `navori.config.json` / CLAUDE.md). Un hallazgo en esas zonas sube un nivel de severidad.
 
 ## Output
 
 1. Lista plana con severidades, ordenada CRÍTICO → ALTO → MEDIO. Cada línea con `archivo:línea`.
 2. Si no hay hallazgos: `Sin observaciones.`
 3. Nada de resumen, "good job", ni sugerencias fuera del checklist.
-4. Si encontrás un patrón de bug nuevo que no está acá, guardalo (memoria / nota) para próximas reviews.
+4. Si encuentras un patrón de bug nuevo que no está acá, guárdalo (memoria / nota) para próximas reviews.
 
 ## Conexión con el harness
 
-- `reviewer`: aplicá este skill en la Pasada 2 (code quality). CRÍTICO/ALTO mapean a issues con confidence ≥80 (bloquean APPROVED); MEDIO a observaciones informativas (50-79).
+- `reviewer`: aplica este skill en la Pasada 2 (code quality). CRÍTICO/ALTO mapean a issues con confidence ≥80 (bloquean APPROVED); MEDIO a observaciones informativas (50-79).
 - `verify-before-done`: el quality gate del §8 se corre en este turno, no se asume del informe del implementer.
 
 <!-- navori:user-section -->
 ## Reglas específicas del repo
 
-<!-- user: agregá acá las reglas bespoke de tu stack/dominio (las que NO son generalizables). Sugerencias:
+<!-- user: agrega acá las reglas bespoke de tu stack/dominio (las que NO son generalizables). Sugerencias:
      - Patrones de tu UI lib / framework (componentes prohibidos, props obligatorias, mezcla de libs).
      - Convenciones de tu capa de datos (headers obligatorios, clientes específicos, mezcla de backends legacy/nuevo).
      - Reglas de forms/validación de tu stack.

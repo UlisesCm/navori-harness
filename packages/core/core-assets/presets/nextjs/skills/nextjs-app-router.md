@@ -16,7 +16,7 @@ Antes de crear o modificar archivos bajo `app/` o componentes que vayan a render
 2. **`"use client"` sube, no baja.** Si un Client Component renderiza un Server Component como children, eso funciona. Pero importar un Server Component dentro de un Client Component lo convierte en client (rompe el modelo).
 3. **Server Actions para mutaciones, no API routes.** Mutaciones desde formularios usan `"use server"` actions con `useFormState` / `useFormStatus`. API routes (`route.ts`) son para endpoints públicos consumidos por terceros o webhooks.
 4. **`async` solo en Server Components.** Client Components NO pueden ser async. Para data fetching en cliente usa `useEffect`, SWR o React Query.
-5. **No leas `cookies()` / `headers()` en Client Components.** Esas APIs son server-only. Pasalas como props si las necesitas client-side.
+5. **No leas `cookies()` / `headers()` en Client Components.** Esas APIs son server-only. Pásalas como props si las necesitas client-side.
 
 ## Patrón típico
 
@@ -49,6 +49,6 @@ app/
 ## Antes de declarar el cambio "listo"
 
 - `{{qualityGate.fast}}` en verde.
-- Si agregaste `"use client"`: justificalo (¿realmente necesita estado/efecto/handler?). Si no, removelo.
-- Si tocaste un Server Action: revisá que no exponga datos sensibles en el response (lo que devuelve es serializado al cliente).
-- Si agregaste `revalidatePath` / `revalidateTag`: probá el flow completo (mutación → revalidación → UI actualizada).
+- Si agregaste `"use client"`: justifícalo (¿realmente necesita estado/efecto/handler?). Si no, remuévelo.
+- Si tocaste un Server Action: revisa que no exponga datos sensibles en el response (lo que devuelve es serializado al cliente).
+- Si agregaste `revalidatePath` / `revalidateTag`: prueba el flow completo (mutación → revalidación → UI actualizada).

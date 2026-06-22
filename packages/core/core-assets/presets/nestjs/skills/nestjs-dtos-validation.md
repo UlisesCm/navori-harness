@@ -13,7 +13,7 @@ Antes de definir o modificar el shape de cualquier endpoint HTTP. El DTO es el c
 ## Reglas duras
 
 1. **DTO por dirección + intención.** `Create<X>Dto`, `Update<X>Dto`, `<X>ResponseDto`. No reusar el mismo DTO para create y update (los campos opcionales/obligatorios cambian) ni para entrada y salida (la respuesta expone campos que el cliente no envía: `id`, `createdAt`).
-2. **`ValidationPipe` global con `whitelist: true` + `forbidNonWhitelisted: true`.** Sin esto, propiedades extra del cliente pasan al service. Configuralo en `main.ts`:
+2. **`ValidationPipe` global con `whitelist: true` + `forbidNonWhitelisted: true`.** Sin esto, propiedades extra del cliente pasan al service. Configúralo en `main.ts`:
    ```ts
    app.useGlobalPipes(new ValidationPipe({
      whitelist: true,
@@ -22,7 +22,7 @@ Antes de definir o modificar el shape de cualquier endpoint HTTP. El DTO es el c
    }));
    ```
 3. **`@Type(() => X)` para nested objects + arrays.** Sin `class-transformer`, los objetos anidados llegan como plain objects (no instancias) y `class-validator` no los recursea.
-4. **Response DTO con `class-transformer`.** Usá `@Exclude()` / `@Expose()` para no devolver campos sensibles (passwords, internal IDs). Aplica con `ClassSerializerInterceptor` global o por endpoint.
+4. **Response DTO con `class-transformer`.** Usa `@Exclude()` / `@Expose()` para no devolver campos sensibles (passwords, internal IDs). Aplica con `ClassSerializerInterceptor` global o por endpoint.
 5. **Mensajes de error en el DTO, no en el controller.** Cada decorador acepta `{ message: "..." }`. El cliente recibe un array de errores específico por campo, no un 400 genérico.
 
 ## Patrón típico
@@ -76,6 +76,6 @@ export class UserResponseDto {
 ## Antes de declarar el cambio "listo"
 
 - `{{qualityGate.fast}}` en verde.
-- Probá el endpoint con un payload válido y otro inválido — el error response debe ser específico por campo, no un 400 genérico.
-- Si agregaste un campo nuevo al CreateDto: ¿lo agregaste también al UpdateDto (si aplica) y al ResponseDto (si lo devolvés)?
-- Si tocaste un Response DTO: verificá que ningún campo sensible (`password`, tokens internos) llega al cliente. Test con un user creado y `console.log(response)` para inspección.
+- Prueba el endpoint con un payload válido y otro inválido — el error response debe ser específico por campo, no un 400 genérico.
+- Si agregaste un campo nuevo al CreateDto: ¿lo agregaste también al UpdateDto (si aplica) y al ResponseDto (si lo devuelves)?
+- Si tocaste un Response DTO: verifica que ningún campo sensible (`password`, tokens internos) llega al cliente. Test con un user creado y `console.log(response)` para inspección.

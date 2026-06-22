@@ -96,7 +96,7 @@ export const addCommand = defineCommand({
       p.intro(brand("add --suggest"));
     } else if (!args.plugin) {
       p.intro(brand("add"));
-      p.cancel("Pasá un plugin id (ej. 'navori add engram') o usá --suggest para ver recomendaciones.");
+      p.cancel("Pasa un plugin id (ej. 'navori add engram') o usa --suggest para ver recomendaciones.");
       process.exit(1);
     } else {
       p.intro(brand(`add ${accent(args.plugin)}`));
@@ -230,7 +230,7 @@ function printSuggestions(cwd: string, configPath: string): void {
     const what = detected.stack.ui ?? detected.stack.framework ?? detected.stack.language;
     lines.push(
       `${color.cyan(sym.bullet)} Preset: detecté ${accent(what)} → sugerido ${accent(sp)} ` +
-        `${dim(`(actual: ${config.preset})`)} — cambialo con 'navori configure' o editá navori.config.json.`,
+        `${dim(`(actual: ${config.preset})`)} — cámbialo con 'navori configure' o edita navori.config.json.`,
     );
   }
 
@@ -252,5 +252,5 @@ function printSuggestions(cwd: string, configPath: string): void {
     return;
   }
   p.note(lines.join("\n"), "Sugerencias");
-  p.outro(dim("Sugerencias, no aplicadas — corré 'navori add <id>' o 'navori configure'."));
+  p.outro(dim("Sugerencias, no aplicadas — corre 'navori add <id>' o 'navori configure'."));
 }

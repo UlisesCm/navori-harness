@@ -140,12 +140,12 @@ interface Strings {
 }
 
 const ES: Strings = {
-  pickLanguage: "¿En qué idioma querés el wizard?",
+  pickLanguage: "¿En qué idioma quieres el wizard?",
   pickLanguageEs: "Español (default)",
   pickLanguageEn: "English",
   useTheseValues: "¿Usar estos valores?",
   projectNameUndetectedAdjust: "No detecté el nombre del proyecto. ¿Ajustar?",
-  whatToChange: "¿Qué querés cambiar?",
+  whatToChange: "¿Qué quieres cambiar?",
 
   labelProjectName: "Nombre del proyecto",
   labelLanguage: "Idioma",
@@ -179,7 +179,7 @@ const ES: Strings = {
   previewAction: "¿Está bien?",
   saveAndContinue: "Sí, continuar",
   adjustSomething: "Ajustar algo",
-  whatToEdit: "¿Qué querés ajustar?",
+  whatToEdit: "¿Qué quieres ajustar?",
   backToPreview: "← volver al resumen",
   cancelAndExit: "Cancelar y salir",
   editField: (label) => `Editar ${label}`,
@@ -189,16 +189,16 @@ const ES: Strings = {
   assignmentsNone: "(defaults)",
 
   projectPromptsIntro: "Ahora unas preguntas para afinar el harness a tu repo (lo que navori no puede detectar). Las respuestas se vuelven reglas activas que los agentes siguen.",
-  projectPromptsAsk: "¿Querés contestarlas ahora?",
+  projectPromptsAsk: "¿Quieres contestarlas ahora?",
   projectPromptsSkip: "Saltear (después con 'navori configure')",
   projectPromptsRun: "Contestar",
-  projectPromptsOptional: "(opcional — dejá vacío para skipear)",
-  projectPromptsSkipNote: "Skipeé las preguntas de proyecto. Corré 'navori configure' cuando quieras llenarlas.",
+  projectPromptsOptional: "(opcional — deja vacío para omitir)",
+  projectPromptsSkipNote: "Omití las preguntas de proyecto. Corre 'navori configure' cuando quieras llenarlas.",
   phaseGeneral: "Fase 1 · general — postura del repo",
   phaseSpecific: "Fase 2 · específica — reglas concretas",
   projectPromptSkipOption: "— sin preferencia / saltar —",
 
-  qualityGateNotDetected: "No detecté quality gate en package.json. El harness va a tener placeholders `<not configured: qualityGate.*>` y el hook pre-commit no se va a generar. Corré 'navori configure qualityGate' o agregá scripts (`typecheck`, `lint`, `test`) en package.json y re-renderea.",
+  qualityGateNotDetected: "No detecté quality gate en package.json. El harness va a tener placeholders `<not configured: qualityGate.*>` y el hook pre-commit no se va a generar. Corre 'navori configure qualityGate' o agrega scripts (`typecheck`, `lint`, `test`) en package.json y re-renderea.",
 
   roleLeader: "leader (orquestador)",
   roleImplementer: "implementer (escribe código)",
@@ -211,7 +211,7 @@ const ES: Strings = {
   existingInfraYesMode:
     "Detecté infraestructura Claude — uso modo 'coexist' (seguro)",
   existingInfraDetected: "Detecté infraestructura Claude:",
-  howToAdopt: "¿Cómo querés adoptar navori?",
+  howToAdopt: "¿Cómo quieres adoptar navori?",
   coexistLabel: "Coexistir (recomendado)",
   coexistHint: "agrega lo que falta, no modifica lo existente",
   replaceLabel: "Reemplazar",
@@ -222,14 +222,14 @@ const ES: Strings = {
   removedOriginals: (cwd) => `Borré los originales de ${cwd}`,
 
   doneExistingUntouched:
-    "Listo — archivos existentes intactos. Corré 'navori render --apply' cuando quieras.",
+    "Listo — archivos existentes intactos. Corre 'navori render --apply' cuando quieras.",
   done: "Listo",
-  doneSkippedRender: "Listo (skipeé el render)",
-  doneRunLater: "Listo (corré 'navori render --apply' cuando quieras)",
+  doneSkippedRender: "Listo (omití el render)",
+  doneRunLater: "Listo (corre 'navori render --apply' cuando quieras)",
   harnessReady: "Tu harness está listo",
   preCommitHookPrompt: "¿Scaffoldear un pre-commit hook que corra 'navori doctor --strict'? (opt-in)",
   preCommitHookWritten: (path) =>
-    `Pre-commit hook escrito en ${path} — saltealo con 'git commit --no-verify'`,
+    `Pre-commit hook escrito en ${path} — sáltalo con 'git commit --no-verify'`,
   preCommitHookExists: (path) => `Ya existe un pre-commit hook en ${path} — no lo piso`,
 
   dirNotFound: (dir) => `Directorio no encontrado: ${dir}`,
@@ -237,7 +237,7 @@ const ES: Strings = {
   cancelled: "Cancelado",
   projectNameRequired: "Hace falta el nombre del proyecto",
   detectionFailedYes:
-    "No detecté el nombre del proyecto. Corré sin --yes/--recommended para darlo.",
+    "No detecté el nombre del proyecto. Corre sin --yes/--recommended para darlo.",
   wroteConfig: (path) => `Escribí ${path}`,
   recPluginsEnabled: (list) => `Plugins recomendados activados: ${list}`,
 
@@ -251,7 +251,7 @@ const ES: Strings = {
   defaultNothing: "(default — no detecté nada)",
   suggested: "(sugerido)",
   assetDefaultEs:
-    "(default — cambialo en el wizard si necesitás 'en')",
+    "(default — cámbialo en el wizard si necesitas 'en')",
   fromScripts: "(de scripts en package.json)",
   from: (src) => `(de ${src})`,
   present: "presente",
