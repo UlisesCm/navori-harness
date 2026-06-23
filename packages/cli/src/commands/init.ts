@@ -159,6 +159,13 @@ export const initCommand = defineCommand({
 
     p.note(formatDetectionSummary(detected, lang), tr.detectedTitle);
 
+    // Recognized stack without a preset on disk: name the gap honestly instead
+    // of letting the baseline render look like the intended outcome. Fires in
+    // both --yes and interactive flows (before any branching).
+    if (detected.suggestedPresetGap) {
+      p.log.warn(tr.presetGapNotice(detected.suggestedPresetGap));
+    }
+
     // Cascade: workspace defaults take precedence over detection when present
     const wsDefaults = workspaceConfig?.defaults;
     const defaultEngines = (wsDefaults?.engines as EngineId[] | undefined) ??
