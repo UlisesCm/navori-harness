@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join, resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { loadPlugin } from "../lib/plugins.ts";
-import { loadPreset } from "../lib/presets.ts";
+import { loadPreset, presetExists } from "../lib/presets.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -76,15 +76,20 @@ export const doctorCommand = defineCommand({
     const drifts = scanManagedDrift(cwd, config);
     const corruptedSettings = scanCorruptedSettings(cwd);
     const missingInvariants = scanMissingInvariants(cwd, config);
+    // A declared preset with no backing JSON renders the baseline AND warns —
+    // config points at something unresolvable, same class as a missing plugin.
+    const missingPreset =
+      config.preset !== "custom" && !presetExists(config.preset) ? config.preset : null;
     const report = {
       // Drift is informational ("update available"), not an error — don't
-      // flip `ok` for it. Missing plugins, corrupted settings.json and missing
-      // invariants ARE errors: the next render will fail, silently skip the
-      // file, or a load-bearing rule has vanished from the output.
+      // flip `ok` for it. Missing plugins, corrupted settings.json, missing
+      // invariants and a phantom preset ARE errors: the next render will fail,
+      // silently skip the file, or drop a load-bearing rule / preset extras.
       ok:
         missingPlugins.length === 0 &&
         corruptedSettings.length === 0 &&
-        missingInvariants.length === 0,
+        missingInvariants.length === 0 &&
+        missingPreset === null,
       configPath,
       config,
       checks: {
@@ -98,6 +103,7 @@ export const doctorCommand = defineCommand({
       drifts,
       corruptedSettings,
       missingInvariants,
+      missingPreset,
     };
 
     if (args.json) {
@@ -105,7 +111,12 @@ export const doctorCommand = defineCommand({
       // JSON consumers (CI pipelines) need the same exit-code semantics as
       // the text output so a piped check ($navori doctor --json --strict)
       // fails the build the same way the human-readable run would.
-      if (missingPlugins.length > 0 || corruptedSettings.length > 0 || missingInvariants.length > 0) {
+      if (
+        missingPlugins.length > 0 ||
+        corruptedSettings.length > 0 ||
+        missingInvariants.length > 0 ||
+        missingPreset !== null
+      ) {
         process.exit(2);
       }
       if (Boolean(args.strict) && drifts.length > 0) process.exit(1);
@@ -158,6 +169,14 @@ export const doctorCommand = defineCommand({
     if (missingPlugins.length > 0) {
       const lines = missingPlugins.map((m) => `  ${color.red(sym.fail)} ${m.id}  ${grey(`— ${m.reason}`)}`);
       p.log.warn(`Plugins declared in config but not loadable (${missingPlugins.length}):\n${lines.join("\n")}`);
+    }
+
+    if (missingPreset !== null) {
+      p.log.warn(
+        `Preset '${missingPreset}' declarado en config pero no existe en core-assets/presets/ — ` +
+          `el render cae al baseline (sin los extras del preset). Corre 'navori configure' o ` +
+          `usa un preset válido / 'custom'.`,
+      );
     }
 
     // Project-local skills declared in config must have a file on disk — navori
@@ -218,7 +237,10 @@ export const doctorCommand = defineCommand({
     );
 
     const hasIssues =
-      missingPlugins.length > 0 || corruptedSettings.length > 0 || missingInvariants.length > 0;
+      missingPlugins.length > 0 ||
+      corruptedSettings.length > 0 ||
+      missingInvariants.length > 0 ||
+      missingPreset !== null;
     const strictFail = Boolean(args.strict) && drifts.length > 0;
     p.outro(
       hasIssues

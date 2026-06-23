@@ -577,6 +577,25 @@ describe("CLI e2e — happy paths", () => {
     expect(dreport2.corruptedSettings).toHaveLength(0);
   });
 
+  it("doctor flags a preset declared in config that has no backing JSON (F15)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // Point the config at a preset that does not ship — render would fall back
+    // to baseline and warn; doctor must surface it as a hard issue (exit 2).
+    const configPath = join(repo, "navori.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    config.preset = "monorepo-turbopnpm";
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    const dr = runCli(["doctor", "--json", "--cwd", repo]);
+    expect(dr.status).toBe(2);
+    const dreport = JSON.parse(dr.stdout);
+    expect(dreport.ok).toBe(false);
+    expect(dreport.missingPreset).toBe("monorepo-turbopnpm");
+  });
+
   it("doctor flags missing invariants when a load-bearing rule is gutted (spec 0003 §3.1.1)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
