@@ -1062,3 +1062,126 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     expect(r.combined).not.toContain("No command specified");
   });
 });
+
+describe("CLI e2e — local presets (fase 2)", () => {
+  let dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+    dirs = [];
+  });
+
+  it("preset init scaffolds .navori/presets/<id>/ and wires preset into config", () => {
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "lp-app" }) });
+    dirs.push(repo);
+    expect(runCli(["init", "--yes", "--cwd", repo]).status).toBe(0);
+
+    const r = runCli(["preset", "init", "mistack", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    expect(existsSync(join(repo, ".navori/presets/mistack/mistack.json"))).toBe(true);
+    expect(existsSync(join(repo, ".navori/presets/mistack/managed/stack.md"))).toBe(true);
+    expect(existsSync(join(repo, ".navori/presets/mistack/skills/mistack-example.md"))).toBe(true);
+
+    const cfg = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(cfg.preset).toBe("mistack");
+  });
+
+  it("render --apply materializes a local preset's skill + stack block", () => {
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "lp-render" }) });
+    dirs.push(repo);
+    runCli(["init", "--yes", "--cwd", repo]);
+    runCli(["preset", "init", "mistack", "--cwd", repo]);
+
+    expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
+
+    // The example skill landed in .claude/skills/.
+    expect(existsSync(join(repo, ".claude/skills/mistack-example.md"))).toBe(true);
+    // The stack managed block landed in CLAUDE.md.
+    const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
+    expect(claudeMd).toContain('navori:managed id="stack-mistack"');
+    expect(claudeMd).toContain("## Stack — mistack");
+  });
+
+  it("doctor recognizes a local preset (not phantom) — exit 0", () => {
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "lp-doctor" }) });
+    dirs.push(repo);
+    runCli(["init", "--yes", "--cwd", repo]);
+    runCli(["preset", "init", "mistack", "--cwd", repo]);
+    runCli(["render", "--apply", "--cwd", repo]);
+
+    const r = runCli(["doctor", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).not.toMatch(/no existe/);
+  });
+
+  it("doctor --strict flags a local preset whose extra file is missing", () => {
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "lp-missing" }) });
+    dirs.push(repo);
+    runCli(["init", "--yes", "--cwd", repo]);
+    runCli(["preset", "init", "mistack", "--cwd", repo]);
+    // Remove the example skill the manifest still references.
+    rmSync(join(repo, ".navori/presets/mistack/skills/mistack-example.md"));
+
+    const r = runCli(["doctor", "--strict", "--cwd", repo]);
+    expect(r.status).not.toBe(0);
+    expect(r.combined).toMatch(/sin archivo/);
+  });
+
+  it("preset init refuses to overwrite an existing local preset", () => {
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "lp-dup" }) });
+    dirs.push(repo);
+    runCli(["init", "--yes", "--cwd", repo]);
+    expect(runCli(["preset", "init", "mistack", "--cwd", repo]).status).toBe(0);
+
+    const second = runCli(["preset", "init", "mistack", "--cwd", repo]);
+    expect(second.status).not.toBe(0);
+    expect(second.combined).toMatch(/[Yy]a existe/);
+  });
+
+  it("preset init rejects the reserved id 'custom' and non-kebab ids", () => {
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "lp-bad" }) });
+    dirs.push(repo);
+    runCli(["init", "--yes", "--cwd", repo]);
+
+    expect(runCli(["preset", "init", "custom", "--cwd", repo]).status).not.toBe(0);
+    expect(runCli(["preset", "init", "BadId", "--cwd", repo]).status).not.toBe(0);
+    expect(existsSync(join(repo, ".navori/presets/custom"))).toBe(false);
+  });
+
+  it("preset init without a config scaffolds and tells the user to run init", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    const r = runCli(["preset", "init", "mistack", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(existsSync(join(repo, ".navori/presets/mistack/mistack.json"))).toBe(true);
+    expect(r.combined).toMatch(/navori init/);
+  });
+
+  it("doctor warns when a local preset shadows a bundled one of the same id", () => {
+    // express + mongoose → detector picks the bundled 'express-mongoose' preset.
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "lp-override",
+        dependencies: { express: "^4", mongoose: "^8" },
+      }),
+    });
+    dirs.push(repo);
+    runCli(["init", "--yes", "--cwd", repo]);
+    const cfg = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(cfg.preset).toBe("express-mongoose");
+
+    // Scaffold a local preset with the same id → it shadows the bundled one.
+    expect(runCli(["preset", "init", "express-mongoose", "--cwd", repo]).status).toBe(0);
+    runCli(["render", "--apply", "--cwd", repo]);
+
+    const r = runCli(["doctor", "--cwd", repo]);
+    expect(r.combined).toMatch(/sombrea/);
+  });
+});
