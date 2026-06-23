@@ -4,7 +4,12 @@
   "displayName": "Next.js (App Router) app",
   "extends": "core",
   "extras": {
-    "managed": [],
+    "managed": [
+      {
+        "id": "stack-nextjs",
+        "relPath": "presets/nextjs/managed/stack.md"
+      }
+    ],
     "agents": [],
     "skills": [
       {

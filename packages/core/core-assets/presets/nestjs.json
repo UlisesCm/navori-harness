@@ -4,7 +4,12 @@
   "displayName": "NestJS backend",
   "extends": "core",
   "extras": {
-    "managed": [],
+    "managed": [
+      {
+        "id": "stack-nestjs",
+        "relPath": "presets/nestjs/managed/stack.md"
+      }
+    ],
     "agents": [],
     "skills": [
       {

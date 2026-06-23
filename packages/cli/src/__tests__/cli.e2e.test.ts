@@ -335,6 +335,28 @@ describe("CLI e2e — happy paths", () => {
     expect(config.qualityGate?.fast).toContain("typecheck");
   });
 
+  it("preset contributes a stack managed block to CLAUDE.md (F2)", () => {
+    const next = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "web", dependencies: { next: "^15" } }),
+    });
+    const nest = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "api", dependencies: { "@nestjs/core": "^10" } }),
+    });
+    dirs.push(next, nest);
+
+    runCli(["init", "--yes", "--cwd", next]);
+    runCli(["init", "--yes", "--cwd", nest]);
+    const nextMd = readFileSync(join(next, "CLAUDE.md"), "utf-8");
+    const nestMd = readFileSync(join(nest, "CLAUDE.md"), "utf-8");
+
+    // Each preset injects its own stack block — no longer a baseline-only,
+    // stack-agnostic CLAUDE.md identical across presets.
+    expect(nextMd).toContain('id="stack-nextjs"');
+    expect(nextMd).toContain("App Router");
+    expect(nestMd).toContain('id="stack-nestjs"');
+    expect(nextMd).not.toEqual(nestMd);
+  });
+
   it("init aborts if navori.config.json already exists", () => {
     const repo = makeTmpRepo({
       "navori.config.json": '{"name":"x","engines":["claude"],"preset":"custom"}',

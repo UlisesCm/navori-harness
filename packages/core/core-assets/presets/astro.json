@@ -4,7 +4,12 @@
   "displayName": "Astro static / SSR site",
   "extends": "core",
   "extras": {
-    "managed": [],
+    "managed": [
+      {
+        "id": "stack-astro",
+        "relPath": "presets/astro/managed/stack.md"
+      }
+    ],
     "agents": [],
     "skills": [
       {
