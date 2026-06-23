@@ -132,4 +132,20 @@ describe("listMarkers + scanManagedDrift", () => {
     writeAgent("body", 'source="@navori/core"');
     expect(scanManagedDrift(cwd, config)).toHaveLength(0);
   });
+
+  // Regression (F4): CLAUDE.md was outside the scan scope, so doctor/status
+  // reported drift:0 while render/sync flagged the same hand-edited block.
+  it("detects content drift in a managed block inside CLAUDE.md", () => {
+    writeFileSync(
+      join(cwd, "CLAUDE.md"),
+      `<!-- navori:managed id="idioma-rol" hash="deadbeef" version="9.9.9" source="@navori/core" -->\n` +
+        `hand-edited core block\n<!-- /navori:managed id="idioma-rol" -->\n`,
+    );
+    const drifts = scanManagedDrift(cwd, config);
+    expect(
+      drifts.some(
+        (d) => d.kind === "content" && d.markerId === "idioma-rol" && d.filePath === "CLAUDE.md",
+      ),
+    ).toBe(true);
+  });
 });
