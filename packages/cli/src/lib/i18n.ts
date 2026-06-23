@@ -116,6 +116,7 @@ interface Strings {
   detectionFailedYes: string;
   wroteConfig: (path: string) => string;
   recPluginsEnabled: (list: string) => string;
+  presetGapNotice: (stack: string) => string;
 
   // Note titles
   workspaceDefaultsTitle: (name: string) => string;
@@ -243,6 +244,11 @@ const ES: Strings = {
     "No detecté el nombre del proyecto. Corre sin --yes/--recommended para darlo.",
   wroteConfig: (path) => `Escribí ${path}`,
   recPluginsEnabled: (list) => `Plugins recomendados activados: ${list}`,
+  presetGapNotice: (stack) =>
+    `Detecté un proyecto '${stack}', pero todavía no hay un preset oficial para ese stack. ` +
+    `Se instala el harness completo (agentes, gates, protocolo, SDD) y funciona desde ya; ` +
+    `lo único que falta son skills específicas de '${stack}'. Quedas con el baseline (preset: custom). ` +
+    `Para cubrir esas skills, agrégalas en project.localSkills o contribuye un preset a navori.`,
 
   workspaceDefaultsTitle: (name) => `Defaults del workspace · ${name}`,
   detectedTitle: "Detectado en este repo",
@@ -369,6 +375,11 @@ const EN: Strings = {
     "Could not detect project name. Run without --yes/--recommended to provide one.",
   wroteConfig: (path) => `Wrote ${path}`,
   recPluginsEnabled: (list) => `Recommended plugins enabled: ${list}`,
+  presetGapNotice: (stack) =>
+    `Detected a '${stack}' project, but there's no official preset for that stack yet. ` +
+    `The full harness installs (agents, gates, protocol, SDD) and works right away; ` +
+    `the only thing missing are '${stack}'-specific skills. You stay on the baseline (preset: custom). ` +
+    `To cover those skills, add them via project.localSkills or contribute a preset to navori.`,
 
   workspaceDefaultsTitle: (name) => `Workspace defaults · ${name}`,
   detectedTitle: "Detected from this repo",

@@ -44,7 +44,7 @@ Saltarse cualquier step = mentira, no verificación.
 | Claim | Required output | Not sufficient |
 |---|---|---|
 | `{{qualityGate.fast}}` verde | Comando completo corrido en este turno con exit 0 | "corrí antes", "should be green", "lint pasaba ayer" |
-| `{{qualityGate.full}}` verde | Mismo — exit 0 fresco en este turno | "vite/dev anda", "build pasó hace rato" |
+| `{{qualityGate.full}}` verde | Mismo — exit 0 fresco en este turno | "el dev server anda", "build pasó hace rato" |
 | Cero errores nuevos vs baseline | `git stash` → re-run → comparar conteos → `git stash pop` | "lint dijo OK" sin comparar baseline |
 | UI validada (golden path) | Repro step + comportamiento observado en navegador con dev server vivo en este turno | "se ve bien en código", "should render correctly" |
 | Bug fixed | Reproducir síntoma original y verlo NO ocurrir | "code changed, assumed fixed", "el diff cubre el caso" |
@@ -112,7 +112,7 @@ Al aplicarla, el output al usuario debe incluir:
 ## Checks específicos del proyecto
 
 <!-- user: agrega acá claims específicos de tu repo y su evidencia requerida. Sugerencias:
-     - Migraciones de DB: comando para validar el estado (ej. `prisma migrate status`).
+     - Migraciones de DB: comando para validar el estado (ej. el status de migraciones de tu ORM).
      - Áreas críticas: {{project.criticalAreas}} → checks específicos por área.
      - Scripts del repo que cuentan como "evidencia válida" (ej. `pnpm e2e:smoke`).
      - Comandos prohibidos como evidencia (ej. "el preview de Vercel" si no es repro real).

@@ -40,6 +40,13 @@ export interface DetectedProject {
   monorepo: MonorepoInfo | null;
   stack: StackInfo;
   suggestedPreset: string;
+  /**
+   * A recognized stack candidate that has NO preset on disk yet. Null when the
+   * suggested preset exists (the common case) or when the stack is genuinely
+   * unknown. When set, `suggestedPreset` is "custom" (baseline render) but init
+   * names this gap honestly instead of falling back silently.
+   */
+  suggestedPresetGap: string | null;
   qualityGate: QualityGateGuess | null;
   claudeInfra: ClaudeInfraInventory;
   sources: {
@@ -86,7 +93,7 @@ export function detectProject(cwd: string): DetectedProject {
   const packageManager = detectPackageManager(cwd);
   const monorepo = detectMonorepo(cwd);
   const stack = detectStack(cwd, pkg, pyproject, cargo);
-  const suggestedPreset = suggestPreset(stack, monorepo);
+  const { preset: suggestedPreset, gap: suggestedPresetGap } = suggestPreset(stack, monorepo);
   const qualityGate = guessQualityGate(pkg, packageManager, stack);
   const claudeInfra = detectClaudeInfra(cwd);
 
@@ -98,6 +105,7 @@ export function detectProject(cwd: string): DetectedProject {
     monorepo,
     stack,
     suggestedPreset,
+    suggestedPresetGap,
     qualityGate,
     claudeInfra,
     sources: {
@@ -457,13 +465,21 @@ function detectStack(
 // Preset suggestion
 // ============================================================
 
-function suggestPreset(stack: StackInfo, monorepo: MonorepoInfo | null): string {
-  // Only suggest a preset that actually ships a definition. The candidate logic
-  // names ideal presets (e.g. "monorepo-turbopnpm", "rust") that may not exist
-  // yet; surfacing a phantom id would render the baseline AND warn. Fall back to
-  // "custom" (same baseline, no warning) until the preset is authored.
+function suggestPreset(
+  stack: StackInfo,
+  monorepo: MonorepoInfo | null,
+): { preset: string; gap: string | null } {
+  // The candidate logic names ideal presets (e.g. "monorepo-turbopnpm", "rust")
+  // that may not exist yet. Three outcomes:
+  //   - candidate is "custom"            → unknown stack, no gap to surface.
+  //   - candidate exists on disk         → use it, no gap.
+  //   - candidate recognized but missing → render baseline ("custom") AND expose
+  //     the candidate as a `gap` so init names it honestly instead of falling
+  //     back silently to custom.
   const candidate = pickPresetCandidate(stack, monorepo);
-  return presetExists(candidate) ? candidate : "custom";
+  if (candidate === "custom") return { preset: "custom", gap: null };
+  if (presetExists(candidate)) return { preset: candidate, gap: null };
+  return { preset: "custom", gap: candidate };
 }
 
 function pickPresetCandidate(stack: StackInfo, monorepo: MonorepoInfo | null): string {
