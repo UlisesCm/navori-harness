@@ -511,7 +511,7 @@ function pickPresetCandidate(stack: StackInfo, monorepo: MonorepoInfo | null): s
   if (fw === "fastify") return "fastify";
   if (fw === "hono") return "hono";
   if (fw === "elysia") return "elysia";
-  if (fw === "express") return "express-microservice";
+  if (fw === "express") return "express-mongoose";
 
   return "custom";
 }

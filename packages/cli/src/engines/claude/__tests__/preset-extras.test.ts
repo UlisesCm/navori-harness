@@ -106,6 +106,20 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         id: "astro",
         skills: [".claude/skills/astro-islands.md"],
       },
+      {
+        id: "express-mongoose",
+        skills: [
+          ".claude/skills/express-routes.md",
+          ".claude/skills/mongoose.md",
+          ".claude/skills/zod-validation.md",
+          ".claude/skills/mongo-aggregations.md",
+          ".claude/skills/winston-logging.md",
+          ".claude/skills/new-resource.md",
+          ".claude/skills/new-endpoint.md",
+          ".claude/skills/ticket-intake.md",
+          ".claude/skills/pr-create.md",
+        ],
+      },
     ];
 
     for (const preset of BUNDLED) {
