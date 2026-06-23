@@ -295,7 +295,7 @@ describe("CLI e2e — happy paths", () => {
     }
   });
 
-  it("init --yes plain (without --recommended) keeps conservative no-fallback behavior", () => {
+  it("init --yes plain writes empty project block but never invents a qualityGate", () => {
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({
         name: "ts-no-scripts",
@@ -728,19 +728,21 @@ describe("CLI e2e — happy paths", () => {
     dirs.push(repo);
     runCli(["init", "--recommended", "--cwd", repo]);
 
-    // Add deps that shift the preset
+    // Add deps that shift the preset to a real, shipped preset (nextjs). Using
+    // a phantom candidate like nextjs-apollo would now resolve to "custom" and
+    // report no drift (F1).
     writeFileSync(
       join(repo, "package.json"),
       JSON.stringify({
         name: "my-app",
-        dependencies: { next: "^15", "@apollo/client": "^4" },
+        dependencies: { next: "^15" },
       }),
     );
 
     const r = runCli(["update", "--dry-run", "--cwd", repo]);
     expect(r.status).toBe(0);
     expect(r.combined).toContain("drift detected");
-    expect(r.combined).toContain("nextjs-apollo");
+    expect(r.combined).toContain("nextjs");
 
     const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
     expect(config.preset).toBe("custom"); // not changed by dry-run
