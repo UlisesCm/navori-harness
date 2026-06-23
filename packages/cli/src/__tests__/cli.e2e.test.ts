@@ -309,9 +309,11 @@ describe("CLI e2e — happy paths", () => {
     expect(r.status).toBe(0);
 
     const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
-    // No qualityGate fallback for plain --yes — back-compat
+    // --yes never guesses gate commands (back-compat) ...
     expect(config.qualityGate).toBeUndefined();
-    expect(config.project).toBeUndefined();
+    // ... but it DOES write the project block with empty arrays so render emits
+    // no `<not configured: project.*>` placeholders in the agents (F11).
+    expect(config.project).toEqual({ legacyPaths: [], criticalAreas: [], localSkills: [] });
   });
 
   it("init --yes detects stack from package.json", () => {
