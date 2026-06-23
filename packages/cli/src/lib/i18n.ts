@@ -233,7 +233,10 @@ const ES: Strings = {
   preCommitHookExists: (path) => `Ya existe un pre-commit hook en ${path} — no lo piso`,
 
   dirNotFound: (dir) => `Directorio no encontrado: ${dir}`,
-  configExists: (path) => `navori.config.json ya existe en ${path}.`,
+  configExists: (path) =>
+    `navori.config.json ya existe en ${path}. Para ponerte al día corre 'navori update'; ` +
+    `para ajustar la config 'navori configure'; para re-renderizar 'navori render --apply'; ` +
+    `para revisar el estado 'navori doctor'.`,
   cancelled: "Cancelado",
   projectNameRequired: "Hace falta el nombre del proyecto",
   detectionFailedYes:
@@ -356,7 +359,10 @@ const EN: Strings = {
   preCommitHookExists: (path) => `A pre-commit hook already exists at ${path} — leaving it alone`,
 
   dirNotFound: (dir) => `Directory not found: ${dir}`,
-  configExists: (path) => `navori.config.json already exists at ${path}.`,
+  configExists: (path) =>
+    `navori.config.json already exists at ${path}. Run 'navori update' to catch up; ` +
+    `'navori configure' to tweak config; 'navori render --apply' to re-render; ` +
+    `'navori doctor' to inspect state.`,
   cancelled: "Cancelled",
   projectNameRequired: "Project name is required",
   detectionFailedYes:
