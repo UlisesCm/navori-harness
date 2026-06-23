@@ -1,0 +1,74 @@
+{
+  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "id": "express-mongoose",
+  "displayName": "Express + Mongoose backend",
+  "extends": "core",
+  "extras": {
+    "managed": [
+      {
+        "id": "stack-express-mongoose",
+        "relPath": "presets/express-mongoose/managed/stack.md"
+      }
+    ],
+    "agents": [],
+    "skills": [
+      {
+        "id": "express-routes",
+        "relPath": "presets/express-mongoose/skills/express-routes.md",
+        "destRelPath": ".claude/skills/express-routes.md"
+      },
+      {
+        "id": "mongoose",
+        "relPath": "presets/express-mongoose/skills/mongoose.md",
+        "destRelPath": ".claude/skills/mongoose.md"
+      },
+      {
+        "id": "zod-validation",
+        "relPath": "presets/express-mongoose/skills/zod-validation.md",
+        "destRelPath": ".claude/skills/zod-validation.md"
+      },
+      {
+        "id": "mongo-aggregations",
+        "relPath": "presets/express-mongoose/skills/mongo-aggregations.md",
+        "destRelPath": ".claude/skills/mongo-aggregations.md"
+      },
+      {
+        "id": "winston-logging",
+        "relPath": "presets/express-mongoose/skills/winston-logging.md",
+        "destRelPath": ".claude/skills/winston-logging.md"
+      },
+      {
+        "id": "new-resource",
+        "relPath": "presets/express-mongoose/skills/new-resource.md",
+        "destRelPath": ".claude/skills/new-resource.md"
+      },
+      {
+        "id": "new-endpoint",
+        "relPath": "presets/express-mongoose/skills/new-endpoint.md",
+        "destRelPath": ".claude/skills/new-endpoint.md"
+      },
+      {
+        "id": "ticket-intake",
+        "relPath": "presets/express-mongoose/skills/ticket-intake.md",
+        "destRelPath": ".claude/skills/ticket-intake.md"
+      },
+      {
+        "id": "pr-create",
+        "relPath": "presets/express-mongoose/skills/pr-create.md",
+        "destRelPath": ".claude/skills/pr-create.md"
+      }
+    ],
+    "hooks": []
+  },
+  "invariants": [
+    "express-routes",
+    "asyncHandler",
+    "ApiResponse",
+    "mongoose",
+    "Types.ObjectId",
+    "zod-validation",
+    "z.coerce",
+    "ticket-intake",
+    "new-resource"
+  ]
+}
