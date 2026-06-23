@@ -1054,4 +1054,11 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     expect(leader).not.toContain("<not configured: qualityGate");
     expect(leader).toContain("quality gate sin configurar");
   });
+
+  it("'navori migrations' with no subcommand defaults to list instead of erroring (F10)", () => {
+    // Was citty's bare "No command specified." Now it lists (exit 0).
+    const r = runCli(["migrations"]);
+    expect(r.status).toBe(0);
+    expect(r.combined).not.toContain("No command specified");
+  });
 });

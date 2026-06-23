@@ -164,8 +164,19 @@ export const migrationsCommand = defineCommand({
     name: "migrations",
     description: "List and restore init replace-mode migrations",
   },
+  // Mirror list's args so `navori migrations --json/--limit` work via the
+  // default run below (citty needs them declared on the parent to parse them).
+  args: {
+    json: { type: "boolean", description: "Output as JSON" },
+    limit: { type: "string", description: "Show only the N most recent (default: 20)" },
+  },
   subCommands: {
     list: listSubCommand,
     restore: restoreSubCommand,
+  },
+  // Without a subcommand citty errors with a bare "No command specified."
+  // Default to `list` so `navori migrations` just works.
+  run({ args }) {
+    return listSubCommand.run?.({ args, cmd: listSubCommand, rawArgs: [] });
   },
 });
