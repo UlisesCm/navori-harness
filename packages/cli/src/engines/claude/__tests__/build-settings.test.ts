@@ -52,6 +52,21 @@ describe("buildClaudeSettings — base shape", () => {
     expect(allow).toContain("Bash(git diff*)");
   });
 
+  it("ships read-only allow entries so trivial reads don't prompt (native tools + file inspection)", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const allow = (s.permissions as { allow: string[] }).allow;
+    // Native read-only tools — cannot write or execute.
+    expect(allow).toContain("Read");
+    expect(allow).toContain("Glob");
+    expect(allow).toContain("Grep");
+    // File inspection without any destructive flag.
+    expect(allow).toContain("Bash(cat:*)");
+    expect(allow).toContain("Bash(ls:*)");
+    // Destructive ops stay OUT of allow (they live in ask/deny).
+    expect(allow).not.toContain("Bash(rm:*)");
+    expect(allow.some((r) => r.startsWith("Bash(find"))).toBe(false);
+  });
+
   it("ships permissions.deny for catastrophic, no-legit-use commands (hard block)", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
     const deny = (s.permissions as { deny: string[] }).deny;

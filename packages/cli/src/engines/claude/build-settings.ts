@@ -13,8 +13,9 @@ import { deepMerge } from "./deep-merge.ts";
  *
  * Layering (deep-merged in order):
  *   1. settings-base.json from @navori/core (interpolated with coreVersion).
- *      Ships permissions.allow (read-only git), .ask (destructive-but-legit)
- *      and .deny (catastrophic, no-legit-use) baseline rules.
+ *      Ships permissions.allow (read-only git + file inspection + the native
+ *      Read/Glob/Grep tools, so trivial reads don't prompt), .ask
+ *      (destructive-but-legit) and .deny (catastrophic, no-legit-use) rules.
  *   1b. Defensive guard PreToolUse(Bash) hook — always registered, references
  *      `.claude/hooks/guard-destructive.sh`. Exit 2 precedes permission rules.
  *   2. Quality-gate PreToolUse hook, only if `config.qualityGate.fast` is
