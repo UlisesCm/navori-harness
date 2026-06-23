@@ -193,13 +193,16 @@ export const initCommand = defineCommand({
         rootPreset: detected.suggestedPreset,
       });
 
-      // --recommended applies sensible fallbacks for qualityGate + project so
-      // the first render doesn't emit `<not configured: ...>` placeholders all
-      // over agents/skills. --yes plain keeps the conservative behavior.
+      // --recommended applies a sensible qualityGate fallback (guessed commands)
+      // when none is detected; --yes plain stays conservative and never invents
+      // gate commands. The `project` block is different: empty arrays invent
+      // nothing, they just declare "no critical areas / legacy paths". Writing
+      // it in BOTH modes keeps `<not configured: project.*>` placeholders out of
+      // the rendered agents (the schema fills localSkills/etc. via .default([])).
       const fallbackQg = args.recommended
         ? detected.qualityGate ?? buildRecommendedQualityGate(detected)
         : detected.qualityGate;
-      const recommendedProject = args.recommended ? buildRecommendedProject(detected) : null;
+      const projectBlock = args.recommended ? buildRecommendedProject(detected) : {};
 
       writeConfig(configPath, {
         name: detected.name,
@@ -211,7 +214,7 @@ export const initCommand = defineCommand({
         ...(defaultCommits ? { commits: defaultCommits } : {}),
         ...(fallbackQg ? { qualityGate: fallbackQg } : {}),
         ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
-        ...(recommendedProject ? { project: recommendedProject } : {}),
+        project: projectBlock,
         ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),
       });
       p.log.success(tr.wroteConfig(configPath));
@@ -565,7 +568,9 @@ export const initCommand = defineCommand({
       ...(qualityGate ? { qualityGate } : {}),
       ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
       ...(Object.keys(agentAssignments).length > 0 ? { agentAssignments } : {}),
-      ...(project ? { project } : {}),
+      // Always write `project` so the schema fills empty arrays and render emits
+      // no `<not configured: project.*>` placeholders (see autoYes path above).
+      project: project ?? {},
       ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),
     });
 

@@ -198,3 +198,34 @@ describe("detectProject — branchBase detection", () => {
     }
   });
 });
+
+describe("detectProject — suggested preset never points to a phantom (F1)", () => {
+  it("falls back to 'custom' for a turbo monorepo instead of the unshipped 'monorepo-turbopnpm'", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "mono" }));
+      writeFileSync(join(dir, "turbo.json"), "{}");
+      writeFileSync(join(dir, "pnpm-workspace.yaml"), 'packages:\n  - "apps/*"\n');
+      const d = detectProject(dir);
+      // The candidate "monorepo-turbopnpm" has no preset JSON; suggesting it
+      // would render the baseline AND emit a "not found" warning.
+      expect(d.suggestedPreset).toBe("custom");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("still suggests a real preset when one ships (nextjs)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "web", dependencies: { next: "^15" } }),
+      );
+      const d = detectProject(dir);
+      expect(d.suggestedPreset).toBe("nextjs");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});

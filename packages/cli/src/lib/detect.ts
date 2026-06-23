@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
+import { presetExists } from "./presets.ts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -457,6 +458,15 @@ function detectStack(
 // ============================================================
 
 function suggestPreset(stack: StackInfo, monorepo: MonorepoInfo | null): string {
+  // Only suggest a preset that actually ships a definition. The candidate logic
+  // names ideal presets (e.g. "monorepo-turbopnpm", "rust") that may not exist
+  // yet; surfacing a phantom id would render the baseline AND warn. Fall back to
+  // "custom" (same baseline, no warning) until the preset is authored.
+  const candidate = pickPresetCandidate(stack, monorepo);
+  return presetExists(candidate) ? candidate : "custom";
+}
+
+function pickPresetCandidate(stack: StackInfo, monorepo: MonorepoInfo | null): string {
   if (monorepo) {
     if (monorepo.tool === "turbo") return "monorepo-turbopnpm";
     if (monorepo.tool === "pnpm") return "monorepo-pnpm";

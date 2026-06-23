@@ -97,60 +97,66 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
     }
   }
 
+  // Scan CLAUDE.md too, not just .claude/. Its managed blocks (idioma-rol,
+  // formato-respuesta, plugin protocols, …) drift the same way; omitting it made
+  // `doctor`/`status` report drift:0 while `render`/`sync` saw the same
+  // hand-edited block as a conflict.
+  const files: string[] = [];
+  if (existsSync(join(cwd, "CLAUDE.md"))) files.push("CLAUDE.md");
   for (const dir of [".claude/agents", ".claude/skills"]) {
     const absDir = join(cwd, dir);
     if (!existsSync(absDir)) continue;
-    let entries: string[];
     try {
-      entries = readdirSync(absDir);
+      for (const file of readdirSync(absDir)) {
+        if (file.endsWith(".md")) files.push(`${dir}/${file}`);
+      }
     } catch {
       continue;
     }
-    for (const file of entries) {
-      if (!file.endsWith(".md")) continue;
-      const rel = `${dir}/${file}`;
-      const abs = join(cwd, rel);
-      const fileContent = (() => {
-        try {
-          return readFileSync(abs, "utf-8");
-        } catch {
-          return null;
+  }
+
+  for (const rel of files) {
+    const abs = join(cwd, rel);
+    const fileContent = (() => {
+      try {
+        return readFileSync(abs, "utf-8");
+      } catch {
+        return null;
+      }
+    })();
+    const markers = listMarkers(abs);
+
+    for (const m of markers) {
+      if (!m.source) continue;
+
+      if (m.version) {
+        const expected =
+          m.source === "@navori/core" ? coreVersion : pluginVersions.get(m.source);
+        if (expected && expected !== m.version) {
+          out.push({
+            filePath: rel,
+            markerId: m.id,
+            source: m.source,
+            kind: "version",
+            fromVersion: m.version,
+            toVersion: expected,
+          });
         }
-      })();
-      const markers = listMarkers(abs);
+      }
 
-      for (const m of markers) {
-        if (!m.source) continue;
-
-        if (m.version) {
-          const expected =
-            m.source === "@navori/core" ? coreVersion : pluginVersions.get(m.source);
-          if (expected && expected !== m.version) {
+      if (m.hash && fileContent !== null) {
+        const body = extractManagedContent(fileContent, m.id, "html");
+        if (body !== null) {
+          const actual = computeManagedHash(body);
+          if (actual !== m.hash) {
             out.push({
               filePath: rel,
               markerId: m.id,
               source: m.source,
-              kind: "version",
-              fromVersion: m.version,
-              toVersion: expected,
+              kind: "content",
+              expectedHash: m.hash,
+              actualHash: actual,
             });
-          }
-        }
-
-        if (m.hash && fileContent !== null) {
-          const body = extractManagedContent(fileContent, m.id, "html");
-          if (body !== null) {
-            const actual = computeManagedHash(body);
-            if (actual !== m.hash) {
-              out.push({
-                filePath: rel,
-                markerId: m.id,
-                source: m.source,
-                kind: "content",
-                expectedHash: m.hash,
-                actualHash: actual,
-              });
-            }
           }
         }
       }

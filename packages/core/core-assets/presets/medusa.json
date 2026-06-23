@@ -4,7 +4,12 @@
   "displayName": "Medusa.js v2 backend",
   "extends": "core",
   "extras": {
-    "managed": [],
+    "managed": [
+      {
+        "id": "stack-medusa",
+        "relPath": "presets/medusa/managed/stack.md"
+      }
+    ],
     "agents": [],
     "skills": [
       {

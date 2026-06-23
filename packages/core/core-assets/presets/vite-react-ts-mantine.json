@@ -4,7 +4,12 @@
   "displayName": "Vite + React + TS + Mantine SPA",
   "extends": "core",
   "extras": {
-    "managed": [],
+    "managed": [
+      {
+        "id": "stack-vite-react-ts-mantine",
+        "relPath": "presets/vite-react-ts-mantine/managed/stack.md"
+      }
+    ],
     "agents": [],
     "skills": [
       {

@@ -198,7 +198,7 @@ const ES: Strings = {
   phaseSpecific: "Fase 2 · específica — reglas concretas",
   projectPromptSkipOption: "— sin preferencia / saltar —",
 
-  qualityGateNotDetected: "No detecté quality gate en package.json. El harness va a tener placeholders `<not configured: qualityGate.*>` y el hook pre-commit no se va a generar. Corre 'navori configure qualityGate' o agrega scripts (`typecheck`, `lint`, `test`) en package.json y re-renderea.",
+  qualityGateNotDetected: "No detecté quality gate en package.json. El harness va a mostrar 'quality gate sin configurar' donde iría el comando y el hook pre-commit no se va a generar. Corre 'navori configure quality-gate' o agrega scripts (`typecheck`, `lint`, `test`) en package.json y re-renderea.",
 
   roleLeader: "leader (orquestador)",
   roleImplementer: "implementer (escribe código)",
@@ -233,7 +233,10 @@ const ES: Strings = {
   preCommitHookExists: (path) => `Ya existe un pre-commit hook en ${path} — no lo piso`,
 
   dirNotFound: (dir) => `Directorio no encontrado: ${dir}`,
-  configExists: (path) => `navori.config.json ya existe en ${path}.`,
+  configExists: (path) =>
+    `navori.config.json ya existe en ${path}. Para ponerte al día corre 'navori update'; ` +
+    `para ajustar la config 'navori configure'; para re-renderizar 'navori render --apply'; ` +
+    `para revisar el estado 'navori doctor'.`,
   cancelled: "Cancelado",
   projectNameRequired: "Hace falta el nombre del proyecto",
   detectionFailedYes:
@@ -321,7 +324,7 @@ const EN: Strings = {
   phaseSpecific: "Phase 2 · specific — concrete rules",
   projectPromptSkipOption: "— no preference / skip —",
 
-  qualityGateNotDetected: "No quality gate detected in package.json. The harness will keep `<not configured: qualityGate.*>` placeholders and the pre-commit hook will not be generated. Run 'navori configure qualityGate' or add scripts (`typecheck`, `lint`, `test`) to package.json and re-render.",
+  qualityGateNotDetected: "No quality gate detected in package.json. The harness will show 'quality gate sin configurar' where the command would go and the pre-commit hook will not be generated. Run 'navori configure quality-gate' or add scripts (`typecheck`, `lint`, `test`) to package.json and re-render.",
 
   roleLeader: "leader (orchestrator)",
   roleImplementer: "implementer (writes code)",
@@ -356,7 +359,10 @@ const EN: Strings = {
   preCommitHookExists: (path) => `A pre-commit hook already exists at ${path} — leaving it alone`,
 
   dirNotFound: (dir) => `Directory not found: ${dir}`,
-  configExists: (path) => `navori.config.json already exists at ${path}.`,
+  configExists: (path) =>
+    `navori.config.json already exists at ${path}. Run 'navori update' to catch up; ` +
+    `'navori configure' to tweak config; 'navori render --apply' to re-render; ` +
+    `'navori doctor' to inspect state.`,
   cancelled: "Cancelled",
   projectNameRequired: "Project name is required",
   detectionFailedYes:

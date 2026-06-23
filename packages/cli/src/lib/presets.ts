@@ -73,6 +73,20 @@ export class PresetError extends NavoriError {
  * Throws PresetError when the file exists but cannot be parsed or fails
  * schema validation, so a malformed preset is loud, not silent.
  */
+/**
+ * True when a preset id has a backing definition file in the bundled core.
+ * `"custom"` is the canonical no-extras baseline and always counts as existing.
+ * The detector uses this to avoid suggesting a phantom id (e.g.
+ * "monorepo-turbopnpm") that has no JSON: such an id renders the baseline
+ * anyway but also emits a "preset not found" warning. Falling back to "custom"
+ * gives the same baseline render, silently.
+ */
+export function presetExists(id: string): boolean {
+  if (id === "custom") return true;
+  const path = resolve(getCoreRoot(), "core-assets/presets", `${id}.json`);
+  return existsSync(path);
+}
+
 export function loadPreset(id: string): PresetDefinition | null {
   const path = resolve(getCoreRoot(), "core-assets/presets", `${id}.json`);
   if (!existsSync(path)) return null;

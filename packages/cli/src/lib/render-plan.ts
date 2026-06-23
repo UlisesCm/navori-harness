@@ -4,6 +4,7 @@ import { injectManagedSection, removeManagedSection, resolveCondition, type Inje
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
 import { getCoreRoot, readBundledCoreVersion } from "./bundled-assets.ts";
 import { loadPreset, PresetError } from "./presets.ts";
+import { placeholderFallback } from "./placeholders.ts";
 import type { NavoriConfig } from "./config.ts";
 
 export const CORE_SOURCE_ID = "@navori/core" as const;
@@ -57,8 +58,8 @@ function interpolateTemplate(content: string, config: NavoriConfig): string {
       cursor = (cursor as Record<string, unknown>)[seg];
     }
     if (cursor === undefined || cursor === null) {
-      // Leave a readable hint instead of the raw {{...}}
-      return `<not configured: ${path}>`;
+      // Readable hint instead of the raw {{...}}; prose for known-optional paths.
+      return placeholderFallback(path);
     }
     if (typeof cursor === "string" || typeof cursor === "number" || typeof cursor === "boolean") {
       return String(cursor);

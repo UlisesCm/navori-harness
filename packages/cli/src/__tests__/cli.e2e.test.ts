@@ -295,7 +295,7 @@ describe("CLI e2e — happy paths", () => {
     }
   });
 
-  it("init --yes plain (without --recommended) keeps conservative no-fallback behavior", () => {
+  it("init --yes plain writes empty project block but never invents a qualityGate", () => {
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({
         name: "ts-no-scripts",
@@ -309,9 +309,11 @@ describe("CLI e2e — happy paths", () => {
     expect(r.status).toBe(0);
 
     const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
-    // No qualityGate fallback for plain --yes — back-compat
+    // --yes never guesses gate commands (back-compat) ...
     expect(config.qualityGate).toBeUndefined();
-    expect(config.project).toBeUndefined();
+    // ... but it DOES write the project block with empty arrays so render emits
+    // no `<not configured: project.*>` placeholders in the agents (F11).
+    expect(config.project).toEqual({ legacyPaths: [], criticalAreas: [], localSkills: [] });
   });
 
   it("init --yes detects stack from package.json", () => {
@@ -333,6 +335,28 @@ describe("CLI e2e — happy paths", () => {
     expect(config.qualityGate?.fast).toContain("typecheck");
   });
 
+  it("preset contributes a stack managed block to CLAUDE.md (F2)", () => {
+    const next = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "web", dependencies: { next: "^15" } }),
+    });
+    const nest = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "api", dependencies: { "@nestjs/core": "^10" } }),
+    });
+    dirs.push(next, nest);
+
+    runCli(["init", "--yes", "--cwd", next]);
+    runCli(["init", "--yes", "--cwd", nest]);
+    const nextMd = readFileSync(join(next, "CLAUDE.md"), "utf-8");
+    const nestMd = readFileSync(join(nest, "CLAUDE.md"), "utf-8");
+
+    // Each preset injects its own stack block — no longer a baseline-only,
+    // stack-agnostic CLAUDE.md identical across presets.
+    expect(nextMd).toContain('id="stack-nextjs"');
+    expect(nextMd).toContain("App Router");
+    expect(nestMd).toContain('id="stack-nestjs"');
+    expect(nextMd).not.toEqual(nestMd);
+  });
+
   it("init aborts if navori.config.json already exists", () => {
     const repo = makeTmpRepo({
       "navori.config.json": '{"name":"x","engines":["claude"],"preset":"custom"}',
@@ -343,6 +367,9 @@ describe("CLI e2e — happy paths", () => {
     expect(r.status).toBe(1);
     // Language-agnostic: just confirm the abort message references the config file.
     expect(r.combined).toContain("navori.config.json");
+    // F9: the abort must point the user at the next steps, not dead-end.
+    expect(r.combined).toMatch(/update/);
+    expect(r.combined).toMatch(/configure/);
   });
 
   it("render is idempotent: second run reports no changes", () => {
@@ -572,6 +599,25 @@ describe("CLI e2e — happy paths", () => {
     expect(dreport2.corruptedSettings).toHaveLength(0);
   });
 
+  it("doctor flags a preset declared in config that has no backing JSON (F15)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // Point the config at a preset that does not ship — render would fall back
+    // to baseline and warn; doctor must surface it as a hard issue (exit 2).
+    const configPath = join(repo, "navori.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    config.preset = "monorepo-turbopnpm";
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    const dr = runCli(["doctor", "--json", "--cwd", repo]);
+    expect(dr.status).toBe(2);
+    const dreport = JSON.parse(dr.stdout);
+    expect(dreport.ok).toBe(false);
+    expect(dreport.missingPreset).toBe("monorepo-turbopnpm");
+  });
+
   it("doctor flags missing invariants when a load-bearing rule is gutted (spec 0003 §3.1.1)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
@@ -726,19 +772,21 @@ describe("CLI e2e — happy paths", () => {
     dirs.push(repo);
     runCli(["init", "--recommended", "--cwd", repo]);
 
-    // Add deps that shift the preset
+    // Add deps that shift the preset to a real, shipped preset (nextjs). Using
+    // a phantom candidate like nextjs-apollo would now resolve to "custom" and
+    // report no drift (F1).
     writeFileSync(
       join(repo, "package.json"),
       JSON.stringify({
         name: "my-app",
-        dependencies: { next: "^15", "@apollo/client": "^4" },
+        dependencies: { next: "^15" },
       }),
     );
 
     const r = runCli(["update", "--dry-run", "--cwd", repo]);
     expect(r.status).toBe(0);
     expect(r.combined).toContain("drift detected");
-    expect(r.combined).toContain("nextjs-apollo");
+    expect(r.combined).toContain("nextjs");
 
     const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
     expect(config.preset).toBe("custom"); // not changed by dry-run
@@ -993,5 +1041,24 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     const r = runCli(["sync", "--workspace", "ghost", "--cwd", repo]);
     expect(r.status).not.toBe(0);
     expect(r.combined).toContain("ghost");
+  });
+
+  it("init without a detected qualityGate renders prose, not a raw command placeholder (F12)", () => {
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "no-gate" }) });
+    dirs.push(repo);
+
+    runCli(["init", "--yes", "--cwd", repo]);
+    const leader = readFileSync(join(repo, ".claude/agents/leader.md"), "utf-8");
+
+    // Was `corre \`<not configured: qualityGate.fast>\`` — read like a command.
+    expect(leader).not.toContain("<not configured: qualityGate");
+    expect(leader).toContain("quality gate sin configurar");
+  });
+
+  it("'navori migrations' with no subcommand defaults to list instead of erroring (F10)", () => {
+    // Was citty's bare "No command specified." Now it lists (exit 0).
+    const r = runCli(["migrations"]);
+    expect(r.status).toBe(0);
+    expect(r.combined).not.toContain("No command specified");
   });
 });
