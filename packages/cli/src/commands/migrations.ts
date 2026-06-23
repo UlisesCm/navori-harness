@@ -62,7 +62,7 @@ function collectFiles(root: string, dir: string): string[] {
 const listSubCommand = defineCommand({
   meta: {
     name: "list",
-    description: "List 'init --replace' migrations stored in ~/.navori/migrations/",
+    description: "List init replace-mode migrations stored in ~/.navori/migrations/",
   },
   args: {
     json: { type: "boolean", description: "Output as JSON" },
@@ -80,7 +80,7 @@ const listSubCommand = defineCommand({
 
     p.intro(brand("migrations list"));
     if (migrations.length === 0) {
-      p.log.info("No migrations found. They are created when 'init --replace' is used to start fresh on a repo with existing Claude infrastructure.");
+      p.log.info("No migrations found. They are created when 'init' adopts navori in replace mode (the interactive wizard) on a repo with existing Claude infrastructure.");
       p.outro(dim("Done"));
       return;
     }
@@ -107,7 +107,7 @@ const listSubCommand = defineCommand({
 const restoreSubCommand = defineCommand({
   meta: {
     name: "restore",
-    description: "Restore an 'init --replace' migration back to the original repo",
+    description: "Restore an init replace-mode migration back to the original repo",
   },
   args: {
     timestamp: { type: "positional", description: "Migration timestamp", required: true },
@@ -162,7 +162,7 @@ const restoreSubCommand = defineCommand({
 export const migrationsCommand = defineCommand({
   meta: {
     name: "migrations",
-    description: "List and restore 'init --replace' migrations",
+    description: "List and restore init replace-mode migrations",
   },
   subCommands: {
     list: listSubCommand,
