@@ -198,7 +198,7 @@ const ES: Strings = {
   phaseSpecific: "Fase 2 · específica — reglas concretas",
   projectPromptSkipOption: "— sin preferencia / saltar —",
 
-  qualityGateNotDetected: "No detecté quality gate en package.json. El harness va a tener placeholders `<not configured: qualityGate.*>` y el hook pre-commit no se va a generar. Corre 'navori configure qualityGate' o agrega scripts (`typecheck`, `lint`, `test`) en package.json y re-renderea.",
+  qualityGateNotDetected: "No detecté quality gate en package.json. El harness va a mostrar 'quality gate sin configurar' donde iría el comando y el hook pre-commit no se va a generar. Corre 'navori configure quality-gate' o agrega scripts (`typecheck`, `lint`, `test`) en package.json y re-renderea.",
 
   roleLeader: "leader (orquestador)",
   roleImplementer: "implementer (escribe código)",
@@ -324,7 +324,7 @@ const EN: Strings = {
   phaseSpecific: "Phase 2 · specific — concrete rules",
   projectPromptSkipOption: "— no preference / skip —",
 
-  qualityGateNotDetected: "No quality gate detected in package.json. The harness will keep `<not configured: qualityGate.*>` placeholders and the pre-commit hook will not be generated. Run 'navori configure qualityGate' or add scripts (`typecheck`, `lint`, `test`) to package.json and re-render.",
+  qualityGateNotDetected: "No quality gate detected in package.json. The harness will show 'quality gate sin configurar' where the command would go and the pre-commit hook will not be generated. Run 'navori configure quality-gate' or add scripts (`typecheck`, `lint`, `test`) to package.json and re-render.",
 
   roleLeader: "leader (orchestrator)",
   roleImplementer: "implementer (writes code)",

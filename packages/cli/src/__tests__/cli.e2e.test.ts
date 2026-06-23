@@ -1042,4 +1042,16 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     expect(r.status).not.toBe(0);
     expect(r.combined).toContain("ghost");
   });
+
+  it("init without a detected qualityGate renders prose, not a raw command placeholder (F12)", () => {
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "no-gate" }) });
+    dirs.push(repo);
+
+    runCli(["init", "--yes", "--cwd", repo]);
+    const leader = readFileSync(join(repo, ".claude/agents/leader.md"), "utf-8");
+
+    // Was `corre \`<not configured: qualityGate.fast>\`` — read like a command.
+    expect(leader).not.toContain("<not configured: qualityGate");
+    expect(leader).toContain("quality gate sin configurar");
+  });
 });

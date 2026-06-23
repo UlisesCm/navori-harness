@@ -1,12 +1,13 @@
 import type { NavoriConfig } from "../../lib/config.ts";
+import { placeholderFallback } from "../../lib/placeholders.ts";
 
 /**
  * Interpolate `{{path.to.value}}` placeholders against the config and an
  * optional `extraVars` map. Two modes:
  *
- *   default:                      unresolved placeholders become
- *                                 `<not configured: <path>>` so the user
- *                                 can see what was missing.
+ *   default:                      unresolved placeholders fall back via
+ *                                 `placeholderFallback` (prose for known-optional
+ *                                 paths, else `<not configured: <path>>`).
  *   omitUnresolvedKeyLines:       lines of the form `key: {{x}}` with x
  *                                 unresolved are dropped entirely. Used for
  *                                 frontmatter (so an absent `models.X`
@@ -57,7 +58,7 @@ function interpolateRaw(
 ): string {
   return content.replace(PLACEHOLDER_RE, (_match, path: string) => {
     const value = resolvePath(path, config, extra);
-    return value !== null ? value : `<not configured: ${path}>`;
+    return value !== null ? value : placeholderFallback(path);
   });
 }
 
