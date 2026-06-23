@@ -103,7 +103,7 @@ export const updateCommand = defineCommand({
 
     // Render plan with current config to surface updates available
     const claudeMd = existsSync(`${cwd}/CLAUDE.md`) ? readFileSync(`${cwd}/CLAUDE.md`, "utf-8") : "";
-    const plan = computeRenderPlan(claudeMd, config);
+    const plan = computeRenderPlan(claudeMd, config, cwd);
 
     // Report
     if (diffs.length === 0 && !plan.changed && plan.updatesAvailable.length === 0) {
@@ -167,7 +167,7 @@ export const updateCommand = defineCommand({
     if (plan.changed || plan.updatesAvailable.length > 0 || diffs.length > 0) {
       const freshConfig = readConfig(configPath);
       const claudeMdNow = existsSync(`${cwd}/CLAUDE.md`) ? readFileSync(`${cwd}/CLAUDE.md`, "utf-8") : "";
-      const freshPlan = computeRenderPlan(claudeMdNow, freshConfig);
+      const freshPlan = computeRenderPlan(claudeMdNow, freshConfig, cwd);
       const fresheConflicts = freshPlan.entries.filter((e) => e.status === "user-modified-skipped");
 
       if (fresheConflicts.length > 0 && !args.yes) {

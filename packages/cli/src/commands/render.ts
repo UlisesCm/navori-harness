@@ -125,7 +125,11 @@ export function runRender(
     }
     const wsCwd = resolve(cwd, match.path);
     const wsConfig = effectiveConfigForWorkspace(config, match);
-    const wsResult = renderClaudeEngine(wsCwd, wsConfig, { dryRun, force: forceFlag });
+    const wsResult = renderClaudeEngine(wsCwd, wsConfig, {
+      dryRun,
+      force: forceFlag,
+      repoRoot: cwd,
+    });
     return {
       ok: true,
       filePath: claudeMdPath,
@@ -157,7 +161,11 @@ export function runRender(
   for (const ws of config.monorepo?.workspaces ?? []) {
     const wsCwd = resolve(cwd, ws.path);
     const wsConfig = effectiveConfigForWorkspace(config, ws);
-    const wsResult = renderClaudeEngine(wsCwd, wsConfig, { dryRun, force: forceFlag });
+    const wsResult = renderClaudeEngine(wsCwd, wsConfig, {
+      dryRun,
+      force: forceFlag,
+      repoRoot: cwd,
+    });
     workspaces.push({
       workspacePath: ws.path,
       workspaceName: ws.name,
