@@ -560,31 +560,41 @@ function guessQualityGate(
   const runner = pm ?? "npm";
   const scripts = pkg.scripts ?? {};
   const has = (name: string) => typeof scripts[name] === "string";
+  const run = (name: string) => `${runner} run ${name}`;
 
-  // Prefer a single "validate" / "check:all" script if it exists
-  if (has("validate")) {
-    return { fast: `${runner} run typecheck`, full: `${runner} run validate` };
-  }
-  if (has("check:all")) {
-    return { fast: `${runner} run typecheck`, full: `${runner} run check:all` };
-  }
+  // Cheapest type-check-ish script that actually exists in package.json.
+  // Never propose a script name we didn't verify: an invented "typecheck"
+  // makes the pre-commit hook fail on every commit. 'check' is a common
+  // typecheck alias under Biome/Skia conventions.
+  const typecheck = has("typecheck")
+    ? run("typecheck")
+    : has("type-check")
+      ? run("type-check")
+      : has("check")
+        ? run("check")
+        : has("compile")
+          ? run("compile")
+          : null;
 
-  // Compose from common script names. 'check' is a common alias for typecheck
-  // in projects that use Biome or Skia conventions.
+  // Prefer a single umbrella script for `full` when present; pair it with a
+  // real type-check for `fast`, falling back to the umbrella itself (it exists).
+  if (has("validate")) return { fast: typecheck ?? run("validate"), full: run("validate") };
+  if (has("check:all")) return { fast: typecheck ?? run("check:all"), full: run("check:all") };
+
+  // Otherwise compose from the individual scripts that exist.
   const fastParts: string[] = [];
-  if (has("typecheck")) fastParts.push(`${runner} run typecheck`);
-  else if (has("type-check")) fastParts.push(`${runner} run type-check`);
-  else if (has("check")) fastParts.push(`${runner} run check`);
-  else if (has("compile")) fastParts.push(`${runner} run compile`);
+  if (typecheck) fastParts.push(typecheck);
 
   const fullParts: string[] = [...fastParts];
-  if (has("lint")) fullParts.push(`${runner} run lint`);
-  if (has("test:unit")) fullParts.push(`${runner} run test:unit`);
-  else if (has("test")) fullParts.push(`${runner} run test`);
+  if (has("lint")) fullParts.push(run("lint"));
+  if (has("test:unit")) fullParts.push(run("test:unit"));
+  else if (has("test")) fullParts.push(run("test"));
 
-  if (fastParts.length === 0 && fullParts.length === 0) return null;
+  if (fullParts.length === 0) return null;
 
-  const fast = fastParts.join(" && ") || `${runner} run lint`;
-  const full = fullParts.join(" && ") || fast;
+  // `fast` always references a real script: the type-check when present, else
+  // the first existing full step (lint/test) — never an unverified name.
+  const fast = fastParts.length > 0 ? fastParts.join(" && ") : fullParts[0]!;
+  const full = fullParts.join(" && ");
   return { fast, full };
 }
