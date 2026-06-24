@@ -7,7 +7,7 @@ import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { computeRenderPlan, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { getCoreRoot, readBundledCoreVersion } from "../../lib/bundled-assets.ts";
-import { injectManagedSection, removeManagedSection } from "../../lib/marker.ts";
+import { injectManagedSection, removeManagedSection, resolveCondition } from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { isNavoriOwnedSettings } from "./settings-detection.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
@@ -74,6 +74,17 @@ const CORE_META = { source: "@navori/core" as const, version: readBundledCoreVer
 const SKILLS_INDEX_ID = "skills-index";
 
 /**
+ * Whether a preset extra applies to this config. An extra with no `condition`
+ * is always on; one with a condition is materialized only when the config path
+ * resolves truthy (same semantics as CoreManagedAsset.condition). Used in BOTH
+ * the skills index and the extras render loop so they never disagree.
+ */
+function extraConditionMet(extra: PresetExtraFile, config: NavoriConfig): boolean {
+  if (!extra.condition) return true;
+  return resolveCondition(config as unknown as Record<string, unknown>, extra.condition);
+}
+
+/**
  * Build the body of the skills index — a navigation map of the skills agents
  * can apply: core (navori), preset (stack), and project-local (the user's own,
  * declared in `project.localSkills`). navori indexes the local ones so agents
@@ -90,6 +101,7 @@ function buildSkillsIndexBody(
     try {
       const loaded = loadPreset(config.preset, repoRoot);
       for (const e of loaded?.def.extras.skills ?? []) {
+        if (!extraConditionMet(e, config)) continue;
         const name = basename(e.destRelPath).replace(/\.md$/, "");
         rows.push(`- \`${name}\` — preset (\`${config.preset}\`)`);
       }
@@ -418,6 +430,9 @@ export function renderClaudeEngine(
         ...loaded.def.extras.hooks.map((e) => ({ extra: e, exec: true })),
       ];
       for (const { extra, exec } of allFileExtras) {
+        // A conditional extra whose condition is false is not materialized —
+        // it never lands on disk and isn't counted as inspected.
+        if (!extraConditionMet(extra, config)) continue;
         inspected += 1;
         applyManagedFilePlan(
           planManagedFile({

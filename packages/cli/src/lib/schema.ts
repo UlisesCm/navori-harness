@@ -102,6 +102,11 @@ const ProjectSchema = z
     /** Skill ids the user owns under `.claude/skills/<id>.md`. navori never
      * writes their content — it only indexes them so agents discover them. */
     localSkills: z.array(z.string()).default([]),
+    /** Input validator detected in the repo. Mutually exclusive — the detector
+     * sets at most one. Presets reference these as skill conditions (e.g. the
+     * express-mongoose preset ships zod-validation OR joi-validation). */
+    zodValidation: z.boolean().optional(),
+    joiValidation: z.boolean().optional(),
   })
   .passthrough();
 
