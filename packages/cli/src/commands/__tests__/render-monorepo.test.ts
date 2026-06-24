@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeConfig } from "../../lib/config.ts";
@@ -71,6 +71,66 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
       "utf-8",
     );
     expect(storefrontHook).toContain("pnpm -w lint");
+  });
+
+  it("resolves a local preset from the repo root for every workspace (repoRoot)", () => {
+    // A local preset lives ONLY at the repo root (.navori/presets/), shared by
+    // every workspace. Each workspace renders with its own cwd (apps/api), so
+    // this fails unless loadPreset resolves against repoRoot, not the workspace.
+    const presetDir = join(cwd, ".navori/presets/mistack");
+    mkdirSync(join(presetDir, "managed"), { recursive: true });
+    mkdirSync(join(presetDir, "skills"), { recursive: true });
+    writeFileSync(
+      join(presetDir, "mistack.json"),
+      JSON.stringify({
+        id: "mistack",
+        displayName: "Mistack",
+        extends: "core",
+        extras: {
+          managed: [{ id: "stack-mistack", relPath: "managed/stack.md" }],
+          skills: [
+            {
+              id: "mistack-example",
+              relPath: "skills/mistack-example.md",
+              destRelPath: ".claude/skills/mistack-example.md",
+            },
+          ],
+        },
+        invariants: [],
+      }),
+    );
+    writeFileSync(join(presetDir, "managed/stack.md"), "## Stack — mistack\n\nLocal preset.\n");
+    writeFileSync(
+      join(presetDir, "skills/mistack-example.md"),
+      "---\nname: mistack-example\ndescription: x\ntype: reference\n---\n\n# mistack-example\n",
+    );
+
+    mkdirSync(join(cwd, "apps/api"), { recursive: true });
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "monorepo-local-preset",
+      engines: ["claude"],
+      preset: "mistack", // local preset at the root; workspace inherits it
+      qualityGate: { fast: "pnpm -w lint", full: "pnpm -w test" },
+      monorepo: {
+        enabled: true,
+        tool: "pnpm",
+        workspaces: [{ name: "api", path: "apps/api" }],
+      },
+    });
+
+    const result = runRender(cwd);
+    expect(result.ok).toBe(true);
+
+    // Root materialized the local preset.
+    expect(existsSync(join(cwd, ".claude/skills/mistack-example.md"))).toBe(true);
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf-8")).toContain('id="stack-mistack"');
+
+    // The workspace did too — proof it resolved the preset from the root, not
+    // from apps/api/.navori/ (which does not exist).
+    expect(existsSync(join(cwd, "apps/api/.claude/skills/mistack-example.md"))).toBe(true);
+    const wsClaudeMd = readFileSync(join(cwd, "apps/api/CLAUDE.md"), "utf-8");
+    expect(wsClaudeMd).toContain('id="stack-mistack"');
+    expect(wsClaudeMd).toContain("## Stack — mistack");
   });
 
   it("back-compat: when monorepo.workspaces[] is empty, renders only the root", () => {
