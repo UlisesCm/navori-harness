@@ -62,9 +62,36 @@ describe("buildClaudeSettings — base shape", () => {
     // File inspection without any destructive flag.
     expect(allow).toContain("Bash(cat:*)");
     expect(allow).toContain("Bash(ls:*)");
+    // Search / text inspection — read-only, no in-place write mode.
+    expect(allow).toContain("Bash(grep:*)");
+    expect(allow).toContain("Bash(jq:*)");
+    expect(allow).toContain("Bash(diff:*)");
+    // Read-only git introspection.
+    expect(allow).toContain("Bash(git blame*)");
+    expect(allow).toContain("Bash(git config --get*)");
+    expect(allow).toContain("Bash(git remote -v*)");
     // Destructive ops stay OUT of allow (they live in ask/deny).
     expect(allow).not.toContain("Bash(rm:*)");
-    expect(allow.some((r) => r.startsWith("Bash(find"))).toBe(false);
+    // Commands that LOOK read-only but can EXECUTE arbitrary code via a
+    // smuggled flag stay out — permission patterns match by prefix and can't
+    // exclude an inner flag:
+    //   find (-delete/-exec), env/xargs (command runners), sed (-i),
+    //   awk (system()/print > file), rg (--pre/--pre-glob run a command).
+    for (const danger of ["find", "env", "xargs", "sed", "awk", "rg"]) {
+      expect(allow.some((r) => r.startsWith(`Bash(${danger}`))).toBe(false);
+    }
+    // Tools that can WRITE an arbitrary file via argv stay out:
+    //   sort -o <file>, uniq <in> <out>.
+    expect(allow.some((r) => r.startsWith("Bash(sort"))).toBe(false);
+    expect(allow.some((r) => r.startsWith("Bash(uniq"))).toBe(false);
+    // git subcommands that reach the network (SSRF) or run a remote helper
+    // stay out: ls-remote (--upload-pack RCE + arbitrary URL), remote show.
+    expect(allow).not.toContain("Bash(git ls-remote*)");
+    expect(allow).not.toContain("Bash(git remote show*)");
+    // git subcommands that mutate refs/config must not slip in via a bare prefix.
+    expect(allow).not.toContain("Bash(git tag*)");
+    expect(allow).not.toContain("Bash(git config*)");
+    expect(allow).not.toContain("Bash(git remote*)");
   });
 
   it("ships permissions.deny for catastrophic, no-legit-use commands (hard block)", () => {
