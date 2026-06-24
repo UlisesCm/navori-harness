@@ -29,6 +29,15 @@ const PresetExtraFileSchema = z.object({
   relPath: safeRelPath,
   /** Where in `.claude/` the file lands (e.g. "skills/medusa-db-migrations.md"). */
   destRelPath: safeRelPath,
+  /**
+   * Optional config path (e.g. "project.joiValidation") evaluated with the same
+   * truthy semantics as CoreManagedAsset.condition (see resolveCondition). When
+   * set, the extra is only materialized — and only listed in the skills index —
+   * if the path resolves truthy. Omit for an always-on extra (the default).
+   * Lets one preset ship mutually-exclusive variants (zod vs joi validation)
+   * and pick the right one per repo from the detected stack.
+   */
+  condition: z.string().optional(),
 });
 
 export const PresetDefinitionSchema = z.object({

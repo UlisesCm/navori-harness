@@ -25,7 +25,14 @@
       {
         "id": "zod-validation",
         "relPath": "presets/express-mongoose/skills/zod-validation.md",
-        "destRelPath": ".claude/skills/zod-validation.md"
+        "destRelPath": ".claude/skills/zod-validation.md",
+        "condition": "project.zodValidation"
+      },
+      {
+        "id": "joi-validation",
+        "relPath": "presets/express-mongoose/skills/joi-validation.md",
+        "destRelPath": ".claude/skills/joi-validation.md",
+        "condition": "project.joiValidation"
       },
       {
         "id": "mongo-aggregations",
@@ -66,8 +73,6 @@
     "ApiResponse",
     "mongoose",
     "Types.ObjectId",
-    "zod-validation",
-    "z.coerce",
     "ticket-intake",
     "new-resource"
   ]

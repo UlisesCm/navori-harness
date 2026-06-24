@@ -24,6 +24,7 @@ import type { NavoriConfigInput } from "../lib/schema.ts";
 import {
   buildRecommendedQualityGate,
   buildRecommendedProject,
+  validatorProjectFlags,
 } from "../lib/recommended.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
@@ -209,7 +210,13 @@ export const initCommand = defineCommand({
       const fallbackQg = args.recommended
         ? detected.qualityGate ?? buildRecommendedQualityGate(detected)
         : detected.qualityGate;
-      const projectBlock = args.recommended ? buildRecommendedProject(detected) : {};
+      // Validator flags are a fact of the detected stack, not a mode choice —
+      // merge them in both --recommended and plain --yes so a preset's
+      // conditional skill (zod vs joi) resolves without a wizard answer.
+      const projectBlock = {
+        ...(args.recommended ? buildRecommendedProject(detected) : {}),
+        ...validatorProjectFlags(detected.stack),
+      };
 
       writeConfig(configPath, {
         name: detected.name,
@@ -577,7 +584,8 @@ export const initCommand = defineCommand({
       ...(Object.keys(agentAssignments).length > 0 ? { agentAssignments } : {}),
       // Always write `project` so the schema fills empty arrays and render emits
       // no `<not configured: project.*>` placeholders (see autoYes path above).
-      project: project ?? {},
+      // Validator flags are auto-derived from the stack (see autoYes path).
+      project: { ...(project ?? {}), ...validatorProjectFlags(detected.stack) },
       ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),
     });
 

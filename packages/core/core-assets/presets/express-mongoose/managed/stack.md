@@ -1,8 +1,8 @@
 ## Stack — Express + Mongoose
 
-Backend HTTP sobre Express + Mongoose/MongoDB en TypeScript. Las peticiones fluyen en capas: `route → validate(Zod) → asyncHandler → controller → Model (Mongoose) → ApiResponse`. Los controllers tocan los Models directo (sin repository wrappers); los errores se propagan vía `ApiError` y las respuestas se envuelven en `ApiResponse`. El logging va por el `Logger` de winston, nunca `console.log`.
+Backend HTTP sobre Express + Mongoose/MongoDB en TypeScript. Las peticiones fluyen en capas: `route → validate(schema) → asyncHandler → controller → Model (Mongoose) → ApiResponse`. Los controllers tocan los Models directo (sin repository wrappers); los errores se propagan vía `ApiError` y las respuestas se envuelven en `ApiResponse`. El logging va por el `Logger` de winston, nunca `console.log`.
 
-Regla de oro: nada de `res.json` / `res.status(500)` crudos; nada de `console.log`; nada de `process.env` fuera del módulo de config. La validación SIEMPRE ocurre en el boundary con Zod, y todo `ObjectId` se construye con `new Types.ObjectId(...)`. Aplica las skills `express-routes`, `mongoose`, `zod-validation`, `mongo-aggregations` y `winston-logging` según la capa que toques.
+Regla de oro: nada de `res.json` / `res.status(500)` crudos; nada de `console.log`; nada de `process.env` fuera del módulo de config. La validación SIEMPRE ocurre en el boundary (con el validador del repo — Zod o Joi), y todo `ObjectId` se construye con `new Types.ObjectId(...)`. Aplica las skills `express-routes`, `mongoose`, la skill de validación de tu repo (`zod-validation` o `joi-validation`), `mongo-aggregations` y `winston-logging` según la capa que toques.
 
 El trabajo de un ticket sigue el pipeline documentado en la skill `ticket-intake` (la orquestadora). No es un generador de specs: es un protocolo que el `leader` ejecuta invocando agentes y skills en orden, con gates objetivos y artefactos en `.claude/progress/`. Mapeo de fases a la infraestructura de navori:
 

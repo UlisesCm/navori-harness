@@ -20,6 +20,9 @@ export interface StackInfo {
   forms: string | null;
   state: string | null;
   test: string | null;
+  /** Input-validation library detected in deps. Drives preset skill
+   * conditions (e.g. zod-validation vs joi-validation). null = none found. */
+  validator: "zod" | "joi" | null;
   deps: ReadonlyArray<string>;
 }
 
@@ -364,6 +367,7 @@ function detectStack(
       forms: pick(deps, "pydantic") ?? null,
       state: null,
       test: pick(deps, "pytest") ?? null,
+      validator: null,
       deps: Array.from(deps),
     };
   }
@@ -376,6 +380,7 @@ function detectStack(
       forms: null,
       state: null,
       test: null,
+      validator: null,
       deps: [],
     };
   }
@@ -389,6 +394,7 @@ function detectStack(
       forms: null,
       state: null,
       test: null,
+      validator: null,
       deps: [],
     };
   }
@@ -458,6 +464,14 @@ function detectStack(
     pick(nodeDeps, "cypress") ??
     null;
 
+  // zod wins over joi when a repo somehow has both — it's the preset default
+  // and the more common boundary validator. The detector picks at most one.
+  const validator: StackInfo["validator"] = nodeDeps.has("zod")
+    ? "zod"
+    : nodeDeps.has("joi") || nodeDeps.has("@hapi/joi")
+      ? "joi"
+      : null;
+
   return {
     language: hasTs ? "ts" : pkg ? "js" : "unknown",
     framework,
@@ -465,6 +479,7 @@ function detectStack(
     forms,
     state,
     test,
+    validator,
     deps: Array.from(nodeDeps),
   };
 }
