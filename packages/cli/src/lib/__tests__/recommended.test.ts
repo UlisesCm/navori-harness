@@ -21,6 +21,7 @@ function makeDetected(overrides: Partial<DetectedProject> = {}): DetectedProject
       state: null,
       test: null,
       validator: null,
+      worker: null,
       deps: [],
     },
     suggestedPreset: "custom",

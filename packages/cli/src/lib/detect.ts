@@ -23,6 +23,10 @@ export interface StackInfo {
   /** Input-validation library detected in deps. Drives preset skill
    * conditions (e.g. zod-validation vs joi-validation). null = none found. */
   validator: "zod" | "joi" | null;
+  /** Job scheduler / message-queue dep detected (agenda, bullmq, amqplib, …).
+   * Signals a background worker — a repo whose job is to process jobs/messages,
+   * not serve HTTP. null = none found. */
+  worker: string | null;
   deps: ReadonlyArray<string>;
 }
 
@@ -401,6 +405,7 @@ function detectStack(
       state: null,
       test: pick(deps, "pytest") ?? null,
       validator: null,
+      worker: pick(deps, "celery", "rq", "dramatiq", "apscheduler") ?? null,
       deps: Array.from(deps),
     };
   }
@@ -414,6 +419,7 @@ function detectStack(
       state: null,
       test: null,
       validator: null,
+      worker: null,
       deps: [],
     };
   }
@@ -428,6 +434,7 @@ function detectStack(
       state: null,
       test: null,
       validator: null,
+      worker: null,
       deps: [],
     };
   }
@@ -505,6 +512,25 @@ function detectStack(
       ? "joi"
       : null;
 
+  // Job scheduler / message-queue dep → background worker signal. Used by the
+  // preset picker to beat express when the repo processes jobs/messages rather
+  // than serving HTTP (the sole presence of express must not win).
+  const worker = pick(
+    nodeDeps,
+    "agenda",
+    "bullmq",
+    "bull",
+    "bee-queue",
+    "bree",
+    "node-cron",
+    "cron",
+    "amqplib",
+    "amqp-connection-manager",
+    "kafkajs",
+    "sqs-consumer",
+    "rhea",
+  );
+
   return {
     language: hasTs ? "ts" : pkg ? "js" : "unknown",
     framework,
@@ -513,6 +539,7 @@ function detectStack(
     state,
     test,
     validator,
+    worker,
     deps: Array.from(nodeDeps),
   };
 }
@@ -583,6 +610,12 @@ function pickPresetCandidate(stack: StackInfo, monorepo: MonorepoInfo | null): s
   if (fw === "fastify") return "fastify";
   if (fw === "hono") return "hono";
   if (fw === "elysia") return "elysia";
+  // Background worker: a job scheduler / message queue and NO dedicated HTTP
+  // framework (express counts as "none dedicated" — it's often just a
+  // healthcheck). Beats express-mongoose: notifications--server ships express
+  // but defines no business routes. Deliberately scoped to express/no-framework
+  // so a Nest/Next/Fastify API that also runs jobs stays its own preset.
+  if (stack.worker && (fw === "express" || fw === null)) return "background-worker";
   if (fw === "express") return "express-mongoose";
 
   return "custom";

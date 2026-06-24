@@ -280,6 +280,60 @@ describe("detectProject — suggested preset never points to a phantom (F1)", ()
   });
 });
 
+describe("detectProject — background worker detection", () => {
+  const withDeps = (deps: Record<string, string>): string => {
+    const dir = makeTmp();
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "svc", dependencies: deps }));
+    return dir;
+  };
+
+  it("detects the worker dep", () => {
+    const dir = withDeps({ express: "^4", amqplib: "^0.10", agenda: "^5" });
+    try {
+      expect(detectProject(dir).stack.worker).toBe("agenda");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("background-worker beats express when a queue/scheduler is present", () => {
+    const dir = withDeps({ express: "^4", mongoose: "^8", amqplib: "^0.10" });
+    try {
+      expect(detectProject(dir).suggestedPreset).toBe("background-worker");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("suggests background-worker for a queue/scheduler with no HTTP framework", () => {
+    const dir = withDeps({ mongodb: "^6", agenda: "^5" });
+    try {
+      expect(detectProject(dir).suggestedPreset).toBe("background-worker");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("does NOT hijack a Nest API that also runs jobs", () => {
+    const dir = withDeps({ "@nestjs/core": "^10", bullmq: "^5" });
+    try {
+      expect(detectProject(dir).suggestedPreset).toBe("nestjs");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("plain express without a worker dep stays express-mongoose", () => {
+    const dir = withDeps({ express: "^4", mongoose: "^8" });
+    try {
+      expect(detectProject(dir).stack.worker).toBeNull();
+      expect(detectProject(dir).suggestedPreset).toBe("express-mongoose");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});
+
 describe("detectProject — qualityGate only references scripts that exist (F-gate)", () => {
   it("returns null when there is no usable script", () => {
     const dir = makeTmp();
