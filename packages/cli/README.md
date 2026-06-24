@@ -135,6 +135,17 @@ navori ticket show bonum BNM-123
 El workspace también guarda defaults heredables:
 ```bash
 navori init --workspace bonum    # hereda engines, plugins, branchBase, etc.
+
+# Ajustar un default sin editar el manifest a mano
+navori workspace set-default bonum branchBase develop
+navori workspace set-default bonum engines claude,cursor
+navori workspace set-default bonum plugins.engram.enabled true
+```
+
+Y re-renderizar todos los repos del workspace de una vez:
+```bash
+navori workspace render bonum           # preview (no toca disco)
+navori workspace render bonum --apply    # escribe en cada repo
 ```
 
 Storage: `~/.navori/workspaces/<name>/` (manifest + tickets/ + backups/).
