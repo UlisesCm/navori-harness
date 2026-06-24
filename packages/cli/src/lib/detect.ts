@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { presetExists } from "./presets.ts";
+import { collectWorkspacePatterns } from "./workspace-patterns.ts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -294,11 +295,18 @@ function detectPackageManagerSource(cwd: string): string {
 // ============================================================
 
 function detectMonorepo(cwd: string): MonorepoInfo | null {
+  // A pnpm-workspace.yaml only means a monorepo when it actually declares
+  // package patterns. Single-package repos sometimes ship one purely for build
+  // config (e.g. `onlyBuiltDependencies`) with no `packages:` — those are not
+  // monorepos, so fall through to framework detection instead of suggesting a
+  // phantom `monorepo-*` preset.
   if (existsSync(join(cwd, "pnpm-workspace.yaml"))) {
-    if (existsSync(join(cwd, "turbo.json"))) {
-      return { tool: "turbo", source: "turbo.json + pnpm-workspace.yaml" };
+    if (collectWorkspacePatterns(cwd).length > 0) {
+      if (existsSync(join(cwd, "turbo.json"))) {
+        return { tool: "turbo", source: "turbo.json + pnpm-workspace.yaml" };
+      }
+      return { tool: "pnpm", source: "pnpm-workspace.yaml" };
     }
-    return { tool: "pnpm", source: "pnpm-workspace.yaml" };
   }
   if (existsSync(join(cwd, "turbo.json"))) {
     return { tool: "turbo", source: "turbo.json" };
@@ -312,9 +320,9 @@ function detectMonorepo(cwd: string): MonorepoInfo | null {
   if (existsSync(join(cwd, "lerna.json"))) {
     return { tool: "lerna", source: "lerna.json" };
   }
-  // workspaces field in package.json
+  // workspaces field in package.json — only when it lists real patterns.
   const pkg = readPackageJson(cwd);
-  if (pkg?.workspaces) {
+  if (pkg?.workspaces && collectWorkspacePatterns(cwd).length > 0) {
     return { tool: "npm", source: "package.json workspaces" };
   }
   return null;

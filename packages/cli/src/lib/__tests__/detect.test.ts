@@ -228,4 +228,54 @@ describe("detectProject — suggested preset never points to a phantom (F1)", ()
       rmSync(dir, { recursive: true });
     }
   });
+
+  it("does not treat a pnpm-workspace.yaml with no packages as a monorepo", () => {
+    const dir = makeTmp();
+    try {
+      // Single-package repo that ships pnpm-workspace.yaml only for build
+      // config (no `packages:`). Must fall through to the framework preset.
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "api", dependencies: { express: "^4" } }),
+      );
+      writeFileSync(
+        join(dir, "pnpm-workspace.yaml"),
+        "onlyBuiltDependencies:\n  - esbuild\n",
+      );
+      const d = detectProject(dir);
+      expect(d.monorepo).toBeNull();
+      expect(d.suggestedPreset).toBe("express-mongoose");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("does not treat an empty packages list as a monorepo", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "svc", dependencies: { "@nestjs/core": "^10" } }),
+      );
+      writeFileSync(join(dir, "pnpm-workspace.yaml"), "packages: []\n");
+      const d = detectProject(dir);
+      expect(d.monorepo).toBeNull();
+      expect(d.suggestedPreset).toBe("nestjs");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("still detects a real pnpm monorepo when packages are declared", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "mono" }));
+      writeFileSync(join(dir, "pnpm-workspace.yaml"), 'packages:\n  - "apps/*"\n');
+      const d = detectProject(dir);
+      expect(d.monorepo).not.toBeNull();
+      expect(d.monorepo?.tool).toBe("pnpm");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
 });
