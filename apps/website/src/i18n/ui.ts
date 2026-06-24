@@ -123,7 +123,7 @@ export const ui = {
       "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código.",
 
     "footer.tagline":
-      "Open source, ISC. Hecho por developers que trabajan con muchos repos.",
+      "Open source, MIT. Hecho por developers que trabajan con muchos repos.",
     "footer.links": "Enlaces",
     "footer.legal": "Licencia",
   },
@@ -242,7 +242,7 @@ export const ui = {
       "npx navori@latest sync. It refreshes only managed blocks without touching your code.",
 
     "footer.tagline":
-      "Open source, ISC. Built by developers who juggle many repos.",
+      "Open source, MIT. Built by developers who juggle many repos.",
     "footer.links": "Links",
     "footer.legal": "License",
   },

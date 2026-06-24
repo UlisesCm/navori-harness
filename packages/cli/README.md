@@ -187,4 +187,4 @@ navori configure workspace bonum      # asociar a un workspace
 
 ## Licencia
 
-ISC.
+MIT.
