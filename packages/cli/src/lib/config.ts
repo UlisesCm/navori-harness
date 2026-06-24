@@ -17,15 +17,26 @@ export function writeConfig(path: string, input: NavoriConfigInput): void {
 
 /**
  * Return a config with derived defaults filled in for rendering only — never
- * for persistence. Today that means `prTarget`: templates interpolate
- * `{{prTarget}}` for the PR `--base`, and it must resolve even when the config
- * omits prTarget (the common case), so it falls back to branchBase here. Kept
- * out of the schema on purpose: a schema transform would persist the derived
- * value into every config on the next write. Idempotent.
+ * for persistence. Kept out of the schema on purpose: a schema transform would
+ * persist the derived values into every config on the next write. Idempotent.
+ *
+ * Derives:
+ *  - `prTarget`: falls back to branchBase so `{{prTarget}}` always resolves.
+ *  - `project.typedLanguage`: whether the TS-ecosystem baseline (e.g. the
+ *    `any`/`unknown` `tipado-fuerte` block) applies. Suppressed only for
+ *    languages where it plainly doesn't (python/rust/go). Absent/unknown is
+ *    treated as JS/TS so configs written before `codeLanguage` existed keep it.
  */
 export function effectiveConfig(config: NavoriConfig): NavoriConfig {
-  if (config.prTarget) return config;
-  return { ...config, prTarget: config.branchBase };
+  const codeLanguage = config.project?.codeLanguage;
+  const typedLanguage = !(
+    codeLanguage === "python" || codeLanguage === "rust" || codeLanguage === "go"
+  );
+  return {
+    ...config,
+    prTarget: config.prTarget ?? config.branchBase,
+    project: { ...(config.project ?? {}), typedLanguage } as NavoriConfig["project"],
+  };
 }
 
 export class ConfigError extends NavoriError {

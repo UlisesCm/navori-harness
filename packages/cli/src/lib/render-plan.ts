@@ -5,7 +5,7 @@ import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.
 import { getCoreRoot, readBundledCoreVersion } from "./bundled-assets.ts";
 import { loadPreset, PresetError } from "./presets.ts";
 import { placeholderFallback } from "./placeholders.ts";
-import type { NavoriConfig } from "./config.ts";
+import { effectiveConfig, type NavoriConfig } from "./config.ts";
 
 export const CORE_SOURCE_ID = "@navori/core" as const;
 
@@ -21,7 +21,7 @@ export interface CoreManagedAsset {
 export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
   { id: "idioma-rol", relPath: "core-assets/managed/idioma-rol.md", availableLanguages: ["es"] },
   { id: "formato-respuesta", relPath: "core-assets/managed/formato-respuesta.md", availableLanguages: ["es"] },
-  { id: "tipado-fuerte", relPath: "core-assets/managed/tipado-fuerte.md", availableLanguages: ["es"] },
+  { id: "tipado-fuerte", relPath: "core-assets/managed/tipado-fuerte.md", availableLanguages: ["es"], condition: "project.typedLanguage" },
   { id: "operaciones-seguras", relPath: "core-assets/managed/operaciones-seguras.md", availableLanguages: ["es"] },
   { id: "arranque-sesion", relPath: "core-assets/managed/arranque-sesion.md", availableLanguages: ["es"] },
   { id: "cierre-sesion", relPath: "core-assets/managed/cierre-sesion.md", availableLanguages: ["es"] },
@@ -112,11 +112,15 @@ export interface RenderPlan {
  */
 export function computeRenderPlan(
   existing: string,
-  config: NavoriConfig,
+  inputConfig: NavoriConfig,
   /** Repo root where `.navori/presets/` lives (resolves local presets). */
   repoRoot: string,
   options: { skipIds?: ReadonlySet<string>; forceIds?: ReadonlySet<string> } = {},
 ): RenderPlan {
+  // Fill in render-only derived values (prTarget, project.typedLanguage) so
+  // managed-block conditions resolve the same whether called from the engine
+  // or from sync. Idempotent.
+  const config = effectiveConfig(inputConfig);
   const skipIds = options.skipIds ?? new Set<string>();
   // forceIds: blocks the user chose "accept new" for in sync --interactive —
   // overwrite even though they were hand-edited.

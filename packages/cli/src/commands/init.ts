@@ -220,12 +220,14 @@ export const initCommand = defineCommand({
       const fallbackQg = args.recommended
         ? detected.qualityGate ?? buildRecommendedQualityGate(detected)
         : detected.qualityGate;
-      // Validator flags are a fact of the detected stack, not a mode choice —
-      // merge them in both --recommended and plain --yes so a preset's
-      // conditional skill (zod vs joi) resolves without a wizard answer.
+      // Validator flags and codeLanguage are facts of the detected stack, not
+      // mode choices — merge them in both --recommended and plain --yes so a
+      // preset's conditional skill (zod vs joi) and the language-aware baseline
+      // (TS-only tipado-fuerte) resolve without a wizard answer.
       const projectBlock = {
         ...(args.recommended ? buildRecommendedProject(detected) : {}),
         ...validatorProjectFlags(detected.stack),
+        codeLanguage: detected.stack.language,
       };
 
       writeConfig(configPath, {
@@ -596,8 +598,12 @@ export const initCommand = defineCommand({
       ...(Object.keys(agentAssignments).length > 0 ? { agentAssignments } : {}),
       // Always write `project` so the schema fills empty arrays and render emits
       // no `<not configured: project.*>` placeholders (see autoYes path above).
-      // Validator flags are auto-derived from the stack (see autoYes path).
-      project: { ...(project ?? {}), ...validatorProjectFlags(detected.stack) },
+      // Validator flags and codeLanguage are auto-derived from the stack.
+      project: {
+        ...(project ?? {}),
+        ...validatorProjectFlags(detected.stack),
+        codeLanguage: detected.stack.language,
+      },
       ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),
     });
 
