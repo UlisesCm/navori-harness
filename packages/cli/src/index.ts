@@ -13,6 +13,7 @@ import { configureCommand } from "./commands/configure.ts";
 import { updateCommand } from "./commands/update.ts";
 import { backupCommand } from "./commands/backup.ts";
 import { migrationsCommand } from "./commands/migrations.ts";
+import { presetCommand } from "./commands/preset.ts";
 import { scanCommand } from "./commands/scan.ts";
 import { statusCommand } from "./commands/status.ts";
 import { benchCommand } from "./commands/bench.ts";
@@ -55,6 +56,7 @@ const main = defineCommand({
     ticket: ticketCommand,
     backup: backupCommand,
     migrations: migrationsCommand,
+    preset: presetCommand,
   },
 });
 

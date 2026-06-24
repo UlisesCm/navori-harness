@@ -64,22 +64,65 @@ export class PresetError extends NavoriError {
   }
 }
 
+/** Where a resolved preset's manifest + assets live, and its origin. */
+export interface ResolvedPreset {
+  source: "local" | "bundled";
+  /** Absolute path to the `<id>.json` manifest. */
+  jsonPath: string;
+  /**
+   * Root the preset's `extras.*.relPath` resolve against. For a local preset
+   * this is the preset folder (`.navori/presets/<id>`); for a bundled preset
+   * it's `core-assets/` (whose relPath already include `presets/<id>/`).
+   */
+  assetRoot: string;
+}
+
+/** A parsed preset definition plus the root its extras resolve against. */
+export interface LoadedPreset {
+  def: PresetDefinition;
+  assetRoot: string;
+  source: "local" | "bundled";
+}
+
 /**
- * Load a preset definition by id from the bundled core (or workspace dev
- * tree). Returns null when the preset file does not exist — the caller
- * decides whether that is a soft fallback (preset = "custom" → no extras)
- * or a hard error (preset = "medusa" but file missing → warn).
+ * Resolve a preset id to its manifest + asset root, LOCAL FIRST.
  *
- * Throws PresetError when the file exists but cannot be parsed or fails
- * schema validation, so a malformed preset is loud, not silent.
+ * A project can ship its own presets under `.navori/presets/<id>/<id>.json`
+ * (checked in next to navori.config.json). Those WIN over a bundled preset of
+ * the same id, so a team can override an official preset. `repoRoot` is the
+ * repo root where `.navori/` lives — in a monorepo this is the root, not a
+ * workspace dir (local presets are shared across workspaces).
+ *
+ * Returns null when neither a local nor a bundled manifest exists, and for
+ * `"custom"` (the no-extras baseline, which has no manifest).
  */
+export function resolvePreset(id: string, repoRoot: string): ResolvedPreset | null {
+  if (id === "custom") return null;
+
+  const localDir = resolve(repoRoot, ".navori/presets", id);
+  const localJson = resolve(localDir, `${id}.json`);
+  if (existsSync(localJson)) {
+    return { source: "local", jsonPath: localJson, assetRoot: localDir };
+  }
+
+  const bundledJson = resolve(getCoreRoot(), "core-assets/presets", `${id}.json`);
+  if (existsSync(bundledJson)) {
+    return {
+      source: "bundled",
+      jsonPath: bundledJson,
+      assetRoot: resolve(getCoreRoot(), "core-assets"),
+    };
+  }
+
+  return null;
+}
+
 /**
- * True when a preset id has a backing definition file in the bundled core.
- * `"custom"` is the canonical no-extras baseline and always counts as existing.
- * The detector uses this to avoid suggesting a phantom id (e.g.
- * "monorepo-turbopnpm") that has no JSON: such an id renders the baseline
- * anyway but also emits a "preset not found" warning. Falling back to "custom"
- * gives the same baseline render, silently.
+ * True when a preset id has a backing definition file in the BUNDLED core.
+ * Deliberately ignores local presets: the detector uses this to decide the
+ * "gap" — whether an OFFICIAL preset exists for a recognized stack — which is
+ * independent of whatever a project scaffolded locally. `"custom"` is the
+ * canonical no-extras baseline and always counts as existing.
  */
 export function presetExists(id: string): boolean {
   if (id === "custom") return true;
@@ -87,13 +130,22 @@ export function presetExists(id: string): boolean {
   return existsSync(path);
 }
 
-export function loadPreset(id: string): PresetDefinition | null {
-  const path = resolve(getCoreRoot(), "core-assets/presets", `${id}.json`);
-  if (!existsSync(path)) return null;
+/**
+ * Load a preset definition by id, local-first (see resolvePreset). Returns
+ * null when the preset does not exist — the caller decides whether that is a
+ * soft fallback (preset = "custom" → no extras) or a hard error (declared
+ * preset whose file is missing → warn).
+ *
+ * Throws PresetError when the manifest exists but cannot be parsed or fails
+ * schema validation, so a malformed preset is loud, not silent.
+ */
+export function loadPreset(id: string, repoRoot: string): LoadedPreset | null {
+  const resolved = resolvePreset(id, repoRoot);
+  if (!resolved) return null;
 
   let raw: string;
   try {
-    raw = readFileSync(path, "utf-8").replace(/^﻿/, "");
+    raw = readFileSync(resolved.jsonPath, "utf-8").replace(/^﻿/, "");
   } catch (err) {
     throw new PresetError(`Cannot read preset '${id}': ${(err as Error).message}`);
   }
@@ -109,5 +161,5 @@ export function loadPreset(id: string): PresetDefinition | null {
   if (!result.success) {
     throw new PresetError(`Validation failed for preset '${id}'`, result.error.issues);
   }
-  return result.data;
+  return { def: result.data, assetRoot: resolved.assetRoot, source: resolved.source };
 }

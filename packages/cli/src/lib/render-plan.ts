@@ -113,6 +113,8 @@ export interface RenderPlan {
 export function computeRenderPlan(
   existing: string,
   config: NavoriConfig,
+  /** Repo root where `.navori/presets/` lives (resolves local presets). */
+  repoRoot: string,
   options: { skipIds?: ReadonlySet<string>; forceIds?: ReadonlySet<string> } = {},
 ): RenderPlan {
   const skipIds = options.skipIds ?? new Set<string>();
@@ -180,9 +182,9 @@ export function computeRenderPlan(
   // stack with no extras yet); a malformed preset throws and surfaces.
   const presetMissing: Array<{ id: string; reason: string }> = [];
   if (config.preset && config.preset !== "custom") {
-    let preset = null;
+    let loaded = null;
     try {
-      preset = loadPreset(config.preset);
+      loaded = loadPreset(config.preset, repoRoot);
     } catch (err) {
       if (err instanceof PresetError) {
         presetMissing.push({ id: config.preset, reason: err.message });
@@ -190,21 +192,21 @@ export function computeRenderPlan(
         throw err;
       }
     }
-    if (!preset && presetMissing.length === 0) {
+    if (!loaded && presetMissing.length === 0) {
       // Surface missing preset (not just malformed). Silent-skip masked the
       // medusa-v2/medusa.json mismatch and the workspace silently rendered
       // with no preset extras.
       presetMissing.push({
         id: config.preset,
-        reason: `preset '${config.preset}' not found in core-assets/presets/`,
+        reason: `preset '${config.preset}' not found (no .navori/presets/${config.preset}/ nor bundled)`,
       });
     }
-    if (preset) {
-      // Preset extras live inside @navori/core for now; when presets move to
-      // standalone packages we'll switch this to a preset-specific source.
-      for (const extra of preset.extras.managed) {
+    if (loaded) {
+      // relPath resolve against the preset's own asset root: the preset folder
+      // for a local preset, core-assets/ for a bundled one.
+      for (const extra of loaded.def.extras.managed) {
         if (skipIds.has(extra.id)) continue;
-        const absPath = resolve(getCoreRoot(), "core-assets", extra.relPath);
+        const absPath = resolve(loaded.assetRoot, extra.relPath);
         const rawContent = readFileSync(absPath, "utf-8");
         const content = interpolateTemplate(rawContent, config);
         const result = injectManagedSection(working, extra.id, content, {
@@ -221,7 +223,7 @@ export function computeRenderPlan(
         }
         entries.push({
           asset: { id: extra.id, relPath: extra.relPath },
-          source: preset.id,
+          source: loaded.def.id,
           status: result.status,
           details: result.details,
           newContent: content,
@@ -317,7 +319,8 @@ export function computeRenderPlan(
 export function applyPlanWithSkips(
   existing: string,
   config: NavoriConfig,
+  repoRoot: string,
   skipIds: ReadonlySet<string>,
 ): string {
-  return computeRenderPlan(existing, config, { skipIds }).next;
+  return computeRenderPlan(existing, config, repoRoot, { skipIds }).next;
 }

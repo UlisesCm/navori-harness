@@ -74,7 +74,7 @@ export const syncCommand = defineCommand({
     // Dry-run pass: get the full plan for every target without writing anything.
     const plans: TargetPlan[] = targets.map((t) => ({
       target: t,
-      plan: renderClaudeEngine(t.cwd, t.config, { dryRun: true }),
+      plan: renderClaudeEngine(t.cwd, t.config, { dryRun: true, repoRoot: t.repoRoot }),
     }));
 
     reportPlans(plans);
@@ -172,6 +172,7 @@ export const syncCommand = defineCommand({
       const applied = renderClaudeEngine(t.cwd, t.config, {
         skipIds: res?.skipIds,
         forceIds: res?.forceIds,
+        repoRoot: t.repoRoot,
       });
       writtenTotal += applied.written.length;
       if (applied.backupPath) {
@@ -189,6 +190,8 @@ export interface SyncTarget {
   label: string;
   /** Absolute path the engine writes into. */
   cwd: string;
+  /** Repo root where `.navori/presets/` lives (root for every target). */
+  repoRoot: string;
   /** Effective config for this target (root config or workspace-effective). */
   config: NavoriConfig;
 }
@@ -230,17 +233,19 @@ export function resolveSyncTargets(
         {
           label: `workspace:${match.name}`,
           cwd: resolve(cwd, match.path),
+          repoRoot: cwd,
           config: effectiveConfigForWorkspace(config, match),
         },
       ],
     };
   }
 
-  const targets: SyncTarget[] = [{ label: "root", cwd, config }];
+  const targets: SyncTarget[] = [{ label: "root", cwd, repoRoot: cwd, config }];
   for (const ws of declared) {
     targets.push({
       label: `workspace:${ws.name}`,
       cwd: resolve(cwd, ws.path),
+      repoRoot: cwd,
       config: effectiveConfigForWorkspace(config, ws),
     });
   }

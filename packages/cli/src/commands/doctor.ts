@@ -1,10 +1,10 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, relative } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { loadPlugin } from "../lib/plugins.ts";
-import { loadPreset, presetExists } from "../lib/presets.ts";
+import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -76,10 +76,17 @@ export const doctorCommand = defineCommand({
     const drifts = scanManagedDrift(cwd, config);
     const corruptedSettings = scanCorruptedSettings(cwd);
     const missingInvariants = scanMissingInvariants(cwd, config);
-    // A declared preset with no backing JSON renders the baseline AND warns —
-    // config points at something unresolvable, same class as a missing plugin.
+    // A declared preset that resolves to neither a local (.navori/presets/) nor
+    // a bundled manifest renders the baseline AND warns — config points at
+    // something unresolvable, same class as a missing plugin.
+    const resolvedPreset = config.preset !== "custom" ? resolvePreset(config.preset, cwd) : null;
     const missingPreset =
-      config.preset !== "custom" && !presetExists(config.preset) ? config.preset : null;
+      config.preset !== "custom" && resolvedPreset === null ? config.preset : null;
+    // A local preset shadowing a bundled one of the same id: legal (it's how a
+    // team overrides an official preset) but worth surfacing so it's not silent.
+    const presetOverride =
+      resolvedPreset?.source === "local" && presetExists(config.preset) ? config.preset : null;
+    const missingPresetFiles = scanMissingPresetFiles(cwd, config);
     const report = {
       // Drift is informational ("update available"), not an error — don't
       // flip `ok` for it. Missing plugins, corrupted settings.json, missing
@@ -89,7 +96,8 @@ export const doctorCommand = defineCommand({
         missingPlugins.length === 0 &&
         corruptedSettings.length === 0 &&
         missingInvariants.length === 0 &&
-        missingPreset === null,
+        missingPreset === null &&
+        missingPresetFiles.length === 0,
       configPath,
       config,
       checks: {
@@ -104,6 +112,8 @@ export const doctorCommand = defineCommand({
       corruptedSettings,
       missingInvariants,
       missingPreset,
+      presetOverride,
+      missingPresetFiles,
     };
 
     if (args.json) {
@@ -115,7 +125,8 @@ export const doctorCommand = defineCommand({
         missingPlugins.length > 0 ||
         corruptedSettings.length > 0 ||
         missingInvariants.length > 0 ||
-        missingPreset !== null
+        missingPreset !== null ||
+        missingPresetFiles.length > 0
       ) {
         process.exit(2);
       }
@@ -173,9 +184,27 @@ export const doctorCommand = defineCommand({
 
     if (missingPreset !== null) {
       p.log.warn(
-        `Preset '${missingPreset}' declarado en config pero no existe en core-assets/presets/ — ` +
-          `el render cae al baseline (sin los extras del preset). Corre 'navori configure' o ` +
-          `usa un preset válido / 'custom'.`,
+        `Preset '${missingPreset}' declarado en config pero no existe (ni local en ` +
+          `.navori/presets/${missingPreset}/ ni bundled) — el render cae al baseline (sin los ` +
+          `extras del preset). Corre 'navori preset init ${missingPreset}', 'navori configure', ` +
+          `o usa un preset válido / 'custom'.`,
+      );
+    }
+
+    if (presetOverride) {
+      p.log.warn(
+        `Preset local '${presetOverride}' (.navori/presets/${presetOverride}/) sombrea el preset ` +
+          `oficial del mismo nombre — se usa el local. Renómbralo si el override no es intencional.`,
+      );
+    }
+
+    if (missingPresetFiles.length > 0) {
+      const lines = missingPresetFiles.map(
+        (f) => `  ${color.red(sym.fail)} ${accent(f.id)}  ${grey(`— falta ${f.path}`)}`,
+      );
+      p.log.warn(
+        `Extras del preset '${config.preset}' sin archivo (${missingPresetFiles.length}) — el render ` +
+          `fallará al leerlos; créalos o quítalos del manifest:\n${lines.join("\n")}`,
       );
     }
 
@@ -240,7 +269,8 @@ export const doctorCommand = defineCommand({
       missingPlugins.length > 0 ||
       corruptedSettings.length > 0 ||
       missingInvariants.length > 0 ||
-      missingPreset !== null;
+      missingPreset !== null ||
+      missingPresetFiles.length > 0;
     const strictFail = Boolean(args.strict) && drifts.length > 0;
     p.outro(
       hasIssues
@@ -295,6 +325,33 @@ interface MissingInvariant {
 const TEXT_EXTENSIONS = [".md", ".json", ".sh"];
 
 /**
+ * Extras a preset declares (managed/agents/skills/hooks) whose source file is
+ * missing on disk. For a bundled preset these always exist; this catches a
+ * LOCAL preset (.navori/presets/) whose manifest references a file the user
+ * forgot to create — render would otherwise blow up on readFileSync.
+ */
+function scanMissingPresetFiles(
+  cwd: string,
+  config: NavoriConfig,
+): Array<{ id: string; path: string }> {
+  if (!config.preset || config.preset === "custom") return [];
+  let loaded;
+  try {
+    loaded = loadPreset(config.preset, cwd);
+  } catch {
+    return []; // malformed preset surfaced via the render path
+  }
+  if (!loaded) return [];
+  const { managed, agents, skills, hooks } = loaded.def.extras;
+  const missing: Array<{ id: string; path: string }> = [];
+  for (const e of [...managed, ...agents, ...skills, ...hooks]) {
+    const abs = resolve(loaded.assetRoot, e.relPath);
+    if (!existsSync(abs)) missing.push({ id: e.id, path: relative(cwd, abs) });
+  }
+  return missing;
+}
+
+/**
  * Spec 0003 §3.1.1 — each enabled plugin and the active preset may declare
  * `invariants[]`: load-bearing substrings that MUST survive into the rendered
  * output. We concatenate every rendered text file (CLAUDE.md + .claude/**) and
@@ -308,9 +365,9 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
   const sources: Array<{ source: string; invariants: string[] }> = [];
 
   try {
-    const preset = loadPreset(config.preset);
-    if (preset && preset.invariants.length > 0) {
-      sources.push({ source: `preset:${preset.id}`, invariants: preset.invariants });
+    const loaded = loadPreset(config.preset, cwd);
+    if (loaded && loaded.def.invariants.length > 0) {
+      sources.push({ source: `preset:${loaded.def.id}`, invariants: loaded.def.invariants });
     }
   } catch {
     // A malformed preset is surfaced by the render path; nothing to check here.

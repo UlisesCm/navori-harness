@@ -79,13 +79,17 @@ const SKILLS_INDEX_ID = "skills-index";
  * declared in `project.localSkills`). navori indexes the local ones so agents
  * discover them, but never owns their `.md` content.
  */
-function buildSkillsIndexBody(config: NavoriConfig, localSkills: readonly string[]): string {
+function buildSkillsIndexBody(
+  config: NavoriConfig,
+  localSkills: readonly string[],
+  repoRoot: string,
+): string {
   const rows: string[] = [];
   for (const id of CORE_SKILLS) rows.push(`- \`${id}\` — navori`);
   if (config.preset && config.preset !== "custom") {
     try {
-      const preset = loadPreset(config.preset);
-      for (const e of preset.extras.skills) {
+      const loaded = loadPreset(config.preset, repoRoot);
+      for (const e of loaded?.def.extras.skills ?? []) {
         const name = basename(e.destRelPath).replace(/\.md$/, "");
         rows.push(`- \`${name}\` — preset (\`${config.preset}\`)`);
       }
@@ -177,10 +181,19 @@ export function renderClaudeEngine(
     skipIds?: ReadonlySet<string>;
     /** CLAUDE.md managed-block ids to overwrite even if hand-edited (accept-new). */
     forceIds?: ReadonlySet<string>;
+    /**
+     * Repo root where `.navori/presets/` lives. Defaults to `cwd`; in a
+     * monorepo the caller passes the repo root so a workspace render resolves
+     * local presets from the shared `.navori/` at the root, not `cwd/.navori/`.
+     */
+    repoRoot?: string;
   } = {},
 ): ClaudeEngineResult {
   const dryRun = options.dryRun === true;
   const force = options.force === true;
+  const repoRoot = options.repoRoot ?? cwd;
+  // Root the bundled core assets resolve against (vs a local preset's folder).
+  const coreAssets = resolve(getCoreRoot(), "core-assets");
   const skipped: Array<{ path: string; reason: string }> = [];
   const warnings: string[] = [];
   const pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }> = [];
@@ -193,7 +206,7 @@ export function renderClaudeEngine(
   // 1. CLAUDE.md — delegated to existing planner
   const claudeMdPath = join(cwd, "CLAUDE.md");
   const claudeMdExisting = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, "utf-8") : "";
-  const claudeMdPlan = computeRenderPlan(claudeMdExisting, config, {
+  const claudeMdPlan = computeRenderPlan(claudeMdExisting, config, repoRoot, {
     skipIds: options.skipIds,
     forceIds: options.forceIds,
   });
@@ -209,7 +222,7 @@ export function renderClaudeEngine(
     const result = injectManagedSection(
       claudeMdContent,
       SKILLS_INDEX_ID,
-      buildSkillsIndexBody(config, localSkills),
+      buildSkillsIndexBody(config, localSkills, repoRoot),
       CORE_META,
       "html",
       options.forceIds?.has(SKILLS_INDEX_ID) ?? false,
@@ -282,6 +295,7 @@ export function renderClaudeEngine(
     applyManagedFilePlan(
       planManagedFile({
         cwd,
+        assetRoot: coreAssets,
         assetRelPath: `agents/${agent.id}.md`,
         destRelPath: `.claude/agents/${agent.id}.md`,
         managedId: `${agent.id}-base`,
@@ -299,6 +313,7 @@ export function renderClaudeEngine(
     applyManagedFilePlan(
       planManagedFile({
         cwd,
+        assetRoot: coreAssets,
         assetRelPath: `skills/${skillId}.md`,
         destRelPath: `.claude/skills/${skillId}.md`,
         managedId: `${skillId}-base`,
@@ -338,6 +353,7 @@ export function renderClaudeEngine(
   applyManagedFilePlan(
     planManagedFile({
       cwd,
+      assetRoot: coreAssets,
       assetRelPath: `hooks/guard-destructive.sh`,
       destRelPath: `.claude/hooks/guard-destructive.sh`,
       managedId: "guard-destructive-base",
@@ -355,6 +371,7 @@ export function renderClaudeEngine(
     applyManagedFilePlan(
       planManagedFile({
         cwd,
+        assetRoot: coreAssets,
         assetRelPath: `hooks/quality-gate-pre-commit.sh`,
         destRelPath: `.claude/hooks/quality-gate-pre-commit.sh`,
         managedId: "qg-pre-commit-base",
@@ -378,9 +395,9 @@ export function renderClaudeEngine(
   // surfaces — silent-skip masked the medusa-v2/medusa.json mismatch in
   // moonar where the backend workspace was missing the medusa skills.
   if (config.preset && config.preset !== "custom") {
-    let preset = null;
+    let loaded = null;
     try {
-      preset = loadPreset(config.preset);
+      loaded = loadPreset(config.preset, repoRoot);
     } catch (err) {
       if (err instanceof PresetError) {
         warnings.push(`preset '${config.preset}' invalid: ${err.message}`);
@@ -388,23 +405,24 @@ export function renderClaudeEngine(
         throw err;
       }
     }
-    if (!preset) {
+    if (!loaded) {
       warnings.push(
-        `preset '${config.preset}' not found in core-assets/presets/. ` +
+        `preset '${config.preset}' not found (no .navori/presets/${config.preset}/ nor bundled). ` +
           `Workspace will render with the core baseline only.`,
       );
     }
-    if (preset) {
+    if (loaded) {
       const allFileExtras: Array<{ extra: PresetExtraFile; exec: boolean }> = [
-        ...preset.extras.agents.map((e) => ({ extra: e, exec: false })),
-        ...preset.extras.skills.map((e) => ({ extra: e, exec: false })),
-        ...preset.extras.hooks.map((e) => ({ extra: e, exec: true })),
+        ...loaded.def.extras.agents.map((e) => ({ extra: e, exec: false })),
+        ...loaded.def.extras.skills.map((e) => ({ extra: e, exec: false })),
+        ...loaded.def.extras.hooks.map((e) => ({ extra: e, exec: true })),
       ];
       for (const { extra, exec } of allFileExtras) {
         inspected += 1;
         applyManagedFilePlan(
           planManagedFile({
             cwd,
+            assetRoot: loaded.assetRoot,
             assetRelPath: extra.relPath,
             destRelPath: extra.destRelPath,
             managedId: extra.id,
@@ -590,7 +608,9 @@ function planSettings(
 
 interface ManagedFilePlanInput {
   cwd: string;
-  assetRelPath: string;     // relative to core-assets/
+  /** Root `assetRelPath` resolves against (core-assets/ or a local preset folder). */
+  assetRoot: string;
+  assetRelPath: string;     // relative to assetRoot
   destRelPath: string;      // relative to cwd
   managedId: string;
   config: NavoriConfig;
@@ -602,7 +622,7 @@ type ManagedFilePlan =
   | { kind: "write"; path: string; content: string; status: RenderStatus };
 
 function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
-  const assetPath = resolve(getCoreRoot(), "core-assets", input.assetRelPath);
+  const assetPath = resolve(input.assetRoot, input.assetRelPath);
   const destPath = join(input.cwd, input.destRelPath);
   const existing = existsSync(destPath) ? readFileSync(destPath, "utf-8") : null;
   const result = renderManagedFile({
