@@ -229,3 +229,95 @@ describe("detectProject — suggested preset never points to a phantom (F1)", ()
     }
   });
 });
+
+describe("detectProject — qualityGate only references scripts that exist (F-gate)", () => {
+  it("returns null when there is no usable script", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "x", scripts: { start: "node ." } }),
+      );
+      expect(detectProject(dir).qualityGate).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("pairs umbrella 'validate' (full) with a real typecheck (fast)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "x", scripts: { validate: "tsc && eslint .", typecheck: "tsc --noEmit" } }),
+      );
+      expect(detectProject(dir).qualityGate).toEqual({
+        fast: "npm run typecheck",
+        full: "npm run validate",
+      });
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("does NOT invent a typecheck script when only 'validate' exists", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "x", scripts: { validate: "tsc && eslint ." } }),
+      );
+      const gate = detectProject(dir).qualityGate;
+      expect(gate?.fast).toBe("npm run validate");
+      expect(gate?.fast).not.toContain("typecheck");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("uses 'check:all' (full) with an existing 'type-check' (fast)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "x", scripts: { "check:all": "tsc && lint", "type-check": "tsc --noEmit" } }),
+      );
+      expect(detectProject(dir).qualityGate).toEqual({
+        fast: "npm run type-check",
+        full: "npm run check:all",
+      });
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("composes fast+full from the individual scripts that exist", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "x", scripts: { typecheck: "tsc --noEmit", lint: "eslint .", test: "vitest run" } }),
+      );
+      expect(detectProject(dir).qualityGate).toEqual({
+        fast: "npm run typecheck",
+        full: "npm run typecheck && npm run lint && npm run test",
+      });
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("falls fast back to an existing step when no typecheck script exists", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "x", scripts: { test: "vitest run" } }),
+      );
+      // no typecheck/lint — fast must be a real script (test), never "npm run lint"
+      expect(detectProject(dir).qualityGate).toEqual({ fast: "npm run test", full: "npm run test" });
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});

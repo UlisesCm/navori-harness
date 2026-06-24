@@ -138,3 +138,18 @@ describe("prompts.json", () => {
     }
   });
 });
+
+describe("managed/cierre-sesion.md", () => {
+  const raw = readCoreAsset("managed/cierre-sesion.md");
+
+  it("references the qualityGate.full placeholder", () => {
+    expect(raw).toContain("{{qualityGate.full}}");
+  });
+
+  it("does not wrap the qualityGate placeholder in backticks", () => {
+    // When qualityGate is unset, {{qualityGate.full}} resolves to fallback
+    // prose. Inside a code span that prose reads as a runnable command — keep
+    // the placeholder out of backticks so the 'no gate' case stays readable.
+    expect(raw).not.toContain("`{{qualityGate.full}}`");
+  });
+});
