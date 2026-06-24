@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   listWorkspaces,
   loadWorkspace,
@@ -11,8 +12,26 @@ import {
   type WorkspaceConfig,
 } from "../lib/workspace.ts";
 import { applyDefault, VALID_DEFAULT_KEYS } from "../lib/workspace-defaults.ts";
+import { readConfig } from "../lib/config.ts";
+import { isPlaceholderName } from "../lib/detect.ts";
 import { runRender } from "./render.ts";
 import { brand, dim, kv, color, sym, accent } from "../lib/style.ts";
+
+/**
+ * Best-effort read of a registered repo's config.name. Returns null when the
+ * repo has no navori.config.json yet or it fails to parse — `workspace show`
+ * uses this to surface cross-repo name collisions and placeholders without
+ * blowing up on a half-set-up repo.
+ */
+function readRepoConfigName(repoPath: string): string | null {
+  const cfgPath = join(repoPath, "navori.config.json");
+  if (!existsSync(cfgPath)) return null;
+  try {
+    return readConfig(cfgPath).name;
+  } catch {
+    return null;
+  }
+}
 
 const initSubCommand = defineCommand({
   meta: {
@@ -153,12 +172,49 @@ const showSubCommand = defineCommand({
     p.log.message(kv(rows));
 
     if (workspace.repos.length > 0) {
+      // Read each repo's config.name. workspace.repos[].name is just the alias
+      // (unique by construction); the real identity is config.name, often
+      // inherited from package.json — which is where forks collide.
+      const configNames = new Map<string, string | null>();
+      for (const repo of workspace.repos) {
+        configNames.set(repo.name, readRepoConfigName(repo.path));
+      }
+
       const repoLines = workspace.repos.map((repo) => {
         const stack = repo.stack ? dim(` [${repo.stack}]`) : "";
         const desc = repo.description ? dim(` — ${repo.description}`) : "";
-        return `    ${color.cyan(sym.bullet)} ${accent(repo.name)}${stack}  ${dim(repo.path)}${desc}`;
+        const cfgName = configNames.get(repo.name);
+        const cfgLabel = cfgName && cfgName !== repo.name ? dim(` (name: ${cfgName})`) : "";
+        return `    ${color.cyan(sym.bullet)} ${accent(repo.name)}${stack}${cfgLabel}  ${dim(repo.path)}${desc}`;
       });
       p.log.message(`Repos:\n${repoLines.join("\n")}`);
+
+      // Cross-repo name collisions: two repos sharing the same config.name
+      // (forks left with the same package.json name). Placeholders: scaffold
+      // leftovers. Both are config smells, not errors.
+      const byConfigName = new Map<string, string[]>();
+      const placeholders: Array<{ repo: string; name: string }> = [];
+      for (const repo of workspace.repos) {
+        const cfgName = configNames.get(repo.name);
+        if (!cfgName) continue;
+        byConfigName.set(cfgName, [...(byConfigName.get(cfgName) ?? []), repo.name]);
+        if (isPlaceholderName(cfgName)) placeholders.push({ repo: repo.name, name: cfgName });
+      }
+
+      const collisions = [...byConfigName.entries()].filter(([, repos]) => repos.length > 1);
+      if (collisions.length > 0) {
+        const lines = collisions.map(
+          ([name, repos]) => `  ${color.red(sym.fail)} ${accent(name)} ${dim("←")} ${repos.join(", ")}`,
+        );
+        p.log.warn(
+          `Colisión de name entre repos (mismo config.name) — renómbralos en su package.json / ` +
+            `navori.config.json para que cada repo tenga identidad única:\n${lines.join("\n")}`,
+        );
+      }
+      if (placeholders.length > 0) {
+        const lines = placeholders.map((pl) => `  ${color.yellow("!")} ${accent(pl.repo)} ${dim("→")} '${pl.name}'`);
+        p.log.warn(`Names placeholder (scaffold sin renombrar):\n${lines.join("\n")}`);
+      }
     }
     p.outro(dim("Done"));
   },

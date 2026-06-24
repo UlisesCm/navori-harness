@@ -117,6 +117,7 @@ interface Strings {
   wroteConfig: (path: string) => string;
   recPluginsEnabled: (list: string) => string;
   presetGapNotice: (stack: string) => string;
+  placeholderNameNotice: (name: string) => string;
 
   // Note titles
   workspaceDefaultsTitle: (name: string) => string;
@@ -250,6 +251,9 @@ const ES: Strings = {
     `lo único que falta son skills específicas de '${stack}'. Quedas con el baseline (preset: custom). ` +
     `Para cubrir el hueco: crea tu preset local con 'navori preset init ${stack}', o agrega skills ` +
     `sueltas en project.localSkills.`,
+  placeholderNameNotice: (name) =>
+    `El name '${name}' parece un placeholder de scaffold (heredado del package.json sin renombrar). ` +
+    `Renómbralo en package.json o edita "name" en navori.config.json si no es el nombre real del repo.`,
 
   workspaceDefaultsTitle: (name) => `Defaults del workspace · ${name}`,
   detectedTitle: "Detectado en este repo",
@@ -382,6 +386,9 @@ const EN: Strings = {
     `the only thing missing are '${stack}'-specific skills. You stay on the baseline (preset: custom). ` +
     `To cover the gap: scaffold your local preset with 'navori preset init ${stack}', or add ` +
     `individual skills via project.localSkills.`,
+  placeholderNameNotice: (name) =>
+    `The name '${name}' looks like a scaffold placeholder (carried over from an un-renamed package.json). ` +
+    `Rename it in package.json or edit "name" in navori.config.json if it isn't the repo's real name.`,
 
   workspaceDefaultsTitle: (name) => `Workspace defaults · ${name}`,
   detectedTitle: "Detected from this repo",

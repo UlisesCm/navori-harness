@@ -3,6 +3,7 @@ import * as p from "@clack/prompts";
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join, resolve, relative } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
+import { isPlaceholderName } from "../lib/detect.ts";
 import { loadPlugin } from "../lib/plugins.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
 import {
@@ -87,6 +88,10 @@ export const doctorCommand = defineCommand({
     const presetOverride =
       resolvedPreset?.source === "local" && presetExists(config.preset) ? config.preset : null;
     const missingPresetFiles = scanMissingPresetFiles(cwd, config);
+    // Informational: a name like `temp-app` or `my-app` is almost always a
+    // never-renamed scaffold (the package.json carried it through). Doesn't
+    // break the render, so it's a warning, not an `ok`-flipping error.
+    const placeholderName = isPlaceholderName(config.name) ? config.name : null;
     const report = {
       // Drift is informational ("update available"), not an error — don't
       // flip `ok` for it. Missing plugins, corrupted settings.json, missing
@@ -114,6 +119,7 @@ export const doctorCommand = defineCommand({
       missingPreset,
       presetOverride,
       missingPresetFiles,
+      placeholderName,
     };
 
     if (args.json) {
@@ -195,6 +201,13 @@ export const doctorCommand = defineCommand({
       p.log.warn(
         `Preset local '${presetOverride}' (.navori/presets/${presetOverride}/) sombrea el preset ` +
           `oficial del mismo nombre — se usa el local. Renómbralo si el override no es intencional.`,
+      );
+    }
+
+    if (placeholderName) {
+      p.log.warn(
+        `El name '${placeholderName}' parece un placeholder de scaffold (probablemente heredado del ` +
+          `package.json sin renombrar). Edita "name" en navori.config.json si no es el nombre real del repo.`,
       );
     }
 

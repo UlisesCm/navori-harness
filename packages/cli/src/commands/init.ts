@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, chmodSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { writeConfig } from "../lib/config.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
-import { detectProject, type ClaudeInfraInventory } from "../lib/detect.ts";
+import { detectProject, isPlaceholderName, type ClaudeInfraInventory } from "../lib/detect.ts";
 import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
 import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
 import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
@@ -165,6 +165,13 @@ export const initCommand = defineCommand({
     // both --yes and interactive flows (before any branching).
     if (detected.suggestedPresetGap) {
       p.log.warn(tr.presetGapNotice(detected.suggestedPresetGap));
+    }
+
+    // A detected name like `temp-app` is almost always an un-renamed scaffold
+    // carried over from package.json — surface it now so the user can fix the
+    // source before the harness bakes the wrong name in.
+    if (detected.name && isPlaceholderName(detected.name)) {
+      p.log.warn(tr.placeholderNameNotice(detected.name));
     }
 
     // Cascade: workspace defaults take precedence over detection when present
