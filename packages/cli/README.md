@@ -68,6 +68,7 @@ Un preset aporta skills y reglas específicas del stack además del core. El `in
 | `nextjs` | Next.js (App Router) |
 | `nestjs` | NestJS (backend) |
 | `express-mongoose` | Express + Mongoose (backend) |
+| `background-worker` | Worker de fondo (jobs + colas: agenda / bullmq / amqplib) |
 | `astro` | Astro (static / SSR) |
 | `medusa` | Medusa.js v2 (backend) |
 

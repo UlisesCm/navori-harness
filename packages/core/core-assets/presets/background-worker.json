@@ -1,0 +1,39 @@
+{
+  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "id": "background-worker",
+  "displayName": "Background worker (jobs + queues)",
+  "extends": "core",
+  "extras": {
+    "managed": [
+      {
+        "id": "stack-background-worker",
+        "relPath": "presets/background-worker/managed/stack.md"
+      }
+    ],
+    "agents": [],
+    "skills": [
+      {
+        "id": "worker-lifecycle",
+        "relPath": "presets/background-worker/skills/worker-lifecycle.md",
+        "destRelPath": ".claude/skills/worker-lifecycle.md"
+      },
+      {
+        "id": "job-scheduling",
+        "relPath": "presets/background-worker/skills/job-scheduling.md",
+        "destRelPath": ".claude/skills/job-scheduling.md"
+      },
+      {
+        "id": "queue-consumers",
+        "relPath": "presets/background-worker/skills/queue-consumers.md",
+        "destRelPath": ".claude/skills/queue-consumers.md"
+      }
+    ],
+    "hooks": []
+  },
+  "invariants": [
+    "worker-lifecycle",
+    "job-scheduling",
+    "queue-consumers",
+    "graceful shutdown"
+  ]
+}

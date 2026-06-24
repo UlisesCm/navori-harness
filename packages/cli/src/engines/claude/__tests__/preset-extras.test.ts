@@ -107,6 +107,14 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         skills: [".claude/skills/astro-islands.md"],
       },
       {
+        id: "background-worker",
+        skills: [
+          ".claude/skills/worker-lifecycle.md",
+          ".claude/skills/job-scheduling.md",
+          ".claude/skills/queue-consumers.md",
+        ],
+      },
+      {
         id: "express-mongoose",
         // zod-validation is conditional on project.zodValidation; set it so the
         // validation skill renders alongside the always-on ones.
