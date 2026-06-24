@@ -63,7 +63,29 @@ const es: Record<string, CommandDoc> = {
       },
     ],
     notes: [
-      "add solo modifica navori.config.json. Después corré 'navori render --apply' para aplicar.",
+      "add solo modifica navori.config.json. Después corre 'navori render --apply' para aplicar.",
+    ],
+  },
+  preset: {
+    id: "preset",
+    title: "preset",
+    summary:
+      "Scaffolda un preset local en .navori/presets/ para cuando tu stack no tiene un preset oficial.",
+    usage: "navori preset init <id>",
+    flags: [
+      { flag: "<id>", desc: "Id del preset (kebab-case). Rechaza el id reservado 'custom' y los que no son kebab-case." },
+      { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
+    ],
+    example: [
+      {
+        title: "Crear un preset local",
+        code: "$ navori preset init express-fastify\n✓ .navori/presets/express-fastify/\n✓ navori.config.json → preset: express-fastify\n→ corre 'navori render --apply' para materializarlo",
+      },
+    ],
+    notes: [
+      "Genera el manifest <id>.json, un managed/stack.md (contexto del stack) y un skill de ejemplo en skills/.",
+      "El preset queda checked-in en .navori/presets/: la resolución es local→bundled y el local gana.",
+      "Es para stacks sin preset oficial; el detector te avisa cuando no encuentra uno.",
     ],
   },
   render: {
@@ -81,7 +103,7 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Preview (default)",
-        code: "$ navori render\n  + CLAUDE.md  (created)\n  + .claude/settings.json  (created)\n  + .claude/agents/  (5)\nPreview — 5 created · corré 'navori render --apply' para escribir",
+        code: "$ navori render\n  + CLAUDE.md  (created)\n  + .claude/settings.json  (created)\n  + .claude/agents/  (5)\nPreview — 5 created · corre 'navori render --apply' para escribir",
       },
       {
         title: "Aplicar",
@@ -90,7 +112,7 @@ const es: Record<string, CommandDoc> = {
     ],
     notes: [
       "Preview por default: render no escribe sin --apply. Cero sorpresas en disco.",
-      "Solo regenera el contenido entre marcadores managed. Lo que escribís fuera de ellos nunca se toca.",
+      "Solo regenera el contenido entre marcadores managed. Lo que escribes fuera de ellos nunca se toca.",
     ],
   },
   sync: {
@@ -100,7 +122,7 @@ const es: Record<string, CommandDoc> = {
       "Trae cambios del bundle a los bloques managed. Tu código fuera de los markers nunca se pisa.",
     usage: "navori sync [--interactive] [--apply] [--workspace <name>]",
     flags: [
-      { flag: "--interactive", desc: "Resuelve cada conflicto de CLAUDE.md uno por uno: ves el diff y elegís keep-mine o accept-new." },
+      { flag: "--interactive", desc: "Resuelve cada conflicto de CLAUDE.md uno por uno: ves el diff y eliges keep-mine o accept-new." },
       { flag: "--apply", desc: "Aplica los cambios sin el prompt interactivo." },
       { flag: "--yes", desc: "Auto-confirma. Falla con exit 1 si hay conflictos (CI gate)." },
       { flag: "--workspace <name>", desc: "Sincroniza solo un workspace (monorepo)." },
@@ -112,7 +134,7 @@ const es: Record<string, CommandDoc> = {
       },
     ],
     notes: [
-      "Si editaste un bloque managed a mano, sync lo detecta (hash drift) y NO lo pisa: lo resolvés vos.",
+      "Si editaste un bloque managed a mano, sync lo detecta (hash drift) y NO lo pisa: lo resuelves tú.",
       "sync es el comando para upgrades de versión; render --apply es para regenerar.",
     ],
   },
@@ -129,11 +151,11 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Diagnóstico",
-        code: "$ navori doctor\nConfig · navori.config.json\nManaged blocks · 5\n! drift: .claude/agents/leader.md editado a mano\nPróximos pasos · corré 'navori sync --interactive'",
+        code: "$ navori doctor\nConfig · navori.config.json\nManaged blocks · 5\n! drift: .claude/agents/leader.md editado a mano\nPróximos pasos · corre 'navori sync --interactive'",
       },
     ],
     notes: [
-      "Corré doctor en CI con --strict para fallar el build si hay drift no resuelto.",
+      "Corre doctor en CI con --strict para fallar el build si hay drift no resuelto.",
       "Valida invariants: substrings load-bearing que deben sobrevivir en el output (exit 2 si faltan).",
     ],
   },
@@ -230,6 +252,28 @@ const en: Record<string, CommandDoc> = {
     ],
     notes: [
       "add only updates navori.config.json. Then run 'navori render --apply' to apply.",
+    ],
+  },
+  preset: {
+    id: "preset",
+    title: "preset",
+    summary:
+      "Scaffolds a local preset under .navori/presets/ for when your stack has no official preset.",
+    usage: "navori preset init <id>",
+    flags: [
+      { flag: "<id>", desc: "Preset id (kebab-case). Rejects the reserved id 'custom' and non-kebab-case ids." },
+      { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
+    ],
+    example: [
+      {
+        title: "Create a local preset",
+        code: "$ navori preset init express-fastify\n✓ .navori/presets/express-fastify/\n✓ navori.config.json → preset: express-fastify\n→ run 'navori render --apply' to materialize it",
+      },
+    ],
+    notes: [
+      "Generates the <id>.json manifest, a managed/stack.md (stack context) and an example skill under skills/.",
+      "The preset is checked in under .navori/presets/: resolution is local→bundled, and local wins.",
+      "It's for stacks with no official preset; the detector warns you when it can't find one.",
     ],
   },
   render: {
@@ -345,4 +389,4 @@ const en: Record<string, CommandDoc> = {
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
 
-export const commandOrder = ["init", "add", "render", "sync", "doctor", "status", "bench"] as const;
+export const commandOrder = ["init", "add", "preset", "render", "sync", "doctor", "status", "bench"] as const;
