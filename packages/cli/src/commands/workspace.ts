@@ -10,6 +10,8 @@ import {
   WorkspaceError,
   type WorkspaceConfig,
 } from "../lib/workspace.ts";
+import { applyDefault, VALID_DEFAULT_KEYS } from "../lib/workspace-defaults.ts";
+import { runRender } from "./render.ts";
 import { brand, dim, kv, color, sym, accent } from "../lib/style.ts";
 
 const initSubCommand = defineCommand({
@@ -308,6 +310,141 @@ const addRepoSubCommand = defineCommand({
   },
 });
 
+const setDefaultSubCommand = defineCommand({
+  meta: {
+    name: "set-default",
+    description: "Set a default applied to every repo in a workspace",
+  },
+  args: {
+    workspace: { type: "positional", description: "Workspace name", required: true },
+    key: {
+      type: "positional",
+      description: `Default key (${VALID_DEFAULT_KEYS})`,
+      required: true,
+    },
+    value: {
+      type: "positional",
+      description: "Value (engines: comma-separated; plugins enabled: true|false)",
+      required: true,
+    },
+  },
+  run({ args }) {
+    const ws = loadWorkspace(args.workspace as string);
+    if (!ws) {
+      console.error(`Workspace '${args.workspace}' not found`);
+      process.exit(1);
+    }
+    const result = applyDefault(ws.defaults, args.key as string, args.value as string);
+    if (!result.ok || !result.defaults) {
+      console.error(result.error ?? "Could not apply default");
+      process.exit(1);
+    }
+    ws.defaults = result.defaults;
+    const written = writeWorkspace(ws);
+    p.intro(brand(`workspace set-default ${accent(ws.name)}`));
+    p.log.success(`Set ${accent(args.key as string)} ${dim(`(${written})`)}`);
+    p.log.message(kv([["defaults", JSON.stringify(ws.defaults)]]));
+    p.outro(dim("Done"));
+  },
+});
+
+const renderSubCommand = defineCommand({
+  meta: {
+    name: "render",
+    description: "Render every repo registered in a workspace",
+  },
+  args: {
+    name: { type: "positional", description: "Workspace name", required: true },
+    apply: {
+      type: "boolean",
+      description: "Write changes to disk. Without it, every repo is previewed (no files touched).",
+    },
+    force: {
+      type: "boolean",
+      description: "Regenerate settings.json even if corrupted or missing the $navori marker.",
+    },
+  },
+  run({ args }) {
+    const ws = loadWorkspace(args.name as string);
+    if (!ws) {
+      console.error(`Workspace '${args.name}' not found`);
+      process.exit(1);
+    }
+
+    const apply = Boolean(args.apply);
+    const preview = !apply;
+    const force = Boolean(args.force);
+
+    p.intro(brand(`workspace render ${accent(ws.name)}`));
+    if (ws.repos.length === 0) {
+      p.log.info("No repos registered. Add one with 'navori workspace add-repo'.");
+      p.outro(dim("Done"));
+      return;
+    }
+
+    type RepoStatus = "written" | "would-write" | "up-to-date" | "missing" | "error";
+    const rows: Array<{ name: string; status: RepoStatus; detail: string }> = [];
+
+    for (const repo of ws.repos) {
+      if (!existsSync(repo.path)) {
+        rows.push({ name: repo.name, status: "missing", detail: repo.path });
+        continue;
+      }
+      try {
+        const result = runRender(repo.path, { dryRun: preview, force });
+        if (!result.ok) {
+          rows.push({ name: repo.name, status: "error", detail: result.reason ?? "render failed" });
+          continue;
+        }
+        const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
+        const anyPending = result.written || result.workspaces.some((w) => w.written);
+        const status: RepoStatus = anyPending ? (preview ? "would-write" : "written") : "up-to-date";
+        rows.push({ name: repo.name, status, detail: summarizeEntries(allEntries) });
+      } catch (err) {
+        rows.push({ name: repo.name, status: "error", detail: (err as Error).message });
+      }
+    }
+
+    const marker: Record<RepoStatus, string> = {
+      written: color.green(sym.ok),
+      "would-write": color.yellow(sym.bullet),
+      "up-to-date": dim(sym.bullet),
+      missing: color.red(sym.fail),
+      error: color.red(sym.fail),
+    };
+    const lines = rows.map((r) => {
+      const detail = r.detail ? dim(`  ${r.detail}`) : "";
+      return `  ${marker[r.status]} ${accent(r.name)}  ${dim(r.status)}${detail}`;
+    });
+    p.log.message(lines.join("\n"));
+
+    const failed = rows.filter((r) => r.status === "error" || r.status === "missing").length;
+    const pending = rows.filter((r) => r.status === "written" || r.status === "would-write").length;
+    const ok = rows.length - failed;
+    const summary = `${ok}/${rows.length} ok · ${pending} ${preview ? "would change" : "changed"} · ${failed} failed`;
+    if (failed > 0) {
+      p.outro(`${color.yellow("Done with errors")} ${dim(summary)}`);
+      process.exit(1);
+    }
+    p.outro(`${preview ? color.yellow("Preview") : color.green("Done")} ${dim(summary)}`);
+  },
+});
+
+/** Compact per-repo counts for the workspace render table. */
+function summarizeEntries(entries: Array<{ status: string }>): string {
+  const counts = entries.reduce<Record<string, number>>((acc, e) => {
+    acc[e.status] = (acc[e.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const parts: string[] = [];
+  if (counts.created) parts.push(`${counts.created} created`);
+  if (counts.updated) parts.push(`${counts.updated} updated`);
+  if (counts["user-modified-skipped"]) parts.push(`${counts["user-modified-skipped"]} conflict`);
+  if (counts["removed-condition-false"]) parts.push(`${counts["removed-condition-false"]} removed`);
+  if (counts.unchanged) parts.push(`${counts.unchanged} unchanged`);
+  return parts.join(", ");
+}
+
 export const workspaceCommand = defineCommand({
   meta: {
     name: "workspace",
@@ -318,6 +455,8 @@ export const workspaceCommand = defineCommand({
     ls: lsSubCommand,
     show: showSubCommand,
     "add-repo": addRepoSubCommand,
+    "set-default": setDefaultSubCommand,
+    render: renderSubCommand,
     rename: renameSubCommand,
     delete: deleteSubCommand,
   },
