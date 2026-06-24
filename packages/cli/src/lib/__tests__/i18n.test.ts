@@ -35,6 +35,16 @@ describe("i18n", () => {
     }
   });
 
+  it("presetGapNotice points at 'preset init' and interpolates the stack", () => {
+    // Regression: the notice drifted out of sync with the command — it must
+    // name the command that actually covers the gap (navori preset init).
+    for (const lang of SUPPORTED_LANGS) {
+      const msg = t(lang).presetGapNotice("fastify");
+      expect(msg).toContain("preset init");
+      expect(msg).toContain("fastify");
+    }
+  });
+
   it("es strings actually differ from en (sanity: no leftover English)", () => {
     const es = t("es");
     const en = t("en");
