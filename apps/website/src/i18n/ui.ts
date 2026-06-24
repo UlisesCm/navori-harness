@@ -48,7 +48,7 @@ export const ui = {
     "how.layer1.body": "Assets gestionados por navori. Siempre presentes.",
     "how.layer2.name": "Preset",
     "how.layer2.body":
-      "Configuraciones por tipo de stack (Next.js, NestJS, monorepo). ¿Falta el tuyo? Creas uno local con `navori preset init`.",
+      "Configuraciones por tipo de stack (Vite, Next.js, NestJS, Express, Astro, Medusa). ¿Falta el tuyo? Creas uno local con `navori preset init`.",
     "how.layer3.name": "Workspace",
     "how.layer3.body": "Reglas de toda tu organización compartidas entre repos.",
     "how.layer4.name": "Project",
@@ -166,7 +166,7 @@ export const ui = {
     "how.layer1.body": "Assets owned by navori. Always present.",
     "how.layer2.name": "Preset",
     "how.layer2.body":
-      "Stack-specific defaults (Next.js, NestJS, monorepo). Missing yours? Scaffold a local one with `navori preset init`.",
+      "Stack-specific defaults (Vite, Next.js, NestJS, Express, Astro, Medusa). Missing yours? Scaffold a local one with `navori preset init`.",
     "how.layer3.name": "Workspace",
     "how.layer3.body": "Org-wide rules shared across repos.",
     "how.layer4.name": "Project",

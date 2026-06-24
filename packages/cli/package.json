@@ -25,7 +25,7 @@
     "coreAgents": 7,
     "coreSkills": 3
   },
-  "license": "ISC",
+  "license": "MIT",
   "scripts": {
     "build": "tsup && node scripts/copy-assets.mjs",
     "dev": "tsup --watch",
