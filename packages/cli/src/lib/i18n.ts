@@ -248,7 +248,8 @@ const ES: Strings = {
     `Detecté un proyecto '${stack}', pero todavía no hay un preset oficial para ese stack. ` +
     `Se instala el harness completo (agentes, gates, protocolo, SDD) y funciona desde ya; ` +
     `lo único que falta son skills específicas de '${stack}'. Quedas con el baseline (preset: custom). ` +
-    `Para cubrir esas skills, agrégalas en project.localSkills o contribuye un preset a navori.`,
+    `Para cubrir el hueco: crea tu preset local con 'navori preset init ${stack}', o agrega skills ` +
+    `sueltas en project.localSkills.`,
 
   workspaceDefaultsTitle: (name) => `Defaults del workspace · ${name}`,
   detectedTitle: "Detectado en este repo",
@@ -379,7 +380,8 @@ const EN: Strings = {
     `Detected a '${stack}' project, but there's no official preset for that stack yet. ` +
     `The full harness installs (agents, gates, protocol, SDD) and works right away; ` +
     `the only thing missing are '${stack}'-specific skills. You stay on the baseline (preset: custom). ` +
-    `To cover those skills, add them via project.localSkills or contribute a preset to navori.`,
+    `To cover the gap: scaffold your local preset with 'navori preset init ${stack}', or add ` +
+    `individual skills via project.localSkills.`,
 
   workspaceDefaultsTitle: (name) => `Workspace defaults · ${name}`,
   detectedTitle: "Detected from this repo",
