@@ -87,6 +87,8 @@ export const ui = {
       "Mide render sobre N corridas y reporta p50/p95. Detecta regresiones locales.",
     "commands.preset.desc":
       "Crea un preset local en .navori/presets/ cuando tu stack no tiene uno oficial; lo deja conectado al config.",
+    "commands.presetAdd.desc":
+      "Instala un preset publicado (npm, ruta o git) en .navori/presets/ y lo conecta. El equipo lo comparte por git.",
 
     "engines.eyebrow": "Multi-engine",
     "engines.title": "Una config, lista para multi-engine.",
@@ -206,6 +208,8 @@ export const ui = {
       "Times render over N runs and reports p50/p95. Spots local regressions.",
     "commands.preset.desc":
       "Scaffolds a local preset under .navori/presets/ when your stack has no official one; wires it into the config.",
+    "commands.presetAdd.desc":
+      "Installs a published preset (npm, path or git) into .navori/presets/ and wires it in. Shared via git.",
 
     "engines.eyebrow": "Multi-engine",
     "engines.title": "One config, ready for multi-engine.",

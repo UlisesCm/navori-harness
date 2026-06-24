@@ -39,6 +39,16 @@ const commands = [
     ],
   },
   {
+    id: "preset add",
+    desc: t("commands.presetAdd.desc"),
+    output: [
+      "$ navori preset add @acme/preset-fastify",
+      "✓ .navori/presets/fastify/  (checked-in)",
+      "✓ navori.config.json → preset: fastify",
+      "→ run 'navori render --apply'",
+    ],
+  },
+  {
     id: "render",
     desc: t("commands.render.desc"),
     output: [
