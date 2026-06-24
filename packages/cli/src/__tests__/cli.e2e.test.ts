@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -1183,5 +1183,88 @@ describe("CLI e2e — local presets (fase 2)", () => {
 
     const r = runCli(["doctor", "--cwd", repo]);
     expect(r.combined).toMatch(/sombrea/);
+  });
+});
+
+describe("CLI e2e — remote presets (fase 3)", () => {
+  let dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+    dirs = [];
+  });
+
+  // A directory that `npm pack` can package offline (acts as the "remote" preset).
+  function makePresetPackage(id: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "navori-preset-pkg-"));
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: `preset-${id}`, version: "1.0.0" }),
+    );
+    writeFileSync(
+      join(dir, "preset.json"),
+      JSON.stringify({
+        $schema: "https://navori.dev/schema/navori.preset.v1.json",
+        id,
+        displayName: id,
+        extends: "core",
+        extras: {
+          managed: [{ id: `stack-${id}`, relPath: "managed/stack.md" }],
+          skills: [
+            { id: `${id}-skill`, relPath: "skills/demo.md", destRelPath: `.claude/skills/${id}-skill.md` },
+          ],
+        },
+        invariants: [],
+      }),
+    );
+    mkdirSync(join(dir, "managed"), { recursive: true });
+    mkdirSync(join(dir, "skills"), { recursive: true });
+    writeFileSync(join(dir, "managed/stack.md"), `## Stack — ${id}\n\nRemote preset.\n`);
+    writeFileSync(
+      join(dir, "skills/demo.md"),
+      "---\nname: demo\ndescription: x\ntype: reference\n---\n# demo\n",
+    );
+    return dir;
+  }
+
+  it("preset add <local-path> installs, wires config, renders and passes doctor", () => {
+    const pkg = makePresetPackage("demo-stack");
+    dirs.push(pkg);
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "rp-app" }) });
+    dirs.push(repo);
+    runCli(["init", "--yes", "--cwd", repo]);
+
+    const r = runCli(["preset", "add", pkg, "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(existsSync(join(repo, ".navori/presets/demo-stack/demo-stack.json"))).toBe(true);
+    const cfg = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(cfg.preset).toBe("demo-stack");
+
+    expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
+    expect(existsSync(join(repo, ".claude/skills/demo-stack-skill.md"))).toBe(true);
+    expect(readFileSync(join(repo, "CLAUDE.md"), "utf-8")).toContain('id="stack-demo-stack"');
+
+    expect(runCli(["doctor", "--cwd", repo]).status).toBe(0);
+  });
+
+  it("preset add refuses to overwrite without --force, succeeds with it", () => {
+    const pkg = makePresetPackage("demo-stack");
+    dirs.push(pkg);
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "rp-force" }) });
+    dirs.push(repo);
+    runCli(["init", "--yes", "--cwd", repo]);
+    expect(runCli(["preset", "add", pkg, "--cwd", repo]).status).toBe(0);
+
+    const dup = runCli(["preset", "add", pkg, "--cwd", repo]);
+    expect(dup.status).not.toBe(0);
+    expect(dup.combined).toMatch(/[Yy]a existe|already exists/);
+
+    expect(runCli(["preset", "add", pkg, "--force", "--cwd", repo]).status).toBe(0);
   });
 });

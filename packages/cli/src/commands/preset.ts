@@ -4,6 +4,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { writeFileAtomic } from "../lib/atomic.ts";
 import { readConfig, writeConfig } from "../lib/config.ts";
+import { installRemotePreset } from "../lib/preset-install.ts";
+import { PresetError } from "../lib/presets.ts";
 import { brand, accent, dim } from "../lib/style.ts";
 
 /** Mirrors PresetDefinitionSchema.id — kebab-case, alphanumeric start. */
@@ -141,12 +143,61 @@ const initSubCommand = defineCommand({
   },
 });
 
+const addSubCommand = defineCommand({
+  meta: {
+    name: "add",
+    description: "Fetch a remote preset (npm/path/git) into .navori/presets/<id>/ and wire it in",
+  },
+  args: {
+    source: {
+      type: "positional",
+      description: "npm package, local path, tarball URL or git url (anything 'npm pack' accepts)",
+      required: true,
+    },
+    cwd: { type: "string", description: "Repo root (default: current)" },
+    force: { type: "boolean", description: "Overwrite an existing local preset of the same id" },
+  },
+  run({ args }) {
+    const source = String(args.source);
+    const cwd = resolve(args.cwd ?? process.cwd());
+
+    p.intro(brand(`preset add ${accent(source)}`));
+
+    let installed;
+    try {
+      installed = installRemotePreset(source, cwd, { force: Boolean(args.force) });
+    } catch (err) {
+      if (err instanceof PresetError) {
+        p.cancel(err.message);
+        process.exit(1);
+      }
+      throw err;
+    }
+    const id = installed.id;
+    p.log.success(`Instalado el preset '${id}' en .navori/presets/${id}/`);
+
+    const configPath = join(cwd, "navori.config.json");
+    if (existsSync(configPath)) {
+      const config = readConfig(configPath);
+      writeConfig(configPath, { ...config, preset: id });
+      p.log.success(`navori.config.json → preset: ${accent(id)}`);
+      p.outro(`Listo. Corre ${accent("navori render --apply")} para materializar el preset.`);
+    } else {
+      p.log.warn(
+        `No hay navori.config.json en ${cwd}. Corre ${accent("navori init")} y elige el preset '${id}' para activarlo.`,
+      );
+      p.outro("Preset instalado. Inicializa navori para activarlo.");
+    }
+  },
+});
+
 export const presetCommand = defineCommand({
   meta: {
     name: "preset",
-    description: "Manage local presets under .navori/presets/",
+    description: "Manage presets: scaffold a local one (init) or fetch a remote one (add)",
   },
   subCommands: {
     init: initSubCommand,
+    add: addSubCommand,
   },
 });
