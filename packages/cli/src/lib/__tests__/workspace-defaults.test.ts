@@ -9,6 +9,12 @@ describe("applyDefault — flat keys", () => {
     expect(res.defaults?.branchBase).toBe("develop");
   });
 
+  it("sets prTarget", () => {
+    const res = applyDefault({}, "prTarget", "develop");
+    expect(res.ok).toBe(true);
+    expect(res.defaults?.prTarget).toBe("develop");
+  });
+
   it("sets a valid commits enum", () => {
     const res = applyDefault({}, "commits", "conventional-es");
     expect(res.ok).toBe(true);

@@ -20,6 +20,7 @@ const RepoEntrySchema = z.object({
 
 export const WorkspaceDefaultsSchema = z.object({
   branchBase: z.string().optional(),
+  prTarget: z.string().optional(),
   commits: z.enum(["conventional", "conventional-es", "free"]).optional(),
   language: z.enum(["es", "en"]).optional(),
   engines: z.array(z.string()).optional(),

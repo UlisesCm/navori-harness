@@ -15,6 +15,19 @@ export function writeConfig(path: string, input: NavoriConfigInput): void {
   writeFileAtomic(path, JSON.stringify(validated, null, 2) + "\n");
 }
 
+/**
+ * Return a config with derived defaults filled in for rendering only — never
+ * for persistence. Today that means `prTarget`: templates interpolate
+ * `{{prTarget}}` for the PR `--base`, and it must resolve even when the config
+ * omits prTarget (the common case), so it falls back to branchBase here. Kept
+ * out of the schema on purpose: a schema transform would persist the derived
+ * value into every config on the next write. Idempotent.
+ */
+export function effectiveConfig(config: NavoriConfig): NavoriConfig {
+  if (config.prTarget) return config;
+  return { ...config, prTarget: config.branchBase };
+}
+
 export class ConfigError extends NavoriError {
   readonly issues?: z.ZodIssue[];
   constructor(message: string, issues?: z.ZodIssue[]) {

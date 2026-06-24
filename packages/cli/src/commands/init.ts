@@ -174,6 +174,9 @@ export const initCommand = defineCommand({
         ? (detected.existingEngines as EngineId[])
         : (["claude"] as EngineId[]));
     const defaultBranchBase = wsDefaults?.branchBase ?? detected.branchBase ?? "main";
+    // prTarget is opt-in (no auto-detection): inherited from the workspace
+    // default when present, else left unset so the PR targets branchBase.
+    const defaultPrTarget = wsDefaults?.prTarget;
     // Asset language defaults to the wizard language. The user can still
     // override via the "language" multi-select adjustment below.
     const defaultLanguage: "es" | "en" = wsDefaults?.language ?? lang;
@@ -225,6 +228,7 @@ export const initCommand = defineCommand({
         preset: detected.suggestedPreset,
         language: defaultLanguage,
         branchBase: defaultBranchBase,
+        ...(defaultPrTarget ? { prTarget: defaultPrTarget } : {}),
         ...(defaultCommits ? { commits: defaultCommits } : {}),
         ...(fallbackQg ? { qualityGate: fallbackQg } : {}),
         ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
@@ -578,6 +582,7 @@ export const initCommand = defineCommand({
       preset,
       language,
       branchBase,
+      ...(defaultPrTarget ? { prTarget: defaultPrTarget } : {}),
       ...(defaultCommits ? { commits: defaultCommits } : {}),
       ...(qualityGate ? { qualityGate } : {}),
       ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),

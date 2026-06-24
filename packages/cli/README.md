@@ -137,7 +137,8 @@ El workspace también guarda defaults heredables:
 navori init --workspace bonum    # hereda engines, plugins, branchBase, etc.
 
 # Ajustar un default sin editar el manifest a mano
-navori workspace set-default bonum branchBase develop
+navori workspace set-default bonum branchBase main
+navori workspace set-default bonum prTarget develop      # PRs van a develop, no a main
 navori workspace set-default bonum engines claude,cursor
 navori workspace set-default bonum plugins.engram.enabled true
 ```
@@ -183,7 +184,8 @@ navori configure plugins              # multiselect de plugins activos
 navori configure quality-gate         # nuevo comando de quality gate
 navori configure language en          # switch a inglés (fallback a es)
 navori configure engines              # multiselect: claude / agents-md / cursor / copilot
-navori configure branch-base develop  # fijar la branch base
+navori configure branch-base main     # punto de fork / rama protegida
+navori configure pr-target develop    # rama destino del PR (gh pr create --base)
 navori configure workspace bonum      # asociar a un workspace
 ```
 

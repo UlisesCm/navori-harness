@@ -18,6 +18,16 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
     expect(c.commits).toBe("conventional-es");
   });
 
+  it("leaves prTarget undefined when omitted (falls back to branchBase at render)", () => {
+    const c = NavoriConfigSchema.parse({ ...MINIMAL });
+    expect(c.prTarget).toBeUndefined();
+  });
+
+  it("accepts an explicit prTarget", () => {
+    const c = NavoriConfigSchema.parse({ ...MINIMAL, branchBase: "main", prTarget: "develop" });
+    expect(c.prTarget).toBe("develop");
+  });
+
   it("applies sdd sub-defaults when sdd:{} is given", () => {
     const c = NavoriConfigSchema.parse({ ...MINIMAL, sdd: {} });
     expect(c.sdd).toEqual({

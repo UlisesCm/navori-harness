@@ -120,6 +120,12 @@ export const NavoriConfigSchema = z
     preset: z.string().min(1),
     language: z.enum(["es", "en"]).default("es"),
     branchBase: z.string().default("main"),
+    /** Target branch for PRs (`gh pr create --base`). When omitted, PRs target
+     * branchBase. Decouples the fork point / protected branch (branchBase) from
+     * the PR target — e.g. branch off `main` but open PRs against `develop`.
+     * The render derives the effective value (prTarget ?? branchBase) so this
+     * stays out of configs that don't need it. */
+    prTarget: z.string().optional(),
     commits: z.enum(["conventional", "conventional-es", "free"]).default("conventional-es"),
     qualityGate: QualityGateSchema.optional(),
     sdd: SddSchema.optional(),

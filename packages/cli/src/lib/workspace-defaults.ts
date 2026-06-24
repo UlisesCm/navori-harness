@@ -7,7 +7,8 @@ export interface ApplyDefaultResult {
 }
 
 /** Human-readable list of accepted keys, reused in error messages and help. */
-export const VALID_DEFAULT_KEYS = "branchBase, commits, language, engines, plugins.<id>.enabled";
+export const VALID_DEFAULT_KEYS =
+  "branchBase, prTarget, commits, language, engines, plugins.<id>.enabled";
 
 function parseBool(value: string): boolean | null {
   if (value === "true") return true;
@@ -22,8 +23,8 @@ function parseBool(value: string): boolean | null {
  * success, or an error message on failure. Callers persist the result via
  * writeWorkspace(), which re-validates the whole manifest.
  *
- * Supported keys: branchBase, commits, language, engines (comma-separated),
- * and plugins.<id>.enabled (true|false).
+ * Supported keys: branchBase, prTarget, commits, language, engines
+ * (comma-separated), and plugins.<id>.enabled (true|false).
  */
 export function applyDefault(
   current: WorkspaceDefaults,
@@ -46,7 +47,7 @@ export function applyDefault(
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-  } else if (key === "branchBase" || key === "commits" || key === "language") {
+  } else if (key === "branchBase" || key === "prTarget" || key === "commits" || key === "language") {
     next[key] = rawValue;
   } else {
     return { ok: false, error: `Unknown default key '${key}'. Valid keys: ${VALID_DEFAULT_KEYS}.` };

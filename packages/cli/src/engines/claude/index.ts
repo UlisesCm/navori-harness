@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, chmodSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import type { NavoriConfig } from "../../lib/config.ts";
+import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
@@ -185,7 +185,7 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
 
 export function renderClaudeEngine(
   cwd: string,
-  config: NavoriConfig,
+  inputConfig: NavoriConfig,
   options: {
     dryRun?: boolean;
     force?: boolean;
@@ -201,6 +201,9 @@ export function renderClaudeEngine(
     repoRoot?: string;
   } = {},
 ): ClaudeEngineResult {
+  // Fill in render-only derived defaults (e.g. prTarget ?? branchBase) so
+  // templates interpolate against a complete config without persisting it.
+  const config = effectiveConfig(inputConfig);
   const dryRun = options.dryRun === true;
   const force = options.force === true;
   const repoRoot = options.repoRoot ?? cwd;
