@@ -124,6 +124,39 @@ export function detectProject(cwd: string): DetectedProject {
 // Name normalization
 // ============================================================
 
+/**
+ * Names that are almost certainly scaffolding leftovers, not a real project
+ * name. Conservative on purpose — a repo legitimately called "app" or "demo"
+ * shouldn't trip the warning, so only obvious placeholders are listed. Surfaced
+ * by `doctor` and `workspace show` (a fork left with the template's name, or
+ * `temp-app` from a never-renamed package.json, is a config smell worth a nudge).
+ */
+const PLACEHOLDER_NAMES: ReadonlySet<string> = new Set([
+  "temp-app",
+  "temp",
+  "tmp",
+  "my-app",
+  "myapp",
+  "my-project",
+  "your-app",
+  "your-project",
+  "your-app-name",
+  "app-name",
+  "project-name",
+  "changeme",
+  "change-me",
+  "example-app",
+  "sample-app",
+  "new-project",
+  "untitled",
+  "placeholder",
+]);
+
+/** True when `name` looks like an un-renamed scaffold placeholder. */
+export function isPlaceholderName(name: string): boolean {
+  return PLACEHOLDER_NAMES.has(name.trim().toLowerCase());
+}
+
 function normalizeName(raw: unknown): string | null {
   // Defensive: package.json / pyproject.toml / Cargo.toml are user-controlled
   // and may have non-string values in fields we expected to be strings.

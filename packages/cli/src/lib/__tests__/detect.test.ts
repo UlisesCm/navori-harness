@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { detectProject } from "../detect.ts";
+import { detectProject, isPlaceholderName } from "../detect.ts";
 
 function makeTmp(): string {
   return mkdtempSync(join(tmpdir(), "navori-detect-"));
@@ -369,6 +369,31 @@ describe("detectProject — qualityGate only references scripts that exist (F-ga
     } finally {
       rmSync(dir, { recursive: true });
     }
+  });
+});
+
+describe("isPlaceholderName", () => {
+  it("flags obvious scaffold placeholders", () => {
+    for (const n of ["temp-app", "my-app", "my-project", "changeme", "untitled", "project-name"]) {
+      expect(isPlaceholderName(n), n).toBe(true);
+    }
+  });
+
+  it("is case- and whitespace-insensitive", () => {
+    expect(isPlaceholderName("TEMP-APP")).toBe(true);
+    expect(isPlaceholderName("  my-app  ")).toBe(true);
+  });
+
+  it("does not flag real project names", () => {
+    for (const n of ["bonum-webapp", "services-users-bonum", "navori", "checkout-service"]) {
+      expect(isPlaceholderName(n), n).toBe(false);
+    }
+  });
+
+  it("is conservative — does not flag bare generics like 'app' or 'demo'", () => {
+    expect(isPlaceholderName("app")).toBe(false);
+    expect(isPlaceholderName("demo")).toBe(false);
+    expect(isPlaceholderName("test")).toBe(false);
   });
 });
 
