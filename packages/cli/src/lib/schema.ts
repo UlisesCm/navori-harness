@@ -107,6 +107,12 @@ const ProjectSchema = z
      * express-mongoose preset ships zod-validation OR joi-validation). */
     zodValidation: z.boolean().optional(),
     joiValidation: z.boolean().optional(),
+    /** Programming language of the repo (ts/js/python/rust/go/unknown), from
+     * detection. Drives language-aware baseline blocks — e.g. the TS-only
+     * `tipado-fuerte` (any/unknown) is suppressed in python/rust/go. The render
+     * derives `typedLanguage` from this; absence is treated as JS/TS for
+     * back-compat with configs written before this field existed. */
+    codeLanguage: z.string().optional(),
   })
   .passthrough();
 

@@ -264,6 +264,7 @@ describe("CLI e2e — happy paths", () => {
       criticalAreas: [],
       localSkills: [],
       testRunner: "vitest",
+      codeLanguage: "js",
     });
   });
 
@@ -313,7 +314,12 @@ describe("CLI e2e — happy paths", () => {
     expect(config.qualityGate).toBeUndefined();
     // ... but it DOES write the project block with empty arrays so render emits
     // no `<not configured: project.*>` placeholders in the agents (F11).
-    expect(config.project).toEqual({ legacyPaths: [], criticalAreas: [], localSkills: [] });
+    expect(config.project).toEqual({
+      legacyPaths: [],
+      criticalAreas: [],
+      localSkills: [],
+      codeLanguage: "ts",
+    });
   });
 
   it("init --yes detects stack from package.json", () => {

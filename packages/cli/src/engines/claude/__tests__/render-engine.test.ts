@@ -368,3 +368,26 @@ describe("renderClaudeEngine — prTarget in the commit-pr-pilot agent", () => {
     expect(agent).not.toContain("--base main");
   });
 });
+
+describe("renderClaudeEngine — language-aware baseline (tipado-fuerte)", () => {
+  const claudeMd = () => readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+  const withLang = (codeLanguage: string) =>
+    ({ ...CONFIG_FULL, project: { codeLanguage } }) as unknown as NavoriConfig;
+
+  it("renders tipado-fuerte for a TS repo", () => {
+    renderClaudeEngine(cwd, withLang("ts"));
+    expect(claudeMd()).toContain("Tipado fuerte");
+  });
+
+  it("suppresses tipado-fuerte for a Python repo", () => {
+    renderClaudeEngine(cwd, withLang("python"));
+    const md = claudeMd();
+    expect(md).not.toContain("Tipado fuerte");
+    expect(md).not.toContain('id="tipado-fuerte"');
+  });
+
+  it("renders tipado-fuerte when codeLanguage is absent (back-compat)", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL); // no project.codeLanguage
+    expect(claudeMd()).toContain("Tipado fuerte");
+  });
+});

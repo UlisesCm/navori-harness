@@ -39,6 +39,50 @@ describe("effectiveConfig — prTarget fallback", () => {
   });
 });
 
+describe("effectiveConfig — typedLanguage derivation", () => {
+  const withLang = (codeLanguage?: string) =>
+    NavoriConfigSchema.parse({
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      ...(codeLanguage ? { project: { codeLanguage } } : {}),
+    });
+
+  it("is true for ts/js/unknown (JS-ecosystem baseline applies)", () => {
+    for (const lang of ["ts", "js", "unknown"]) {
+      expect(effectiveConfig(withLang(lang)).project?.typedLanguage, lang).toBe(true);
+    }
+  });
+
+  it("is true when codeLanguage is absent (back-compat with old configs)", () => {
+    expect(effectiveConfig(withLang()).project?.typedLanguage).toBe(true);
+  });
+
+  it("is false for python/rust/go (TS-only baseline suppressed)", () => {
+    for (const lang of ["python", "rust", "go"]) {
+      expect(effectiveConfig(withLang(lang)).project?.typedLanguage, lang).toBe(false);
+    }
+  });
+
+  it("does not persist typedLanguage (config on disk stays clean)", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      writeConfig(path, {
+        name: "demo",
+        engines: ["claude"],
+        preset: "custom",
+        project: { codeLanguage: "python" } as never,
+      });
+      const onDisk = JSON.parse(readFileSync(path, "utf-8"));
+      expect("typedLanguage" in (onDisk.project ?? {})).toBe(false);
+      expect(onDisk.project.codeLanguage).toBe("python");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});
+
 describe("writeConfig", () => {
   it("writes a valid config with defaults applied", () => {
     const dir = makeTmpDir();
