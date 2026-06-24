@@ -29,6 +29,16 @@ const commands = [
     ],
   },
   {
+    id: "preset init",
+    desc: t("commands.preset.desc"),
+    output: [
+      "$ navori preset init express-fastify",
+      "✓ .navori/presets/express-fastify/",
+      "✓ navori.config.json → preset: express-fastify",
+      "→ run 'navori render --apply'",
+    ],
+  },
+  {
     id: "render",
     desc: t("commands.render.desc"),
     output: [

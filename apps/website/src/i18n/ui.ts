@@ -47,7 +47,8 @@ export const ui = {
     "how.layer1.name": "Core",
     "how.layer1.body": "Assets gestionados por navori. Siempre presentes.",
     "how.layer2.name": "Preset",
-    "how.layer2.body": "Configuraciones por tipo de stack (Next.js, NestJS, monorepo).",
+    "how.layer2.body":
+      "Configuraciones por tipo de stack (Next.js, NestJS, monorepo). ¿Falta el tuyo? Creas uno local con `navori preset init`.",
     "how.layer3.name": "Workspace",
     "how.layer3.body": "Reglas de toda tu organización compartidas entre repos.",
     "how.layer4.name": "Project",
@@ -84,6 +85,8 @@ export const ui = {
       "Snapshot al vuelo: config, plugins, drift y qué hacer ahora.",
     "commands.bench.desc":
       "Mide render sobre N corridas y reporta p50/p95. Detecta regresiones locales.",
+    "commands.preset.desc":
+      "Crea un preset local en .navori/presets/ cuando tu stack no tiene uno oficial; lo deja conectado al config.",
 
     "engines.eyebrow": "Multi-engine",
     "engines.title": "Una config, lista para multi-engine.",
@@ -162,7 +165,8 @@ export const ui = {
     "how.layer1.name": "Core",
     "how.layer1.body": "Assets owned by navori. Always present.",
     "how.layer2.name": "Preset",
-    "how.layer2.body": "Stack-specific defaults (Next.js, NestJS, monorepo).",
+    "how.layer2.body":
+      "Stack-specific defaults (Next.js, NestJS, monorepo). Missing yours? Scaffold a local one with `navori preset init`.",
     "how.layer3.name": "Workspace",
     "how.layer3.body": "Org-wide rules shared across repos.",
     "how.layer4.name": "Project",
@@ -200,6 +204,8 @@ export const ui = {
       "At-a-glance snapshot: config, plugins, drift, and what to do next.",
     "commands.bench.desc":
       "Times render over N runs and reports p50/p95. Spots local regressions.",
+    "commands.preset.desc":
+      "Scaffolds a local preset under .navori/presets/ when your stack has no official one; wires it into the config.",
 
     "engines.eyebrow": "Multi-engine",
     "engines.title": "One config, ready for multi-engine.",
