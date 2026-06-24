@@ -108,6 +108,9 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       },
       {
         id: "express-mongoose",
+        // zod-validation is conditional on project.zodValidation; set it so the
+        // validation skill renders alongside the always-on ones.
+        project: { zodValidation: true },
         skills: [
           ".claude/skills/express-routes.md",
           ".claude/skills/mongoose.md",
@@ -124,7 +127,11 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
 
     for (const preset of BUNDLED) {
       it(`preset '${preset.id}' renders ${preset.skills.length} skill(s) without warnings`, () => {
-        const config = { ...BASE_CONFIG, preset: preset.id } as unknown as NavoriConfig;
+        const config = {
+          ...BASE_CONFIG,
+          preset: preset.id,
+          ...((preset as { project?: unknown }).project ? { project: (preset as { project?: unknown }).project } : {}),
+        } as unknown as NavoriConfig;
         const r = renderClaudeEngine(cwd, config);
 
         // No 'preset not found' warning
@@ -136,5 +143,41 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         }
       });
     }
+  });
+
+  describe("conditional preset extras (zod vs joi validation)", () => {
+    const expressConfig = (project: Record<string, unknown>) =>
+      ({ ...BASE_CONFIG, preset: "express-mongoose", project }) as unknown as NavoriConfig;
+
+    it("renders zod-validation (not joi) when project.zodValidation is set", () => {
+      renderClaudeEngine(cwd, expressConfig({ zodValidation: true }));
+      expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(true);
+      expect(existsSync(join(cwd, ".claude/skills/joi-validation.md"))).toBe(false);
+    });
+
+    it("renders joi-validation (not zod) when project.joiValidation is set", () => {
+      renderClaudeEngine(cwd, expressConfig({ joiValidation: true }));
+      expect(existsSync(join(cwd, ".claude/skills/joi-validation.md"))).toBe(true);
+      expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(false);
+    });
+
+    it("renders neither validation skill when no validator flag is set", () => {
+      renderClaudeEngine(cwd, expressConfig({}));
+      expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(false);
+      expect(existsSync(join(cwd, ".claude/skills/joi-validation.md"))).toBe(false);
+      // The always-on express skills still render.
+      expect(existsSync(join(cwd, ".claude/skills/express-routes.md"))).toBe(true);
+    });
+
+    it("lists the active validation skill in the skills index, not the inactive one", () => {
+      // The skills index is only emitted when the repo declares project-local
+      // skills; add one so the index renders and we can assert on it.
+      renderClaudeEngine(cwd, expressConfig({ joiValidation: true, localSkills: ["my-local"] }));
+      const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+      // Assert on the index row format (`<name>` — preset) — the stack.md block
+      // mentions both names in prose on purpose, so a bare substring won't do.
+      expect(claudeMd).toContain("`joi-validation` — preset");
+      expect(claudeMd).not.toContain("`zod-validation` — preset");
+    });
   });
 });
