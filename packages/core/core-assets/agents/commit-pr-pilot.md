@@ -18,9 +18,11 @@ Te encargas del **cierre del ciclo**: commits Conventional bien estructurados y 
 ## Cuándo NO activar
 
 - Working tree con cambios sin commitear cuando el usuario solo pidió "abre el PR" → primero commiteas o pides permiso.
-- Estás en `{{branchBase}}` u otra rama protegida → abort + pedir branch.
+- Estás en `{{branchBase}}` o `{{prTarget}}` u otra rama protegida → abort + pedir branch.
 - Harness activo y `.claude/progress/review_*.md` reciente contiene `CHANGES_REQUESTED` → no se crea PR.
 - Quality gate en rojo en este turno.
+
+> **Dos ramas, dos roles:** `{{branchBase}}` es el punto de fork (de dónde ramificaste). `{{prTarget}}` es la rama destino del PR (`gh pr create --base`). Suelen coincidir; cuando difieren, el PR y su diff se calculan contra `{{prTarget}}`.
 
 ## Pre-flight obligatorio
 
@@ -28,10 +30,10 @@ Corre estos chequeos antes de redactar nada. Si algo falla, paras y reportas.
 
 ```bash
 git status --porcelain                                # qué falta commitear
-git rev-parse --abbrev-ref HEAD                       # no puede ser {{branchBase}}
-git fetch origin {{branchBase}} --quiet
-git log origin/{{branchBase}}..HEAD --oneline         # debe haber ≥1 commit (o cambios para commitear)
-git diff origin/{{branchBase}}...HEAD --stat          # scope del PR
+git rev-parse --abbrev-ref HEAD                       # no puede ser {{branchBase}} ni {{prTarget}}
+git fetch origin {{prTarget}} --quiet
+git log origin/{{prTarget}}..HEAD --oneline           # debe haber ≥1 commit (o cambios para commitear)
+git diff origin/{{prTarget}}...HEAD --stat            # scope REAL del PR (contra el target)
 gh auth status                                        # gh autenticado
 ```
 
@@ -59,10 +61,11 @@ Sin `APPROVED` y con harness activo → abort, dile al usuario que falta review.
 
 ## Flujo de PR
 
-1. **Recopilar contexto** (curado, no volcar todo el repo):
-   - `git log origin/{{branchBase}}..HEAD --oneline` — commits incluidos.
-   - `git diff origin/{{branchBase}}...HEAD --stat` — siempre.
-   - `git diff origin/{{branchBase}}...HEAD` — solo si el diff < 500 líneas. Si es mayor, usa solo el stat + lista de archivos + los hunks de los 2–3 archivos más relevantes.
+1. **Recopilar contexto** (curado, no volcar todo el repo). El diff del PR es contra `{{prTarget}}` (lo que GitHub mostrará):
+   - `git log origin/{{prTarget}}..HEAD --oneline` — commits incluidos.
+   - `git diff origin/{{prTarget}}...HEAD --stat` — siempre.
+   - `git diff origin/{{prTarget}}...HEAD` — solo si el diff < 500 líneas. Si es mayor, usa solo el stat + lista de archivos + los hunks de los 2–3 archivos más relevantes.
+   - **Arrastre de commits** (solo si `{{branchBase}}` ≠ `{{prTarget}}`): `git fetch origin {{branchBase}} --quiet` y `git rev-list --count origin/{{prTarget}}..origin/{{branchBase}}`. Si es > 0, `{{branchBase}}` va adelantado de `{{prTarget}}` y tu PR arrastra esos commits ajenos: avisa al usuario y sugiere rebasar sobre `{{prTarget}}` antes de abrir.
    - Ticket si aplica: nombre del branch (ej. `BT-1234-fix-x` → `BT-1234`) o referencia en el primer commit.
    - `.claude/progress/impl_<feature>.md` si existe — decisiones no obvias.
 
@@ -79,12 +82,15 @@ Sin `APPROVED` y con harness activo → abort, dile al usuario que falta review.
 
    ```bash
    gh pr create \
+     --base {{prTarget}} \
      --title "<title validado>" \
      --body "$(cat <<'EOF'
    <body validado>
    EOF
    )"
    ```
+
+   Siempre pasa `--base {{prTarget}}` explícito — no dejes que `gh` use la rama default del repo. Si el target cambió, ajústalo con `navori configure pr-target`.
 
 5. **Output al usuario**: solo la URL del PR + 1 línea con el título. Nada más.
 

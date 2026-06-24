@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, writeConfig, type NavoriConfig } from "../lib/config.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
-import { brand } from "../lib/style.ts";
+import { brand, dim } from "../lib/style.ts";
 
 const ENGINE_OPTIONS = [
   { value: "claude", label: "Claude Code (.claude/)" },
@@ -238,6 +238,51 @@ const branchBaseSubCommand = defineCommand({
   },
 });
 
+const prTargetSubCommand = defineCommand({
+  meta: {
+    name: "pr-target",
+    description: "Set the branch PRs target (gh pr create --base); defaults to branchBase",
+  },
+  args: {
+    cwd: { type: "string", description: "Directory (default: cwd)" },
+    value: { type: "positional", description: "Branch name (e.g. develop)", required: false },
+  },
+  async run({ args }) {
+    const cwd = resolve(args.cwd ?? process.cwd());
+    const { config, path, raw } = loadOrExit(cwd);
+
+    p.intro(brand("configure pr-target"));
+
+    let value = (args.value as string | undefined)?.trim();
+    if (!value) {
+      const fallback = config.prTarget ?? config.branchBase;
+      const input = await p.text({
+        message: "Branch PRs open against (gh pr create --base)",
+        placeholder: fallback,
+        defaultValue: fallback,
+      });
+      if (p.isCancel(input)) {
+        p.cancel("Cancelled");
+        return;
+      }
+      value = (input as string).trim();
+    }
+
+    if (!value) {
+      p.cancel("Branch name cannot be empty");
+      return;
+    }
+
+    raw.prTarget = value;
+    persist(path, raw);
+    p.log.success(`prTarget → ${value}`);
+    if (value === config.branchBase) {
+      p.log.message(dim(`Same as branchBase — PRs target ${value} as before.`));
+    }
+    p.outro("Run 'navori render --apply' to update the PR skills.");
+  },
+});
+
 const enginesSubCommand = defineCommand({
   meta: {
     name: "engines",
@@ -326,6 +371,7 @@ export const configureCommand = defineCommand({
     plugins: pluginsSubCommand,
     "quality-gate": qualityGateSubCommand,
     "branch-base": branchBaseSubCommand,
+    "pr-target": prTargetSubCommand,
     language: languageSubCommand,
     engines: enginesSubCommand,
     workspace: workspaceSubCommand,

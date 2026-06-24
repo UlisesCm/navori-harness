@@ -2,11 +2,42 @@ import { describe, it, expect } from "vitest";
 import { writeFileSync, readFileSync, rmSync, mkdtempSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { writeConfig, readConfig, ConfigError } from "../config.ts";
+import { writeConfig, readConfig, effectiveConfig, ConfigError } from "../config.ts";
+import { NavoriConfigSchema } from "../schema.ts";
 
 function makeTmpDir(): string {
   return mkdtempSync(join(tmpdir(), "navori-test-"));
 }
+
+describe("effectiveConfig — prTarget fallback", () => {
+  const base = NavoriConfigSchema.parse({
+    name: "demo",
+    engines: ["claude"],
+    preset: "custom",
+    branchBase: "main",
+  });
+
+  it("fills prTarget from branchBase when omitted", () => {
+    expect(effectiveConfig(base).prTarget).toBe("main");
+  });
+
+  it("keeps an explicit prTarget untouched", () => {
+    const c = { ...base, prTarget: "develop" };
+    expect(effectiveConfig(c).prTarget).toBe("develop");
+  });
+
+  it("does not persist the derived prTarget (config on disk stays clean)", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      writeConfig(path, { name: "demo", engines: ["claude"], preset: "custom", branchBase: "develop" });
+      const onDisk = JSON.parse(readFileSync(path, "utf-8"));
+      expect("prTarget" in onDisk).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});
 
 describe("writeConfig", () => {
   it("writes a valid config with defaults applied", () => {

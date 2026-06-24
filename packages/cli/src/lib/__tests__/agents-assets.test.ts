@@ -106,6 +106,10 @@ describe("core agent assets — interpolation placeholders", () => {
     expect(anyRefs).toBe(true);
   });
 
+  it("commit-pr-pilot opens PRs against prTarget (gh pr create --base)", () => {
+    expect(readAgent("commit-pr-pilot")).toContain("--base {{prTarget}}");
+  });
+
   it("at least one agent references project.criticalAreas", () => {
     const anyRefs = AGENT_IDS.some((id) =>
       readAgent(id).includes("{{project.criticalAreas}}"),

@@ -349,3 +349,22 @@ describe("renderClaudeEngine — dry-run", () => {
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
   });
 });
+
+describe("renderClaudeEngine — prTarget in the commit-pr-pilot agent", () => {
+  const pilotPath = () => join(cwd, ".claude/agents/commit-pr-pilot.md");
+
+  it("falls back to branchBase for --base when prTarget is unset", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL); // branchBase "main", no prTarget
+    const agent = readFileSync(pilotPath(), "utf-8");
+    expect(agent).toContain("--base main");
+    expect(agent).not.toContain("{{prTarget}}");
+  });
+
+  it("uses the explicit prTarget for --base", () => {
+    const cfg = { ...CONFIG_FULL, prTarget: "develop" } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+    const agent = readFileSync(pilotPath(), "utf-8");
+    expect(agent).toContain("--base develop");
+    expect(agent).not.toContain("--base main");
+  });
+});
