@@ -52,22 +52,22 @@ export const ui = {
     "how.layer3.name": "Workspace",
     "how.layer3.body": "Reglas de toda tu organización compartidas entre repos.",
     "how.layer4.name": "Project",
-    "how.layer4.body": "Lo específico del repo en navori.config.json, incluidos los plugins que habilitás.",
+    "how.layer4.body": "Lo específico del repo en navori.config.json, incluidos los plugins que habilitas.",
     "how.layer5.name": "Adapters",
     "how.layer5.body": "Renderizado por engine. Hoy Claude Code; multi-engine en el roadmap.",
     "how.config.label": "navori.config.json",
 
     "flow.eyebrow": "En vivo",
-    "flow.title": "Mirá qué aporta cada capa",
+    "flow.title": "Mira qué aporta cada capa",
     "flow.subtitle":
-      "Hacé click en una capa para resaltar qué parte del harness genera. El engine (Claude) materializa todo en .claude/ + CLAUDE.md.",
+      "Haz click en una capa para resaltar qué parte del harness genera. El engine (Claude) materializa todo en .claude/ + CLAUDE.md.",
     "flow.all": "Todas",
     "flow.engineLabel": "Claude engine →",
-    "flow.hint": "Seleccioná una capa para ver su aporte.",
+    "flow.hint": "Selecciona una capa para ver su aporte.",
     "flow.core.note": "Baseline: agents, skills y los bloques de reglas siempre presentes.",
     "flow.preset.note": "Skills específicas del stack — acá, Next.js.",
     "flow.workspace.note": "Defaults heredados de tu org: quality gate, branch base.",
-    "flow.project.note": "Lo del repo: los plugins que habilitás (engram) y su protocolo.",
+    "flow.project.note": "Lo del repo: los plugins que habilitas (engram) y su protocolo.",
 
     "commands.eyebrow": "Comandos",
     "commands.title": "El ciclo completo, comando a comando.",
@@ -78,7 +78,7 @@ export const ui = {
     "commands.render.desc":
       "Reconstruye CLAUDE.md y .claude/ desde el config. Preview por default; --apply escribe.",
     "commands.sync.desc":
-      "Actualiza solo los bloques managed. Con --interactive resolvés cada conflicto por bloque.",
+      "Actualiza solo los bloques managed. Con --interactive resuelves cada conflicto por bloque.",
     "commands.doctor.desc":
       "Audit: drift, plugins rotos, invariants y próximos pasos sugeridos.",
     "commands.status.desc":
@@ -99,10 +99,10 @@ export const ui = {
     "quickstart.step1.body": "Sin instalación global. Usa npx.",
     "quickstart.step2.title": "Inicializa",
     "quickstart.step2.body":
-      "Responde unas preguntas y obtené navori.config.json + .claude/ listos.",
+      "Responde unas preguntas y obtén navori.config.json + .claude/ listos.",
     "quickstart.step3.title": "Renderiza cuando cambies algo",
     "quickstart.step3.body":
-      "Edita el config, corré 'render --apply' y commitea. Todo idempotente.",
+      "Edita el config, corre 'render --apply' y commitea. Todo idempotente.",
 
     "faq.eyebrow": "Preguntas frecuentes",
     "faq.title": "Lo que probablemente te estás preguntando",
