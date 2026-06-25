@@ -55,4 +55,8 @@ describe("catalog count enforcement (spec 0003 §3.1.6)", () => {
   it("core skill count matches core-assets/skills/*.md", () => {
     expect(countFiles(resolve(coreAssets, "skills"), ".md")).toBe(features.coreSkills);
   });
+
+  it("library skill count matches core-assets/lib-skills/*.md", () => {
+    expect(countFiles(resolve(coreAssets, "lib-skills"), ".md")).toBe(features.librarySkills);
+  });
 });

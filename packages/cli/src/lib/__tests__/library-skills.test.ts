@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { detectLibrarySkills, librarySkillById } from "../library-skills.ts";
+import { existsSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  LIBRARY_SKILLS,
+  detectLibrarySkills,
+  librarySkillById,
+} from "../library-skills.ts";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const coreAssets = resolve(here, "..", "..", "..", "..", "core", "core-assets");
 
 describe("detectLibrarySkills", () => {
   it("returns the skill id when its dependency is present", () => {
@@ -39,5 +49,14 @@ describe("librarySkillById", () => {
 
   it("returns null for an unknown id", () => {
     expect(librarySkillById("does-not-exist")).toBeNull();
+  });
+});
+
+describe("library-skills registry integrity", () => {
+  it("every registry id has a backing asset in core-assets/lib-skills/", () => {
+    for (const skill of LIBRARY_SKILLS) {
+      const path = resolve(coreAssets, "lib-skills", `${skill.id}.md`);
+      expect(existsSync(path), `missing asset for library skill '${skill.id}': ${path}`).toBe(true);
+    }
   });
 });

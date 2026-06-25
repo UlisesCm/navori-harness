@@ -116,9 +116,9 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       },
       {
         id: "express-mongoose",
-        // zod-validation is conditional on project.zodValidation; set it so the
-        // validation skill renders alongside the always-on ones.
-        project: { zodValidation: true },
+        // mongoose + zod-validation are now library skills (detected deps),
+        // injected via project.libraries alongside the preset's own skills.
+        project: { libraries: ["mongoose", "zod-validation"] },
         skills: [
           ".claude/skills/express-routes.md",
           ".claude/skills/mongoose.md",
@@ -153,39 +153,49 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     }
   });
 
-  describe("conditional preset extras (zod vs joi validation)", () => {
-    const expressConfig = (project: Record<string, unknown>) =>
-      ({ ...BASE_CONFIG, preset: "express-mongoose", project }) as unknown as NavoriConfig;
+  describe("library skills (dependency-detected, cross-preset)", () => {
+    const withLibraries = (libraries: string[], extra: Record<string, unknown> = {}) =>
+      ({
+        ...BASE_CONFIG,
+        preset: "express-mongoose",
+        project: { libraries, ...extra },
+      }) as unknown as NavoriConfig;
 
-    it("renders zod-validation (not joi) when project.zodValidation is set", () => {
-      renderClaudeEngine(cwd, expressConfig({ zodValidation: true }));
+    it("materializes a library skill when its id is in project.libraries", () => {
+      renderClaudeEngine(cwd, withLibraries(["mongoose"]));
+      expect(existsSync(join(cwd, ".claude/skills/mongoose.md"))).toBe(true);
+    });
+
+    it("is additive — zod AND joi can render together (no XOR exclusivity)", () => {
+      // The old validator mechanism was zod-XOR-joi; library skills are additive.
+      renderClaudeEngine(cwd, withLibraries(["zod-validation", "joi-validation"]));
       expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(true);
-      expect(existsSync(join(cwd, ".claude/skills/joi-validation.md"))).toBe(false);
-    });
-
-    it("renders joi-validation (not zod) when project.joiValidation is set", () => {
-      renderClaudeEngine(cwd, expressConfig({ joiValidation: true }));
       expect(existsSync(join(cwd, ".claude/skills/joi-validation.md"))).toBe(true);
-      expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(false);
     });
 
-    it("renders neither validation skill when no validator flag is set", () => {
-      renderClaudeEngine(cwd, expressConfig({}));
+    it("renders no library skill when project.libraries is empty", () => {
+      renderClaudeEngine(cwd, withLibraries([]));
+      expect(existsSync(join(cwd, ".claude/skills/mongoose.md"))).toBe(false);
       expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(false);
-      expect(existsSync(join(cwd, ".claude/skills/joi-validation.md"))).toBe(false);
-      // The always-on express skills still render.
+      // The preset's own always-on skills still render.
       expect(existsSync(join(cwd, ".claude/skills/express-routes.md"))).toBe(true);
     });
 
-    it("lists the active validation skill in the skills index, not the inactive one", () => {
-      // The skills index is only emitted when the repo declares project-local
-      // skills; add one so the index renders and we can assert on it.
-      renderClaudeEngine(cwd, expressConfig({ joiValidation: true, localSkills: ["my-local"] }));
+    it("ignores an unknown library id without crashing the render", () => {
+      const r = renderClaudeEngine(cwd, withLibraries(["does-not-exist", "mongoose"]));
+      expect(existsSync(join(cwd, ".claude/skills/does-not-exist.md"))).toBe(false);
+      expect(existsSync(join(cwd, ".claude/skills/mongoose.md"))).toBe(true);
+      expect(r.warnings.find((w) => w.includes("not found"))).toBeUndefined();
+    });
+
+    it("lists detected library skills in the skills index as '— library (detected)'", () => {
+      // The skills index renders when the repo declares project-local skills.
+      renderClaudeEngine(cwd, withLibraries(["joi-validation"], { localSkills: ["my-local"] }));
       const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
-      // Assert on the index row format (`<name>` — preset) — the stack.md block
-      // mentions both names in prose on purpose, so a bare substring won't do.
-      expect(claudeMd).toContain("`joi-validation` — preset");
-      expect(claudeMd).not.toContain("`zod-validation` — preset");
+      // Assert on the index row format — stack.md mentions both names in prose
+      // on purpose, so a bare substring would false-positive.
+      expect(claudeMd).toContain("`joi-validation` — library (detected)");
+      expect(claudeMd).not.toContain("`zod-validation` — library (detected)");
     });
   });
 });
