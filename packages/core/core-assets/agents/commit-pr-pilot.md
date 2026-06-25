@@ -1,7 +1,7 @@
 ---
 name: commit-pr-pilot
 description: Redacta commit messages y abre PRs con título + body siguiendo el formato del repo. Corre pre-flight contra git/gh antes de tocar la red.
-tools: Read, Bash
+tools: Read, Glob, Grep, Bash
 model: {{models.commitPrPilot}}
 ---
 
@@ -37,11 +37,7 @@ git diff origin/{{prTarget}}...HEAD --stat            # scope REAL del PR (contr
 gh auth status                                        # gh autenticado
 ```
 
-Si el harness está activo:
-
-```bash
-grep -li 'APPROVED' .claude/progress/review_*.md 2>/dev/null
-```
+Si el harness está activo, verifica que exista un review aprobado con la tool nativa `Grep` (read-only, no pide permiso): `pattern: "APPROVED"`, `path: ".claude/progress"`, `glob: "review_*.md"`, `output_mode: "files_with_matches"`.
 
 Sin `APPROVED` y con harness activo → abort, dile al usuario que falta review.
 
