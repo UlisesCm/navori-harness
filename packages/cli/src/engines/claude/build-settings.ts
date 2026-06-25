@@ -97,7 +97,55 @@ export function buildClaudeSettings(
     }
   }
 
-  return settings;
+  // The guard (1b), quality-gate (2) and plugin hooks each deep-merge their own
+  // `{matcher:"Bash", hooks:[...]}`, which concat into redundant matcher buckets
+  // (e.g. two `matcher:"Bash"` entries → a Bash command pays two matcher
+  // evaluations). Collapse buckets sharing an event+matcher into one so Claude
+  // sees a single bucket per matcher — same intent as pluginHooksToClaudeShape,
+  // now across all layers.
+  return coalesceHookMatchers(settings);
+}
+
+/**
+ * Merge hook entries that share an event + matcher into a single bucket,
+ * deduping identical hook commands. Non-standard entries (no `hooks[]` array)
+ * pass through untouched. Order is preserved by first appearance.
+ */
+function coalesceHookMatchers(settings: Record<string, unknown>): Record<string, unknown> {
+  const hooks = settings.hooks;
+  if (typeof hooks !== "object" || hooks === null || Array.isArray(hooks)) return settings;
+
+  const coalesced: Record<string, unknown> = {};
+  for (const [event, entries] of Object.entries(hooks as Record<string, unknown>)) {
+    if (!Array.isArray(entries)) {
+      coalesced[event] = entries;
+      continue;
+    }
+    const buckets: Array<{ matcher?: string; hooks: unknown[] }> = [];
+    const passthrough: unknown[] = [];
+    for (const entry of entries) {
+      if (
+        typeof entry !== "object" ||
+        entry === null ||
+        !Array.isArray((entry as { hooks?: unknown }).hooks)
+      ) {
+        passthrough.push(entry);
+        continue;
+      }
+      const e = entry as { matcher?: string; hooks: unknown[] };
+      const existing = buckets.find((b) => b.matcher === e.matcher);
+      if (existing) {
+        const seen = new Set(existing.hooks.map((h) => JSON.stringify(h)));
+        for (const h of e.hooks) {
+          if (!seen.has(JSON.stringify(h))) existing.hooks.push(h);
+        }
+      } else {
+        buckets.push({ ...(e.matcher !== undefined ? { matcher: e.matcher } : {}), hooks: [...e.hooks] });
+      }
+    }
+    coalesced[event] = [...buckets, ...passthrough];
+  }
+  return { ...settings, hooks: coalesced };
 }
 
 /**

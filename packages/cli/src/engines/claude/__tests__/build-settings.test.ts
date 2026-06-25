@@ -138,6 +138,42 @@ describe("buildClaudeSettings — quality-gate hook", () => {
   });
 });
 
+describe("buildClaudeSettings — hook matcher coalescing (no double PreToolUse[Bash])", () => {
+  type Bucket = { matcher?: string; hooks: Array<{ command: string }> };
+  const preOf = (s: Record<string, unknown>) =>
+    (s.hooks as { PreToolUse: Bucket[] }).PreToolUse;
+
+  it("collapses guard + quality-gate into a single Bash matcher bucket", () => {
+    const pre = preOf(buildClaudeSettings(withQG(), []));
+    const bashBuckets = pre.filter((b) => b.matcher === "Bash");
+    expect(bashBuckets).toHaveLength(1);
+    const cmds = bashBuckets[0].hooks.map((h) => h.command);
+    expect(cmds.some((c) => c.includes("guard-destructive.sh"))).toBe(true);
+    expect(cmds.some((c) => c.includes("quality-gate-pre-commit.sh"))).toBe(true);
+  });
+
+  it("folds a plugin's PreToolUse[Bash] hook into the same bucket", () => {
+    const plugin = makePlugin({
+      id: "gate",
+      hooks: [{ event: "PreToolUse", matcher: "Bash", command: "bash .claude/scripts/check.sh" }],
+    });
+    const pre = preOf(buildClaudeSettings(withQG(), [plugin]));
+    const bashBuckets = pre.filter((b) => b.matcher === "Bash");
+    expect(bashBuckets).toHaveLength(1);
+    expect(bashBuckets[0].hooks).toHaveLength(3); // guard + qg + plugin
+  });
+
+  it("keeps distinct matchers in separate buckets", () => {
+    const plugin = makePlugin({
+      id: "post",
+      hooks: [{ event: "PreToolUse", matcher: "Write", command: "bash .claude/scripts/w.sh" }],
+    });
+    const pre = preOf(buildClaudeSettings(withQG(), [plugin]));
+    expect(pre.filter((b) => b.matcher === "Bash")).toHaveLength(1);
+    expect(pre.filter((b) => b.matcher === "Write")).toHaveLength(1);
+  });
+});
+
 describe("buildClaudeSettings — plugin merging", () => {
   it("merges plugin.settingsFragment with permissions concatenation + dedupe", () => {
     const plugin = makePlugin({
@@ -166,10 +202,10 @@ describe("buildClaudeSettings — plugin merging", () => {
       PreToolUse?: Array<{ matcher?: string; hooks: Array<{ command: string }> }>;
       PostToolUse?: Array<{ matcher?: string; hooks: Array<{ command: string }> }>;
     };
-    // The always-on guard occupies a PreToolUse bucket; find the plugin's.
-    const pluginPre = hooks.PreToolUse?.find((b) => b.hooks.some((h) => h.command === "bash check.sh"));
-    expect(pluginPre?.matcher).toBe("Bash");
-    expect(pluginPre?.hooks[0].command).toBe("bash check.sh");
+    // The always-on guard and the plugin's Bash hook now share a single
+    // Bash bucket (coalesced), so assert on membership, not position.
+    const bashBucket = hooks.PreToolUse?.find((b) => b.matcher === "Bash");
+    expect(bashBucket?.hooks.some((h) => h.command === "bash check.sh")).toBe(true);
     expect(hooks.PostToolUse?.[0].matcher).toBeUndefined();
     expect(hooks.PostToolUse?.[0].hooks[0].command).toBe("echo done");
   });
@@ -184,9 +220,12 @@ describe("buildClaudeSettings — plugin merging", () => {
     });
     const s = buildClaudeSettings(MINIMAL_CONFIG, [plugin]);
     const pre = (s.hooks as { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string }> }> }).PreToolUse;
-    // The plugin's two same-event+matcher hooks collapse into one bucket
-    // (a separate bucket from the always-on guard hook).
-    const pluginBucket = pre.find((b) => b.hooks.some((h) => h.command === "a"));
-    expect(pluginBucket?.hooks.map((h) => h.command)).toEqual(["a", "b"]);
+    // Both same-event+matcher hooks land in the single Bash bucket (now shared
+    // with the always-on guard via coalescing) — one bucket, both commands.
+    const bashBuckets = pre.filter((b) => b.matcher === "Bash");
+    expect(bashBuckets).toHaveLength(1);
+    const cmds = bashBuckets[0].hooks.map((h) => h.command);
+    expect(cmds).toContain("a");
+    expect(cmds).toContain("b");
   });
 });
