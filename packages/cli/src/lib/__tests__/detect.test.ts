@@ -296,10 +296,22 @@ describe("detectProject — background worker detection", () => {
     }
   });
 
-  it("background-worker beats express when a queue/scheduler is present", () => {
-    const dir = withDeps({ express: "^4", mongoose: "^8", amqplib: "^0.10" });
+  it("express + jobs WITHOUT mongoose is a background-worker (native mongodb driver)", () => {
+    // notifications--server: express healthcheck + agenda/amqplib + mongodb native.
+    const dir = withDeps({ express: "^4", mongodb: "^6", amqplib: "^0.10", agenda: "^5" });
     try {
       expect(detectProject(dir).suggestedPreset).toBe("background-worker");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("express + jobs WITH mongoose stays express-mongoose (a data-API that also runs jobs)", () => {
+    // services--evaluations: a real Express API with mongoose models that also
+    // schedules jobs (agenda/amqplib). mongoose ⇒ data-API, not a pure worker.
+    const dir = withDeps({ express: "^4", mongoose: "^8", amqplib: "^0.10", agenda: "^5" });
+    try {
+      expect(detectProject(dir).suggestedPreset).toBe("express-mongoose");
     } finally {
       rmSync(dir, { recursive: true });
     }
