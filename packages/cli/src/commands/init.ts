@@ -21,11 +21,7 @@ import { loadPrompts, type LoadedPrompt } from "../engines/claude/prompts-loader
 import { scanMonorepoWorkspaces, type DetectedWorkspace } from "../lib/scan.ts";
 import type { MonorepoWorkspace } from "../lib/monorepo.ts";
 import type { NavoriConfigInput } from "../lib/schema.ts";
-import {
-  buildRecommendedQualityGate,
-  buildRecommendedProject,
-  validatorProjectFlags,
-} from "../lib/recommended.ts";
+import { buildRecommendedQualityGate, buildRecommendedProject } from "../lib/recommended.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
 
@@ -220,13 +216,12 @@ export const initCommand = defineCommand({
       const fallbackQg = args.recommended
         ? detected.qualityGate ?? buildRecommendedQualityGate(detected)
         : detected.qualityGate;
-      // Validator flags and codeLanguage are facts of the detected stack, not
-      // mode choices — merge them in both --recommended and plain --yes so a
-      // preset's conditional skill (zod vs joi) and the language-aware baseline
-      // (TS-only tipado-fuerte) resolve without a wizard answer.
+      // Detected library skills and codeLanguage are facts of the stack, not
+      // mode choices — merge them in both --recommended and plain --yes so the
+      // cross-preset skills and the language-aware baseline (TS-only
+      // tipado-fuerte) resolve without a wizard answer.
       const projectBlock = {
         ...(args.recommended ? buildRecommendedProject(detected) : {}),
-        ...validatorProjectFlags(detected.stack),
         libraries: detected.libraries,
         codeLanguage: detected.stack.language,
       };
@@ -599,10 +594,9 @@ export const initCommand = defineCommand({
       ...(Object.keys(agentAssignments).length > 0 ? { agentAssignments } : {}),
       // Always write `project` so the schema fills empty arrays and render emits
       // no `<not configured: project.*>` placeholders (see autoYes path above).
-      // Validator flags and codeLanguage are auto-derived from the stack.
+      // Library skills and codeLanguage are auto-derived from the stack.
       project: {
         ...(project ?? {}),
-        ...validatorProjectFlags(detected.stack),
         libraries: detected.libraries,
         codeLanguage: detected.stack.language,
       },

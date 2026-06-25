@@ -1,10 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  buildRecommendedQualityGate,
-  buildRecommendedProject,
-  validatorProjectFlags,
-} from "../recommended.ts";
-import type { DetectedProject, StackInfo } from "../detect.ts";
+import { buildRecommendedQualityGate, buildRecommendedProject } from "../recommended.ts";
+import type { DetectedProject } from "../detect.ts";
 
 function makeDetected(overrides: Partial<DetectedProject> = {}): DetectedProject {
   return {
@@ -20,10 +16,10 @@ function makeDetected(overrides: Partial<DetectedProject> = {}): DetectedProject
       forms: null,
       state: null,
       test: null,
-      validator: null,
       worker: null,
       deps: [],
     },
+    libraries: [],
     suggestedPreset: "custom",
     qualityGate: null,
     claudeInfra: { present: false, files: [] } as DetectedProject["claudeInfra"],
@@ -127,24 +123,5 @@ describe("buildRecommendedProject", () => {
       stack: { ...makeDetected().stack, test: "@playwright/test" },
     });
     expect(buildRecommendedProject(detected).testRunner).toBe("@playwright/test");
-  });
-});
-
-describe("validatorProjectFlags", () => {
-  const stackWith = (validator: StackInfo["validator"]): StackInfo => ({
-    ...makeDetected().stack,
-    validator,
-  });
-
-  it("maps zod to { zodValidation: true }", () => {
-    expect(validatorProjectFlags(stackWith("zod"))).toEqual({ zodValidation: true });
-  });
-
-  it("maps joi to { joiValidation: true }", () => {
-    expect(validatorProjectFlags(stackWith("joi"))).toEqual({ joiValidation: true });
-  });
-
-  it("returns {} when no validator is detected", () => {
-    expect(validatorProjectFlags(stackWith(null))).toEqual({});
   });
 });
