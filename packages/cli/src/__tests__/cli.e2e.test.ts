@@ -801,6 +801,42 @@ describe("CLI e2e — happy paths", () => {
     const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
     expect(config.preset).toBe("custom"); // not changed by dry-run
   });
+
+  it("update --yes refreshes project.libraries and materializes the library skill", () => {
+    // Upgrade scenario: a config written before the library-skills layer existed
+    // (no project.libraries). `update` must re-detect from deps, add them, AND
+    // run the full engine so the skill file lands — not just re-render CLAUDE.md.
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "evals-svc",
+        dependencies: { express: "^4", mongoose: "^8", typescript: "^5" },
+      }),
+      "tsconfig.json": "{}",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    });
+    dirs.push(repo);
+
+    expect(runCli(["init", "--recommended", "--cwd", repo]).status).toBe(0);
+
+    // Simulate a pre-library-skills config: strip project.libraries.
+    const cfgPath = join(repo, "navori.config.json");
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    delete cfg.project.libraries;
+    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), "utf-8");
+
+    const r = runCli(["update", "--yes", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).toContain("project.libraries");
+
+    // Config regained the detected library skill...
+    const after = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    expect(after.project.libraries).toContain("mongoose");
+    // ...and the engine materialized its skill file (the gap: update used to
+    // re-render CLAUDE.md only, never the .claude/ tree).
+    expect(existsSync(join(repo, ".claude/skills/mongoose.md"))).toBe(true);
+    // express-mongoose stays put even though we could add a worker — no churn here.
+    expect(after.preset).toBe("express-mongoose");
+  });
 });
 
 describe("CLI e2e — coexist mode", () => {

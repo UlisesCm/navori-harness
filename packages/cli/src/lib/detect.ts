@@ -603,11 +603,18 @@ function pickPresetCandidate(stack: StackInfo, monorepo: MonorepoInfo | null): s
   if (fw === "hono") return "hono";
   if (fw === "elysia") return "elysia";
   // Background worker: a job scheduler / message queue and NO dedicated HTTP
-  // framework (express counts as "none dedicated" — it's often just a
-  // healthcheck). Beats express-mongoose: notifications--server ships express
-  // but defines no business routes. Deliberately scoped to express/no-framework
-  // so a Nest/Next/Fastify API that also runs jobs stays its own preset.
-  if (stack.worker && (fw === "express" || fw === null)) return "background-worker";
+  // framework (express counts as "none dedicated" — often just a healthcheck).
+  // Beats express-mongoose: notifications--server ships express but defines no
+  // business routes. A repo with mongoose is treated as a data-API, NOT a pure
+  // worker — true workers persist with the native `mongodb` driver, not the
+  // mongoose ODM (notifications--server uses mongodb native; services--evaluations
+  // uses mongoose and is a real API that also runs jobs). So express + jobs +
+  // mongoose stays express-mongoose; only express/no-framework WITHOUT mongoose
+  // downgrades to a worker. Nest/Next/Fastify APIs that also run jobs keep their
+  // own preset (handled by the framework branches above).
+  const usesMongoose = stack.deps.includes("mongoose");
+  if (stack.worker && fw === "express" && !usesMongoose) return "background-worker";
+  if (stack.worker && fw === null) return "background-worker";
   if (fw === "express") return "express-mongoose";
 
   return "custom";
