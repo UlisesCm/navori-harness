@@ -87,15 +87,18 @@ function extraConditionMet(extra: PresetExtraFile, config: NavoriConfig): boolea
 
 /**
  * Build the body of the skills index — a navigation map of the skills agents
- * can apply: core (navori), preset (stack), and project-local (the user's own,
- * declared in `project.localSkills`). navori indexes the local ones so agents
- * discover them, but never owns their `.md` content.
+ * can apply: core (navori), preset (stack), library (detected from deps), and
+ * project-local (the user's own, declared in `project.localSkills`). navori
+ * indexes the local ones so agents discover them, but never owns their `.md`
+ * content. Returns null when there's nothing to list so the caller strips the
+ * block instead of rendering an empty header (defensive — core skills are
+ * always present today, so in practice it always returns content).
  */
 function buildSkillsIndexBody(
   config: NavoriConfig,
   localSkills: readonly string[],
   repoRoot: string,
-): string {
+): string | null {
   const rows: string[] = [];
   // Track skill names already listed so the auto-detected library skills don't
   // duplicate a core/preset skill that occupies the same destination.
@@ -125,11 +128,17 @@ function buildSkillsIndexBody(
   for (const name of localSkills) {
     rows.push(`- \`${name}\` — project-local (\`.claude/skills/${name}.md\`)`);
   }
+  if (rows.length === 0) return null;
+  // The project-local note only makes sense when the repo actually declares
+  // local skills; otherwise it points at a category that isn't present.
+  const localNote = localSkills.length > 0
+    ? ["Los `project-local` son tuyos — navori los indexa pero no toca su contenido."]
+    : [];
   return [
     "## Skills disponibles",
     "",
     "Skills que los agentes pueden aplicar; cada uno vive en `.claude/skills/<id>.md`.",
-    "Los `project-local` son tuyos — navori los indexa pero no toca su contenido.",
+    ...localNote,
     "",
     ...rows,
     "",
@@ -241,16 +250,19 @@ export function renderClaudeEngine(
   inspected += 1;
 
   // 1b. Skills index — a managed block in CLAUDE.md listing the skills agents
-  // can apply (core + preset + project-local). Only present when the repo
-  // declares project-local skills; otherwise the block is stripped. This is the
-  // discoverability wiring for skills navori does not own.
+  // can apply: core (always) + preset + library (detected from deps) +
+  // project-local. Rendered whenever there's anything to list (core skills are
+  // always present), so detected library/preset skills are discoverable even
+  // when the repo declares no project-local skills. The block is stripped only
+  // when the body comes back empty.
   const localSkills = config.project?.localSkills ?? [];
   let claudeMdContent = claudeMdPlan.next;
-  if (localSkills.length > 0) {
+  const skillsIndexBody = buildSkillsIndexBody(config, localSkills, repoRoot);
+  if (skillsIndexBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
       SKILLS_INDEX_ID,
-      buildSkillsIndexBody(config, localSkills, repoRoot),
+      skillsIndexBody,
       CORE_META,
       "html",
       options.forceIds?.has(SKILLS_INDEX_ID) ?? false,
