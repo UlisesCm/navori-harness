@@ -638,7 +638,7 @@ function normalizeLang(raw: string | undefined): Lang | null {
   return null;
 }
 
-async function chooseAdoptionMode(
+export async function chooseAdoptionMode(
   cwd: string,
   infra: ClaudeInfraInventory,
   projectName: string | null,
