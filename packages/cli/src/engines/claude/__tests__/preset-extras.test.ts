@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
+import { computeManagedHash } from "../../../lib/marker.ts";
 import type { NavoriConfig } from "../../../lib/config.ts";
 
 const BASE_CONFIG = {
@@ -116,9 +117,9 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       },
       {
         id: "express-mongoose",
-        // zod-validation is conditional on project.zodValidation; set it so the
-        // validation skill renders alongside the always-on ones.
-        project: { zodValidation: true },
+        // mongoose + zod-validation are now library skills (detected deps),
+        // injected via project.libraries alongside the preset's own skills.
+        project: { libraries: ["mongoose", "zod-validation"] },
         skills: [
           ".claude/skills/express-routes.md",
           ".claude/skills/mongoose.md",
@@ -153,39 +154,87 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     }
   });
 
-  describe("conditional preset extras (zod vs joi validation)", () => {
-    const expressConfig = (project: Record<string, unknown>) =>
-      ({ ...BASE_CONFIG, preset: "express-mongoose", project }) as unknown as NavoriConfig;
+  describe("library skills (dependency-detected, cross-preset)", () => {
+    const withLibraries = (libraries: string[], extra: Record<string, unknown> = {}) =>
+      ({
+        ...BASE_CONFIG,
+        preset: "express-mongoose",
+        project: { libraries, ...extra },
+      }) as unknown as NavoriConfig;
 
-    it("renders zod-validation (not joi) when project.zodValidation is set", () => {
-      renderClaudeEngine(cwd, expressConfig({ zodValidation: true }));
+    it("materializes a library skill when its id is in project.libraries", () => {
+      renderClaudeEngine(cwd, withLibraries(["mongoose"]));
+      expect(existsSync(join(cwd, ".claude/skills/mongoose.md"))).toBe(true);
+    });
+
+    it("is additive — zod AND joi can render together (no XOR exclusivity)", () => {
+      // The old validator mechanism was zod-XOR-joi; library skills are additive.
+      renderClaudeEngine(cwd, withLibraries(["zod-validation", "joi-validation"]));
       expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(true);
-      expect(existsSync(join(cwd, ".claude/skills/joi-validation.md"))).toBe(false);
-    });
-
-    it("renders joi-validation (not zod) when project.joiValidation is set", () => {
-      renderClaudeEngine(cwd, expressConfig({ joiValidation: true }));
       expect(existsSync(join(cwd, ".claude/skills/joi-validation.md"))).toBe(true);
-      expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(false);
     });
 
-    it("renders neither validation skill when no validator flag is set", () => {
-      renderClaudeEngine(cwd, expressConfig({}));
+    it("renders no library skill when project.libraries is empty", () => {
+      renderClaudeEngine(cwd, withLibraries([]));
+      expect(existsSync(join(cwd, ".claude/skills/mongoose.md"))).toBe(false);
       expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(false);
-      expect(existsSync(join(cwd, ".claude/skills/joi-validation.md"))).toBe(false);
-      // The always-on express skills still render.
+      // The preset's own always-on skills still render.
       expect(existsSync(join(cwd, ".claude/skills/express-routes.md"))).toBe(true);
     });
 
-    it("lists the active validation skill in the skills index, not the inactive one", () => {
-      // The skills index is only emitted when the repo declares project-local
-      // skills; add one so the index renders and we can assert on it.
-      renderClaudeEngine(cwd, expressConfig({ joiValidation: true, localSkills: ["my-local"] }));
+    it("ignores an unknown library id without crashing the render", () => {
+      const r = renderClaudeEngine(cwd, withLibraries(["does-not-exist", "mongoose"]));
+      expect(existsSync(join(cwd, ".claude/skills/does-not-exist.md"))).toBe(false);
+      expect(existsSync(join(cwd, ".claude/skills/mongoose.md"))).toBe(true);
+      expect(r.warnings.find((w) => w.includes("not found"))).toBeUndefined();
+    });
+
+    it("lists detected library skills in the skills index as '— library (detected)'", () => {
+      // The skills index renders when the repo declares project-local skills.
+      renderClaudeEngine(cwd, withLibraries(["joi-validation"], { localSkills: ["my-local"] }));
       const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
-      // Assert on the index row format (`<name>` — preset) — the stack.md block
-      // mentions both names in prose on purpose, so a bare substring won't do.
-      expect(claudeMd).toContain("`joi-validation` — preset");
-      expect(claudeMd).not.toContain("`zod-validation` — preset");
+      // Assert on the index row format — stack.md mentions both names in prose
+      // on purpose, so a bare substring would false-positive.
+      expect(claudeMd).toContain("`joi-validation` — library (detected)");
+      expect(claudeMd).not.toContain("`zod-validation` — library (detected)");
+    });
+
+    it("upgrades a preset-era skill file in place — no duplicate managed block", () => {
+      // Migration guard: mongoose/zod/joi used to ship from the express-mongoose
+      // preset with managed-block id="mongoose" (the bare id). They now ship from
+      // this library layer. The library managedId MUST equal the bare id so an
+      // existing preset-era file is recognized and updated in place; a distinct
+      // id would append a second block and duplicate the skill content.
+      const skillPath = join(cwd, ".claude/skills/mongoose.md");
+      mkdirSync(join(cwd, ".claude/skills"), { recursive: true });
+      // Realistic preset-era file: a navori-owned block whose hash matches its
+      // body, so the engine recognizes it as its own (not user-modified) and
+      // updates it in place rather than skipping it.
+      const oldBody = "OLD preset-era mongoose body";
+      writeFileSync(
+        skillPath,
+        [
+          "---",
+          "name: mongoose",
+          "---",
+          "",
+          `<!-- navori:managed id="mongoose" hash="${computeManagedHash(oldBody)}" version="0.0.1" source="@navori/core" -->`,
+          oldBody,
+          '<!-- /navori:managed id="mongoose" -->',
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+
+      renderClaudeEngine(cwd, withLibraries(["mongoose"]));
+
+      const content = readFileSync(skillPath, "utf-8");
+      // Count only OPEN markers (the close prefix is `<!-- /navori:managed`).
+      const openMarkers = content.match(/<!-- navori:managed id="mongoose"/g) ?? [];
+      expect(openMarkers).toHaveLength(1);
+      // The stale preset-era body was replaced, not left behind beside a new block.
+      expect(content).not.toContain("OLD preset-era mongoose body");
+      expect(content).not.toContain('id="mongoose-lib"');
     });
   });
 });

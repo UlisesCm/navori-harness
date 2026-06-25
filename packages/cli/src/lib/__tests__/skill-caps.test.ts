@@ -36,7 +36,10 @@ function subdirs(dir: string): string[] {
 }
 
 function collectSkillFiles(): string[] {
-  const files = [...mdFilesIn(resolve(coreAssets, "skills"))];
+  const files = [
+    ...mdFilesIn(resolve(coreAssets, "skills")),
+    ...mdFilesIn(resolve(coreAssets, "lib-skills")),
+  ];
   for (const preset of subdirs(resolve(coreAssets, "presets"))) {
     files.push(...mdFilesIn(resolve(preset, "skills")));
   }

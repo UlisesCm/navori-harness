@@ -18,23 +18,6 @@
         "destRelPath": ".claude/skills/express-routes.md"
       },
       {
-        "id": "mongoose",
-        "relPath": "presets/express-mongoose/skills/mongoose.md",
-        "destRelPath": ".claude/skills/mongoose.md"
-      },
-      {
-        "id": "zod-validation",
-        "relPath": "presets/express-mongoose/skills/zod-validation.md",
-        "destRelPath": ".claude/skills/zod-validation.md",
-        "condition": "project.zodValidation"
-      },
-      {
-        "id": "joi-validation",
-        "relPath": "presets/express-mongoose/skills/joi-validation.md",
-        "destRelPath": ".claude/skills/joi-validation.md",
-        "condition": "project.joiValidation"
-      },
-      {
         "id": "mongo-aggregations",
         "relPath": "presets/express-mongoose/skills/mongo-aggregations.md",
         "destRelPath": ".claude/skills/mongo-aggregations.md"

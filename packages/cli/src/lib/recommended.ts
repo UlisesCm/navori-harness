@@ -1,4 +1,4 @@
-import type { DetectedProject, StackInfo } from "./detect.ts";
+import type { DetectedProject } from "./detect.ts";
 
 /**
  * Build a reasonable quality-gate fallback for `init --recommended` when
@@ -43,19 +43,4 @@ export function buildRecommendedProject(
     criticalAreas: [],
     ...(detected.stack.test ? { testRunner: detected.stack.test } : {}),
   };
-}
-
-/**
- * Derive the validator flags a preset uses as skill conditions from the
- * detected stack. Independent of init mode (recommended/wizard/plain): the
- * validator is a fact of the repo's deps, not a user preference, so it's
- * merged into `project` in every path. Returns `{}` when no validator was
- * detected (and for non-Node stacks) so it spreads cleanly.
- */
-export function validatorProjectFlags(
-  stack: StackInfo,
-): { zodValidation: true } | { joiValidation: true } | Record<string, never> {
-  if (stack.validator === "zod") return { zodValidation: true };
-  if (stack.validator === "joi") return { joiValidation: true };
-  return {};
 }

@@ -3,6 +3,7 @@ import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { presetExists } from "./presets.ts";
 import { collectWorkspacePatterns } from "./workspace-patterns.ts";
+import { detectLibrarySkills } from "./library-skills.ts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -20,9 +21,6 @@ export interface StackInfo {
   forms: string | null;
   state: string | null;
   test: string | null;
-  /** Input-validation library detected in deps. Drives preset skill
-   * conditions (e.g. zod-validation vs joi-validation). null = none found. */
-  validator: "zod" | "joi" | null;
   /** Job scheduler / message-queue dep detected (agenda, bullmq, amqplib, …).
    * Signals a background worker — a repo whose job is to process jobs/messages,
    * not serve HTTP. null = none found. */
@@ -47,6 +45,10 @@ export interface DetectedProject {
   packageManager: PackageManager | null;
   monorepo: MonorepoInfo | null;
   stack: StackInfo;
+  /** Library-skill ids whose dependency is present in `stack.deps`. Additive,
+   * cross-preset (see lib/library-skills.ts). Persisted to `project.libraries`
+   * so `render` reconstructs the materialized skills from config alone. */
+  libraries: string[];
   suggestedPreset: string;
   /**
    * A recognized stack candidate that has NO preset on disk yet. Null when the
@@ -101,6 +103,7 @@ export function detectProject(cwd: string): DetectedProject {
   const packageManager = detectPackageManager(cwd);
   const monorepo = detectMonorepo(cwd);
   const stack = detectStack(cwd, pkg, pyproject, cargo);
+  const libraries = detectLibrarySkills(stack.deps);
   const { preset: suggestedPreset, gap: suggestedPresetGap } = suggestPreset(stack, monorepo);
   const qualityGate = guessQualityGate(pkg, packageManager, stack);
   const claudeInfra = detectClaudeInfra(cwd);
@@ -112,6 +115,7 @@ export function detectProject(cwd: string): DetectedProject {
     packageManager,
     monorepo,
     stack,
+    libraries,
     suggestedPreset,
     suggestedPresetGap,
     qualityGate,
@@ -404,7 +408,6 @@ function detectStack(
       forms: pick(deps, "pydantic") ?? null,
       state: null,
       test: pick(deps, "pytest") ?? null,
-      validator: null,
       worker: pick(deps, "celery", "rq", "dramatiq", "apscheduler") ?? null,
       deps: Array.from(deps),
     };
@@ -418,7 +421,6 @@ function detectStack(
       forms: null,
       state: null,
       test: null,
-      validator: null,
       worker: null,
       deps: [],
     };
@@ -433,7 +435,6 @@ function detectStack(
       forms: null,
       state: null,
       test: null,
-      validator: null,
       worker: null,
       deps: [],
     };
@@ -504,14 +505,6 @@ function detectStack(
     pick(nodeDeps, "cypress") ??
     null;
 
-  // zod wins over joi when a repo somehow has both — it's the preset default
-  // and the more common boundary validator. The detector picks at most one.
-  const validator: StackInfo["validator"] = nodeDeps.has("zod")
-    ? "zod"
-    : nodeDeps.has("joi") || nodeDeps.has("@hapi/joi")
-      ? "joi"
-      : null;
-
   // Job scheduler / message-queue dep → background worker signal. Used by the
   // preset picker to beat express when the repo processes jobs/messages rather
   // than serving HTTP (the sole presence of express must not win).
@@ -538,7 +531,6 @@ function detectStack(
     forms,
     state,
     test,
-    validator,
     worker,
     deps: Array.from(nodeDeps),
   };

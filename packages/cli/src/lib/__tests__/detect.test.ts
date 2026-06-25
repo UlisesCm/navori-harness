@@ -334,6 +334,41 @@ describe("detectProject — background worker detection", () => {
   });
 });
 
+describe("detectProject — library skill detection", () => {
+  const withDeps = (deps: Record<string, string>): string => {
+    const dir = makeTmp();
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "svc", dependencies: deps }));
+    return dir;
+  };
+
+  it("flags every library skill whose dep is present, cross-preset (express + socket.io)", () => {
+    const dir = withDeps({ express: "^4", mongoose: "^8", "socket.io": "^4" });
+    try {
+      expect(detectProject(dir).libraries).toEqual(["socketio", "mongoose"]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("activates mongoose via @nestjs/mongoose on a Nest API", () => {
+    const dir = withDeps({ "@nestjs/core": "^10", "@nestjs/mongoose": "^10" });
+    try {
+      expect(detectProject(dir).libraries).toEqual(["mongoose"]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("is empty when no library dep is present", () => {
+    const dir = withDeps({ express: "^4" });
+    try {
+      expect(detectProject(dir).libraries).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});
+
 describe("detectProject — qualityGate only references scripts that exist (F-gate)", () => {
   it("returns null when there is no usable script", () => {
     const dir = makeTmp();
@@ -448,58 +483,5 @@ describe("isPlaceholderName", () => {
     expect(isPlaceholderName("app")).toBe(false);
     expect(isPlaceholderName("demo")).toBe(false);
     expect(isPlaceholderName("test")).toBe(false);
-  });
-});
-
-describe("detectProject — validator detection", () => {
-  const withDeps = (deps: Record<string, string>): string => {
-    const dir = makeTmp();
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "api", dependencies: deps }));
-    return dir;
-  };
-
-  it("detects zod", () => {
-    const dir = withDeps({ express: "^4", zod: "^3" });
-    try {
-      expect(detectProject(dir).stack.validator).toBe("zod");
-    } finally {
-      rmSync(dir, { recursive: true });
-    }
-  });
-
-  it("detects joi from @hapi/joi", () => {
-    const dir = withDeps({ express: "^4", "@hapi/joi": "^17" });
-    try {
-      expect(detectProject(dir).stack.validator).toBe("joi");
-    } finally {
-      rmSync(dir, { recursive: true });
-    }
-  });
-
-  it("detects joi from the bare joi package", () => {
-    const dir = withDeps({ express: "^4", joi: "^17" });
-    try {
-      expect(detectProject(dir).stack.validator).toBe("joi");
-    } finally {
-      rmSync(dir, { recursive: true });
-    }
-  });
-
-  it("prefers zod when a repo somehow has both", () => {
-    const dir = withDeps({ express: "^4", zod: "^3", joi: "^17" });
-    try {
-      expect(detectProject(dir).stack.validator).toBe("zod");
-    } finally {
-      rmSync(dir, { recursive: true });
-    }
-  });
-
-  it("is null when no validator is present", () => {
-    const dir = withDeps({ express: "^4" });
-    try {
-      expect(detectProject(dir).stack.validator).toBeNull();
-    } finally {
-      rmSync(dir, { recursive: true });
-    }
   });
 });

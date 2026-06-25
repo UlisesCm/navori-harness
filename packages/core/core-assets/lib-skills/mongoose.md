@@ -10,6 +10,8 @@ type: reference
 
 Cuando la tarea toca `domain/models` o ejecuta operaciones de Mongoose en los controllers. Mongoose 6+ sobre MongoDB. El repo no usa repository wrappers: los controllers tocan los Models directo, así que null-guards, casts de ObjectId y `.lean()` viven en cada controller method.
 
+En **NestJS** (`@nestjs/mongoose`) el Model no se importa directo: se inyecta con `@InjectModel(Resource.name) private resourceModel: Model<ResourceDocument>` en el constructor del service. El resto de patrones (`.lean()`, `new Types.ObjectId`, null-guards, soft delete) aplican igual.
+
 ## Patrón canónico
 
 ```ts
@@ -40,7 +42,7 @@ Valida el formato en el schema (`z.string().regex(/^[a-f\d]{24}$/i, ...)`); si n
 
 - **N+1**: `populate` ejecuta queries extra. En paginate sobre datasets grandes usa `$lookup` en vez de `populate`.
 - **`.lean()`**: el resultado no tiene `.save()`, `.delete()` ni virtuals. Si necesitas mutar, no lo uses.
-- **Soft delete**: con `mongoose-delete`, `find` ya excluye `deleted: true`; borra con `doc.delete()` (no `findByIdAndDelete`, que es hard delete) y restaura con `doc.restore()`. Plugin sin tipos → `@ts-expect-error` puntual.
+- **Soft delete**: con `mongoose-delete`, `find` ya excluye `deleted: true`; borra con `doc.delete()` (no `findByIdAndDelete`) y restaura con `doc.restore()`.
 
 ## Reglas duras
 
@@ -49,7 +51,6 @@ Valida el formato en el schema (`z.string().regex(/^[a-f\d]{24}$/i, ...)`); si n
 3. **`.lean()` cuando no necesitas mutar** — evita el overhead de documentos Mongoose.
 4. **Comparar ObjectId con `.equals()`** / `.toString()`, nunca `==`.
 5. **Respeta el soft delete del repo** — no hard delete en modelos con `mongoose-delete`.
-6. **Cast explícito solo cuando hace falta** — `new Types.ObjectId(id)` para aggregations/queries complejas; nada de casts innecesarios.
 
 ## Tabla rápida
 

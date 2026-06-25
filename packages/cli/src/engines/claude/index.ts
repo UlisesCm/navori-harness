@@ -6,6 +6,7 @@ import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { computeRenderPlan, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
+import { librarySkillById } from "../../lib/library-skills.ts";
 import { getCoreRoot, readBundledCoreVersion } from "../../lib/bundled-assets.ts";
 import { injectManagedSection, removeManagedSection, resolveCondition } from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
@@ -96,7 +97,13 @@ function buildSkillsIndexBody(
   repoRoot: string,
 ): string {
   const rows: string[] = [];
-  for (const id of CORE_SKILLS) rows.push(`- \`${id}\` — navori`);
+  // Track skill names already listed so the auto-detected library skills don't
+  // duplicate a core/preset skill that occupies the same destination.
+  const listed = new Set<string>();
+  for (const id of CORE_SKILLS) {
+    rows.push(`- \`${id}\` — navori`);
+    listed.add(id);
+  }
   if (config.preset && config.preset !== "custom") {
     try {
       const loaded = loadPreset(config.preset, repoRoot);
@@ -104,10 +111,16 @@ function buildSkillsIndexBody(
         if (!extraConditionMet(e, config)) continue;
         const name = basename(e.destRelPath).replace(/\.md$/, "");
         rows.push(`- \`${name}\` — preset (\`${config.preset}\`)`);
+        listed.add(name);
       }
     } catch {
       // Preset problems are surfaced elsewhere; the index degrades gracefully.
     }
+  }
+  for (const id of config.project?.libraries ?? []) {
+    if (listed.has(id) || !librarySkillById(id)) continue;
+    rows.push(`- \`${id}\` — library (detected)`);
+    listed.add(id);
   }
   for (const name of localSkills) {
     rows.push(`- \`${name}\` — project-local (\`.claude/skills/${name}.md\`)`);
@@ -409,6 +422,12 @@ export function renderClaudeEngine(
   // A malformed preset surfaces via warning. A missing preset file also
   // surfaces — silent-skip masked the medusa-v2/medusa.json mismatch in
   // moonar where the backend workspace was missing the medusa skills.
+  // Destination paths already claimed by core + preset skills. Library skills
+  // (step 6.6) dedup against these so a preset that ships a skill at the same
+  // path always wins over the auto-detected library version.
+  const renderedSkillDests = new Set<string>(
+    CORE_SKILLS.map((id) => `.claude/skills/${id}.md`),
+  );
   if (config.preset && config.preset !== "custom") {
     let loaded = null;
     try {
@@ -436,6 +455,7 @@ export function renderClaudeEngine(
         // A conditional extra whose condition is false is not materialized —
         // it never lands on disk and isn't counted as inspected.
         if (!extraConditionMet(extra, config)) continue;
+        renderedSkillDests.add(extra.destRelPath);
         inspected += 1;
         applyManagedFilePlan(
           planManagedFile({
@@ -453,6 +473,38 @@ export function renderClaudeEngine(
         );
       }
     }
+  }
+
+  // 6.6. Library skills — modular skills injected by dependency detection
+  // (config.project.libraries), orthogonal to the active preset. Same
+  // managed-file semantics as preset extras; deduped by destination against
+  // core + preset skills so a preset never gets overwritten by a library skill.
+  for (const id of config.project?.libraries ?? []) {
+    const skill = librarySkillById(id);
+    // An unknown id in config (stale/hand-edited) is ignored, not fatal.
+    if (!skill) continue;
+    const destRelPath = `.claude/skills/${id}.md`;
+    if (renderedSkillDests.has(destRelPath)) continue;
+    renderedSkillDests.add(destRelPath);
+    inspected += 1;
+    applyManagedFilePlan(
+      planManagedFile({
+        cwd,
+        assetRoot: coreAssets,
+        assetRelPath: `lib-skills/${id}.md`,
+        destRelPath,
+        // The managed-block id is the bare skill id — the SAME id the
+        // express-mongoose preset used to write for mongoose/zod/joi before they
+        // moved to this layer. On upgrade the marker is recognized and updated
+        // in place; a distinct id (e.g. `${id}-lib`) would leave the preset-era
+        // block untouched and append a duplicate block in the same file.
+        managedId: id,
+        config,
+      }),
+      cwd,
+      pending,
+      skipped,
+    );
   }
 
   // 7. Plugin scripts (copy + interpolate to .claude/scripts/)
