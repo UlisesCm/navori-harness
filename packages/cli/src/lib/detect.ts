@@ -3,6 +3,7 @@ import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { presetExists } from "./presets.ts";
 import { collectWorkspacePatterns } from "./workspace-patterns.ts";
+import { detectLibrarySkills } from "./library-skills.ts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -47,6 +48,10 @@ export interface DetectedProject {
   packageManager: PackageManager | null;
   monorepo: MonorepoInfo | null;
   stack: StackInfo;
+  /** Library-skill ids whose dependency is present in `stack.deps`. Additive,
+   * cross-preset (see lib/library-skills.ts). Persisted to `project.libraries`
+   * so `render` reconstructs the materialized skills from config alone. */
+  libraries: string[];
   suggestedPreset: string;
   /**
    * A recognized stack candidate that has NO preset on disk yet. Null when the
@@ -101,6 +106,7 @@ export function detectProject(cwd: string): DetectedProject {
   const packageManager = detectPackageManager(cwd);
   const monorepo = detectMonorepo(cwd);
   const stack = detectStack(cwd, pkg, pyproject, cargo);
+  const libraries = detectLibrarySkills(stack.deps);
   const { preset: suggestedPreset, gap: suggestedPresetGap } = suggestPreset(stack, monorepo);
   const qualityGate = guessQualityGate(pkg, packageManager, stack);
   const claudeInfra = detectClaudeInfra(cwd);
@@ -112,6 +118,7 @@ export function detectProject(cwd: string): DetectedProject {
     packageManager,
     monorepo,
     stack,
+    libraries,
     suggestedPreset,
     suggestedPresetGap,
     qualityGate,

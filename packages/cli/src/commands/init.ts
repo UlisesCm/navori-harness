@@ -227,6 +227,7 @@ export const initCommand = defineCommand({
       const projectBlock = {
         ...(args.recommended ? buildRecommendedProject(detected) : {}),
         ...validatorProjectFlags(detected.stack),
+        libraries: detected.libraries,
         codeLanguage: detected.stack.language,
       };
 
@@ -602,6 +603,7 @@ export const initCommand = defineCommand({
       project: {
         ...(project ?? {}),
         ...validatorProjectFlags(detected.stack),
+        libraries: detected.libraries,
         codeLanguage: detected.stack.language,
       },
       ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),

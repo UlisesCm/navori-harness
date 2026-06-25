@@ -263,6 +263,7 @@ describe("CLI e2e — happy paths", () => {
       legacyPaths: [],
       criticalAreas: [],
       localSkills: [],
+      libraries: [],
       testRunner: "vitest",
       codeLanguage: "js",
     });
@@ -318,6 +319,7 @@ describe("CLI e2e — happy paths", () => {
       legacyPaths: [],
       criticalAreas: [],
       localSkills: [],
+      libraries: [],
       codeLanguage: "ts",
     });
   });
