@@ -113,6 +113,23 @@ describe("injectManagedSection", () => {
     expect(match![1]).toHaveLength(8);
   });
 
+  // The hash is the conflict-detection contract: it must be stable for the same
+  // content (no phantom drift) and change when the body changes (real drift is
+  // caught). Length alone never exercised either property (#6).
+  it("hash is deterministic: identical content yields the same hash (#6)", () => {
+    const hashOf = (out: string) => out.match(/hash="([a-f0-9]+)"/)![1];
+    const first = injectManagedSection("", "x", CONTENT);
+    const second = injectManagedSection("", "x", CONTENT);
+    expect(hashOf(first.output)).toBe(hashOf(second.output));
+  });
+
+  it("hash is content-sensitive: a body change yields a different hash (#6)", () => {
+    const hashOf = (out: string) => out.match(/hash="([a-f0-9]+)"/)![1];
+    const base = injectManagedSection("", "x", CONTENT);
+    const changed = injectManagedSection("", "x", `${CONTENT}- Extra rule.\n`);
+    expect(hashOf(changed.output)).not.toBe(hashOf(base.output));
+  });
+
   it("cleans an orphan open marker (no matching close) before injecting", () => {
     // The user accidentally deleted the close marker, leaving just the open
     const corrupted =
