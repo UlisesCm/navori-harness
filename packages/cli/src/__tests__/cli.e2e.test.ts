@@ -550,9 +550,10 @@ describe("CLI e2e — happy paths", () => {
     const parsed = JSON.parse(r.stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.config.name).toBe(repo.split("/").pop()?.toLowerCase());
-    // The 7 core managed blocks injected into CLAUDE.md by --recommended:
+    // The core managed blocks injected into CLAUDE.md by --recommended:
     // arranque-sesion, idioma-rol, formato-respuesta, tipado-fuerte,
-    // operaciones-seguras, cierre-sesion, engram-protocol
+    // operaciones-seguras, cierre-sesion, engram-protocol, plus skills-index
+    // (always rendered now — it lists the always-present core skills).
     const blockIds = parsed.managedBlocks.map((m: { id: string }) => m.id).sort();
     expect(blockIds).toEqual([
       "arranque-sesion",
@@ -561,6 +562,7 @@ describe("CLI e2e — happy paths", () => {
       "formato-respuesta",
       "idioma-rol",
       "operaciones-seguras",
+      "skills-index",
       "tipado-fuerte",
     ]);
     // G1: drifts array shipped (empty after a fresh render)

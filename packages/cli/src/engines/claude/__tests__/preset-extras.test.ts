@@ -190,13 +190,26 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     });
 
     it("lists detected library skills in the skills index as '— library (detected)'", () => {
-      // The skills index renders when the repo declares project-local skills.
       renderClaudeEngine(cwd, withLibraries(["joi-validation"], { localSkills: ["my-local"] }));
       const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
       // Assert on the index row format — stack.md mentions both names in prose
       // on purpose, so a bare substring would false-positive.
       expect(claudeMd).toContain("`joi-validation` — library (detected)");
       expect(claudeMd).not.toContain("`zod-validation` — library (detected)");
+    });
+
+    it("indexes detected library skills even when the repo declares no local skills", () => {
+      // Discoverability: the skills index used to render only when project.localSkills
+      // was non-empty, so a repo with detected library skills but no local skills got
+      // the .md files but no index row. The index now renders whenever there's
+      // anything to list (core skills are always present).
+      renderClaudeEngine(cwd, withLibraries(["mongoose"]));
+      const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+      expect(claudeMd).toContain('navori:managed id="skills-index"');
+      expect(claudeMd).toContain("`mongoose` — library (detected)");
+      // Core skills are listed too, and the project-local note is omitted (none declared).
+      expect(claudeMd).toContain("`verify-before-done` — navori");
+      expect(claudeMd).not.toContain("project-local");
     });
 
     it("upgrades a preset-era skill file in place — no duplicate managed block", () => {
