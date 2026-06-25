@@ -4,15 +4,26 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, writeConfig, type NavoriConfig } from "../lib/config.ts";
 import { detectProject } from "../lib/detect.ts";
-import { computeRenderPlan } from "../lib/render-plan.ts";
-import { writeFileAtomic } from "../lib/atomic.ts";
-import { createBackup, purgeOldBackups } from "../lib/backup.ts";
+import { runRender } from "./render.ts";
 import { brand, dim, color, accent, sym } from "../lib/style.ts";
 
 interface ConfigDiff {
   field: string;
   before: string;
   after: string;
+}
+
+/** Order-independent string-set equality (library-skill ids, engines, …). */
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const seen = new Set(a);
+  return b.every((x) => seen.has(x));
+}
+
+/** Merge a patch into the raw `project` object, tolerating it being absent. */
+function withProject(current: unknown, patch: Record<string, unknown>): Record<string, unknown> {
+  const base = current && typeof current === "object" ? (current as Record<string, unknown>) : {};
+  return { ...base, ...patch };
 }
 
 function diffConfig(current: NavoriConfig, detected: ReturnType<typeof detectProject>): ConfigDiff[] {
@@ -51,6 +62,27 @@ function diffConfig(current: NavoriConfig, detected: ReturnType<typeof detectPro
     });
   }
 
+  // Library skills (detected from deps) — the additive cross-preset layer.
+  // Refresh whenever detection and config disagree (a dep added/removed a skill).
+  // Without this an existing repo never gains the library-skills architecture.
+  const currentLibs = current.project?.libraries ?? [];
+  if (!sameSet(currentLibs, detected.libraries)) {
+    out.push({
+      field: "project.libraries",
+      before: currentLibs.length ? currentLibs.join(", ") : "(none)",
+      after: detected.libraries.length ? detected.libraries.join(", ") : "(none)",
+    });
+  }
+
+  // Code language drives the language-aware baseline (e.g. TS-only tipado-fuerte).
+  const detectedLang = detected.stack.language;
+  if (detectedLang && detectedLang !== "unknown") {
+    const currentLang = current.project?.codeLanguage;
+    if (currentLang !== detectedLang) {
+      out.push({ field: "project.codeLanguage", before: currentLang ?? "(none)", after: detectedLang });
+    }
+  }
+
   return out;
 }
 
@@ -66,6 +98,10 @@ function applyDiffs(raw: Record<string, unknown>, detected: ReturnType<typeof de
       const currentEngines = new Set(((raw.engines as string[]) ?? []));
       for (const e of detected.existingEngines) currentEngines.add(e);
       raw.engines = [...currentEngines];
+    } else if (d.field === "project.libraries") {
+      raw.project = withProject(raw.project, { libraries: detected.libraries });
+    } else if (d.field === "project.codeLanguage") {
+      raw.project = withProject(raw.project, { codeLanguage: detected.stack.language });
     }
   }
 }
@@ -101,12 +137,16 @@ export const updateCommand = defineCommand({
     const detected = detectProject(cwd);
     const diffs = diffConfig(config, detected);
 
-    // Render plan with current config to surface updates available
-    const claudeMd = existsSync(`${cwd}/CLAUDE.md`) ? readFileSync(`${cwd}/CLAUDE.md`, "utf-8") : "";
-    const plan = computeRenderPlan(claudeMd, config, cwd);
+    // Preview the FULL engine render (CLAUDE.md + the .claude/ tree) against the
+    // current config. This surfaces bundle / version drift a config-field diff
+    // can't see — new core skills, settings fixes, the skills-index — and is the
+    // same engine the apply pass runs, so the preview matches what will happen.
+    const preview = runRender(cwd, true);
+    const previewWrites = preview.engineResult?.written ?? [];
+    const previewConflicts = preview.engineResult?.skipped ?? [];
+    const updates = preview.updatesAvailable ?? [];
 
-    // Report
-    if (diffs.length === 0 && !plan.changed && plan.updatesAvailable.length === 0) {
+    if (diffs.length === 0 && previewWrites.length === 0 && previewConflicts.length === 0) {
       p.outro("Up to date — nothing to update");
       return;
     }
@@ -120,27 +160,40 @@ export const updateCommand = defineCommand({
       p.log.info("Config is in sync with the repo");
     }
 
-    if (plan.updatesAvailable.length > 0) {
-      const lines = plan.updatesAvailable.map(
-        (u) => `  ${color.cyan(sym.update)} ${u.id}  ${dim(`(${u.source}  ${u.fromVersion} → ${u.toVersion})`)}`,
-      );
-      p.log.info(`Managed block updates available (${plan.updatesAvailable.length}):\n${lines.join("\n")}`);
+    if (previewWrites.length > 0) {
+      const shown = previewWrites
+        .slice(0, 12)
+        .map((w) => `  ${color.cyan(sym.update)} ${w.path} ${dim(`(${w.status})`)}`);
+      const more = previewWrites.length > 12 ? `\n  ${dim(`… +${previewWrites.length - 12} más`)}` : "";
+      p.log.info(`Archivos que se actualizarían (${previewWrites.length}):\n${shown.join("\n")}${more}`);
     }
 
-    const conflicts = plan.entries.filter((e) => e.status === "user-modified-skipped");
-    if (conflicts.length > 0) {
-      p.log.warn(`${conflicts.length} conflict(s) in managed blocks — sync will need a decision`);
+    if (updates.length > 0) {
+      const lines = updates.map(
+        (u) => `  ${color.cyan(sym.update)} ${u.id}  ${dim(`(${u.source}  ${u.fromVersion} → ${u.toVersion})`)}`,
+      );
+      p.log.info(`Managed block updates available (${updates.length}):\n${lines.join("\n")}`);
+    }
+
+    if (previewConflicts.length > 0) {
+      p.log.warn(`${previewConflicts.length} archivo(s) con ediciones tuyas — 'navori sync' los resuelve interactivamente`);
     }
 
     if (args["dry-run"]) {
+      if (diffs.some((d) => d.field === "project.libraries")) {
+        p.log.message(
+          dim("Nota: aplicar el diff de project.libraries materializa las library skills (el preview de arriba refleja el config actual)."),
+        );
+      }
       p.outro("Dry-run complete (no files written)");
       return;
     }
 
-    // Confirm apply
+    // Confirm apply (the config diffs are the part worth a look; the render skips
+    // any managed block you edited by hand rather than clobbering it).
     if (!args.yes && diffs.length > 0) {
       const ok = await p.confirm({
-        message: `Apply ${diffs.length} config update${diffs.length === 1 ? "" : "s"}?`,
+        message: `Apply ${diffs.length} config update${diffs.length === 1 ? "" : "s"} + re-render?`,
         initialValue: true,
       });
       if (p.isCancel(ok) || !ok) {
@@ -149,7 +202,7 @@ export const updateCommand = defineCommand({
       }
     }
 
-    // Apply config diffs
+    // Apply config diffs first so the render below reflects them.
     if (diffs.length > 0) {
       const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
       delete raw.$schema;
@@ -159,36 +212,28 @@ export const updateCommand = defineCommand({
     }
 
     if (args["config-only"]) {
-      p.outro("Config updated. Run 'navori sync' when ready to refresh CLAUDE.md.");
+      p.outro("Config updated. Corre 'navori sync' para refrescar CLAUDE.md + .claude/.");
       return;
     }
 
-    // Run sync (re-render after possible config changes)
-    if (plan.changed || plan.updatesAvailable.length > 0 || diffs.length > 0) {
-      const freshConfig = readConfig(configPath);
-      const claudeMdNow = existsSync(`${cwd}/CLAUDE.md`) ? readFileSync(`${cwd}/CLAUDE.md`, "utf-8") : "";
-      const freshPlan = computeRenderPlan(claudeMdNow, freshConfig, cwd);
-      const fresheConflicts = freshPlan.entries.filter((e) => e.status === "user-modified-skipped");
-
-      if (fresheConflicts.length > 0 && !args.yes) {
-        p.log.warn(
-          `${fresheConflicts.length} conflict(s) detected — run 'navori sync' to resolve interactively`,
-        );
-        p.outro("Done (config updated, sync deferred due to conflicts)");
-        return;
-      }
-
-      if (freshPlan.changed) {
-        if (existsSync(`${cwd}/CLAUDE.md`)) {
-          const handle = createBackup(cwd, ["CLAUDE.md"]);
-          purgeOldBackups();
-          p.log.message(`Backup: ${handle.path}`);
-        }
-        writeFileAtomic(`${cwd}/CLAUDE.md`, freshPlan.next);
-        p.log.success(`Re-rendered ${cwd}/CLAUDE.md`);
-      } else {
-        p.log.info("No re-render needed");
-      }
+    // Full engine sync: CLAUDE.md + the .claude/ tree (skills, agents, settings,
+    // hooks). Re-detected library skills and preset shifts only materialize here.
+    // (Earlier this re-rendered CLAUDE.md alone, leaving the .claude/ tree stale.)
+    const result = runRender(cwd, false);
+    if (!result.ok) {
+      p.log.error(result.reason ?? "Render failed");
+      p.outro("Done (config actualizado, pero el render falló)");
+      return;
+    }
+    const written = result.engineResult?.written ?? [];
+    const skipped = result.engineResult?.skipped ?? [];
+    if (skipped.length > 0) {
+      p.log.warn(`${skipped.length} archivo(s) con ediciones tuyas no se tocaron — 'navori sync' para resolver`);
+    }
+    if (written.length > 0) {
+      p.log.success(`Re-rendered ${written.length} archivo(s) (CLAUDE.md + .claude/)`);
+    } else {
+      p.log.info("No re-render needed");
     }
 
     p.outro("Done");
