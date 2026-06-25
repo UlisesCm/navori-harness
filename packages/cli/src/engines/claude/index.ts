@@ -493,7 +493,12 @@ export function renderClaudeEngine(
         assetRoot: coreAssets,
         assetRelPath: `lib-skills/${id}.md`,
         destRelPath,
-        managedId: `${id}-lib`,
+        // The managed-block id is the bare skill id — the SAME id the
+        // express-mongoose preset used to write for mongoose/zod/joi before they
+        // moved to this layer. On upgrade the marker is recognized and updated
+        // in place; a distinct id (e.g. `${id}-lib`) would leave the preset-era
+        // block untouched and append a duplicate block in the same file.
+        managedId: id,
         config,
       }),
       cwd,
