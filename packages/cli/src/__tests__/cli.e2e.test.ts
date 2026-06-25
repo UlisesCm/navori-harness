@@ -525,7 +525,12 @@ describe("CLI e2e — happy paths", () => {
 
     const r = runCli(["sync", "--apply", "--yes", "--cwd", repo]);
     expect(r.status).toBe(1);
+    // The message must name the affected file AND the managed block id — not just
+    // the word "conflict" — so the user knows exactly what to resolve (#6).
     expect(r.combined).toContain("conflict");
+    expect(r.combined).toContain("CLAUDE.md");
+    expect(r.combined).toContain("idioma-rol"); // the block that holds "Tech Lead Senior"
+    expect(r.combined).toMatch(/managed block edited/);
   });
 
   it("doctor reports managed blocks with source + version", () => {
