@@ -47,8 +47,15 @@ vi.mock("../lib/migrate.ts", () => ({
 import * as p from "@clack/prompts";
 import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
 import { resolveConflictsInteractively, type TargetPlan } from "../commands/sync.ts";
-import { chooseAdoptionMode } from "../commands/init.ts";
+import {
+  chooseAdoptionMode,
+  buildConfigPreview,
+  runProjectPrompts,
+  normalizeLang,
+  type PreviewState,
+} from "../commands/init.ts";
 import type { ClaudeInfraInventory } from "../lib/claude-infra.ts";
+import type { LoadedPrompt } from "../engines/claude/prompts-loader.ts";
 
 const CANCEL = clk.CANCEL;
 function queueAnswers(...answers: unknown[]): void {
@@ -176,5 +183,93 @@ describe("init — chooseAdoptionMode (interactive adoption, #7)", () => {
     expect(r).toBe("replace");
     expect(createMigrationBackup).toHaveBeenCalledWith("/repo", "dash");
     expect(removeOriginals).toHaveBeenCalledWith("/repo", ["CLAUDE.md", ".claude"]);
+  });
+});
+
+describe("init — normalizeLang (--lang skips the language prompt, #7)", () => {
+  it("a valid --lang is used verbatim, so the wizard skips the prompt", () => {
+    expect(normalizeLang("en")).toBe("en");
+    expect(normalizeLang("es")).toBe("es");
+    expect(normalizeLang("EN")).toBe("en"); // case-insensitive
+    expect(normalizeLang("  es  ")).toBe("es"); // trimmed
+  });
+
+  it("an absent or unsupported --lang returns null, so the prompt still runs", () => {
+    expect(normalizeLang(undefined)).toBeNull();
+    expect(normalizeLang("")).toBeNull();
+    expect(normalizeLang("fr")).toBeNull();
+  });
+});
+
+describe("init — buildConfigPreview (preview-edit summary, #7)", () => {
+  function state(over: Partial<PreviewState> = {}): PreviewState {
+    return {
+      name: "myapp",
+      workspace: undefined,
+      engines: ["claude", "agents-md"],
+      preset: "nextjs",
+      language: "es",
+      branchBase: "main",
+      qualityGate: { fast: "pnpm typecheck", full: "pnpm test" },
+      plugins: ["engram"],
+      agentAssignments: {},
+      project: { criticalAreas: ["auth"] },
+      ...over,
+    };
+  }
+
+  it("renders the fields the user reviews before saving", () => {
+    const out = buildConfigPreview(state(), "es");
+    expect(out).toContain("myapp");
+    expect(out).toContain("claude, agents-md"); // engines joined
+    expect(out).toContain("nextjs"); // preset
+    expect(out).toContain("main"); // branchBase
+    expect(out).toContain("pnpm typecheck"); // qualityGate.fast
+    expect(out).toContain("project.criticalAreas"); // project.* keys surfaced
+  });
+});
+
+describe("init — runProjectPrompts (project prompts after preview, #7)", () => {
+  function prompt(over: Partial<LoadedPrompt>): LoadedPrompt {
+    return {
+      key: "project.architectureRule",
+      type: "string",
+      question: { es: "¿Regla de arquitectura?", en: "Architecture rule?" },
+      phase: "specific",
+      ...over,
+    } as LoadedPrompt;
+  }
+
+  it("'run' collects answers keyed by the project.* subkey, routed by type", async () => {
+    const prompts = [
+      prompt({ key: "project.architectureRule", type: "string" }),
+      prompt({ key: "project.criticalAreas", type: "string-list" }),
+    ];
+    queueAnswers("run", "axios -> service -> component", "auth, billing");
+
+    const r = await runProjectPrompts(prompts, "es");
+
+    expect(r).toEqual({
+      architectureRule: "axios -> service -> component",
+      criticalAreas: ["auth", "billing"], // string-list split on commas
+    });
+  });
+
+  it("'skip' returns {} and asks no per-field question", async () => {
+    queueAnswers("skip");
+    const r = await runProjectPrompts([prompt({})], "es");
+    expect(r).toEqual({});
+  });
+
+  it("cancelling the upfront gate returns null", async () => {
+    queueAnswers(CANCEL);
+    const r = await runProjectPrompts([prompt({})], "es");
+    expect(r).toBeNull();
+  });
+
+  it("a blank optional answer leaves the key unset (no empty value persisted)", async () => {
+    queueAnswers("run", "");
+    const r = await runProjectPrompts([prompt({ optional: true })], "es");
+    expect(r).toEqual({});
   });
 });
