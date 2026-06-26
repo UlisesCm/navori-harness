@@ -37,7 +37,7 @@ Si encuentras un audit reciente para el mismo ticket, léelo primero. No re-audi
 
 ## Flujo
 
-1. **Lee**: `CLAUDE.md`, `.claude/AGENTS.md`, "Reglas del proyecto" del leader.
+1. **Lee**: `CLAUDE.md` (reglas del proyecto + el rol del orquestador).
 2. **Cura contexto del repo** para tu análisis:
    - Texto literal del ticket (no parafrasees).
    - Grep por keywords del ticket → archivos candidatos.
