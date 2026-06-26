@@ -102,12 +102,15 @@ function buildManagedBody(config: NavoriConfig, repoRoot: string): string {
   const plan = computeRenderPlan("", config, repoRoot);
   // Keep core rule blocks + the active preset's stack block (its source is the
   // preset id). Plugin-contributed blocks (engram, etc.) are Claude-specific and
-  // dropped — other tools don't have that infra.
+  // dropped — other tools don't have that infra. The "orquestacion" block is
+  // also Claude-only (it drives subagents via the Agent tool, which non-Claude
+  // tools lack); its engine-agnostic core lives in the workflow section below.
   const ruleBlocks = plan.entries
     .filter(
       (e) =>
         e.newContent != null &&
         e.status !== "removed-condition-false" &&
+        e.asset.id !== "orquestacion" &&
         (e.source === "core" || e.source === config.preset),
     )
     .map((e) => e.newContent!.trim());

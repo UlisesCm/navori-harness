@@ -22,8 +22,8 @@ Si la pregunta es amplia ("mapéame todo el módulo X"), no eres tú — es `exp
 
 ## Protocolo
 
-1. Lee `CLAUDE.md` y `.claude/AGENTS.md` para entender el contexto del repo.
-2. Acota la pregunta: si tiene >2 sub-preguntas, pide al leader que la divida o pártela tú misma en sub-investigaciones serializadas.
+1. Lee `CLAUDE.md` para entender el contexto del repo.
+2. Trabaja UNA pregunta acotada (el orquestador ya te pasó el scope). Si descubres que en realidad son >2 preguntas independientes, devuélvelas listadas para que el orquestador las reparta en investigadores paralelos — no las encadenes tú en serie.
 3. Ejecuta la búsqueda:
    - Método primario: las tools nativas `Grep` (contenido) y `Glob` (archivos por nombre/patrón). Son read-only, rápidas (ripgrep) y no piden permiso.
    - Fallback solo para lo que las tools no cubren (historial git con `git grep`, metadata del FS con `find`): comandos por shell. Encadenados con pipes/redirects piden confirmación, así que reserva el shell para cuando `Grep`/`Glob` no alcancen.

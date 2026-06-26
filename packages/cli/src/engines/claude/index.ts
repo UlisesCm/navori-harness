@@ -145,6 +145,48 @@ function buildSkillsIndexBody(
   ].join("\n");
 }
 
+/** Managed-block id for the agents index injected into CLAUDE.md. */
+const AGENTS_INDEX_ID = "agentes-disponibles";
+
+/** When to reach for each leaf agent, keyed by CORE_AGENTS id. The leader is
+ * absent on purpose: the main agent embeds that role, it does not delegate to
+ * it (see the "## Rol: orquestador" block). */
+const AGENT_WHEN: Record<string, string> = {
+  implementer: "Escribe código y tests de UNA tarea acotada con scope claro.",
+  reviewer: "Valida un diff contra spec y calidad antes de cerrar (APPROVED / CHANGES_REQUESTED).",
+  researcher: "Responde una pregunta concreta del repo (¿pasa Y? ¿qué consume X?) con evidencia citada.",
+  explorer: "Mapea un área o módulo amplio: estructura, entry points, dependencias.",
+  "ticket-audit": "Analiza a fondo un ticket complejo (bug crítico, migración, feature multi-capa) antes de descomponer.",
+  "commit-pr-pilot": "Redacta commits Conventional y abre el PR tras la aprobación del reviewer.",
+};
+
+/**
+ * Build the agents index — the catalog the orchestrator (main agent) reads to
+ * know which subagents exist and when to spawn each. Lists only the enabled
+ * leaf agents (config.harness[key] !== false); the leader is excluded because
+ * the main agent embeds that role rather than delegating to it. Returns null
+ * when nothing is enabled so the block is stripped instead of rendered empty.
+ */
+function buildAgentsIndexBody(config: NavoriConfig): string | null {
+  const rows: string[] = [];
+  for (const agent of CORE_AGENTS) {
+    if (agent.id === "leader") continue;
+    if (!isAgentEnabled(config, agent.harnessKey)) continue;
+    const when = AGENT_WHEN[agent.id];
+    if (!when) continue;
+    rows.push(`- \`${agent.id}\` — ${when}`);
+  }
+  if (rows.length === 0) return null;
+  return [
+    "## Agentes disponibles",
+    "",
+    'Subagentes que puedes lanzar vía la tool `Agent` (tú eres el orquestador; ver "## Rol: orquestador"). Investigación y review son read-only → paralelízalos sin miedo.',
+    "",
+    ...rows,
+    "",
+  ].join("\n");
+}
+
 /** Managed-block id for the project-context rules injected into CLAUDE.md. */
 const CONTEXTO_PROYECTO_ID = "contexto-proyecto";
 
@@ -276,6 +318,30 @@ export function renderClaudeEngine(
     });
   } else {
     claudeMdContent = removeManagedSection(claudeMdContent, SKILLS_INDEX_ID);
+  }
+
+  // 1b-bis. Agents index — the catalog of leaf subagents the orchestrator (main
+  // agent) can spawn, referenced by the "## Rol: orquestador" block. Claude-only
+  // (subagents are a Claude Code capability); the agents-md engine drops it.
+  const agentsIndexBody = buildAgentsIndexBody(config);
+  if (agentsIndexBody !== null) {
+    const result = injectManagedSection(
+      claudeMdContent,
+      AGENTS_INDEX_ID,
+      agentsIndexBody,
+      CORE_META,
+      "html",
+      options.forceIds?.has(AGENTS_INDEX_ID) ?? false,
+    );
+    claudeMdContent = result.output;
+    claudeMdPlan.entries.push({
+      asset: { id: AGENTS_INDEX_ID, relPath: "(computed)" },
+      source: "core",
+      status: result.status,
+      newContent: null,
+    });
+  } else {
+    claudeMdContent = removeManagedSection(claudeMdContent, AGENTS_INDEX_ID);
   }
 
   // 1c. Project context — the init questionnaire answers turned into active

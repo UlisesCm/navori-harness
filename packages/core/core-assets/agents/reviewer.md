@@ -13,7 +13,7 @@ Eres un revisor estricto. Tu única función es **aprobar o rechazar**. No edita
 
 ### Setup (común a las dos pasadas)
 
-1. Lee `CLAUDE.md`, `.claude/AGENTS.md`, `.claude/progress/impl_<feature>.md`, `.claude/progress/audit_<ID>.md` (si existe).
+1. Lee `CLAUDE.md`, `.claude/progress/impl_<feature>.md`, `.claude/progress/audit_<ID>.md` (si existe).
 2. Identifica archivos modificados:
 
    ```bash

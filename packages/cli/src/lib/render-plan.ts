@@ -19,6 +19,7 @@ export interface CoreManagedAsset {
 }
 
 export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
+  { id: "orquestacion", relPath: "core-assets/managed/orquestacion.md", availableLanguages: ["es"] },
   { id: "idioma-rol", relPath: "core-assets/managed/idioma-rol.md", availableLanguages: ["es"] },
   { id: "formato-respuesta", relPath: "core-assets/managed/formato-respuesta.md", availableLanguages: ["es"] },
   { id: "tipado-fuerte", relPath: "core-assets/managed/tipado-fuerte.md", availableLanguages: ["es"], condition: "project.typedLanguage" },

@@ -55,6 +55,17 @@ describe("renderAgentsMdEngine", () => {
     expect(md).not.toContain("engram-protocol");
   });
 
+  it("does NOT leak the Claude-only orchestration block into AGENTS.md", () => {
+    const cwd = tmp();
+    renderAgentsMdEngine(cwd, baseConfig());
+    const md = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+    // Subagent orchestration is a Claude Code capability; the role block drops.
+    expect(md).not.toContain("## Rol: orquestador");
+    expect(md).not.toContain("vía la tool `Agent`");
+    // ...but the engine-agnostic workflow guidance still ships.
+    expect(md).toContain("## Flujo de trabajo");
+  });
+
   it("includes the preset stack block + its skills", () => {
     const cwd = tmp();
     renderAgentsMdEngine(cwd, baseConfig({ preset: "nextjs" }));

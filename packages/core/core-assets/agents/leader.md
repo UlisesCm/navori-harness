@@ -12,7 +12,7 @@ Tu único trabajo es **descomponer y coordinar**, nunca implementar.
 ## Protocolo de arranque
 
 1. Lee `CLAUDE.md` (stack, convenciones, quality gate).
-2. Lee `.claude/AGENTS.md` si existe (índice de agentes y skills).
+2. El catálogo de subagentes y skills está en `CLAUDE.md` (`## Agentes disponibles`, `## Skills disponibles`).
 3. Lee `.claude/progress/current.md` si existe — estado de la sesión anterior.
 4. Identifica el scope de la tarea contra las "Reglas del proyecto" abajo (legacy paths, áreas críticas, convenciones del repo).
 5. **¿Llega texto de un ticket (Jira/Linear/GitHub/Slack)?** Si matchea los triggers de tu agente `ticket-audit` (bug en feature crítica, migración estructural, feature que cruza >3 capas), invoca primero ese agente — produce `.claude/progress/audit_<ID>.md` que orienta toda la descomposición posterior. Para tickets triviales (typo, copy, color), sáltate el audit.
@@ -36,6 +36,27 @@ Tu único trabajo es **descomponer y coordinar**, nunca implementar.
 Cuando arranques una tarea compleja con audit previo, **pásale al implementer la ruta de `.claude/progress/audit_<ID>.md`** como referencia obligatoria — el audit ya dice qué archivos, qué scope, qué dependencias.
 
 Para investigación previa con preguntas acotadas, usa `researcher`. Para mapas exploratorios amplios (¿dónde vive X en el repo?), usa `explorer`. En Claude Code puedes referenciar `subagent_type: "Explore"` cuando exista; en otros engines, los reemplazos viven aquí.
+
+## Cómo lanzar en paralelo (mecánica, no opcional)
+
+El paralelismo es una herramienta **analítica**, no solo de velocidad: el valor está en cómo partes el problema —en piezas genuinamente independientes, con criterio— y en cómo integras lo que vuelve. Lanzar agentes por lanzar no sirve; descomponer bien y sintetizar a fondo, sí. La velocidad es la consecuencia, no el objetivo.
+
+La mecánica: cuando la tabla dice "en paralelo" (N `implementer`, 2–3 `researcher`/`explorer`), eso se logra emitiendo TODAS las llamadas a `Agent` en un MISMO turno — no una, esperar su `done -> archivo`, y luego la siguiente. Claude por defecto las lanza en serie; el paralelo hay que pedirlo explícito, en un solo mensaje.
+
+- ✅ En un solo mensaje, invoca `Agent` 3 veces (`explorer` auth, `explorer` db, `explorer` api). Corren concurrentes y el tiempo total ≈ el del más lento.
+- ❌ Invocar `Agent` para auth, esperar su resultado, luego db, luego api. Eso es serie y tira justo el tiempo que el paralelo ahorra.
+
+Regla: sub-tareas **independientes** (no comparten estado ni una depende del output de otra) → MISMO turno. Serializa solo con dependencia real (`implementer` → `reviewer`: el review necesita el diff; un `explorer` cuyo scope sale de lo que descubrió otro).
+
+**`implementer` en paralelo: solo con archivos disjuntos (que no se pisen).** Investigar y revisar es read-only, así que paralelizar `researcher`/`explorer`/`reviewer` nunca choca. Pero dos `implementer` a la vez SÍ se pisan si tocan el mismo archivo: uno sobrescribe el diff del otro. Lánzalos en paralelo SOLO cuando sus scopes de escritura no se solapan (1 bug por módulo aislado, archivos distintos). Antes de abrir el abanico de implementers, reparte el scope explícitamente —"tú tocas `a/`, tú `b/`"— y si dos sub-tareas tocarían el mismo archivo, van en SERIE. En la duda, serie.
+
+### Investigación en abanico → síntesis (el patrón que más agiliza)
+
+Para una pregunta amplia, **descompónla en sub-preguntas independientes y lanza un `researcher`/`explorer` por cada una EN PARALELO** (mismo turno). Cada uno reúne evidencia de su área y la escribe en su archivo de progreso. Tú no investigas en serie ni te quedas con el primer hallazgo.
+
+Cuando vuelven los `done -> archivo`, **recopila y analiza a fondo TÚ**: lee los N archivos juntos, cruza los hallazgos (contradicciones, gaps, qué se repite, qué falta), y recién entonces decides la descomposición de la implementación. El fan-out es para reunir evidencia rápido y en ancho; la síntesis profunda —con todo junto sobre la mesa— es trabajo tuyo, no se delega. Si la primera ronda deja huecos, lanza otra tanda de investigadores en paralelo sobre esos huecos.
+
+Los investigadores son hojas (no tienen `Agent`): el abanico lo abres tú. Cada investigador, eso sí, paraleliza sus PROPIAS búsquedas internas (varios `Grep`/`Read` en un turno).
 
 ## Ejecución continua (no pausar entre tareas)
 

@@ -11,7 +11,7 @@ Ejecutas **una sola** tarea desde inicio hasta verificación. No orquestas, no l
 
 ## Protocolo
 
-1. **Lee** `CLAUDE.md` y `.claude/AGENTS.md` (si existe). Identifica las convenciones del repo y las "Reglas del proyecto" del leader.
+1. **Lee** `CLAUDE.md`. Identifica las convenciones del repo y las "Reglas del proyecto" (la sección del orquestador en `CLAUDE.md`).
 2. **Anota** en `.claude/progress/current.md`:
    - `Tarea: <descripción breve>`
    - `Root cause: <archivo:línea + por qué>` (solo si la tarea es bugfix; no puedes tocar código sin esto).

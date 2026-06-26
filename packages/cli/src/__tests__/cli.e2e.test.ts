@@ -556,23 +556,49 @@ describe("CLI e2e — happy paths", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.config.name).toBe(repo.split("/").pop()?.toLowerCase());
     // The core managed blocks injected into CLAUDE.md by --recommended:
-    // arranque-sesion, idioma-rol, formato-respuesta, tipado-fuerte,
-    // operaciones-seguras, cierre-sesion, engram-protocol, plus skills-index
-    // (always rendered now — it lists the always-present core skills).
+    // orquestacion (rol del orquestador), idioma-rol, formato-respuesta,
+    // tipado-fuerte, operaciones-seguras, arranque-sesion, cierre-sesion,
+    // engram-protocol, plus the computed skills-index and agentes-disponibles.
     const blockIds = parsed.managedBlocks.map((m: { id: string }) => m.id).sort();
     expect(blockIds).toEqual([
+      "agentes-disponibles",
       "arranque-sesion",
       "cierre-sesion",
       "engram-protocol",
       "formato-respuesta",
       "idioma-rol",
       "operaciones-seguras",
+      "orquestacion",
       "skills-index",
       "tipado-fuerte",
     ]);
     // G1: drifts array shipped (empty after a fresh render)
     expect(Array.isArray(parsed.drifts)).toBe(true);
     expect(parsed.drifts).toHaveLength(0);
+  });
+
+  it("renders the orchestrator role first (center of gravity) + an agents index", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "orq-app", dependencies: { typescript: "^5" } }),
+      "tsconfig.json": "{}",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    });
+    dirs.push(repo);
+    expect(runCli(["init", "--recommended", "--cwd", repo]).status).toBe(0);
+
+    const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
+    // The orchestrator role is the center of gravity: the FIRST managed block.
+    const firstBlock = claudeMd.match(/navori:managed id="([^"]+)"/)?.[1];
+    expect(firstBlock).toBe("orquestacion");
+    expect(claudeMd).toContain("## Rol: orquestador");
+    expect(claudeMd).toContain("actúas como el `leader`");
+
+    // The agents index lists the spawnable leaf agents — but NOT the leader,
+    // since the main agent embeds that role rather than delegating to it.
+    expect(claudeMd).toContain('navori:managed id="agentes-disponibles"');
+    expect(claudeMd).toContain("- `implementer`");
+    expect(claudeMd).toContain("- `reviewer`");
+    expect(claudeMd).not.toMatch(/^- `leader` —/m);
   });
 
   it("doctor reports corrupted settings.json + render --force regenerates (#4)", () => {
