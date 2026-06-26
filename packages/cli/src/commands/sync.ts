@@ -196,7 +196,7 @@ export interface SyncTarget {
   config: NavoriConfig;
 }
 
-interface TargetPlan {
+export interface TargetPlan {
   target: SyncTarget;
   plan: ClaudeEngineResult;
 }
@@ -272,7 +272,7 @@ interface ConflictResolution {
  * Only CLAUDE.md managed blocks are resolved here; .claude/ file conflicts are
  * whole-file and stay as-is (reported separately by the caller).
  */
-async function resolveConflictsInteractively(
+export async function resolveConflictsInteractively(
   plans: TargetPlan[],
 ): Promise<Map<string, ConflictResolution> | null> {
   const resolutions = new Map<string, ConflictResolution>();
