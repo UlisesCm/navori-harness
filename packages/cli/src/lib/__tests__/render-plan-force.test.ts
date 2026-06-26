@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeRenderPlan } from "../render-plan.ts";
+import { computeRenderPlan, canonicalManagedOrder } from "../render-plan.ts";
 import { NavoriConfigSchema } from "../schema.ts";
 
 /**
@@ -43,5 +43,24 @@ describe("computeRenderPlan forceIds / skipIds (spec 0003 §3.1.4)", () => {
     const kept = computeRenderPlan(modified, config, repoRoot, { skipIds: new Set(["idioma-rol"]) });
     expect(kept.next).toContain("USER-EDIT-XYZ");
     expect(kept.entries.find((e) => e.asset.id === "idioma-rol")).toBeUndefined();
+  });
+});
+
+describe("canonicalManagedOrder", () => {
+  it("leads with the orchestrator block and ends with the computed blocks", () => {
+    const order = canonicalManagedOrder(config, repoRoot);
+    expect(order[0]).toBe("orquestacion");
+    expect(order).toContain("idioma-rol");
+    expect(order.slice(-3)).toEqual(["skills-index", "agentes-disponibles", "contexto-proyecto"]);
+  });
+
+  it("matches the emission order of a fresh render", () => {
+    const fresh = computeRenderPlan("", config, repoRoot).next;
+    const emitted = [...fresh.matchAll(/<!-- navori:managed id="([^"]+)"/g)].map((m) => m[1]!);
+    const order = canonicalManagedOrder(config, repoRoot);
+    // every emitted block appears in canonical order, in the same relative order
+    const ranked = emitted.map((id) => order.indexOf(id));
+    expect(ranked).toEqual([...ranked].sort((a, b) => a - b));
+    expect(ranked.every((r) => r >= 0)).toBe(true);
   });
 });

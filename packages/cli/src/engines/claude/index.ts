@@ -4,11 +4,11 @@ import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
-import { computeRenderPlan, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
+import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
 import { getCoreRoot, readBundledCoreVersion } from "../../lib/bundled-assets.ts";
-import { injectManagedSection, removeManagedSection, resolveCondition } from "../../lib/marker.ts";
+import { injectManagedSection, removeManagedSection, reorderManagedBlocks, resolveCondition } from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { isNavoriOwnedSettings } from "./settings-detection.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
@@ -366,6 +366,22 @@ export function renderClaudeEngine(
     });
   } else {
     claudeMdContent = removeManagedSection(claudeMdContent, CONTEXTO_PROYECTO_ID);
+  }
+
+  // 1d. Canonical order. injectManagedSection appends a NEW block at the end of
+  // an existing file, so a block introduced in a later release (or moved by
+  // hand) lands out of its canonical slot — e.g. the orchestrator "centre of
+  // gravity" block that must lead the file. Restore canonical order. No-op when
+  // already ordered (so no spurious diff); skipped, with a warning, when the
+  // user wove prose between blocks (moving them would orphan it).
+  const reorder = reorderManagedBlocks(claudeMdContent, canonicalManagedOrder(config, repoRoot));
+  claudeMdContent = reorder.output;
+  if (reorder.blockedByInterleaving) {
+    warnings.push(
+      "CLAUDE.md: los bloques managed están fuera del orden canónico, pero hay texto " +
+        "tuyo intercalado entre bloques, así que no los reordené. Mueve ese texto arriba " +
+        "del primer bloque managed o abajo del último para que navori pueda ordenarlos.",
+    );
   }
 
   if (claudeMdContent !== claudeMdExisting) {
