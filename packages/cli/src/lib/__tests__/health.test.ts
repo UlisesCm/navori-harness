@@ -6,11 +6,13 @@ import {
   suggestNextSteps,
   collectMissingPlugins,
   scanManagedDrift,
+  scanManagedOrder,
   listMarkers,
   type DriftReport,
 } from "../health.ts";
 import { NavoriConfigSchema } from "../schema.ts";
-import { computeManagedHash } from "../marker.ts";
+import { computeManagedHash, injectManagedSection } from "../marker.ts";
+import { computeRenderPlan } from "../render-plan.ts";
 
 const contentDrift: DriftReport = {
   filePath: ".claude/agents/leader.md",
@@ -56,6 +58,26 @@ describe("suggestNextSteps (spec 0003 §3.5.3)", () => {
     const steps = suggestNextSteps({ claudeMdExists: true, missingPlugins: [], drifts: [] });
     expect(steps).toHaveLength(1);
     expect(steps[0]).toMatch(/al día/i);
+  });
+
+  it("suggests render --apply to reorder out-of-order blocks", () => {
+    const steps = suggestNextSteps({
+      claudeMdExists: true,
+      missingPlugins: [],
+      drifts: [],
+      orderReport: { current: ["idioma-rol", "orquestacion"], expected: ["orquestacion", "idioma-rol"], interleaved: false },
+    });
+    expect(steps.some((s) => s.includes("reordenar"))).toBe(true);
+  });
+
+  it("tells the user to move interleaved prose before reordering", () => {
+    const steps = suggestNextSteps({
+      claudeMdExists: true,
+      missingPlugins: [],
+      drifts: [],
+      orderReport: { current: ["idioma-rol", "orquestacion"], expected: ["orquestacion", "idioma-rol"], interleaved: true },
+    });
+    expect(steps.some((s) => s.startsWith("Mueve"))).toBe(true);
   });
 });
 
@@ -147,5 +169,54 @@ describe("listMarkers + scanManagedDrift", () => {
         (d) => d.kind === "content" && d.markerId === "idioma-rol" && d.filePath === "CLAUDE.md",
       ),
     ).toBe(true);
+  });
+});
+
+describe("scanManagedOrder", () => {
+  const config = NavoriConfigSchema.parse({ name: "demo", engines: ["claude"], preset: "custom" });
+  let cwd: string;
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "navori-order-"));
+  });
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("returns null when CLAUDE.md is absent", () => {
+    expect(scanManagedOrder(cwd, config)).toBeNull();
+  });
+
+  it("returns null when blocks are already in canonical order", () => {
+    writeFileSync(join(cwd, "CLAUDE.md"), computeRenderPlan("", config, cwd).next);
+    expect(scanManagedOrder(cwd, config)).toBeNull();
+  });
+
+  it("returns null with fewer than two blocks", () => {
+    writeFileSync(join(cwd, "CLAUDE.md"), injectManagedSection("", "orquestacion", "x").output);
+    expect(scanManagedOrder(cwd, config)).toBeNull();
+  });
+
+  it("detects an out-of-order orchestrator block", () => {
+    let doc = injectManagedSection("", "idioma-rol", "x").output;
+    doc = injectManagedSection(doc, "orquestacion", "y").output; // canonical: orquestacion first
+    writeFileSync(join(cwd, "CLAUDE.md"), doc);
+
+    const r = scanManagedOrder(cwd, config);
+    expect(r).not.toBeNull();
+    expect(r!.current).toEqual(["idioma-rol", "orquestacion"]);
+    expect(r!.expected).toEqual(["orquestacion", "idioma-rol"]);
+    expect(r!.interleaved).toBe(false);
+  });
+
+  it("flags interleaved prose so the order can't be auto-fixed", () => {
+    let doc = injectManagedSection("", "idioma-rol", "x").output;
+    doc = `${doc.trimEnd()}\n\nNOTA DEL USUARIO\n\n`;
+    doc = injectManagedSection(doc, "orquestacion", "y").output;
+    writeFileSync(join(cwd, "CLAUDE.md"), doc);
+
+    const r = scanManagedOrder(cwd, config);
+    expect(r).not.toBeNull();
+    expect(r!.interleaved).toBe(true);
   });
 });

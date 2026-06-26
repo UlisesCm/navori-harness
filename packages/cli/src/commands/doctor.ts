@@ -10,6 +10,7 @@ import {
   listMarkers,
   collectMissingPlugins,
   scanManagedDrift,
+  scanManagedOrder,
   suggestNextSteps,
 } from "../lib/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
@@ -75,6 +76,7 @@ export const doctorCommand = defineCommand({
     const markers = listMarkers(claudeMdPath);
     const missingPlugins = collectMissingPlugins(config);
     const drifts = scanManagedDrift(cwd, config);
+    const orderReport = scanManagedOrder(cwd, config);
     const corruptedSettings = scanCorruptedSettings(cwd);
     const missingInvariants = scanMissingInvariants(cwd, config);
     // A declared preset that resolves to neither a local (.navori/presets/) nor
@@ -114,6 +116,7 @@ export const doctorCommand = defineCommand({
       managedBlocks: markers,
       missingPlugins,
       drifts,
+      orderReport,
       corruptedSettings,
       missingInvariants,
       missingPreset,
@@ -268,10 +271,31 @@ export const doctorCommand = defineCommand({
       );
     }
 
+    if (orderReport) {
+      if (orderReport.interleaved) {
+        p.log.warn(
+          `Bloques managed de CLAUDE.md fuera del orden canónico — NO se pueden reordenar ` +
+            `automáticamente porque hay texto tuyo entre bloques. Mueve ese texto arriba del ` +
+            `primer bloque managed o abajo del último; luego corre 'navori render --apply'.\n` +
+            `  orden actual:   ${orderReport.current.join(", ")}\n` +
+            `  orden canónico: ${orderReport.expected.join(", ")}`,
+        );
+      } else {
+        p.log.warn(
+          `Bloques managed de CLAUDE.md fuera del orden canónico — corre 'navori render --apply' ` +
+            `o 'navori sync' para reordenarlos (el primer bloque marca el centro de gravedad del ` +
+            `harness).\n` +
+            `  orden actual:   ${orderReport.current.join(", ")}\n` +
+            `  orden canónico: ${orderReport.expected.join(", ")}`,
+        );
+      }
+    }
+
     const nextSteps = suggestNextSteps({
       claudeMdExists: report.checks.claudeMdExists,
       missingPlugins,
       drifts,
+      orderReport,
     });
     p.note(
       nextSteps.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"),
