@@ -8,7 +8,8 @@ import {
   renderClaudeEngine,
   type ClaudeEngineResult,
 } from "../engines/claude/index.ts";
-import { renderStatusSymbol, renderStatusLabel, dim, color, brand } from "../lib/style.ts";
+import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
+import { renderStatusSymbol, renderStatusLabel, dim, color, brand, type RenderStatus } from "../lib/style.ts";
 import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
 
@@ -24,6 +25,47 @@ export interface WorkspaceRenderResult {
   updatesAvailable: UpdateAvailable[];
   backupPath?: string | null;
   engineResult: ClaudeEngineResult;
+}
+
+/**
+ * Per-engine summary for non-Claude engines declared in `config.engines[]`.
+ * The Claude engine keeps its rich reporting (entries, workspaces); the others
+ * report a flat file list. Engines with no adapter yet surface a warning so the
+ * declaration is never silently ignored.
+ */
+export interface EngineRenderSummary {
+  engine: string;
+  written: Array<{ path: string; status: RenderStatus }>;
+  skipped: Array<{ path: string; reason: string }>;
+  warnings: string[];
+  backupPath: string | null;
+}
+
+/** Dispatch the non-Claude engines declared in config.engines[]. */
+function renderNonClaudeEngines(
+  cwd: string,
+  config: ReturnType<typeof readConfig>,
+  engines: readonly string[],
+  dryRun: boolean,
+): EngineRenderSummary[] {
+  const out: EngineRenderSummary[] = [];
+  for (const eng of engines) {
+    if (eng === "claude") continue;
+    if (eng === "agents-md") {
+      const r = renderAgentsMdEngine(cwd, config, { dryRun, repoRoot: cwd });
+      out.push({ engine: eng, ...r });
+    } else {
+      // cursor / copilot: declared but no adapter yet — warn, never ignore.
+      out.push({
+        engine: eng,
+        written: [],
+        skipped: [],
+        warnings: [`El engine '${eng}' todavía no tiene adapter en navori; se omitió.`],
+        backupPath: null,
+      });
+    }
+  }
+  return out;
 }
 
 export interface RunRenderOptions {
@@ -62,6 +104,8 @@ export function runRender(
   backupPath?: string | null;
   engineResult?: ClaudeEngineResult;
   workspaces: WorkspaceRenderResult[];
+  /** Non-Claude engines (agents-md, plus warnings for cursor/copilot). */
+  extraEngines?: EngineRenderSummary[];
 } {
   // Back-compat: callers passing (cwd, dryRun, force) keep working.
   const opts: RunRenderOptions =
@@ -155,40 +199,53 @@ export function runRender(
     };
   }
 
-  const engineResult = renderClaudeEngine(cwd, config, { dryRun, force: forceFlag });
+  // Engine dispatch: render Claude only when it's a declared engine (the
+  // default). Before this, render hardcoded Claude and silently ignored any
+  // other engines[]. Now non-Claude engines are dispatched too.
+  const engines: readonly string[] = config.engines ?? ["claude"];
+  const renderClaude = engines.includes("claude");
+
+  const engineResult = renderClaude
+    ? renderClaudeEngine(cwd, config, { dryRun, force: forceFlag })
+    : undefined;
 
   const workspaces: WorkspaceRenderResult[] = [];
-  for (const ws of config.monorepo?.workspaces ?? []) {
-    const wsCwd = resolve(cwd, ws.path);
-    const wsConfig = effectiveConfigForWorkspace(config, ws);
-    const wsResult = renderClaudeEngine(wsCwd, wsConfig, {
-      dryRun,
-      force: forceFlag,
-      repoRoot: cwd,
-    });
-    workspaces.push({
-      workspacePath: ws.path,
-      workspaceName: ws.name,
-      filePath: `${wsCwd}/CLAUDE.md`,
-      entries: wsResult.claudeMdEntries,
-      written: wsResult.written.length > 0,
-      languageFallbacks: wsResult.languageFallbacks,
-      updatesAvailable: wsResult.updatesAvailable,
-      backupPath: wsResult.backupPath,
-      engineResult: wsResult,
-    });
+  if (renderClaude) {
+    for (const ws of config.monorepo?.workspaces ?? []) {
+      const wsCwd = resolve(cwd, ws.path);
+      const wsConfig = effectiveConfigForWorkspace(config, ws);
+      const wsResult = renderClaudeEngine(wsCwd, wsConfig, {
+        dryRun,
+        force: forceFlag,
+        repoRoot: cwd,
+      });
+      workspaces.push({
+        workspacePath: ws.path,
+        workspaceName: ws.name,
+        filePath: `${wsCwd}/CLAUDE.md`,
+        entries: wsResult.claudeMdEntries,
+        written: wsResult.written.length > 0,
+        languageFallbacks: wsResult.languageFallbacks,
+        updatesAvailable: wsResult.updatesAvailable,
+        backupPath: wsResult.backupPath,
+        engineResult: wsResult,
+      });
+    }
   }
+
+  const extraEngines = renderNonClaudeEngines(cwd, config, engines, dryRun);
 
   return {
     ok: true,
     filePath: claudeMdPath,
-    entries: engineResult.claudeMdEntries,
-    written: engineResult.written.length > 0,
-    languageFallbacks: engineResult.languageFallbacks,
-    updatesAvailable: engineResult.updatesAvailable,
-    backupPath: engineResult.backupPath,
+    entries: engineResult?.claudeMdEntries ?? [],
+    written: (engineResult?.written.length ?? 0) > 0,
+    languageFallbacks: engineResult?.languageFallbacks ?? [],
+    updatesAvailable: engineResult?.updatesAvailable ?? [],
+    backupPath: engineResult?.backupPath ?? null,
     engineResult,
     workspaces,
+    extraEngines,
   };
 }
 
@@ -279,10 +336,23 @@ export const renderCommand = defineCommand({
       }
     }
 
+    for (const ee of result.extraEngines ?? []) {
+      p.log.message(`${dim("engine")} ${color.cyan(ee.engine)}`);
+      for (const w of ee.written) {
+        p.log.message(`  ${renderStatusSymbol(w.status)} ${w.path}  ${dim("(")}${renderStatusLabel(w.status)}${dim(")")}`);
+      }
+      for (const s of ee.skipped) p.log.warn(`  ${s.path}: ${s.reason}`);
+      for (const warn of ee.warnings) p.log.warn(`  ${warn}`);
+      if (ee.backupPath) p.log.message(`  ${dim("Backup:")} ${ee.backupPath}`);
+    }
+
     const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
     // In preview mode `written` means "would write" — the engine populates it
     // with pending changes without touching disk.
-    const anyPending = result.written || result.workspaces.some((w) => w.written);
+    const anyPending =
+      result.written ||
+      result.workspaces.some((w) => w.written) ||
+      (result.extraEngines ?? []).some((e) => e.written.length > 0);
     const summary = summarize(allEntries);
     if (preview) {
       if (anyPending) {

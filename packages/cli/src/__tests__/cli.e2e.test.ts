@@ -842,6 +842,43 @@ describe("CLI e2e — happy paths", () => {
     // express-mongoose stays put even though we could add a worker — no churn here.
     expect(after.preset).toBe("express-mongoose");
   });
+
+  it("render dispatches the agents-md engine alongside claude (#9)", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "multi-engine", dependencies: { next: "^15" } }),
+    });
+    dirs.push(repo);
+    runCli(["init", "--yes", "--no-render", "--cwd", repo]);
+
+    const cfgPath = join(repo, "navori.config.json");
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    cfg.engines = ["claude", "agents-md"];
+    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+
+    const r = runCli(["render", "--apply", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    // Both engines rendered: the .claude/ tree AND the universal AGENTS.md.
+    expect(existsSync(join(repo, ".claude/agents/leader.md"))).toBe(true);
+    expect(existsSync(join(repo, "AGENTS.md"))).toBe(true);
+    const agents = readFileSync(join(repo, "AGENTS.md"), "utf-8");
+    expect(agents).toContain("## Idioma y rol");
+    expect(agents).toContain("navori:user-section");
+  });
+
+  it("render warns, never silently ignores, an engine with no adapter yet (#9)", () => {
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "cursor-engine" }) });
+    dirs.push(repo);
+    runCli(["init", "--yes", "--no-render", "--cwd", repo]);
+
+    const cfgPath = join(repo, "navori.config.json");
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    cfg.engines = ["claude", "cursor"];
+    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+
+    const r = runCli(["render", "--apply", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).toMatch(/cursor.*adapter|adapter.*cursor/i);
+  });
 });
 
 describe("CLI e2e — coexist mode", () => {
