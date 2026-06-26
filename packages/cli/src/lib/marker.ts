@@ -380,6 +380,110 @@ export function extractManagedContent(
   return match ? match.content : null;
 }
 
+interface LocatedBlock {
+  id: string;
+  openStart: number;
+  closeEnd: number;
+}
+
+/** Enumerate every managed block (any id) in document order, with its bounds. */
+function locateManagedBlocks(content: string, syntax: MarkerSyntax): LocatedBlock[] {
+  // Match any open marker. The close prefix carries an extra "/" so it never
+  // matches here — we only capture opens, then find each one's close.
+  const openRegex = new RegExp(
+    `${escapeRegex(syntax.openPrefix)}\\s+id="([^"]+)"${syntax.attrsAndTerminatorPattern}`,
+    "g",
+  );
+  const blocks: LocatedBlock[] = [];
+  for (const m of content.matchAll(openRegex)) {
+    if (m.index === undefined) continue;
+    const id = m[1]!;
+    const close = closeMarker(id, syntax);
+    const closeStart = content.indexOf(close, m.index + m[0].length);
+    if (closeStart < 0) continue; // orphan open — leave to stripOrphanMarkers
+    blocks.push({ id, openStart: m.index, closeEnd: closeStart + close.length });
+  }
+  return blocks;
+}
+
+export interface ReorderResult {
+  output: string;
+  /** True when the block order actually changed. */
+  reordered: boolean;
+  /** True when reordering was skipped because the user wrote prose between two
+   * managed blocks (moving the blocks would orphan it). */
+  blockedByInterleaving: boolean;
+}
+
+/**
+ * Reorder the managed blocks in `content` so their order matches
+ * `canonicalOrder` (managed-block ids in canonical emission order).
+ *
+ * Why: `injectManagedSection` appends a NEW block at the end of an existing
+ * file, so a freshly-added block (e.g. a new "centre of gravity" section) lands
+ * last instead of in its canonical slot. This pass restores the canonical order
+ * — both for newly-appended blocks and for files that drifted out of order
+ * (hand edits, a repo onboarded before this existed).
+ *
+ * Idempotent: returns `content` byte-for-byte when the blocks are already in
+ * canonical order, so an already-ordered file produces no spurious diff.
+ *
+ * Safety — the managed region must be CONTIGUOUS. Content before the first
+ * block (a user preamble) and after the last (the user-section / project rules)
+ * is preserved verbatim. But if the user wrote prose BETWEEN two managed blocks,
+ * reordering would orphan it, so we leave everything untouched and report
+ * `blockedByInterleaving` for `doctor` to surface.
+ *
+ * Ids present in the document but absent from `canonicalOrder` keep their
+ * relative order and sort after all known ids (defensive: never drop a block).
+ */
+export function reorderManagedBlocks(
+  content: string,
+  canonicalOrder: readonly string[],
+  commentStyle: CommentStyle = "html",
+): ReorderResult {
+  const syntax = syntaxFor(commentStyle);
+  const blocks = locateManagedBlocks(content, syntax);
+  if (blocks.length < 2) {
+    return { output: content, reordered: false, blockedByInterleaving: false };
+  }
+
+  const rank = new Map<string, number>();
+  canonicalOrder.forEach((id, i) => {
+    if (!rank.has(id)) rank.set(id, i);
+  });
+  const unknownBase = canonicalOrder.length;
+
+  // Stable sort by canonical rank; unknown ids keep document order, after the
+  // known ones.
+  const desired = blocks
+    .map((b, i) => ({ b, i, key: rank.has(b.id) ? rank.get(b.id)! : unknownBase + i }))
+    .sort((a, z) => a.key - z.key || a.i - z.i)
+    .map((x) => x.b);
+
+  if (desired.every((b, i) => b === blocks[i])) {
+    return { output: content, reordered: false, blockedByInterleaving: false };
+  }
+
+  // Only whitespace may sit between consecutive blocks, or moving them would
+  // orphan user prose.
+  for (let i = 0; i < blocks.length - 1; i++) {
+    const gap = content.slice(blocks[i]!.closeEnd, blocks[i + 1]!.openStart);
+    if (gap.trim() !== "") {
+      return { output: content, reordered: false, blockedByInterleaving: true };
+    }
+  }
+
+  const first = blocks[0]!;
+  const last = blocks[blocks.length - 1]!;
+  const preamble = content.slice(0, first.openStart);
+  const suffix = content.slice(last.closeEnd);
+  const body = desired.map((b) => content.slice(b.openStart, b.closeEnd)).join("\n\n");
+  const pre = preamble === "" ? "" : preamble.replace(/\n*$/, "\n\n");
+
+  return { output: pre + body + suffix, reordered: true, blockedByInterleaving: false };
+}
+
 /**
  * Resolve a config path like "plugins.engram.enabled" against a config object
  * to a truthy/falsy value. Returns false if any segment is missing.

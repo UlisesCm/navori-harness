@@ -3,6 +3,7 @@ import {
   injectManagedSection,
   removeManagedSection,
   extractManagedContent,
+  reorderManagedBlocks,
   resolveCondition,
 } from "../marker.ts";
 
@@ -331,5 +332,72 @@ describe("resolveCondition", () => {
   it("works with single-segment paths", () => {
     expect(resolveCondition({ ok: true }, "ok")).toBe(true);
     expect(resolveCondition({ ok: false }, "ok")).toBe(false);
+  });
+});
+
+describe("reorderManagedBlocks", () => {
+  /** Build a doc with blocks in the given order, as injectManagedSection lays them out. */
+  const build = (ids: string[]): string =>
+    ids.reduce((acc, id) => injectManagedSection(acc, id, `body ${id}`).output, "");
+
+  /** Managed-block ids in document order. */
+  const order = (doc: string): string[] =>
+    [...doc.matchAll(/<!-- navori:managed id="([^"]+)"/g)].map((m) => m[1]!);
+
+  it("is a no-op when blocks are already in canonical order", () => {
+    const doc = build(["a", "b", "c"]);
+    const r = reorderManagedBlocks(doc, ["a", "b", "c"]);
+    expect(r.reordered).toBe(false);
+    expect(r.blockedByInterleaving).toBe(false);
+    expect(r.output).toBe(doc); // byte-for-byte idempotent
+  });
+
+  it("moves an appended block to its canonical slot", () => {
+    const doc = build(["b", "c", "a"]); // 'a' should be first
+    const r = reorderManagedBlocks(doc, ["a", "b", "c"]);
+    expect(r.reordered).toBe(true);
+    expect(order(r.output)).toEqual(["a", "b", "c"]);
+    // content of each block survives intact
+    expect(extractManagedContent(r.output, "a")).toBe("body a");
+  });
+
+  it("is idempotent — re-running on the reordered output changes nothing", () => {
+    const once = reorderManagedBlocks(build(["b", "c", "a"]), ["a", "b", "c"]).output;
+    const twice = reorderManagedBlocks(once, ["a", "b", "c"]);
+    expect(twice.reordered).toBe(false);
+    expect(twice.output).toBe(once);
+  });
+
+  it("preserves a user preamble above the blocks", () => {
+    const doc = "# Mi proyecto\n\n" + build(["b", "a"]);
+    const r = reorderManagedBlocks(doc, ["a", "b"]);
+    expect(r.output.startsWith("# Mi proyecto\n\n")).toBe(true);
+    expect(order(r.output)).toEqual(["a", "b"]);
+  });
+
+  it("preserves the user-section below the blocks", () => {
+    const doc = build(["b", "a"]) + "\n## Reglas del proyecto\n";
+    const r = reorderManagedBlocks(doc, ["a", "b"]);
+    expect(order(r.output)).toEqual(["a", "b"]);
+    expect(r.output.trimEnd().endsWith("## Reglas del proyecto")).toBe(true);
+  });
+
+  it("refuses to reorder when user prose sits between blocks", () => {
+    const doc = build(["a"]) + "\nNOTA DEL USUARIO\n\n" + build(["b"]);
+    const r = reorderManagedBlocks(doc, ["b", "a"]);
+    expect(r.reordered).toBe(false);
+    expect(r.blockedByInterleaving).toBe(true);
+    expect(r.output).toBe(doc); // untouched
+  });
+
+  it("no-ops on fewer than two blocks", () => {
+    const doc = build(["a"]);
+    expect(reorderManagedBlocks(doc, ["a", "b"]).reordered).toBe(false);
+  });
+
+  it("sorts unknown ids after known ones, keeping their relative order", () => {
+    const doc = build(["x", "a", "y", "b"]); // x, y not in canonical
+    const r = reorderManagedBlocks(doc, ["a", "b"]);
+    expect(order(r.output)).toEqual(["a", "b", "x", "y"]);
   });
 });
