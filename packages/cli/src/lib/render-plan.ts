@@ -314,6 +314,34 @@ export function computeRenderPlan(
 }
 
 /**
+ * Ids of the CLAUDE.md managed blocks the claude engine computes and injects
+ * AFTER the core/preset/plugin blocks (see engines/claude/index.ts steps 1b–1c).
+ * Kept here so the canonical block order is defined in ONE place, shared by the
+ * render's reorder pass and doctor's order check.
+ */
+const CLAUDE_COMPUTED_BLOCK_IDS = [
+  "skills-index",
+  "agentes-disponibles",
+  "contexto-proyecto",
+] as const;
+
+/**
+ * The canonical order of managed-block ids in CLAUDE.md: core assets (in
+ * CORE_MANAGED_ASSETS order) → preset extras → plugin blocks → the computed
+ * blocks the claude engine appends. Derived by planning against an EMPTY file
+ * so the result is pure emission order, independent of the current file's
+ * layout. Ids whose block is conditionally absent (condition false / plugin
+ * disabled) are dropped — harmless, since an absent id never matches a block.
+ */
+export function canonicalManagedOrder(config: NavoriConfig, repoRoot: string): string[] {
+  const plan = computeRenderPlan("", config, repoRoot);
+  const ids = plan.entries
+    .filter((entry) => entry.newContent !== null)
+    .map((entry) => entry.asset.id);
+  return [...ids, ...CLAUDE_COMPUTED_BLOCK_IDS];
+}
+
+/**
  * Re-render the same plan but skipping ids marked "user-modified-skipped".
  * Used by sync after the user resolved conflicts (decides to keep theirs).
  *

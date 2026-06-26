@@ -2,7 +2,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
 import { readBundledCoreVersion } from "./bundled-assets.ts";
-import { computeManagedHash, extractManagedContent } from "./marker.ts";
+import { computeManagedHash, extractManagedContent, reorderManagedBlocks } from "./marker.ts";
+import { canonicalManagedOrder } from "./render-plan.ts";
 import type { NavoriConfig } from "./config.ts";
 
 /**
@@ -165,10 +166,53 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   return out;
 }
 
+export interface OrderReport {
+  /** Managed-block ids in their current document order. */
+  current: string[];
+  /** The canonical order those same ids should appear in. */
+  expected: string[];
+  /** True when reordering is blocked because the user wrote prose between two
+   * managed blocks — `render`/`sync` can't auto-fix it, the user must move the
+   * text out of the managed region first. */
+  interleaved: boolean;
+}
+
+/**
+ * Check whether CLAUDE.md's managed blocks are in canonical order. Returns null
+ * when there's nothing to flag (no CLAUDE.md, fewer than two blocks, or already
+ * ordered). `render`/`sync` auto-fix the order; doctor surfaces it so a
+ * hand-edited or legacy file is visible before the next render.
+ */
+export function scanManagedOrder(cwd: string, config: NavoriConfig): OrderReport | null {
+  const claudeMdPath = join(cwd, "CLAUDE.md");
+  if (!existsSync(claudeMdPath)) return null;
+  const content = readFileSync(claudeMdPath, "utf-8");
+  const current = listMarkers(claudeMdPath).map((m) => m.id);
+  if (current.length < 2) return null;
+
+  const canonical = canonicalManagedOrder(config, cwd);
+  // Reuse the engine's reorder logic as the source of truth for "in order?".
+  const result = reorderManagedBlocks(content, canonical);
+  if (!result.reordered && !result.blockedByInterleaving) return null;
+
+  const rank = new Map<string, number>();
+  canonical.forEach((id, i) => {
+    if (!rank.has(id)) rank.set(id, i);
+  });
+  const expected = current
+    .map((id, i) => ({ id, i, key: rank.has(id) ? rank.get(id)! : canonical.length + i }))
+    .sort((a, z) => a.key - z.key || a.i - z.i)
+    .map((x) => x.id);
+
+  return { current, expected, interleaved: result.blockedByInterleaving };
+}
+
 export interface HealthState {
   claudeMdExists: boolean;
   missingPlugins: MissingPlugin[];
   drifts: DriftReport[];
+  /** CLAUDE.md managed blocks out of canonical order, if any. */
+  orderReport?: OrderReport | null;
 }
 
 /**
@@ -178,18 +222,26 @@ export interface HealthState {
 export function suggestNextSteps(state: HealthState): string[] {
   const steps: string[] = [];
   if (!state.claudeMdExists) {
-    steps.push("Corré 'navori render --apply' para generar CLAUDE.md + .claude/.");
+    steps.push("Corre 'navori render --apply' para generar CLAUDE.md + .claude/.");
   }
   if (state.missingPlugins.length > 0) {
     steps.push(
-      `Resolvé ${state.missingPlugins.length} plugin(s) faltante(s): instalalos o quitalos del config.`,
+      `Resuelve ${state.missingPlugins.length} plugin(s) faltante(s): instálalos o quítalos del config.`,
     );
   }
   if (state.drifts.some((d) => d.kind === "content")) {
-    steps.push("Corré 'navori sync --interactive' para resolver bloques editados a mano.");
+    steps.push("Corre 'navori sync --interactive' para resolver bloques editados a mano.");
   }
   if (state.drifts.some((d) => d.kind === "version")) {
-    steps.push("Corré 'navori render --apply' para traer los bloques a la última versión.");
+    steps.push("Corre 'navori render --apply' para traer los bloques a la última versión.");
+  }
+  if (state.orderReport && !state.orderReport.interleaved) {
+    steps.push("Corre 'navori render --apply' para reordenar los bloques de CLAUDE.md al orden canónico.");
+  }
+  if (state.orderReport?.interleaved) {
+    steps.push(
+      "Mueve el texto que tienes entre bloques managed de CLAUDE.md arriba del primer bloque o abajo del último; luego corre 'navori render --apply' para reordenarlos.",
+    );
   }
   if (steps.length === 0) {
     steps.push("Todo al día — sin acciones pendientes.");

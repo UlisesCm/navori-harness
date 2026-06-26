@@ -391,3 +391,45 @@ describe("renderClaudeEngine — language-aware baseline (tipado-fuerte)", () =>
     expect(claudeMd()).toContain("Tipado fuerte");
   });
 });
+
+describe("renderClaudeEngine — canonical block order", () => {
+  const blockIds = (md: string): string[] =>
+    [...md.matchAll(/<!-- navori:managed id="([^"]+)"/g)].map((m) => m[1]!);
+
+  /** Splice a managed block out and re-append it at the end — reproduces the
+   * pre-fix state where injectManagedSection appended a new block last. */
+  const moveBlockToEnd = (md: string, id: string): string => {
+    const open = md.match(new RegExp(`<!-- navori:managed id="${id}"[^>]*-->`))!;
+    const close = `<!-- /navori:managed id="${id}" -->`;
+    const start = open.index!;
+    const end = md.indexOf(close, start) + close.length;
+    const block = md.slice(start, end);
+    const rest = (md.slice(0, start) + md.slice(end)).replace(/\n{3,}/g, "\n\n").replace(/^\n+/, "");
+    return `${rest.trimEnd()}\n\n${block}\n`;
+  };
+
+  it("puts the orchestrator block first on a fresh render", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(blockIds(readFileSync(join(cwd, "CLAUDE.md"), "utf-8"))[0]).toBe("orquestacion");
+  });
+
+  it("restores a hand-moved orchestrator block to the front on re-render", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const path = join(cwd, "CLAUDE.md");
+    const disordered = moveBlockToEnd(readFileSync(path, "utf-8"), "orquestacion");
+    expect(blockIds(disordered)[0]).not.toBe("orquestacion"); // sanity: now last
+    writeFileSync(path, disordered);
+
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(blockIds(readFileSync(path, "utf-8"))[0]).toBe("orquestacion");
+  });
+
+  it("is idempotent — an already-ordered file re-renders unchanged", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const path = join(cwd, "CLAUDE.md");
+    const first = readFileSync(path, "utf-8");
+    const r = renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(r.written.some((w) => w.path === "CLAUDE.md")).toBe(false); // no rewrite
+    expect(readFileSync(path, "utf-8")).toBe(first);
+  });
+});
