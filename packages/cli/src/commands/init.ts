@@ -631,7 +631,7 @@ export const initCommand = defineCommand({
   },
 });
 
-function normalizeLang(raw: string | undefined): Lang | null {
+export function normalizeLang(raw: string | undefined): Lang | null {
   if (!raw) return null;
   const v = raw.toLowerCase().trim();
   if (v === "es" || v === "en") return v;
@@ -967,7 +967,7 @@ function findPluginIdForSkill(skillId: string): string | null {
   return null;
 }
 
-interface PreviewState {
+export interface PreviewState {
   name: string;
   workspace: string | undefined;
   engines: string[];
@@ -980,7 +980,7 @@ interface PreviewState {
   project?: Record<string, unknown>;
 }
 
-function buildConfigPreview(state: PreviewState, lang: Lang): string {
+export function buildConfigPreview(state: PreviewState, lang: Lang): string {
   const tr = t(lang);
   const rows: Array<[string, string]> = [];
   rows.push(["name", state.name || dim(tr.notDetectedParen)]);
@@ -1023,7 +1023,7 @@ function buildConfigPreview(state: PreviewState, lang: Lang): string {
  * Returns `null` only when the user actively cancels (Ctrl+C on the gate).
  * Returns `{}` when the user picks "skip" or answers nothing.
  */
-async function runProjectPrompts(
+export async function runProjectPrompts(
   prompts: LoadedPrompt[],
   lang: Lang,
 ): Promise<Record<string, unknown> | null> {
