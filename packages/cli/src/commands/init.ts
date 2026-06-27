@@ -649,8 +649,13 @@ export async function chooseAdoptionMode(
   const tr = t(args.lang);
 
   if (args.yes) {
-    // --yes implies coexist for safety: never replaces user infra silently
+    // --yes implies coexist for safety: never replaces user infra silently.
+    // Surface WHAT was detected (same summary the interactive flow shows below)
+    // so the coexist decision isn't a black box — otherwise a user who believes
+    // they cleaned the repo can't tell what triggered it (e.g. a leftover
+    // progress/ dir, which counts as infra even after .claude/CLAUDE.md are gone).
     p.log.warn(tr.existingInfraYesMode);
+    p.note(formatInfraSummary(infra, args.lang), tr.filesFoundTitle);
     return "coexist";
   }
 

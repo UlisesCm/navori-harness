@@ -153,6 +153,15 @@ describe("init — chooseAdoptionMode (interactive adoption, #7)", () => {
     const r = await chooseAdoptionMode("/x", makeInfra(true), "app", { yes: true, lang: "es" });
     expect(r).toBe("coexist");
     expect(p.select).not.toHaveBeenCalled();
+    // --yes still surfaces WHAT it detected, so coexist isn't a black box.
+    expect(p.note).toHaveBeenCalledWith(expect.stringContaining("CLAUDE.md"), expect.anything());
+  });
+
+  it("--yes lists a leftover progress/ dir as the infra that triggered coexist", async () => {
+    const infra = { ...makeInfra(false), present: true, progressFiles: 2 };
+    const r = await chooseAdoptionMode("/x", infra, "app", { yes: true, lang: "es" });
+    expect(r).toBe("coexist");
+    expect(p.note).toHaveBeenCalledWith(expect.stringContaining("progress/"), expect.anything());
   });
 
   it("selecting 'coexist' → 'coexist'", async () => {
