@@ -194,8 +194,11 @@ export const initCommand = defineCommand({
       const recommendedPlugins = args.recommended
         ? buildRecommendedPlugins(cwd)
         : {};
-      const mergedPlugins = { ...wsPlugins, ...recommendedPlugins };
+      // engram is always-on; workspace defaults / --recommended layer on top and
+      // may still override it explicitly.
+      const mergedPlugins = { ...ALWAYS_ON_PLUGINS, ...wsPlugins, ...recommendedPlugins };
 
+      p.log.info(tr.pluginsAlwaysOn(Object.keys(ALWAYS_ON_PLUGINS).join(", ")));
       if (args.recommended && Object.keys(recommendedPlugins).length > 0) {
         p.log.info(tr.recPluginsEnabled(Object.keys(recommendedPlugins).join(", ")));
       }
@@ -569,9 +572,10 @@ export const initCommand = defineCommand({
       }
     }
 
-    // Merge workspace-default plugins with user-selected plugins
+    // engram is always-on; workspace defaults + the user's wizard picks layer on
+    // top (the wizard never lists engram, so it can only add to it here).
     const wsPlugins = wsDefaults?.plugins ?? {};
-    const mergedPlugins = { ...wsPlugins, ...pluginsConfig };
+    const mergedPlugins = { ...ALWAYS_ON_PLUGINS, ...wsPlugins, ...pluginsConfig };
 
     const monorepoBlock = await buildMonorepoBlock(cwd, detected, {
       scanMonorepo: Boolean((args as { "scan-monorepo"?: boolean })["scan-monorepo"]),
@@ -689,8 +693,12 @@ export async function chooseAdoptionMode(
   return "coexist";
 }
 
-async function pickPlugins(lang: Lang): Promise<string[] | null> {
-  const ids = listKnownPluginIds();
+export async function pickPlugins(lang: Lang): Promise<string[] | null> {
+  // engram is always-on (ALWAYS_ON_PLUGINS) — don't offer it as opt-in; tell the
+  // user it's already included so its absence from the list isn't a surprise.
+  const alwaysOn = Object.keys(ALWAYS_ON_PLUGINS);
+  p.log.info(t(lang).pluginsAlwaysOn(alwaysOn.join(", ")));
+  const ids = listKnownPluginIds().filter((id) => !(id in ALWAYS_ON_PLUGINS));
   if (ids.length === 0) return [];
 
   const options = ids.map((id) => {
@@ -800,10 +808,24 @@ async function pickAgentAssignments(
  * Intentionally conservative — semgrep/jscpd/cognitive require external tools
  * that may not be installed; users add those explicitly.
  */
+/**
+ * Plugins navori enables on EVERY init, in every mode (--yes, --recommended,
+ * interactive). engram — persistent memory across sessions — is core to the
+ * navori experience, so it ships on by default rather than opt-in. Still
+ * removable by editing navori.config.json afterward; this only sets the default
+ * init writes, and the wizard never offers it as a choice.
+ */
+const ALWAYS_ON_PLUGINS: Record<string, { enabled: boolean }> = {
+  engram: { enabled: true },
+};
+
+/**
+ * Context-aware plugins enabled only by `--recommended`, layered on top of the
+ * always-on baseline. engram lives in ALWAYS_ON_PLUGINS now, so this only adds
+ * the extras that depend on the repo (e.g. gh when there's a GitHub remote).
+ */
 function buildRecommendedPlugins(cwd: string): Record<string, { enabled: boolean }> {
-  const result: Record<string, { enabled: boolean }> = {
-    engram: { enabled: true },
-  };
+  const result: Record<string, { enabled: boolean }> = {};
   if (isGitHubRepo(cwd)) {
     result.gh = { enabled: true };
   }

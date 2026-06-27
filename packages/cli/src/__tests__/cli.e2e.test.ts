@@ -86,6 +86,20 @@ describe("CLI e2e — happy paths", () => {
     expect(settings.$navori?.managed).toBe(true);
   });
 
+  it("init --yes (plain, no --recommended) still enables engram — it ships with navori, not opt-in", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+
+    const r = runCli(["init", "--yes", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.plugins?.engram?.enabled).toBe(true);
+    expect(readFileSync(join(repo, "CLAUDE.md"), "utf-8")).toContain(
+      "navori:managed id=\"engram-protocol\"",
+    );
+  });
+
   it("configure branch-base sets branchBase and re-render propagates it to gate scripts", () => {
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({ name: "bb-app", dependencies: { typescript: "^5" } }),
