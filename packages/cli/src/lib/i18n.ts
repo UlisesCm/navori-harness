@@ -116,6 +116,7 @@ interface Strings {
   detectionFailedYes: string;
   wroteConfig: (path: string) => string;
   recPluginsEnabled: (list: string) => string;
+  pluginsAlwaysOn: (list: string) => string;
   presetGapNotice: (stack: string) => string;
   placeholderNameNotice: (name: string) => string;
 
@@ -245,6 +246,7 @@ const ES: Strings = {
     "No detecté el nombre del proyecto. Corre sin --yes/--recommended para darlo.",
   wroteConfig: (path) => `Escribí ${path}`,
   recPluginsEnabled: (list) => `Plugins recomendados activados: ${list}`,
+  pluginsAlwaysOn: (list) => `Incluidos siempre con navori: ${list} (no hace falta elegirlos)`,
   presetGapNotice: (stack) =>
     `Detecté un proyecto '${stack}', pero todavía no hay un preset oficial para ese stack. ` +
     `Se instala el harness completo (agentes, gates, protocolo, SDD) y funciona desde ya; ` +
@@ -380,6 +382,7 @@ const EN: Strings = {
     "Could not detect project name. Run without --yes/--recommended to provide one.",
   wroteConfig: (path) => `Wrote ${path}`,
   recPluginsEnabled: (list) => `Recommended plugins enabled: ${list}`,
+  pluginsAlwaysOn: (list) => `Always included with navori: ${list} (no need to pick them)`,
   presetGapNotice: (stack) =>
     `Detected a '${stack}' project, but there's no official preset for that stack yet. ` +
     `The full harness installs (agents, gates, protocol, SDD) and works right away; ` +

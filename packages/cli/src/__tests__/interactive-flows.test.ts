@@ -49,6 +49,7 @@ import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
 import { resolveConflictsInteractively, type TargetPlan } from "../commands/sync.ts";
 import {
   chooseAdoptionMode,
+  pickPlugins,
   buildConfigPreview,
   runProjectPrompts,
   normalizeLang,
@@ -183,6 +184,18 @@ describe("init — chooseAdoptionMode (interactive adoption, #7)", () => {
     expect(r).toBe("replace");
     expect(createMigrationBackup).toHaveBeenCalledWith("/repo", "dash");
     expect(removeOriginals).toHaveBeenCalledWith("/repo", ["CLAUDE.md", ".claude"]);
+  });
+});
+
+describe("init — pickPlugins (engram is always-on, never offered)", () => {
+  it("omits engram from the wizard choices and announces it's always included", async () => {
+    queueAnswers([]); // user picks no extra plugins
+    const r = await pickPlugins("es");
+
+    expect(r).toEqual([]);
+    const options = vi.mocked(p.multiselect).mock.calls[0]![0].options as Array<{ value: string }>;
+    expect(options.map((o) => o.value)).not.toContain("engram");
+    expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining("engram"));
   });
 });
 
