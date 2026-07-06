@@ -83,10 +83,26 @@ describe("NavoriConfigSchema — boundary (spec 0003 §3.4.2)", () => {
     expect(NavoriConfigSchema.safeParse({ ...MINIMAL, preset: "" }).success).toBe(false);
   });
 
-  it("rejects wrong types and out-of-enum values", () => {
+  it("rejects wrong types", () => {
     expect(NavoriConfigSchema.safeParse({ ...MINIMAL, version: 123 }).success).toBe(false);
-    expect(NavoriConfigSchema.safeParse({ ...MINIMAL, language: "fr" }).success).toBe(false);
-    expect(NavoriConfigSchema.safeParse({ ...MINIMAL, engines: ["jetbrains"] }).success).toBe(false);
+  });
+
+  // Forward-compat (#70): unknown enum values from a newer navori are dropped
+  // (not rejected) so an older CLI keeps reading the config.
+  it("drops unknown engines but keeps the known ones", () => {
+    const c = NavoriConfigSchema.parse({ ...MINIMAL, engines: ["claude", "future-engine"] });
+    expect(c.engines).toEqual(["claude"]);
+  });
+
+  it("falls back to a default when ALL enum values are unknown", () => {
+    const c = NavoriConfigSchema.parse({ ...MINIMAL, engines: ["jetbrains"] });
+    expect(c.engines).toEqual(["claude"]);
+    expect(NavoriConfigSchema.parse({ ...MINIMAL, language: "fr" }).language).toBe("es");
+    expect(NavoriConfigSchema.parse({ ...MINIMAL, commits: "gitmoji" }).commits).toBe("conventional-es");
+  });
+
+  it("still rejects a genuinely empty engines array", () => {
+    expect(NavoriConfigSchema.safeParse({ ...MINIMAL, engines: [] }).success).toBe(false);
   });
 
   it("rejects a qualityGate with empty commands (min 1)", () => {

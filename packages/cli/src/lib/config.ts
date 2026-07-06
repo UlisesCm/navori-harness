@@ -69,7 +69,35 @@ export function readConfig(path: string): NavoriConfig {
       result.error.issues,
     );
   }
+  warnDroppedEnums(parsed, result.data);
   return result.data;
+}
+
+/**
+ * Surface (stderr, so stdout stays clean for --json) any enum values the
+ * tolerant schema dropped — i.e. this config was likely written by a newer
+ * navori. Silent dropping would hide that the CLI is out of date. Issue #70.
+ */
+function warnDroppedEnums(raw: unknown, parsed: NavoriConfig): void {
+  if (!raw || typeof raw !== "object") return;
+  const r = raw as Record<string, unknown>;
+  const dropped: string[] = [];
+  if (Array.isArray(r.engines)) {
+    for (const e of r.engines) {
+      if (typeof e === "string" && !(parsed.engines as string[]).includes(e)) {
+        dropped.push(`engines: "${e}"`);
+      }
+    }
+  }
+  for (const key of ["commits", "language"] as const) {
+    const v = r[key];
+    if (typeof v === "string" && v !== parsed[key]) dropped.push(`${key}: "${v}"`);
+  }
+  if (dropped.length > 0) {
+    process.stderr.write(
+      `navori: valores de config desconocidos ignorados (¿config de un navori más nuevo? actualizá el CLI): ${dropped.join(", ")}\n`,
+    );
+  }
 }
 
 export type { NavoriConfig, NavoriConfigInput };

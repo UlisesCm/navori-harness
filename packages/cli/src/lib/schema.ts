@@ -3,6 +3,35 @@ import { safeRelPath } from "./zod-helpers.ts";
 
 const ENGINES = ["claude", "agents-md", "cursor", "copilot"] as const;
 const MODELS = ["opus", "sonnet", "haiku"] as const;
+const COMMITS = ["conventional", "conventional-es", "free"] as const;
+const LANGUAGES = ["es", "en"] as const;
+
+/**
+ * Forward-compat enum helpers (issue #70). A config written by a NEWER navori
+ * may carry an engine / commit-style / language this CLI doesn't know. A plain
+ * `z.enum` makes `readConfig` throw on that value — breaking EVERY command for
+ * a config a teammate checked in. These drop the unknown values (keeping the
+ * known ones) and fall back to a sane default so an older CLI keeps working.
+ * readConfig surfaces a warning listing what it dropped.
+ */
+function tolerantEnumArray<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
+  return z.preprocess((val) => {
+    if (!Array.isArray(val)) return val; // let z.array report a non-array
+    const known = val.filter((v) => (values as readonly string[]).includes(v as string));
+    // Substitute the fallback only when the array had values but they were ALL
+    // unknown (forward-version config). A genuinely empty [] stays empty so
+    // `.min(1)` still flags it as a real error.
+    if (known.length === 0 && val.length > 0) return [fallback];
+    return known;
+  }, z.array(z.enum(values)).min(1));
+}
+
+function tolerantEnum<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
+  return z.preprocess(
+    (val) => (val === undefined || (values as readonly string[]).includes(val as string) ? val : fallback),
+    z.enum(values).default(fallback),
+  );
+}
 
 const QualityGateSchema = z.object({
   fast: z.string().min(1),
@@ -122,9 +151,9 @@ export const NavoriConfigSchema = z
     name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "name must be kebab-case"),
     version: z.string().default("1.0.0"),
     workspace: z.string().optional(),
-    engines: z.array(z.enum(ENGINES)).min(1),
+    engines: tolerantEnumArray(ENGINES, "claude"),
     preset: z.string().min(1),
-    language: z.enum(["es", "en"]).default("es"),
+    language: tolerantEnum(LANGUAGES, "es"),
     branchBase: z.string().default("main"),
     /** Target branch for PRs (`gh pr create --base`). When omitted, PRs target
      * branchBase. Decouples the fork point / protected branch (branchBase) from
@@ -132,7 +161,7 @@ export const NavoriConfigSchema = z
      * The render derives the effective value (prTarget ?? branchBase) so this
      * stays out of configs that don't need it. */
     prTarget: z.string().optional(),
-    commits: z.enum(["conventional", "conventional-es", "free"]).default("conventional-es"),
+    commits: tolerantEnum(COMMITS, "conventional-es"),
     qualityGate: QualityGateSchema.optional(),
     sdd: SddSchema.optional(),
     harness: HarnessSchema.optional(),
