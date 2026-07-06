@@ -1,0 +1,23 @@
+{
+  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "id": "vite-react-ts",
+  "displayName": "Vite + React + TS SPA (UI-lib-agnostic)",
+  "extends": "core",
+  "extras": {
+    "managed": [
+      {
+        "id": "stack-vite-react-ts",
+        "relPath": "presets/vite-react-ts/managed/stack.md"
+      }
+    ],
+    "agents": [],
+    "skills": [
+      {
+        "id": "new-feature",
+        "relPath": "presets/vite-react-ts-mantine/skills/new-feature.md",
+        "destRelPath": ".claude/skills/new-feature.md"
+      }
+    ],
+    "hooks": []
+  }
+}

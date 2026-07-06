@@ -136,6 +136,63 @@ describe("detectProject — Python without pyproject.toml (#70)", () => {
     }
   });
 
+  it("express WITHOUT mongoose picks the neutral 'express' preset (#70)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "streaming", dependencies: { express: "^4", "socket.io": "^4" } }),
+      );
+      const d = detectProject(dir);
+      expect(d.stack.framework).toBe("express");
+      expect(d.suggestedPreset).toBe("express");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("React+Vite WITHOUT Mantine picks the 'vite-react-ts' preset (#70)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "webmentoring", dependencies: { react: "^18", "react-dom": "^18" }, devDependencies: { vite: "^5" } }),
+      );
+      const d = detectProject(dir);
+      expect(d.suggestedPreset).toBe("vite-react-ts");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("React+Vite WITH Mantine stays on 'vite-react-ts-mantine' (#70)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "webapp", dependencies: { react: "^18", "@mantine/core": "^7" }, devDependencies: { vite: "^5" } }),
+      );
+      const d = detectProject(dir);
+      expect(d.suggestedPreset).toBe("vite-react-ts-mantine");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("express WITH mongoose stays on 'express-mongoose' (#70)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "api", dependencies: { express: "^4", mongoose: "^8" } }),
+      );
+      const d = detectProject(dir);
+      expect(d.suggestedPreset).toBe("express-mongoose");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   it("does NOT misclassify a JS repo that has an incidental requirements.txt", () => {
     const dir = makeTmp();
     try {
@@ -301,7 +358,8 @@ describe("detectProject — suggested preset never points to a phantom (F1)", ()
       );
       const d = detectProject(dir);
       expect(d.monorepo).toBeNull();
-      expect(d.suggestedPreset).toBe("express-mongoose");
+      // express without mongoose → the neutral express preset (#70)
+      expect(d.suggestedPreset).toBe("express");
     } finally {
       rmSync(dir, { recursive: true });
     }

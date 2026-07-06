@@ -685,7 +685,10 @@ function pickPresetCandidate(stack: StackInfo, monorepo: MonorepoInfo | null): s
   const usesMongoose = stack.deps.includes("mongoose");
   if (stack.worker && fw === "express" && !usesMongoose) return "background-worker";
   if (stack.worker && fw === null) return "background-worker";
-  if (fw === "express") return "express-mongoose";
+  // express + mongoose → data-API preset (Mongo skills). express WITHOUT mongoose
+  // (Socket.IO / PeerJS / native driver services) → the neutral express preset,
+  // which drops the Mongo-specific skills (mongo-aggregations, new-resource). #70
+  if (fw === "express") return usesMongoose ? "express-mongoose" : "express";
 
   return "custom";
 }
