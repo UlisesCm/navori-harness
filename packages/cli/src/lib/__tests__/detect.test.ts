@@ -90,6 +90,63 @@ describe("detectProject — name detection", () => {
       rmSync(dir, { recursive: true });
     }
   });
+});
+
+describe("detectProject — Python without pyproject.toml (#70)", () => {
+  it("detects Python + framework + ruff/pytest gate from requirements.txt", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "requirements.txt"), "fastapi==0.110\nuvicorn\npytest>=8\n# a comment\n-e .\n");
+      const d = detectProject(dir);
+      expect(d.stack.language).toBe("python");
+      expect(d.stack.framework).toBe("fastapi");
+      // navori ships no python preset, so the candidate gaps down to the custom
+      // baseline — but the ruff/pytest quality gate (the real win) still fires.
+      expect(d.suggestedPreset).toBe("custom");
+      expect(d.qualityGate).toEqual({ fast: "ruff check .", full: "ruff check . && pytest" });
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("detects Python from a loose .py script with no manifest (reports-server case)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "report.py"), "print('pdf')\n");
+      const d = detectProject(dir);
+      expect(d.stack.language).toBe("python");
+      // no manifest/deps → custom baseline, but ruff gate still fires (was
+      // language:"unknown" with no gate at all before #70).
+      expect(d.suggestedPreset).toBe("custom");
+      expect(d.qualityGate?.fast).toBe("ruff check .");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("detects Python deps from Pipfile", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "Pipfile"), '[packages]\ndjango = "*"\ncelery = "*"\n\n[dev-packages]\npytest = "*"\n');
+      const d = detectProject(dir);
+      expect(d.stack.language).toBe("python");
+      expect(d.stack.framework).toBe("django");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("does NOT misclassify a JS repo that has an incidental requirements.txt", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "web", dependencies: { react: "^18", vite: "^5" } }));
+      writeFileSync(join(dir, "requirements.txt"), "boto3\n");
+      const d = detectProject(dir);
+      expect(d.stack.language).not.toBe("python");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
 
   it("falls back to directory name when no manifest exists", () => {
     const parent = makeTmp();
