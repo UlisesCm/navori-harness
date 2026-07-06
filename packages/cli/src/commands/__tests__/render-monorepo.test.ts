@@ -73,6 +73,37 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
     expect(storefrontHook).toContain("pnpm -w lint");
   });
 
+  it("workspace CLAUDE.md omits root-only global blocks but keeps stack-specific ones (#70)", () => {
+    mkdirSync(join(cwd, "apps/backend"), { recursive: true });
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "monorepo-demo",
+      engines: ["claude"],
+      preset: "custom",
+      project: { codeLanguage: "ts" },
+      monorepo: {
+        enabled: true,
+        tool: "turbo",
+        workspaces: [{ name: "backend", path: "apps/backend" }],
+      },
+    });
+
+    runRender(cwd);
+
+    const root = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+    const ws = readFileSync(join(cwd, "apps/backend/CLAUDE.md"), "utf-8");
+
+    // Root carries the global blocks.
+    expect(root).toContain('navori:managed id="orquestacion"');
+    expect(root).toContain('navori:managed id="idioma-rol"');
+
+    // Workspace inherits those from the parent → NOT re-emitted.
+    expect(ws).not.toContain('navori:managed id="orquestacion"');
+    expect(ws).not.toContain('navori:managed id="idioma-rol"');
+    expect(ws).not.toContain('navori:managed id="operaciones-seguras"');
+    // But the stack-specific TS block (per-workspace language) stays.
+    expect(ws).toContain('navori:managed id="tipado-fuerte"');
+  });
+
   it("does NOT resurrect a declared workspace whose directory was deleted (#70)", () => {
     // Only apps/backend exists on disk; apps/ghost is declared but was removed.
     mkdirSync(join(cwd, "apps/backend"), { recursive: true });

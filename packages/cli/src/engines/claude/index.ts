@@ -272,6 +272,10 @@ export function renderClaudeEngine(
   const dryRun = options.dryRun === true;
   const force = options.force === true;
   const repoRoot = options.repoRoot ?? cwd;
+  // A workspace render (repoRoot points elsewhere than cwd) omits the root-only
+  // global blocks — Claude Code already loads them from the parent CLAUDE.md.
+  // Issue #70.
+  const isWorkspace = options.repoRoot != null && resolve(options.repoRoot) !== resolve(cwd);
   // Root the bundled core assets resolve against (vs a local preset's folder).
   const coreAssets = resolve(getCoreRoot(), "core-assets");
   const skipped: Array<{ path: string; reason: string }> = [];
@@ -289,6 +293,7 @@ export function renderClaudeEngine(
   const claudeMdPlan = computeRenderPlan(claudeMdExisting, config, repoRoot, {
     skipIds: options.skipIds,
     forceIds: options.forceIds,
+    omitRootOnly: isWorkspace,
   });
   inspected += 1;
 
@@ -375,7 +380,7 @@ export function renderClaudeEngine(
   // gravity" block that must lead the file. Restore canonical order. No-op when
   // already ordered (so no spurious diff); skipped, with a warning, when the
   // user wove prose between blocks (moving them would orphan it).
-  const reorder = reorderManagedBlocks(claudeMdContent, canonicalManagedOrder(config, repoRoot));
+  const reorder = reorderManagedBlocks(claudeMdContent, canonicalManagedOrder(config, repoRoot, isWorkspace));
   claudeMdContent = reorder.output;
   if (reorder.blockedByInterleaving) {
     warnings.push(
