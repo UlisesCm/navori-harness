@@ -3,6 +3,7 @@ import * as p from "@clack/prompts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig } from "../lib/config.ts";
+import { readConfigOrExit } from "../lib/cli-config.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render-plan.ts";
 import {
   renderClaudeEngine,
@@ -133,7 +134,7 @@ export function runRender(
     };
   }
 
-  const config = readConfig(configPath);
+  const config = readConfigOrExit(configPath);
   benchMark("loadConfig");
 
   // --workspace filter path: skip root, render only the matching workspace.

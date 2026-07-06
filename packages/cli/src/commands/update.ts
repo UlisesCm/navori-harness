@@ -2,7 +2,8 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { readConfig, writeConfig, type NavoriConfig } from "../lib/config.ts";
+import { writeConfig, type NavoriConfig } from "../lib/config.ts";
+import { readConfigOrExit } from "../lib/cli-config.ts";
 import { detectProject } from "../lib/detect.ts";
 import { runRender } from "./render.ts";
 import { brand, dim, color, accent, sym } from "../lib/style.ts";
@@ -133,7 +134,7 @@ export const updateCommand = defineCommand({
       process.exit(1);
     }
 
-    const config = readConfig(configPath);
+    const config = readConfigOrExit(configPath);
     const detected = detectProject(cwd);
     const diffs = diffConfig(config, detected);
 
