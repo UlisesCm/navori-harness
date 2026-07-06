@@ -463,9 +463,10 @@ describe("CLI e2e — happy paths", () => {
     // Edit the body of leader-base WITHOUT touching the marker line.
     const leaderPath = join(repo, ".claude/agents/leader.md");
     const tampered = readFileSync(leaderPath, "utf-8").replace(
-      "Tu único trabajo es",
-      "USER-EDIT — Tu único trabajo es",
+      "Tu único trabajo como orquestador es",
+      "USER-EDIT — Tu único trabajo como orquestador es",
     );
+    expect(tampered).toContain("USER-EDIT"); // guard: anchor still exists in the asset
     writeFileSync(leaderPath, tampered, "utf-8");
 
     const r = runCli(["sync", "--apply", "--yes", "--cwd", repo]);
@@ -475,7 +476,7 @@ describe("CLI e2e — happy paths", () => {
 
     // The user edit must be preserved (sync refused to overwrite)
     const after = readFileSync(leaderPath, "utf-8");
-    expect(after).toContain("USER-EDIT — Tu único trabajo es");
+    expect(after).toContain("USER-EDIT — Tu único trabajo como orquestador es");
   });
 
   it("status reports a clean snapshot after init (spec 0003 §3.5.3)", () => {
@@ -605,7 +606,11 @@ describe("CLI e2e — happy paths", () => {
     const firstBlock = claudeMd.match(/navori:managed id="([^"]+)"/)?.[1];
     expect(firstBlock).toBe("orquestacion");
     expect(claudeMd).toContain("## Rol: orquestador");
-    expect(claudeMd).toContain("actúas como el `leader`");
+    // The orchestration mechanics are inlined here (self-contained, auto-loaded)
+    // and the main agent is told to embody the role, never delegate it — so a
+    // spawned `leader` subagent can't recreate the serialized-work regression.
+    expect(claudeMd).toContain("actúas como el orquestador");
+    expect(claudeMd).toContain("Agent(subagent_type: leader)");
 
     // The agents index lists the spawnable leaf agents — but NOT the leader,
     // since the main agent embeds that role rather than delegating to it.
@@ -716,10 +721,9 @@ describe("CLI e2e — happy paths", () => {
     // now differs.
     const leaderPath = join(repo, ".claude/agents/leader.md");
     const original = readFileSync(leaderPath, "utf-8");
-    const tampered = original.replace(
-      "# Agente Líder (Orquestador)",
-      "# Agente Líder (Orquestador)\n\nINJECTED LINE BY USER",
-    );
+    const anchor = "# Playbook del Orquestador (encarnado por el agente principal)";
+    expect(original).toContain(anchor); // guard: anchor still exists in the asset
+    const tampered = original.replace(anchor, `${anchor}\n\nINJECTED LINE BY USER`);
     writeFileSync(leaderPath, tampered, "utf-8");
 
     const r = runCli(["doctor", "--json", "--cwd", repo]);
@@ -743,11 +747,9 @@ describe("CLI e2e — happy paths", () => {
     // Inject content drift
     const leaderPath = join(repo, ".claude/agents/leader.md");
     const original = readFileSync(leaderPath, "utf-8");
-    writeFileSync(
-      leaderPath,
-      original.replace("# Agente Líder (Orquestador)", "# Agente Líder INJECTED"),
-      "utf-8",
-    );
+    const anchor = "# Playbook del Orquestador (encarnado por el agente principal)";
+    expect(original).toContain(anchor); // guard: anchor still exists in the asset
+    writeFileSync(leaderPath, original.replace(anchor, "# Playbook INJECTED"), "utf-8");
 
     // Default (no --strict): exit 0 even with drift (back-compat)
     const lenient = runCli(["doctor", "--cwd", repo]);
