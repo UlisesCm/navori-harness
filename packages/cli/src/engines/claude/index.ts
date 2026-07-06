@@ -12,6 +12,7 @@ import { injectManagedSection, removeManagedSection, reorderManagedBlocks, resol
 import type { RenderStatus } from "../../lib/style.ts";
 import { isNavoriOwnedSettings } from "./settings-detection.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
+import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
 import { renderManagedFile } from "./render-managed-file.ts";
 import { interpolate } from "./interpolate.ts";
 import { benchMark } from "../../lib/bench.ts";
@@ -752,17 +753,26 @@ function planSettings(
   }
 
   if (!isNavoriOwnedSettings(parsed)) {
-    // Issue #4: --force also lets the user adopt a hand-written settings.json
-    // explicitly. Without --force we still refuse so navori never overwrites
-    // a harness it didn't create.
+    // Issue #4: --force lets the user fully adopt a hand-written settings.json
+    // (overwrite → navori-owned henceforth).
     if (force) {
       return { kind: "write", path, content: newJson, status: "updated" };
     }
-    return {
-      kind: "skip",
-      path,
-      reason: "settings.json existe sin `$navori.managed = true`. Corré 'navori init' en modo replace o 'navori render --force --apply' para adoptar.",
-    };
+    // Issue #69: coexist. Rather than skip (which left the guard hook written
+    // but unregistered → dead), inject navori's defensive layers (guard +
+    // quality-gate hooks, deny/ask rules) into the user's file, preserving all
+    // their keys. Idempotent; the file stays hybrid (no `$navori.managed`).
+    if (!isPlainObject(parsed)) {
+      return {
+        kind: "skip",
+        path,
+        reason: "settings.json no es un objeto JSON — no se puede fusionar. Corré 'navori render --force --apply' para regenerar.",
+      };
+    }
+    const merged = mergeCoexistSettings(parsed, newSettings);
+    const mergedJson = JSON.stringify(merged, null, 2) + "\n";
+    if (mergedJson === readFileSync(path, "utf-8")) return { kind: "noop" };
+    return { kind: "write", path, content: mergedJson, status: "updated" };
   }
 
   const current = readFileSync(path, "utf-8");

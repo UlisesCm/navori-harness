@@ -130,8 +130,8 @@ describe("renderClaudeEngine — idempotency", () => {
   });
 });
 
-describe("renderClaudeEngine — settings.json adoption guard (DT-2)", () => {
-  it("skips a pre-existing settings.json that lacks the $navori marker", () => {
+describe("renderClaudeEngine — settings.json coexist injection (DT-2 / #69)", () => {
+  it("injects navori's defensive layers into a non-owned settings.json, preserving user keys", () => {
     mkdirSync(join(cwd, ".claude"), { recursive: true });
     writeFileSync(
       join(cwd, ".claude/settings.json"),
@@ -140,12 +140,37 @@ describe("renderClaudeEngine — settings.json adoption guard (DT-2)", () => {
     );
 
     const r = renderClaudeEngine(cwd, CONFIG_FULL);
-    const settingsRaw = readFileSync(join(cwd, ".claude/settings.json"), "utf-8");
-    // The user file is intact
-    expect(settingsRaw).toContain("Bash(ls)");
-    expect(settingsRaw).not.toContain("$navori");
-    // The skipped list mentions it
-    expect(r.skipped.some((s) => s.path === ".claude/settings.json")).toBe(true);
+    const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
+
+    // The user's own permission is preserved.
+    expect(settings.permissions.allow).toContain("Bash(ls)");
+    // The guard hook is now actually registered (was written-but-dead before).
+    const commands = (settings.hooks.PreToolUse as Array<{ hooks: Array<{ command: string }> }>)
+      .flatMap((e) => e.hooks)
+      .map((h) => h.command);
+    expect(commands).toContain("bash .claude/hooks/guard-destructive.sh");
+    // deny/ask defensive rules injected.
+    expect(settings.permissions.deny).toContain("Bash(rm -rf /)");
+    // navori tracks what it injected but does NOT claim ownership.
+    expect(settings.$navori.managed).toBeUndefined();
+    expect(settings.$navori.managedHooks.length).toBeGreaterThan(0);
+    // It is reported as written (updated), not skipped.
+    expect(r.skipped.some((s) => s.path === ".claude/settings.json")).toBe(false);
+    expect(r.written.some((w) => w.path === ".claude/settings.json")).toBe(true);
+  });
+
+  it("is idempotent — a second render of the injected file is a no-op", () => {
+    mkdirSync(join(cwd, ".claude"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".claude/settings.json"),
+      JSON.stringify({ permissions: { allow: ["Bash(ls)"] } }, null, 2),
+      "utf-8",
+    );
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const afterFirst = readFileSync(join(cwd, ".claude/settings.json"), "utf-8");
+    const r2 = renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(readFileSync(join(cwd, ".claude/settings.json"), "utf-8")).toBe(afterFirst);
+    expect(r2.written.some((w) => w.path === ".claude/settings.json")).toBe(false);
   });
 });
 
