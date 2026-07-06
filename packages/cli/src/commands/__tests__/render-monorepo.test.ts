@@ -73,6 +73,34 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
     expect(storefrontHook).toContain("pnpm -w lint");
   });
 
+  it("does NOT resurrect a declared workspace whose directory was deleted (#70)", () => {
+    // Only apps/backend exists on disk; apps/ghost is declared but was removed.
+    mkdirSync(join(cwd, "apps/backend"), { recursive: true });
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "monorepo-demo",
+      engines: ["claude"],
+      preset: "monorepo-turbopnpm",
+      monorepo: {
+        enabled: true,
+        tool: "turbo",
+        workspaces: [
+          { name: "backend", path: "apps/backend" },
+          { name: "ghost", path: "apps/ghost" },
+        ],
+      },
+    });
+
+    const result = runRender(cwd);
+
+    expect(result.ok).toBe(true);
+    // The orphan is skipped, not resurrected.
+    expect(existsSync(join(cwd, "apps/ghost"))).toBe(false);
+    expect(result.workspaces.map((w) => w.workspaceName)).toEqual(["backend"]);
+    expect(result.orphanedWorkspaces).toEqual(["apps/ghost"]);
+    // The live workspace still renders.
+    expect(existsSync(join(cwd, "apps/backend/CLAUDE.md"))).toBe(true);
+  });
+
   it("resolves a local preset from the repo root for every workspace (repoRoot)", () => {
     // A local preset lives ONLY at the repo root (.navori/presets/), shared by
     // every workspace. Each workspace renders with its own cwd (apps/api), so

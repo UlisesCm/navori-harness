@@ -10,7 +10,7 @@ import {
   type ClaudeEngineResult,
 } from "../engines/claude/index.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
-import { renderStatusSymbol, renderStatusLabel, dim, color, brand, type RenderStatus } from "../lib/style.ts";
+import { renderStatusSymbol, renderStatusLabel, dim, color, brand, sym, type RenderStatus } from "../lib/style.ts";
 import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
 
@@ -105,6 +105,8 @@ export function runRender(
   backupPath?: string | null;
   engineResult?: ClaudeEngineResult;
   workspaces: WorkspaceRenderResult[];
+  /** Declared workspaces whose directory no longer exists on disk (#70). */
+  orphanedWorkspaces?: string[];
   /** Non-Claude engines (agents-md, plus warnings for cursor/copilot). */
   extraEngines?: EngineRenderSummary[];
 } {
@@ -211,9 +213,19 @@ export function runRender(
     : undefined;
 
   const workspaces: WorkspaceRenderResult[] = [];
+  const orphanedWorkspaces: string[] = [];
   if (renderClaude) {
     for (const ws of config.monorepo?.workspaces ?? []) {
       const wsCwd = resolve(cwd, ws.path);
+      // #70: a workspace deleted from disk (or removed from the workspace glob)
+      // but still declared in config must NOT be resurrected — renderClaudeEngine
+      // would mkdir it and write a full .claude/ tree into a dir that shouldn't
+      // exist. Skip + surface it so the user prunes config (mirrors the guard in
+      // the cross-repo workspace render).
+      if (!existsSync(wsCwd)) {
+        orphanedWorkspaces.push(ws.path);
+        continue;
+      }
       const wsConfig = effectiveConfigForWorkspace(config, ws);
       const wsResult = renderClaudeEngine(wsCwd, wsConfig, {
         dryRun,
@@ -246,6 +258,7 @@ export function runRender(
     backupPath: engineResult?.backupPath ?? null,
     engineResult,
     workspaces,
+    orphanedWorkspaces,
     extraEngines,
   };
 }
@@ -335,6 +348,14 @@ export const renderCommand = defineCommand({
       if (ws.backupPath) {
         p.log.message(`${dim("Backup:")} ${ws.backupPath}`);
       }
+    }
+
+    if (result.orphanedWorkspaces && result.orphanedWorkspaces.length > 0) {
+      p.log.warn(
+        `Workspaces declarados en config pero ausentes en disco (${result.orphanedWorkspaces.length}) — ` +
+          `no se renderizaron (evita resucitar dirs borrados). Corré 'navori scan' o quitá del config:\n` +
+          result.orphanedWorkspaces.map((w) => `  ${color.yellow(sym.update)} ${w}`).join("\n"),
+      );
     }
 
     for (const ee of result.extraEngines ?? []) {
