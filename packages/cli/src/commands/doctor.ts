@@ -309,13 +309,17 @@ export const doctorCommand = defineCommand({
     }
 
     if (orderReport) {
+      const spotlight = orderReport.misplacedFirst
+        ? `\n  → '${orderReport.misplacedFirst.id}' (centro de gravedad) está en posición ` +
+          `${orderReport.misplacedFirst.currentPos} de ${orderReport.misplacedFirst.total}, debería ir 1º.`
+        : "";
       if (orderReport.interleaved) {
         p.log.warn(
           `Bloques managed de CLAUDE.md fuera del orden canónico — NO se pueden reordenar ` +
             `automáticamente porque hay texto tuyo entre bloques. Mueve ese texto arriba del ` +
             `primer bloque managed o abajo del último; luego corre 'navori render --apply'.\n` +
             `  orden actual:   ${orderReport.current.join(", ")}\n` +
-            `  orden canónico: ${orderReport.expected.join(", ")}`,
+            `  orden canónico: ${orderReport.expected.join(", ")}${spotlight}`,
         );
       } else {
         p.log.warn(
@@ -323,7 +327,7 @@ export const doctorCommand = defineCommand({
             `o 'navori sync' para reordenarlos (el primer bloque marca el centro de gravedad del ` +
             `harness).\n` +
             `  orden actual:   ${orderReport.current.join(", ")}\n` +
-            `  orden canónico: ${orderReport.expected.join(", ")}`,
+            `  orden canónico: ${orderReport.expected.join(", ")}${spotlight}`,
         );
       }
     }

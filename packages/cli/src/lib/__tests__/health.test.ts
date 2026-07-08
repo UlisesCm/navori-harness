@@ -65,19 +65,33 @@ describe("suggestNextSteps (spec 0003 §3.5.3)", () => {
       claudeMdExists: true,
       missingPlugins: [],
       drifts: [],
-      orderReport: { current: ["idioma-rol", "orquestacion"], expected: ["orquestacion", "idioma-rol"], interleaved: false },
+      orderReport: {
+        current: ["idioma-rol", "orquestacion"],
+        expected: ["orquestacion", "idioma-rol"],
+        interleaved: false,
+        misplacedFirst: null,
+      },
     });
     expect(steps.some((s) => s.includes("reordenar"))).toBe(true);
   });
 
-  it("tells the user to move interleaved prose before reordering", () => {
+  it("tells the user to move interleaved prose before reordering, naming the misplaced lead block", () => {
     const steps = suggestNextSteps({
       claudeMdExists: true,
       missingPlugins: [],
       drifts: [],
-      orderReport: { current: ["idioma-rol", "orquestacion"], expected: ["orquestacion", "idioma-rol"], interleaved: true },
+      orderReport: {
+        current: ["idioma-rol", "orquestacion"],
+        expected: ["orquestacion", "idioma-rol"],
+        interleaved: true,
+        misplacedFirst: { id: "orquestacion", currentPos: 2, total: 2 },
+      },
     });
-    expect(steps.some((s) => s.startsWith("Mueve"))).toBe(true);
+    const move = steps.find((s) => s.startsWith("Mueve"));
+    expect(move).toBeDefined();
+    // The spotlight makes it actionable: names the block and where it should go.
+    expect(move).toContain("orquestacion");
+    expect(move).toContain("debería ir 1º");
   });
 });
 
@@ -224,9 +238,11 @@ describe("scanManagedOrder", () => {
     expect(r!.current).toEqual(["idioma-rol", "orquestacion"]);
     expect(r!.expected).toEqual(["orquestacion", "idioma-rol"]);
     expect(r!.interleaved).toBe(false);
+    // #71 item 9: spotlight the lead block that's out of place.
+    expect(r!.misplacedFirst).toEqual({ id: "orquestacion", currentPos: 2, total: 2 });
   });
 
-  it("flags interleaved prose so the order can't be auto-fixed", () => {
+  it("flags interleaved prose so the order can't be auto-fixed, spotlighting the lead block", () => {
     let doc = injectManagedSection("", "idioma-rol", "x").output;
     doc = `${doc.trimEnd()}\n\nNOTA DEL USUARIO\n\n`;
     doc = injectManagedSection(doc, "orquestacion", "y").output;
@@ -235,5 +251,6 @@ describe("scanManagedOrder", () => {
     const r = scanManagedOrder(cwd, config);
     expect(r).not.toBeNull();
     expect(r!.interleaved).toBe(true);
+    expect(r!.misplacedFirst).toEqual({ id: "orquestacion", currentPos: 2, total: 2 });
   });
 });

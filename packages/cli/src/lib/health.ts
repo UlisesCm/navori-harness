@@ -179,6 +179,11 @@ export interface OrderReport {
    * managed blocks — `render`/`sync` can't auto-fix it, the user must move the
    * text out of the managed region first. */
   interleaved: boolean;
+  /** The block that should lead (canonical-first among present blocks, the
+   * harness "center of gravity") with its 1-based current position — set only
+   * when it isn't already first. Spotlights the common legacy case where
+   * `orquestacion` got appended last. null when the lead block is correct. */
+  misplacedFirst: { id: string; currentPos: number; total: number } | null;
 }
 
 /**
@@ -208,7 +213,17 @@ export function scanManagedOrder(cwd: string, config: NavoriConfig): OrderReport
     .sort((a, z) => a.key - z.key || a.i - z.i)
     .map((x) => x.id);
 
-  return { current, expected, interleaved: result.blockedByInterleaving };
+  // Spotlight the block that should lead: `expected[0]` is the canonical-first
+  // among the present blocks. If it isn't already at index 0, name it and its
+  // current position so the diagnostic is actionable, not just two id lists.
+  const lead = expected[0];
+  const leadPos = lead !== undefined ? current.indexOf(lead) : -1;
+  const misplacedFirst =
+    lead !== undefined && leadPos > 0
+      ? { id: lead, currentPos: leadPos + 1, total: current.length }
+      : null;
+
+  return { current, expected, interleaved: result.blockedByInterleaving, misplacedFirst };
 }
 
 export interface HealthState {
@@ -243,8 +258,12 @@ export function suggestNextSteps(state: HealthState): string[] {
     steps.push("Corre 'navori render --apply' para reordenar los bloques de CLAUDE.md al orden canónico.");
   }
   if (state.orderReport?.interleaved) {
+    const mf = state.orderReport.misplacedFirst;
+    const lead = mf
+      ? ` (p.ej. '${mf.id}' está en posición ${mf.currentPos} de ${mf.total} y debería ir 1º)`
+      : "";
     steps.push(
-      "Mueve el texto que tienes entre bloques managed de CLAUDE.md arriba del primer bloque o abajo del último; luego corre 'navori render --apply' para reordenarlos.",
+      `Mueve el texto que tienes entre bloques managed de CLAUDE.md arriba del primer bloque o abajo del último${lead}; luego corre 'navori render --apply' para reordenarlos.`,
     );
   }
   if (steps.length === 0) {
