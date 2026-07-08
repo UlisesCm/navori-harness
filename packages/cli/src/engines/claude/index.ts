@@ -661,6 +661,13 @@ export function renderClaudeEngine(
     };
   }
 
+  // The writes below are atomic per-file but not transactional across files, so
+  // a crash mid-loop leaves a partial tree. Write CLAUDE.md LAST (stable sort):
+  // it's the file the user actually reads, so on a crash it stays at its intact
+  // prior version while only the .claude/ subtree is partial — the least
+  // surprising failure mode. Issue #71 item 10.
+  pending.sort((a, b) => Number(a.path === claudeMdPath) - Number(b.path === claudeMdPath));
+
   if (!dryRun) {
     // Backup the full pre-render state of files navori owns. Recursive over
     // .claude/ but skipping settings.local.json (per-user, gitignored) and
@@ -677,6 +684,10 @@ export function renderClaudeEngine(
         purgeOldBackups();
       }
     }
+
+    // Log the backup path up front: if a write below crashes mid-loop, this is
+    // the recovery breadcrumb (the return value never lands).
+    if (backupPath) log.debug("pre-write backup", { path: relative(cwd, backupPath) });
 
     for (const p of pending) {
       mkdirSync(dirname(p.path), { recursive: true });

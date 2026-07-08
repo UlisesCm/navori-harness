@@ -74,6 +74,18 @@ describe("renderClaudeEngine — first render with full config", () => {
     expect(settings?.status).toBe("created");
   });
 
+  it("writes CLAUDE.md last so a mid-loop crash leaves it intact (#71 item 10)", () => {
+    const r = renderClaudeEngine(cwd, CONFIG_FULL);
+    // The write loop is atomic per-file but not transactional; CLAUDE.md is the
+    // file the user reads, so it must be the final write of the batch.
+    expect(r.written.length).toBeGreaterThan(1);
+    expect(r.written.at(-1)?.path).toBe("CLAUDE.md");
+    // ...and every .claude/ file is written before it.
+    const claudeMdIdx = r.written.findIndex((w) => w.path === "CLAUDE.md");
+    const lastDotClaudeIdx = r.written.map((w) => w.path).reduce((acc, p, i) => (p.startsWith(".claude/") ? i : acc), -1);
+    expect(lastDotClaudeIdx).toBeLessThan(claudeMdIdx);
+  });
+
   it("settings.json carries the $navori marker and the qg hook", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
     const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
