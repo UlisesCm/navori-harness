@@ -104,6 +104,10 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   // hand-edited block as a conflict.
   const files: string[] = [];
   if (existsSync(join(cwd, "CLAUDE.md"))) files.push("CLAUDE.md");
+  // AGENTS.md (agents-md engine) carries one managed block with the same html
+  // markers + @navori/core source, so it drifts exactly like CLAUDE.md. Omitting
+  // it made doctor blind to hand-edits on repos rendering the agents-md engine.
+  if (existsSync(join(cwd, "AGENTS.md"))) files.push("AGENTS.md");
   for (const dir of [".claude/agents", ".claude/skills"]) {
     const absDir = join(cwd, dir);
     if (!existsSync(absDir)) continue;
@@ -175,6 +179,11 @@ export interface OrderReport {
    * managed blocks — `render`/`sync` can't auto-fix it, the user must move the
    * text out of the managed region first. */
   interleaved: boolean;
+  /** The block that should lead (canonical-first among present blocks, the
+   * harness "center of gravity") with its 1-based current position — set only
+   * when it isn't already first. Spotlights the common legacy case where
+   * `orquestacion` got appended last. null when the lead block is correct. */
+  misplacedFirst: { id: string; currentPos: number; total: number } | null;
 }
 
 /**
@@ -204,7 +213,75 @@ export function scanManagedOrder(cwd: string, config: NavoriConfig): OrderReport
     .sort((a, z) => a.key - z.key || a.i - z.i)
     .map((x) => x.id);
 
-  return { current, expected, interleaved: result.blockedByInterleaving };
+  // Spotlight the block that should lead: `expected[0]` is the canonical-first
+  // among the present blocks. If it isn't already at index 0, name it and its
+  // current position so the diagnostic is actionable, not just two id lists.
+  const lead = expected[0];
+  const leadPos = lead !== undefined ? current.indexOf(lead) : -1;
+  const misplacedFirst =
+    lead !== undefined && leadPos > 0
+      ? { id: lead, currentPos: leadPos + 1, total: current.length }
+      : null;
+
+  return { current, expected, interleaved: result.blockedByInterleaving, misplacedFirst };
+}
+
+export interface MalformedMarker {
+  /** File the malformed line lives in, relative to cwd. */
+  filePath: string;
+  /** 1-based line number of the broken marker. */
+  line: number;
+  /** The trimmed line text (truncated) for the diagnostic. */
+  snippet: string;
+}
+
+/**
+ * Detect managed-marker lines that lost their `-->` terminator (usually a hand
+ * edit that deleted just the closing chars). `findMarker` then stops matching
+ * the line, so the next `injectManagedSection` appends a fresh block AND leaves
+ * the broken line as permanent cruft. This is a NON-destructive report only —
+ * doctor surfaces it so the user fixes the line before that happens. Issue #71
+ * item 11. Same file scope as `scanManagedDrift` (all html-marker files).
+ */
+export function scanMalformedMarkers(cwd: string): MalformedMarker[] {
+  const out: MalformedMarker[] = [];
+  const files: string[] = [];
+  if (existsSync(join(cwd, "CLAUDE.md"))) files.push("CLAUDE.md");
+  if (existsSync(join(cwd, "AGENTS.md"))) files.push("AGENTS.md");
+  for (const dir of [".claude/agents", ".claude/skills"]) {
+    const absDir = join(cwd, dir);
+    if (!existsSync(absDir)) continue;
+    try {
+      for (const file of readdirSync(absDir)) {
+        if (file.endsWith(".md")) files.push(`${dir}/${file}`);
+      }
+    } catch {
+      continue;
+    }
+  }
+  // Check close before open: the close prefix is a superset string, so testing
+  // it first avoids misclassifying a close line as a broken open.
+  const prefixes = ["<!-- /navori:managed", "<!-- navori:managed"];
+  for (const rel of files) {
+    let content: string;
+    try {
+      content = readFileSync(join(cwd, rel), "utf-8");
+    } catch {
+      continue;
+    }
+    content.split("\n").forEach((lineText, i) => {
+      for (const prefix of prefixes) {
+        const idx = lineText.indexOf(prefix);
+        if (idx === -1) continue;
+        // A well-formed html marker terminates with `-->` on the same line.
+        if (!lineText.slice(idx + prefix.length).includes("-->")) {
+          out.push({ filePath: rel, line: i + 1, snippet: lineText.trim().slice(0, 80) });
+        }
+        break;
+      }
+    });
+  }
+  return out;
 }
 
 export interface HealthState {
@@ -239,8 +316,12 @@ export function suggestNextSteps(state: HealthState): string[] {
     steps.push("Corre 'navori render --apply' para reordenar los bloques de CLAUDE.md al orden canónico.");
   }
   if (state.orderReport?.interleaved) {
+    const mf = state.orderReport.misplacedFirst;
+    const lead = mf
+      ? ` (p.ej. '${mf.id}' está en posición ${mf.currentPos} de ${mf.total} y debería ir 1º)`
+      : "";
     steps.push(
-      "Mueve el texto que tienes entre bloques managed de CLAUDE.md arriba del primer bloque o abajo del último; luego corre 'navori render --apply' para reordenarlos.",
+      `Mueve el texto que tienes entre bloques managed de CLAUDE.md arriba del primer bloque o abajo del último${lead}; luego corre 'navori render --apply' para reordenarlos.`,
     );
   }
   if (steps.length === 0) {

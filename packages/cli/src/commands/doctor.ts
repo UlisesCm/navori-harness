@@ -13,6 +13,7 @@ import {
   collectMissingPlugins,
   scanManagedDrift,
   scanManagedOrder,
+  scanMalformedMarkers,
   suggestNextSteps,
 } from "../lib/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
@@ -81,6 +82,7 @@ export const doctorCommand = defineCommand({
     const orderReport = scanManagedOrder(cwd, config);
     const corruptedSettings = scanCorruptedSettings(cwd);
     const missingInvariants = scanMissingInvariants(cwd, config);
+    const malformedMarkers = scanMalformedMarkers(cwd);
     const missingExternalTools = scanMissingExternalTools(config);
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     // A declared preset that resolves to neither a local (.navori/presets/) nor
@@ -123,6 +125,7 @@ export const doctorCommand = defineCommand({
       orderReport,
       corruptedSettings,
       missingInvariants,
+      malformedMarkers,
       missingExternalTools,
       monorepoDrift,
       missingPreset,
@@ -277,6 +280,17 @@ export const doctorCommand = defineCommand({
       );
     }
 
+    if (malformedMarkers.length > 0) {
+      const lines = malformedMarkers.map(
+        (m) => `  ${color.yellow(sym.update)} ${accent(`${m.filePath}:${m.line}`)}  ${grey(`— ${m.snippet}`)}`,
+      );
+      p.log.warn(
+        `Markers managed malformados (${malformedMarkers.length}) — a esta(s) línea(s) les falta el ` +
+          `cierre '-->', así que navori ya no las reconoce; el próximo render appendearía un bloque ` +
+          `duplicado y dejaría la línea rota. Restaura el '-->' (o borra la línea) a mano:\n${lines.join("\n")}`,
+      );
+    }
+
     if (missingExternalTools.length > 0) {
       const lines = missingExternalTools.map((t) => {
         const how = t.install
@@ -309,13 +323,17 @@ export const doctorCommand = defineCommand({
     }
 
     if (orderReport) {
+      const spotlight = orderReport.misplacedFirst
+        ? `\n  → '${orderReport.misplacedFirst.id}' (centro de gravedad) está en posición ` +
+          `${orderReport.misplacedFirst.currentPos} de ${orderReport.misplacedFirst.total}, debería ir 1º.`
+        : "";
       if (orderReport.interleaved) {
         p.log.warn(
           `Bloques managed de CLAUDE.md fuera del orden canónico — NO se pueden reordenar ` +
             `automáticamente porque hay texto tuyo entre bloques. Mueve ese texto arriba del ` +
             `primer bloque managed o abajo del último; luego corre 'navori render --apply'.\n` +
             `  orden actual:   ${orderReport.current.join(", ")}\n` +
-            `  orden canónico: ${orderReport.expected.join(", ")}`,
+            `  orden canónico: ${orderReport.expected.join(", ")}${spotlight}`,
         );
       } else {
         p.log.warn(
@@ -323,7 +341,7 @@ export const doctorCommand = defineCommand({
             `o 'navori sync' para reordenarlos (el primer bloque marca el centro de gravedad del ` +
             `harness).\n` +
             `  orden actual:   ${orderReport.current.join(", ")}\n` +
-            `  orden canónico: ${orderReport.expected.join(", ")}`,
+            `  orden canónico: ${orderReport.expected.join(", ")}${spotlight}`,
         );
       }
     }

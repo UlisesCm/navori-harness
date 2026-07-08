@@ -163,5 +163,33 @@ export function renderAgentsMdEngine(
     }
   }
 
-  return { written, skipped, warnings: [], backupPath };
+  return { written, skipped, warnings: collectOmissionWarnings(config), backupPath };
+}
+
+/**
+ * AGENTS.md is intentionally a subset of the Claude engine (see file header):
+ * it drops subagent orchestration, hooks, permission rules, Claude-only plugin
+ * blocks and per-agent model assignment. That trade-off is invisible from the
+ * result alone — `warnings: []` let someone enabling `engines: ["agents-md"]`
+ * assume parity with `.claude/`. Surface every real omission, driven by config
+ * so we only warn about infra the user actually configured. Issue #71 item 13.
+ */
+function collectOmissionWarnings(config: NavoriConfig): string[] {
+  const warnings: string[] = [
+    "AGENTS.md no replica la infraestructura específica de Claude Code: orquestación " +
+      "de subagentes (Agent tool), hooks (quality-gate/guard-destructive) y reglas de " +
+      "permisos. Configúralos en tu herramienta si las necesitas.",
+  ];
+  const enabledPlugins = Object.entries(config.plugins ?? {})
+    .filter(([, s]) => s.enabled === true)
+    .map(([id]) => id);
+  if (enabledPlugins.length > 0) {
+    warnings.push(
+      `Bloques de plugins omitidos por asumir infraestructura de Claude Code: ${enabledPlugins.join(", ")}.`,
+    );
+  }
+  if (config.models && Object.keys(config.models).length > 0) {
+    warnings.push("La asignación de modelo por agente (config.models) no aplica fuera de Claude Code; se omitió.");
+  }
+  return warnings;
 }

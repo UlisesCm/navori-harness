@@ -87,7 +87,7 @@ No es debilidad — es eficiencia. 3 intentos a ciegas valen menos que 1 convers
 ## Conexión con el resto del harness
 
 - `implementer`: invoca este skill cuando el primer fix no resuelve el síntoma. NO devuelve `done` hasta haber pasado por Reset hipótesis si el repro inicial falla.
-- `verify-before-done`: este skill se aplica AGAS de verify-before-done — primero validas que el fix realmente arregló el síntoma (esto), luego validas que el resto del quality gate sigue verde (verify-before-done).
+- `verify-before-done`: este skill se aplica ANTES de verify-before-done — primero validas que el fix realmente arregló el síntoma (esto), luego validas que el resto del quality gate sigue verde (verify-before-done).
 - `ticket-audit`: cuando un bug entra al agente ticket-audit, la "Hipótesis de causa raíz" es el primer candidate del loop. Si el fix de esa hipótesis no funciona, ticket-audit puede ser reinvocado con la info nueva.
 
 ## Cierre
