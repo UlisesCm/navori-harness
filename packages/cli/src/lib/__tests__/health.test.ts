@@ -7,6 +7,7 @@ import {
   collectMissingPlugins,
   scanManagedDrift,
   scanManagedOrder,
+  scanMalformedMarkers,
   listMarkers,
   type DriftReport,
 } from "../health.ts";
@@ -252,5 +253,43 @@ describe("scanManagedOrder", () => {
     expect(r).not.toBeNull();
     expect(r!.interleaved).toBe(true);
     expect(r!.misplacedFirst).toEqual({ id: "orquestacion", currentPos: 2, total: 2 });
+  });
+});
+
+describe("scanMalformedMarkers (#71 item 11)", () => {
+  let cwd: string;
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "navori-malformed-"));
+  });
+  afterEach(() => rmSync(cwd, { recursive: true, force: true }));
+
+  it("flags an open marker that lost its --> terminator", () => {
+    // Well-formed close, but the open line is missing ` -->`.
+    writeFileSync(
+      join(cwd, "CLAUDE.md"),
+      `<!-- navori:managed id="idioma-rol" hash="abc" version="9.9.9" source="@navori/core"\n` +
+        `body\n<!-- /navori:managed id="idioma-rol" -->\n`,
+    );
+    const found = scanMalformedMarkers(cwd);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ filePath: "CLAUDE.md", line: 1 });
+  });
+
+  it("flags a close marker that lost its --> terminator", () => {
+    writeFileSync(
+      join(cwd, "AGENTS.md"),
+      `<!-- navori:managed id="navori-agents" hash="abc" version="9.9.9" source="@navori/core" -->\n` +
+        `body\n<!-- /navori:managed id="navori-agents"\n`,
+    );
+    const found = scanMalformedMarkers(cwd);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ filePath: "AGENTS.md", line: 3 });
+  });
+
+  it("does not flag well-formed markers", () => {
+    const doc = injectManagedSection("", "idioma-rol", "x").output;
+    writeFileSync(join(cwd, "CLAUDE.md"), doc);
+    expect(scanMalformedMarkers(cwd)).toHaveLength(0);
   });
 });

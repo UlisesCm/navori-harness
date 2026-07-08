@@ -226,6 +226,64 @@ export function scanManagedOrder(cwd: string, config: NavoriConfig): OrderReport
   return { current, expected, interleaved: result.blockedByInterleaving, misplacedFirst };
 }
 
+export interface MalformedMarker {
+  /** File the malformed line lives in, relative to cwd. */
+  filePath: string;
+  /** 1-based line number of the broken marker. */
+  line: number;
+  /** The trimmed line text (truncated) for the diagnostic. */
+  snippet: string;
+}
+
+/**
+ * Detect managed-marker lines that lost their `-->` terminator (usually a hand
+ * edit that deleted just the closing chars). `findMarker` then stops matching
+ * the line, so the next `injectManagedSection` appends a fresh block AND leaves
+ * the broken line as permanent cruft. This is a NON-destructive report only —
+ * doctor surfaces it so the user fixes the line before that happens. Issue #71
+ * item 11. Same file scope as `scanManagedDrift` (all html-marker files).
+ */
+export function scanMalformedMarkers(cwd: string): MalformedMarker[] {
+  const out: MalformedMarker[] = [];
+  const files: string[] = [];
+  if (existsSync(join(cwd, "CLAUDE.md"))) files.push("CLAUDE.md");
+  if (existsSync(join(cwd, "AGENTS.md"))) files.push("AGENTS.md");
+  for (const dir of [".claude/agents", ".claude/skills"]) {
+    const absDir = join(cwd, dir);
+    if (!existsSync(absDir)) continue;
+    try {
+      for (const file of readdirSync(absDir)) {
+        if (file.endsWith(".md")) files.push(`${dir}/${file}`);
+      }
+    } catch {
+      continue;
+    }
+  }
+  // Check close before open: the close prefix is a superset string, so testing
+  // it first avoids misclassifying a close line as a broken open.
+  const prefixes = ["<!-- /navori:managed", "<!-- navori:managed"];
+  for (const rel of files) {
+    let content: string;
+    try {
+      content = readFileSync(join(cwd, rel), "utf-8");
+    } catch {
+      continue;
+    }
+    content.split("\n").forEach((lineText, i) => {
+      for (const prefix of prefixes) {
+        const idx = lineText.indexOf(prefix);
+        if (idx === -1) continue;
+        // A well-formed html marker terminates with `-->` on the same line.
+        if (!lineText.slice(idx + prefix.length).includes("-->")) {
+          out.push({ filePath: rel, line: i + 1, snippet: lineText.trim().slice(0, 80) });
+        }
+        break;
+      }
+    });
+  }
+  return out;
+}
+
 export interface HealthState {
   claudeMdExists: boolean;
   missingPlugins: MissingPlugin[];
