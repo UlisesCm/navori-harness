@@ -170,6 +170,23 @@ describe("listMarkers + scanManagedDrift", () => {
       ),
     ).toBe(true);
   });
+
+  // Wave 3 (#71 item 12): AGENTS.md (agents-md engine) was outside the scan
+  // scope, so doctor was blind to hand-edits of its managed block — the same
+  // gap already closed for CLAUDE.md above.
+  it("detects content drift in the managed block inside AGENTS.md", () => {
+    writeFileSync(
+      join(cwd, "AGENTS.md"),
+      `<!-- navori:managed id="navori-agents" hash="deadbeef" version="9.9.9" source="@navori/core" -->\n` +
+        `hand-edited agents block\n<!-- /navori:managed id="navori-agents" -->\n`,
+    );
+    const drifts = scanManagedDrift(cwd, config);
+    expect(
+      drifts.some(
+        (d) => d.kind === "content" && d.markerId === "navori-agents" && d.filePath === "AGENTS.md",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("scanManagedOrder", () => {

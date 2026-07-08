@@ -104,6 +104,10 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   // hand-edited block as a conflict.
   const files: string[] = [];
   if (existsSync(join(cwd, "CLAUDE.md"))) files.push("CLAUDE.md");
+  // AGENTS.md (agents-md engine) carries one managed block with the same html
+  // markers + @navori/core source, so it drifts exactly like CLAUDE.md. Omitting
+  // it made doctor blind to hand-edits on repos rendering the agents-md engine.
+  if (existsSync(join(cwd, "AGENTS.md"))) files.push("AGENTS.md");
   for (const dir of [".claude/agents", ".claude/skills"]) {
     const absDir = join(cwd, dir);
     if (!existsSync(absDir)) continue;
