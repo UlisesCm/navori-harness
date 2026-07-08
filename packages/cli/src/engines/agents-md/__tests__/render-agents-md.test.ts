@@ -66,6 +66,27 @@ describe("renderAgentsMdEngine", () => {
     expect(md).toContain("## Flujo de trabajo");
   });
 
+  it("surfaces the parity gap via warnings[] (was always empty — #71)", () => {
+    const cwd = tmp();
+    const r = renderAgentsMdEngine(cwd, baseConfig());
+    // The base omission (orchestration + hooks + permissions) always warns.
+    expect(r.warnings.length).toBeGreaterThan(0);
+    expect(r.warnings.some((w) => w.includes("orquestación"))).toBe(true);
+  });
+
+  it("warns about dropped plugin blocks and per-agent models when configured", () => {
+    const cwd = tmp();
+    const r = renderAgentsMdEngine(
+      cwd,
+      baseConfig({
+        plugins: { engram: { enabled: true } },
+        models: { leader: "opus" },
+      } as Partial<NavoriConfig>),
+    );
+    expect(r.warnings.some((w) => w.includes("engram"))).toBe(true);
+    expect(r.warnings.some((w) => w.includes("config.models"))).toBe(true);
+  });
+
   it("includes the preset stack block + its skills", () => {
     const cwd = tmp();
     renderAgentsMdEngine(cwd, baseConfig({ preset: "nextjs" }));
