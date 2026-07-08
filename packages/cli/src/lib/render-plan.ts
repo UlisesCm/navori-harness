@@ -16,16 +16,25 @@ export interface CoreManagedAsset {
   relPath: string;
   condition?: string;
   availableLanguages?: readonly AssetLanguage[];
+  /**
+   * Global blocks that a monorepo WORKSPACE inherits from the root CLAUDE.md
+   * (Claude Code loads the parent when working in a subdir). Rendering them
+   * again in every workspace CLAUDE.md just duplicates context. Marked
+   * root-only so workspace renders omit them; stack-specific blocks
+   * (`tipado-fuerte`, which depends on the workspace's language) stay
+   * per-workspace. Issue #70.
+   */
+  rootOnly?: boolean;
 }
 
 export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
-  { id: "orquestacion", relPath: "core-assets/managed/orquestacion.md", availableLanguages: ["es"] },
-  { id: "idioma-rol", relPath: "core-assets/managed/idioma-rol.md", availableLanguages: ["es"] },
-  { id: "formato-respuesta", relPath: "core-assets/managed/formato-respuesta.md", availableLanguages: ["es"] },
+  { id: "orquestacion", relPath: "core-assets/managed/orquestacion.md", availableLanguages: ["es"], rootOnly: true },
+  { id: "idioma-rol", relPath: "core-assets/managed/idioma-rol.md", availableLanguages: ["es"], rootOnly: true },
+  { id: "formato-respuesta", relPath: "core-assets/managed/formato-respuesta.md", availableLanguages: ["es"], rootOnly: true },
   { id: "tipado-fuerte", relPath: "core-assets/managed/tipado-fuerte.md", availableLanguages: ["es"], condition: "project.typedLanguage" },
-  { id: "operaciones-seguras", relPath: "core-assets/managed/operaciones-seguras.md", availableLanguages: ["es"] },
-  { id: "arranque-sesion", relPath: "core-assets/managed/arranque-sesion.md", availableLanguages: ["es"] },
-  { id: "cierre-sesion", relPath: "core-assets/managed/cierre-sesion.md", availableLanguages: ["es"] },
+  { id: "operaciones-seguras", relPath: "core-assets/managed/operaciones-seguras.md", availableLanguages: ["es"], rootOnly: true },
+  { id: "arranque-sesion", relPath: "core-assets/managed/arranque-sesion.md", availableLanguages: ["es"], rootOnly: true },
+  { id: "cierre-sesion", relPath: "core-assets/managed/cierre-sesion.md", availableLanguages: ["es"], rootOnly: true },
 ] as const;
 
 const CORE_VERSION = readBundledCoreVersion();
@@ -116,7 +125,7 @@ export function computeRenderPlan(
   inputConfig: NavoriConfig,
   /** Repo root where `.navori/presets/` lives (resolves local presets). */
   repoRoot: string,
-  options: { skipIds?: ReadonlySet<string>; forceIds?: ReadonlySet<string> } = {},
+  options: { skipIds?: ReadonlySet<string>; forceIds?: ReadonlySet<string>; omitRootOnly?: boolean } = {},
 ): RenderPlan {
   // Fill in render-only derived values (prTarget, project.typedLanguage) so
   // managed-block conditions resolve the same whether called from the engine
@@ -138,6 +147,20 @@ export function computeRenderPlan(
     if (skipIds.has(asset.id)) {
       // The caller asked us to leave this block alone (user-modified that
       // they chose to keep during conflict resolution).
+      continue;
+    }
+    if (options.omitRootOnly && asset.rootOnly) {
+      // Workspace render: the global block is inherited from the root
+      // CLAUDE.md. Strip it if a previous render left one behind (same
+      // semantics as a condition that turned false). Issue #70.
+      const before = working;
+      working = removeManagedSection(working, asset.id);
+      entries.push({
+        asset,
+        source: "core",
+        status: before === working ? "unchanged" : "removed-condition-false",
+        newContent: null,
+      });
       continue;
     }
     if (asset.condition) {
@@ -333,8 +356,8 @@ const CLAUDE_COMPUTED_BLOCK_IDS = [
  * layout. Ids whose block is conditionally absent (condition false / plugin
  * disabled) are dropped — harmless, since an absent id never matches a block.
  */
-export function canonicalManagedOrder(config: NavoriConfig, repoRoot: string): string[] {
-  const plan = computeRenderPlan("", config, repoRoot);
+export function canonicalManagedOrder(config: NavoriConfig, repoRoot: string, omitRootOnly = false): string[] {
+  const plan = computeRenderPlan("", config, repoRoot, { omitRootOnly });
   const ids = plan.entries
     .filter((entry) => entry.newContent !== null)
     .map((entry) => entry.asset.id);

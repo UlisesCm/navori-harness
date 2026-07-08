@@ -1190,7 +1190,13 @@ async function buildMonorepoBlock(
     workspaces: [],
   };
 
-  if (!opts.scanMonorepo) return block;
+  // #70: don't make `--scan-monorepo` a flag the user has to remember. In a
+  // NON-interactive run (--yes) without the flag, keep workspaces empty (they
+  // can run `navori scan` later). But in an INTERACTIVE run, fall through and
+  // OFFER the scan below (the confirm prompt is the opt-in) whenever the
+  // monorepo actually has workspaces — otherwise a monorepo like moonar silently
+  // ships with workspaces:[] and its apps never get a harness.
+  if (!opts.scanMonorepo && opts.autoYes) return block;
 
   const found = scanMonorepoWorkspaces(cwd);
   if (found.length === 0) {

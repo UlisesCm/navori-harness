@@ -175,18 +175,17 @@ describe("writeConfig", () => {
     }
   });
 
-  it("rejects unknown engine", () => {
+  it("drops an unknown engine (forward-compat) instead of throwing (#70)", () => {
     const dir = makeTmpDir();
     const path = join(dir, "navori.config.json");
     try {
-      expect(() =>
-        writeConfig(path, {
-          name: "test",
-          // @ts-expect-error: testing runtime validation
-          engines: ["unknown-engine"],
-          preset: "custom",
-        }),
-      ).toThrow();
+      writeConfig(path, {
+        name: "test",
+        engines: ["unknown-engine", "claude"],
+        preset: "custom",
+      });
+      const written = JSON.parse(readFileSync(path, "utf-8")) as { engines: string[] };
+      expect(written.engines).toEqual(["claude"]);
     } finally {
       rmSync(dir, { recursive: true });
     }

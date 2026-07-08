@@ -7,6 +7,7 @@ import { isPlaceholderName } from "../lib/detect.ts";
 import { loadPlugin } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
+import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -81,6 +82,7 @@ export const doctorCommand = defineCommand({
     const corruptedSettings = scanCorruptedSettings(cwd);
     const missingInvariants = scanMissingInvariants(cwd, config);
     const missingExternalTools = scanMissingExternalTools(config);
+    const monorepoDrift = scanMonorepoDrift(cwd, config);
     // A declared preset that resolves to neither a local (.navori/presets/) nor
     // a bundled manifest renders the baseline AND warns — config points at
     // something unresolvable, same class as a missing plugin.
@@ -122,6 +124,7 @@ export const doctorCommand = defineCommand({
       corruptedSettings,
       missingInvariants,
       missingExternalTools,
+      monorepoDrift,
       missingPreset,
       presetOverride,
       missingPresetFiles,
@@ -287,6 +290,24 @@ export const doctorCommand = defineCommand({
       );
     }
 
+    if (monorepoDrift) {
+      const lines: string[] = [];
+      if (monorepoDrift.emptyDeclared) {
+        lines.push(
+          `  ${color.yellow(sym.update)} monorepo declarado pero workspaces[] vacío — corré 'navori scan' para poblarlo`,
+        );
+      }
+      for (const path of monorepoDrift.added) {
+        lines.push(`  ${color.yellow(sym.update)} ${path}  ${grey("— en disco, falta en config (corré 'navori scan')")}`);
+      }
+      for (const path of monorepoDrift.orphan) {
+        lines.push(`  ${color.yellow(sym.update)} ${path}  ${grey("— en config, ausente en disco (quitalo del config)")}`);
+      }
+      if (lines.length > 0) {
+        p.log.warn(`Monorepo desincronizado con el disco (${lines.length}):\n${lines.join("\n")}`);
+      }
+    }
+
     if (orderReport) {
       if (orderReport.interleaved) {
         p.log.warn(
@@ -438,6 +459,38 @@ export function scanMissingExternalTools(config: NavoriConfig): MissingExternalT
     }
   }
   return missing;
+}
+
+interface MonorepoDrift {
+  /** Workspaces on disk not yet in config (run scan). */
+  added: string[];
+  /** Config workspaces whose directory is gone (prune config). */
+  orphan: string[];
+  /** monorepo declared but workspaces[] empty while dirs exist on disk. */
+  emptyDeclared: boolean;
+}
+
+/**
+ * doctor was blind to the monorepo (spec 0001 open-question #1): a config with
+ * `workspaces: []` — or one that drifted from disk after an app was added /
+ * removed — showed "all good" while the apps silently got no harness. Surface
+ * the drift so the user runs `navori scan`. Issue #70.
+ */
+export function scanMonorepoDrift(cwd: string, config: NavoriConfig): MonorepoDrift | null {
+  if (!config.monorepo) return null;
+  const configured = config.monorepo.workspaces ?? [];
+  let detected;
+  try {
+    detected = scanMonorepoWorkspaces(cwd);
+  } catch {
+    return null; // detection is best-effort; never fail doctor over it
+  }
+  const diff = diffWorkspaces(detected, configured);
+  return {
+    added: diff.added.map((d) => d.path),
+    orphan: diff.orphan.map((o) => o.path),
+    emptyDeclared: configured.length === 0 && detected.length > 0,
+  };
 }
 
 /**

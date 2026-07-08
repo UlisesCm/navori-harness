@@ -90,6 +90,120 @@ describe("detectProject — name detection", () => {
       rmSync(dir, { recursive: true });
     }
   });
+});
+
+describe("detectProject — Python without pyproject.toml (#70)", () => {
+  it("detects Python + framework + ruff/pytest gate from requirements.txt", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "requirements.txt"), "fastapi==0.110\nuvicorn\npytest>=8\n# a comment\n-e .\n");
+      const d = detectProject(dir);
+      expect(d.stack.language).toBe("python");
+      expect(d.stack.framework).toBe("fastapi");
+      // navori ships no python preset, so the candidate gaps down to the custom
+      // baseline — but the ruff/pytest quality gate (the real win) still fires.
+      expect(d.suggestedPreset).toBe("custom");
+      expect(d.qualityGate).toEqual({ fast: "ruff check .", full: "ruff check . && pytest" });
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("detects Python from a loose .py script with no manifest (reports-server case)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "report.py"), "print('pdf')\n");
+      const d = detectProject(dir);
+      expect(d.stack.language).toBe("python");
+      // no manifest/deps → custom baseline, but ruff gate still fires (was
+      // language:"unknown" with no gate at all before #70).
+      expect(d.suggestedPreset).toBe("custom");
+      expect(d.qualityGate?.fast).toBe("ruff check .");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("detects Python deps from Pipfile", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "Pipfile"), '[packages]\ndjango = "*"\ncelery = "*"\n\n[dev-packages]\npytest = "*"\n');
+      const d = detectProject(dir);
+      expect(d.stack.language).toBe("python");
+      expect(d.stack.framework).toBe("django");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("express WITHOUT mongoose picks the neutral 'express' preset (#70)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "streaming", dependencies: { express: "^4", "socket.io": "^4" } }),
+      );
+      const d = detectProject(dir);
+      expect(d.stack.framework).toBe("express");
+      expect(d.suggestedPreset).toBe("express");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("React+Vite WITHOUT Mantine picks the 'vite-react-ts' preset (#70)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "webmentoring", dependencies: { react: "^18", "react-dom": "^18" }, devDependencies: { vite: "^5" } }),
+      );
+      const d = detectProject(dir);
+      expect(d.suggestedPreset).toBe("vite-react-ts");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("React+Vite WITH Mantine stays on 'vite-react-ts-mantine' (#70)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "webapp", dependencies: { react: "^18", "@mantine/core": "^7" }, devDependencies: { vite: "^5" } }),
+      );
+      const d = detectProject(dir);
+      expect(d.suggestedPreset).toBe("vite-react-ts-mantine");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("express WITH mongoose stays on 'express-mongoose' (#70)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "api", dependencies: { express: "^4", mongoose: "^8" } }),
+      );
+      const d = detectProject(dir);
+      expect(d.suggestedPreset).toBe("express-mongoose");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("does NOT misclassify a JS repo that has an incidental requirements.txt", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "web", dependencies: { react: "^18", vite: "^5" } }));
+      writeFileSync(join(dir, "requirements.txt"), "boto3\n");
+      const d = detectProject(dir);
+      expect(d.stack.language).not.toBe("python");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
 
   it("falls back to directory name when no manifest exists", () => {
     const parent = makeTmp();
@@ -244,7 +358,8 @@ describe("detectProject — suggested preset never points to a phantom (F1)", ()
       );
       const d = detectProject(dir);
       expect(d.monorepo).toBeNull();
-      expect(d.suggestedPreset).toBe("express-mongoose");
+      // express without mongoose → the neutral express preset (#70)
+      expect(d.suggestedPreset).toBe("express");
     } finally {
       rmSync(dir, { recursive: true });
     }

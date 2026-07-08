@@ -2,7 +2,8 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { readConfig, type NavoriConfig } from "../lib/config.ts";
+import { type NavoriConfig } from "../lib/config.ts";
+import { readConfigOrExit } from "../lib/cli-config.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
 import { extractManagedContent } from "../lib/marker.ts";
@@ -61,7 +62,7 @@ export const syncCommand = defineCommand({
       process.exit(1);
     }
 
-    const config = readConfig(configPath);
+    const config = readConfigOrExit(configPath);
     const workspaceFilter = (args.workspace as string | undefined) ?? null;
 
     const targetsResult = resolveSyncTargets(cwd, config, workspaceFilter);

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { presetExists } from "./presets.ts";
@@ -72,7 +72,9 @@ export interface DetectedProject {
  */
 export function detectProject(cwd: string): DetectedProject {
   const pkg = readPackageJson(cwd);
-  const pyproject = readPyproject(cwd);
+  // pyproject.toml first; if absent AND there's no package.json, fall back to
+  // requirements.txt / Pipfile / setup.py / loose .py files (issue #70).
+  const pyproject = readPyproject(cwd) ?? (pkg ? null : readPythonFallback(cwd));
   const cargo = readCargoToml(cwd);
 
   // Only accept string names — manifest readers may surface non-string values
@@ -233,6 +235,74 @@ function readPyproject(cwd: string): { name: string | null; deps: string[] } | n
   } catch {
     return null;
   }
+}
+
+/**
+ * Detect a Python project that declares no `pyproject.toml` — many older
+ * services pin deps in requirements.txt / Pipfile / setup.py, or are plain
+ * scripts. Without this, such repos fall through to language:"unknown" and lose
+ * the ruff/pytest quality-gate fallback (`guessQualityGate`). Only used when
+ * there is NO package.json, so a JS repo with an incidental helper script is
+ * never misclassified as Python. Issue #70.
+ */
+function readPythonFallback(cwd: string): { name: string | null; deps: string[] } | null {
+  const deps: string[] = [];
+  let hasSignal = false;
+
+  const reqPath = join(cwd, "requirements.txt");
+  if (existsSync(reqPath)) {
+    hasSignal = true;
+    try {
+      for (const line of readFileSync(reqPath, "utf-8").split("\n")) {
+        const t = line.trim();
+        if (!t || t.startsWith("#") || t.startsWith("-")) continue;
+        const m = t.match(/^([a-zA-Z0-9_.-]+)/);
+        if (m?.[1]) deps.push(m[1].toLowerCase());
+      }
+    } catch {
+      /* unreadable — still a signal */
+    }
+  }
+
+  const pipfilePath = join(cwd, "Pipfile");
+  if (existsSync(pipfilePath)) {
+    hasSignal = true;
+    try {
+      const block = readFileSync(pipfilePath, "utf-8").match(/\[packages\]([\s\S]*?)(?:\n\[|$)/);
+      for (const line of block?.[1]?.split("\n") ?? []) {
+        const m = line.match(/^\s*"?([a-zA-Z0-9_.-]+)"?\s*=/);
+        if (m?.[1]) deps.push(m[1].toLowerCase());
+      }
+    } catch {
+      /* unreadable — still a signal */
+    }
+  }
+
+  const setupPath = join(cwd, "setup.py");
+  if (existsSync(setupPath)) {
+    hasSignal = true;
+    try {
+      const req = readFileSync(setupPath, "utf-8").match(/install_requires\s*=\s*\[([\s\S]*?)\]/);
+      for (const item of req?.[1]?.match(/["']([^"']+)["']/g) ?? []) {
+        const pkgName = item.slice(1, -1).split(/[<>=~!]/)[0]?.trim().toLowerCase();
+        if (pkgName) deps.push(pkgName);
+      }
+    } catch {
+      /* unreadable — still a signal */
+    }
+  }
+
+  // Last resort: loose .py files in the root (e.g. report.py) with no manifest.
+  if (!hasSignal) {
+    try {
+      hasSignal = readdirSync(cwd).some((f) => f.endsWith(".py"));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!hasSignal) return null;
+  return { name: null, deps: Array.from(new Set(deps)) };
 }
 
 function readCargoToml(cwd: string): { name: string | null } | null {
@@ -615,7 +685,10 @@ function pickPresetCandidate(stack: StackInfo, monorepo: MonorepoInfo | null): s
   const usesMongoose = stack.deps.includes("mongoose");
   if (stack.worker && fw === "express" && !usesMongoose) return "background-worker";
   if (stack.worker && fw === null) return "background-worker";
-  if (fw === "express") return "express-mongoose";
+  // express + mongoose → data-API preset (Mongo skills). express WITHOUT mongoose
+  // (Socket.IO / PeerJS / native driver services) → the neutral express preset,
+  // which drops the Mongo-specific skills (mongo-aggregations, new-resource). #70
+  if (fw === "express") return usesMongoose ? "express-mongoose" : "express";
 
   return "custom";
 }

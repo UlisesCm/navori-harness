@@ -2,7 +2,8 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { readConfig, writeConfig, type NavoriConfig } from "../lib/config.ts";
+import { writeConfig, type NavoriConfig } from "../lib/config.ts";
+import { readConfigOrExit } from "../lib/cli-config.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
 import { brand, dim } from "../lib/style.ts";
 
@@ -25,7 +26,7 @@ function loadOrExit(cwd: string): { config: NavoriConfig; path: string; raw: Rec
   if (!existsSync(cwd)) fail(`Directory not found: ${cwd}`);
   const configPath = resolve(cwd, "navori.config.json");
   if (!existsSync(configPath)) fail(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
-  const config = readConfig(configPath);
+  const config = readConfigOrExit(configPath);
   const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
   return { config, path: configPath, raw };
 }
