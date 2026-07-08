@@ -97,6 +97,21 @@ describe("render idempotency (spec 0003 §3.1.2)", () => {
     });
   });
 
+  it("engram enabled (sub-block inject): second render is a byte-for-byte no-op", () => {
+    // engram is always-on in a real `init`, so its sub-block path
+    // (applySubBlockInject) runs on the most common prod config — yet the cases
+    // above all omit `plugins`, so this is the only guard exercising it.
+    assertIdempotent(() => {
+      writeConfig(join(cwd, "navori.config.json"), {
+        name: "engram-app",
+        engines: ["claude"],
+        preset: "custom",
+        qualityGate: { fast: "pnpm lint", full: "pnpm test" },
+        plugins: { engram: { enabled: true } },
+      });
+    });
+  });
+
   it("monorepo (root + workspaces): second render is a byte-for-byte no-op", () => {
     assertIdempotent(() => {
       mkdirSync(join(cwd, "apps/backend"), { recursive: true });
