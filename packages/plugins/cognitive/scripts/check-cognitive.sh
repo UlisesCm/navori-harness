@@ -16,8 +16,21 @@
 set -euo pipefail
 
 # PreToolUse(Bash) passes the command — gate to commit/push. The Stop hook
-# passes no command — run unconditionally at session close.
-cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null || true)
+# passes no command — run unconditionally at session close. Extract without
+# hard-depending on jq (not preinstalled on macOS): try jq, then node (Claude
+# Code's own runtime), then a best-effort sed unwrap. No command extracted →
+# empty $cmd → runs unconditionally.
+payload=$(cat)
+extract_cmd() {
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{try{process.stdout.write(String(JSON.parse(s)?.tool_input?.command??""))}catch{}})' 2>/dev/null && return 0
+  fi
+  printf '%s' "$payload" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p'
+}
+cmd=$(extract_cmd)
 if [ -n "$cmd" ]; then
   case "$cmd" in
     'git commit'*|'git push'*) ;;

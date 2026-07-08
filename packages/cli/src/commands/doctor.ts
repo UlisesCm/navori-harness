@@ -5,6 +5,7 @@ import { join, resolve, relative } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
 import { loadPlugin } from "../lib/plugins.ts";
+import { hasBinary } from "../lib/which.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
 import {
   listMarkers,
@@ -79,6 +80,7 @@ export const doctorCommand = defineCommand({
     const orderReport = scanManagedOrder(cwd, config);
     const corruptedSettings = scanCorruptedSettings(cwd);
     const missingInvariants = scanMissingInvariants(cwd, config);
+    const missingExternalTools = scanMissingExternalTools(config);
     // A declared preset that resolves to neither a local (.navori/presets/) nor
     // a bundled manifest renders the baseline AND warns — config points at
     // something unresolvable, same class as a missing plugin.
@@ -119,6 +121,7 @@ export const doctorCommand = defineCommand({
       orderReport,
       corruptedSettings,
       missingInvariants,
+      missingExternalTools,
       missingPreset,
       presetOverride,
       missingPresetFiles,
@@ -271,6 +274,19 @@ export const doctorCommand = defineCommand({
       );
     }
 
+    if (missingExternalTools.length > 0) {
+      const lines = missingExternalTools.map((t) => {
+        const how = t.install
+          ? `${t.install}${t.postInstall ? ` && ${t.postInstall}` : ""}`
+          : "instala la herramienta y reinicia Claude Code";
+        return `  ${color.yellow(sym.update)} ${accent(t.pluginId)}  ${grey(`— falta '${t.binary}' en PATH; ${how}`)}`;
+      });
+      p.log.warn(
+        `Plugins habilitados con herramienta externa no instalada (${missingExternalTools.length}) — ` +
+          `su protocolo/scan referencia algo que no está disponible en esta máquina:\n${lines.join("\n")}`,
+      );
+    }
+
     if (orderReport) {
       if (orderReport.interleaved) {
         p.log.warn(
@@ -384,6 +400,42 @@ function scanMissingPresetFiles(
   for (const e of [...managed, ...agents, ...skills, ...hooks]) {
     const abs = resolve(loaded.assetRoot, e.relPath);
     if (!existsSync(abs)) missing.push({ id: e.id, path: relative(cwd, abs) });
+  }
+  return missing;
+}
+
+interface MissingExternalTool {
+  pluginId: string;
+  binary: string;
+  install: string | null;
+  postInstall: string | null;
+}
+
+/**
+ * Each enabled plugin may declare an `externalTool` (an MCP server / CLI it
+ * depends on, e.g. engram, semgrep). Always-on plugins never pass through
+ * `navori add`, so their `checkBinary`/`postInstall` never run — the protocol
+ * ends up telling the agent to call tools (mem_save, mem_session_summary…) that
+ * may not exist. Warn (non-fatal: the scan hooks self-skip and the protocol is
+ * still correct once installed) with the platform install command. Issue #69.
+ */
+export function scanMissingExternalTools(config: NavoriConfig): MissingExternalTool[] {
+  const missing: MissingExternalTool[] = [];
+  const platform = process.platform;
+  for (const [id, settings] of Object.entries(config.plugins ?? {})) {
+    if (settings.enabled !== true) continue;
+    try {
+      const tool = loadPlugin(id).manifest.externalTool;
+      if (!tool?.checkBinary || hasBinary(tool.checkBinary)) continue;
+      missing.push({
+        pluginId: id,
+        binary: tool.checkBinary,
+        install: tool.install?.[platform] ?? null,
+        postInstall: tool.postInstall ?? null,
+      });
+    } catch {
+      // Missing / broken plugin is reported via missingPlugins.
+    }
   }
   return missing;
 }

@@ -13,7 +13,24 @@
 # bottom — `$cmd` is already parsed and in scope there.
 set -euo pipefail
 
-cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null || true)
+# Extract .tool_input.command from the PreToolUse payload WITHOUT hard-depending
+# on jq (NOT preinstalled on macOS — a missing jq used to make this guard wave
+# every command through). Try jq, then node (Claude Code's own runtime), and if
+# no JSON parser is on PATH fall back to a best-effort sed unwrap so the guard
+# still inspects the command instead of failing open.
+payload=$(cat)
+extract_cmd() {
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{try{process.stdout.write(String(JSON.parse(s)?.tool_input?.command??""))}catch{}})' 2>/dev/null && return 0
+  fi
+  # No JSON parser on PATH: pull the "command" string out with sed. Best-effort
+  # (won't handle a literal embedded quote), but far better than failing open.
+  printf '%s' "$payload" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p'
+}
+cmd=$(extract_cmd)
 [ -z "$cmd" ] && exit 0
 
 base="{{branchBase}}"
