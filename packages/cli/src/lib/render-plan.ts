@@ -204,10 +204,14 @@ export function computeRenderPlan(
   }
 
   // 1.5) Preset extras — managed blocks the active preset contributes on top
-  // of the core baseline. Same inject/conflict semantics as core; source is
-  // `@navori/preset-<id>` so version drift / future updates can be tracked
-  // independently. A missing preset file is silent (preset = "custom" or a
-  // stack with no extras yet); a malformed preset throws and surfaces.
+  // of the core baseline. Same inject/conflict semantics as core. The written
+  // marker currently inherits CORE's source/version (presets ship inside the
+  // core bundle and have no independent version yet); the `entries[].source`
+  // still carries the preset id for reporting. TODO: once presets are versioned
+  // separately, stamp the marker with `@navori/preset-<id>` + the preset version
+  // so drift/updates track independently (scanManagedDrift must learn to resolve
+  // preset versions then). A missing preset file is silent (preset = "custom" or
+  // a stack with no extras yet); a malformed preset throws and surfaces.
   const presetMissing: Array<{ id: string; reason: string }> = [];
   if (config.preset && config.preset !== "custom") {
     let loaded = null;
