@@ -46,7 +46,7 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 ```
 
 - **Core** — baseline universal: agentes, skills, hooks, protocolo SDD.
-- **Preset** — capa por stack (Next.js, NestJS, Express+Mongoose, Vite+Mantine, Astro, Medusa, background-worker…).
+- **Preset** — capa por stack, con bases neutras (`vite-react-ts`, `express`) y variantes especializadas encima (Next.js, NestJS, Express+Mongoose, Vite+Mantine, Astro, Medusa, background-worker…).
 - **Library skills** — skills modulares **transversales a presets**, inyectadas por *detección de dependencia*: un repo recibe `socketio`, `mongoose`, `redux-toolkit`, `formik`, `zod`, etc. cuando trae esa dependencia, sin importar el preset.
 - **Workspace** — defaults heredables y tickets cross-repo cuando un cambio toca varios repos.
 - **Project config** — tus overrides en `navori.config.json`.

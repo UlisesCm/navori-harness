@@ -48,7 +48,7 @@ Y genera:
 | `sync` | Refresca los managed blocks con conflict resolution + backups |
 | `preset init <id>` | Scaffoldea un preset local en `.navori/presets/<id>/` |
 | `scan` | Detecta workspaces nuevos en monorepos (`pnpm-workspace.yaml` / `package.json#workspaces`) |
-| `doctor` | Audita el config + reporta procedencia y drift de cada managed block (`--strict` para CI) |
+| `doctor` | Audita el config + drift de cada managed block (CLAUDE.md **y AGENTS.md**), orden canónico, markers malformados, desincronización de monorepo y tools externas faltantes (`--strict` para CI) |
 | `status` | Snapshot rápido: config, plugins activos, conteo de drift y próximos pasos |
 | `bench` | Corre `render` en dry-run N veces y reporta latencias (detecta regresiones locales) |
 | `workspace <sub>` | Gestiona workspaces cross-repo (`init`, `ls`, `show`, `rm`) |
@@ -64,13 +64,17 @@ Un preset aporta skills y reglas específicas del stack además del core. El `in
 
 | Preset | Stack |
 |---|---|
+| `vite-react-ts` | Vite + React + TS (SPA, agnóstico de UI-lib) |
 | `vite-react-ts-mantine` | Vite + React + TS + Mantine (SPA) |
 | `nextjs` | Next.js (App Router) |
+| `astro` | Astro (static / SSR) |
 | `nestjs` | NestJS (backend) |
+| `express` | Express (backend, agnóstico de DB) |
 | `express-mongoose` | Express + Mongoose (backend) |
 | `background-worker` | Worker de fondo (jobs + colas: agenda / bullmq / amqplib) |
-| `astro` | Astro (static / SSR) |
 | `medusa` | Medusa.js v2 (backend) |
+
+Los presets **neutros** (`vite-react-ts`, `express`) traen las skills genéricas del stack sin atarte a una lib; los especializados (`…-mantine`, `…-mongoose`) agregan las skills de esa capa encima.
 
 **¿Tu stack no tiene preset oficial?** No pasa nada. El `init` instala el harness completo (agentes, gates, protocolo, SDD) y funciona desde ya — solo te quedas sin los skills específicos del stack. El init te avisa, te deja en el baseline (`preset: custom`) y te sugiere cubrir el gap con un preset local.
 

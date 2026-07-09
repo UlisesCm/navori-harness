@@ -91,7 +91,7 @@ export const ui = {
     "engines.eyebrow": "Multi-engine",
     "engines.title": "Una config, lista para multi-engine.",
     "engines.subtitle":
-      "Hoy navori renderiza Claude Code (.claude/). El core es engine-agnostic por diseño: Cursor, Copilot y AGENTS.md están en el roadmap.",
+      "Hoy navori renderiza Claude Code (.claude/) y AGENTS.md —la spec universal que leen Cursor, Codex, Gemini y Copilot—. El core es engine-agnostic por diseño; los adapters nativos de Cursor y Copilot están en el roadmap.",
 
     "quickstart.eyebrow": "Quickstart",
     "quickstart.title": "De cero a productivo en tres pasos",
@@ -111,7 +111,7 @@ export const ui = {
       "navori coexiste. El comando init detecta tu harness existente y solo agrega bloques managed con marcadores. Tu código personalizado queda intacto.",
     "faq.q2": "¿Cuándo sale soporte para Cursor y Copilot?",
     "faq.a2":
-      "El core ya es engine-agnostic por diseño. Hoy navori renderiza .claude/ (Claude Code). Los adapters para Cursor, Copilot y AGENTS.md están en el roadmap, sin fecha comprometida.",
+      "En parte ya está: navori genera AGENTS.md, la spec universal que Cursor, Codex, Gemini y Copilot leen de forma nativa. Los adapters dedicados de Cursor (.cursor/rules/) y Copilot (.github/copilot-instructions.md) están en el roadmap, sin fecha comprometida.",
     "faq.q3": "¿Por qué un monorepo y no un solo paquete?",
     "faq.a3":
       "@navori/core es engine-agnostic y publicable como librería. @navori/cli es el binario. Los plugins viven en @navori/plugin-*. Mantiene límites claros.",
@@ -210,7 +210,7 @@ export const ui = {
     "engines.eyebrow": "Multi-engine",
     "engines.title": "One config, ready for multi-engine.",
     "engines.subtitle":
-      "Today navori renders Claude Code (.claude/). The core is engine-agnostic by design: Cursor, Copilot and AGENTS.md are on the roadmap.",
+      "Today navori renders Claude Code (.claude/) and AGENTS.md —the universal spec Cursor, Codex, Gemini and Copilot read. The core is engine-agnostic by design; native Cursor and Copilot adapters are on the roadmap.",
 
     "quickstart.eyebrow": "Quickstart",
     "quickstart.title": "From zero to productive in three steps",
@@ -230,7 +230,7 @@ export const ui = {
       "navori coexists. init detects your existing harness and only adds managed blocks marked with delimiters. Your custom code stays put.",
     "faq.q2": "When do Cursor and Copilot ship?",
     "faq.a2":
-      "The core is engine-agnostic by design. Today navori renders .claude/ (Claude Code). Adapters for Cursor, Copilot and AGENTS.md are on the roadmap, with no committed date.",
+      "Partly here already: navori generates AGENTS.md, the universal spec Cursor, Codex, Gemini and Copilot read natively. Dedicated adapters for Cursor (.cursor/rules/) and Copilot (.github/copilot-instructions.md) are on the roadmap, with no committed date.",
     "faq.q3": "Why a monorepo and not a single package?",
     "faq.a3":
       "@navori/core is engine-agnostic and publishable as a library. @navori/cli is the binary. Plugins live in @navori/plugin-*. Clean boundaries.",
