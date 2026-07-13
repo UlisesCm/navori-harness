@@ -1,0 +1,1207 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { localizedPath } from "../i18n/utils";
+
+const lang = "es" as const;
+
+// Multi-agent roster — kept in sync with packages/core/core-assets/agents/*.
+// `model` refleja la asignación recomendada vía config.models.<rol>
+// (opus | sonnet | haiku, todas configurables por proyecto).
+const agents = [
+  {
+    role: "Leader",
+    tag: "orquestador",
+    model: "opus",
+    lead: true,
+    body: "El cerebro de la operación: descompone la tarea, reparte el trabajo y junta las piezas.",
+    detail:
+      "Lo encarna el agente principal, no un subagente aparte — es el centro de gravedad de la sesión. Lee el ticket, decide en cuántas subtareas se parte, lanza a los trabajadores en paralelo y al final integra sus resultados en una sola solución coherente. Usa el modelo más capaz (opus) porque su trabajo es razonar y decidir, no leer archivos.",
+  },
+  {
+    role: "Explorer",
+    tag: "read-only",
+    model: "haiku",
+    body: "El que hace el mapa: recorre un área del código y dice qué hay y dónde.",
+    detail:
+      "Antes de un refactor o una feature grande, el leader lo manda a mapear un módulo: qué archivos existen, cómo se conectan y por dónde entra el flujo. Lee solo extractos —no archivos enteros— y devuelve un mapa, no un volcado. Corre en un modelo ligero (haiku) porque leer y resumir es barato: el mapa cuesta pocos tokens y llega rápido.",
+  },
+  {
+    role: "Researcher",
+    tag: "read-only",
+    model: "sonnet",
+    body: "El que responde una pregunta concreta buscando en el código.",
+    detail:
+      "Cuando el leader necesita un dato para decidir —'¿cómo se valida hoy el login?'— manda al researcher a investigarlo en el repo. Escribe sus hallazgos en un archivo aparte en vez de llenar el hilo principal. Devuelve respuestas puntuales, no exploración abierta.",
+  },
+  {
+    role: "Ticket audit",
+    tag: "análisis",
+    model: "opus",
+    body: "El que estudia un ticket difícil antes de que nadie toque código.",
+    detail:
+      "Ante un bug en una feature crítica o una migración estructural, diseca el ticket: causa raíz, qué áreas se afectan y cómo partir el trabajo. Produce un documento de auditoría que orienta toda la implementación posterior, para que el implementer no arranque a ciegas.",
+  },
+  {
+    role: "Implementer",
+    tag: "escribe",
+    model: "sonnet",
+    body: "El que escribe el código: toma UNA tarea acotada y la deja lista.",
+    detail:
+      "Recibe una subtarea bien definida del leader, la implementa respetando las reglas del repo (CLAUDE.md) y no la da por terminada hasta dejar el quality gate en verde: lint y tests pasando. Un modelo intermedio (sonnet) equilibra calidad de código y costo.",
+  },
+  {
+    role: "Reviewer",
+    tag: "gate",
+    model: "opus",
+    body: "El que revisa y aprueba o rechaza. No edita: juzga.",
+    detail:
+      "Revisa el trabajo del implementer contra las reglas del proyecto y los gates (seguridad con semgrep, duplicación con jscpd). Aprueba o rechaza con motivos concretos. Es una segunda opinión estricta antes de que el código avance — por eso usa un modelo capaz de juzgar con criterio.",
+  },
+  {
+    role: "Commit & PR pilot",
+    tag: "git/gh",
+    model: "haiku",
+    body: "El que redacta el commit y abre el Pull Request.",
+    detail:
+      "Cuando el trabajo está aprobado, escribe el mensaje de commit con el formato del repo (Conventional) y abre el PR con título y descripción. Corre chequeos contra git/gh antes de tocar la red. Tarea mecánica y acotada: un modelo ligero basta.",
+  },
+];
+
+const leadAgent = agents.find((a) => a.lead) ?? agents[0];
+
+// Colores de badge por tier de modelo.
+const modelColor: Record<string, string> = {
+  opus: "text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700",
+  sonnet: "text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-700",
+  haiku: "text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700",
+};
+
+const modelTiers = [
+  {
+    model: "haiku",
+    use: "Leer y explorar",
+    who: "explorer · commit-pr-pilot",
+    note: "Rápido y barato para tareas mecánicas.",
+  },
+  {
+    model: "sonnet",
+    use: "Escribir código",
+    who: "researcher · implementer",
+    note: "Equilibrio entre calidad y costo.",
+  },
+  {
+    model: "opus",
+    use: "Decidir y revisar",
+    who: "leader · reviewer · ticket-audit",
+    note: "El músculo donde el criterio importa.",
+  },
+];
+
+// Diccionario para quien no viene del mundo de los agentes de IA.
+const glossary = [
+  {
+    term: "Harness",
+    def: "El 'arnés' de trabajo: el conjunto de reglas, agentes y automatizaciones que rodean al asistente de IA para que trabaje como tu equipo espera, no a su antojo.",
+  },
+  {
+    term: "Agente / subagente",
+    def: "Un asistente con un rol específico (explorar, escribir, revisar). El agente principal reparte el trabajo entre subagentes especializados.",
+  },
+  {
+    term: "Skill",
+    def: "Una guía reutilizable para una tarea concreta ('cómo crear un endpoint', 'cómo verificar antes de dar algo por hecho'). El agente la carga cuando la necesita.",
+  },
+  {
+    term: "Hook",
+    def: "Una automatización que se dispara en un momento fijo —por ejemplo, correr los tests antes de cada commit— sin que nadie tenga que acordarse.",
+  },
+  {
+    term: "Quality gate",
+    def: "La barrera de calidad: los comandos (lint, tests) que deben pasar para dar un cambio por terminado.",
+  },
+  {
+    term: "SDD",
+    def: "Spec-Driven Development: en vez de que las reglas vivan en la cabeza de alguien, se escriben y se versionan junto al código, y se actualizan con un comando.",
+  },
+  {
+    term: "Preset",
+    def: "Un paquete de configuración por tipo de stack (Vite + React, NestJS, monorepo…). navori detecta tu stack y elige el preset adecuado.",
+  },
+  {
+    term: "Engram",
+    def: "La memoria persistente: guarda decisiones y aprendizajes para que el asistente los recuerde en la siguiente sesión.",
+  },
+  {
+    term: "Bloque managed",
+    def: "Un fragmento de CLAUDE.md marcado como 'gestionado por navori': se actualiza solo, sin pisar lo que tú escribiste alrededor.",
+  },
+  {
+    term: "legacyPaths",
+    def: "Las carpetas de código viejo que marcas para que los agentes las traten con cuidado y no les impongan reglas nuevas.",
+  },
+];
+
+const tokenMechanisms = [
+  {
+    title: "Contexto aislado por subagente",
+    body: "Cada subagente corre en su propia ventana y devuelve solo la conclusión. El hilo del leader nunca se llena con el volcado de los archivos que leyó.",
+  },
+  {
+    title: "Un modelo por rol",
+    body: "Cada agente usa el modelo justo: uno ligero para leer y explorar, el potente solo para decidir y revisar. No pagas un modelo caro por leer archivos.",
+  },
+  {
+    title: "Lectura por extractos",
+    body: "Explorer y researcher leen los fragmentos relevantes, no archivos completos. Localizan, no fotocopian.",
+  },
+  {
+    title: "Skills bajo demanda",
+    body: "El catálogo de skills se referencia por índice; el contenido pesado se carga solo cuando la tarea lo pide.",
+  },
+  {
+    title: "Bloques managed compactos",
+    body: "El orden canónico ordena y deduplica las reglas en CLAUDE.md. Sin copias pegadas ni ruido que se acumula sesión tras sesión.",
+  },
+];
+
+const engramPoints = [
+  "Sobrevive a cierres de sesión y a las compactaciones de contexto.",
+  "mem_save guarda decisiones, bugs con causa raíz y convenciones; mem_search los recupera al arrancar.",
+  "El protocolo se inyecta en el leader: guarda de forma proactiva, sin que se lo pidas.",
+  "Va siempre con navori (always-on). No re-explicas el contexto de la semana pasada.",
+];
+
+const workspacePoints = [
+  "Config cross-repo en ~/.navori/workspaces/<org>.json, fuera de cada repo.",
+  "Defaults de organización: quality gate, branch base y convenciones compartidas.",
+  "Tickets como archivos versionables dentro del workspace.",
+  "workspace render aplica el estándar a todos los repos registrados de una pasada.",
+];
+
+// Realidad de proyectos en producción y migración legacy — todo real:
+// prompts.json (modo greenfield/production/migration) + project.legacyPaths
+// inyectado a leader/implementer/reviewer/ticket-audit.
+const productionPoints = [
+  {
+    title: "Modo del proyecto, desde el init",
+    body: "Eliges el terreno: greenfield (muévete rápido), en producción (cuida regresiones) o migración legacy (cuida la compatibilidad legacy↔nuevo). La decisión moldea cómo trabajan los agentes.",
+  },
+  {
+    title: "legacyPaths que los agentes respetan",
+    body: "Marcas las carpetas legacy y el leader, el implementer y el reviewer lo saben: ahí aplican reglas distintas y no imponen convenciones nuevas sobre código que no les toca.",
+  },
+  {
+    title: "ticket-audit antes de migrar",
+    body: "Ante una migración estructural (legacy → nuevo backend, monolito → microservicios), el agente diseca causa raíz, áreas afectadas y compatibilidad antes de que nadie escriba código.",
+  },
+  {
+    title: "Skills conscientes de la migración",
+    body: "verify-before-done, loop-back-debug y review-diff detectan estados inconsistentes cuando conviven código legacy y nuevo — el error más caro de una migración a medias.",
+  },
+];
+
+const gates = [
+  {
+    title: "Simplicidad > cleverness",
+    body: "El estándar antes de escribir una línea: ¿es lo más simple? ¿legible en 6 meses? ¿mantiene el patrón existente? Nada de soluciones ingeniosas que nadie entiende después.",
+  },
+  {
+    title: "any prohibido",
+    body: "unknown + narrowing, tipado explícito. La única excepción es un // any justificado: <razón> — último recurso, no atajo que se vuelve deuda.",
+  },
+  {
+    title: "Semgrep · gate de seguridad",
+    body: "Análisis estático de patrones peligrosos, atado al reviewer. Los problemas de seguridad se atrapan en la revisión, no en producción.",
+  },
+  {
+    title: "jscpd · gate de duplicación",
+    body: "Detecta código copy-paste antes de que se multiplique. Menos superficie que mantener, menos lugares donde un bug se esconde.",
+  },
+  {
+    title: "Hooks defensivos",
+    body: "guard-destructive intercepta comandos peligrosos; quality-gate corre lint + tests antes de cada commit.",
+  },
+  {
+    title: "Permisos deny / ask",
+    body: "Las operaciones sensibles se bloquean o piden confirmación explícita. Defensa en profundidad, no una sola barrera.",
+  },
+];
+
+// Diferenciadores — por qué navori, no un scaffolder genérico.
+const whyNavori = [
+  {
+    title: "No es copy-paste de .claude/",
+    body: "Una fuente de verdad versionada y render idempotente. Copiar carpetas entre repos no escala ni sobrevive a una actualización; navori sí.",
+  },
+  {
+    title: "No es una plantilla estática",
+    body: "Detecta tu stack real —Mantine, Redux, NestJS, monorepo pnpm— y arma el preset. Los estándares no se erosionan porque están versionados y se actualizan con un comando.",
+  },
+  {
+    title: "Producción y legacy de primera clase",
+    body: "La mayoría de las herramientas asumen un repo limpio. navori parte de la realidad: código que ya corre, dependencias legacy y migraciones a medias.",
+  },
+  {
+    title: "Batería incluida y cableada",
+    body: "Memoria persistente, gates de seguridad y duplicación, orquestación multi-agente y estándar cross-repo. Todo pulido y conectado, no un README con pasos manuales.",
+  },
+];
+
+// Créditos — proyectos que navori integra y de los que sintetiza ideas.
+const creditsBuiltOn = [
+  {
+    name: "Claude Code",
+    by: "Anthropic",
+    role: "El runtime de agentes que navori materializa.",
+    href: "https://claude.com/claude-code",
+  },
+  {
+    name: "engram",
+    by: "Gentleman-Programming",
+    role: "Memoria persistente entre sesiones vía MCP.",
+    href: "https://github.com/Gentleman-Programming/engram",
+  },
+  {
+    name: "semgrep",
+    by: "Semgrep",
+    role: "Análisis estático de seguridad y patrones.",
+    href: "https://semgrep.dev",
+  },
+  {
+    name: "jscpd",
+    by: "kucherenko",
+    role: "Detección de código duplicado.",
+    href: "https://github.com/kucherenko/jscpd",
+  },
+  {
+    name: "eslint-plugin-sonarjs",
+    by: "SonarSource",
+    role: "Guardas de complejidad cognitiva.",
+    href: "https://github.com/SonarSource/eslint-plugin-sonarjs",
+  },
+  {
+    name: "GitHub CLI",
+    by: "GitHub",
+    role: "Issues y PRs desde la terminal.",
+    href: "https://cli.github.com",
+  },
+  {
+    name: "Atlassian CLI",
+    by: "Atlassian",
+    role: "Tickets de Jira como fuente de trabajo.",
+    href: "https://developer.atlassian.com/cloud/acli/",
+  },
+];
+
+const creditsIdeas = [
+  {
+    name: "AGENTS.md",
+    role: "La spec universal de instrucciones para agentes — la base multi-engine.",
+    href: "https://agents.md",
+  },
+  {
+    name: "Subagentes de Claude Code",
+    role: "El patrón de orquestador + trabajadores en contexto aislado.",
+    href: "https://docs.claude.com/en/docs/claude-code/sub-agents",
+  },
+  {
+    name: "Spec-Driven Development",
+    role: "Versionar skills, reglas y convenciones como parte del repo.",
+    href: null,
+  },
+];
+
+const creditsBuiltWith = [
+  { name: "clack", href: "https://github.com/bombshell-dev/clack" },
+  { name: "citty", href: "https://github.com/unjs/citty" },
+  { name: "zod", href: "https://zod.dev" },
+  { name: "Astro", href: "https://astro.build" },
+  { name: "Tailwind CSS", href: "https://tailwindcss.com" },
+];
+
+// Onboarding para quien se suma a un repo que YA tiene navori en su config.
+// Premisa: la config ya está commiteada en el repo; el equipo solo la sigue.
+const onboarding = [
+  {
+    n: "01",
+    title: "Ten los requisitos",
+    body: "Node.js 20+, Claude Code y —si el repo usa memoria persistente— el binario de engram. En el paso 3, doctor te dice exactamente qué falta.",
+    code: "node --version   # v20 o superior\n# Claude Code instalado en tu equipo",
+  },
+  {
+    n: "02",
+    title: "Clona y reconstruye el harness",
+    body: "El repo ya trae navori.config.json (la fuente de verdad). Un solo comando reconstruye .claude/ + CLAUDE.md idénticos a los del resto del equipo. Idempotente: correrlo dos veces no cambia nada.",
+    code: "$ git clone <repo> && cd <repo>\n$ npx navori render --apply\n\n✓ CLAUDE.md + .claude/ reconstruidos desde la config",
+  },
+  {
+    n: "03",
+    title: "Verifica con doctor",
+    body: "doctor confirma que todo está al día y, si te falta una herramienta (por ejemplo engram), te da el comando exacto para instalarla. Sin adivinar.",
+    code: "$ npx navori doctor\n\n◇ Todo al día — sin acciones pendientes.\n⇡ engram — falta en PATH:\n   brew install gentleman-programming/tap/engram \\\n     && claude plugin install engram",
+  },
+  {
+    n: "04",
+    title: "Trabaja normal",
+    body: "Abre Claude Code y listo: mismos agentes, mismas skills, mismo quality gate y la misma memoria de equipo. Cuando alguien actualice la config, corre sync para ponerte al día sin tocar tu código.",
+    code: "# ya productivo con el harness del equipo\n\n# cuando cambie la config del repo:\n$ npx navori@latest sync",
+  },
+];
+---
+
+<BaseLayout
+  lang={lang}
+  title="A fondo"
+  description="Qué aporta navori por dentro: orquestación multi-agente, un modelo por rol, memoria persistente con engram, workspaces de organización, estándares y gates — pensado para código en producción y migraciones legacy."
+>
+  {/* ── Hero ─────────────────────────────────────────────── */}
+  <section
+    class="relative overflow-hidden border-b"
+    style="border-color: var(--color-border-soft);"
+  >
+    <div class="absolute inset-0 grid-bg opacity-50 pointer-events-none"></div>
+    <div class="absolute inset-0 glow-hero opacity-70 pointer-events-none"></div>
+
+    <div class="container-prose relative py-16 sm:py-24">
+      <span class="eyebrow">
+        <span class="h-1.5 w-1.5 rounded-full bg-violet-500"></span>
+        A fondo
+      </span>
+      <h1
+        class="mt-5 text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] tracking-tight"
+      >
+        <span class="font-sans font-semibold">Qué aporta navori</span>
+        <br />
+        <span class="display-italic gradient-text">por dentro.</span>
+      </h1>
+      <p
+        class="mt-5 max-w-2xl text-base sm:text-lg text-slate-700 dark:text-slate-300"
+      >
+        navori no es un scaffolder genérico. Es un harness <strong>opinado</strong>,
+        pensado para código que ya vive en producción —con dependencias legacy y
+        migraciones a medias, no repos de laboratorio—. Convierte a Claude Code
+        en un equipo con estándares no negociables, memoria que persiste y un
+        mismo estándar en todos tus repos. Aquí está, capa por capa, por qué es
+        la base sobre la que vale la pena construir.
+      </p>
+      <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">
+        ¿Nuevo en términos como <em>harness</em>, <em>skill</em> o <em>SDD</em>?
+        <a
+          href="#diccionario"
+          class="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+          >Empieza por el diccionario rápido ↓</a
+        >
+      </p>
+    </div>
+  </section>
+
+  {/* ── Diccionario rápido (helper) ──────────────────────── */}
+  <section
+    id="diccionario"
+    class="scroll-mt-20 border-b"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 55%);"
+  >
+    <div class="container-prose py-14 sm:py-16">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >Antes de empezar</span
+        >
+        <h2 class="mt-3 text-2xl sm:text-3xl font-semibold tracking-tight">
+          Diccionario rápido
+        </h2>
+        <p class="mt-3 text-base text-slate-600 dark:text-slate-400">
+          Sin jerga. Toca cualquier término para ver qué significa en una frase.
+        </p>
+      </div>
+
+      <div class="mt-8 grid gap-3 sm:grid-cols-2">
+        {
+          glossary.map((g) => (
+            <details
+              class="group rounded-lg border p-4 transition-colors"
+              style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+            >
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-3 font-medium [&::-webkit-details-marker]:hidden">
+                <span class="font-mono text-sm">{g.term}</span>
+                <span
+                  class="text-lg leading-none text-slate-400 transition-transform group-open:rotate-45"
+                  aria-hidden="true"
+                >
+                  +
+                </span>
+              </summary>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {g.def}
+              </p>
+            </details>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  {/* ── 1 · Orquestación multi-agente (interactiva) ──────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >01 · Orquestación</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">Un equipo de agentes,</span>
+        <span class="display-italic gradient-text">no un solo hilo.</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        El agente principal <strong>encarna al leader</strong> —el centro de
+        gravedad—. En lugar de hacer todo en un mismo hilo, descompone la tarea
+        y la reparte entre subagentes que trabajan en paralelo y devuelven solo
+        su conclusión. Cada uno tiene un rol estricto y el modelo justo para él.
+      </p>
+    </div>
+
+    <p class="mt-8 text-sm text-slate-500 dark:text-slate-400">
+      Toca una tarjeta para ver a qué se dedica cada rol ↓
+    </p>
+
+    <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        agents.map((a) => (
+          <button
+            type="button"
+            data-agent-card
+            data-role={a.role}
+            data-model={a.model}
+            data-detail={a.detail}
+            data-active={a.lead ? "" : undefined}
+            class="card group flex h-full cursor-pointer flex-col text-left data-[active]:-translate-y-0.5 data-[active]:ring-2 data-[active]:ring-violet-500"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <h3 class="text-base font-semibold tracking-tight">{a.role}</h3>
+              <span
+                class={`rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider shrink-0 ${modelColor[a.model]}`}
+              >
+                {a.model}
+              </span>
+            </div>
+            <span class="mt-1 font-mono text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              {a.lead ? "principal · " : ""}
+              {a.tag}
+            </span>
+            <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+              {a.body}
+            </p>
+          </button>
+        ))
+      }
+    </div>
+
+    {/* panel de detalle — se llena al hacer click */}
+    <div
+      class="mt-4 rounded-xl border p-5 sm:p-6"
+      style="border-color: var(--color-violet-400); background: color-mix(in oklab, var(--color-violet-500), transparent 93%);"
+    >
+      <div class="flex items-center gap-3">
+        <h3
+          id="agent-detail-role"
+          class="text-lg font-semibold tracking-tight"
+        >
+          {leadAgent.role}
+        </h3>
+        <span
+          id="agent-detail-model"
+          class="rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-violet-700 dark:text-violet-300"
+          style="border-color: var(--color-violet-400);"
+        >
+          {leadAgent.model}
+        </span>
+      </div>
+      <p
+        id="agent-detail-body"
+        class="mt-3 text-sm sm:text-base leading-relaxed text-slate-700 dark:text-slate-300"
+      >
+        {leadAgent.detail}
+      </p>
+    </div>
+
+    {/* modelo por rol */}
+    <h3
+      class="mt-14 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+    >
+      Cada rol, su modelo — eficiencia en tiempo y tokens
+    </h3>
+    <div class="mt-5 grid gap-3 sm:grid-cols-3">
+      {
+        modelTiers.map((m) => (
+          <div
+            class="rounded-lg border p-4"
+            style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+          >
+            <div class="flex items-baseline justify-between gap-2">
+              <span
+                class={`rounded-full border px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider ${modelColor[m.model]}`}
+              >
+                {m.model}
+              </span>
+              <span class="text-sm font-medium">{m.use}</span>
+            </div>
+            <p class="mt-2 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+              {m.who}
+            </p>
+            <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              {m.note}
+            </p>
+          </div>
+        ))
+      }
+    </div>
+    <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">
+      Todo configurable en <code
+        class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >config.models</code
+      >. No pagas un modelo caro por leer archivos: el músculo va donde se
+      decide, la velocidad donde se explora.
+    </p>
+
+    <div
+      class="mt-10 rounded-xl border overflow-hidden"
+      style="border-color: var(--color-border-soft);"
+    >
+      <div
+        class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+        style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+      >
+        el leader, en una tarea compleja
+      </div>
+      <pre
+        class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+        style="background: var(--color-night); color: rgb(226 232 240);"><code>leader › descompone el ticket en 3 subtareas
+  ├─ explorer   → mapa del módulo        (contexto propio · haiku)
+  ├─ researcher → ¿cómo se valida hoy?   (contexto propio · sonnet)
+  └─ implementer → aplica el cambio      → quality gate ✓  (sonnet)
+       └─ reviewer → aprueba contra CLAUDE.md            (opus)
+leader › sintetiza y delega el commit → commit-pr-pilot   (haiku)</code></pre>
+    </div>
+  </section>
+
+  <div class="container-prose"><div class="hairline"></div></div>
+
+  {/* ── 2 · Producción y legacy ──────────────────────────── */}
+  <section
+    class="relative py-16 sm:py-20 border-y"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 60%);"
+  >
+    <div class="container-prose">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >02 · El terreno real</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">Hecho para producción,</span>
+          <span class="display-italic gradient-text">no para demos.</span>
+        </h2>
+        <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+          Casi todas las herramientas asumen un repo limpio y greenfield. navori
+          parte de la realidad de un equipo: código que ya corre en producción,
+          dependencias legacy y migraciones a medias. Desde el <code
+            class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+            >init</code
+          > eliges el terreno, y esa decisión moldea cómo trabajan los agentes.
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-8 lg:grid-cols-[1fr_360px] lg:items-start">
+        <div class="grid gap-4 sm:grid-cols-2">
+          {
+            productionPoints.map((p) => (
+              <div class="card">
+                <h3 class="text-base font-semibold tracking-tight">
+                  {p.title}
+                </h3>
+                <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                  {p.body}
+                </p>
+              </div>
+            ))
+          }
+        </div>
+
+        <div
+          class="rounded-xl border overflow-hidden"
+          style="border-color: var(--color-border-soft);"
+        >
+          <div
+            class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+            style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+          >
+            navori init — modo del proyecto
+          </div>
+          <pre
+            class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+            style="background: var(--color-night); color: rgb(226 232 240);"><code>? ¿En qué terreno estás?
+    greenfield   — código nuevo, muévete rápido
+  › production   — en producción, cuida regresiones
+    migration    — migración legacy, cuida
+                   la compatibilidad legacy↔nuevo
+
+→ legacyPaths: [ "src/old-api", "legacy/" ]
+  el leader, el implementer y el reviewer
+  tratan esas rutas con otras reglas.</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ── 3 · Ahorro de tokens ─────────────────────────────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >03 · Eficiencia</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">Menos tokens</span>
+        <span class="display-italic gradient-text">por diseño.</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        La orquestación no es solo velocidad: es economía de contexto. El hilo
+        principal se mantiene limpio porque el trabajo pesado ocurre en ventanas
+        aisladas —cada una con su modelo— que solo devuelven lo esencial.
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-8 lg:grid-cols-[1fr_360px] lg:items-start">
+      <div class="grid gap-4 sm:grid-cols-2">
+        {
+          tokenMechanisms.map((m) => (
+            <div class="card">
+              <h3 class="text-base font-semibold tracking-tight">{m.title}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {m.body}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+
+      <div
+        class="rounded-xl border p-6"
+        style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 20%);"
+      >
+        <h3
+          class="text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+        >
+          El contraste
+        </h3>
+        <div class="mt-4 space-y-4 text-sm">
+          <div>
+            <p class="font-mono text-[11px] uppercase tracking-wider text-rose-500">
+              sin harness
+            </p>
+            <p class="mt-1 text-slate-600 dark:text-slate-400">
+              Un solo hilo lee archivos enteros, acumula todo en el contexto y
+              lo arrastra turno tras turno hasta saturarse.
+            </p>
+          </div>
+          <div class="hairline"></div>
+          <div>
+            <p class="font-mono text-[11px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+              con navori
+            </p>
+            <p class="mt-1 text-slate-600 dark:text-slate-400">
+              Los subagentes exploran en paralelo y devuelven conclusiones. El
+              leader razona sobre resúmenes, no sobre volcados. Engram guarda lo
+              que hay que recordar fuera del contexto.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="container-prose"><div class="hairline"></div></div>
+
+  {/* ── 4 · Engram ───────────────────────────────────────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="grid gap-10 lg:grid-cols-2 lg:gap-16 lg:items-center">
+      <div>
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >04 · Memoria</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">Engram:</span>
+          <span class="display-italic gradient-text">memoria que persiste.</span>
+        </h2>
+        <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+          El contexto de un LLM es efímero: se cierra la sesión y se olvida. Engram
+          es la memoria persistente que navori habilita por default. Las
+          decisiones, los bugs con causa raíz y las convenciones se guardan y se
+          recuperan entre sesiones —y sobreviven a las compactaciones—.
+        </p>
+        <ul class="mt-6 space-y-3">
+          {
+            engramPoints.map((p) => (
+              <li class="flex gap-3 text-sm text-slate-700 dark:text-slate-300">
+                <svg
+                  class="mt-0.5 shrink-0 text-sky-600 dark:text-sky-400"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>{p}</span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <div
+        class="rounded-xl border overflow-hidden"
+        style="border-color: var(--color-border-soft);"
+      >
+        <div
+          class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+          style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+        >
+          sesión de hoy · sesión de la próxima semana
+        </div>
+        <pre
+          class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+          style="background: var(--color-night); color: rgb(226 232 240);"><code># hoy — tras arreglar un bug
+mem_save "El reporte 360 falla si languages[] viene vacío.
+          Causa raíz: falta el guard en report.py. Fix: default []."
+
+# la próxima semana — sesión nueva, contexto en cero
+mem_search "reporte 360 languages"
+→ recupera la decisión, la causa raíz y el fix.
+  No lo re-explicas.</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <div class="container-prose"><div class="hairline"></div></div>
+
+  {/* ── 5 · Workspaces ───────────────────────────────────── */}
+  <section
+    class="relative py-16 sm:py-20 border-y"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 60%);"
+  >
+    <div class="container-prose">
+      <div class="grid gap-10 lg:grid-cols-2 lg:gap-16 lg:items-center">
+        <div class="lg:order-2">
+          <span
+            class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+            >05 · Escala de organización</span
+          >
+          <h2
+            class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+          >
+            <span class="font-sans font-semibold">Un workspace,</span>
+            <span class="display-italic gradient-text">todos tus repos.</span>
+          </h2>
+          <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+            Cuando manejas 15 repos, no quieres 15 estándares. El workspace es una
+            capa cross-repo: defines el quality gate, la branch base y las
+            convenciones de tu organización una vez, y cada repo las hereda. El
+            equipo trabaja igual, sin importar en qué proyecto esté.
+          </p>
+          <ul class="mt-6 space-y-3">
+            {
+              workspacePoints.map((p) => (
+                <li class="flex gap-3 text-sm text-slate-700 dark:text-slate-300">
+                  <svg
+                    class="mt-0.5 shrink-0 text-sky-600 dark:text-sky-400"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>{p}</span>
+                </li>
+              ))
+            }
+          </ul>
+        </div>
+
+        <div
+          class="rounded-xl border overflow-hidden lg:order-1"
+          style="border-color: var(--color-border-soft);"
+        >
+          <div
+            class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+            style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+          >
+            el estándar de la org, a todos los repos
+          </div>
+          <pre
+            class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+            style="background: var(--color-night); color: rgb(226 232 240);"><code>$ navori workspace init acme
+$ navori workspace set-default acme \
+    --branch-base main --commits conventional-es
+$ navori workspace add-repo acme ./web-app
+$ navori workspace add-repo acme ./api-core
+  … 13 repos más
+
+$ navori workspace render acme
+✓ 15 repos renderizados con el mismo estándar</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ── 6 · Estándares y gates ───────────────────────────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >06 · Guardarraíles</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">Estándares y gates</span>
+        <span class="display-italic gradient-text">que protegen el trabajo.</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        Un agente con permiso de escritura necesita barreras. navori trae
+        estándares no negociables —simplicidad, tipado estricto— y gates de
+        seguridad y calidad como parte del harness, no como un extra opcional. Y
+        los mantiene versionados junto al resto de la config.
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        gates.map((g) => (
+          <div class="card">
+            <h3 class="text-base font-semibold tracking-tight">{g.title}</h3>
+            <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+              {g.body}
+            </p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  {/* ── 7 · Por qué navori (convicción) ──────────────────── */}
+  <section
+    class="relative py-16 sm:py-20 border-y"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 60%);"
+  >
+    <div class="container-prose">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >07 · La diferencia</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">Por qué navori,</span>
+          <span class="display-italic gradient-text">y no un scaffolder genérico.</span>
+        </h2>
+        <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+          Hay muchas formas de darle instrucciones a un asistente de IA. Pocas
+          sobreviven al segundo mes, a un equipo de verdad o a un repo con
+          historia. Esto es lo que navori hace y las alternativas no —o no tan
+          pulido—.
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-4 sm:grid-cols-2">
+        {
+          whyNavori.map((w) => (
+            <div class="card">
+              <h3 class="text-base font-semibold tracking-tight">{w.title}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {w.body}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  {/* ── 8 · Súmate a un repo existente (foco principal) ──── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >08 · Para tu equipo</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">Súmate a un repo</span>
+        <span class="display-italic gradient-text">que ya usa navori.</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        Tú subes la config una vez a cada repo; el equipo solo la sigue. Nadie
+        arma un harness a mano ni copia <code
+          class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+          >.claude/</code
+        > entre proyectos. Estos son los comandos que corre cada quien al entrar.
+    </p>
+    </div>
+
+    <div class="mt-12 space-y-8">
+      {
+        onboarding.map((s) => (
+          <article class="grid gap-5 sm:grid-cols-[64px_1fr]">
+            <div>
+              <span
+                class="display-italic text-4xl sm:text-5xl gradient-text leading-none block"
+                aria-hidden="true"
+              >
+                {s.n}
+              </span>
+            </div>
+            <div class="min-w-0">
+              <h3 class="text-lg sm:text-xl font-semibold tracking-tight">
+                {s.title}
+              </h3>
+              <p class="mt-2 text-base text-slate-600 dark:text-slate-400 max-w-2xl">
+                {s.body}
+              </p>
+              <pre
+                class="mt-4 rounded-lg border px-3 sm:px-5 py-3 sm:py-4 text-[12px] sm:text-[13px] font-mono leading-relaxed overflow-x-auto"
+                style="background: var(--color-night); color: rgb(226 232 240); border-color: var(--color-border-soft);"
+              >{s.code}</pre>
+            </div>
+          </article>
+        ))
+      }
+    </div>
+
+    <p
+      class="mt-10 rounded-lg border px-4 py-3 text-sm text-slate-600 dark:text-slate-400"
+      style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 40%);"
+    >
+      <span class="font-semibold text-slate-800 dark:text-slate-200"
+        >En resumen para el equipo:</span
+      >
+      <code
+        class="mx-1 rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >clone → npx navori render --apply → npx navori doctor</code
+      > y a trabajar con el mismo harness que tú.
+    </p>
+  </section>
+
+  {/* ── CTA ──────────────────────────────────────────────── */}
+  <section
+    class="relative overflow-hidden border-t"
+    style="border-color: var(--color-border-soft);"
+  >
+    <div class="absolute inset-0 glow-hero opacity-60 pointer-events-none"></div>
+    <div class="container-prose relative py-16 sm:py-20 text-center">
+      <h2 class="text-[clamp(1.75rem,4vw,2.5rem)] leading-[1.1] tracking-tight">
+        <span class="font-sans font-semibold">De la teoría</span>
+        <span class="display-italic gradient-text">al repo, en un minuto.</span>
+      </h2>
+      <p
+        class="mx-auto mt-4 max-w-xl text-base text-slate-600 dark:text-slate-400"
+      >
+        Todo esto se materializa con un solo comando de adopción. El resto es
+        renderizar cuando cambies algo.
+      </p>
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a class="btn btn-primary" href={localizedPath(lang, "/quickstart")}>
+          Ver el Quickstart
+        </a>
+        <a class="btn btn-ghost" href={localizedPath(lang, "/docs/init")}>
+          Referencia de comandos
+        </a>
+      </div>
+    </div>
+  </section>
+
+  {/* ── Créditos e inspiración ───────────────────────────── */}
+  <section
+    class="border-t"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 55%);"
+  >
+    <div class="container-prose py-16 sm:py-20">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >Créditos</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.6rem,3.5vw,2.4rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">Hombros de</span>
+          <span class="display-italic gradient-text">gigantes.</span>
+        </h2>
+        <p class="mt-4 text-base text-slate-600 dark:text-slate-400">
+          navori no nació en el vacío: integra herramientas excelentes y
+          sintetiza ideas de proyectos y estándares abiertos. El mérito de cada
+          pieza es de quien la construyó.
+        </p>
+      </div>
+
+      {/* Se apoya en */}
+      <h3
+        class="mt-12 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+      >
+        Se apoya en
+      </h3>
+      <ul class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {
+          creditsBuiltOn.map((c) => (
+            <li>
+              <a
+                href={c.href}
+                target="_blank"
+                rel="noreferrer"
+                class="group block h-full rounded-lg border p-4 transition-all hover:-translate-y-0.5"
+                style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+              >
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-mono text-sm font-medium group-hover:text-sky-700 dark:group-hover:text-sky-300">
+                    {c.name}
+                  </span>
+                  <span
+                    class="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0"
+                    aria-hidden="true"
+                  >
+                    ↗
+                  </span>
+                </div>
+                <p class="mt-0.5 text-[11px] uppercase tracking-wider text-violet-700/70 dark:text-violet-300/70">
+                  {c.by}
+                </p>
+                <p class="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-400">
+                  {c.role}
+                </p>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+
+      {/* Ideas y estándares */}
+      <h3
+        class="mt-10 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+      >
+        Ideas y estándares
+      </h3>
+      <ul class="mt-5 grid gap-3 sm:grid-cols-3">
+        {
+          creditsIdeas.map((c) => {
+            const inner = (
+              <>
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-mono text-sm font-medium group-hover:text-sky-700 dark:group-hover:text-sky-300">
+                    {c.name}
+                  </span>
+                  {c.href && (
+                    <span
+                      class="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0"
+                      aria-hidden="true"
+                    >
+                      ↗
+                    </span>
+                  )}
+                </div>
+                <p class="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-400">
+                  {c.role}
+                </p>
+              </>
+            );
+            return (
+              <li>
+                {c.href ? (
+                  <a
+                    href={c.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    class="group block h-full rounded-lg border p-4 transition-all hover:-translate-y-0.5"
+                    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+                  >
+                    {inner}
+                  </a>
+                ) : (
+                  <div
+                    class="group block h-full rounded-lg border p-4"
+                    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+                  >
+                    {inner}
+                  </div>
+                )}
+              </li>
+            );
+          })
+        }
+      </ul>
+
+      {/* Construido con */}
+      <div class="mt-10 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+          >Construido con</span
+        >
+        {
+          creditsBuiltWith.map((c) => (
+            <a
+              href={c.href}
+              target="_blank"
+              rel="noreferrer"
+              class="rounded-full border px-3 py-1 font-mono text-[12px] transition-colors hover:text-sky-700 dark:hover:text-sky-300"
+              style="border-color: var(--color-border-soft);"
+            >
+              {c.name}
+            </a>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  {/* interactividad de las cards de subagentes */}
+  <script is:inline>
+    (function () {
+      const cards = document.querySelectorAll("[data-agent-card]");
+      const roleEl = document.getElementById("agent-detail-role");
+      const modelEl = document.getElementById("agent-detail-model");
+      const bodyEl = document.getElementById("agent-detail-body");
+      if (!cards.length || !roleEl || !modelEl || !bodyEl) return;
+
+      function select(card) {
+        cards.forEach((c) => c.removeAttribute("data-active"));
+        card.setAttribute("data-active", "");
+        roleEl.textContent = card.dataset.role;
+        modelEl.textContent = card.dataset.model;
+        bodyEl.textContent = card.dataset.detail;
+      }
+
+      cards.forEach((card) => {
+        card.addEventListener("click", () => select(card));
+      });
+    })();
+  </script>
+</BaseLayout>

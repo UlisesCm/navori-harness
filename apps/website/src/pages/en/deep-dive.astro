@@ -1,0 +1,1197 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { localizedPath } from "../../i18n/utils";
+
+const lang = "en" as const;
+
+// Multi-agent roster — kept in sync with packages/core/core-assets/agents/*.
+// `model` reflects the recommended assignment via config.models.<role>
+// (opus | sonnet | haiku, all configurable per project).
+const agents = [
+  {
+    role: "Leader",
+    tag: "orchestrator",
+    model: "opus",
+    lead: true,
+    body: "The brain of the operation: it breaks down the task, hands out the work, and puts the pieces back together.",
+    detail:
+      "The main agent embodies it, not a separate subagent — it's the session's center of gravity. It reads the ticket, decides how many subtasks to split into, launches the workers in parallel, and finally integrates their results into one coherent solution. It uses the most capable model (opus) because its job is to reason and decide, not read files.",
+  },
+  {
+    role: "Explorer",
+    tag: "read-only",
+    model: "haiku",
+    body: "The map-maker: it walks an area of the code and tells you what's there and where.",
+    detail:
+      "Before a refactor or a big feature, the leader sends it to map a module: what files exist, how they connect, and where the flow enters. It reads only excerpts —not whole files— and returns a map, not a dump. It runs on a lightweight model (haiku) because reading and summarizing is cheap: the map costs few tokens and arrives fast.",
+  },
+  {
+    role: "Researcher",
+    tag: "read-only",
+    model: "sonnet",
+    body: "The one that answers a concrete question by searching the code.",
+    detail:
+      "When the leader needs a fact to decide —'how is login validated today?'— it sends the researcher to dig it up in the repo. It writes its findings to a separate file instead of filling the main thread. It returns pointed answers, not open-ended exploration.",
+  },
+  {
+    role: "Ticket audit",
+    tag: "analysis",
+    model: "opus",
+    body: "The one that studies a hard ticket before anyone touches code.",
+    detail:
+      "For a bug in a critical feature or a structural migration, it dissects the ticket: root cause, which areas are affected, and how to split the work. It produces an audit doc that guides the whole implementation, so the implementer doesn't start blind.",
+  },
+  {
+    role: "Implementer",
+    tag: "writes",
+    model: "sonnet",
+    body: "The one that writes the code: it takes ONE scoped task and finishes it.",
+    detail:
+      "It receives a well-defined subtask from the leader, implements it respecting the repo's rules (CLAUDE.md), and doesn't call it done until the quality gate is green: lint and tests passing. An intermediate model (sonnet) balances code quality and cost.",
+  },
+  {
+    role: "Reviewer",
+    tag: "gate",
+    model: "opus",
+    body: "The one that reviews and approves or rejects. It doesn't edit: it judges.",
+    detail:
+      "It reviews the implementer's work against the project's rules and gates (security with semgrep, duplication with jscpd). It approves or rejects with concrete reasons. A strict second opinion before code moves on — which is why it uses a model that can judge with criteria.",
+  },
+  {
+    role: "Commit & PR pilot",
+    tag: "git/gh",
+    model: "haiku",
+    body: "The one that drafts the commit and opens the Pull Request.",
+    detail:
+      "Once the work is approved, it writes the commit message in the repo's format (Conventional) and opens the PR with a title and description. It runs checks against git/gh before touching the network. A mechanical, scoped task: a lightweight model is enough.",
+  },
+];
+
+const leadAgent = agents.find((a) => a.lead) ?? agents[0];
+
+const modelColor: Record<string, string> = {
+  opus: "text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700",
+  sonnet: "text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-700",
+  haiku: "text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700",
+};
+
+const modelTiers = [
+  {
+    model: "haiku",
+    use: "Read & explore",
+    who: "explorer · commit-pr-pilot",
+    note: "Fast and cheap for mechanical tasks.",
+  },
+  {
+    model: "sonnet",
+    use: "Write code",
+    who: "researcher · implementer",
+    note: "Balance of quality and cost.",
+  },
+  {
+    model: "opus",
+    use: "Decide & review",
+    who: "leader · reviewer · ticket-audit",
+    note: "The muscle where judgment matters.",
+  },
+];
+
+const glossary = [
+  {
+    term: "Harness",
+    def: "The 'harness' around the AI assistant: the rules, agents, and automations that make it work the way your team expects, not on a whim.",
+  },
+  {
+    term: "Agent / subagent",
+    def: "An assistant with a specific role (explore, write, review). The main agent splits work across specialized subagents.",
+  },
+  {
+    term: "Skill",
+    def: "A reusable guide for a concrete task ('how to create an endpoint', 'how to verify before calling something done'). The agent loads it when needed.",
+  },
+  {
+    term: "Hook",
+    def: "An automation that fires at a fixed moment —e.g. run the tests before every commit— so nobody has to remember.",
+  },
+  {
+    term: "Quality gate",
+    def: "The quality bar: the commands (lint, tests) that must pass to call a change done.",
+  },
+  {
+    term: "SDD",
+    def: "Spec-Driven Development: instead of rules living in someone's head, they're written and versioned next to the code, updated with one command.",
+  },
+  {
+    term: "Preset",
+    def: "A config bundle per stack type (Vite + React, NestJS, monorepo…). navori detects your stack and picks the right preset.",
+  },
+  {
+    term: "Engram",
+    def: "The persistent memory: it stores decisions and learnings so the assistant recalls them next session.",
+  },
+  {
+    term: "Managed block",
+    def: "A chunk of CLAUDE.md marked 'managed by navori': it updates itself without touching what you wrote around it.",
+  },
+  {
+    term: "legacyPaths",
+    def: "The folders of old code you flag so agents treat them carefully and don't impose new rules on them.",
+  },
+];
+
+const tokenMechanisms = [
+  {
+    title: "Isolated context per subagent",
+    body: "Each subagent runs in its own window and returns only the conclusion. The leader's thread never fills with the dump of files it read.",
+  },
+  {
+    title: "One model per role",
+    body: "Each agent uses the right model: a light one to read and explore, the powerful one only to decide and review. You don't pay a premium model to read files.",
+  },
+  {
+    title: "Excerpt-level reads",
+    body: "Explorer and researcher read the relevant fragments, not whole files. They locate — they don't photocopy.",
+  },
+  {
+    title: "Skills on demand",
+    body: "The skill catalog is referenced by index; the heavy content loads only when the task calls for it.",
+  },
+  {
+    title: "Compact managed blocks",
+    body: "Canonical ordering sorts and dedupes the rules in CLAUDE.md. No pasted copies, no noise piling up session after session.",
+  },
+];
+
+const engramPoints = [
+  "Survives session closes and context compactions.",
+  "mem_save stores decisions, root-caused bugs, and conventions; mem_search recalls them on startup.",
+  "The protocol is injected into the leader: it saves proactively, without being asked.",
+  "Ships with navori by default (always-on). You never re-explain last week's context.",
+];
+
+const workspacePoints = [
+  "Cross-repo config in ~/.navori/workspaces/<org>.json, outside any single repo.",
+  "Org-wide defaults: quality gate, branch base, shared conventions.",
+  "Tickets as version-controlled files inside the workspace.",
+  "workspace render applies the standard to every registered repo in one pass.",
+];
+
+const productionPoints = [
+  {
+    title: "Project mode, right from init",
+    body: "You pick the terrain: greenfield (move fast), in production (guard regressions), or legacy migration (watch legacy↔new compatibility). The choice shapes how the agents work.",
+  },
+  {
+    title: "legacyPaths the agents respect",
+    body: "You flag the legacy folders and the leader, implementer, and reviewer know it: different rules apply there, and they don't impose new conventions on code that isn't theirs to touch.",
+  },
+  {
+    title: "ticket-audit before migrating",
+    body: "Facing a structural migration (legacy → new backend, monolith → microservices), the agent dissects root cause, affected areas, and compatibility before anyone writes code.",
+  },
+  {
+    title: "Migration-aware skills",
+    body: "verify-before-done, loop-back-debug, and review-diff catch the inconsistent states where legacy and new code coexist — the most expensive bug in a half-done migration.",
+  },
+];
+
+const gates = [
+  {
+    title: "Simplicity > cleverness",
+    body: "The standard before writing a line: is it the simplest thing? readable in 6 months? does it keep the existing pattern? No clever solutions nobody understands later.",
+  },
+  {
+    title: "any forbidden",
+    body: "unknown + narrowing, explicit types. The only exception is a // justified any: <reason> — last resort, not a shortcut that turns into debt.",
+  },
+  {
+    title: "Semgrep · security gate",
+    body: "Static analysis of dangerous patterns, tied to the reviewer. Security issues get caught in review, not in production.",
+  },
+  {
+    title: "jscpd · duplication gate",
+    body: "Detects copy-paste code before it multiplies. Less surface to maintain, fewer places for a bug to hide.",
+  },
+  {
+    title: "Defensive hooks",
+    body: "guard-destructive intercepts dangerous commands; quality-gate runs lint + tests before every commit.",
+  },
+  {
+    title: "deny / ask permissions",
+    body: "Sensitive operations are blocked or require explicit confirmation. Defense in depth, not a single barrier.",
+  },
+];
+
+const whyNavori = [
+  {
+    title: "It's not copy-pasting .claude/",
+    body: "A versioned source of truth and idempotent render. Copying folders between repos doesn't scale or survive an update; navori does.",
+  },
+  {
+    title: "It's not a static template",
+    body: "It detects your real stack —Mantine, Redux, NestJS, pnpm monorepo— and assembles the preset. The standards don't erode because they're versioned and update with one command.",
+  },
+  {
+    title: "Production and legacy, first-class",
+    body: "Most tools assume a clean repo. navori starts from reality: code that already runs, legacy dependencies, and half-done migrations.",
+  },
+  {
+    title: "Batteries included and wired",
+    body: "Persistent memory, security and duplication gates, multi-agent orchestration, and a cross-repo standard. All polished and connected, not a README with manual steps.",
+  },
+];
+
+const creditsBuiltOn = [
+  {
+    name: "Claude Code",
+    by: "Anthropic",
+    role: "The agent runtime navori materializes.",
+    href: "https://claude.com/claude-code",
+  },
+  {
+    name: "engram",
+    by: "Gentleman-Programming",
+    role: "Persistent memory across sessions via MCP.",
+    href: "https://github.com/Gentleman-Programming/engram",
+  },
+  {
+    name: "semgrep",
+    by: "Semgrep",
+    role: "Static security and pattern analysis.",
+    href: "https://semgrep.dev",
+  },
+  {
+    name: "jscpd",
+    by: "kucherenko",
+    role: "Copy-paste / duplication detection.",
+    href: "https://github.com/kucherenko/jscpd",
+  },
+  {
+    name: "eslint-plugin-sonarjs",
+    by: "SonarSource",
+    role: "Cognitive-complexity guardrails.",
+    href: "https://github.com/SonarSource/eslint-plugin-sonarjs",
+  },
+  {
+    name: "GitHub CLI",
+    by: "GitHub",
+    role: "Issues and PRs from the terminal.",
+    href: "https://cli.github.com",
+  },
+  {
+    name: "Atlassian CLI",
+    by: "Atlassian",
+    role: "Jira tickets as a source of work.",
+    href: "https://developer.atlassian.com/cloud/acli/",
+  },
+];
+
+const creditsIdeas = [
+  {
+    name: "AGENTS.md",
+    role: "The universal agent-instructions spec — the multi-engine baseline.",
+    href: "https://agents.md",
+  },
+  {
+    name: "Claude Code subagents",
+    role: "The orchestrator + workers pattern in isolated context.",
+    href: "https://docs.claude.com/en/docs/claude-code/sub-agents",
+  },
+  {
+    name: "Spec-Driven Development",
+    role: "Versioning skills, rules, and conventions as part of the repo.",
+    href: null,
+  },
+];
+
+const creditsBuiltWith = [
+  { name: "clack", href: "https://github.com/bombshell-dev/clack" },
+  { name: "citty", href: "https://github.com/unjs/citty" },
+  { name: "zod", href: "https://zod.dev" },
+  { name: "Astro", href: "https://astro.build" },
+  { name: "Tailwind CSS", href: "https://tailwindcss.com" },
+];
+
+const onboarding = [
+  {
+    n: "01",
+    title: "Have the prerequisites",
+    body: "Node.js 20+, Claude Code and —if the repo uses persistent memory— the engram binary. In step 3, doctor tells you exactly what's missing.",
+    code: "node --version   # v20 or higher\n# Claude Code installed on your machine",
+  },
+  {
+    n: "02",
+    title: "Clone and rebuild the harness",
+    body: "The repo already ships navori.config.json (the source of truth). A single command rebuilds .claude/ + CLAUDE.md identical to the rest of the team's. Idempotent: running it twice changes nothing.",
+    code: "$ git clone <repo> && cd <repo>\n$ npx navori render --apply\n\n✓ CLAUDE.md + .claude/ rebuilt from the config",
+  },
+  {
+    n: "03",
+    title: "Verify with doctor",
+    body: "doctor confirms everything is up to date and, if a tool is missing (e.g. engram), hands you the exact install command. No guessing.",
+    code: "$ npx navori doctor\n\n◇ All good — nothing pending.\n⇡ engram — missing from PATH:\n   brew install gentleman-programming/tap/engram \\\n     && claude plugin install engram",
+  },
+  {
+    n: "04",
+    title: "Work as usual",
+    body: "Open Claude Code and you're set: same agents, same skills, same quality gate, same team memory. When someone updates the config, run sync to catch up without touching your code.",
+    code: "# already productive with the team's harness\n\n# when the repo config changes:\n$ npx navori@latest sync",
+  },
+];
+---
+
+<BaseLayout
+  lang={lang}
+  title="Deep dive"
+  description="What navori delivers under the hood: multi-agent orchestration, one model per role, persistent memory with engram, org-wide workspaces, standards and gates — built for production code and legacy migrations."
+>
+  {/* ── Hero ─────────────────────────────────────────────── */}
+  <section
+    class="relative overflow-hidden border-b"
+    style="border-color: var(--color-border-soft);"
+  >
+    <div class="absolute inset-0 grid-bg opacity-50 pointer-events-none"></div>
+    <div class="absolute inset-0 glow-hero opacity-70 pointer-events-none"></div>
+
+    <div class="container-prose relative py-16 sm:py-24">
+      <span class="eyebrow">
+        <span class="h-1.5 w-1.5 rounded-full bg-violet-500"></span>
+        Deep dive
+      </span>
+      <h1
+        class="mt-5 text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] tracking-tight"
+      >
+        <span class="font-sans font-semibold">What navori delivers</span>
+        <br />
+        <span class="display-italic gradient-text">under the hood.</span>
+      </h1>
+      <p
+        class="mt-5 max-w-2xl text-base sm:text-lg text-slate-700 dark:text-slate-300"
+      >
+        navori isn't a generic scaffolder. It's an <strong>opinionated</strong>
+        harness, built for code that already lives in production —with legacy
+        dependencies and half-finished migrations, not lab repos—. It turns
+        Claude Code into a team with non-negotiable standards, memory that
+        persists, and one shared standard across all your repos. Here's why,
+        layer by layer, it's a foundation worth building on.
+      </p>
+      <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">
+        New to terms like <em>harness</em>, <em>skill</em>, or <em>SDD</em>?
+        <a
+          href="#glossary"
+          class="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+          >Start with the quick glossary ↓</a
+        >
+      </p>
+    </div>
+  </section>
+
+  {/* ── Quick glossary (helper) ──────────────────────────── */}
+  <section
+    id="glossary"
+    class="scroll-mt-20 border-b"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 55%);"
+  >
+    <div class="container-prose py-14 sm:py-16">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >Before you start</span
+        >
+        <h2 class="mt-3 text-2xl sm:text-3xl font-semibold tracking-tight">
+          Quick glossary
+        </h2>
+        <p class="mt-3 text-base text-slate-600 dark:text-slate-400">
+          No jargon. Tap any term to see what it means in one sentence.
+        </p>
+      </div>
+
+      <div class="mt-8 grid gap-3 sm:grid-cols-2">
+        {
+          glossary.map((g) => (
+            <details
+              class="group rounded-lg border p-4 transition-colors"
+              style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+            >
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-3 font-medium [&::-webkit-details-marker]:hidden">
+                <span class="font-mono text-sm">{g.term}</span>
+                <span
+                  class="text-lg leading-none text-slate-400 transition-transform group-open:rotate-45"
+                  aria-hidden="true"
+                >
+                  +
+                </span>
+              </summary>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {g.def}
+              </p>
+            </details>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  {/* ── 1 · Multi-agent orchestration (interactive) ──────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >01 · Orchestration</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">A team of agents,</span>
+        <span class="display-italic gradient-text">not a single thread.</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        The main agent <strong>embodies the leader</strong> —the center of
+        gravity—. Instead of doing everything in one thread, it decomposes the
+        task and splits it across subagents that work in parallel and return
+        only their conclusion. Each has a strict role and the right model for it.
+      </p>
+    </div>
+
+    <p class="mt-8 text-sm text-slate-500 dark:text-slate-400">
+      Tap a card to see what each role does ↓
+    </p>
+
+    <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        agents.map((a) => (
+          <button
+            type="button"
+            data-agent-card
+            data-role={a.role}
+            data-model={a.model}
+            data-detail={a.detail}
+            data-active={a.lead ? "" : undefined}
+            class="card group flex h-full cursor-pointer flex-col text-left data-[active]:-translate-y-0.5 data-[active]:ring-2 data-[active]:ring-violet-500"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <h3 class="text-base font-semibold tracking-tight">{a.role}</h3>
+              <span
+                class={`rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider shrink-0 ${modelColor[a.model]}`}
+              >
+                {a.model}
+              </span>
+            </div>
+            <span class="mt-1 font-mono text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              {a.lead ? "main · " : ""}
+              {a.tag}
+            </span>
+            <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+              {a.body}
+            </p>
+          </button>
+        ))
+      }
+    </div>
+
+    {/* detail panel — filled on click */}
+    <div
+      class="mt-4 rounded-xl border p-5 sm:p-6"
+      style="border-color: var(--color-violet-400); background: color-mix(in oklab, var(--color-violet-500), transparent 93%);"
+    >
+      <div class="flex items-center gap-3">
+        <h3
+          id="agent-detail-role"
+          class="text-lg font-semibold tracking-tight"
+        >
+          {leadAgent.role}
+        </h3>
+        <span
+          id="agent-detail-model"
+          class="rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-violet-700 dark:text-violet-300"
+          style="border-color: var(--color-violet-400);"
+        >
+          {leadAgent.model}
+        </span>
+      </div>
+      <p
+        id="agent-detail-body"
+        class="mt-3 text-sm sm:text-base leading-relaxed text-slate-700 dark:text-slate-300"
+      >
+        {leadAgent.detail}
+      </p>
+    </div>
+
+    {/* model per role */}
+    <h3
+      class="mt-14 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+    >
+      Each role, its model — efficiency in time and tokens
+    </h3>
+    <div class="mt-5 grid gap-3 sm:grid-cols-3">
+      {
+        modelTiers.map((m) => (
+          <div
+            class="rounded-lg border p-4"
+            style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+          >
+            <div class="flex items-baseline justify-between gap-2">
+              <span
+                class={`rounded-full border px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider ${modelColor[m.model]}`}
+              >
+                {m.model}
+              </span>
+              <span class="text-sm font-medium">{m.use}</span>
+            </div>
+            <p class="mt-2 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+              {m.who}
+            </p>
+            <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              {m.note}
+            </p>
+          </div>
+        ))
+      }
+    </div>
+    <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">
+      All configurable in <code
+        class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >config.models</code
+      >. You don't pay a premium model to read files: muscle where decisions
+      happen, speed where you explore.
+    </p>
+
+    <div
+      class="mt-10 rounded-xl border overflow-hidden"
+      style="border-color: var(--color-border-soft);"
+    >
+      <div
+        class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+        style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+      >
+        the leader, on a complex task
+      </div>
+      <pre
+        class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+        style="background: var(--color-night); color: rgb(226 232 240);"><code>leader › splits the ticket into 3 subtasks
+  ├─ explorer   → map the module        (own context · haiku)
+  ├─ researcher → how is it validated?  (own context · sonnet)
+  └─ implementer → applies the change   → quality gate ✓  (sonnet)
+       └─ reviewer → approves against CLAUDE.md          (opus)
+leader › synthesizes and delegates the commit → commit-pr-pilot  (haiku)</code></pre>
+    </div>
+  </section>
+
+  <div class="container-prose"><div class="hairline"></div></div>
+
+  {/* ── 2 · Production & legacy ──────────────────────────── */}
+  <section
+    class="relative py-16 sm:py-20 border-y"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 60%);"
+  >
+    <div class="container-prose">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >02 · The real terrain</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">Built for production,</span>
+          <span class="display-italic gradient-text">not for demos.</span>
+        </h2>
+        <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+          Almost every tool assumes a clean, greenfield repo. navori starts from
+          a real team's reality: code already running in production, legacy
+          dependencies, and half-done migrations. From <code
+            class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+            >init</code
+          > you pick the terrain, and that choice shapes how the agents work.
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-8 lg:grid-cols-[1fr_360px] lg:items-start">
+        <div class="grid gap-4 sm:grid-cols-2">
+          {
+            productionPoints.map((p) => (
+              <div class="card">
+                <h3 class="text-base font-semibold tracking-tight">
+                  {p.title}
+                </h3>
+                <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                  {p.body}
+                </p>
+              </div>
+            ))
+          }
+        </div>
+
+        <div
+          class="rounded-xl border overflow-hidden"
+          style="border-color: var(--color-border-soft);"
+        >
+          <div
+            class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+            style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+          >
+            navori init — project mode
+          </div>
+          <pre
+            class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+            style="background: var(--color-night); color: rgb(226 232 240);"><code>? What terrain are you on?
+    greenfield   — new code, move fast
+  › production   — in production, guard regressions
+    migration    — legacy migration, watch
+                   legacy↔new compatibility
+
+→ legacyPaths: [ "src/old-api", "legacy/" ]
+  the leader, implementer, and reviewer
+  treat those paths with different rules.</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ── 3 · Token efficiency ─────────────────────────────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >03 · Efficiency</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">Fewer tokens</span>
+        <span class="display-italic gradient-text">by design.</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        Orchestration isn't just about speed — it's context economy. The main
+        thread stays clean because the heavy lifting happens in isolated windows
+        —each with its own model— that return only what matters.
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-8 lg:grid-cols-[1fr_360px] lg:items-start">
+      <div class="grid gap-4 sm:grid-cols-2">
+        {
+          tokenMechanisms.map((m) => (
+            <div class="card">
+              <h3 class="text-base font-semibold tracking-tight">{m.title}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {m.body}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+
+      <div
+        class="rounded-xl border p-6"
+        style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 20%);"
+      >
+        <h3
+          class="text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+        >
+          The contrast
+        </h3>
+        <div class="mt-4 space-y-4 text-sm">
+          <div>
+            <p class="font-mono text-[11px] uppercase tracking-wider text-rose-500">
+              without a harness
+            </p>
+            <p class="mt-1 text-slate-600 dark:text-slate-400">
+              One thread reads whole files, piles everything into context, and
+              drags it turn after turn until it saturates.
+            </p>
+          </div>
+          <div class="hairline"></div>
+          <div>
+            <p class="font-mono text-[11px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+              with navori
+            </p>
+            <p class="mt-1 text-slate-600 dark:text-slate-400">
+              Subagents explore in parallel and return conclusions. The leader
+              reasons over summaries, not dumps. Engram keeps what must be
+              remembered outside the context window.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="container-prose"><div class="hairline"></div></div>
+
+  {/* ── 4 · Engram ───────────────────────────────────────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="grid gap-10 lg:grid-cols-2 lg:gap-16 lg:items-center">
+      <div>
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >04 · Memory</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">Engram:</span>
+          <span class="display-italic gradient-text">memory that persists.</span>
+        </h2>
+        <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+          An LLM's context is ephemeral: close the session and it's forgotten.
+          Engram is the persistent memory navori enables by default. Decisions,
+          root-caused bugs, and conventions get saved and recalled across
+          sessions — and survive context compactions.
+        </p>
+        <ul class="mt-6 space-y-3">
+          {
+            engramPoints.map((p) => (
+              <li class="flex gap-3 text-sm text-slate-700 dark:text-slate-300">
+                <svg
+                  class="mt-0.5 shrink-0 text-sky-600 dark:text-sky-400"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>{p}</span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <div
+        class="rounded-xl border overflow-hidden"
+        style="border-color: var(--color-border-soft);"
+      >
+        <div
+          class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+          style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+        >
+          today's session · next week's session
+        </div>
+        <pre
+          class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+          style="background: var(--color-night); color: rgb(226 232 240);"><code># today — after fixing a bug
+mem_save "The 360 report breaks if languages[] is empty.
+          Root cause: missing guard in report.py. Fix: default []."
+
+# next week — new session, context at zero
+mem_search "360 report languages"
+→ recalls the decision, the root cause, and the fix.
+  You don't re-explain it.</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <div class="container-prose"><div class="hairline"></div></div>
+
+  {/* ── 5 · Workspaces ───────────────────────────────────── */}
+  <section
+    class="relative py-16 sm:py-20 border-y"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 60%);"
+  >
+    <div class="container-prose">
+      <div class="grid gap-10 lg:grid-cols-2 lg:gap-16 lg:items-center">
+        <div class="lg:order-2">
+          <span
+            class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+            >05 · Org scale</span
+          >
+          <h2
+            class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+          >
+            <span class="font-sans font-semibold">One workspace,</span>
+            <span class="display-italic gradient-text">all your repos.</span>
+          </h2>
+          <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+            When you run 15 repos, you don't want 15 standards. The workspace is
+            a cross-repo layer: define your org's quality gate, branch base, and
+            conventions once, and every repo inherits them. The team works the
+            same way no matter which project they're in.
+          </p>
+          <ul class="mt-6 space-y-3">
+            {
+              workspacePoints.map((p) => (
+                <li class="flex gap-3 text-sm text-slate-700 dark:text-slate-300">
+                  <svg
+                    class="mt-0.5 shrink-0 text-sky-600 dark:text-sky-400"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>{p}</span>
+                </li>
+              ))
+            }
+          </ul>
+        </div>
+
+        <div
+          class="rounded-xl border overflow-hidden lg:order-1"
+          style="border-color: var(--color-border-soft);"
+        >
+          <div
+            class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
+            style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
+          >
+            the org standard, to every repo
+          </div>
+          <pre
+            class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
+            style="background: var(--color-night); color: rgb(226 232 240);"><code>$ navori workspace init acme
+$ navori workspace set-default acme \
+    --branch-base main --commits conventional-es
+$ navori workspace add-repo acme ./web-app
+$ navori workspace add-repo acme ./api-core
+  … 13 more repos
+
+$ navori workspace render acme
+✓ 15 repos rendered with the same standard</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ── 6 · Standards & gates ────────────────────────────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >06 · Guardrails</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">Standards and gates</span>
+        <span class="display-italic gradient-text">that protect the work.</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        An agent with write access needs barriers. navori brings non-negotiable
+        standards —simplicity, strict typing— and security and quality gates as
+        part of the harness, not an optional extra. And it keeps them versioned
+        alongside the rest of the config.
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        gates.map((g) => (
+          <div class="card">
+            <h3 class="text-base font-semibold tracking-tight">{g.title}</h3>
+            <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+              {g.body}
+            </p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  {/* ── 7 · Why navori (conviction) ──────────────────────── */}
+  <section
+    class="relative py-16 sm:py-20 border-y"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 60%);"
+  >
+    <div class="container-prose">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >07 · The difference</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">Why navori,</span>
+          <span class="display-italic gradient-text">and not a generic scaffolder.</span>
+        </h2>
+        <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+          There are many ways to give an AI assistant instructions. Few survive
+          the second month, a real team, or a repo with history. This is what
+          navori does that the alternatives don't — or don't do as polished.
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-4 sm:grid-cols-2">
+        {
+          whyNavori.map((w) => (
+            <div class="card">
+              <h3 class="text-base font-semibold tracking-tight">{w.title}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {w.body}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  {/* ── 8 · Join an existing repo (main focus) ───────────── */}
+  <section class="container-prose py-16 sm:py-20">
+    <div class="max-w-3xl">
+      <span
+        class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+        >08 · For your team</span
+      >
+      <h2
+        class="mt-3 text-[clamp(1.85rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
+      >
+        <span class="font-sans font-semibold">Join a repo</span>
+        <span class="display-italic gradient-text">that already runs navori.</span>
+      </h2>
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
+        You commit the config once to each repo; the team just follows it.
+        Nobody hand-rolls a harness or copies <code
+          class="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+          >.claude/</code
+        > between projects. These are the commands each person runs on the way in.
+    </p>
+    </div>
+
+    <div class="mt-12 space-y-8">
+      {
+        onboarding.map((s) => (
+          <article class="grid gap-5 sm:grid-cols-[64px_1fr]">
+            <div>
+              <span
+                class="display-italic text-4xl sm:text-5xl gradient-text leading-none block"
+                aria-hidden="true"
+              >
+                {s.n}
+              </span>
+            </div>
+            <div class="min-w-0">
+              <h3 class="text-lg sm:text-xl font-semibold tracking-tight">
+                {s.title}
+              </h3>
+              <p class="mt-2 text-base text-slate-600 dark:text-slate-400 max-w-2xl">
+                {s.body}
+              </p>
+              <pre
+                class="mt-4 rounded-lg border px-3 sm:px-5 py-3 sm:py-4 text-[12px] sm:text-[13px] font-mono leading-relaxed overflow-x-auto"
+                style="background: var(--color-night); color: rgb(226 232 240); border-color: var(--color-border-soft);"
+              >{s.code}</pre>
+            </div>
+          </article>
+        ))
+      }
+    </div>
+
+    <p
+      class="mt-10 rounded-lg border px-4 py-3 text-sm text-slate-600 dark:text-slate-400"
+      style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 40%);"
+    >
+      <span class="font-semibold text-slate-800 dark:text-slate-200"
+        >In short, for the team:</span
+      >
+      <code
+        class="mx-1 rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10"
+        >clone → npx navori render --apply → npx navori doctor</code
+      > and start working with the same harness you use.
+    </p>
+  </section>
+
+  {/* ── CTA ──────────────────────────────────────────────── */}
+  <section
+    class="relative overflow-hidden border-t"
+    style="border-color: var(--color-border-soft);"
+  >
+    <div class="absolute inset-0 glow-hero opacity-60 pointer-events-none"></div>
+    <div class="container-prose relative py-16 sm:py-20 text-center">
+      <h2 class="text-[clamp(1.75rem,4vw,2.5rem)] leading-[1.1] tracking-tight">
+        <span class="font-sans font-semibold">From theory</span>
+        <span class="display-italic gradient-text">to the repo, in a minute.</span>
+      </h2>
+      <p
+        class="mx-auto mt-4 max-w-xl text-base text-slate-600 dark:text-slate-400"
+      >
+        All of this materializes with a single adoption command. The rest is
+        rendering whenever you change something.
+      </p>
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a class="btn btn-primary" href={localizedPath(lang, "/quickstart")}>
+          See the Quickstart
+        </a>
+        <a class="btn btn-ghost" href={localizedPath(lang, "/docs/init")}>
+          Command reference
+        </a>
+      </div>
+    </div>
+  </section>
+
+  {/* ── Credits & inspiration ────────────────────────────── */}
+  <section
+    class="border-t"
+    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 55%);"
+  >
+    <div class="container-prose py-16 sm:py-20">
+      <div class="max-w-3xl">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-violet-700 dark:text-violet-300"
+          >Credits</span
+        >
+        <h2
+          class="mt-3 text-[clamp(1.6rem,3.5vw,2.4rem)] leading-[1.1] tracking-tight"
+        >
+          <span class="font-sans font-semibold">Shoulders of</span>
+          <span class="display-italic gradient-text">giants.</span>
+        </h2>
+        <p class="mt-4 text-base text-slate-600 dark:text-slate-400">
+          navori wasn't born in a vacuum: it integrates excellent tools and
+          synthesizes ideas from open projects and standards. Credit for each
+          piece belongs to whoever built it.
+        </p>
+      </div>
+
+      {/* Builds on */}
+      <h3
+        class="mt-12 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+      >
+        Builds on
+      </h3>
+      <ul class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {
+          creditsBuiltOn.map((c) => (
+            <li>
+              <a
+                href={c.href}
+                target="_blank"
+                rel="noreferrer"
+                class="group block h-full rounded-lg border p-4 transition-all hover:-translate-y-0.5"
+                style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+              >
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-mono text-sm font-medium group-hover:text-sky-700 dark:group-hover:text-sky-300">
+                    {c.name}
+                  </span>
+                  <span
+                    class="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0"
+                    aria-hidden="true"
+                  >
+                    ↗
+                  </span>
+                </div>
+                <p class="mt-0.5 text-[11px] uppercase tracking-wider text-violet-700/70 dark:text-violet-300/70">
+                  {c.by}
+                </p>
+                <p class="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-400">
+                  {c.role}
+                </p>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+
+      {/* Ideas & standards */}
+      <h3
+        class="mt-10 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+      >
+        Ideas & standards
+      </h3>
+      <ul class="mt-5 grid gap-3 sm:grid-cols-3">
+        {
+          creditsIdeas.map((c) => {
+            const inner = (
+              <>
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-mono text-sm font-medium group-hover:text-sky-700 dark:group-hover:text-sky-300">
+                    {c.name}
+                  </span>
+                  {c.href && (
+                    <span
+                      class="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0"
+                      aria-hidden="true"
+                    >
+                      ↗
+                    </span>
+                  )}
+                </div>
+                <p class="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-400">
+                  {c.role}
+                </p>
+              </>
+            );
+            return (
+              <li>
+                {c.href ? (
+                  <a
+                    href={c.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    class="group block h-full rounded-lg border p-4 transition-all hover:-translate-y-0.5"
+                    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+                  >
+                    {inner}
+                  </a>
+                ) : (
+                  <div
+                    class="group block h-full rounded-lg border p-4"
+                    style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+                  >
+                    {inner}
+                  </div>
+                )}
+              </li>
+            );
+          })
+        }
+      </ul>
+
+      {/* Built with */}
+      <div class="mt-10 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+        <span
+          class="text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+          >Built with</span
+        >
+        {
+          creditsBuiltWith.map((c) => (
+            <a
+              href={c.href}
+              target="_blank"
+              rel="noreferrer"
+              class="rounded-full border px-3 py-1 font-mono text-[12px] transition-colors hover:text-sky-700 dark:hover:text-sky-300"
+              style="border-color: var(--color-border-soft);"
+            >
+              {c.name}
+            </a>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  {/* subagent card interactivity */}
+  <script is:inline>
+    (function () {
+      const cards = document.querySelectorAll("[data-agent-card]");
+      const roleEl = document.getElementById("agent-detail-role");
+      const modelEl = document.getElementById("agent-detail-model");
+      const bodyEl = document.getElementById("agent-detail-body");
+      if (!cards.length || !roleEl || !modelEl || !bodyEl) return;
+
+      function select(card) {
+        cards.forEach((c) => c.removeAttribute("data-active"));
+        card.setAttribute("data-active", "");
+        roleEl.textContent = card.dataset.role;
+        modelEl.textContent = card.dataset.model;
+        bodyEl.textContent = card.dataset.detail;
+      }
+
+      cards.forEach((card) => {
+        card.addEventListener("click", () => select(card));
+      });
+    })();
+  </script>
+</BaseLayout>
