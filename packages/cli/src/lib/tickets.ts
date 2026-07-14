@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { writeFileAtomic } from "./atomic.ts";
 import { workspaceDirectory, loadWorkspace } from "./workspace.ts";
 import { NavoriError } from "./errors.ts";
+import { NavoriConfigSchema } from "./schema.ts";
 
 export interface TicketSummary {
   id: string;
@@ -139,7 +140,31 @@ export function createTicket(workspaceName: string, id: string, title?: string):
 }
 
 /**
- * Scan a list of repos for `progress/current.md` files that reference a given
+ * Resolve a repo's session-state file (`progress/current.md` by default),
+ * honoring `progress.dir` / `progress.currentFile` from the repo's
+ * navori.config.json. Falls back to the defaults when the config is missing,
+ * unreadable or invalid — the scan must never throw for a broken repo.
+ */
+function currentProgressPath(repoRoot: string): string {
+  const fallback = join(repoRoot, "progress", "current.md");
+  const configPath = join(repoRoot, "navori.config.json");
+  if (!existsSync(configPath)) return fallback;
+  try {
+    const parsed = NavoriConfigSchema.safeParse(
+      JSON.parse(readFileSync(configPath, "utf-8")),
+    );
+    if (!parsed.success) return fallback;
+    const dir = parsed.data.progress?.dir ?? "progress";
+    const file = parsed.data.progress?.currentFile ?? "current.md";
+    return join(repoRoot, dir, file);
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Scan a list of repos for session-state files (`progress/current.md`, or the
+ * path configured in each repo's navori.config.json) that reference a given
  * ticket id (via "workspace://<ws>/tickets/<id>" or "ticket: <id>" line).
  */
 export function findReferencingRepos(
@@ -151,7 +176,7 @@ export function findReferencingRepos(
 
   for (const repoPath of repoPaths) {
     const abs = resolve(repoPath);
-    const current = join(abs, "progress", "current.md");
+    const current = currentProgressPath(abs);
     if (!existsSync(current)) continue;
     try {
       const content = readFileSync(current, "utf-8");
