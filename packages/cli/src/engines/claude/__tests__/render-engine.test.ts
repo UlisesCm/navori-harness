@@ -208,8 +208,6 @@ describe("renderClaudeEngine — progress bootstrap (E2)", () => {
         dir: "progress",
         currentFile: "now.md",
         historyFile: "log.md",
-        checkpointsDir: "progress/checkpoints",
-        archiveAfterDays: 30,
       },
     } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, customConfig);
