@@ -244,9 +244,12 @@ describe("scanManagedOrder", () => {
   });
 
   it("flags interleaved prose so the order can't be auto-fixed, spotlighting the lead block", () => {
-    let doc = injectManagedSection("", "idioma-rol", "x").output;
-    doc = `${doc.trimEnd()}\n\nNOTA DEL USUARIO\n\n`;
-    doc = injectManagedSection(doc, "orquestacion", "y").output;
+    // Built by hand: injectManagedSection no longer produces interleaving (it
+    // inserts new blocks after the last managed block, #77), but a user moving
+    // blocks/prose around by hand still can.
+    const first = injectManagedSection("", "idioma-rol", "x").output;
+    const second = injectManagedSection("", "orquestacion", "y").output;
+    const doc = `${first.trimEnd()}\n\nNOTA DEL USUARIO\n\n${second}`;
     writeFileSync(join(cwd, "CLAUDE.md"), doc);
 
     const r = scanManagedOrder(cwd, config);
