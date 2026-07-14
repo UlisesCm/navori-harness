@@ -5,10 +5,9 @@
  * even if the message wording changes) so callers can branch on it without
  * string-matching. `name` is derived from the subclass automatically.
  *
- * Note: RenderError / DriftError from the spec are intentionally NOT defined
- * here — there is no throw site for them today (the render reports status, it
- * doesn't throw; drift is data, not an exception). Add them when a real throw
- * appears, not speculatively.
+ * Note: DriftError from the spec is intentionally NOT defined here — drift is
+ * data, not an exception. RenderWriteError exists because the engines' write
+ * loops DO throw on I/O failure and must carry the backup path (#77).
  */
 export class NavoriError extends Error {
   readonly code: string;
@@ -23,6 +22,21 @@ export class NavoriError extends Error {
 export class HomeError extends NavoriError {
   constructor(message: string) {
     super("home-unresolved", message);
+  }
+}
+
+/**
+ * An engine write failed mid-render. Writes are atomic per file but not
+ * transactional across files, so the tree may be partial; the message and
+ * `backupPath` carry the pre-write backup dir (when one was taken) as the
+ * recovery breadcrumb — the engine's return value never reaches the caller
+ * on a throw (#77).
+ */
+export class RenderWriteError extends NavoriError {
+  readonly backupPath: string | null;
+  constructor(message: string, backupPath: string | null) {
+    super("render-write-failed", message);
+    this.backupPath = backupPath;
   }
 }
 

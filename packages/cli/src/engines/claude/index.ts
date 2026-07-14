@@ -18,6 +18,7 @@ import { interpolate } from "./interpolate.ts";
 import { benchMark } from "../../lib/bench.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
 import { log } from "../../lib/log.ts";
+import { RenderWriteError } from "../../lib/errors.ts";
 
 /**
  * Claude engine adapter — entry point. Orchestrates the full render of a
@@ -685,22 +686,36 @@ export function renderClaudeEngine(
       }
     }
 
-    // Log the backup path up front: if a write below crashes mid-loop, this is
-    // the recovery breadcrumb (the return value never lands).
-    if (backupPath) log.debug("pre-write backup", { path: relative(cwd, backupPath) });
+    // Log the backup path up front as an extra breadcrumb; the user-visible
+    // copies are the render reporter (result.backupPath) and, on a mid-loop
+    // crash, the RenderWriteError below (#77).
+    if (backupPath) log.debug("pre-write backup", { path: backupPath });
 
-    for (const p of pending) {
-      mkdirSync(dirname(p.path), { recursive: true });
-      writeFileAtomic(p.path, p.content);
-      log.debug("wrote", { path: relative(cwd, p.path), status: p.status });
-      if (p.chmodExec) {
-        try {
-          chmodSync(p.path, 0o755);
-        } catch {
-          // best-effort; some filesystems (FAT) won't grant +x
+    let current: string | null = null;
+    try {
+      for (const p of pending) {
+        current = p.path;
+        mkdirSync(dirname(p.path), { recursive: true });
+        writeFileAtomic(p.path, p.content);
+        log.debug("wrote", { path: relative(cwd, p.path), status: p.status });
+        if (p.chmodExec) {
+          try {
+            chmodSync(p.path, 0o755);
+          } catch {
+            // best-effort; some filesystems (FAT) won't grant +x
+          }
         }
+        written.push({ path: relative(cwd, p.path), status: p.status });
       }
-      written.push({ path: relative(cwd, p.path), status: p.status });
+    } catch (err) {
+      // A crash mid-loop leaves a partial tree and the return value (with its
+      // backupPath) never lands — the error the user sees must carry the
+      // recovery breadcrumb itself.
+      const hint = backupPath ? ` Backup pre-escritura disponible en: ${backupPath}` : "";
+      throw new RenderWriteError(
+        `El render falló escribiendo ${current ?? "?"}: ${err instanceof Error ? err.message : String(err)}.${hint}`,
+        backupPath,
+      );
     }
   } else {
     for (const p of pending) {

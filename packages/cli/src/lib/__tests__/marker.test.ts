@@ -175,6 +175,58 @@ describe("injectManagedSection", () => {
     // The fake string should be preserved before the new block
     expect(result.output).toMatch(/Plain text.*\n\n<!-- navori:managed id="x"/s);
   });
+
+  // #77 — a brand-new block must land after the LAST managed block, not at the
+  // end of the file, so user prose below the managed region never ends up
+  // interleaved between blocks (which would block reorderManagedBlocks forever).
+  describe("new block insertion with trailing user prose (#77)", () => {
+    it("inserts the new block after the last managed block, before user prose", () => {
+      const base = injectManagedSection("", "a", "Block A\n").output + "\n## Mis notas\n\n- nota propia\n";
+      const result = injectManagedSection(base, "b", "Block B\n");
+      expect(result.status).toBe("created");
+      // Block B sits between block A and the prose.
+      expect(result.output).toMatch(
+        /id="a".*Block B.*## Mis notas/s,
+      );
+      expect(result.output.indexOf('id="b"')).toBeLessThan(result.output.indexOf("## Mis notas"));
+      // Prose survives verbatim at the end.
+      expect(result.output.trimEnd().endsWith("- nota propia")).toBe(true);
+    });
+
+    it("keeps the managed region contiguous so reorderManagedBlocks is not blocked", () => {
+      const base = injectManagedSection("", "b", "Block B\n").output + "\nprosa del usuario\n";
+      const withNew = injectManagedSection(base, "a", "Block A\n").output;
+      const r = reorderManagedBlocks(withNew, ["a", "b"]);
+      expect(r.blockedByInterleaving).toBe(false);
+      expect(r.reordered).toBe(true);
+      expect(r.output.trimEnd().endsWith("prosa del usuario")).toBe(true);
+    });
+
+    it("is idempotent: re-injecting after insertion reports unchanged", () => {
+      const base = injectManagedSection("", "a", "Block A\n").output + "\nuser tail\n";
+      const first = injectManagedSection(base, "b", "Block B\n");
+      const second = injectManagedSection(first.output, "b", "Block B\n");
+      expect(second.status).toBe("unchanged");
+      expect(second.output).toBe(first.output);
+    });
+
+    it("appends at the end when the file has no managed blocks (current behavior)", () => {
+      const existing = "# Doc\n\nSolo prosa.\n";
+      const result = injectManagedSection(existing, "a", "Block A\n");
+      expect(result.status).toBe("created");
+      expect(result.output.startsWith("# Doc\n\nSolo prosa.\n")).toBe(true);
+      expect(result.output.trimEnd().endsWith('<!-- /navori:managed id="a" -->')).toBe(true);
+    });
+
+    it("shell style: new block also lands after the last managed block", () => {
+      const base =
+        injectManagedSection("#!/bin/bash\n", "a", "echo a\n", {}, "shell").output +
+        "\n# user: custom tail\n";
+      const result = injectManagedSection(base, "b", "echo b\n", {}, "shell");
+      expect(result.status).toBe("created");
+      expect(result.output.indexOf('end id="b"')).toBeLessThan(result.output.indexOf("# user: custom tail"));
+    });
+  });
 });
 
 describe("removeManagedSection", () => {
