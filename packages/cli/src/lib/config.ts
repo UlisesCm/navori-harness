@@ -70,6 +70,7 @@ export function readConfig(path: string): NavoriConfig {
     );
   }
   warnDroppedEnums(parsed, result.data);
+  warnRemovedProgressKeys(parsed);
   return result.data;
 }
 
@@ -95,7 +96,27 @@ function warnDroppedEnums(raw: unknown, parsed: NavoriConfig): void {
   }
   if (dropped.length > 0) {
     process.stderr.write(
-      `navori: valores de config desconocidos ignorados (¿config de un navori más nuevo? actualizá el CLI): ${dropped.join(", ")}\n`,
+      `navori: valores de config desconocidos ignorados (¿config de un navori más nuevo? actualiza el CLI): ${dropped.join(", ")}\n`,
+    );
+  }
+}
+
+/**
+ * `progress.checkpointsDir` / `progress.archiveAfterDays` were removed from
+ * the schema (issue #75) — nothing ever consumed them. Old configs that still
+ * carry them keep validating (z.object strips unknown keys), but warn softly
+ * so users know they can delete the dead keys.
+ */
+function warnRemovedProgressKeys(raw: unknown): void {
+  if (!raw || typeof raw !== "object") return;
+  const progress = (raw as Record<string, unknown>).progress;
+  if (!progress || typeof progress !== "object") return;
+  const removed = ["checkpointsDir", "archiveAfterDays"].filter(
+    (key) => key in (progress as Record<string, unknown>),
+  );
+  if (removed.length > 0) {
+    process.stderr.write(
+      `navori: claves obsoletas ignoradas en "progress" (puedes borrarlas del navori.config.json): ${removed.join(", ")}\n`,
     );
   }
 }

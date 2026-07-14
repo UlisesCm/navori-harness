@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { writeConfig } from "../../lib/config.ts";
@@ -59,9 +59,14 @@ function assertIdempotent(seed: () => void): void {
   const second = runRender(cwd);
   expect(second.ok).toBe(true);
 
-  // Second pass must be a no-op: no root write, no workspace write.
+  // Second pass must be a no-op: no root write, no workspace write, no
+  // non-Claude engine write (root or workspace).
   expect(second.written).toBe(false);
   expect(second.workspaces.every((w) => !w.written)).toBe(true);
+  expect((second.extraEngines ?? []).every((e) => e.written.length === 0)).toBe(true);
+  expect(
+    second.workspaces.every((w) => w.extraEngines.every((e) => e.written.length === 0)),
+  ).toBe(true);
 
   // No entry may report a mutation on the second pass.
   const mutatingStatuses = ["created", "updated", "removed-condition-false"];
@@ -131,5 +136,73 @@ describe("render idempotency (spec 0003 §3.1.2)", () => {
         },
       });
     });
+  });
+
+  it("engines [claude, agents-md] (monorepo): second render is a byte-for-byte no-op (#77)", () => {
+    // AGENTS.md is rendered at the root AND per workspace; all of them must be
+    // stable on the second pass.
+    assertIdempotent(() => {
+      mkdirSync(join(cwd, "apps/backend"), { recursive: true });
+      writeConfig(join(cwd, "navori.config.json"), {
+        name: "multi-engine",
+        engines: ["claude", "agents-md"],
+        preset: "monorepo-pnpm",
+        qualityGate: { fast: "pnpm -w lint", full: "pnpm -w test" },
+        monorepo: {
+          enabled: true,
+          tool: "pnpm",
+          workspaces: [{ name: "backend", path: "apps/backend" }],
+        },
+      });
+    });
+  });
+
+  it("upgrade with trailing user prose: a NEW managed block lands before the prose and stays stable (#77)", () => {
+    // Scenario: the user wrote notes at the END of CLAUDE.md, then an upgrade
+    // (here: enabling engram) introduces a new managed block. It must be
+    // inserted after the last managed block — NOT appended after the prose —
+    // so reorderManagedBlocks never reports blockedByInterleaving.
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "upgrade-app",
+      engines: ["claude"],
+      preset: "custom",
+      qualityGate: { fast: "pnpm lint", full: "pnpm test" },
+    });
+    expect(runRender(cwd).ok).toBe(true);
+
+    const claudeMdPath = join(cwd, "CLAUDE.md");
+    const prose = "\n## Mis notas del repo\n\n- Regla propia del usuario.\n";
+    writeFileSync(claudeMdPath, readFileSync(claudeMdPath, "utf-8") + prose);
+
+    // Upgrade: engram adds the engram-protocol managed block to CLAUDE.md.
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "upgrade-app",
+      engines: ["claude"],
+      preset: "custom",
+      qualityGate: { fast: "pnpm lint", full: "pnpm test" },
+      plugins: { engram: { enabled: true } },
+    });
+
+    const first = runRender(cwd);
+    expect(first.ok).toBe(true);
+    expect(
+      first.engineResult!.warnings.some((w) => w.includes("intercalado")),
+    ).toBe(false);
+
+    const after = readFileSync(claudeMdPath, "utf-8");
+    const lastClose = after.lastIndexOf("<!-- /navori:managed");
+    // The prose stays BELOW every managed block (no interleaving).
+    expect(after.indexOf("## Mis notas del repo")).toBeGreaterThan(lastClose);
+    expect(after).toContain('id="engram-protocol"');
+
+    // Second render: byte-for-byte stable, still no interleaving warning.
+    const snapshotA = snapshotTree(cwd);
+    const second = runRender(cwd);
+    expect(second.ok).toBe(true);
+    expect(second.written).toBe(false);
+    expect(
+      second.engineResult!.warnings.some((w) => w.includes("intercalado")),
+    ).toBe(false);
+    expect(snapshotTree(cwd)).toEqual(snapshotA);
   });
 });

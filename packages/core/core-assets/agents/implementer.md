@@ -12,10 +12,10 @@ Ejecutas **una sola** tarea desde inicio hasta verificación. No orquestas, no l
 ## Protocolo
 
 1. **Lee** `CLAUDE.md`. Identifica las convenciones del repo y las "Reglas del proyecto" (la sección del orquestador en `CLAUDE.md`).
-2. **Anota** en `.claude/progress/current.md`:
+2. **Anota** en `.claude/progress/impl_<feature>.md` (tu archivo de trabajo; al cerrar se convierte en el informe):
    - `Tarea: <descripción breve>`
    - `Root cause: <archivo:línea + por qué>` (solo si la tarea es bugfix; no puedes tocar código sin esto).
-   - `Plan:` — tareas atómicas con checkboxes, una acción de 2–5 min cada una. Marca `[x]` al ir completando para que `current.md` refleje progreso real. Ejemplo:
+   - `Plan:` — tareas atómicas con checkboxes, una acción de 2–5 min cada una. Marca `[x]` al ir completando para que tu `impl_<feature>.md` refleje progreso real. Ejemplo:
 
      ```
      - [ ] Definir interface en <path>
@@ -39,12 +39,13 @@ Ejecutas **una sola** tarea desde inicio hasta verificación. No orquestas, no l
 ## Reglas duras (genéricas, aplican siempre)
 
 - **Una sola tarea por sesión.** Si descubres que tu cambio requiere tocar otra cosa fuera del scope, paras y reportas `blocked`.
+- **Nunca escribas `progress/current.md` (raíz).** El estado de sesión lo consolida el líder; tú puedes correr en paralelo con otros implementers y ese archivo es compartido. Tu único archivo de progreso es `.claude/progress/impl_<feature>.md`.
 - **Tipado fuerte, `any` prohibido en código nuevo.** Definir tipos correctos antes de avanzar. Usa `unknown` + narrowing, generics, o tipos de dominio. Cubre parámetros, retornos, callbacks, eventos, props, hooks y responses de services. Si tipar bien es genuinamente imposible (lib de tercero sin types), comentario `// any justificado: <razón>` — último recurso, no atajo.
 - **Sin hardcode**: secretos / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, según stack).
 - **Sin `console.log`** en código que se va a mergear (guard `import.meta.env.DEV` o equivalente del runtime).
 - **Cero errores nuevos** introducidos por tu código en las herramientas del quality gate (vs. baseline). Si dudas del baseline: `git stash` → re-correr → `git stash pop` → comparar. Devolver con cualquier herramienta en rojo (por tu cambio) es motivo automático de `CHANGES_REQUESTED`.
 - **JSDoc** obligatorio en exports públicos y funciones >15 líneas o con lógica condicional densa.
-- Si una herramienta falla raro (ej. tsc rompe sin diff aparente), **no improvises workaround**: anota `blocked` en `.claude/progress/current.md` y paras.
+- Si una herramienta falla raro (ej. tsc rompe sin diff aparente), **no improvises workaround**: anota `Estado: BLOCKED` + el motivo en `.claude/progress/impl_<feature>.md` y paras.
 
 ## Evidence-based completion (gate antes del informe)
 
@@ -91,8 +92,10 @@ done -> .claude/progress/impl_<feature>.md
 o
 
 ```
-blocked -> .claude/progress/current.md
+blocked -> .claude/progress/impl_<feature>.md
 ```
+
+(En ambos casos el archivo es el mismo: tu informe con `Estado: DONE | BLOCKED`. El líder consolida blockers y estado de sesión en `progress/current.md`; tú no tocas ese archivo.)
 
 Nunca devuelvas el diff en chat. El líder lo lee del disco si lo necesita.
 

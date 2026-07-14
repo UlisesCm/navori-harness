@@ -57,8 +57,6 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
       dir: "progress",
       currentFile: "current.md",
       historyFile: "history.md",
-      checkpointsDir: "progress/checkpoints",
-      archiveAfterDays: 30,
     });
   });
 
@@ -111,12 +109,25 @@ describe("NavoriConfigSchema — boundary (spec 0003 §3.4.2)", () => {
     ).toBe(false);
   });
 
-  it("requires archiveAfterDays to be a positive integer", () => {
+  // Removed keys (#75): legacy configs still carrying checkpointsDir /
+  // archiveAfterDays must keep validating — the keys are stripped, not rejected.
+  it("tolerates removed progress keys from legacy configs (stripped, not rejected)", () => {
+    const c = NavoriConfigSchema.parse({
+      ...MINIMAL,
+      progress: {
+        dir: "progress",
+        checkpointsDir: "progress/checkpoints",
+        archiveAfterDays: 30,
+      },
+    });
+    expect(c.progress).toEqual({
+      dir: "progress",
+      currentFile: "current.md",
+      historyFile: "history.md",
+    });
+    // Even invalid values for removed keys don't break validation.
     expect(
       NavoriConfigSchema.safeParse({ ...MINIMAL, progress: { archiveAfterDays: -1 } }).success,
-    ).toBe(false);
-    expect(
-      NavoriConfigSchema.safeParse({ ...MINIMAL, progress: { archiveAfterDays: 1.5 } }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 });

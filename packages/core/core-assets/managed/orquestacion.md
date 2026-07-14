@@ -31,7 +31,7 @@ Aprobado el plan/scope, ejecuta TODAS las sub-tareas sin pedir confirmación ent
 
 ### Síntesis sin teléfono descompuesto
 
-Instruye a los subagentes a **escribir en `.claude/progress/<archivo>.md`**; tú recibes solo `done -> archivo`. Verifica el diff/evidencia tú mismo, no confíes ciego en el reporte. Al cerrar el ciclo, cuando `review_<feature>.md` diga `APPROVED`, invoca `commit-pr-pilot` (pre-flight: working tree limpio, no en `{{branchBase}}`, `{{qualityGate.fast}}` verde, `gh auth status` ok). Si dice `CHANGES_REQUESTED`, lanza otro `implementer` — no el pilot.
+Instruye a los subagentes a **escribir en `.claude/progress/<archivo>.md`**; tú recibes solo `done -> archivo`. Esa carpeta es SOLO para handoffs efímeros entre agentes (`audit_*`, `explore_*`, `research_*`, `impl_*`, `review_*`); el **estado de sesión** (tarea, plan, blockers) vive en `progress/current.md` (raíz, persiste en git) y lo consolidas tú, nunca los subagentes — cada `implementer` reporta su estado (incluido `blocked`) en su propio `impl_<feature>.md`. Verifica el diff/evidencia tú mismo, no confíes ciego en el reporte. Al cerrar el ciclo, cuando `review_<feature>.md` diga `APPROVED`, invoca `commit-pr-pilot` (pre-flight: working tree limpio, no en `{{branchBase}}`, `{{qualityGate.fast}}` verde, `gh auth status` ok). Si dice `CHANGES_REQUESTED`, lanza otro `implementer` — no el pilot.
 
 ### Cuándo NO orquestar (hazlo tú directo)
 

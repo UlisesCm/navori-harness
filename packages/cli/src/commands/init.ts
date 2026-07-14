@@ -143,9 +143,7 @@ export const initCommand = defineCommand({
         throw err;
       }
       if (!workspaceConfig) {
-        p.cancel(
-          `Workspace '${args.workspace}' not found. Create it with 'navori workspace init ${args.workspace}'.`,
-        );
+        p.cancel(tr.workspaceNotFoundInit(args.workspace));
         process.exit(1);
       }
       p.note(

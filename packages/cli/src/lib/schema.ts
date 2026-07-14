@@ -103,12 +103,15 @@ const SkillsSchema = z.object({
 // paths or `..` segments would let the adapter write outside the workspace
 // (issue #5). Reuse the same containment regex plugins already use for
 // script/skill paths.
+//
+// `checkpointsDir` / `archiveAfterDays` were removed (issue #75): nothing
+// ever consumed them. Old configs that still carry them keep validating —
+// z.object strips unknown keys by default — and readConfig surfaces a soft
+// warning so users know they're dead config they can delete.
 const ProgressSchema = z.object({
   dir: safeRelPath.default("progress"),
   currentFile: safeRelPath.default("current.md"),
   historyFile: safeRelPath.default("history.md"),
-  checkpointsDir: safeRelPath.default("progress/checkpoints"),
-  archiveAfterDays: z.number().int().positive().default(30),
 });
 
 // Source-of-truth for project-shape facts that user-section templates

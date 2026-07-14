@@ -287,23 +287,34 @@ export function injectManagedSection(
   const canonicalContent = normalize(newContent);
 
   if (!match) {
+    const details = {
+      existingHash: null,
+      actualHash: newHash,
+      newHash,
+      existingVersion: null,
+      existingSource: null,
+    };
+    const block = buildBlock(id, newHash, meta, syntax, canonicalContent);
+    // A brand-new block goes right AFTER the last existing managed block (any
+    // id), not at the end of the file. Appending at the end would leave user
+    // prose written below the managed region permanently interleaved between
+    // blocks, blocking reorderManagedBlocks forever (#77). When the last block
+    // already sits at the end of the file this produces the same bytes as the
+    // plain append below.
+    const siblings = locateManagedBlocks(existing, syntax);
+    if (siblings.length > 0) {
+      const last = siblings[siblings.length - 1]!;
+      const head = existing.slice(0, last.closeEnd);
+      const tailRaw = existing.slice(last.closeEnd);
+      const tail = tailRaw.startsWith("\n") ? tailRaw : "\n" + tailRaw;
+      return { output: head + "\n\n" + block + tail, status: "created", details };
+    }
     const sep = existing.length === 0 || existing.endsWith("\n\n")
       ? ""
       : existing.endsWith("\n")
         ? "\n"
         : "\n\n";
-    const block = buildBlock(id, newHash, meta, syntax, canonicalContent) + "\n";
-    return {
-      output: existing + sep + block,
-      status: "created",
-      details: {
-        existingHash: null,
-        actualHash: newHash,
-        newHash,
-        existingVersion: null,
-        existingSource: null,
-      },
-    };
+    return { output: existing + sep + block + "\n", status: "created", details };
   }
 
   const actualHash = hashContent(match.content);

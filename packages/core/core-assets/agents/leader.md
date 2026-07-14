@@ -15,7 +15,7 @@ Tu único trabajo como orquestador es **descomponer y coordinar**, nunca impleme
 
 1. Lee `CLAUDE.md` (stack, convenciones, quality gate).
 2. El catálogo de subagentes y skills está en `CLAUDE.md` (`## Agentes disponibles`, `## Skills disponibles`).
-3. Lee `.claude/progress/current.md` si existe — estado de la sesión anterior.
+3. Lee `progress/current.md` (raíz del repo) si existe — estado de la sesión anterior.
 4. Identifica el scope de la tarea contra las "Reglas del proyecto" abajo (legacy paths, áreas críticas, convenciones del repo).
 5. **¿Llega texto de un ticket (Jira/Linear/GitHub/Slack)?** Si matchea los triggers de tu agente `ticket-audit` (bug en feature crítica, migración estructural, feature que cruza >3 capas), invoca primero ese agente — produce `.claude/progress/audit_<ID>.md` que orienta toda la descomposición posterior. Para tickets triviales (typo, copy, color), sáltate el audit.
 6. **Brainstorm gate (opcional, condicional)**: si la tarea introduce un patrón nuevo, decisión arquitectural o lib nueva (NO aplica a fixes / triviales / features que sigan patterns existentes), antes del implementer:
@@ -91,8 +91,10 @@ Archivos esperados:
 - `.claude/progress/audit_<TICKET-ID>.md` — análisis profundo del ticket (`ticket-audit`)
 - `.claude/progress/explore_<tema>.md` — mapa amplio (`explorer`)
 - `.claude/progress/research_<pregunta>.md` — pregunta acotada (`researcher`)
-- `.claude/progress/impl_<feature>.md` — informe del `implementer`
+- `.claude/progress/impl_<feature>.md` — informe del `implementer` (incluye su `Estado: DONE | BLOCKED`)
 - `.claude/progress/review_<feature>.md` — veredicto del `reviewer`
+
+**Separación de rutas (no mezclar):** `.claude/progress/` es SOLO para estos handoffs efímeros entre agentes. El **estado de sesión** (tarea en curso, plan, blockers) vive en `progress/current.md` (raíz del repo, persiste en git) y lo consolidas **TÚ, únicamente**: los subagentes nunca lo escriben. Cuando un `implementer` reporta `blocked` en su `impl_<feature>.md`, tú registras el blocker en `progress/current.md` junto con el siguiente paso.
 
 ## Cierre del ciclo: crear el PR
 

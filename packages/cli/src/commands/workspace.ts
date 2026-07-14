@@ -1,18 +1,21 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
   listWorkspaces,
   loadWorkspace,
   writeWorkspace,
   workspacePath,
   workspaceDirectory,
+  linkRepoToWorkspace,
+  resolveRepoPath,
   WorkspaceError,
   type WorkspaceConfig,
 } from "../lib/workspace.ts";
 import { applyDefault, VALID_DEFAULT_KEYS } from "../lib/workspace-defaults.ts";
-import { readConfig } from "../lib/config.ts";
+import { readConfig, writeConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
+import { t } from "../lib/i18n.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
 import { runRender } from "./render.ts";
 import { brand, dim, kv, color, sym, accent } from "../lib/style.ts";
@@ -331,6 +334,78 @@ const deleteSubCommand = defineCommand({
   },
 });
 
+const linkSubCommand = defineCommand({
+  meta: {
+    name: "link",
+    description:
+      "Register the current repo in a workspace's machine-local registry (creates the workspace if missing)",
+  },
+  args: {
+    name: {
+      type: "positional",
+      description: "Workspace name (default: 'workspace' from navori.config.json)",
+      required: false,
+    },
+    cwd: { type: "string", description: "Directory (default: cwd)" },
+  },
+  run({ args }) {
+    const cwd = resolve((args.cwd as string | undefined) ?? process.cwd());
+    const configPath = join(cwd, "navori.config.json");
+    if (!existsSync(configPath)) {
+      console.error(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
+      process.exit(1);
+    }
+    let config: NavoriConfig;
+    try {
+      config = readConfig(configPath);
+    } catch (err) {
+      if (err instanceof ConfigError) {
+        console.error(err.message);
+        process.exit(1);
+      }
+      throw err;
+    }
+    const tr = t(config.language);
+
+    const explicit = (args.name as string | undefined)?.trim();
+    const name = explicit || config.workspace;
+    if (!name) {
+      console.error(tr.wsLinkNoName);
+      process.exit(1);
+    }
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+      console.error(`Workspace name must be kebab-case: ${name}`);
+      process.exit(1);
+    }
+
+    p.intro(brand(`workspace link ${accent(name)}`));
+
+    const repoPath = resolveRepoPath(cwd);
+    const result = linkRepoToWorkspace(name, { name: config.name, path: repoPath });
+    if (result.createdWorkspace) p.log.info(tr.wsLinkCreated(name));
+    if (result.action === "added") {
+      p.log.success(tr.wsLinkAdded(config.name, name));
+    } else if (result.action === "updated-path") {
+      p.log.success(tr.wsLinkUpdatedPath(config.name, result.previousPath ?? "?", repoPath));
+    } else {
+      p.log.info(tr.wsLinkUnchanged(config.name, name));
+    }
+
+    // Keep navori.config.json in sync with the explicit name: set `workspace`
+    // when unset; when it disagrees, warn instead of silently overwriting.
+    if (explicit && !config.workspace) {
+      const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+      raw.workspace = name;
+      delete raw.$schema;
+      writeConfig(configPath, raw as Parameters<typeof writeConfig>[1]);
+      p.log.success(tr.wsLinkConfigSet(name));
+    } else if (explicit && config.workspace && config.workspace !== name) {
+      p.log.warn(tr.wsLinkConfigMismatch(config.workspace, name));
+    }
+    p.outro(dim(tr.done));
+  },
+});
+
 const addRepoSubCommand = defineCommand({
   meta: {
     name: "add-repo",
@@ -353,9 +428,21 @@ const addRepoSubCommand = defineCommand({
       console.error(`Repo '${args.name}' already registered in workspace '${ws.name}'`);
       process.exit(1);
     }
+    // Paths are stored verbatim in the machine-local registry: normalize to an
+    // absolute path and refuse a directory that doesn't exist (#76).
+    let repoPath: string;
+    try {
+      repoPath = resolveRepoPath(args.path as string);
+    } catch (err) {
+      if (err instanceof WorkspaceError) {
+        console.error(`${err.message}. Pass an existing directory (absolute or relative to cwd).`);
+        process.exit(1);
+      }
+      throw err;
+    }
     ws.repos.push({
       name: args.name as string,
-      path: args.path as string,
+      path: repoPath,
       ...(args.stack ? { stack: args.stack as string } : {}),
       ...(args.description ? { description: args.description as string } : {}),
     });
@@ -510,6 +597,7 @@ export const workspaceCommand = defineCommand({
     init: initSubCommand,
     ls: lsSubCommand,
     show: showSubCommand,
+    link: linkSubCommand,
     "add-repo": addRepoSubCommand,
     "set-default": setDefaultSubCommand,
     render: renderSubCommand,
