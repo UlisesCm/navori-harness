@@ -1,5 +1,14 @@
-import { existsSync, readFileSync, readdirSync, mkdirSync, statSync, copyFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  mkdirSync,
+  statSync,
+  copyFileSync,
+  rmSync,
+  realpathSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
 import { z } from "zod";
 import { writeFileAtomic } from "./atomic.ts";
 import { safeHomedir } from "./home.ts";
@@ -159,6 +168,82 @@ export function writeWorkspace(workspace: WorkspaceConfig): string {
   });
   writeFileAtomic(path, JSON.stringify(validated, null, 2) + "\n");
   return path;
+}
+
+/**
+ * Best-effort canonical form of a path for comparisons: absolute + symlinks
+ * resolved (e.g. /var vs /private/var on macOS). Falls back to plain resolve()
+ * when the path does not exist — stale registry entries still compare sanely.
+ */
+export function canonicalPath(input: string): string {
+  const abs = resolve(input);
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
+}
+
+/**
+ * Normalize a repo path for registration: absolute, symlinks resolved, and
+ * verified to exist on disk. Registering a phantom path is how stale
+ * machine-specific entries are born (#76), so a missing directory is an error.
+ */
+export function resolveRepoPath(input: string): string {
+  const abs = resolve(input);
+  if (!existsSync(abs)) {
+    throw new WorkspaceError(`Repo path does not exist: ${abs}`);
+  }
+  return canonicalPath(abs);
+}
+
+export type LinkAction = "added" | "updated-path" | "unchanged";
+
+export interface LinkRepoResult {
+  /** True when the workspace did not exist on this machine and was created. */
+  createdWorkspace: boolean;
+  action: LinkAction;
+  /** Absolute path to the workspace manifest (workspace.json). */
+  manifestPath: string;
+  /** Previous registered path when action is "updated-path". */
+  previousPath?: string;
+}
+
+/**
+ * Register (or re-register) a repo in a workspace manifest, creating the
+ * workspace when it does not exist yet. The registry at ~/.navori/workspaces/
+ * is machine-local and never travels with the repo (#76): a teammate who
+ * cloned the repos elsewhere runs `navori workspace link` to rebuild their
+ * own registry. Entries are keyed by repo name — an existing entry whose path
+ * differs (another machine's path, or a stale one) gets its path updated.
+ * Idempotent: linking twice is a no-op.
+ */
+export function linkRepoToWorkspace(
+  workspaceName: string,
+  repo: { name: string; path: string },
+): LinkRepoResult {
+  let ws = loadWorkspace(workspaceName);
+  const createdWorkspace = ws === null;
+  if (!ws) {
+    // Minimal manifest — schema defaults fill ticketsDir/defaults/repos.
+    ws = WorkspaceConfigSchema.parse({ name: workspaceName });
+  }
+  const existing = ws.repos.find((r) => r.name === repo.name);
+  let action: LinkAction;
+  let previousPath: string | undefined;
+  if (!existing) {
+    ws.repos.push({ name: repo.name, path: repo.path });
+    action = "added";
+  } else if (canonicalPath(existing.path) !== canonicalPath(repo.path)) {
+    previousPath = existing.path;
+    existing.path = repo.path;
+    action = "updated-path";
+  } else {
+    action = "unchanged";
+  }
+  const manifestPath =
+    createdWorkspace || action !== "unchanged" ? writeWorkspace(ws) : workspacePath(workspaceName);
+  return { createdWorkspace, action, manifestPath, ...(previousPath ? { previousPath } : {}) };
 }
 
 /**
