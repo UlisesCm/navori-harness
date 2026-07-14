@@ -242,9 +242,10 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
     expect(ws.workspacePath).toBe("apps/api");
     expect(ws.workspaceName).toBe("api");
     expect(ws.filePath.endsWith("apps/api/CLAUDE.md")).toBe(true);
-    expect(ws.engineResult.written.find((w) => w.path === "CLAUDE.md")).toBeDefined();
+    expect(ws.engineResult).toBeDefined();
+    expect(ws.engineResult!.written.find((w) => w.path === "CLAUDE.md")).toBeDefined();
     // The workspace render is independent: it has its own backupPath/inspected count
-    expect(ws.engineResult.inspected).toBeGreaterThan(0);
+    expect(ws.engineResult!.inspected).toBeGreaterThan(0);
   });
 
   it("dry-run does not write workspace files", () => {
@@ -331,6 +332,137 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
       expect(result.ok).toBe(true);
       expect(result.workspaces).toHaveLength(1);
       expect(existsSync(join(cwd, "apps/backend/CLAUDE.md"))).toBe(false);
+    });
+  });
+
+  describe("non-Claude engines in monorepos (#77)", () => {
+    function seedMonorepo(engines: string[]): void {
+      mkdirSync(join(cwd, "apps/backend"), { recursive: true });
+      mkdirSync(join(cwd, "apps/storefront"), { recursive: true });
+      writeConfig(join(cwd, "navori.config.json"), {
+        name: "demo",
+        engines,
+        preset: "monorepo-turbopnpm",
+        qualityGate: { fast: "pnpm -w lint", full: "pnpm -w test" },
+        monorepo: {
+          enabled: true,
+          tool: "turbo",
+          workspaces: [
+            { name: "backend", path: "apps/backend" },
+            { name: "storefront", path: "apps/storefront" },
+          ],
+        },
+      });
+    }
+
+    it("engines [claude, agents-md] writes AGENTS.md at the root AND in every workspace", () => {
+      seedMonorepo(["claude", "agents-md"]);
+      const result = runRender(cwd);
+
+      expect(result.ok).toBe(true);
+      expect(existsSync(join(cwd, "AGENTS.md"))).toBe(true);
+      expect(existsSync(join(cwd, "apps/backend/AGENTS.md"))).toBe(true);
+      expect(existsSync(join(cwd, "apps/storefront/AGENTS.md"))).toBe(true);
+
+      // Reported like the root: per-workspace extraEngines carry the file list.
+      const root = (result.extraEngines ?? []).find((e) => e.engine === "agents-md");
+      expect(root?.written).toEqual([{ path: "AGENTS.md", status: "created" }]);
+      for (const ws of result.workspaces) {
+        const eng = ws.extraEngines.find((e) => e.engine === "agents-md");
+        expect(eng?.written).toEqual([{ path: "AGENTS.md", status: "created" }]);
+      }
+    });
+
+    it("workspace AGENTS.md omits root-only blocks (inherited from the root file)", () => {
+      seedMonorepo(["claude", "agents-md"]);
+      runRender(cwd);
+
+      const root = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+      const ws = readFileSync(join(cwd, "apps/backend/AGENTS.md"), "utf-8");
+      expect(root).toContain("## Idioma y rol"); // rootOnly block present at root
+      expect(ws).not.toContain("## Idioma y rol"); // omitted per workspace
+      expect(ws).toContain("## Flujo de trabajo"); // engine-agnostic sections stay
+    });
+
+    it("engines [agents-md] only: no CLAUDE.md anywhere, AGENTS.md everywhere", () => {
+      seedMonorepo(["agents-md"]);
+      const result = runRender(cwd);
+
+      expect(result.ok).toBe(true);
+      expect(result.engineResult).toBeUndefined();
+      expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
+      expect(existsSync(join(cwd, "apps/backend/CLAUDE.md"))).toBe(false);
+      expect(existsSync(join(cwd, "AGENTS.md"))).toBe(true);
+      expect(existsSync(join(cwd, "apps/backend/AGENTS.md"))).toBe(true);
+      expect(result.workspaces).toHaveLength(2);
+      expect(result.workspaces.every((w) => w.engineResult === undefined)).toBe(true);
+    });
+
+    it("respects the orphaned-workspace guard (#70): no AGENTS.md resurrected", () => {
+      mkdirSync(join(cwd, "apps/backend"), { recursive: true });
+      writeConfig(join(cwd, "navori.config.json"), {
+        name: "demo",
+        engines: ["claude", "agents-md"],
+        preset: "monorepo-turbopnpm",
+        monorepo: {
+          enabled: true,
+          tool: "turbo",
+          workspaces: [
+            { name: "backend", path: "apps/backend" },
+            { name: "ghost", path: "apps/ghost" },
+          ],
+        },
+      });
+
+      const result = runRender(cwd);
+      expect(result.orphanedWorkspaces).toEqual(["apps/ghost"]);
+      expect(existsSync(join(cwd, "apps/ghost"))).toBe(false);
+      expect(existsSync(join(cwd, "apps/backend/AGENTS.md"))).toBe(true);
+    });
+
+    it("--workspace X also renders the non-Claude engines for that workspace", () => {
+      seedMonorepo(["claude", "agents-md"]);
+      const result = runRender(cwd, { workspaceFilter: "backend" });
+
+      expect(result.ok).toBe(true);
+      expect(existsSync(join(cwd, "apps/backend/AGENTS.md"))).toBe(true);
+      // Root and the other workspace stay untouched.
+      expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
+      expect(existsSync(join(cwd, "apps/storefront/AGENTS.md"))).toBe(false);
+      // The summaries land in the top-level extraEngines (no root render here).
+      const eng = (result.extraEngines ?? []).find((e) => e.engine === "agents-md");
+      expect(eng?.written).toEqual([{ path: "AGENTS.md", status: "created" }]);
+    });
+
+    it("dry-run keeps the non-Claude engines preview-only (root + workspaces)", () => {
+      seedMonorepo(["claude", "agents-md"]);
+      const result = runRender(cwd, { dryRun: true });
+
+      expect(result.ok).toBe(true);
+      expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
+      expect(existsSync(join(cwd, "apps/backend/AGENTS.md"))).toBe(false);
+      const root = (result.extraEngines ?? []).find((e) => e.engine === "agents-md");
+      expect(root?.written).toEqual([{ path: "AGENTS.md", status: "created" }]);
+    });
+
+    it("warns once (root only) about engines without adapter (cursor/copilot)", () => {
+      seedMonorepo(["claude", "cursor"]);
+      const result = runRender(cwd);
+
+      const root = (result.extraEngines ?? []).find((e) => e.engine === "cursor");
+      expect(root?.warnings.some((w) => w.includes("cursor"))).toBe(true);
+      // Workspaces don't repeat the same repo-level warning.
+      for (const ws of result.workspaces) {
+        expect(ws.extraEngines.find((e) => e.engine === "cursor")).toBeUndefined();
+      }
+    });
+
+    it("--workspace X still surfaces the no-adapter warning (no root render to do it)", () => {
+      seedMonorepo(["claude", "copilot"]);
+      const result = runRender(cwd, { workspaceFilter: "backend" });
+
+      const eng = (result.extraEngines ?? []).find((e) => e.engine === "copilot");
+      expect(eng?.warnings.some((w) => w.includes("copilot"))).toBe(true);
     });
   });
 });

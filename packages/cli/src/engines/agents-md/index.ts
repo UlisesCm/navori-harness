@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
-import { createBackup } from "../../lib/backup.ts";
+import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
+import { RenderWriteError } from "../../lib/errors.ts";
 import { computeRenderPlan } from "../../lib/render-plan.ts";
 import { injectManagedSection } from "../../lib/marker.ts";
 import { loadPreset } from "../../lib/presets.ts";
@@ -98,8 +99,11 @@ function buildWorkflowSection(): string {
  * Reuses `computeRenderPlan` (engine-agnostic) for the rule blocks and keeps
  * only the core + preset sources — plugin blocks are Claude-specific.
  */
-function buildManagedBody(config: NavoriConfig, repoRoot: string): string {
-  const plan = computeRenderPlan("", config, repoRoot);
+function buildManagedBody(config: NavoriConfig, repoRoot: string, isWorkspace: boolean): string {
+  // Workspace renders omit root-only blocks — same semantics as the Claude
+  // engine (#70): the tools that read AGENTS.md merge/inherit the root file,
+  // so re-emitting the global blocks per workspace just duplicates context.
+  const plan = computeRenderPlan("", config, repoRoot, { omitRootOnly: isWorkspace });
   // Keep core rule blocks + the active preset's stack block (its source is the
   // preset id). Plugin-contributed blocks (engram, etc.) are Claude-specific and
   // dropped — other tools don't have that infra. The "orquestacion" block is
@@ -132,11 +136,14 @@ export function renderAgentsMdEngine(
 ): AgentsMdEngineResult {
   const config = effectiveConfig(inputConfig);
   const repoRoot = options.repoRoot ?? cwd;
+  // Workspace render: repoRoot points elsewhere than cwd (same detection as
+  // the Claude engine).
+  const isWorkspace = options.repoRoot != null && resolve(options.repoRoot) !== resolve(cwd);
   const agentsMdPath = join(cwd, "AGENTS.md");
 
   const firstRender = !existsSync(agentsMdPath);
   const existing = firstRender ? HEADER : readFileSync(agentsMdPath, "utf-8");
-  const body = buildManagedBody(config, repoRoot);
+  const body = buildManagedBody(config, repoRoot, isWorkspace);
 
   const result = injectManagedSection(existing, MANAGED_ID, body, CORE_META, "html");
   // First render seeds a user-section after the managed block; on re-render the
@@ -156,14 +163,30 @@ export function renderAgentsMdEngine(
     if (!options.dryRun) {
       if (!firstRender) {
         const handle = createBackup(cwd, ["AGENTS.md"]);
-        if (handle.files.length > 0) backupPath = handle.path;
+        if (handle.files.length > 0) {
+          backupPath = handle.path;
+          purgeOldBackups();
+        }
       }
-      mkdirSync(dirname(agentsMdPath), { recursive: true });
-      writeFileAtomic(agentsMdPath, output);
+      try {
+        mkdirSync(dirname(agentsMdPath), { recursive: true });
+        writeFileAtomic(agentsMdPath, output);
+      } catch (err) {
+        // The result (and its backupPath) never reaches the caller on a throw —
+        // put the recovery breadcrumb in the error itself (#77).
+        const hint = backupPath ? ` Backup pre-escritura disponible en: ${backupPath}` : "";
+        throw new RenderWriteError(
+          `El render falló escribiendo ${agentsMdPath}: ${err instanceof Error ? err.message : String(err)}.${hint}`,
+          backupPath,
+        );
+      }
     }
   }
 
-  return { written, skipped, warnings: collectOmissionWarnings(config), backupPath };
+  // Parity warnings are repo-level advisories; emitting them again for every
+  // workspace of a monorepo would just repeat the same text N times.
+  const warnings = isWorkspace ? [] : collectOmissionWarnings(config);
+  return { written, skipped, warnings, backupPath };
 }
 
 /**
