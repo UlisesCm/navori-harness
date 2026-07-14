@@ -120,6 +120,16 @@ interface Strings {
   presetGapNotice: (stack: string) => string;
   placeholderNameNotice: (name: string) => string;
 
+  // Workspace link (#76)
+  wsLinkNoName: string;
+  wsLinkCreated: (name: string) => string;
+  wsLinkAdded: (repo: string, ws: string) => string;
+  wsLinkUpdatedPath: (repo: string, from: string, to: string) => string;
+  wsLinkUnchanged: (repo: string, ws: string) => string;
+  wsLinkConfigSet: (name: string) => string;
+  wsLinkConfigMismatch: (configWs: string, name: string) => string;
+  workspaceNotFoundInit: (name: string) => string;
+
   // Note titles
   workspaceDefaultsTitle: (name: string) => string;
   detectedTitle: string;
@@ -257,6 +267,24 @@ const ES: Strings = {
     `El name '${name}' parece un placeholder de scaffold (heredado del package.json sin renombrar). ` +
     `Renómbralo en package.json o edita "name" en navori.config.json si no es el nombre real del repo.`,
 
+  wsLinkNoName:
+    "Este repo no tiene 'workspace' en navori.config.json. Pasa el nombre: 'navori workspace link <name>'.",
+  wsLinkCreated: (name) =>
+    `El workspace '${name}' no existía en esta máquina — lo creé en ~/.navori/workspaces/${name}/.`,
+  wsLinkAdded: (repo, ws) => `Registré '${repo}' en el workspace '${ws}'.`,
+  wsLinkUpdatedPath: (repo, from, to) =>
+    `Actualicé la ruta de '${repo}': ${from} → ${to} (la anterior era de otra máquina o quedó vieja).`,
+  wsLinkUnchanged: (repo, ws) =>
+    `'${repo}' ya estaba registrado en '${ws}' con esta ruta — nada que hacer.`,
+  wsLinkConfigSet: (name) => `workspace → '${name}' guardado en navori.config.json`,
+  wsLinkConfigMismatch: (configWs, name) =>
+    `El config apunta al workspace '${configWs}' pero vinculaste '${name}'. Si el cambio es ` +
+    `permanente corre 'navori configure workspace ${name}'.`,
+  workspaceNotFoundInit: (name) =>
+    `El workspace '${name}' no existe en esta máquina. Créalo con 'navori workspace init ${name}', ` +
+    `o corre el init sin --workspace y después 'navori workspace link ${name}' para crearlo y ` +
+    `registrar este repo.`,
+
   workspaceDefaultsTitle: (name) => `Defaults del workspace · ${name}`,
   detectedTitle: "Detectado en este repo",
   filesFoundTitle: "Archivos encontrados",
@@ -392,6 +420,24 @@ const EN: Strings = {
   placeholderNameNotice: (name) =>
     `The name '${name}' looks like a scaffold placeholder (carried over from an un-renamed package.json). ` +
     `Rename it in package.json or edit "name" in navori.config.json if it isn't the repo's real name.`,
+
+  wsLinkNoName:
+    "This repo has no 'workspace' in navori.config.json. Pass the name: 'navori workspace link <name>'.",
+  wsLinkCreated: (name) =>
+    `Workspace '${name}' did not exist on this machine — created it at ~/.navori/workspaces/${name}/.`,
+  wsLinkAdded: (repo, ws) => `Registered '${repo}' in workspace '${ws}'.`,
+  wsLinkUpdatedPath: (repo, from, to) =>
+    `Updated path for '${repo}': ${from} → ${to} (the previous one belonged to another machine or went stale).`,
+  wsLinkUnchanged: (repo, ws) =>
+    `'${repo}' was already registered in '${ws}' with this path — nothing to do.`,
+  wsLinkConfigSet: (name) => `workspace → '${name}' saved to navori.config.json`,
+  wsLinkConfigMismatch: (configWs, name) =>
+    `The config points at workspace '${configWs}' but you linked '${name}'. If the change is ` +
+    `permanent, run 'navori configure workspace ${name}'.`,
+  workspaceNotFoundInit: (name) =>
+    `Workspace '${name}' does not exist on this machine. Create it with 'navori workspace init ${name}', ` +
+    `or run init without --workspace and then 'navori workspace link ${name}' to create it and ` +
+    `register this repo.`,
 
   workspaceDefaultsTitle: (name) => `Workspace defaults · ${name}`,
   detectedTitle: "Detected from this repo",

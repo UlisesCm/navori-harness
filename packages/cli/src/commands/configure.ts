@@ -340,8 +340,11 @@ const workspaceSubCommand = defineCommand({
         return;
       }
       if (!args.yes) {
+        // Rendered files are NOT tied to the workspace (defaults are only
+        // applied at init time); the association only feeds workspace
+        // commands — don't imply the render will change.
         const ok = await p.confirm({
-          message: `Remove workspace association '${currentWorkspace}'? Plugins inherited from the workspace defaults will no longer be applied on next render.`,
+          message: `Remove workspace association '${currentWorkspace}'? This only detaches the repo from workspace commands (cross-repo tickets, 'navori workspace render'); rendered files are not affected.`,
           initialValue: false,
         });
         if (p.isCancel(ok) || !ok) {
@@ -352,14 +355,14 @@ const workspaceSubCommand = defineCommand({
       delete raw.workspace;
       persist(path, raw);
       p.log.success("Workspace association removed");
-      p.outro("Run 'navori render --apply' to apply.");
+      p.outro("Done. Rendered files are unaffected.");
       return;
     }
 
     raw.workspace = value;
     persist(path, raw);
     p.log.success(`workspace → ${value}`);
-    p.outro("Run 'navori render --apply' to apply.");
+    p.outro(`Run 'navori workspace link' to register this repo in the workspace's local registry.`);
   },
 });
 

@@ -8,6 +8,7 @@ import { loadPlugin } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
+import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -85,6 +86,7 @@ export const doctorCommand = defineCommand({
     const malformedMarkers = scanMalformedMarkers(cwd);
     const missingExternalTools = scanMissingExternalTools(config);
     const monorepoDrift = scanMonorepoDrift(cwd, config);
+    const workspaceLink = scanWorkspaceLink(cwd, config);
     // A declared preset that resolves to neither a local (.navori/presets/) nor
     // a bundled manifest renders the baseline AND warns — config points at
     // something unresolvable, same class as a missing plugin.
@@ -128,6 +130,7 @@ export const doctorCommand = defineCommand({
       malformedMarkers,
       missingExternalTools,
       monorepoDrift,
+      workspaceLink,
       missingPreset,
       presetOverride,
       missingPresetFiles,
@@ -322,6 +325,10 @@ export const doctorCommand = defineCommand({
       }
     }
 
+    if (workspaceLink) {
+      p.log.warn(formatWorkspaceLinkWarning(workspaceLink));
+    }
+
     if (orderReport) {
       const spotlight = orderReport.misplacedFirst
         ? `\n  → '${orderReport.misplacedFirst.id}' (centro de gravedad) está en posición ` +
@@ -509,6 +516,61 @@ export function scanMonorepoDrift(cwd: string, config: NavoriConfig): MonorepoDr
     orphan: diff.orphan.map((o) => o.path),
     emptyDeclared: configured.length === 0 && detected.length > 0,
   };
+}
+
+export type WorkspaceLinkIssue =
+  | { kind: "workspace-missing"; workspace: string }
+  | { kind: "repo-not-registered"; workspace: string }
+  | { kind: "path-mismatch"; workspace: string; repoName: string; registeredPath: string };
+
+/**
+ * The workspace registry (~/.navori/workspaces/) is machine-local: it never
+ * travels with the repo, while `workspace` in navori.config.json does. A
+ * teammate cloning the repo inherits a dangling reference — or a manifest
+ * whose repos[] still holds another machine's paths — and nothing used to
+ * tell them. Warning-level: render/sync work fine without the registry; only
+ * workspace commands (tickets, `workspace render`) need it. Issue #76.
+ */
+export function scanWorkspaceLink(cwd: string, config: NavoriConfig): WorkspaceLinkIssue | null {
+  const name = config.workspace;
+  if (!name) return null;
+  let ws;
+  try {
+    ws = loadWorkspace(name);
+  } catch {
+    // Unreadable/invalid manifest ≈ unusable registry: same remediation.
+    return { kind: "workspace-missing", workspace: name };
+  }
+  if (!ws) return { kind: "workspace-missing", workspace: name };
+  const here = canonicalPath(cwd);
+  if (ws.repos.some((r) => canonicalPath(r.path) === here)) return null;
+  const byName = ws.repos.find((r) => r.name === config.name);
+  if (byName) {
+    return { kind: "path-mismatch", workspace: name, repoName: byName.name, registeredPath: byName.path };
+  }
+  return { kind: "repo-not-registered", workspace: name };
+}
+
+function formatWorkspaceLinkWarning(issue: WorkspaceLinkIssue): string {
+  switch (issue.kind) {
+    case "workspace-missing":
+      return (
+        `Workspace '${issue.workspace}' referenciado en config pero no existe en ` +
+        `~/.navori/workspaces/ — el registro de workspaces es local por máquina y no viaja ` +
+        `con el repo. Corre 'navori workspace link' para crearlo y registrar este repo.`
+      );
+    case "repo-not-registered":
+      return (
+        `Este repo no está registrado en el workspace '${issue.workspace}' — corre ` +
+        `'navori workspace link' para registrarlo.`
+      );
+    case "path-mismatch":
+      return (
+        `El repo '${issue.repoName}' está registrado en el workspace '${issue.workspace}' con ` +
+        `otra ruta (${issue.registeredPath}) — probablemente de otra máquina o una ruta vieja. ` +
+        `Corre 'navori workspace link' para actualizarla.`
+      );
+  }
 }
 
 /**
