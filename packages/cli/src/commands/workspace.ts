@@ -14,6 +14,7 @@ import {
   type WorkspaceConfig,
 } from "../lib/workspace.ts";
 import { applyDefault, VALID_DEFAULT_KEYS } from "../lib/workspace-defaults.ts";
+import { safeHomedir } from "../lib/home.ts";
 import { readConfig, writeConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { t } from "../lib/i18n.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
@@ -324,8 +325,10 @@ const deleteSubCommand = defineCommand({
 
     const { renameSync, existsSync, mkdirSync } = await import("node:fs");
     const { join: joinPath } = await import("node:path");
-    const { homedir } = await import("node:os");
-    const trashRoot = joinPath(homedir(), ".navori", ".trash");
+    // safeHomedir (not raw homedir): with HOME unset — CI/Docker — join("", ...)
+    // would resolve ".navori/.trash" relative to the CWD and move the workspace
+    // INTO the user's repo instead of the trash. Same guard the rest uses (#82).
+    const trashRoot = joinPath(safeHomedir(), ".navori", ".trash");
     mkdirSync(trashRoot, { recursive: true });
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const dest = joinPath(trashRoot, `${name}-${ts}`);

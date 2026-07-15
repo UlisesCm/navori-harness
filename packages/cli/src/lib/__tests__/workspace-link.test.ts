@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
@@ -69,6 +69,13 @@ describe("linkRepoToWorkspace", () => {
     expect(result.previousPath).toBe("/Users/someone-else/dev/webapp");
     const ws = loadWorkspace("bonum");
     expect(ws?.repos).toEqual([{ name: "webapp", path: repoDir }]);
+  });
+
+  it("leaves no advisory lock file behind after linking (#82)", () => {
+    linkRepoToWorkspace("bonum", { name: "webapp", path: repoDir });
+    const wsRoot = join(home.dir, ".navori", "workspaces");
+    const leftover = readdirSync(wsRoot).filter((e) => e.endsWith(".lock"));
+    expect(leftover).toEqual([]);
   });
 
   it("is idempotent: linking twice is a no-op", () => {

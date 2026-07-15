@@ -2,7 +2,7 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node:fs";
 import { join, relative, resolve, dirname } from "node:path";
-import { backupRoot } from "../lib/backup.ts";
+import { backupRoot, backupRepoLabel, backupIdRepoLabel } from "../lib/backup.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
 
 interface BackupEntry {
@@ -119,6 +119,18 @@ const restoreSubCommand = defineCommand({
     if (files.length === 0) {
       p.cancel(`Backup is empty: ${backupDir}`);
       process.exit(1);
+    }
+
+    // Soft destination check (#82): the backup id encodes the repo it came from.
+    // Restoring one repo's snapshot into a different repo is almost always a
+    // mistake in a multi-repo rollout, so warn — but don't block (the user may
+    // have renamed the dir, or be restoring intentionally elsewhere).
+    const backupRepo = backupIdRepoLabel(ts);
+    if (backupRepo && backupRepo !== backupRepoLabel(cwd)) {
+      p.log.warn(
+        `Este backup es del repo '${backupRepo}' pero el destino es '${backupRepoLabel(cwd)}'. ` +
+          `Verifica que sea el correcto antes de continuar.`,
+      );
     }
 
     p.log.message(`Will restore ${files.length} file(s) from ${backupDir} into ${cwd}:`);
