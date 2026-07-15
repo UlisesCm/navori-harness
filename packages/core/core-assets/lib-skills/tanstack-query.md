@@ -39,8 +39,9 @@ const mutation = useMutation({
 - **`staleTime` vs `gcTime`.** `staleTime` decide cuándo refetchea; con `0` (default) refetchea agresivo. Súbelo para data estable y evita parpadeos/llamadas extra.
 - **No espejes la data en useState/Redux.** Lee de `data` directo; copiarla a otro estado crea dos verdades que se desincronizan.
 - **`enabled`** para queries dependientes — no dispares con el id aún `undefined`.
-- **Invalidación tras mutar**, no edición manual del cache, salvo update optimista deliberado con rollback en `onError`.
-- **`isPending` vs `isFetching`**: `isPending` es la primera carga sin data; `isFetching` es cualquier fetch en curso (incluye revalidación).
+- **`useQuery` NO tiene `onSuccess`/`onError`/`onSettled`** (v5 los eliminó; solo sobreviven en `useMutation`). Para reaccionar a la data, hazlo en render o con `select`. Es el gotcha #1 al migrar de v4: el callback simplemente nunca corre.
+- **Update optimista completo**: en `onMutate` haz `await queryClient.cancelQueries({ queryKey })` (sin esto, un refetch en vuelo pisa tu update), snapshot con `getQueryData`, aplica con `setQueryData`; restaura el snapshot en `onError`; `invalidateQueries` en `onSettled`.
+- **`isPending` vs `isFetching`**: `isPending` es la primera carga sin data; `isFetching` es cualquier fetch en curso (incluye revalidación). Paginación: `placeholderData: keepPreviousData` (v5 reemplazó `keepPreviousData: true`).
 
 ## Reglas duras
 

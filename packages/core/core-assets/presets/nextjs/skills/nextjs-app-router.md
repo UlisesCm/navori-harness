@@ -14,9 +14,9 @@ Antes de crear o modificar archivos bajo `app/` o componentes que vayan a render
 
 1. **Default es Server Component.** No agregues `"use client"` a menos que el componente necesite estado, efectos, browser APIs o handlers de evento. Cada `"use client"` corta el server-rendering del subárbol y aumenta el bundle.
 2. **`"use client"` sube, no baja.** Si un Client Component renderiza un Server Component como children, eso funciona. Pero importar un Server Component dentro de un Client Component lo convierte en client (rompe el modelo).
-3. **Server Actions para mutaciones, no API routes.** Mutaciones desde formularios usan `"use server"` actions con `useFormState` / `useFormStatus`. API routes (`route.ts`) son para endpoints públicos consumidos por terceros o webhooks.
-4. **`async` solo en Server Components.** Client Components NO pueden ser async. Para data fetching en cliente usa `useEffect`, SWR o React Query.
-5. **No leas `cookies()` / `headers()` en Client Components.** Esas APIs son server-only. Pásalas como props si las necesitas client-side.
+3. **Server Actions para mutaciones, no API routes.** Formularios con `"use server"` actions + `useActionState` (de `react`; `useFormState` está deprecado) / `useFormStatus`. **Una Server Action es un endpoint POST público**: valida el input (zod) y **verifica auth/authorization DENTRO de cada action** (`const session = await auth(); if (!session) throw`) — la UI no la protege.
+4. **`async` solo en Server Components.** Client Components NO pueden ser async (pero pueden recibir una promise de un Server Component y desenvolverla con `use(promise)`). Para fetch en cliente: React Query/SWR.
+5. **`params`/`searchParams` y `cookies()`/`headers()` son async en Next 15.** `const { id } = await params`; `const store = await cookies()`. Estas APIs son server-only — no las leas en Client Components; pásalas como props.
 
 ## Patrón típico
 
@@ -50,5 +50,5 @@ app/
 
 - `{{qualityGate.fast}}` en verde.
 - Si agregaste `"use client"`: justifícalo (¿realmente necesita estado/efecto/handler?). Si no, remuévelo.
-- Si tocaste un Server Action: revisa que no exponga datos sensibles en el response (lo que devuelve es serializado al cliente).
+- Si tocaste un Server Action: valida input y verifica auth **dentro** de la action; no expone datos sensibles en el response (se serializa al cliente).
 - Si agregaste `revalidatePath` / `revalidateTag`: prueba el flow completo (mutación → revalidación → UI actualizada).

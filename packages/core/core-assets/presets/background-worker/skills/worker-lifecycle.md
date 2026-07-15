@@ -38,6 +38,8 @@ main().catch((err) => { logger.error({ err }, 'fatal on boot'); process.exit(1);
 
 `once` garantiza que dos señales seguidas no disparen dos shutdowns. El orden importa: **primero dejas de aceptar trabajo**, luego drenas lo en vuelo, luego cierras conexiones.
 
+Sin HTTP server no hay red de seguridad: registra también `process.on('unhandledRejection'|'uncaughtException', ...)` con log estructurado + shutdown, o una promesa sin catch mata el proceso en silencio. El timeout de drenado debe ser **menor** que el `terminationGracePeriodSeconds` del orquestador (30s default en K8s), o el pod recibe `SIGKILL` a media faena. En BullMQ, `worker.close()` **no** tiene timeout propio: acótalo con un `Promise.race` contra tu propio timeout.
+
 ## Healthcheck (si el orquestador lo exige)
 
 Un solo endpoint `/health` con un `http.createServer` mínimo está bien — **no es** una API. Devuelve `200` si las conexiones (DB, broker) están vivas. Nada de rutas de negocio aquí.
@@ -49,6 +51,7 @@ Un solo endpoint `/health` con un `http.createServer` mínimo está bien — **n
 3. Nunca `process.exit` a mitad de un job sin re-encolarlo o dejarlo `nack`-eado.
 4. Sin rutas HTTP de negocio. `/health` es el único endpoint permitido.
 5. Errores de arranque → log estructurado + `exit(1)`; no arranques a medias.
+6. Registra `unhandledRejection`/`uncaughtException`; drain-timeout < grace period del orquestador.
 
 ## Antes de declarar listo
 
