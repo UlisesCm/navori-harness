@@ -102,7 +102,7 @@ Nunca devuelvas el diff en chat. El líder lo lee del disco si lo necesita.
 <!-- navori:user-section -->
 ## Reglas del proyecto
 
-<!-- user: agrega acá lo específico de tu repo. Sugerencias:
+<!-- user: agrega aquí lo específico de tu repo. Sugerencias:
      - Flujo de capas exacto (ej: `axios → services → adapters → components`).
      - Libs forzadas / prohibidas (forms, tables, state).
      - Paths de naming convention (`<NAME>_LABELS`, etc).

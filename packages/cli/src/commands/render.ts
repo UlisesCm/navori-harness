@@ -400,7 +400,7 @@ export const renderCommand = defineCommand({
     if (result.orphanedWorkspaces && result.orphanedWorkspaces.length > 0) {
       p.log.warn(
         `Workspaces declarados en config pero ausentes en disco (${result.orphanedWorkspaces.length}) — ` +
-          `no se renderizaron (evita resucitar dirs borrados). Corré 'navori scan' o quitá del config:\n` +
+          `no se renderizaron (evita resucitar dirs borrados). Corre 'navori scan' o quita del config:\n` +
           result.orphanedWorkspaces.map((w) => `  ${color.yellow(sym.update)} ${w}`).join("\n"),
       );
     }

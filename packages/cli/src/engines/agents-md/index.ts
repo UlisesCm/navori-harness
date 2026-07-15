@@ -46,7 +46,7 @@ const HEADER = "# AGENTS.md\n";
 const USER_SECTION =
   "\n<!-- navori:user-section -->\n" +
   "## Reglas del repo (tuyas)\n\n" +
-  "<!-- Agrega acá lo específico de tu repo; navori no toca esta sección. -->\n";
+  "<!-- Agrega aquí lo específico de tu repo; navori no toca esta sección. -->\n";
 
 /**
  * Build the skills index as prose. Independent from the Claude engine's

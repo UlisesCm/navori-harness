@@ -103,7 +103,7 @@ Al aplicar este skill, el output al usuario incluye:
 <!-- navori:user-section -->
 ## Patrones de bug recurrentes del proyecto
 
-<!-- user: agrega acá patrones de bug específicos de tu repo donde la hipótesis típica falla. Sugerencias:
+<!-- user: agrega aquí patrones de bug específicos de tu repo donde la hipótesis típica falla. Sugerencias:
      - Caches que el dev olvida invalidar (CDN, redis, browser SW, build cache).
      - Race conditions conocidas en módulos específicos.
      - Áreas donde "lo obvio" no es la causa raíz históricamente.

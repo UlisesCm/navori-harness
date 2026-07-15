@@ -25,7 +25,7 @@ Si la pregunta es puntual ("¿dónde está X?"), no eres tú — es `researcher`
 1. Lee `CLAUDE.md` para entender convenciones del repo.
 2. Define el alcance: una carpeta, un módulo lógico, un patrón de archivos. El orquestador debería pasártelo preciso; si llega ambiguo, devuelve `blocked` nombrando las opciones (carpeta X / módulo Y / patrón Z) para que reenvíe acotado — no adivines.
 3. Recorre desde los entry points (rutas, exports raíz del módulo, `index.ts`) hacia las hojas. Para cada nivel, lista archivos y su rol breve.
-4. Identifica dependencias inversas: ¿qué módulos externos consumen este módulo? Eso indica el "blast radius" de cambiar algo acá.
+4. Identifica dependencias inversas: ¿qué módulos externos consumen este módulo? Eso indica el "blast radius" de cambiar algo aquí.
 5. Escribe `.claude/progress/explore_<area>.md`:
 
    ```markdown
@@ -81,7 +81,7 @@ done -> .claude/progress/explore_<area>.md
 <!-- navori:user-section -->
 ## Reglas del proyecto
 
-<!-- user: agrega acá lo específico de tu repo. Sugerencias:
+<!-- user: agrega aquí lo específico de tu repo. Sugerencias:
      - Áreas que típicamente necesitan exploración (módulos grandes, monorepo workspaces).
      - Convenciones de naming que ayudan a clasificar archivos (sufijos, prefijos).
      - Limitaciones: módulos generados que no vale mapear (ej: dist/, *.gen.ts).

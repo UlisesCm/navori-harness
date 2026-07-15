@@ -46,7 +46,7 @@ Eres un revisor estricto. Tu única función es **aprobar o rechazar**. No edita
 
 ### Pasada 2 — Code quality (solo si SPEC_OK)
 
-¿El código matchea las convenciones del repo? Acá sí revisas estilo/naming/tipos.
+¿El código matchea las convenciones del repo? Aquí sí revisas estilo/naming/tipos.
 
 Aplica `.claude/skills/review-diff.md` — la checklist completa por dimensiones (tipos, capa de datos, errores, seguridad, hardcode, naming, dead code) con severidades. Sus CRÍTICO/ALTO mapean a los issues ≥80 de abajo; MEDIO a las observaciones informativas. Resumen de lo mínimo a validar contra `CLAUDE.md` y las "Reglas del proyecto" del leader:
 
@@ -152,7 +152,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 <!-- navori:user-section -->
 ## Reglas del proyecto
 
-<!-- user: agrega acá lo específico de tu repo. Sugerencias:
+<!-- user: agrega aquí lo específico de tu repo. Sugerencias:
      - Chequeos de convenciones que tu reviewer debe correr siempre (libs, capas, patrones).
      - Anti-patterns específicos del stack que son auto-CHANGES_REQUESTED.
      - Reglas de áreas críticas: {{project.criticalAreas}}

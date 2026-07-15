@@ -826,7 +826,7 @@ function planSettings(
     return {
       kind: "skip",
       path,
-      reason: `settings.json no se pudo parsear como JSON: ${(err as Error).message}. Corré 'navori render --force --apply' para regenerar.`,
+      reason: `settings.json no se pudo parsear como JSON: ${(err as Error).message}. Corre 'navori render --force --apply' para regenerar.`,
     };
   }
 
@@ -844,7 +844,7 @@ function planSettings(
       return {
         kind: "skip",
         path,
-        reason: "settings.json no es un objeto JSON — no se puede fusionar. Corré 'navori render --force --apply' para regenerar.",
+        reason: "settings.json no es un objeto JSON — no se puede fusionar. Corre 'navori render --force --apply' para regenerar.",
       };
     }
     const merged = mergeCoexistSettings(parsed, newSettings);

@@ -36,7 +36,7 @@ Regla: si la capa N necesita algo de la capa N-1 que todavía no existe, **paras
 <!-- navori:user-section -->
 ## Templates y reglas del recurso (tu dominio)
 
-<!-- user: agrega acá los templates concretos de TU stack para cada capa (los que NO son generalizables). Sugerencias:
+<!-- user: agrega aquí los templates concretos de TU stack para cada capa (los que NO son generalizables). Sugerencias:
      - El esqueleto real de un service (cliente HTTP, headers obligatorios, patrón de cancelación).
      - El patrón de adapter del repo (naming, defaults, fallback de enums).
      - El patrón de form/validación (lib + resolver).

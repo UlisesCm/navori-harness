@@ -76,7 +76,7 @@ Nunca devuelvas el contenido del informe en chat. El leader lo lee del disco.
 <!-- navori:user-section -->
 ## Reglas del proyecto
 
-<!-- user: agrega acá lo específico de tu repo. Sugerencias:
+<!-- user: agrega aquí lo específico de tu repo. Sugerencias:
      - Subsistemas con naming particular donde grep simple falla (módulos generados, abreviaturas).
      - Repos hermanos o submódulos que también vale buscar (paths absolutos).
      - Patrones de búsqueda compuestos que se usan recurrentemente.

@@ -109,7 +109,7 @@ describe("renderAgentsMdEngine", () => {
     renderAgentsMdEngine(cwd, baseConfig());
     const path = join(cwd, "AGENTS.md");
     const edited = readFileSync(path, "utf-8").replace(
-      "<!-- Agrega acá lo específico de tu repo; navori no toca esta sección. -->",
+      "<!-- Agrega aquí lo específico de tu repo; navori no toca esta sección. -->",
       "- Mi regla propia del repo.",
     );
     writeFileSync(path, edited, "utf-8");

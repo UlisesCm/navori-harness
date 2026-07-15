@@ -93,7 +93,7 @@ Presta atención extra si el diff toca las áreas críticas que declara tu repo 
 1. Lista plana con severidades, ordenada CRÍTICO → ALTO → MEDIO. Cada línea con `archivo:línea`.
 2. Si no hay hallazgos: `Sin observaciones.`
 3. Nada de resumen, "good job", ni sugerencias fuera del checklist.
-4. Si encuentras un patrón de bug nuevo que no está acá, guárdalo (memoria / nota) para próximas reviews.
+4. Si encuentras un patrón de bug nuevo que no está aquí, guárdalo (memoria / nota) para próximas reviews.
 
 ## Conexión con el harness
 
@@ -103,7 +103,7 @@ Presta atención extra si el diff toca las áreas críticas que declara tu repo 
 <!-- navori:user-section -->
 ## Reglas específicas del repo
 
-<!-- user: agrega acá las reglas bespoke de tu stack/dominio (las que NO son generalizables). Sugerencias:
+<!-- user: agrega aquí las reglas bespoke de tu stack/dominio (las que NO son generalizables). Sugerencias:
      - Patrones de tu UI lib / framework (componentes prohibidos, props obligatorias, mezcla de libs).
      - Convenciones de tu capa de datos (headers obligatorios, clientes específicos, mezcla de backends legacy/nuevo).
      - Reglas de forms/validación de tu stack.
