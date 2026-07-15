@@ -6,14 +6,15 @@ import { dirname, resolve } from "node:path";
  * Spec 0003 §3.4.7 — bundle size guard.
  *
  * Tracks dist/index.js as a regression tripwire, not an optimization target.
- * The spec's 200KB figure was aspirational; the real bundle (~295KB) carries
+ * The spec's 200KB figure was aspirational; the real bundle (~325KB) carries
  * Zod + citty + clack and that's fine for a CLI (no browser/cold-start cost).
  * The limit sits above today's size with headroom so it catches a runaway
  * dependency, not normal growth (e.g. the audit waves #69/#70 added stack
- * detection, monorepo scan and doctor checks — first-party feature growth,
- * not bloat).
+ * detection, monorepo scan and doctor checks; ronda 2 #79-#83 added the
+ * anti-retroceso guard, advisory locking, plugin remove/cleanup and semver —
+ * all first-party, zero new deps).
  */
-const LIMIT_KB = 315;
+const LIMIT_KB = 345;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundle = resolve(here, "..", "dist", "index.js");
