@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
-import { readBundledCoreVersion } from "./bundled-assets.ts";
+import { readCliVersion } from "./bundled-assets.ts";
 import { computeManagedHash, extractManagedContent, reorderManagedBlocks } from "./marker.ts";
 import { canonicalManagedOrder } from "./render-plan.ts";
 import type { NavoriConfig } from "./config.ts";
@@ -86,13 +86,17 @@ export interface DriftReport {
  */
 export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport[] {
   const out: DriftReport[] = [];
-  const coreVersion = readBundledCoreVersion();
-  const pluginVersions = new Map<string, string>();
+  // Every managed marker — core, preset, plugin — now stamps the navori release
+  // version (#79), so that's the single "expected" version to compare against.
+  // We still gate on KNOWN sources (core + enabled plugins that load) so an
+  // unknown/foreign marker isn't flagged as drift.
+  const naviVersion = readCliVersion();
+  const knownSources = new Set<string>(["@navori/core"]);
   for (const [id, settings] of Object.entries(config.plugins ?? {})) {
     if (settings.enabled !== true) continue;
     try {
-      const plugin = loadPlugin(id);
-      pluginVersions.set(`@navori/plugin-${id}`, plugin.manifest.version);
+      loadPlugin(id);
+      knownSources.add(`@navori/plugin-${id}`);
     } catch {
       // unknown / broken plugin — reported elsewhere via missingPlugins
     }
@@ -135,16 +139,14 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
       if (!m.source) continue;
 
       if (m.version) {
-        const expected =
-          m.source === "@navori/core" ? coreVersion : pluginVersions.get(m.source);
-        if (expected && expected !== m.version) {
+        if (knownSources.has(m.source) && naviVersion !== m.version) {
           out.push({
             filePath: rel,
             markerId: m.id,
             source: m.source,
             kind: "version",
             fromVersion: m.version,
-            toVersion: expected,
+            toVersion: naviVersion,
           });
         }
       }

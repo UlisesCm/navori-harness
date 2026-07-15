@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDowngrade } from "./semver.ts";
 
 /**
  * Managed-section markers. Two syntaxes are supported:
@@ -158,7 +159,7 @@ function escapeRegex(s: string): string {
 
 export interface InjectResult {
   output: string;
-  status: "created" | "updated" | "unchanged" | "user-modified-skipped";
+  status: "created" | "updated" | "unchanged" | "user-modified-skipped" | "downgrade-skipped";
   details?: {
     existingHash: string | null;
     actualHash: string;
@@ -168,6 +169,11 @@ export interface InjectResult {
     /** True when the existing marker declared a version distinct from the
      * one being injected. Useful to surface "update available" in sync. */
     versionDrift?: boolean;
+    /** True when the existing marker was written by a STRICTLY NEWER navori
+     * than the one injecting (anti-retroceso, issue #79). When set and the
+     * caller didn't force, the block is preserved as-is (`downgrade-skipped`)
+     * so an older CLI never silently overwrites newer content. */
+    downgrade?: boolean;
   };
 }
 
@@ -326,6 +332,14 @@ export function injectManagedSection(
     meta.version !== undefined &&
     match.existingVersion !== meta.version;
 
+  // Anti-retroceso (#79): the block on disk was written by a strictly newer
+  // navori. Writing our (older) content/metadata over it would silently
+  // downgrade the harness — the exact failure mode a teammate on a stale CLI
+  // hits running `update`/`sync`. Detect it here, at the one primitive every
+  // managed block flows through, so CLAUDE.md, agents, skills, hooks and
+  // scripts are all covered.
+  const downgrade = isDowngrade(match.existingVersion, meta.version);
+
   const details = {
     existingHash: expectedHash,
     actualHash,
@@ -333,6 +347,7 @@ export function injectManagedSection(
     existingVersion: match.existingVersion,
     existingSource: match.existingSource,
     versionDrift,
+    downgrade,
   };
 
   if (canonicalContent === match.content) {
@@ -343,11 +358,22 @@ export function injectManagedSection(
     if (sameMeta) {
       return { output: existing, status: "unchanged", details };
     }
+    // Content is identical but metadata differs. On a downgrade, keep the
+    // newer marker (don't stamp its version down) so future runs still see
+    // "written by a newer navori"; nothing meaningful is lost.
+    if (downgrade && !forceOverwrite) {
+      return { output: existing, status: "unchanged", details };
+    }
     const replaced =
       existing.slice(0, match.openStart) +
       openMarker(id, newHash, meta, syntax) +
       existing.slice(match.openEnd, match.closeEnd);
     return { output: replaced, status: "updated", details };
+  }
+
+  // Preserve the newer block untouched — the caller surfaces the downgrade.
+  if (downgrade && !forceOverwrite) {
+    return { output: existing, status: "downgrade-skipped", details };
   }
 
   if (userModified && !forceOverwrite) {

@@ -175,7 +175,11 @@ describe("writeConfig", () => {
     }
   });
 
-  it("drops an unknown engine (forward-compat) instead of throwing (#70)", () => {
+  it("PRESERVES an unknown engine on write (forward-compat, #79)", () => {
+    // #70: reading a config a newer navori wrote must not throw — the tolerant
+    // schema drops the unknown engine IN MEMORY so an old CLI keeps working.
+    // #79: but WRITING must NOT make that drop permanent, or a stale CLI running
+    // `update` would strip a future engine out of a checked-in config.
     const dir = makeTmpDir();
     const path = join(dir, "navori.config.json");
     try {
@@ -185,7 +189,11 @@ describe("writeConfig", () => {
         preset: "custom",
       });
       const written = JSON.parse(readFileSync(path, "utf-8")) as { engines: string[] };
-      expect(written.engines).toEqual(["claude"]);
+      // On disk both survive — a newer navori will re-recognize "unknown-engine".
+      expect(written.engines).toEqual(["unknown-engine", "claude"]);
+      // In memory the old CLI still drops the unknown one so its logic is safe.
+      const inMemory = readConfig(path);
+      expect(inMemory.engines).toEqual(["claude"]);
     } finally {
       rmSync(dir, { recursive: true });
     }

@@ -35,6 +35,7 @@ export type RenderStatus =
   | "updated"
   | "unchanged"
   | "user-modified-skipped"
+  | "downgrade-skipped"
   | "removed-condition-false";
 
 /** Symbol + color for a render-plan entry status. */
@@ -48,6 +49,8 @@ export function renderStatusSymbol(status: RenderStatus): string {
       return color.dim(sym.unchanged);
     case "user-modified-skipped":
       return color.red(sym.conflict);
+    case "downgrade-skipped":
+      return color.yellow(sym.update);
     case "removed-condition-false":
       return color.magenta(sym.removed);
   }
@@ -64,6 +67,8 @@ export function renderStatusLabel(status: RenderStatus): string {
       return color.dim(status);
     case "user-modified-skipped":
       return color.red(status);
+    case "downgrade-skipped":
+      return color.yellow(status);
     case "removed-condition-false":
       return color.magenta(status);
   }

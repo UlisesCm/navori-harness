@@ -7,7 +7,7 @@ import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
-import { getCoreRoot, readBundledCoreVersion } from "../../lib/bundled-assets.ts";
+import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import { injectManagedSection, removeManagedSection, reorderManagedBlocks, resolveCondition } from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { isNavoriOwnedSettings } from "./settings-detection.ts";
@@ -52,6 +52,10 @@ export interface ClaudeEngineResult {
   claudeMdEntries: AssetPlanEntry[];
   /** Version drift detected anywhere (used by `update` command). */
   updatesAvailable: UpdateAvailable[];
+  /** Managed blocks written by a NEWER navori and preserved, not overwritten
+   * (anti-retroceso, #79). Surfaced so `update`/`render` warn the user their
+   * CLI is behind. */
+  downgrades: UpdateAvailable[];
   /** CLAUDE.md assets that fell back to Spanish because language="en" lacks them. */
   languageFallbacks: string[];
   /** Total number of destination files inspected this render. `inspected -
@@ -71,7 +75,11 @@ const CORE_AGENTS: ReadonlyArray<{ id: string; harnessKey: keyof NonNullable<Nav
 
 const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
 
-const CORE_META = { source: "@navori/core" as const, version: readBundledCoreVersion() };
+// Managed blocks stamp the navori release version (bumps every release) so the
+// anti-retroceso guard has a per-release signal — not @navori/core's static
+// version. `source` still records provenance. See render-plan NAVORI_VERSION (#79).
+const NAVORI_VERSION = readCliVersion();
+const CORE_META = { source: "@navori/core" as const, version: NAVORI_VERSION };
 
 /** Managed-block id for the skills index injected into CLAUDE.md. */
 const SKILLS_INDEX_ID = "skills-index";
@@ -657,6 +665,7 @@ export function renderClaudeEngine(
       backupPath: null,
       claudeMdEntries: claudeMdPlan.entries,
       updatesAvailable: claudeMdPlan.updatesAvailable,
+      downgrades: claudeMdPlan.downgrades,
       languageFallbacks: claudeMdPlan.languageFallbacks,
       inspected,
     };
@@ -677,7 +686,11 @@ export function renderClaudeEngine(
     // their own roots here.
     const hasExistingTarget = pending.some((p) => existsSync(p.path));
     if (hasExistingTarget) {
-      const handle = createBackup(cwd, ["CLAUDE.md", ".claude"], {
+      // navori.config.json is the source of truth; snapshot it alongside the
+      // rendered tree so a backup is a complete picture of the harness state
+      // (#79/#82). It's checked into git too, but the backup keeps restore
+      // self-contained.
+      const handle = createBackup(cwd, ["CLAUDE.md", ".claude", "navori.config.json"], {
         exclude: [".claude/settings.local.json", ".claude/progress"],
       });
       if (handle.files.length > 0) {
@@ -731,6 +744,7 @@ export function renderClaudeEngine(
     backupPath,
     claudeMdEntries: claudeMdPlan.entries,
     updatesAvailable: claudeMdPlan.updatesAvailable,
+    downgrades: claudeMdPlan.downgrades,
     languageFallbacks: claudeMdPlan.languageFallbacks,
     inspected,
   };
@@ -845,6 +859,13 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
       reason: "bloque managed editado por el usuario; resuelve con 'navori sync' o ajusta el destino a mano",
     };
   }
+  if (result.status === "downgrade-skipped") {
+    return {
+      kind: "skip",
+      path: destPath,
+      reason: `bloque escrito por una navori más nueva (${result.details?.existingVersion ?? "?"}); no lo toqué. Actualiza tu CLI: npm i -g navori@latest`,
+    };
+  }
   return { kind: "write", path: destPath, content: result.content, status: result.status };
 }
 
@@ -943,7 +964,7 @@ function applySubBlockInject(input: {
     interpolated,
     {
       source: `@navori/plugin-${input.plugin.manifest.id}`,
-      version: input.plugin.manifest.version,
+      version: NAVORI_VERSION,
     },
     "html",
   );
@@ -952,6 +973,13 @@ function applySubBlockInject(input: {
     input.skipped.push({
       path: relative(input.cwd, targetAbs),
       reason: `sub-bloque '${input.skill.id}' (de @navori/plugin-${input.plugin.manifest.id}) editado por el usuario; resuelve con 'navori sync'`,
+    });
+    return;
+  }
+  if (result.status === "downgrade-skipped") {
+    input.skipped.push({
+      path: relative(input.cwd, targetAbs),
+      reason: `sub-bloque '${input.skill.id}' escrito por una navori más nueva (${result.details?.existingVersion ?? "?"}); no lo toqué. Actualiza tu CLI`,
     });
     return;
   }

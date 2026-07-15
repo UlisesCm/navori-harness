@@ -5,8 +5,65 @@ import { resolve } from "node:path";
 import { writeConfig, type NavoriConfig } from "../lib/config.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import { detectProject } from "../lib/detect.ts";
-import { runRender } from "./render.ts";
-import { brand, dim, color, accent, sym } from "../lib/style.ts";
+import { runRender, formatDowngradeWarning } from "./render.ts";
+import type { UpdateAvailable } from "../lib/render-plan.ts";
+import { brand, dim, color, accent, sym, type RenderStatus } from "../lib/style.ts";
+
+/** Progress keys removed from the schema (#75). `update` cleans them when it
+ * rewrites config so the "dead keys" warning doesn't recur forever (#79). */
+const DEAD_PROGRESS_KEYS = ["checkpointsDir", "archiveAfterDays"] as const;
+
+interface AggregatedRender {
+  writes: Array<{ path: string; status: RenderStatus; scope: string }>;
+  conflicts: Array<{ path: string; reason: string; scope: string }>;
+  updates: UpdateAvailable[];
+  downgrades: UpdateAvailable[];
+}
+
+/**
+ * Flatten a runRender result — root engine + every workspace + the non-Claude
+ * engines (AGENTS.md) — into single lists. `update` used to read only the root
+ * `engineResult`, so in a monorepo `--dry-run` hid workspace/agents-md writes
+ * and `--yes` wrote them without reporting (#79 crítico 3).
+ */
+export function aggregateRender(result: ReturnType<typeof runRender>): AggregatedRender {
+  const writes: AggregatedRender["writes"] = [];
+  const conflicts: AggregatedRender["conflicts"] = [];
+  const updates: UpdateAvailable[] = [];
+  const downgrades: UpdateAvailable[] = [];
+
+  const addEngine = (
+    scope: string,
+    eng?: {
+      written: Array<{ path: string; status: RenderStatus }>;
+      skipped: Array<{ path: string; reason: string }>;
+    },
+  ): void => {
+    for (const w of eng?.written ?? []) writes.push({ ...w, scope });
+    for (const s of eng?.skipped ?? []) conflicts.push({ ...s, scope });
+  };
+
+  addEngine("root", result.engineResult);
+  for (const ee of result.extraEngines ?? []) addEngine(`root · ${ee.engine}`, ee);
+  updates.push(...(result.updatesAvailable ?? []));
+  downgrades.push(...(result.downgrades ?? []));
+
+  for (const ws of result.workspaces) {
+    addEngine(ws.workspaceName, ws.engineResult);
+    for (const ee of ws.extraEngines) addEngine(`${ws.workspaceName} · ${ee.engine}`, ee);
+    updates.push(...ws.updatesAvailable);
+    downgrades.push(...ws.downgrades);
+  }
+
+  return { writes, conflicts, updates, downgrades };
+}
+
+/** Which dead progress keys the on-disk config still carries (for cleanup). */
+export function deadProgressKeys(raw: Record<string, unknown>): string[] {
+  const progress = raw.progress;
+  if (!progress || typeof progress !== "object") return [];
+  return DEAD_PROGRESS_KEYS.filter((k) => k in (progress as Record<string, unknown>));
+}
 
 interface ConfigDiff {
   field: string;
@@ -138,16 +195,19 @@ export const updateCommand = defineCommand({
     const detected = detectProject(cwd);
     const diffs = diffConfig(config, detected);
 
-    // Preview the FULL engine render (CLAUDE.md + the .claude/ tree) against the
-    // current config. This surfaces bundle / version drift a config-field diff
-    // can't see — new core skills, settings fixes, the skills-index — and is the
-    // same engine the apply pass runs, so the preview matches what will happen.
-    const preview = runRender(cwd, true);
-    const previewWrites = preview.engineResult?.written ?? [];
-    const previewConflicts = preview.engineResult?.skipped ?? [];
-    const updates = preview.updatesAvailable ?? [];
+    const rawConfig = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    const deadKeys = deadProgressKeys(rawConfig);
+    const willWriteConfig = diffs.length > 0 || deadKeys.length > 0;
 
-    if (diffs.length === 0 && previewWrites.length === 0 && previewConflicts.length === 0) {
+    // Preview the FULL engine render (CLAUDE.md + the .claude/ tree) against the
+    // current config, aggregating root + every workspace + non-Claude engines.
+    // This surfaces bundle / version drift a config-field diff can't see — new
+    // core skills, settings fixes, the skills-index — and is the same engine the
+    // apply pass runs, so the preview matches what will happen.
+    const preview = runRender(cwd, true);
+    const agg = aggregateRender(preview);
+
+    if (!willWriteConfig && agg.writes.length === 0 && agg.conflicts.length === 0 && agg.downgrades.length === 0) {
       p.outro("Up to date — nothing to update");
       return;
     }
@@ -161,24 +221,33 @@ export const updateCommand = defineCommand({
       p.log.info("Config is in sync with the repo");
     }
 
-    if (previewWrites.length > 0) {
-      const shown = previewWrites
-        .slice(0, 12)
-        .map((w) => `  ${color.cyan(sym.update)} ${w.path} ${dim(`(${w.status})`)}`);
-      const more = previewWrites.length > 12 ? `\n  ${dim(`… +${previewWrites.length - 12} más`)}` : "";
-      p.log.info(`Archivos que se actualizarían (${previewWrites.length}):\n${shown.join("\n")}${more}`);
+    if (deadKeys.length > 0) {
+      p.log.info(`Claves obsoletas en "progress" que se limpiarán: ${deadKeys.join(", ")}`);
     }
 
-    if (updates.length > 0) {
-      const lines = updates.map(
+    if (agg.writes.length > 0) {
+      const shown = agg.writes
+        .slice(0, 12)
+        .map((w) => `  ${color.cyan(sym.update)} ${dim(`[${w.scope}]`)} ${w.path} ${dim(`(${w.status})`)}`);
+      const more = agg.writes.length > 12 ? `\n  ${dim(`… +${agg.writes.length - 12} más`)}` : "";
+      p.log.info(`Archivos que se actualizarían (${agg.writes.length}):\n${shown.join("\n")}${more}`);
+    }
+
+    if (agg.updates.length > 0) {
+      const lines = agg.updates.map(
         (u) => `  ${color.cyan(sym.update)} ${u.id}  ${dim(`(${u.source}  ${u.fromVersion} → ${u.toVersion})`)}`,
       );
-      p.log.info(`Managed block updates available (${updates.length}):\n${lines.join("\n")}`);
+      p.log.info(`Managed block updates available (${agg.updates.length}):\n${lines.join("\n")}`);
     }
 
-    if (previewConflicts.length > 0) {
-      p.log.warn(`${previewConflicts.length} archivo(s) con ediciones tuyas — 'navori sync' los resuelve interactivamente`);
+    if (agg.conflicts.length > 0) {
+      p.log.warn(`${agg.conflicts.length} archivo(s) con ediciones tuyas — 'navori sync' los resuelve interactivamente`);
     }
+
+    // Anti-retroceso (#79): shown even with --yes — a silent downgrade is the
+    // exact failure this guards against.
+    const downgradeWarn = formatDowngradeWarning(agg.downgrades);
+    if (downgradeWarn) p.log.warn(downgradeWarn);
 
     if (args["dry-run"]) {
       if (diffs.some((d) => d.field === "project.libraries")) {
@@ -192,9 +261,9 @@ export const updateCommand = defineCommand({
 
     // Confirm apply (the config diffs are the part worth a look; the render skips
     // any managed block you edited by hand rather than clobbering it).
-    if (!args.yes && diffs.length > 0) {
+    if (!args.yes && willWriteConfig) {
       const ok = await p.confirm({
-        message: `Apply ${diffs.length} config update${diffs.length === 1 ? "" : "s"} + re-render?`,
+        message: `Apply config changes + re-render?`,
         initialValue: true,
       });
       if (p.isCancel(ok) || !ok) {
@@ -203,12 +272,16 @@ export const updateCommand = defineCommand({
       }
     }
 
-    // Apply config diffs first so the render below reflects them.
-    if (diffs.length > 0) {
-      const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
-      delete raw.$schema;
-      applyDiffs(raw, detected, diffs);
-      writeConfig(configPath, raw as Parameters<typeof writeConfig>[1]);
+    // Apply config diffs first so the render below reflects them. Unknown enum
+    // values (a future engine written by a newer navori) survive because
+    // writeConfig preserves forward-compat enums (#79 crítico 2).
+    if (willWriteConfig) {
+      delete rawConfig.$schema;
+      applyDiffs(rawConfig, detected, diffs);
+      if (deadKeys.length > 0 && rawConfig.progress && typeof rawConfig.progress === "object") {
+        for (const k of deadKeys) delete (rawConfig.progress as Record<string, unknown>)[k];
+      }
+      writeConfig(configPath, rawConfig as Parameters<typeof writeConfig>[1]);
       p.log.success(`Updated ${configPath}`);
     }
 
@@ -220,19 +293,30 @@ export const updateCommand = defineCommand({
     // Full engine sync: CLAUDE.md + the .claude/ tree (skills, agents, settings,
     // hooks). Re-detected library skills and preset shifts only materialize here.
     // (Earlier this re-rendered CLAUDE.md alone, leaving the .claude/ tree stale.)
-    const result = runRender(cwd, false);
+    let result: ReturnType<typeof runRender>;
+    try {
+      result = runRender(cwd, false);
+    } catch (err) {
+      // A mid-write render crash used to bubble a raw citty stack, leaving the
+      // config updated and the tree partial. Surface a clean message with the
+      // backup breadcrumb the engine's RenderWriteError carries (#79).
+      p.log.error(err instanceof Error ? err.message : String(err));
+      p.outro("El render falló tras actualizar el config — revisa el backup y corre 'navori render --apply'");
+      return;
+    }
     if (!result.ok) {
       p.log.error(result.reason ?? "Render failed");
       p.outro("Done (config actualizado, pero el render falló)");
       return;
     }
-    const written = result.engineResult?.written ?? [];
-    const skipped = result.engineResult?.skipped ?? [];
-    if (skipped.length > 0) {
-      p.log.warn(`${skipped.length} archivo(s) con ediciones tuyas no se tocaron — 'navori sync' para resolver`);
+    const applied = aggregateRender(result);
+    if (applied.conflicts.length > 0) {
+      p.log.warn(`${applied.conflicts.length} archivo(s) con ediciones tuyas no se tocaron — 'navori sync' para resolver`);
     }
-    if (written.length > 0) {
-      p.log.success(`Re-rendered ${written.length} archivo(s) (CLAUDE.md + .claude/)`);
+    const applyDowngradeWarn = formatDowngradeWarning(applied.downgrades);
+    if (applyDowngradeWarn) p.log.warn(applyDowngradeWarn);
+    if (applied.writes.length > 0) {
+      p.log.success(`Re-rendered ${applied.writes.length} archivo(s) (CLAUDE.md + .claude/, incluidos workspaces)`);
     } else {
       p.log.info("No re-render needed");
     }

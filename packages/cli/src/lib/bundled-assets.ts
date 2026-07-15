@@ -46,6 +46,29 @@ export function readBundledCoreVersion(): string {
   }
 }
 
+/**
+ * The navori CLI's own release version (e.g. "0.2.9"). This is the version that
+ * actually bumps every release — unlike `@navori/core`, which is versioned
+ * statically. Managed-block markers stamp THIS so the anti-retroceso guard
+ * (#79) has a per-release signal to compare: a block written by a newer navori
+ * is never silently overwritten by an older one. The `name === "navori"` guard
+ * avoids reading a nested package.json (@navori/core) by mistake.
+ */
+export function readCliVersion(): string {
+  for (const candidate of [
+    resolve(HERE, "..", "package.json"), // bundled: dist/../package.json
+    resolve(HERE, "..", "..", "package.json"), // dev: src/lib/../../package.json
+  ]) {
+    try {
+      const pkg = JSON.parse(readFileSync(candidate, "utf-8")) as { name?: string; version?: string };
+      if (pkg.version && pkg.name === "navori") return pkg.version;
+    } catch {
+      // try next candidate
+    }
+  }
+  return "0.0.0";
+}
+
 export function resolveBundledCoreAssetPath(relPath: string): string {
   return resolve(getCoreRoot(), relPath);
 }

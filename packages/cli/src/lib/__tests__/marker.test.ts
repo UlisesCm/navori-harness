@@ -227,6 +227,59 @@ describe("injectManagedSection", () => {
       expect(result.output.indexOf('end id="b"')).toBeLessThan(result.output.indexOf("# user: custom tail"));
     });
   });
+
+  describe("anti-retroceso / downgrade guard (#79)", () => {
+    // A block on disk written by a NEWER navori than the one injecting.
+    const newer = injectManagedSection("", "idioma-rol", "NEW body from 0.3.0\n", {
+      source: "@navori/core",
+      version: "0.3.0",
+    }).output;
+
+    it("preserves a block written by a newer version instead of overwriting it", () => {
+      const result = injectManagedSection(newer, "idioma-rol", "OLD body from 0.2.9\n", {
+        source: "@navori/core",
+        version: "0.2.9",
+      });
+      expect(result.status).toBe("downgrade-skipped");
+      expect(result.details?.downgrade).toBe(true);
+      expect(result.output).toBe(newer); // byte-for-byte untouched
+      expect(result.output).toContain("NEW body from 0.3.0");
+      expect(result.output).not.toContain("OLD body from 0.2.9");
+    });
+
+    it("does not stamp the version down when content is identical", () => {
+      const sameContent = injectManagedSection(newer, "idioma-rol", "NEW body from 0.3.0\n", {
+        source: "@navori/core",
+        version: "0.2.9",
+      });
+      // Nothing written, and the newer version marker stays on disk.
+      expect(sameContent.output).toBe(newer);
+      expect(sameContent.output).toContain('version="0.3.0"');
+    });
+
+    it("still overwrites on downgrade when forceOverwrite is set (sync accept-new)", () => {
+      const forced = injectManagedSection(
+        newer,
+        "idioma-rol",
+        "OLD body from 0.2.9\n",
+        { source: "@navori/core", version: "0.2.9" },
+        "html",
+        true,
+      );
+      expect(forced.status).toBe("updated");
+      expect(forced.output).toContain("OLD body from 0.2.9");
+    });
+
+    it("upgrades normally when the incoming version is newer", () => {
+      const upgraded = injectManagedSection(newer, "idioma-rol", "NEWER body 0.4.0\n", {
+        source: "@navori/core",
+        version: "0.4.0",
+      });
+      expect(upgraded.status).toBe("updated");
+      expect(upgraded.details?.downgrade).toBe(false);
+      expect(upgraded.output).toContain("NEWER body 0.4.0");
+    });
+  });
 });
 
 describe("removeManagedSection", () => {

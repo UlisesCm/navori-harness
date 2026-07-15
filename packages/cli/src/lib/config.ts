@@ -10,9 +10,39 @@ import {
 
 const SCHEMA_URL = "https://navori.dev/schema/navori.config.v1.json";
 
+/**
+ * The tolerant enum schema DROPS unknown values on parse (issue #70) so an old
+ * CLI can still *read* a config a newer navori wrote. But dropping them on
+ * WRITE makes the loss permanent on disk — a stale CLI running `update` would
+ * strip e.g. a future engine out of a config a teammate checked in (#79 crítico
+ * 2). This mirrors the top-level `.passthrough()` intent for the enum fields
+ * validation transforms: keep whatever the input carried, so forward-compat
+ * data round-trips untouched. A newer CLI later re-recognizes it; an older one
+ * keeps ignoring it in memory (with the read-time warning).
+ */
+function preserveForwardCompatEnums(input: NavoriConfigInput, validated: NavoriConfig): NavoriConfig {
+  const raw = input as Record<string, unknown>;
+  const out = { ...(validated as Record<string, unknown>) };
+
+  if (Array.isArray(raw.engines)) {
+    const strings = [...new Set(raw.engines.filter((e): e is string => typeof e === "string"))];
+    if (strings.length > 0) out.engines = strings;
+  }
+
+  for (const key of ["commits", "language"] as const) {
+    const rawVal = raw[key];
+    if (typeof rawVal === "string" && rawVal !== (validated as Record<string, unknown>)[key]) {
+      out[key] = rawVal;
+    }
+  }
+
+  return out as NavoriConfig;
+}
+
 export function writeConfig(path: string, input: NavoriConfigInput): void {
   const validated = NavoriConfigSchema.parse({ $schema: SCHEMA_URL, ...input });
-  writeFileAtomic(path, JSON.stringify(validated, null, 2) + "\n");
+  const preserved = preserveForwardCompatEnums(input, validated);
+  writeFileAtomic(path, JSON.stringify(preserved, null, 2) + "\n");
 }
 
 /**

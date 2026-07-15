@@ -8,7 +8,7 @@ import { computeRenderPlan } from "../../lib/render-plan.ts";
 import { injectManagedSection } from "../../lib/marker.ts";
 import { loadPreset } from "../../lib/presets.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
-import { readBundledCoreVersion } from "../../lib/bundled-assets.ts";
+import { readCliVersion } from "../../lib/bundled-assets.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 
 /**
@@ -35,7 +35,9 @@ export interface AgentsMdEngineResult {
 }
 
 const MANAGED_ID = "navori-agents";
-const CORE_META = { source: "@navori/core" as const, version: readBundledCoreVersion() };
+// Stamp the navori release version (bumps per release) for the anti-retroceso
+// guard, not @navori/core's static version. (#79)
+const CORE_META = { source: "@navori/core" as const, version: readCliVersion() };
 const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
 
 /** Title the first render seeds before the managed block. */
@@ -156,6 +158,11 @@ export function renderAgentsMdEngine(
 
   if (result.status === "user-modified-skipped") {
     skipped.push({ path: "AGENTS.md", reason: "managed block edited by hand" });
+  } else if (result.status === "downgrade-skipped") {
+    skipped.push({
+      path: "AGENTS.md",
+      reason: `escrito por una navori más nueva (${result.details?.existingVersion ?? "?"}); no lo toqué. Actualiza tu CLI`,
+    });
   } else if (result.status === "unchanged") {
     // nothing to do
   } else {

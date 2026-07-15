@@ -24,6 +24,8 @@ export interface WorkspaceRenderResult {
   written: boolean;
   languageFallbacks: string[];
   updatesAvailable: UpdateAvailable[];
+  /** Managed blocks preserved because a newer navori wrote them (#79). */
+  downgrades: UpdateAvailable[];
   backupPath?: string | null;
   /** Claude engine result; absent when "claude" is not in config.engines[]. */
   engineResult?: ClaudeEngineResult;
@@ -115,6 +117,8 @@ export function runRender(
   written: boolean;
   languageFallbacks: string[];
   updatesAvailable: UpdateAvailable[];
+  /** Root managed blocks preserved because a newer navori wrote them (#79). */
+  downgrades: UpdateAvailable[];
   backupPath?: string | null;
   engineResult?: ClaudeEngineResult;
   workspaces: WorkspaceRenderResult[];
@@ -144,6 +148,7 @@ export function runRender(
       written: false,
       languageFallbacks: [],
       updatesAvailable: [],
+      downgrades: [],
       backupPath: null,
       workspaces: [],
     };
@@ -171,6 +176,7 @@ export function runRender(
         written: false,
         languageFallbacks: [],
         updatesAvailable: [],
+        downgrades: [],
         backupPath: null,
         workspaces: [],
       };
@@ -186,6 +192,7 @@ export function runRender(
         written: false,
         languageFallbacks: [],
         updatesAvailable: [],
+        downgrades: [],
         backupPath: null,
         workspaces: [],
       };
@@ -213,6 +220,7 @@ export function runRender(
       written: false,
       languageFallbacks: [],
       updatesAvailable: [],
+      downgrades: [],
       backupPath: null,
       engineResult: undefined,
       workspaces: [
@@ -224,6 +232,7 @@ export function runRender(
           written: (wsResult?.written.length ?? 0) > 0,
           languageFallbacks: wsResult?.languageFallbacks ?? [],
           updatesAvailable: wsResult?.updatesAvailable ?? [],
+          downgrades: wsResult?.downgrades ?? [],
           backupPath: wsResult?.backupPath ?? null,
           engineResult: wsResult,
           extraEngines: [],
@@ -273,6 +282,7 @@ export function runRender(
       written: (wsResult?.written.length ?? 0) > 0,
       languageFallbacks: wsResult?.languageFallbacks ?? [],
       updatesAvailable: wsResult?.updatesAvailable ?? [],
+      downgrades: wsResult?.downgrades ?? [],
       backupPath: wsResult?.backupPath ?? null,
       engineResult: wsResult,
       extraEngines: wsExtraEngines,
@@ -288,6 +298,7 @@ export function runRender(
     written: (engineResult?.written.length ?? 0) > 0,
     languageFallbacks: engineResult?.languageFallbacks ?? [],
     updatesAvailable: engineResult?.updatesAvailable ?? [],
+    downgrades: engineResult?.downgrades ?? [],
     backupPath: engineResult?.backupPath ?? null,
     engineResult,
     workspaces,
@@ -396,6 +407,12 @@ export const renderCommand = defineCommand({
 
     reportExtraEngines(result.extraEngines ?? []);
 
+    const allDowngrades = result.downgrades.concat(
+      ...result.workspaces.map((w) => w.downgrades),
+    );
+    const downgradeWarn = formatDowngradeWarning(allDowngrades);
+    if (downgradeWarn) p.log.warn(downgradeWarn);
+
     const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
     // In preview mode `written` means "would write" — the engine populates it
     // with pending changes without touching disk.
@@ -421,6 +438,28 @@ export const renderCommand = defineCommand({
   },
 });
 
+/**
+ * Build the anti-retroceso (#79) warning: one or more managed blocks on disk
+ * were written by a NEWER navori and preserved as-is. Returns null when there's
+ * nothing to warn about. Shared by `render` and `update` so the message and the
+ * "upgrade your CLI" call to action stay consistent.
+ */
+export function formatDowngradeWarning(downgrades: UpdateAvailable[]): string | null {
+  if (downgrades.length === 0) return null;
+  const newest = downgrades
+    .map((d) => d.fromVersion)
+    .sort()
+    .at(-1);
+  const ids = [...new Set(downgrades.map((d) => d.id))];
+  const shown = ids.slice(0, 6).join(", ");
+  const more = ids.length > 6 ? ` (+${ids.length - 6} más)` : "";
+  return (
+    `Tu CLI está detrás del repo: ${downgrades.length} bloque(s) los escribió una navori más nueva ` +
+    `(hasta ${newest}). Los preservé sin tocar para no degradarlos. ` +
+    `Actualiza tu CLI para volver a gestionarlos: npm i -g navori@latest\n  ${dim(shown)}${dim(more)}`
+  );
+}
+
 function summarize(entries: AssetPlanEntry[]): string {
   const counts = entries.reduce<Record<string, number>>((acc, e) => {
     acc[e.status] = (acc[e.status] ?? 0) + 1;
@@ -430,6 +469,7 @@ function summarize(entries: AssetPlanEntry[]): string {
   if (counts.created) parts.push(color.green(`${counts.created} created`));
   if (counts.updated) parts.push(color.yellow(`${counts.updated} updated`));
   if (counts["user-modified-skipped"]) parts.push(color.red(`${counts["user-modified-skipped"]} conflict`));
+  if (counts["downgrade-skipped"]) parts.push(color.yellow(`${counts["downgrade-skipped"]} downgrade-skip`));
   if (counts["removed-condition-false"]) parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
   if (counts.unchanged) parts.push(dim(`${counts.unchanged} unchanged`));
   return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
