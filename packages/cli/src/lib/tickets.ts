@@ -27,6 +27,10 @@ export function ticketsDir(workspaceName: string): string {
   return join(workspaceDirectory(workspaceName), ws.ticketsDir);
 }
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function readTitle(path: string): string {
   try {
     const content = readFileSync(path, "utf-8").split("\n");
@@ -113,6 +117,19 @@ export function archiveTicket(workspaceName: string, id: string): TicketSummary 
   return { id, path: dest, title: summary.title, state: "archive" };
 }
 
+/** Move an archived ticket back to the active folder. Inverse of
+ * archiveTicket; no-op (returns the summary) if it's already active. */
+export function unarchiveTicket(workspaceName: string, id: string): TicketSummary {
+  const summary = findTicket(workspaceName, id);
+  if (!summary) throw new TicketError(`Ticket '${id}' not found in workspace '${workspaceName}'`);
+  if (summary.state === "active") return summary;
+  const dir = ticketsDir(workspaceName);
+  mkdirSync(dir, { recursive: true });
+  const dest = join(dir, `${id}.md`);
+  renameSync(summary.path, dest);
+  return { id, path: dest, title: summary.title, state: "active" };
+}
+
 export function deleteTicket(workspaceName: string, id: string): void {
   const summary = findTicket(workspaceName, id);
   if (!summary) throw new TicketError(`Ticket '${id}' not found in workspace '${workspaceName}'`);
@@ -172,7 +189,9 @@ export function findReferencingRepos(
   ticketId: string,
 ): Array<{ path: string; matches: string[] }> {
   const result: Array<{ path: string; matches: string[] }> = [];
-  const idPattern = new RegExp(`\\b${ticketId}\\b`);
+  // Escape regex metacharacters in the id — an id like "BNM-1.2" or "A+B" would
+  // otherwise be interpreted as a pattern (or throw on an unbalanced token).
+  const idPattern = new RegExp(`\\b${escapeRegex(ticketId)}\\b`);
 
   for (const repoPath of repoPaths) {
     const abs = resolve(repoPath);

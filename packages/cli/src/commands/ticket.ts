@@ -7,6 +7,7 @@ import {
   createTicket,
   findReferencingRepos,
   archiveTicket,
+  unarchiveTicket,
   deleteTicket,
   TicketError,
 } from "../lib/tickets.ts";
@@ -104,7 +105,7 @@ const showSubCommand = defineCommand({
     p.note(readFileSync(ticket.path, "utf-8"), "Content");
 
     if (referencing.length === 0) {
-      p.log.message(dim("Referenced in: (no repo's progress/current.md mentions this ticket)"));
+      p.log.message(dim("Referenced in: (ningún repo del workspace referencia este ticket en su archivo de sesión)"));
     } else {
       const refLines = referencing.flatMap((ref) => [
         `  ${color.cyan(sym.bullet)} ${ref.path}`,
@@ -191,6 +192,31 @@ const archiveSubCommand = defineCommand({
   },
 });
 
+const unarchiveSubCommand = defineCommand({
+  meta: {
+    name: "unarchive",
+    description: "Move an archived ticket back to the active folder",
+  },
+  args: {
+    workspace: { type: "positional", description: "Workspace name", required: true },
+    id: { type: "positional", description: "Ticket id", required: true },
+  },
+  run({ args }) {
+    try {
+      const result = unarchiveTicket(args.workspace as string, args.id as string);
+      p.intro(brand(`ticket unarchive ${accent(args.id as string)}`));
+      p.log.success(`Unarchived → ${dim(result.path)}`);
+      p.outro(dim("Done"));
+    } catch (err) {
+      if (err instanceof TicketError) {
+        console.error(err.message);
+        process.exit(1);
+      }
+      throw err;
+    }
+  },
+});
+
 const deleteSubCommand = defineCommand({
   meta: {
     name: "delete",
@@ -236,6 +262,7 @@ export const ticketCommand = defineCommand({
     show: showSubCommand,
     new: newSubCommand,
     archive: archiveSubCommand,
+    unarchive: unarchiveSubCommand,
     delete: deleteSubCommand,
   },
 });
