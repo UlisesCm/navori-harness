@@ -1,9 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, chmodSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
-import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
+import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
@@ -652,12 +652,33 @@ export function renderClaudeEngine(
     }
   }
 
+  // 8.5. Reconcile DISABLED plugins. A plugin turned off (via `configure
+  // plugins` or `navori remove`) still has its managed CLAUDE.md blocks stripped
+  // by computeRenderPlan, but its injectInto sub-blocks (e.g. leader.md) and its
+  // .claude/scripts/* were only ever touched on the enabled path — so they'd
+  // orphan. Strip them here so disabling a plugin fully cleans up (#80).
+  const scriptRemovals: string[] = [];
+  for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
+    for (const skill of plugin.skillAssets) {
+      if (!skill.injectInto) continue;
+      inspected += 1;
+      removeSubBlock({ cwd, skill, pending });
+    }
+    for (const script of plugin.scriptAssets) {
+      const destPath = join(cwd, ".claude/scripts", script.dest);
+      if (existsSync(destPath)) {
+        inspected += 1;
+        scriptRemovals.push(destPath);
+      }
+    }
+  }
+
   // 9. Backup + atomic writes
   let backupPath: string | null = null;
   benchMark("plan");
   const written: Array<{ path: string; status: RenderStatus }> = [];
 
-  if (pending.length === 0) {
+  if (pending.length === 0 && scriptRemovals.length === 0) {
     return {
       written,
       skipped,
@@ -684,7 +705,7 @@ export function renderClaudeEngine(
     // progress/ (live state, not the kind of thing a snapshot helps with).
     // The CLAUDE.md file is included explicitly; future engines will add
     // their own roots here.
-    const hasExistingTarget = pending.some((p) => existsSync(p.path));
+    const hasExistingTarget = pending.some((p) => existsSync(p.path)) || scriptRemovals.length > 0;
     if (hasExistingTarget) {
       // navori.config.json is the source of truth; snapshot it alongside the
       // rendered tree so a backup is a complete picture of the harness state
@@ -730,9 +751,21 @@ export function renderClaudeEngine(
         backupPath,
       );
     }
+    // Delete disabled-plugin scripts (already captured in the backup above).
+    for (const abs of scriptRemovals) {
+      try {
+        rmSync(abs, { force: true });
+      } catch {
+        // best-effort — a scripts dir the user chmod'd read-only shouldn't crash
+      }
+      written.push({ path: relative(cwd, abs), status: "removed-condition-false" });
+    }
   } else {
     for (const p of pending) {
       written.push({ path: relative(cwd, p.path), status: p.status });
+    }
+    for (const abs of scriptRemovals) {
+      written.push({ path: relative(cwd, abs), status: "removed-condition-false" });
     }
   }
 
@@ -994,6 +1027,39 @@ function applySubBlockInject(input: {
     content: result.output,
     status: result.status,
   });
+}
+
+/**
+ * Strip a disabled plugin's injectInto sub-block from its target file (the
+ * inverse of applySubBlockInject). Operates on the pending content if the file
+ * is being re-rendered this pass, else on the on-disk copy. No-op when the
+ * target or the sub-block is absent. (#80)
+ */
+function removeSubBlock(input: {
+  cwd: string;
+  skill: LoadedPlugin["skillAssets"][number];
+  pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>;
+}): void {
+  const targetAbs = join(input.cwd, input.skill.injectInto!);
+  const pendingEntry = input.pending.find((p) => p.path === targetAbs);
+
+  let currentContent: string;
+  if (pendingEntry) {
+    currentContent = pendingEntry.content;
+  } else if (existsSync(targetAbs)) {
+    currentContent = readFileSync(targetAbs, "utf-8");
+  } else {
+    return; // target file gone — nothing to strip
+  }
+
+  const stripped = removeManagedSection(currentContent, input.skill.id, "html");
+  if (stripped === currentContent) return; // sub-block not present
+
+  if (pendingEntry) {
+    pendingEntry.content = stripped;
+    return;
+  }
+  input.pending.push({ path: targetAbs, content: stripped, status: "updated" });
 }
 
 type PluginScriptPlan =

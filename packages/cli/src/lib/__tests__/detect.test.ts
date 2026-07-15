@@ -612,3 +612,46 @@ describe("isPlaceholderName", () => {
     expect(isPlaceholderName("test")).toBe(false);
   });
 });
+
+describe("detectProject — library skills in a monorepo (#80)", () => {
+  it("aggregates a dep that lives only in a workspace package.json", () => {
+    const dir = makeTmp();
+    try {
+      // Root declares the monorepo but has no mongoose itself.
+      writeFileSync(join(dir, "pnpm-workspace.yaml"), "packages:\n  - 'packages/*'\n");
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "mono-root" }));
+      // Only the backend workspace depends on mongoose.
+      mkdirSync(join(dir, "packages/backend"), { recursive: true });
+      writeFileSync(
+        join(dir, "packages/backend/package.json"),
+        JSON.stringify({ name: "backend", dependencies: { mongoose: "^8" } }),
+      );
+
+      const d = detectProject(dir);
+      expect(d.libraries).toContain("mongoose");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("unions workspace deps with root deps across workspaces", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "pnpm-workspace.yaml"), "packages:\n  - 'apps/*'\n");
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "mono", dependencies: { zod: "^3" } }),
+      );
+      mkdirSync(join(dir, "apps/api"), { recursive: true });
+      writeFileSync(
+        join(dir, "apps/api/package.json"),
+        JSON.stringify({ name: "api", dependencies: { "socket.io": "^4" } }),
+      );
+
+      const d = detectProject(dir);
+      expect(d.libraries).toEqual(expect.arrayContaining(["zod-validation", "socketio"]));
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});

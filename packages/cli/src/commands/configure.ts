@@ -16,6 +16,9 @@ const ENGINE_OPTIONS = [
 
 type EngineId = "claude" | "agents-md" | "cursor" | "copilot";
 
+/** The always-on plugin — ships with navori and can't be disabled (#68). */
+const ENGRAM_ID = "engram";
+
 function fail(msg: string): never {
   // Use stderr so success output on stdout stays clean for piping/JSON.
   process.stderr.write(`navori: ${msg}\n`);
@@ -83,10 +86,23 @@ const pluginsSubCommand = defineCommand({
       return;
     }
     const selectedSet = new Set(selected as string[]);
+    // Engram is always-on (invariant, #68): it never gets disabled here even if
+    // the user deselected it. Force it back in and tell them why.
+    let forcedEngram = false;
+    if (enabledNow.has(ENGRAM_ID) && !selectedSet.has(ENGRAM_ID)) {
+      selectedSet.add(ENGRAM_ID);
+      forcedEngram = true;
+    }
 
-    // Build new plugins object: enable=true for selected, drop the rest
+    // Build the new plugins object. A deselected plugin becomes `enabled:false`
+    // rather than being dropped — the disabled entry is what lets the next
+    // render strip its managed blocks, injectInto sub-blocks and scripts. Delete
+    // the key and that cleanup never runs, leaving orphans behind (#80). To
+    // fully forget a plugin (prune the key) after cleanup, use `navori remove`.
     const newPlugins: Record<string, { enabled: boolean }> = {};
-    for (const id of selectedSet) newPlugins[id] = { enabled: true };
+    for (const id of new Set([...Object.keys(current), ...selectedSet])) {
+      newPlugins[id] = { enabled: selectedSet.has(id) };
+    }
 
     raw.plugins = newPlugins;
     persist(path, raw);
@@ -95,7 +111,8 @@ const pluginsSubCommand = defineCommand({
     const removed = [...enabledNow].filter((id) => !selectedSet.has(id));
     if (added.length > 0) p.log.success(`Enabled: ${added.join(", ")}`);
     if (removed.length > 0) p.log.warn(`Disabled: ${removed.join(", ")}`);
-    if (added.length === 0 && removed.length === 0) p.log.info("No changes");
+    if (forcedEngram) p.log.warn(`engram is always-on with navori — kept enabled.`);
+    if (added.length === 0 && removed.length === 0 && !forcedEngram) p.log.info("No changes");
     p.outro("Run 'navori render --apply' or 'navori sync' to apply.");
   },
 });
