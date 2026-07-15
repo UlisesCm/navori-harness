@@ -4,8 +4,6 @@ description: Crea un PR en GitHub contra la rama target del repo, delegando titl
 type: reference
 ---
 
-<!-- candidate: workflow-backend -->
-
 # pr-create — crear PR contra `{{prTarget}}`
 
 ## Cuándo usar este skill

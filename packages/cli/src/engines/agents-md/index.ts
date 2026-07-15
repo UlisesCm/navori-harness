@@ -39,6 +39,9 @@ const MANAGED_ID = "navori-agents";
 // guard, not @navori/core's static version. (#79)
 const CORE_META = { source: "@navori/core" as const, version: readCliVersion() };
 const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
+/** Always-on, stack-agnostic process skills — mirror of the Claude engine's
+ * WORKFLOW_SKILLS so the prose index lists them for non-Claude tools too. */
+const WORKFLOW_SKILLS: ReadonlyArray<string> = ["ticket-intake", "pr-create"];
 
 /** Title the first render seeds before the managed block. */
 const HEADER = "# AGENTS.md\n";
@@ -58,6 +61,10 @@ function buildSkillsSection(config: NavoriConfig, repoRoot: string): string | nu
   const listed = new Set<string>();
   for (const id of CORE_SKILLS) {
     rows.push(`- \`${id}\` — navori`);
+    listed.add(id);
+  }
+  for (const id of WORKFLOW_SKILLS) {
+    rows.push(`- \`${id}\` — navori (workflow)`);
     listed.add(id);
   }
   if (config.preset && config.preset !== "custom") {

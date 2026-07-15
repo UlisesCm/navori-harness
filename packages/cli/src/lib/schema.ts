@@ -139,6 +139,19 @@ const ProjectSchema = z
      * independent of the active preset. Supersedes the old zod/joiValidation
      * flags. See lib/library-skills.ts. */
     libraries: z.array(z.string()).default([]),
+    /** Active dependency migrations (legacy + successor both present in deps).
+     * Each renders a "prefer the new, freeze the legacy" rule in the project-
+     * context block. Detected from deps (lib/library-skills.ts MIGRATION_PAIRS)
+     * and refreshed on `update`. */
+    libraryMigrations: z
+      .array(
+        z.object({
+          legacy: z.string(),
+          preferred: z.string(),
+          domain: z.string(),
+        }),
+      )
+      .default([]),
     /** Programming language of the repo (ts/js/python/rust/go/unknown), from
      * detection. Drives language-aware baseline blocks — e.g. the TS-only
      * `tipado-fuerte` (any/unknown) is suppressed in python/rust/go. The render

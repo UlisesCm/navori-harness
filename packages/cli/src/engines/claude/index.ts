@@ -6,7 +6,7 @@ import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
-import { librarySkillById } from "../../lib/library-skills.ts";
+import { librarySkillById, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import { injectManagedSection, removeManagedSection, reorderManagedBlocks, resolveCondition } from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
@@ -75,6 +75,15 @@ const CORE_AGENTS: ReadonlyArray<{ id: string; harnessKey: keyof NonNullable<Nav
 
 const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
 
+/**
+ * Workflow skills — always-on process skills (ticket pipeline, PR flow) that are
+ * stack-agnostic, so they render for every preset, not just backend ones. Unlike
+ * CORE_SKILLS they keep a BARE managed-id (matching the id the express preset
+ * wrote before they were promoted here), so an `update` recognizes the existing
+ * block in place instead of orphaning it and appending a duplicate.
+ */
+const WORKFLOW_SKILLS: ReadonlyArray<string> = ["ticket-intake", "pr-create"];
+
 // Managed blocks stamp the navori release version (bumps every release) so the
 // anti-retroceso guard has a per-release signal — not @navori/core's static
 // version. `source` still records provenance. See render-plan NAVORI_VERSION (#79).
@@ -115,6 +124,10 @@ function buildSkillsIndexBody(
   const listed = new Set<string>();
   for (const id of CORE_SKILLS) {
     rows.push(`- \`${id}\` — navori`);
+    listed.add(id);
+  }
+  for (const id of WORKFLOW_SKILLS) {
+    rows.push(`- \`${id}\` — navori (workflow)`);
     listed.add(id);
   }
   if (config.preset && config.preset !== "custom") {
@@ -217,6 +230,14 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
     rows.push("- **Etapa:** en producción — prioriza NO romper regresiones. Los cambios de blast radius alto piden validación humana antes de mergear.");
   } else if (posture === "migration") {
     rows.push("- **Etapa:** migración legacy — cuida la compatibilidad legacy↔nuevo. El reviewer marca CRÍTICO si un cambio lee de un lado y escribe en el otro.");
+  }
+
+  const migrations =
+    (proj.libraryMigrations as Array<{ legacy: string; preferred: string; domain: string }> | undefined) ?? [];
+  for (const m of migrations) {
+    rows.push(
+      `- **${m.domain} (migración):** en código nuevo usa \`${m.preferred}\`. \`${m.legacy}\` es legacy — no lo agregues; si tocas un módulo que lo usa, migra ese módulo completo (no mezcles ambos en el mismo archivo). El reviewer marca ALTO el uso nuevo de \`${m.legacy}\`.`,
+    );
   }
 
   const rigor = proj.reviewRigor as string | undefined;
@@ -462,6 +483,26 @@ export function renderClaudeEngine(
     );
   }
 
+  // 4b. Workflow skills — always-on, stack-agnostic process skills. Bare
+  // managed-id (not `-base`) to match the block the express preset wrote before
+  // these were promoted, so `update` refreshes in place instead of duplicating.
+  for (const skillId of WORKFLOW_SKILLS) {
+    inspected += 1;
+    applyManagedFilePlan(
+      planManagedFile({
+        cwd,
+        assetRoot: coreAssets,
+        assetRelPath: `skills/${skillId}.md`,
+        destRelPath: `.claude/skills/${skillId}.md`,
+        managedId: skillId,
+        config,
+      }),
+      cwd,
+      pending,
+      skipped,
+    );
+  }
+
   // 5. progress/ bootstrap (one-shot, never overwritten)
   inspected += 2;
   applyBootstrapPlan(
@@ -535,7 +576,7 @@ export function renderClaudeEngine(
   // (step 6.6) dedup against these so a preset that ships a skill at the same
   // path always wins over the auto-detected library version.
   const renderedSkillDests = new Set<string>(
-    CORE_SKILLS.map((id) => `.claude/skills/${id}.md`),
+    [...CORE_SKILLS, ...WORKFLOW_SKILLS].map((id) => `.claude/skills/${id}.md`),
   );
   if (config.preset && config.preset !== "custom") {
     let loaded = null;
@@ -671,6 +712,25 @@ export function renderClaudeEngine(
         scriptRemovals.push(destPath);
       }
     }
+  }
+
+  // 8.6. Reconcile REMOVED library skills. A skill dropped from the registry
+  // (a legacy lib we no longer teach) leaves a stale managed file on disk in
+  // repos rendered before the removal. Delete ours — but only files carrying
+  // navori's own marker for that id, never a user's hand-written skill of the
+  // same name.
+  for (const id of REMOVED_LIB_SKILLS) {
+    const destPath = join(cwd, ".claude/skills", `${id}.md`);
+    if (!existsSync(destPath)) continue;
+    let content: string;
+    try {
+      content = readFileSync(destPath, "utf-8");
+    } catch {
+      continue; // unreadable — leave it rather than guess
+    }
+    if (!content.includes(`navori:managed id="${id}"`)) continue; // user's own — keep
+    inspected += 1;
+    scriptRemovals.push(destPath);
   }
 
   // 9. Backup + atomic writes

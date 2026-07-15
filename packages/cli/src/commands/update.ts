@@ -78,6 +78,14 @@ function sameSet(a: readonly string[], b: readonly string[]): boolean {
   return b.every((x) => seen.has(x));
 }
 
+type MigrationEntry = { legacy: string; preferred: string; domain: string };
+function sameMigrations(a: readonly MigrationEntry[], b: readonly MigrationEntry[]): boolean {
+  if (a.length !== b.length) return false;
+  const key = (m: MigrationEntry) => `${m.legacy}|${m.preferred}|${m.domain}`;
+  const seen = new Set(a.map(key));
+  return b.every((m) => seen.has(key(m)));
+}
+
 /** Merge a patch into the raw `project` object, tolerating it being absent. */
 function withProject(current: unknown, patch: Record<string, unknown>): Record<string, unknown> {
   const base = current && typeof current === "object" ? (current as Record<string, unknown>) : {};
@@ -132,6 +140,20 @@ function diffConfig(current: NavoriConfig, detected: ReturnType<typeof detectPro
     });
   }
 
+  // Library migrations (legacy + successor both present) — refresh like libraries
+  // so an existing repo gains the migration rule when it adds the new lib, and
+  // loses it once the legacy dep is fully removed.
+  const currentMigs = current.project?.libraryMigrations ?? [];
+  if (!sameMigrations(currentMigs, detected.migrations)) {
+    const fmt = (ms: readonly MigrationEntry[]) =>
+      ms.length ? ms.map((m) => `${m.legacy}→${m.preferred}`).join(", ") : "(none)";
+    out.push({
+      field: "project.libraryMigrations",
+      before: fmt(currentMigs),
+      after: fmt(detected.migrations),
+    });
+  }
+
   // Code language drives the language-aware baseline (e.g. TS-only tipado-fuerte).
   const detectedLang = detected.stack.language;
   if (detectedLang && detectedLang !== "unknown") {
@@ -158,6 +180,8 @@ function applyDiffs(raw: Record<string, unknown>, detected: ReturnType<typeof de
       raw.engines = [...currentEngines];
     } else if (d.field === "project.libraries") {
       raw.project = withProject(raw.project, { libraries: detected.libraries });
+    } else if (d.field === "project.libraryMigrations") {
+      raw.project = withProject(raw.project, { libraryMigrations: detected.migrations });
     } else if (d.field === "project.codeLanguage") {
       raw.project = withProject(raw.project, { codeLanguage: detected.stack.language });
     }

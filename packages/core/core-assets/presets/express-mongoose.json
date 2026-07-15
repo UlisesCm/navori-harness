@@ -23,11 +23,6 @@
         "destRelPath": ".claude/skills/mongo-aggregations.md"
       },
       {
-        "id": "winston-logging",
-        "relPath": "presets/express-mongoose/skills/winston-logging.md",
-        "destRelPath": ".claude/skills/winston-logging.md"
-      },
-      {
         "id": "new-resource",
         "relPath": "presets/express-mongoose/skills/new-resource.md",
         "destRelPath": ".claude/skills/new-resource.md"
@@ -36,16 +31,6 @@
         "id": "new-endpoint",
         "relPath": "presets/express-mongoose/skills/new-endpoint.md",
         "destRelPath": ".claude/skills/new-endpoint.md"
-      },
-      {
-        "id": "ticket-intake",
-        "relPath": "presets/express-mongoose/skills/ticket-intake.md",
-        "destRelPath": ".claude/skills/ticket-intake.md"
-      },
-      {
-        "id": "pr-create",
-        "relPath": "presets/express-mongoose/skills/pr-create.md",
-        "destRelPath": ".claude/skills/pr-create.md"
       }
     ],
     "hooks": []

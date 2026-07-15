@@ -3,7 +3,7 @@ import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { presetExists } from "./presets.ts";
 import { collectWorkspacePatterns, expandPattern } from "./workspace-patterns.ts";
-import { detectLibrarySkills } from "./library-skills.ts";
+import { detectLibrarySkills, detectMigrations, type ActiveMigration } from "./library-skills.ts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -49,6 +49,10 @@ export interface DetectedProject {
    * cross-preset (see lib/library-skills.ts). Persisted to `project.libraries`
    * so `render` reconstructs the materialized skills from config alone. */
   libraries: string[];
+  /** Active dependency migrations (legacy + successor both present). Persisted
+   * to `project.libraryMigrations`; the render turns each into a "prefer the
+   * new, freeze the legacy" rule. See lib/library-skills.ts. */
+  migrations: ActiveMigration[];
   suggestedPreset: string;
   /**
    * A recognized stack candidate that has NO preset on disk yet. Null when the
@@ -114,6 +118,7 @@ export function detectProject(cwd: string): DetectedProject {
     for (const dep of collectMonorepoWorkspaceDeps(cwd)) libraryDeps.add(dep);
   }
   const libraries = detectLibrarySkills([...libraryDeps]);
+  const migrations = detectMigrations([...libraryDeps]);
   const { preset: suggestedPreset, gap: suggestedPresetGap } = suggestPreset(stack, monorepo);
   const qualityGate = guessQualityGate(pkg, packageManager, stack);
   const claudeInfra = detectClaudeInfra(cwd);
@@ -126,6 +131,7 @@ export function detectProject(cwd: string): DetectedProject {
     monorepo,
     stack,
     libraries,
+    migrations,
     suggestedPreset,
     suggestedPresetGap,
     qualityGate,

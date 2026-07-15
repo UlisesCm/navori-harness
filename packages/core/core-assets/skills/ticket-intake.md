@@ -4,8 +4,6 @@ description: Pipeline canónico de 8 fases para procesar un ticket (ID, URL o te
 type: reference
 ---
 
-<!-- candidate: workflow-backend -->
-
 # ticket-intake — pipeline de 8 fases
 
 ## Cuándo usar este skill
@@ -22,7 +20,7 @@ Cada fase escribe en `.claude/progress/`; el gate es bloqueante.
 | 1 · Context (opc.) | tú: CLI del tracker (`acli` / `jira` / `gh issue view`) | Si solo hay texto pegado, salta a 2 con él. |
 | 2 · AUDIT | agente `ticket-audit` | `audit_<ID>.md`: root cause/approach, archivos, alternativas, preguntas, tasks. **Gate: el usuario lo aprueba.** |
 | 3 · EXPLORE (opc.) | 2-3 agentes `explorer` en un solo mensaje | Un `explore_<dim>.md` por dimensión (handler, schema, side-effects, caller, memoria). **Gate: validas que el approach del audit sigue vivo.** |
-| 4 · DESIGN (opc.) | skills `new-endpoint` (sobre recurso existente) / `new-resource` (end-to-end) | Solo si hay patrón o lib nueva: presentas 2-3 approaches con tradeoffs y esperas OK. Si no, a 5. |
+| 4 · DESIGN (opc.) | la skill de scaffolding de tu preset (backend: `new-endpoint`/`new-resource`; frontend: `new-feature`) | Solo si hay patrón o lib nueva: presentas 2-3 approaches con tradeoffs y esperas OK. Si no, a 5. |
 | 5 · IMPLEMENT | UN agente `implementer` | Lee CLAUDE.md → `audit_<ID>.md` → `explore_*.md` → skill aplicable. Produce `impl_<feature>.md`. **Gate: `{{qualityGate.fast}}` verde en el turno.** |
 | 6 · VERIFY | skill `verify-before-done` (la corre el implementer) | `impl_<feature>.md` con "Verify ejecutado en este turno" en exit 0 + smoke del endpoint. Sin evidencia → a 5. |
 | 7 · REVIEW | agente `reviewer` + skill `review-diff` | `review_<feature>.md`. Two-stage; Stage 1 falla → `CHANGES_REQUESTED`, vuelve a 5. `APPROVED` → sigue. |

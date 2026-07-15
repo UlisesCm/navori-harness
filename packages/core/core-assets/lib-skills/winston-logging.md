@@ -28,7 +28,7 @@ try {
 
 Con `format.errors({ stack: true })` (config típica), pasar un `Error` loguea el stack solo. Prefija con `[<scope>:<verb>]` (`[job:sendReminder]`, `[email:welcome]`) para que sea grep-friendly.
 
-A menudo NO necesitas try/catch en el controller: el `asyncHandler` ya pasa el error al middleware global. Agrégalo solo para loguear contexto extra, mapear un error específico (ej. `MongoServerError` 11000 → `BadRequestError`), o cleanup antes del re-throw.
+Si tu framework ya centraliza el error async (`asyncHandler` en Express, exception filters en Nest, error middleware global), NO dupliques try/catch en cada handler. Agrégalo solo para loguear contexto extra, mapear un error específico (ej. `MongoServerError` 11000 → `BadRequestError`), o hacer cleanup antes del re-throw.
 
 ## Gotchas que muerden
 
