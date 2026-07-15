@@ -247,14 +247,34 @@ export interface PluginsLoadResult {
 export function loadEnabledPlugins(
   pluginsConfig: Record<string, { enabled: boolean }> | undefined,
 ): PluginsLoadResult {
-  const enabled = Object.entries(pluginsConfig ?? {})
-    .filter(([, v]) => v.enabled === true)
+  return loadPluginsWhere(pluginsConfig, (v) => v.enabled === true);
+}
+
+/**
+ * Load the plugins declared with `enabled: false`. The render uses these to
+ * clean up artifacts a now-disabled plugin left on disk — its injectInto
+ * sub-blocks and scripts — which `loadEnabledPlugins` (enabled-only) can't see
+ * (#80). A plugin absent from config entirely is NOT returned: there's nothing
+ * declaring it, so there's nothing to reconcile.
+ */
+export function loadDisabledPlugins(
+  pluginsConfig: Record<string, { enabled: boolean }> | undefined,
+): PluginsLoadResult {
+  return loadPluginsWhere(pluginsConfig, (v) => v.enabled === false);
+}
+
+function loadPluginsWhere(
+  pluginsConfig: Record<string, { enabled: boolean }> | undefined,
+  predicate: (v: { enabled: boolean }) => boolean,
+): PluginsLoadResult {
+  const ids = Object.entries(pluginsConfig ?? {})
+    .filter(([, v]) => predicate(v))
     .map(([k]) => k);
 
   const loaded: LoadedPlugin[] = [];
   const missing: Array<{ id: string; reason: string }> = [];
 
-  for (const id of enabled) {
+  for (const id of ids) {
     try {
       loaded.push(loadPlugin(id));
     } catch (err) {

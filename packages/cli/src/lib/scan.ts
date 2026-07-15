@@ -1,7 +1,7 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { detectProject } from "./detect.ts";
-import { collectWorkspacePatterns } from "./workspace-patterns.ts";
+import { collectWorkspacePatterns, expandPattern } from "./workspace-patterns.ts";
 import type { MonorepoWorkspace } from "./monorepo.ts";
 
 export interface DetectedWorkspace {
@@ -52,57 +52,10 @@ export function scanMonorepoWorkspaces(cwd: string): DetectedWorkspace[] {
 // Workspace-pattern parsing lives in `workspace-patterns.ts` so `detect.ts`
 // can reuse it without an import cycle (scan.ts imports detect.ts). Re-exported
 // here so existing importers keep resolving these from "./scan.ts".
-export { collectWorkspacePatterns, parsePnpmWorkspaceYaml } from "./workspace-patterns.ts";
+export { collectWorkspacePatterns, parsePnpmWorkspaceYaml, expandPattern } from "./workspace-patterns.ts";
 
-// ============================================================
-// Glob expansion
-// ============================================================
-
-/**
- * Expand one workspace pattern into concrete relative paths under `cwd`.
- *
- * Supports per-segment `*` and literal paths. Double-star and partial-segment
- * globs like `foo-X` (where X is `*`) are treated as literals, so they will
- * only match if a directory with that literal name exists. This is intentional:
- * monorepos in the wild almost always use single-star patterns, and the cost
- * of a real glob lib (~80kb to add picomatch) isn't worth it for the long tail.
- */
-export function expandPattern(cwd: string, pattern: string): string[] {
-  const segments = pattern.split("/").filter(Boolean);
-  if (segments.length === 0) return [];
-  return walk(cwd, [], segments);
-}
-
-function walk(cwd: string, accum: string[], remaining: string[]): string[] {
-  if (remaining.length === 0) {
-    return [accum.join("/")];
-  }
-  const [head, ...tail] = remaining;
-  const currentRel = accum.join("/");
-  const currentAbs = currentRel ? join(cwd, currentRel) : cwd;
-
-  if (head === "*") {
-    if (!existsSync(currentAbs)) return [];
-    let entries;
-    try {
-      entries = readdirSync(currentAbs, { withFileTypes: true });
-    } catch {
-      return [];
-    }
-    return entries
-      .filter((d) => d.isDirectory() && !d.name.startsWith("."))
-      .flatMap((d) => walk(cwd, [...accum, d.name], tail));
-  }
-
-  // Literal segment (or unsupported partial glob — treated as literal).
-  const next = join(currentAbs, head!);
-  if (!existsSync(next)) return [];
-  return walk(cwd, [...accum, head!], tail);
-}
-
-// ============================================================
-// Per-workspace describe
-// ============================================================
+// Glob expansion moved to workspace-patterns.ts (shared with detect.ts without
+// an import cycle); re-exported below for existing importers.
 
 // ============================================================
 // Diff vs configured workspaces

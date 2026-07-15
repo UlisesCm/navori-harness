@@ -31,13 +31,14 @@ await agenda.every('0 * * * *', 'sync-user', { userId });   // recurrente
 await agenda.schedule('in 5 minutes', 'sync-user', { userId }); // one-off
 ```
 
-bullmq es equivalente: `new Worker(name, handler, { concurrency })` + `queue.add(name, data, { repeat, attempts, backoff })`.
+bullmq es equivalente: `new Worker(name, handler, { concurrency, connection })` + `queue.add(name, data, { attempts, backoff })`. Para recurrentes usa **`queue.upsertJobScheduler(id, { pattern: '0 * * * *' }, { name, data })`** — NO la opción `repeat` (deprecada en BullMQ 5); `upsert` con el mismo `id` actualiza el schedule en vez de duplicarlo en cada deploy.
 
 ## Gotchas que muerden
 
-- **Doble disparo**: dos instancias del worker pueden tomar el mismo job. agenda usa `lockLifetime`; bullmq usa locks por job. Aun así, **el handler debe ser idempotente** — no confíes solo en el lock.
+- **Doble disparo**: dos workers pueden tomar el mismo job. agenda usa `lockLifetime`; bullmq re-procesa si el `lockDuration` expira antes de renovarse (`stalledInterval`/`maxStalledCount`). Aun así, **el handler debe ser idempotente** — no confíes solo en el lock.
+- **BullMQ: la conexión IORedis del `Worker` DEBE llevar `maxRetriesPerRequest: null`**, o el arranque falla (error #1). Y setea `removeOnComplete`/`removeOnFail` (`{ age, count }`), sino Redis crece sin límite con jobs viejos.
 - **Reintentos sin backoff** martillan un servicio caído. Configura `attempts` + `backoff` exponencial.
-- **`lockLifetime` corto** + job largo → el lock expira y otro worker lo retoma en paralelo. Ajústalo por encima de la duración real del job.
+- **`lockLifetime`/`lockDuration` corto** + job largo → el lock expira y otro worker lo retoma en paralelo. Ajústalo por encima de la duración real del job.
 
 ## Reglas duras
 

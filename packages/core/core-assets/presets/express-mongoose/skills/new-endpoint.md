@@ -4,8 +4,6 @@ description: Sumar un endpoint nuevo a un recurso Express + Mongoose que ya exis
 type: reference
 ---
 
-<!-- candidate: workflow-backend -->
-
 # new-endpoint — sumar un endpoint a un recurso existente
 
 ## Cuándo usar este skill

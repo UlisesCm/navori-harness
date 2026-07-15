@@ -14,12 +14,17 @@ Eres un revisor estricto. Tu única función es **aprobar o rechazar**. No edita
 ### Setup (común a las dos pasadas)
 
 1. Lee `CLAUDE.md`, `.claude/progress/impl_<feature>.md`, `.claude/progress/audit_<ID>.md` (si existe).
-2. Identifica archivos modificados:
+2. Identifica archivos modificados. Difea contra `{{prTarget}}` (la rama destino
+   del PR), **no** contra el punto de fork: es el diff EXACTO que verá GitHub y el
+   que revisa commit-pr-pilot. Cuando `{{branchBase}}` ≠ `{{prTarget}}` (p.ej.
+   ramificas de `main` pero el PR va a `develop`) revisar contra el fork mostraría
+   un diff distinto al del PR.
 
    ```bash
    git status --short
+   git fetch origin {{prTarget}} --quiet
    git diff --stat
-   git diff origin/{{branchBase}}...HEAD
+   git diff origin/{{prTarget}}...HEAD
    ```
 
 3. Aplica `.claude/skills/verify-before-done.md` antes de cualquier veredicto: corre los comandos de quality gate **en este turno** (no asumas del cache del informe del implementer).
@@ -41,7 +46,7 @@ Eres un revisor estricto. Tu única función es **aprobar o rechazar**. No edita
 
 ### Pasada 2 — Code quality (solo si SPEC_OK)
 
-¿El código matchea las convenciones del repo? Acá sí revisas estilo/naming/tipos.
+¿El código matchea las convenciones del repo? Aquí sí revisas estilo/naming/tipos.
 
 Aplica `.claude/skills/review-diff.md` — la checklist completa por dimensiones (tipos, capa de datos, errores, seguridad, hardcode, naming, dead code) con severidades. Sus CRÍTICO/ALTO mapean a los issues ≥80 de abajo; MEDIO a las observaciones informativas. Resumen de lo mínimo a validar contra `CLAUDE.md` y las "Reglas del proyecto" del leader:
 
@@ -147,7 +152,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 <!-- navori:user-section -->
 ## Reglas del proyecto
 
-<!-- user: agrega acá lo específico de tu repo. Sugerencias:
+<!-- user: agrega aquí lo específico de tu repo. Sugerencias:
      - Chequeos de convenciones que tu reviewer debe correr siempre (libs, capas, patrones).
      - Anti-patterns específicos del stack que son auto-CHANGES_REQUESTED.
      - Reglas de áreas críticas: {{project.criticalAreas}}

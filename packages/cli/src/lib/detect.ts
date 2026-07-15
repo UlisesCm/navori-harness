@@ -2,8 +2,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { presetExists } from "./presets.ts";
-import { collectWorkspacePatterns } from "./workspace-patterns.ts";
-import { detectLibrarySkills } from "./library-skills.ts";
+import { collectWorkspacePatterns, expandPattern } from "./workspace-patterns.ts";
+import { detectLibrarySkills, detectMigrations, type ActiveMigration } from "./library-skills.ts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -49,6 +49,10 @@ export interface DetectedProject {
    * cross-preset (see lib/library-skills.ts). Persisted to `project.libraries`
    * so `render` reconstructs the materialized skills from config alone. */
   libraries: string[];
+  /** Active dependency migrations (legacy + successor both present). Persisted
+   * to `project.libraryMigrations`; the render turns each into a "prefer the
+   * new, freeze the legacy" rule. See lib/library-skills.ts. */
+  migrations: ActiveMigration[];
   suggestedPreset: string;
   /**
    * A recognized stack candidate that has NO preset on disk yet. Null when the
@@ -105,7 +109,16 @@ export function detectProject(cwd: string): DetectedProject {
   const packageManager = detectPackageManager(cwd);
   const monorepo = detectMonorepo(cwd);
   const stack = detectStack(cwd, pkg, pyproject, cargo);
-  const libraries = detectLibrarySkills(stack.deps);
+  // Library skills: in a monorepo, aggregate deps from every workspace
+  // package.json too — a dep that lives only in packages/<app> (not the root)
+  // would otherwise be invisible and its skill lost (#80). The root render
+  // materializes them; workspaces inherit via the parent CLAUDE.md.
+  const libraryDeps = new Set<string>(stack.deps);
+  if (monorepo) {
+    for (const dep of collectMonorepoWorkspaceDeps(cwd)) libraryDeps.add(dep);
+  }
+  const libraries = detectLibrarySkills([...libraryDeps]);
+  const migrations = detectMigrations([...libraryDeps]);
   const { preset: suggestedPreset, gap: suggestedPresetGap } = suggestPreset(stack, monorepo);
   const qualityGate = guessQualityGate(pkg, packageManager, stack);
   const claudeInfra = detectClaudeInfra(cwd);
@@ -118,6 +131,7 @@ export function detectProject(cwd: string): DetectedProject {
     monorepo,
     stack,
     libraries,
+    migrations,
     suggestedPreset,
     suggestedPresetGap,
     qualityGate,
@@ -453,6 +467,25 @@ function collectNodeDeps(pkg: PackageJson | null): string[] {
     ...Object.keys(pkg.devDependencies ?? {}),
     ...Object.keys(pkg.peerDependencies ?? {}),
   ];
+}
+
+/**
+ * Node deps declared in every workspace's package.json (monorepo). Used only to
+ * feed library-skill detection — a dep in packages/<app> but not the root would
+ * otherwise be missed (#80). Best-effort: unreadable/missing manifests are
+ * skipped. Non-Node workspaces contribute nothing here.
+ */
+function collectMonorepoWorkspaceDeps(cwd: string): string[] {
+  const deps = new Set<string>();
+  const seen = new Set<string>();
+  for (const pattern of collectWorkspacePatterns(cwd)) {
+    for (const rel of expandPattern(cwd, pattern)) {
+      if (seen.has(rel)) continue;
+      seen.add(rel);
+      for (const dep of collectNodeDeps(readPackageJson(join(cwd, rel)))) deps.add(dep);
+    }
+  }
+  return [...deps];
 }
 
 function pick(deps: ReadonlySet<string>, ...candidates: string[]): string | null {

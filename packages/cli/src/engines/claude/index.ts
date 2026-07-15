@@ -1,13 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, chmodSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
-import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
+import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
-import { librarySkillById } from "../../lib/library-skills.ts";
-import { getCoreRoot, readBundledCoreVersion } from "../../lib/bundled-assets.ts";
+import { librarySkillById, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
+import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import { injectManagedSection, removeManagedSection, reorderManagedBlocks, resolveCondition } from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { isNavoriOwnedSettings } from "./settings-detection.ts";
@@ -52,6 +52,10 @@ export interface ClaudeEngineResult {
   claudeMdEntries: AssetPlanEntry[];
   /** Version drift detected anywhere (used by `update` command). */
   updatesAvailable: UpdateAvailable[];
+  /** Managed blocks written by a NEWER navori and preserved, not overwritten
+   * (anti-retroceso, #79). Surfaced so `update`/`render` warn the user their
+   * CLI is behind. */
+  downgrades: UpdateAvailable[];
   /** CLAUDE.md assets that fell back to Spanish because language="en" lacks them. */
   languageFallbacks: string[];
   /** Total number of destination files inspected this render. `inspected -
@@ -71,7 +75,20 @@ const CORE_AGENTS: ReadonlyArray<{ id: string; harnessKey: keyof NonNullable<Nav
 
 const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
 
-const CORE_META = { source: "@navori/core" as const, version: readBundledCoreVersion() };
+/**
+ * Workflow skills — always-on process skills (ticket pipeline, PR flow) that are
+ * stack-agnostic, so they render for every preset, not just backend ones. Unlike
+ * CORE_SKILLS they keep a BARE managed-id (matching the id the express preset
+ * wrote before they were promoted here), so an `update` recognizes the existing
+ * block in place instead of orphaning it and appending a duplicate.
+ */
+const WORKFLOW_SKILLS: ReadonlyArray<string> = ["ticket-intake", "pr-create"];
+
+// Managed blocks stamp the navori release version (bumps every release) so the
+// anti-retroceso guard has a per-release signal — not @navori/core's static
+// version. `source` still records provenance. See render-plan NAVORI_VERSION (#79).
+const NAVORI_VERSION = readCliVersion();
+const CORE_META = { source: "@navori/core" as const, version: NAVORI_VERSION };
 
 /** Managed-block id for the skills index injected into CLAUDE.md. */
 const SKILLS_INDEX_ID = "skills-index";
@@ -107,6 +124,10 @@ function buildSkillsIndexBody(
   const listed = new Set<string>();
   for (const id of CORE_SKILLS) {
     rows.push(`- \`${id}\` — navori`);
+    listed.add(id);
+  }
+  for (const id of WORKFLOW_SKILLS) {
+    rows.push(`- \`${id}\` — navori (workflow)`);
     listed.add(id);
   }
   if (config.preset && config.preset !== "custom") {
@@ -209,6 +230,14 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
     rows.push("- **Etapa:** en producción — prioriza NO romper regresiones. Los cambios de blast radius alto piden validación humana antes de mergear.");
   } else if (posture === "migration") {
     rows.push("- **Etapa:** migración legacy — cuida la compatibilidad legacy↔nuevo. El reviewer marca CRÍTICO si un cambio lee de un lado y escribe en el otro.");
+  }
+
+  const migrations =
+    (proj.libraryMigrations as Array<{ legacy: string; preferred: string; domain: string }> | undefined) ?? [];
+  for (const m of migrations) {
+    rows.push(
+      `- **${m.domain} (migración):** en código nuevo usa \`${m.preferred}\`. \`${m.legacy}\` es legacy — no lo agregues; si tocas un módulo que lo usa, migra ese módulo completo (no mezcles ambos en el mismo archivo). El reviewer marca ALTO el uso nuevo de \`${m.legacy}\`.`,
+    );
   }
 
   const rigor = proj.reviewRigor as string | undefined;
@@ -454,6 +483,26 @@ export function renderClaudeEngine(
     );
   }
 
+  // 4b. Workflow skills — always-on, stack-agnostic process skills. Bare
+  // managed-id (not `-base`) to match the block the express preset wrote before
+  // these were promoted, so `update` refreshes in place instead of duplicating.
+  for (const skillId of WORKFLOW_SKILLS) {
+    inspected += 1;
+    applyManagedFilePlan(
+      planManagedFile({
+        cwd,
+        assetRoot: coreAssets,
+        assetRelPath: `skills/${skillId}.md`,
+        destRelPath: `.claude/skills/${skillId}.md`,
+        managedId: skillId,
+        config,
+      }),
+      cwd,
+      pending,
+      skipped,
+    );
+  }
+
   // 5. progress/ bootstrap (one-shot, never overwritten)
   inspected += 2;
   applyBootstrapPlan(
@@ -527,7 +576,7 @@ export function renderClaudeEngine(
   // (step 6.6) dedup against these so a preset that ships a skill at the same
   // path always wins over the auto-detected library version.
   const renderedSkillDests = new Set<string>(
-    CORE_SKILLS.map((id) => `.claude/skills/${id}.md`),
+    [...CORE_SKILLS, ...WORKFLOW_SKILLS].map((id) => `.claude/skills/${id}.md`),
   );
   if (config.preset && config.preset !== "custom") {
     let loaded = null;
@@ -644,12 +693,52 @@ export function renderClaudeEngine(
     }
   }
 
+  // 8.5. Reconcile DISABLED plugins. A plugin turned off (via `configure
+  // plugins` or `navori remove`) still has its managed CLAUDE.md blocks stripped
+  // by computeRenderPlan, but its injectInto sub-blocks (e.g. leader.md) and its
+  // .claude/scripts/* were only ever touched on the enabled path — so they'd
+  // orphan. Strip them here so disabling a plugin fully cleans up (#80).
+  const scriptRemovals: string[] = [];
+  for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
+    for (const skill of plugin.skillAssets) {
+      if (!skill.injectInto) continue;
+      inspected += 1;
+      removeSubBlock({ cwd, skill, pending });
+    }
+    for (const script of plugin.scriptAssets) {
+      const destPath = join(cwd, ".claude/scripts", script.dest);
+      if (existsSync(destPath)) {
+        inspected += 1;
+        scriptRemovals.push(destPath);
+      }
+    }
+  }
+
+  // 8.6. Reconcile REMOVED library skills. A skill dropped from the registry
+  // (a legacy lib we no longer teach) leaves a stale managed file on disk in
+  // repos rendered before the removal. Delete ours — but only files carrying
+  // navori's own marker for that id, never a user's hand-written skill of the
+  // same name.
+  for (const id of REMOVED_LIB_SKILLS) {
+    const destPath = join(cwd, ".claude/skills", `${id}.md`);
+    if (!existsSync(destPath)) continue;
+    let content: string;
+    try {
+      content = readFileSync(destPath, "utf-8");
+    } catch {
+      continue; // unreadable — leave it rather than guess
+    }
+    if (!content.includes(`navori:managed id="${id}"`)) continue; // user's own — keep
+    inspected += 1;
+    scriptRemovals.push(destPath);
+  }
+
   // 9. Backup + atomic writes
   let backupPath: string | null = null;
   benchMark("plan");
   const written: Array<{ path: string; status: RenderStatus }> = [];
 
-  if (pending.length === 0) {
+  if (pending.length === 0 && scriptRemovals.length === 0) {
     return {
       written,
       skipped,
@@ -657,6 +746,7 @@ export function renderClaudeEngine(
       backupPath: null,
       claudeMdEntries: claudeMdPlan.entries,
       updatesAvailable: claudeMdPlan.updatesAvailable,
+      downgrades: claudeMdPlan.downgrades,
       languageFallbacks: claudeMdPlan.languageFallbacks,
       inspected,
     };
@@ -675,9 +765,13 @@ export function renderClaudeEngine(
     // progress/ (live state, not the kind of thing a snapshot helps with).
     // The CLAUDE.md file is included explicitly; future engines will add
     // their own roots here.
-    const hasExistingTarget = pending.some((p) => existsSync(p.path));
+    const hasExistingTarget = pending.some((p) => existsSync(p.path)) || scriptRemovals.length > 0;
     if (hasExistingTarget) {
-      const handle = createBackup(cwd, ["CLAUDE.md", ".claude"], {
+      // navori.config.json is the source of truth; snapshot it alongside the
+      // rendered tree so a backup is a complete picture of the harness state
+      // (#79/#82). It's checked into git too, but the backup keeps restore
+      // self-contained.
+      const handle = createBackup(cwd, ["CLAUDE.md", ".claude", "navori.config.json"], {
         exclude: [".claude/settings.local.json", ".claude/progress"],
       });
       if (handle.files.length > 0) {
@@ -717,9 +811,21 @@ export function renderClaudeEngine(
         backupPath,
       );
     }
+    // Delete disabled-plugin scripts (already captured in the backup above).
+    for (const abs of scriptRemovals) {
+      try {
+        rmSync(abs, { force: true });
+      } catch {
+        // best-effort — a scripts dir the user chmod'd read-only shouldn't crash
+      }
+      written.push({ path: relative(cwd, abs), status: "removed-condition-false" });
+    }
   } else {
     for (const p of pending) {
       written.push({ path: relative(cwd, p.path), status: p.status });
+    }
+    for (const abs of scriptRemovals) {
+      written.push({ path: relative(cwd, abs), status: "removed-condition-false" });
     }
   }
 
@@ -731,6 +837,7 @@ export function renderClaudeEngine(
     backupPath,
     claudeMdEntries: claudeMdPlan.entries,
     updatesAvailable: claudeMdPlan.updatesAvailable,
+    downgrades: claudeMdPlan.downgrades,
     languageFallbacks: claudeMdPlan.languageFallbacks,
     inspected,
   };
@@ -779,7 +886,7 @@ function planSettings(
     return {
       kind: "skip",
       path,
-      reason: `settings.json no se pudo parsear como JSON: ${(err as Error).message}. Corré 'navori render --force --apply' para regenerar.`,
+      reason: `settings.json no se pudo parsear como JSON: ${(err as Error).message}. Corre 'navori render --force --apply' para regenerar.`,
     };
   }
 
@@ -797,7 +904,7 @@ function planSettings(
       return {
         kind: "skip",
         path,
-        reason: "settings.json no es un objeto JSON — no se puede fusionar. Corré 'navori render --force --apply' para regenerar.",
+        reason: "settings.json no es un objeto JSON — no se puede fusionar. Corre 'navori render --force --apply' para regenerar.",
       };
     }
     const merged = mergeCoexistSettings(parsed, newSettings);
@@ -843,6 +950,13 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
       kind: "skip",
       path: destPath,
       reason: "bloque managed editado por el usuario; resuelve con 'navori sync' o ajusta el destino a mano",
+    };
+  }
+  if (result.status === "downgrade-skipped") {
+    return {
+      kind: "skip",
+      path: destPath,
+      reason: `bloque escrito por una navori más nueva (${result.details?.existingVersion ?? "?"}); no lo toqué. Actualiza tu CLI: npm i -g navori@latest`,
     };
   }
   return { kind: "write", path: destPath, content: result.content, status: result.status };
@@ -943,7 +1057,7 @@ function applySubBlockInject(input: {
     interpolated,
     {
       source: `@navori/plugin-${input.plugin.manifest.id}`,
-      version: input.plugin.manifest.version,
+      version: NAVORI_VERSION,
     },
     "html",
   );
@@ -952,6 +1066,13 @@ function applySubBlockInject(input: {
     input.skipped.push({
       path: relative(input.cwd, targetAbs),
       reason: `sub-bloque '${input.skill.id}' (de @navori/plugin-${input.plugin.manifest.id}) editado por el usuario; resuelve con 'navori sync'`,
+    });
+    return;
+  }
+  if (result.status === "downgrade-skipped") {
+    input.skipped.push({
+      path: relative(input.cwd, targetAbs),
+      reason: `sub-bloque '${input.skill.id}' escrito por una navori más nueva (${result.details?.existingVersion ?? "?"}); no lo toqué. Actualiza tu CLI`,
     });
     return;
   }
@@ -966,6 +1087,39 @@ function applySubBlockInject(input: {
     content: result.output,
     status: result.status,
   });
+}
+
+/**
+ * Strip a disabled plugin's injectInto sub-block from its target file (the
+ * inverse of applySubBlockInject). Operates on the pending content if the file
+ * is being re-rendered this pass, else on the on-disk copy. No-op when the
+ * target or the sub-block is absent. (#80)
+ */
+function removeSubBlock(input: {
+  cwd: string;
+  skill: LoadedPlugin["skillAssets"][number];
+  pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>;
+}): void {
+  const targetAbs = join(input.cwd, input.skill.injectInto!);
+  const pendingEntry = input.pending.find((p) => p.path === targetAbs);
+
+  let currentContent: string;
+  if (pendingEntry) {
+    currentContent = pendingEntry.content;
+  } else if (existsSync(targetAbs)) {
+    currentContent = readFileSync(targetAbs, "utf-8");
+  } else {
+    return; // target file gone — nothing to strip
+  }
+
+  const stripped = removeManagedSection(currentContent, input.skill.id, "html");
+  if (stripped === currentContent) return; // sub-block not present
+
+  if (pendingEntry) {
+    pendingEntry.content = stripped;
+    return;
+  }
+  input.pending.push({ path: targetAbs, content: stripped, status: "updated" });
 }
 
 type PluginScriptPlan =

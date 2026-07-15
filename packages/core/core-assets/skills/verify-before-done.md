@@ -111,7 +111,7 @@ Al aplicarla, el output al usuario debe incluir:
 <!-- navori:user-section -->
 ## Checks específicos del proyecto
 
-<!-- user: agrega acá claims específicos de tu repo y su evidencia requerida. Sugerencias:
+<!-- user: agrega aquí claims específicos de tu repo y su evidencia requerida. Sugerencias:
      - Migraciones de DB: comando para validar el estado (ej. el status de migraciones de tu ORM).
      - Áreas críticas: {{project.criticalAreas}} → checks específicos por área.
      - Scripts del repo que cuentan como "evidencia válida" (ej. `pnpm e2e:smoke`).

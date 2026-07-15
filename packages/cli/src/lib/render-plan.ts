@@ -1,8 +1,9 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { injectManagedSection, removeManagedSection, resolveCondition, type InjectResult } from "./marker.ts";
+import { compareSemver } from "./semver.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
-import { getCoreRoot, readBundledCoreVersion } from "./bundled-assets.ts";
+import { getCoreRoot, readCliVersion } from "./bundled-assets.ts";
 import { loadPreset, PresetError } from "./presets.ts";
 import { placeholderFallback } from "./placeholders.ts";
 import { effectiveConfig, type NavoriConfig } from "./config.ts";
@@ -37,7 +38,11 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
   { id: "cierre-sesion", relPath: "core-assets/managed/cierre-sesion.md", availableLanguages: ["es"], rootOnly: true },
 ] as const;
 
-const CORE_VERSION = readBundledCoreVersion();
+// Managed blocks stamp the navori release version (not @navori/core's static
+// 0.0.1) so the anti-retroceso guard has a signal that bumps every release. All
+// blocks — core, preset extras, plugins — ship as one navori release, so they
+// share this version; the `source=` attr still distinguishes provenance. (#79)
+const NAVORI_VERSION = readCliVersion();
 
 function resolveAssetPath(asset: CoreManagedAsset, language: AssetLanguage = "es"): { path: string; fallback: boolean } {
   const root = getCoreRoot();
@@ -99,6 +104,29 @@ export interface UpdateAvailable {
   toVersion: string;
 }
 
+/**
+ * Classify a marker's version drift as an upgrade (existing < incoming) or a
+ * downgrade (existing > incoming), pushing into the right bucket. Same shape
+ * for both — `fromVersion` is what's on disk, `toVersion` is what this CLI
+ * ships. Before #79 any drift landed in `updatesAvailable` with `toVersion`
+ * possibly OLDER than `fromVersion`, which read as a nonsensical "update".
+ */
+function classifyVersionDrift(
+  result: InjectResult,
+  id: string,
+  source: string,
+  incoming: string,
+  updatesAvailable: UpdateAvailable[],
+  downgrades: UpdateAvailable[],
+): void {
+  const existing = result.details?.existingVersion;
+  if (!result.details?.versionDrift || !existing) return;
+  const entry: UpdateAvailable = { id, source, fromVersion: existing, toVersion: incoming };
+  const cmp = compareSemver(existing, incoming);
+  if (cmp === 1) downgrades.push(entry);
+  else updatesAvailable.push(entry); // upgrade, or unknown ordering (treat as update)
+}
+
 export interface RenderPlan {
   existing: string;
   next: string;
@@ -111,6 +139,9 @@ export interface RenderPlan {
   /** Markers whose existing version is older than the source package's current
    * version. Listed regardless of whether the content changed. */
   updatesAvailable: UpdateAvailable[];
+  /** Markers whose existing version is NEWER than this CLI's — the block was
+   * written by a newer navori and was preserved, not overwritten (#79). */
+  downgrades: UpdateAvailable[];
 }
 
 /**
@@ -139,6 +170,7 @@ export function computeRenderPlan(
   const entries: AssetPlanEntry[] = [];
   const languageFallbacks: string[] = [];
   const updatesAvailable: UpdateAvailable[] = [];
+  const downgrades: UpdateAvailable[] = [];
   const configRecord = config as unknown as Record<string, unknown>;
   const language = config.language;
 
@@ -183,16 +215,9 @@ export function computeRenderPlan(
     const content = interpolateTemplate(rawContent, config);
     const result = injectManagedSection(working, asset.id, content, {
       source: CORE_SOURCE_ID,
-      version: CORE_VERSION,
+      version: NAVORI_VERSION,
     }, "html", forceIds.has(asset.id));
-    if (result.details?.versionDrift && result.details.existingVersion) {
-      updatesAvailable.push({
-        id: asset.id,
-        source: CORE_SOURCE_ID,
-        fromVersion: result.details.existingVersion,
-        toVersion: CORE_VERSION,
-      });
-    }
+    classifyVersionDrift(result, asset.id, CORE_SOURCE_ID, NAVORI_VERSION, updatesAvailable, downgrades);
     entries.push({
       asset,
       source: "core",
@@ -243,16 +268,9 @@ export function computeRenderPlan(
         const content = interpolateTemplate(rawContent, config);
         const result = injectManagedSection(working, extra.id, content, {
           source: CORE_SOURCE_ID,
-          version: CORE_VERSION,
+          version: NAVORI_VERSION,
         }, "html", forceIds.has(extra.id));
-        if (result.details?.versionDrift && result.details.existingVersion) {
-          updatesAvailable.push({
-            id: extra.id,
-            source: CORE_SOURCE_ID,
-            fromVersion: result.details.existingVersion,
-            toVersion: CORE_VERSION,
-          });
-        }
+        classifyVersionDrift(result, extra.id, CORE_SOURCE_ID, NAVORI_VERSION, updatesAvailable, downgrades);
         entries.push({
           asset: { id: extra.id, relPath: extra.relPath },
           source: loaded.def.id,
@@ -295,16 +313,9 @@ export function computeRenderPlan(
         const content = interpolateTemplate(rawContent, config);
         const result = injectManagedSection(working, entry.id, content, {
           source: pluginSource,
-          version: plugin.manifest.version,
+          version: NAVORI_VERSION,
         }, "html", forceIds.has(entry.id));
-        if (result.details?.versionDrift && result.details.existingVersion) {
-          updatesAvailable.push({
-            id: entry.id,
-            source: pluginSource,
-            fromVersion: result.details.existingVersion,
-            toVersion: plugin.manifest.version,
-          });
-        }
+        classifyVersionDrift(result, entry.id, pluginSource, NAVORI_VERSION, updatesAvailable, downgrades);
         entries.push({
           asset: { id: entry.id, relPath: entry.absPath },
           source: plugin.manifest.id,
@@ -337,6 +348,7 @@ export function computeRenderPlan(
     missingPlugins: missing,
     languageFallbacks,
     updatesAvailable,
+    downgrades,
   };
 }
 

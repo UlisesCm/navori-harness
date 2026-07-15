@@ -224,6 +224,7 @@ export const initCommand = defineCommand({
       const projectBlock = {
         ...(args.recommended ? buildRecommendedProject(detected) : {}),
         libraries: detected.libraries,
+        libraryMigrations: detected.migrations,
         codeLanguage: detected.stack.language,
       };
 
@@ -600,6 +601,7 @@ export const initCommand = defineCommand({
       project: {
         ...(project ?? {}),
         libraries: detected.libraries,
+        libraryMigrations: detected.migrations,
         codeLanguage: detected.stack.language,
       },
       ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),

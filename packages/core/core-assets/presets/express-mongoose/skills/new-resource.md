@@ -4,8 +4,6 @@ description: Crear un recurso end-to-end en un backend Express + Mongoose (Model
 type: reference
 ---
 
-<!-- candidate: workflow-backend -->
-
 # new-resource — recurso end-to-end
 
 ## Cuándo usar este skill

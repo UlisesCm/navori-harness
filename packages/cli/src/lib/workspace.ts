@@ -12,6 +12,7 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 import { writeFileAtomic } from "./atomic.ts";
 import { safeHomedir } from "./home.ts";
+import { withFileLock } from "./lockfile.ts";
 import { NavoriError } from "./errors.ts";
 
 function workspacesRootLazy(): string {
@@ -222,28 +223,37 @@ export function linkRepoToWorkspace(
   workspaceName: string,
   repo: { name: string; path: string },
 ): LinkRepoResult {
-  let ws = loadWorkspace(workspaceName);
-  const createdWorkspace = ws === null;
-  if (!ws) {
-    // Minimal manifest — schema defaults fill ticketsDir/defaults/repos.
-    ws = WorkspaceConfigSchema.parse({ name: workspaceName });
-  }
-  const existing = ws.repos.find((r) => r.name === repo.name);
-  let action: LinkAction;
-  let previousPath: string | undefined;
-  if (!existing) {
-    ws.repos.push({ name: repo.name, path: repo.path });
-    action = "added";
-  } else if (canonicalPath(existing.path) !== canonicalPath(repo.path)) {
-    previousPath = existing.path;
-    existing.path = repo.path;
-    action = "updated-path";
-  } else {
-    action = "unchanged";
-  }
-  const manifestPath =
-    createdWorkspace || action !== "unchanged" ? writeWorkspace(ws) : workspacePath(workspaceName);
-  return { createdWorkspace, action, manifestPath, ...(previousPath ? { previousPath } : {}) };
+  // The load → modify → write below must be atomic across processes: two
+  // concurrent `workspace link` calls to the same workspace would otherwise
+  // read the same manifest, each add their own repo, and the last writer would
+  // clobber the other's registration (lost update, #82). An advisory lock keyed
+  // by workspace name serializes them.
+  ensureWorkspacesRoot();
+  const lockPath = join(workspacesRootLazy(), `.${workspaceName}.lock`);
+  return withFileLock(lockPath, () => {
+    let ws = loadWorkspace(workspaceName);
+    const createdWorkspace = ws === null;
+    if (!ws) {
+      // Minimal manifest — schema defaults fill ticketsDir/defaults/repos.
+      ws = WorkspaceConfigSchema.parse({ name: workspaceName });
+    }
+    const existing = ws.repos.find((r) => r.name === repo.name);
+    let action: LinkAction;
+    let previousPath: string | undefined;
+    if (!existing) {
+      ws.repos.push({ name: repo.name, path: repo.path });
+      action = "added";
+    } else if (canonicalPath(existing.path) !== canonicalPath(repo.path)) {
+      previousPath = existing.path;
+      existing.path = repo.path;
+      action = "updated-path";
+    } else {
+      action = "unchanged";
+    }
+    const manifestPath =
+      createdWorkspace || action !== "unchanged" ? writeWorkspace(ws) : workspacePath(workspaceName);
+    return { createdWorkspace, action, manifestPath, ...(previousPath ? { previousPath } : {}) };
+  });
 }
 
 /**

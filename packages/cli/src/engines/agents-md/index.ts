@@ -8,7 +8,7 @@ import { computeRenderPlan } from "../../lib/render-plan.ts";
 import { injectManagedSection } from "../../lib/marker.ts";
 import { loadPreset } from "../../lib/presets.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
-import { readBundledCoreVersion } from "../../lib/bundled-assets.ts";
+import { readCliVersion } from "../../lib/bundled-assets.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 
 /**
@@ -35,8 +35,13 @@ export interface AgentsMdEngineResult {
 }
 
 const MANAGED_ID = "navori-agents";
-const CORE_META = { source: "@navori/core" as const, version: readBundledCoreVersion() };
+// Stamp the navori release version (bumps per release) for the anti-retroceso
+// guard, not @navori/core's static version. (#79)
+const CORE_META = { source: "@navori/core" as const, version: readCliVersion() };
 const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
+/** Always-on, stack-agnostic process skills — mirror of the Claude engine's
+ * WORKFLOW_SKILLS so the prose index lists them for non-Claude tools too. */
+const WORKFLOW_SKILLS: ReadonlyArray<string> = ["ticket-intake", "pr-create"];
 
 /** Title the first render seeds before the managed block. */
 const HEADER = "# AGENTS.md\n";
@@ -44,7 +49,7 @@ const HEADER = "# AGENTS.md\n";
 const USER_SECTION =
   "\n<!-- navori:user-section -->\n" +
   "## Reglas del repo (tuyas)\n\n" +
-  "<!-- Agrega acá lo específico de tu repo; navori no toca esta sección. -->\n";
+  "<!-- Agrega aquí lo específico de tu repo; navori no toca esta sección. -->\n";
 
 /**
  * Build the skills index as prose. Independent from the Claude engine's
@@ -56,6 +61,10 @@ function buildSkillsSection(config: NavoriConfig, repoRoot: string): string | nu
   const listed = new Set<string>();
   for (const id of CORE_SKILLS) {
     rows.push(`- \`${id}\` — navori`);
+    listed.add(id);
+  }
+  for (const id of WORKFLOW_SKILLS) {
+    rows.push(`- \`${id}\` — navori (workflow)`);
     listed.add(id);
   }
   if (config.preset && config.preset !== "custom") {
@@ -156,6 +165,11 @@ export function renderAgentsMdEngine(
 
   if (result.status === "user-modified-skipped") {
     skipped.push({ path: "AGENTS.md", reason: "managed block edited by hand" });
+  } else if (result.status === "downgrade-skipped") {
+    skipped.push({
+      path: "AGENTS.md",
+      reason: `escrito por una navori más nueva (${result.details?.existingVersion ?? "?"}); no lo toqué. Actualiza tu CLI`,
+    });
   } else if (result.status === "unchanged") {
     // nothing to do
   } else {

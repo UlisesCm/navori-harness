@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -129,4 +129,47 @@ function readPackageJsonWorkspaces(raw: unknown): string[] {
     }
   }
   return [];
+}
+
+/**
+ * Expand one workspace pattern into concrete relative paths under `cwd`.
+ *
+ * Supports per-segment `*` and literal paths. Double-star and partial-segment
+ * globs like `foo-X` (where X is `*`) are treated as literals, so they only
+ * match if a directory with that literal name exists. Intentional: real-world
+ * monorepos almost always use single-star patterns, and a real glob lib (~80kb)
+ * isn't worth the long tail. Lives here (not scan.ts) so `detect.ts` can reuse
+ * it without the scan.ts → detect.ts import cycle.
+ */
+export function expandPattern(cwd: string, pattern: string): string[] {
+  const segments = pattern.split("/").filter(Boolean);
+  if (segments.length === 0) return [];
+  return walk(cwd, [], segments);
+}
+
+function walk(cwd: string, accum: string[], remaining: string[]): string[] {
+  if (remaining.length === 0) {
+    return [accum.join("/")];
+  }
+  const [head, ...tail] = remaining;
+  const currentRel = accum.join("/");
+  const currentAbs = currentRel ? join(cwd, currentRel) : cwd;
+
+  if (head === "*") {
+    if (!existsSync(currentAbs)) return [];
+    let entries;
+    try {
+      entries = readdirSync(currentAbs, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+    return entries
+      .filter((d) => d.isDirectory() && !d.name.startsWith("."))
+      .flatMap((d) => walk(cwd, [...accum, d.name], tail));
+  }
+
+  // Literal segment (or unsupported partial glob — treated as literal).
+  const next = join(currentAbs, head!);
+  if (!existsSync(next)) return [];
+  return walk(cwd, [...accum, head!], tail);
 }

@@ -19,7 +19,7 @@ io.of('/sessions').use(authSocket).on('connection', (socket) => {
   socket.on('message:send', async (dto, ack) => {
     try {
       const saved = await messageService.create(socket.data.userId, dto);
-      io.to(`session:${dto.sessionId}`).emit('message:new', saved);
+      io.to(`session:${socket.data.sessionId}`).emit('message:new', saved); // room de socket.data, no del payload
       ack?.({ ok: true, id: saved._id });
     } catch (err) {
       ack?.({ ok: false, error: toClientError(err) });
@@ -39,6 +39,9 @@ io.of('/sessions').use(authSocket).on('connection', (socket) => {
 - **Listeners colgados.** Toda suscripción/intervalo creado en `connection` se limpia en `disconnect`, o se filtra memoria.
 - **Errores.** Un throw dentro de un handler no llega al cliente: reporta vía el callback `ack` o un evento `error:*`, nunca dejes la promesa sin catch.
 - **Auth en el handshake**, no por evento — rechaza en el middleware `.use()` antes de `connection`.
+- **Tipa el `Server`/`Socket`** con las 4 interfaces (`Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>`): autocompletado y type-check de payloads y acks. `socket.data` se tipa vía `SocketData`, no `any`.
+- **Multi-instancia ⇒ adapter (Redis) + sticky sessions.** Sin adapter, `io.to(room)` solo alcanza a los sockets de **este** proceso (broadcasts perdidos al escalar); sin sticky, el long-polling da "Session ID unknown".
+- **Acks que esperan respuesta usan timeout**: `socket.timeout(ms).emitWithAck(...)`. Sin timeout, un ack ausente cuelga/leakea.
 
 ## Reglas duras
 

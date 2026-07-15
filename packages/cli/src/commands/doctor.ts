@@ -311,14 +311,14 @@ export const doctorCommand = defineCommand({
       const lines: string[] = [];
       if (monorepoDrift.emptyDeclared) {
         lines.push(
-          `  ${color.yellow(sym.update)} monorepo declarado pero workspaces[] vacío — corré 'navori scan' para poblarlo`,
+          `  ${color.yellow(sym.update)} monorepo declarado pero workspaces[] vacío — corre 'navori scan' para poblarlo`,
         );
       }
       for (const path of monorepoDrift.added) {
-        lines.push(`  ${color.yellow(sym.update)} ${path}  ${grey("— en disco, falta en config (corré 'navori scan')")}`);
+        lines.push(`  ${color.yellow(sym.update)} ${path}  ${grey("— en disco, falta en config (corre 'navori scan')")}`);
       }
       for (const path of monorepoDrift.orphan) {
-        lines.push(`  ${color.yellow(sym.update)} ${path}  ${grey("— en config, ausente en disco (quitalo del config)")}`);
+        lines.push(`  ${color.yellow(sym.update)} ${path}  ${grey("— en config, ausente en disco (quítalo del config)")}`);
       }
       if (lines.length > 0) {
         p.log.warn(`Monorepo desincronizado con el disco (${lines.length}):\n${lines.join("\n")}`);

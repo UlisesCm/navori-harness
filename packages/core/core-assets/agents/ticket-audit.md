@@ -65,7 +65,7 @@ Si encuentras un audit reciente para el mismo ticket, léelo primero. No re-audi
 <2–4 líneas: qué pide el ticket, dónde impacta>
 
 ## Hipótesis de causa raíz (si es bug)
-1. [confianza:0–100] `<archivo>:<línea>` — <descripción + por qué crees que es acá>
+1. [confianza:0–100] `<archivo>:<línea>` — <descripción + por qué crees que es aquí>
 
 ## Approaches alternativos (si es feature/refactor)
 ### Approach A — <nombre>
@@ -116,7 +116,7 @@ El leader lee el audit del disco y descompone desde ahí.
 <!-- navori:user-section -->
 ## Reglas del proyecto
 
-<!-- user: agrega acá lo específico de tu repo. Sugerencias:
+<!-- user: agrega aquí lo específico de tu repo. Sugerencias:
      - Áreas críticas que casi siempre requieren audit: {{project.criticalAreas}}
      - Subsistemas con reglas particulares (ej: migración legacy↔nuevo backend, módulo X solo lo toca alguien con context).
      - Patrones de tickets recurrentes que tienen plantilla de análisis específica.

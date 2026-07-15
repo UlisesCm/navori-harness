@@ -136,7 +136,7 @@ Si el repo define su propio template (`.github/pull_request_template.md`), léel
 <!-- navori:user-section -->
 ## Reglas del proyecto
 
-<!-- user: agrega acá lo específico de tu repo. Sugerencias:
+<!-- user: agrega aquí lo específico de tu repo. Sugerencias:
      - Template específico del PR si difiere del default (.github/pull_request_template.md).
      - Convenciones de scope obligatorias (lista de scopes válidos, mappings de área → scope).
      - Reglas de naming de branches (ej: `feat/BT-1234-descripcion`).

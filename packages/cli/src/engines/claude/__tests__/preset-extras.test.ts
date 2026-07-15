@@ -82,9 +82,9 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       ".claude/skills/medusa-modules.md",
     ]);
     // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 7 agents + 3 core
-    // skills + 2 progress files + 2 medusa skills + 2 CLAUDE.md managed blocks
-    // counted independently of the file + 1 always-on guard hook = 18 inspected.
-    expect(r.inspected).toBe(18);
+    // skills + 2 workflow skills + 2 progress files + 2 medusa skills + 2 CLAUDE.md
+    // managed blocks counted independently of the file + 1 always-on guard hook = 20.
+    expect(r.inspected).toBe(20);
   });
 
   describe("bundled stack presets (B4)", () => {
@@ -117,9 +117,10 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       },
       {
         id: "express-mongoose",
-        // mongoose + zod-validation are now library skills (detected deps),
-        // injected via project.libraries alongside the preset's own skills.
-        project: { libraries: ["mongoose", "zod-validation"] },
+        // mongoose + zod-validation + winston-logging are now library skills
+        // (detected deps), injected via project.libraries alongside the preset's
+        // own skills. ticket-intake + pr-create are always-on workflow skills.
+        project: { libraries: ["mongoose", "zod-validation", "winston-logging"] },
         skills: [
           ".claude/skills/express-routes.md",
           ".claude/skills/mongoose.md",
@@ -167,11 +168,12 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       expect(existsSync(join(cwd, ".claude/skills/mongoose.md"))).toBe(true);
     });
 
-    it("is additive — zod AND joi can render together (no XOR exclusivity)", () => {
-      // The old validator mechanism was zod-XOR-joi; library skills are additive.
-      renderClaudeEngine(cwd, withLibraries(["zod-validation", "joi-validation"]));
+    it("is additive — several library skills render together (no exclusivity)", () => {
+      // Library skills have no mutual exclusion: a repo materializes every skill
+      // whose dependency is present, across concerns.
+      renderClaudeEngine(cwd, withLibraries(["zod-validation", "winston-logging"]));
       expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(true);
-      expect(existsSync(join(cwd, ".claude/skills/joi-validation.md"))).toBe(true);
+      expect(existsSync(join(cwd, ".claude/skills/winston-logging.md"))).toBe(true);
     });
 
     it("renders no library skill when project.libraries is empty", () => {
@@ -190,11 +192,11 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     });
 
     it("lists detected library skills in the skills index as '— library (detected)'", () => {
-      renderClaudeEngine(cwd, withLibraries(["joi-validation"], { localSkills: ["my-local"] }));
+      renderClaudeEngine(cwd, withLibraries(["winston-logging"], { localSkills: ["my-local"] }));
       const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
       // Assert on the index row format — stack.md mentions both names in prose
       // on purpose, so a bare substring would false-positive.
-      expect(claudeMd).toContain("`joi-validation` — library (detected)");
+      expect(claudeMd).toContain("`winston-logging` — library (detected)");
       expect(claudeMd).not.toContain("`zod-validation` — library (detected)");
     });
 
@@ -248,6 +250,46 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       // The stale preset-era body was replaced, not left behind beside a new block.
       expect(content).not.toContain("OLD preset-era mongoose body");
       expect(content).not.toContain('id="mongoose-lib"');
+    });
+
+    it("prunes a stale REMOVED library skill navori used to own (tombstone)", () => {
+      // formik/joi-validation were retired from the registry. A repo rendered
+      // before the removal still has the navori-owned file on disk; render deletes
+      // it so agents stop seeing the legacy skill.
+      const stale = join(cwd, ".claude/skills/formik.md");
+      mkdirSync(join(cwd, ".claude/skills"), { recursive: true });
+      writeFileSync(
+        stale,
+        [
+          "---",
+          "name: formik",
+          "---",
+          "",
+          '<!-- navori:managed id="formik" hash="x" version="0.0.1" source="@navori/core" -->',
+          "OLD formik body",
+          '<!-- /navori:managed id="formik" -->',
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+
+      const r = renderClaudeEngine(cwd, withLibraries([]));
+
+      expect(existsSync(stale)).toBe(false);
+      expect(r.written.some((w) => w.path.endsWith("skills/formik.md"))).toBe(true);
+    });
+
+    it("does NOT prune a user's hand-written skill of the same name (no navori marker)", () => {
+      // Safety: the tombstone only removes files carrying navori's marker for that
+      // id. A user who wrote their own formik.md keeps it.
+      const userOwned = join(cwd, ".claude/skills/joi-validation.md");
+      mkdirSync(join(cwd, ".claude/skills"), { recursive: true });
+      writeFileSync(userOwned, "# My own joi notes — not navori's\n", "utf-8");
+
+      renderClaudeEngine(cwd, withLibraries([]));
+
+      expect(existsSync(userOwned)).toBe(true);
+      expect(readFileSync(userOwned, "utf-8")).toContain("My own joi notes");
     });
   });
 });

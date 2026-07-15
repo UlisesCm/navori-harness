@@ -31,21 +31,23 @@ await channel.consume(queue, async (msg) => {
 });
 ```
 
-bullmq: lanzar dentro del `Worker` handler re-encola según `attempts`/`backoff`; al agotarse, el job queda `failed` (tu DLQ lógica).
+bullmq: lanzar dentro del `Worker` handler re-encola según `attempts`/`backoff`; al agotarse, el job queda `failed`. **`failed` NO es una DLQ**: nadie reprocesa ni alerta solo — escucha `worker.on('failed')` / `QueueEvents`, o mueve a una `failed`-queue dedicada con monitoreo.
 
 ## Gotchas que muerden
 
-- **`nack` con `requeue: true` siempre** → loop infinito si el mensaje es venenoso. Requeue una vez (chequea `redelivered`), luego dead-letter.
+- **`redelivered` es una heurística pobre para reintentos.** Se activa en **cualquier** re-entrega (incluida recuperación de conexión) y solo distingue "0 vs ≥1", no un contador; `nack` con requeue reencola en la **cabeza** → hot-loop sin backoff. El patrón robusto es **dead-letter exchange (DLX) + retry queue con TTL** (o header `x-death`/contador), no `redelivered`.
+- **Dedup atómica, no check-then-act.** `if (await alreadyProcessed(id))` es TOCTOU: con `prefetch>1` o dos consumers, dos entregas pasan ambas el check. Usa `INSERT` con unique index (captura duplicate-key) o `SET NX` en Redis.
+- **Parse fallido = no-retryable** → DLQ directo, no requeue (un payload corrupto haría loop eterno).
 - **Sin `prefetch`** el consumer traga toda la cola en memoria. Fija un prefetch acorde a la duración del handler.
 - **`ack` antes de procesar** = pérdida de mensajes si el handler crashea. Confirma **después** del éxito.
 - **Mensajes duplicados** son normales (redelivery). El handler debe ser idempotente.
 
 ## Reglas duras
 
-1. `ack` solo tras éxito; en fallo, `nack`/requeue acotado o dead-letter.
-2. Nunca requeue infinito de un mensaje venenoso — DLQ tras el primer redelivery.
+1. `ack` solo tras éxito; en fallo, reintento acotado (DLX + retry queue / contador) o dead-letter.
+2. Nunca requeue infinito de un mensaje venenoso; un parse fallido va directo a DLQ.
 3. `prefetch` explícito para backpressure.
-4. Handler **idempotente**: chequea dedup antes de actuar.
+4. Handler **idempotente** con dedup **atómica** (unique index / `SET NX`), no check-then-act.
 5. Errores logueados (estructurado), nunca tragados en silencio.
 
 ## Antes de declarar listo

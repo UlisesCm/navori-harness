@@ -133,7 +133,7 @@ Si la tarea es:
 <!-- navori:user-section -->
 ## Reglas del proyecto
 
-<!-- user: agrega acá lo específico de tu repo. Sugerencias:
+<!-- user: agrega aquí lo específico de tu repo. Sugerencias:
      - Áreas críticas que requieren review extra: {{project.criticalAreas}}
      - Carpetas legacy con reglas distintas: {{project.legacyPaths}}
      - Convenciones de naming / estructura del repo.

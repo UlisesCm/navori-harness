@@ -33,7 +33,9 @@ En la route: `router.post('/', validate(createResourceSchema, 'body'), ...)`. En
 ## Gotchas que muerden
 
 - **ObjectId pelado** (`z.string()`) deja pasar `"abc"`; Mongoose lanza CastError 500 en vez de 400 limpio. Usa siempre el helper `objectId`.
-- **Query strings siempre son string.** Sin `z.coerce`, `z.number()` las rechaza. Usa `z.coerce.number()` / `z.coerce.date()`.
+- **Query strings siempre son string.** Sin `z.coerce`, `z.number()` las rechaza. Usa `z.coerce.number()` / `z.coerce.date()`. **Footgun:** `z.coerce.number()` usa `Number()`, así que `""`/`" "`/`null` → `0` (un `?page=` vacío pasa como `0`). Si importa, pon límites explícitos o `z.string().regex(...).transform(Number)`.
+- **Claves desconocidas se descartan en silencio:** `z.object({...})` hace *strip*, así que un typo en el body (`{ ammount }`) se pierde sin error. En endpoints de mutación usa `z.strictObject({...})` para atraparlo.
+- **Versión:** este skill asume Zod v3. En **v4**: `z.nativeEnum`→`z.enum`, `z.string().datetime()`→`z.iso.datetime()`, y `{ message }`→`{ error }` en las opciones de error.
 
 ## Reglas duras
 

@@ -278,6 +278,7 @@ describe("CLI e2e — happy paths", () => {
       criticalAreas: [],
       localSkills: [],
       libraries: [],
+      libraryMigrations: [],
       testRunner: "vitest",
       codeLanguage: "js",
     });
@@ -334,6 +335,7 @@ describe("CLI e2e — happy paths", () => {
       criticalAreas: [],
       localSkills: [],
       libraries: [],
+      libraryMigrations: [],
       codeLanguage: "ts",
     });
   });
@@ -689,8 +691,15 @@ describe("CLI e2e — happy paths", () => {
     expect(clean.missingInvariants).toHaveLength(0);
 
     // Simulate a template refactor eating the engram protocol everywhere it
-    // lives in the output: CLAUDE.md and the injected sub-block in leader.md.
-    for (const rel of ["CLAUDE.md", ".claude/agents/leader.md"]) {
+    // lives in the output: CLAUDE.md, the injected sub-block in leader.md, and
+    // the always-on workflow skills that reference the mem_ calls in their
+    // ticket pipeline / PR close-out.
+    for (const rel of [
+      "CLAUDE.md",
+      ".claude/agents/leader.md",
+      ".claude/skills/ticket-intake.md",
+      ".claude/skills/pr-create.md",
+    ]) {
       const path = join(repo, rel);
       const gutted = readFileSync(path, "utf-8")
         .replaceAll("mem_save", "XXX")

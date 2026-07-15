@@ -18,27 +18,12 @@
         "destRelPath": ".claude/skills/express-routes.md"
       },
       {
-        "id": "winston-logging",
-        "relPath": "presets/express-mongoose/skills/winston-logging.md",
-        "destRelPath": ".claude/skills/winston-logging.md"
-      },
-      {
         "id": "new-endpoint",
         "relPath": "presets/express-mongoose/skills/new-endpoint.md",
         "destRelPath": ".claude/skills/new-endpoint.md"
-      },
-      {
-        "id": "ticket-intake",
-        "relPath": "presets/express-mongoose/skills/ticket-intake.md",
-        "destRelPath": ".claude/skills/ticket-intake.md"
-      },
-      {
-        "id": "pr-create",
-        "relPath": "presets/express-mongoose/skills/pr-create.md",
-        "destRelPath": ".claude/skills/pr-create.md"
       }
     ],
     "hooks": []
   },
-  "invariants": ["express-routes", "asyncHandler", "ApiResponse", "ticket-intake"]
+  "invariants": ["express-routes", "asyncHandler", "ApiResponse"]
 }

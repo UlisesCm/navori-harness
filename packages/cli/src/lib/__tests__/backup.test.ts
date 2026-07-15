@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   mkdtempSync,
   mkdirSync,
@@ -8,17 +8,25 @@ import {
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createBackup } from "../backup.ts";
+import { basename, join } from "node:path";
+
+// Isolate ~/.navori to a throwaway home so backups never touch the real home
+// dir and can't race other test files that also write to ~/.navori/backups.
+const home = vi.hoisted(() => ({ dir: "" }));
+vi.mock("../home.ts", () => ({ safeHomedir: () => home.dir }));
+
+const { createBackup, backupRepoLabel, backupIdRepoLabel } = await import("../backup.ts");
 
 let repo: string;
 
 beforeEach(() => {
+  home.dir = mkdtempSync(join(tmpdir(), "backup-home-"));
   repo = mkdtempSync(join(tmpdir(), "backup-test-"));
 });
 
 afterEach(() => {
   rmSync(repo, { recursive: true, force: true });
+  rmSync(home.dir, { recursive: true, force: true });
 });
 
 describe("createBackup — file inputs (back-compat)", () => {
@@ -97,5 +105,53 @@ describe("createBackup — directory inputs (E3)", () => {
     const handle = createBackup(repo, ["CLAUDE.md", ".claude"]);
     expect(handle.files.sort()).toEqual([".claude/settings.json", "CLAUDE.md"]);
     rmSync(handle.path, { recursive: true });
+  });
+});
+
+describe("createBackup — repo identity + collision resistance (#82)", () => {
+  it("names the backup dir with the repo label and round-trips it back", () => {
+    writeFileSync(join(repo, "CLAUDE.md"), "x");
+    const handle = createBackup(repo, ["CLAUDE.md"]);
+    try {
+      const dirName = basename(handle.path);
+      const label = backupRepoLabel(repo);
+      expect(dirName.startsWith(`${label}-`)).toBe(true);
+      expect(backupIdRepoLabel(dirName)).toBe(label);
+    } finally {
+      rmSync(handle.path, { recursive: true, force: true });
+    }
+  });
+
+  it("two backups of the same repo never share a directory", () => {
+    writeFileSync(join(repo, "CLAUDE.md"), "x");
+    const a = createBackup(repo, ["CLAUDE.md"]);
+    const b = createBackup(repo, ["CLAUDE.md"]);
+    try {
+      expect(a.path).not.toBe(b.path); // per-process seq disambiguates same-ms calls
+    } finally {
+      rmSync(a.path, { recursive: true, force: true });
+      rmSync(b.path, { recursive: true, force: true });
+    }
+  });
+
+  it("distinct repos get distinct, self-identifying backup dirs", () => {
+    const other = mkdtempSync(join(tmpdir(), "backup-test-other-"));
+    writeFileSync(join(repo, "CLAUDE.md"), "x");
+    writeFileSync(join(other, "CLAUDE.md"), "y");
+    const a = createBackup(repo, ["CLAUDE.md"]);
+    const b = createBackup(other, ["CLAUDE.md"]);
+    try {
+      expect(backupIdRepoLabel(basename(a.path))).toBe(backupRepoLabel(repo));
+      expect(backupIdRepoLabel(basename(b.path))).toBe(backupRepoLabel(other));
+      expect(basename(a.path)).not.toBe(basename(b.path));
+    } finally {
+      rmSync(a.path, { recursive: true, force: true });
+      rmSync(b.path, { recursive: true, force: true });
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it("backupIdRepoLabel returns null for a legacy timestamp-only id", () => {
+    expect(backupIdRepoLabel("2026-07-14T12-00-00")).toBeNull();
   });
 });

@@ -16,7 +16,7 @@ Antes de escribir un componente React nuevo o modificar uno existente. Mantine y
 2. **Theming centralizado en `theme.ts`.** Colores, espacios, radios, breakpoints viven en el objeto `MantineThemeOverride`. No hardcodear `#3b82f6` o `padding: 12px` en componentes — usa `var(--mantine-color-blue-6)`, `theme.spacing.sm` o el prop `c="blue.6"`.
 3. **Props sobre `style={{ ... }}`.** Mantine acepta `mt`, `mb`, `p`, `gap`, `c`, `bg`, etc. como props directos. Siguen el sistema de tokens del theme. `style={{ marginTop: 16 }}` rompe responsive + theming.
 4. **Responsive con `visibleFrom` / `hiddenFrom` o `responsive prop`.** No condicionar render con `window.innerWidth`. Mantine ya tiene breakpoints + hooks (`useMediaQuery`).
-5. **Forms con `@mantine/form`, no estado a mano.** Validación, dirty/pristine, errores granulares vienen incluidos. `useState` para cada input es bug-prone.
+5. **Forms con `@mantine/form` en `mode: 'uncontrolled'` (recomendado en v8), no estado a mano.** Guarda valores en un ref (no re-renderiza por tecla), pero exige `key={form.key('campo')}` en cada input o `setFieldValue`/`setValues` no refrescan (bug silencioso), y lees con `form.getValues()`, no `form.values`.
 
 ## Patrón típico
 
@@ -26,6 +26,7 @@ import { useForm } from "@mantine/form";
 
 export function CreateUserForm({ onSubmit }: Props) {
   const form = useForm({
+    mode: "uncontrolled",                    // recomendado en v8
     initialValues: { email: "", name: "" },
     validate: {
       email: (v) => (/^\S+@\S+$/.test(v) ? null : "Email inválido"),
@@ -41,9 +42,10 @@ export function CreateUserForm({ onSubmit }: Props) {
           label="Email"
           placeholder="user@example.com"
           required
+          key={form.key("email")}
           {...form.getInputProps("email")}
         />
-        <TextInput label="Nombre" required {...form.getInputProps("name")} />
+        <TextInput label="Nombre" required key={form.key("name")} {...form.getInputProps("name")} />
         <Group justify="flex-end">
           <Button type="submit" loading={form.submitting}>Guardar</Button>
         </Group>
@@ -66,14 +68,10 @@ export function CreateUserForm({ onSubmit }: Props) {
 | Grilla responsive | `<Grid>` o `<SimpleGrid cols={{ base: 1, md: 2 }}>` |
 | Card / contenedor | `<Paper p="md" radius="md" shadow="sm">` |
 | Modal | `<Modal opened={x} onClose={...}>` (usar `useDisclosure`) |
-| Tooltip | `<Tooltip label="...">` envolviendo el target |
-| Loading | `<Loader>` o `loading={true}` prop en `<Button>` |
-| Notif toast | `notifications.show({ message: "..." })` de `@mantine/notifications` |
+| Loading / Tooltip | `<Loader>` o `loading` en `<Button>` / `<Tooltip label>` |
+| Notif toast | `notifications.show({ message })` de `@mantine/notifications` |
 
 ## Antes de declarar el cambio "listo"
 
-- `{{qualityGate.fast}}` en verde.
-- Prueba el componente en dark mode (toggle Mantine ColorScheme) — si rompe, usaste color hardcoded.
-- Prueba responsive: ancho mobile (< 768px) y desktop. Si requiere breakpoint manual, usa `useMediaQuery` o `visibleFrom`.
-- Cero `<div style={{...}}>` con flex/grid: convierte a `<Stack>` / `<Group>` / `<SimpleGrid>`.
-- Cero strings hex en código de componente: si necesitas un color custom, súmalo al `theme.colors`.
+- `{{qualityGate.fast}}` en verde; probado en dark mode (si rompe, usaste color hardcoded) y responsive (mobile < 768px).
+- Cero `<div style>` con flex/grid → `<Stack>`/`<Group>`/`<SimpleGrid>`; cero hex en componentes → `theme.colors`.
