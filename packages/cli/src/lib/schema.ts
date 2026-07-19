@@ -66,6 +66,7 @@ const HarnessSchema = z.object({
   ticketAudit: z.boolean().default(true),
   commitPrPilot: z.boolean().default(true),
   explorer: z.boolean().default(true),
+  auditor: z.boolean().default(true),
 });
 
 const ModelsSchema = z.object({
@@ -76,6 +77,7 @@ const ModelsSchema = z.object({
   ticketAudit: z.enum(MODELS).optional(),
   commitPrPilot: z.enum(MODELS).optional(),
   explorer: z.enum(MODELS).optional(),
+  auditor: z.enum(MODELS).optional(),
 });
 
 const PluginEntrySchema = z.object({
@@ -90,6 +92,7 @@ const AGENT_ROLES_FOR_SCHEMA = [
   "ticket-audit",
   "commit-pr-pilot",
   "explorer",
+  "auditor",
 ] as const;
 
 const AgentAssignmentsSchema = z.record(z.string(), z.enum(AGENT_ROLES_FOR_SCHEMA));

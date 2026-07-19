@@ -22,7 +22,7 @@
   "features": {
     "plugins": 6,
     "presets": 10,
-    "coreAgents": 7,
+    "coreAgents": 8,
     "coreSkills": 6,
     "librarySkills": 11
   },

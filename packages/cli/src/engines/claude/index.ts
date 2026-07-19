@@ -71,6 +71,7 @@ const CORE_AGENTS: ReadonlyArray<{ id: string; harnessKey: keyof NonNullable<Nav
   { id: "ticket-audit", harnessKey: "ticketAudit" },
   { id: "commit-pr-pilot", harnessKey: "commitPrPilot" },
   { id: "explorer", harnessKey: "explorer" },
+  { id: "auditor", harnessKey: "auditor" },
 ];
 
 const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
@@ -181,6 +182,7 @@ const AGENT_WHEN: Record<string, string> = {
   explorer: "Mapea un área o módulo amplio: estructura, entry points, dependencias.",
   "ticket-audit": "Analiza a fondo un ticket complejo (bug crítico, migración, feature multi-capa) antes de descomponer.",
   "commit-pr-pilot": "Redacta commits Conventional y abre el PR tras la aprobación del reviewer.",
+  auditor: "Auditoría read-only a fondo de código existente (seguridad, performance, SOLID, edge cases). Escribe reporte + plan priorizado a disco.",
 };
 
 /**
