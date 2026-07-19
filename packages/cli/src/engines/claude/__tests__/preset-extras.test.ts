@@ -109,6 +109,10 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         skills: [".claude/skills/astro-islands.md"],
       },
       {
+        id: "react-native-expo",
+        skills: [".claude/skills/rn-performance.md", ".claude/skills/expo-runtime.md"],
+      },
+      {
         id: "background-worker",
         skills: [
           ".claude/skills/worker-lifecycle.md",

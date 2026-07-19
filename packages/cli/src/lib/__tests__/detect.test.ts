@@ -343,6 +343,22 @@ describe("detectProject — suggested preset never points to a phantom (F1)", ()
     }
   });
 
+  it("suggests react-native-expo for an Expo app (ships, so no gap)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "app", dependencies: { expo: "~54", "react-native": "0.81.5" } }),
+      );
+      const d = detectProject(dir);
+      expect(d.stack.framework).toBe("expo");
+      expect(d.suggestedPreset).toBe("react-native-expo");
+      expect(d.suggestedPresetGap).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   it("does not treat a pnpm-workspace.yaml with no packages as a monorepo", () => {
     const dir = makeTmp();
     try {
