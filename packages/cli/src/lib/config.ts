@@ -56,6 +56,9 @@ export function writeConfig(path: string, input: NavoriConfigInput): void {
  *    `any`/`unknown` `tipado-fuerte` block) applies. Suppressed only for
  *    languages where it plainly doesn't (python/rust/go). Absent/unknown is
  *    treated as JS/TS so configs written before `codeLanguage` existed keep it.
+ *  - `sdd`: defaults `enabled` to true and `specsDir` to "specs" so the SDD
+ *    managed block (`condition: "sdd.enabled"`) renders by default even when a
+ *    config omits the `sdd` section. Opt out with `"sdd": { "enabled": false }`.
  */
 export function effectiveConfig(config: NavoriConfig): NavoriConfig {
   const codeLanguage = config.project?.codeLanguage;
@@ -66,6 +69,13 @@ export function effectiveConfig(config: NavoriConfig): NavoriConfig {
     ...config,
     prTarget: config.prTarget ?? config.branchBase,
     project: { ...(config.project ?? {}), typedLanguage } as NavoriConfig["project"],
+    sdd: {
+      ...(config.sdd ?? {}),
+      enabled: config.sdd?.enabled ?? true,
+      specsDir: config.sdd?.specsDir ?? "specs",
+      applyWhen: config.sdd?.applyWhen ?? [],
+      doesNotApplyTo: config.sdd?.doesNotApplyTo ?? [],
+    },
   };
 }
 

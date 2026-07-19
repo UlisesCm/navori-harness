@@ -82,7 +82,7 @@ const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-deb
  * wrote before they were promoted here), so an `update` recognizes the existing
  * block in place instead of orphaning it and appending a duplicate.
  */
-const WORKFLOW_SKILLS: ReadonlyArray<string> = ["ticket-intake", "pr-create"];
+const WORKFLOW_SKILLS: ReadonlyArray<string> = ["ticket-intake", "pr-create", "spec-bootstrap"];
 
 // Managed blocks stamp the navori release version (bumps every release) so the
 // anti-retroceso guard has a per-release signal — not @navori/core's static

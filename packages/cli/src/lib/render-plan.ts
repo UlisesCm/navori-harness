@@ -36,6 +36,11 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
   { id: "operaciones-seguras", relPath: "core-assets/managed/operaciones-seguras.md", availableLanguages: ["es"], rootOnly: true },
   { id: "arranque-sesion", relPath: "core-assets/managed/arranque-sesion.md", availableLanguages: ["es"], rootOnly: true },
   { id: "cierre-sesion", relPath: "core-assets/managed/cierre-sesion.md", availableLanguages: ["es"], rootOnly: true },
+  // SDD protocol block. Conditional on `sdd.enabled`, which effectiveConfig
+  // defaults to true (SDD is core to navori's identity) unless a config sets it
+  // to false. Renders the EARS + R<n>↔test convention that SddSchema declared
+  // but nothing emitted before.
+  { id: "sdd", relPath: "core-assets/managed/sdd.md", availableLanguages: ["es"], rootOnly: true, condition: "sdd.enabled" },
 ] as const;
 
 // Managed blocks stamp the navori release version (not @navori/core's static

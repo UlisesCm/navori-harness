@@ -272,13 +272,14 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
   it("reports inspected count on first render and on second", () => {
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
     // Inspected counts every managed asset processed:
-    //   1 CLAUDE.md + 1 settings.json + 7 agents + 3 core skills + 2 workflow
-    //   skills + 1 guard hook + 1 qg hook + 2 progress files +
-    //   1 engram-leader-extension sub-block = 19.
-    expect(first.inspected).toBe(19);
+    //   1 CLAUDE.md + 1 settings.json + 7 agents + 3 core skills + 3 workflow
+    //   skills (ticket-intake, pr-create, spec-bootstrap) + 1 guard hook +
+    //   1 qg hook + 2 progress files + 1 engram-leader-extension sub-block = 20.
+    //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
+    expect(first.inspected).toBe(20);
     // Written counts files actually emitted. engram-leader-extension is a
-    // sub-block injected into leader.md, not a separate file, so written = 18.
-    expect(first.written.length).toBe(18);
+    // sub-block injected into leader.md, not a separate file, so written = 19.
+    expect(first.written.length).toBe(19);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -378,8 +379,9 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
 describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
-    // Dry-run still reports the would-write set: the full 18 files.
-    expect(r.written).toHaveLength(18);
+    // Dry-run still reports the would-write set: the full 19 files
+    // (18 + spec-bootstrap workflow skill).
+    expect(r.written).toHaveLength(19);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
@@ -425,6 +427,43 @@ describe("renderClaudeEngine — language-aware baseline (tipado-fuerte)", () =>
   it("renders tipado-fuerte when codeLanguage is absent (back-compat)", () => {
     renderClaudeEngine(cwd, CONFIG_FULL); // no project.codeLanguage
     expect(claudeMd()).toContain("Tipado fuerte");
+  });
+});
+
+describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
+  const claudeMd = () => readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+
+  it("renders the SDD block by default (sdd absent → enabled defaults true)", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL); // no sdd section
+    const md = claudeMd();
+    expect(md).toContain('id="sdd"');
+    expect(md).toContain("Spec Driven Development (SDD)");
+    expect(md).toContain("EARS");
+    expect(md).toContain("Covers: R");
+  });
+
+  it("suppresses the SDD block when sdd.enabled is false", () => {
+    const cfg = { ...CONFIG_FULL, sdd: { enabled: false } } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+    const md = claudeMd();
+    expect(md).not.toContain('id="sdd"');
+    expect(md).not.toContain("Spec Driven Development (SDD)");
+  });
+
+  it("interpolates specsDir — defaults to 'specs'", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(claudeMd()).toContain("specs/<feature>/");
+  });
+
+  it("interpolates a custom specsDir", () => {
+    const cfg = { ...CONFIG_FULL, sdd: { enabled: true, specsDir: "docs/specs" } } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+    expect(claudeMd()).toContain("docs/specs/<feature>/");
+  });
+
+  it("writes the spec-bootstrap scaffolder skill", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(existsSync(join(cwd, ".claude/skills/spec-bootstrap.md"))).toBe(true);
   });
 });
 
