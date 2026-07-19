@@ -1,0 +1,28 @@
+{
+  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "id": "react-native-expo",
+  "displayName": "React Native + Expo app",
+  "extends": "core",
+  "extras": {
+    "managed": [
+      {
+        "id": "stack-react-native-expo",
+        "relPath": "presets/react-native-expo/managed/stack.md"
+      }
+    ],
+    "agents": [],
+    "skills": [
+      {
+        "id": "rn-performance",
+        "relPath": "presets/react-native-expo/skills/rn-performance.md",
+        "destRelPath": ".claude/skills/rn-performance.md"
+      },
+      {
+        "id": "expo-runtime",
+        "relPath": "presets/react-native-expo/skills/expo-runtime.md",
+        "destRelPath": ".claude/skills/expo-runtime.md"
+      }
+    ],
+    "hooks": []
+  }
+}
