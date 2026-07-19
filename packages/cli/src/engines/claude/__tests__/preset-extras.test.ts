@@ -122,6 +122,7 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
           ".claude/skills/keystone-models.md",
           ".claude/skills/keystone-access.md",
           ".claude/skills/prisma-keystone.md",
+          ".claude/skills/keystone-testing.md",
         ],
       },
       {

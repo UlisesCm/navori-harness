@@ -110,6 +110,7 @@ interface Strings {
   gitignoreHarnessPrompt: string;
   gitignoreHarnessWritten: (path: string, count: number) => string;
   gitignoreHarnessAlready: (path: string) => string;
+  prettierIgnoreWritten: (path: string, count: number) => string;
 
   // Errors / status
   dirNotFound: (dir: string) => string;
@@ -252,6 +253,8 @@ const ES: Strings = {
   gitignoreHarnessWritten: (path, count) =>
     `Agregadas ${count} entrada(s) del harness a ${path} — navori.config.json sigue versionado; regenera con 'navori render'`,
   gitignoreHarnessAlready: (path) => `El harness ya estaba gitignoreado en ${path} — no cambié nada`,
+  prettierIgnoreWritten: (path, count) =>
+    `Detecté Prettier: agregué ${count} entrada(s) del harness a ${path} (Prettier rompe los marcadores navori:managed)`,
 
   dirNotFound: (dir) => `Directorio no encontrado: ${dir}`,
   configExists: (path) =>
@@ -411,6 +414,8 @@ const EN: Strings = {
   gitignoreHarnessWritten: (path, count) =>
     `Added ${count} harness entry(ies) to ${path} — navori.config.json stays versioned; regenerate with 'navori render'`,
   gitignoreHarnessAlready: (path) => `The harness was already gitignored in ${path} — left it alone`,
+  prettierIgnoreWritten: (path, count) =>
+    `Detected Prettier: added ${count} harness entry(ies) to ${path} (Prettier breaks the navori:managed markers)`,
 
   dirNotFound: (dir) => `Directory not found: ${dir}`,
   configExists: (path) =>

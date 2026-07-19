@@ -26,6 +26,11 @@
         "id": "prisma-keystone",
         "relPath": "presets/bun-keystone/skills/prisma-keystone.md",
         "destRelPath": ".claude/skills/prisma-keystone.md"
+      },
+      {
+        "id": "keystone-testing",
+        "relPath": "presets/bun-keystone/skills/keystone-testing.md",
+        "destRelPath": ".claude/skills/keystone-testing.md"
       }
     ],
     "hooks": []

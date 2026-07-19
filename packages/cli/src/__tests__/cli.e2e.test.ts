@@ -492,6 +492,37 @@ describe("CLI e2e — happy paths", () => {
     }
   });
 
+  it("auto-adds the harness to .prettierignore when the repo uses Prettier", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "api", devDependencies: { prettier: "^3" } }),
+    });
+    dirs.push(repo);
+    spawnSync("git", ["init"], { cwd: repo, stdio: "ignore" });
+
+    const r = runCli(["init", "--recommended", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const pi = join(repo, ".prettierignore");
+    expect(existsSync(pi)).toBe(true);
+    const body = readFileSync(pi, "utf-8");
+    // Prettier would reflow the managed markdown and break the navori:managed hashes.
+    expect(body).toContain(".claude/");
+    expect(body).toContain("CLAUDE.md");
+    expect(body).toContain("navori.config.json");
+  });
+
+  it("does not create .prettierignore when the repo doesn't use Prettier", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "api", dependencies: { next: "^15" } }),
+    });
+    dirs.push(repo);
+    spawnSync("git", ["init"], { cwd: repo, stdio: "ignore" });
+
+    const r = runCli(["init", "--recommended", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(existsSync(join(repo, ".prettierignore"))).toBe(false);
+  });
+
   it("sync --apply --yes fails with exit 1 when user edited a .claude/ agent (P0-fix B2)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);

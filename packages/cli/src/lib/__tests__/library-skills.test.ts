@@ -26,6 +26,7 @@ describe("detectLibrarySkills", () => {
     expect(detectLibrarySkills(["stripe"])).toEqual(["stripe"]);
     expect(detectLibrarySkills(["@stripe/stripe-js"])).toEqual(["stripe"]);
     expect(detectLibrarySkills(["@stripe/react-stripe-js"])).toEqual(["stripe"]);
+    expect(detectLibrarySkills(["bullmq"])).toEqual(["bullmq"]);
   });
 
   it("is additive — a repo can match several skills at once (no exclusivity)", () => {

@@ -269,6 +269,7 @@ export const initCommand = defineCommand({
       if (args.render !== false) renderInline(cwd);
       await offerPreCommitHook(cwd, { autoYes, force: Boolean(args["pre-commit-hook"]), lang });
       await offerGitignore(cwd, { autoYes, force: Boolean(args["gitignore-harness"]), lang });
+      ensurePrettierIgnore(cwd, lang);
       p.outro(tr.done);
       return;
     }
@@ -1018,6 +1019,58 @@ function writeGitignoreHarness(cwd: string): { added: number; path: string } {
   const block = `${prefix}\n${header}\n${toAdd.join("\n")}\n`;
   writeFileAtomic(gitignorePath, block);
   return { added: toAdd.length, path: ".gitignore" };
+}
+
+/** Harness paths Prettier must not reformat: its markdown reflow inserts blank
+ * lines inside navori:managed blocks, breaking their content hash so the next
+ * render/sync flags them as hand-edited. navori.config.json is included too
+ * (Prettier would reindent the JSON). */
+const HARNESS_PRETTIER_IGNORE = [".claude/", "CLAUDE.md", "AGENTS.md", "progress/", "navori.config.json"];
+
+/** True when the repo uses Prettier — a `prettier` dep/key in package.json or a
+ * Prettier config file on disk. */
+function usesPrettier(cwd: string): boolean {
+  const pkgPath = join(cwd, "package.json");
+  if (existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+        prettier?: unknown;
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      if (pkg.prettier !== undefined) return true;
+      if (pkg.dependencies?.prettier || pkg.devDependencies?.prettier) return true;
+    } catch {
+      // unreadable package.json — fall through to the config-file probe
+    }
+  }
+  const configs = [
+    ".prettierrc", ".prettierrc.json", ".prettierrc.yaml", ".prettierrc.yml",
+    ".prettierrc.js", ".prettierrc.cjs", ".prettierrc.mjs", ".prettierrc.toml",
+    "prettier.config.js", "prettier.config.cjs", "prettier.config.mjs", ".prettierignore",
+  ];
+  return configs.some((f) => existsSync(join(cwd, f)));
+}
+
+/**
+ * When the repo uses Prettier, ensure the harness is listed in .prettierignore.
+ * Idempotent: creates the file if absent, appends only missing entries. No-op
+ * when Prettier isn't detected. Automatic (not a prompt) because a Prettier repo
+ * that reformats the managed blocks corrupts their markers — this is a
+ * correctness requirement, not a preference.
+ */
+function ensurePrettierIgnore(cwd: string, lang: Lang): void {
+  if (!usesPrettier(cwd)) return;
+  const path = join(cwd, ".prettierignore");
+  const existing = existsSync(path) ? readFileSync(path, "utf-8") : "";
+  const present = new Set(existing.split("\n").map((l) => l.trim()));
+  const toAdd = HARNESS_PRETTIER_IGNORE.filter((e) => !present.has(e));
+  if (toAdd.length === 0) return;
+
+  const header = "# navori harness (managed — Prettier rompe los marcadores navori:managed)";
+  const prefix = existing === "" || existing.endsWith("\n") ? existing : existing + "\n";
+  writeFileAtomic(path, `${prefix}\n${header}\n${toAdd.join("\n")}\n`);
+  p.log.success(t(lang).prettierIgnoreWritten(".prettierignore", toAdd.length));
 }
 
 function cancel(lang: Lang): void {

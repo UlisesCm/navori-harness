@@ -41,6 +41,7 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
     deps: ["stripe", "@stripe/stripe-js", "@stripe/react-stripe-js"],
     label: "Stripe payments",
   },
+  { id: "bullmq", deps: ["bullmq"], label: "BullMQ jobs & queues" },
 ];
 
 /**
