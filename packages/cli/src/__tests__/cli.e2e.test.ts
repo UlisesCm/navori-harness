@@ -575,7 +575,8 @@ describe("CLI e2e — happy paths", () => {
     // The core managed blocks injected into CLAUDE.md by --recommended:
     // orquestacion (rol del orquestador), idioma-rol, formato-respuesta,
     // tipado-fuerte, operaciones-seguras, arranque-sesion, cierre-sesion,
-    // engram-protocol, plus the computed skills-index and agentes-disponibles.
+    // engram-protocol, sdd (enabled by default), plus the computed skills-index
+    // and agentes-disponibles.
     const blockIds = parsed.managedBlocks.map((m: { id: string }) => m.id).sort();
     expect(blockIds).toEqual([
       "agentes-disponibles",
@@ -586,6 +587,7 @@ describe("CLI e2e — happy paths", () => {
       "idioma-rol",
       "operaciones-seguras",
       "orquestacion",
+      "sdd",
       "skills-index",
       "tipado-fuerte",
     ]);

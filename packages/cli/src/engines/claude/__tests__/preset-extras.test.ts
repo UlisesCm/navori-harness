@@ -82,9 +82,10 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       ".claude/skills/medusa-modules.md",
     ]);
     // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 7 agents + 3 core
-    // skills + 2 workflow skills + 2 progress files + 2 medusa skills + 2 CLAUDE.md
-    // managed blocks counted independently of the file + 1 always-on guard hook = 20.
-    expect(r.inspected).toBe(20);
+    // skills + 3 workflow skills (ticket-intake, pr-create, spec-bootstrap) +
+    // 2 progress files + 2 medusa skills + 2 CLAUDE.md managed blocks counted
+    // independently of the file + 1 always-on guard hook = 21.
+    expect(r.inspected).toBe(21);
   });
 
   describe("bundled stack presets (B4)", () => {

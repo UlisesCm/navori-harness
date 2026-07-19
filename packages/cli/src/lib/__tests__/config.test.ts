@@ -39,6 +39,41 @@ describe("effectiveConfig — prTarget fallback", () => {
   });
 });
 
+describe("effectiveConfig — sdd derivation", () => {
+  const base = NavoriConfigSchema.parse({
+    name: "demo",
+    engines: ["claude"],
+    preset: "custom",
+  });
+
+  it("defaults sdd.enabled to true when the sdd section is absent", () => {
+    expect(effectiveConfig(base).sdd?.enabled).toBe(true);
+    expect(effectiveConfig(base).sdd?.specsDir).toBe("specs");
+  });
+
+  it("respects an explicit sdd.enabled=false (opt out)", () => {
+    const c = NavoriConfigSchema.parse({ ...base, sdd: { enabled: false } });
+    expect(effectiveConfig(c).sdd?.enabled).toBe(false);
+  });
+
+  it("keeps a custom specsDir", () => {
+    const c = NavoriConfigSchema.parse({ ...base, sdd: { specsDir: "docs/specs" } });
+    expect(effectiveConfig(c).sdd?.specsDir).toBe("docs/specs");
+  });
+
+  it("does not persist derived sdd defaults (config on disk stays clean)", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      writeConfig(path, { name: "demo", engines: ["claude"], preset: "custom" });
+      const onDisk = JSON.parse(readFileSync(path, "utf-8"));
+      expect("sdd" in onDisk).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});
+
 describe("effectiveConfig — typedLanguage derivation", () => {
   const withLang = (codeLanguage?: string) =>
     NavoriConfigSchema.parse({

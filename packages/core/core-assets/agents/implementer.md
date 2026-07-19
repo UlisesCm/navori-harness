@@ -45,6 +45,7 @@ Ejecutas **una sola** tarea desde inicio hasta verificación. No orquestas, no l
 - **Sin `console.log`** en código que se va a mergear (guard `import.meta.env.DEV` o equivalente del runtime).
 - **Cero errores nuevos** introducidos por tu código en las herramientas del quality gate (vs. baseline). Si dudas del baseline: `git stash` → re-correr → `git stash pop` → comparar. Devolver con cualquier herramienta en rojo (por tu cambio) es motivo automático de `CHANGES_REQUESTED`.
 - **JSDoc** obligatorio en exports públicos y funciones >15 líneas o con lógica condicional densa.
+- **Trazabilidad SDD** (solo si la feature tiene `{{sdd.specsDir}}/<feature>/tasks.md`, ver bloque SDD en `CLAUDE.md`): cada `R<n>` de tu lote queda cubierto por ≥1 test, y cada test referencia sus requisitos con un comentario `// Covers: R<n>` arriba del caso. Sin trazabilidad completa el `reviewer` rechaza.
 - Si una herramienta falla raro (ej. tsc rompe sin diff aparente), **no improvises workaround**: anota `Estado: BLOCKED` + el motivo en `.claude/progress/impl_<feature>.md` y paras.
 
 ## Evidence-based completion (gate antes del informe)
