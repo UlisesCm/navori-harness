@@ -26,6 +26,11 @@ describe("detectLibrarySkills", () => {
     expect(detectLibrarySkills(["stripe"])).toEqual(["stripe"]);
     expect(detectLibrarySkills(["@stripe/stripe-js"])).toEqual(["stripe"]);
     expect(detectLibrarySkills(["@stripe/react-stripe-js"])).toEqual(["stripe"]);
+    // RN/Expo stack libraries.
+    expect(detectLibrarySkills(["@apollo/client"])).toEqual(["apollo-client"]);
+    expect(detectLibrarySkills(["zustand"])).toEqual(["zustand"]);
+    expect(detectLibrarySkills(["tamagui"])).toEqual(["tamagui"]);
+    expect(detectLibrarySkills(["@tamagui/core"])).toEqual(["tamagui"]);
   });
 
   it("is additive — a repo can match several skills at once (no exclusivity)", () => {
