@@ -48,6 +48,7 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
       ticketAudit: true,
       commitPrPilot: true,
       explorer: true,
+      auditor: true,
     });
   });
 
