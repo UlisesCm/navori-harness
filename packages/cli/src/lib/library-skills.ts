@@ -36,6 +36,11 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   { id: "mongoose", deps: ["mongoose", "@nestjs/mongoose"], label: "Mongoose ODM" },
   { id: "zod-validation", deps: ["zod"], label: "Zod validation" },
   { id: "winston-logging", deps: ["winston"], label: "Winston logging" },
+  {
+    id: "stripe",
+    deps: ["stripe", "@stripe/stripe-js", "@stripe/react-stripe-js"],
+    label: "Stripe payments",
+  },
 ];
 
 /**
