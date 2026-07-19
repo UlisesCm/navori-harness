@@ -22,6 +22,10 @@ describe("detectLibrarySkills", () => {
     expect(detectLibrarySkills(["@nestjs/mongoose"])).toEqual(["mongoose"]);
     expect(detectLibrarySkills(["winston"])).toEqual(["winston-logging"]);
     expect(detectLibrarySkills(["redux"])).toEqual(["redux-toolkit"]);
+    // Stripe activates from the server SDK, the JS client, or the React bindings.
+    expect(detectLibrarySkills(["stripe"])).toEqual(["stripe"]);
+    expect(detectLibrarySkills(["@stripe/stripe-js"])).toEqual(["stripe"]);
+    expect(detectLibrarySkills(["@stripe/react-stripe-js"])).toEqual(["stripe"]);
   });
 
   it("is additive — a repo can match several skills at once (no exclusivity)", () => {
