@@ -4,6 +4,8 @@ import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.
 import { readCliVersion } from "./bundled-assets.ts";
 import { computeManagedHash, extractManagedContent, reorderManagedBlocks } from "./marker.ts";
 import { canonicalManagedOrder } from "./render-plan.ts";
+import { detectClaudeInfra } from "./claude-infra.ts";
+import { detectLegacyAgents, type LegacyAgent } from "./legacy-agents.ts";
 import type { NavoriConfig } from "./config.ts";
 
 /**
@@ -286,12 +288,26 @@ export function scanMalformedMarkers(cwd: string): MalformedMarker[] {
   return out;
 }
 
+/**
+ * Scan `.claude/agents/` for legacy agent files (from a hand-rolled harness that
+ * predates navori) whose canonical navori replacement is active — e.g. a repo
+ * shipping `sdd-leader.md` while navori manages `leader.md`. navori never deletes
+ * them (they carry no navori marker, so they're the user's content); it surfaces
+ * them so the user can archive the redundant ones instead of ending up with two
+ * parallel rosters. See legacy-agents.ts.
+ */
+export function scanLegacyAgents(cwd: string, config: NavoriConfig): LegacyAgent[] {
+  return detectLegacyAgents(detectClaudeInfra(cwd).agentFiles, config);
+}
+
 export interface HealthState {
   claudeMdExists: boolean;
   missingPlugins: MissingPlugin[];
   drifts: DriftReport[];
   /** CLAUDE.md managed blocks out of canonical order, if any. */
   orderReport?: OrderReport | null;
+  /** Legacy agent files superseded by a canonical navori agent, if any. */
+  legacyAgents?: LegacyAgent[];
 }
 
 /**
@@ -324,6 +340,12 @@ export function suggestNextSteps(state: HealthState): string[] {
       : "";
     steps.push(
       `Mueve el texto que tienes entre bloques managed de CLAUDE.md arriba del primer bloque o abajo del último${lead}; luego corre 'navori render --apply' para reordenarlos.`,
+    );
+  }
+  if (state.legacyAgents && state.legacyAgents.length > 0) {
+    const names = state.legacyAgents.map((l) => l.legacyName).join(", ");
+    steps.push(
+      `Archiva o borra ${state.legacyAgents.length} agente(s) legacy (${names}); navori ya provee sus equivalentes canónicos.`,
     );
   }
   if (steps.length === 0) {

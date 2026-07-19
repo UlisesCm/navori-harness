@@ -15,6 +15,7 @@ import {
   scanManagedDrift,
   scanManagedOrder,
   scanMalformedMarkers,
+  scanLegacyAgents,
   suggestNextSteps,
 } from "../lib/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
@@ -87,6 +88,10 @@ export const doctorCommand = defineCommand({
     const missingExternalTools = scanMissingExternalTools(config);
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     const workspaceLink = scanWorkspaceLink(cwd, config);
+    // Legacy agent files (sdd-*/deep-auditor) superseded by a canonical navori
+    // agent. Informational — navori never deletes the user's files, it just
+    // surfaces the redundancy so the user can archive them.
+    const legacyAgents = scanLegacyAgents(cwd, config);
     // A declared preset that resolves to neither a local (.navori/presets/) nor
     // a bundled manifest renders the baseline AND warns — config points at
     // something unresolvable, same class as a missing plugin.
@@ -135,6 +140,7 @@ export const doctorCommand = defineCommand({
       presetOverride,
       missingPresetFiles,
       placeholderName,
+      legacyAgents,
     };
 
     if (args.json) {
@@ -294,6 +300,18 @@ export const doctorCommand = defineCommand({
       );
     }
 
+    if (legacyAgents.length > 0) {
+      const lines = legacyAgents.map(
+        (l) =>
+          `  ${color.yellow(sym.update)} ${accent(`.claude/agents/${l.legacyName}.md`)}  ${grey(`→ superado por '${l.canonical}'`)}`,
+      );
+      p.log.warn(
+        `Agentes legacy (${legacyAgents.length}) — de un harness previo; navori ya provee sus ` +
+          `equivalentes canónicos. No los toco (son tuyos), pero conviene archivarlos o borrarlos ` +
+          `para no quedar con dos rosters en paralelo:\n${lines.join("\n")}`,
+      );
+    }
+
     if (missingExternalTools.length > 0) {
       const lines = missingExternalTools.map((t) => {
         const how = t.install
@@ -358,6 +376,7 @@ export const doctorCommand = defineCommand({
       missingPlugins,
       drifts,
       orderReport,
+      legacyAgents,
     });
     p.note(
       nextSteps.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"),
