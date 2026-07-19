@@ -41,6 +41,9 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
     deps: ["stripe", "@stripe/stripe-js", "@stripe/react-stripe-js"],
     label: "Stripe payments",
   },
+  { id: "apollo-client", deps: ["@apollo/client"], label: "Apollo Client" },
+  { id: "zustand", deps: ["zustand"], label: "Zustand" },
+  { id: "tamagui", deps: ["tamagui", "@tamagui/core"], label: "Tamagui" },
 ];
 
 /**
