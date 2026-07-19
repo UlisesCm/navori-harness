@@ -457,6 +457,41 @@ describe("CLI e2e — happy paths", () => {
     expect(existsSync(join(repo, ".git/hooks/pre-commit"))).toBe(false);
   });
 
+  it("init --gitignore-harness adds the harness entries to .gitignore (opt-in)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    spawnSync("git", ["init"], { cwd: repo, stdio: "ignore" });
+
+    const r = runCli(["init", "--recommended", "--gitignore-harness", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const gi = join(repo, ".gitignore");
+    expect(existsSync(gi)).toBe(true);
+    const body = readFileSync(gi, "utf-8");
+    expect(body).toContain(".claude/");
+    expect(body).toContain("CLAUDE.md");
+    expect(body).toContain("AGENTS.md");
+    expect(body).toContain("progress/");
+  });
+
+  it("init versions the harness by default (no --gitignore-harness → harness not ignored)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    spawnSync("git", ["init"], { cwd: repo, stdio: "ignore" });
+
+    const r = runCli(["init", "--recommended", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    // The new default is to VERSION the harness: if a .gitignore exists it must
+    // not carry our harness entries.
+    const gi = join(repo, ".gitignore");
+    if (existsSync(gi)) {
+      const body = readFileSync(gi, "utf-8");
+      expect(body).not.toContain(".claude/");
+      expect(body).not.toContain("CLAUDE.md");
+    }
+  });
+
   it("sync --apply --yes fails with exit 1 when user edited a .claude/ agent (P0-fix B2)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);

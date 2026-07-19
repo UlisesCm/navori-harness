@@ -107,6 +107,9 @@ interface Strings {
   preCommitHookPrompt: string;
   preCommitHookWritten: (path: string) => string;
   preCommitHookExists: (path: string) => string;
+  gitignoreHarnessPrompt: string;
+  gitignoreHarnessWritten: (path: string, count: number) => string;
+  gitignoreHarnessAlready: (path: string) => string;
 
   // Errors / status
   dirNotFound: (dir: string) => string;
@@ -244,6 +247,11 @@ const ES: Strings = {
   preCommitHookWritten: (path) =>
     `Pre-commit hook escrito en ${path} — sáltalo con 'git commit --no-verify'`,
   preCommitHookExists: (path) => `Ya existe un pre-commit hook en ${path} — no lo piso`,
+  gitignoreHarnessPrompt:
+    "¿Gitignorear el harness (.claude/, CLAUDE.md, AGENTS.md, progress/)? Por default se versiona; di 'sí' solo si prefieres mantenerlo fuera de git y regenerarlo con 'navori render'.",
+  gitignoreHarnessWritten: (path, count) =>
+    `Agregadas ${count} entrada(s) del harness a ${path} — navori.config.json sigue versionado; regenera con 'navori render'`,
+  gitignoreHarnessAlready: (path) => `El harness ya estaba gitignoreado en ${path} — no cambié nada`,
 
   dirNotFound: (dir) => `Directorio no encontrado: ${dir}`,
   configExists: (path) =>
@@ -398,6 +406,11 @@ const EN: Strings = {
   preCommitHookWritten: (path) =>
     `Pre-commit hook written to ${path} — bypass with 'git commit --no-verify'`,
   preCommitHookExists: (path) => `A pre-commit hook already exists at ${path} — leaving it alone`,
+  gitignoreHarnessPrompt:
+    "Gitignore the harness (.claude/, CLAUDE.md, AGENTS.md, progress/)? It's versioned by default; say yes only if you'd rather keep it out of git and regenerate with 'navori render'.",
+  gitignoreHarnessWritten: (path, count) =>
+    `Added ${count} harness entry(ies) to ${path} — navori.config.json stays versioned; regenerate with 'navori render'`,
+  gitignoreHarnessAlready: (path) => `The harness was already gitignored in ${path} — left it alone`,
 
   dirNotFound: (dir) => `Directory not found: ${dir}`,
   configExists: (path) =>

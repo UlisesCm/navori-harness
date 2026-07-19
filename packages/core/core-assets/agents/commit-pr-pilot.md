@@ -113,7 +113,7 @@ Si el repo define su propio template (`.github/pull_request_template.md`), léel
 ## Reglas duras
 
 - ❌ Nunca pushear con `--force` a `{{branchBase}}` u otra rama protegida.
-- ❌ Nunca commitear `.claude/` ni `CLAUDE.md` (gitignored por convención).
+- ✅ El harness (`.claude/`, `CLAUDE.md`, `AGENTS.md`, `progress/`) se versiona por default: es parte del repo, inclúyelo en los commits. Única excepción per-user: `.claude/settings.local.json` (gitignored). Si el repo optó por gitignorear el harness, respeta su `.gitignore`.
 - ❌ Nunca skippear hooks (`--no-verify`) salvo pedido explícito del usuario.
 - ❌ Nunca pedir merge / aprobar PR tú mismo. Tu job termina con la URL.
 - ✅ Mensaje de commit y PR en el idioma definido por `commits` del config (`conventional-es` = español MX, `conventional` = inglés).

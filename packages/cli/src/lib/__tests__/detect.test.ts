@@ -343,6 +343,28 @@ describe("detectProject — suggested preset never points to a phantom (F1)", ()
     }
   });
 
+  it("suggests bun-keystone for a Keystone 6 backend (ships, so no gap)", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({
+          name: "api",
+          packageManager: "bun@1.3.9",
+          dependencies: { "@keystone-6/core": "^6", "@prisma/client": "^6", zod: "^4" },
+        }),
+      );
+      const d = detectProject(dir);
+      // Keystone wins the framework race over express (detect.ts precedence),
+      // and bun-keystone now ships on disk → real preset, no honest-gap.
+      expect(d.stack.framework).toBe("@keystone-6/core");
+      expect(d.suggestedPreset).toBe("bun-keystone");
+      expect(d.suggestedPresetGap).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   it("does not treat a pnpm-workspace.yaml with no packages as a monorepo", () => {
     const dir = makeTmp();
     try {

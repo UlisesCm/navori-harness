@@ -81,11 +81,11 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       ".claude/skills/medusa-api-routes.md",
       ".claude/skills/medusa-modules.md",
     ]);
-    // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 7 agents + 3 core
+    // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 8 agents + 3 core
     // skills + 3 workflow skills (ticket-intake, pr-create, spec-bootstrap) +
     // 2 progress files + 2 medusa skills + 2 CLAUDE.md managed blocks counted
-    // independently of the file + 1 always-on guard hook = 21.
-    expect(r.inspected).toBe(21);
+    // independently of the file + 1 always-on guard hook = 22.
+    expect(r.inspected).toBe(22);
   });
 
   describe("bundled stack presets (B4)", () => {
@@ -114,6 +114,14 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
           ".claude/skills/worker-lifecycle.md",
           ".claude/skills/job-scheduling.md",
           ".claude/skills/queue-consumers.md",
+        ],
+      },
+      {
+        id: "bun-keystone",
+        skills: [
+          ".claude/skills/keystone-models.md",
+          ".claude/skills/keystone-access.md",
+          ".claude/skills/prisma-keystone.md",
         ],
       },
       {
