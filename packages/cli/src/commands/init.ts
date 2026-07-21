@@ -20,8 +20,14 @@ import { t, type Lang } from "../lib/i18n.ts";
 import { loadPrompts, type LoadedPrompt } from "../engines/claude/prompts-loader.ts";
 import { scanMonorepoWorkspaces, type DetectedWorkspace } from "../lib/scan.ts";
 import type { MonorepoWorkspace } from "../lib/monorepo.ts";
-import type { NavoriConfigInput } from "../lib/schema.ts";
-import { buildRecommendedQualityGate, buildRecommendedProject } from "../lib/recommended.ts";
+import type { NavoriConfigInput, NavoriConfig } from "../lib/schema.ts";
+import {
+  buildRecommendedQualityGate,
+  buildRecommendedProject,
+  buildFullPlugins,
+  buildFullProject,
+} from "../lib/recommended.ts";
+import { scanMissingExternalTools } from "./doctor.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
 
@@ -61,6 +67,11 @@ export const initCommand = defineCommand({
       type: "boolean",
       description: "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh if GitHub repo)",
     },
+    full: {
+      type: "boolean",
+      description:
+        "Maximal mode: --recommended + all plugins + pre-commit hook + monorepo scan + strict project block",
+    },
     lang: {
       type: "string",
       description: "Wizard language (es|en). Default: es. Skipped in --yes/--recommended.",
@@ -79,8 +90,10 @@ export const initCommand = defineCommand({
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const configPath = `${cwd}/navori.config.json`;
-    // --recommended implies --yes (skip wizard)
-    const autoYes = Boolean(args.yes || args.recommended);
+    // --full implies --recommended, which implies --yes (skip wizard).
+    const isFull = Boolean(args.full);
+    const isRecommended = Boolean(args.recommended || args.full);
+    const autoYes = Boolean(args.yes || args.recommended || args.full);
 
     p.intro(brand("init"));
 
@@ -189,20 +202,33 @@ export const initCommand = defineCommand({
         process.exit(1);
       }
       const wsPlugins = wsDefaults?.plugins ?? {};
-      const recommendedPlugins = args.recommended
+      // --full turns on every *bundled* plugin (listKnownPluginIds, not the
+      // static map, so we never enable an id that isn't shipped and would fail
+      // doctor --strict); --recommended adds only the context-aware extras (gh
+      // when GitHub). engram is always-on regardless.
+      const extraPlugins = isFull
+        ? buildFullPlugins(listKnownPluginIds())
+        : isRecommended
         ? buildRecommendedPlugins(cwd)
         : {};
-      // engram is always-on; workspace defaults / --recommended layer on top and
-      // may still override it explicitly.
-      const mergedPlugins = { ...ALWAYS_ON_PLUGINS, ...wsPlugins, ...recommendedPlugins };
+      // Merge order matters: workspace defaults are org policy and win over the
+      // mode-driven extras, so a workspace that explicitly disables a plugin
+      // (enabled:false) stays disabled even under --full. engram (always-on) is
+      // the baseline and can likewise be overridden by an explicit workspace entry.
+      const mergedPlugins = { ...ALWAYS_ON_PLUGINS, ...extraPlugins, ...wsPlugins };
 
       p.log.info(tr.pluginsAlwaysOn(Object.keys(ALWAYS_ON_PLUGINS).join(", ")));
-      if (args.recommended && Object.keys(recommendedPlugins).length > 0) {
-        p.log.info(tr.recPluginsEnabled(Object.keys(recommendedPlugins).join(", ")));
+      if (isFull) {
+        // The full-mode banner already says "all plugins"; listing them again
+        // (and re-announcing always-on engram) would be redundant/contradictory.
+        p.log.info(tr.fullModeEnabled);
+      } else if (isRecommended && Object.keys(extraPlugins).length > 0) {
+        p.log.info(tr.recPluginsEnabled(Object.keys(extraPlugins).join(", ")));
       }
 
       const monorepoBlock = await buildMonorepoBlock(cwd, detected, {
-        scanMonorepo: Boolean((args as { "scan-monorepo"?: boolean })["scan-monorepo"]),
+        // --full always scans a detected monorepo to populate a preset per app.
+        scanMonorepo: Boolean((args as { "scan-monorepo"?: boolean })["scan-monorepo"]) || isFull,
         autoYes: true,
         lang,
         rootPreset: detected.suggestedPreset,
@@ -214,7 +240,7 @@ export const initCommand = defineCommand({
       // nothing, they just declare "no critical areas / legacy paths". Writing
       // it in BOTH modes keeps `<not configured: project.*>` placeholders out of
       // the rendered agents (the schema fills localSkills/etc. via .default([])).
-      const fallbackQg = args.recommended
+      const fallbackQg = isRecommended
         ? detected.qualityGate ?? buildRecommendedQualityGate(detected)
         : detected.qualityGate;
       // Detected library skills and codeLanguage are facts of the stack, not
@@ -222,7 +248,11 @@ export const initCommand = defineCommand({
       // cross-preset skills and the language-aware baseline (TS-only
       // tipado-fuerte) resolve without a wizard answer.
       const projectBlock = {
-        ...(args.recommended ? buildRecommendedProject(detected) : {}),
+        ...(isFull
+          ? buildFullProject(detected)
+          : isRecommended
+          ? buildRecommendedProject(detected)
+          : {}),
         libraries: detected.libraries,
         libraryMigrations: detected.migrations,
         codeLanguage: detected.stack.language,
@@ -244,8 +274,19 @@ export const initCommand = defineCommand({
       });
       p.log.success(tr.wroteConfig(configPath));
 
-      if (args.recommended && !detected.qualityGate && fallbackQg) {
+      if (isRecommended && !detected.qualityGate && fallbackQg) {
         p.log.info(`Quality gate fallback aplicado: ${fallbackQg.fast}`);
+      }
+
+      // --full enables plugins even when their external binary is absent. doctor
+      // surfaces those as a non-fatal yellow warning (they never flip its exit
+      // code), so name them up front — installing them lets the plugin's hooks
+      // actually run. Reuses doctor's own externalTool scan for accuracy.
+      if (isFull) {
+        const missing = scanMissingExternalTools({ plugins: mergedPlugins } as NavoriConfig);
+        if (missing.length > 0) {
+          p.log.warn(tr.fullBinariesToInstall(missing.map((m) => m.binary).join(", ")));
+        }
       }
       // Surface gaps that the user can't see otherwise — autoYes skipped the
       // wizard so they never had a chance to fill these in. Without a
@@ -262,7 +303,11 @@ export const initCommand = defineCommand({
       }
       // citty negates booleans on --no-X, so args.render === false when --no-render is passed.
       if (args.render !== false) renderInline(cwd);
-      await offerPreCommitHook(cwd, { autoYes, force: Boolean(args["pre-commit-hook"]), lang });
+      await offerPreCommitHook(cwd, {
+        autoYes,
+        force: Boolean(args["pre-commit-hook"]) || isFull,
+        lang,
+      });
       p.outro(tr.done);
       return;
     }

@@ -44,3 +44,45 @@ export function buildRecommendedProject(
     ...(detected.stack.test ? { testRunner: detected.stack.test } : {}),
   };
 }
+
+/**
+ * Enable every known plugin for `init --full`. Unlike `--recommended` (which is
+ * conservative and only adds `gh` when there's a GitHub remote), full mode turns
+ * on all plugins in navori.config.json — including the ones that need an external
+ * binary (jscpd/semgrep/cognitive/gh/acli). A missing binary is surfaced by
+ * `doctor` as a non-fatal yellow warning (never flips its exit code); that's the
+ * accepted trade-off for a maximal install.
+ *
+ * `pluginIds` must come from `listKnownPluginIds()` (bundled-aware) so full mode
+ * only enables plugins actually shipped in this install — never a stale static-map
+ * id that would render as a missing plugin and fail `doctor --strict`.
+ */
+export function buildFullPlugins(pluginIds: string[]): Record<string, { enabled: boolean }> {
+  const result: Record<string, { enabled: boolean }> = {};
+  for (const id of pluginIds) {
+    result[id] = { enabled: true };
+  }
+  return result;
+}
+
+/**
+ * Build a strict `project` block for `init --full`. Extends the recommended
+ * baseline (empty legacyPaths/criticalAreas + detected testRunner) with an
+ * opinionated posture for a production-grade harness. `architectureRule` stays
+ * unset on purpose — it's repo-specific and full mode never invents it.
+ */
+export function buildFullProject(detected: DetectedProject): {
+  legacyPaths: string[];
+  criticalAreas: string[];
+  testRunner?: string;
+  posture: string;
+  reviewRigor: string;
+  testsForNewCode: string;
+} {
+  return {
+    ...buildRecommendedProject(detected),
+    posture: "production",
+    reviewRigor: "strict",
+    testsForNewCode: "always",
+  };
+}

@@ -16,8 +16,9 @@ const es: Record<string, CommandDoc> = {
     title: "init",
     summary:
       "Inicializa un repo con navori. Detecta el stack, hace unas preguntas y deja todo listo en un minuto.",
-    usage: "navori init [--recommended] [--yes] [--scan-monorepo] [--pre-commit-hook]",
+    usage: "navori init [--full] [--recommended] [--yes] [--scan-monorepo] [--pre-commit-hook]",
     flags: [
+      { flag: "--full", desc: "Modo máximo: --recommended + todos los plugins + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode)." },
       { flag: "--recommended", desc: "Modo opinado: --yes + habilita plugins recomendados (engram, +gh si es repo GitHub)." },
       { flag: "--yes, -y", desc: "Acepta todo lo detectado sin preguntar (CI-friendly)." },
       { flag: "--lang <es|en>", desc: "Idioma del wizard. Default: es." },
@@ -205,8 +206,9 @@ const en: Record<string, CommandDoc> = {
     title: "init",
     summary:
       "Bootstrap a repo with navori. Detects the stack, asks a few questions, and leaves everything ready in a minute.",
-    usage: "navori init [--recommended] [--yes] [--scan-monorepo] [--pre-commit-hook]",
+    usage: "navori init [--full] [--recommended] [--yes] [--scan-monorepo] [--pre-commit-hook]",
     flags: [
+      { flag: "--full", desc: "Maximal mode: --recommended + all plugins + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode)." },
       { flag: "--recommended", desc: "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh on GitHub repos)." },
       { flag: "--yes, -y", desc: "Accept everything detected without prompting (CI-friendly)." },
       { flag: "--lang <es|en>", desc: "Wizard language. Default: es." },

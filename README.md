@@ -17,6 +17,8 @@
 npx navori init           # wizard con detección de stack
 # o, sin preguntas:
 npx navori init --recommended
+# o, instalación máxima (todos los plugins + pre-commit hook + project block estricto):
+npx navori init --full
 ```
 
 > 📦 npm: [`navori`](https://www.npmjs.com/package/navori) · 📖 Referencia completa del CLI: [`packages/cli/README.md`](./packages/cli/README.md)
@@ -58,7 +60,7 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 
 | Comando | Qué hace |
 |---|---|
-| `init` | Bootstrap con detección de stack + wizard (o `--recommended` sin preguntas) |
+| `init` | Bootstrap con detección de stack + wizard (o `--recommended` sin preguntas, o `--full` para la instalación máxima) |
 | `update` | Re-detecta el repo, refresca el config y corre el engine completo — *bring me up to date* |
 | `render` | Genera `CLAUDE.md` + `.claude/` desde el config (preview por default; `--apply` escribe) |
 | `sync` | Refresca los managed blocks con conflict resolution + backups |

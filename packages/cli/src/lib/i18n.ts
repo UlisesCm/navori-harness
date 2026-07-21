@@ -117,6 +117,8 @@ interface Strings {
   wroteConfig: (path: string) => string;
   recPluginsEnabled: (list: string) => string;
   pluginsAlwaysOn: (list: string) => string;
+  fullModeEnabled: string;
+  fullBinariesToInstall: (list: string) => string;
   presetGapNotice: (stack: string) => string;
   placeholderNameNotice: (name: string) => string;
 
@@ -257,6 +259,10 @@ const ES: Strings = {
   wroteConfig: (path) => `Escribí ${path}`,
   recPluginsEnabled: (list) => `Plugins recomendados activados: ${list}`,
   pluginsAlwaysOn: (list) => `Incluidos siempre con navori: ${list} (no hace falta elegirlos)`,
+  fullModeEnabled:
+    "Modo full: todos los plugins + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode).",
+  fullBinariesToInstall: (list) =>
+    `Faltan binarios de plugins activados (los hooks de esos plugins no corren hasta instalarlos; 'navori doctor' los reporta como advertencia): ${list}`,
   presetGapNotice: (stack) =>
     `Detecté un proyecto '${stack}', pero todavía no hay un preset oficial para ese stack. ` +
     `Se instala el harness completo (agentes, gates, protocolo, SDD) y funciona desde ya; ` +
@@ -411,6 +417,10 @@ const EN: Strings = {
   wroteConfig: (path) => `Wrote ${path}`,
   recPluginsEnabled: (list) => `Recommended plugins enabled: ${list}`,
   pluginsAlwaysOn: (list) => `Always included with navori: ${list} (no need to pick them)`,
+  fullModeEnabled:
+    "Full mode: all plugins + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode).",
+  fullBinariesToInstall: (list) =>
+    `Enabled plugins are missing their binaries (their hooks won't run until installed; 'navori doctor' reports them as a warning): ${list}`,
   presetGapNotice: (stack) =>
     `Detected a '${stack}' project, but there's no official preset for that stack yet. ` +
     `The full harness installs (agents, gates, protocol, SDD) and works right away; ` +

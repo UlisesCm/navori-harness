@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildRecommendedQualityGate, buildRecommendedProject } from "../recommended.ts";
+import {
+  buildRecommendedQualityGate,
+  buildRecommendedProject,
+  buildFullPlugins,
+  buildFullProject,
+} from "../recommended.ts";
+import { KNOWN_PLUGINS } from "../plugins.ts";
 import type { DetectedProject } from "../detect.ts";
 
 function makeDetected(overrides: Partial<DetectedProject> = {}): DetectedProject {
@@ -123,5 +129,59 @@ describe("buildRecommendedProject", () => {
       stack: { ...makeDetected().stack, test: "@playwright/test" },
     });
     expect(buildRecommendedProject(detected).testRunner).toBe("@playwright/test");
+  });
+});
+
+describe("buildFullPlugins", () => {
+  it("enables every id it is given", () => {
+    const ids = Object.keys(KNOWN_PLUGINS);
+    const result = buildFullPlugins(ids);
+    expect(Object.keys(result).sort()).toEqual([...ids].sort());
+    for (const id of ids) {
+      expect(result[id]).toEqual({ enabled: true });
+    }
+  });
+
+  it("enables the binary-dependent plugins (jscpd/semgrep/cognitive/gh/acli) unconditionally", () => {
+    const result = buildFullPlugins(["jscpd", "semgrep", "cognitive", "gh", "acli"]);
+    for (const id of ["jscpd", "semgrep", "cognitive", "gh", "acli"]) {
+      expect(result[id]).toEqual({ enabled: true });
+    }
+  });
+
+  it("only enables the ids passed in (bundled-aware caller decides the set)", () => {
+    const result = buildFullPlugins(["engram", "gh"]);
+    expect(Object.keys(result).sort()).toEqual(["engram", "gh"]);
+  });
+
+  it("returns an empty set for an empty id list", () => {
+    expect(buildFullPlugins([])).toEqual({});
+  });
+});
+
+describe("buildFullProject", () => {
+  it("extends the recommended baseline with a strict production posture", () => {
+    const detected = makeDetected({
+      stack: { ...makeDetected().stack, test: "vitest" },
+    });
+    expect(buildFullProject(detected)).toEqual({
+      legacyPaths: [],
+      criticalAreas: [],
+      testRunner: "vitest",
+      posture: "production",
+      reviewRigor: "strict",
+      testsForNewCode: "always",
+    });
+  });
+
+  it("never invents architectureRule (repo-specific)", () => {
+    const result = buildFullProject(makeDetected());
+    expect("architectureRule" in result).toBe(false);
+  });
+
+  it("still omits testRunner when no test stack is detected", () => {
+    const result = buildFullProject(makeDetected({ stack: { ...makeDetected().stack, test: null } }));
+    expect("testRunner" in result).toBe(false);
+    expect(result.posture).toBe("production");
   });
 });
