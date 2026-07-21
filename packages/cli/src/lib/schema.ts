@@ -43,6 +43,17 @@ const MonorepoWorkspaceSchema = z.object({
   path: safeRelPath,
   preset: z.string().optional(),
   qualityGate: QualityGateSchema.optional(),
+  /** Library-skill ids detected in THIS workspace's own deps. Scopes library
+   * skills per workspace so an app only gets the skills for the libs it ships —
+   * without this the root's aggregated list would spray every skill into every
+   * workspace (e.g. a Stripe skill in a backend that never imports Stripe). */
+  libraries: z.array(z.string()).optional(),
+  /** Active dependency migrations detected in THIS workspace's own deps. Scoped
+   * per workspace for the same reason as `libraries` — a mid-migration rule
+   * belongs only to the app whose package.json ships both sides of the pair. */
+  libraryMigrations: z
+    .array(z.object({ legacy: z.string(), preferred: z.string(), domain: z.string() }))
+    .optional(),
 });
 
 const MonorepoSchema = z.object({

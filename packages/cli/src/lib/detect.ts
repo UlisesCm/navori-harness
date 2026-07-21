@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { presetExists } from "./presets.ts";
-import { collectWorkspacePatterns, expandPattern } from "./workspace-patterns.ts";
+import { collectWorkspacePatterns } from "./workspace-patterns.ts";
 import { detectLibrarySkills, detectMigrations, type ActiveMigration } from "./library-skills.ts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
@@ -109,17 +109,21 @@ export function detectProject(cwd: string): DetectedProject {
   const packageManager = detectPackageManager(cwd);
   const monorepo = detectMonorepo(cwd);
   const stack = detectStack(cwd, pkg, pyproject, cargo);
-  // Library skills: in a monorepo, aggregate deps from every workspace
-  // package.json too — a dep that lives only in packages/<app> (not the root)
-  // would otherwise be invisible and its skill lost (#80). The root render
-  // materializes them; workspaces inherit via the parent CLAUDE.md.
+  // Library skills come from THIS package's own deps. In a monorepo the root
+  // scan therefore yields only root-level libs (usually none) — each workspace
+  // detects its own libs via its own `detectProject` (scan.ts) and carries them
+  // on `monorepo.workspaces[].libraries`, scoped per workspace at render. We no
+  // longer aggregate every workspace's deps into the root array (#80): that
+  // sprayed every skill into every workspace CLAUDE.md, e.g. a Stripe skill in a
+  // backend that never imports Stripe.
   const libraryDeps = new Set<string>(stack.deps);
-  if (monorepo) {
-    for (const dep of collectMonorepoWorkspaceDeps(cwd)) libraryDeps.add(dep);
-  }
   const libraries = detectLibrarySkills([...libraryDeps]);
   const migrations = detectMigrations([...libraryDeps]);
-  const { preset: suggestedPreset, gap: suggestedPresetGap } = suggestPreset(stack, monorepo);
+  // The turbo+pnpm preset teaches pnpm-only workflows; only suggest it when the
+  // repo actually uses pnpm. `pnpm-workspace.yaml` is a definitive pnpm signal
+  // even when no lockfile is committed (detectPackageManager needs a lockfile).
+  const usesPnpm = packageManager === "pnpm" || existsSync(join(cwd, "pnpm-workspace.yaml"));
+  const { preset: suggestedPreset, gap: suggestedPresetGap } = suggestPreset(stack, monorepo, usesPnpm);
   const qualityGate = guessQualityGate(pkg, packageManager, stack);
   const claudeInfra = detectClaudeInfra(cwd);
 
@@ -469,25 +473,6 @@ function collectNodeDeps(pkg: PackageJson | null): string[] {
   ];
 }
 
-/**
- * Node deps declared in every workspace's package.json (monorepo). Used only to
- * feed library-skill detection — a dep in packages/<app> but not the root would
- * otherwise be missed (#80). Best-effort: unreadable/missing manifests are
- * skipped. Non-Node workspaces contribute nothing here.
- */
-function collectMonorepoWorkspaceDeps(cwd: string): string[] {
-  const deps = new Set<string>();
-  const seen = new Set<string>();
-  for (const pattern of collectWorkspacePatterns(cwd)) {
-    for (const rel of expandPattern(cwd, pattern)) {
-      if (seen.has(rel)) continue;
-      seen.add(rel);
-      for (const dep of collectNodeDeps(readPackageJson(join(cwd, rel)))) deps.add(dep);
-    }
-  }
-  return [...deps];
-}
-
 function pick(deps: ReadonlySet<string>, ...candidates: string[]): string | null {
   for (const c of candidates) {
     if (deps.has(c)) return c;
@@ -646,6 +631,7 @@ function detectStack(
 function suggestPreset(
   stack: StackInfo,
   monorepo: MonorepoInfo | null,
+  usesPnpm: boolean,
 ): { preset: string; gap: string | null } {
   // The candidate logic names ideal presets (e.g. "monorepo-turbopnpm", "rust")
   // that may not exist yet. Three outcomes:
@@ -654,15 +640,18 @@ function suggestPreset(
   //   - candidate recognized but missing → render baseline ("custom") AND expose
   //     the candidate as a `gap` so init names it honestly instead of falling
   //     back silently to custom.
-  const candidate = pickPresetCandidate(stack, monorepo);
+  const candidate = pickPresetCandidate(stack, monorepo, usesPnpm);
   if (candidate === "custom") return { preset: "custom", gap: null };
   if (presetExists(candidate)) return { preset: candidate, gap: null };
   return { preset: "custom", gap: candidate };
 }
 
-function pickPresetCandidate(stack: StackInfo, monorepo: MonorepoInfo | null): string {
+function pickPresetCandidate(stack: StackInfo, monorepo: MonorepoInfo | null, usesPnpm: boolean): string {
   if (monorepo) {
-    if (monorepo.tool === "turbo") return "monorepo-turbopnpm";
+    // The monorepo-turbopnpm preset ships pnpm-specific guidance (`pnpm turbo
+    // run --filter`, `workspace:*`). A turbo repo on npm/yarn gets the neutral
+    // baseline instead of demonstrably-wrong commands.
+    if (monorepo.tool === "turbo") return usesPnpm ? "monorepo-turbopnpm" : "custom";
     if (monorepo.tool === "pnpm") return "monorepo-pnpm";
     if (monorepo.tool === "npm" || monorepo.tool === "lerna") return "monorepo-npm";
   }

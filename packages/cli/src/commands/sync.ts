@@ -5,7 +5,11 @@ import { resolve, join } from "node:path";
 import { type NavoriConfig } from "../lib/config.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
-import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
+import {
+  effectiveConfigForWorkspace,
+  buildMonorepoContext,
+  type MonorepoRenderContext,
+} from "../lib/monorepo.ts";
 import { extractManagedContent } from "../lib/marker.ts";
 import { formatLineDiff } from "../lib/diff.ts";
 import { renderStatusSymbol, renderStatusLabel, dim, color, sym, brand, accent } from "../lib/style.ts";
@@ -75,7 +79,11 @@ export const syncCommand = defineCommand({
     // Dry-run pass: get the full plan for every target without writing anything.
     const plans: TargetPlan[] = targets.map((t) => ({
       target: t,
-      plan: renderClaudeEngine(t.cwd, t.config, { dryRun: true, repoRoot: t.repoRoot }),
+      plan: renderClaudeEngine(t.cwd, t.config, {
+        dryRun: true,
+        repoRoot: t.repoRoot,
+        monorepoContext: t.monorepoContext,
+      }),
     }));
 
     reportPlans(plans);
@@ -174,6 +182,7 @@ export const syncCommand = defineCommand({
         skipIds: res?.skipIds,
         forceIds: res?.forceIds,
         repoRoot: t.repoRoot,
+        monorepoContext: t.monorepoContext,
       });
       writtenTotal += applied.written.length;
       if (applied.backupPath) {
@@ -195,6 +204,10 @@ export interface SyncTarget {
   repoRoot: string;
   /** Effective config for this target (root config or workspace-effective). */
   config: NavoriConfig;
+  /** Monorepo map context for a workspace target; undefined for the root (which
+   * reads `config.monorepo` directly). Keeps the workspace's "## Monorepo" block
+   * in sync with what `render` writes. */
+  monorepoContext?: MonorepoRenderContext;
 }
 
 export interface TargetPlan {
@@ -236,6 +249,7 @@ export function resolveSyncTargets(
           cwd: resolve(cwd, match.path),
           repoRoot: cwd,
           config: effectiveConfigForWorkspace(config, match),
+          monorepoContext: buildMonorepoContext(config, match),
         },
       ],
     };
@@ -248,6 +262,7 @@ export function resolveSyncTargets(
       cwd: resolve(cwd, ws.path),
       repoRoot: cwd,
       config: effectiveConfigForWorkspace(config, ws),
+      monorepoContext: buildMonorepoContext(config, ws),
     });
   }
   return { ok: true, targets };

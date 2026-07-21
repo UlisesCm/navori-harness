@@ -21,7 +21,7 @@
   ],
   "features": {
     "plugins": 6,
-    "presets": 11,
+    "presets": 12,
     "coreAgents": 8,
     "coreSkills": 6,
     "librarySkills": 12

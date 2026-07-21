@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { detectProject } from "./detect.ts";
 import { collectWorkspacePatterns, expandPattern } from "./workspace-patterns.ts";
 import type { MonorepoWorkspace } from "./monorepo.ts";
+import type { ActiveMigration } from "./library-skills.ts";
 
 export interface DetectedWorkspace {
   /** Workspace package name (from package.json#name, normalized to kebab) or directory basename. */
@@ -13,6 +14,12 @@ export interface DetectedWorkspace {
   suggestedPreset: string;
   /** Framework dep that drove the preset suggestion (display hint only). */
   framework: string | null;
+  /** Library-skill ids detected in THIS workspace's own deps. Carried onto the
+   * config so library skills are scoped to the workspace that ships the lib. */
+  libraries: string[];
+  /** Active dependency migrations detected in THIS workspace's own deps. Carried
+   * per workspace for the same scoping reason as `libraries`. */
+  migrations: ActiveMigration[];
 }
 
 /**
@@ -99,5 +106,7 @@ function describeWorkspace(cwd: string, relPath: string): DetectedWorkspace | nu
     path: relPath,
     suggestedPreset: project.suggestedPreset,
     framework: project.stack.framework,
+    libraries: project.libraries,
+    migrations: project.migrations,
   };
 }

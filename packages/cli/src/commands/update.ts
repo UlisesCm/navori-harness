@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { writeConfig, type NavoriConfig } from "../lib/config.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import { detectProject } from "../lib/detect.ts";
+import { scanMonorepoWorkspaces } from "../lib/scan.ts";
 import { runRender, formatDowngradeWarning } from "./render.ts";
 import type { UpdateAvailable } from "../lib/render-plan.ts";
 import { brand, dim, color, accent, sym, type RenderStatus } from "../lib/style.ts";
@@ -90,6 +91,40 @@ function sameMigrations(a: readonly MigrationEntry[], b: readonly MigrationEntry
 function withProject(current: unknown, patch: Record<string, unknown>): Record<string, unknown> {
   const base = current && typeof current === "object" ? (current as Record<string, unknown>) : {};
   return { ...base, ...patch };
+}
+
+/**
+ * Re-home per-workspace library skills + migrations in a monorepo config by
+ * re-scanning each workspace's package.json. A config written before per-
+ * workspace scoping — or by a pre-#80 navori that aggregated every workspace's
+ * libs onto the root — has stale/absent `monorepo.workspaces[].libraries`; this
+ * migrates those libs onto the workspace that actually ships them instead of
+ * letting them vanish when the root array is trimmed to root-only. Mutates
+ * `raw` in place; returns true when any workspace entry changed. No-op (and no
+ * spurious write) when every workspace is already correctly scoped.
+ */
+export function refreshWorkspaceScopes(raw: Record<string, unknown>, cwd: string): boolean {
+  const mono = raw.monorepo as { workspaces?: Array<Record<string, unknown>> } | undefined;
+  if (!mono?.workspaces?.length) return false;
+  const byPath = new Map(scanMonorepoWorkspaces(cwd).map((s) => [s.path, s]));
+  let changed = false;
+  for (const ws of mono.workspaces) {
+    const det = byPath.get(ws.path as string);
+    if (!det) continue; // orphan (path gone) — leave as-is; render skips it
+    const curLibs = (ws.libraries as string[] | undefined) ?? [];
+    if (!sameSet(curLibs, det.libraries)) {
+      if (det.libraries.length > 0) ws.libraries = det.libraries;
+      else delete ws.libraries;
+      changed = true;
+    }
+    const curMigs = (ws.libraryMigrations as MigrationEntry[] | undefined) ?? [];
+    if (!sameMigrations(curMigs, det.migrations)) {
+      if (det.migrations.length > 0) ws.libraryMigrations = det.migrations;
+      else delete ws.libraryMigrations;
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 function diffConfig(current: NavoriConfig, detected: ReturnType<typeof detectProject>): ConfigDiff[] {
@@ -221,7 +256,10 @@ export const updateCommand = defineCommand({
 
     const rawConfig = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
     const deadKeys = deadProgressKeys(rawConfig);
-    const willWriteConfig = diffs.length > 0 || deadKeys.length > 0;
+    // Re-home per-workspace library skills (mutates rawConfig). Persisted below
+    // with the other config writes; the apply-pass render then materializes them.
+    const wsScopesChanged = refreshWorkspaceScopes(rawConfig, cwd);
+    const willWriteConfig = diffs.length > 0 || deadKeys.length > 0 || wsScopesChanged;
 
     // Preview the FULL engine render (CLAUDE.md + the .claude/ tree) against the
     // current config, aggregating root + every workspace + non-Claude engines.
@@ -241,8 +279,12 @@ export const updateCommand = defineCommand({
         (d) => `  ${color.yellow(sym.updated)} ${accent(d.field)}${dim(":")} ${color.red(d.before)} ${dim("→")} ${color.green(d.after)}`,
       );
       p.log.info(`Config drift detected (${diffs.length}):\n${lines.join("\n")}`);
-    } else {
+    } else if (!wsScopesChanged) {
       p.log.info("Config is in sync with the repo");
+    }
+
+    if (wsScopesChanged) {
+      p.log.info("Re-homed per-workspace library skills onto monorepo.workspaces[] (scoping migration)");
     }
 
     if (deadKeys.length > 0) {

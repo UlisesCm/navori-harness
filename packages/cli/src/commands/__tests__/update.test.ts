@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeConfig } from "../../lib/config.ts";
 import { runRender } from "../render.ts";
-import { aggregateRender, deadProgressKeys } from "../update.ts";
+import { aggregateRender, deadProgressKeys, refreshWorkspaceScopes } from "../update.ts";
 
 let cwd: string;
 
@@ -24,6 +24,47 @@ describe("deadProgressKeys (#79)", () => {
     expect(deadProgressKeys({ progress: { dir: "progress" } })).toEqual([]);
     expect(deadProgressKeys({})).toEqual([]);
     expect(deadProgressKeys({ progress: "nonsense" })).toEqual([]);
+  });
+});
+
+describe("refreshWorkspaceScopes — re-home per-workspace library skills (#80 migration)", () => {
+  function writePkg(path: string, pkg: object): void {
+    mkdirSync(join(cwd, path), { recursive: true });
+    writeFileSync(join(cwd, path, "package.json"), JSON.stringify(pkg));
+  }
+
+  it("re-homes a workspace-only lib onto its config entry and returns true", () => {
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), `packages:\n  - 'apps/*'\n`);
+    writePkg("apps/api", { name: "api", dependencies: { mongoose: "^8" } });
+    // Legacy-style config: aggregated lib on the root, workspace entry has none.
+    const raw: Record<string, unknown> = {
+      project: { libraries: ["mongoose"] },
+      monorepo: { enabled: true, tool: "pnpm", workspaces: [{ name: "api", path: "apps/api" }] },
+    };
+
+    const changed = refreshWorkspaceScopes(raw, cwd);
+
+    expect(changed).toBe(true);
+    const ws = (raw.monorepo as { workspaces: Array<Record<string, unknown>> }).workspaces[0]!;
+    expect(ws.libraries).toEqual(["mongoose"]);
+  });
+
+  it("is a no-op (returns false) when workspaces are already correctly scoped", () => {
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), `packages:\n  - 'apps/*'\n`);
+    writePkg("apps/api", { name: "api", dependencies: { mongoose: "^8" } });
+    const raw: Record<string, unknown> = {
+      monorepo: {
+        enabled: true,
+        tool: "pnpm",
+        workspaces: [{ name: "api", path: "apps/api", libraries: ["mongoose"] }],
+      },
+    };
+
+    expect(refreshWorkspaceScopes(raw, cwd)).toBe(false);
+  });
+
+  it("returns false for a non-monorepo config", () => {
+    expect(refreshWorkspaceScopes({ project: { libraries: ["zod-validation"] } }, cwd)).toBe(false);
   });
 });
 

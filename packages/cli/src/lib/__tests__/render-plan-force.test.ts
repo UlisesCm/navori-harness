@@ -51,7 +51,12 @@ describe("canonicalManagedOrder", () => {
     const order = canonicalManagedOrder(config, repoRoot);
     expect(order[0]).toBe("orquestacion");
     expect(order).toContain("idioma-rol");
-    expect(order.slice(-3)).toEqual(["skills-index", "agentes-disponibles", "contexto-proyecto"]);
+    expect(order.slice(-4)).toEqual([
+      "skills-index",
+      "agentes-disponibles",
+      "contexto-monorepo",
+      "contexto-proyecto",
+    ]);
   });
 
   it("matches the emission order of a fresh render", () => {
