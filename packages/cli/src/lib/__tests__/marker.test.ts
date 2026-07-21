@@ -5,6 +5,10 @@ import {
   extractManagedContent,
   reorderManagedBlocks,
   resolveCondition,
+  splitUserSection,
+  emitUserSection,
+  USER_SECTION_START,
+  USER_SECTION_END,
 } from "../marker.ts";
 
 const CONTENT = "## Idioma y rol\n\n- Código inglés. Chat es-MX.\n";
@@ -504,5 +508,98 @@ describe("reorderManagedBlocks", () => {
     const doc = build(["x", "a", "y", "b"]); // x, y not in canonical
     const r = reorderManagedBlocks(doc, ["a", "b"]);
     expect(order(r.output)).toEqual(["a", "b", "x", "y"]);
+  });
+});
+
+describe("splitUserSection / emitUserSection", () => {
+  const managedDoc = (ids: string[]) =>
+    ids.map((id) => `<!-- navori:managed id="${id}" hash="h" -->\nbody ${id}\n<!-- /navori:managed id="${id}" -->`).join("\n\n");
+
+  it("returns userBody=null and hadMarkers=false for a managed doc with no user zone", () => {
+    const doc = managedDoc(["a", "b"]);
+    const r = splitUserSection(doc);
+    expect(r.userBody).toBeNull();
+    expect(r.hadMarkers).toBe(false);
+    expect(r.managed).toBe(doc);
+  });
+
+  it("extracts the body between explicit markers and reports hadMarkers", () => {
+    const doc = `${managedDoc(["a"])}\n\n${USER_SECTION_START}\n\n## Domain\n\n- rule\n\n${USER_SECTION_END}\n`;
+    const r = splitUserSection(doc);
+    expect(r.hadMarkers).toBe(true);
+    expect(r.userBody).toBe("## Domain\n\n- rule");
+    expect(r.managed).not.toContain("## Domain");
+    expect(r.managed).not.toContain(USER_SECTION_START);
+  });
+
+  it("auto-migrates trailing prose from a pre-markers repo", () => {
+    const doc = `${managedDoc(["a", "b"])}\n\n## My rules\n\n- keep me\n`;
+    const r = splitUserSection(doc);
+    expect(r.hadMarkers).toBe(false);
+    expect(r.userBody).toBe("## My rules\n\n- keep me");
+  });
+
+  it("captures prose appended BELOW the end marker too (merges with the body)", () => {
+    const doc = `${managedDoc(["a"])}\n\n${USER_SECTION_START}\n\n## In\n\n${USER_SECTION_END}\n\n## Below\n`;
+    const r = splitUserSection(doc);
+    expect(r.userBody).toContain("## In");
+    expect(r.userBody).toContain("## Below");
+  });
+
+  it("never swallows a managed block sitting BELOW the user-section (no data loss)", () => {
+    // Corruption case: a managed block was hand-moved below the zone. Anchoring
+    // on the LAST managed block keeps both blocks in `managed` — the trailing
+    // one is never lifted into the user body and frozen as a literal duplicate.
+    const doc = `${managedDoc(["a"])}\n\n${USER_SECTION_START}\n\n## Domain\n\n${USER_SECTION_END}\n\n${managedDoc(["z"])}`;
+    const r = splitUserSection(doc);
+    expect(r.managed).toContain('id="a"');
+    expect(r.managed).toContain('id="z"');
+    expect(r.managed).toContain("## Domain"); // prose stays in place (reorder flags interleaving)
+    expect(r.userBody).toBeNull();
+  });
+
+  it("does not swallow a managed block between stray/duplicate user markers", () => {
+    // Two user-start markers with a managed block between the first and the end.
+    const doc =
+      `${managedDoc(["a"])}\n\n${USER_SECTION_START}\n\nnote\n\n` +
+      `${managedDoc(["b"])}\n\n${USER_SECTION_START}\n\ntail\n\n${USER_SECTION_END}\n`;
+    const r = splitUserSection(doc);
+    // block b must remain a real managed block, never frozen as literal prose.
+    expect(r.managed).toContain('id="b"');
+    expect(r.userBody).toBe("tail");
+  });
+
+  it("preserves a marker token the user quotes inline in their own prose", () => {
+    const doc =
+      `${managedDoc(["a"])}\n\n${USER_SECTION_START}\n\n` +
+      `Los bloques abren con \`${USER_SECTION_START}\` en su propia línea.\n\n${USER_SECTION_END}\n`;
+    const r = splitUserSection(doc);
+    expect(r.userBody).toContain(`\`${USER_SECTION_START}\` en su propia línea`);
+  });
+
+  it("emitUserSection wraps the body after the managed region", () => {
+    const managed = managedDoc(["a"]);
+    const out = emitUserSection(managed, "## Domain\n\n- rule");
+    expect(out).toContain(USER_SECTION_START);
+    expect(out).toContain(USER_SECTION_END);
+    expect(out.indexOf("## Domain")).toBeGreaterThan(out.indexOf(USER_SECTION_START));
+    // round-trips: splitting the emitted doc recovers the same body
+    expect(splitUserSection(out).userBody).toBe("## Domain\n\n- rule");
+  });
+
+  it("emitUserSection with null body writes a placeholder that splits back to null", () => {
+    const out = emitUserSection(managedDoc(["a"]), null);
+    expect(out).toContain(USER_SECTION_START);
+    expect(splitUserSection(out).userBody).toBeNull();
+    expect(splitUserSection(out).hadMarkers).toBe(true);
+  });
+
+  it("split→emit→split is a fixed point for a real domain body", () => {
+    const doc = `${managedDoc(["a", "b"])}\n\n${USER_SECTION_START}\n\n## D\n\n- r\n\n${USER_SECTION_END}\n`;
+    const s1 = splitUserSection(doc);
+    const emitted = emitUserSection(s1.managed, s1.userBody);
+    const s2 = splitUserSection(emitted);
+    expect(s2.userBody).toBe(s1.userBody);
+    expect(emitUserSection(s2.managed, s2.userBody)).toBe(emitted);
   });
 });
