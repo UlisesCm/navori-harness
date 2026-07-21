@@ -44,6 +44,7 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   { id: "apollo-client", deps: ["@apollo/client"], label: "Apollo Client" },
   { id: "zustand", deps: ["zustand"], label: "Zustand" },
   { id: "tamagui", deps: ["tamagui", "@tamagui/core"], label: "Tamagui" },
+  { id: "bullmq", deps: ["bullmq"], label: "BullMQ jobs & queues" },
 ];
 
 /**

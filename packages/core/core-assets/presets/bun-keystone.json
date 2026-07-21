@@ -1,0 +1,39 @@
+{
+  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "id": "bun-keystone",
+  "displayName": "Keystone 6 backend (Bun + Prisma)",
+  "extends": "core",
+  "extras": {
+    "managed": [
+      {
+        "id": "stack-bun-keystone",
+        "relPath": "presets/bun-keystone/managed/stack.md"
+      }
+    ],
+    "agents": [],
+    "skills": [
+      {
+        "id": "keystone-models",
+        "relPath": "presets/bun-keystone/skills/keystone-models.md",
+        "destRelPath": ".claude/skills/keystone-models.md"
+      },
+      {
+        "id": "keystone-access",
+        "relPath": "presets/bun-keystone/skills/keystone-access.md",
+        "destRelPath": ".claude/skills/keystone-access.md"
+      },
+      {
+        "id": "prisma-keystone",
+        "relPath": "presets/bun-keystone/skills/prisma-keystone.md",
+        "destRelPath": ".claude/skills/prisma-keystone.md"
+      },
+      {
+        "id": "keystone-testing",
+        "relPath": "presets/bun-keystone/skills/keystone-testing.md",
+        "destRelPath": ".claude/skills/keystone-testing.md"
+      }
+    ],
+    "hooks": []
+  },
+  "invariants": ["allowAll", "context.sudo()", "validateInput"]
+}
