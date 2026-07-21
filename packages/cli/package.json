@@ -1,6 +1,6 @@
 {
   "name": "navori",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "description": "Multi-agent harness + SDD scaffolder for Claude Code and other AI engines",
   "type": "module",
   "bin": {
