@@ -546,15 +546,35 @@ describe("splitUserSection / emitUserSection", () => {
     expect(r.userBody).toContain("## Below");
   });
 
-  it("keeps managed clean when a block was hand-moved BELOW the user-section", () => {
-    // user-section sits before a trailing managed block
+  it("never swallows a managed block sitting BELOW the user-section (no data loss)", () => {
+    // Corruption case: a managed block was hand-moved below the zone. Anchoring
+    // on the LAST managed block keeps both blocks in `managed` — the trailing
+    // one is never lifted into the user body and frozen as a literal duplicate.
     const doc = `${managedDoc(["a"])}\n\n${USER_SECTION_START}\n\n## Domain\n\n${USER_SECTION_END}\n\n${managedDoc(["z"])}`;
     const r = splitUserSection(doc);
-    expect(r.userBody).toBe("## Domain");
-    // both managed blocks survive in the managed region, zone removed
     expect(r.managed).toContain('id="a"');
     expect(r.managed).toContain('id="z"');
-    expect(r.managed).not.toContain("## Domain");
+    expect(r.managed).toContain("## Domain"); // prose stays in place (reorder flags interleaving)
+    expect(r.userBody).toBeNull();
+  });
+
+  it("does not swallow a managed block between stray/duplicate user markers", () => {
+    // Two user-start markers with a managed block between the first and the end.
+    const doc =
+      `${managedDoc(["a"])}\n\n${USER_SECTION_START}\n\nnote\n\n` +
+      `${managedDoc(["b"])}\n\n${USER_SECTION_START}\n\ntail\n\n${USER_SECTION_END}\n`;
+    const r = splitUserSection(doc);
+    // block b must remain a real managed block, never frozen as literal prose.
+    expect(r.managed).toContain('id="b"');
+    expect(r.userBody).toBe("tail");
+  });
+
+  it("preserves a marker token the user quotes inline in their own prose", () => {
+    const doc =
+      `${managedDoc(["a"])}\n\n${USER_SECTION_START}\n\n` +
+      `Los bloques abren con \`${USER_SECTION_START}\` en su propia línea.\n\n${USER_SECTION_END}\n`;
+    const r = splitUserSection(doc);
+    expect(r.userBody).toContain(`\`${USER_SECTION_START}\` en su propia línea`);
   });
 
   it("emitUserSection wraps the body after the managed region", () => {

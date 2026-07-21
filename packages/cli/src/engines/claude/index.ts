@@ -442,6 +442,11 @@ export function renderClaudeEngine(
   // a managed repo with no domain and no markers stays untouched (no spurious diff).
   if (userBody !== null || hadUserSection || claudeMdExisting.length === 0) {
     claudeMdContent = emitUserSection(claudeMdContent, userBody);
+  } else if (claudeMdContent.length > 0 && !claudeMdContent.endsWith("\n")) {
+    // Carving the user zone off left `managed` without the file's trailing
+    // newline; with nothing re-emitted, restore it so a no-op render doesn't
+    // strip the final "\n" (spurious one-time rewrite).
+    claudeMdContent += "\n";
   }
 
   if (claudeMdContent !== claudeMdExisting) {

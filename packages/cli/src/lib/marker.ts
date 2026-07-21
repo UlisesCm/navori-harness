@@ -553,56 +553,52 @@ export interface UserSectionSplit {
 }
 
 /**
- * Split a CLAUDE.md into its managed region and the user-authored zone so the
- * render pipeline can operate on the managed region alone and re-emit the user
- * zone untouched at the end (see `emitUserSection`).
- *
- * - Explicit markers present → the body between them is the zone.
- * - No markers → auto-migrate: any non-blank prose AFTER the last managed block
- *   is treated as the (legacy, positionally-inferred) user zone, so a repo
- *   onboarded before the markers existed doesn't lose its domain on re-render.
- * - No managed blocks at all → not navori-managed yet; nothing to split.
+ * Strip the structural user-zone tokens from a raw trailing region and return
+ * the real prose. Only LINES that are exactly a marker / placeholder are removed
+ * (line-oriented, not substring) so a user who quotes a marker token inside
+ * their own prose — very plausible in a repo whose docs describe the marker
+ * system — keeps it verbatim. The legacy positional hint (a whole HTML comment)
+ * is dropped so it isn't duplicated once the zone is wrapped in real markers.
  */
-/** Strip markers, legacy hint and placeholder from a raw zone; return the real
- * prose (empty string when nothing meaningful remains). */
 function extractUserProse(raw: string): string {
-  return normalize(raw)
-    .split(USER_SECTION_START).join("")
-    .split(USER_SECTION_END).join("")
-    .split(USER_SECTION_PLACEHOLDER).join("")
-    .replace(LEGACY_USER_HINT_RE, "")
+  const withoutLegacy = normalize(raw).replace(LEGACY_USER_HINT_RE, "");
+  return withoutLegacy
+    .split("\n")
+    .filter((line) => {
+      const t = line.trim();
+      return t !== USER_SECTION_START && t !== USER_SECTION_END && t !== USER_SECTION_PLACEHOLDER;
+    })
+    .join("\n")
     .trim();
 }
 
+/**
+ * Split a CLAUDE.md into its managed region and the user-authored zone so the
+ * render pipeline can operate on the managed region alone and re-emit the user
+ * zone verbatim at the end (see `emitUserSection`).
+ *
+ * The user zone is the prose TRAILING the last managed block — whether wrapped
+ * in explicit markers or raw (a repo onboarded before the markers existed, which
+ * is auto-migrated). Anchoring on the last managed block means extraction can
+ * never swallow a managed block into the user zone (they all precede it), so
+ * stray/duplicate/unclosed markers or a hand-moved block never corrupt the
+ * managed region: at worst a marker sits between blocks and reorder reports it
+ * as interleaving (same as doctor — the two stay consistent).
+ *
+ * A file with no managed blocks isn't navori-managed yet; the caller owns the
+ * coexist/replace decision, so we return it untouched.
+ */
 export function splitUserSection(content: string, commentStyle: CommentStyle = "html"): UserSectionSplit {
   const syntax = syntaxFor(commentStyle);
-  // First, lift out the explicitly-marked zone WHEREVER it sits (it may not be
-  // last if a managed block was hand-moved below it). Removing it up front lets
-  // reorder/inject see a clean managed region.
-  let working = content;
-  let markerBody = "";
-  let hadMarkers = false;
-  const start = working.indexOf(USER_SECTION_START);
-  if (start >= 0) {
-    hadMarkers = true;
-    const endIdx = working.lastIndexOf(USER_SECTION_END);
-    const zoneEnd = endIdx >= start ? endIdx + USER_SECTION_END.length : working.length;
-    markerBody = working.slice(start, zoneEnd);
-    working = working.slice(0, start) + working.slice(zoneEnd);
-  }
-  const blocks = locateManagedBlocks(working, syntax);
+  const blocks = locateManagedBlocks(content, syntax);
   if (blocks.length === 0) {
-    // No managed blocks: a hand-authored file (coexist/replace is the caller's
-    // call) — unless explicit markers carried a body worth preserving.
-    const body = extractUserProse(markerBody);
-    return { managed: working, userBody: body === "" ? null : body, hadMarkers };
+    return { managed: content, userBody: null, hadMarkers: content.includes(USER_SECTION_START) };
   }
-  // The user zone = the marked body + any non-managed prose still trailing the
-  // last managed block (pre-markers repos, or prose appended below the markers).
   const last = blocks[blocks.length - 1]!;
-  const managed = working.slice(0, last.closeEnd);
-  const trailing = working.slice(last.closeEnd);
-  const body = extractUserProse(`${markerBody}\n${trailing}`);
+  const managed = content.slice(0, last.closeEnd);
+  const trailing = content.slice(last.closeEnd);
+  const hadMarkers = trailing.includes(USER_SECTION_START);
+  const body = extractUserProse(trailing);
   return { managed, userBody: body === "" ? null : body, hadMarkers };
 }
 

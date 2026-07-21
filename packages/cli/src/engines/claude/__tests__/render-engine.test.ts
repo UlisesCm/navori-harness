@@ -482,6 +482,14 @@ describe("renderClaudeEngine — canonical block order", () => {
     const end = md.indexOf(close, start) + close.length;
     const block = md.slice(start, end);
     const rest = (md.slice(0, start) + md.slice(end)).replace(/\n{3,}/g, "\n\n").replace(/^\n+/, "");
+    // Reinsert at the end of the MANAGED region — before the user-section when
+    // present — so the block is out of order but still anchored above the user
+    // zone (reorder's job is to restore it; a block BELOW the zone is a
+    // corruption case handled as interleaving, not auto-restore).
+    const zoneAt = rest.indexOf("<!-- navori:user-start -->");
+    if (zoneAt >= 0) {
+      return `${rest.slice(0, zoneAt).trimEnd()}\n\n${block}\n\n${rest.slice(zoneAt)}`;
+    }
     return `${rest.trimEnd()}\n\n${block}\n`;
   };
 
@@ -559,6 +567,25 @@ describe("renderClaudeEngine — user-section preservation", () => {
     expect(after).toContain("<!-- navori:user-start -->"); // wrapped now
     expect(after).toContain("## Reglas del repo"); // domain survived
     expect(after.indexOf("## Reglas del repo")).toBeGreaterThan(after.indexOf("<!-- navori:user-start -->"));
+  });
+
+  it("keeps the trailing newline on a managed repo with no user zone (no spurious rewrite)", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const path = join(cwd, "CLAUDE.md");
+    // A repo that opted out of a user zone: strip the section entirely.
+    const stripped = readFileSync(path, "utf-8").replace(
+      new RegExp("\\n*<!-- navori:user-start -->[\\s\\S]*$"),
+      "\n",
+    );
+    writeFileSync(path, stripped);
+    const before = readFileSync(path, "utf-8");
+    expect(before.endsWith("\n")).toBe(true);
+
+    const r = renderClaudeEngine(cwd, CONFIG_FULL);
+    const after = readFileSync(path, "utf-8");
+    expect(after.endsWith("\n")).toBe(true);
+    expect(after).toBe(before); // no rewrite that only strips the final newline
+    expect(r.written.some((w) => w.path === "CLAUDE.md")).toBe(false);
   });
 
   it("is idempotent once the domain lives in the user-section", () => {
