@@ -9,3 +9,5 @@ Tres contratos gobiernan todo el código de datos:
 - **`context.sudo()` en hooks y services** — nunca `context.db` (aplicaría el access de la sesión actual) ni Prisma directo; `context.prisma` queda solo para scripts de seed/migración.
 
 Toda dependencia externa (SMS, pagos, APIs de terceros) va detrás de una interfaz en `[servicio].adapter.ts`: los services reciben la interfaz, no la implementación, para poder mockearla en tests.
+
+**Eficiencia de contexto** — los artefactos generados (`types/graphql.ts` puede rondar decenas de miles de tokens, `schema.graphql`, `migrations/`, el lockfile) **no se leen completos**: infiere los tipos desde la *list* en `models/` o desde `schema.prisma`, y busca con `grep`/`Grep` en vez de abrir el archivo entero.
