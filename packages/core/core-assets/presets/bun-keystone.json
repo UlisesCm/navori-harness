@@ -31,6 +31,11 @@
         "id": "keystone-testing",
         "relPath": "presets/bun-keystone/skills/keystone-testing.md",
         "destRelPath": ".claude/skills/keystone-testing.md"
+      },
+      {
+        "id": "keystone-rest",
+        "relPath": "presets/bun-keystone/skills/keystone-rest.md",
+        "destRelPath": ".claude/skills/keystone-rest.md"
       }
     ],
     "hooks": []
