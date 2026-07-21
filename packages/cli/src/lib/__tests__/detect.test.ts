@@ -314,16 +314,34 @@ describe("detectProject — branchBase detection", () => {
 });
 
 describe("detectProject — suggested preset never points to a phantom (F1)", () => {
-  it("falls back to 'custom' for a turbo monorepo instead of the unshipped 'monorepo-turbopnpm'", () => {
+  it("suggests the shipped 'monorepo-turbopnpm' preset for a turbo+pnpm monorepo", () => {
     const dir = makeTmp();
     try {
       writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "mono" }));
       writeFileSync(join(dir, "turbo.json"), "{}");
       writeFileSync(join(dir, "pnpm-workspace.yaml"), 'packages:\n  - "apps/*"\n');
       const d = detectProject(dir);
-      // The candidate "monorepo-turbopnpm" has no preset JSON; suggesting it
-      // would render the baseline AND emit a "not found" warning.
+      // The monorepo-turbopnpm preset now ships, so the root gets a real preset
+      // (no phantom fallback, no "not found" warning).
+      expect(d.suggestedPreset).toBe("monorepo-turbopnpm");
+      expect(d.suggestedPresetGap).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("does NOT suggest the pnpm preset for a turbo+npm monorepo (wrong workflow)", () => {
+    const dir = makeTmp();
+    try {
+      // turbo.json + npm workspaces + package-lock.json → tool 'turbo' but NOT
+      // pnpm. The monorepo-turbopnpm preset teaches pnpm-only commands, so this
+      // repo must fall back to the neutral baseline instead.
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "mono", workspaces: ["apps/*"] }));
+      writeFileSync(join(dir, "turbo.json"), "{}");
+      writeFileSync(join(dir, "package-lock.json"), "{}");
+      const d = detectProject(dir);
       expect(d.suggestedPreset).toBe("custom");
+      expect(d.suggestedPresetGap).toBeNull();
     } finally {
       rmSync(dir, { recursive: true });
     }
@@ -651,8 +669,8 @@ describe("isPlaceholderName", () => {
   });
 });
 
-describe("detectProject — library skills in a monorepo (#80)", () => {
-  it("aggregates a dep that lives only in a workspace package.json", () => {
+describe("detectProject — library skills are workspace-scoped in a monorepo (#80, anti-spray)", () => {
+  it("keeps the root scan root-only — a workspace-only dep does NOT spray to the root", () => {
     const dir = makeTmp();
     try {
       // Root declares the monorepo but has no mongoose itself.
@@ -665,14 +683,17 @@ describe("detectProject — library skills in a monorepo (#80)", () => {
         JSON.stringify({ name: "backend", dependencies: { mongoose: "^8" } }),
       );
 
+      // The workspace-only dep is surfaced per-workspace (scan.ts), not merged
+      // into the root array — so the root CLAUDE.md never materializes a skill
+      // for a lib no root code imports.
       const d = detectProject(dir);
-      expect(d.libraries).toContain("mongoose");
+      expect(d.libraries).not.toContain("mongoose");
     } finally {
       rmSync(dir, { recursive: true });
     }
   });
 
-  it("unions workspace deps with root deps across workspaces", () => {
+  it("root libraries reflect only the root package's own deps", () => {
     const dir = makeTmp();
     try {
       writeFileSync(join(dir, "pnpm-workspace.yaml"), "packages:\n  - 'apps/*'\n");
@@ -687,7 +708,10 @@ describe("detectProject — library skills in a monorepo (#80)", () => {
       );
 
       const d = detectProject(dir);
-      expect(d.libraries).toEqual(expect.arrayContaining(["zod-validation", "socketio"]));
+      // Root ships zod → gets zod-validation. The api workspace's socket.io is
+      // NOT in the root list (it belongs to that workspace's own harness).
+      expect(d.libraries).toContain("zod-validation");
+      expect(d.libraries).not.toContain("socketio");
     } finally {
       rmSync(dir, { recursive: true });
     }

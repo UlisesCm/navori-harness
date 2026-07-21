@@ -102,6 +102,15 @@ function buildMonorepoWorkspace(
   if (preset && preset !== config.preset) {
     entry.preset = preset;
   }
+  // Carry the workspace's own library skills + migrations so a workspace added
+  // via `scan` is scoped like one added via `init` (otherwise its skills would
+  // silently never materialize). Mirrors init.ts buildWorkspaceEntry.
+  if (detected.libraries.length > 0) {
+    entry.libraries = detected.libraries;
+  }
+  if (detected.migrations.length > 0) {
+    entry.libraryMigrations = detected.migrations;
+  }
   return entry;
 }
 

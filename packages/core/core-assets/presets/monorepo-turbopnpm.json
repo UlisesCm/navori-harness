@@ -1,0 +1,23 @@
+{
+  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "id": "monorepo-turbopnpm",
+  "displayName": "Monorepo (Turborepo + pnpm)",
+  "extends": "core",
+  "extras": {
+    "managed": [
+      {
+        "id": "stack-monorepo-turbopnpm",
+        "relPath": "presets/monorepo-turbopnpm/managed/stack.md"
+      }
+    ],
+    "agents": [],
+    "skills": [
+      {
+        "id": "turbo-workspaces",
+        "relPath": "presets/monorepo-turbopnpm/skills/turbo-workspaces.md",
+        "destRelPath": ".claude/skills/turbo-workspaces.md"
+      }
+    ],
+    "hooks": []
+  }
+}

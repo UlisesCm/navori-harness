@@ -11,7 +11,7 @@ import {
 } from "../engines/claude/index.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderStatusSymbol, renderStatusLabel, dim, color, brand, sym, type RenderStatus } from "../lib/style.ts";
-import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
+import { effectiveConfigForWorkspace, buildMonorepoContext } from "../lib/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
 
 export interface WorkspaceRenderResult {
@@ -204,6 +204,7 @@ export function runRender(
           dryRun,
           force: forceFlag,
           repoRoot: cwd,
+          monorepoContext: buildMonorepoContext(config, match),
         })
       : undefined;
     // #77: --workspace must also render the non-Claude engines for that
@@ -265,6 +266,7 @@ export function runRender(
           dryRun,
           force: forceFlag,
           repoRoot: cwd,
+          monorepoContext: buildMonorepoContext(config, ws),
         })
       : undefined;
     // #77: non-Claude engines (AGENTS.md) render per workspace too. The root

@@ -1307,6 +1307,14 @@ function buildWorkspaceEntry(
   if (preset && preset !== rootPreset) {
     entry.preset = preset;
   }
+  // Scope library skills + migrations to this workspace's own deps so they don't
+  // leak across apps (a Stripe skill lands only in the app that ships Stripe).
+  if (detected.libraries.length > 0) {
+    entry.libraries = detected.libraries;
+  }
+  if (detected.migrations.length > 0) {
+    entry.libraryMigrations = detected.migrations;
+  }
   return entry;
 }
 

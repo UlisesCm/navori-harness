@@ -366,6 +366,7 @@ export function computeRenderPlan(
 const CLAUDE_COMPUTED_BLOCK_IDS = [
   "skills-index",
   "agentes-disponibles",
+  "contexto-monorepo",
   "contexto-proyecto",
 ] as const;
 

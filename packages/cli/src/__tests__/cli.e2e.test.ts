@@ -672,14 +672,14 @@ describe("CLI e2e — happy paths", () => {
     // to baseline and warn; doctor must surface it as a hard issue (exit 2).
     const configPath = join(repo, "navori.config.json");
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    config.preset = "monorepo-turbopnpm";
+    config.preset = "phantom-preset-does-not-ship";
     writeFileSync(configPath, JSON.stringify(config, null, 2));
 
     const dr = runCli(["doctor", "--json", "--cwd", repo]);
     expect(dr.status).toBe(2);
     const dreport = JSON.parse(dr.stdout);
     expect(dreport.ok).toBe(false);
-    expect(dreport.missingPreset).toBe("monorepo-turbopnpm");
+    expect(dreport.missingPreset).toBe("phantom-preset-does-not-ship");
   });
 
   it("doctor flags missing invariants when a load-bearing rule is gutted (spec 0003 §3.1.1)", () => {

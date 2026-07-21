@@ -62,4 +62,29 @@ describe("effectiveConfigForWorkspace", () => {
     });
     expect(ROOT_CONFIG).toEqual(before);
   });
+
+  it("scopes library skills to the workspace's own declared list", () => {
+    const ws = { name: "storefront", path: "apps/storefront", libraries: ["stripe"] };
+    const eff = effectiveConfigForWorkspace(ROOT_CONFIG, ws);
+    expect(eff.project?.libraries).toEqual(["stripe"]);
+  });
+
+  it("gives a lib-less workspace an EMPTY list, never the root's (anti-spray)", () => {
+    // Root ships zod-validation; a workspace that declares no libraries must NOT
+    // inherit it — that would re-introduce the cross-app spray scoping prevents.
+    const rootWithLibs = {
+      ...ROOT_CONFIG,
+      project: { libraries: ["zod-validation"], libraryMigrations: [] },
+    } as unknown as NavoriConfig;
+    const ws = { name: "backend", path: "apps/backend" };
+    const eff = effectiveConfigForWorkspace(rootWithLibs, ws);
+    expect(eff.project?.libraries).toEqual([]);
+  });
+
+  it("scopes library migrations to the workspace's own declared list", () => {
+    const migration = { legacy: "moment", preferred: "date-fns", domain: "dates" };
+    const ws = { name: "backend", path: "apps/backend", libraryMigrations: [migration] };
+    const eff = effectiveConfigForWorkspace(ROOT_CONFIG, ws);
+    expect(eff.project?.libraryMigrations).toEqual([migration]);
+  });
 });

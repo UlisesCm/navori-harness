@@ -159,6 +159,29 @@ describe("scanMonorepoWorkspaces", () => {
     expect(storefront.framework).toBe("next");
   });
 
+  it("carries each workspace's OWN library skills, scoped (not aggregated)", () => {
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), `packages:\n  - 'apps/*'\n`);
+    // backend ships zod (→ zod-validation); storefront ships stripe (→ stripe).
+    writePkg(join(cwd, "apps/backend"), {
+      name: "backend",
+      dependencies: { "@medusajs/medusa": "^2.0.0", zod: "^3" },
+    });
+    writePkg(join(cwd, "apps/storefront"), {
+      name: "storefront",
+      dependencies: { next: "^15.0.0", "@stripe/stripe-js": "^4" },
+    });
+
+    const result = scanMonorepoWorkspaces(cwd);
+    const backend = result.find((w) => w.path === "apps/backend")!;
+    const storefront = result.find((w) => w.path === "apps/storefront")!;
+
+    // Each workspace carries only its own libs — no cross-app spray.
+    expect(backend.libraries).toContain("zod-validation");
+    expect(backend.libraries).not.toContain("stripe");
+    expect(storefront.libraries).toContain("stripe");
+    expect(storefront.libraries).not.toContain("zod-validation");
+  });
+
   it("skips directories without package.json", () => {
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), `packages:\n  - 'apps/*'\n`);
     writePkg(join(cwd, "apps/backend"), { name: "backend" });

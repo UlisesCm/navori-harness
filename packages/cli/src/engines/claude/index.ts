@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, chmodSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
+import type { MonorepoRenderContext } from "../../lib/monorepo.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
@@ -227,6 +228,63 @@ function buildAgentsIndexBody(config: NavoriConfig): string | null {
 /** Managed-block id for the project-context rules injected into CLAUDE.md. */
 const CONTEXTO_PROYECTO_ID = "contexto-proyecto";
 
+/** Managed-block id for the monorepo map (workspace tree) injected into CLAUDE.md. */
+const CONTEXTO_MONOREPO_ID = "contexto-monorepo";
+
+/**
+ * The "## Monorepo" map block. At the ROOT it lists every workspace so the
+ * orchestrator routes each task to the owning app; inside a WORKSPACE it names
+ * the current app and its siblings. Returns null (block stripped) when the repo
+ * is not a monorepo — no workspaces at root, no context in a workspace.
+ */
+function buildContextoMonorepoBody(
+  config: NavoriConfig,
+  mono: MonorepoRenderContext | undefined,
+  isWorkspace: boolean,
+): string | null {
+  if (isWorkspace) {
+    if (!mono) return null;
+    const tool = mono.tool ?? "pnpm";
+    const lines: string[] = [
+      `## Monorepo — workspace \`${mono.currentName}\``,
+      "",
+      `Eres el workspace **\`${mono.currentName}\`** (\`${mono.currentPath}\`) de un monorepo \`${tool}\`. Tienes tu propio harness (este \`CLAUDE.md\` + \`.claude/\`); la config raíz y los archivos transversales (\`turbo.json\`, \`pnpm-workspace.yaml\`, tsconfig/eslint base) viven en el repo root.`,
+      "",
+    ];
+    if (mono.siblings.length > 0) {
+      lines.push("Workspaces hermanos — no los edites desde aquí; el trabajo en un hermano se hace desde su propio harness:");
+      for (const s of mono.siblings) {
+        lines.push(`- \`${s.name}\` — \`${s.path}\`${s.preset ? ` (${s.preset})` : ""}`);
+      }
+    } else {
+      lines.push("Por ahora es el único workspace declarado.");
+    }
+    lines.push("");
+    lines.push(
+      `Corre tareas scopeadas con \`--filter=${mono.currentName}\`. No importes código de un hermano por ruta relativa; consúmelo como paquete (\`workspace:*\`).`,
+    );
+    lines.push("");
+    return lines.join("\n");
+  }
+
+  // Root render: read the workspace list straight off the config.
+  const workspaces = config.monorepo?.workspaces ?? [];
+  if (workspaces.length === 0) return null;
+  const tool = config.monorepo?.tool ?? "pnpm";
+  const lines: string[] = [
+    "## Monorepo — raíz",
+    "",
+    `Este repo es un monorepo \`${tool}\`. El código real vive en los workspaces, cada uno con su propio harness (\`CLAUDE.md\` + \`.claude/\`). Al orquestar, **enruta cada tarea al workspace dueño** y trabaja desde su \`CLAUDE.md\`, no desde aquí.`,
+    "",
+    "Workspaces:",
+  ];
+  for (const w of workspaces) {
+    lines.push(`- \`${w.name}\` — \`${w.path}\`${w.preset ? ` (${w.preset})` : ""}`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
 /**
  * Turn the init questionnaire answers (project.* posture, review rigor,
  * architecture rule, critical areas, tests policy) into ACTIVE rules the
@@ -308,6 +366,12 @@ export function renderClaudeEngine(
      * local presets from the shared `.navori/` at the root, not `cwd/.navori/`.
      */
     repoRoot?: string;
+    /**
+     * Monorepo facts for a WORKSPACE render, so the workspace's "## Monorepo"
+     * block can name the current app + its siblings. Only set by the workspace
+     * loop in `render`; absent at the root (the root reads `config.monorepo`).
+     */
+    monorepoContext?: MonorepoRenderContext;
   } = {},
 ): ClaudeEngineResult {
   // Fill in render-only derived defaults (e.g. prTarget ?? branchBase) so
@@ -422,6 +486,30 @@ export function renderClaudeEngine(
     });
   } else {
     claudeMdContent = removeManagedSection(claudeMdContent, CONTEXTO_PROYECTO_ID);
+  }
+
+  // 1c-bis. Monorepo map. At the root it lists the workspaces so the
+  // orchestrator routes work to the owning app; inside a workspace it names the
+  // current app + its siblings. Stripped for a non-monorepo repo.
+  const monorepoBody = buildContextoMonorepoBody(config, options.monorepoContext, isWorkspace);
+  if (monorepoBody !== null) {
+    const result = injectManagedSection(
+      claudeMdContent,
+      CONTEXTO_MONOREPO_ID,
+      monorepoBody,
+      CORE_META,
+      "html",
+      options.forceIds?.has(CONTEXTO_MONOREPO_ID) ?? false,
+    );
+    claudeMdContent = result.output;
+    claudeMdPlan.entries.push({
+      asset: { id: CONTEXTO_MONOREPO_ID, relPath: "(computed)" },
+      source: "core",
+      status: result.status,
+      newContent: null,
+    });
+  } else {
+    claudeMdContent = removeManagedSection(claudeMdContent, CONTEXTO_MONOREPO_ID);
   }
 
   // 1d. Canonical order. injectManagedSection appends a NEW block at the end of
