@@ -19,6 +19,9 @@ npx navori init
 cd ~/tu-repo
 navori init --recommended
 
+# Instalación máxima: todos los plugins + pre-commit hook + scan-monorepo + project block estricto
+navori init --full
+
 # O wizard interactivo con detección de stack
 navori init
 ```
@@ -40,7 +43,7 @@ Y genera:
 
 | Comando | Qué hace |
 |---|---|
-| `init` | Bootstrap del repo con detección automática + wizard (o `--recommended` sin preguntas) |
+| `init` | Bootstrap del repo con detección automática + wizard (o `--recommended` sin preguntas, o `--full` para la instalación máxima) |
 | `add <plugin>` | Activa un plugin y opcionalmente instala la tool externa |
 | `configure <section>` | Ajusta una sección del config sin re-correr el wizard |
 | `update` | Re-detecta el repo, refresca config y corre sync en un paso |
