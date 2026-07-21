@@ -7,7 +7,27 @@
  * override when the length is justified — the override is loud, not silent.
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { splitFrontmatter, getFrontmatterField } from "./frontmatter.ts";
+
+/**
+ * Resolve where a project-local skill lives on disk. navori supports two shapes:
+ *   - a single file:     `.claude/skills/<id>.md`
+ *   - a skill DIRECTORY: `.claude/skills/<id>/SKILL.md` (with sibling refs/assets)
+ *
+ * The directory form lets a repo keep a large, curated skill (a SKILL.md plus a
+ * `references/` tree) as a project-local skill without flattening it into one
+ * file. Returns the repo-relative path that exists, preferring the flat file,
+ * or null when neither is present.
+ */
+export function resolveLocalSkillPath(cwd: string, id: string): string | null {
+  const fileRel = `.claude/skills/${id}.md`;
+  const dirRel = `.claude/skills/${id}/SKILL.md`;
+  if (existsSync(join(cwd, fileRel))) return fileRel;
+  if (existsSync(join(cwd, dirRel))) return dirRel;
+  return null;
+}
 
 export const SKILL_TYPE_CAPS = {
   /** Dictates how the agent behaves (e.g. tdd-workflow). Keep it tight. */
