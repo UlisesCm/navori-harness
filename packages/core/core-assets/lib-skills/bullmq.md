@@ -12,6 +12,8 @@ BullMQ mueve trabajo pesado o diferido fuera del request: un **productor** encol
 
 Al crear una cola o un job nuevo, tocar el worker, encolar trabajo desde un handler/hook, o depurar jobs que se cuelgan, se reintentan en loop o se pierden.
 
+> **Scope.** Este skill cubre la **API de BullMQ** (Queue/Worker/QueueEvents, opciones de job). Si tu repo usa el preset `background-worker`, sus skills `worker-lifecycle` y `queue-consumers` son la fuente para el **ciclo de vida del worker** y las convenciones del servicio (arranque/apagado, idempotencia a nivel de consumidor); apóyate en aquéllas para eso y en ésta para el uso concreto de la librería.
+
 ## El patrón
 
 ```ts
