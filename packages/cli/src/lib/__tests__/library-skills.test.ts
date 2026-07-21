@@ -31,6 +31,7 @@ describe("detectLibrarySkills", () => {
     expect(detectLibrarySkills(["zustand"])).toEqual(["zustand"]);
     expect(detectLibrarySkills(["tamagui"])).toEqual(["tamagui"]);
     expect(detectLibrarySkills(["@tamagui/core"])).toEqual(["tamagui"]);
+    expect(detectLibrarySkills(["bullmq"])).toEqual(["bullmq"]);
   });
 
   it("is additive — a repo can match several skills at once (no exclusivity)", () => {

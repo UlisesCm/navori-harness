@@ -21,10 +21,10 @@
   ],
   "features": {
     "plugins": 6,
-    "presets": 10,
+    "presets": 11,
     "coreAgents": 8,
     "coreSkills": 6,
-    "librarySkills": 11
+    "librarySkills": 12
   },
   "license": "MIT",
   "scripts": {
