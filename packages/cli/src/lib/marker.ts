@@ -522,6 +522,104 @@ export function reorderManagedBlocks(
 }
 
 /**
+ * Explicit delimiters for the user-authored zone in CLAUDE.md. Unlike managed
+ * blocks, navori NEVER writes content between these — it only guarantees the
+ * zone survives verbatim across renders and always sits after the managed
+ * region. This replaces the old purely-positional inference (preserve whatever
+ * trails the last marker), which lost the domain when a later release added or
+ * reordered managed blocks around it (the zone got reubicated/swallowed).
+ */
+export const USER_SECTION_START = "<!-- navori:user-start -->";
+export const USER_SECTION_END = "<!-- navori:user-end -->";
+
+/** Legacy positional hint navori used to emit above the domain; dropped on
+ * migration so it isn't duplicated once we wrap the zone in real markers. */
+const LEGACY_USER_HINT_RE = /<!--\s*Zona de proyecto \(no-managed\)[\s\S]*?-->/g;
+
+const USER_SECTION_PLACEHOLDER =
+  "<!-- Escribe aquí el dominio y las convenciones específicas de tu repo. " +
+  "navori preserva intacto todo lo que esté entre estos marcadores en cada render. -->";
+
+export interface UserSectionSplit {
+  /** Document with the user zone removed — safe to run managed inject/reorder on. */
+  managed: string;
+  /** The user-authored body (trimmed), or null when there is nothing to preserve. */
+  userBody: string | null;
+  /** True when explicit user markers were present (even if the body was just the
+   * placeholder). Lets the caller re-emit the zone on every render — keeping an
+   * already-delimited file byte-for-byte idempotent — without re-adding the zone
+   * to a managed repo that never had one. */
+  hadMarkers: boolean;
+}
+
+/**
+ * Split a CLAUDE.md into its managed region and the user-authored zone so the
+ * render pipeline can operate on the managed region alone and re-emit the user
+ * zone untouched at the end (see `emitUserSection`).
+ *
+ * - Explicit markers present → the body between them is the zone.
+ * - No markers → auto-migrate: any non-blank prose AFTER the last managed block
+ *   is treated as the (legacy, positionally-inferred) user zone, so a repo
+ *   onboarded before the markers existed doesn't lose its domain on re-render.
+ * - No managed blocks at all → not navori-managed yet; nothing to split.
+ */
+/** Strip markers, legacy hint and placeholder from a raw zone; return the real
+ * prose (empty string when nothing meaningful remains). */
+function extractUserProse(raw: string): string {
+  return normalize(raw)
+    .split(USER_SECTION_START).join("")
+    .split(USER_SECTION_END).join("")
+    .split(USER_SECTION_PLACEHOLDER).join("")
+    .replace(LEGACY_USER_HINT_RE, "")
+    .trim();
+}
+
+export function splitUserSection(content: string, commentStyle: CommentStyle = "html"): UserSectionSplit {
+  const syntax = syntaxFor(commentStyle);
+  // First, lift out the explicitly-marked zone WHEREVER it sits (it may not be
+  // last if a managed block was hand-moved below it). Removing it up front lets
+  // reorder/inject see a clean managed region.
+  let working = content;
+  let markerBody = "";
+  let hadMarkers = false;
+  const start = working.indexOf(USER_SECTION_START);
+  if (start >= 0) {
+    hadMarkers = true;
+    const endIdx = working.lastIndexOf(USER_SECTION_END);
+    const zoneEnd = endIdx >= start ? endIdx + USER_SECTION_END.length : working.length;
+    markerBody = working.slice(start, zoneEnd);
+    working = working.slice(0, start) + working.slice(zoneEnd);
+  }
+  const blocks = locateManagedBlocks(working, syntax);
+  if (blocks.length === 0) {
+    // No managed blocks: a hand-authored file (coexist/replace is the caller's
+    // call) — unless explicit markers carried a body worth preserving.
+    const body = extractUserProse(markerBody);
+    return { managed: working, userBody: body === "" ? null : body, hadMarkers };
+  }
+  // The user zone = the marked body + any non-managed prose still trailing the
+  // last managed block (pre-markers repos, or prose appended below the markers).
+  const last = blocks[blocks.length - 1]!;
+  const managed = working.slice(0, last.closeEnd);
+  const trailing = working.slice(last.closeEnd);
+  const body = extractUserProse(`${markerBody}\n${trailing}`);
+  return { managed, userBody: body === "" ? null : body, hadMarkers };
+}
+
+/**
+ * Re-emit the managed document with the user zone appended after the last
+ * managed block, wrapped in explicit markers so the next render preserves it
+ * regardless of block reordering/insertion. Called at the very end of a render.
+ * When `userBody` is null, emits the zone with a placeholder hint (used on a
+ * fresh CLAUDE.md so the contract is visible from day one).
+ */
+export function emitUserSection(managed: string, userBody: string | null): string {
+  const base = managed.replace(/\s+$/, "");
+  const inner = userBody === null || userBody.trim() === "" ? USER_SECTION_PLACEHOLDER : userBody.trim();
+  return `${base}\n\n${USER_SECTION_START}\n\n${inner}\n\n${USER_SECTION_END}\n`;
+}
+
+/**
  * Resolve a config path like "plugins.engram.enabled" against a config object
  * to a truthy/falsy value. Returns false if any segment is missing.
  */

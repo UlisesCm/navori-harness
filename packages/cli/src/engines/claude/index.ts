@@ -8,7 +8,14 @@ import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type Upd
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { librarySkillById, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
-import { injectManagedSection, removeManagedSection, reorderManagedBlocks, resolveCondition } from "../../lib/marker.ts";
+import {
+  injectManagedSection,
+  removeManagedSection,
+  reorderManagedBlocks,
+  resolveCondition,
+  splitUserSection,
+  emitUserSection,
+} from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { isNavoriOwnedSettings } from "./settings-detection.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
@@ -322,7 +329,13 @@ export function renderClaudeEngine(
   // 1. CLAUDE.md — delegated to existing planner
   const claudeMdPath = join(cwd, "CLAUDE.md");
   const claudeMdExisting = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, "utf-8") : "";
-  const claudeMdPlan = computeRenderPlan(claudeMdExisting, config, repoRoot, {
+  // Carve off the user-authored zone BEFORE any managed-block work so inject/
+  // reorder operate on the managed region alone and can never reubicate or
+  // swallow the user's domain (the positional-preservation bug). It's re-emitted
+  // verbatim, wrapped in explicit markers, at the very end (step 1e). Repos
+  // onboarded before the markers existed get their trailing prose auto-migrated.
+  const { managed: claudeMdManaged, userBody, hadMarkers: hadUserSection } = splitUserSection(claudeMdExisting);
+  const claudeMdPlan = computeRenderPlan(claudeMdManaged, config, repoRoot, {
     skipIds: options.skipIds,
     forceIds: options.forceIds,
     omitRootOnly: isWorkspace,
@@ -420,6 +433,15 @@ export function renderClaudeEngine(
         "tuyo intercalado entre bloques, así que no los reordené. Mueve ese texto arriba " +
         "del primer bloque managed o abajo del último para que navori pueda ordenarlos.",
     );
+  }
+
+  // 1e. Re-attach the user-authored zone, wrapped in explicit markers, after the
+  // managed region. Emitted when there's domain to preserve, the file already had
+  // the markers (keeps an already-delimited file idempotent), OR the file is new
+  // (fresh CLAUDE.md ships the zone + a placeholder so the contract is visible);
+  // a managed repo with no domain and no markers stays untouched (no spurious diff).
+  if (userBody !== null || hadUserSection || claudeMdExisting.length === 0) {
+    claudeMdContent = emitUserSection(claudeMdContent, userBody);
   }
 
   if (claudeMdContent !== claudeMdExisting) {

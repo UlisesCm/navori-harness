@@ -510,3 +510,68 @@ describe("renderClaudeEngine — canonical block order", () => {
     expect(readFileSync(path, "utf-8")).toBe(first);
   });
 });
+
+describe("renderClaudeEngine — user-section preservation", () => {
+  const DOMAIN = "## Reglas del repo\n\n- Nunca usar `context.db`, siempre `context.sudo().db`.\n- PostGIS: `findZoneByCoordinates()`.";
+  const CONFIG_UPGRADED = {
+    ...CONFIG_FULL,
+    plugins: { engram: { enabled: true }, gh: { enabled: true }, semgrep: { enabled: true } },
+  } as unknown as NavoriConfig;
+
+  it("ships a user-section with a placeholder on a fresh CLAUDE.md", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const md = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+    expect(md).toContain("<!-- navori:user-start -->");
+    expect(md).toContain("<!-- navori:user-end -->");
+    // markers sit after the last managed block
+    expect(md.indexOf("<!-- navori:user-start -->")).toBeGreaterThan(md.lastIndexOf("<!-- /navori:managed"));
+  });
+
+  it("preserves domain written inside the user-section across an upgrade that adds blocks", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const path = join(cwd, "CLAUDE.md");
+    const md = readFileSync(path, "utf-8");
+    // User writes domain inside the zone.
+    writeFileSync(path, md.replace(new RegExp("<!-- navori:user-start -->[\\s\\S]*?<!-- navori:user-end -->"),
+      `<!-- navori:user-start -->\n\n${DOMAIN}\n\n<!-- navori:user-end -->`));
+
+    // Upgrade: enabling gh + semgrep introduces NEW managed blocks and reorders.
+    renderClaudeEngine(cwd, CONFIG_UPGRADED);
+    const after = readFileSync(path, "utf-8");
+    expect(after).toContain("## Reglas del repo");
+    expect(after).toContain("context.sudo().db");
+    expect(after).toContain("findZoneByCoordinates()");
+    expect(after).toContain('id="semgrep-protocol"'); // the upgrade landed
+    // Domain stays below every managed block.
+    expect(after.indexOf("## Reglas del repo")).toBeGreaterThan(after.lastIndexOf("<!-- /navori:managed"));
+  });
+
+  it("auto-migrates trailing domain from a pre-markers repo (no user-section) into the zone", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const path = join(cwd, "CLAUDE.md");
+    // Simulate a repo onboarded before markers existed: strip the zone, append raw prose.
+    const stripped = readFileSync(path, "utf-8")
+      .replace(new RegExp("\\n*<!-- navori:user-start -->[\\s\\S]*$"), "\n");
+    writeFileSync(path, `${stripped}\n${DOMAIN}\n`);
+
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const after = readFileSync(path, "utf-8");
+    expect(after).toContain("<!-- navori:user-start -->"); // wrapped now
+    expect(after).toContain("## Reglas del repo"); // domain survived
+    expect(after.indexOf("## Reglas del repo")).toBeGreaterThan(after.indexOf("<!-- navori:user-start -->"));
+  });
+
+  it("is idempotent once the domain lives in the user-section", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const path = join(cwd, "CLAUDE.md");
+    const md = readFileSync(path, "utf-8");
+    writeFileSync(path, md.replace(new RegExp("<!-- navori:user-start -->[\\s\\S]*?<!-- navori:user-end -->"),
+      `<!-- navori:user-start -->\n\n${DOMAIN}\n\n<!-- navori:user-end -->`));
+    const first = renderClaudeEngine(cwd, CONFIG_FULL);
+    const snapshot = readFileSync(path, "utf-8");
+    const second = renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(second.written.some((w) => w.path === "CLAUDE.md")).toBe(false);
+    expect(readFileSync(path, "utf-8")).toBe(snapshot);
+    void first;
+  });
+});
