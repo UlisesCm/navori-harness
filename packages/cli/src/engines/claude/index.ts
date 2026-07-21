@@ -5,7 +5,6 @@ import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
-import { resolveLocalSkillPath } from "../../lib/skill-meta.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { librarySkillById, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
@@ -126,7 +125,6 @@ function buildSkillsIndexBody(
   config: NavoriConfig,
   localSkills: readonly string[],
   repoRoot: string,
-  cwd: string,
 ): string | null {
   const rows: string[] = [];
   // Track skill names already listed so the auto-detected library skills don't
@@ -159,11 +157,12 @@ function buildSkillsIndexBody(
     listed.add(id);
   }
   for (const name of localSkills) {
-    // Resolve to the flat file or a skill directory (<id>/SKILL.md) so the index
-    // points agents at where the skill actually lives; fall back to the flat
-    // path when neither exists yet (doctor flags the missing file separately).
-    const rel = resolveLocalSkillPath(cwd, name) ?? `.claude/skills/${name}.md`;
-    rows.push(`- \`${name}\` — project-local (\`${rel}\`)`);
+    // Deterministic from config: point at the skills root, not a concrete file —
+    // whether the skill is a flat `<id>.md` or a `<id>/SKILL.md` directory is an
+    // on-disk detail (the header explains both forms). Resolving it here would
+    // make the managed block depend on filesystem state and drift between
+    // checkouts. doctor is where the on-disk existence check belongs.
+    rows.push(`- \`${name}\` — project-local (\`.claude/skills/${name}\`)`);
   }
   if (rows.length === 0) return null;
   // The project-local note only makes sense when the repo actually declares
@@ -356,7 +355,7 @@ export function renderClaudeEngine(
   // when the body comes back empty.
   const localSkills = config.project?.localSkills ?? [];
   let claudeMdContent = claudeMdPlan.next;
-  const skillsIndexBody = buildSkillsIndexBody(config, localSkills, repoRoot, cwd);
+  const skillsIndexBody = buildSkillsIndexBody(config, localSkills, repoRoot);
   if (skillsIndexBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,

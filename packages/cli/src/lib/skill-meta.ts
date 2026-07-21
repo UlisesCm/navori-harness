@@ -11,6 +11,11 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { splitFrontmatter, getFrontmatterField } from "./frontmatter.ts";
 
+/** File that marks a skill DIRECTORY (`.claude/skills/<id>/SKILL.md`). Shared so
+ * `resolveLocalSkillPath` and `claude-infra`'s `listSkillDirs` agree on the
+ * convention. */
+export const SKILL_DIR_ENTRY = "SKILL.md";
+
 /**
  * Resolve where a project-local skill lives on disk. navori supports two shapes:
  *   - a single file:     `.claude/skills/<id>.md`
@@ -20,10 +25,16 @@ import { splitFrontmatter, getFrontmatterField } from "./frontmatter.ts";
  * `references/` tree) as a project-local skill without flattening it into one
  * file. Returns the repo-relative path that exists, preferring the flat file,
  * or null when neither is present.
+ *
+ * A skill id is a flat slug: any path separator or `..` traversal is rejected up
+ * front so a config-supplied id can never resolve outside `.claude/skills/`.
  */
 export function resolveLocalSkillPath(cwd: string, id: string): string | null {
+  if (id === "" || id !== id.trim() || /[\\/]/.test(id) || id.split(/[\\/]/).includes("..") || id.includes("..")) {
+    return null;
+  }
   const fileRel = `.claude/skills/${id}.md`;
-  const dirRel = `.claude/skills/${id}/SKILL.md`;
+  const dirRel = `.claude/skills/${id}/${SKILL_DIR_ENTRY}`;
   if (existsSync(join(cwd, fileRel))) return fileRel;
   if (existsSync(join(cwd, dirRel))) return dirRel;
   return null;

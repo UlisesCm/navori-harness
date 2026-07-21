@@ -42,4 +42,17 @@ describe("resolveLocalSkillPath", () => {
     mkdirSync(join(cwd, ".claude/skills/empty"), { recursive: true });
     expect(resolveLocalSkillPath(cwd, "empty")).toBeNull();
   });
+
+  it("rejects ids with path traversal or separators (no escaping the skills root)", () => {
+    // Even if the traversal target exists on disk, the id must not resolve.
+    writeFileSync(join(cwd, ".claude/skills/real.md"), "# real");
+    expect(resolveLocalSkillPath(cwd, "../../../../etc/hosts")).toBeNull();
+    expect(resolveLocalSkillPath(cwd, "..")).toBeNull();
+    expect(resolveLocalSkillPath(cwd, "nested/skill")).toBeNull();
+    expect(resolveLocalSkillPath(cwd, "a\\b")).toBeNull();
+    expect(resolveLocalSkillPath(cwd, "  real  ")).toBeNull();
+    expect(resolveLocalSkillPath(cwd, "")).toBeNull();
+    // a legit flat slug next to it still resolves
+    expect(resolveLocalSkillPath(cwd, "real")).toBe(".claude/skills/real.md");
+  });
 });

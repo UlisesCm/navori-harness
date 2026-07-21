@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { SKILL_DIR_ENTRY } from "./skill-meta.ts";
 
 export interface ClaudeInfraInventory {
   /** Has anything Claude-related at all (any of the fields below is truthy). */
@@ -35,8 +36,8 @@ function listSkillDirs(dir: string): string[] {
     const full = join(dir, entry);
     try {
       if (statSync(full).isDirectory()) {
-        // Skill directories contain SKILL.md
-        if (existsSync(join(full, "SKILL.md"))) result.push(entry);
+        // Skill directories contain SKILL.md (shared convention)
+        if (existsSync(join(full, SKILL_DIR_ENTRY))) result.push(entry);
       } else if (entry.endsWith(".md")) {
         // Flat skill files (.claude/skills/<name>.md)
         result.push(entry);
