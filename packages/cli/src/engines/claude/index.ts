@@ -157,7 +157,12 @@ function buildSkillsIndexBody(
     listed.add(id);
   }
   for (const name of localSkills) {
-    rows.push(`- \`${name}\` — project-local (\`.claude/skills/${name}.md\`)`);
+    // Deterministic from config: point at the skills root, not a concrete file —
+    // whether the skill is a flat `<id>.md` or a `<id>/SKILL.md` directory is an
+    // on-disk detail (the header explains both forms). Resolving it here would
+    // make the managed block depend on filesystem state and drift between
+    // checkouts. doctor is where the on-disk existence check belongs.
+    rows.push(`- \`${name}\` — project-local (\`.claude/skills/${name}\`)`);
   }
   if (rows.length === 0) return null;
   // The project-local note only makes sense when the repo actually declares
@@ -168,7 +173,7 @@ function buildSkillsIndexBody(
   return [
     "## Skills disponibles",
     "",
-    "Skills que los agentes pueden aplicar; cada uno vive en `.claude/skills/<id>.md`.",
+    "Skills que los agentes pueden aplicar; cada uno vive en `.claude/skills/` (un `<id>.md` o un directorio `<id>/SKILL.md`).",
     ...localNote,
     "",
     ...rows,

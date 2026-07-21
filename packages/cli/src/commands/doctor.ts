@@ -7,6 +7,7 @@ import { isPlaceholderName } from "../lib/detect.ts";
 import { loadPlugin } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
+import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
 import {
@@ -246,14 +247,14 @@ export const doctorCommand = defineCommand({
     // indexes them but never writes their content, so a missing one is dead
     // weight in the index.
     const missingLocalSkills = (config.project?.localSkills ?? []).filter(
-      (name) => !existsSync(join(cwd, ".claude/skills", `${name}.md`)),
+      (name) => resolveLocalSkillPath(cwd, name) === null,
     );
     if (missingLocalSkills.length > 0) {
       const lines = missingLocalSkills.map(
-        (n) => `  ${color.red(sym.fail)} ${accent(n)}  ${grey(`— falta .claude/skills/${n}.md`)}`,
+        (n) => `  ${color.red(sym.fail)} ${accent(n)}  ${grey(`— falta .claude/skills/${n}.md o ${n}/SKILL.md`)}`,
       );
       p.log.warn(
-        `Skills project-local declarados sin archivo (${missingLocalSkills.length}) — crea el .md o quita el id de project.localSkills:\n${lines.join("\n")}`,
+        `Skills project-local declarados sin archivo (${missingLocalSkills.length}) — crea el .md (o <id>/SKILL.md) o quita el id de project.localSkills:\n${lines.join("\n")}`,
       );
     }
 
