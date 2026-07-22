@@ -87,6 +87,44 @@ function sameMigrations(a: readonly MigrationEntry[], b: readonly MigrationEntry
   return b.every((m) => seen.has(key(m)));
 }
 
+/**
+ * #90 — reconcile `project.libraryMigrations` (which `init` AUTO-populates from
+ * detection) with a fresh detection, keyed by `legacy`, so new migrations are
+ * still adopted while genuine manual edits survive. Three cases per `legacy`:
+ *
+ *   - detected legacy NOT in config → NEW pair → adopt it (append).
+ *   - legacy in both but `preferred`/`domain` differ → the user hand-edited the
+ *     successor → real override → keep the CONFIG pair and flag it.
+ *   - config legacy no longer detected → keep it (the "removed the legacy dep
+ *     but want to remember the rule" case from the original #90 fix).
+ *
+ * Returns the merged set (config entries first, then newly-detected ones, for a
+ * stable/idempotent write) plus the config pairs the user actually overrode
+ * (so the caller only warns about REAL overrides, not plain new adoptions).
+ */
+export function mergeLibraryMigrations(
+  current: readonly MigrationEntry[],
+  detected: readonly MigrationEntry[],
+): { merged: MigrationEntry[]; changedOverrides: MigrationEntry[] } {
+  const detByLegacy = new Map(detected.map((m) => [m.legacy, m]));
+  const curLegacies = new Set(current.map((m) => m.legacy));
+  const merged: MigrationEntry[] = [];
+  const changedOverrides: MigrationEntry[] = [];
+
+  for (const cur of current) {
+    merged.push(cur); // every existing pair is preserved…
+    const det = detByLegacy.get(cur.legacy);
+    // …and when detection disagrees on the SAME legacy, the user's edit wins.
+    if (det && (det.preferred !== cur.preferred || det.domain !== cur.domain)) {
+      changedOverrides.push(cur);
+    }
+  }
+  for (const det of detected) {
+    if (!curLegacies.has(det.legacy)) merged.push(det); // brand-new → adopt
+  }
+  return { merged, changedOverrides };
+}
+
 /** Merge a patch into the raw `project` object, tolerating it being absent. */
 function withProject(current: unknown, patch: Record<string, unknown>): Record<string, unknown> {
   const base = current && typeof current === "object" ? (current as Record<string, unknown>) : {};
@@ -175,17 +213,19 @@ function diffConfig(current: NavoriConfig, detected: ReturnType<typeof detectPro
     });
   }
 
-  // Library migrations (legacy + successor both present) — refresh like libraries
-  // so an existing repo gains the migration rule when it adds the new lib, and
-  // loses it once the legacy dep is fully removed.
+  // Library migrations — reconciled by `legacy` (see mergeLibraryMigrations, #90)
+  // so a NEW detected pair is adopted while a hand-edited successor survives. We
+  // diff against the MERGED set, not raw detection, so a manual override never
+  // reads as "drift to overwrite".
   const currentMigs = current.project?.libraryMigrations ?? [];
-  if (!sameMigrations(currentMigs, detected.migrations)) {
+  const { merged: mergedMigs } = mergeLibraryMigrations(currentMigs, detected.migrations);
+  if (!sameMigrations(currentMigs, mergedMigs)) {
     const fmt = (ms: readonly MigrationEntry[]) =>
       ms.length ? ms.map((m) => `${m.legacy}→${m.preferred}`).join(", ") : "(none)";
     out.push({
       field: "project.libraryMigrations",
       before: fmt(currentMigs),
-      after: fmt(detected.migrations),
+      after: fmt(mergedMigs),
     });
   }
 
@@ -216,7 +256,11 @@ function applyDiffs(raw: Record<string, unknown>, detected: ReturnType<typeof de
     } else if (d.field === "project.libraries") {
       raw.project = withProject(raw.project, { libraries: detected.libraries });
     } else if (d.field === "project.libraryMigrations") {
-      raw.project = withProject(raw.project, { libraryMigrations: detected.migrations });
+      // Apply the reconciled merge (adopt new, preserve overrides), not raw
+      // detection — recomputed here from `raw` for the same deterministic result.
+      const rawProject = raw.project as { libraryMigrations?: MigrationEntry[] } | undefined;
+      const { merged } = mergeLibraryMigrations(rawProject?.libraryMigrations ?? [], detected.migrations);
+      raw.project = withProject(raw.project, { libraryMigrations: merged });
     } else if (d.field === "project.codeLanguage") {
       raw.project = withProject(raw.project, { codeLanguage: detected.stack.language });
     }
@@ -253,6 +297,28 @@ export const updateCommand = defineCommand({
     const config = readConfigOrExit(configPath);
     const detected = detectProject(cwd);
     const diffs = diffConfig(config, detected);
+
+    // #90: `project.libraryMigrations` is reconciled by `legacy` in diffConfig/
+    // applyDiffs (new pairs adopted, hand-edited successors preserved). Here we
+    // only surface the REAL manual overrides — a config pair whose successor the
+    // user changed away from detection — so they know we're honoring their edit
+    // (and NOT clobbering it), without crying "override" on a plain new adoption.
+    const { changedOverrides } = mergeLibraryMigrations(
+      config.project?.libraryMigrations ?? [],
+      detected.migrations,
+    );
+    if (changedOverrides.length > 0) {
+      const detByLegacy = new Map(detected.migrations.map((m) => [m.legacy, m]));
+      const detail = changedOverrides
+        .map((m) => {
+          const det = detByLegacy.get(m.legacy);
+          return `${m.legacy}→${m.preferred}${det ? ` (detección sugiere ${det.legacy}→${det.preferred})` : ""}`;
+        })
+        .join(", ");
+      p.log.info(
+        `project.libraryMigrations: respeto tu override manual — ${detail}. No lo sobrescribo; edítalo a mano si quieres adoptar la sugerencia.`,
+      );
+    }
 
     const rawConfig = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
     const deadKeys = deadProgressKeys(rawConfig);

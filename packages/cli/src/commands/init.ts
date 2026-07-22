@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, chmodSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { writeConfig } from "../lib/config.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
-import { detectProject, isPlaceholderName, type ClaudeInfraInventory } from "../lib/detect.ts";
+import { detectProject, isPlaceholderName, type ClaudeInfraInventory, type PackageManager } from "../lib/detect.ts";
 import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
 import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
 import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
@@ -424,7 +424,7 @@ export const initCommand = defineCommand({
       if (adjustments.includes("qualityGate")) {
         const fastVal = await p.text({
           message: tr.qualityGateFast,
-          placeholder: qualityGate?.fast ?? "pnpm tsc --noEmit",
+          placeholder: qualityGate?.fast ?? defaultGateHint(detected.packageManager),
           defaultValue: qualityGate?.fast ?? "",
         });
         if (p.isCancel(fastVal)) return cancel(lang);
@@ -561,7 +561,7 @@ export const initCommand = defineCommand({
         case "qualityGate": {
           const fastVal = await p.text({
             message: tr.qualityGateFast,
-            placeholder: qualityGate?.fast ?? "pnpm tsc --noEmit",
+            placeholder: qualityGate?.fast ?? defaultGateHint(detected.packageManager),
             defaultValue: qualityGate?.fast ?? "",
           });
           if (p.isCancel(fastVal)) break;
@@ -1323,4 +1323,15 @@ function formatProjectValue(v: unknown): string {
   if (typeof v === "boolean") return v ? "true" : "false";
   if (v === null || v === undefined) return "(none)";
   return String(v);
+}
+
+/**
+ * Placeholder shown for the "fast" quality-gate prompt when none was detected.
+ * Uses the repo's real package manager so we don't suggest a `pnpm` command in
+ * a bun/npm/yarn project (#88). npm can't run a bare bin (`npm tsc`), so it goes
+ * through `npx`; pnpm/yarn/bun resolve `node_modules/.bin` from `<pm> tsc`.
+ */
+function defaultGateHint(pm: PackageManager | null): string {
+  if (pm === "npm") return "npx tsc --noEmit";
+  return `${pm ?? "pnpm"} tsc --noEmit`;
 }

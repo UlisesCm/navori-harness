@@ -24,22 +24,60 @@ extract_cmd() {
 }
 cmd=$(extract_cmd)
 
+# Detect the project's REAL package manager from lockfiles / package.json, so a
+# gate command hardcoded to one PM (e.g. `pnpm run ...`) can still run in a repo
+# that actually uses another (e.g. bun). Mirrors lib/detect.ts precedence:
+# `packageManager` field first, then pnpm/bun/yarn/npm lockfiles. Prints the PM
+# name (or nothing) on stdout. Git runs hooks from the repo root, so relative
+# paths resolve against the project root.
+detect_pm() {
+  if [ -f package.json ]; then
+    pm=$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"\([a-z]*\)@.*/\1/p' package.json | head -n1)
+    case "$pm" in pnpm|npm|yarn|bun) printf '%s' "$pm"; return 0 ;; esac
+  fi
+  if [ -f pnpm-lock.yaml ]; then printf 'pnpm'; return 0; fi
+  if [ -f bun.lockb ] || [ -f bun.lock ]; then printf 'bun'; return 0; fi
+  if [ -f yarn.lock ]; then printf 'yarn'; return 0; fi
+  if [ -f package-lock.json ]; then printf 'npm'; return 0; fi
+  return 0
+}
+
+# True when the argument is a JS package manager (so we only try to remap the
+# leading token of the gate command when it's actually a PM, not `make`/`ruff`).
+is_pm() {
+  case "$1" in pnpm|npm|yarn|bun) return 0 ;; *) return 1 ;; esac
+}
+
+run_gate() {
+  echo "[navori] running quality-gate fast: $1" >&2
+  eval "$1" || {
+    echo "[navori] quality-gate fast failed. Commit/push aborted." >&2
+    exit 2
+  }
+}
+
 case "$cmd" in
   'git commit'*|'git push'*)
     gate="{{qualityGate.fast}}"
-    # Defensive: skip cleanly (exit 0) when the gate's runtime isn't on PATH —
-    # e.g. a Nix/nvm shell that hasn't loaded the project env. Never block a
-    # commit just because the tool is missing from THIS shell.
     gate_bin="${gate%% *}"
-    if ! command -v "$gate_bin" >/dev/null 2>&1; then
-      echo "[navori] '$gate_bin' no está en PATH — skip quality-gate (¿shell sin el entorno del proyecto?)" >&2
-      exit 0
+    if command -v "$gate_bin" >/dev/null 2>&1; then
+      run_gate "$gate"
+    else
+      # The declared runner isn't on PATH. If it's a package manager, detect the
+      # repo's real one from lockfiles and retry through it (a `pnpm run x` gate
+      # still runs in a bun-only checkout). #88: NEVER skip the gate silently —
+      # when nothing can run it, BLOCK the commit loudly instead of the old
+      # `exit 0` that handed a contributor zero quality gate without a word.
+      detected_pm="$(detect_pm)"
+      if is_pm "$gate_bin" && [ -n "$detected_pm" ] && [ "$detected_pm" != "$gate_bin" ] && command -v "$detected_pm" >/dev/null 2>&1; then
+        echo "[navori] '$gate_bin' no está en PATH; uso el package manager detectado por lockfile: '$detected_pm'." >&2
+        run_gate "$detected_pm ${gate#* }"
+      else
+        echo "[navori] quality-gate NO ejecutado: '$gate_bin' no está en PATH y no hay un package manager alternativo detectado que pueda correrlo." >&2
+        echo "[navori] Commit/push BLOQUEADO para no saltarnos el gate en silencio. Instala '$gate_bin' o usa 'git commit --no-verify' si de verdad quieres saltártelo." >&2
+        exit 2
+      fi
     fi
-    echo "[navori] running quality-gate fast: $gate" >&2
-    eval "$gate" || {
-      echo "[navori] quality-gate fast failed. Commit/push aborted." >&2
-      exit 2
-    }
     ;;
 esac
 

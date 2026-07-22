@@ -12,7 +12,12 @@ const CONFIG = {
   commits: "conventional-es",
   qualityGate: { fast: "pnpm typecheck", full: "pnpm test" },
   models: { leader: "opus", implementer: "sonnet" },
-  project: { legacyPaths: ["src/legacy"], criticalAreas: ["src/auth", "src/billing"] },
+  project: {
+    legacyPaths: ["src/legacy"],
+    criticalAreas: ["src/auth", "src/billing"],
+    emptyList: [],
+    libraryMigrations: [{ legacy: "axios", preferred: "ky", domain: "http" }],
+  },
 } as unknown as NavoriConfig;
 
 describe("interpolate — default mode", () => {
@@ -22,6 +27,21 @@ describe("interpolate — default mode", () => {
 
   it("joins array values with commas", () => {
     expect(interpolate("{{project.criticalAreas}}", CONFIG)).toBe("src/auth, src/billing");
+  });
+
+  it("serializes a single-element primitive array (#89 — legacyPaths not empty)", () => {
+    expect(interpolate("legacy: {{project.legacyPaths}}", CONFIG)).toBe("legacy: src/legacy");
+  });
+
+  it("renders an empty array as an empty string (#89)", () => {
+    expect(interpolate("x={{project.emptyList}}", CONFIG)).toBe("x=");
+  });
+
+  it("falls back for arrays of objects instead of emitting [object Object] (#89)", () => {
+    // libraryMigrations is an object array — no meaningful inline form.
+    expect(interpolate("m={{project.libraryMigrations}}", CONFIG)).toBe(
+      "m=<not configured: project.libraryMigrations>",
+    );
   });
 
   it("uses <not configured> for missing paths", () => {

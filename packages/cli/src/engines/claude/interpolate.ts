@@ -80,6 +80,20 @@ function resolvePath(
   if (typeof cursor === "string" || typeof cursor === "number" || typeof cursor === "boolean") {
     return String(cursor);
   }
-  if (Array.isArray(cursor)) return cursor.join(", ");
+  // Arrays of primitives (legacyPaths, criticalAreas, libraries) serialize to a
+  // comma-joined list so template placeholders like `{{project.legacyPaths}}`
+  // render the values instead of falling back to empty/`<not configured>`.
+  // Arrays holding objects (e.g. libraryMigrations) have no meaningful inline
+  // form — return null so the placeholder fallback fires rather than emitting
+  // "[object Object]".
+  if (Array.isArray(cursor)) {
+    return cursor.every(isPrimitive) ? cursor.join(", ") : null;
+  }
   return null;
+}
+
+/** True for values that serialize cleanly inline (string/number/boolean). */
+function isPrimitive(value: unknown): boolean {
+  const t = typeof value;
+  return t === "string" || t === "number" || t === "boolean";
 }

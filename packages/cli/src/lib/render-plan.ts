@@ -65,7 +65,7 @@ function resolveAssetPath(asset: CoreManagedAsset, language: AssetLanguage = "es
  * from the config. Missing values fall back to a friendly literal so the
  * generated CLAUDE.md never ships a raw `{{...}}` to the user.
  */
-function interpolateTemplate(content: string, config: NavoriConfig): string {
+export function interpolateTemplate(content: string, config: NavoriConfig): string {
   const configRecord = config as unknown as Record<string, unknown>;
   return content.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (match, path: string) => {
     const segments = path.split(".");
@@ -84,7 +84,20 @@ function interpolateTemplate(content: string, config: NavoriConfig): string {
     if (typeof cursor === "string" || typeof cursor === "number" || typeof cursor === "boolean") {
       return String(cursor);
     }
-    return match;
+    // Serialize arrays of primitives consistently with engines/claude/interpolate
+    // (#89) so an array placeholder in a CLAUDE.md managed block renders its
+    // values. Object arrays have no inline form → fall to the same readable
+    // fallback as a missing value (never ship a raw `{{...}}`, per this fn's
+    // contract), matching engines/claude/interpolate's null→fallback behavior.
+    if (Array.isArray(cursor)) {
+      const allPrimitive = cursor.every((x) => {
+        const t = typeof x;
+        return t === "string" || t === "number" || t === "boolean";
+      });
+      return allPrimitive ? cursor.join(", ") : placeholderFallback(path);
+    }
+    // Any other object → readable fallback rather than a raw placeholder.
+    return placeholderFallback(path);
   });
 }
 

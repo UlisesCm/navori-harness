@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { renderManagedFile } from "../render-managed-file.ts";
+import { getCoreRoot } from "../../../lib/bundled-assets.ts";
 import type { NavoriConfig } from "../../../lib/config.ts";
 
 const CONFIG = {
@@ -162,6 +163,41 @@ describe("renderManagedFile — re-render idempotency", () => {
     });
     expect(second.status).toBe("user-modified-skipped");
     expect(second.content).toContain("USER-TAMPERED");
+  });
+});
+
+describe("renderManagedFile — real core agents render array placeholders (#89)", () => {
+  const config = {
+    ...CONFIG,
+    project: {
+      legacyPaths: ["src/legacy", "vendor/old"],
+      criticalAreas: ["src/auth", "src/billing"],
+    },
+  } as unknown as NavoriConfig;
+
+  it("implementer.md renders project.legacyPaths (not empty)", () => {
+    const r = renderManagedFile({
+      assetPath: resolve(getCoreRoot(), "core-assets/agents/implementer.md"),
+      existingContent: null,
+      managedId: "implementer-base",
+      meta: META,
+      config,
+    });
+    const line = r.content.split("\n").find((l) => l.includes("Paths legacy donde NO aplican"));
+    expect(line).toBeTruthy();
+    expect(line).toContain("src/legacy, vendor/old");
+  });
+
+  it("leader.md renders project.legacyPaths and criticalAreas (not empty)", () => {
+    const r = renderManagedFile({
+      assetPath: resolve(getCoreRoot(), "core-assets/agents/leader.md"),
+      existingContent: null,
+      managedId: "leader-base",
+      meta: META,
+      config,
+    });
+    expect(r.content).toContain("Carpetas legacy con reglas distintas: src/legacy, vendor/old");
+    expect(r.content).toContain("Áreas críticas que requieren review extra: src/auth, src/billing");
   });
 });
 
