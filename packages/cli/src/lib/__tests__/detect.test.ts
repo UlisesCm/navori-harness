@@ -550,6 +550,50 @@ describe("detectProject — library skill detection", () => {
       rmSync(dir, { recursive: true });
     }
   });
+
+  // End-to-end adoption/dominance gating: a repo whose source actually imports
+  // the tracked deps, so `detectProject` scans the tree and weighs by use (#86).
+  const withDepsAndSources = (deps: Record<string, string>, sources: Record<string, string>) => {
+    const dir = makeTmp();
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "svc", dependencies: deps }));
+    for (const [rel, content] of Object.entries(sources)) {
+      const abs = join(dir, rel);
+      mkdirSync(join(abs, ".."), { recursive: true });
+      writeFileSync(abs, content);
+    }
+    return dir;
+  };
+
+  it("keeps a library skill regardless of how few files import the dep (presence-only, #92)", () => {
+    // react-hook-form imported in only 2 files still earns its skill — usage
+    // counts weigh migrations, not whether a lib is worth teaching.
+    const dir = withDepsAndSources(
+      { "react-hook-form": "^7" },
+      {
+        "src/FormA.tsx": `import { useForm } from 'react-hook-form';\n`,
+        "src/FormB.tsx": `import { useForm } from 'react-hook-form';\n`,
+      },
+    );
+    try {
+      expect(detectProject(dir).libraries).toContain("react-hook-form");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("does NOT flag a migration whose preferred side is an incidental peer dep (#86)", () => {
+    // moment used widely, dayjs barely (peer of a date picker) → no rule.
+    const sources: Record<string, string> = {
+      "src/d1.ts": `import dayjs from 'dayjs';\n`,
+    };
+    for (let i = 0; i < 10; i++) sources[`src/m${i}.ts`] = `import moment from 'moment';\n`;
+    const dir = withDepsAndSources({ moment: "^2", dayjs: "^1" }, sources);
+    try {
+      expect(detectProject(dir).migrations).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
 });
 
 describe("detectProject — qualityGate only references scripts that exist (F-gate)", () => {
