@@ -7,7 +7,7 @@ import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
-import { librarySkillById, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
+import { librarySkillById, LIBRARY_SKILLS, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import {
   injectManagedSection,
@@ -853,6 +853,42 @@ export function renderClaudeEngine(
     if (!content.includes(`navori:managed id="${id}"`)) continue; // user's own — keep
     inspected += 1;
     scriptRemovals.push(destPath);
+  }
+
+  // 8.7. Reconcile ORPHANED library skills. A library skill navori materialized
+  // in a PRIOR render — deselected from config.project.libraries, or shipped by
+  // an older preset that has since moved it to this layer (e.g. express-mongoose
+  // once shipped `zod-validation`) — lingers as a managed file navori no longer
+  // renders, surfacing as permanent `doctor` drift. §8.5 (disabled-plugin assets)
+  // and §8.6 (registry-removed libs) don't cover it.
+  //
+  // Scope is deliberately narrow — the KNOWN library-skill registry, NOT a
+  // directory scan against `renderedSkillDests`. That set is only complete when
+  // the render fully succeeded: a preset that fails to load, or a config library
+  // id this binary's registry doesn't know, leaves valid destinations out of it,
+  // and a dir-scan would then hard-delete still-valid managed files on a
+  // recoverable error. Iterating LIBRARY_SKILLS instead means: preset extras and
+  // core skills are never candidates (so a preset-load failure can't trigger a
+  // false-positive deletion); a library still selected (even if unknown to this
+  // binary — it stays in config.libraries) is never deleted; and basename == the
+  // managed id by construction, so the marker check is exact. REMOVED ids aren't
+  // in this registry — §8.6 owns those.
+  const selectedLibs = new Set(config.project?.libraries ?? []);
+  const localSkillIds = new Set(config.project?.localSkills ?? []);
+  for (const { id } of LIBRARY_SKILLS) {
+    if (selectedLibs.has(id)) continue; // currently selected — keep
+    if (localSkillIds.has(id)) continue; // user reclaimed the id as a local skill — keep
+    const abs = join(cwd, ".claude/skills", `${id}.md`);
+    if (!existsSync(abs)) continue;
+    let content: string;
+    try {
+      content = readFileSync(abs, "utf-8");
+    } catch {
+      continue; // unreadable — leave it rather than guess
+    }
+    if (!content.includes(`navori:managed id="${id}"`)) continue; // user's own — keep
+    inspected += 1;
+    scriptRemovals.push(abs);
   }
 
   // 9. Backup + atomic writes
