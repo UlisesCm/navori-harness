@@ -8,7 +8,7 @@ import {
   aggregateRender,
   deadProgressKeys,
   refreshWorkspaceScopes,
-  isLibraryMigrationsOverride,
+  mergeLibraryMigrations,
 } from "../update.ts";
 
 let cwd: string;
@@ -73,25 +73,59 @@ describe("refreshWorkspaceScopes — re-home per-workspace library skills (#80 m
   });
 });
 
-describe("isLibraryMigrationsOverride (#90)", () => {
+describe("mergeLibraryMigrations (#90)", () => {
   const mig = (legacy: string, preferred: string, domain = "http") => ({ legacy, preferred, domain });
+  const legacies = (ms: Array<{ legacy: string }>) => ms.map((m) => m.legacy).sort();
 
-  it("treats a non-empty config that diverges from detection as a manual override", () => {
-    // User hand-added a rule detection wouldn't produce (legacy dep already gone).
-    expect(isLibraryMigrationsOverride([mig("axios", "ky")], [])).toBe(true);
-    // User curated a different set than detection suggests.
-    expect(isLibraryMigrationsOverride([mig("axios", "ky")], [mig("moment", "dayjs")])).toBe(true);
-  });
-
-  it("is NOT an override when config matches detection (order-independent)", () => {
+  it("adopts a NEW detected pair (moment→dayjs added after init auto-populated axios→ky)", () => {
+    // The scenario that used to freeze: config was auto-populated by init, then
+    // the user adds new deps. The new pair MUST be adopted, and it's NOT flagged
+    // as a manual override.
+    const current = [mig("axios", "ky")];
     const detected = [mig("axios", "ky"), mig("moment", "dayjs")];
-    const current = [mig("moment", "dayjs"), mig("axios", "ky")];
-    expect(isLibraryMigrationsOverride(current, detected)).toBe(false);
+    const { merged, changedOverrides } = mergeLibraryMigrations(current, detected);
+    expect(legacies(merged)).toEqual(["axios", "moment"]);
+    expect(merged.find((m) => m.legacy === "moment")).toEqual(mig("moment", "dayjs"));
+    expect(changedOverrides).toEqual([]);
   });
 
-  it("is NOT an override when config is empty/absent (adopts detection)", () => {
-    expect(isLibraryMigrationsOverride([], [mig("axios", "ky")])).toBe(false);
-    expect(isLibraryMigrationsOverride(undefined, [mig("axios", "ky")])).toBe(false);
+  it("preserves a hand-edited successor (real override) and flags it", () => {
+    // User changed the successor for axios; detection still suggests ky.
+    const current = [mig("axios", "got")];
+    const detected = [mig("axios", "ky")];
+    const { merged, changedOverrides } = mergeLibraryMigrations(current, detected);
+    expect(merged).toEqual([mig("axios", "got")]); // user's choice wins
+    expect(changedOverrides).toEqual([mig("axios", "got")]);
+  });
+
+  it("keeps a config pair whose legacy is no longer detected (remembered rule)", () => {
+    const current = [mig("axios", "ky")];
+    const { merged, changedOverrides } = mergeLibraryMigrations(current, []);
+    expect(merged).toEqual([mig("axios", "ky")]);
+    expect(changedOverrides).toEqual([]); // not a change — detection simply lost it
+  });
+
+  it("does NOT flag an override when config matches detection, order-independent", () => {
+    const current = [mig("moment", "dayjs"), mig("axios", "ky")];
+    const detected = [mig("axios", "ky"), mig("moment", "dayjs")];
+    const { merged, changedOverrides } = mergeLibraryMigrations(current, detected);
+    expect(legacies(merged)).toEqual(["axios", "moment"]);
+    expect(changedOverrides).toEqual([]);
+  });
+
+  it("adopts detection wholesale when config is empty (fresh repo)", () => {
+    const { merged, changedOverrides } = mergeLibraryMigrations([], [mig("axios", "ky")]);
+    expect(merged).toEqual([mig("axios", "ky")]);
+    expect(changedOverrides).toEqual([]);
+  });
+
+  it("combines a real override AND a new adoption in one pass", () => {
+    const current = [mig("axios", "got")]; // override
+    const detected = [mig("axios", "ky"), mig("moment", "dayjs")]; // conflict + new
+    const { merged, changedOverrides } = mergeLibraryMigrations(current, detected);
+    expect(legacies(merged)).toEqual(["axios", "moment"]);
+    expect(merged.find((m) => m.legacy === "axios")).toEqual(mig("axios", "got"));
+    expect(changedOverrides).toEqual([mig("axios", "got")]);
   });
 });
 
