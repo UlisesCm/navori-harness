@@ -918,19 +918,25 @@ describe("CLI e2e — happy paths", () => {
     expect(agents).toContain("navori:user-section");
   });
 
-  it("render warns, never silently ignores, an engine with no adapter yet (#9)", () => {
+  it("render emits the cursor + copilot engines end-to-end (#9)", () => {
     const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "cursor-engine" }) });
     dirs.push(repo);
     runCli(["init", "--yes", "--no-render", "--cwd", repo]);
 
     const cfgPath = join(repo, "navori.config.json");
     const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
-    cfg.engines = ["claude", "cursor"];
+    cfg.engines = ["claude", "cursor", "copilot"];
     writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
 
     const r = runCli(["render", "--apply", "--cwd", repo]);
     expect(r.status).toBe(0);
-    expect(r.combined).toMatch(/cursor.*adapter|adapter.*cursor/i);
+    // Both non-Claude prose engines materialized their file at the standard path.
+    const mdc = join(repo, ".cursor/rules/navori.mdc");
+    const copilot = join(repo, ".github/copilot-instructions.md");
+    expect(existsSync(mdc)).toBe(true);
+    expect(existsSync(copilot)).toBe(true);
+    expect(readFileSync(mdc, "utf-8")).toContain("alwaysApply: true");
+    expect(readFileSync(copilot, "utf-8")).toContain("## Idioma y rol");
   });
 
   it("render --json emits valid JSON and suppresses human output (#84)", () => {

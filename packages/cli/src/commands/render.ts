@@ -10,6 +10,9 @@ import {
   type ClaudeEngineResult,
 } from "../engines/claude/index.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
+import { renderCursorEngine } from "../engines/cursor/index.ts";
+import { renderCopilotEngine } from "../engines/copilot/index.ts";
+import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
 import { renderStatusSymbol, renderStatusLabel, dim, color, brand, sym, type RenderStatus } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 import { effectiveConfigForWorkspace, buildMonorepoContext } from "../lib/monorepo.ts";
@@ -64,14 +67,26 @@ function renderNonClaudeEngines(
   const repoRoot = options.repoRoot ?? cwd;
   const warnMissingAdapters = options.warnMissingAdapters ?? true;
   const lang = options.lang ?? resolveLang(config.language);
+  // Prose engines that share the AGENTS.md rendering path (same body, different
+  // destination/format). Keyed by config engine id.
+  const PROSE_ENGINES: Record<
+    string,
+    (cwd: string, config: ReturnType<typeof readConfig>, opts: { dryRun: boolean; repoRoot: string }) => ProseEngineResult
+  > = {
+    "agents-md": (c, cfg, o) => renderAgentsMdEngine(c, cfg, o),
+    cursor: (c, cfg, o) => renderCursorEngine(c, cfg, o),
+    copilot: (c, cfg, o) => renderCopilotEngine(c, cfg, o),
+  };
+
   const out: EngineRenderSummary[] = [];
   for (const eng of engines) {
     if (eng === "claude") continue;
-    if (eng === "agents-md") {
-      const r = renderAgentsMdEngine(cwd, config, { dryRun, repoRoot });
+    const render = PROSE_ENGINES[eng];
+    if (render) {
+      const r = render(cwd, config, { dryRun, repoRoot });
       out.push({ engine: eng, ...r });
     } else if (warnMissingAdapters) {
-      // cursor / copilot: declared but no adapter yet — warn, never ignore.
+      // An engine declared in config but with no adapter yet — warn, never ignore.
       out.push({
         engine: eng,
         written: [],

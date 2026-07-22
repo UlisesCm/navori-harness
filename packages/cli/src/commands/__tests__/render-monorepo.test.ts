@@ -448,24 +448,42 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
       expect(root?.written).toEqual([{ path: "AGENTS.md", status: "created" }]);
     });
 
-    it("warns once (root only) about engines without adapter (cursor/copilot)", () => {
+    it("engines [claude, cursor] writes .cursor/rules/navori.mdc at the root AND in every workspace", () => {
       seedMonorepo(["claude", "cursor"]);
       const result = runRender(cwd);
 
+      expect(existsSync(join(cwd, ".cursor/rules/navori.mdc"))).toBe(true);
+      expect(existsSync(join(cwd, "apps/backend/.cursor/rules/navori.mdc"))).toBe(true);
+      expect(existsSync(join(cwd, "apps/storefront/.cursor/rules/navori.mdc"))).toBe(true);
+
       const root = (result.extraEngines ?? []).find((e) => e.engine === "cursor");
-      expect(root?.warnings.some((w) => w.includes("cursor"))).toBe(true);
-      // Workspaces don't repeat the same repo-level warning.
+      expect(root?.written).toEqual([{ path: ".cursor/rules/navori.mdc", status: "created" }]);
       for (const ws of result.workspaces) {
-        expect(ws.extraEngines.find((e) => e.engine === "cursor")).toBeUndefined();
+        const eng = ws.extraEngines.find((e) => e.engine === "cursor");
+        expect(eng?.written).toEqual([{ path: ".cursor/rules/navori.mdc", status: "created" }]);
       }
     });
 
-    it("--workspace X still surfaces the no-adapter warning (no root render to do it)", () => {
+    it("engines [claude, copilot] writes .github/copilot-instructions.md at the root AND in every workspace", () => {
+      seedMonorepo(["claude", "copilot"]);
+      const result = runRender(cwd);
+
+      expect(existsSync(join(cwd, ".github/copilot-instructions.md"))).toBe(true);
+      expect(existsSync(join(cwd, "apps/backend/.github/copilot-instructions.md"))).toBe(true);
+
+      const root = (result.extraEngines ?? []).find((e) => e.engine === "copilot");
+      expect(root?.written).toEqual([{ path: ".github/copilot-instructions.md", status: "created" }]);
+    });
+
+    it("--workspace X also renders copilot for that workspace", () => {
       seedMonorepo(["claude", "copilot"]);
       const result = runRender(cwd, { workspaceFilter: "backend" });
 
+      expect(existsSync(join(cwd, "apps/backend/.github/copilot-instructions.md"))).toBe(true);
+      // Root and the other workspace stay untouched.
+      expect(existsSync(join(cwd, ".github/copilot-instructions.md"))).toBe(false);
       const eng = (result.extraEngines ?? []).find((e) => e.engine === "copilot");
-      expect(eng?.warnings.some((w) => w.includes("copilot"))).toBe(true);
+      expect(eng?.written).toEqual([{ path: ".github/copilot-instructions.md", status: "created" }]);
     });
   });
 });
