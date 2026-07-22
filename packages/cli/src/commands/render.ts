@@ -113,7 +113,11 @@ export function runRender(
   force = false,
 ): {
   ok: boolean;
+  /** Human-readable, LOCALIZED failure reason for terminal output. */
   reason?: string;
+  /** Stable machine-readable failure code (kebab-case, never localized) for
+   * `--json` consumers. Pairs with `reason` (the localized detail). */
+  reasonCode?: string;
   /** Resolved output locale (config.language), so callers localize messages
    * without re-reading the config. Defaults to DEFAULT_LANG on error paths. */
   language: Lang;
@@ -148,6 +152,7 @@ export function runRender(
     return {
       ok: false,
       reason: `No navori.config.json at ${configPath}`,
+      reasonCode: "config-missing",
       language: DEFAULT_LANG,
       filePath: claudeMdPath,
       entries: [],
@@ -178,6 +183,7 @@ export function runRender(
       return {
         ok: false,
         reason: tc(lang).sync.workspaceRequiresMonorepo,
+        reasonCode: "workspace-requires-monorepo",
         language: lang,
         filePath: claudeMdPath,
         entries: [],
@@ -195,6 +201,7 @@ export function runRender(
       return {
         ok: false,
         reason: tc(lang).sync.workspaceNotFound(workspaceFilter, known),
+        reasonCode: "workspace-not-found",
         language: lang,
         filePath: claudeMdPath,
         entries: [],
@@ -384,7 +391,16 @@ export const renderCommand = defineCommand({
 
     if (!result.ok) {
       if (json) {
-        console.log(JSON.stringify({ command: "render", ok: false, reason: result.reason ?? tr.renderFailed }));
+        // `reason` is a STABLE English code for CI; `detail` carries the
+        // localized human text (non-stable, locale-dependent).
+        console.log(
+          JSON.stringify({
+            command: "render",
+            ok: false,
+            reason: result.reasonCode ?? "render-failed",
+            detail: result.reason ?? tr.renderFailed,
+          }),
+        );
       } else {
         // Workspace errors are user-recoverable (typo in name, no monorepo yet);
         // 'navori init' is not always the right fix, so emit the raw reason.

@@ -1007,7 +1007,51 @@ describe("CLI e2e — happy paths", () => {
     expect(r.status).toBe(1);
     const parsed = JSON.parse(r.stdout);
     expect(parsed.ok).toBe(false);
+    // `reason` is a STABLE English code, never localized prose.
+    expect(parsed.reason).toBe("conflicts-detected");
     expect(parsed.conflicts.length).toBeGreaterThan(0);
+  });
+
+  it("--json error `reason` is a stable English code regardless of config.language (#84)", () => {
+    const fs = require("node:fs");
+    const repo = makeTmpRepo({
+      "pnpm-workspace.yaml": `packages:\n  - 'apps/*'\n`,
+      "package.json": JSON.stringify({ name: "demo-mono", private: true }),
+    });
+    dirs.push(repo);
+    fs.mkdirSync(join(repo, "apps/backend"), { recursive: true });
+    writeFileSync(
+      join(repo, "apps/backend/package.json"),
+      JSON.stringify({ name: "backend", dependencies: { next: "^15" } }),
+    );
+    // es config (default) — the localized human text would be Spanish.
+    runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
+
+    const r = runCli(["render", "--json", "--workspace", "ghost", "--cwd", repo]);
+    expect(r.status).toBe(1);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.ok).toBe(false);
+    // `reason` = stable code (CI asserts on this); locale-dependent prose lives
+    // in `detail`.
+    expect(parsed.reason).toBe("workspace-not-found");
+    expect(parsed.detail).toContain("ghost");
+    expect(parsed.detail).toMatch(/no encontrado/); // es detail
+
+    const s = runCli(["sync", "--json", "--workspace", "ghost", "--cwd", repo]);
+    expect(s.status).toBe(1);
+    const sParsed = JSON.parse(s.stdout);
+    expect(sParsed.reason).toBe("workspace-not-found");
+    expect(sParsed.detail).toContain("ghost");
+  });
+
+  it("render --json on a repo with no config emits reason:config-missing (#84)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    const r = runCli(["render", "--json", "--cwd", repo]);
+    expect(r.status).toBe(1);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe("config-missing");
   });
 
   it("config.language governs CLI output: en renders English prose, es Spanish (#84)", () => {

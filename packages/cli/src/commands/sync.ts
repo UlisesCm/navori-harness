@@ -88,7 +88,15 @@ export const syncCommand = defineCommand({
     const targetsResult = resolveSyncTargets(cwd, config, workspaceFilter);
     if (!targetsResult.ok) {
       if (json) {
-        console.log(JSON.stringify({ command: "sync", ok: false, reason: targetsResult.reason }));
+        // `reason` is a STABLE English code; `detail` carries localized text.
+        console.log(
+          JSON.stringify({
+            command: "sync",
+            ok: false,
+            reason: targetsResult.reasonCode,
+            detail: targetsResult.reason,
+          }),
+        );
       } else {
         p.cancel(targetsResult.reason);
       }
@@ -133,6 +141,8 @@ export const syncCommand = defineCommand({
         JSON.stringify(
           buildSyncJson(plans, conflicts, {
             ok: !yesBlocked,
+            // Stable English code (never localized) — only present on failure.
+            reason: yesBlocked ? "conflicts-detected" : undefined,
             mode,
             pending: pendingCount,
             written: writtenTotal,
@@ -266,7 +276,9 @@ export interface TargetPlan {
 
 export type SyncTargetsResult =
   | { ok: true; targets: SyncTarget[] }
-  | { ok: false; reason: string };
+  /** `reason` is the LOCALIZED human message; `reasonCode` is a stable
+   * kebab-case code for `--json` consumers (never localized). */
+  | { ok: false; reason: string; reasonCode: string };
 
 export function resolveSyncTargets(
   cwd: string,
@@ -278,12 +290,20 @@ export function resolveSyncTargets(
 
   if (workspaceFilter) {
     if (declared.length === 0) {
-      return { ok: false, reason: ts.workspaceRequiresMonorepo };
+      return {
+        ok: false,
+        reason: ts.workspaceRequiresMonorepo,
+        reasonCode: "workspace-requires-monorepo",
+      };
     }
     const match = declared.find((w) => w.name === workspaceFilter);
     if (!match) {
       const known = declared.map((w) => w.name).join(", ");
-      return { ok: false, reason: ts.workspaceNotFound(workspaceFilter, known) };
+      return {
+        ok: false,
+        reason: ts.workspaceNotFound(workspaceFilter, known),
+        reasonCode: "workspace-not-found",
+      };
     }
     return {
       ok: true,
@@ -381,6 +401,8 @@ function buildSyncJson(
   conflicts: Conflict[],
   meta: {
     ok: boolean;
+    /** Stable English failure code; omitted from the payload when undefined. */
+    reason?: string;
     mode: string;
     pending: number;
     written: number;
@@ -390,6 +412,7 @@ function buildSyncJson(
   return {
     command: "sync",
     ok: meta.ok,
+    ...(meta.reason ? { reason: meta.reason } : {}),
     mode: meta.mode,
     targets: plans.map(({ target, plan }) => ({
       label: target.label,

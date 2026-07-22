@@ -85,6 +85,8 @@ describe("resolveSyncTargets", () => {
       expect(r.reason).toContain("ghost");
       expect(r.reason).toContain("backend");
       expect(r.reason).toContain("storefront");
+      // Stable machine code for --json consumers (never localized).
+      expect(r.reasonCode).toBe("workspace-not-found");
     });
 
     it("returns ok:false when config has no monorepo declared", () => {
