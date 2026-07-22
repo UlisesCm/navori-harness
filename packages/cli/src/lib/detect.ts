@@ -3,7 +3,13 @@ import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { presetExists } from "./presets.ts";
 import { collectWorkspacePatterns } from "./workspace-patterns.ts";
-import { detectLibrarySkills, detectMigrations, type ActiveMigration } from "./library-skills.ts";
+import {
+  detectLibrarySkills,
+  detectMigrations,
+  trackedDepNames,
+  type ActiveMigration,
+} from "./library-skills.ts";
+import { countDepImports } from "./dep-usage.ts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -117,8 +123,14 @@ export function detectProject(cwd: string): DetectedProject {
   // sprayed every skill into every workspace CLAUDE.md, e.g. a Stripe skill in a
   // backend that never imports Stripe.
   const libraryDeps = new Set<string>(stack.deps);
-  const libraries = detectLibrarySkills([...libraryDeps]);
-  const migrations = detectMigrations([...libraryDeps]);
+  // Weigh skills/migrations by real adoption, not mere presence (#86/#92): scan
+  // the tree for how many files import each tracked dep. Bounded to the deps our
+  // registries care about that are actually declared here — so a repo with none
+  // pays no scan cost, and detection stays name-only (no counts) in that case.
+  const trackedPresent = trackedDepNames().filter((d) => libraryDeps.has(d));
+  const counts = trackedPresent.length > 0 ? countDepImports(cwd, trackedPresent) : undefined;
+  const libraries = detectLibrarySkills([...libraryDeps], counts);
+  const migrations = detectMigrations([...libraryDeps], counts);
   // The turbo+pnpm preset teaches pnpm-only workflows; only suggest it when the
   // repo actually uses pnpm. `pnpm-workspace.yaml` is a definitive pnpm signal
   // even when no lockfile is committed (detectPackageManager needs a lockfile).
