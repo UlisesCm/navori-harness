@@ -7,7 +7,8 @@ import type { DetectedProject } from "./detect.ts";
  * rendered harness.
  *
  * Strategy (most specific first):
- *   - TypeScript (tsconfig.json or `typescript` dep): `<pm> tsc --noEmit`
+ *   - TypeScript (tsconfig.json or `typescript` dep): run the local `tsc` via
+ *     the detected package manager's binary runner (see `tscCommandFor`).
  *   - Otherwise: null (warn instead of writing a noisy command)
  *
  * The python/rust paths are already handled inside `guessQualityGate` itself,
@@ -18,11 +19,21 @@ export function buildRecommendedQualityGate(
   detected: DetectedProject,
 ): { fast: string; full: string } | null {
   if (detected.stack.language === "ts") {
-    const pm = detected.packageManager ?? "pnpm";
-    const cmd = `${pm} tsc --noEmit`;
+    const cmd = tscCommandFor(detected.packageManager);
     return { fast: cmd, full: cmd };
   }
   return null;
+}
+
+/**
+ * Command that runs the project-local `tsc --noEmit` under the given package
+ * manager. `pnpm`/`yarn`/`bun` resolve a `node_modules/.bin` binary from a bare
+ * `<pm> tsc` invocation, but **`npm` does not** (`npm tsc` → "Unknown command"),
+ * so npm must go through `npx`. Defaults to pnpm when the PM is undetected. #88.
+ */
+function tscCommandFor(pm: DetectedProject["packageManager"]): string {
+  if (pm === "npm") return "npx tsc --noEmit";
+  return `${pm ?? "pnpm"} tsc --noEmit`;
 }
 
 /**

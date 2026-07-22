@@ -56,6 +56,25 @@ describe("buildRecommendedQualityGate", () => {
     });
   });
 
+  it("uses 'yarn tsc' for yarn (bare bin resolution works)", () => {
+    const detected = makeDetected({
+      packageManager: "yarn",
+      stack: { ...makeDetected().stack, language: "ts" },
+    });
+    expect(buildRecommendedQualityGate(detected)?.fast).toBe("yarn tsc --noEmit");
+  });
+
+  it("routes npm through npx ('npm tsc' is an unknown command) (#88)", () => {
+    const detected = makeDetected({
+      packageManager: "npm",
+      stack: { ...makeDetected().stack, language: "ts" },
+    });
+    expect(buildRecommendedQualityGate(detected)).toEqual({
+      fast: "npx tsc --noEmit",
+      full: "npx tsc --noEmit",
+    });
+  });
+
   it("defaults to pnpm when no package manager is detected", () => {
     const detected = makeDetected({
       packageManager: null,

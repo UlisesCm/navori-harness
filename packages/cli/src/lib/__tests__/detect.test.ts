@@ -313,6 +313,55 @@ describe("detectProject — branchBase detection", () => {
   });
 });
 
+describe("detectProject — package manager detection (#88)", () => {
+  const cases: Array<[string, string]> = [
+    ["pnpm-lock.yaml", "pnpm"],
+    ["bun.lockb", "bun"],
+    ["bun.lock", "bun"],
+    ["yarn.lock", "yarn"],
+    ["package-lock.json", "npm"],
+  ];
+  for (const [lockfile, expected] of cases) {
+    it(`detects ${expected} from ${lockfile}`, () => {
+      const dir = makeTmp();
+      try {
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo" }));
+        writeFileSync(join(dir, lockfile), "");
+        const d = detectProject(dir);
+        expect(d.packageManager).toBe(expected);
+        expect(d.sources.packageManager).toBeTruthy();
+      } finally {
+        rmSync(dir, { recursive: true });
+      }
+    });
+  }
+
+  it("prefers the packageManager field over a conflicting lockfile", () => {
+    const dir = makeTmp();
+    try {
+      // A pnpm lockfile is present, but the project declares bun explicitly.
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "demo", packageManager: "bun@1.3.9" }),
+      );
+      writeFileSync(join(dir, "pnpm-lock.yaml"), "");
+      expect(detectProject(dir).packageManager).toBe("bun");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("returns null when no lockfile or packageManager field is present", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo" }));
+      expect(detectProject(dir).packageManager).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});
+
 describe("detectProject — suggested preset never points to a phantom (F1)", () => {
   it("suggests the shipped 'monorepo-turbopnpm' preset for a turbo+pnpm monorepo", () => {
     const dir = makeTmp();
