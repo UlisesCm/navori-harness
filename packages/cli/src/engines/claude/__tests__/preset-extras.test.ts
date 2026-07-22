@@ -296,5 +296,90 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       expect(existsSync(userOwned)).toBe(true);
       expect(readFileSync(userOwned, "utf-8")).toContain("My own joi notes");
     });
+
+    describe("orphaned managed skills (§8.7 — preset-dropped / deselected)", () => {
+      // Write a navori-owned managed skill file on disk, as a prior render would.
+      const writeManagedSkill = (id: string) => {
+        const p = join(cwd, ".claude/skills", `${id}.md`);
+        mkdirSync(join(cwd, ".claude/skills"), { recursive: true });
+        writeFileSync(
+          p,
+          [
+            "---",
+            `name: ${id}`,
+            "---",
+            "",
+            `<!-- navori:managed id="${id}" hash="x" version="0.0.1" source="@navori/core" -->`,
+            `OLD ${id} body`,
+            `<!-- /navori:managed id="${id}" -->`,
+            "",
+          ].join("\n"),
+          "utf-8",
+        );
+        return p;
+      };
+
+      it("prunes a managed skill the current config no longer renders (deselected/preset-dropped)", () => {
+        // The real bug: express-mongoose once shipped zod-validation; the current
+        // preset doesn't, and the repo doesn't select it. zod-validation is a valid
+        // registry lib (NOT in REMOVED_LIB_SKILLS), so §8.6 never touches it.
+        const stale = writeManagedSkill("zod-validation");
+
+        const r = renderClaudeEngine(cwd, withLibraries([]));
+
+        expect(existsSync(stale)).toBe(false);
+        expect(r.written.some((w) => w.path.endsWith("skills/zod-validation.md"))).toBe(true);
+      });
+
+      it("keeps a currently-selected library skill (not an orphan)", () => {
+        writeManagedSkill("zod-validation");
+        renderClaudeEngine(cwd, withLibraries(["zod-validation"]));
+        expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(true);
+      });
+
+      it("never prunes a project-local skill (declared + no navori marker)", () => {
+        // Safety: a user's own skill carries no navori marker and is listed in
+        // project.localSkills — both guards must protect it.
+        const local = join(cwd, ".claude/skills/my-local.md");
+        mkdirSync(join(cwd, ".claude/skills"), { recursive: true });
+        writeFileSync(local, "# My own workflow — not navori's\n", "utf-8");
+
+        renderClaudeEngine(cwd, withLibraries([], { localSkills: ["my-local"] }));
+
+        expect(existsSync(local)).toBe(true);
+        expect(readFileSync(local, "utf-8")).toContain("My own workflow");
+      });
+
+      it("never prunes a directory-form skill (<id>/SKILL.md)", () => {
+        // Directory-form skills are user-owned by construction; the sweep is
+        // scoped to the flat library-skill registry, never subdirectories.
+        const dirSkill = join(cwd, ".claude/skills/custom/SKILL.md");
+        mkdirSync(join(cwd, ".claude/skills/custom"), { recursive: true });
+        writeFileSync(dirSkill, "# Custom directory skill\n", "utf-8");
+
+        renderClaudeEngine(cwd, withLibraries([]));
+
+        expect(existsSync(dirSkill)).toBe(true);
+      });
+
+      it("never prunes a managed file whose id is NOT a known library skill", () => {
+        // Scope guard: the sweep iterates the LIBRARY_SKILLS registry, so a
+        // preset-extra or any other managed skill file (id not a library id) is
+        // never a candidate — even carrying navori's marker and absent from the
+        // render set. This is what makes a preset-load failure unable to trigger a
+        // false-positive deletion (covers the dir-scan hazard the review flagged).
+        const notALib = writeManagedSkill("some-preset-skill");
+        renderClaudeEngine(cwd, withLibraries([]));
+        expect(existsSync(notALib)).toBe(true);
+      });
+
+      it("keeps a deselected library skill the user reclaimed as a local skill", () => {
+        // A user who declares a library-named id in project.localSkills keeps their
+        // file even without selecting the library.
+        const reclaimed = writeManagedSkill("zod-validation");
+        renderClaudeEngine(cwd, withLibraries([], { localSkills: ["zod-validation"] }));
+        expect(existsSync(reclaimed)).toBe(true);
+      });
+    });
   });
 });
