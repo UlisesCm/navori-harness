@@ -87,6 +87,22 @@ function sameMigrations(a: readonly MigrationEntry[], b: readonly MigrationEntry
   return b.every((m) => seen.has(key(m)));
 }
 
+/**
+ * #90 — decide whether the on-disk `project.libraryMigrations` is a manual
+ * override that `update` must NOT overwrite. A NON-empty value that diverges
+ * from detection is user-curated (a rule the user added by hand, or kept after
+ * removing the legacy dep — the exact edit that used to vanish on `update`). An
+ * empty/absent value is "never curated" and still adopts the detected set, so a
+ * fresh repo keeps gaining the migration rule automatically.
+ */
+export function isLibraryMigrationsOverride(
+  current: readonly MigrationEntry[] | undefined,
+  detected: readonly MigrationEntry[],
+): boolean {
+  const cur = current ?? [];
+  return cur.length > 0 && !sameMigrations(cur, detected);
+}
+
 /** Merge a patch into the raw `project` object, tolerating it being absent. */
 function withProject(current: unknown, patch: Record<string, unknown>): Record<string, unknown> {
   const base = current && typeof current === "object" ? (current as Record<string, unknown>) : {};
@@ -252,7 +268,30 @@ export const updateCommand = defineCommand({
 
     const config = readConfigOrExit(configPath);
     const detected = detectProject(cwd);
-    const diffs = diffConfig(config, detected);
+    const allDiffs = diffConfig(config, detected);
+
+    // #90: `project.libraryMigrations` is user-curatable (hand-tuned successor
+    // rules the user cares about). A NON-empty config value that diverges from
+    // detection is a manual override — e.g. a migration the user added by hand,
+    // or one they kept after removing the legacy dep. Never clobber it silently:
+    // drop the auto-diff so `applyDiffs` leaves it alone, and tell the user.
+    // (An empty/absent value is treated as "never curated" and still gets the
+    // detected migrations, so a fresh repo keeps gaining the rule automatically.)
+    const migrationsOverridden = isLibraryMigrationsOverride(
+      config.project?.libraryMigrations,
+      detected.migrations,
+    );
+    const diffs = migrationsOverridden
+      ? allDiffs.filter((d) => d.field !== "project.libraryMigrations")
+      : allDiffs;
+    if (migrationsOverridden) {
+      const suggestion = detected.migrations.length
+        ? detected.migrations.map((m) => `${m.legacy}→${m.preferred}`).join(", ")
+        : "(ninguna)";
+      p.log.info(
+        `project.libraryMigrations tiene un override manual — lo respeto (no lo sobrescribo). Detección sugiere: ${suggestion}. Edítalo a mano si quieres adoptar la sugerencia.`,
+      );
+    }
 
     const rawConfig = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
     const deadKeys = deadProgressKeys(rawConfig);

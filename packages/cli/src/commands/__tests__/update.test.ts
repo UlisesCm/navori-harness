@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeConfig } from "../../lib/config.ts";
 import { runRender } from "../render.ts";
-import { aggregateRender, deadProgressKeys, refreshWorkspaceScopes } from "../update.ts";
+import {
+  aggregateRender,
+  deadProgressKeys,
+  refreshWorkspaceScopes,
+  isLibraryMigrationsOverride,
+} from "../update.ts";
 
 let cwd: string;
 
@@ -65,6 +70,28 @@ describe("refreshWorkspaceScopes — re-home per-workspace library skills (#80 m
 
   it("returns false for a non-monorepo config", () => {
     expect(refreshWorkspaceScopes({ project: { libraries: ["zod-validation"] } }, cwd)).toBe(false);
+  });
+});
+
+describe("isLibraryMigrationsOverride (#90)", () => {
+  const mig = (legacy: string, preferred: string, domain = "http") => ({ legacy, preferred, domain });
+
+  it("treats a non-empty config that diverges from detection as a manual override", () => {
+    // User hand-added a rule detection wouldn't produce (legacy dep already gone).
+    expect(isLibraryMigrationsOverride([mig("axios", "ky")], [])).toBe(true);
+    // User curated a different set than detection suggests.
+    expect(isLibraryMigrationsOverride([mig("axios", "ky")], [mig("moment", "dayjs")])).toBe(true);
+  });
+
+  it("is NOT an override when config matches detection (order-independent)", () => {
+    const detected = [mig("axios", "ky"), mig("moment", "dayjs")];
+    const current = [mig("moment", "dayjs"), mig("axios", "ky")];
+    expect(isLibraryMigrationsOverride(current, detected)).toBe(false);
+  });
+
+  it("is NOT an override when config is empty/absent (adopts detection)", () => {
+    expect(isLibraryMigrationsOverride([], [mig("axios", "ky")])).toBe(false);
+    expect(isLibraryMigrationsOverride(undefined, [mig("axios", "ky")])).toBe(false);
   });
 });
 
