@@ -71,13 +71,12 @@ export const REMOVED_LIB_SKILLS: ReadonlyArray<string> = ["formik", "joi-validat
 const BY_ID: ReadonlyMap<string, LibrarySkill> = new Map(LIBRARY_SKILLS.map((s) => [s.id, s]));
 
 /**
- * Minimum number of source files that must IMPORT a dep before it earns its
- * library skill / migration rule. A dep declared in package.json but imported
- * in only a file or two is barely used — materializing a full skill or a
- * "migrate away" rule for it is noise that misleads reviewers (issue #86/#92:
- * a react-hook-form skill fired on 2 usages while react-router with 121 got
- * nothing). Applied ONLY when we have positive scan evidence: see the
- * count-gating in `detectLibrarySkills` / `detectMigrations`.
+ * Absolute floor of source files that must IMPORT the PREFERRED side of a
+ * migration before the "migrate away" rule fires. Below it the target is barely
+ * adopted — likely an incidental peer dep, not the repo's real destination —
+ * and flagging it misleads reviewers (issue #86). Adoption never gates library
+ * SKILLS: a declared+present tracked dep always earns its skill (a mongoose
+ * backend of two files still wants mongoose guidance). Counts are migrations-only.
  */
 export const MIN_ADOPTION_FILES = 3;
 
@@ -92,14 +91,13 @@ export const MIN_ADOPTION_FILES = 3;
 export const MIN_PREFERRED_RATIO = 0.5;
 
 /**
- * Every dependency name referenced by the skill + migration registries — the
- * exact set whose import counts matter for adoption gating. Callers scan the
- * project tree for just these names (bounding the work) and hand the resulting
- * counts to `detectLibrarySkills` / `detectMigrations`.
+ * Every dependency name referenced by MIGRATION_PAIRS — the exact set whose
+ * import counts drive the dominance gate. Callers scan the project tree for just
+ * these names (bounding the work) and hand the counts to `detectMigrations`.
+ * Library skills are presence-only, so their deps are not scanned.
  */
-export function trackedDepNames(): string[] {
+export function migrationDepNames(): string[] {
   const names = new Set<string>();
-  for (const skill of LIBRARY_SKILLS) for (const d of skill.deps) names.add(d);
   for (const pair of MIGRATION_PAIRS) {
     for (const d of pair.legacy) names.add(d);
     for (const d of pair.preferred) names.add(d);
@@ -112,26 +110,14 @@ export function trackedDepNames(): string[] {
  * and order-stable (registry order): returns the id of every skill whose `deps`
  * intersect `deps`. No exclusivity — a repo can match many at once.
  *
- * When per-dep import `counts` are supplied, a skill is DEMOTED only when the
- * scan positively shows sparse usage — its deps are imported in `1..<
- * MIN_ADOPTION_FILES` files. Absent any observed import (a fresh repo, an
- * unscannable tree, or a dep used through non-import means) the skill is kept:
- * we never suppress a declared dep on a mere absence of evidence, only on
- * evidence of near-zero use. Without `counts` the check is pure presence,
- * preserving name-only detection.
+ * Presence-only by design: a declared+present tracked dep ALWAYS earns its
+ * skill, regardless of how many files import it. Usage counts weigh migrations
+ * (which side is the de-facto standard), not whether a lib is worth teaching —
+ * a two-file mongoose backend still wants the mongoose skill (issue #92).
  */
-export function detectLibrarySkills(
-  deps: ReadonlyArray<string>,
-  counts?: ReadonlyMap<string, number>,
-): string[] {
+export function detectLibrarySkills(deps: ReadonlyArray<string>): string[] {
   const present = new Set(deps);
-  return LIBRARY_SKILLS.filter((s) => {
-    const matched = s.deps.filter((d) => present.has(d));
-    if (matched.length === 0) return false;
-    if (!counts) return true;
-    const used = matched.reduce((n, d) => n + (counts.get(d) ?? 0), 0);
-    return used === 0 || used >= MIN_ADOPTION_FILES;
-  }).map((s) => s.id);
+  return LIBRARY_SKILLS.filter((s) => s.deps.some((d) => present.has(d))).map((s) => s.id);
 }
 
 /** Look up a library skill by id, or null when the id is unknown. */
@@ -190,13 +176,18 @@ export interface ActiveMigration {
  * When per-dep import `counts` are supplied, presence is not enough — the pair
  * must also pass a DOMINANCE gate so we don't flag a "migration" whose preferred
  * side is an incidental peer dep while the repo's real standard is a lib not in
- * the pair (issue #86). The gate fires only on positive scan evidence
- * (`preferredUsed > 0`): the preferred side must clear an absolute floor
- * (`MIN_ADOPTION_FILES`) AND a share of the legacy usage (`MIN_PREFERRED_RATIO`).
+ * the pair (issue #86). The gate keys off SCAN TRUSTWORTHINESS, not the
+ * preferred count: when the legacy side was actually seen in code
+ * (`legacyUsed > 0`) the scan is reliable, so the preferred side must clear an
+ * absolute floor (`MIN_ADOPTION_FILES`) AND a share of the legacy usage
+ * (`MIN_PREFERRED_RATIO`) — and `preferredUsed === 0` then counts as evidence of
+ * NON-use, suppressing the rule (a widely-used `moment` with a zero-import
+ * `dayjs` peer dep is not a migration). The benefit of the doubt — falling back
+ * to presence — applies only when nothing was scanned: no `counts`, or a legacy
+ * side with zero observed imports (empty / unscannable repo). This keeps the
+ * gate monotonic: less adoption never yields more flagging.
  * With several preferred candidates present, they're ordered by usage so the
  * dominant one leads the rendered rule instead of the first in the registry.
- * Without `counts`, or when the preferred side has no observed imports, the
- * check stays pure presence — preserving name-only detection.
  */
 export function detectMigrations(
   deps: ReadonlyArray<string>,
@@ -214,8 +205,11 @@ export function detectMigrations(
       const usage = (d: string) => counts.get(d) ?? 0;
       const preferredUsed = preferredHits.reduce((n, d) => n + usage(d), 0);
       const legacyUsed = pair.legacy.reduce((n, d) => n + usage(d), 0);
-      // Only demote on positive evidence of sparse preferred use.
-      if (preferredUsed > 0) {
+      // A trustworthy scan is one that actually observed the legacy in code.
+      // Then a sparse (or zero) preferred side is real evidence of non-adoption
+      // and the rule is suppressed. A zero-usage legacy means we scanned nothing
+      // meaningful → fall back to presence (benefit of the doubt).
+      if (legacyUsed > 0) {
         if (preferredUsed < MIN_ADOPTION_FILES) continue;
         if (preferredUsed < legacyUsed * MIN_PREFERRED_RATIO) continue;
       }

@@ -564,22 +564,18 @@ describe("detectProject — library skill detection", () => {
     return dir;
   };
 
-  it("drops a library skill whose dep is imported below the threshold (#92)", () => {
-    // react-hook-form declared but imported in only 2 files → no skill.
+  it("keeps a library skill regardless of how few files import the dep (presence-only, #92)", () => {
+    // react-hook-form imported in only 2 files still earns its skill — usage
+    // counts weigh migrations, not whether a lib is worth teaching.
     const dir = withDepsAndSources(
-      { "react-hook-form": "^7", axios: "^1" },
+      { "react-hook-form": "^7" },
       {
         "src/FormA.tsx": `import { useForm } from 'react-hook-form';\n`,
         "src/FormB.tsx": `import { useForm } from 'react-hook-form';\n`,
-        "src/api1.ts": `import axios from 'axios';\n`,
-        "src/api2.ts": `import axios from 'axios';\n`,
-        "src/api3.ts": `import axios from 'axios';\n`,
       },
     );
     try {
-      const libs = detectProject(dir).libraries;
-      expect(libs).toContain("axios"); // 3 imports → kept
-      expect(libs).not.toContain("react-hook-form"); // 2 imports → dropped
+      expect(detectProject(dir).libraries).toContain("react-hook-form");
     } finally {
       rmSync(dir, { recursive: true });
     }

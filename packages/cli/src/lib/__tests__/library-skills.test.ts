@@ -8,7 +8,7 @@ import {
   detectLibrarySkills,
   librarySkillById,
   detectMigrations,
-  trackedDepNames,
+  migrationDepNames,
 } from "../library-skills.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -63,35 +63,11 @@ describe("detectLibrarySkills", () => {
     expect(detectLibrarySkills(["express", "react", "typescript"])).toEqual([]);
   });
 
-  describe("adoption gate (import counts)", () => {
-    it("drops a skill whose dep is imported below the threshold (react-hook-form @ 2)", () => {
-      // The reported false positive: RHF declared but used in only 2 files.
-      const counts = new Map([["react-hook-form", 2]]);
-      expect(detectLibrarySkills(["react-hook-form"], counts)).toEqual([]);
-    });
-
-    it("keeps a skill once its dep clears the threshold (react-router @ 121)", () => {
-      const counts = new Map([["react-router-dom", 121]]);
-      expect(detectLibrarySkills(["react-router-dom"], counts)).toEqual(["react-router"]);
-    });
-
-    it("keeps a declared dep with NO observed imports (empty repo / benefit of doubt)", () => {
-      // Counts provided but the dep scans to 0 (fresh repo, or used via non-import
-      // means): we never suppress on mere absence of evidence.
-      const counts = new Map([["mongoose", 0]]);
-      expect(detectLibrarySkills(["mongoose"], counts)).toEqual(["mongoose"]);
-    });
-
-    it("sums usage across a skill's alias deps before gating", () => {
-      // @mantine/form=1 + resolver=2 = 3 → clears the floor together.
-      const counts = new Map([
-        ["@mantine/form", 1],
-        ["mantine-form-zod-resolver", 2],
-      ]);
-      expect(detectLibrarySkills(["@mantine/form", "mantine-form-zod-resolver"], counts)).toEqual([
-        "mantine-form",
-      ]);
-    });
+  it("is presence-only — a declared tracked dep always earns its skill, however few its uses", () => {
+    // Product decision: usage counts weigh migrations, never whether a lib is
+    // worth teaching. A two-file mongoose backend still gets the mongoose skill.
+    expect(detectLibrarySkills(["react-hook-form"])).toEqual(["react-hook-form"]);
+    expect(detectLibrarySkills(["mongoose"])).toEqual(["mongoose"]);
   });
 });
 
@@ -183,9 +159,22 @@ describe("detectMigrations", () => {
       ]);
     });
 
-    it("flags on presence when the preferred side has no observed imports (benefit of doubt)", () => {
+    it("SUPPRESSES when the scan is trustworthy but the preferred side has zero imports", () => {
+      // Monotonicity: a widely-used legacy (moment 12) with a zero-import peer
+      // dep (dayjs) is NOT a migration — zero use is evidence of non-adoption,
+      // not benefit of the doubt. Less adoption must never yield more flagging.
       const counts = new Map([
         ["moment", 12],
+        ["dayjs", 0],
+      ]);
+      expect(detectMigrations(["moment", "dayjs"], counts)).toEqual([]);
+    });
+
+    it("falls back to presence only when nothing was scanned (legacy also has zero imports)", () => {
+      // Both sides declared but neither observed in code (empty / unscannable
+      // repo). No trustworthy signal → keep the presence-based rule.
+      const counts = new Map([
+        ["moment", 0],
         ["dayjs", 0],
       ]);
       expect(detectMigrations(["moment", "dayjs"], counts)).toEqual([
@@ -195,19 +184,16 @@ describe("detectMigrations", () => {
   });
 });
 
-describe("trackedDepNames", () => {
-  it("includes every dep referenced by the skill and migration registries", () => {
-    const tracked = new Set(trackedDepNames());
-    for (const skill of LIBRARY_SKILLS) {
-      for (const d of skill.deps) expect(tracked.has(d)).toBe(true);
-    }
+describe("migrationDepNames", () => {
+  it("includes every dep referenced by the migration registry", () => {
+    const tracked = new Set(migrationDepNames());
     for (const pair of MIGRATION_PAIRS) {
       for (const d of [...pair.legacy, ...pair.preferred]) expect(tracked.has(d)).toBe(true);
     }
   });
 
-  it("is deduped (a dep shared by a skill and a migration appears once)", () => {
-    const names = trackedDepNames();
+  it("is deduped (a dep shared by several pairs appears once)", () => {
+    const names = migrationDepNames();
     expect(names.length).toBe(new Set(names).size);
   });
 });
