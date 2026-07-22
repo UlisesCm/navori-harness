@@ -84,6 +84,17 @@ function interpolateTemplate(content: string, config: NavoriConfig): string {
     if (typeof cursor === "string" || typeof cursor === "number" || typeof cursor === "boolean") {
       return String(cursor);
     }
+    // Serialize arrays of primitives consistently with engines/claude/interpolate
+    // (#89) so an array placeholder in a CLAUDE.md managed block renders its
+    // values instead of leaking a raw `{{...}}`. Object arrays have no inline
+    // form — leave the placeholder untouched.
+    if (Array.isArray(cursor)) {
+      const allPrimitive = cursor.every((x) => {
+        const t = typeof x;
+        return t === "string" || t === "number" || t === "boolean";
+      });
+      if (allPrimitive) return cursor.join(", ");
+    }
     return match;
   });
 }
