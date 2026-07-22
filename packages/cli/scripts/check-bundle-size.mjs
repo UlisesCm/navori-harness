@@ -11,10 +11,12 @@ import { dirname, resolve } from "node:path";
  * The limit sits above today's size with headroom so it catches a runaway
  * dependency, not normal growth (e.g. the audit waves #69/#70 added stack
  * detection, monorepo scan and doctor checks; ronda 2 #79-#83 added the
- * anti-retroceso guard, advisory locking, plugin remove/cleanup and semver —
- * all first-party, zero new deps).
+ * anti-retroceso guard, advisory locking, plugin remove/cleanup and semver;
+ * the audit-followup batch #84/#86-#92/#9 added dep-usage scanning, i18n
+ * runtime catalogs, three engine adapters and more library skills — all
+ * first-party, zero new deps).
  */
-const LIMIT_KB = 345;
+const LIMIT_KB = 400;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundle = resolve(here, "..", "dist", "index.js");
