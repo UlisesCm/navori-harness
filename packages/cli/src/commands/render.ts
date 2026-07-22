@@ -11,6 +11,7 @@ import {
 } from "../engines/claude/index.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderStatusSymbol, renderStatusLabel, dim, color, brand, sym, type RenderStatus } from "../lib/style.ts";
+import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 import { effectiveConfigForWorkspace, buildMonorepoContext } from "../lib/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
 
@@ -58,10 +59,11 @@ function renderNonClaudeEngines(
   config: ReturnType<typeof readConfig>,
   engines: readonly string[],
   dryRun: boolean,
-  options: { repoRoot?: string; warnMissingAdapters?: boolean } = {},
+  options: { repoRoot?: string; warnMissingAdapters?: boolean; lang?: Lang } = {},
 ): EngineRenderSummary[] {
   const repoRoot = options.repoRoot ?? cwd;
   const warnMissingAdapters = options.warnMissingAdapters ?? true;
+  const lang = options.lang ?? resolveLang(config.language);
   const out: EngineRenderSummary[] = [];
   for (const eng of engines) {
     if (eng === "claude") continue;
@@ -74,7 +76,7 @@ function renderNonClaudeEngines(
         engine: eng,
         written: [],
         skipped: [],
-        warnings: [`El engine '${eng}' todavía no tiene adapter en navori; se omitió.`],
+        warnings: [tc(lang).render.adapterMissing(eng)],
         backupPath: null,
       });
     }
@@ -111,7 +113,14 @@ export function runRender(
   force = false,
 ): {
   ok: boolean;
+  /** Human-readable, LOCALIZED failure reason for terminal output. */
   reason?: string;
+  /** Stable machine-readable failure code (kebab-case, never localized) for
+   * `--json` consumers. Pairs with `reason` (the localized detail). */
+  reasonCode?: string;
+  /** Resolved output locale (config.language), so callers localize messages
+   * without re-reading the config. Defaults to DEFAULT_LANG on error paths. */
+  language: Lang;
   filePath: string;
   entries: AssetPlanEntry[];
   written: boolean;
@@ -143,6 +152,8 @@ export function runRender(
     return {
       ok: false,
       reason: `No navori.config.json at ${configPath}`,
+      reasonCode: "config-missing",
+      language: DEFAULT_LANG,
       filePath: claudeMdPath,
       entries: [],
       written: false,
@@ -155,6 +166,7 @@ export function runRender(
   }
 
   const config = readConfigOrExit(configPath);
+  const lang = resolveLang(config.language);
   benchMark("loadConfig");
 
   // Engine dispatch: render Claude only when it's a declared engine (the
@@ -170,7 +182,9 @@ export function runRender(
     if (declared.length === 0) {
       return {
         ok: false,
-        reason: `--workspace requires a monorepo with declared workspaces; this config has none. Run 'navori scan' first.`,
+        reason: tc(lang).sync.workspaceRequiresMonorepo,
+        reasonCode: "workspace-requires-monorepo",
+        language: lang,
         filePath: claudeMdPath,
         entries: [],
         written: false,
@@ -186,7 +200,9 @@ export function runRender(
       const known = declared.map((w) => w.name).join(", ");
       return {
         ok: false,
-        reason: `Workspace '${workspaceFilter}' not found. Known: ${known}`,
+        reason: tc(lang).sync.workspaceNotFound(workspaceFilter, known),
+        reasonCode: "workspace-not-found",
+        language: lang,
         filePath: claudeMdPath,
         entries: [],
         written: false,
@@ -213,9 +229,11 @@ export function runRender(
     // and adapter-missing warnings stay on.
     const wsExtraEngines = renderNonClaudeEngines(wsCwd, wsConfig, engines, dryRun, {
       repoRoot: cwd,
+      lang,
     });
     return {
       ok: true,
+      language: lang,
       filePath: claudeMdPath,
       entries: [],
       written: false,
@@ -275,6 +293,7 @@ export function runRender(
     const wsExtraEngines = renderNonClaudeEngines(wsCwd, wsConfig, engines, dryRun, {
       repoRoot: cwd,
       warnMissingAdapters: false,
+      lang,
     });
     workspaces.push({
       workspacePath: ws.path,
@@ -291,10 +310,11 @@ export function runRender(
     });
   }
 
-  const extraEngines = renderNonClaudeEngines(cwd, config, engines, dryRun);
+  const extraEngines = renderNonClaudeEngines(cwd, config, engines, dryRun, { lang });
 
   return {
     ok: true,
+    language: lang,
     filePath: claudeMdPath,
     entries: engineResult?.claudeMdEntries ?? [],
     written: (engineResult?.written.length ?? 0) > 0,
@@ -334,85 +354,114 @@ export const renderCommand = defineCommand({
       description:
         "Render only one workspace by name (skips root). Requires a monorepo config with declared workspaces.",
     },
+    json: {
+      type: "boolean",
+      description: "Emit a machine-readable JSON result and suppress human output (for CI/automation).",
+    },
   },
   async run({ args }) {
     benchStart();
     const cwd = resolve(args.cwd ?? process.cwd());
+    const json = Boolean(args.json);
 
-    p.intro(brand("render"));
-
-    if (!existsSync(cwd)) {
-      p.cancel(`Directory not found: ${cwd}`);
-      process.exit(1);
-    }
+    if (!json) p.intro(brand("render"));
 
     // Preview-default (spec 0003 §3.1.3, breaking change v0.1→v0.2): render
     // never touches disk unless --apply is passed. --dry-run is kept as a
     // back-compat alias; when combined with --apply, preview wins (safer).
     const apply = Boolean(args.apply);
     const preview = !apply || Boolean(args["dry-run"]);
-
     const workspaceFilter = (args.workspace as string | undefined) ?? null;
+
+    if (!existsSync(cwd)) {
+      if (json) {
+        console.log(JSON.stringify({ command: "render", ok: false, reason: "directory-missing", cwd }));
+      } else {
+        p.cancel(tc(DEFAULT_LANG).common.dirNotFound(cwd));
+      }
+      process.exit(1);
+    }
+
     const result = runRender(cwd, {
       dryRun: preview,
       force: Boolean(args.force),
       workspaceFilter,
     });
+    const tr = tc(result.language).render;
+
     if (!result.ok) {
-      // Workspace errors are user-recoverable (typo in name, no monorepo yet);
-      // 'navori init' is not always the right fix, so emit the raw reason.
-      p.cancel(result.reason ?? "Render failed");
+      if (json) {
+        // `reason` is a STABLE English code for CI; `detail` carries the
+        // localized human text (non-stable, locale-dependent).
+        console.log(
+          JSON.stringify({
+            command: "render",
+            ok: false,
+            reason: result.reasonCode ?? "render-failed",
+            detail: result.reason ?? tr.renderFailed,
+          }),
+        );
+      } else {
+        // Workspace errors are user-recoverable (typo in name, no monorepo yet);
+        // 'navori init' is not always the right fix, so emit the raw reason.
+        p.cancel(result.reason ?? tr.renderFailed);
+      }
       process.exit(1);
+    }
+
+    // --json: structured result, no human output. Keys are stable English and
+    // bypass i18n on purpose — this is machine-readable output for CI.
+    if (json) {
+      console.log(JSON.stringify(buildRenderJson(result, preview), null, 2));
+      benchReport();
+      return;
     }
 
     const hasWorkspaces = result.workspaces.length > 0;
     if (hasWorkspaces && result.engineResult) {
-      p.log.message(`${dim("root")}`);
+      p.log.message(`${dim(tr.rootLabel)}`);
     }
     if (result.engineResult) {
-      reportClaudeMd(result.filePath, result.entries, result.written, preview);
-      reportEngineFiles(result.engineResult);
+      reportClaudeMd(result.filePath, result.entries, result.written, preview, result.language);
+      reportEngineFiles(result.engineResult, result.language);
     }
     if (result.languageFallbacks.length > 0) {
-      p.log.warn(
-        `Language fallback to Spanish for: ${result.languageFallbacks.join(", ")} (English version not available yet)`,
-      );
+      p.log.warn(tr.langFallback(result.languageFallbacks.join(", ")));
     }
     if (result.backupPath) {
-      p.log.message(`${dim("Backup:")} ${result.backupPath}`);
+      p.log.message(`${dim(tc(result.language).common.backupLabel)} ${result.backupPath}`);
     }
 
     for (const ws of result.workspaces) {
-      p.log.message(`${dim("workspace")} ${color.cyan(ws.workspaceName)} ${dim(`(${ws.workspacePath})`)}`);
+      p.log.message(`${dim(tr.workspaceLabel)} ${color.cyan(ws.workspaceName)} ${dim(`(${ws.workspacePath})`)}`);
       if (ws.engineResult) {
-        reportClaudeMd(ws.filePath, ws.entries, ws.written, preview);
-        reportEngineFiles(ws.engineResult);
+        reportClaudeMd(ws.filePath, ws.entries, ws.written, preview, result.language);
+        reportEngineFiles(ws.engineResult, result.language);
       }
-      reportExtraEngines(ws.extraEngines);
+      reportExtraEngines(ws.extraEngines, result.language);
       if (ws.languageFallbacks.length > 0) {
-        p.log.warn(
-          `[${ws.workspaceName}] Language fallback to Spanish for: ${ws.languageFallbacks.join(", ")} (English version not available yet)`,
-        );
+        p.log.warn(tr.langFallbackWs(ws.workspaceName, ws.languageFallbacks.join(", ")));
       }
       if (ws.backupPath) {
-        p.log.message(`${dim("Backup:")} ${ws.backupPath}`);
+        p.log.message(`${dim(tc(result.language).common.backupLabel)} ${ws.backupPath}`);
       }
     }
 
     if (result.orphanedWorkspaces && result.orphanedWorkspaces.length > 0) {
       p.log.warn(
-        `Workspaces declarados en config pero ausentes en disco (${result.orphanedWorkspaces.length}) — ` +
-          `no se renderizaron (evita resucitar dirs borrados). Corre 'navori scan' o quita del config:\n` +
+        tr.orphanedWorkspaces(
+          result.orphanedWorkspaces.length,
           result.orphanedWorkspaces.map((w) => `  ${color.yellow(sym.update)} ${w}`).join("\n"),
+        ),
       );
     }
 
-    reportExtraEngines(result.extraEngines ?? []);
+    reportExtraEngines(result.extraEngines ?? [], result.language);
 
     const allDowngrades = result.downgrades.concat(
       ...result.workspaces.map((w) => w.downgrades),
     );
-    const downgradeWarn = formatDowngradeWarning(allDowngrades);
+    const downgradeWarn = formatDowngradeWarning(allDowngrades, result.language);
     if (downgradeWarn) p.log.warn(downgradeWarn);
 
     const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
@@ -426,14 +475,14 @@ export const renderCommand = defineCommand({
     const summary = summarize(allEntries);
     if (preview) {
       if (anyPending) {
-        p.outro(`${color.yellow("Preview")} ${summary} ${dim("· corre 'navori render --apply' para escribir")}`);
+        p.outro(`${color.yellow(tr.previewWord)} ${summary} ${dim(`· ${tr.previewHint}`)}`);
       } else {
-        p.outro(`${dim("Up to date")} ${summary} ${dim("· nada que aplicar")}`);
+        p.outro(`${dim(tr.upToDate)} ${summary} ${dim(`· ${tr.upToDateHint}`)}`);
       }
     } else if (anyPending) {
-      p.outro(`${color.green("Done")} ${summary}`);
+      p.outro(`${color.green(tr.doneWord)} ${summary}`);
     } else {
-      p.outro(`${dim("Up to date")} ${summary}`);
+      p.outro(`${dim(tr.upToDate)} ${summary}`);
     }
 
     benchReport();
@@ -441,12 +490,75 @@ export const renderCommand = defineCommand({
 });
 
 /**
+ * Machine-readable render result. Keys are stable English (never localized) so
+ * CI/automation can parse the same shape regardless of `config.language`.
+ * Status tokens come straight from the render plan (created/updated/…).
+ */
+function buildRenderJson(result: ReturnType<typeof runRender>, preview: boolean) {
+  const entryJson = (e: AssetPlanEntry) => ({ id: e.asset.id, status: e.status });
+  const engineJson = (ee: EngineRenderSummary) => ({
+    engine: ee.engine,
+    written: ee.written.map((w) => ({ path: w.path, status: w.status })),
+    skipped: ee.skipped.map((s) => ({ path: s.path, reason: s.reason })),
+    warnings: ee.warnings,
+    backupPath: ee.backupPath,
+  });
+  const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
+  const pending =
+    result.written ||
+    result.workspaces.some((w) => w.written) ||
+    (result.extraEngines ?? []).some((e) => e.written.length > 0) ||
+    result.workspaces.some((w) => w.extraEngines.some((e) => e.written.length > 0));
+  const downgrades = result.downgrades
+    .concat(...result.workspaces.map((w) => w.downgrades))
+    .map((d) => ({ id: d.id, fromVersion: d.fromVersion, toVersion: d.toVersion }));
+  return {
+    command: "render",
+    ok: true,
+    mode: preview ? "preview" : "apply",
+    root: {
+      filePath: result.filePath,
+      changed: result.written,
+      entries: result.entries.map(entryJson),
+      languageFallbacks: result.languageFallbacks,
+      backupPath: result.backupPath ?? null,
+    },
+    workspaces: result.workspaces.map((w) => ({
+      name: w.workspaceName,
+      path: w.workspacePath,
+      filePath: w.filePath,
+      changed: w.written,
+      entries: w.entries.map(entryJson),
+      languageFallbacks: w.languageFallbacks,
+      backupPath: w.backupPath ?? null,
+      extraEngines: w.extraEngines.map(engineJson),
+    })),
+    extraEngines: (result.extraEngines ?? []).map(engineJson),
+    orphanedWorkspaces: result.orphanedWorkspaces ?? [],
+    downgrades,
+    summary: countStatuses(allEntries),
+    pending,
+  };
+}
+
+/** Count render-plan entries by status for the --json summary object. */
+function countStatuses(entries: AssetPlanEntry[]): Record<string, number> {
+  return entries.reduce<Record<string, number>>((acc, e) => {
+    acc[e.status] = (acc[e.status] ?? 0) + 1;
+    return acc;
+  }, {});
+}
+
+/**
  * Build the anti-retroceso (#79) warning: one or more managed blocks on disk
  * were written by a NEWER navori and preserved as-is. Returns null when there's
  * nothing to warn about. Shared by `render` and `update` so the message and the
  * "upgrade your CLI" call to action stay consistent.
  */
-export function formatDowngradeWarning(downgrades: UpdateAvailable[]): string | null {
+export function formatDowngradeWarning(
+  downgrades: UpdateAvailable[],
+  lang: Lang = DEFAULT_LANG,
+): string | null {
   if (downgrades.length === 0) return null;
   const newest = downgrades
     .map((d) => d.fromVersion)
@@ -454,12 +566,12 @@ export function formatDowngradeWarning(downgrades: UpdateAvailable[]): string | 
     .at(-1);
   const ids = [...new Set(downgrades.map((d) => d.id))];
   const shown = ids.slice(0, 6).join(", ");
-  const more = ids.length > 6 ? ` (+${ids.length - 6} más)` : "";
-  return (
-    `Tu CLI está detrás del repo: ${downgrades.length} bloque(s) los escribió una navori más nueva ` +
-    `(hasta ${newest}). Los preservé sin tocar para no degradarlos. ` +
-    `Actualiza tu CLI para volver a gestionarlos: npm i -g navori@latest\n  ${dim(shown)}${dim(more)}`
-  );
+  const more = ids.length > 6 ? ` (+${ids.length - 6})` : "";
+  return tc(lang).render.downgradeWarning({
+    count: downgrades.length,
+    newest: newest ?? "",
+    ids: `${dim(shown)}${dim(more)}`,
+  });
 }
 
 function summarize(entries: AssetPlanEntry[]): string {
@@ -477,33 +589,42 @@ function summarize(entries: AssetPlanEntry[]): string {
   return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
 }
 
-function reportClaudeMd(file: string, entries: AssetPlanEntry[], changed: boolean, preview: boolean): void {
+function reportClaudeMd(
+  file: string,
+  entries: AssetPlanEntry[],
+  changed: boolean,
+  preview: boolean,
+  lang: Lang,
+): void {
+  const tr = tc(lang).render;
   const lines: string[] = [file];
   for (const e of entries) {
     const sym = renderStatusSymbol(e.status);
     const label = renderStatusLabel(e.status);
     lines.push(`  ${sym} ${e.asset.id}  ${dim("(")}${label}${dim(")")}`);
   }
-  if (preview) lines.push(`  ${dim(changed ? "→ preview (se escribiría)" : "→ sin cambios")}`);
-  else if (changed) lines.push(`  ${dim("→ written")}`);
-  else lines.push(`  ${dim("→ no changes")}`);
+  if (preview) lines.push(`  ${dim(changed ? tr.wouldWrite : tr.noChangePreview)}`);
+  else if (changed) lines.push(`  ${dim(tr.written)}`);
+  else lines.push(`  ${dim(tr.noChanges)}`);
   p.log.message(lines.join("\n"));
 }
 
 /** Report the non-Claude engine summaries (root or one workspace). */
-function reportExtraEngines(extraEngines: EngineRenderSummary[]): void {
+function reportExtraEngines(extraEngines: EngineRenderSummary[], lang: Lang): void {
+  const common = tc(lang).common;
+  const tr = tc(lang).render;
   for (const ee of extraEngines) {
-    p.log.message(`${dim("engine")} ${color.cyan(ee.engine)}`);
+    p.log.message(`${dim(tr.engineLabel)} ${color.cyan(ee.engine)}`);
     for (const w of ee.written) {
       p.log.message(`  ${renderStatusSymbol(w.status)} ${w.path}  ${dim("(")}${renderStatusLabel(w.status)}${dim(")")}`);
     }
     for (const s of ee.skipped) p.log.warn(`  ${s.path}: ${s.reason}`);
     for (const warn of ee.warnings) p.log.warn(`  ${warn}`);
-    if (ee.backupPath) p.log.message(`  ${dim("Backup:")} ${ee.backupPath}`);
+    if (ee.backupPath) p.log.message(`  ${dim(common.backupLabel)} ${ee.backupPath}`);
   }
 }
 
-function reportEngineFiles(engine: ClaudeEngineResult): void {
+function reportEngineFiles(engine: ClaudeEngineResult, lang: Lang): void {
   // CLAUDE.md is reported separately by reportClaudeMd; filter it out here.
   // Header used to say ".claude/" which was misleading — progress/ also lands
   // here. "Engine files" describes the union (settings, agents, skills, hooks,
@@ -523,7 +644,7 @@ function reportEngineFiles(engine: ClaudeEngineResult): void {
     return;
   }
 
-  const lines: string[] = ["Engine files:"];
+  const lines: string[] = [tc(lang).render.engineFilesTitle];
   for (const w of written) {
     const sym = renderStatusSymbol(w.status);
     const label = renderStatusLabel(w.status);

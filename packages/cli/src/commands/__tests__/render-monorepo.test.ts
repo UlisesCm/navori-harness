@@ -310,7 +310,9 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
       seedMonorepo();
       const result = runRender(cwd, { workspaceFilter: "missing" });
       expect(result.ok).toBe(false);
-      expect(result.reason).toContain("Workspace 'missing' not found");
+      // Reason is localized by config.language (es here); assert on the
+      // workspace name + the known list, which are language-neutral.
+      expect(result.reason).toContain("missing");
       expect(result.reason).toContain("backend");
       expect(result.reason).toContain("storefront");
     });
@@ -323,7 +325,8 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
       });
       const result = runRender(cwd, { workspaceFilter: "backend" });
       expect(result.ok).toBe(false);
-      expect(result.reason).toContain("requires a monorepo");
+      // Localized (es): "--workspace requiere un monorepo con workspaces …".
+      expect(result.reason).toMatch(/requires a monorepo|requiere un monorepo/);
     });
 
     it("dry-run with --workspace does not write the target workspace", () => {

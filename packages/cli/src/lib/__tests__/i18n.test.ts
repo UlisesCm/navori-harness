@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { t, SUPPORTED_LANGS } from "../i18n.ts";
+import { t, tc, resolveLang, DEFAULT_LANG, SUPPORTED_LANGS } from "../i18n.ts";
 
 describe("i18n", () => {
   it("returns a dict for every supported lang", () => {
@@ -53,5 +53,57 @@ describe("i18n", () => {
     expect(es.howToAdopt).not.toBe(en.howToAdopt);
     expect(es.renderNow).not.toBe(en.renderNow);
     expect(es.pluginsToEnable).not.toBe(en.pluginsToEnable);
+  });
+});
+
+describe("i18n — runtime language resolution (#84)", () => {
+  it("resolveLang passes through supported locales", () => {
+    expect(resolveLang("es")).toBe("es");
+    expect(resolveLang("en")).toBe("en");
+  });
+
+  it("resolveLang falls back to DEFAULT_LANG (es) for missing / unknown values", () => {
+    // A forward-compat config from a newer navori may carry a locale this CLI
+    // doesn't ship — it must not index an undefined catalog.
+    expect(resolveLang(undefined)).toBe(DEFAULT_LANG);
+    expect(resolveLang(null)).toBe(DEFAULT_LANG);
+    expect(resolveLang("fr")).toBe(DEFAULT_LANG);
+    expect(resolveLang(42)).toBe(DEFAULT_LANG);
+    expect(DEFAULT_LANG).toBe("es");
+  });
+});
+
+describe("i18n — command catalog (tc)", () => {
+  it("returns different prose per locale for render / sync / doctor", () => {
+    expect(tc("es").render.previewHint).not.toBe(tc("en").render.previewHint);
+    expect(tc("es").render.previewHint).toContain("para escribir");
+    expect(tc("en").render.previewHint).toContain("to write");
+
+    expect(tc("es").sync.upToDate).toContain("Al día");
+    expect(tc("en").sync.upToDate).toContain("Up to date");
+
+    expect(tc("es").doctor.nextStepsTitle).toBe("Próximos pasos");
+    expect(tc("en").doctor.nextStepsTitle).toBe("Next steps");
+  });
+
+  it("parameterized entries interpolate their args in both locales", () => {
+    for (const lang of SUPPORTED_LANGS) {
+      const c = tc(lang);
+      expect(c.sync.workspaceNotFound("ghost", "a, b")).toContain("ghost");
+      expect(c.sync.workspaceNotFound("ghost", "a, b")).toContain("a, b");
+      expect(c.doctor.missingPreset("phantom")).toContain("phantom");
+      expect(c.render.adapterMissing("cursor")).toContain("cursor");
+    }
+  });
+
+  it("each command section has the same key set across locales (no missing translations)", () => {
+    const keysOf = (o: Record<string, unknown>) => Object.keys(o).sort();
+    const es = tc("es");
+    const en = tc("en");
+    for (const section of ["common", "render", "sync", "doctor"] as const) {
+      expect(keysOf(es[section] as unknown as Record<string, unknown>)).toEqual(
+        keysOf(en[section] as unknown as Record<string, unknown>),
+      );
+    }
   });
 });

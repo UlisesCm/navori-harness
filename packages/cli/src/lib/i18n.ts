@@ -477,3 +477,452 @@ export function t(lang: Lang): Strings {
 }
 
 export const SUPPORTED_LANGS: readonly Lang[] = ["es", "en"];
+
+/** Default locale when a config has none (or an unknown forward-compat value). */
+export const DEFAULT_LANG: Lang = "es";
+
+/**
+ * Coerce an arbitrary value (typically `config.language`) into a supported
+ * `Lang`, falling back to `DEFAULT_LANG`. `config.language` is normally already
+ * `"es" | "en"`, but the tolerant schema preserves a forward-compat string a
+ * newer navori may have written (e.g. `"fr"`) — this keeps runtime output on a
+ * locale we actually ship instead of indexing an undefined catalog.
+ */
+export function resolveLang(value: unknown): Lang {
+  return value === "es" || value === "en" ? value : DEFAULT_LANG;
+}
+
+/* ------------------------------------------------------------------------- *
+ * Command output catalog (render / sync / doctor)
+ *
+ * Separate from the wizard `Strings` above so each concern stays small. Same
+ * rule: every key lives in BOTH locales, so a missing translation is a compile
+ * error, never a silent English fallback. Callers resolve the locale from
+ * `config.language` via `tc(resolveLang(config.language))`.
+ *
+ * What is deliberately NOT here: short status tokens (created / updated /
+ * unchanged / written) and structural labels (`Plan [root]`, field names) — a
+ * compact, language-neutral vocabulary shared across locales (see lib/style.ts
+ * renderStatusLabel). The `--json` output also bypasses this catalog entirely:
+ * its keys are machine-readable and stable in English.
+ * ------------------------------------------------------------------------- */
+
+interface CommonCmdStrings {
+  dirNotFound: (dir: string) => string;
+  noConfig: (configPath: string) => string;
+  backupLabel: string;
+  aborted: string;
+}
+
+interface RenderCmdStrings {
+  renderFailed: string;
+  rootLabel: string;
+  workspaceLabel: string;
+  engineLabel: string;
+  engineFilesTitle: string;
+  langFallback: (list: string) => string;
+  langFallbackWs: (ws: string, list: string) => string;
+  wouldWrite: string;
+  noChangePreview: string;
+  written: string;
+  noChanges: string;
+  adapterMissing: (engine: string) => string;
+  orphanedWorkspaces: (count: number, list: string) => string;
+  downgradeWarning: (args: { count: number; newest: string; ids: string }) => string;
+  previewWord: string;
+  previewHint: string;
+  upToDate: string;
+  upToDateHint: string;
+  doneWord: string;
+}
+
+interface SyncCmdStrings {
+  workspaceRequiresMonorepo: string;
+  workspaceNotFound: (name: string, known: string) => string;
+  upToDate: string;
+  dryRunComplete: (summary: string) => string;
+  conflictsWithYes: (count: number, lines: string) => string;
+  fileConflictsRemain: (count: number) => string;
+  conflictPrompt: (count: number) => string;
+  optSkipConflicts: string;
+  optInteractive: string;
+  optAbort: string;
+  applyChanges: string;
+  planTitle: (label: string) => string;
+  updatesAvailableTitle: string;
+  conflictHeader: (label: string, id: string) => string;
+  conflictDiffLegend: string;
+  conflictChoice: (id: string) => string;
+  optKeepMine: string;
+  optAcceptNew: string;
+  wroteFiles: (n: number) => string;
+  doneWord: string;
+  writtenToken: (n: number) => string;
+  conflictKeptToken: (n: number) => string;
+}
+
+interface DoctorCmdStrings {
+  noConfigRunInit: (configPath: string) => string;
+  configNoteTitle: (configPath: string) => string;
+  fsChecksTitle: string;
+  managedBlocksTitle: (n: number) => string;
+  noVersion: string;
+  unknownSource: string;
+  assignmentsTitle: (n: number) => string;
+  overridden: string;
+  missingPlugins: (n: number, lines: string) => string;
+  missingPreset: (preset: string) => string;
+  presetOverride: (preset: string) => string;
+  placeholderName: (name: string) => string;
+  missingPresetFiles: (preset: string, n: number, lines: string) => string;
+  missingPresetFileRow: (path: string) => string;
+  missingLocalSkills: (n: number, lines: string) => string;
+  missingLocalSkillRow: (id: string) => string;
+  driftContentRow: (source: string) => string;
+  driftVersionSuffix: (source: string) => string;
+  drift: (n: number, hint: string, lines: string) => string;
+  driftHintContent: string;
+  driftHintVersion: string;
+  corruptedSettings: (n: number, lines: string) => string;
+  corruptedSettingsRow: (error: string) => string;
+  missingInvariants: (n: number, lines: string) => string;
+  missingInvariantRow: (source: string) => string;
+  malformedMarkers: (n: number, lines: string) => string;
+  legacyAgents: (n: number, lines: string) => string;
+  legacyAgentRow: (canonical: string) => string;
+  externalTools: (n: number, lines: string) => string;
+  externalToolRow: (binary: string, how: string) => string;
+  externalToolFallbackHow: string;
+  monorepoEmptyDeclared: string;
+  monorepoAddedRow: string;
+  monorepoOrphanRow: string;
+  monorepoDrift: (n: number, lines: string) => string;
+  wsLinkMissing: (workspace: string) => string;
+  wsLinkNotRegistered: (workspace: string) => string;
+  wsLinkPathMismatch: (repoName: string, workspace: string, registeredPath: string) => string;
+  orderInterleaved: (current: string, expected: string, spotlight: string) => string;
+  orderReorderable: (current: string, expected: string, spotlight: string) => string;
+  orderSpotlight: (id: string, pos: number, total: number) => string;
+  nextStepsTitle: string;
+  outroIssues: string;
+  outroDriftStrict: string;
+  outroOk: string;
+}
+
+interface CmdStrings {
+  common: CommonCmdStrings;
+  render: RenderCmdStrings;
+  sync: SyncCmdStrings;
+  doctor: DoctorCmdStrings;
+}
+
+const CMD_ES: CmdStrings = {
+  common: {
+    dirNotFound: (dir) => `Directorio no encontrado: ${dir}`,
+    noConfig: (path) => `No hay navori.config.json en ${path}. Corre 'navori init' primero.`,
+    backupLabel: "Backup:",
+    aborted: "Abortado",
+  },
+  render: {
+    renderFailed: "El render falló",
+    rootLabel: "root",
+    workspaceLabel: "workspace",
+    engineLabel: "engine",
+    engineFilesTitle: "Engine files:",
+    langFallback: (list) =>
+      `Fallback a español para: ${list} (versión en inglés aún no disponible)`,
+    langFallbackWs: (ws, list) =>
+      `[${ws}] Fallback a español para: ${list} (versión en inglés aún no disponible)`,
+    wouldWrite: "→ preview (se escribiría)",
+    noChangePreview: "→ sin cambios",
+    written: "→ written",
+    noChanges: "→ no changes",
+    adapterMissing: (engine) =>
+      `El engine '${engine}' todavía no tiene adapter en navori; se omitió.`,
+    orphanedWorkspaces: (count, list) =>
+      `Workspaces declarados en config pero ausentes en disco (${count}) — ` +
+      `no se renderizaron (evita resucitar dirs borrados). Corre 'navori scan' o quita del config:\n${list}`,
+    downgradeWarning: ({ count, newest, ids }) =>
+      `Tu CLI está detrás del repo: ${count} bloque(s) los escribió una navori más nueva ` +
+      `(hasta ${newest}). Los preservé sin tocar para no degradarlos. ` +
+      `Actualiza tu CLI para volver a gestionarlos: npm i -g navori@latest\n  ${ids}`,
+    previewWord: "Preview",
+    previewHint: "corre 'navori render --apply' para escribir",
+    upToDate: "Al día",
+    upToDateHint: "nada que aplicar",
+    doneWord: "Done",
+  },
+  sync: {
+    workspaceRequiresMonorepo:
+      "--workspace requiere un monorepo con workspaces declarados; este config no tiene. Corre 'navori scan' primero.",
+    workspaceNotFound: (name, known) => `Workspace '${name}' no encontrado. Conocidos: ${known}`,
+    upToDate: "Al día — sin cambios",
+    dryRunComplete: (summary) => `Dry-run completo${summary ? ` — ${summary}` : ""}`,
+    conflictsWithYes: (count, lines) =>
+      `Se detectaron ${count} conflict(s) con --yes. Resuélvelos a mano o corre 'sync --apply' sin --yes para el flujo interactivo.\n${lines}`,
+    fileConflictsRemain: (count) =>
+      `${count} conflicto(s) en archivos .claude/ se mantienen — la resolución interactiva cubre CLAUDE.md; resuelve los de .claude/ a mano y vuelve a correr sync.`,
+    conflictPrompt: (count) => `Encontré ${count} conflict(s). ¿Qué hago?`,
+    optSkipConflicts: "Aplicar los cambios sin conflict, dejar mis ediciones intactas",
+    optInteractive: "Resolver uno por uno (ver diff, keep/accept)",
+    optAbort: "Abortar — no escribir nada",
+    applyChanges: "Aplicar cambios?",
+    planTitle: (label) => `Plan [${label}]:`,
+    updatesAvailableTitle: "Updates available:",
+    conflictHeader: (label, id) => `Conflict [${label}] CLAUDE.md:${id}`,
+    conflictDiffLegend: "(- tu edición, + renderizado)",
+    conflictChoice: (id) => `${id}: ¿mantener tu edición o aceptar la nueva versión?`,
+    optKeepMine: "Mantener la mía — se salta, tu edición queda",
+    optAcceptNew: "Aceptar la nueva — sobrescribe con la versión renderizada",
+    wroteFiles: (n) => `Escribí ${n} archivo(s)`,
+    doneWord: "Done",
+    writtenToken: (n) => `${n} written`,
+    conflictKeptToken: (n) => `${n} conflict kept`,
+  },
+  doctor: {
+    noConfigRunInit: (path) => `No hay navori.config.json en ${path}. Corre 'navori init' primero.`,
+    configNoteTitle: (path) => `Config · ${path}`,
+    fsChecksTitle: "Filesystem checks",
+    managedBlocksTitle: (n) => `Bloques managed en CLAUDE.md · ${n}`,
+    noVersion: "(sin versión)",
+    unknownSource: "(fuente desconocida)",
+    assignmentsTitle: (n) => `Skill → agente · ${n}`,
+    overridden: "(override)",
+    missingPlugins: (n, lines) =>
+      `Plugins declarados en config pero no cargables (${n}):\n${lines}`,
+    missingPreset: (preset) =>
+      `Preset '${preset}' declarado en config pero no existe (ni local en ` +
+      `.navori/presets/${preset}/ ni bundled) — el render cae al baseline (sin los ` +
+      `extras del preset). Corre 'navori preset init ${preset}', 'navori configure', ` +
+      `o usa un preset válido / 'custom'.`,
+    presetOverride: (preset) =>
+      `Preset local '${preset}' (.navori/presets/${preset}/) sombrea el preset ` +
+      `oficial del mismo nombre — se usa el local. Renómbralo si el override no es intencional.`,
+    placeholderName: (name) =>
+      `El name '${name}' parece un placeholder de scaffold (probablemente heredado del ` +
+      `package.json sin renombrar). Edita "name" en navori.config.json si no es el nombre real del repo.`,
+    missingPresetFiles: (preset, n, lines) =>
+      `Extras del preset '${preset}' sin archivo (${n}) — el render ` +
+      `fallará al leerlos; créalos o quítalos del manifest:\n${lines}`,
+    missingPresetFileRow: (path) => `— falta ${path}`,
+    missingLocalSkills: (n, lines) =>
+      `Skills project-local declarados sin archivo (${n}) — crea el .md (o <id>/SKILL.md) o quita el id de project.localSkills:\n${lines}`,
+    missingLocalSkillRow: (id) => `— falta .claude/skills/${id}.md o ${id}/SKILL.md`,
+    driftContentRow: (source) => `(${source}, content edited)`,
+    driftVersionSuffix: (source) => `(${source})`,
+    drift: (n, hint, lines) => `Drift detectado (${n}) — ${hint}:\n${lines}`,
+    driftHintContent:
+      "corre 'navori sync' para resolver conflicts; 'navori render --apply' para actualizar versiones",
+    driftHintVersion: "corre 'navori render --apply' o 'navori sync'",
+    corruptedSettings: (n, lines) =>
+      `Settings.json corrupto (${n}) — corre 'navori render --force --apply' para regenerar desde el bundle (el archivo actual se respalda):\n${lines}`,
+    corruptedSettingsRow: (error) => `— JSON inválido: ${error}`,
+    missingInvariants: (n, lines) =>
+      `Invariantes ausentes en el output (${n}) — una regla load-bearing desapareció; corre 'navori render --apply' o revisa el template:\n${lines}`,
+    missingInvariantRow: (source) => `— declarado por ${source}`,
+    malformedMarkers: (n, lines) =>
+      `Markers managed malformados (${n}) — a esta(s) línea(s) les falta el ` +
+      `cierre '-->', así que navori ya no las reconoce; el próximo render appendearía un bloque ` +
+      `duplicado y dejaría la línea rota. Restaura el '-->' (o borra la línea) a mano:\n${lines}`,
+    legacyAgents: (n, lines) =>
+      `Agentes legacy (${n}) — de un harness previo; navori ya provee sus ` +
+      `equivalentes canónicos. No los toco (son tuyos), pero conviene archivarlos o borrarlos ` +
+      `para no quedar con dos rosters en paralelo:\n${lines}`,
+    legacyAgentRow: (canonical) => `→ superado por '${canonical}'`,
+    externalTools: (n, lines) =>
+      `Plugins habilitados con herramienta externa no instalada (${n}) — ` +
+      `su protocolo/scan referencia algo que no está disponible en esta máquina:\n${lines}`,
+    externalToolRow: (binary, how) => `— falta '${binary}' en PATH; ${how}`,
+    externalToolFallbackHow: "instala la herramienta y reinicia Claude Code",
+    monorepoEmptyDeclared:
+      "monorepo declarado pero workspaces[] vacío — corre 'navori scan' para poblarlo",
+    monorepoAddedRow: "— en disco, falta en config (corre 'navori scan')",
+    monorepoOrphanRow: "— en config, ausente en disco (quítalo del config)",
+    monorepoDrift: (n, lines) => `Monorepo desincronizado con el disco (${n}):\n${lines}`,
+    wsLinkMissing: (workspace) =>
+      `Workspace '${workspace}' referenciado en config pero no existe en ` +
+      `~/.navori/workspaces/ — el registro de workspaces es local por máquina y no viaja ` +
+      `con el repo. Corre 'navori workspace link' para crearlo y registrar este repo.`,
+    wsLinkNotRegistered: (workspace) =>
+      `Este repo no está registrado en el workspace '${workspace}' — corre ` +
+      `'navori workspace link' para registrarlo.`,
+    wsLinkPathMismatch: (repoName, workspace, registeredPath) =>
+      `El repo '${repoName}' está registrado en el workspace '${workspace}' con ` +
+      `otra ruta (${registeredPath}) — probablemente de otra máquina o una ruta vieja. ` +
+      `Corre 'navori workspace link' para actualizarla.`,
+    orderInterleaved: (current, expected, spotlight) =>
+      `Bloques managed de CLAUDE.md fuera del orden canónico — NO se pueden reordenar ` +
+      `automáticamente porque hay texto tuyo entre bloques. Mueve ese texto arriba del ` +
+      `primer bloque managed o abajo del último; luego corre 'navori render --apply'.\n` +
+      `  orden actual:   ${current}\n  orden canónico: ${expected}${spotlight}`,
+    orderReorderable: (current, expected, spotlight) =>
+      `Bloques managed de CLAUDE.md fuera del orden canónico — corre 'navori render --apply' ` +
+      `o 'navori sync' para reordenarlos (el primer bloque marca el centro de gravedad del ` +
+      `harness).\n  orden actual:   ${current}\n  orden canónico: ${expected}${spotlight}`,
+    orderSpotlight: (id, pos, total) =>
+      `\n  → '${id}' (centro de gravedad) está en posición ${pos} de ${total}, debería ir 1º.`,
+    nextStepsTitle: "Próximos pasos",
+    outroIssues: "Issues found",
+    outroDriftStrict: "Drift detected (--strict)",
+    outroOk: "OK",
+  },
+};
+
+const CMD_EN: CmdStrings = {
+  common: {
+    dirNotFound: (dir) => `Directory not found: ${dir}`,
+    noConfig: (path) => `No navori.config.json at ${path}. Run 'navori init' first.`,
+    backupLabel: "Backup:",
+    aborted: "Aborted",
+  },
+  render: {
+    renderFailed: "Render failed",
+    rootLabel: "root",
+    workspaceLabel: "workspace",
+    engineLabel: "engine",
+    engineFilesTitle: "Engine files:",
+    langFallback: (list) =>
+      `Language fallback to Spanish for: ${list} (English version not available yet)`,
+    langFallbackWs: (ws, list) =>
+      `[${ws}] Language fallback to Spanish for: ${list} (English version not available yet)`,
+    wouldWrite: "→ preview (would write)",
+    noChangePreview: "→ no changes",
+    written: "→ written",
+    noChanges: "→ no changes",
+    adapterMissing: (engine) =>
+      `The '${engine}' engine has no navori adapter yet; skipped.`,
+    orphanedWorkspaces: (count, list) =>
+      `Workspaces declared in config but missing on disk (${count}) — ` +
+      `not rendered (avoids resurrecting deleted dirs). Run 'navori scan' or remove them from config:\n${list}`,
+    downgradeWarning: ({ count, newest, ids }) =>
+      `Your CLI is behind the repo: ${count} block(s) were written by a newer navori ` +
+      `(up to ${newest}). They were preserved untouched to avoid downgrading them. ` +
+      `Update your CLI to manage them again: npm i -g navori@latest\n  ${ids}`,
+    previewWord: "Preview",
+    previewHint: "run 'navori render --apply' to write",
+    upToDate: "Up to date",
+    upToDateHint: "nothing to apply",
+    doneWord: "Done",
+  },
+  sync: {
+    workspaceRequiresMonorepo:
+      "--workspace requires a monorepo with declared workspaces; this config has none. Run 'navori scan' first.",
+    workspaceNotFound: (name, known) => `Workspace '${name}' not found. Known: ${known}`,
+    upToDate: "Up to date — no changes",
+    dryRunComplete: (summary) => `Dry-run complete${summary ? ` — ${summary}` : ""}`,
+    conflictsWithYes: (count, lines) =>
+      `${count} conflict(s) detected with --yes. Resolve them by hand or run 'sync --apply' without --yes for the interactive flow.\n${lines}`,
+    fileConflictsRemain: (count) =>
+      `${count} conflict(s) in .claude/ files remain — interactive resolution covers CLAUDE.md; resolve the .claude/ ones by hand and re-run sync.`,
+    conflictPrompt: (count) => `Found ${count} conflict(s). What do you want to do?`,
+    optSkipConflicts: "Apply the non-conflicting changes, keep my edits intact",
+    optInteractive: "Resolve one by one (see diff, keep/accept)",
+    optAbort: "Abort — write nothing",
+    applyChanges: "Apply changes?",
+    planTitle: (label) => `Plan [${label}]:`,
+    updatesAvailableTitle: "Updates available:",
+    conflictHeader: (label, id) => `Conflict [${label}] CLAUDE.md:${id}`,
+    conflictDiffLegend: "(- your edit, + rendered)",
+    conflictChoice: (id) => `${id}: keep your edit or accept the new version?`,
+    optKeepMine: "Keep mine — skip, your edit stays",
+    optAcceptNew: "Accept new — overwrite with the rendered version",
+    wroteFiles: (n) => `Wrote ${n} file(s)`,
+    doneWord: "Done",
+    writtenToken: (n) => `${n} written`,
+    conflictKeptToken: (n) => `${n} conflict kept`,
+  },
+  doctor: {
+    noConfigRunInit: (path) => `No navori.config.json at ${path}. Run 'navori init' first.`,
+    configNoteTitle: (path) => `Config · ${path}`,
+    fsChecksTitle: "Filesystem checks",
+    managedBlocksTitle: (n) => `Managed blocks in CLAUDE.md · ${n}`,
+    noVersion: "(no version)",
+    unknownSource: "(unknown source)",
+    assignmentsTitle: (n) => `Skill → agent assignments · ${n}`,
+    overridden: "(overridden)",
+    missingPlugins: (n, lines) =>
+      `Plugins declared in config but not loadable (${n}):\n${lines}`,
+    missingPreset: (preset) =>
+      `Preset '${preset}' declared in config but does not exist (neither local in ` +
+      `.navori/presets/${preset}/ nor bundled) — render falls back to the baseline (without the ` +
+      `preset extras). Run 'navori preset init ${preset}', 'navori configure', ` +
+      `or use a valid preset / 'custom'.`,
+    presetOverride: (preset) =>
+      `Local preset '${preset}' (.navori/presets/${preset}/) shadows the official preset ` +
+      `of the same name — the local one is used. Rename it if the override is unintentional.`,
+    placeholderName: (name) =>
+      `The name '${name}' looks like a scaffold placeholder (probably carried over from an ` +
+      `un-renamed package.json). Edit "name" in navori.config.json if it isn't the repo's real name.`,
+    missingPresetFiles: (preset, n, lines) =>
+      `Extras of preset '${preset}' with no file (${n}) — render ` +
+      `will fail reading them; create or remove them from the manifest:\n${lines}`,
+    missingPresetFileRow: (path) => `— missing ${path}`,
+    missingLocalSkills: (n, lines) =>
+      `Project-local skills declared with no file (${n}) — create the .md (or <id>/SKILL.md) or remove the id from project.localSkills:\n${lines}`,
+    missingLocalSkillRow: (id) => `— missing .claude/skills/${id}.md or ${id}/SKILL.md`,
+    driftContentRow: (source) => `(${source}, content edited)`,
+    driftVersionSuffix: (source) => `(${source})`,
+    drift: (n, hint, lines) => `Drift detected (${n}) — ${hint}:\n${lines}`,
+    driftHintContent:
+      "run 'navori sync' to resolve conflicts; 'navori render --apply' to update versions",
+    driftHintVersion: "run 'navori render --apply' or 'navori sync'",
+    corruptedSettings: (n, lines) =>
+      `Corrupted settings.json (${n}) — run 'navori render --force --apply' to regenerate from the bundle (the current file is backed up):\n${lines}`,
+    corruptedSettingsRow: (error) => `— invalid JSON: ${error}`,
+    missingInvariants: (n, lines) =>
+      `Invariants missing from the output (${n}) — a load-bearing rule disappeared; run 'navori render --apply' or check the template:\n${lines}`,
+    missingInvariantRow: (source) => `— declared by ${source}`,
+    malformedMarkers: (n, lines) =>
+      `Malformed managed markers (${n}) — these line(s) are missing the ` +
+      `closing '-->', so navori no longer recognizes them; the next render would append a ` +
+      `duplicate block and leave the line broken. Restore the '-->' (or delete the line) by hand:\n${lines}`,
+    legacyAgents: (n, lines) =>
+      `Legacy agents (${n}) — from a previous harness; navori already provides their ` +
+      `canonical equivalents. It doesn't touch them (they're yours), but archiving or deleting them ` +
+      `avoids running two parallel rosters:\n${lines}`,
+    legacyAgentRow: (canonical) => `→ superseded by '${canonical}'`,
+    externalTools: (n, lines) =>
+      `Enabled plugins with an uninstalled external tool (${n}) — ` +
+      `their protocol/scan references something not available on this machine:\n${lines}`,
+    externalToolRow: (binary, how) => `— missing '${binary}' in PATH; ${how}`,
+    externalToolFallbackHow: "install the tool and restart Claude Code",
+    monorepoEmptyDeclared:
+      "monorepo declared but workspaces[] empty — run 'navori scan' to populate it",
+    monorepoAddedRow: "— on disk, missing in config (run 'navori scan')",
+    monorepoOrphanRow: "— in config, missing on disk (remove it from config)",
+    monorepoDrift: (n, lines) => `Monorepo out of sync with disk (${n}):\n${lines}`,
+    wsLinkMissing: (workspace) =>
+      `Workspace '${workspace}' referenced in config but does not exist in ` +
+      `~/.navori/workspaces/ — the workspace registry is machine-local and does not travel ` +
+      `with the repo. Run 'navori workspace link' to create it and register this repo.`,
+    wsLinkNotRegistered: (workspace) =>
+      `This repo is not registered in workspace '${workspace}' — run ` +
+      `'navori workspace link' to register it.`,
+    wsLinkPathMismatch: (repoName, workspace, registeredPath) =>
+      `Repo '${repoName}' is registered in workspace '${workspace}' with ` +
+      `a different path (${registeredPath}) — probably from another machine or a stale path. ` +
+      `Run 'navori workspace link' to update it.`,
+    orderInterleaved: (current, expected, spotlight) =>
+      `CLAUDE.md managed blocks out of canonical order — they can NOT be reordered ` +
+      `automatically because there is text of yours between blocks. Move that text above the ` +
+      `first managed block or below the last; then run 'navori render --apply'.\n` +
+      `  current order:   ${current}\n  canonical order: ${expected}${spotlight}`,
+    orderReorderable: (current, expected, spotlight) =>
+      `CLAUDE.md managed blocks out of canonical order — run 'navori render --apply' ` +
+      `or 'navori sync' to reorder them (the first block marks the harness's center of ` +
+      `gravity).\n  current order:   ${current}\n  canonical order: ${expected}${spotlight}`,
+    orderSpotlight: (id, pos, total) =>
+      `\n  → '${id}' (center of gravity) is at position ${pos} of ${total}, should be 1st.`,
+    nextStepsTitle: "Next steps",
+    outroIssues: "Issues found",
+    outroDriftStrict: "Drift detected (--strict)",
+    outroOk: "OK",
+  },
+};
+
+const CMD_DICTS: Record<Lang, CmdStrings> = { es: CMD_ES, en: CMD_EN };
+
+/** Command-output catalog for a locale (render / sync / doctor). */
+export function tc(lang: Lang): CmdStrings {
+  return CMD_DICTS[lang];
+}
