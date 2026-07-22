@@ -13,6 +13,7 @@ import {
 import { extractManagedContent } from "../lib/marker.ts";
 import { formatLineDiff } from "../lib/diff.ts";
 import { renderStatusSymbol, renderStatusLabel, dim, color, sym, brand, accent } from "../lib/style.ts";
+import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 
 /**
  * `sync` re-runs the Claude engine but exposes the plan up front so the
@@ -49,29 +50,48 @@ export const syncCommand = defineCommand({
       description:
         "Sync only one workspace by name (skips root). Requires a monorepo config with declared workspaces.",
     },
+    json: {
+      type: "boolean",
+      description: "Emit a machine-readable JSON result and suppress human output (for CI/automation).",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const configPath = `${cwd}/navori.config.json`;
+    const json = Boolean(args.json);
 
-    p.intro(brand("sync"));
+    if (!json) p.intro(brand("sync"));
 
     if (!existsSync(cwd)) {
-      p.cancel(`Directory not found: ${cwd}`);
+      if (json) {
+        console.log(JSON.stringify({ command: "sync", ok: false, reason: "directory-missing", cwd }));
+      } else {
+        p.cancel(tc(DEFAULT_LANG).common.dirNotFound(cwd));
+      }
       process.exit(1);
     }
 
     if (!existsSync(configPath)) {
-      p.cancel(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
+      if (json) {
+        console.log(JSON.stringify({ command: "sync", ok: false, reason: "config-missing", configPath }));
+      } else {
+        p.cancel(tc(DEFAULT_LANG).common.noConfig(configPath));
+      }
       process.exit(1);
     }
 
     const config = readConfigOrExit(configPath);
+    const lang = resolveLang(config.language);
+    const ts = tc(lang).sync;
     const workspaceFilter = (args.workspace as string | undefined) ?? null;
 
     const targetsResult = resolveSyncTargets(cwd, config, workspaceFilter);
     if (!targetsResult.ok) {
-      p.cancel(targetsResult.reason);
+      if (json) {
+        console.log(JSON.stringify({ command: "sync", ok: false, reason: targetsResult.reason }));
+      } else {
+        p.cancel(targetsResult.reason);
+      }
       process.exit(1);
     }
     const targets = targetsResult.targets;
@@ -86,24 +106,60 @@ export const syncCommand = defineCommand({
       }),
     }));
 
-    reportPlans(plans);
-
     const conflicts = collectAllConflicts(plans);
-    const hasOtherChanges = plans.some((p) => p.plan.written.length > 0);
+    const hasOtherChanges = plans.some((pl) => pl.plan.written.length > 0);
+    const pendingCount = plans.reduce((acc, pl) => acc + pl.plan.written.length, 0);
+
+    // --json: never prompt. Emit the plan; apply the non-conflicting changes
+    // only when --apply/--yes is passed (conflicts are always skipped, never
+    // overwritten). --yes + conflicts is a CI gate failure (ok:false, exit 1).
+    if (json) {
+      const autoApply = Boolean(args.apply || args.yes) && !args["dry-run"];
+      const yesBlocked = Boolean(args.yes) && conflicts.length > 0;
+      let writtenTotal = 0;
+      const backups: Array<{ label: string; path: string }> = [];
+      if (autoApply && !yesBlocked) {
+        for (const t of targets) {
+          const applied = renderClaudeEngine(t.cwd, t.config, {
+            repoRoot: t.repoRoot,
+            monorepoContext: t.monorepoContext,
+          });
+          writtenTotal += applied.written.length;
+          if (applied.backupPath) backups.push({ label: t.label, path: applied.backupPath });
+        }
+      }
+      const mode = args["dry-run"] ? "dry-run" : autoApply ? "apply" : "plan";
+      console.log(
+        JSON.stringify(
+          buildSyncJson(plans, conflicts, {
+            ok: !yesBlocked,
+            mode,
+            pending: pendingCount,
+            written: writtenTotal,
+            backups,
+          }),
+          null,
+          2,
+        ),
+      );
+      if (yesBlocked) process.exit(1);
+      return;
+    }
+
+    reportPlans(plans, lang);
 
     if (!hasOtherChanges && conflicts.length === 0) {
-      p.outro("Up to date — no changes");
+      p.outro(ts.upToDate);
       return;
     }
 
     // --dry-run: report only, never write
     if (args["dry-run"]) {
-      const pending = plans.reduce((acc, p) => acc + p.plan.written.length, 0);
       const summary = [
         conflicts.length > 0 ? `${conflicts.length} conflict(s)` : null,
-        hasOtherChanges ? `${pending} pending` : null,
+        hasOtherChanges ? `${pendingCount} pending` : null,
       ].filter(Boolean).join(", ");
-      p.outro(`Dry-run complete${summary ? ` — ${summary}` : ""}`);
+      p.outro(ts.dryRunComplete(summary));
       return;
     }
 
@@ -111,9 +167,7 @@ export const syncCommand = defineCommand({
 
     if (args.yes && conflicts.length > 0) {
       const lines = conflicts.map((c) => `  - ${c.path}: ${c.reason}`).join("\n");
-      p.cancel(
-        `${conflicts.length} conflict(s) detected with --yes. Resuélvelos a mano o corre 'sync --apply' sin --yes para el flujo interactivo.\n${lines}`,
-      );
+      p.cancel(ts.conflictsWithYes(conflicts.length, lines));
       process.exit(1);
     }
 
@@ -122,9 +176,9 @@ export const syncCommand = defineCommand({
 
     if (!autoApply) {
       if (conflicts.length > 0 && Boolean(args.interactive)) {
-        const resolved = await resolveConflictsInteractively(plans);
+        const resolved = await resolveConflictsInteractively(plans, lang);
         if (resolved === null) {
-          p.cancel("Aborted");
+          p.cancel(tc(lang).common.aborted);
           process.exit(0);
         }
         resolutions = resolved;
@@ -132,41 +186,36 @@ export const syncCommand = defineCommand({
         // managed files). They stay as-is; surface that explicitly.
         const fileConflicts = conflicts.filter((c) => !c.path.includes("CLAUDE.md"));
         if (fileConflicts.length > 0) {
-          p.log.warn(
-            `${fileConflicts.length} conflicto(s) en archivos .claude/ se mantienen — la resolución interactiva cubre CLAUDE.md; resuelve los de .claude/ a mano y vuelve a correr sync.`,
-          );
+          p.log.warn(ts.fileConflictsRemain(fileConflicts.length));
         }
       } else if (conflicts.length > 0) {
         const choice = await p.select({
-          message: `Encontré ${conflicts.length} conflict(s). ¿Qué hago?`,
+          message: ts.conflictPrompt(conflicts.length),
           options: [
-            {
-              value: "skip-conflicts",
-              label: "Aplicar los cambios sin conflict, dejar mis ediciones intactas",
-            },
-            { value: "interactive", label: "Resolver uno por uno (ver diff, keep/accept)" },
-            { value: "abort", label: "Abortar — no escribir nada" },
+            { value: "skip-conflicts", label: ts.optSkipConflicts },
+            { value: "interactive", label: ts.optInteractive },
+            { value: "abort", label: ts.optAbort },
           ],
         });
         if (p.isCancel(choice) || choice === "abort") {
-          p.cancel("Aborted");
+          p.cancel(tc(lang).common.aborted);
           process.exit(0);
         }
         if (choice === "interactive") {
-          const resolved = await resolveConflictsInteractively(plans);
+          const resolved = await resolveConflictsInteractively(plans, lang);
           if (resolved === null) {
-            p.cancel("Aborted");
+            p.cancel(tc(lang).common.aborted);
             process.exit(0);
           }
           resolutions = resolved;
         }
       } else {
         const ok = await p.confirm({
-          message: "Aplicar cambios?",
+          message: ts.applyChanges,
           initialValue: true,
         });
         if (p.isCancel(ok) || !ok) {
-          p.cancel("Aborted");
+          p.cancel(tc(lang).common.aborted);
           process.exit(0);
         }
       }
@@ -186,12 +235,12 @@ export const syncCommand = defineCommand({
       });
       writtenTotal += applied.written.length;
       if (applied.backupPath) {
-        p.log.message(`${dim(`Backup [${t.label}]:`)} ${applied.backupPath}`);
+        p.log.message(`${dim(`${tc(lang).common.backupLabel} [${t.label}]`)} ${applied.backupPath}`);
       }
     }
 
-    p.log.success(`Wrote ${writtenTotal} file(s)`);
-    p.outro(`${color.green("Done")} ${summarize(writtenTotal, conflicts.length)}`);
+    p.log.success(ts.wroteFiles(writtenTotal));
+    p.outro(`${color.green(ts.doneWord)} ${summarize(writtenTotal, conflicts.length, lang)}`);
   },
 });
 
@@ -225,21 +274,16 @@ export function resolveSyncTargets(
   workspaceFilter: string | null,
 ): SyncTargetsResult {
   const declared = config.monorepo?.workspaces ?? [];
+  const ts = tc(resolveLang(config.language)).sync;
 
   if (workspaceFilter) {
     if (declared.length === 0) {
-      return {
-        ok: false,
-        reason: `--workspace requires a monorepo with declared workspaces; this config has none. Run 'navori scan' first.`,
-      };
+      return { ok: false, reason: ts.workspaceRequiresMonorepo };
     }
     const match = declared.find((w) => w.name === workspaceFilter);
     if (!match) {
       const known = declared.map((w) => w.name).join(", ");
-      return {
-        ok: false,
-        reason: `Workspace '${workspaceFilter}' not found. Known: ${known}`,
-      };
+      return { ok: false, reason: ts.workspaceNotFound(workspaceFilter, known) };
     }
     return {
       ok: true,
@@ -290,7 +334,9 @@ interface ConflictResolution {
  */
 export async function resolveConflictsInteractively(
   plans: TargetPlan[],
+  lang: Lang = DEFAULT_LANG,
 ): Promise<Map<string, ConflictResolution> | null> {
+  const ts = tc(lang).sync;
   const resolutions = new Map<string, ConflictResolution>();
   for (const tp of plans) {
     const cmConflicts = tp.plan.claudeMdEntries.filter(
@@ -307,14 +353,14 @@ export async function resolveConflictsInteractively(
       const actual = extractManagedContent(existing, e.asset.id) ?? "";
       const proposed = e.newContent ?? "";
       p.log.message(
-        `${color.yellow("Conflict")} [${tp.target.label}] CLAUDE.md:${accent(e.asset.id)}\n` +
-          `${dim("(- your edit, + rendered)")}\n${formatLineDiff(actual, proposed)}`,
+        `${color.yellow(ts.conflictHeader(tp.target.label, accent(e.asset.id)))}\n` +
+          `${dim(ts.conflictDiffLegend)}\n${formatLineDiff(actual, proposed)}`,
       );
       const choice = await p.select({
-        message: `${e.asset.id}: keep your edit or accept the new version?`,
+        message: ts.conflictChoice(e.asset.id),
         options: [
-          { value: "keep", label: "Keep mine — skip, your edit stays" },
-          { value: "accept", label: "Accept new — overwrite with the rendered version" },
+          { value: "keep", label: ts.optKeepMine },
+          { value: "accept", label: ts.optAcceptNew },
         ],
       });
       if (p.isCancel(choice)) return null;
@@ -324,6 +370,45 @@ export async function resolveConflictsInteractively(
     resolutions.set(tp.target.label, { skipIds, forceIds });
   }
   return resolutions;
+}
+
+/**
+ * Machine-readable sync result. Keys are stable English (never localized) so
+ * CI/automation can parse the same shape regardless of `config.language`.
+ */
+function buildSyncJson(
+  plans: TargetPlan[],
+  conflicts: Conflict[],
+  meta: {
+    ok: boolean;
+    mode: string;
+    pending: number;
+    written: number;
+    backups: Array<{ label: string; path: string }>;
+  },
+) {
+  return {
+    command: "sync",
+    ok: meta.ok,
+    mode: meta.mode,
+    targets: plans.map(({ target, plan }) => ({
+      label: target.label,
+      claudeMd: plan.claudeMdEntries.map((e) => ({ id: e.asset.id, status: e.status })),
+      written: plan.written
+        .filter((w) => w.path !== "CLAUDE.md")
+        .map((w) => ({ path: w.path, status: w.status })),
+      skipped: plan.skipped.map((s) => ({ path: s.path, reason: s.reason })),
+      updatesAvailable: plan.updatesAvailable.map((u) => ({
+        id: u.id,
+        fromVersion: u.fromVersion,
+        toVersion: u.toVersion,
+      })),
+    })),
+    conflicts: conflicts.map((c) => ({ path: c.path, reason: c.reason })),
+    pending: meta.pending,
+    written: meta.written,
+    backups: meta.backups,
+  };
 }
 
 function collectAllConflicts(plans: TargetPlan[]): Conflict[] {
@@ -353,14 +438,15 @@ function collectTargetConflicts({ target, plan }: TargetPlan): Conflict[] {
   return out;
 }
 
-function reportPlans(plans: TargetPlan[]): void {
+function reportPlans(plans: TargetPlan[], lang: Lang): void {
   for (const tp of plans) {
-    reportTargetPlan(tp);
+    reportTargetPlan(tp, lang);
   }
 }
 
-function reportTargetPlan({ target, plan }: TargetPlan): void {
-  const lines: string[] = [`Plan [${target.label}]:`];
+function reportTargetPlan({ target, plan }: TargetPlan, lang: Lang): void {
+  const ts = tc(lang).sync;
+  const lines: string[] = [ts.planTitle(target.label)];
 
   for (const e of plan.claudeMdEntries) {
     const symStr = renderStatusSymbol(e.status);
@@ -382,7 +468,7 @@ function reportTargetPlan({ target, plan }: TargetPlan): void {
 
   if (plan.updatesAvailable.length > 0) {
     lines.push("");
-    lines.push(`  ${dim("Updates available:")}`);
+    lines.push(`  ${dim(ts.updatesAvailableTitle)}`);
     for (const u of plan.updatesAvailable) {
       lines.push(`    ${color.cyan(sym.update)} ${u.id}  ${dim(`${u.fromVersion} → ${u.toVersion}`)}`);
     }
@@ -391,9 +477,10 @@ function reportTargetPlan({ target, plan }: TargetPlan): void {
   p.log.message(lines.join("\n"));
 }
 
-function summarize(writtenCount: number, conflictCount: number): string {
+function summarize(writtenCount: number, conflictCount: number, lang: Lang): string {
+  const ts = tc(lang).sync;
   const parts: string[] = [];
-  if (writtenCount > 0) parts.push(color.green(`${writtenCount} written`));
-  if (conflictCount > 0) parts.push(color.red(`${conflictCount} conflict kept`));
+  if (writtenCount > 0) parts.push(color.green(ts.writtenToken(writtenCount)));
+  if (conflictCount > 0) parts.push(color.red(ts.conflictKeptToken(conflictCount)));
   return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
 }

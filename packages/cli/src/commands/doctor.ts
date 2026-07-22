@@ -20,6 +20,7 @@ import {
   suggestNextSteps,
 } from "../lib/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
+import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 
 export const doctorCommand = defineCommand({
   meta: {
@@ -45,7 +46,7 @@ export const doctorCommand = defineCommand({
       if (args.json) {
         console.log(JSON.stringify({ ok: false, error: "directory-missing", cwd }));
       } else {
-        p.cancel(`Directory not found: ${cwd}`);
+        p.cancel(tc(DEFAULT_LANG).common.dirNotFound(cwd));
       }
       process.exit(1);
     }
@@ -54,7 +55,7 @@ export const doctorCommand = defineCommand({
       if (args.json) {
         console.log(JSON.stringify({ ok: false, error: "config-missing", configPath }));
       } else {
-        p.cancel(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
+        p.cancel(tc(DEFAULT_LANG).doctor.noConfigRunInit(configPath));
       }
       process.exit(1);
     }
@@ -162,6 +163,9 @@ export const doctorCommand = defineCommand({
       return;
     }
 
+    const lang = resolveLang(config.language);
+    const td = tc(lang).doctor;
+
     p.note(
       kv([
         ["name", accent(config.name)],
@@ -173,7 +177,7 @@ export const doctorCommand = defineCommand({
         ["branchBase", config.branchBase],
         ["commits", config.commits],
       ]),
-      `Config · ${grey(configPath)}`,
+      td.configNoteTitle(grey(configPath)),
     );
 
     p.note(
@@ -183,64 +187,50 @@ export const doctorCommand = defineCommand({
         `  ${check(report.checks.claudeDirExists)} .claude/`,
         `  ${check(report.checks.progressDirExists)} ${config.progress?.dir ?? "progress"}/`,
       ].join("\n"),
-      "Filesystem checks",
+      td.fsChecksTitle,
     );
 
     if (markers.length > 0) {
       const lines = markers.map((m) => {
-        const ver = m.version ? grey(` v${m.version}`) : grey(" (no version)");
-        const src = m.source ?? grey("(unknown source)");
+        const ver = m.version ? grey(` v${m.version}`) : grey(` ${td.noVersion}`);
+        const src = m.source ?? grey(td.unknownSource);
         return `  ${color.cyan(sym.bullet)} ${accent(m.id)}  ${grey("←")}  ${src}${ver}`;
       });
-      p.note(lines.join("\n"), `Managed blocks in CLAUDE.md · ${markers.length}`);
+      p.note(lines.join("\n"), td.managedBlocksTitle(markers.length));
     }
 
     // Skill → agent assignments report (effective: plugin recommendation + config overrides)
     const assignments = collectAssignments(config);
     if (assignments.length > 0) {
       const lines = assignments.map((a) => {
-        const override = a.override ? `  ${grey("(overridden)")}` : "";
+        const override = a.override ? `  ${grey(td.overridden)}` : "";
         return `  ${color.cyan(sym.bullet)} ${accent(a.id)}  ${grey("→")}  ${a.agent}${override}`;
       });
-      p.note(lines.join("\n"), `Skill → agent assignments · ${assignments.length}`);
+      p.note(lines.join("\n"), td.assignmentsTitle(assignments.length));
     }
 
     if (missingPlugins.length > 0) {
       const lines = missingPlugins.map((m) => `  ${color.red(sym.fail)} ${m.id}  ${grey(`— ${m.reason}`)}`);
-      p.log.warn(`Plugins declared in config but not loadable (${missingPlugins.length}):\n${lines.join("\n")}`);
+      p.log.warn(td.missingPlugins(missingPlugins.length, lines.join("\n")));
     }
 
     if (missingPreset !== null) {
-      p.log.warn(
-        `Preset '${missingPreset}' declarado en config pero no existe (ni local en ` +
-          `.navori/presets/${missingPreset}/ ni bundled) — el render cae al baseline (sin los ` +
-          `extras del preset). Corre 'navori preset init ${missingPreset}', 'navori configure', ` +
-          `o usa un preset válido / 'custom'.`,
-      );
+      p.log.warn(td.missingPreset(missingPreset));
     }
 
     if (presetOverride) {
-      p.log.warn(
-        `Preset local '${presetOverride}' (.navori/presets/${presetOverride}/) sombrea el preset ` +
-          `oficial del mismo nombre — se usa el local. Renómbralo si el override no es intencional.`,
-      );
+      p.log.warn(td.presetOverride(presetOverride));
     }
 
     if (placeholderName) {
-      p.log.warn(
-        `El name '${placeholderName}' parece un placeholder de scaffold (probablemente heredado del ` +
-          `package.json sin renombrar). Edita "name" en navori.config.json si no es el nombre real del repo.`,
-      );
+      p.log.warn(td.placeholderName(placeholderName));
     }
 
     if (missingPresetFiles.length > 0) {
       const lines = missingPresetFiles.map(
-        (f) => `  ${color.red(sym.fail)} ${accent(f.id)}  ${grey(`— falta ${f.path}`)}`,
+        (f) => `  ${color.red(sym.fail)} ${accent(f.id)}  ${grey(td.missingPresetFileRow(f.path))}`,
       );
-      p.log.warn(
-        `Extras del preset '${config.preset}' sin archivo (${missingPresetFiles.length}) — el render ` +
-          `fallará al leerlos; créalos o quítalos del manifest:\n${lines.join("\n")}`,
-      );
+      p.log.warn(td.missingPresetFiles(config.preset, missingPresetFiles.length, lines.join("\n")));
     }
 
     // Project-local skills declared in config must have a file on disk — navori
@@ -251,125 +241,98 @@ export const doctorCommand = defineCommand({
     );
     if (missingLocalSkills.length > 0) {
       const lines = missingLocalSkills.map(
-        (n) => `  ${color.red(sym.fail)} ${accent(n)}  ${grey(`— falta .claude/skills/${n}.md o ${n}/SKILL.md`)}`,
+        (n) => `  ${color.red(sym.fail)} ${accent(n)}  ${grey(td.missingLocalSkillRow(n))}`,
       );
-      p.log.warn(
-        `Skills project-local declarados sin archivo (${missingLocalSkills.length}) — crea el .md (o <id>/SKILL.md) o quita el id de project.localSkills:\n${lines.join("\n")}`,
-      );
+      p.log.warn(td.missingLocalSkills(missingLocalSkills.length, lines.join("\n")));
     }
 
     if (drifts.length > 0) {
       const lines = drifts.map((d) => {
         if (d.kind === "content") {
-          return `  ${color.red(sym.conflict)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`hash ${d.expectedHash} ≠ ${d.actualHash}`)}  ${grey(`(${d.source}, content edited)`)}`;
+          return `  ${color.red(sym.conflict)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`hash ${d.expectedHash} ≠ ${d.actualHash}`)}  ${grey(td.driftContentRow(d.source))}`;
         }
-        return `  ${color.yellow(sym.update)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`${d.fromVersion} → ${d.toVersion}`)}  ${grey(`(${d.source})`)}`;
+        return `  ${color.yellow(sym.update)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`${d.fromVersion} → ${d.toVersion}`)}  ${grey(td.driftVersionSuffix(d.source))}`;
       });
-      const hint =
-        drifts.some((d) => d.kind === "content")
-          ? "corre 'navori sync' para resolver conflicts; 'navori render --apply' para actualizar versiones"
-          : "corre 'navori render --apply' o 'navori sync'";
-      p.log.warn(`Drift detectado (${drifts.length}) — ${hint}:\n${lines.join("\n")}`);
+      const hint = drifts.some((d) => d.kind === "content")
+        ? td.driftHintContent
+        : td.driftHintVersion;
+      p.log.warn(td.drift(drifts.length, hint, lines.join("\n")));
     }
 
     if (corruptedSettings.length > 0) {
       const lines = corruptedSettings.map(
-        (c) => `  ${color.red(sym.fail)} ${accent(c.path)}  ${grey(`— JSON inválido: ${c.error}`)}`,
+        (c) => `  ${color.red(sym.fail)} ${accent(c.path)}  ${grey(td.corruptedSettingsRow(c.error))}`,
       );
-      p.log.error(
-        `Settings.json corrupto (${corruptedSettings.length}) — corre 'navori render --force --apply' para regenerar desde el bundle (el archivo actual se respalda):\n${lines.join("\n")}`,
-      );
+      p.log.error(td.corruptedSettings(corruptedSettings.length, lines.join("\n")));
     }
 
     if (missingInvariants.length > 0) {
       const lines = missingInvariants.map(
-        (m) => `  ${color.red(sym.fail)} ${accent(m.invariant)}  ${grey(`— declarado por ${m.source}`)}`,
+        (m) => `  ${color.red(sym.fail)} ${accent(m.invariant)}  ${grey(td.missingInvariantRow(m.source))}`,
       );
-      p.log.error(
-        `Invariantes ausentes en el output (${missingInvariants.length}) — una regla load-bearing desapareció; corre 'navori render --apply' o revisa el template:\n${lines.join("\n")}`,
-      );
+      p.log.error(td.missingInvariants(missingInvariants.length, lines.join("\n")));
     }
 
     if (malformedMarkers.length > 0) {
       const lines = malformedMarkers.map(
         (m) => `  ${color.yellow(sym.update)} ${accent(`${m.filePath}:${m.line}`)}  ${grey(`— ${m.snippet}`)}`,
       );
-      p.log.warn(
-        `Markers managed malformados (${malformedMarkers.length}) — a esta(s) línea(s) les falta el ` +
-          `cierre '-->', así que navori ya no las reconoce; el próximo render appendearía un bloque ` +
-          `duplicado y dejaría la línea rota. Restaura el '-->' (o borra la línea) a mano:\n${lines.join("\n")}`,
-      );
+      p.log.warn(td.malformedMarkers(malformedMarkers.length, lines.join("\n")));
     }
 
     if (legacyAgents.length > 0) {
       const lines = legacyAgents.map(
         (l) =>
-          `  ${color.yellow(sym.update)} ${accent(`.claude/agents/${l.legacyName}.md`)}  ${grey(`→ superado por '${l.canonical}'`)}`,
+          `  ${color.yellow(sym.update)} ${accent(`.claude/agents/${l.legacyName}.md`)}  ${grey(td.legacyAgentRow(l.canonical))}`,
       );
-      p.log.warn(
-        `Agentes legacy (${legacyAgents.length}) — de un harness previo; navori ya provee sus ` +
-          `equivalentes canónicos. No los toco (son tuyos), pero conviene archivarlos o borrarlos ` +
-          `para no quedar con dos rosters en paralelo:\n${lines.join("\n")}`,
-      );
+      p.log.warn(td.legacyAgents(legacyAgents.length, lines.join("\n")));
     }
 
     if (missingExternalTools.length > 0) {
       const lines = missingExternalTools.map((t) => {
         const how = t.install
           ? `${t.install}${t.postInstall ? ` && ${t.postInstall}` : ""}`
-          : "instala la herramienta y reinicia Claude Code";
-        return `  ${color.yellow(sym.update)} ${accent(t.pluginId)}  ${grey(`— falta '${t.binary}' en PATH; ${how}`)}`;
+          : td.externalToolFallbackHow;
+        return `  ${color.yellow(sym.update)} ${accent(t.pluginId)}  ${grey(td.externalToolRow(t.binary, how))}`;
       });
-      p.log.warn(
-        `Plugins habilitados con herramienta externa no instalada (${missingExternalTools.length}) — ` +
-          `su protocolo/scan referencia algo que no está disponible en esta máquina:\n${lines.join("\n")}`,
-      );
+      p.log.warn(td.externalTools(missingExternalTools.length, lines.join("\n")));
     }
 
     if (monorepoDrift) {
       const lines: string[] = [];
       if (monorepoDrift.emptyDeclared) {
-        lines.push(
-          `  ${color.yellow(sym.update)} monorepo declarado pero workspaces[] vacío — corre 'navori scan' para poblarlo`,
-        );
+        lines.push(`  ${color.yellow(sym.update)} ${td.monorepoEmptyDeclared}`);
       }
       for (const path of monorepoDrift.added) {
-        lines.push(`  ${color.yellow(sym.update)} ${path}  ${grey("— en disco, falta en config (corre 'navori scan')")}`);
+        lines.push(`  ${color.yellow(sym.update)} ${path}  ${grey(td.monorepoAddedRow)}`);
       }
       for (const path of monorepoDrift.orphan) {
-        lines.push(`  ${color.yellow(sym.update)} ${path}  ${grey("— en config, ausente en disco (quítalo del config)")}`);
+        lines.push(`  ${color.yellow(sym.update)} ${path}  ${grey(td.monorepoOrphanRow)}`);
       }
       if (lines.length > 0) {
-        p.log.warn(`Monorepo desincronizado con el disco (${lines.length}):\n${lines.join("\n")}`);
+        p.log.warn(td.monorepoDrift(lines.length, lines.join("\n")));
       }
     }
 
     if (workspaceLink) {
-      p.log.warn(formatWorkspaceLinkWarning(workspaceLink));
+      p.log.warn(formatWorkspaceLinkWarning(workspaceLink, lang));
     }
 
     if (orderReport) {
       const spotlight = orderReport.misplacedFirst
-        ? `\n  → '${orderReport.misplacedFirst.id}' (centro de gravedad) está en posición ` +
-          `${orderReport.misplacedFirst.currentPos} de ${orderReport.misplacedFirst.total}, debería ir 1º.`
+        ? td.orderSpotlight(
+            orderReport.misplacedFirst.id,
+            orderReport.misplacedFirst.currentPos,
+            orderReport.misplacedFirst.total,
+          )
         : "";
-      if (orderReport.interleaved) {
-        p.log.warn(
-          `Bloques managed de CLAUDE.md fuera del orden canónico — NO se pueden reordenar ` +
-            `automáticamente porque hay texto tuyo entre bloques. Mueve ese texto arriba del ` +
-            `primer bloque managed o abajo del último; luego corre 'navori render --apply'.\n` +
-            `  orden actual:   ${orderReport.current.join(", ")}\n` +
-            `  orden canónico: ${orderReport.expected.join(", ")}${spotlight}`,
-        );
-      } else {
-        p.log.warn(
-          `Bloques managed de CLAUDE.md fuera del orden canónico — corre 'navori render --apply' ` +
-            `o 'navori sync' para reordenarlos (el primer bloque marca el centro de gravedad del ` +
-            `harness).\n` +
-            `  orden actual:   ${orderReport.current.join(", ")}\n` +
-            `  orden canónico: ${orderReport.expected.join(", ")}${spotlight}`,
-        );
-      }
+      const current = orderReport.current.join(", ");
+      const expected = orderReport.expected.join(", ");
+      p.log.warn(
+        orderReport.interleaved
+          ? td.orderInterleaved(current, expected, spotlight)
+          : td.orderReorderable(current, expected, spotlight),
+      );
     }
 
     const nextSteps = suggestNextSteps({
@@ -381,7 +344,7 @@ export const doctorCommand = defineCommand({
     });
     p.note(
       nextSteps.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"),
-      "Próximos pasos",
+      td.nextStepsTitle,
     );
 
     const hasIssues =
@@ -393,10 +356,10 @@ export const doctorCommand = defineCommand({
     const strictFail = Boolean(args.strict) && drifts.length > 0;
     p.outro(
       hasIssues
-        ? color.red("Issues found")
+        ? color.red(td.outroIssues)
         : strictFail
-          ? color.yellow("Drift detected (--strict)")
-          : color.green("OK"),
+          ? color.yellow(td.outroDriftStrict)
+          : color.green(td.outroOk),
     );
     // Exit codes for CI gates:
     //   0 = clean (no issues, no drift in --strict)
@@ -571,25 +534,15 @@ export function scanWorkspaceLink(cwd: string, config: NavoriConfig): WorkspaceL
   return { kind: "repo-not-registered", workspace: name };
 }
 
-function formatWorkspaceLinkWarning(issue: WorkspaceLinkIssue): string {
+function formatWorkspaceLinkWarning(issue: WorkspaceLinkIssue, lang = DEFAULT_LANG): string {
+  const td = tc(lang).doctor;
   switch (issue.kind) {
     case "workspace-missing":
-      return (
-        `Workspace '${issue.workspace}' referenciado en config pero no existe en ` +
-        `~/.navori/workspaces/ — el registro de workspaces es local por máquina y no viaja ` +
-        `con el repo. Corre 'navori workspace link' para crearlo y registrar este repo.`
-      );
+      return td.wsLinkMissing(issue.workspace);
     case "repo-not-registered":
-      return (
-        `Este repo no está registrado en el workspace '${issue.workspace}' — corre ` +
-        `'navori workspace link' para registrarlo.`
-      );
+      return td.wsLinkNotRegistered(issue.workspace);
     case "path-mismatch":
-      return (
-        `El repo '${issue.repoName}' está registrado en el workspace '${issue.workspace}' con ` +
-        `otra ruta (${issue.registeredPath}) — probablemente de otra máquina o una ruta vieja. ` +
-        `Corre 'navori workspace link' para actualizarla.`
-      );
+      return td.wsLinkPathMismatch(issue.repoName, issue.workspace, issue.registeredPath);
   }
 }
 

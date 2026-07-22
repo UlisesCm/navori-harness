@@ -91,7 +91,7 @@ describe("resolveSyncTargets", () => {
       const r = resolveSyncTargets("/repo", SINGLE_APP_CONFIG, "backend");
       expect(r.ok).toBe(false);
       if (r.ok) throw new Error("expected error");
-      expect(r.reason).toContain("requires a monorepo");
+      expect(r.reason).toMatch(/requires a monorepo|requiere un monorepo/); // localized by config.language (es)
     });
 
     it("returns ok:false when monorepo has empty workspaces[]", () => {
@@ -102,7 +102,7 @@ describe("resolveSyncTargets", () => {
       const r = resolveSyncTargets("/repo", config, "backend");
       expect(r.ok).toBe(false);
       if (r.ok) throw new Error("expected error");
-      expect(r.reason).toContain("requires a monorepo");
+      expect(r.reason).toMatch(/requires a monorepo|requiere un monorepo/); // localized by config.language (es)
     });
 
     it("preserves the workspace's own qualityGate override in the effective config", () => {

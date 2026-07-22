@@ -932,6 +932,105 @@ describe("CLI e2e — happy paths", () => {
     expect(r.status).toBe(0);
     expect(r.combined).toMatch(/cursor.*adapter|adapter.*cursor/i);
   });
+
+  it("render --json emits valid JSON and suppresses human output (#84)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+
+    const r = runCli(["render", "--json", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    // stdout is a single JSON object — no clack intro/outro prose.
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.command).toBe("render");
+    expect(parsed.ok).toBe(true);
+    expect(parsed.mode).toBe("preview"); // no --apply
+    expect(parsed.pending).toBe(true); // nothing rendered yet → changes pending
+    expect(Array.isArray(parsed.root.entries)).toBe(true);
+    expect(parsed.root.entries.length).toBeGreaterThan(0);
+    expect(parsed.root.entries[0]).toHaveProperty("id");
+    expect(parsed.root.entries[0]).toHaveProperty("status");
+    expect(typeof parsed.summary).toBe("object");
+    // Human decorations must NOT appear in --json output.
+    expect(r.combined).not.toMatch(/Preview|Vista previa/);
+    // Preview mode wrote nothing.
+    expect(existsSync(join(repo, "CLAUDE.md"))).toBe(false);
+  });
+
+  it("render --json --apply reports mode:apply and writes the tree (#84)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+
+    const r = runCli(["render", "--json", "--apply", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.mode).toBe("apply");
+    expect(parsed.root.changed).toBe(true);
+    expect(existsSync(join(repo, "CLAUDE.md"))).toBe(true);
+  });
+
+  it("sync --json emits valid JSON with targets + conflicts and no prompts (#84)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // Drift a managed block so a conflict is reported.
+    const claudeMdPath = join(repo, "CLAUDE.md");
+    const content = readFileSync(claudeMdPath, "utf-8");
+    writeFileSync(claudeMdPath, content.replace("Tech Lead Senior", "MI EDIT"));
+
+    const r = runCli(["sync", "--json", "--cwd", repo]);
+    expect(r.status).toBe(0); // plan-only (no --apply/--yes) never fails
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.command).toBe("sync");
+    expect(Array.isArray(parsed.targets)).toBe(true);
+    expect(parsed.targets[0].label).toBe("root");
+    // The drifted block surfaces as a conflict, with stable machine keys.
+    expect(parsed.conflicts.length).toBeGreaterThan(0);
+    expect(parsed.conflicts.some((c: { path: string }) => c.path.includes("idioma-rol"))).toBe(true);
+    // No human plan output in --json mode.
+    expect(r.combined).not.toContain("Plan [root]");
+  });
+
+  it("sync --json --yes exits 1 on conflicts (CI gate) without prompting (#84)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    const claudeMdPath = join(repo, "CLAUDE.md");
+    const content = readFileSync(claudeMdPath, "utf-8");
+    writeFileSync(claudeMdPath, content.replace("Tech Lead Senior", "MI EDIT"));
+
+    const r = runCli(["sync", "--json", "--yes", "--cwd", repo]);
+    expect(r.status).toBe(1);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.conflicts.length).toBeGreaterThan(0);
+  });
+
+  it("config.language governs CLI output: en renders English prose, es Spanish (#84)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+
+    // Default (es): render preview outro is Spanish.
+    const es = runCli(["render", "--cwd", repo]);
+    expect(es.status).toBe(0);
+    expect(es.combined).toContain("para escribir"); // es previewHint
+
+    // Flip to en → the same command speaks English.
+    expect(runCli(["configure", "language", "en", "--cwd", repo]).status).toBe(0);
+    const en = runCli(["render", "--cwd", repo]);
+    expect(en.status).toBe(0);
+    expect(en.combined).toContain("to write"); // en previewHint
+    expect(en.combined).not.toContain("para escribir");
+
+    // doctor also honors the locale (outcome + next-steps heading).
+    const doc = runCli(["doctor", "--cwd", repo]);
+    expect(doc.combined).toContain("Next steps");
+  });
 });
 
 describe("CLI e2e — coexist mode", () => {
