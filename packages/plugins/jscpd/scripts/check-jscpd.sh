@@ -3,16 +3,15 @@
 # `{{branchBase}}`. Skips silently if jscpd or git are absent — the tool is
 # optional, not a hard dependency of the project.
 #
-# Triggered as a PreToolUse(Bash) hook (gated to git commit/push) and as a
-# Stop hook (runs unconditionally at session close).
+# Triggered as a PreToolUse(Bash) hook, gated to git commit/push — so the
+# duplication check runs right before code lands, not on every turn.
 
 set -euo pipefail
 
-# PreToolUse(Bash) passes the command — gate to commit/push. The Stop hook
-# passes no command — run unconditionally at session close. Extract without
+# PreToolUse(Bash) passes the command — gate to commit/push. Extract without
 # hard-depending on jq (not preinstalled on macOS): try jq, then node (Claude
 # Code's own runtime), then a best-effort sed unwrap. No command extracted →
-# empty $cmd → runs unconditionally.
+# empty $cmd → runs unconditionally (defensive: never silently skip a commit).
 payload=$(cat)
 extract_cmd() {
   if command -v jq >/dev/null 2>&1; then
@@ -69,7 +68,7 @@ jscpd \
   --min-tokens 100 \
   --min-lines 10 \
   --mode strict \
-  --threshold 3 \
+  --threshold {{jscpdThreshold}} \
   --reporters console \
   --output "$tmpdir" \
   "${files[@]}"

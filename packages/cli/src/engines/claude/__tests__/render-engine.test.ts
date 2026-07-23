@@ -233,12 +233,29 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     // {{branchBase}} → "main" interpolated
     expect(script).toContain("git rev-parse --verify main");
     expect(script).not.toContain("{{branchBase}}");
+    // {{jscpdThreshold}} → 5 for a non-frontend preset ("custom")
+    expect(script).toContain("--threshold 5");
+    expect(script).not.toContain("{{jscpdThreshold}}");
 
     const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
+    // The gate runs only before commit/push (PreToolUse) — never on Stop.
+    expect(JSON.stringify(settings.hooks?.Stop ?? [])).not.toContain("check-jscpd.sh");
     const pre = settings.hooks.PreToolUse;
     const jscpdHook = pre.flatMap((entry: { hooks: Array<{ command: string }> }) => entry.hooks)
       .find((h: { command: string }) => h.command.includes("check-jscpd.sh"));
     expect(jscpdHook?.command).toContain(".claude/scripts/check-jscpd.sh");
+  });
+
+  it("uses a 10% jscpd threshold for frontend presets", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      preset: "vite-react-ts-mantine",
+      plugins: { jscpd: { enabled: true } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+
+    const script = readFileSync(join(cwd, ".claude/scripts/check-jscpd.sh"), "utf-8");
+    expect(script).toContain("--threshold 10");
   });
 
   it("renders both jscpd and semgrep scripts when both plugins enabled", () => {
