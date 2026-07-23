@@ -8,6 +8,7 @@ import {
   scanManagedDrift,
   scanManagedOrder,
   scanMalformedMarkers,
+  scanExcludedBlocks,
   listMarkers,
   type DriftReport,
 } from "../health.ts";
@@ -294,5 +295,43 @@ describe("scanMalformedMarkers (#71 item 11)", () => {
     const doc = injectManagedSection("", "idioma-rol", "x").output;
     writeFileSync(join(cwd, "CLAUDE.md"), doc);
     expect(scanMalformedMarkers(cwd)).toHaveLength(0);
+  });
+});
+
+describe("scanExcludedBlocks (feature: blocks.exclude)", () => {
+  const base = { name: "demo", engines: ["claude"], preset: "custom" };
+
+  it("returns null when nothing is excluded", () => {
+    expect(scanExcludedBlocks(NavoriConfigSchema.parse(base))).toBeNull();
+    expect(scanExcludedBlocks(NavoriConfigSchema.parse({ ...base, blocks: { exclude: [] } }))).toBeNull();
+  });
+
+  it("reports known excluded core blocks (always visible — no silent drift)", () => {
+    const report = scanExcludedBlocks(
+      NavoriConfigSchema.parse({ ...base, blocks: { exclude: ["orquestacion", "sdd"] } }),
+    );
+    expect(report).toEqual({ excluded: ["orquestacion", "sdd"], security: [], unknown: [] });
+  });
+
+  it("separates unknown ids (typos) from known ones so doctor can warn", () => {
+    const report = scanExcludedBlocks(
+      NavoriConfigSchema.parse({ ...base, blocks: { exclude: ["orquestacion", "orquestracion"] } }),
+    );
+    expect(report?.excluded).toEqual(["orquestacion"]);
+    expect(report?.unknown).toEqual(["orquestracion"]);
+  });
+
+  // FIX E: a security-block exclusion is NOT a cosmetic exclusion — it must land
+  // in `security` (doctor warns) not `excluded` (neutral note).
+  it("routes a security-block exclusion to `security`, not `excluded`", () => {
+    const report = scanExcludedBlocks(
+      NavoriConfigSchema.parse({
+        ...base,
+        blocks: { exclude: ["orquestacion", "operaciones-seguras"] },
+      }),
+    );
+    expect(report?.excluded).toEqual(["orquestacion"]);
+    expect(report?.security).toEqual(["operaciones-seguras"]);
+    expect(report?.unknown).toEqual([]);
   });
 });
