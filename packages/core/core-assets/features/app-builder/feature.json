@@ -1,0 +1,138 @@
+{
+  "$schema": "https://navori.dev/schema/navori.feature.v1.json",
+  "id": "app-builder",
+  "displayName": "App builder (React Native, idea a stores)",
+  "description": "Trigger: build a mobile app, React Native app, app from scratch, new app from zero, crear una app, app desde cero, app builder. Usar cuando se construye una app movil de punta a punta, de la idea a las stores. Feature multi-fase que lleva de la definicion de producto a una app publicada en stores, con un quality gate por fase.",
+  "type": "feature",
+  "kind": "bootstrap",
+  "phases": [
+    {
+      "n": 0,
+      "slug": "product",
+      "objetivo": "Documento de definicion de producto aprobado, con nombre definitivo y marca.",
+      "skills": ["cognitive-doc-design"],
+      "gate": "El usuario aprueba el documento de forma explicita, nombre definitivo incluido.",
+      "artifacts": [
+        "docs/product-definition.md",
+        "config: name definitivo (navori configure name <definitivo>)",
+        "engram: app/{app}/phase-0"
+      ],
+      "model": "fable",
+      "effort": "high"
+    },
+    {
+      "n": 1,
+      "slug": "scaffold",
+      "objetivo": "Monorepo con la app Expo/RN booteando en device y el kit de primitivos instalado.",
+      "skills": ["expo-runtime", "turbo-workspaces", "typescript", "ponytail"],
+      "gate": "La app bootea en device Y los primitivos viven en components/ui/* consumiendo tokens (cero dimensiones inline).",
+      "artifacts": [
+        "apps/mobile scaffold",
+        "components/ui/* (primitivos)",
+        "lib/theme.ts (tokens Capa 1)",
+        "engram: app/{app}/phase-1"
+      ],
+      "model": "haiku",
+      "effort": "low"
+    },
+    {
+      "n": 2,
+      "slug": "data",
+      "objetivo": "Schema, migraciones y seed idempotente de la capa de datos.",
+      "skills": ["expo-runtime", "zod-validation", "typescript", "ponytail"],
+      "gate": "Typecheck limpio Y el seed carga sin duplicar.",
+      "artifacts": ["db/schema", "db/migrations", "db/seed", "engram: app/{app}/phase-2"],
+      "model": "sonnet",
+      "effort": "medium"
+    },
+    {
+      "n": 3,
+      "slug": "domain",
+      "objetivo": "Motor de dominio: logica pura mas wiring de persistencia, con tests unitarios.",
+      "skills": ["typescript", "ponytail", "verify-before-done"],
+      "gate": "Tests pasan Y typecheck limpio.",
+      "artifacts": ["packages/* (dominio puro)", "features/<domain>/engine", "engram: app/{app}/phase-3"],
+      "model": "sonnet",
+      "effort": "medium"
+    },
+    {
+      "n": 4,
+      "slug": "ui-nav",
+      "objetivo": "Navegacion, pantallas core, onboarding, superficie de auth completa y caracter estructural en gris.",
+      "skills": ["expo-runtime", "rn-performance", "app-ia", "ui:impeccable", "ui:bolder", "react-19", "typescript", "ponytail"],
+      "gate": "El usuario recorre todos los flujos (funcionan), las pantallas tienen personalidad estructural en gris Y `rg -n \"Pressable|TextInput\" app/ --glob '!components/ui/*'` devuelve cero.",
+      "artifacts": ["app/* (rutas)", "components/ui/* extendido", "engram: app/{app}/phase-4"],
+      "model": "sonnet",
+      "effort": "high"
+    },
+    {
+      "n": 5,
+      "slug": "identity",
+      "objetivo": "Identidad visual: valores de color, tipografia caracteristica y elemento de firma (Capa 2 de tokens).",
+      "skills": ["frontend-design", "ui:typeset", "ui:colorize", "tailwind-4"],
+      "gate": "El usuario confirma que se siente distintiva en device Y el diff toca solo lib/theme.ts y components/ui/*.",
+      "artifacts": ["lib/theme.ts (tokens Capa 2)", "components/ui/*", "engram: app/{app}/phase-5"],
+      "model": "fable",
+      "effort": "high"
+    },
+    {
+      "n": 6,
+      "slug": "polish",
+      "objetivo": "Pulido creativo: microinteracciones, movimiento y haptica.",
+      "skills": ["rn-performance", "verify-before-done", "ui:motion", "not-boring-mobile"],
+      "gate": "Verificado en device real.",
+      "artifacts": ["lib/haptics.ts", "animaciones", "engram: app/{app}/phase-6"],
+      "model": "fable",
+      "effort": "medium"
+    },
+    {
+      "n": 7,
+      "slug": "brand",
+      "objetivo": "Concepto de logo elegido por el usuario y assets de marca derivados (icono, adaptive, splash, boot loader).",
+      "skills": ["frontend-design"],
+      "gate": "El usuario elige un concepto; assets en su lugar y splash/icon verificados en un dev build real.",
+      "artifacts": ["assets/ (icono, adaptive, splash, favicon)", "boot loader", "engram: app/{app}/phase-7"],
+      "model": "fable",
+      "effort": "medium"
+    },
+    {
+      "n": 8,
+      "slug": "web",
+      "objetivo": "Paginas publicas / web app segun la jerarquia de tres tiers; privacy y support obligatorias.",
+      "skills": ["astro-islands", "review-diff", "app-ia", "dashboard-ia", "react-19", "tailwind-4", "frontend-design"],
+      "gate": "URLs publicas (privacy + support) live y validas para App Store Connect (HTTP 200 sin auth).",
+      "artifacts": ["apps/web | rutas publicas del dashboard | apps/site", "engram: app/{app}/phase-8"],
+      "model": "sonnet",
+      "effort": "high"
+    },
+    {
+      "n": 9,
+      "slug": "docs",
+      "objetivo": "Documentacion de entrega anclada al repo: README.md y DEPLOYMENT.md.",
+      "skills": ["ship-docs", "cognitive-doc-design", "verify-before-done"],
+      "gate": "README bootea un clone limpio Y DEPLOYMENT.md es un runbook completo y verificable.",
+      "artifacts": ["README.md", "DEPLOYMENT.md", "engram: app/{app}/phase-9"],
+      "model": "sonnet",
+      "effort": "medium"
+    },
+    {
+      "n": 10,
+      "slug": "store",
+      "objetivo": "Submission a stores como codigo (metadata, screenshots, eas build + submit).",
+      "skills": ["store-ship"],
+      "gate": "`eas submit` OK en ambas stores Y el checklist manual entregado.",
+      "artifacts": ["store/ (metadata)", "eas.json", "flujos Maestro", "engram: app/{app}/phase-10"],
+      "model": "sonnet",
+      "effort": "medium"
+    }
+  ],
+  "invariants": [
+    "No escribas codigo antes de aprobar la fase 0",
+    "Un solo monorepo, nunca varios repos",
+    "0-product",
+    "1-scaffold",
+    "4-ui-nav",
+    "8-web",
+    "10-store"
+  ]
+}
