@@ -4,6 +4,7 @@ import {
   buildRecommendedProject,
   buildFullPlugins,
   buildFullProject,
+  RECOMMENDED_MODELS,
 } from "../recommended.ts";
 import { KNOWN_PLUGINS } from "../plugins.ts";
 import type { DetectedProject } from "../detect.ts";
@@ -202,5 +203,27 @@ describe("buildFullProject", () => {
     const result = buildFullProject(makeDetected({ stack: { ...makeDetected().stack, test: null } }));
     expect("testRunner" in result).toBe(false);
     expect(result.posture).toBe("production");
+  });
+});
+
+describe("RECOMMENDED_MODELS", () => {
+  it("keeps judgement roles on opus and drops mechanical roles to cheaper tiers", () => {
+    // Orchestration/review keep the top tier; code/synthesis → sonnet; read-only → haiku.
+    expect(RECOMMENDED_MODELS.leader).toBe("opus");
+    expect(RECOMMENDED_MODELS.implementer).toBe("sonnet");
+    expect(RECOMMENDED_MODELS.reviewer).toBe("sonnet");
+    expect(RECOMMENDED_MODELS.explorer).toBe("haiku");
+    expect(RECOMMENDED_MODELS.commitPrPilot).toBe("haiku");
+  });
+
+  it("covers every configurable agent role (no agent silently inherits the session model)", () => {
+    expect(Object.keys(RECOMMENDED_MODELS).sort()).toEqual(
+      ["auditor", "commitPrPilot", "explorer", "implementer", "leader", "researcher", "reviewer", "ticketAudit"].sort(),
+    );
+  });
+
+  it("only uses valid model aliases", () => {
+    const valid = new Set(["opus", "sonnet", "haiku"]);
+    for (const m of Object.values(RECOMMENDED_MODELS)) expect(valid.has(m)).toBe(true);
   });
 });

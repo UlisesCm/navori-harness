@@ -71,6 +71,15 @@ describe("CLI e2e — happy paths", () => {
     expect(config.engines).toEqual(["claude"]);
     expect(config.language).toBe("es");
     expect(config.plugins?.engram?.enabled).toBe(true);
+    // Cost-aware model profile is seeded in --recommended (juicio→opus, código→sonnet,
+    // lectura mecánica→haiku) so subagents don't inherit Opus for mechanical work.
+    expect(config.models?.implementer).toBe("sonnet");
+    expect(config.models?.reviewer).toBe("sonnet");
+    expect(config.models?.explorer).toBe("haiku");
+    expect(config.models?.commitPrPilot).toBe("haiku");
+    // ...and the frontmatter interpolates it into the agent files.
+    expect(readFileSync(join(repo, ".claude/agents/implementer.md"), "utf-8")).toContain("model: sonnet");
+    expect(readFileSync(join(repo, ".claude/agents/explorer.md"), "utf-8")).toContain("model: haiku");
 
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
     expect(claudeMd).toContain("navori:managed id=\"idioma-rol\"");
@@ -95,6 +104,9 @@ describe("CLI e2e — happy paths", () => {
 
     const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
     expect(config.plugins?.engram?.enabled).toBe(true);
+    // Plain --yes stays minimal: no model profile, so every agent inherits the
+    // session model (the profile is an opinionated-mode default, not universal).
+    expect(config.models).toBeUndefined();
     expect(readFileSync(join(repo, "CLAUDE.md"), "utf-8")).toContain(
       "navori:managed id=\"engram-protocol\"",
     );
