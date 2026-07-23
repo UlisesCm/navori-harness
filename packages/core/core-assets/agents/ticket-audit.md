@@ -3,6 +3,7 @@ name: ticket-audit
 description: Análisis profundo de un ticket complejo antes de implementar. Produce audit_<ID>.md con causa raíz, áreas afectadas y plan de descomposición.
 tools: Read, Glob, Grep, Bash
 model: {{models.ticketAudit}}
+effort: {{effort.ticketAudit}}
 ---
 
 # Agente Ticket Audit

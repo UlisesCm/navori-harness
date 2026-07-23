@@ -44,6 +44,16 @@ export function buildClaudeSettings(
   });
   let settings = JSON.parse(baseInterp) as Record<string, unknown>;
 
+  // The leader role is embodied by the main agent (not spawned as a subagent), so
+  // its effort tier can't take effect via agent frontmatter — it drives the
+  // session-wide default through settings.json `effortLevel`. Each subagent then
+  // overrides it with its own frontmatter `effort`. `max` is valid per-agent but
+  // NOT accepted in settings.json, so it's skipped here (session default stands).
+  const leaderEffort = config.effort?.leader;
+  if (leaderEffort && leaderEffort !== "max") {
+    settings = deepMerge(settings, { effortLevel: leaderEffort });
+  }
+
   // Defensive guard hook — always registered (unlike the quality gate, it has
   // no config dependency). Exit 2 here precedes permission rules, so it's the
   // hard backstop for destructive patterns static deny globs can't catch.

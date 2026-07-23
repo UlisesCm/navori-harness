@@ -4,6 +4,8 @@ import {
   buildRecommendedProject,
   buildFullPlugins,
   buildFullProject,
+  RECOMMENDED_MODELS,
+  RECOMMENDED_EFFORT,
 } from "../recommended.ts";
 import { KNOWN_PLUGINS } from "../plugins.ts";
 import type { DetectedProject } from "../detect.ts";
@@ -202,5 +204,45 @@ describe("buildFullProject", () => {
     const result = buildFullProject(makeDetected({ stack: { ...makeDetected().stack, test: null } }));
     expect("testRunner" in result).toBe(false);
     expect(result.posture).toBe("production");
+  });
+});
+
+describe("RECOMMENDED_MODELS", () => {
+  it("keeps judgement roles on opus and drops mechanical roles to cheaper tiers", () => {
+    // Orchestration/review keep the top tier; code/synthesis → sonnet; read-only → haiku.
+    expect(RECOMMENDED_MODELS.leader).toBe("opus");
+    expect(RECOMMENDED_MODELS.implementer).toBe("sonnet");
+    expect(RECOMMENDED_MODELS.reviewer).toBe("sonnet");
+    expect(RECOMMENDED_MODELS.explorer).toBe("haiku");
+    expect(RECOMMENDED_MODELS.commitPrPilot).toBe("haiku");
+  });
+
+  it("covers every configurable agent role (no agent silently inherits the session model)", () => {
+    expect(Object.keys(RECOMMENDED_MODELS).sort()).toEqual(
+      ["auditor", "commitPrPilot", "explorer", "implementer", "leader", "researcher", "reviewer", "ticketAudit"].sort(),
+    );
+  });
+
+  it("only uses valid model aliases", () => {
+    const valid = new Set(["opus", "sonnet", "haiku"]);
+    for (const m of Object.values(RECOMMENDED_MODELS)) expect(valid.has(m)).toBe(true);
+  });
+});
+
+describe("RECOMMENDED_EFFORT", () => {
+  it("keeps the orchestrator at xhigh and drops mechanical agents to low", () => {
+    expect(RECOMMENDED_EFFORT.leader).toBe("xhigh");
+    expect(RECOMMENDED_EFFORT.implementer).toBe("medium");
+    expect(RECOMMENDED_EFFORT.explorer).toBe("low");
+    expect(RECOMMENDED_EFFORT.commitPrPilot).toBe("low");
+  });
+
+  it("covers the same agent roles as the model profile", () => {
+    expect(Object.keys(RECOMMENDED_EFFORT).sort()).toEqual(Object.keys(RECOMMENDED_MODELS).sort());
+  });
+
+  it("only uses valid effort levels", () => {
+    const valid = new Set(["low", "medium", "high", "xhigh", "max"]);
+    for (const e of Object.values(RECOMMENDED_EFFORT)) expect(valid.has(e)).toBe(true);
   });
 });

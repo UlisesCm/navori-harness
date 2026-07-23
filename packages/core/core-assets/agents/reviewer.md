@@ -3,6 +3,7 @@ name: reviewer
 description: Revisor estricto. Aprueba o rechaza el trabajo del implementador contra CLAUDE.md. No edita código.
 tools: Read, Glob, Grep, Bash
 model: {{models.reviewer}}
+effort: {{effort.reviewer}}
 ---
 
 # Agente Revisor

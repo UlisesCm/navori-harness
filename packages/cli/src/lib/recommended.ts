@@ -57,6 +57,49 @@ export function buildRecommendedProject(
 }
 
 /**
+ * Cost-aware per-agent model profile for `init --recommended` / `--full` and the
+ * wizard. Without it every subagent inherits the session model (typically Opus),
+ * so mechanical work — implementing a planned change, mapping a directory, drafting
+ * a commit — runs on the priciest tier. This assigns models by the nature of the
+ * work: judgement-heavy roles stay on `opus`, code/synthesis roles drop to `sonnet`
+ * (~40% cheaper per token, near-Opus on coding), and read-only/mechanical roles drop
+ * to `haiku` (~80% cheaper). It's written explicitly into navori.config.json so it's
+ * visible and overridable per repo, not a hidden default. Roughly a third of a
+ * subagent-heavy workload's token cost, reclaimed with no loss of quality where it
+ * matters (the orchestrator and reviewer keep their tier).
+ */
+export const RECOMMENDED_MODELS = {
+  leader: "opus",
+  implementer: "sonnet",
+  reviewer: "sonnet",
+  researcher: "sonnet",
+  ticketAudit: "sonnet",
+  auditor: "sonnet",
+  explorer: "haiku",
+  commitPrPilot: "haiku",
+} as const;
+
+/**
+ * Reasoning-effort profile, aligned with RECOMMENDED_MODELS by tier. Claude Code
+ * defaults every agent to the session effort (`xhigh`), so without this each
+ * subagent over-deliberates on mechanical work. Judgement roles (the orchestrator)
+ * keep `xhigh`; code/synthesis roles drop to `medium` (the quality/cost sweet spot);
+ * read-only/mechanical roles drop to `low` (fewest, most-consolidated tool calls,
+ * terse output). `leader`'s value also drives `settings.json`'s `effortLevel` so the
+ * main-loop orchestrator actually runs at that tier — see buildClaudeSettings.
+ */
+export const RECOMMENDED_EFFORT = {
+  leader: "xhigh",
+  implementer: "medium",
+  reviewer: "medium",
+  researcher: "medium",
+  ticketAudit: "medium",
+  auditor: "medium",
+  explorer: "low",
+  commitPrPilot: "low",
+} as const;
+
+/**
  * Enable every known plugin for `init --full`. Unlike `--recommended` (which is
  * conservative and only adds `gh` when there's a GitHub remote), full mode turns
  * on all plugins in navori.config.json — including the ones that need an external

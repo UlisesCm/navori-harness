@@ -26,6 +26,8 @@ import {
   buildRecommendedProject,
   buildFullPlugins,
   buildFullProject,
+  RECOMMENDED_MODELS,
+  RECOMMENDED_EFFORT,
 } from "../lib/recommended.ts";
 import { scanMissingExternalTools } from "./doctor.ts";
 
@@ -268,6 +270,10 @@ export const initCommand = defineCommand({
         ...(defaultPrTarget ? { prTarget: defaultPrTarget } : {}),
         ...(defaultCommits ? { commits: defaultCommits } : {}),
         ...(fallbackQg ? { qualityGate: fallbackQg } : {}),
+        // Seed the cost-aware model + effort profile in the opinionated modes only;
+        // plain `--yes` stays minimal and lets every agent inherit the session
+        // model and effort.
+        ...(isRecommended || isFull ? { models: RECOMMENDED_MODELS, effort: RECOMMENDED_EFFORT } : {}),
         ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
         project: projectBlock,
         ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),
@@ -638,6 +644,11 @@ export const initCommand = defineCommand({
       ...(defaultPrTarget ? { prTarget: defaultPrTarget } : {}),
       ...(defaultCommits ? { commits: defaultCommits } : {}),
       ...(qualityGate ? { qualityGate } : {}),
+      // Cost-aware model + effort profile as sensible defaults (the wizard has no
+      // model/effort question); the user can override any assignment in
+      // navori.config.json.
+      models: RECOMMENDED_MODELS,
+      effort: RECOMMENDED_EFFORT,
       ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
       ...(Object.keys(agentAssignments).length > 0 ? { agentAssignments } : {}),
       // Always write `project` so the schema fills empty arrays and render emits

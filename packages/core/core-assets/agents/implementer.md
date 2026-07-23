@@ -3,6 +3,7 @@ name: implementer
 description: Trabajador. Implementa UNA tarea acotada, respeta convenciones de CLAUDE.md y deja el quality gate verde antes de devolver.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: {{models.implementer}}
+effort: {{effort.implementer}}
 ---
 
 # Agente Implementador

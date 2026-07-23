@@ -3,6 +3,7 @@ name: explorer
 description: Mapa amplio de un área o módulo del repo. Devuelve estructura, dependencias y entry points. No modifica código.
 tools: Read, Glob, Grep, Bash
 model: {{models.explorer}}
+effort: {{effort.explorer}}
 ---
 
 # Agente Explorador

@@ -3,6 +3,7 @@ name: commit-pr-pilot
 description: Redacta commit messages y abre PRs con título + body siguiendo el formato del repo. Corre pre-flight contra git/gh antes de tocar la red.
 tools: Read, Glob, Grep, Bash
 model: {{models.commitPrPilot}}
+effort: {{effort.commitPrPilot}}
 ---
 
 # Agente Commit & PR Pilot

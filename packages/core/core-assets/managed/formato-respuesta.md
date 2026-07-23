@@ -1,3 +1,10 @@
+## Concisión (aplica a todo: chat y subagentes)
+
+- Lidera con el resultado: la primera línea responde "qué pasó / qué encontré", no el preámbulo.
+- Cero relleno: no narres acciones de rutina ("ahora voy a…", "déjame ver…", "perfecto, entonces…") ni cierres de cortesía.
+- Recorta la prosa, no la sustancia. Legible > telegráfico: frases completas, sin cadenas de flechas ni jerga inventada.
+- Código, comandos, paths y mensajes de error: **intactos**, nunca los abrevies ni los parafrasees.
+
 ## Formato de respuesta
 
 **Bug fix** (sin intro ni cierre):
