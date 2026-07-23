@@ -58,3 +58,19 @@ tarea compleja (cap ya documentado en `orquestacion.md`) indica que el tier del
 `implementer` — o el del rol que está fallando — es insuficiente para esa
 complejidad, no que falte reintentar. Sube ese agente un tier antes de reintentar en
 loop.
+
+## Tiering dentro de una ronda de fixes
+
+Cuando una revisión (ej. fan-out 4R) produce N hallazgos, no mandes toda la ronda al
+mismo tier alto: clasifica cada fix por lo que exige, no por la ronda a la que
+pertenece.
+
+| Tipo de fix | Ejemplos | Tier |
+|---|---|---|
+| Mecánico | Tablas de strings, ediciones de JSON, notas de una línea, renombres | Bajo/medio |
+| Juicio | Decisiones de diseño, regex de seguridad, semántica de remoción | Alto |
+
+Medido en sesiones reales: misma ronda, mitad del costo, sin pérdida de calidad donde
+no hay juicio en juego. Es el mismo criterio de "Principio" arriba, aplicado por fix
+en vez de por agente — dentro de una sola ronda coexisten sub-tareas de distinto
+tier.

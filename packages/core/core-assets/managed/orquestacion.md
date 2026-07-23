@@ -43,6 +43,14 @@ Regla: sub-tareas **independientes** (no comparten estado ni una depende del out
 
 **Fan-out → síntesis:** para una pregunta amplia, descompónla en sub-preguntas y lanza un investigador por cada una en paralelo. Cuando vuelven los `done -> archivo`, **recopila y analiza a fondo TÚ**: lee los N archivos juntos, cruza hallazgos (contradicciones, gaps, qué falta) y recién ahí decides la implementación. La síntesis no se delega.
 
+### Rondas de fixes y verificación económica
+
+Aplica cuando una ronda agrupa varios fixes (ej. hallazgos de un review 4R):
+
+- **Scopes disjuntos → paralelo.** Reparte los N fixes por archivos que no se cruzan y ábrelos en el mismo turno (ver Paralelismo arriba). Consolida en un solo agente solo cuando los archivos realmente se pisan.
+- **Verificación scoped por fix, completa una sola vez.** Cada fix corre los tests del área que toca (filtro por path del runner). La suite completa corre al cierre de la ronda, no después de cada fix — corridas completas intermedias queman tiempo y contexto sin subir confianza.
+- **Tier por sub-tarea, no por ronda.** Mecánico (tablas de strings, ediciones JSON, notas de una línea) → tier bajo; juicio (diseño, regex de seguridad, semántica de remoción) → tier alto. Ver `docs/recipes/model-tiering.md`.
+
 ### Ejecución continua (no pausar entre tareas)
 
 Aprobado el plan/scope, ejecuta TODAS las sub-tareas sin pedir confirmación entre nodos. No hagas "hice la 1, ¿sigo con la 2?" — ejecuta el plan. Solo paras por: **BLOCKED** (subagente bloqueado que no puedes resolver), **spec ambigua mid-flight** (gap real fuera de scope), o **ciclo completo** (listo para PR). Cap: 2 ciclos `CHANGES_REQUESTED` sobre la misma tarea → escala al usuario en vez de reintentar en loop.

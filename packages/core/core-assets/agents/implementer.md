@@ -48,6 +48,8 @@ Ejecutas **una sola** tarea desde inicio hasta verificación. No orquestas, no l
 - **JSDoc** obligatorio en exports públicos y funciones >15 líneas o con lógica condicional densa.
 - **Trazabilidad SDD** (solo si la feature tiene `{{sdd.specsDir}}/<feature>/tasks.md`, ver bloque SDD en `CLAUDE.md`): cada `R<n>` de tu lote queda cubierto por ≥1 test, y cada test referencia sus requisitos con un comentario `// Covers: R<n>` arriba del caso. Sin trazabilidad completa el `reviewer` rechaza.
 - Si una herramienta falla raro (ej. tsc rompe sin diff aparente), **no improvises workaround**: anota `Estado: BLOCKED` + el motivo en `.claude/progress/impl_<feature>.md` y paras.
+- **Mientras iteras, corre solo los tests del área que tocas** (filtro por path del runner). El gate completo del paso 4 corre al final, no en cada iteración.
+- **Usa reporters silenciosos en corridas intermedias.** El output verboso infla tu contexto; verbose solo para diagnosticar un fallo concreto.
 
 ## Evidence-based completion (gate antes del informe)
 
