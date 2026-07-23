@@ -189,6 +189,23 @@ Reglas:
 - `kind` no agrega schema nuevo en el config del repo — es metadata del
   manifiesto de la feature, el CLI la lee de `feature.json`.
 
+**Nombre del proyecto: título de trabajo, no compromiso.** En una feature de
+bootstrap, el nombre real de la app es un *resultado* de la fase de producto,
+no un input del init — no se conoce al crear la carpeta. El diseño lo absorbe
+porque el orden temporal ya protege el flujo: lo que el init escribe (`name`
+en config, basename de la carpeta) es metadata barata y reversible; lo que
+fija el nombre de verdad (bundle id, displayName, package names, metadata de
+stores) vive en fases ≥1, que corren cuando el nombre ya existe. Tres reglas
+lo hacen explícito:
+
+- `init --feature` acepta cualquier nombre provisional y lo persiste como
+  `name` normal — sin flag especial ni estado "pendiente".
+- El **nombre definitivo es un artifact declarado de la fase de producto** y
+  parte de su gate: no se avanza al scaffold sin nombre aprobado.
+- Al cerrar esa fase, la feature ejecuta `navori configure name <definitivo>`
+  como paso mecánico. Renombrar la carpeta queda opcional y manual — es
+  cosmético; nada del harness depende del basename después del init.
+
 ---
 
 ## 4. Render + sync
@@ -313,8 +330,8 @@ Manifiesto (recortado):
   "kind": "bootstrap",
   "phases": [
     { "n": 0, "slug": "product",  "objetivo": "Documento de definición de producto",
-      "skills": ["cognitive-doc-design"], "gate": "usuario aprueba el documento",
-      "artifacts": ["docs/product-definition.md"], "model": "fable" },
+      "skills": ["cognitive-doc-design"], "gate": "usuario aprueba el documento, nombre definitivo incluido",
+      "artifacts": ["docs/product-definition.md", "config: name definitivo (navori configure name)"], "model": "fable" },
     { "n": 1, "slug": "scaffold", "objetivo": "Monorepo + app booteando",
       "skills": ["typescript"], "gate": "app bootea en device", "model": "haiku" },
     { "n": 4, "slug": "ui-nav",   "objetivo": "Navegación + pantallas core + auth",
