@@ -74,6 +74,12 @@ Cada entrada de `phases[]` declara:
 - **`artifacts`** — qué deja escrito (archivos + topic keys de Engram).
 - **`model` / `effort`** (opcional) — tier sugerido al delegar esa fase.
 
+Además de `phases[]`, el manifiesto declara **`kind`**: `bootstrap | in-repo`
+(default `in-repo`). Una feature `in-repo` opera sobre un proyecto existente. Una
+feature `bootstrap` **crea el proyecto** — su output es el repo mismo (app-builder:
+la fase de scaffold es parte de la feature, no un prerequisito). La distinción
+importa porque cambia el camino de activación (ver §3.2).
+
 ### 2.1 Dónde aterriza en el harness generado
 
 **Decisión: la feature se renderiza dentro del namespace de skills**, no en un
@@ -132,6 +138,7 @@ del preset por default.
 | Vía | Estado | Cuándo |
 |-----|--------|--------|
 | `features[]` en `navori.config.json` + `navori add feature <id>` | **primaria (v0.3)** | el repo opta explícitamente por la feature |
+| `navori init --feature <id>` (solo `kind: bootstrap`) | **primaria (v0.3)** | proyecto nuevo desde carpeta vacía (ver §3.2) |
 | `extras.features` en un preset | follow-up | un preset que *siempre* quiere una feature (raro) |
 | `navori init` sugiere features según stack | follow-up | UX de descubrimiento |
 
@@ -155,6 +162,32 @@ Y el eje opcional en el manifiesto de preset (`extras`), simétrico a
 
 Un record `{ enabled, config }` estilo plugins queda como follow-up si aparece
 el caso de parametrizar una feature (ej. saltarse fases opcionales). Hoy no existe.
+
+### 3.2 Features de bootstrap: `navori init --feature <id>`
+
+El modelo "primero el proyecto, después la feature" tiene un huevo-y-gallina con
+las features `kind: bootstrap`: app-builder existe para crear la app, pero
+`navori add feature` exige un `navori.config.json` que todavía no existe. Sin un
+camino bendecido, el usuario paga dos pasos de ceremonia (`init` + `add feature`)
+antes de poder hacer la primera pregunta de producto.
+
+**Decisión: `navori init --feature <id>` es el camino de primera clase para
+features de bootstrap.** En una carpeta vacía, un solo comando: corre el init
+normal (baseline + preset `custom` si no hay stack que detectar — no hay código
+aún), agrega la feature a `features[]` y renderiza. El usuario abre Claude Code
+y la fase 0 (producto) arranca antes de que exista una línea de código, que es
+exactamente el orden correcto. El scaffold del stack es una fase de la propia
+feature; cuando esa fase corre, `navori update` re-detecta el stack real y
+ajusta el preset.
+
+Reglas:
+
+- `init --feature` con una feature `in-repo` → error claro (esa feature espera
+  un proyecto; usa `navori add feature`).
+- `add feature` con una feature `bootstrap` en un repo ya inicializado → válido
+  con warning: las fases de scaffold reportan "ya existe" y se saltan por gate.
+- `kind` no agrega schema nuevo en el config del repo — es metadata del
+  manifiesto de la feature, el CLI la lee de `feature.json`.
 
 ---
 
@@ -277,6 +310,7 @@ Manifiesto (recortado):
   "displayName": "App builder (React Native, idea → stores)",
   "description": "Trigger: build a mobile app, app from scratch, crear una app. Phased end-to-end app creation, product definition through store-ready.",
   "type": "feature",
+  "kind": "bootstrap",
   "phases": [
     { "n": 0, "slug": "product",  "objetivo": "Documento de definición de producto",
       "skills": ["cognitive-doc-design"], "gate": "usuario aprueba el documento",
