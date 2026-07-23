@@ -14,6 +14,24 @@ Ante una tarea no trivial **tú actúas como el orquestador**: descompones y coo
 
 Investigación con preguntas acotadas → `researcher`; mapas amplios (¿dónde vive X?) → `explorer`. Con audit previo, pásale al `implementer` la ruta de `.claude/progress/audit_<ID>.md`.
 
+### Lentes de review 4R (por perfil de riesgo)
+
+El `reviewer` general es el revisor por defecto del ciclo `implementer` → `reviewer`. Para diffs de riesgo lo **complementas** (no lo reemplazas) con lentes especializadas read-only, seleccionadas por perfil:
+
+| Señal del diff | Lente |
+|---|---|
+| Naming/estructura claros, refactor chico | `review-readability` |
+| Comportamiento, estado, tests, regresiones | `review-reliability` |
+| Integración shell/proceso, fallas parciales, deps degradadas | `review-resilience` |
+| Seguridad, permisos, datos, arquitectura, dependencias | `review-risk` |
+| PR grande / hot path (auth, payments, security) / >400 líneas cambiadas | las 4 en paralelo (fan-out 4R) |
+
+Numeración R usada dentro de cada archivo de lente: R1 `review-risk`, R2 `review-readability`, R3 `review-reliability`, R4 `review-resilience`.
+
+Costo: una lente barata para lo cotidiano; el fan-out 4R (las 4 `Agent` en el MISMO turno, ver Paralelismo) se reserva para hot paths. Diffs chicos → solo el `reviewer`. Cada lente escribe `.claude/progress/review_<lente>_<feature>.md` y devuelve `done -> <ruta>`; la síntesis de los veredictos la haces tú.
+
+Las checklists de estas lentes profundizan las mismas dimensiones que ya cubre el skill `review-diff`; si editas una, revisa si el cambio también aplica a la otra (deduplicación completa queda fuera de scope, a criterio del maintainer).
+
 ### Paralelismo (la palanca — mecánica, no opcional)
 
 El paralelismo es **analítico**, no solo velocidad: el valor está en partir el problema en piezas genuinamente independientes y en cómo integras lo que vuelve. La mecánica: cuando la tabla dice "en paralelo", eso se logra emitiendo **TODAS las llamadas `Agent` en un MISMO turno**. Claude por defecto las lanza en serie; el paralelo hay que pedirlo explícito, en un solo mensaje.
