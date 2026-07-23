@@ -17,6 +17,7 @@ import {
   scanManagedOrder,
   scanMalformedMarkers,
   scanLegacyAgents,
+  scanExcludedBlocks,
   suggestNextSteps,
 } from "../lib/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
@@ -94,6 +95,10 @@ export const doctorCommand = defineCommand({
     // agent. Informational — navori never deletes the user's files, it just
     // surfaces the redundancy so the user can archive them.
     const legacyAgents = scanLegacyAgents(cwd, config);
+    // Core managed blocks the repo opted out of (blocks.exclude). Always
+    // surfaced so the exclusion never becomes silent config drift; unknown ids
+    // (typos) warn but don't flip `ok` — they only no-op.
+    const excludedBlocks = scanExcludedBlocks(config);
     // A declared preset that resolves to neither a local (.navori/presets/) nor
     // a bundled manifest renders the baseline AND warns — config points at
     // something unresolvable, same class as a missing plugin.
@@ -143,6 +148,7 @@ export const doctorCommand = defineCommand({
       missingPresetFiles,
       placeholderName,
       legacyAgents,
+      excludedBlocks,
     };
 
     if (args.json) {
@@ -197,6 +203,31 @@ export const doctorCommand = defineCommand({
         return `  ${color.cyan(sym.bullet)} ${accent(m.id)}  ${grey("←")}  ${src}${ver}`;
       });
       p.note(lines.join("\n"), td.managedBlocksTitle(markers.length));
+    }
+
+    // Excluded core blocks (blocks.exclude): always shown when present so the
+    // opt-out is visible, never silent config drift. Unknown ids warn separately.
+    if (excludedBlocks) {
+      if (excludedBlocks.excluded.length > 0) {
+        const lines = excludedBlocks.excluded.map(
+          (id) => `  ${color.cyan(sym.bullet)} ${accent(id)}  ${grey(td.excludedBlockRow(id))}`,
+        );
+        p.note(lines.join("\n"), td.excludedBlocksTitle(excludedBlocks.excluded.length));
+      }
+      // A SECURITY block opt-out weakens the harness guardrails — WARN, distinct
+      // from the neutral note the cosmetic exclusions get above.
+      if (excludedBlocks.security.length > 0) {
+        const lines = excludedBlocks.security.map(
+          (id) => `  ${color.yellow(sym.update)} ${accent(id)}  ${grey(td.excludedSecurityBlockRow(id))}`,
+        );
+        p.log.warn(td.excludedSecurityBlocks(excludedBlocks.security.length, lines.join("\n")));
+      }
+      if (excludedBlocks.unknown.length > 0) {
+        const lines = excludedBlocks.unknown.map(
+          (id) => `  ${color.yellow(sym.update)} ${accent(id)}  ${grey(td.unknownExcludedBlockRow(id))}`,
+        );
+        p.log.warn(td.unknownExcludedBlocks(excludedBlocks.unknown.length, lines.join("\n")));
+      }
     }
 
     // Skill → agent assignments report (effective: plugin recommendation + config overrides)

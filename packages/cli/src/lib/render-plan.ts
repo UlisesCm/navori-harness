@@ -43,6 +43,30 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
   { id: "sdd", relPath: "core-assets/managed/sdd.md", availableLanguages: ["es"], rootOnly: true, condition: "sdd.enabled" },
 ] as const;
 
+/**
+ * Ids of the hardcoded core managed blocks a repo may opt OUT of via
+ * `blocks.exclude`. ANY of them can be excluded — there is no protected/required
+ * subset — because the motivating case is precisely a repo with its OWN
+ * orchestration/SDD protocol excluding navori's `orquestacion`/`sdd`. An id in
+ * `blocks.exclude` that is NOT in this set is a no-op that `doctor` flags as a
+ * typo (unknown id → warning). Preset extras and plugin blocks are excluded by
+ * their own mechanisms (change the preset / disable the plugin), not this list;
+ * the computed CLAUDE.md blocks (skills-index, agentes-disponibles, contexto-*)
+ * self-strip when empty and are not part of the opt-out surface.
+ */
+export const EXCLUDABLE_BLOCK_IDS: readonly string[] = CORE_MANAGED_ASSETS.map((a) => a.id);
+
+/**
+ * Excludable core blocks that carry SAFETY posture rather than cosmetics.
+ * Opting out of one weakens the harness's guardrails (e.g. `operaciones-seguras`
+ * is the "no force-push / no --no-verify / no destructive rm" contract), so
+ * excluding it is surfaced at WARN level by `doctor` and requires an explicit
+ * confirm in `configure blocks` — unlike a neutral cosmetic exclusion. Kept as a
+ * separate list (not a flag on the asset) so the security surface is auditable
+ * in one place. Every id here MUST also be in EXCLUDABLE_BLOCK_IDS.
+ */
+export const SECURITY_BLOCK_IDS: readonly string[] = ["operaciones-seguras"] as const;
+
 // Managed blocks stamp the navori release version (not @navori/core's static
 // 0.0.1) so the anti-retroceso guard has a signal that bumps every release. All
 // blocks — core, preset extras, plugins — ship as one navori release, so they
@@ -191,12 +215,36 @@ export function computeRenderPlan(
   const downgrades: UpdateAvailable[] = [];
   const configRecord = config as unknown as Record<string, unknown>;
   const language = config.language;
+  // Core blocks the repo opted out of (`blocks.exclude`). Unknown ids are
+  // ignored here (they match no block, so removeManagedSection is a no-op); it's
+  // `doctor` that surfaces a typo. Only known core ids in this set actually
+  // strip a block. Applied to core assets only — preset extras / plugin blocks
+  // have their own opt-out mechanisms.
+  const excludeIds = new Set(config.blocks?.exclude ?? []);
 
   // 1) Core assets
   for (const asset of CORE_MANAGED_ASSETS) {
     if (skipIds.has(asset.id)) {
       // The caller asked us to leave this block alone (user-modified that
       // they chose to keep during conflict resolution).
+      continue;
+    }
+    if (excludeIds.has(asset.id)) {
+      // The repo opted this core block out via `blocks.exclude`. Treat it like a
+      // condition that turned false: never inject it, and strip a
+      // previously-rendered region (markers included) via the SAME removal path
+      // a disabled plugin / a false condition uses. Removal is silent-by-design
+      // here just as it is there — these are core-owned blocks, and the user's
+      // own prose lives in the separate user-section, which the render never
+      // touches.
+      const before = working;
+      working = removeManagedSection(working, asset.id);
+      entries.push({
+        asset,
+        source: "core",
+        status: before === working ? "unchanged" : "removed-condition-false",
+        newContent: null,
+      });
       continue;
     }
     if (options.omitRootOnly && asset.rootOnly) {

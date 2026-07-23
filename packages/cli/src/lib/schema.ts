@@ -132,6 +132,20 @@ const SkillsSchema = z.object({
   optIn: z.array(z.string()).default([]),
 });
 
+// Opt OUT of specific core managed blocks. A repo that already ships its OWN
+// orchestration / SDD protocol (e.g. a personal global Claude Code harness)
+// would otherwise get navori's competing `orquestacion` / `sdd` blocks injected
+// into CLAUDE.md on `init`. Listing a core block id here stops it being
+// rendered — and removes a previously-rendered region (markers included) on the
+// next render, reusing the same removal path as a disabled plugin / a condition
+// that turned false. Ids are validated against the known core blocks at render/
+// doctor time; an unknown id is a no-op `doctor` warns about (typo guard). Any
+// core block may be excluded — none are protected. See render-plan
+// EXCLUDABLE_BLOCK_IDS.
+const BlocksSchema = z.object({
+  exclude: z.array(z.string()).default([]),
+});
+
 // Progress files live inside the repo by definition — accepting absolute
 // paths or `..` segments would let the adapter write outside the workspace
 // (issue #5). Reuse the same containment regex plugins already use for
@@ -221,6 +235,7 @@ export const NavoriConfigSchema = z
      * declare their own recommendedAgent; entries here override that. */
     agentAssignments: AgentAssignmentsSchema.optional(),
     skills: SkillsSchema.optional(),
+    blocks: BlocksSchema.optional(),
     progress: ProgressSchema.optional(),
     project: ProjectSchema.optional(),
     monorepo: MonorepoSchema.optional(),
