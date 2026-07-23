@@ -80,6 +80,26 @@ export const RECOMMENDED_MODELS = {
 } as const;
 
 /**
+ * Reasoning-effort profile, aligned with RECOMMENDED_MODELS by tier. Claude Code
+ * defaults every agent to the session effort (`xhigh`), so without this each
+ * subagent over-deliberates on mechanical work. Judgement roles (the orchestrator)
+ * keep `xhigh`; code/synthesis roles drop to `medium` (the quality/cost sweet spot);
+ * read-only/mechanical roles drop to `low` (fewest, most-consolidated tool calls,
+ * terse output). `leader`'s value also drives `settings.json`'s `effortLevel` so the
+ * main-loop orchestrator actually runs at that tier — see buildClaudeSettings.
+ */
+export const RECOMMENDED_EFFORT = {
+  leader: "xhigh",
+  implementer: "medium",
+  reviewer: "medium",
+  researcher: "medium",
+  ticketAudit: "medium",
+  auditor: "medium",
+  explorer: "low",
+  commitPrPilot: "low",
+} as const;
+
+/**
  * Enable every known plugin for `init --full`. Unlike `--recommended` (which is
  * conservative and only adds `gh` when there's a GitHub remote), full mode turns
  * on all plugins in navori.config.json — including the ones that need an external

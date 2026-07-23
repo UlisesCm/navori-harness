@@ -91,6 +91,25 @@ const ModelsSchema = z.object({
   auditor: z.enum(MODELS).optional(),
 });
 
+// Reasoning-effort tier per agent, emitted as the `effort:` frontmatter field
+// Claude Code reads on each subagent (overrides the session effort). Lower effort
+// means fewer/consolidated tool calls, less preamble and terser output — so
+// mechanical agents run cheaper. `leader`'s value also seeds `settings.json`'s
+// `effortLevel` (the main-loop/orchestrator default) since the leader role is
+// embodied by the main agent, not spawned. `max` is valid per-agent but NOT in
+// settings.json — buildClaudeSettings skips writing effortLevel when it's `max`.
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+const EffortSchema = z.object({
+  leader: z.enum(EFFORTS).optional(),
+  implementer: z.enum(EFFORTS).optional(),
+  reviewer: z.enum(EFFORTS).optional(),
+  researcher: z.enum(EFFORTS).optional(),
+  ticketAudit: z.enum(EFFORTS).optional(),
+  commitPrPilot: z.enum(EFFORTS).optional(),
+  explorer: z.enum(EFFORTS).optional(),
+  auditor: z.enum(EFFORTS).optional(),
+});
+
 const PluginEntrySchema = z.object({
   enabled: z.boolean(),
 });
@@ -196,6 +215,7 @@ export const NavoriConfigSchema = z
     sdd: SddSchema.optional(),
     harness: HarnessSchema.optional(),
     models: ModelsSchema.optional(),
+    effort: EffortSchema.optional(),
     plugins: z.record(z.string(), PluginEntrySchema).optional(),
     /** Override of which agent owns which skill/managed-block id. Plugins
      * declare their own recommendedAgent; entries here override that. */

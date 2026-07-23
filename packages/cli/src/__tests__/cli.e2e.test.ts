@@ -80,6 +80,15 @@ describe("CLI e2e — happy paths", () => {
     // ...and the frontmatter interpolates it into the agent files.
     expect(readFileSync(join(repo, ".claude/agents/implementer.md"), "utf-8")).toContain("model: sonnet");
     expect(readFileSync(join(repo, ".claude/agents/explorer.md"), "utf-8")).toContain("model: haiku");
+    // Effort profile: mechanical agents drop to low, orchestrator keeps xhigh.
+    expect(config.effort?.leader).toBe("xhigh");
+    expect(config.effort?.implementer).toBe("medium");
+    expect(config.effort?.explorer).toBe("low");
+    expect(readFileSync(join(repo, ".claude/agents/explorer.md"), "utf-8")).toContain("effort: low");
+    // The leader is embodied by the main agent, so its tier drives settings.json.
+    expect(
+      JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8")).effortLevel,
+    ).toBe("xhigh");
 
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
     expect(claudeMd).toContain("navori:managed id=\"idioma-rol\"");
@@ -104,9 +113,14 @@ describe("CLI e2e — happy paths", () => {
 
     const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
     expect(config.plugins?.engram?.enabled).toBe(true);
-    // Plain --yes stays minimal: no model profile, so every agent inherits the
-    // session model (the profile is an opinionated-mode default, not universal).
+    // Plain --yes stays minimal: no model/effort profile, so every agent inherits
+    // the session model + effort (the profile is an opinionated-mode default).
     expect(config.models).toBeUndefined();
+    expect(config.effort).toBeUndefined();
+    // ...and with no leader effort, settings.json carries no effortLevel override.
+    expect(
+      JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8")).effortLevel,
+    ).toBeUndefined();
     expect(readFileSync(join(repo, "CLAUDE.md"), "utf-8")).toContain(
       "navori:managed id=\"engram-protocol\"",
     );

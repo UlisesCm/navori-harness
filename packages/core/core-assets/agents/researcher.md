@@ -3,6 +3,7 @@ name: researcher
 description: Investigación read-only de una pregunta acotada. Lee el repo, escribe hallazgos en archivo. No modifica código.
 tools: Read, Glob, Grep, Bash
 model: {{models.researcher}}
+effort: {{effort.researcher}}
 ---
 
 # Agente Investigador

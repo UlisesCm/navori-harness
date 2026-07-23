@@ -229,3 +229,19 @@ describe("buildClaudeSettings — plugin merging", () => {
     expect(cmds).toContain("b");
   });
 });
+
+describe("buildClaudeSettings — effortLevel from leader tier", () => {
+  it("writes effortLevel from config.effort.leader", () => {
+    const cfg = { ...MINIMAL_CONFIG, effort: { leader: "xhigh" } } as unknown as NavoriConfig;
+    expect(buildClaudeSettings(cfg, []).effortLevel).toBe("xhigh");
+  });
+
+  it("omits effortLevel when no leader effort is set", () => {
+    expect(buildClaudeSettings(MINIMAL_CONFIG, []).effortLevel).toBeUndefined();
+  });
+
+  it("skips effortLevel when leader effort is max (not accepted in settings.json)", () => {
+    const cfg = { ...MINIMAL_CONFIG, effort: { leader: "max" } } as unknown as NavoriConfig;
+    expect(buildClaudeSettings(cfg, []).effortLevel).toBeUndefined();
+  });
+});

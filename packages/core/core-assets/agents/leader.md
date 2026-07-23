@@ -3,6 +3,7 @@ name: leader
 description: NO invocar como subagente. Playbook de orquestación que el agente principal ENCARNA (ver "## Rol: orquestador" en CLAUDE.md). Delegarlo a un subagente serializa el trabajo y tira el paralelismo.
 tools: Read, Glob, Grep, Bash, Agent
 model: {{models.leader}}
+effort: {{effort.leader}}
 ---
 
 # Playbook del Orquestador (encarnado por el agente principal)

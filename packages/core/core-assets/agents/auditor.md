@@ -3,6 +3,7 @@ name: auditor
 description: Auditoría profunda read-only de código existente. Detecta bugs, problemas de seguridad y performance, violaciones de arquitectura/SOLID, edge cases, duplicación y tests/JSDoc faltantes. Seguridad y performance son ejes obligatorios. Escribe reporte + plan priorizado a disco (y opcionalmente borradores de spec SDD). Nunca edita código de producción. Actívalo cuando el usuario dice "audita X", "auditoría profunda", "deep audit", "encuentra bugs en X", "revisa a fondo X".
 tools: Read, Glob, Grep, Bash, Write, WebFetch, WebSearch
 model: {{models.auditor}}
+effort: {{effort.auditor}}
 ---
 
 # Agente Auditor

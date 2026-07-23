@@ -5,6 +5,7 @@ import {
   buildFullPlugins,
   buildFullProject,
   RECOMMENDED_MODELS,
+  RECOMMENDED_EFFORT,
 } from "../recommended.ts";
 import { KNOWN_PLUGINS } from "../plugins.ts";
 import type { DetectedProject } from "../detect.ts";
@@ -225,5 +226,23 @@ describe("RECOMMENDED_MODELS", () => {
   it("only uses valid model aliases", () => {
     const valid = new Set(["opus", "sonnet", "haiku"]);
     for (const m of Object.values(RECOMMENDED_MODELS)) expect(valid.has(m)).toBe(true);
+  });
+});
+
+describe("RECOMMENDED_EFFORT", () => {
+  it("keeps the orchestrator at xhigh and drops mechanical agents to low", () => {
+    expect(RECOMMENDED_EFFORT.leader).toBe("xhigh");
+    expect(RECOMMENDED_EFFORT.implementer).toBe("medium");
+    expect(RECOMMENDED_EFFORT.explorer).toBe("low");
+    expect(RECOMMENDED_EFFORT.commitPrPilot).toBe("low");
+  });
+
+  it("covers the same agent roles as the model profile", () => {
+    expect(Object.keys(RECOMMENDED_EFFORT).sort()).toEqual(Object.keys(RECOMMENDED_MODELS).sort());
+  });
+
+  it("only uses valid effort levels", () => {
+    const valid = new Set(["low", "medium", "high", "xhigh", "max"]);
+    for (const e of Object.values(RECOMMENDED_EFFORT)) expect(valid.has(e)).toBe(true);
   });
 });
