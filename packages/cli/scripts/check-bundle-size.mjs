@@ -6,17 +6,15 @@ import { dirname, resolve } from "node:path";
  * Spec 0003 §3.4.7 — bundle size guard.
  *
  * Tracks dist/index.js as a regression tripwire, not an optimization target.
- * The spec's 200KB figure was aspirational; the real bundle (~325KB) carries
- * Zod + citty + clack and that's fine for a CLI (no browser/cold-start cost).
- * The limit sits above today's size with headroom so it catches a runaway
- * dependency, not normal growth (e.g. the audit waves #69/#70 added stack
- * detection, monorepo scan and doctor checks; ronda 2 #79-#83 added the
- * anti-retroceso guard, advisory locking, plugin remove/cleanup and semver;
- * the audit-followup batch #84/#86-#92/#9 added dep-usage scanning, i18n
- * runtime catalogs, three engine adapters and more library skills — all
- * first-party, zero new deps).
+ * As of the bundle-footprint change the build minifies AND inlines every
+ * runtime dependency (`noExternal` in tsup.config.ts), so dist/index.js now
+ * carries zod + citty + clack + picocolors on purpose (~657KB). That's the
+ * deliberate trade for a ~82% smaller install footprint (6.1MB → 1.1MB, zero
+ * third-party node_modules). The limit sits above today's size with headroom
+ * so it still catches a runaway dependency — a NEW heavy dep would push the
+ * bundle past 800KB — without flagging normal first-party growth.
  */
-const LIMIT_KB = 400;
+const LIMIT_KB = 800;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundle = resolve(here, "..", "dist", "index.js");
