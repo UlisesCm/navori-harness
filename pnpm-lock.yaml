@@ -58,6 +58,9 @@ importers:
       '@navori/plugin-jscpd':
         specifier: workspace:*
         version: link:../plugins/jscpd
+      '@navori/plugin-ponytail':
+        specifier: workspace:*
+        version: link:../plugins/ponytail
       '@navori/plugin-semgrep':
         specifier: workspace:*
         version: link:../plugins/semgrep
@@ -103,6 +106,8 @@ importers:
   packages/plugins/gh: {}
 
   packages/plugins/jscpd: {}
+
+  packages/plugins/ponytail: {}
 
   packages/plugins/semgrep: {}
 

@@ -1,0 +1,20 @@
+{
+  "name": "@navori/plugin-ponytail",
+  "version": "0.0.1",
+  "description": "Lazy senior dev / YAGNI behavioral layer for navori",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json",
+    "./plugin.json": "./plugin.json"
+  },
+  "files": [
+    "src",
+    "managed",
+    "skills",
+    "plugin.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}
