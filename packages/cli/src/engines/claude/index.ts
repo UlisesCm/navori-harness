@@ -80,6 +80,14 @@ const CORE_AGENTS: ReadonlyArray<{ id: string; harnessKey: keyof NonNullable<Nav
   { id: "commit-pr-pilot", harnessKey: "commitPrPilot" },
   { id: "explorer", harnessKey: "explorer" },
   { id: "auditor", harnessKey: "auditor" },
+  // Review lenses (R1-R4) — single-lens read-only reviewers that complement
+  // `reviewer` on high-risk diffs. They reuse the `reviewer` harness toggle
+  // (and its models/effort config keys) rather than getting their own
+  // config surface: turning `reviewer` off turns the lenses off too.
+  { id: "review-risk", harnessKey: "reviewer" },
+  { id: "review-resilience", harnessKey: "reviewer" },
+  { id: "review-readability", harnessKey: "reviewer" },
+  { id: "review-reliability", harnessKey: "reviewer" },
 ];
 
 const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
@@ -196,6 +204,12 @@ const AGENT_WHEN: Record<string, string> = {
   "ticket-audit": "Analiza a fondo un ticket complejo (bug crítico, migración, feature multi-capa) antes de descomponer.",
   "commit-pr-pilot": "Redacta commits Conventional y abre el PR tras la aprobación del reviewer.",
   auditor: "Auditoría read-only a fondo de código existente (seguridad, performance, SOLID, edge cases). Escribe reporte + plan priorizado a disco.",
+  // Review lenses (R1-R4) — selección por perfil de riesgo documentada en la
+  // tabla 4R de "orquestacion.md" (§ Lentes de review 4R).
+  "review-risk": "Lente read-only de seguridad, permisos, datos y dependencias sobre un diff de riesgo; selección en la tabla 4R de orquestación.",
+  "review-readability": "Lente read-only de naming, complejidad y mantenibilidad sobre un diff; selección en la tabla 4R de orquestación.",
+  "review-reliability": "Lente read-only de tests, comportamiento y regresiones sobre un diff; selección en la tabla 4R de orquestación.",
+  "review-resilience": "Lente read-only de fallas, retries y degradación sobre un diff; selección en la tabla 4R de orquestación.",
 };
 
 /**
@@ -795,23 +809,45 @@ export function renderClaudeEngine(
     }
   }
 
-  // 8. Plugin skills with `injectInto`: append as a managed sub-block at
-  // the bottom of the target file. `injectManagedSection` handles dedup
-  // by id (idempotent) and surfaces user-modified conflicts the same way
-  // CLAUDE.md does.
+  // 8. Plugin skills. Two shapes:
+  //   - `injectInto` set: append as a managed sub-block at the bottom of the
+  //     target file. `injectManagedSection` handles dedup by id (idempotent)
+  //     and surfaces user-modified conflicts the same way CLAUDE.md does.
+  //   - `injectInto` absent: a STANDALONE skill, written to its own
+  //     `.claude/skills/<id>.md` — the same managed-file treatment library
+  //     skills get (§6 above), but with plugin provenance in the marker
+  //     (source `@navori/plugin-<id>`) instead of `@navori/core`, matching
+  //     what applySubBlockInject stamps for this plugin's injectInto skills.
   for (const plugin of enabledPlugins) {
     for (const skill of plugin.skillAssets) {
-      if (!skill.injectInto) continue;
+      if (skill.injectInto) {
+        inspected += 1;
+        applySubBlockInject({
+          cwd,
+          plugin,
+          skill,
+          config,
+          pending,
+          skipped,
+          warnings,
+        });
+        continue;
+      }
       inspected += 1;
-      applySubBlockInject({
+      applyManagedFilePlan(
+        planManagedFile({
+          cwd,
+          assetRoot: dirname(skill.absPath),
+          assetRelPath: basename(skill.absPath),
+          destRelPath: `.claude/skills/${skill.id}.md`,
+          managedId: skill.id,
+          config,
+          meta: { source: `@navori/plugin-${plugin.manifest.id}`, version: NAVORI_VERSION },
+        }),
         cwd,
-        plugin,
-        skill,
-        config,
         pending,
         skipped,
-        warnings,
-      });
+      );
     }
   }
 
@@ -823,9 +859,25 @@ export function renderClaudeEngine(
   const scriptRemovals: string[] = [];
   for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
     for (const skill of plugin.skillAssets) {
-      if (!skill.injectInto) continue;
+      if (skill.injectInto) {
+        inspected += 1;
+        removeSubBlock({ cwd, skill, pending });
+        continue;
+      }
+      // Standalone skill (no injectInto) — mirror §8.6's ownership check
+      // before deleting: only remove a file carrying navori's OWN marker
+      // for this id, never a user's hand-written skill of the same name.
+      const destPath = join(cwd, ".claude/skills", `${skill.id}.md`);
+      if (!existsSync(destPath)) continue;
+      let content: string;
+      try {
+        content = readFileSync(destPath, "utf-8");
+      } catch {
+        continue; // unreadable — leave it rather than guess
+      }
+      if (!content.includes(`navori:managed id="${skill.id}"`)) continue;
       inspected += 1;
-      removeSubBlock({ cwd, skill, pending });
+      scriptRemovals.push(destPath);
     }
     for (const script of plugin.scriptAssets) {
       const destPath = join(cwd, ".claude/scripts", script.dest);
@@ -1084,6 +1136,11 @@ interface ManagedFilePlanInput {
   destRelPath: string;      // relative to cwd
   managedId: string;
   config: NavoriConfig;
+  /** Open-marker provenance. Defaults to CORE_META (core/library assets); a
+   * plugin-owned standalone skill passes its own `@navori/plugin-<id>` source
+   * so the marker matches the one applySubBlockInject stamps for injectInto
+   * skills of the same plugin. */
+  meta?: { source: string; version: string };
 }
 
 type ManagedFilePlan =
@@ -1099,7 +1156,7 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
     assetPath,
     existingContent: existing,
     managedId: input.managedId,
-    meta: CORE_META,
+    meta: input.meta ?? CORE_META,
     config: input.config,
   });
   if (result.status === "unchanged") return { kind: "noop" };

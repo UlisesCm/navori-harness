@@ -144,6 +144,7 @@ export const KNOWN_PLUGINS: Record<string, string> = {
   jscpd: "@navori/plugin-jscpd",
   semgrep: "@navori/plugin-semgrep",
   cognitive: "@navori/plugin-cognitive",
+  ponytail: "@navori/plugin-ponytail",
 };
 
 export class PluginNotFoundError extends NavoriError {
