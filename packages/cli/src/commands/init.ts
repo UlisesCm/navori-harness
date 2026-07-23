@@ -9,6 +9,7 @@ import { detectProject, isPlaceholderName, type ClaudeInfraInventory, type Packa
 import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
 import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
 import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
+import { loadFeature, listFeatureIds, FeatureError } from "../lib/features.ts";
 import { runRender } from "./render.ts";
 import {
   formatInfraSummary,
@@ -16,7 +17,7 @@ import {
   formatWorkspaceSummary,
 } from "./init-format.ts";
 import { color, dim, brand, kv } from "../lib/style.ts";
-import { t, type Lang } from "../lib/i18n.ts";
+import { t, tc, type Lang } from "../lib/i18n.ts";
 import { loadPrompts, type LoadedPrompt } from "../engines/claude/prompts-loader.ts";
 import { scanMonorepoWorkspaces, type DetectedWorkspace } from "../lib/scan.ts";
 import type { MonorepoWorkspace } from "../lib/monorepo.ts";
@@ -88,22 +89,58 @@ export const initCommand = defineCommand({
       description:
         "Scaffold a local pre-commit hook that runs 'navori doctor --strict'. Opt-in; in interactive mode you're asked instead.",
     },
+    feature: {
+      type: "string",
+      description:
+        "Activate a bootstrap feature on a fresh project (e.g. 'navori init --feature app-builder'). Only valid for kind:bootstrap features.",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const configPath = `${cwd}/navori.config.json`;
+
+    // Bootstrap-language: errors that fire before the wizard runs are shown in
+    // the lang chosen via --lang (or "es" if none/invalid). The wizard itself
+    // re-prompts the user for the real choice right after. Resolved BEFORE the
+    // --feature validation so those messages aren't hardcoded to one locale.
+    const bootstrapLang = normalizeLang(args.lang as string | undefined) ?? "es";
+    const bootstrapT = t(bootstrapLang);
+
+    // `--feature <id>` (spec 0004 §3.2): validated up front so a wrong id / an
+    // in-repo feature fails before any config is written. Only bootstrap features
+    // are valid here — an in-repo feature expects an existing project, so it must
+    // go through `navori add feature`. The id is threaded into features[] at the
+    // config-write sites below.
+    let bootstrapFeature: string | undefined;
+    if (args.feature) {
+      const id = String(args.feature);
+      let loaded;
+      try {
+        loaded = loadFeature(id, cwd);
+      } catch (err) {
+        if (err instanceof FeatureError) {
+          p.cancel(err.message);
+          process.exit(1);
+        }
+        throw err;
+      }
+      if (!loaded) {
+        const known = listFeatureIds(cwd).join(", ") || tc(bootstrapLang).feature.noneKnown;
+        p.cancel(tc(bootstrapLang).feature.unknown(id, known));
+        process.exit(1);
+      }
+      if (loaded.manifest.kind !== "bootstrap") {
+        p.cancel(tc(bootstrapLang).feature.initInRepoNotBootstrap(id));
+        process.exit(1);
+      }
+      bootstrapFeature = id;
+    }
     // --full implies --recommended, which implies --yes (skip wizard).
     const isFull = Boolean(args.full);
     const isRecommended = Boolean(args.recommended || args.full);
     const autoYes = Boolean(args.yes || args.recommended || args.full);
 
     p.intro(brand("init"));
-
-    // Bootstrap-language: errors that fire before the wizard runs are shown in
-    // the lang chosen via --lang (or "es" if none/invalid). The wizard itself
-    // re-prompts the user for the real choice right after.
-    const bootstrapLang = normalizeLang(args.lang as string | undefined) ?? "es";
-    const bootstrapT = t(bootstrapLang);
 
     if (!existsSync(cwd)) {
       p.cancel(bootstrapT.dirNotFound(cwd));
@@ -275,6 +312,7 @@ export const initCommand = defineCommand({
         // model and effort.
         ...(isRecommended || isFull ? { models: RECOMMENDED_MODELS, effort: RECOMMENDED_EFFORT } : {}),
         ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
+        ...(bootstrapFeature ? { features: [bootstrapFeature] } : {}),
         project: projectBlock,
         ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),
       });
@@ -650,6 +688,7 @@ export const initCommand = defineCommand({
       models: RECOMMENDED_MODELS,
       effort: RECOMMENDED_EFFORT,
       ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
+      ...(bootstrapFeature ? { features: [bootstrapFeature] } : {}),
       ...(Object.keys(agentAssignments).length > 0 ? { agentAssignments } : {}),
       // Always write `project` so the schema fills empty arrays and render emits
       // no `<not configured: project.*>` placeholders (see autoYes path above).

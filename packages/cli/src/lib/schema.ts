@@ -221,6 +221,18 @@ export const NavoriConfigSchema = z
      * declare their own recommendedAgent; entries here override that. */
     agentAssignments: AgentAssignmentsSchema.optional(),
     skills: SkillsSchema.optional(),
+    /** Active feature ids (multi-phase workflows that orchestrate skills toward a
+     * single deliverable). Lean array of ids, consistent with the repo's other
+     * opt-in sections; the feature bundle lives in core-assets/features/<id>/ (or
+     * a local .navori/features/<id>/ override) and renders into `.claude/skills/`.
+     * See spec 0004. Activated via `navori add feature <id>` / `navori init
+     * --feature <id>`. Each id is validated kebab-case (same idiom as the
+     * feature manifest id and preset id) — a raw id flows into a filesystem path
+     * (`core-assets/features/<id>/`), so rejecting anything with a path
+     * separator or `..` at the schema boundary blocks traversal up front. */
+    features: z
+      .array(z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "feature id must be kebab-case"))
+      .default([]),
     progress: ProgressSchema.optional(),
     project: ProjectSchema.optional(),
     monorepo: MonorepoSchema.optional(),

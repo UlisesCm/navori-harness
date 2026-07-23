@@ -110,6 +110,18 @@ describe("NavoriConfigSchema — boundary (spec 0003 §3.4.2)", () => {
     ).toBe(false);
   });
 
+  // Path-traversal hardening: a feature id flows into a filesystem path, so the
+  // schema rejects anything with a separator or `..`, plus non-kebab ids.
+  it("accepts a kebab-case feature id and rejects traversal-shaped / non-kebab ones", () => {
+    expect(NavoriConfigSchema.safeParse({ ...MINIMAL, features: ["app-builder"] }).success).toBe(true);
+    for (const bad of ["../evil", "..", "foo/bar", "foo\\bar", "App_Builder", "a/../b", "/etc"]) {
+      expect(
+        NavoriConfigSchema.safeParse({ ...MINIMAL, features: [bad] }).success,
+        `feature id '${bad}' must be rejected`,
+      ).toBe(false);
+    }
+  });
+
   // Removed keys (#75): legacy configs still carrying checkpointsDir /
   // archiveAfterDays must keep validating — the keys are stripped, not rejected.
   it("tolerates removed progress keys from legacy configs (stripped, not rejected)", () => {

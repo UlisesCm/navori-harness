@@ -29,8 +29,14 @@ import { mergeFrontmatter } from "./frontmatter-merge.ts";
  */
 
 export interface RenderManagedFileInput {
-  /** Absolute path to the source asset (used to read + infer commentStyle). */
+  /** Absolute path to the source asset (used to read + infer commentStyle).
+   * Ignored for reading when `rawContent` is supplied (features synthesize the
+   * SKILL.md source from the manifest + FEATURE.md in memory), but still used
+   * for commentStyle inference. */
   assetPath: string;
+  /** Pre-composed source content. When set, skips reading `assetPath` from disk
+   * and renders this string as the asset instead. */
+  rawContent?: string;
   /** Current content of the destination, or null if it doesn't exist. */
   existingContent: string | null;
   /** Managed-section id (e.g. "leader-base"). */
@@ -51,7 +57,7 @@ export interface RenderManagedFileResult {
 
 export function renderManagedFile(input: RenderManagedFileInput): RenderManagedFileResult {
   const commentStyle = input.commentStyle ?? inferCommentStyle(input.assetPath);
-  const raw = readFileSync(input.assetPath, "utf-8");
+  const raw = input.rawContent ?? readFileSync(input.assetPath, "utf-8");
   const asset = parseAsset(raw, commentStyle);
 
   const interpolatedFmObj = interpolateFrontmatter(asset.frontmatter, input.config, input.extraVars);

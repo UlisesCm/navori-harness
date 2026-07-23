@@ -186,6 +186,17 @@ describe("listMarkers + scanManagedDrift", () => {
     ).toBe(true);
   });
 
+  // Regression (FIX 9): a pre-existing directory-shaped USER skill
+  // (`.claude/skills/<id>/SKILL.md` with no navori marker) must produce no drift
+  // — the recursive markdown walk only reports blocks navori actually owns.
+  it("reports no drift for a user's directory-shaped skill without navori markers", () => {
+    const skillDir = join(cwd, ".claude/skills/my-user-skill");
+    mkdirSync(join(skillDir, "refs"), { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "---\nname: my-user-skill\n---\n\nMy own skill.\n");
+    writeFileSync(join(skillDir, "refs", "notes.md"), "# Notes\n\nUnmanaged content.\n");
+    expect(scanManagedDrift(cwd, config)).toHaveLength(0);
+  });
+
   // Wave 3 (#71 item 12): AGENTS.md (agents-md engine) was outside the scan
   // scope, so doctor was blind to hand-edits of its managed block — the same
   // gap already closed for CLAUDE.md above.

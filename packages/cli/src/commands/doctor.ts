@@ -7,6 +7,8 @@ import { isPlaceholderName } from "../lib/detect.ts";
 import { loadPlugin } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
+import { loadFeature, featureExists } from "../lib/features.ts";
+import { activeSkillIds, bundledSkillIds } from "../lib/skill-catalog.ts";
 import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
@@ -86,6 +88,8 @@ export const doctorCommand = defineCommand({
     const orderReport = scanManagedOrder(cwd, config);
     const corruptedSettings = scanCorruptedSettings(cwd);
     const missingInvariants = scanMissingInvariants(cwd, config);
+    const unknownFeatures = scanUnknownFeatures(cwd, config);
+    const featureExternalSkills = scanFeatureExternalSkills(cwd, config);
     const malformedMarkers = scanMalformedMarkers(cwd);
     const missingExternalTools = scanMissingExternalTools(config);
     const monorepoDrift = scanMonorepoDrift(cwd, config);
@@ -130,6 +134,8 @@ export const doctorCommand = defineCommand({
       },
       managedBlocks: markers,
       missingPlugins,
+      unknownFeatures,
+      featureExternalSkills,
       drifts,
       orderReport,
       corruptedSettings,
@@ -244,6 +250,32 @@ export const doctorCommand = defineCommand({
         (n) => `  ${color.red(sym.fail)} ${accent(n)}  ${grey(td.missingLocalSkillRow(n))}`,
       );
       p.log.warn(td.missingLocalSkills(missingLocalSkills.length, lines.join("\n")));
+    }
+
+    // Unknown feature ids: declared in config.features but no bundle resolves.
+    // Warning (render skips them; the harness still works), not ok-flipping.
+    if (unknownFeatures.length > 0) {
+      const lines = unknownFeatures.map((id) => `  ${color.red(sym.fail)} ${accent(id)}`);
+      p.log.warn(td.unknownFeatures(unknownFeatures.length, lines.join("\n")));
+    }
+
+    // Features referencing skills not present in this repo, split into two
+    // buckets: truly-external (not bundled at all — a user global or external
+    // CLI) as a warning, and bundled-under-an-inactive-preset as a softer note.
+    // Neither flips `ok`.
+    const trulyExternal = featureExternalSkills.filter((f) => f.external.length > 0);
+    if (trulyExternal.length > 0) {
+      const lines = trulyExternal.map(
+        (f) => `  ${color.yellow(sym.update)} ${accent(f.featureId)}  ${grey(`→ ${f.external.join(", ")}`)}`,
+      );
+      p.log.warn(td.featureExternalSkills(trulyExternal.length, lines.join("\n")));
+    }
+    const inactivePresetSkills = featureExternalSkills.filter((f) => f.inactivePreset.length > 0);
+    if (inactivePresetSkills.length > 0) {
+      const lines = inactivePresetSkills.map(
+        (f) => `  ${grey(sym.bullet)} ${accent(f.featureId)}  ${grey(`→ ${f.inactivePreset.join(", ")}`)}`,
+      );
+      p.log.info(td.featureInactivePresetSkills(inactivePresetSkills.length, lines.join("\n")));
     }
 
     if (drifts.length > 0) {
@@ -469,6 +501,64 @@ export function scanMissingExternalTools(config: NavoriConfig): MissingExternalT
   return missing;
 }
 
+/**
+ * Feature ids declared in `config.features` that resolve to no bundle (neither
+ * a local `.navori/features/<id>/` nor a bundled `core-assets/features/<id>/`).
+ * The render silently skips them, so surface as a warning (spec 0004 §4).
+ */
+export function scanUnknownFeatures(cwd: string, config: NavoriConfig): string[] {
+  return (config.features ?? []).filter((id) => !featureExists(id, cwd));
+}
+
+export interface FeatureExternalSkills {
+  featureId: string;
+  /** Phase skill ids navori does NOT bundle under ANY preset — truly external
+   * (a user global under `~/.claude/skills/`, or one from an external CLI). */
+  external: string[];
+  /** Phase skill ids navori DOES bundle, but only under a preset that isn't the
+   * active one — present once that preset is activated (or added as a local skill). */
+  inactivePreset: string[];
+}
+
+/**
+ * For each active feature, classify its phase `skills` ids that aren't already
+ * materialized for this repo into two buckets (spec 0004 §4):
+ *   - `external`       — not bundled by navori under ANY preset. WARNING.
+ *   - `inactivePreset` — bundled by navori, but under a preset that isn't active.
+ *                        Softer note: activate that preset or add it as a local skill.
+ * Neither is an error — a feature composes existing skills by id and MAY point at
+ * ids this repo doesn't currently ship.
+ */
+export function scanFeatureExternalSkills(cwd: string, config: NavoriConfig): FeatureExternalSkills[] {
+  const active = config.features ?? [];
+  if (active.length === 0) return [];
+  const activeCatalog = activeSkillIds(config, cwd);
+  const bundledCatalog = bundledSkillIds(config, cwd);
+  const out: FeatureExternalSkills[] = [];
+  for (const id of active) {
+    let loaded;
+    try {
+      loaded = loadFeature(id, cwd);
+    } catch {
+      continue; // malformed feature — surfaced via the render/unknown path
+    }
+    if (!loaded) continue; // unknown — surfaced by scanUnknownFeatures
+    const external = new Set<string>();
+    const inactivePreset = new Set<string>();
+    for (const phase of loaded.manifest.phases) {
+      for (const skill of phase.skills) {
+        if (activeCatalog.has(skill)) continue; // already present here
+        if (bundledCatalog.has(skill)) inactivePreset.add(skill);
+        else external.add(skill);
+      }
+    }
+    if (external.size > 0 || inactivePreset.size > 0) {
+      out.push({ featureId: id, external: [...external], inactivePreset: [...inactivePreset] });
+    }
+  }
+  return out;
+}
+
 interface MonorepoDrift {
   /** Workspaces on disk not yet in config (run scan). */
   added: string[];
@@ -577,6 +667,19 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
       }
     } catch {
       // Missing / broken plugin is reported via missingPlugins.
+    }
+  }
+
+  // Active features declare invariants too (e.g. phase ids that must survive the
+  // render) — same verbatim-substring contract. Spec 0004 §4.
+  for (const id of config.features ?? []) {
+    try {
+      const loaded = loadFeature(id, cwd);
+      if (loaded && loaded.manifest.invariants.length > 0) {
+        sources.push({ source: `feature:${id}`, invariants: loaded.manifest.invariants });
+      }
+    } catch {
+      // Malformed feature is surfaced elsewhere; nothing to check here.
     }
   }
 

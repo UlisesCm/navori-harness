@@ -59,4 +59,19 @@ describe("catalog count enforcement (spec 0003 §3.1.6)", () => {
   it("library skill count matches core-assets/lib-skills/*.md", () => {
     expect(countFiles(resolve(coreAssets, "lib-skills"), ".md")).toBe(features.librarySkills);
   });
+
+  it("declares a feature count", () => {
+    expect(typeof features.features).toBe("number");
+  });
+
+  // The feature CONTENT (core-assets/features/<id>/) ships in this branch, so the
+  // count is enforced strictly: the bundle must have exactly `features.features`
+  // feature directories (each with a feature.json), like every other catalog count.
+  it("feature count matches core-assets/features/*", () => {
+    const dir = resolve(coreAssets, "features");
+    const count = readdirSync(dir, { withFileTypes: true }).filter(
+      (e) => e.isDirectory() && existsSync(resolve(dir, e.name, "feature.json")),
+    ).length;
+    expect(count).toBe(features.features);
+  });
 });

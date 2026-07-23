@@ -26,7 +26,7 @@ export const SKILL_DIR_ENTRY = "SKILL.md";
  * file. Returns the repo-relative path that exists, preferring the flat file,
  * or null when neither is present.
  *
- * A skill id is a flat slug: any path separator or `..` traversal is rejected up
+ * A skill id is a flat slug: a path separator or `..` traversal is rejected up
  * front so a config-supplied id can never resolve outside `.claude/skills/`.
  */
 export function resolveLocalSkillPath(cwd: string, id: string): string | null {
@@ -47,6 +47,8 @@ export const SKILL_TYPE_CAPS = {
   reference: 500,
   /** Wraps an external tool (e.g. bun-runtime). */
   tool: 300,
+  /** Feature mother-skill (FEATURE.md orchestration contract). Spec 0004 §6. */
+  feature: 400,
 } as const;
 
 export type SkillType = keyof typeof SKILL_TYPE_CAPS;
