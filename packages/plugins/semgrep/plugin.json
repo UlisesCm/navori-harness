@@ -2,7 +2,7 @@
   "id": "semgrep",
   "name": "semgrep (security + pattern analysis)",
   "description": "Detección de vulnerabilidades y patrones inseguros local opt-in",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "managed": [
     {
       "id": "semgrep-protocol",
@@ -32,12 +32,6 @@
       "command": "bash .claude/scripts/check-semgrep.sh",
       "timeout": 180,
       "statusMessage": "navori/semgrep: security scan"
-    },
-    {
-      "event": "Stop",
-      "command": "bash .claude/scripts/check-semgrep.sh",
-      "timeout": 180,
-      "statusMessage": "navori/semgrep: security scan (cierre de sesión)"
     }
   ]
 }

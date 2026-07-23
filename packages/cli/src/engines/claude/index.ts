@@ -1297,6 +1297,25 @@ type PluginScriptPlan =
  * markers / no user-section); any user edits are overwritten on the
  * next render that changes the rendered content.
  */
+/**
+ * Presets whose repos are frontend UI codebases. Their JSX/TSX repeats by
+ * nature (component boilerplate, Mantine props), so jscpd's duplication
+ * threshold is relaxed to 10%. Every other preset (backends, workers) keeps
+ * the stricter 5% default.
+ */
+const FRONTEND_PRESETS = new Set([
+  "vite-react-ts",
+  "vite-react-ts-mantine",
+  "nextjs",
+  "astro",
+  "react-native-expo",
+]);
+
+/** jscpd duplication threshold (percent) for a preset — see FRONTEND_PRESETS. */
+function jscpdThresholdForPreset(preset: string): number {
+  return FRONTEND_PRESETS.has(preset) ? 10 : 5;
+}
+
 function planPluginScript(
   cwd: string,
   script: { src: string; dest: string; exec: boolean },
@@ -1304,7 +1323,9 @@ function planPluginScript(
 ): PluginScriptPlan {
   const destPath = join(cwd, ".claude/scripts", script.dest);
   const raw = readFileSync(script.src, "utf-8");
-  const interpolated = interpolate(raw, config);
+  const interpolated = interpolate(raw, config, {
+    extraVars: { jscpdThreshold: String(jscpdThresholdForPreset(config.preset)) },
+  });
   const existing = existsSync(destPath) ? readFileSync(destPath, "utf-8") : null;
   if (existing === interpolated) return { kind: "noop" };
   return {

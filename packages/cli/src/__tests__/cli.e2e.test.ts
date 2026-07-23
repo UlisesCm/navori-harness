@@ -124,7 +124,7 @@ describe("CLI e2e — happy paths", () => {
     expect(gate).not.toContain("{{branchBase}}");
   });
 
-  it("gate plugins register both a PreToolUse and a Stop hook (gates run at session close)", () => {
+  it("gate plugins register a PreToolUse hook only — never a Stop hook", () => {
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({ name: "stop-app", dependencies: { typescript: "^5" } }),
       "tsconfig.json": "{}",
@@ -137,9 +137,10 @@ describe("CLI e2e — happy paths", () => {
     expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
 
     const settings = JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8"));
-    // The gate fires both before commit/push (PreToolUse) and at session close (Stop).
+    // The gate fires only before commit/push (PreToolUse) — no Stop hook, so it
+    // never runs on every turn's session close (only when code is about to land).
     expect(JSON.stringify(settings.hooks?.PreToolUse ?? [])).toContain("check-jscpd.sh");
-    expect(JSON.stringify(settings.hooks?.Stop ?? [])).toContain("check-jscpd.sh");
+    expect(JSON.stringify(settings.hooks?.Stop ?? [])).not.toContain("check-jscpd.sh");
   });
 
   it("project.localSkills renders a skills-index block; doctor flags a missing file", () => {
