@@ -24,7 +24,8 @@
     "presets": 12,
     "coreAgents": 12,
     "coreSkills": 6,
-    "librarySkills": 15
+    "librarySkills": 15,
+    "features": 1
   },
   "license": "MIT",
   "scripts": {

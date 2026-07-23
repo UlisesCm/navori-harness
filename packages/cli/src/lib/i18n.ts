@@ -584,6 +584,9 @@ interface DoctorCmdStrings {
   excludedSecurityBlockRow: (id: string) => string;
   unknownExcludedBlocks: (n: number, lines: string) => string;
   unknownExcludedBlockRow: (id: string) => string;
+  unknownFeatures: (n: number, lines: string) => string;
+  featureExternalSkills: (n: number, lines: string) => string;
+  featureInactivePresetSkills: (n: number, lines: string) => string;
   driftContentRow: (source: string) => string;
   driftVersionSuffix: (source: string) => string;
   drift: (n: number, hint: string, lines: string) => string;
@@ -615,11 +618,30 @@ interface DoctorCmdStrings {
   outroOk: string;
 }
 
+/**
+ * Feature activation prose shared by `navori add feature <id>` and
+ * `navori init --feature <id>`. Both used to hardcode a single locale (add: es,
+ * init: en) — routing them here keeps output in the config/wizard language.
+ */
+interface FeatureCmdStrings {
+  passId: string;
+  noneKnown: string;
+  unknown: (id: string, known: string) => string;
+  initInRepoNotBootstrap: (id: string) => string;
+  addBootstrapWarning: (id: string) => string;
+  alreadyActive: (id: string) => string;
+  added: (id: string, configPath: string) => string;
+  renderFailed: string;
+  registeredRenderFailed: string;
+  activatedRendered: string;
+}
+
 interface CmdStrings {
   common: CommonCmdStrings;
   render: RenderCmdStrings;
   sync: SyncCmdStrings;
   doctor: DoctorCmdStrings;
+  feature: FeatureCmdStrings;
 }
 
 const CMD_ES: CmdStrings = {
@@ -724,6 +746,16 @@ const CMD_ES: CmdStrings = {
       `Ids en blocks.exclude que no son bloques core conocidos (${n}) — ` +
       `probablemente un typo; no excluyen nada. Corrígelos o quítalos de blocks.exclude:\n${lines}`,
     unknownExcludedBlockRow: (id) => `— '${id}' no coincide con ningún bloque core`,
+    unknownFeatures: (n, lines) =>
+      `Features declaradas en config sin bundle (${n}) — no existen en core-assets/features/ ni en ` +
+      `.navori/features/; el render las omite. Corre 'navori add feature <id>' con un id válido o ` +
+      `quítalas de features[]:\n${lines}`,
+    featureExternalSkills: (n, lines) =>
+      `Features que referencian skills que navori no bundlea (${n}) — asegúrate de que existan en el ` +
+      `harness destino (una skill global tuya o de un CLI externo). No es un error:\n${lines}`,
+    featureInactivePresetSkills: (n, lines) =>
+      `Features que referencian skills bundleadas pero fuera del preset activo (${n}) — se activan con ` +
+      `el preset correspondiente o como skill local. No es un error:\n${lines}`,
     driftContentRow: (source) => `(${source}, content edited)`,
     driftVersionSuffix: (source) => `(${source})`,
     drift: (n, hint, lines) => `Drift detectado (${n}) — ${hint}:\n${lines}`,
@@ -781,6 +813,25 @@ const CMD_ES: CmdStrings = {
     outroIssues: "Issues found",
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
+  },
+  feature: {
+    passId: "Pasa un id de feature (ej. 'navori add feature app-builder').",
+    noneKnown: "(ninguna)",
+    unknown: (id, known) => `Feature '${id}' desconocida. Conocidas: ${known}`,
+    initInRepoNotBootstrap: (id) =>
+      `La feature '${id}' es kind:in-repo — espera un proyecto existente. Corre 'navori init' ` +
+      `primero, después 'navori add feature ${id}'. 'navori init --feature' es solo para features ` +
+      `kind:bootstrap (las que crean el proyecto).`,
+    addBootstrapWarning: (id) =>
+      `'${id}' es una feature de bootstrap (crea el proyecto). Este repo ya está inicializado, ` +
+      `así que las fases de scaffold se saltan por su gate ("ya existe"). Para un proyecto nuevo ` +
+      `desde una carpeta vacía usa 'navori init --feature ${id}'.`,
+    alreadyActive: (id) => `'${id}' ya está en features[] de este config`,
+    added: (id, configPath) => `Añadí '${id}' a features[] en ${configPath}`,
+    renderFailed: "El render falló",
+    registeredRenderFailed:
+      "Feature registrada, pero el render falló — corre 'navori render --apply'.",
+    activatedRendered: "feature activada y renderizada",
   },
 };
 
@@ -886,6 +937,16 @@ const CMD_EN: CmdStrings = {
       `Ids in blocks.exclude that are not known core blocks (${n}) — ` +
       `likely a typo; they exclude nothing. Fix or drop them from blocks.exclude:\n${lines}`,
     unknownExcludedBlockRow: (id) => `— '${id}' matches no core block`,
+    unknownFeatures: (n, lines) =>
+      `Features declared in config with no bundle (${n}) — they don't exist in core-assets/features/ ` +
+      `nor .navori/features/; render skips them. Run 'navori add feature <id>' with a valid id or ` +
+      `remove them from features[]:\n${lines}`,
+    featureExternalSkills: (n, lines) =>
+      `Features referencing skills navori does not bundle (${n}) — make sure they exist in the target ` +
+      `harness (a user global skill or one from an external CLI). Not an error:\n${lines}`,
+    featureInactivePresetSkills: (n, lines) =>
+      `Features referencing skills navori bundles but outside the active preset (${n}) — activate the ` +
+      `matching preset or add them as a local skill. Not an error:\n${lines}`,
     driftContentRow: (source) => `(${source}, content edited)`,
     driftVersionSuffix: (source) => `(${source})`,
     drift: (n, hint, lines) => `Drift detected (${n}) — ${hint}:\n${lines}`,
@@ -943,6 +1004,24 @@ const CMD_EN: CmdStrings = {
     outroIssues: "Issues found",
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
+  },
+  feature: {
+    passId: "Pass a feature id (e.g. 'navori add feature app-builder').",
+    noneKnown: "(none)",
+    unknown: (id, known) => `Unknown feature '${id}'. Known: ${known}`,
+    initInRepoNotBootstrap: (id) =>
+      `Feature '${id}' is kind:in-repo — it expects an existing project. Run 'navori init' ` +
+      `first, then 'navori add feature ${id}'. 'navori init --feature' is only for ` +
+      `kind:bootstrap features (which create the project).`,
+    addBootstrapWarning: (id) =>
+      `'${id}' is a bootstrap feature (it creates the project). This repo is already initialized, ` +
+      `so the scaffold phases self-skip by their gate ("already exists"). For a new project from ` +
+      `an empty folder use 'navori init --feature ${id}'.`,
+    alreadyActive: (id) => `'${id}' is already in this config's features[]`,
+    added: (id, configPath) => `Added '${id}' to features[] in ${configPath}`,
+    renderFailed: "Render failed",
+    registeredRenderFailed: "Feature registered, but render failed — run 'navori render --apply'.",
+    activatedRendered: "feature activated and rendered",
   },
 };
 

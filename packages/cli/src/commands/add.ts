@@ -10,10 +10,13 @@ import {
   PluginManifestError,
   listKnownPluginIds,
 } from "../lib/plugins.ts";
+import { loadFeature, listFeatureIds, FeatureError } from "../lib/features.ts";
+import { runRender } from "./render.ts";
 import { hasBinary } from "../lib/which.ts";
 import { InstallError } from "../lib/errors.ts";
 import { detectProject } from "../lib/detect.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
+import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 
 type Platform = "darwin" | "linux" | "win32";
 
@@ -68,7 +71,12 @@ export const addCommand = defineCommand({
   args: {
     plugin: {
       type: "positional",
-      description: "Plugin id to add (e.g. engram). Omit with --suggest.",
+      description: "Plugin id to add (e.g. engram), or 'feature' to add a feature. Omit with --suggest.",
+      required: false,
+    },
+    id: {
+      type: "positional",
+      description: "Feature id, when the first argument is 'feature' (e.g. 'navori add feature app-builder').",
       required: false,
     },
     suggest: {
@@ -114,6 +122,13 @@ export const addCommand = defineCommand({
 
     if (args.suggest) {
       printSuggestions(cwd, configPath);
+      return;
+    }
+
+    // `navori add feature <id>` — activate a feature (spec 0004) rather than a
+    // plugin. The first positional is the literal "feature"; the second is the id.
+    if (args.plugin === "feature") {
+      await addFeature(cwd, configPath, args.id as string | undefined);
       return;
     }
 
@@ -213,6 +228,72 @@ export const addCommand = defineCommand({
     p.outro(`${color.green("Done")} ${dim("— run 'navori render --apply' to apply")}`);
   },
 });
+
+/**
+ * `navori add feature <id>` — validate the id resolves to a feature bundle,
+ * append it to `features[]` (preserving the raw config), and render. Spec 0004
+ * §3. A bootstrap feature added to an already-initialized repo proceeds with a
+ * warning: its scaffold phases self-skip by gate.
+ */
+async function addFeature(cwd: string, configPath: string, featureId: string | undefined): Promise<void> {
+  // Route all prose through the config-language dictionary (spec: no hardcoded
+  // locale). Resolve defensively so a broken config still yields a usable message.
+  let lang: Lang = DEFAULT_LANG;
+  try {
+    lang = resolveLang(readConfig(configPath).language);
+  } catch {
+    // keep the default locale; the config error surfaces on the read below
+  }
+  const tr = tc(lang).feature;
+
+  if (!featureId) {
+    p.cancel(tr.passId);
+    process.exit(1);
+  }
+
+  let loaded;
+  try {
+    loaded = loadFeature(featureId, cwd);
+  } catch (err) {
+    if (err instanceof FeatureError) {
+      p.cancel(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
+  if (!loaded) {
+    const known = listFeatureIds(cwd).join(", ") || tr.noneKnown;
+    p.cancel(tr.unknown(featureId, known));
+    process.exit(1);
+  }
+
+  p.log.info(`${loaded.manifest.displayName} (${loaded.manifest.kind})`);
+  p.log.message(loaded.manifest.description);
+
+  if (loaded.manifest.kind === "bootstrap") {
+    p.log.warn(tr.addBootstrapWarning(featureId));
+  }
+
+  const config = readConfig(configPath);
+  const already = (config.features ?? []).includes(featureId);
+  if (already) {
+    p.log.warn(tr.alreadyActive(featureId));
+  } else {
+    const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+    const features = Array.isArray(raw.features) ? raw.features : [];
+    writeConfig(configPath, { ...raw, features: [...features, featureId] });
+    p.log.success(tr.added(featureId, configPath));
+  }
+
+  // Render so the feature's SKILL.md + phases land immediately (spec 0004 §3).
+  const result = runRender(cwd, false);
+  if (!result.ok) {
+    p.log.error(result.reason ?? tr.renderFailed);
+    p.outro(dim(tr.registeredRenderFailed));
+    return;
+  }
+  p.outro(`${color.green("Done")} ${dim(`— ${tr.activatedRendered}`)}`);
+}
 
 /**
  * Spec 0003 §3.5.2 — suggest (never install) based on the detected stack:

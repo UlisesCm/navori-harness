@@ -150,6 +150,29 @@ describe("CLI e2e — happy paths", () => {
     expect(gate).not.toContain("{{branchBase}}");
   });
 
+  it("configure name persists a kebab-case name and rejects a non-kebab one", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "cn-app", dependencies: { typescript: "^5" } }),
+      "tsconfig.json": "{}",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    });
+    dirs.push(repo);
+
+    expect(runCli(["init", "--recommended", "--no-render", "--cwd", repo]).status).toBe(0);
+
+    // app-builder phase 0 runs `navori configure name <definitivo>` — the value wins.
+    const ok = runCli(["configure", "name", "final-app", "--cwd", repo]);
+    expect(ok.status).toBe(0);
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.name).toBe("final-app");
+
+    // A non-kebab name is rejected (cancelled) without corrupting the config.
+    const bad = runCli(["configure", "name", "Final_App", "--cwd", repo]);
+    expect(bad.combined).toMatch(/kebab/i);
+    const unchanged = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(unchanged.name).toBe("final-app");
+  });
+
   it("gate plugins register a PreToolUse hook only — never a Stop hook", () => {
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({ name: "stop-app", dependencies: { typescript: "^5" } }),

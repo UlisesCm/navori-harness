@@ -100,7 +100,7 @@ describe("i18n — command catalog (tc)", () => {
     const keysOf = (o: Record<string, unknown>) => Object.keys(o).sort();
     const es = tc("es");
     const en = tc("en");
-    for (const section of ["common", "render", "sync", "doctor"] as const) {
+    for (const section of ["common", "render", "sync", "doctor", "feature"] as const) {
       expect(keysOf(es[section] as unknown as Record<string, unknown>)).toEqual(
         keysOf(en[section] as unknown as Record<string, unknown>),
       );

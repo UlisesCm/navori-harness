@@ -257,6 +257,53 @@ const branchBaseSubCommand = defineCommand({
   },
 });
 
+const nameSubCommand = defineCommand({
+  meta: {
+    name: "name",
+    description: "Set the project name (kebab-case; app-builder phase 0 syncs the definitive name here)",
+  },
+  args: {
+    cwd: { type: "string", description: "Directory (default: cwd)" },
+    value: { type: "positional", description: "Project name (kebab-case)", required: false },
+  },
+  async run({ args }) {
+    const cwd = resolve(args.cwd ?? process.cwd());
+    const { config, path, raw } = loadOrExit(cwd);
+
+    p.intro(brand("configure name"));
+
+    let value = (args.value as string | undefined)?.trim();
+    if (!value) {
+      const input = await p.text({
+        message: "Project name (kebab-case)",
+        placeholder: config.name,
+        defaultValue: config.name,
+      });
+      if (p.isCancel(input)) {
+        p.cancel("Cancelled");
+        return;
+      }
+      value = (input as string).trim();
+    }
+
+    if (!value) {
+      p.cancel("Name cannot be empty");
+      return;
+    }
+    // The schema requires kebab-case; validate here for a friendly message
+    // instead of letting writeConfig throw a raw validation error.
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(value)) {
+      p.cancel(`Invalid name '${value}'. Must be kebab-case (lowercase letters, digits, hyphens).`);
+      return;
+    }
+
+    raw.name = value;
+    persist(path, raw);
+    p.log.success(`name → ${value}`);
+    p.outro("Run 'navori render --apply' to re-render with the new name.");
+  },
+});
+
 const prTargetSubCommand = defineCommand({
   meta: {
     name: "pr-target",
@@ -456,6 +503,7 @@ export const configureCommand = defineCommand({
   subCommands: {
     plugins: pluginsSubCommand,
     "quality-gate": qualityGateSubCommand,
+    name: nameSubCommand,
     "branch-base": branchBaseSubCommand,
     "pr-target": prTargetSubCommand,
     language: languageSubCommand,

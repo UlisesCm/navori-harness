@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, chmodSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, chmodSync, rmSync, type Dirent } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import type { MonorepoRenderContext } from "../../lib/monorepo.ts";
@@ -8,6 +8,7 @@ import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../.
 import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { librarySkillById, LIBRARY_SKILLS, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
+import { loadFeature, featureExists, featureSource, FeatureError, type FeatureManifest } from "../../lib/features.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import {
   injectManagedSection,
@@ -163,6 +164,15 @@ function buildSkillsIndexBody(
   for (const id of config.project?.libraries ?? []) {
     if (listed.has(id) || !librarySkillById(id)) continue;
     rows.push(`- \`${id}\` — library (detected)`);
+    listed.add(id);
+  }
+  // Active features render as mother skills under `.claude/skills/<id>/SKILL.md`;
+  // list the ones that resolve so agents discover them (Claude Code autoloads the
+  // dir regardless, this is the navigation aid). Unknown ids are surfaced by
+  // doctor, not listed here.
+  for (const id of config.features ?? []) {
+    if (listed.has(id) || !featureExists(id, repoRoot)) continue;
+    rows.push(`- \`${id}\` — feature`);
     listed.add(id);
   }
   for (const name of localSkills) {
@@ -793,6 +803,83 @@ export function renderClaudeEngine(
     );
   }
 
+  // 6.7. Features — multi-phase workflows (spec 0004) rendered into the SKILLS
+  // namespace as managed content: `.claude/skills/<id>/SKILL.md` (the FEATURE.md
+  // orchestration doc as a mother skill, with manifest-derived frontmatter
+  // carrying the triggers) + `.claude/skills/<id>/phases/<n>-<slug>.md` (each
+  // phase doc, managed). Same managed-file machinery as core/preset/library
+  // skills; the marker source is `@navori/feature-<id>` so drift and ownership
+  // are attributed to the feature. An unknown/malformed feature id degrades to a
+  // warning (doctor reports it) — never a hard failure.
+  const activeFeatures = new Set<string>(config.features ?? []);
+  for (const id of config.features ?? []) {
+    let loaded;
+    try {
+      loaded = loadFeature(id, repoRoot);
+    } catch (err) {
+      if (err instanceof FeatureError) {
+        warnings.push(`feature '${id}' invalid: ${err.message}`);
+        continue;
+      }
+      throw err;
+    }
+    if (!loaded) {
+      warnings.push(
+        `feature '${id}' not found (no .navori/features/${id}/ nor bundled core-assets/features/${id}/). ` +
+          `Skipped — 'navori doctor' lists it.`,
+      );
+      continue;
+    }
+    const meta = { source: featureSource(id), version: NAVORI_VERSION };
+    // SKILL.md — FEATURE.md body wrapped with manifest-derived frontmatter.
+    const featureMdPath = join(loaded.dir, "FEATURE.md");
+    if (!existsSync(featureMdPath)) {
+      warnings.push(`feature '${id}': FEATURE.md missing in ${loaded.dir}; SKILL.md not rendered`);
+    } else {
+      inspected += 1;
+      applyManagedFilePlan(
+        planManagedFile({
+          cwd,
+          assetRoot: loaded.dir,
+          assetRelPath: "SKILL.md", // style inference only (rawContent wins)
+          destRelPath: `.claude/skills/${id}/SKILL.md`,
+          managedId: id,
+          config,
+          meta,
+          rawContent: composeFeatureSkillMd(loaded.manifest, readFileSync(featureMdPath, "utf-8")),
+        }),
+        cwd,
+        pending,
+        skipped,
+      );
+    }
+    // Phases — one managed reference doc per manifest phase, loaded on-demand
+    // when that phase runs. Source filename convention is `<n>-<slug>.md`.
+    for (const phase of loaded.manifest.phases) {
+      const rel = `phases/${phase.n}-${phase.slug}.md`;
+      const phaseAbs = join(loaded.dir, rel);
+      if (!existsSync(phaseAbs)) {
+        warnings.push(`feature '${id}': phase file ${rel} missing; not rendered`);
+        continue;
+      }
+      inspected += 1;
+      applyManagedFilePlan(
+        planManagedFile({
+          cwd,
+          assetRoot: loaded.dir,
+          assetRelPath: rel,
+          destRelPath: `.claude/skills/${id}/${rel}`,
+          managedId: `${id}-${phase.n}-${phase.slug}`,
+          config,
+          meta,
+        }),
+        cwd,
+        pending,
+        skipped,
+      );
+    }
+  }
+
   // 7. Plugin scripts (copy + interpolate to .claude/scripts/)
   for (const plugin of enabledPlugins) {
     for (const script of plugin.scriptAssets) {
@@ -943,6 +1030,40 @@ export function renderClaudeEngine(
     scriptRemovals.push(abs);
   }
 
+  // 8.8. Reconcile DEACTIVATED features. A feature removed from `config.features`
+  // (or whose bundle was deleted) leaves its rendered `.claude/skills/<id>/` tree
+  // on disk. Delete OURS — every file under the dir carrying the feature's marker
+  // source — but never a user's hand-authored file (no navori marker) in the same
+  // dir. Ownership is decided by scanning ALL `.md` files in the dir (recursive)
+  // for `source="@navori/feature-<id>"`: SKILL.md is NOT special, so a feature
+  // whose SKILL.md was hand-deleted while marked phase files remain is still
+  // reconciled instead of orphaned forever. Disk-scan (not a static registry) so
+  // deactivation works even when the source bundle is gone. Empty phase/feature
+  // dirs are pruned after the file removals (a surviving user file keeps the dir).
+  const featureDirsToPrune: string[] = [];
+  const skillsRoot = join(cwd, ".claude/skills");
+  if (existsSync(skillsRoot)) {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(skillsRoot, { withFileTypes: true });
+    } catch {
+      entries = [];
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const id = entry.name;
+      if (activeFeatures.has(id)) continue; // active — rendered/updated above
+      const featureDir = join(skillsRoot, id);
+      const owned = collectFeatureOwnedFiles(featureDir, featureSource(id));
+      if (owned.length === 0) continue; // none of ours here — keep (user's own dir)
+      for (const abs of owned) {
+        inspected += 1;
+        scriptRemovals.push(abs);
+      }
+      featureDirsToPrune.push(featureDir);
+    }
+  }
+
   // 9. Backup + atomic writes
   let backupPath: string | null = null;
   benchMark("plan");
@@ -1030,6 +1151,9 @@ export function renderClaudeEngine(
       }
       written.push({ path: relative(cwd, abs), status: "removed-condition-false" });
     }
+    // Prune now-empty feature dirs left by the deactivation reconciler (8.8).
+    // Only rmdir when empty so a user file dropped inside is never destroyed.
+    pruneEmptyFeatureDirs(featureDirsToPrune);
   } else {
     for (const p of pending) {
       written.push({ path: relative(cwd, p.path), status: p.status });
@@ -1054,6 +1178,73 @@ export function renderClaudeEngine(
 }
 
 // ─────────────────────────── helpers ───────────────────────────
+
+/**
+ * Compose the source of a feature's `SKILL.md`: the FEATURE.md orchestration doc
+ * (frontmatter, if any, stripped) under a fresh frontmatter block derived from
+ * the manifest — `name` (feature id), `description` (carries the triggers Claude
+ * Code loads the mother skill on), `type: feature`. The result flows through the
+ * normal managed-file renderer (marker + frontmatter merge) like any skill.
+ */
+function composeFeatureSkillMd(manifest: FeatureManifest, featureMd: string): string {
+  const body = stripFrontmatter(featureMd).trim();
+  const fm = [
+    "---",
+    `name: ${manifest.id}`,
+    `description: ${manifest.description}`,
+    "type: feature",
+    "---",
+  ].join("\n");
+  return `${fm}\n\n${body}\n`;
+}
+
+/**
+ * Every `.md` file under a feature's rendered directory that carries the given
+ * marker source — the ownership-guarded set safe to delete when the feature is
+ * deactivated. A sibling file the user dropped in (no navori marker) is left out.
+ */
+function collectFeatureOwnedFiles(featureDir: string, source: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        try {
+          if (readFileSync(abs, "utf-8").includes(`source="${source}"`)) out.push(abs);
+        } catch {
+          // unreadable — skip (leave on disk rather than guess)
+        }
+      }
+    }
+  };
+  walk(featureDir);
+  return out;
+}
+
+/** rmdir each feature dir (and its `phases/` subdir) when empty, after the
+ * ownership-guarded file removals. Never recursive — a user file left inside
+ * keeps the dir alive. */
+function pruneEmptyFeatureDirs(featureDirs: readonly string[]): void {
+  for (const dir of featureDirs) {
+    for (const sub of [join(dir, "phases"), dir]) {
+      try {
+        // Only rmdir when empty (verified here) — a user file left inside keeps
+        // the dir alive. `recursive` is harmless on a dir already known empty.
+        if (existsSync(sub) && readdirSync(sub).length === 0) rmSync(sub, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+  }
+}
 
 function isAgentEnabled(
   config: NavoriConfig,
@@ -1136,11 +1327,18 @@ interface ManagedFilePlanInput {
   destRelPath: string;      // relative to cwd
   managedId: string;
   config: NavoriConfig;
-  /** Open-marker provenance. Defaults to CORE_META (core/library assets); a
-   * plugin-owned standalone skill passes its own `@navori/plugin-<id>` source
-   * so the marker matches the one applySubBlockInject stamps for injectInto
-   * skills of the same plugin. */
+  /** Open-marker provenance / marker metadata to stamp. Defaults to CORE_META
+   * (core/library assets). A plugin-owned standalone skill passes its own
+   * `@navori/plugin-<id>` source so the marker matches the one
+   * applySubBlockInject stamps for injectInto skills of the same plugin;
+   * features pass their own `@navori/feature-<id>` source so drift/ownership is
+   * attributed correctly. */
   meta?: { source: string; version: string };
+  /** Pre-composed source content — when set, the asset is rendered from this
+   * string instead of read from `assetPath` (features synthesize the SKILL.md
+   * source from the manifest + FEATURE.md). `assetRelPath` still drives comment
+   * style inference (keep it a `.md` path). */
+  rawContent?: string;
 }
 
 type ManagedFilePlan =
@@ -1154,6 +1352,7 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
   const existing = existsSync(destPath) ? readFileSync(destPath, "utf-8") : null;
   const result = renderManagedFile({
     assetPath,
+    rawContent: input.rawContent,
     existingContent: existing,
     managedId: input.managedId,
     meta: input.meta ?? CORE_META,
