@@ -8,6 +8,7 @@ import {
   scanManagedDrift,
   scanManagedOrder,
   scanMalformedMarkers,
+  scanExcludedBlocks,
   listMarkers,
   type DriftReport,
 } from "../health.ts";
@@ -294,5 +295,44 @@ describe("scanMalformedMarkers (#71 item 11)", () => {
     const doc = injectManagedSection("", "idioma-rol", "x").output;
     writeFileSync(join(cwd, "CLAUDE.md"), doc);
     expect(scanMalformedMarkers(cwd)).toHaveLength(0);
+  });
+});
+
+describe("scanExcludedBlocks (feature: blocks.exclude)", () => {
+  const base = { name: "demo", engines: ["claude"], preset: "custom" };
+
+  it("returns null when nothing is excluded", () => {
+    expect(scanExcludedBlocks(NavoriConfigSchema.parse(base))).toBeNull();
+    expect(scanExcludedBlocks(NavoriConfigSchema.parse({ ...base, blocks: { exclude: [] } }))).toBeNull();
+  });
+
+  it("reports known excluded core blocks (always visible — no silent drift)", () => {
+    const report = scanExcludedBlocks(
+      NavoriConfigSchema.parse({ ...base, blocks: { exclude: ["orquestacion", "sdd"] } }),
+    );
+    expect(report).toEqual({ excluded: ["orquestacion", "sdd"], nonExcludable: [], unknown: [] });
+  });
+
+  it("separates unknown ids (typos) from known ones so doctor can warn", () => {
+    const report = scanExcludedBlocks(
+      NavoriConfigSchema.parse({ ...base, blocks: { exclude: ["orquestacion", "orquestracion"] } }),
+    );
+    expect(report?.excluded).toEqual(["orquestacion"]);
+    expect(report?.unknown).toEqual(["orquestracion"]);
+  });
+
+  // A real core block that isn't excludable (e.g. `operaciones-seguras`, part of
+  // the safety contract) must land in `nonExcludable` — the render keeps it and
+  // doctor warns the opt-out had no effect — not in `excluded` or `unknown`.
+  it("routes a non-excludable core block to `nonExcludable`, not `excluded`", () => {
+    const report = scanExcludedBlocks(
+      NavoriConfigSchema.parse({
+        ...base,
+        blocks: { exclude: ["orquestacion", "operaciones-seguras"] },
+      }),
+    );
+    expect(report?.excluded).toEqual(["orquestacion"]);
+    expect(report?.nonExcludable).toEqual(["operaciones-seguras"]);
+    expect(report?.unknown).toEqual([]);
   });
 });

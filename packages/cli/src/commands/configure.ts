@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { writeConfig, type NavoriConfig } from "../lib/config.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
+import { EXCLUDABLE_BLOCK_IDS } from "../lib/render-plan.ts";
 import { brand, dim } from "../lib/style.ts";
 
 const ENGINE_OPTIONS = [
@@ -383,6 +384,52 @@ const workspaceSubCommand = defineCommand({
   },
 });
 
+const blocksSubCommand = defineCommand({
+  meta: {
+    name: "blocks",
+    description: "Opt out of core managed blocks (e.g. exclude orquestacion / sdd)",
+  },
+  args: {
+    cwd: { type: "string", description: "Directory (default: cwd)" },
+  },
+  async run({ args }) {
+    const cwd = resolve(args.cwd ?? process.cwd());
+    const { config, path, raw } = loadOrExit(cwd);
+
+    p.intro(brand("configure blocks"));
+
+    const current = new Set(config.blocks?.exclude ?? []);
+    const selected = await p.multiselect<string>({
+      message: "Core managed blocks to EXCLUDE (checked = opted out of CLAUDE.md)",
+      options: EXCLUDABLE_BLOCK_IDS.map((id) => ({ value: id, label: id })),
+      required: false,
+      initialValues: [...current].filter((id) => (EXCLUDABLE_BLOCK_IDS as readonly string[]).includes(id)),
+    });
+    if (p.isCancel(selected)) {
+      p.cancel("Cancelled");
+      return;
+    }
+
+    // Preserve any excluded ids the multiselect didn't offer — a non-excludable
+    // core block or an id from a newer navori this CLI doesn't know — so we never
+    // silently drop the user's intent (`doctor` warns about the ineffective ones).
+    const known = new Set<string>(EXCLUDABLE_BLOCK_IDS);
+    const preserved = [...current].filter((id) => !known.has(id));
+    const exclude = [...new Set([...(selected as string[]), ...preserved])];
+
+    if (exclude.length === 0) {
+      delete (raw as Record<string, unknown>).blocks;
+    } else {
+      raw.blocks = { exclude };
+    }
+    persist(path, raw);
+
+    if (exclude.length > 0) p.log.success(`blocks.exclude → ${exclude.join(", ")}`);
+    else p.log.info("blocks.exclude cleared — all core blocks render");
+    p.outro("Run 'navori render --apply' or 'navori sync' to apply (excluded blocks are removed).");
+  },
+});
+
 export const configureCommand = defineCommand({
   meta: {
     name: "configure",
@@ -396,5 +443,6 @@ export const configureCommand = defineCommand({
     language: languageSubCommand,
     engines: enginesSubCommand,
     workspace: workspaceSubCommand,
+    blocks: blocksSubCommand,
   },
 });

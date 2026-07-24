@@ -578,6 +578,12 @@ interface DoctorCmdStrings {
   missingPresetFileRow: (path: string) => string;
   missingLocalSkills: (n: number, lines: string) => string;
   missingLocalSkillRow: (id: string) => string;
+  excludedBlocksTitle: (n: number) => string;
+  excludedBlockRow: (id: string) => string;
+  nonExcludableBlocks: (n: number, lines: string) => string;
+  nonExcludableBlockRow: (id: string) => string;
+  unknownExcludedBlocks: (n: number, lines: string) => string;
+  unknownExcludedBlockRow: (id: string) => string;
   driftContentRow: (source: string) => string;
   driftVersionSuffix: (source: string) => string;
   drift: (n: number, hint: string, lines: string) => string;
@@ -708,6 +714,16 @@ const CMD_ES: CmdStrings = {
     missingLocalSkills: (n, lines) =>
       `Skills project-local declarados sin archivo (${n}) — crea el .md (o <id>/SKILL.md) o quita el id de project.localSkills:\n${lines}`,
     missingLocalSkillRow: (id) => `— falta .claude/skills/${id}.md o ${id}/SKILL.md`,
+    excludedBlocksTitle: (n) => `Bloques core excluidos · ${n} (blocks.exclude)`,
+    excludedBlockRow: (_id) => `— no se renderiza; si existía, se quita en el próximo render`,
+    nonExcludableBlocks: (n, lines) =>
+      `Ids en blocks.exclude que NO son excluibles (${n}) — solo 'orquestacion' y ` +
+      `'sdd' pueden excluirse; estos bloques se siguen renderizando. Quítalos de blocks.exclude:\n${lines}`,
+    nonExcludableBlockRow: (id) => `— '${id}' no es excluible; el bloque permanece`,
+    unknownExcludedBlocks: (n, lines) =>
+      `Ids en blocks.exclude que no son bloques core conocidos (${n}) — ` +
+      `probablemente un typo; no excluyen nada. Corrígelos o quítalos de blocks.exclude:\n${lines}`,
+    unknownExcludedBlockRow: (id) => `— '${id}' no coincide con ningún bloque core`,
     driftContentRow: (source) => `(${source}, content edited)`,
     driftVersionSuffix: (source) => `(${source})`,
     drift: (n, hint, lines) => `Drift detectado (${n}) — ${hint}:\n${lines}`,
@@ -860,6 +876,16 @@ const CMD_EN: CmdStrings = {
     missingLocalSkills: (n, lines) =>
       `Project-local skills declared with no file (${n}) — create the .md (or <id>/SKILL.md) or remove the id from project.localSkills:\n${lines}`,
     missingLocalSkillRow: (id) => `— missing .claude/skills/${id}.md or ${id}/SKILL.md`,
+    excludedBlocksTitle: (n) => `Excluded core blocks · ${n} (blocks.exclude)`,
+    excludedBlockRow: (_id) => `— not rendered; removed on next render if it was present`,
+    nonExcludableBlocks: (n, lines) =>
+      `Ids in blocks.exclude that are NOT excludable (${n}) — only 'orquestacion' ` +
+      `and 'sdd' can be excluded; these blocks still render. Drop them from blocks.exclude:\n${lines}`,
+    nonExcludableBlockRow: (id) => `— '${id}' is not excludable; the block stays`,
+    unknownExcludedBlocks: (n, lines) =>
+      `Ids in blocks.exclude that are not known core blocks (${n}) — ` +
+      `likely a typo; they exclude nothing. Fix or drop them from blocks.exclude:\n${lines}`,
+    unknownExcludedBlockRow: (id) => `— '${id}' matches no core block`,
     driftContentRow: (source) => `(${source}, content edited)`,
     driftVersionSuffix: (source) => `(${source})`,
     drift: (n, hint, lines) => `Drift detected (${n}) — ${hint}:\n${lines}`,

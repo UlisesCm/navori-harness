@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
 import { readCliVersion } from "./bundled-assets.ts";
 import { computeManagedHash, extractManagedContent, reorderManagedBlocks } from "./marker.ts";
-import { canonicalManagedOrder } from "./render-plan.ts";
+import { canonicalManagedOrder, EXCLUDABLE_BLOCK_IDS, CORE_BLOCK_IDS } from "./render-plan.ts";
 import { detectClaudeInfra } from "./claude-infra.ts";
 import { detectLegacyAgents, type LegacyAgent } from "./legacy-agents.ts";
 import type { NavoriConfig } from "./config.ts";
@@ -174,6 +174,44 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
     }
   }
   return out;
+}
+
+export interface ExcludedBlocksReport {
+  /** Whitelisted core blocks (EXCLUDABLE_BLOCK_IDS) actually opted out via
+   * `blocks.exclude`. Surfaced at a neutral note level so an exclusion never
+   * becomes silent config drift. */
+  excluded: string[];
+  /** Real core block ids listed in `blocks.exclude` that are NOT excludable
+   * (identity, session, `operaciones-seguras`). The render ignores them — the
+   * block stays — so `doctor` warns the opt-out had no effect. */
+  nonExcludable: string[];
+  /** Ids in `blocks.exclude` matching no known core block — almost always a
+   * typo that silently no-ops (the render can't strip a block that isn't ours).
+   * A warning, not an error: it doesn't break the render. */
+  unknown: string[];
+}
+
+/**
+ * Report the repo's `blocks.exclude` opt-outs: which whitelisted core blocks are
+ * suppressed (`excluded`), which listed ids are real core blocks that aren't
+ * excludable so the render keeps them (`nonExcludable`), and which match no core
+ * block at all (`unknown` typo). Returns null when nothing is excluded so the
+ * caller skips the section entirely.
+ */
+export function scanExcludedBlocks(config: NavoriConfig): ExcludedBlocksReport | null {
+  const list = config.blocks?.exclude ?? [];
+  if (list.length === 0) return null;
+  const excludable = new Set<string>(EXCLUDABLE_BLOCK_IDS);
+  const coreIds = new Set<string>(CORE_BLOCK_IDS);
+  const excluded: string[] = [];
+  const nonExcludable: string[] = [];
+  const unknown: string[] = [];
+  for (const id of list) {
+    if (excludable.has(id)) excluded.push(id);
+    else if (coreIds.has(id)) nonExcludable.push(id);
+    else unknown.push(id);
+  }
+  return { excluded, nonExcludable, unknown };
 }
 
 export interface OrderReport {
