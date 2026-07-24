@@ -3,6 +3,7 @@
   "name": "Engram persistent memory",
   "description": "Memory persistence across Claude Code sessions via MCP server",
   "version": "0.0.2",
+  "allowedScopes": ["global", "repo"],
   "managed": [
     {
       "id": "engram-protocol",

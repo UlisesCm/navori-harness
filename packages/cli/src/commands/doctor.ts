@@ -12,6 +12,9 @@ import { activeSkillIds, bundledSkillIds } from "../lib/skill-catalog.ts";
 import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
+import { readGlobalConfig } from "../lib/global-config.ts";
+import { globalTarget } from "../lib/render-target.ts";
+import { CORE_MANAGED_ASSETS } from "../lib/render-plan.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -103,6 +106,12 @@ export const doctorCommand = defineCommand({
     // surfaced so the exclusion never becomes silent config drift; unknown ids
     // (typos) warn but don't flip `ok` — they only no-op.
     const excludedBlocks = scanExcludedBlocks(config);
+    // Cross-scope (spec 0005 §2.4): when a global harness exists, the repo
+    // doctor reads BOTH layers and flags (a) a managed id active in the repo AND
+    // in ~/.claude (duplication collision — Claude Code loads both files) and (b)
+    // a scope:repo block that leaked into the global target. Read-only; never
+    // flips `ok` (it's a config smell with a concrete remediation, not a break).
+    const crossScope = scanCrossScope(cwd);
     // A declared preset that resolves to neither a local (.navori/presets/) nor
     // a bundled manifest renders the baseline AND warns — config points at
     // something unresolvable, same class as a missing plugin.
@@ -155,6 +164,7 @@ export const doctorCommand = defineCommand({
       placeholderName,
       legacyAgents,
       excludedBlocks,
+      crossScope,
     };
 
     if (args.json) {
@@ -379,6 +389,14 @@ export const doctorCommand = defineCommand({
 
     if (workspaceLink) {
       p.log.warn(formatWorkspaceLinkWarning(workspaceLink, lang));
+    }
+
+    if (crossScope && (crossScope.dups.length > 0 || crossScope.violations.length > 0)) {
+      const lines = [
+        ...crossScope.dups.map((id) => `  ${color.yellow(sym.update)} ${td.crossScopeDupRow(id)}`),
+        ...crossScope.violations.map((id) => `  ${color.red(sym.fail)} ${td.crossScopeViolationRow(id)}`),
+      ];
+      p.log.warn(td.crossScope(crossScope.dups.length + crossScope.violations.length, lines.join("\n")));
     }
 
     if (orderReport) {
@@ -653,6 +671,42 @@ export function scanWorkspaceLink(cwd: string, config: NavoriConfig): WorkspaceL
     return { kind: "path-mismatch", workspace: name, repoName: byName.name, registeredPath: byName.path };
   }
   return { kind: "repo-not-registered", workspace: name };
+}
+
+interface CrossScopeReport {
+  /** Managed ids active in BOTH the repo CLAUDE.md and ~/.claude/CLAUDE.md. */
+  dups: string[];
+  /** scope:repo core ids rendered into the global target (scope violation). */
+  violations: string[];
+}
+
+/**
+ * Spec 0005 §2.4 — the cross-scope check. Only runs when a global harness
+ * exists (`~/.navori/global.json`). Reads BOTH `CLAUDE.md` files (read-only) and
+ * compares their managed markers. A repo-vs-global duplicate means Claude Code
+ * loads the same block twice; a scope:repo id in the global target means a
+ * process block leaked into the persona layer. Returns null when there is no
+ * global config, or the global config can't be read — never fails doctor.
+ */
+export function scanCrossScope(cwd: string): CrossScopeReport | null {
+  let globalConfig;
+  try {
+    globalConfig = readGlobalConfig();
+  } catch {
+    return null;
+  }
+  if (!globalConfig) return null;
+  const target = globalTarget();
+  const globalIds = new Set(listMarkers(target.claudeMd).map((m) => m.id));
+  if (globalIds.size === 0) return { dups: [], violations: [] };
+  const repoIds = new Set(listMarkers(join(cwd, "CLAUDE.md")).map((m) => m.id));
+  const repoOnly = new Set(
+    CORE_MANAGED_ASSETS.filter((a) => (a.scope ?? "repo") === "repo").map((a) => a.id),
+  );
+  return {
+    dups: [...repoIds].filter((id) => globalIds.has(id)),
+    violations: [...globalIds].filter((id) => repoOnly.has(id)),
+  };
 }
 
 function formatWorkspaceLinkWarning(issue: WorkspaceLinkIssue, lang = DEFAULT_LANG): string {

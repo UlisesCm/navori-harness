@@ -616,6 +616,33 @@ interface DoctorCmdStrings {
   outroIssues: string;
   outroDriftStrict: string;
   outroOk: string;
+  // Cross-scope (spec 0005 §2.4): the repo doctor also reads ~/.claude.
+  crossScope: (n: number, lines: string) => string;
+  crossScopeDupRow: (id: string) => string;
+  crossScopeViolationRow: (id: string) => string;
+}
+
+interface GlobalCmdStrings {
+  initLangPrompt: string;
+  initPluginsPrompt: string;
+  initPermsPrompt: string;
+  wroteConfig: (path: string) => string;
+  coexistNote: string;
+  settingsManagedNote: string;
+  previewWord: string;
+  previewHint: string;
+  doneWord: string;
+  upToDate: string;
+  noConfig: (path: string) => string;
+  doctorConfigTitle: string;
+  doctorTargetTitle: string;
+  doctorDrift: (n: number, lines: string) => string;
+  doctorNonGlobalPlugins: (n: number, lines: string) => string;
+  doctorScopeViolations: (n: number, lines: string) => string;
+  doctorIssues: string;
+  doctorOk: string;
+  statusOk: string;
+  statusDrift: (n: number) => string;
 }
 
 /**
@@ -642,6 +669,7 @@ interface CmdStrings {
   sync: SyncCmdStrings;
   doctor: DoctorCmdStrings;
   feature: FeatureCmdStrings;
+  global: GlobalCmdStrings;
 }
 
 const CMD_ES: CmdStrings = {
@@ -813,6 +841,41 @@ const CMD_ES: CmdStrings = {
     outroIssues: "Issues found",
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
+    crossScope: (n, lines) =>
+      `Colisión de scope con ~/.claude (${n}) — el mismo bloque managed está activo en ` +
+      `las dos capas; Claude Code carga ambos archivos y los protocolos se promedian:\n${lines}`,
+    crossScopeDupRow: (id) =>
+      `⚠ '${id}' activo en ~/.claude Y en ./CLAUDE.md → excluye el bloque en el repo ` +
+      `(blocks.exclude, si tu versión lo soporta) o quítalo del scope global ('navori global sync')`,
+    crossScopeViolationRow: (id) =>
+      `⚠ '${id}' es scope:repo pero está rendereado en ~/.claude — la identidad global no debería ` +
+      `traerlo; quítalo del target global`,
+  },
+  global: {
+    initLangPrompt: "Idioma / rol de la persona",
+    initPluginsPrompt: "Plugins globales (identidad: engram, ponytail…)",
+    initPermsPrompt: "¿Manejar la allowlist de permisos en ~/.claude/settings.json?",
+    wroteConfig: (path) => `Escrito ${path} (source of truth global)`,
+    coexistNote:
+      "Ya existe un ~/.claude/CLAUDE.md — se preserva tu contenido fuera de los marcadores y se hace backup antes de escribir.",
+    settingsManagedNote:
+      "Nota: una vez adoptado, navori administra los permisos de ~/.claude/settings.json. Las ediciones a mano posteriores no se fusionan de vuelta; usa la config global como fuente de verdad.",
+    previewWord: "Preview",
+    previewHint: "corre 'navori global render --apply' para escribir",
+    doneWord: "Listo",
+    upToDate: "Al día — sin cambios",
+    noConfig: (path) => `No hay config global en ${path}. Corre 'navori global init' primero.`,
+    doctorConfigTitle: "Config global",
+    doctorTargetTitle: "Target",
+    doctorDrift: (n, lines) => `Drift en el harness global (${n}):\n${lines}`,
+    doctorNonGlobalPlugins: (n, lines) =>
+      `Plugins habilitados que no permiten scope global (${n}) — quítalos de la config global:\n${lines}`,
+    doctorScopeViolations: (n, lines) =>
+      `Bloques scope:repo rendereados en el target global (${n}) — violación de scope:\n${lines}`,
+    doctorIssues: "Issues found",
+    doctorOk: "OK",
+    statusOk: "global: al día",
+    statusDrift: (n) => `global: drift en ${n} bloque(s)`,
   },
   feature: {
     passId: "Pasa un id de feature (ej. 'navori add feature app-builder').",
@@ -1004,6 +1067,41 @@ const CMD_EN: CmdStrings = {
     outroIssues: "Issues found",
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
+    crossScope: (n, lines) =>
+      `Scope collision with ~/.claude (${n}) — the same managed block is active in both ` +
+      `layers; Claude Code loads both files and the protocols average out:\n${lines}`,
+    crossScopeDupRow: (id) =>
+      `⚠ '${id}' active in ~/.claude AND in ./CLAUDE.md → exclude the block in the repo ` +
+      `(blocks.exclude, if your version supports it) or drop it from the global scope ('navori global sync')`,
+    crossScopeViolationRow: (id) =>
+      `⚠ '${id}' is scope:repo but is rendered in ~/.claude — the global identity should not ` +
+      `carry it; remove it from the global target`,
+  },
+  global: {
+    initLangPrompt: "Persona language / role",
+    initPluginsPrompt: "Global plugins (identity: engram, ponytail…)",
+    initPermsPrompt: "Manage the permission allowlist in ~/.claude/settings.json?",
+    wroteConfig: (path) => `Wrote ${path} (global source of truth)`,
+    coexistNote:
+      "A ~/.claude/CLAUDE.md already exists — your content outside the markers is preserved and backed up before writing.",
+    settingsManagedNote:
+      "Note: once adopted, navori manages the permissions in ~/.claude/settings.json. Later hand edits are not merged back; use the global config as the source of truth.",
+    previewWord: "Preview",
+    previewHint: "run 'navori global render --apply' to write",
+    doneWord: "Done",
+    upToDate: "Up to date — no changes",
+    noConfig: (path) => `No global config at ${path}. Run 'navori global init' first.`,
+    doctorConfigTitle: "Global config",
+    doctorTargetTitle: "Target",
+    doctorDrift: (n, lines) => `Drift in the global harness (${n}):\n${lines}`,
+    doctorNonGlobalPlugins: (n, lines) =>
+      `Enabled plugins that do not allow the global scope (${n}) — remove them from the global config:\n${lines}`,
+    doctorScopeViolations: (n, lines) =>
+      `scope:repo blocks rendered in the global target (${n}) — scope violation:\n${lines}`,
+    doctorIssues: "Issues found",
+    doctorOk: "OK",
+    statusOk: "global: up to date",
+    statusDrift: (n) => `global: drift in ${n} block(s)`,
   },
   feature: {
     passId: "Pass a feature id (e.g. 'navori add feature app-builder').",

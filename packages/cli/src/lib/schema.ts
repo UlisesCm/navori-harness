@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { safeRelPath } from "./zod-helpers.ts";
 
-const ENGINES = ["claude", "agents-md", "cursor", "copilot"] as const;
+export const ENGINES = ["claude", "agents-md", "cursor", "copilot"] as const;
 const MODELS = ["opus", "sonnet", "haiku"] as const;
 const COMMITS = ["conventional", "conventional-es", "free"] as const;
-const LANGUAGES = ["es", "en"] as const;
+export const LANGUAGES = ["es", "en"] as const;
 
 /**
  * Forward-compat enum helpers (issue #70). A config written by a NEWER navori
@@ -14,7 +14,7 @@ const LANGUAGES = ["es", "en"] as const;
  * known ones) and fall back to a sane default so an older CLI keeps working.
  * readConfig surfaces a warning listing what it dropped.
  */
-function tolerantEnumArray<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
+export function tolerantEnumArray<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
   return z.preprocess((val) => {
     if (!Array.isArray(val)) return val; // let z.array report a non-array
     const known = val.filter((v) => (values as readonly string[]).includes(v as string));
@@ -26,7 +26,7 @@ function tolerantEnumArray<T extends readonly [string, ...string[]]>(values: T, 
   }, z.array(z.enum(values)).min(1));
 }
 
-function tolerantEnum<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
+export function tolerantEnum<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
   return z.preprocess(
     (val) => (val === undefined || (values as readonly string[]).includes(val as string) ? val : fallback),
     z.enum(values).default(fallback),

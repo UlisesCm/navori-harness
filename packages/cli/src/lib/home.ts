@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { HomeError } from "./errors.ts";
 
 /**
@@ -21,4 +21,33 @@ export function safeHomedir(): string {
     );
   }
   return home;
+}
+
+/**
+ * The user-level Claude Code config directory — the global render target (spec
+ * 0005). Claude Code honors `CLAUDE_CONFIG_DIR` to relocate `~/.claude`; navori
+ * follows the same env var so a user (and every hermetic test) can point the
+ * global scope at an arbitrary directory. Falls back to `~/.claude`.
+ *
+ * The override MUST be absolute when set — the same rule `safeHomedir` enforces
+ * on HOME, and for the same reason: a relative or empty-after-trim value (`.`,
+ * `./claude`, or a stale env leaked from another tool) would make the global
+ * render write onto the CWD's `CLAUDE.md` and strip its repo blocks. A relative
+ * `CLAUDE_CONFIG_DIR` is almost certainly a mistake, and silently redirecting
+ * writes is the dangerous outcome — so we throw a clear error instead of
+ * resolving it. An empty / whitespace value falls through to `~/.claude`.
+ */
+export function globalConfigDir(): string {
+  const override = process.env.CLAUDE_CONFIG_DIR;
+  if (override && override.trim().length > 0) {
+    if (!isAbsolute(override)) {
+      throw new HomeError(
+        `CLAUDE_CONFIG_DIR must be an absolute path, got '${override}'. ` +
+          "A relative value would redirect the global render onto the current directory " +
+          "and strip its repo blocks. Set it to an absolute path (e.g. '/home/you/.claude') or unset it.",
+      );
+    }
+    return override;
+  }
+  return join(safeHomedir(), ".claude");
 }

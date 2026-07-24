@@ -1,6 +1,12 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { injectManagedSection, removeManagedSection, resolveCondition, type InjectResult } from "./marker.ts";
+import {
+  injectManagedSection,
+  removeManagedSection,
+  resolveCondition,
+  isManagedBlockUserModified,
+  type InjectResult,
+} from "./marker.ts";
 import { compareSemver } from "./semver.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
 import { getCoreRoot, readCliVersion } from "./bundled-assets.ts";
@@ -11,6 +17,28 @@ import { effectiveConfig, type NavoriConfig } from "./config.ts";
 export const CORE_SOURCE_ID = "@navori/core" as const;
 
 export type AssetLanguage = "es" | "en";
+
+/**
+ * The scope a managed asset belongs to (spec 0005). `global` = persona identity
+ * rendered into `~/.claude`; `repo` = process/stack rendered into the repo;
+ * `both` = an asset eligible in either target (the rare universal guard). A
+ * render at scope S emits an asset only when its scope ∈ {S, "both"}. Absent =
+ * `repo` (the safe default: the old behavior where every block was repo-side).
+ */
+export type AssetScope = "global" | "repo" | "both";
+
+/** A concrete render pass targets exactly one scope. */
+export type RenderScope = "global" | "repo";
+
+/**
+ * True when an asset (or plugin) declaring `assetScope` should emit during a
+ * render pass at `renderScope`. `both` emits everywhere; a missing scope is
+ * treated as `repo` so pre-0005 assets keep their repo-only behavior.
+ */
+export function assetInScope(assetScope: AssetScope | undefined, renderScope: RenderScope): boolean {
+  const s = assetScope ?? "repo";
+  return s === "both" || s === renderScope;
+}
 
 export interface CoreManagedAsset {
   id: string;
@@ -26,21 +54,30 @@ export interface CoreManagedAsset {
    * per-workspace. Issue #70.
    */
   rootOnly?: boolean;
+  /**
+   * Which render target this block belongs to (spec 0005 §2.2). Identity blocks
+   * (`idioma-rol`, `formato-respuesta`) are `both`: the persona owns them at
+   * global scope, but a standalone repo without a global target still needs
+   * them, so they also emit at repo scope. Everything else is process/stack →
+   * `repo`. The generalization of `rootOnly` (#70) from "root vs workspace" to
+   * "persona vs project". Absent = `repo`.
+   */
+  scope?: AssetScope;
 }
 
 export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
-  { id: "orquestacion", relPath: "core-assets/managed/orquestacion.md", availableLanguages: ["es"], rootOnly: true },
-  { id: "idioma-rol", relPath: "core-assets/managed/idioma-rol.md", availableLanguages: ["es"], rootOnly: true },
-  { id: "formato-respuesta", relPath: "core-assets/managed/formato-respuesta.md", availableLanguages: ["es"], rootOnly: true },
-  { id: "tipado-fuerte", relPath: "core-assets/managed/tipado-fuerte.md", availableLanguages: ["es"], condition: "project.typedLanguage" },
-  { id: "operaciones-seguras", relPath: "core-assets/managed/operaciones-seguras.md", availableLanguages: ["es"], rootOnly: true },
-  { id: "arranque-sesion", relPath: "core-assets/managed/arranque-sesion.md", availableLanguages: ["es"], rootOnly: true },
-  { id: "cierre-sesion", relPath: "core-assets/managed/cierre-sesion.md", availableLanguages: ["es"], rootOnly: true },
+  { id: "orquestacion", relPath: "core-assets/managed/orquestacion.md", availableLanguages: ["es"], rootOnly: true, scope: "repo" },
+  { id: "idioma-rol", relPath: "core-assets/managed/idioma-rol.md", availableLanguages: ["es"], rootOnly: true, scope: "both" },
+  { id: "formato-respuesta", relPath: "core-assets/managed/formato-respuesta.md", availableLanguages: ["es"], rootOnly: true, scope: "both" },
+  { id: "tipado-fuerte", relPath: "core-assets/managed/tipado-fuerte.md", availableLanguages: ["es"], condition: "project.typedLanguage", scope: "repo" },
+  { id: "operaciones-seguras", relPath: "core-assets/managed/operaciones-seguras.md", availableLanguages: ["es"], rootOnly: true, scope: "repo" },
+  { id: "arranque-sesion", relPath: "core-assets/managed/arranque-sesion.md", availableLanguages: ["es"], rootOnly: true, scope: "repo" },
+  { id: "cierre-sesion", relPath: "core-assets/managed/cierre-sesion.md", availableLanguages: ["es"], rootOnly: true, scope: "repo" },
   // SDD protocol block. Conditional on `sdd.enabled`, which effectiveConfig
   // defaults to true (SDD is core to navori's identity) unless a config sets it
   // to false. Renders the EARS + R<n>↔test convention that SddSchema declared
-  // but nothing emitted before.
-  { id: "sdd", relPath: "core-assets/managed/sdd.md", availableLanguages: ["es"], rootOnly: true, condition: "sdd.enabled" },
+  // but nothing emitted before. Process, not identity → repo scope.
+  { id: "sdd", relPath: "core-assets/managed/sdd.md", availableLanguages: ["es"], rootOnly: true, condition: "sdd.enabled", scope: "repo" },
 ] as const;
 
 /**
@@ -198,8 +235,17 @@ export function computeRenderPlan(
   inputConfig: NavoriConfig,
   /** Repo root where `.navori/presets/` lives (resolves local presets). */
   repoRoot: string,
-  options: { skipIds?: ReadonlySet<string>; forceIds?: ReadonlySet<string>; omitRootOnly?: boolean } = {},
+  options: {
+    skipIds?: ReadonlySet<string>;
+    forceIds?: ReadonlySet<string>;
+    omitRootOnly?: boolean;
+    /** Which render target this pass emits into (spec 0005). A block emits only
+     * when its scope ∈ {renderScope, "both"}; out-of-scope blocks are stripped
+     * (same as a condition that turned false) so a scope violation self-heals. */
+    scope?: RenderScope;
+  } = {},
 ): RenderPlan {
+  const renderScope: RenderScope = options.scope ?? "repo";
   // Fill in render-only derived values (prTarget, project.typedLanguage) so
   // managed-block conditions resolve the same whether called from the engine
   // or from sync. Idempotent.
@@ -237,6 +283,35 @@ export function computeRenderPlan(
       // here just as it is there — these are core-owned blocks, and the user's
       // own prose lives in the separate user-section, which the render never
       // touches.
+      const before = working;
+      working = removeManagedSection(working, asset.id);
+      entries.push({
+        asset,
+        source: "core",
+        status: before === working ? "unchanged" : "removed-condition-false",
+        newContent: null,
+      });
+      continue;
+    }
+    if (!assetInScope(asset.scope, renderScope)) {
+      // Wrong scope for this target (spec 0005): the repo render never emits a
+      // global-only block, the global render never emits a repo-only block.
+      // Strip it if a violation left one behind — same semantics as a condition
+      // that turned false — so the two `CLAUDE.md` files never carry the same id.
+      // BUT: if the user hand-edited the stray block (hash drift), deleting it
+      // would silently clobber their edit. Honor the same "never clobber hand
+      // edits" contract injectManagedSection enforces: leave it in place and
+      // surface it as a conflict (`user-modified-skipped`) for doctor/report to
+      // flag, so the user resolves the scope violation explicitly.
+      if (isManagedBlockUserModified(working, asset.id)) {
+        entries.push({
+          asset,
+          source: "core",
+          status: "user-modified-skipped",
+          newContent: null,
+        });
+        continue;
+      }
       const before = working;
       working = removeManagedSection(working, asset.id);
       entries.push({
@@ -369,7 +444,13 @@ export function computeRenderPlan(
       continue;
     }
 
-    const enabled = settings.enabled === true;
+    // A plugin whose allowedScopes excludes this target is treated as disabled
+    // for this pass (spec 0005): its managed blocks are stripped, never emitted.
+    // Keeps engram/ponytail out of a repo CLAUDE.md when configured global-only,
+    // and keeps a repo-only gate out of ~/.claude.
+    const enabled =
+      settings.enabled === true &&
+      (plugin.manifest.allowedScopes as readonly string[]).includes(renderScope);
 
     if (enabled) {
       const pluginSource = `@navori/plugin-${plugin.manifest.id}`;
@@ -439,12 +520,19 @@ const CLAUDE_COMPUTED_BLOCK_IDS = [
  * layout. Ids whose block is conditionally absent (condition false / plugin
  * disabled) are dropped — harmless, since an absent id never matches a block.
  */
-export function canonicalManagedOrder(config: NavoriConfig, repoRoot: string, omitRootOnly = false): string[] {
-  const plan = computeRenderPlan("", config, repoRoot, { omitRootOnly });
+export function canonicalManagedOrder(
+  config: NavoriConfig,
+  repoRoot: string,
+  omitRootOnly = false,
+  scope: RenderScope = "repo",
+): string[] {
+  const plan = computeRenderPlan("", config, repoRoot, { omitRootOnly, scope });
   const ids = plan.entries
     .filter((entry) => entry.newContent !== null)
     .map((entry) => entry.asset.id);
-  return [...ids, ...CLAUDE_COMPUTED_BLOCK_IDS];
+  // The engine appends its computed identity blocks (skills/agents/context) only
+  // at repo scope; the global target carries none of them.
+  return scope === "global" ? ids : [...ids, ...CLAUDE_COMPUTED_BLOCK_IDS];
 }
 
 /**
