@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
@@ -7,6 +7,17 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(__dirname, "..", "..", "dist", "index.js");
+
+/**
+ * Every spawned command runs against a throwaway HOME so that `init`/`update`
+ * self-registering into ~/.navori/registry.json can never pollute the real one
+ * (the dev's or CI's). Tests that need to inspect the registry pass their own
+ * HOME override; the rest just inherit this isolated sandbox.
+ */
+const E2E_HOME = mkdtempSync(join(tmpdir(), "navori-e2e-home-"));
+afterAll(() => {
+  rmSync(E2E_HOME, { recursive: true, force: true });
+});
 
 interface CliResult {
   status: number;
@@ -18,7 +29,7 @@ interface CliResult {
 function runCli(args: string[], envOverrides: Record<string, string> = {}): CliResult {
   const r = spawnSync("node", [CLI, ...args], {
     encoding: "utf-8",
-    env: { ...process.env, FORCE_COLOR: "0", ...envOverrides },
+    env: { ...process.env, HOME: E2E_HOME, FORCE_COLOR: "0", ...envOverrides },
   });
   return {
     status: r.status ?? -1,
