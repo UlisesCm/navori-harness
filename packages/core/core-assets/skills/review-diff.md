@@ -49,6 +49,7 @@ Si no llega a MEDIO, no lo reportes. Nada de "nitpick" ni "consider also". (Mape
 - `catch` que se traga el error sin propagar ni reportar → ALTO.
 - Operación que puede fallar (red, parse, IO) sin manejo, con el fallo visible al usuario → ALTO.
 - Loading/spinner que nunca se apaga en el path de error → ALTO.
+- Recurso abierto sin cleanup en el path de error (conexión, lock, stream, listener, subscription, timer): el happy path lo libera pero un `catch`/early-return lo filtra → ALTO.
 
 ## 4. Seguridad y autorización
 
