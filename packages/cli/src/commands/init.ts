@@ -43,6 +43,33 @@ const ENGINE_OPTIONS = [
 
 type EngineId = "claude" | "agents-md" | "cursor" | "copilot";
 
+// Detection is additive, never exclusive: a repo that only has `.cursor/`
+// still needs `claude` so the harness renders CLAUDE.md/.claude/ and actually
+// loads in Claude Code sessions. Explicit workspace `engines` config always
+// wins as-is — it's the user's call — this only shapes the fallback used
+// when no explicit config is present. An empty array counts as "not
+// configured": passing it through would crash later on the schema's
+// `engines.min(1)`.
+export function resolveDefaultEngines(
+  wsEngines: EngineId[] | undefined,
+  existingEngines: string[],
+): EngineId[] {
+  if (wsEngines?.length) return wsEngines;
+  if (existingEngines.length === 0) return ["claude"];
+  const detected = existingEngines as EngineId[];
+  return detected.includes("claude") ? detected : ["claude", ...detected];
+}
+
+// Single choke point for the "you dropped claude" warning: called once at
+// each place the final engine selection settles (default path, wizard
+// preview-confirm, and the post-writeConfig edit loop) — never inside a
+// prompt/render loop, so it can't fire on every keystroke or redraw.
+export function warnIfClaudeMissing(engines: EngineId[], tr: ReturnType<typeof t>): void {
+  if (!engines.includes("claude")) {
+    p.log.warn(tr.claudeEngineMissingWarning);
+  }
+}
+
 export const initCommand = defineCommand({
   meta: {
     name: "init",
@@ -222,10 +249,10 @@ export const initCommand = defineCommand({
 
     // Cascade: workspace defaults take precedence over detection when present
     const wsDefaults = workspaceConfig?.defaults;
-    const defaultEngines = (wsDefaults?.engines as EngineId[] | undefined) ??
-      (detected.existingEngines.length > 0
-        ? (detected.existingEngines as EngineId[])
-        : (["claude"] as EngineId[]));
+    const defaultEngines = resolveDefaultEngines(
+      wsDefaults?.engines as EngineId[] | undefined,
+      detected.existingEngines,
+    );
     const defaultBranchBase = wsDefaults?.branchBase ?? detected.branchBase ?? "main";
     // prTarget is opt-in (no auto-detection): inherited from the workspace
     // default when present, else left unset so the PR targets branchBase.
@@ -296,6 +323,10 @@ export const initCommand = defineCommand({
         libraryMigrations: detected.migrations,
         codeLanguage: detected.stack.language,
       };
+
+      // --yes/--recommended/--full never visit the engines adjustment prompt,
+      // so defaultEngines IS the final selection here — warn now, once.
+      warnIfClaudeMissing(defaultEngines, tr);
 
       writeConfig(configPath, {
         name: detected.name,
@@ -646,6 +677,11 @@ export const initCommand = defineCommand({
         }
       }
     }
+
+    // The preview-edit loop just closed with "ok" — `engines` is now the
+    // final selection (default, adjustments multiselect, or edit-field
+    // re-pick all funnel through here). Warn once, not on every loop redraw.
+    warnIfClaudeMissing(engines, tr);
 
     // Project prompts (interactive only). Collect customization answers
     // after the preview-edit loop closes so the user has confirmed the
