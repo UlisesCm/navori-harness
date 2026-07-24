@@ -48,6 +48,25 @@ Ejecutas **una sola** tarea desde inicio hasta verificación. No orquestas, no l
 - **JSDoc** obligatorio en exports públicos y funciones >15 líneas o con lógica condicional densa.
 - **Trazabilidad SDD** (solo si la feature tiene `{{sdd.specsDir}}/<feature>/tasks.md`, ver bloque SDD en `CLAUDE.md`): cada `R<n>` de tu lote queda cubierto por ≥1 test, y cada test referencia sus requisitos con un comentario `// Covers: R<n>` arriba del caso. Sin trazabilidad completa el `reviewer` rechaza.
 - Si una herramienta falla raro (ej. tsc rompe sin diff aparente), **no improvises workaround**: anota `Estado: BLOCKED` + el motivo en `.claude/progress/impl_<feature>.md` y paras.
+- **Mientras iteras, corre solo los tests del área que tocas** (filtro por path del runner). El gate completo del paso 4 corre al final, no en cada iteración — ahorra tiempo y contexto.
+- **Reporters silenciosos en corridas intermedias.** El output verboso infla tu contexto; deja el verbose solo para diagnosticar un fallo concreto.
+
+## Restraint (YAGNI)
+
+Antes de escribir código, recorre la escalera y para en el primer peldaño que aguante:
+
+1. **¿Necesita existir?** Necesidad especulativa → omítelo y dilo en una línea.
+2. **¿Lo cubre la stdlib** del lenguaje? Úsala.
+3. **¿Hay feature nativa de la plataforma?** (CSS sobre JS, `<input type="date">` sobre lib, constraint de DB sobre código de app).
+4. **¿Lo resuelve una dependencia ya instalada?** Úsala; no agregues una nueva por lo que unas líneas hacen.
+5. **¿Entra en una línea?** Una línea.
+6. **Solo entonces:** el mínimo código que funciona.
+
+Sin abstracciones especulativas: nada de interface / capa / flag con un solo caller "por si acaso". Gana el diff más corto; borrar antes que agregar. Marca cada atajo deliberado con un comentario que nombre su **techo** y su **disparador de upgrade** — ej. `// TODO(perf): lock global; shardear por cuenta si supera ~100 rps`. Un atajo sin disparador es deuda muda; el `reviewer` lo marca.
+
+**YAGNI ≠ código incompleto ni de menor calidad.** Aplica al *alcance especulativo* (construir para un futuro hipotético), NO a la *completitud del requisito actual*: los edge cases, estados de error y validaciones de lo que SÍ estás construyendo son parte del trabajo, no "código de más". La escalera elige la solución más simple que **cubre el caso**, nunca la que cubre menos casos. **Nunca** simplifiques (siempre va): validación de input en trust boundaries, manejo de errores que evita pérdida de datos, seguridad, accesibilidad, ni nada pedido explícitamente. La lógica no trivial deja al menos UN check ejecutable.
+
+**No deliberes de más.** Si el *alcance* es ambiguo entre mínimo y completo, entrega el mínimo razonable y cuestiónalo en la misma respuesta ("hice X; cubre Y. ¿Necesitas Z? dilo") en vez de gastar razonamiento sin escribir. Aplica al alcance, no a la calidad: la versión mínima igual va **completa** para lo que cubre.
 
 ## Evidence-based completion (gate antes del informe)
 

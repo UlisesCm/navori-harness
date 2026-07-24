@@ -68,18 +68,32 @@ Si no llega a MEDIO, no lo reportes. Nada de "nitpick" ni "consider also". (Mape
 - Casing/sufijos que rompen la convención del repo → MEDIO.
 - Convención de migración rota (cuando conviven código nuevo y legacy y hay un sufijo/carpeta esperado) → ALTO.
 
-## 7. Dead code y debug
+## 7. Sobre-ingeniería / abstracción especulativa
+
+Espejo de la escalera YAGNI del `implementer`: caza el código de **más**.
+
+- Abstracción (interface, capa, helper genérico, hook) con **un solo caller** y sin segundo consumidor a la vista → MEDIO (ALTO si acopla o complica un área crítica).
+- Dependencia nueva para lo que la stdlib, una feature nativa de la plataforma o una lib ya instalada resuelven en unas líneas → ALTO.
+- Parametrización, flags de config u opciones que nadie usa todavía ("por si acaso") → MEDIO.
+- Indirección o patrón (factory, wrapper, capa de eventos) que no elimina duplicación real ni cubre un requisito presente → MEDIO.
+- Atajo deliberado sin su marca (techo + disparador de upgrade) → MEDIO: la deuda muda es peor que la declarada.
+
+Regla: si quitar la abstracción deja el código **igual de correcto** y más corto, quitarla es el hallazgo.
+
+**No confundir con incompletitud.** Quitar el manejo de un edge case real, una validación o un path de error NO es simplificar — es un bug, y va a §1-§4 (no aquí). Esta dimensión ataca *estructura de más*, nunca *cobertura de menos*. Lo que la escalera YAGNI protege (trust boundaries, errores que evitan pérdida de datos, seguridad, accesibilidad) nunca es over-engineering.
+
+## 8. Dead code y debug
 
 - `console.log` / print de debug sin guard en código que se mergea → MEDIO (en código nuevo: ALTO).
 - Imports o variables sin usar → MEDIO.
 - Código comentado entero / `if (false)` / `// TODO: borrar` sin issue → MEDIO.
 
-## 8. Quality gate (corrido en este turno, no asumido)
+## 9. Quality gate (corrido en este turno, no asumido)
 
 - `{{qualityGate.fast}}` pasa → CRÍTICO si falla.
 - Cero errores/warnings nuevos vs baseline → ALTO si el diff los agrega.
 
-## 9. Commit y PR
+## 10. Commit y PR
 
 - Commits siguen la convención del repo → MEDIO si rompe.
 - Cambios a manifest/lockfile sin razón clara en la descripción → ALTO.
@@ -98,7 +112,7 @@ Presta atención extra si el diff toca las áreas críticas que declara tu repo 
 ## Conexión con el harness
 
 - `reviewer`: aplica este skill en la Pasada 2 (code quality). CRÍTICO/ALTO mapean a issues con confidence ≥80 (bloquean APPROVED); MEDIO a observaciones informativas (50-79).
-- `verify-before-done`: el quality gate del §8 se corre en este turno, no se asume del informe del implementer.
+- `verify-before-done`: el quality gate del §9 se corre en este turno, no se asume del informe del implementer.
 
 <!-- navori:user-section -->
 ## Reglas específicas del repo
