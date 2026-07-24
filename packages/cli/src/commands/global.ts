@@ -15,6 +15,7 @@ import {
   type GlobalConfig,
 } from "../lib/global-config.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
+import { listGlobalSkillIds, globalSkillPromptHint } from "../lib/global-skills.ts";
 import { CORE_MANAGED_ASSETS } from "../lib/render-plan.ts";
 import { listMarkers, scanManagedDrift } from "../lib/health.ts";
 import { scanMissingExternalTools, type MissingExternalTool } from "./doctor.ts";
@@ -39,6 +40,7 @@ export function runGlobalRender(
     force: opts.force ?? false,
     scope: "global",
     omitSettings: !globalPermissionsEnabled(config),
+    globalSkills: config.skills,
     outputStyle: {
       // config.outputStyle is the persistent "manage the file" intent; the CLI
       // --no-output-style flag only skips ACTIVATION (the file is still written).
@@ -151,10 +153,16 @@ export const initSubCommand = defineCommand({
     p.intro(brand("global init"));
 
     const globalPlugins = globalCapablePluginIds();
+    const globalSkillIds = listGlobalSkillIds();
 
     let language: "es" | "en" = existing?.language === "en" ? "en" : "es";
     let selectedPlugins = new Set<string>(
       Object.entries(existing?.plugins ?? {})
+        .filter(([, v]) => v.enabled)
+        .map(([k]) => k),
+    );
+    let selectedSkills = new Set<string>(
+      Object.entries(existing?.skills ?? {})
         .filter(([, v]) => v.enabled)
         .map(([k]) => k),
     );
@@ -183,19 +191,36 @@ export const initSubCommand = defineCommand({
         selectedPlugins = new Set(plugAns as string[]);
       }
 
+      if (globalSkillIds.length > 0) {
+        const skillAns = await p.multiselect({
+          message: tg.initSkillsPrompt,
+          options: globalSkillIds.map((id) => ({ value: id, label: id, hint: globalSkillPromptHint(id) })),
+          initialValues: [...selectedSkills].filter((id) => globalSkillIds.includes(id)),
+          required: false,
+        });
+        if (p.isCancel(skillAns)) return void p.cancel(tc(lang).common.aborted);
+        selectedSkills = new Set(skillAns as string[]);
+      }
+
       const permAns = await p.confirm({ message: tg.initPermsPrompt, initialValue: permissions });
       if (p.isCancel(permAns)) return void p.cancel(tc(lang).common.aborted);
       permissions = permAns;
     } else {
-      // Recommended defaults: es unless already en, every global-capable plugin,
-      // permissions on. A first-time recommended run enables the identity plugins.
-      if (!existing) selectedPlugins = new Set(globalPlugins);
+      // Recommended defaults: es unless already en, every global-capable plugin
+      // AND every catalog skill, permissions on. A first-time recommended run
+      // enables the identity plugins + skills catalog; a re-run over an
+      // existing config leaves the user's prior selection alone.
+      if (!existing) {
+        selectedPlugins = new Set(globalPlugins);
+        selectedSkills = new Set(globalSkillIds);
+      }
     }
 
     const config: GlobalConfig = {
       language,
       engines: existing?.engines ?? ["claude"],
       plugins: Object.fromEntries(globalPlugins.map((id) => [id, { enabled: selectedPlugins.has(id) }])),
+      skills: Object.fromEntries(globalSkillIds.map((id) => [id, { enabled: selectedSkills.has(id) }])),
       permissions,
     };
 

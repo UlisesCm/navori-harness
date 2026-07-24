@@ -14,6 +14,7 @@ vi.mock("../../lib/home.ts", () => ({
 
 const { runGlobalRender, repoBlocksInGlobal } = await import("../global.ts");
 const { GlobalConfigSchema } = await import("../../lib/global-config.ts");
+const { listGlobalSkillIds } = await import("../../lib/global-skills.ts");
 
 let claudeDir: string;
 const savedEnv = process.env.CLAUDE_CONFIG_DIR;
@@ -59,15 +60,25 @@ describe("global render — scope filter", () => {
     expect(entries).not.toContain("progress");
   });
 
-  it("skills/ carries EXACTLY the bootstrap feature launchers, not the full mother skill", () => {
+  it("skills/ carries EXACTLY the bootstrap feature launcher when no catalog skill is enabled", () => {
     runGlobalRender(cfg(), { dryRun: false });
-    // app-builder (kind: bootstrap) gets a launcher and is the ONLY entry — an
-    // in-repo feature regressing to bootstrap, or any new writer into skills/,
-    // must trip this. No phases/ dir either (those only exist after a repo
-    // render — spec 0005 bootstrap discovery).
+    // app-builder (kind: bootstrap) gets a launcher and is the ONLY entry when
+    // the config's skills selection is empty (the default) — an in-repo
+    // feature regressing to bootstrap, or any new unconditional writer into
+    // skills/, must trip this. No phases/ dir either (those only exist after a
+    // repo render — spec 0005 bootstrap discovery).
     expect(readdirSync(join(claudeDir, "skills"))).toEqual(["app-builder"]);
     expect(existsSync(join(claudeDir, "skills/app-builder/SKILL.md"))).toBe(true);
     expect(existsSync(join(claudeDir, "skills/app-builder/phases"))).toBe(false);
+  });
+
+  it("skills/ carries EXACTLY the launcher + every enabled catalog skill (exact membership, not contains)", () => {
+    const catalogIds = listGlobalSkillIds();
+    const c = cfg({ skills: Object.fromEntries(catalogIds.map((id) => [id, { enabled: true }])) });
+    runGlobalRender(c, { dryRun: false });
+    expect(readdirSync(join(claudeDir, "skills")).sort()).toEqual(["app-builder", ...catalogIds].sort());
+    expect(existsSync(join(claudeDir, "skills/app-builder/SKILL.md"))).toBe(true);
+    expect(existsSync(join(claudeDir, "skills/work-unit-commits/SKILL.md"))).toBe(true);
   });
 
   it("writes permissions-only settings.json (no guard/quality-gate hooks)", () => {

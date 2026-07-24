@@ -18,6 +18,11 @@ import {
 } from "../../lib/features.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import {
+  resolveGlobalSkillAsset,
+  globalSkillAuxFiles,
+  globalSkillMarkerSource,
+} from "../../lib/global-skills.ts";
+import {
   injectManagedSection,
   removeManagedSection,
   reorderManagedBlocks,
@@ -146,6 +151,30 @@ const CORE_META = { source: "@navori/core" as const, version: NAVORI_VERSION };
 
 /** Managed-block id for the skills index injected into CLAUDE.md. */
 const SKILLS_INDEX_ID = "skills-index";
+
+/**
+ * Neutral defaults for the repo-flavored `{{...}}` template vars the 6 core
+ * skills reference (pr-create's `{{prTarget}}`/`{{branchBase}}`,
+ * verify-before-done's `{{qualityGate.fast}}`, …). At REPO scope these
+ * resolve against the actual project config (effectiveConfig() derives
+ * prTarget from branchBase; qualityGate.* come straight from config). At
+ * GLOBAL scope there is no repo to read — the persona skill loads into
+ * whatever repo the agent happens to be working in — so `interpolate()`
+ * would otherwise fall back to generic `<not configured: x>` / a
+ * "run 'navori configure quality-gate'" prompt that doesn't make sense
+ * outside a repo. These extraVars override that with phrasing that reads
+ * correctly regardless of which repo is open, without inventing per-repo
+ * values the persona can't actually know. Single source so no globally
+ * rendered skill ever ships a literal unresolved `{{...}}` (interpolate()
+ * always substitutes SOMETHING, but the default fallback text is repo-scope
+ * phrasing — this is what makes it read right at global scope too).
+ */
+const GLOBAL_SKILL_TEMPLATE_DEFAULTS: Record<string, string> = {
+  prTarget: "main",
+  branchBase: "main",
+  "qualityGate.fast": "run the repo quality gate",
+  "qualityGate.full": "run the repo quality gate",
+};
 
 /**
  * Whether a preset extra applies to this config. An extra with no `condition`
@@ -450,6 +479,15 @@ export function renderClaudeEngine(
      * false, optOut: false }` at global scope when omitted.
      */
     outputStyle?: OutputStyleOptions;
+    /**
+     * Global skills catalog selection (spec 0005 — `navori global init`'s
+     * skills multiselect; global scope only, ignored for repo). Keyed by
+     * catalog id (`lib/global-skills.ts`); an id outside the catalog or with
+     * `enabled !== true` is skipped. Renders as `skills/<id>/SKILL.md` (+ any
+     * aux files) through the same managed-file pipeline as the bootstrap
+     * launchers above.
+     */
+    globalSkills?: Record<string, { enabled: boolean }>;
   } = {},
 ): ClaudeEngineResult {
   // Fill in render-only derived defaults (e.g. prTarget ?? branchBase) so
@@ -1211,6 +1249,66 @@ export function renderClaudeEngine(
     }
   }
 
+  // 8.86. Global skills catalog (GLOBAL scope only). Selected entries from
+  // `lib/global-skills.ts` (`navori global init`'s skills multiselect) render
+  // as `skills/<id>/SKILL.md`, dir form — same managed-file machinery as the
+  // bootstrap launchers just above. Two provenances:
+  //   - "core-skill": the flat `.md` files also used at repo scope
+  //     (verify-before-done, pr-create, …), rendered here in DIR form since
+  //     the persona target has no flat-skill convention.
+  //   - "global-skill-dir": a skill promoted from the maintainer's personal
+  //     `~/.claude/skills/<id>/`, content kept verbatim; any aux files
+  //     (references/, assets/) ride alongside through their OWN managed-file
+  //     entry (own managedId) so drift/status is reported per file, same
+  //     pattern as a feature's phase docs (§6.7 above).
+  // An id absent from the catalog (stale config from a removed skill, or a
+  // typo) is silently skipped — `resolveGlobalSkillAsset` returns null — never
+  // a hard failure; nothing here removes a PREVIOUSLY rendered skill when it's
+  // disabled (no reconciler like §8.8's feature deactivation), so a disabled
+  // skill's old files are left in place as documented orphans.
+  if (scope === "global") {
+    for (const [id, settings] of Object.entries(options.globalSkills ?? {})) {
+      if (settings.enabled !== true) continue;
+      const loc = resolveGlobalSkillAsset(id);
+      if (!loc) continue; // unknown/stale id — config strips these on next init
+      const meta = { source: globalSkillMarkerSource(id), version: NAVORI_VERSION };
+      inspected += 1;
+      applyManagedFilePlan(
+        planManagedFile({
+          cwd,
+          assetRoot: loc.dir,
+          assetRelPath: loc.entryFile,
+          destRelPath: `skills/${id}/SKILL.md`,
+          managedId: id,
+          config,
+          meta,
+          extraVars: GLOBAL_SKILL_TEMPLATE_DEFAULTS,
+        }),
+        cwd,
+        pending,
+        skipped,
+      );
+      for (const rel of globalSkillAuxFiles(id)) {
+        inspected += 1;
+        applyManagedFilePlan(
+          planManagedFile({
+            cwd,
+            assetRoot: loc.dir,
+            assetRelPath: rel,
+            destRelPath: `skills/${id}/${rel}`,
+            managedId: `${id}-aux-${rel.replace(/[\\/]/g, "-")}`,
+            config,
+            meta,
+            extraVars: GLOBAL_SKILL_TEMPLATE_DEFAULTS,
+          }),
+          cwd,
+          pending,
+          skipped,
+        );
+      }
+    }
+  }
+
   // 8.9. Output style (GLOBAL scope only). Write `<dotDir>/output-styles/navori.md`
   // VERBATIM from core-assets: the file's own YAML frontmatter (name / description
   // / keep-coding-instructions) must be the very first thing so Claude Code's
@@ -1649,6 +1747,11 @@ interface ManagedFilePlanInput {
    * source from the manifest + FEATURE.md). `assetRelPath` still drives comment
    * style inference (keep it a `.md` path). */
   rawContent?: string;
+  /** Extra `{{path}}` substitutions consulted before the config (see
+   * `interpolate()`). Used by the global skills catalog to give repo-flavored
+   * vars (`{{prTarget}}`, `{{qualityGate.fast}}`, …) a neutral, scope-appropriate
+   * value instead of the repo-oriented fallback prose. */
+  extraVars?: Record<string, string>;
 }
 
 type ManagedFilePlan =
@@ -1667,6 +1770,7 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
     managedId: input.managedId,
     meta: input.meta ?? CORE_META,
     config: input.config,
+    extraVars: input.extraVars,
   });
   if (result.status === "unchanged") return { kind: "noop" };
   if (result.status === "user-modified-skipped") {

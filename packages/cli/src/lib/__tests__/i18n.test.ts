@@ -100,10 +100,16 @@ describe("i18n — command catalog (tc)", () => {
     const keysOf = (o: Record<string, unknown>) => Object.keys(o).sort();
     const es = tc("es");
     const en = tc("en");
-    for (const section of ["common", "render", "sync", "doctor", "feature"] as const) {
+    for (const section of ["common", "render", "sync", "doctor", "feature", "global"] as const) {
       expect(keysOf(es[section] as unknown as Record<string, unknown>)).toEqual(
         keysOf(en[section] as unknown as Record<string, unknown>),
       );
     }
+  });
+
+  it("global.initSkillsPrompt exists and differs per locale (skills catalog multiselect)", () => {
+    expect(tc("es").global.initSkillsPrompt.length).toBeGreaterThan(0);
+    expect(tc("en").global.initSkillsPrompt.length).toBeGreaterThan(0);
+    expect(tc("es").global.initSkillsPrompt).not.toBe(tc("en").global.initSkillsPrompt);
   });
 });

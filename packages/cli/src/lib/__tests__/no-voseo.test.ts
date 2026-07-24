@@ -52,7 +52,12 @@ function walk(dir: string, out: string[]): void {
     const full = join(dir, entry);
     const st = statSync(full);
     if (st.isDirectory()) {
-      if (entry === "__tests__" || entry === "node_modules") continue;
+      // global-skills/ is copied VERBATIM from the maintainer's personal
+      // ~/.claude/skills/ (global skills catalog, spec 0005) — it may carry
+      // illustrative Spanish snippets in the maintainer's own Rioplatense
+      // voice. That content is explicitly out of scope for this guard, which
+      // targets the harness's OWN authored Mexican-Spanish strings/templates.
+      if (entry === "__tests__" || entry === "node_modules" || entry === "global-skills") continue;
       walk(full, out);
     } else if (/\.(md|ts)$/.test(entry)) {
       out.push(full);

@@ -24,11 +24,34 @@ afterEach(() => {
 });
 
 describe("GlobalConfigSchema", () => {
-  it("applies lean defaults (permissions on, empty plugins, claude engine)", () => {
+  it("applies lean defaults (permissions on, empty plugins, empty skills, claude engine)", () => {
     const cfg = GlobalConfigSchema.parse({ language: "es" });
     expect(cfg.permissions).toBe(true);
     expect(cfg.plugins).toEqual({});
+    expect(cfg.skills).toEqual({});
     expect(cfg.engines).toEqual(["claude"]);
+  });
+
+  it("a config written before the skills catalog existed still parses (backward compatible)", () => {
+    const cfg = GlobalConfigSchema.parse({ language: "es", plugins: { engram: { enabled: true } } });
+    expect(cfg.skills).toEqual({});
+  });
+
+  it("accepts a skills selection keyed by catalog id", () => {
+    const cfg = GlobalConfigSchema.parse({
+      language: "es",
+      skills: { "pr-create": { enabled: true }, "loop-back-debug": { enabled: false } },
+    });
+    expect(cfg.skills["pr-create"]?.enabled).toBe(true);
+    expect(cfg.skills["loop-back-debug"]?.enabled).toBe(false);
+  });
+
+  it("is permissive about an id not in the catalog at the schema level (mirrors plugins)", () => {
+    // Schema-level validation doesn't know the catalog — an unknown id parses
+    // fine here. Stripping unknown ids happens where plugins strip them too:
+    // `global init` only ever re-emits entries for ids it recognizes.
+    const cfg = GlobalConfigSchema.parse({ language: "es", skills: { "not-a-real-skill": { enabled: true } } });
+    expect(cfg.skills["not-a-real-skill"]?.enabled).toBe(true);
   });
 
   it("is tolerant: an unknown language falls back to es, unknown engine is dropped", () => {
@@ -43,11 +66,17 @@ describe("GlobalConfigSchema", () => {
 
   it("round-trips through disk at ~/.navori/global.json", () => {
     expect(readGlobalConfig()).toBeNull(); // clean machine
-    writeGlobalConfig({ language: "en", plugins: { engram: { enabled: true } }, permissions: true });
+    writeGlobalConfig({
+      language: "en",
+      plugins: { engram: { enabled: true } },
+      skills: { "pr-create": { enabled: true } },
+      permissions: true,
+    });
     expect(globalConfigPath()).toBe(join(home.dir, ".navori", "global.json"));
     const back = readGlobalConfig();
     expect(back?.language).toBe("en");
     expect(back?.plugins.engram.enabled).toBe(true);
+    expect(back?.skills["pr-create"]?.enabled).toBe(true);
   });
 });
 

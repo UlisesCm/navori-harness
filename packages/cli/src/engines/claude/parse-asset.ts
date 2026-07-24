@@ -31,6 +31,11 @@ export class AssetParseError extends NavoriError {
 
 export interface ParsedAsset {
   frontmatter: Record<string, string>;
+  /** Raw YAML text between the fences, verbatim (empty string when none).
+   * The managed-file renderer parses this into raw per-key blocks so shapes
+   * the flat `frontmatter` map can't represent (folded `>` scalars, nested
+   * maps) round-trip byte-identically instead of being re-synthesized. */
+  frontmatterText: string;
   managedBody: string;
   userTemplate: string | null;
   commentStyle: CommentStyle;
@@ -49,6 +54,7 @@ export function parseAsset(raw: string, commentStyle: CommentStyle): ParsedAsset
   if (sentinelIdx < 0) {
     return {
       frontmatter,
+      frontmatterText: fmText,
       managedBody: afterFm.trim(),
       userTemplate: null,
       commentStyle,
@@ -59,7 +65,7 @@ export function parseAsset(raw: string, commentStyle: CommentStyle): ParsedAsset
   // Skip the sentinel itself + its trailing newline if present
   const tail = afterFm.slice(sentinelIdx + sentinel.length);
   const userTemplate = tail.replace(/^\n/, "");
-  return { frontmatter, managedBody, userTemplate, commentStyle };
+  return { frontmatter, frontmatterText: fmText, managedBody, userTemplate, commentStyle };
 }
 
 function findSentinel(haystack: string, sentinel: string, style: CommentStyle): number {

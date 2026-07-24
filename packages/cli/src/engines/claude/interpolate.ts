@@ -9,9 +9,14 @@ import { placeholderFallback } from "../../lib/placeholders.ts";
  *                                 `placeholderFallback` (prose for known-optional
  *                                 paths, else `<not configured: <path>>`).
  *   omitUnresolvedKeyLines:       lines of the form `key: {{x}}` with x
- *                                 unresolved are dropped entirely. Used for
- *                                 frontmatter (so an absent `models.X`
- *                                 doesn't break YAML with a broken value).
+ *                                 unresolved are dropped entirely. Only safe
+ *                                 for standalone lines with no continuation —
+ *                                 frontmatter callers that may have indented
+ *                                 continuation lines under the key MUST use
+ *                                 `interpolateFrontmatterBlock` instead (see
+ *                                 below), or the dropped key's continuation
+ *                                 lines survive as orphans for the next
+ *                                 `parseFrontmatterBlocks` call to misattach.
  */
 export interface InterpolateOptions {
   extraVars?: Record<string, string>;
@@ -96,4 +101,28 @@ function resolvePath(
 function isPrimitive(value: unknown): boolean {
   const t = typeof value;
   return t === "string" || t === "number" || t === "boolean";
+}
+
+/**
+ * Interpolate one frontmatter BLOCK — a key line plus any indented/blank
+ * continuation lines, as produced by `parseFrontmatterBlocks` — as a single
+ * unit. If the key line matches `key: {{var}}` exactly and `var` doesn't
+ * resolve, the WHOLE block is dropped (returns `null`), continuation lines
+ * included. This is the block-safe counterpart of `omitUnresolvedKeyLines`:
+ * dropping only the key line (the line-level approach) leaves continuation
+ * lines behind as orphans that `parseFrontmatterBlocks` silently reattaches
+ * to whichever key precedes the dropped one, corrupting it.
+ *
+ * Otherwise every placeholder in the block (key line and continuations) is
+ * interpolated in default mode (unresolved -> `placeholderFallback`).
+ */
+export function interpolateFrontmatterBlock(
+  rawBlock: string,
+  config: NavoriConfig,
+  extra: Record<string, string> = {},
+): string | null {
+  const keyLine = rawBlock.split("\n", 1)[0] ?? "";
+  const m = keyLine.match(KEY_LINE_RE);
+  if (m && resolvePath(m[2]!, config, extra) === null) return null;
+  return interpolateRaw(rawBlock, config, extra);
 }

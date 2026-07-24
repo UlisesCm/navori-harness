@@ -625,6 +625,7 @@ interface DoctorCmdStrings {
 interface GlobalCmdStrings {
   initLangPrompt: string;
   initPluginsPrompt: string;
+  initSkillsPrompt: string;
   initPermsPrompt: string;
   wroteConfig: (path: string) => string;
   coexistNote: string;
@@ -865,6 +866,7 @@ const CMD_ES: CmdStrings = {
   global: {
     initLangPrompt: "Idioma / rol de la persona",
     initPluginsPrompt: "Plugins globales (identidad: engram, ponytail…)",
+    initSkillsPrompt: "Skills globales a instalar (catálogo fijo — pr-create, judgment-day…)",
     initPermsPrompt: "¿Manejar la allowlist de permisos en ~/.claude/settings.json?",
     wroteConfig: (path) => `Escrito ${path} (source of truth global)`,
     coexistNote:
@@ -1104,6 +1106,7 @@ const CMD_EN: CmdStrings = {
   global: {
     initLangPrompt: "Persona language / role",
     initPluginsPrompt: "Global plugins (identity: engram, ponytail…)",
+    initSkillsPrompt: "Global skills to install (fixed catalog — pr-create, judgment-day…)",
     initPermsPrompt: "Manage the permission allowlist in ~/.claude/settings.json?",
     wroteConfig: (path) => `Wrote ${path} (global source of truth)`,
     coexistNote:

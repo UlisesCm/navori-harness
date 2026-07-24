@@ -20,6 +20,7 @@ import { loadPlugin } from "./plugins.ts";
  * backups that already live under `~/.navori`.
  */
 const GlobalPluginEntrySchema = z.object({ enabled: z.boolean() });
+const GlobalSkillEntrySchema = z.object({ enabled: z.boolean() });
 
 export const GlobalConfigSchema = z
   .object({
@@ -33,6 +34,16 @@ export const GlobalConfigSchema = z
      * plugins whose manifest `allowedScopes` includes "global" are valid here;
      * `validateGlobalPlugins` surfaces any that aren't. */
     plugins: z.record(z.string(), GlobalPluginEntrySchema).default({}),
+    /** Skills to render at global scope from the fixed skills catalog
+     * (`lib/global-skills.ts` — 6 core skills + 13 promoted from the
+     * maintainer's personal `~/.claude/skills/`). Same shape/strip-unknown
+     * convention as `plugins`: the schema itself doesn't validate ids against
+     * the catalog (permissive, like `plugins`); `global init` only ever
+     * re-writes entries for ids it recognizes, so a stale/unknown id is
+     * dropped on the next `--apply`. Absent entirely on a config written
+     * before this field existed — defaults to `{}` (nothing installed), same
+     * backward-compat contract as `plugins`. */
+    skills: z.record(z.string(), GlobalSkillEntrySchema).default({}),
     /** Manage the permission allowlist in `~/.claude/settings.json`. `true`
      * writes the navori baseline; `false` leaves settings untouched. A string
      * names a future named preset (reserved; treated as truthy for now). */

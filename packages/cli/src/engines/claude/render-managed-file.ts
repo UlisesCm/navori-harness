@@ -6,8 +6,9 @@ import {
   type InjectResult,
 } from "../../lib/marker.ts";
 import { parseAsset } from "./parse-asset.ts";
-import { interpolate } from "./interpolate.ts";
+import { interpolate, interpolateFrontmatterBlock } from "./interpolate.ts";
 import { mergeFrontmatter } from "./frontmatter-merge.ts";
+import { parseFrontmatterBlocks, type ParsedFrontmatterBlocks } from "../../lib/frontmatter.ts";
 
 /**
  * Render one bundled asset against the current destination file. Pure-ish:
@@ -16,8 +17,9 @@ import { mergeFrontmatter } from "./frontmatter-merge.ts";
  *
  * Flow:
  *   1. Load + parse asset (frontmatter / managedBody / userTemplate).
- *   2. Interpolate frontmatter with `omitUnresolvedKeyLines` so missing
- *      `{{models.X}}` drops the line instead of breaking YAML.
+ *   2. Interpolate frontmatter at block granularity so a missing
+ *      `{{models.X}}` drops the WHOLE key block (key line + continuations)
+ *      instead of breaking YAML or leaving orphaned continuation lines.
  *   3. Interpolate managedBody and userTemplate in default mode (unresolved
  *      placeholders surface as `<not configured: x>` so the user can see them).
  *   4a. First render (destination doesn't exist): assemble
@@ -60,7 +62,7 @@ export function renderManagedFile(input: RenderManagedFileInput): RenderManagedF
   const raw = input.rawContent ?? readFileSync(input.assetPath, "utf-8");
   const asset = parseAsset(raw, commentStyle);
 
-  const interpolatedFmObj = interpolateFrontmatter(asset.frontmatter, input.config, input.extraVars);
+  const interpolatedFm = interpolateFrontmatter(asset.frontmatterText, input.config, input.extraVars);
   const interpolatedBody = interpolate(asset.managedBody, input.config, {
     extraVars: input.extraVars,
   });
@@ -70,7 +72,7 @@ export function renderManagedFile(input: RenderManagedFileInput): RenderManagedF
 
   if (input.existingContent === null) {
     return assembleFresh(
-      interpolatedFmObj,
+      interpolatedFm,
       interpolatedBody,
       interpolatedUserTpl,
       input.managedId,
@@ -81,7 +83,7 @@ export function renderManagedFile(input: RenderManagedFileInput): RenderManagedF
 
   return rerender(
     input.existingContent,
-    interpolatedFmObj,
+    interpolatedFm,
     interpolatedBody,
     input.managedId,
     input.meta,
@@ -94,28 +96,38 @@ function inferCommentStyle(path: string): CommentStyle {
 }
 
 /**
- * Interpolate the asset frontmatter with omitUnresolvedKeyLines and parse
- * the result back into a map. We serialize → interpolate → parse so the
- * `omitUnresolvedKeyLines` rule (which operates on string lines) can fire.
+ * Interpolate the asset's RAW frontmatter text at BLOCK granularity: parse
+ * the verbatim text into per-key blocks FIRST (key line + any indented
+ * continuation lines), then interpolate each block as a unit via
+ * `interpolateFrontmatterBlock`. A `key: {{x}}` block with x unresolved is
+ * dropped ENTIRELY — key line and continuations together — instead of
+ * breaking YAML with a broken value. Parsing into blocks before
+ * interpolating (rather than interpolating line-by-line and parsing after)
+ * is what keeps a dropped key's continuation lines from surviving as
+ * orphans that `parseFrontmatterBlocks` would otherwise reattach to the
+ * previous key. Working on the verbatim per-block text — not a
+ * re-serialized flat map — is also what makes the round-trip an identity
+ * for any shape the flat map can't represent (folded `>` scalars, nested
+ * maps, tab indentation): an unmodified key's raw block is re-emitted
+ * byte-for-byte at serialization time.
  */
 function interpolateFrontmatter(
-  fm: Record<string, string>,
+  fmText: string,
   config: NavoriConfig,
   extraVars: Record<string, string> | undefined,
-): Record<string, string> {
-  if (Object.keys(fm).length === 0) return {};
-  const serialized = Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join("\n");
-  const interp = interpolate(serialized, config, { extraVars, omitUnresolvedKeyLines: true });
-  const out: Record<string, string> = {};
-  for (const line of interp.split("\n")) {
-    const kv = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
-    if (kv) out[kv[1]] = kv[2].trim();
+): ParsedFrontmatterBlocks {
+  if (fmText.trim() === "") return { values: {}, raws: {} };
+  const blocks = parseFrontmatterBlocks(fmText);
+  const survivingRaws: string[] = [];
+  for (const key of Object.keys(blocks.raws)) {
+    const interpolated = interpolateFrontmatterBlock(blocks.raws[key]!, config, extraVars ?? {});
+    if (interpolated !== null) survivingRaws.push(interpolated);
   }
-  return out;
+  return parseFrontmatterBlocks(survivingRaws.join("\n"));
 }
 
 function assembleFresh(
-  fm: Record<string, string>,
+  fm: ParsedFrontmatterBlocks,
   body: string,
   userTpl: string | null,
   managedId: string,
@@ -123,8 +135,8 @@ function assembleFresh(
   commentStyle: CommentStyle,
 ): RenderManagedFileResult {
   const inject = injectManagedSection("", managedId, body, meta, commentStyle);
-  const fmBlock = Object.keys(fm).length > 0
-    ? serializeFrontmatter(fm) + "\n\n"
+  const fmBlock = Object.keys(fm.raws).length > 0
+    ? serializeFrontmatter(fm.raws) + "\n\n"
     : "";
   const userTail = userTpl ? "\n" + userTpl.trimEnd() + "\n" : "";
   const content = fmBlock + inject.output.trimEnd() + "\n" + userTail;
@@ -133,27 +145,25 @@ function assembleFresh(
 
 function rerender(
   existing: string,
-  assetFm: Record<string, string>,
+  assetFm: ParsedFrontmatterBlocks,
   body: string,
   managedId: string,
   meta: { source: string; version: string },
   commentStyle: CommentStyle,
 ): RenderManagedFileResult {
   const fmMatch = existing.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  const destFm: Record<string, string> = {};
+  let destFm: ParsedFrontmatterBlocks = { values: {}, raws: {} };
   let restOfDest: string;
   if (fmMatch) {
-    for (const line of fmMatch[1].split("\n")) {
-      const kv = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
-      if (kv) destFm[kv[1]] = kv[2].trim();
-    }
+    destFm = parseFrontmatterBlocks(fmMatch[1]);
     restOfDest = fmMatch[2];
   } else {
     restOfDest = existing;
   }
 
-  const fmHeader = Object.keys(assetFm).length > 0
-    ? mergeFrontmatter(assetFm, destFm).serialized + "\n"
+  const fmHeader = Object.keys(assetFm.values).length > 0
+    ? mergeFrontmatter(assetFm.values, destFm.values, { assetRaws: assetFm.raws, destRaws: destFm.raws }).serialized +
+      "\n"
     : "";
 
   const inject = injectManagedSection(restOfDest, managedId, body, meta, commentStyle);
@@ -170,7 +180,8 @@ function rerender(
   return { content, status, details: inject.details };
 }
 
-function serializeFrontmatter(fm: Record<string, string>): string {
-  const lines = Object.entries(fm).map(([k, v]) => `${k}: ${v}`);
-  return ["---", ...lines, "---"].join("\n");
+/** Assemble the fence block from verbatim per-key raw blocks (identity
+ * round-trip — no value re-synthesis; see ParsedFrontmatterBlocks). */
+function serializeFrontmatter(raws: Record<string, string>): string {
+  return ["---", ...Object.values(raws), "---"].join("\n");
 }
