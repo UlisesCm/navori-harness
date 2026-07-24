@@ -15,7 +15,7 @@ import {
   type GlobalConfig,
 } from "../lib/global-config.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
-import { listGlobalSkillIds, globalSkillPromptHint } from "../lib/global-skills.ts";
+import { listGlobalSkillIds, globalSkillPromptHint, globalSkillDescription } from "../lib/global-skills.ts";
 import { CORE_MANAGED_ASSETS } from "../lib/render-plan.ts";
 import { listMarkers, scanManagedDrift } from "../lib/health.ts";
 import { scanMissingExternalTools, type MissingExternalTool } from "./doctor.ts";
@@ -192,6 +192,14 @@ export const initSubCommand = defineCommand({
       }
 
       if (globalSkillIds.length > 0) {
+        // Clack hints are single-line (long descriptions get truncated with an
+        // ellipsis), so print the full catalog above the prompt — the terminal
+        // wraps it and the detail stays in scrollback while selecting.
+        p.log.message(
+          [tg.initSkillsCatalogTitle, ...globalSkillIds.map((id) => `${color.cyan(id)}\n    ${dim(globalSkillDescription(id))}`)].join(
+            "\n",
+          ),
+        );
         const skillAns = await p.multiselect({
           message: tg.initSkillsPrompt,
           options: globalSkillIds.map((id) => ({ value: id, label: id, hint: globalSkillPromptHint(id) })),

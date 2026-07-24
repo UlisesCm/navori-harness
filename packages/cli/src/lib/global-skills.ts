@@ -137,11 +137,10 @@ export function truncateForHint(text: string, max = 90): string {
   return base.trimEnd() + "…";
 }
 
-/** Read a catalog skill's frontmatter `description` for the `global init`
- * multiselect hint. Falls back to the id itself when the asset can't be read
- * (unknown id, or a dev checkout missing the file) — defensive, never throws
- * from a prompt-rendering path. */
-export function globalSkillPromptHint(id: string): string {
+/** Read a catalog skill's full frontmatter `description`. Falls back to the
+ * id itself when the asset can't be read (unknown id, or a dev checkout
+ * missing the file) — defensive, never throws from a prompt-rendering path. */
+export function globalSkillDescription(id: string): string {
   const loc = resolveGlobalSkillAsset(id);
   if (!loc) return id;
   let raw: string;
@@ -152,7 +151,14 @@ export function globalSkillPromptHint(id: string): string {
   }
   const { meta } = parseSkillFrontmatter(raw);
   const description = unquote(meta.description ?? "");
-  return description ? truncateForHint(description) : id;
+  return description || id;
+}
+
+/** Truncated description for the `global init` multiselect hint (clack hints
+ * are single-line); the full text is printed in the catalog block above the
+ * prompt via globalSkillDescription. */
+export function globalSkillPromptHint(id: string): string {
+  return truncateForHint(globalSkillDescription(id));
 }
 
 /** A frontmatter value captured as raw text may still carry its YAML

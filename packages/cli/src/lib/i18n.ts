@@ -626,6 +626,7 @@ interface GlobalCmdStrings {
   initLangPrompt: string;
   initPluginsPrompt: string;
   initSkillsPrompt: string;
+  initSkillsCatalogTitle: string;
   initPermsPrompt: string;
   wroteConfig: (path: string) => string;
   coexistNote: string;
@@ -867,6 +868,7 @@ const CMD_ES: CmdStrings = {
     initLangPrompt: "Idioma / rol de la persona",
     initPluginsPrompt: "Plugins globales (identidad: engram, ponytail…)",
     initSkillsPrompt: "Skills globales a instalar (catálogo fijo — pr-create, judgment-day…)",
+    initSkillsCatalogTitle: "Catálogo de skills globales (descripción completa):",
     initPermsPrompt: "¿Manejar la allowlist de permisos en ~/.claude/settings.json?",
     wroteConfig: (path) => `Escrito ${path} (source of truth global)`,
     coexistNote:
@@ -1107,6 +1109,7 @@ const CMD_EN: CmdStrings = {
     initLangPrompt: "Persona language / role",
     initPluginsPrompt: "Global plugins (identity: engram, ponytail…)",
     initSkillsPrompt: "Global skills to install (fixed catalog — pr-create, judgment-day…)",
+    initSkillsCatalogTitle: "Global skills catalog (full descriptions):",
     initPermsPrompt: "Manage the permission allowlist in ~/.claude/settings.json?",
     wroteConfig: (path) => `Wrote ${path} (global source of truth)`,
     coexistNote:
