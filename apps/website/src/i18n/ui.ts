@@ -109,7 +109,7 @@ export const ui = {
     "faq.title": "Lo que probablemente te estás preguntando",
     "faq.q1": "¿Y si ya tengo un .claude/ que armé a mano?",
     "faq.a1":
-      "navori coexiste. El comando init detecta tu harness existente y solo agrega bloques managed con marcadores. Tu código personalizado queda intacto.",
+      "navori coexiste. init detecta tu harness existente y solo agrega bloques managed con marcadores; tu contenido personalizado queda intacto. Y si tu setup ya trae su propia orquestación o SDD, blocks.exclude deja que navori opte por no renderear esos bloques (orquestacion / sdd) para no competir con los tuyos — el resto del harness sigue igual.",
     "faq.q2": "¿Cuándo sale soporte para Cursor y Copilot?",
     "faq.a2":
       "En parte ya está: navori genera AGENTS.md, la spec universal que Cursor, Codex, Gemini y Copilot leen de forma nativa. Los adapters dedicados de Cursor (.cursor/rules/) y Copilot (.github/copilot-instructions.md) están en el roadmap, sin fecha comprometida.",
@@ -122,6 +122,9 @@ export const ui = {
     "faq.q5": "¿Cómo actualizo mi proyecto cuando sale una versión nueva?",
     "faq.a5":
       "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código.",
+    "faq.q6": "¿No sale caro correr un harness multi-agente?",
+    "faq.a6":
+      "Menos de lo que parece. Cada agente se rendea con su modelo y effort: opus/xhigh solo para el juicio (el leader), sonnet para implementación y review, haiku/low para lo mecánico — el trabajo mecánico no corre al precio del de juicio. Sumado a la disciplina de output y a los gates de calidad que corren solo cuando corresponde (y en paralelo), el harness cuesta bastante menos por sesión que poner todo en el modelo más caro.",
 
     "footer.tagline":
       "Open source, MIT. Hecho por developers que trabajan con muchos repos.",
@@ -229,7 +232,7 @@ export const ui = {
     "faq.title": "What you're probably wondering",
     "faq.q1": "What if I already have a hand-rolled .claude/?",
     "faq.a1":
-      "navori coexists. init detects your existing harness and only adds managed blocks marked with delimiters. Your custom code stays put.",
+      "navori coexists. init detects your existing harness and only adds managed blocks marked with delimiters; your custom content stays put. And if your setup already ships its own orchestration or SDD, blocks.exclude lets navori opt out of rendering those blocks (orquestacion / sdd) so it never competes with yours — the rest of the harness stays the same.",
     "faq.q2": "When do Cursor and Copilot ship?",
     "faq.a2":
       "Partly here already: navori generates AGENTS.md, the universal spec Cursor, Codex, Gemini and Copilot read natively. Dedicated adapters for Cursor (.cursor/rules/) and Copilot (.github/copilot-instructions.md) are on the roadmap, with no committed date.",
@@ -242,6 +245,9 @@ export const ui = {
     "faq.q5": "How do I upgrade my project when a new version ships?",
     "faq.a5":
       "npx navori@latest sync. It refreshes only managed blocks without touching your code.",
+    "faq.q6": "Isn't running a multi-agent harness expensive?",
+    "faq.a6":
+      "Less than you'd think. Each agent renders with its own model and effort: opus/xhigh only for judgment (the leader), sonnet for implementation and review, haiku/low for mechanical work — mechanical work doesn't run at judgment prices. Together with output discipline and quality gates that fire only when they should (and in parallel), the harness costs far less per session than putting everything on the priciest model.",
 
     "footer.tagline":
       "Open source, MIT. Built by developers who juggle many repos.",

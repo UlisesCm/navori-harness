@@ -56,6 +56,10 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 
 **Modelo de sincronización** — los managed blocks llevan `hash`, `version` y `source`. `sync` reporta updates disponibles y avisa antes de pisar un bloque que editaste a mano; hay backups automáticos antes de cada write.
 
+**Perfil de modelos por agente** — cada agente se rendea con su `model` y `effort`: `leader` en opus/xhigh para el juicio, workers en sonnet, tareas mecánicas en haiku/low — el trabajo mecánico no corre al precio del de juicio. Sumado a la disciplina de output y a los gates de calidad afinados por evento (solo lo que corresponde, en paralelo), el harness cuesta menos por sesión. Ver [`docs/recipes/model-tiering.md`](./docs/recipes/model-tiering.md).
+
+**Coexistencia** — ¿ya tienes tu propio harness (tu orquestación / SDD)? `blocks.exclude` deja que navori conviva sin pisar tus bloques: opta por no renderear `orquestacion` / `sdd` con `navori configure blocks`, y el resto del harness sigue igual.
+
 ## Comandos
 
 | Comando | Qué hace |
