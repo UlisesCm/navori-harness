@@ -69,6 +69,35 @@ export interface ClaudeEngineResult {
   /** Total number of destination files inspected this render. `inspected -
    * written.length - skipped.length` = how many were already up to date. */
   inspected: number;
+  /** Output-style activation outcome (global scope only; undefined otherwise or
+   * when settings.json was skipped). Surfaces what happened to settings.json's
+   * `outputStyle` key so the command reporter can tell the user whether navori
+   * was activated, an existing style was preserved, or activation was opted out. */
+  outputStyle?: OutputStyleOutcome;
+}
+
+/**
+ * What a render did to settings.json's `outputStyle` key (spec: global persona
+ * output style). `existing` carries the prior style name when it's relevant to
+ * the message (a preserved non-navori style, so the reporter can tell the user
+ * which one and how to switch).
+ */
+export type OutputStyleOutcome =
+  | { kind: "activated"; existing?: string }
+  | { kind: "already-active" }
+  | { kind: "preserved-existing"; existing: string }
+  | { kind: "opted-out"; existing?: string }
+  | { kind: "deactivated" }
+  | { kind: "unmanaged"; existing?: string };
+
+/** Per-render output-style policy the global command computes from config+flags. */
+interface OutputStyleOptions {
+  /** Manage the navori style file at all (config.outputStyle). false → cleanup. */
+  manage: boolean;
+  /** `--recommended`/`--yes`: activate navori even over an existing other style. */
+  forceActivate: boolean;
+  /** `--no-output-style`: never activate this run (file may still be written). */
+  optOut: boolean;
 }
 
 const CORE_AGENTS: ReadonlyArray<{ id: string; harnessKey: keyof NonNullable<NavoriConfig["harness"]> }> = [
@@ -383,6 +412,13 @@ export function renderClaudeEngine(
     scope?: RenderScope;
     /** Skip writing settings.json entirely (global target with permissions off). */
     omitSettings?: boolean;
+    /**
+     * Output-style policy (global scope only; ignored for repo). Drives whether
+     * `<dotDir>/output-styles/navori.md` is written/removed and whether navori is
+     * activated in settings.json. Defaults to `{ manage: true, forceActivate:
+     * false, optOut: false }` at global scope when omitted.
+     */
+    outputStyle?: OutputStyleOptions;
   } = {},
 ): ClaudeEngineResult {
   // Fill in render-only derived defaults (e.g. prTarget ?? branchBase) so
@@ -577,20 +613,34 @@ export function renderClaudeEngine(
   // here via planSettings and again for scripts/skills (issue #10).
   const enabledPlugins = loadEnabledPlugins(config.plugins).loaded;
 
+  // The output-style policy is global-scope only; repo renders never touch it.
+  // Resolve the default here so both the activation (settings.json) and the file
+  // write below read the same object.
+  const outputStyleOpts: OutputStyleOptions | undefined =
+    scope === "global"
+      ? (options.outputStyle ?? { manage: true, forceActivate: false, optOut: false })
+      : undefined;
+  let outputStyleOutcome: OutputStyleOutcome | undefined;
+
   // 2. settings.json — repo: `.claude/settings.json`; global: `<dir>/settings.json`
   // (flat user layout). The global target ships permissions only (omitHooks): no
   // guard/quality-gate/plugin hooks, since it renders no `.claude/hooks/` scripts
   // and the ambient hook layer is P1. `omitSettings` skips it entirely (global
-  // config with permissions off).
+  // config with permissions off). At global scope the outputStyle policy also
+  // sets/preserves the `outputStyle` key here (safety rules in planSettings).
   if (!options.omitSettings) {
     const settingsResult = planSettings(
       join(dotDir, "settings.json"),
       config,
       scope === "global" ? [] : enabledPlugins,
       force,
-      { omitHooks: scope === "global" },
+      { omitHooks: scope === "global", outputStyle: outputStyleOpts },
     );
     inspected += 1;
+    // Only surface the outcome at global scope; repo renders don't manage an
+    // output style (outputStyleOpts is undefined there → a "unmanaged" outcome
+    // we must not leak).
+    if (outputStyleOpts) outputStyleOutcome = settingsResult.outputStyleOutcome;
     if (settingsResult.kind === "skip") {
       skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
     } else if (settingsResult.kind === "write") {
@@ -934,6 +984,36 @@ export function renderClaudeEngine(
 
   } // end repo-scope project harness (steps 3–8.7)
 
+  // 8.9. Output style (GLOBAL scope only). Write `<dotDir>/output-styles/navori.md`
+  // VERBATIM from core-assets: the file's own YAML frontmatter (name / description
+  // / keep-coding-instructions) must be the very first thing so Claude Code's
+  // output-style loader parses it — so we do NOT run it through the managed-file
+  // pipeline (which would drop the hyphenated `keep-coding-instructions` key and
+  // wrap the body in markers). Ownership is by CONTENT HASH, no in-file marker:
+  //   - manage=true: write when missing, refresh when the on-disk bytes differ
+  //     from the bundled source (drift → re-sync), no-op when identical
+  //     (idempotent). navori owns the `navori` style; fork it under another name
+  //     to customize.
+  //   - manage=false: remove ONLY a copy byte-identical to the bundled source —
+  //     provably navori's own untouched output. A user's same-named style, or an
+  //     edited one, never matches and is left in place (conservative on delete).
+  if (scope === "global" && outputStyleOpts) {
+    const stylePath = join(dotDir, "output-styles", "navori.md");
+    const sourcePath = resolve(coreAssets, "output-styles", "navori.md");
+    const source = readFileSync(sourcePath, "utf-8");
+    const existing = existsSync(stylePath) ? readFileSync(stylePath, "utf-8") : null;
+    inspected += 1;
+    if (outputStyleOpts.manage) {
+      if (existing === null) {
+        pending.push({ path: stylePath, content: source, status: "created" });
+      } else if (existing !== source) {
+        pending.push({ path: stylePath, content: source, status: "updated" });
+      }
+    } else if (existing !== null && existing === source) {
+      scriptRemovals.push(stylePath);
+    }
+  }
+
   // 9. Backup + atomic writes
   let backupPath: string | null = null;
   benchMark("plan");
@@ -950,6 +1030,7 @@ export function renderClaudeEngine(
       downgrades: claudeMdPlan.downgrades,
       languageFallbacks: claudeMdPlan.languageFallbacks,
       inspected,
+      outputStyle: outputStyleOutcome,
     };
   }
 
@@ -977,7 +1058,7 @@ export function renderClaudeEngine(
       // the config source of truth (#79/#82). Both land under ~/.navori/backups.
       const handle =
         scope === "global"
-          ? createBackup(cwd, ["CLAUDE.md", "settings.json"])
+          ? createBackup(cwd, ["CLAUDE.md", "settings.json", "output-styles"])
           : createBackup(cwd, ["CLAUDE.md", ".claude", "navori.config.json"], {
               exclude: [".claude/settings.local.json", ".claude/progress"],
             });
@@ -1047,6 +1128,7 @@ export function renderClaudeEngine(
     downgrades: claudeMdPlan.downgrades,
     languageFallbacks: claudeMdPlan.languageFallbacks,
     inspected,
+    outputStyle: outputStyleOutcome,
   };
 }
 
@@ -1062,33 +1144,103 @@ function isAgentEnabled(
 }
 
 type SettingsPlan =
-  | { kind: "noop" }
-  | { kind: "skip"; path: string; reason: string }
-  | { kind: "write"; path: string; content: string; status: RenderStatus };
+  | { kind: "noop"; outputStyleOutcome?: OutputStyleOutcome }
+  | { kind: "skip"; path: string; reason: string; outputStyleOutcome?: OutputStyleOutcome }
+  | { kind: "write"; path: string; content: string; status: RenderStatus; outputStyleOutcome?: OutputStyleOutcome };
+
+/**
+ * Read the current top-level `outputStyle` name from a parsed settings.json.
+ * Returns undefined when absent, empty, or not a string.
+ */
+function readOutputStyle(parsed: unknown): string | undefined {
+  if (!isPlainObject(parsed)) return undefined;
+  const v = parsed.outputStyle;
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+/**
+ * Decide what to do with settings.json's `outputStyle` key given the current
+ * value + policy. Pure — returns the outcome; the caller mutates the settings
+ * object. Safety rules (spec: global persona output style):
+ *   - no output style set        → activate navori (fresh profile adopts it).
+ *   - already "navori"           → keep (idempotent).
+ *   - another style + --recommended/--yes → activate navori (headless opt-in).
+ *   - another style + normal run → PRESERVE it, report how to switch.
+ *   - --no-output-style          → never activate (preserve whatever exists).
+ *   - manage=false               → drop navori if we set it; else preserve.
+ */
+function decideOutputStyle(
+  existing: string | undefined,
+  opts: OutputStyleOptions | undefined,
+): OutputStyleOutcome {
+  if (!opts || !opts.manage) {
+    if (existing === "navori") return { kind: "deactivated" };
+    return { kind: "unmanaged", existing };
+  }
+  if (opts.optOut) return { kind: "opted-out", existing };
+  if (existing === "navori") return { kind: "already-active" };
+  if (existing === undefined) return { kind: "activated" };
+  // existing is some OTHER style — only override under an explicit opt-in.
+  if (opts.forceActivate) return { kind: "activated", existing };
+  return { kind: "preserved-existing", existing };
+}
+
+/**
+ * Apply the outputStyle decision to a settings object being fully (re)written.
+ * Sets `outputStyle: "navori"` when activating, preserves an existing non-navori
+ * value when we must NOT override it (so a full rewrite never silently drops the
+ * user's style), and removes it on deactivation. Returns the outcome.
+ */
+function applyOutputStyleToFullSettings(
+  settings: Record<string, unknown>,
+  existing: string | undefined,
+  opts: OutputStyleOptions | undefined,
+): OutputStyleOutcome {
+  const outcome = decideOutputStyle(existing, opts);
+  switch (outcome.kind) {
+    case "activated":
+    case "already-active":
+      settings.outputStyle = "navori";
+      break;
+    case "preserved-existing":
+    case "opted-out":
+    case "unmanaged":
+      if (existing !== undefined) settings.outputStyle = existing;
+      break;
+    case "deactivated":
+      delete settings.outputStyle;
+      break;
+  }
+  return outcome;
+}
 
 function planSettings(
   path: string,
   config: NavoriConfig,
   plugins: LoadedPlugin[],
   force = false,
-  options: { omitHooks?: boolean } = {},
+  options: { omitHooks?: boolean; outputStyle?: OutputStyleOptions } = {},
 ): SettingsPlan {
   const newSettings = buildClaudeSettings(config, plugins, { omitHooks: options.omitHooks });
-  const newJson = JSON.stringify(newSettings, null, 2) + "\n";
+  const os = options.outputStyle;
 
   if (!existsSync(path)) {
-    return { kind: "write", path, content: newJson, status: "created" };
+    const outputStyleOutcome = applyOutputStyleToFullSettings(newSettings, undefined, os);
+    const newJson = JSON.stringify(newSettings, null, 2) + "\n";
+    return { kind: "write", path, content: newJson, status: "created", outputStyleOutcome };
   }
 
+  const rawExisting = readFileSync(path, "utf-8");
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(path, "utf-8"));
+    parsed = JSON.parse(rawExisting);
   } catch (err) {
     // Issue #4: with --force, regenerate even on parse error. The pre-render
     // backup (createBackup over .claude/) still snapshots the corrupt file
     // so the user can recover by hand if needed.
     if (force) {
-      return { kind: "write", path, content: newJson, status: "updated" };
+      const outputStyleOutcome = applyOutputStyleToFullSettings(newSettings, undefined, os);
+      return { kind: "write", path, content: JSON.stringify(newSettings, null, 2) + "\n", status: "updated", outputStyleOutcome };
     }
     return {
       kind: "skip",
@@ -1097,11 +1249,14 @@ function planSettings(
     };
   }
 
+  const existingStyle = readOutputStyle(parsed);
+
   if (!isNavoriOwnedSettings(parsed)) {
     // Issue #4: --force lets the user fully adopt a hand-written settings.json
     // (overwrite → navori-owned henceforth).
     if (force) {
-      return { kind: "write", path, content: newJson, status: "updated" };
+      const outputStyleOutcome = applyOutputStyleToFullSettings(newSettings, existingStyle, os);
+      return { kind: "write", path, content: JSON.stringify(newSettings, null, 2) + "\n", status: "updated", outputStyleOutcome };
     }
     // Issue #69: coexist. Rather than skip (which left the guard hook written
     // but unregistered → dead), inject navori's defensive layers (guard +
@@ -1115,14 +1270,23 @@ function planSettings(
       };
     }
     const merged = mergeCoexistSettings(parsed, newSettings);
+    // mergeCoexistSettings preserves every user key (incl. an existing
+    // outputStyle). Only mutate outputStyle when the decision changes it.
+    const outputStyleOutcome = decideOutputStyle(existingStyle, os);
+    if (outputStyleOutcome.kind === "activated" || outputStyleOutcome.kind === "already-active") {
+      merged.outputStyle = "navori";
+    } else if (outputStyleOutcome.kind === "deactivated") {
+      delete merged.outputStyle;
+    }
     const mergedJson = JSON.stringify(merged, null, 2) + "\n";
-    if (mergedJson === readFileSync(path, "utf-8")) return { kind: "noop" };
-    return { kind: "write", path, content: mergedJson, status: "updated" };
+    if (mergedJson === rawExisting) return { kind: "noop", outputStyleOutcome };
+    return { kind: "write", path, content: mergedJson, status: "updated", outputStyleOutcome };
   }
 
-  const current = readFileSync(path, "utf-8");
-  if (current === newJson) return { kind: "noop" };
-  return { kind: "write", path, content: newJson, status: "updated" };
+  const outputStyleOutcome = applyOutputStyleToFullSettings(newSettings, existingStyle, os);
+  const newJson = JSON.stringify(newSettings, null, 2) + "\n";
+  if (rawExisting === newJson) return { kind: "noop", outputStyleOutcome };
+  return { kind: "write", path, content: newJson, status: "updated", outputStyleOutcome };
 }
 
 interface ManagedFilePlanInput {

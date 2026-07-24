@@ -37,6 +37,14 @@ export const GlobalConfigSchema = z
      * writes the navori baseline; `false` leaves settings untouched. A string
      * names a future named preset (reserved; treated as truthy for now). */
     permissions: z.union([z.boolean(), z.string()]).default(true),
+    /** Manage the navori Claude Code Output Style. `true` (default) writes
+     * `<dotDir>/output-styles/navori.md` from core-assets and makes navori
+     * eligible for activation in settings.json; `false` stops managing it and
+     * removes navori's own untouched style file on the next render. This is the
+     * PERSISTENT intent — distinct from the per-run `--no-output-style` flag,
+     * which only skips ACTIVATION (the file is still written). Global-scope only;
+     * the repo target never renders an output style. */
+    outputStyle: z.boolean().default(true),
   })
   .passthrough();
 
@@ -134,4 +142,9 @@ export function globalConfigToNavoriConfig(config: GlobalConfig): NavoriConfig {
 /** Whether the global config asks navori to manage the permission allowlist. */
 export function globalPermissionsEnabled(config: GlobalConfig): boolean {
   return config.permissions !== false;
+}
+
+/** Whether the global config asks navori to manage its Output Style file. */
+export function globalOutputStyleEnabled(config: GlobalConfig): boolean {
+  return config.outputStyle !== false;
 }

@@ -640,6 +640,10 @@ interface GlobalCmdStrings {
   installFailed: (tool: string, error: string, command: string) => string;
   installNoCommand: (tool: string) => string;
   statusMissingTools: (n: number) => string;
+  outputStyleActivated: string;
+  outputStylePreserved: (existing: string) => string;
+  outputStyleOptedOut: string;
+  outputStyleDeactivated: string;
 }
 
 interface CmdStrings {
@@ -841,6 +845,11 @@ const CMD_ES: CmdStrings = {
       `Falló la instalación de '${tool}': ${error}. Instálalo a mano: ${command}`,
     installNoCommand: (tool) => `Sin comando de instalación para esta plataforma — instala '${tool}' a mano`,
     statusMissingTools: (n) => `global: faltan ${n} herramienta(s) externa(s)`,
+    outputStyleActivated: "Output style navori activado en settings.json",
+    outputStylePreserved: (existing) =>
+      `Se conservó tu output style '${existing}'. Para usar navori: ejecuta /output-style navori en Claude Code, o corre 'navori global render --recommended'.`,
+    outputStyleOptedOut: "Output style navori escrito pero no activado (--no-output-style)",
+    outputStyleDeactivated: "Output style navori desactivado en settings.json",
   },
 };
 
@@ -1035,6 +1044,11 @@ const CMD_EN: CmdStrings = {
       `Install of '${tool}' failed: ${error}. Install it manually: ${command}`,
     installNoCommand: (tool) => `No install command for this platform — install '${tool}' manually`,
     statusMissingTools: (n) => `global: ${n} external tool(s) missing`,
+    outputStyleActivated: "navori output style activated in settings.json",
+    outputStylePreserved: (existing) =>
+      `Kept your output style '${existing}'. To use navori: run /output-style navori in Claude Code, or run 'navori global render --recommended'.`,
+    outputStyleOptedOut: "navori output style written but not activated (--no-output-style)",
+    outputStyleDeactivated: "navori output style deactivated in settings.json",
   },
 };
 
