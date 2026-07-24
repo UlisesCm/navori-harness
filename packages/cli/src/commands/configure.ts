@@ -234,7 +234,7 @@ const branchBaseSubCommand = defineCommand({
     let value = (args.value as string | undefined)?.trim();
     if (!value) {
       const input = await p.text({
-        message: "Base branch that gates (semgrep / jscpd / cognitive) diff against",
+        message: "Base branch that gates (semgrep / jscpd) diff against",
         placeholder: config.branchBase,
         defaultValue: config.branchBase,
       });

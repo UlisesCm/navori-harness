@@ -49,7 +49,7 @@ Archivo ausente, ambiguo (más de un candidato) o con veredicto/scope que no mat
 
 ### Gate: no correr de más
 
-Tu `git commit`/`push` dispara los hooks `PreToolUse`, que corren **mecánicamente**: `quality-gate-pre-commit` (re-corre `{{qualityGate.fast}}` y bloquea si está en rojo) + jscpd/semgrep/cognitive (duplicación/seguridad/complejidad). Ese es el enforcement que no se puede saltar. Además, el `reviewer` ya corrió `{{qualityGate.fast}}` verde sobre este mismo diff (evidencia en `review_<feature>.md`, este ciclo) y tú **no editas código**.
+Tu `git commit`/`push` dispara los hooks `PreToolUse`, que corren **mecánicamente**: `quality-gate-pre-commit` (re-corre `{{qualityGate.fast}}` y bloquea si está en rojo) + jscpd/semgrep (duplicación/seguridad). Ese es el enforcement que no se puede saltar. Además, el `reviewer` ya corrió `{{qualityGate.fast}}` verde sobre este mismo diff (evidencia en `review_<feature>.md`, este ciclo) y tú **no editas código**.
 
 - ✅ **No corras `{{qualityGate.fast}}` a mano en el pre-flight.** Lo correrías dos veces sobre código ya verificado verde (tu corrida + el hook del commit). Confía en la evidencia del review para proceder; el hook del commit es el backstop mecánico.
 - ▶️ **Córrelo a mano antes de commitear** solo si dudas de que pase: el diff cambió desde el review, hubo rebase/merge, o no hay evidencia fresca del gate verde. Así evitas un commit bloqueado por el hook y el reintento.

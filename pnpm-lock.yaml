@@ -46,9 +46,6 @@ importers:
       '@navori/plugin-acli':
         specifier: workspace:*
         version: link:../plugins/acli
-      '@navori/plugin-cognitive':
-        specifier: workspace:*
-        version: link:../plugins/cognitive
       '@navori/plugin-engram':
         specifier: workspace:*
         version: link:../plugins/engram
@@ -95,8 +92,6 @@ importers:
   packages/core: {}
 
   packages/plugins/acli: {}
-
-  packages/plugins/cognitive: {}
 
   packages/plugins/engram: {}
 

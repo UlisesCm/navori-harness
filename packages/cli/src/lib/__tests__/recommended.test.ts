@@ -163,9 +163,9 @@ describe("buildFullPlugins", () => {
     }
   });
 
-  it("enables the binary-dependent plugins (jscpd/semgrep/cognitive/gh/acli) unconditionally", () => {
-    const result = buildFullPlugins(["jscpd", "semgrep", "cognitive", "gh", "acli"]);
-    for (const id of ["jscpd", "semgrep", "cognitive", "gh", "acli"]) {
+  it("enables the binary-dependent plugins (jscpd/semgrep/gh/acli) unconditionally", () => {
+    const result = buildFullPlugins(["jscpd", "semgrep", "gh", "acli"]);
+    for (const id of ["jscpd", "semgrep", "gh", "acli"]) {
       expect(result[id]).toEqual({ enabled: true });
     }
   });

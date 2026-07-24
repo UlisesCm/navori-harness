@@ -75,7 +75,7 @@ export const ui = {
     "commands.init.desc":
       "Detecta el stack, hace unas preguntas y deja el repo listo en un minuto.",
     "commands.add.desc":
-      "Registra plugins (engram, semgrep, jscpd, acli, gh, cognitive) o sugiere según tu stack.",
+      "Registra plugins (engram, semgrep, jscpd, acli, gh) o sugiere según tu stack.",
     "commands.render.desc":
       "Reconstruye CLAUDE.md y .claude/ desde el config. Preview por default; --apply escribe.",
     "commands.sync.desc":
@@ -198,7 +198,7 @@ export const ui = {
     "commands.init.desc":
       "Detects the stack, asks a few questions, and leaves the repo ready in a minute.",
     "commands.add.desc":
-      "Registers plugins (engram, semgrep, jscpd, acli, gh, cognitive) or suggests based on your stack.",
+      "Registers plugins (engram, semgrep, jscpd, acli, gh) or suggests based on your stack.",
     "commands.render.desc":
       "Rebuilds CLAUDE.md and .claude/ from the config. Preview by default; --apply writes.",
     "commands.sync.desc":

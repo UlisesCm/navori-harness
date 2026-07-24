@@ -103,7 +103,7 @@ export const RECOMMENDED_EFFORT = {
  * Enable every known plugin for `init --full`. Unlike `--recommended` (which is
  * conservative and only adds `gh` when there's a GitHub remote), full mode turns
  * on all plugins in navori.config.json — including the ones that need an external
- * binary (jscpd/semgrep/cognitive/gh/acli). A missing binary is surfaced by
+ * binary (jscpd/semgrep/gh/acli). A missing binary is surfaced by
  * `doctor` as a non-fatal yellow warning (never flips its exit code); that's the
  * accepted trade-off for a maximal install.
  *
