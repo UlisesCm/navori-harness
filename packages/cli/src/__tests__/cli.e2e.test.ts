@@ -15,10 +15,10 @@ interface CliResult {
   combined: string;
 }
 
-function runCli(args: string[]): CliResult {
+function runCli(args: string[], envOverrides: Record<string, string> = {}): CliResult {
   const r = spawnSync("node", [CLI, ...args], {
     encoding: "utf-8",
-    env: { ...process.env, FORCE_COLOR: "0" },
+    env: { ...process.env, FORCE_COLOR: "0", ...envOverrides },
   });
   return {
     status: r.status ?? -1,
@@ -1500,5 +1500,71 @@ describe("CLI e2e — local presets (fase 2)", () => {
 
     const r = runCli(["doctor", "--cwd", repo]);
     expect(r.combined).toMatch(/sombrea/);
+  });
+});
+
+describe("CLI e2e — global registry + render --all", () => {
+  let dirs: string[] = [];
+  let fakeHome: string;
+
+  beforeAll(() => {
+    if (!existsSync(CLI)) {
+      throw new Error(`CLI not built at ${CLI}. Run 'pnpm build' before tests.`);
+    }
+  });
+
+  afterEach(() => {
+    for (const d of dirs) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+    dirs = [];
+  });
+
+  /** Init in an isolated fake HOME so we never touch the real ~/.navori. */
+  function initInFakeHome(name: string): string {
+    fakeHome = mkdtempSync(join(tmpdir(), "navori-home-"));
+    dirs.push(fakeHome);
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name }) });
+    dirs.push(repo);
+    const r = runCli(["init", "--yes", "--no-render", "--cwd", repo], { HOME: fakeHome });
+    expect(r.status).toBe(0);
+    return repo;
+  }
+
+  it("init self-registers the repo and 'render --all' rolls it out with a summary", () => {
+    const repo = initInFakeHome("reg-a");
+
+    // The repo is in the registry after init.
+    const ls = runCli(["registry", "ls"], { HOME: fakeHome });
+    expect(ls.combined).toContain("reg-a");
+
+    // Preview lists it as would-write and reports the roll-up with a conflict column.
+    const preview = runCli(["render", "--all"], { HOME: fakeHome });
+    expect(preview.status).toBe(0);
+    expect(preview.combined).toContain("reg-a");
+    expect(preview.combined).toMatch(/would change/);
+    expect(preview.combined).toMatch(/conflict/);
+
+    // Apply writes the tree.
+    const apply = runCli(["render", "--all", "--apply"], { HOME: fakeHome });
+    expect(apply.status).toBe(0);
+    expect(existsSync(join(repo, "CLAUDE.md"))).toBe(true);
+
+    // Re-run is idempotent: nothing left to change.
+    const again = runCli(["render", "--all"], { HOME: fakeHome });
+    expect(again.combined).toMatch(/0 would change/);
+  });
+
+  it("'registry prune' drops a repo whose directory is gone", () => {
+    const repo = initInFakeHome("reg-gone");
+    rmSync(repo, { recursive: true, force: true });
+    const prune = runCli(["registry", "prune"], { HOME: fakeHome });
+    expect(prune.combined).toMatch(/Pruned/);
+    const ls = runCli(["registry", "ls"], { HOME: fakeHome });
+    expect(ls.combined).not.toContain("reg-gone");
   });
 });

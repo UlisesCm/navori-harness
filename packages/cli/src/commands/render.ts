@@ -13,10 +13,11 @@ import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
-import { renderStatusSymbol, renderStatusLabel, dim, color, brand, sym, type RenderStatus } from "../lib/style.ts";
+import { renderStatusSymbol, renderStatusLabel, dim, color, accent, brand, sym, type RenderStatus } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 import { effectiveConfigForWorkspace, buildMonorepoContext } from "../lib/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
+import { listRegistryRepos, pruneRegistry, registryPath } from "../lib/registry.ts";
 
 export interface WorkspaceRenderResult {
   /** Workspace path relative to the repo root (e.g. "apps/backend"). */
@@ -373,11 +374,34 @@ export const renderCommand = defineCommand({
       type: "boolean",
       description: "Emit a machine-readable JSON result and suppress human output (for CI/automation).",
     },
+    all: {
+      type: "boolean",
+      description:
+        "Render EVERY repo in the global registry (~/.navori/registry.json), not just the current one. Use after a navori bump to roll changes into all your projects at once.",
+    },
+    prune: {
+      type: "boolean",
+      description: "With --all: drop registry entries whose repo no longer exists before rendering.",
+    },
+    verbose: {
+      type: "boolean",
+      description: "With --all: list each changed managed block per repo, not just the counts.",
+    },
   },
   async run({ args }) {
     benchStart();
     const cwd = resolve(args.cwd ?? process.cwd());
     const json = Boolean(args.json);
+
+    if (args.all) {
+      renderAllRepos({
+        preview: !Boolean(args.apply) || Boolean(args["dry-run"]),
+        force: Boolean(args.force),
+        prune: Boolean(args.prune),
+        verbose: Boolean(args.verbose),
+      });
+      return;
+    }
 
     if (!json) p.intro(brand("render"));
 
@@ -680,4 +704,177 @@ function reportEngineFiles(engine: ClaudeEngineResult, lang: Lang): void {
     lines.push(`  ${color.yellow("·")} ${dim(w)}`);
   }
   p.log.message(lines.join("\n"));
+}
+
+// ---------------------------------------------------------------------------
+// Multi-repo render — shared by `workspace render <name>` and `render --all`.
+// Both roll the render across a list of repos and print one status row each;
+// keeping the loop and the report in one place avoids drift (and the jscpd
+// duplication gate). `render --all` reads the global registry; `workspace
+// render` reads one workspace's repos[].
+// ---------------------------------------------------------------------------
+
+export type RepoRenderStatus = "written" | "would-write" | "up-to-date" | "missing" | "error";
+
+export interface RepoRenderRow {
+  name: string;
+  status: RepoRenderStatus;
+  detail: string;
+  /** Managed blocks the user hand-edited; render left them untouched. Surfaced
+   * loudly because in a rollout these are exactly what needs attention. */
+  conflicts: number;
+  /** The individual entries that are not `unchanged` (created/updated/conflict/
+   * removed), for the `--verbose` per-file listing. Empty for missing/error. */
+  changed: Array<{ id: string; status: string }>;
+}
+
+/** Compact per-repo counts for the multi-repo render table. */
+export function summarizeRenderEntries(entries: Array<{ status: string }>): string {
+  const counts = entries.reduce<Record<string, number>>((acc, e) => {
+    acc[e.status] = (acc[e.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const parts: string[] = [];
+  if (counts.created) parts.push(`${counts.created} created`);
+  if (counts.updated) parts.push(`${counts.updated} updated`);
+  if (counts["user-modified-skipped"]) parts.push(`${counts["user-modified-skipped"]} conflict`);
+  if (counts["removed-condition-false"]) parts.push(`${counts["removed-condition-false"]} removed`);
+  if (counts.unchanged) parts.push(`${counts.unchanged} unchanged`);
+  return parts.join(", ");
+}
+
+/**
+ * Run render across a list of repos and return one status row each. `missing`
+ * marks a path that no longer exists on disk; `error` a repo whose render
+ * failed — neither aborts the batch, so one broken repo can't block the rest.
+ */
+export function renderRepoRows(
+  repos: Array<{ name: string; path: string }>,
+  opts: { preview: boolean; force: boolean },
+): RepoRenderRow[] {
+  const rows: RepoRenderRow[] = [];
+  for (const repo of repos) {
+    if (!existsSync(repo.path)) {
+      rows.push({ name: repo.name, status: "missing", detail: repo.path, conflicts: 0, changed: [] });
+      continue;
+    }
+    try {
+      const result = runRender(repo.path, { dryRun: opts.preview, force: opts.force });
+      if (!result.ok) {
+        rows.push({ name: repo.name, status: "error", detail: result.reason ?? "render failed", conflicts: 0, changed: [] });
+        continue;
+      }
+      const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
+      const anyPending = result.written || result.workspaces.some((w) => w.written);
+      const conflicts = allEntries.filter((e) => e.status === "user-modified-skipped").length;
+      const changed = allEntries
+        .filter((e) => e.status !== "unchanged")
+        .map((e) => ({ id: e.asset.id, status: e.status }));
+      const status: RepoRenderStatus = anyPending ? (opts.preview ? "would-write" : "written") : "up-to-date";
+      rows.push({ name: repo.name, status, detail: summarizeRenderEntries(allEntries), conflicts, changed });
+    } catch (err) {
+      rows.push({ name: repo.name, status: "error", detail: (err as Error).message, conflicts: 0, changed: [] });
+    }
+  }
+  return rows;
+}
+
+/**
+ * Print the multi-repo render table and return the roll-up counts. The table is
+ * meant to read as a record of what happened for *anyone* running it — one line
+ * per repo (marker · name · status · what changed), a conflict warning naming
+ * the affected repos, and a roll-up that always shows the conflict/failed
+ * columns so a "0" is an explicit all-clear, not a silent omission.
+ */
+export function reportRepoRenderRows(
+  rows: RepoRenderRow[],
+  preview: boolean,
+  verbose = false,
+): { failed: number; pending: number; ok: number; conflicts: number; summary: string } {
+  const marker: Record<RepoRenderStatus, string> = {
+    written: color.green(sym.ok),
+    "would-write": color.yellow(sym.bullet),
+    "up-to-date": dim(sym.bullet),
+    missing: color.red(sym.fail),
+    error: color.red(sym.fail),
+  };
+  const lines: string[] = [];
+  for (const r of rows) {
+    // A conflict outranks the write status in the marker — it's the row that
+    // needs a human, even when the repo is otherwise up to date.
+    const glyph = r.conflicts > 0 ? color.yellow(sym.conflict) : marker[r.status];
+    const detail = r.detail ? dim(`  ${r.detail}`) : "";
+    lines.push(`  ${glyph} ${accent(r.name)}  ${dim(r.status)}${detail}`);
+    // --verbose: name each changed managed block under its repo, so the log is
+    // a file-level record (not just counts) of what the rollout touched.
+    if (verbose) {
+      for (const e of r.changed) {
+        lines.push(`      ${renderStatusSymbol(e.status)} ${dim(e.id)} ${dim(`(${renderStatusLabel(e.status)})`)}`);
+      }
+    }
+  }
+  if (lines.length > 0) p.log.message(lines.join("\n"));
+
+  const failed = rows.filter((r) => r.status === "error" || r.status === "missing").length;
+  const pending = rows.filter((r) => r.status === "written" || r.status === "would-write").length;
+  const conflicts = rows.reduce((n, r) => n + r.conflicts, 0);
+  const ok = rows.length - failed;
+
+  // Name the repos with conflicts so the record says exactly where to look; the
+  // managed block was hand-edited and render refused to overwrite it.
+  if (conflicts > 0) {
+    const names = rows.filter((r) => r.conflicts > 0).map((r) => r.name).join(", ");
+    p.log.warn(
+      `${conflicts} hand-edited managed block(s) left untouched in: ${names}. ` +
+        `Reconcile with 'navori sync' in that repo, or re-apply with '--force'.`,
+    );
+  }
+
+  const summary =
+    `${ok}/${rows.length} ok · ${pending} ${preview ? "would change" : "changed"} · ` +
+    `${conflicts} conflict · ${failed} failed`;
+  return { failed, pending, ok, conflicts, summary };
+}
+
+/**
+ * `render --all`: render every repo in the global registry in one pass. Preview
+ * by default (no files touched) — `--apply` writes. `--prune` first drops
+ * entries whose repo no longer exists. Exits 1 if any repo failed.
+ */
+export function renderAllRepos(opts: { preview: boolean; force: boolean; prune: boolean; verbose: boolean }): void {
+  p.intro(brand(`render ${accent("--all")}`));
+
+  if (opts.prune) {
+    const { removed } = pruneRegistry();
+    if (removed.length > 0) {
+      p.log.info(`Pruned ${removed.length} missing repo(s) from the registry.`);
+    }
+  }
+
+  const repos = listRegistryRepos();
+  if (repos.length === 0) {
+    p.log.info("No repos registered. Bootstrap with 'navori registry scan <dir>' or run 'navori init' in a repo.");
+    p.outro(dim("Done"));
+    return;
+  }
+
+  // Name the source and mode up front so the log is self-explanatory to whoever
+  // reads it later: which registry, how many repos, preview vs. write.
+  p.log.info(
+    `${repos.length} repo(s) from ${dim(registryPath())} · ${
+      opts.preview ? color.yellow("preview (no files touched)") : color.green("apply (writing)")
+    }`,
+  );
+
+  const rows = renderRepoRows(
+    repos.map((r) => ({ name: r.name ?? r.path, path: r.path })),
+    { preview: opts.preview, force: opts.force },
+  );
+  const { failed, summary } = reportRepoRenderRows(rows, opts.preview, opts.verbose);
+
+  if (failed > 0) {
+    p.outro(`${color.yellow("Done with errors")} ${dim(summary)}`);
+    process.exit(1);
+  }
+  p.outro(`${opts.preview ? color.yellow("Preview") : color.green("Done")} ${dim(summary)}`);
 }

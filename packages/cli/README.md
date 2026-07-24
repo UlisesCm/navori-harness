@@ -47,7 +47,8 @@ Y genera:
 | `add <plugin>` | Activa un plugin y opcionalmente instala la tool externa |
 | `configure <section>` | Ajusta una sección del config sin re-correr el wizard |
 | `update` | Re-detecta el repo, refresca config y corre sync en un paso |
-| `render` | Genera CLAUDE.md y `.claude/` desde el config (preview por default; `--apply` escribe) |
+| `render` | Genera CLAUDE.md y `.claude/` desde el config (preview por default; `--apply` escribe). `--all` renderea todos los repos del registro global; `--prune` limpia los que ya no existen |
+| `registry <sub>` | Registro global de tus repos con navori, para `render --all` (`ls`, `scan <dir>`, `add`, `remove`, `prune`) |
 | `sync` | Refresca los managed blocks con conflict resolution + backups |
 | `preset init <id>` | Scaffoldea un preset local en `.navori/presets/<id>/` |
 | `scan` | Detecta workspaces nuevos en monorepos (`pnpm-workspace.yaml` / `package.json#workspaces`) |
@@ -160,6 +161,36 @@ navori workspace render bonum --apply    # escribe en cada repo
 ```
 
 Storage: `~/.navori/workspaces/<name>/` (manifest + tickets/ + backups/).
+
+## Rollout global tras un bump de navori
+
+Cuando actualizas el CLI (`npm i -g navori@latest`), el registro global mete los
+cambios a **todos** tus repos en un comando — sin ir uno por uno:
+
+```bash
+navori render --all            # preview: qué cambiaría en cada repo del registro
+navori render --all --apply     # escribe el render nuevo en todos
+navori render --all --verbose   # además lista cada bloque managed que cambió, por repo
+navori render --all --prune     # además limpia repos que ya no existen
+```
+
+El output es un registro autoexplicativo: header con el registro y el modo
+(preview/apply), una línea por repo (`created`/`updated`/`conflict`/`removed`/`unchanged`),
+un aviso que **nombra** los repos con bloques editados a mano (conflict, que el
+render no pisa) y un roll-up `ok · changed · conflict · failed`.
+
+El registro (`~/.navori/registry.json`) se puebla solo: cada `navori init` /
+`navori update` te da de alta. Para arrancar con lo que ya tenías instalado,
+escanéalo una vez:
+
+```bash
+navori registry scan ~/dev ~/otra-carpeta   # registra todo lo que tenga navori.config.json
+navori registry ls                          # ver el registro (✓ presente / ✗ missing)
+navori registry prune                       # quitar los que ya no existen
+```
+
+Es ortogonal a los workspaces: el registro es "qué repos existen"; el workspace
+es el perfil de policy (branchBase/prTarget) que cada repo hereda.
 
 ## Managed blocks con versionado
 

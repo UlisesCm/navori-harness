@@ -18,7 +18,7 @@ import { safeHomedir } from "../lib/home.ts";
 import { readConfig, writeConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { t } from "../lib/i18n.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
-import { runRender } from "./render.ts";
+import { renderRepoRows, reportRepoRenderRows } from "./render.ts";
 import { brand, dim, kv, color, sym, accent } from "../lib/style.ts";
 
 /**
@@ -509,6 +509,10 @@ const renderSubCommand = defineCommand({
       type: "boolean",
       description: "Regenerate settings.json even if corrupted or missing the $navori marker.",
     },
+    verbose: {
+      type: "boolean",
+      description: "List each changed managed block per repo, not just the counts.",
+    },
   },
   run({ args }) {
     const ws = loadWorkspace(args.name as string);
@@ -520,6 +524,7 @@ const renderSubCommand = defineCommand({
     const apply = Boolean(args.apply);
     const preview = !apply;
     const force = Boolean(args.force);
+    const verbose = Boolean(args.verbose);
 
     p.intro(brand(`workspace render ${accent(ws.name)}`));
     if (ws.repos.length === 0) {
@@ -528,46 +533,12 @@ const renderSubCommand = defineCommand({
       return;
     }
 
-    type RepoStatus = "written" | "would-write" | "up-to-date" | "missing" | "error";
-    const rows: Array<{ name: string; status: RepoStatus; detail: string }> = [];
+    const rows = renderRepoRows(
+      ws.repos.map((r) => ({ name: r.name, path: r.path })),
+      { preview, force },
+    );
+    const { failed, summary } = reportRepoRenderRows(rows, preview, verbose);
 
-    for (const repo of ws.repos) {
-      if (!existsSync(repo.path)) {
-        rows.push({ name: repo.name, status: "missing", detail: repo.path });
-        continue;
-      }
-      try {
-        const result = runRender(repo.path, { dryRun: preview, force });
-        if (!result.ok) {
-          rows.push({ name: repo.name, status: "error", detail: result.reason ?? "render failed" });
-          continue;
-        }
-        const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
-        const anyPending = result.written || result.workspaces.some((w) => w.written);
-        const status: RepoStatus = anyPending ? (preview ? "would-write" : "written") : "up-to-date";
-        rows.push({ name: repo.name, status, detail: summarizeEntries(allEntries) });
-      } catch (err) {
-        rows.push({ name: repo.name, status: "error", detail: (err as Error).message });
-      }
-    }
-
-    const marker: Record<RepoStatus, string> = {
-      written: color.green(sym.ok),
-      "would-write": color.yellow(sym.bullet),
-      "up-to-date": dim(sym.bullet),
-      missing: color.red(sym.fail),
-      error: color.red(sym.fail),
-    };
-    const lines = rows.map((r) => {
-      const detail = r.detail ? dim(`  ${r.detail}`) : "";
-      return `  ${marker[r.status]} ${accent(r.name)}  ${dim(r.status)}${detail}`;
-    });
-    p.log.message(lines.join("\n"));
-
-    const failed = rows.filter((r) => r.status === "error" || r.status === "missing").length;
-    const pending = rows.filter((r) => r.status === "written" || r.status === "would-write").length;
-    const ok = rows.length - failed;
-    const summary = `${ok}/${rows.length} ok · ${pending} ${preview ? "would change" : "changed"} · ${failed} failed`;
     if (failed > 0) {
       p.outro(`${color.yellow("Done with errors")} ${dim(summary)}`);
       process.exit(1);
@@ -575,21 +546,6 @@ const renderSubCommand = defineCommand({
     p.outro(`${preview ? color.yellow("Preview") : color.green("Done")} ${dim(summary)}`);
   },
 });
-
-/** Compact per-repo counts for the workspace render table. */
-function summarizeEntries(entries: Array<{ status: string }>): string {
-  const counts = entries.reduce<Record<string, number>>((acc, e) => {
-    acc[e.status] = (acc[e.status] ?? 0) + 1;
-    return acc;
-  }, {});
-  const parts: string[] = [];
-  if (counts.created) parts.push(`${counts.created} created`);
-  if (counts.updated) parts.push(`${counts.updated} updated`);
-  if (counts["user-modified-skipped"]) parts.push(`${counts["user-modified-skipped"]} conflict`);
-  if (counts["removed-condition-false"]) parts.push(`${counts["removed-condition-false"]} removed`);
-  if (counts.unchanged) parts.push(`${counts.unchanged} unchanged`);
-  return parts.join(", ");
-}
 
 export const workspaceCommand = defineCommand({
   meta: {

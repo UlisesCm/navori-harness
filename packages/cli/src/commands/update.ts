@@ -7,6 +7,7 @@ import { readConfigOrExit } from "../lib/cli-config.ts";
 import { detectProject } from "../lib/detect.ts";
 import { scanMonorepoWorkspaces } from "../lib/scan.ts";
 import { runRender, formatDowngradeWarning } from "./render.ts";
+import { registerRepoSafe } from "../lib/registry.ts";
 import type { UpdateAvailable } from "../lib/render-plan.ts";
 import { brand, dim, color, accent, sym, type RenderStatus } from "../lib/style.ts";
 
@@ -441,6 +442,9 @@ export const updateCommand = defineCommand({
       p.outro("Done (config actualizado, pero el render falló)");
       return;
     }
+    // Keep the global registry current (best-effort) so `render --all` sees this
+    // repo even if it predates auto-registration.
+    registerRepoSafe(cwd, detected.name);
     const applied = aggregateRender(result);
     if (applied.conflicts.length > 0) {
       p.log.warn(`${applied.conflicts.length} archivo(s) con ediciones tuyas no se tocaron — 'navori sync' para resolver`);

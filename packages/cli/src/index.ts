@@ -18,6 +18,7 @@ import { presetCommand } from "./commands/preset.ts";
 import { scanCommand } from "./commands/scan.ts";
 import { statusCommand } from "./commands/status.ts";
 import { benchCommand } from "./commands/bench.ts";
+import { registryCommand } from "./commands/registry.ts";
 
 function readVersion(): string {
   // dist/index.js → ../package.json (both in dev and published layouts)
@@ -51,6 +52,7 @@ const main = defineCommand({
     render: renderCommand,
     sync: syncCommand,
     scan: scanCommand,
+    registry: registryCommand,
     doctor: doctorCommand,
     status: statusCommand,
     bench: benchCommand,

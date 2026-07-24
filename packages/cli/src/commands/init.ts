@@ -9,6 +9,7 @@ import { detectProject, isPlaceholderName, type ClaudeInfraInventory, type Packa
 import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
 import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
 import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
+import { registerRepoSafe } from "../lib/registry.ts";
 import { runRender } from "./render.ts";
 import {
   formatInfraSummary,
@@ -279,6 +280,9 @@ export const initCommand = defineCommand({
         ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),
       });
       p.log.success(tr.wroteConfig(configPath));
+      // Self-register in the global registry so `navori render --all` picks this
+      // repo up on the next harness bump. Best-effort — never fails init.
+      registerRepoSafe(cwd, detected.name);
 
       if (isRecommended && !detected.qualityGate && fallbackQg) {
         p.log.info(`Quality gate fallback aplicado: ${fallbackQg.fast}`);
@@ -664,6 +668,9 @@ export const initCommand = defineCommand({
     });
 
     p.log.success(tr.wroteConfig(configPath));
+    // Self-register in the global registry (best-effort) so `render --all`
+    // rolls future harness bumps into this repo.
+    registerRepoSafe(cwd, name);
 
     if (mode === "coexist") {
       p.outro(tr.doneExistingUntouched);
