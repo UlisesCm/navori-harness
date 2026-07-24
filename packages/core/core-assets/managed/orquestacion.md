@@ -57,6 +57,7 @@ Aplica cuando una ronda agrupa varios fixes (ej. hallazgos de un review 4R):
 - **Un encargo = una unidad de trabajo.** Si el `implementer` encuentra un bug preexistente fuera de su scope, lo reporta y se detiene ahí (fix trivial de una línea es la excepción). Tú decides si abre unidad aparte — el scope no se expande solo a mitad de corrida.
 - **Tests dirigidos durante, suite completa al cierre.** El `implementer` corre los archivos de test del área que toca mientras trabaja; la suite completa corre UNA vez al final del encargo, no en cada iteración.
 - **Review de una pasada en diffs chicos/medianos.** Hallazgos menores los corriges tú directo, sin ronda extra de re-verificación. La re-verificación se reserva para cuando el fix tocó maquinaria compartida y el cambio en sí es riesgoso.
+- **Ronda de fix → agente fresco, no resume.** Retomar un agente con transcript grande re-alimenta todo su historial en cada turno. Para una ronda de fixes acotada, lanza un agente nuevo con solo el contrato del fix — el contexto caliente casi nunca paga lo que cuesta arrastrarlo.
 
 ### Ejecución continua (no pausar entre tareas)
 
