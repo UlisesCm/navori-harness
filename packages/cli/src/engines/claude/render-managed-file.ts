@@ -160,9 +160,12 @@ function rerender(
   const content = fmHeader + inject.output;
 
   // If injection said "unchanged" AND the frontmatter didn't shift, the
-  // overall content is byte-identical to existing.
+  // overall content is byte-identical to existing. When only the frontmatter
+  // shifted (asset-wins merge, e.g. a feature description change) the managed
+  // body is untouched but the file still needs a write — report "updated", or
+  // the caller would treat the render as a noop and drop the change.
   const status: InjectResult["status"] =
-    inject.status === "unchanged" && content === existing ? "unchanged" : inject.status;
+    inject.status === "unchanged" ? (content === existing ? "unchanged" : "updated") : inject.status;
 
   return { content, status, details: inject.details };
 }

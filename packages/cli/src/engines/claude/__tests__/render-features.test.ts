@@ -81,11 +81,32 @@ describe("renderClaudeEngine — features", () => {
     // Managed marker with the feature source (ownership).
     expect(content).toContain('navori:managed id="app-builder"');
     expect(content).toContain('source="@navori/feature-app-builder"');
-    // Frontmatter carries the manifest description (with its triggers).
+    // Frontmatter carries the manifest description (with its triggers) as a
+    // double-quoted flow scalar — JSON.parse recovers it verbatim.
     expect(content).toMatch(/^---[\s\S]*name: app-builder[\s\S]*---/);
-    expect(content).toContain("description: Trigger: build a mobile app");
+    const line = content.match(/^description: (.*)$/m);
+    expect(line).not.toBeNull();
+    expect(JSON.parse(line![1]!)).toBe(MANIFEST.description);
     // Phase files carry the feature marker too.
     expect(readFileSync(phase0, "utf-8")).toContain('source="@navori/feature-app-builder"');
+  });
+
+  it("keeps a multi-line description (embedded --- line) on a single intact frontmatter line", () => {
+    writeFixture();
+    const desc = 'Trigger: line one.\n---\nLine two after a "fence".';
+    writeFileSync(
+      join(cwd, ".navori/features/app-builder/feature.json"),
+      JSON.stringify({ ...MANIFEST, description: desc }, null, 2),
+    );
+    renderClaudeEngine(cwd, baseConfig(["app-builder"]));
+    const content = readFileSync(join(cwd, ".claude/skills/app-builder/SKILL.md"), "utf-8");
+    const fm = content.match(/^---\n([\s\S]*?)\n---\n/);
+    expect(fm).not.toBeNull();
+    const line = fm![1]!.match(/^description: (.*)$/m);
+    expect(line).not.toBeNull();
+    expect(JSON.parse(line![1]!)).toBe(desc);
+    // Nothing leaked past the closing fence into the body.
+    expect(content.slice(fm![0].length)).not.toContain("Line two after");
   });
 
   it("lists the feature in the CLAUDE.md skills index", () => {

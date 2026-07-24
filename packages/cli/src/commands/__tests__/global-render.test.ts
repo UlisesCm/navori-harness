@@ -50,14 +50,24 @@ describe("global render — scope filter", () => {
     expect(result.written.some((w) => w.path === "CLAUDE.md")).toBe(true);
   });
 
-  it("writes NO agents, skills, hooks, scripts or progress (flat, identity-only)", () => {
+  it("writes NO agents, hooks, scripts or progress (flat, identity-only)", () => {
     runGlobalRender(cfg(), { dryRun: false });
     const entries = readdirSync(claudeDir);
     expect(entries).not.toContain("agents");
-    expect(entries).not.toContain("skills");
     expect(entries).not.toContain("hooks");
     expect(entries).not.toContain("scripts");
     expect(entries).not.toContain("progress");
+  });
+
+  it("skills/ carries EXACTLY the bootstrap feature launchers, not the full mother skill", () => {
+    runGlobalRender(cfg(), { dryRun: false });
+    // app-builder (kind: bootstrap) gets a launcher and is the ONLY entry — an
+    // in-repo feature regressing to bootstrap, or any new writer into skills/,
+    // must trip this. No phases/ dir either (those only exist after a repo
+    // render — spec 0005 bootstrap discovery).
+    expect(readdirSync(join(claudeDir, "skills"))).toEqual(["app-builder"]);
+    expect(existsSync(join(claudeDir, "skills/app-builder/SKILL.md"))).toBe(true);
+    expect(existsSync(join(claudeDir, "skills/app-builder/phases"))).toBe(false);
   });
 
   it("writes permissions-only settings.json (no guard/quality-gate hooks)", () => {

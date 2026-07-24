@@ -8,7 +8,14 @@ import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../.
 import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable, type RenderScope } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { librarySkillById, LIBRARY_SKILLS, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
-import { loadFeature, featureExists, featureSource, FeatureError, type FeatureManifest } from "../../lib/features.ts";
+import {
+  loadFeature,
+  featureExists,
+  featureSource,
+  listFeatureIds,
+  FeatureError,
+  type FeatureManifest,
+} from "../../lib/features.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import {
   injectManagedSection,
@@ -1159,6 +1166,51 @@ export function renderClaudeEngine(
   }
   } // end repo-scope project harness (steps 3–8.8)
 
+  // 8.85. Bootstrap feature launchers (GLOBAL scope only). A `kind: "bootstrap"`
+  // feature (spec 0004, e.g. app-builder) CREATES the project — its phased
+  // workflow can't be discovered from a repo render because no repo exists yet.
+  // So the persona target renders one tiny launcher skill per bootstrap feature,
+  // directory form (`skills/<id>/SKILL.md`), so a chat-only agent (spec 0005 —
+  // e.g. Claude Code driven through OpenClaw on a VPS) can discover and offer
+  // it before any repo exists. The launcher carries the manifest description
+  // verbatim as its frontmatter `description` (same trigger-loading contract as
+  // a repo feature skill) and tells the agent how to bootstrap — never the
+  // mother skill or phase files, which only exist after a repo render. An
+  // `in-repo` feature stays repo-scoped: no launcher. Same managed-file
+  // machinery as a repo feature skill (marker-based, idempotent), so it
+  // participates in `result.written` / preview like everything else.
+  if (scope === "global") {
+    for (const id of listFeatureIds(repoRoot)) {
+      let loaded;
+      try {
+        loaded = loadFeature(id, repoRoot);
+      } catch (err) {
+        if (err instanceof FeatureError) {
+          warnings.push(`feature '${id}' invalid: ${err.message}`);
+          continue;
+        }
+        throw err;
+      }
+      if (!loaded || loaded.manifest.kind !== "bootstrap") continue;
+      inspected += 1;
+      applyManagedFilePlan(
+        planManagedFile({
+          cwd,
+          assetRoot: loaded.dir,
+          assetRelPath: "SKILL.md", // style inference only (rawContent wins)
+          destRelPath: `skills/${id}/SKILL.md`,
+          managedId: id,
+          config,
+          meta: { source: featureSource(id), version: NAVORI_VERSION },
+          rawContent: composeBootstrapLauncherMd(loaded.manifest),
+        }),
+        cwd,
+        pending,
+        skipped,
+      );
+    }
+  }
+
   // 8.9. Output style (GLOBAL scope only). Write `<dotDir>/output-styles/navori.md`
   // VERBATIM from core-assets: the file's own YAML frontmatter (name / description
   // / keep-coding-instructions) must be the very first thing so Claude Code's
@@ -1324,11 +1376,54 @@ function composeFeatureSkillMd(manifest: FeatureManifest, featureMd: string): st
   const fm = [
     "---",
     `name: ${manifest.id}`,
-    `description: ${manifest.description}`,
+    `description: ${yamlScalar(manifest.description)}`,
     "type: feature",
     "---",
   ].join("\n");
   return `${fm}\n\n${body}\n`;
+}
+
+/**
+ * Serialize a manifest string as a single-line double-quoted YAML flow scalar
+ * (JSON string syntax is valid YAML). The frontmatter pipeline is line-based
+ * (parse/merge/serialize per `key: value` line), so a raw multi-line value —
+ * the manifest schema allows newlines, even a literal `---` line — would get
+ * truncated at the first newline or leak past the closing fence into the body.
+ * JSON.stringify escapes newlines/quotes and keeps the value on one line.
+ */
+function yamlScalar(value: string): string {
+  return JSON.stringify(value);
+}
+
+/**
+ * Compose the source of a bootstrap feature's GLOBAL launcher `SKILL.md`
+ * (spec 0005 bootstrap discovery). Frontmatter carries only `name` + the
+ * manifest `description` verbatim (the triggers Claude Code loads it on) —
+ * no `type` key, since this is a launcher, not the mother skill. The body
+ * tells a chat-only agent how to bootstrap: create/choose a fresh project
+ * directory, run `navori init --feature <id> --recommended` there, then follow
+ * the feature skill THAT render produces for the phased workflow. The user's
+ * conversational request is the consent (spec 0005 §2.1 — detection is
+ * automatic, writes always require consent); `navori init` writes only inside
+ * the new project directory, never here.
+ */
+function composeBootstrapLauncherMd(manifest: FeatureManifest): string {
+  const fm = ["---", `name: ${manifest.id}`, `description: ${yamlScalar(manifest.description)}`, "---"].join("\n");
+  const body = `# ${manifest.displayName}
+
+${manifest.displayName} is a bootstrap feature: it creates a brand-new project end-to-end, phase by phase, behind a quality gate between phases. It has no repo yet — this launcher is how you discover and start it.
+
+## Before running anything
+
+The user's conversational request for this deliverable IS the consent. Do not run \`navori init\` speculatively, and never outside a project directory the user chose for this.
+
+## How to bootstrap
+
+1. Create or pick a fresh, empty project directory for the new project — never the directory this launcher lives in.
+2. Inside that new directory, run: \`navori init --feature ${manifest.id} --recommended\`. This writes ONLY inside that new project directory.
+3. Once init finishes, follow the feature skill it rendered into the new repo (\`.claude/skills/${manifest.id}/SKILL.md\`) for the full phased workflow.
+`;
+  return `${fm}\n\n${body}`;
 }
 
 /**
