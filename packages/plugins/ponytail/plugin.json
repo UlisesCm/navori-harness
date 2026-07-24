@@ -2,7 +2,8 @@
   "id": "ponytail",
   "name": "Ponytail (lazy senior dev / YAGNI)",
   "description": "Capa YAGNI de 'dev senior lazy': escalera antes de escribir código + ledger de atajos deliberados. Inspirado en ponytail (github.com/DietrichGebert/ponytail).",
-  "version": "0.0.1",
+  "version": "0.0.2",
+  "allowedScopes": ["global", "repo"],
   "managed": [
     {
       "id": "ponytail-protocol",
