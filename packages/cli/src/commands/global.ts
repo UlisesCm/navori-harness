@@ -9,6 +9,7 @@ import {
   globalConfigPath,
   globalConfigToNavoriConfig,
   globalPermissionsEnabled,
+  globalOutputStyleEnabled,
   validateGlobalPlugins,
   GlobalConfigError,
   type GlobalConfig,
@@ -30,7 +31,7 @@ import { brand, dim, accent, color, sym, kv, check } from "../lib/style.ts";
  */
 export function runGlobalRender(
   config: GlobalConfig,
-  opts: { dryRun?: boolean; force?: boolean; dir?: string } = {},
+  opts: { dryRun?: boolean; force?: boolean; dir?: string; forceActivateStyle?: boolean; noOutputStyle?: boolean } = {},
 ): { target: RenderTarget; result: ClaudeEngineResult } {
   const target = globalTarget(opts.dir);
   const result = renderClaudeEngine(target.baseDir, globalConfigToNavoriConfig(config), {
@@ -38,6 +39,13 @@ export function runGlobalRender(
     force: opts.force ?? false,
     scope: "global",
     omitSettings: !globalPermissionsEnabled(config),
+    outputStyle: {
+      // config.outputStyle is the persistent "manage the file" intent; the CLI
+      // --no-output-style flag only skips ACTIVATION (the file is still written).
+      manage: globalOutputStyleEnabled(config),
+      forceActivate: opts.forceActivateStyle ?? false,
+      optOut: opts.noOutputStyle ?? false,
+    },
   });
   return { target, result };
 }
@@ -129,6 +137,11 @@ export const initSubCommand = defineCommand({
       description: "Auto-install external tools required by enabled global plugins (use --no-install to opt out)",
       default: true,
     },
+    outputStyle: {
+      type: "boolean",
+      description: "Activate the navori output style in settings.json (use --no-output-style to write the file without activating)",
+      default: true,
+    },
   },
   async run({ args }) {
     const recommended = Boolean(args.recommended) || Boolean(args.yes);
@@ -194,7 +207,11 @@ export const initSubCommand = defineCommand({
     }
     if (existsSync(target.claudeMd)) p.log.info(tg.coexistNote);
 
-    const { result } = runGlobalRender(config, { dryRun: !apply });
+    const { result } = runGlobalRender(config, {
+      dryRun: !apply,
+      forceActivateStyle: recommended,
+      noOutputStyle: args.outputStyle === false,
+    });
     reportRender(target, result, !apply, lang, globalPermissionsEnabled(config));
 
     // Auto-install the external tools required by enabled global-scoped plugins.
@@ -210,13 +227,20 @@ export const initSubCommand = defineCommand({
 
 const renderSubCommand = defineCommand({
   meta: { name: "render", description: "Render the global harness into ~/.claude (preview unless --apply)" },
-  args: { apply: { type: "boolean", description: "Write changes to disk" } },
+  args: {
+    apply: { type: "boolean", description: "Write changes to disk" },
+    outputStyle: {
+      type: "boolean",
+      description: "Activate the navori output style in settings.json (use --no-output-style to write the file without activating)",
+      default: true,
+    },
+  },
   run({ args }) {
     const { config, lang } = loadOrExit();
     const tg = tc(lang).global;
     p.intro(brand("global render"));
     const apply = Boolean(args.apply);
-    const { target, result } = runGlobalRender(config, { dryRun: !apply });
+    const { target, result } = runGlobalRender(config, { dryRun: !apply, noOutputStyle: args.outputStyle === false });
     reportRender(target, result, !apply, lang, globalPermissionsEnabled(config));
     p.outro(apply ? color.green(tg.doneWord) : color.yellow(`${tg.previewWord} · ${tg.previewHint}`));
   },
@@ -224,13 +248,20 @@ const renderSubCommand = defineCommand({
 
 const syncSubCommand = defineCommand({
   meta: { name: "sync", description: "Apply pending global harness updates to ~/.claude" },
-  args: { apply: { type: "boolean", description: "Write changes to disk (default previews)" } },
+  args: {
+    apply: { type: "boolean", description: "Write changes to disk (default previews)" },
+    outputStyle: {
+      type: "boolean",
+      description: "Activate the navori output style in settings.json (use --no-output-style to write the file without activating)",
+      default: true,
+    },
+  },
   run({ args }) {
     const { config, lang } = loadOrExit();
     const tg = tc(lang).global;
     p.intro(brand("global sync"));
     const apply = Boolean(args.apply);
-    const { target, result } = runGlobalRender(config, { dryRun: !apply });
+    const { target, result } = runGlobalRender(config, { dryRun: !apply, noOutputStyle: args.outputStyle === false });
     reportRender(target, result, !apply, lang, globalPermissionsEnabled(config));
     p.outro(apply ? color.green(tg.doneWord) : color.yellow(`${tg.previewWord} · ${tg.previewHint}`));
   },
@@ -410,6 +441,27 @@ function reportRender(
   // Disclose the settings.json ownership boundary: once navori manages the
   // permissions allowlist, later hand edits are regenerated over, not merged.
   if (settingsManaged) p.log.info(dim(tg.settingsManagedNote));
+  // Report what happened to the output-style activation (the file write itself,
+  // if any, already shows in result.written above).
+  const os = result.outputStyle;
+  if (os) {
+    switch (os.kind) {
+      case "activated":
+      case "already-active":
+        p.log.info(dim(tg.outputStyleActivated));
+        break;
+      case "preserved-existing":
+        p.log.warn(tg.outputStylePreserved(os.existing));
+        break;
+      case "opted-out":
+        p.log.info(dim(tg.outputStyleOptedOut));
+        break;
+      case "deactivated":
+        p.log.info(dim(tg.outputStyleDeactivated));
+        break;
+      // "unmanaged": nothing to say (navori isn't managing the style).
+    }
+  }
 }
 
 export const globalCommand = defineCommand({
