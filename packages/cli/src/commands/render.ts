@@ -797,11 +797,30 @@ export function renderRepoRows(
         continue;
       }
       const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
+      // Engine-written files (.claude/ tree + AGENTS.md), root + every workspace.
+      // These carry changes the CLAUDE.md block entries don't — a repo whose only
+      // pending change is a hook/agent/skill/settings file would otherwise read as
+      // "unchanged" next to a "would-write" status. Folded into the summary and the
+      // --verbose list so the detail always explains the status.
+      const engineFiles: Array<{ id: string; status: string }> = [];
+      const collectEngine = (eng?: { written: Array<{ path: string; status: string }> }): void => {
+        for (const w of eng?.written ?? []) engineFiles.push({ id: w.path, status: w.status });
+      };
+      collectEngine(result.engineResult);
+      for (const ee of result.extraEngines ?? []) collectEngine(ee);
+      for (const ws of result.workspaces) {
+        collectEngine(ws.engineResult);
+        for (const ee of ws.extraEngines) collectEngine(ee);
+      }
+      const combined = allEntries
+        .map((e) => ({ status: e.status }))
+        .concat(engineFiles.map((f) => ({ status: f.status })));
       const anyPending = result.written || result.workspaces.some((w) => w.written);
-      const conflicts = allEntries.filter((e) => e.status === "user-modified-skipped").length;
+      const conflicts = combined.filter((e) => e.status === "user-modified-skipped").length;
       const changed = allEntries
         .filter((e) => e.status !== "unchanged")
-        .map((e) => ({ id: e.asset.id, status: e.status }));
+        .map((e) => ({ id: e.asset.id, status: e.status }))
+        .concat(engineFiles.filter((f) => f.status !== "unchanged"));
       const status: RepoRenderStatus = anyPending
         ? opts.preview
           ? "would-write"
@@ -810,7 +829,7 @@ export function renderRepoRows(
       rows.push({
         name: repo.name,
         status,
-        detail: summarizeRenderEntries(allEntries),
+        detail: summarizeRenderEntries(combined),
         conflicts,
         changed,
       });

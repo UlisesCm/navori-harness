@@ -1570,4 +1570,31 @@ describe("CLI e2e — global registry + render --all", () => {
     const ls = runCli(["registry", "ls"], { HOME: fakeHome });
     expect(ls.combined).not.toContain("reg-gone");
   });
+
+  it("render --all row detail surfaces a changed .claude/ file, not just CLAUDE.md blocks", () => {
+    // Regression: when a repo's only pending change is a .claude/ file (hook,
+    // agent, skill, settings) and every CLAUDE.md block is unchanged, the row
+    // read "would-write · N unchanged" — the summary counted blocks only. The
+    // detail must now name the file change.
+    fakeHome = mkdtempSync(join(tmpdir(), "navori-home-"));
+    dirs.push(fakeHome);
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "file-detail" }) });
+    dirs.push(repo);
+    expect(runCli(["init", "--yes", "--apply", "--cwd", repo], { HOME: fakeHome }).status).toBe(0);
+
+    // Drift ONE managed .claude/ file's version so render wants to update it,
+    // while every CLAUDE.md block stays byte-identical.
+    const agent = join(repo, ".claude", "agents", "leader.md");
+    const before = readFileSync(agent, "utf-8");
+    writeFileSync(agent, before.replace(/version="[0-9.]+"/, 'version="0.0.1"'));
+
+    const preview = runCli(["render", "--all"], { HOME: fakeHome });
+    expect(preview.combined).toMatch(/1 would change/);
+    // The row detail names the update instead of showing only "unchanged".
+    expect(preview.combined).toMatch(/file-detail.*updated/);
+
+    // --verbose lists the actual file path.
+    const verbose = runCli(["render", "--all", "--verbose"], { HOME: fakeHome });
+    expect(verbose.combined).toMatch(/\.claude\/agents\/leader\.md/);
+  });
 });
