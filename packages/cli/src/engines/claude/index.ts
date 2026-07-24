@@ -95,6 +95,7 @@ const CORE_SKILLS: ReadonlyArray<string> = [
   "loop-back-debug",
   "review-diff",
   "security-guidance",
+  "debug-error",
 ];
 
 /**
