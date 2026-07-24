@@ -3,12 +3,12 @@
 # `{{branchBase}}`. Skips silently if jscpd or git are absent — the tool is
 # optional, not a hard dependency of the project.
 #
-# Triggered as a PreToolUse(Bash) hook, gated to git commit/push — so the
+# Triggered as a PreToolUse(Bash) hook, gated to git commit — so the
 # duplication check runs right before code lands, not on every turn.
 
 set -euo pipefail
 
-# PreToolUse(Bash) passes the command — gate to commit/push. Extract without
+# PreToolUse(Bash) passes the command — gate to commit. Extract without
 # hard-depending on jq (not preinstalled on macOS): try jq, then node (Claude
 # Code's own runtime), then a best-effort sed unwrap. No command extracted →
 # empty $cmd → runs unconditionally (defensive: never silently skip a commit).
@@ -23,11 +23,68 @@ extract_cmd() {
   printf '%s' "$payload" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p'
 }
 cmd=$(extract_cmd)
-if [ -n "$cmd" ]; then
-  case "$cmd" in
-    'git commit'*|'git push'*) ;;
-    *) exit 0 ;;
-  esac
+
+# --- shared gate detection (keep IN SYNC across sibling hooks) --------------
+# Detect a `git commit` invocation anywhere in a (possibly
+# compound) command. Splits $1 on the shell separators && || ; | and newlines,
+# strips leading whitespace plus simple `VAR=value` env prefixes from each
+# segment, and returns 0 if ANY segment STARTS with `git commit` on
+# a word boundary. Replaces literal-prefix `case` matching, which silently
+# skipped the gate for `cd x && git commit`, `echo y; git commit`, or a leading
+# space. Because it matches a segment START, a quoted `echo "git commit"` does
+# NOT trigger it. Known limitation: it cannot see through `sh -c`, `eval`, or
+# obfuscation — a seatbelt, not a sandbox. Body duplicated across the navori quality hooks (they render standalone — no
+# shared lib). The quality-gate/jscpd/cognitive copies gate `git commit` ONLY;
+# the semgrep copy also gates `git push` and `gh pr create` (remote-push
+# security backstop). Keep in sync.
+is_git_commit() {
+  local input="$1" segment
+  # FIX B: join `\<newline>` continuations into a space FIRST, so a command
+  # split across lines with a trailing backslash stays ONE logical segment
+  # (otherwise the subcommand/flag lands in a segment not starting with git).
+  input="${input//\\$'\n'/ }"
+  input="${input//&&/$'\n'}"
+  input="${input//||/$'\n'}"
+  input="${input//;/$'\n'}"
+  input="${input//|/$'\n'}"
+  # `<<<` feeds the already-expanded value as data — no re-evaluation — so a
+  # command that contains backticks/$() is inspected, never executed.
+  while IFS= read -r segment; do
+    segment="${segment#"${segment%%[![:space:]]*}"}"        # strip leading ws
+    # FIX C: peel wrappers so `(git …`, `\git`, `command git …` and
+    # `VAR=val git …` all reduce to a plain `git …` before matching.
+    while [[ "$segment" == \(* ]]; do                       # strip leading ( runs
+      segment="${segment#\(}"
+      segment="${segment#"${segment%%[![:space:]]*}"}"
+    done
+    segment="${segment#\\}"                                 # strip a leading backslash (\git)
+    while [[ "$segment" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do  # strip VAR=val prefixes
+      case "$segment" in
+        *[[:space:]]*)
+          segment="${segment#*[[:space:]]}"
+          segment="${segment#"${segment%%[![:space:]]*}"}"
+          ;;
+        *) segment=""; break ;;
+      esac
+    done
+    if [[ "$segment" == command\ * ]]; then                 # strip a leading `command ` word
+      segment="${segment#command }"
+      segment="${segment#"${segment%%[![:space:]]*}"}"
+    fi
+    # FIX C: allow git global options between `git` and the subcommand
+    # (`git -c k=v commit`, `git -C /repo push`). Trailing boundary keeps
+    # `git commitgraph` / `git config …` from matching as commit.
+    if printf '%s' "$segment" | grep -qE '^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'; then
+      return 0
+    fi
+  done <<< "$input"
+  return 1
+}
+
+# No command extracted (empty $cmd) → run unconditionally. A real command that
+# is NOT a git commit → skip. Anything else → fall through and scan.
+if [ -n "$cmd" ] && ! is_git_commit "$cmd"; then
+  exit 0
 fi
 
 if ! command -v jscpd >/dev/null 2>&1; then

@@ -38,9 +38,14 @@ git diff origin/{{prTarget}}...HEAD --stat            # scope REAL del PR (contr
 gh auth status                                        # gh autenticado
 ```
 
-Si el harness está activo, verifica que exista un review aprobado con la tool nativa `Grep` (read-only, no pide permiso): `pattern: "APPROVED"`, `path: ".claude/progress"`, `glob: "review_*.md"`, `output_mode: "files_with_matches"`.
+Si el harness está activo, identifica el review de ESTA feature: `.claude/progress/review_<feature>.md`, con `<feature>` el id que recibiste en tu brief. Un glob amplio (`review_*.md`) sobre todos los reviews no es válido — no alcanza con que exista algún review con `APPROVED` en el directorio, tiene que ser el de este feature.
 
-Sin `APPROVED` y con harness activo → abort, dile al usuario que falta review.
+Abre ese archivo puntual y confirma que su veredicto es `APPROVED` y que su sección de scope/feature nombra la misma feature que vas a commitear. Si el review lista los archivos que revisó, compáralos contra `git diff --name-only`: si hay archivos tocados que NO aparecen en esa lista, el review no cubre el cambio completo → NO cuenta como aprobado. Aborta, no crees el PR, y devuelve al reviewer para que cubra los archivos faltantes. No basta con mencionar la diferencia y seguir.
+
+<!-- Mantén esta regla de cobertura de archivos en sync con `skills/pr-create.md` (mismo chequeo, misma semántica de abort). -->
+
+
+Archivo ausente, ambiguo (más de un candidato) o con veredicto/scope que no matchea la feature actual → NO cuenta como aprobado: abort, dile al usuario que falta review y nunca asumas un `APPROVED` genérico.
 
 ## Flujo de commit (si hay cambios sin commitear)
 

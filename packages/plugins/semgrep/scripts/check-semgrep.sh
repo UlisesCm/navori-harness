@@ -3,12 +3,12 @@
 # vs `{{branchBase}}` with the `auto` ruleset. Skips silently if semgrep or
 # git are absent — the tool is optional.
 #
-# Triggered as a PreToolUse(Bash) hook (gated to git commit/push) and as a
+# Triggered as a PreToolUse(Bash) hook (gated to git commit / push / gh pr create) and as a
 # Stop hook (runs unconditionally at session close).
 
 set -euo pipefail
 
-# PreToolUse(Bash) passes the command — gate to commit/push. The Stop hook
+# PreToolUse(Bash) passes the command — gate to commit / push / gh pr create. The Stop hook
 # passes no command — run unconditionally at session close. Extract without
 # hard-depending on jq (not preinstalled on macOS): try jq, then node (Claude
 # Code's own runtime), then a best-effort sed unwrap. No command extracted →
@@ -24,11 +24,68 @@ extract_cmd() {
   printf '%s' "$payload" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p'
 }
 cmd=$(extract_cmd)
-if [ -n "$cmd" ]; then
-  case "$cmd" in
-    'git commit'*|'git push'*) ;;
-    *) exit 0 ;;
-  esac
+
+# --- shared gate detection (keep IN SYNC across sibling hooks) --------------
+# Detect a `git commit` / `git push` / `gh pr create` invocation anywhere in a (possibly
+# compound) command. Splits $1 on the shell separators && || ; | and newlines,
+# strips leading whitespace plus simple `VAR=value` env prefixes from each
+# segment, and returns 0 if ANY segment STARTS with `git commit`/`git push` on
+# a word boundary. Replaces literal-prefix `case` matching, which silently
+# skipped the gate for `cd x && git commit`, `echo y; git push`, or a leading
+# space. Because it matches a segment START, a quoted `echo "git commit"` does
+# NOT trigger it. Known limitation: it cannot see through `sh -c`, `eval`, or
+# obfuscation — a seatbelt, not a sandbox. Body duplicated across the navori quality hooks (they render standalone — no
+# shared lib). The quality-gate/jscpd/cognitive copies gate `git commit` ONLY;
+# the semgrep copy also gates `git push` and `gh pr create` (remote-push
+# security backstop). Keep in sync.
+is_scan_trigger() {
+  local input="$1" segment
+  # FIX B: join `\<newline>` continuations into a space FIRST, so a command
+  # split across lines with a trailing backslash stays ONE logical segment
+  # (otherwise the subcommand/flag lands in a segment not starting with git).
+  input="${input//\\$'\n'/ }"
+  input="${input//&&/$'\n'}"
+  input="${input//||/$'\n'}"
+  input="${input//;/$'\n'}"
+  input="${input//|/$'\n'}"
+  # `<<<` feeds the already-expanded value as data — no re-evaluation — so a
+  # command that contains backticks/$() is inspected, never executed.
+  while IFS= read -r segment; do
+    segment="${segment#"${segment%%[![:space:]]*}"}"        # strip leading ws
+    # FIX C: peel wrappers so `(git …`, `\git`, `command git …` and
+    # `VAR=val git …` all reduce to a plain `git …` before matching.
+    while [[ "$segment" == \(* ]]; do                       # strip leading ( runs
+      segment="${segment#\(}"
+      segment="${segment#"${segment%%[![:space:]]*}"}"
+    done
+    segment="${segment#\\}"                                 # strip a leading backslash (\git)
+    while [[ "$segment" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do  # strip VAR=val prefixes
+      case "$segment" in
+        *[[:space:]]*)
+          segment="${segment#*[[:space:]]}"
+          segment="${segment#"${segment%%[![:space:]]*}"}"
+          ;;
+        *) segment=""; break ;;
+      esac
+    done
+    if [[ "$segment" == command\ * ]]; then                 # strip a leading `command ` word
+      segment="${segment#command }"
+      segment="${segment#"${segment%%[![:space:]]*}"}"
+    fi
+    # FIX C: allow git global options between `git` and the subcommand
+    # (`git -c k=v commit`, `git -C /repo push`). Trailing boundary keeps
+    # `git commitgraph` / `git config …` from matching as commit/push.
+    if printf '%s' "$segment" | grep -qE '(^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+(commit|push)([[:space:]]|$))|(^gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$))'; then
+      return 0
+    fi
+  done <<< "$input"
+  return 1
+}
+
+# No command extracted (empty $cmd) → run unconditionally (Stop hook path). A
+# real command that is NOT a scanned op → skip. Anything else → scan.
+if [ -n "$cmd" ] && ! is_scan_trigger "$cmd"; then
+  exit 0
 fi
 
 if ! command -v semgrep >/dev/null 2>&1; then
