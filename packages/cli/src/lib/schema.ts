@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { safeRelPath } from "./zod-helpers.ts";
 
-const ENGINES = ["claude", "agents-md", "cursor", "copilot"] as const;
+export const ENGINES = ["claude", "agents-md", "cursor", "copilot"] as const;
 const MODELS = ["opus", "sonnet", "haiku"] as const;
 const COMMITS = ["conventional", "conventional-es", "free"] as const;
-const LANGUAGES = ["es", "en"] as const;
+export const LANGUAGES = ["es", "en"] as const;
 
 /**
  * Forward-compat enum helpers (issue #70). A config written by a NEWER navori
@@ -14,7 +14,7 @@ const LANGUAGES = ["es", "en"] as const;
  * known ones) and fall back to a sane default so an older CLI keeps working.
  * readConfig surfaces a warning listing what it dropped.
  */
-function tolerantEnumArray<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
+export function tolerantEnumArray<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
   return z.preprocess((val) => {
     if (!Array.isArray(val)) return val; // let z.array report a non-array
     const known = val.filter((v) => (values as readonly string[]).includes(v as string));
@@ -26,7 +26,7 @@ function tolerantEnumArray<T extends readonly [string, ...string[]]>(values: T, 
   }, z.array(z.enum(values)).min(1));
 }
 
-function tolerantEnum<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
+export function tolerantEnum<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
   return z.preprocess(
     (val) => (val === undefined || (values as readonly string[]).includes(val as string) ? val : fallback),
     z.enum(values).default(fallback),
@@ -132,6 +132,20 @@ const SkillsSchema = z.object({
   optIn: z.array(z.string()).default([]),
 });
 
+// Opt OUT of specific core managed blocks. A repo that already ships its OWN
+// orchestration / SDD protocol (e.g. a personal global Claude Code harness)
+// would otherwise get navori's competing `orquestacion` / `sdd` blocks injected
+// into CLAUDE.md on `init`. Listing a core block id here stops it being
+// rendered — and removes a previously-rendered region (markers included) on the
+// next render, reusing the same removal path as a disabled plugin / a condition
+// that turned false. Ids are validated against the known core blocks at render/
+// doctor time; an unknown id is a no-op `doctor` warns about (typo guard). Any
+// core block may be excluded — none are protected. See render-plan
+// EXCLUDABLE_BLOCK_IDS.
+const BlocksSchema = z.object({
+  exclude: z.array(z.string()).default([]),
+});
+
 // Progress files live inside the repo by definition — accepting absolute
 // paths or `..` segments would let the adapter write outside the workspace
 // (issue #5). Reuse the same containment regex plugins already use for
@@ -221,6 +235,19 @@ export const NavoriConfigSchema = z
      * declare their own recommendedAgent; entries here override that. */
     agentAssignments: AgentAssignmentsSchema.optional(),
     skills: SkillsSchema.optional(),
+    blocks: BlocksSchema.optional(),
+    /** Active feature ids (multi-phase workflows that orchestrate skills toward a
+     * single deliverable). Lean array of ids, consistent with the repo's other
+     * opt-in sections; the feature bundle lives in core-assets/features/<id>/ (or
+     * a local .navori/features/<id>/ override) and renders into `.claude/skills/`.
+     * See spec 0004. Activated via `navori add feature <id>` / `navori init
+     * --feature <id>`. Each id is validated kebab-case (same idiom as the
+     * feature manifest id and preset id) — a raw id flows into a filesystem path
+     * (`core-assets/features/<id>/`), so rejecting anything with a path
+     * separator or `..` at the schema boundary blocks traversal up front. */
+    features: z
+      .array(z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "feature id must be kebab-case"))
+      .default([]),
     progress: ProgressSchema.optional(),
     project: ProjectSchema.optional(),
     monorepo: MonorepoSchema.optional(),

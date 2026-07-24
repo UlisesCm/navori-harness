@@ -72,6 +72,53 @@ describe("quality-gate hook — declared runner present", () => {
     expect(r.status).toBe(0);
     expect(r.stderr).not.toContain("running quality-gate fast");
   });
+
+  // Segment-based detection: a compound command must NOT skip the gate silently.
+  it("runs the gate on a compound `cd x && git commit` (no silent skip)", () => {
+    fakeBin("pnpm", 0);
+    const r = runHook(installHook("pnpm run typecheck"), "cd sub && git commit -m x");
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+    expect(r.stdout).toContain("RAN pnpm run typecheck");
+  });
+
+  it("runs the gate on `echo done; git push` (separator, no leading git)", () => {
+    fakeBin("pnpm", 0);
+    const r = runHook(installHook("pnpm run typecheck"), "echo done; git push");
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+  });
+
+  it("runs the gate past an env-var prefix `FOO=bar git commit`", () => {
+    fakeBin("pnpm", 0);
+    const r = runHook(installHook("pnpm run typecheck"), "FOO=bar git commit -m x");
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+  });
+
+  // FIX B: a backslash-newline continuation must not split the command past the
+  // gate. `cd x && \<NL> git commit` still triggers.
+  it("runs the gate on a multi-line `cd x && \\\\<NL> git commit`", () => {
+    fakeBin("pnpm", 0);
+    const r = runHook(installHook("pnpm run typecheck"), "cd x && \\\n git commit -m x");
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+  });
+
+  // FIX C: git global options between `git` and the subcommand still gate.
+  it("runs the gate on `git -c k=v commit` (interleaved global option)", () => {
+    fakeBin("pnpm", 0);
+    const r = runHook(installHook("pnpm run typecheck"), "git -c k=v commit -m x");
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+  });
+
+  it("does NOT trigger on a quoted `echo \"git commit\"` (not a real invocation)", () => {
+    fakeBin("pnpm", 0);
+    const r = runHook(installHook("pnpm run typecheck"), 'echo "git commit"');
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain("running quality-gate fast");
+  });
 });
 
 describe("quality-gate hook — declared runner missing (#88)", () => {

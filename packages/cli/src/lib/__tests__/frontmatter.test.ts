@@ -42,4 +42,25 @@ describe("frontmatter (spec 0003 §3.4.3, issue #11)", () => {
     expect(stripFrontmatter(WITH_FM)).toBe("# Body\n\ntext");
     expect(stripFrontmatter("no fm here\n")).toBe("no fm here");
   });
+
+  // Issue: CRLF-saved files must strip the same as LF (Windows editors).
+  it("strips CRLF frontmatter correctly", () => {
+    const crlf = "---\r\nname: foo\r\ntype: behavior\r\n---\r\n# Body\r\n\r\ntext\r\n";
+    const { frontmatter, body } = splitFrontmatter(crlf);
+    expect(frontmatter).toBe("name: foo\r\ntype: behavior");
+    expect(parseFrontmatterFields(frontmatter)).toEqual({ name: "foo", type: "behavior" });
+    expect(getFrontmatterField(frontmatter, "type")).toBe("behavior");
+    expect(body).toBe("# Body\r\n\r\ntext\r\n");
+    expect(stripFrontmatter(crlf)).toBe("# Body\r\n\r\ntext");
+  });
+
+  // Issue: a document that OPENS with a horizontal-rule `---` (no real
+  // frontmatter) must not have its first `---…---` section eaten.
+  it("leaves a body that opens with a horizontal-rule --- untouched", () => {
+    const hr = "---\nJust a section rule, no metadata\n---\nMore content\n";
+    const { frontmatter, body } = splitFrontmatter(hr);
+    expect(frontmatter).toBe("");
+    expect(body).toBe(hr);
+    expect(stripFrontmatter(hr)).toBe(hr.trim());
+  });
 });

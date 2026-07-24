@@ -67,6 +67,10 @@ describe("renderClaudeEngine — first render with full config", () => {
       ".claude/agents/implementer.md",
       ".claude/agents/leader.md",
       ".claude/agents/researcher.md",
+      ".claude/agents/review-readability.md",
+      ".claude/agents/review-reliability.md",
+      ".claude/agents/review-resilience.md",
+      ".claude/agents/review-risk.md",
       ".claude/agents/reviewer.md",
       ".claude/agents/ticket-audit.md",
     ]);
@@ -126,10 +130,16 @@ describe("renderClaudeEngine — config gates", () => {
   it("renders only agents enabled in config.harness", () => {
     const r = renderClaudeEngine(cwd, CONFIG_HARNESS_FILTERED);
     const agents = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
+    // The 4 review lenses reuse the `reviewer` harness toggle (see CORE_AGENTS
+    // in engines/claude/index.ts), so `reviewer: true` renders them too.
     expect(agents.map((a) => a.path)).toEqual([
       ".claude/agents/leader.md",
       ".claude/agents/implementer.md",
       ".claude/agents/reviewer.md",
+      ".claude/agents/review-risk.md",
+      ".claude/agents/review-resilience.md",
+      ".claude/agents/review-readability.md",
+      ".claude/agents/review-reliability.md",
     ]);
     expect(existsSync(join(cwd, ".claude/agents/researcher.md"))).toBe(false);
   });
@@ -291,14 +301,15 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
   it("reports inspected count on first render and on second", () => {
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
     // Inspected counts every managed asset processed:
-    //   1 CLAUDE.md + 1 settings.json + 8 agents + 3 core skills + 3 workflow
-    //   skills (ticket-intake, pr-create, spec-bootstrap) + 1 guard hook +
-    //   1 qg hook + 2 progress files + 1 engram-leader-extension sub-block = 21.
-    //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(21);
+    //   1 CLAUDE.md + 1 settings.json + 12 agents (8 core + 4 review lenses) +
+    //   3 core skills + 3 workflow skills (ticket-intake, pr-create,
+    //   spec-bootstrap) + 1 guard hook + 1 qg hook + 2 progress files +
+    //   1 engram-leader-extension sub-block = 25. The SDD managed block
+    //   renders into CLAUDE.md (already counted as 1 file).
+    expect(first.inspected).toBe(25);
     // Written counts files actually emitted. engram-leader-extension is a
-    // sub-block injected into leader.md, not a separate file, so written = 20.
-    expect(first.written.length).toBe(20);
+    // sub-block injected into leader.md, not a separate file, so written = 24.
+    expect(first.written.length).toBe(24);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -395,12 +406,46 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
   });
 });
 
+describe("renderClaudeEngine — plugin skills WITHOUT injectInto (standalone)", () => {
+  it("writes a managed .claude/skills/<id>.md for a plugin skill with no injectInto", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { ponytail: { enabled: true } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+
+    const path = join(cwd, ".claude/skills/ponytail-debt.md");
+    expect(existsSync(path)).toBe(true);
+    const content = readFileSync(path, "utf-8");
+    expect(content).toContain('<!-- navori:managed id="ponytail-debt"');
+    expect(content).toContain('source="@navori/plugin-ponytail"');
+    expect(content).toContain('<!-- /navori:managed id="ponytail-debt" -->');
+  });
+
+  it("removes the standalone skill file when the plugin is disabled", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { ponytail: { enabled: true } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+    const path = join(cwd, ".claude/skills/ponytail-debt.md");
+    expect(existsSync(path)).toBe(true);
+
+    const disabledCfg = {
+      ...CONFIG_FULL,
+      plugins: { ponytail: { enabled: false } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, disabledCfg);
+    expect(existsSync(path)).toBe(false);
+  });
+});
+
 describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
-    // Dry-run still reports the would-write set: the full 20 files
-    // (19 + auditor agent).
-    expect(r.written).toHaveLength(20);
+    // Dry-run still reports the would-write set: the full 24 files
+    // (19 + auditor agent + 4 review lens agents).
+    expect(r.written).toHaveLength(24);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

@@ -22,7 +22,7 @@ describe("computeRenderPlan forceIds / skipIds (spec 0003 §3.1.4)", () => {
     expect(fresh).toContain('id="idioma-rol"');
 
     // User edits inside the idioma-rol block → hash drift.
-    const modified = fresh.replace("Tech Lead Senior", "USER-EDIT-XYZ");
+    const modified = fresh.replace("Eres navori", "USER-EDIT-XYZ");
 
     // Plain re-render: conflict, edit preserved.
     const plain = computeRenderPlan(modified, config, repoRoot);
@@ -37,7 +37,7 @@ describe("computeRenderPlan forceIds / skipIds (spec 0003 §3.1.4)", () => {
     });
     expect(forced.entries.find((e) => e.asset.id === "idioma-rol")?.status).toBe("updated");
     expect(forced.next).not.toContain("USER-EDIT-XYZ");
-    expect(forced.next).toContain("Tech Lead Senior");
+    expect(forced.next).toContain("Eres navori");
 
     // keep-mine (skipIds): block left untouched (not even inspected).
     const kept = computeRenderPlan(modified, config, repoRoot, { skipIds: new Set(["idioma-rol"]) });

@@ -7,9 +7,14 @@ import { isPlaceholderName } from "../lib/detect.ts";
 import { loadPlugin } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
+import { loadFeature, featureExists } from "../lib/features.ts";
+import { activeSkillIds, bundledSkillIds } from "../lib/skill-catalog.ts";
 import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
+import { readGlobalConfig } from "../lib/global-config.ts";
+import { globalTarget } from "../lib/render-target.ts";
+import { CORE_MANAGED_ASSETS } from "../lib/render-plan.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -17,6 +22,7 @@ import {
   scanManagedOrder,
   scanMalformedMarkers,
   scanLegacyAgents,
+  scanExcludedBlocks,
   suggestNextSteps,
 } from "../lib/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
@@ -86,6 +92,8 @@ export const doctorCommand = defineCommand({
     const orderReport = scanManagedOrder(cwd, config);
     const corruptedSettings = scanCorruptedSettings(cwd);
     const missingInvariants = scanMissingInvariants(cwd, config);
+    const unknownFeatures = scanUnknownFeatures(cwd, config);
+    const featureExternalSkills = scanFeatureExternalSkills(cwd, config);
     const malformedMarkers = scanMalformedMarkers(cwd);
     const missingExternalTools = scanMissingExternalTools(config);
     const monorepoDrift = scanMonorepoDrift(cwd, config);
@@ -94,6 +102,16 @@ export const doctorCommand = defineCommand({
     // agent. Informational — navori never deletes the user's files, it just
     // surfaces the redundancy so the user can archive them.
     const legacyAgents = scanLegacyAgents(cwd, config);
+    // Core managed blocks the repo opted out of (blocks.exclude). Always
+    // surfaced so the exclusion never becomes silent config drift; unknown ids
+    // (typos) warn but don't flip `ok` — they only no-op.
+    const excludedBlocks = scanExcludedBlocks(config);
+    // Cross-scope (spec 0005 §2.4): when a global harness exists, the repo
+    // doctor reads BOTH layers and flags (a) a managed id active in the repo AND
+    // in ~/.claude (duplication collision — Claude Code loads both files) and (b)
+    // a scope:repo block that leaked into the global target. Read-only; never
+    // flips `ok` (it's a config smell with a concrete remediation, not a break).
+    const crossScope = scanCrossScope(cwd);
     // A declared preset that resolves to neither a local (.navori/presets/) nor
     // a bundled manifest renders the baseline AND warns — config points at
     // something unresolvable, same class as a missing plugin.
@@ -130,6 +148,8 @@ export const doctorCommand = defineCommand({
       },
       managedBlocks: markers,
       missingPlugins,
+      unknownFeatures,
+      featureExternalSkills,
       drifts,
       orderReport,
       corruptedSettings,
@@ -143,6 +163,8 @@ export const doctorCommand = defineCommand({
       missingPresetFiles,
       placeholderName,
       legacyAgents,
+      excludedBlocks,
+      crossScope,
     };
 
     if (args.json) {
@@ -199,6 +221,31 @@ export const doctorCommand = defineCommand({
       p.note(lines.join("\n"), td.managedBlocksTitle(markers.length));
     }
 
+    // Excluded core blocks (blocks.exclude): always shown when present so the
+    // opt-out is visible, never silent config drift. Unknown ids warn separately.
+    if (excludedBlocks) {
+      if (excludedBlocks.excluded.length > 0) {
+        const lines = excludedBlocks.excluded.map(
+          (id) => `  ${color.cyan(sym.bullet)} ${accent(id)}  ${grey(td.excludedBlockRow(id))}`,
+        );
+        p.note(lines.join("\n"), td.excludedBlocksTitle(excludedBlocks.excluded.length));
+      }
+      // A SECURITY block opt-out weakens the harness guardrails — WARN, distinct
+      // from the neutral note the cosmetic exclusions get above.
+      if (excludedBlocks.security.length > 0) {
+        const lines = excludedBlocks.security.map(
+          (id) => `  ${color.yellow(sym.update)} ${accent(id)}  ${grey(td.excludedSecurityBlockRow(id))}`,
+        );
+        p.log.warn(td.excludedSecurityBlocks(excludedBlocks.security.length, lines.join("\n")));
+      }
+      if (excludedBlocks.unknown.length > 0) {
+        const lines = excludedBlocks.unknown.map(
+          (id) => `  ${color.yellow(sym.update)} ${accent(id)}  ${grey(td.unknownExcludedBlockRow(id))}`,
+        );
+        p.log.warn(td.unknownExcludedBlocks(excludedBlocks.unknown.length, lines.join("\n")));
+      }
+    }
+
     // Skill → agent assignments report (effective: plugin recommendation + config overrides)
     const assignments = collectAssignments(config);
     if (assignments.length > 0) {
@@ -244,6 +291,32 @@ export const doctorCommand = defineCommand({
         (n) => `  ${color.red(sym.fail)} ${accent(n)}  ${grey(td.missingLocalSkillRow(n))}`,
       );
       p.log.warn(td.missingLocalSkills(missingLocalSkills.length, lines.join("\n")));
+    }
+
+    // Unknown feature ids: declared in config.features but no bundle resolves.
+    // Warning (render skips them; the harness still works), not ok-flipping.
+    if (unknownFeatures.length > 0) {
+      const lines = unknownFeatures.map((id) => `  ${color.red(sym.fail)} ${accent(id)}`);
+      p.log.warn(td.unknownFeatures(unknownFeatures.length, lines.join("\n")));
+    }
+
+    // Features referencing skills not present in this repo, split into two
+    // buckets: truly-external (not bundled at all — a user global or external
+    // CLI) as a warning, and bundled-under-an-inactive-preset as a softer note.
+    // Neither flips `ok`.
+    const trulyExternal = featureExternalSkills.filter((f) => f.external.length > 0);
+    if (trulyExternal.length > 0) {
+      const lines = trulyExternal.map(
+        (f) => `  ${color.yellow(sym.update)} ${accent(f.featureId)}  ${grey(`→ ${f.external.join(", ")}`)}`,
+      );
+      p.log.warn(td.featureExternalSkills(trulyExternal.length, lines.join("\n")));
+    }
+    const inactivePresetSkills = featureExternalSkills.filter((f) => f.inactivePreset.length > 0);
+    if (inactivePresetSkills.length > 0) {
+      const lines = inactivePresetSkills.map(
+        (f) => `  ${grey(sym.bullet)} ${accent(f.featureId)}  ${grey(`→ ${f.inactivePreset.join(", ")}`)}`,
+      );
+      p.log.info(td.featureInactivePresetSkills(inactivePresetSkills.length, lines.join("\n")));
     }
 
     if (drifts.length > 0) {
@@ -316,6 +389,14 @@ export const doctorCommand = defineCommand({
 
     if (workspaceLink) {
       p.log.warn(formatWorkspaceLinkWarning(workspaceLink, lang));
+    }
+
+    if (crossScope && (crossScope.dups.length > 0 || crossScope.violations.length > 0)) {
+      const lines = [
+        ...crossScope.dups.map((id) => `  ${color.yellow(sym.update)} ${td.crossScopeDupRow(id)}`),
+        ...crossScope.violations.map((id) => `  ${color.red(sym.fail)} ${td.crossScopeViolationRow(id)}`),
+      ];
+      p.log.warn(td.crossScope(crossScope.dups.length + crossScope.violations.length, lines.join("\n")));
     }
 
     if (orderReport) {
@@ -433,7 +514,7 @@ function scanMissingPresetFiles(
   return missing;
 }
 
-interface MissingExternalTool {
+export interface MissingExternalTool {
   pluginId: string;
   binary: string;
   install: string | null;
@@ -467,6 +548,64 @@ export function scanMissingExternalTools(config: NavoriConfig): MissingExternalT
     }
   }
   return missing;
+}
+
+/**
+ * Feature ids declared in `config.features` that resolve to no bundle (neither
+ * a local `.navori/features/<id>/` nor a bundled `core-assets/features/<id>/`).
+ * The render silently skips them, so surface as a warning (spec 0004 §4).
+ */
+export function scanUnknownFeatures(cwd: string, config: NavoriConfig): string[] {
+  return (config.features ?? []).filter((id) => !featureExists(id, cwd));
+}
+
+export interface FeatureExternalSkills {
+  featureId: string;
+  /** Phase skill ids navori does NOT bundle under ANY preset — truly external
+   * (a user global under `~/.claude/skills/`, or one from an external CLI). */
+  external: string[];
+  /** Phase skill ids navori DOES bundle, but only under a preset that isn't the
+   * active one — present once that preset is activated (or added as a local skill). */
+  inactivePreset: string[];
+}
+
+/**
+ * For each active feature, classify its phase `skills` ids that aren't already
+ * materialized for this repo into two buckets (spec 0004 §4):
+ *   - `external`       — not bundled by navori under ANY preset. WARNING.
+ *   - `inactivePreset` — bundled by navori, but under a preset that isn't active.
+ *                        Softer note: activate that preset or add it as a local skill.
+ * Neither is an error — a feature composes existing skills by id and MAY point at
+ * ids this repo doesn't currently ship.
+ */
+export function scanFeatureExternalSkills(cwd: string, config: NavoriConfig): FeatureExternalSkills[] {
+  const active = config.features ?? [];
+  if (active.length === 0) return [];
+  const activeCatalog = activeSkillIds(config, cwd);
+  const bundledCatalog = bundledSkillIds(config, cwd);
+  const out: FeatureExternalSkills[] = [];
+  for (const id of active) {
+    let loaded;
+    try {
+      loaded = loadFeature(id, cwd);
+    } catch {
+      continue; // malformed feature — surfaced via the render/unknown path
+    }
+    if (!loaded) continue; // unknown — surfaced by scanUnknownFeatures
+    const external = new Set<string>();
+    const inactivePreset = new Set<string>();
+    for (const phase of loaded.manifest.phases) {
+      for (const skill of phase.skills) {
+        if (activeCatalog.has(skill)) continue; // already present here
+        if (bundledCatalog.has(skill)) inactivePreset.add(skill);
+        else external.add(skill);
+      }
+    }
+    if (external.size > 0 || inactivePreset.size > 0) {
+      out.push({ featureId: id, external: [...external], inactivePreset: [...inactivePreset] });
+    }
+  }
+  return out;
 }
 
 interface MonorepoDrift {
@@ -534,6 +673,42 @@ export function scanWorkspaceLink(cwd: string, config: NavoriConfig): WorkspaceL
   return { kind: "repo-not-registered", workspace: name };
 }
 
+interface CrossScopeReport {
+  /** Managed ids active in BOTH the repo CLAUDE.md and ~/.claude/CLAUDE.md. */
+  dups: string[];
+  /** scope:repo core ids rendered into the global target (scope violation). */
+  violations: string[];
+}
+
+/**
+ * Spec 0005 §2.4 — the cross-scope check. Only runs when a global harness
+ * exists (`~/.navori/global.json`). Reads BOTH `CLAUDE.md` files (read-only) and
+ * compares their managed markers. A repo-vs-global duplicate means Claude Code
+ * loads the same block twice; a scope:repo id in the global target means a
+ * process block leaked into the persona layer. Returns null when there is no
+ * global config, or the global config can't be read — never fails doctor.
+ */
+export function scanCrossScope(cwd: string): CrossScopeReport | null {
+  let globalConfig;
+  try {
+    globalConfig = readGlobalConfig();
+  } catch {
+    return null;
+  }
+  if (!globalConfig) return null;
+  const target = globalTarget();
+  const globalIds = new Set(listMarkers(target.claudeMd).map((m) => m.id));
+  if (globalIds.size === 0) return { dups: [], violations: [] };
+  const repoIds = new Set(listMarkers(join(cwd, "CLAUDE.md")).map((m) => m.id));
+  const repoOnly = new Set(
+    CORE_MANAGED_ASSETS.filter((a) => (a.scope ?? "repo") === "repo").map((a) => a.id),
+  );
+  return {
+    dups: [...repoIds].filter((id) => globalIds.has(id)),
+    violations: [...globalIds].filter((id) => repoOnly.has(id)),
+  };
+}
+
 function formatWorkspaceLinkWarning(issue: WorkspaceLinkIssue, lang = DEFAULT_LANG): string {
   const td = tc(lang).doctor;
   switch (issue.kind) {
@@ -577,6 +752,19 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
       }
     } catch {
       // Missing / broken plugin is reported via missingPlugins.
+    }
+  }
+
+  // Active features declare invariants too (e.g. phase ids that must survive the
+  // render) — same verbatim-substring contract. Spec 0004 §4.
+  for (const id of config.features ?? []) {
+    try {
+      const loaded = loadFeature(id, cwd);
+      if (loaded && loaded.manifest.invariants.length > 0) {
+        sources.push({ source: `feature:${id}`, invariants: loaded.manifest.invariants });
+      }
+    } catch {
+      // Malformed feature is surfaced elsewhere; nothing to check here.
     }
   }
 

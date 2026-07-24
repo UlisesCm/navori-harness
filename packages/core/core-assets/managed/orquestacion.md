@@ -14,6 +14,24 @@ Ante una tarea no trivial **tú actúas como el orquestador**: descompones y coo
 
 Investigación con preguntas acotadas → `researcher`; mapas amplios (¿dónde vive X?) → `explorer`. Con audit previo, pásale al `implementer` la ruta de `.claude/progress/audit_<ID>.md`.
 
+### Lentes de review 4R (por perfil de riesgo)
+
+El `reviewer` general es el revisor por defecto del ciclo `implementer` → `reviewer`. Para diffs de riesgo lo **complementas** (no lo reemplazas) con lentes especializadas read-only, seleccionadas por perfil:
+
+| Señal del diff | Lente |
+|---|---|
+| Naming/estructura claros, refactor chico | `review-readability` |
+| Comportamiento, estado, tests, regresiones | `review-reliability` |
+| Integración shell/proceso, fallas parciales, deps degradadas | `review-resilience` |
+| Seguridad, permisos, datos, arquitectura, dependencias | `review-risk` |
+| PR grande / hot path (auth, payments, security) / >400 líneas cambiadas | las 4 en paralelo (fan-out 4R) |
+
+Numeración R usada dentro de cada archivo de lente: R1 `review-risk`, R2 `review-readability`, R3 `review-reliability`, R4 `review-resilience`.
+
+Costo: una lente barata para lo cotidiano; el fan-out 4R (las 4 `Agent` en el MISMO turno, ver Paralelismo) se reserva para hot paths. Diffs chicos → solo el `reviewer`. Cada lente escribe `.claude/progress/review_<lente>_<feature>.md` y devuelve `done -> <ruta>`; la síntesis de los veredictos la haces tú.
+
+Las checklists de estas lentes profundizan las mismas dimensiones que ya cubre el skill `review-diff`; si editas una, revisa si el cambio también aplica a la otra (deduplicación completa queda fuera de scope, a criterio del maintainer).
+
 ### Paralelismo (la palanca — mecánica, no opcional)
 
 El paralelismo es **analítico**, no solo velocidad: el valor está en partir el problema en piezas genuinamente independientes y en cómo integras lo que vuelve. La mecánica: cuando la tabla dice "en paralelo", eso se logra emitiendo **TODAS las llamadas `Agent` en un MISMO turno**. Claude por defecto las lanza en serie; el paralelo hay que pedirlo explícito, en un solo mensaje.
@@ -24,6 +42,14 @@ El paralelismo es **analítico**, no solo velocidad: el valor está en partir el
 Regla: sub-tareas **independientes** (no comparten estado ni una depende del output de otra) → mismo turno. Serializa solo con dependencia real (`implementer` → `reviewer`). **`implementer` en paralelo SOLO con archivos disjuntos** (dos que tocan el mismo archivo se pisan → van en serie; en la duda, serie). Reparte el scope explícito antes de abrir el abanico.
 
 **Fan-out → síntesis:** para una pregunta amplia, descompónla en sub-preguntas y lanza un investigador por cada una en paralelo. Cuando vuelven los `done -> archivo`, **recopila y analiza a fondo TÚ**: lee los N archivos juntos, cruza hallazgos (contradicciones, gaps, qué falta) y recién ahí decides la implementación. La síntesis no se delega.
+
+### Rondas de fixes y verificación económica
+
+Aplica cuando una ronda agrupa varios fixes (ej. hallazgos de un review 4R):
+
+- **Scopes disjuntos → paralelo.** Reparte los N fixes por archivos que no se cruzan y ábrelos en el mismo turno (ver Paralelismo arriba). Consolida en un solo agente solo cuando los archivos realmente se pisan.
+- **Verificación scoped por fix, completa una sola vez.** Cada fix corre los tests del área que toca (filtro por path del runner). La suite completa corre al cierre de la ronda, no después de cada fix — corridas completas intermedias queman tiempo y contexto sin subir confianza.
+- **Tier por sub-tarea, no por ronda.** Mecánico (tablas de strings, ediciones JSON, notas de una línea) → tier bajo; juicio (diseño, regex de seguridad, semántica de remoción) → tier alto. Ver `docs/recipes/model-tiering.md`.
 
 ### Ejecución continua (no pausar entre tareas)
 

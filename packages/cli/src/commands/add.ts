@@ -2,7 +2,6 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { writeConfig, readConfig } from "../lib/config.ts";
 import {
   loadPlugin,
@@ -10,55 +9,13 @@ import {
   PluginManifestError,
   listKnownPluginIds,
 } from "../lib/plugins.ts";
+import { loadFeature, listFeatureIds, FeatureError } from "../lib/features.ts";
+import { runRender } from "./render.ts";
 import { hasBinary } from "../lib/which.ts";
-import { InstallError } from "../lib/errors.ts";
+import { installExternalTool, currentPlatform } from "../lib/install-tool.ts";
 import { detectProject } from "../lib/detect.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
-
-type Platform = "darwin" | "linux" | "win32";
-
-function currentPlatform(): Platform {
-  if (process.platform === "darwin") return "darwin";
-  if (process.platform === "linux") return "linux";
-  return "win32";
-}
-
-/**
- * Run an install command from a plugin manifest.
- *
- * SECURITY NOTES:
- * - The command string comes from the plugin's plugin.json (validated by zod),
- *   NOT from user input. There is no string interpolation.
- * - We use a shell because real-world install commands (curl|bash, brew install
- *   with sudo, etc.) require shell features (pipes, expansion, env vars).
- * - We ALWAYS show the full command to the user and require confirmation
- *   before running it. The user can abort.
- * - If the plugin itself is malicious, this is no worse than `npm install`
- *   on a malicious package: trust boundary is "plugins you choose to add".
- */
-const INSTALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min — generous for brew install + downloads
-
-function runShellCommand(cmd: string): void {
-  const result = spawnSync(cmd, {
-    shell: true,
-    stdio: "inherit",
-    timeout: INSTALL_TIMEOUT_MS,
-  });
-  // spawnSync sets result.error with the killed signal when timeout fires
-  if (result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
-    throw new InstallError(
-      `Install command timed out after ${INSTALL_TIMEOUT_MS / 1000}s. ` +
-        `It may be waiting for interactive input (run from a TTY) or hung. ` +
-        `Install the tool manually and re-run navori with --skip-install.`,
-    );
-  }
-  if (result.signal) {
-    throw new InstallError(`Command killed by signal ${result.signal}`);
-  }
-  if (result.status !== 0) {
-    throw new InstallError(`Command exited with status ${result.status}`);
-  }
-}
+import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 
 export const addCommand = defineCommand({
   meta: {
@@ -68,7 +25,12 @@ export const addCommand = defineCommand({
   args: {
     plugin: {
       type: "positional",
-      description: "Plugin id to add (e.g. engram). Omit with --suggest.",
+      description: "Plugin id to add (e.g. engram), or 'feature' to add a feature. Omit with --suggest.",
+      required: false,
+    },
+    id: {
+      type: "positional",
+      description: "Feature id, when the first argument is 'feature' (e.g. 'navori add feature app-builder').",
       required: false,
     },
     suggest: {
@@ -114,6 +76,13 @@ export const addCommand = defineCommand({
 
     if (args.suggest) {
       printSuggestions(cwd, configPath);
+      return;
+    }
+
+    // `navori add feature <id>` — activate a feature (spec 0004) rather than a
+    // plugin. The first positional is the literal "feature"; the second is the id.
+    if (args.plugin === "feature") {
+      await addFeature(cwd, configPath, args.id as string | undefined);
       return;
     }
 
@@ -174,45 +143,93 @@ export const addCommand = defineCommand({
       return;
     }
 
-    const platform = currentPlatform();
-    const installCmd = tool.install?.[platform];
-    if (!installCmd) {
-      p.log.warn(`No install command for platform '${platform}'. Install '${tool.name}' manually.`);
-      p.outro("Done");
-      return;
+    const result = await installExternalTool(tool, { assumeYes: Boolean(args.yes) });
+    switch (result.status) {
+      case "no-command":
+        p.log.warn(`No install command for platform '${currentPlatform()}'. Install '${tool.name}' manually.`);
+        p.outro("Done");
+        return;
+      case "skipped":
+        p.log.warn(`External tool '${tool.name}' not installed. Hooks will skip silently.`);
+        p.outro("Done");
+        return;
+      case "failed":
+        p.log.error(`${color.red(sym.fail)} Install failed: ${result.error}`);
+        p.outro(dim("Plugin registered but external tool install failed. Install manually."));
+        return;
+      default:
+        p.log.success(`${color.green(sym.ok)} Installed ${accent(tool.name)}`);
+        p.outro(`${color.green("Done")} ${dim("— run 'navori render --apply' to apply")}`);
+        return;
     }
-
-    const shouldInstall = args.yes
-      ? true
-      : await p.confirm({
-          message: `Install '${tool.name}'? Will run: ${installCmd}`,
-          initialValue: false,
-        });
-
-    if (p.isCancel(shouldInstall) || !shouldInstall) {
-      p.log.warn(`External tool '${tool.name}' not installed. Hooks will skip silently.`);
-      p.outro("Done");
-      return;
-    }
-
-    const spin = p.spinner();
-    try {
-      spin.start(`Installing ${accent(tool.name)} — ${dim(installCmd)}`);
-      runShellCommand(installCmd);
-      if (tool.postInstall) {
-        spin.message(`Post-install — ${dim(tool.postInstall)}`);
-        runShellCommand(tool.postInstall);
-      }
-      spin.stop(`${color.green("✓")} Installed ${accent(tool.name)}`);
-    } catch (err) {
-      spin.stop(`${color.red("✗")} Install failed: ${(err as Error).message}`, 1);
-      p.outro(dim("Plugin registered but external tool install failed. Install manually."));
-      return;
-    }
-
-    p.outro(`${color.green("Done")} ${dim("— run 'navori render --apply' to apply")}`);
   },
 });
+
+/**
+ * `navori add feature <id>` — validate the id resolves to a feature bundle,
+ * append it to `features[]` (preserving the raw config), and render. Spec 0004
+ * §3. A bootstrap feature added to an already-initialized repo proceeds with a
+ * warning: its scaffold phases self-skip by gate.
+ */
+async function addFeature(cwd: string, configPath: string, featureId: string | undefined): Promise<void> {
+  // Route all prose through the config-language dictionary (spec: no hardcoded
+  // locale). Resolve defensively so a broken config still yields a usable message.
+  let lang: Lang = DEFAULT_LANG;
+  try {
+    lang = resolveLang(readConfig(configPath).language);
+  } catch {
+    // keep the default locale; the config error surfaces on the read below
+  }
+  const tr = tc(lang).feature;
+
+  if (!featureId) {
+    p.cancel(tr.passId);
+    process.exit(1);
+  }
+
+  let loaded;
+  try {
+    loaded = loadFeature(featureId, cwd);
+  } catch (err) {
+    if (err instanceof FeatureError) {
+      p.cancel(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
+  if (!loaded) {
+    const known = listFeatureIds(cwd).join(", ") || tr.noneKnown;
+    p.cancel(tr.unknown(featureId, known));
+    process.exit(1);
+  }
+
+  p.log.info(`${loaded.manifest.displayName} (${loaded.manifest.kind})`);
+  p.log.message(loaded.manifest.description);
+
+  if (loaded.manifest.kind === "bootstrap") {
+    p.log.warn(tr.addBootstrapWarning(featureId));
+  }
+
+  const config = readConfig(configPath);
+  const already = (config.features ?? []).includes(featureId);
+  if (already) {
+    p.log.warn(tr.alreadyActive(featureId));
+  } else {
+    const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+    const features = Array.isArray(raw.features) ? raw.features : [];
+    writeConfig(configPath, { ...raw, features: [...features, featureId] });
+    p.log.success(tr.added(featureId, configPath));
+  }
+
+  // Render so the feature's SKILL.md + phases land immediately (spec 0004 §3).
+  const result = runRender(cwd, false);
+  if (!result.ok) {
+    p.log.error(result.reason ?? tr.renderFailed);
+    p.outro(dim(tr.registeredRenderFailed));
+    return;
+  }
+  p.outro(`${color.green("Done")} ${dim(`— ${tr.activatedRendered}`)}`);
+}
 
 /**
  * Spec 0003 §3.5.2 — suggest (never install) based on the detected stack:

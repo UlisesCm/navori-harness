@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PluginManifestSchema } from "../plugins.ts";
+import { PluginManifestSchema, loadPlugin } from "../plugins.ts";
 
 /**
  * Schema parser tests. Containment of resolved paths (scripts.src,
@@ -251,5 +251,17 @@ describe("PluginManifestSchema — backward compat", () => {
       },
     });
     expect(result.success).toBe(true);
+  });
+});
+
+/**
+ * Identity plugins (spec 0005 §2.2) must declare the global scope in their
+ * REAL plugin.json, or `global init` silently drops them from the plugin
+ * multiselect (allowedScopes defaults to ["repo"] when absent).
+ */
+describe("identity plugins — global scope (spec 0005)", () => {
+  it.each(["engram", "ponytail"])("'%s' manifest allows the global scope", (id) => {
+    const { manifest } = loadPlugin(id);
+    expect(manifest.allowedScopes).toContain("global");
   });
 });

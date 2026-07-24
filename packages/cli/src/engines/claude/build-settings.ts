@@ -36,6 +36,7 @@ const SETTINGS_BASE_REL = "core-assets/settings/settings-base.json";
 export function buildClaudeSettings(
   config: NavoriConfig,
   plugins: LoadedPlugin[],
+  options: { omitHooks?: boolean } = {},
 ): Record<string, unknown> {
   const basePath = resolve(getCoreRoot(), SETTINGS_BASE_REL);
   const baseRaw = readFileSync(basePath, "utf-8");
@@ -52,6 +53,15 @@ export function buildClaudeSettings(
   const leaderEffort = config.effort?.leader;
   if (leaderEffort && leaderEffort !== "max") {
     settings = deepMerge(settings, { effortLevel: leaderEffort });
+  }
+
+  // The global (persona) target ships permissions only (spec 0005 P0): its hooks
+  // reference scripts under `.claude/hooks/` that the global render never
+  // materializes, and the SessionStart/ambient layer is P1. Skip every hook
+  // layer — guard, quality-gate, plugin — so `~/.claude/settings.json` is a
+  // clean allowlist.
+  if (options.omitHooks) {
+    return coalesceHookMatchers(settings);
   }
 
   // Defensive guard hook — always registered (unlike the quality gate, it has

@@ -20,11 +20,12 @@
     "multi-agent"
   ],
   "features": {
-    "plugins": 6,
+    "plugins": 7,
     "presets": 12,
-    "coreAgents": 8,
+    "coreAgents": 12,
     "coreSkills": 6,
-    "librarySkills": 15
+    "librarySkills": 15,
+    "features": 1
   },
   "license": "MIT",
   "scripts": {
@@ -46,6 +47,7 @@
     "@navori/plugin-engram": "workspace:*",
     "@navori/plugin-gh": "workspace:*",
     "@navori/plugin-jscpd": "workspace:*",
+    "@navori/plugin-ponytail": "workspace:*",
     "@navori/plugin-semgrep": "workspace:*",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.1.9",

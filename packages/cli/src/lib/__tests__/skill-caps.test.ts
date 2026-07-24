@@ -46,6 +46,12 @@ function collectSkillFiles(): string[] {
   for (const plugin of subdirs(pluginsDir)) {
     files.push(...mdFilesIn(resolve(plugin, "skills")));
   }
+  // Feature bundles (spec 0004): FEATURE.md (type feature, ≤400) plus per-phase
+  // docs under phases/ (type reference, ≤500) — same output discipline.
+  for (const feature of subdirs(resolve(coreAssets, "features"))) {
+    files.push(...mdFilesIn(feature));
+    files.push(...mdFilesIn(resolve(feature, "phases")));
+  }
   return files.sort();
 }
 

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
 import { readCliVersion } from "./bundled-assets.ts";
 import { computeManagedHash, extractManagedContent, reorderManagedBlocks } from "./marker.ts";
-import { canonicalManagedOrder } from "./render-plan.ts";
+import { canonicalManagedOrder, EXCLUDABLE_BLOCK_IDS, SECURITY_BLOCK_IDS } from "./render-plan.ts";
 import { detectClaudeInfra } from "./claude-infra.ts";
 import { detectLegacyAgents, type LegacyAgent } from "./legacy-agents.ts";
 import type { NavoriConfig } from "./config.ts";
@@ -36,6 +36,49 @@ export function listMarkers(filePath: string): MarkerInfo[] {
     result.push({ id, hash, version, source });
   }
   return result;
+}
+
+/** Repo-relative `.md` paths directly under `cwd/<dir>` (non-recursive). */
+function collectMarkdownFlat(cwd: string, dir: string): string[] {
+  const absDir = join(cwd, dir);
+  if (!existsSync(absDir)) return [];
+  try {
+    return readdirSync(absDir)
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => `${dir}/${f}`);
+  } catch {
+    return [];
+  }
+}
+
+/** Repo-relative `.md` paths under `cwd/<dir>`, recursing subdirectories so
+ * directory-shaped skills (feature bundles: `<id>/SKILL.md`, `<id>/phases/*.md`)
+ * are included. */
+function collectMarkdownRecursive(cwd: string, dir: string): string[] {
+  // Feature/skill trees are shallow; a depth cap bounds the walk against a
+  // pathological or symlink-inflated tree, and symlinked dirs are skipped so a
+  // user symlink can't send the scan out of the tree (or into a cycle).
+  // readdir(withFileTypes) reports the link itself, so isSymbolicLink() catches a
+  // symlink even when it targets a directory.
+  const MAX_DEPTH = 6;
+  const out: string[] = [];
+  const walk = (rel: string, depth: number): void => {
+    if (depth > MAX_DEPTH) return;
+    let entries;
+    try {
+      entries = readdirSync(join(cwd, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      const childRel = `${rel}/${entry.name}`;
+      if (entry.isDirectory()) walk(childRel, depth + 1);
+      else if (entry.isFile() && entry.name.endsWith(".md")) out.push(childRel);
+    }
+  };
+  if (existsSync(join(cwd, dir))) walk(dir, 0);
+  return out;
 }
 
 export interface MissingPlugin {
@@ -103,6 +146,12 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
       // unknown / broken plugin — reported elsewhere via missingPlugins
     }
   }
+  // Active features stamp `@navori/feature-<id>` on their rendered SKILL.md +
+  // phases/*.md — trust that source so a hand-edited feature file drifts exactly
+  // like a core/plugin block (spec 0004 §4).
+  for (const id of config.features ?? []) {
+    knownSources.add(`@navori/feature-${id}`);
+  }
 
   // Scan CLAUDE.md too, not just .claude/. Its managed blocks (idioma-rol,
   // formato-respuesta, plugin protocols, …) drift the same way; omitting it made
@@ -116,17 +165,11 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   for (const rel of ["AGENTS.md", ".github/copilot-instructions.md", ".cursor/rules/navori.mdc"]) {
     if (existsSync(join(cwd, rel))) files.push(rel);
   }
-  for (const dir of [".claude/agents", ".claude/skills"]) {
-    const absDir = join(cwd, dir);
-    if (!existsSync(absDir)) continue;
-    try {
-      for (const file of readdirSync(absDir)) {
-        if (file.endsWith(".md")) files.push(`${dir}/${file}`);
-      }
-    } catch {
-      continue;
-    }
-  }
+  // Agents stay flat; skills are walked RECURSIVELY so feature bundles
+  // (`.claude/skills/<id>/SKILL.md` + `<id>/phases/*.md`) are scanned for drift
+  // too — the flat readdir missed them (spec 0004 §4).
+  for (const file of collectMarkdownFlat(cwd, ".claude/agents")) files.push(file);
+  for (const file of collectMarkdownRecursive(cwd, ".claude/skills")) files.push(file);
 
   for (const rel of files) {
     const abs = join(cwd, rel);
@@ -174,6 +217,43 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
     }
   }
   return out;
+}
+
+export interface ExcludedBlocksReport {
+  /** Known core blocks opted out via `blocks.exclude`, EXCLUDING the security
+   * ones (those go in `security`). Cosmetic exclusions — surfaced at a neutral
+   * note level so an exclusion never becomes silent config drift. */
+  excluded: string[];
+  /** SECURITY core blocks opted out (subset of the excluded known blocks whose
+   * id is in SECURITY_BLOCK_IDS). Split out so `doctor` can WARN — excluding one
+   * weakens the harness's guardrails, unlike a cosmetic exclusion. */
+  security: string[];
+  /** Ids in `blocks.exclude` matching no known core block — almost always a
+   * typo that silently no-ops (the render can't strip a block that isn't ours).
+   * A warning, not an error: it doesn't break the render. */
+  unknown: string[];
+}
+
+/**
+ * Report the repo's `blocks.exclude` opt-outs: which known core blocks are
+ * suppressed (cosmetic → `excluded`, security → `security`), and which listed
+ * ids match no known core block (a typo `doctor` warns about). Returns null when
+ * nothing is excluded so the caller skips the section entirely.
+ */
+export function scanExcludedBlocks(config: NavoriConfig): ExcludedBlocksReport | null {
+  const list = config.blocks?.exclude ?? [];
+  if (list.length === 0) return null;
+  const known = new Set<string>(EXCLUDABLE_BLOCK_IDS);
+  const securityIds = new Set<string>(SECURITY_BLOCK_IDS);
+  const excluded: string[] = [];
+  const security: string[] = [];
+  const unknown: string[] = [];
+  for (const id of list) {
+    if (securityIds.has(id)) security.push(id);
+    else if (known.has(id)) excluded.push(id);
+    else unknown.push(id);
+  }
+  return { excluded, security, unknown };
 }
 
 export interface OrderReport {

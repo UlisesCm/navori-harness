@@ -578,6 +578,15 @@ interface DoctorCmdStrings {
   missingPresetFileRow: (path: string) => string;
   missingLocalSkills: (n: number, lines: string) => string;
   missingLocalSkillRow: (id: string) => string;
+  excludedBlocksTitle: (n: number) => string;
+  excludedBlockRow: (id: string) => string;
+  excludedSecurityBlocks: (n: number, lines: string) => string;
+  excludedSecurityBlockRow: (id: string) => string;
+  unknownExcludedBlocks: (n: number, lines: string) => string;
+  unknownExcludedBlockRow: (id: string) => string;
+  unknownFeatures: (n: number, lines: string) => string;
+  featureExternalSkills: (n: number, lines: string) => string;
+  featureInactivePresetSkills: (n: number, lines: string) => string;
   driftContentRow: (source: string) => string;
   driftVersionSuffix: (source: string) => string;
   drift: (n: number, hint: string, lines: string) => string;
@@ -607,6 +616,62 @@ interface DoctorCmdStrings {
   outroIssues: string;
   outroDriftStrict: string;
   outroOk: string;
+  // Cross-scope (spec 0005 §2.4): the repo doctor also reads ~/.claude.
+  crossScope: (n: number, lines: string) => string;
+  crossScopeDupRow: (id: string) => string;
+  crossScopeViolationRow: (id: string) => string;
+}
+
+interface GlobalCmdStrings {
+  initLangPrompt: string;
+  initPluginsPrompt: string;
+  initPermsPrompt: string;
+  wroteConfig: (path: string) => string;
+  coexistNote: string;
+  settingsManagedNote: string;
+  previewWord: string;
+  previewHint: string;
+  initPreviewHint: string;
+  doneWord: string;
+  upToDate: string;
+  noConfig: (path: string) => string;
+  doctorConfigTitle: string;
+  doctorTargetTitle: string;
+  doctorDrift: (n: number, lines: string) => string;
+  doctorNonGlobalPlugins: (n: number, lines: string) => string;
+  doctorScopeViolations: (n: number, lines: string) => string;
+  doctorIssues: string;
+  doctorOk: string;
+  statusOk: string;
+  statusDrift: (n: number) => string;
+  installInstalled: (tool: string) => string;
+  installAlreadyPresent: (tool: string) => string;
+  installSkipped: (tool: string) => string;
+  installFailed: (tool: string, error: string, command: string) => string;
+  installNoCommand: (tool: string) => string;
+  statusMissingTools: (n: number) => string;
+  outputStyleActivated: string;
+  outputStylePreserved: (existing: string) => string;
+  outputStyleOptedOut: string;
+  outputStyleDeactivated: string;
+}
+
+/**
+ * Feature activation prose shared by `navori add feature <id>` and
+ * `navori init --feature <id>`. Both used to hardcode a single locale (add: es,
+ * init: en) — routing them here keeps output in the config/wizard language.
+ */
+interface FeatureCmdStrings {
+  passId: string;
+  noneKnown: string;
+  unknown: (id: string, known: string) => string;
+  initInRepoNotBootstrap: (id: string) => string;
+  addBootstrapWarning: (id: string) => string;
+  alreadyActive: (id: string) => string;
+  added: (id: string, configPath: string) => string;
+  renderFailed: string;
+  registeredRenderFailed: string;
+  activatedRendered: string;
 }
 
 interface CmdStrings {
@@ -614,6 +679,8 @@ interface CmdStrings {
   render: RenderCmdStrings;
   sync: SyncCmdStrings;
   doctor: DoctorCmdStrings;
+  feature: FeatureCmdStrings;
+  global: GlobalCmdStrings;
 }
 
 const CMD_ES: CmdStrings = {
@@ -708,6 +775,26 @@ const CMD_ES: CmdStrings = {
     missingLocalSkills: (n, lines) =>
       `Skills project-local declarados sin archivo (${n}) — crea el .md (o <id>/SKILL.md) o quita el id de project.localSkills:\n${lines}`,
     missingLocalSkillRow: (id) => `— falta .claude/skills/${id}.md o ${id}/SKILL.md`,
+    excludedBlocksTitle: (n) => `Bloques core excluidos · ${n} (blocks.exclude)`,
+    excludedBlockRow: (_id) => `— no se renderiza; si existía, se quita en el próximo render`,
+    excludedSecurityBlocks: (n, lines) =>
+      `Bloques de SEGURIDAD excluidos (${n}) — debilita los guardrails del harness ` +
+      `(force-push, --no-verify, rm destructivo). Confirma que es intencional:\n${lines}`,
+    excludedSecurityBlockRow: (id) => `— '${id}' es un bloque de seguridad; excluirlo baja la protección`,
+    unknownExcludedBlocks: (n, lines) =>
+      `Ids en blocks.exclude que no son bloques core conocidos (${n}) — ` +
+      `probablemente un typo; no excluyen nada. Corrígelos o quítalos de blocks.exclude:\n${lines}`,
+    unknownExcludedBlockRow: (id) => `— '${id}' no coincide con ningún bloque core`,
+    unknownFeatures: (n, lines) =>
+      `Features declaradas en config sin bundle (${n}) — no existen en core-assets/features/ ni en ` +
+      `.navori/features/; el render las omite. Corre 'navori add feature <id>' con un id válido o ` +
+      `quítalas de features[]:\n${lines}`,
+    featureExternalSkills: (n, lines) =>
+      `Features que referencian skills que navori no bundlea (${n}) — asegúrate de que existan en el ` +
+      `harness destino (una skill global tuya o de un CLI externo). No es un error:\n${lines}`,
+    featureInactivePresetSkills: (n, lines) =>
+      `Features que referencian skills bundleadas pero fuera del preset activo (${n}) — se activan con ` +
+      `el preset correspondiente o como skill local. No es un error:\n${lines}`,
     driftContentRow: (source) => `(${source}, content edited)`,
     driftVersionSuffix: (source) => `(${source})`,
     drift: (n, hint, lines) => `Drift detectado (${n}) — ${hint}:\n${lines}`,
@@ -765,6 +852,73 @@ const CMD_ES: CmdStrings = {
     outroIssues: "Issues found",
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
+    crossScope: (n, lines) =>
+      `Colisión de scope con ~/.claude (${n}) — el mismo bloque managed está activo en ` +
+      `las dos capas; Claude Code carga ambos archivos y los protocolos se promedian:\n${lines}`,
+    crossScopeDupRow: (id) =>
+      `⚠ '${id}' activo en ~/.claude Y en ./CLAUDE.md → excluye el bloque en el repo ` +
+      `(blocks.exclude, si tu versión lo soporta) o quítalo del scope global ('navori global sync')`,
+    crossScopeViolationRow: (id) =>
+      `⚠ '${id}' es scope:repo pero está rendereado en ~/.claude — la identidad global no debería ` +
+      `traerlo; quítalo del target global`,
+  },
+  global: {
+    initLangPrompt: "Idioma / rol de la persona",
+    initPluginsPrompt: "Plugins globales (identidad: engram, ponytail…)",
+    initPermsPrompt: "¿Manejar la allowlist de permisos en ~/.claude/settings.json?",
+    wroteConfig: (path) => `Escrito ${path} (source of truth global)`,
+    coexistNote:
+      "Ya existe un ~/.claude/CLAUDE.md — se preserva tu contenido fuera de los marcadores y se hace backup antes de escribir.",
+    settingsManagedNote:
+      "Nota: una vez adoptado, navori administra los permisos de ~/.claude/settings.json. Las ediciones a mano posteriores no se fusionan de vuelta; usa la config global como fuente de verdad.",
+    previewWord: "Preview",
+    previewHint: "corre 'navori global render --apply' para escribir",
+    initPreviewHint: "corre 'navori global init --apply' para escribir",
+    doneWord: "Listo",
+    upToDate: "Al día — sin cambios",
+    noConfig: (path) => `No hay config global en ${path}. Corre 'navori global init' primero.`,
+    doctorConfigTitle: "Config global",
+    doctorTargetTitle: "Target",
+    doctorDrift: (n, lines) => `Drift en el harness global (${n}):\n${lines}`,
+    doctorNonGlobalPlugins: (n, lines) =>
+      `Plugins habilitados que no permiten scope global (${n}) — quítalos de la config global:\n${lines}`,
+    doctorScopeViolations: (n, lines) =>
+      `Bloques scope:repo rendereados en el target global (${n}) — violación de scope:\n${lines}`,
+    doctorIssues: "Issues found",
+    doctorOk: "OK",
+    statusOk: "global: al día",
+    statusDrift: (n) => `global: drift en ${n} bloque(s)`,
+    installInstalled: (tool) => `Instalado '${tool}'`,
+    installAlreadyPresent: (tool) => `'${tool}' ya está instalado`,
+    installSkipped: (tool) => `'${tool}' no instalado — los hooks se saltan solos`,
+    installFailed: (tool, error, command) =>
+      `Falló la instalación de '${tool}': ${error}. Instálalo a mano: ${command}`,
+    installNoCommand: (tool) => `Sin comando de instalación para esta plataforma — instala '${tool}' a mano`,
+    statusMissingTools: (n) => `global: faltan ${n} herramienta(s) externa(s)`,
+    outputStyleActivated: "Output style navori activado en settings.json",
+    outputStylePreserved: (existing) =>
+      `Se conservó tu output style '${existing}'. Para usar navori: ejecuta /output-style navori en Claude Code, o corre 'navori global render --recommended'.`,
+    outputStyleOptedOut: "Output style navori escrito pero no activado (--no-output-style)",
+    outputStyleDeactivated: "Output style navori desactivado en settings.json",
+  },
+  feature: {
+    passId: "Pasa un id de feature (ej. 'navori add feature app-builder').",
+    noneKnown: "(ninguna)",
+    unknown: (id, known) => `Feature '${id}' desconocida. Conocidas: ${known}`,
+    initInRepoNotBootstrap: (id) =>
+      `La feature '${id}' es kind:in-repo — espera un proyecto existente. Corre 'navori init' ` +
+      `primero, después 'navori add feature ${id}'. 'navori init --feature' es solo para features ` +
+      `kind:bootstrap (las que crean el proyecto).`,
+    addBootstrapWarning: (id) =>
+      `'${id}' es una feature de bootstrap (crea el proyecto). Este repo ya está inicializado, ` +
+      `así que las fases de scaffold se saltan por su gate ("ya existe"). Para un proyecto nuevo ` +
+      `desde una carpeta vacía usa 'navori init --feature ${id}'.`,
+    alreadyActive: (id) => `'${id}' ya está en features[] de este config`,
+    added: (id, configPath) => `Añadí '${id}' a features[] en ${configPath}`,
+    renderFailed: "El render falló",
+    registeredRenderFailed:
+      "Feature registrada, pero el render falló — corre 'navori render --apply'.",
+    activatedRendered: "feature activada y renderizada",
   },
 };
 
@@ -860,6 +1014,26 @@ const CMD_EN: CmdStrings = {
     missingLocalSkills: (n, lines) =>
       `Project-local skills declared with no file (${n}) — create the .md (or <id>/SKILL.md) or remove the id from project.localSkills:\n${lines}`,
     missingLocalSkillRow: (id) => `— missing .claude/skills/${id}.md or ${id}/SKILL.md`,
+    excludedBlocksTitle: (n) => `Excluded core blocks · ${n} (blocks.exclude)`,
+    excludedBlockRow: (_id) => `— not rendered; removed on next render if it was present`,
+    excludedSecurityBlocks: (n, lines) =>
+      `SECURITY blocks excluded (${n}) — weakens the harness guardrails ` +
+      `(force-push, --no-verify, destructive rm). Confirm this is intentional:\n${lines}`,
+    excludedSecurityBlockRow: (id) => `— '${id}' is a security block; excluding it lowers protection`,
+    unknownExcludedBlocks: (n, lines) =>
+      `Ids in blocks.exclude that are not known core blocks (${n}) — ` +
+      `likely a typo; they exclude nothing. Fix or drop them from blocks.exclude:\n${lines}`,
+    unknownExcludedBlockRow: (id) => `— '${id}' matches no core block`,
+    unknownFeatures: (n, lines) =>
+      `Features declared in config with no bundle (${n}) — they don't exist in core-assets/features/ ` +
+      `nor .navori/features/; render skips them. Run 'navori add feature <id>' with a valid id or ` +
+      `remove them from features[]:\n${lines}`,
+    featureExternalSkills: (n, lines) =>
+      `Features referencing skills navori does not bundle (${n}) — make sure they exist in the target ` +
+      `harness (a user global skill or one from an external CLI). Not an error:\n${lines}`,
+    featureInactivePresetSkills: (n, lines) =>
+      `Features referencing skills navori bundles but outside the active preset (${n}) — activate the ` +
+      `matching preset or add them as a local skill. Not an error:\n${lines}`,
     driftContentRow: (source) => `(${source}, content edited)`,
     driftVersionSuffix: (source) => `(${source})`,
     drift: (n, hint, lines) => `Drift detected (${n}) — ${hint}:\n${lines}`,
@@ -917,6 +1091,72 @@ const CMD_EN: CmdStrings = {
     outroIssues: "Issues found",
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
+    crossScope: (n, lines) =>
+      `Scope collision with ~/.claude (${n}) — the same managed block is active in both ` +
+      `layers; Claude Code loads both files and the protocols average out:\n${lines}`,
+    crossScopeDupRow: (id) =>
+      `⚠ '${id}' active in ~/.claude AND in ./CLAUDE.md → exclude the block in the repo ` +
+      `(blocks.exclude, if your version supports it) or drop it from the global scope ('navori global sync')`,
+    crossScopeViolationRow: (id) =>
+      `⚠ '${id}' is scope:repo but is rendered in ~/.claude — the global identity should not ` +
+      `carry it; remove it from the global target`,
+  },
+  global: {
+    initLangPrompt: "Persona language / role",
+    initPluginsPrompt: "Global plugins (identity: engram, ponytail…)",
+    initPermsPrompt: "Manage the permission allowlist in ~/.claude/settings.json?",
+    wroteConfig: (path) => `Wrote ${path} (global source of truth)`,
+    coexistNote:
+      "A ~/.claude/CLAUDE.md already exists — your content outside the markers is preserved and backed up before writing.",
+    settingsManagedNote:
+      "Note: once adopted, navori manages the permissions in ~/.claude/settings.json. Later hand edits are not merged back; use the global config as the source of truth.",
+    previewWord: "Preview",
+    previewHint: "run 'navori global render --apply' to write",
+    initPreviewHint: "run 'navori global init --apply' to write",
+    doneWord: "Done",
+    upToDate: "Up to date — no changes",
+    noConfig: (path) => `No global config at ${path}. Run 'navori global init' first.`,
+    doctorConfigTitle: "Global config",
+    doctorTargetTitle: "Target",
+    doctorDrift: (n, lines) => `Drift in the global harness (${n}):\n${lines}`,
+    doctorNonGlobalPlugins: (n, lines) =>
+      `Enabled plugins that do not allow the global scope (${n}) — remove them from the global config:\n${lines}`,
+    doctorScopeViolations: (n, lines) =>
+      `scope:repo blocks rendered in the global target (${n}) — scope violation:\n${lines}`,
+    doctorIssues: "Issues found",
+    doctorOk: "OK",
+    statusOk: "global: up to date",
+    statusDrift: (n) => `global: drift in ${n} block(s)`,
+    installInstalled: (tool) => `Installed '${tool}'`,
+    installAlreadyPresent: (tool) => `'${tool}' is already installed`,
+    installSkipped: (tool) => `'${tool}' not installed — hooks self-skip`,
+    installFailed: (tool, error, command) =>
+      `Install of '${tool}' failed: ${error}. Install it manually: ${command}`,
+    installNoCommand: (tool) => `No install command for this platform — install '${tool}' manually`,
+    statusMissingTools: (n) => `global: ${n} external tool(s) missing`,
+    outputStyleActivated: "navori output style activated in settings.json",
+    outputStylePreserved: (existing) =>
+      `Kept your output style '${existing}'. To use navori: run /output-style navori in Claude Code, or run 'navori global render --recommended'.`,
+    outputStyleOptedOut: "navori output style written but not activated (--no-output-style)",
+    outputStyleDeactivated: "navori output style deactivated in settings.json",
+  },
+  feature: {
+    passId: "Pass a feature id (e.g. 'navori add feature app-builder').",
+    noneKnown: "(none)",
+    unknown: (id, known) => `Unknown feature '${id}'. Known: ${known}`,
+    initInRepoNotBootstrap: (id) =>
+      `Feature '${id}' is kind:in-repo — it expects an existing project. Run 'navori init' ` +
+      `first, then 'navori add feature ${id}'. 'navori init --feature' is only for ` +
+      `kind:bootstrap features (which create the project).`,
+    addBootstrapWarning: (id) =>
+      `'${id}' is a bootstrap feature (it creates the project). This repo is already initialized, ` +
+      `so the scaffold phases self-skip by their gate ("already exists"). For a new project from ` +
+      `an empty folder use 'navori init --feature ${id}'.`,
+    alreadyActive: (id) => `'${id}' is already in this config's features[]`,
+    added: (id, configPath) => `Added '${id}' to features[] in ${configPath}`,
+    renderFailed: "Render failed",
+    registeredRenderFailed: "Feature registered, but render failed — run 'navori render --apply'.",
+    activatedRendered: "feature activated and rendered",
   },
 };
 

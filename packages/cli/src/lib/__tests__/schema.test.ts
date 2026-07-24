@@ -65,6 +65,40 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
     const c = NavoriConfigSchema.parse({ ...MINIMAL, monorepo: { enabled: true } });
     expect(c.monorepo?.workspaces).toEqual([]);
   });
+
+  it("leaves blocks undefined when omitted", () => {
+    const c = NavoriConfigSchema.parse({ ...MINIMAL });
+    expect(c.blocks).toBeUndefined();
+  });
+
+  it("defaults blocks.exclude to [] when blocks:{} is given", () => {
+    const c = NavoriConfigSchema.parse({ ...MINIMAL, blocks: {} });
+    expect(c.blocks).toEqual({ exclude: [] });
+  });
+});
+
+describe("NavoriConfigSchema — blocks.exclude (feature: opt out of core blocks)", () => {
+  it("accepts a list of block ids to exclude", () => {
+    const c = NavoriConfigSchema.parse({ ...MINIMAL, blocks: { exclude: ["orquestacion", "sdd"] } });
+    expect(c.blocks?.exclude).toEqual(["orquestacion", "sdd"]);
+  });
+
+  it("accepts an empty exclude array", () => {
+    const c = NavoriConfigSchema.parse({ ...MINIMAL, blocks: { exclude: [] } });
+    expect(c.blocks?.exclude).toEqual([]);
+  });
+
+  it("accepts unknown ids at the schema level (validated later by doctor, not zod)", () => {
+    // The schema is deliberately permissive: id validity is a render/doctor-time
+    // concern (unknown id → doctor warning), not a parse-time rejection, so a
+    // typo never breaks EVERY command by failing readConfig.
+    const c = NavoriConfigSchema.parse({ ...MINIMAL, blocks: { exclude: ["not-a-real-block"] } });
+    expect(c.blocks?.exclude).toEqual(["not-a-real-block"]);
+  });
+
+  it("rejects a non-array exclude", () => {
+    expect(NavoriConfigSchema.safeParse({ ...MINIMAL, blocks: { exclude: "orquestacion" } }).success).toBe(false);
+  });
 });
 
 describe("NavoriConfigSchema — boundary (spec 0003 §3.4.2)", () => {
@@ -108,6 +142,18 @@ describe("NavoriConfigSchema — boundary (spec 0003 §3.4.2)", () => {
     expect(
       NavoriConfigSchema.safeParse({ ...MINIMAL, qualityGate: { fast: "", full: "x" } }).success,
     ).toBe(false);
+  });
+
+  // Path-traversal hardening: a feature id flows into a filesystem path, so the
+  // schema rejects anything with a separator or `..`, plus non-kebab ids.
+  it("accepts a kebab-case feature id and rejects traversal-shaped / non-kebab ones", () => {
+    expect(NavoriConfigSchema.safeParse({ ...MINIMAL, features: ["app-builder"] }).success).toBe(true);
+    for (const bad of ["../evil", "..", "foo/bar", "foo\\bar", "App_Builder", "a/../b", "/etc"]) {
+      expect(
+        NavoriConfigSchema.safeParse({ ...MINIMAL, features: [bad] }).success,
+        `feature id '${bad}' must be rejected`,
+      ).toBe(false);
+    }
   });
 
   // Removed keys (#75): legacy configs still carrying checkpointsDir /

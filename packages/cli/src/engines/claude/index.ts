@@ -1,13 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, chmodSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, chmodSync, rmSync, type Dirent } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import type { MonorepoRenderContext } from "../../lib/monorepo.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
-import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
+import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable, type RenderScope } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { librarySkillById, LIBRARY_SKILLS, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
+import { loadFeature, featureExists, featureSource, FeatureError, type FeatureManifest } from "../../lib/features.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import {
   injectManagedSection,
@@ -69,6 +70,35 @@ export interface ClaudeEngineResult {
   /** Total number of destination files inspected this render. `inspected -
    * written.length - skipped.length` = how many were already up to date. */
   inspected: number;
+  /** Output-style activation outcome (global scope only; undefined otherwise or
+   * when settings.json was skipped). Surfaces what happened to settings.json's
+   * `outputStyle` key so the command reporter can tell the user whether navori
+   * was activated, an existing style was preserved, or activation was opted out. */
+  outputStyle?: OutputStyleOutcome;
+}
+
+/**
+ * What a render did to settings.json's `outputStyle` key (spec: global persona
+ * output style). `existing` carries the prior style name when it's relevant to
+ * the message (a preserved non-navori style, so the reporter can tell the user
+ * which one and how to switch).
+ */
+export type OutputStyleOutcome =
+  | { kind: "activated"; existing?: string }
+  | { kind: "already-active" }
+  | { kind: "preserved-existing"; existing: string }
+  | { kind: "opted-out"; existing?: string }
+  | { kind: "deactivated" }
+  | { kind: "unmanaged"; existing?: string };
+
+/** Per-render output-style policy the global command computes from config+flags. */
+interface OutputStyleOptions {
+  /** Manage the navori style file at all (config.outputStyle). false → cleanup. */
+  manage: boolean;
+  /** `--recommended`/`--yes`: activate navori even over an existing other style. */
+  forceActivate: boolean;
+  /** `--no-output-style`: never activate this run (file may still be written). */
+  optOut: boolean;
 }
 
 const CORE_AGENTS: ReadonlyArray<{ id: string; harnessKey: keyof NonNullable<NavoriConfig["harness"]> }> = [
@@ -80,6 +110,14 @@ const CORE_AGENTS: ReadonlyArray<{ id: string; harnessKey: keyof NonNullable<Nav
   { id: "commit-pr-pilot", harnessKey: "commitPrPilot" },
   { id: "explorer", harnessKey: "explorer" },
   { id: "auditor", harnessKey: "auditor" },
+  // Review lenses (R1-R4) — single-lens read-only reviewers that complement
+  // `reviewer` on high-risk diffs. They reuse the `reviewer` harness toggle
+  // (and its models/effort config keys) rather than getting their own
+  // config surface: turning `reviewer` off turns the lenses off too.
+  { id: "review-risk", harnessKey: "reviewer" },
+  { id: "review-resilience", harnessKey: "reviewer" },
+  { id: "review-readability", harnessKey: "reviewer" },
+  { id: "review-reliability", harnessKey: "reviewer" },
 ];
 
 const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
@@ -157,6 +195,15 @@ function buildSkillsIndexBody(
     rows.push(`- \`${id}\` — library (detected)`);
     listed.add(id);
   }
+  // Active features render as mother skills under `.claude/skills/<id>/SKILL.md`;
+  // list the ones that resolve so agents discover them (Claude Code autoloads the
+  // dir regardless, this is the navigation aid). Unknown ids are surfaced by
+  // doctor, not listed here.
+  for (const id of config.features ?? []) {
+    if (listed.has(id) || !featureExists(id, repoRoot)) continue;
+    rows.push(`- \`${id}\` — feature`);
+    listed.add(id);
+  }
   for (const name of localSkills) {
     // Deterministic from config: point at the skills root, not a concrete file —
     // whether the skill is a flat `<id>.md` or a `<id>/SKILL.md` directory is an
@@ -196,6 +243,12 @@ const AGENT_WHEN: Record<string, string> = {
   "ticket-audit": "Analiza a fondo un ticket complejo (bug crítico, migración, feature multi-capa) antes de descomponer.",
   "commit-pr-pilot": "Redacta commits Conventional y abre el PR tras la aprobación del reviewer.",
   auditor: "Auditoría read-only a fondo de código existente (seguridad, performance, SOLID, edge cases). Escribe reporte + plan priorizado a disco.",
+  // Review lenses (R1-R4) — selección por perfil de riesgo documentada en la
+  // tabla 4R de "orquestacion.md" (§ Lentes de review 4R).
+  "review-risk": "Lente read-only de seguridad, permisos, datos y dependencias sobre un diff de riesgo; selección en la tabla 4R de orquestación.",
+  "review-readability": "Lente read-only de naming, complejidad y mantenibilidad sobre un diff; selección en la tabla 4R de orquestación.",
+  "review-reliability": "Lente read-only de tests, comportamiento y regresiones sobre un diff; selección en la tabla 4R de orquestación.",
+  "review-resilience": "Lente read-only de fallas, retries y degradación sobre un diff; selección en la tabla 4R de orquestación.",
 };
 
 /**
@@ -372,6 +425,24 @@ export function renderClaudeEngine(
      * loop in `render`; absent at the root (the root reads `config.monorepo`).
      */
     monorepoContext?: MonorepoRenderContext;
+    /**
+     * Render target (spec 0005). `repo` (default) writes the project harness
+     * into `<cwd>/CLAUDE.md` + `<cwd>/.claude/…`. `global` writes the persona
+     * identity into `<cwd>/CLAUDE.md` + `<cwd>/…` (flat, no nested `.claude/`) —
+     * ONLY the scope global/both CLAUDE.md blocks plus permissions; no agents,
+     * skills, hooks, scripts, preset extras or progress. For a global render the
+     * caller passes the global config dir as `cwd`.
+     */
+    scope?: RenderScope;
+    /** Skip writing settings.json entirely (global target with permissions off). */
+    omitSettings?: boolean;
+    /**
+     * Output-style policy (global scope only; ignored for repo). Drives whether
+     * `<dotDir>/output-styles/navori.md` is written/removed and whether navori is
+     * activated in settings.json. Defaults to `{ manage: true, forceActivate:
+     * false, optOut: false }` at global scope when omitted.
+     */
+    outputStyle?: OutputStyleOptions;
   } = {},
 ): ClaudeEngineResult {
   // Fill in render-only derived defaults (e.g. prTarget ?? branchBase) so
@@ -379,6 +450,12 @@ export function renderClaudeEngine(
   const config = effectiveConfig(inputConfig);
   const dryRun = options.dryRun === true;
   const force = options.force === true;
+  const scope: RenderScope = options.scope ?? "repo";
+  // Target layout (spec 0005): repo nests `.claude/` under cwd; the user-level
+  // global layout is flat (agents/skills/settings sit directly under cwd, which
+  // for a global render is the global config dir). `dotDir` is the ONLY path
+  // that differs between targets — CLAUDE.md is `<cwd>/CLAUDE.md` for both.
+  const dotDir = scope === "global" ? cwd : join(cwd, ".claude");
   const repoRoot = options.repoRoot ?? cwd;
   // A workspace render (repoRoot points elsewhere than cwd) omits the root-only
   // global blocks — Claude Code already loads them from the parent CLAUDE.md.
@@ -408,6 +485,7 @@ export function renderClaudeEngine(
     skipIds: options.skipIds,
     forceIds: options.forceIds,
     omitRootOnly: isWorkspace,
+    scope,
   });
   inspected += 1;
 
@@ -419,7 +497,11 @@ export function renderClaudeEngine(
   // when the body comes back empty.
   const localSkills = config.project?.localSkills ?? [];
   let claudeMdContent = claudeMdPlan.next;
-  const skillsIndexBody = buildSkillsIndexBody(config, localSkills, repoRoot);
+  // The computed identity blocks below (skills index, agents catalog, project +
+  // monorepo context) are repo-scope only — the global persona target carries
+  // none of them. At global scope each body is null, so the existing else branch
+  // strips the id if a scope violation left one behind (spec 0005 §2.4).
+  const skillsIndexBody = scope === "repo" ? buildSkillsIndexBody(config, localSkills, repoRoot) : null;
   if (skillsIndexBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -443,7 +525,7 @@ export function renderClaudeEngine(
   // 1b-bis. Agents index — the catalog of leaf subagents the orchestrator (main
   // agent) can spawn, referenced by the "## Rol: orquestador" block. Claude-only
   // (subagents are a Claude Code capability); the agents-md engine drops it.
-  const agentsIndexBody = buildAgentsIndexBody(config);
+  const agentsIndexBody = scope === "repo" ? buildAgentsIndexBody(config) : null;
   if (agentsIndexBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -467,7 +549,7 @@ export function renderClaudeEngine(
   // 1c. Project context — the init questionnaire answers turned into active
   // rules (posture, rigor, architecture, critical areas, tests). Stripped when
   // nothing is set. Replaces the old user-section comment hints.
-  const contextoBody = buildContextoProyectoBody(config);
+  const contextoBody = scope === "repo" ? buildContextoProyectoBody(config) : null;
   if (contextoBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -491,7 +573,7 @@ export function renderClaudeEngine(
   // 1c-bis. Monorepo map. At the root it lists the workspaces so the
   // orchestrator routes work to the owning app; inside a workspace it names the
   // current app + its siblings. Stripped for a non-monorepo repo.
-  const monorepoBody = buildContextoMonorepoBody(config, options.monorepoContext, isWorkspace);
+  const monorepoBody = scope === "repo" ? buildContextoMonorepoBody(config, options.monorepoContext, isWorkspace) : null;
   if (monorepoBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -518,7 +600,7 @@ export function renderClaudeEngine(
   // gravity" block that must lead the file. Restore canonical order. No-op when
   // already ordered (so no spurious diff); skipped, with a warning, when the
   // user wove prose between blocks (moving them would orphan it).
-  const reorder = reorderManagedBlocks(claudeMdContent, canonicalManagedOrder(config, repoRoot, isWorkspace));
+  const reorder = reorderManagedBlocks(claudeMdContent, canonicalManagedOrder(config, repoRoot, isWorkspace, scope));
   claudeMdContent = reorder.output;
   if (reorder.blockedByInterleaving) {
     warnings.push(
@@ -555,18 +637,56 @@ export function renderClaudeEngine(
   // here via planSettings and again for scripts/skills (issue #10).
   const enabledPlugins = loadEnabledPlugins(config.plugins).loaded;
 
-  // 2. .claude/settings.json
-  const settingsResult = planSettings(cwd, config, enabledPlugins, force);
-  inspected += 1;
-  if (settingsResult.kind === "skip") {
-    skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
-  } else if (settingsResult.kind === "write") {
-    pending.push({
-      path: settingsResult.path,
-      content: settingsResult.content,
-      status: settingsResult.status,
-    });
+  // The output-style policy is global-scope only; repo renders never touch it.
+  // Resolve the default here so both the activation (settings.json) and the file
+  // write below read the same object.
+  const outputStyleOpts: OutputStyleOptions | undefined =
+    scope === "global"
+      ? (options.outputStyle ?? { manage: true, forceActivate: false, optOut: false })
+      : undefined;
+  let outputStyleOutcome: OutputStyleOutcome | undefined;
+
+  // 2. settings.json — repo: `.claude/settings.json`; global: `<dir>/settings.json`
+  // (flat user layout). The global target ships permissions only (omitHooks): no
+  // guard/quality-gate/plugin hooks, since it renders no `.claude/hooks/` scripts
+  // and the ambient hook layer is P1. `omitSettings` skips it entirely (global
+  // config with permissions off). At global scope the outputStyle policy also
+  // sets/preserves the `outputStyle` key here (safety rules in planSettings).
+  if (!options.omitSettings) {
+    const settingsResult = planSettings(
+      join(dotDir, "settings.json"),
+      config,
+      scope === "global" ? [] : enabledPlugins,
+      force,
+      { omitHooks: scope === "global", outputStyle: outputStyleOpts },
+    );
+    inspected += 1;
+    // Only surface the outcome at global scope; repo renders don't manage an
+    // output style (outputStyleOpts is undefined there → a "unmanaged" outcome
+    // we must not leak).
+    if (outputStyleOpts) outputStyleOutcome = settingsResult.outputStyleOutcome;
+    if (settingsResult.kind === "skip") {
+      skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
+    } else if (settingsResult.kind === "write") {
+      pending.push({
+        path: settingsResult.path,
+        content: settingsResult.content,
+        status: settingsResult.status,
+      });
+    }
   }
+
+  // Steps 3–8.7 build the repo project harness (agents, skills, hooks, scripts,
+  // preset extras, progress, plugin sub-blocks). The global persona target has
+  // none of them (spec 0005 P0) — only CLAUDE.md identity blocks + permissions —
+  // so the whole block is repo-scope only. `scriptRemovals` is hoisted because
+  // the write phase (step 9) reads it.
+  const scriptRemovals: string[] = [];
+  // Hoisted out of the repo-scope block (§8.8) because the write phase (step 9)
+  // reads it to prune now-empty feature dirs — same reason `scriptRemovals` is
+  // hoisted. At global scope it stays empty (no feature reconciler runs).
+  const featureDirsToPrune: string[] = [];
+  if (scope === "repo") {
 
   // 3. Agents
   for (const agent of CORE_AGENTS) {
@@ -779,6 +899,83 @@ export function renderClaudeEngine(
     );
   }
 
+  // 6.7. Features — multi-phase workflows (spec 0004) rendered into the SKILLS
+  // namespace as managed content: `.claude/skills/<id>/SKILL.md` (the FEATURE.md
+  // orchestration doc as a mother skill, with manifest-derived frontmatter
+  // carrying the triggers) + `.claude/skills/<id>/phases/<n>-<slug>.md` (each
+  // phase doc, managed). Same managed-file machinery as core/preset/library
+  // skills; the marker source is `@navori/feature-<id>` so drift and ownership
+  // are attributed to the feature. An unknown/malformed feature id degrades to a
+  // warning (doctor reports it) — never a hard failure.
+  const activeFeatures = new Set<string>(config.features ?? []);
+  for (const id of config.features ?? []) {
+    let loaded;
+    try {
+      loaded = loadFeature(id, repoRoot);
+    } catch (err) {
+      if (err instanceof FeatureError) {
+        warnings.push(`feature '${id}' invalid: ${err.message}`);
+        continue;
+      }
+      throw err;
+    }
+    if (!loaded) {
+      warnings.push(
+        `feature '${id}' not found (no .navori/features/${id}/ nor bundled core-assets/features/${id}/). ` +
+          `Skipped — 'navori doctor' lists it.`,
+      );
+      continue;
+    }
+    const meta = { source: featureSource(id), version: NAVORI_VERSION };
+    // SKILL.md — FEATURE.md body wrapped with manifest-derived frontmatter.
+    const featureMdPath = join(loaded.dir, "FEATURE.md");
+    if (!existsSync(featureMdPath)) {
+      warnings.push(`feature '${id}': FEATURE.md missing in ${loaded.dir}; SKILL.md not rendered`);
+    } else {
+      inspected += 1;
+      applyManagedFilePlan(
+        planManagedFile({
+          cwd,
+          assetRoot: loaded.dir,
+          assetRelPath: "SKILL.md", // style inference only (rawContent wins)
+          destRelPath: `.claude/skills/${id}/SKILL.md`,
+          managedId: id,
+          config,
+          meta,
+          rawContent: composeFeatureSkillMd(loaded.manifest, readFileSync(featureMdPath, "utf-8")),
+        }),
+        cwd,
+        pending,
+        skipped,
+      );
+    }
+    // Phases — one managed reference doc per manifest phase, loaded on-demand
+    // when that phase runs. Source filename convention is `<n>-<slug>.md`.
+    for (const phase of loaded.manifest.phases) {
+      const rel = `phases/${phase.n}-${phase.slug}.md`;
+      const phaseAbs = join(loaded.dir, rel);
+      if (!existsSync(phaseAbs)) {
+        warnings.push(`feature '${id}': phase file ${rel} missing; not rendered`);
+        continue;
+      }
+      inspected += 1;
+      applyManagedFilePlan(
+        planManagedFile({
+          cwd,
+          assetRoot: loaded.dir,
+          assetRelPath: rel,
+          destRelPath: `.claude/skills/${id}/${rel}`,
+          managedId: `${id}-${phase.n}-${phase.slug}`,
+          config,
+          meta,
+        }),
+        cwd,
+        pending,
+        skipped,
+      );
+    }
+  }
+
   // 7. Plugin scripts (copy + interpolate to .claude/scripts/)
   for (const plugin of enabledPlugins) {
     for (const script of plugin.scriptAssets) {
@@ -795,23 +992,45 @@ export function renderClaudeEngine(
     }
   }
 
-  // 8. Plugin skills with `injectInto`: append as a managed sub-block at
-  // the bottom of the target file. `injectManagedSection` handles dedup
-  // by id (idempotent) and surfaces user-modified conflicts the same way
-  // CLAUDE.md does.
+  // 8. Plugin skills. Two shapes:
+  //   - `injectInto` set: append as a managed sub-block at the bottom of the
+  //     target file. `injectManagedSection` handles dedup by id (idempotent)
+  //     and surfaces user-modified conflicts the same way CLAUDE.md does.
+  //   - `injectInto` absent: a STANDALONE skill, written to its own
+  //     `.claude/skills/<id>.md` — the same managed-file treatment library
+  //     skills get (§6 above), but with plugin provenance in the marker
+  //     (source `@navori/plugin-<id>`) instead of `@navori/core`, matching
+  //     what applySubBlockInject stamps for this plugin's injectInto skills.
   for (const plugin of enabledPlugins) {
     for (const skill of plugin.skillAssets) {
-      if (!skill.injectInto) continue;
+      if (skill.injectInto) {
+        inspected += 1;
+        applySubBlockInject({
+          cwd,
+          plugin,
+          skill,
+          config,
+          pending,
+          skipped,
+          warnings,
+        });
+        continue;
+      }
       inspected += 1;
-      applySubBlockInject({
+      applyManagedFilePlan(
+        planManagedFile({
+          cwd,
+          assetRoot: dirname(skill.absPath),
+          assetRelPath: basename(skill.absPath),
+          destRelPath: `.claude/skills/${skill.id}.md`,
+          managedId: skill.id,
+          config,
+          meta: { source: `@navori/plugin-${plugin.manifest.id}`, version: NAVORI_VERSION },
+        }),
         cwd,
-        plugin,
-        skill,
-        config,
         pending,
         skipped,
-        warnings,
-      });
+      );
     }
   }
 
@@ -820,12 +1039,27 @@ export function renderClaudeEngine(
   // by computeRenderPlan, but its injectInto sub-blocks (e.g. leader.md) and its
   // .claude/scripts/* were only ever touched on the enabled path — so they'd
   // orphan. Strip them here so disabling a plugin fully cleans up (#80).
-  const scriptRemovals: string[] = [];
   for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
     for (const skill of plugin.skillAssets) {
-      if (!skill.injectInto) continue;
+      if (skill.injectInto) {
+        inspected += 1;
+        removeSubBlock({ cwd, skill, pending });
+        continue;
+      }
+      // Standalone skill (no injectInto) — mirror §8.6's ownership check
+      // before deleting: only remove a file carrying navori's OWN marker
+      // for this id, never a user's hand-written skill of the same name.
+      const destPath = join(cwd, ".claude/skills", `${skill.id}.md`);
+      if (!existsSync(destPath)) continue;
+      let content: string;
+      try {
+        content = readFileSync(destPath, "utf-8");
+      } catch {
+        continue; // unreadable — leave it rather than guess
+      }
+      if (!content.includes(`navori:managed id="${skill.id}"`)) continue;
       inspected += 1;
-      removeSubBlock({ cwd, skill, pending });
+      scriptRemovals.push(destPath);
     }
     for (const script of plugin.scriptAssets) {
       const destPath = join(cwd, ".claude/scripts", script.dest);
@@ -891,6 +1125,70 @@ export function renderClaudeEngine(
     scriptRemovals.push(abs);
   }
 
+  // 8.8. Reconcile DEACTIVATED features. A feature removed from `config.features`
+  // (or whose bundle was deleted) leaves its rendered `.claude/skills/<id>/` tree
+  // on disk. Delete OURS — every file under the dir carrying the feature's marker
+  // source — but never a user's hand-authored file (no navori marker) in the same
+  // dir. Ownership is decided by scanning ALL `.md` files in the dir (recursive)
+  // for `source="@navori/feature-<id>"`: SKILL.md is NOT special, so a feature
+  // whose SKILL.md was hand-deleted while marked phase files remain is still
+  // reconciled instead of orphaned forever. Disk-scan (not a static registry) so
+  // deactivation works even when the source bundle is gone. Empty phase/feature
+  // dirs are pruned after the file removals (a surviving user file keeps the dir).
+  const skillsRoot = join(cwd, ".claude/skills");
+  if (existsSync(skillsRoot)) {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(skillsRoot, { withFileTypes: true });
+    } catch {
+      entries = [];
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const id = entry.name;
+      if (activeFeatures.has(id)) continue; // active — rendered/updated above
+      const featureDir = join(skillsRoot, id);
+      const owned = collectFeatureOwnedFiles(featureDir, featureSource(id));
+      if (owned.length === 0) continue; // none of ours here — keep (user's own dir)
+      for (const abs of owned) {
+        inspected += 1;
+        scriptRemovals.push(abs);
+      }
+      featureDirsToPrune.push(featureDir);
+    }
+  }
+  } // end repo-scope project harness (steps 3–8.8)
+
+  // 8.9. Output style (GLOBAL scope only). Write `<dotDir>/output-styles/navori.md`
+  // VERBATIM from core-assets: the file's own YAML frontmatter (name / description
+  // / keep-coding-instructions) must be the very first thing so Claude Code's
+  // output-style loader parses it — so we do NOT run it through the managed-file
+  // pipeline (which would drop the hyphenated `keep-coding-instructions` key and
+  // wrap the body in markers). Ownership is by CONTENT HASH, no in-file marker:
+  //   - manage=true: write when missing, refresh when the on-disk bytes differ
+  //     from the bundled source (drift → re-sync), no-op when identical
+  //     (idempotent). navori owns the `navori` style; fork it under another name
+  //     to customize.
+  //   - manage=false: remove ONLY a copy byte-identical to the bundled source —
+  //     provably navori's own untouched output. A user's same-named style, or an
+  //     edited one, never matches and is left in place (conservative on delete).
+  if (scope === "global" && outputStyleOpts) {
+    const stylePath = join(dotDir, "output-styles", "navori.md");
+    const sourcePath = resolve(coreAssets, "output-styles", "navori.md");
+    const source = readFileSync(sourcePath, "utf-8");
+    const existing = existsSync(stylePath) ? readFileSync(stylePath, "utf-8") : null;
+    inspected += 1;
+    if (outputStyleOpts.manage) {
+      if (existing === null) {
+        pending.push({ path: stylePath, content: source, status: "created" });
+      } else if (existing !== source) {
+        pending.push({ path: stylePath, content: source, status: "updated" });
+      }
+    } else if (existing !== null && existing === source) {
+      scriptRemovals.push(stylePath);
+    }
+  }
+
   // 9. Backup + atomic writes
   let backupPath: string | null = null;
   benchMark("plan");
@@ -907,6 +1205,7 @@ export function renderClaudeEngine(
       downgrades: claudeMdPlan.downgrades,
       languageFallbacks: claudeMdPlan.languageFallbacks,
       inspected,
+      outputStyle: outputStyleOutcome,
     };
   }
 
@@ -929,9 +1228,15 @@ export function renderClaudeEngine(
       // rendered tree so a backup is a complete picture of the harness state
       // (#79/#82). It's checked into git too, but the backup keeps restore
       // self-contained.
-      const handle = createBackup(cwd, ["CLAUDE.md", ".claude", "navori.config.json"], {
-        exclude: [".claude/settings.local.json", ".claude/progress"],
-      });
+      // The global target's layout is flat (CLAUDE.md + settings.json directly
+      // under the dir); the repo target snapshots the whole `.claude/` tree +
+      // the config source of truth (#79/#82). Both land under ~/.navori/backups.
+      const handle =
+        scope === "global"
+          ? createBackup(cwd, ["CLAUDE.md", "settings.json", "output-styles"])
+          : createBackup(cwd, ["CLAUDE.md", ".claude", "navori.config.json"], {
+              exclude: [".claude/settings.local.json", ".claude/progress"],
+            });
       if (handle.files.length > 0) {
         backupPath = handle.path;
         purgeOldBackups();
@@ -978,6 +1283,9 @@ export function renderClaudeEngine(
       }
       written.push({ path: relative(cwd, abs), status: "removed-condition-false" });
     }
+    // Prune now-empty feature dirs left by the deactivation reconciler (8.8).
+    // Only rmdir when empty so a user file dropped inside is never destroyed.
+    pruneEmptyFeatureDirs(featureDirsToPrune);
   } else {
     for (const p of pending) {
       written.push({ path: relative(cwd, p.path), status: p.status });
@@ -998,10 +1306,78 @@ export function renderClaudeEngine(
     downgrades: claudeMdPlan.downgrades,
     languageFallbacks: claudeMdPlan.languageFallbacks,
     inspected,
+    outputStyle: outputStyleOutcome,
   };
 }
 
 // ─────────────────────────── helpers ───────────────────────────
+
+/**
+ * Compose the source of a feature's `SKILL.md`: the FEATURE.md orchestration doc
+ * (frontmatter, if any, stripped) under a fresh frontmatter block derived from
+ * the manifest — `name` (feature id), `description` (carries the triggers Claude
+ * Code loads the mother skill on), `type: feature`. The result flows through the
+ * normal managed-file renderer (marker + frontmatter merge) like any skill.
+ */
+function composeFeatureSkillMd(manifest: FeatureManifest, featureMd: string): string {
+  const body = stripFrontmatter(featureMd).trim();
+  const fm = [
+    "---",
+    `name: ${manifest.id}`,
+    `description: ${manifest.description}`,
+    "type: feature",
+    "---",
+  ].join("\n");
+  return `${fm}\n\n${body}\n`;
+}
+
+/**
+ * Every `.md` file under a feature's rendered directory that carries the given
+ * marker source — the ownership-guarded set safe to delete when the feature is
+ * deactivated. A sibling file the user dropped in (no navori marker) is left out.
+ */
+function collectFeatureOwnedFiles(featureDir: string, source: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        try {
+          if (readFileSync(abs, "utf-8").includes(`source="${source}"`)) out.push(abs);
+        } catch {
+          // unreadable — skip (leave on disk rather than guess)
+        }
+      }
+    }
+  };
+  walk(featureDir);
+  return out;
+}
+
+/** rmdir each feature dir (and its `phases/` subdir) when empty, after the
+ * ownership-guarded file removals. Never recursive — a user file left inside
+ * keeps the dir alive. */
+function pruneEmptyFeatureDirs(featureDirs: readonly string[]): void {
+  for (const dir of featureDirs) {
+    for (const sub of [join(dir, "phases"), dir]) {
+      try {
+        // Only rmdir when empty (verified here) — a user file left inside keeps
+        // the dir alive. `recursive` is harmless on a dir already known empty.
+        if (existsSync(sub) && readdirSync(sub).length === 0) rmSync(sub, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+  }
+}
 
 function isAgentEnabled(
   config: NavoriConfig,
@@ -1013,33 +1389,103 @@ function isAgentEnabled(
 }
 
 type SettingsPlan =
-  | { kind: "noop" }
-  | { kind: "skip"; path: string; reason: string }
-  | { kind: "write"; path: string; content: string; status: RenderStatus };
+  | { kind: "noop"; outputStyleOutcome?: OutputStyleOutcome }
+  | { kind: "skip"; path: string; reason: string; outputStyleOutcome?: OutputStyleOutcome }
+  | { kind: "write"; path: string; content: string; status: RenderStatus; outputStyleOutcome?: OutputStyleOutcome };
+
+/**
+ * Read the current top-level `outputStyle` name from a parsed settings.json.
+ * Returns undefined when absent, empty, or not a string.
+ */
+function readOutputStyle(parsed: unknown): string | undefined {
+  if (!isPlainObject(parsed)) return undefined;
+  const v = parsed.outputStyle;
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+/**
+ * Decide what to do with settings.json's `outputStyle` key given the current
+ * value + policy. Pure — returns the outcome; the caller mutates the settings
+ * object. Safety rules (spec: global persona output style):
+ *   - no output style set        → activate navori (fresh profile adopts it).
+ *   - already "navori"           → keep (idempotent).
+ *   - another style + --recommended/--yes → activate navori (headless opt-in).
+ *   - another style + normal run → PRESERVE it, report how to switch.
+ *   - --no-output-style          → never activate (preserve whatever exists).
+ *   - manage=false               → drop navori if we set it; else preserve.
+ */
+function decideOutputStyle(
+  existing: string | undefined,
+  opts: OutputStyleOptions | undefined,
+): OutputStyleOutcome {
+  if (!opts || !opts.manage) {
+    if (existing === "navori") return { kind: "deactivated" };
+    return { kind: "unmanaged", existing };
+  }
+  if (opts.optOut) return { kind: "opted-out", existing };
+  if (existing === "navori") return { kind: "already-active" };
+  if (existing === undefined) return { kind: "activated" };
+  // existing is some OTHER style — only override under an explicit opt-in.
+  if (opts.forceActivate) return { kind: "activated", existing };
+  return { kind: "preserved-existing", existing };
+}
+
+/**
+ * Apply the outputStyle decision to a settings object being fully (re)written.
+ * Sets `outputStyle: "navori"` when activating, preserves an existing non-navori
+ * value when we must NOT override it (so a full rewrite never silently drops the
+ * user's style), and removes it on deactivation. Returns the outcome.
+ */
+function applyOutputStyleToFullSettings(
+  settings: Record<string, unknown>,
+  existing: string | undefined,
+  opts: OutputStyleOptions | undefined,
+): OutputStyleOutcome {
+  const outcome = decideOutputStyle(existing, opts);
+  switch (outcome.kind) {
+    case "activated":
+    case "already-active":
+      settings.outputStyle = "navori";
+      break;
+    case "preserved-existing":
+    case "opted-out":
+    case "unmanaged":
+      if (existing !== undefined) settings.outputStyle = existing;
+      break;
+    case "deactivated":
+      delete settings.outputStyle;
+      break;
+  }
+  return outcome;
+}
 
 function planSettings(
-  cwd: string,
+  path: string,
   config: NavoriConfig,
   plugins: LoadedPlugin[],
   force = false,
+  options: { omitHooks?: boolean; outputStyle?: OutputStyleOptions } = {},
 ): SettingsPlan {
-  const path = join(cwd, ".claude/settings.json");
-  const newSettings = buildClaudeSettings(config, plugins);
-  const newJson = JSON.stringify(newSettings, null, 2) + "\n";
+  const newSettings = buildClaudeSettings(config, plugins, { omitHooks: options.omitHooks });
+  const os = options.outputStyle;
 
   if (!existsSync(path)) {
-    return { kind: "write", path, content: newJson, status: "created" };
+    const outputStyleOutcome = applyOutputStyleToFullSettings(newSettings, undefined, os);
+    const newJson = JSON.stringify(newSettings, null, 2) + "\n";
+    return { kind: "write", path, content: newJson, status: "created", outputStyleOutcome };
   }
 
+  const rawExisting = readFileSync(path, "utf-8");
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(path, "utf-8"));
+    parsed = JSON.parse(rawExisting);
   } catch (err) {
     // Issue #4: with --force, regenerate even on parse error. The pre-render
     // backup (createBackup over .claude/) still snapshots the corrupt file
     // so the user can recover by hand if needed.
     if (force) {
-      return { kind: "write", path, content: newJson, status: "updated" };
+      const outputStyleOutcome = applyOutputStyleToFullSettings(newSettings, undefined, os);
+      return { kind: "write", path, content: JSON.stringify(newSettings, null, 2) + "\n", status: "updated", outputStyleOutcome };
     }
     return {
       kind: "skip",
@@ -1048,11 +1494,14 @@ function planSettings(
     };
   }
 
+  const existingStyle = readOutputStyle(parsed);
+
   if (!isNavoriOwnedSettings(parsed)) {
     // Issue #4: --force lets the user fully adopt a hand-written settings.json
     // (overwrite → navori-owned henceforth).
     if (force) {
-      return { kind: "write", path, content: newJson, status: "updated" };
+      const outputStyleOutcome = applyOutputStyleToFullSettings(newSettings, existingStyle, os);
+      return { kind: "write", path, content: JSON.stringify(newSettings, null, 2) + "\n", status: "updated", outputStyleOutcome };
     }
     // Issue #69: coexist. Rather than skip (which left the guard hook written
     // but unregistered → dead), inject navori's defensive layers (guard +
@@ -1066,14 +1515,23 @@ function planSettings(
       };
     }
     const merged = mergeCoexistSettings(parsed, newSettings);
+    // mergeCoexistSettings preserves every user key (incl. an existing
+    // outputStyle). Only mutate outputStyle when the decision changes it.
+    const outputStyleOutcome = decideOutputStyle(existingStyle, os);
+    if (outputStyleOutcome.kind === "activated" || outputStyleOutcome.kind === "already-active") {
+      merged.outputStyle = "navori";
+    } else if (outputStyleOutcome.kind === "deactivated") {
+      delete merged.outputStyle;
+    }
     const mergedJson = JSON.stringify(merged, null, 2) + "\n";
-    if (mergedJson === readFileSync(path, "utf-8")) return { kind: "noop" };
-    return { kind: "write", path, content: mergedJson, status: "updated" };
+    if (mergedJson === rawExisting) return { kind: "noop", outputStyleOutcome };
+    return { kind: "write", path, content: mergedJson, status: "updated", outputStyleOutcome };
   }
 
-  const current = readFileSync(path, "utf-8");
-  if (current === newJson) return { kind: "noop" };
-  return { kind: "write", path, content: newJson, status: "updated" };
+  const outputStyleOutcome = applyOutputStyleToFullSettings(newSettings, existingStyle, os);
+  const newJson = JSON.stringify(newSettings, null, 2) + "\n";
+  if (rawExisting === newJson) return { kind: "noop", outputStyleOutcome };
+  return { kind: "write", path, content: newJson, status: "updated", outputStyleOutcome };
 }
 
 interface ManagedFilePlanInput {
@@ -1084,6 +1542,18 @@ interface ManagedFilePlanInput {
   destRelPath: string;      // relative to cwd
   managedId: string;
   config: NavoriConfig;
+  /** Open-marker provenance / marker metadata to stamp. Defaults to CORE_META
+   * (core/library assets). A plugin-owned standalone skill passes its own
+   * `@navori/plugin-<id>` source so the marker matches the one
+   * applySubBlockInject stamps for injectInto skills of the same plugin;
+   * features pass their own `@navori/feature-<id>` source so drift/ownership is
+   * attributed correctly. */
+  meta?: { source: string; version: string };
+  /** Pre-composed source content — when set, the asset is rendered from this
+   * string instead of read from `assetPath` (features synthesize the SKILL.md
+   * source from the manifest + FEATURE.md). `assetRelPath` still drives comment
+   * style inference (keep it a `.md` path). */
+  rawContent?: string;
 }
 
 type ManagedFilePlan =
@@ -1097,9 +1567,10 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
   const existing = existsSync(destPath) ? readFileSync(destPath, "utf-8") : null;
   const result = renderManagedFile({
     assetPath,
+    rawContent: input.rawContent,
     existingContent: existing,
     managedId: input.managedId,
-    meta: CORE_META,
+    meta: input.meta ?? CORE_META,
     config: input.config,
   });
   if (result.status === "unchanged") return { kind: "noop" };

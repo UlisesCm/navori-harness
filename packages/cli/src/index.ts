@@ -9,6 +9,7 @@ import { syncCommand } from "./commands/sync.ts";
 import { addCommand } from "./commands/add.ts";
 import { removeCommand } from "./commands/remove.ts";
 import { workspaceCommand } from "./commands/workspace.ts";
+import { globalCommand } from "./commands/global.ts";
 import { ticketCommand } from "./commands/ticket.ts";
 import { configureCommand } from "./commands/configure.ts";
 import { updateCommand } from "./commands/update.ts";
@@ -55,6 +56,7 @@ const main = defineCommand({
     status: statusCommand,
     bench: benchCommand,
     workspace: workspaceCommand,
+    global: globalCommand,
     ticket: ticketCommand,
     backup: backupCommand,
     migrations: migrationsCommand,
