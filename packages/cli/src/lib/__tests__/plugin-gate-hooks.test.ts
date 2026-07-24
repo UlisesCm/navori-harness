@@ -86,10 +86,13 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
         expect(r.stderr).toContain("instalado");
       });
 
-      it("triggers on `echo done; git push` (separator)", () => {
+      // Push gating: only semgrep (the security backstop) gates a push; the
+      // commit-only hooks skip it — the content was already gated at commit.
+      it(`${id === "semgrep" ? "gates" : "skips"} \`echo done; git push\` (push)`, () => {
         const r = runHook(scriptPath, "echo done; git push");
         expect(r.status).toBe(0);
-        expect(r.stderr).toContain("instalado");
+        if (id === "semgrep") expect(r.stderr).toContain("instalado");
+        else expect(r.stderr).not.toContain("instalado");
       });
 
       // Gate FAILS → early `exit 0` with no tool-check output.
@@ -127,10 +130,20 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
         expect(r.stderr).toContain("instalado");
       });
 
-      it("triggers on `git -C /repo push` (global -C with separate arg)", () => {
+      it(`${id === "semgrep" ? "gates" : "skips"} \`git -C /repo push\` (global -C push)`, () => {
         const r = runHook(scriptPath, "git -C /repo push");
         expect(r.status).toBe(0);
-        expect(r.stderr).toContain("instalado");
+        if (id === "semgrep") expect(r.stderr).toContain("instalado");
+        else expect(r.stderr).not.toContain("instalado");
+      });
+
+      // gh pr create pushes to the remote → semgrep (backstop) gates it, even
+      // though it is not a `git` command; the commit-only hooks skip it.
+      it(`${id === "semgrep" ? "gates" : "skips"} \`gh pr create\` (remote push)`, () => {
+        const r = runHook(scriptPath, "gh pr create --title x --body y");
+        expect(r.status).toBe(0);
+        if (id === "semgrep") expect(r.stderr).toContain("instalado");
+        else expect(r.stderr).not.toContain("instalado");
       });
 
       // FIX C: simple wrappers reduce to a plain `git …`.

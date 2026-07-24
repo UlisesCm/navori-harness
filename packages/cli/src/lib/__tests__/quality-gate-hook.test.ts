@@ -66,7 +66,7 @@ describe("quality-gate hook — declared runner present", () => {
     expect(r.stderr).toContain("quality-gate fast failed");
   });
 
-  it("ignores commands that are not git commit/push", () => {
+  it("ignores commands that are not a git commit", () => {
     fakeBin("pnpm", 0);
     const r = runHook(installHook("pnpm run typecheck"), "ls -la");
     expect(r.status).toBe(0);
@@ -82,11 +82,20 @@ describe("quality-gate hook — declared runner present", () => {
     expect(r.stdout).toContain("RAN pnpm run typecheck");
   });
 
-  it("runs the gate on `echo done; git push` (separator, no leading git)", () => {
+  // Commit-only: the quality gate no longer runs on push (the diff was already
+  // gated at commit; the remote-push backstop is semgrep, not this gate).
+  it("does NOT run the gate on `echo done; git push` (push not gated)", () => {
     fakeBin("pnpm", 0);
     const r = runHook(installHook("pnpm run typecheck"), "echo done; git push");
     expect(r.status).toBe(0);
-    expect(r.stderr).toContain("running quality-gate fast");
+    expect(r.stderr).not.toContain("running quality-gate fast");
+  });
+
+  it("does NOT run the gate on `gh pr create` (commit-only)", () => {
+    fakeBin("pnpm", 0);
+    const r = runHook(installHook("pnpm run typecheck"), "gh pr create --title x");
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain("running quality-gate fast");
   });
 
   it("runs the gate past an env-var prefix `FOO=bar git commit`", () => {
