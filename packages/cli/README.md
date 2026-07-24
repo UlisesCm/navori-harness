@@ -104,7 +104,6 @@ La resolución es **local → bundled**: si tienes un preset local con el mismo 
 | `gh` | GitHub Issues, PRs y workflow runs | `gh` |
 | `jscpd` | Detección de duplicación en el diff | `jscpd` (opt-in) |
 | `semgrep` | Security gate local | `semgrep` (opt-in) |
-| `cognitive` | Guardrails de complejidad cognitiva | (ninguna) |
 
 Activar uno:
 ```bash

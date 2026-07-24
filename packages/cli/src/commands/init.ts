@@ -868,7 +868,7 @@ async function pickAgentAssignments(
  * - engram: always (persistent memory is universally useful)
  * - gh: only if the repo's git origin points to github.com
  *
- * Intentionally conservative — semgrep/jscpd/cognitive require external tools
+ * Intentionally conservative — semgrep/jscpd require external tools
  * that may not be installed; users add those explicitly.
  */
 /**

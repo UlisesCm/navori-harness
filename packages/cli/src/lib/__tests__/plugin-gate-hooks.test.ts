@@ -7,13 +7,13 @@ import { getPluginPath } from "../bundled-assets.ts";
 
 /**
  * Gate-detection tests for the plugin PreToolUse(Bash) hooks
- * (jscpd/semgrep/cognitive). Each embeds an IDENTICAL copy of
+ * (jscpd/semgrep). Each embeds an IDENTICAL copy of
  * `is_git_commit_or_push` (there is no shared shell lib — the scripts render
  * standalone), so this suite pins the segment-based gate for every copy and
  * guards against divergence.
  *
  * The gate runs BEFORE the tool check. We drive each script under a restricted
- * PATH where the underlying tool (jscpd/semgrep/eslint) is absent, so a command
+ * PATH where the underlying tool (jscpd/semgrep) is absent, so a command
  * that PASSES the gate reaches the "no instalado" skip (observable on stderr),
  * while a command that FAILS the gate exits 0 immediately with no output.
  */
@@ -27,7 +27,6 @@ function resolveBin(name: string): string {
 const PLUGINS = [
   { id: "jscpd", rel: "scripts/check-jscpd.sh" },
   { id: "semgrep", rel: "scripts/check-semgrep.sh" },
-  { id: "cognitive", rel: "scripts/check-cognitive.sh" },
 ] as const;
 
 describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push detection", () => {
@@ -186,4 +185,26 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
       });
     });
   }
+});
+
+describe("plugin gate commands — generated tool invocation", () => {
+  function scriptOf(id: string, rel: string): string {
+    return readFileSync(resolve(getPluginPath(id), rel), "utf-8");
+  }
+
+  it("semgrep uses p/default, not auto (auto is incompatible with --metrics=off)", () => {
+    const s = scriptOf("semgrep", "scripts/check-semgrep.sh");
+    expect(s).toContain("--config=p/default");
+    // No ACTIVE `--config=auto` flag line (the NOTE comment may still name it).
+    expect(s).not.toMatch(/\n\s*--config=auto\b/);
+    // Telemetry stays off — the whole reason auto had to go.
+    expect(s).toContain("--metrics=off");
+  });
+
+  it("jscpd prefers the repo-pinned binary over a global one", () => {
+    const s = scriptOf("jscpd", "scripts/check-jscpd.sh");
+    expect(s).toContain("node_modules/.bin/jscpd");
+    // The scan invokes the resolved binary, not a bare `jscpd`.
+    expect(s).toContain('"$JSCPD_BIN"');
+  });
 });

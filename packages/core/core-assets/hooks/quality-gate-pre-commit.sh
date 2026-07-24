@@ -70,7 +70,6 @@ run_gate() {
 # standalone, so there is no shared lib to import):
 #   plugins/jscpd/scripts/check-jscpd.sh
 #   plugins/semgrep/scripts/check-semgrep.sh
-#   plugins/cognitive/scripts/check-cognitive.sh
 is_git_commit() {
   local input="$1" segment
   # FIX B: join `\<newline>` continuations into a space FIRST, so a command

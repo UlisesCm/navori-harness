@@ -34,7 +34,7 @@ cmd=$(extract_cmd)
 # space. Because it matches a segment START, a quoted `echo "git commit"` does
 # NOT trigger it. Known limitation: it cannot see through `sh -c`, `eval`, or
 # obfuscation — a seatbelt, not a sandbox. Body duplicated across the navori quality hooks (they render standalone — no
-# shared lib). The quality-gate/jscpd/cognitive copies gate `git commit` ONLY;
+# shared lib). The quality-gate/jscpd copies gate `git commit` ONLY;
 # the semgrep copy also gates `git push` and `gh pr create` (remote-push
 # security backstop). Keep in sync.
 is_git_commit() {
@@ -87,8 +87,19 @@ if [ -n "$cmd" ] && ! is_git_commit "$cmd"; then
   exit 0
 fi
 
-if ! command -v jscpd >/dev/null 2>&1; then
-  echo "⊘ jscpd no instalado localmente — skip (install: pnpm add -g jscpd)" >&2
+# Resolve jscpd: prefer the repo-pinned binary (node_modules/.bin) over a global
+# one. A global jscpd can be a DIFFERENT major (e.g. 4.x vs the repo's 5.x) whose
+# tokenizer reports different duplication than `pnpm run dup`, so the commit gate
+# would measure something other than what the repo declares. Local-first fixes it.
+JSCPD_BIN=""
+_repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$_repo_root" ] && [ -x "$_repo_root/node_modules/.bin/jscpd" ]; then
+  JSCPD_BIN="$_repo_root/node_modules/.bin/jscpd"
+elif command -v jscpd >/dev/null 2>&1; then
+  JSCPD_BIN="jscpd"
+fi
+if [ -z "$JSCPD_BIN" ]; then
+  echo "⊘ jscpd no disponible (ni pinneado en el repo ni instalado global) — skip (install: pnpm add -D jscpd)" >&2
   exit 0
 fi
 
@@ -121,7 +132,7 @@ echo "▶ jscpd: ${#files[@]} archivo(s) modificados vs {{branchBase}}" >&2
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
-jscpd \
+"$JSCPD_BIN" \
   --min-tokens 100 \
   --min-lines 10 \
   --mode strict \

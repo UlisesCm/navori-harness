@@ -143,7 +143,6 @@ export const KNOWN_PLUGINS: Record<string, string> = {
   gh: "@navori/plugin-gh",
   jscpd: "@navori/plugin-jscpd",
   semgrep: "@navori/plugin-semgrep",
-  cognitive: "@navori/plugin-cognitive",
 };
 
 export class PluginNotFoundError extends NavoriError {
