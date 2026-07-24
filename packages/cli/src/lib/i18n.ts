@@ -643,6 +643,12 @@ interface GlobalCmdStrings {
   doctorOk: string;
   statusOk: string;
   statusDrift: (n: number) => string;
+  installInstalled: (tool: string) => string;
+  installAlreadyPresent: (tool: string) => string;
+  installSkipped: (tool: string) => string;
+  installFailed: (tool: string, error: string, command: string) => string;
+  installNoCommand: (tool: string) => string;
+  statusMissingTools: (n: number) => string;
 }
 
 /**
@@ -876,6 +882,13 @@ const CMD_ES: CmdStrings = {
     doctorOk: "OK",
     statusOk: "global: al día",
     statusDrift: (n) => `global: drift en ${n} bloque(s)`,
+    installInstalled: (tool) => `Instalado '${tool}'`,
+    installAlreadyPresent: (tool) => `'${tool}' ya está instalado`,
+    installSkipped: (tool) => `'${tool}' no instalado — los hooks se saltan solos`,
+    installFailed: (tool, error, command) =>
+      `Falló la instalación de '${tool}': ${error}. Instálalo a mano: ${command}`,
+    installNoCommand: (tool) => `Sin comando de instalación para esta plataforma — instala '${tool}' a mano`,
+    statusMissingTools: (n) => `global: faltan ${n} herramienta(s) externa(s)`,
   },
   feature: {
     passId: "Pasa un id de feature (ej. 'navori add feature app-builder').",
@@ -1102,6 +1115,13 @@ const CMD_EN: CmdStrings = {
     doctorOk: "OK",
     statusOk: "global: up to date",
     statusDrift: (n) => `global: drift in ${n} block(s)`,
+    installInstalled: (tool) => `Installed '${tool}'`,
+    installAlreadyPresent: (tool) => `'${tool}' is already installed`,
+    installSkipped: (tool) => `'${tool}' not installed — hooks self-skip`,
+    installFailed: (tool, error, command) =>
+      `Install of '${tool}' failed: ${error}. Install it manually: ${command}`,
+    installNoCommand: (tool) => `No install command for this platform — install '${tool}' manually`,
+    statusMissingTools: (n) => `global: ${n} external tool(s) missing`,
   },
   feature: {
     passId: "Pass a feature id (e.g. 'navori add feature app-builder').",

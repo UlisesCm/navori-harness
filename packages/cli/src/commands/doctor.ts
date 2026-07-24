@@ -514,7 +514,7 @@ function scanMissingPresetFiles(
   return missing;
 }
 
-interface MissingExternalTool {
+export interface MissingExternalTool {
   pluginId: string;
   binary: string;
   install: string | null;

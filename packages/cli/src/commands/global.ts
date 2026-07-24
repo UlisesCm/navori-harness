@@ -16,6 +16,8 @@ import {
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
 import { CORE_MANAGED_ASSETS } from "../lib/render-plan.ts";
 import { listMarkers, scanManagedDrift } from "../lib/health.ts";
+import { scanMissingExternalTools, type MissingExternalTool } from "./doctor.ts";
+import { installExternalTool, type InstallResult, type ShellRunner } from "../lib/install-tool.ts";
 import { resolveLang, tc, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 import { brand, dim, accent, color, sym, kv, check } from "../lib/style.ts";
 
@@ -53,12 +55,80 @@ function globalCapablePluginIds(): string[] {
   return out;
 }
 
-const initSubCommand = defineCommand({
+/** True when the plugin's manifest allows the global scope (defensive filter). */
+function isGlobalScoped(id: string): boolean {
+  try {
+    return (loadPlugin(id).manifest.allowedScopes as readonly string[]).includes("global");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * External tools whose binary is missing, restricted to enabled GLOBAL-scoped
+ * plugins in the global config. Reuses doctor.ts's scan (same row shape/i18n) so
+ * the repo and global surfaces can never drift apart.
+ */
+export function globalMissingExternalTools(config: GlobalConfig): MissingExternalTool[] {
+  return scanMissingExternalTools(globalConfigToNavoriConfig(config)).filter((t) => isGlobalScoped(t.pluginId));
+}
+
+/**
+ * Auto-install pass for `global init`. Enumerates enabled global-scoped plugins,
+ * and installs each one's external tool. NON-FATAL by construction:
+ * installExternalTool never throws, and this only logs — a failed install never
+ * changes init's exit code or blocks the harness from being configured. Headless
+ * safe: when `assumeYes` (from --recommended/--yes) it installs without prompting.
+ */
+export async function installGlobalTools(
+  config: GlobalConfig,
+  opts: { assumeYes: boolean; lang: Lang; run?: ShellRunner },
+): Promise<InstallResult[]> {
+  const tg = tc(opts.lang).global;
+  const results: InstallResult[] = [];
+  for (const [id, settings] of Object.entries(config.plugins)) {
+    if (settings.enabled !== true || !isGlobalScoped(id)) continue;
+    let tool;
+    try {
+      tool = loadPlugin(id).manifest.externalTool;
+    } catch {
+      continue; // unloadable plugin — reported elsewhere (doctor)
+    }
+    if (!tool) continue;
+    const result = await installExternalTool(tool, { assumeYes: opts.assumeYes, run: opts.run });
+    results.push(result);
+    switch (result.status) {
+      case "installed":
+        p.log.success(tg.installInstalled(result.tool));
+        break;
+      case "already-present":
+        p.log.info(tg.installAlreadyPresent(result.tool));
+        break;
+      case "skipped":
+        p.log.info(tg.installSkipped(result.tool));
+        break;
+      case "no-command":
+        p.log.warn(tg.installNoCommand(result.tool));
+        break;
+      case "failed":
+        p.log.warn(tg.installFailed(result.tool, result.error ?? "", result.command ?? ""));
+        break;
+    }
+  }
+  return results;
+}
+
+export const initSubCommand = defineCommand({
   meta: { name: "init", description: "Bootstrap the global (persona) harness at ~/.claude" },
   args: {
     recommended: { type: "boolean", description: "Accept recommended defaults without prompting" },
     yes: { type: "boolean", description: "Alias for --recommended" },
     apply: { type: "boolean", description: "Write to disk (default previews)" },
+    install: {
+      type: "boolean",
+      description: "Auto-install external tools required by enabled global plugins (use --no-install to opt out)",
+      default: true,
+    },
   },
   async run({ args }) {
     const recommended = Boolean(args.recommended) || Boolean(args.yes);
@@ -126,6 +196,14 @@ const initSubCommand = defineCommand({
 
     const { result } = runGlobalRender(config, { dryRun: !apply });
     reportRender(target, result, !apply, lang, globalPermissionsEnabled(config));
+
+    // Auto-install the external tools required by enabled global-scoped plugins.
+    // Only on --apply (a preview must not mutate the system), and opt-out via
+    // --no-install. Whole pass is NON-FATAL: it never changes init's exit code.
+    if (apply && args.install !== false) {
+      await installGlobalTools(config, { assumeYes: recommended, lang });
+    }
+
     p.outro(apply ? color.green(tc(lang).global.doneWord) : color.yellow(`${tg.previewWord} · ${tg.previewHint}`));
   },
 });
@@ -179,9 +257,18 @@ const doctorSubCommand = defineCommand({
     const nonGlobalPlugins = validateGlobalPlugins(config);
     // Scope violation: a repo-only managed block present in the global CLAUDE.md.
     const violations = repoBlocksInGlobal(target.claudeMd);
+    // External tools required by enabled global plugins but missing from PATH.
+    // Non-ok-flipping (advisory, like the repo doctor): hooks self-skip.
+    const missingTools = globalMissingExternalTools(config);
 
     if (args.json) {
-      console.log(JSON.stringify({ ok: nonGlobalPlugins.length === 0, drifts, nonGlobalPlugins, violations }, null, 2));
+      console.log(
+        JSON.stringify(
+          { ok: nonGlobalPlugins.length === 0, drifts, nonGlobalPlugins, violations, missingExternalTools: missingTools },
+          null,
+          2,
+        ),
+      );
       if (nonGlobalPlugins.length > 0) process.exit(2);
       return;
     }
@@ -211,13 +298,23 @@ const doctorSubCommand = defineCommand({
       const lines = violations.map((id) => `  ${color.red(sym.fail)} ${accent(id)}`);
       p.log.warn(tg.doctorScopeViolations(violations.length, lines.join("\n")));
     }
+    if (missingTools.length > 0) {
+      const td = tc(lang).doctor;
+      const lines = missingTools.map((t) => {
+        const how = t.install
+          ? `${t.install}${t.postInstall ? ` && ${t.postInstall}` : ""}`
+          : td.externalToolFallbackHow;
+        return `  ${color.yellow(sym.update)} ${accent(t.pluginId)}  ${dim(td.externalToolRow(t.binary, how))}`;
+      });
+      p.log.warn(td.externalTools(missingTools.length, lines.join("\n")));
+    }
 
     p.outro(nonGlobalPlugins.length > 0 ? color.red(tg.doctorIssues) : color.green(tg.doctorOk));
     if (nonGlobalPlugins.length > 0) process.exit(2);
   },
 });
 
-const statusSubCommand = defineCommand({
+export const statusSubCommand = defineCommand({
   meta: { name: "status", description: "One-line global harness status" },
   args: { json: { type: "boolean", description: "Output as JSON" } },
   run({ args }) {
@@ -236,12 +333,21 @@ const statusSubCommand = defineCommand({
     const target = globalTarget();
     const navoriConfig = globalConfigToNavoriConfig(config);
     const drifts = scanManagedDrift(target.baseDir, navoriConfig);
+    const missingTools = globalMissingExternalTools(config);
     if (args.json) {
-      console.log(JSON.stringify({ configured: true, target: target.claudeMd, drift: drifts.length }));
+      console.log(
+        JSON.stringify({
+          configured: true,
+          target: target.claudeMd,
+          drift: drifts.length,
+          missingExternalTools: missingTools.length,
+        }),
+      );
       return;
     }
     p.intro(brand("global status"));
     p.log.message(drifts.length === 0 ? color.green(tg.statusOk) : color.yellow(tg.statusDrift(drifts.length)));
+    if (missingTools.length > 0) p.log.message(color.yellow(tg.statusMissingTools(missingTools.length)));
     p.outro(dim(target.claudeMd));
   },
 });

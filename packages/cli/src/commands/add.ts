@@ -2,7 +2,6 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { writeConfig, readConfig } from "../lib/config.ts";
 import {
   loadPlugin,
@@ -13,55 +12,10 @@ import {
 import { loadFeature, listFeatureIds, FeatureError } from "../lib/features.ts";
 import { runRender } from "./render.ts";
 import { hasBinary } from "../lib/which.ts";
-import { InstallError } from "../lib/errors.ts";
+import { installExternalTool, currentPlatform } from "../lib/install-tool.ts";
 import { detectProject } from "../lib/detect.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
-
-type Platform = "darwin" | "linux" | "win32";
-
-function currentPlatform(): Platform {
-  if (process.platform === "darwin") return "darwin";
-  if (process.platform === "linux") return "linux";
-  return "win32";
-}
-
-/**
- * Run an install command from a plugin manifest.
- *
- * SECURITY NOTES:
- * - The command string comes from the plugin's plugin.json (validated by zod),
- *   NOT from user input. There is no string interpolation.
- * - We use a shell because real-world install commands (curl|bash, brew install
- *   with sudo, etc.) require shell features (pipes, expansion, env vars).
- * - We ALWAYS show the full command to the user and require confirmation
- *   before running it. The user can abort.
- * - If the plugin itself is malicious, this is no worse than `npm install`
- *   on a malicious package: trust boundary is "plugins you choose to add".
- */
-const INSTALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min — generous for brew install + downloads
-
-function runShellCommand(cmd: string): void {
-  const result = spawnSync(cmd, {
-    shell: true,
-    stdio: "inherit",
-    timeout: INSTALL_TIMEOUT_MS,
-  });
-  // spawnSync sets result.error with the killed signal when timeout fires
-  if (result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
-    throw new InstallError(
-      `Install command timed out after ${INSTALL_TIMEOUT_MS / 1000}s. ` +
-        `It may be waiting for interactive input (run from a TTY) or hung. ` +
-        `Install the tool manually and re-run navori with --skip-install.`,
-    );
-  }
-  if (result.signal) {
-    throw new InstallError(`Command killed by signal ${result.signal}`);
-  }
-  if (result.status !== 0) {
-    throw new InstallError(`Command exited with status ${result.status}`);
-  }
-}
 
 export const addCommand = defineCommand({
   meta: {
@@ -189,43 +143,25 @@ export const addCommand = defineCommand({
       return;
     }
 
-    const platform = currentPlatform();
-    const installCmd = tool.install?.[platform];
-    if (!installCmd) {
-      p.log.warn(`No install command for platform '${platform}'. Install '${tool.name}' manually.`);
-      p.outro("Done");
-      return;
+    const result = await installExternalTool(tool, { assumeYes: Boolean(args.yes) });
+    switch (result.status) {
+      case "no-command":
+        p.log.warn(`No install command for platform '${currentPlatform()}'. Install '${tool.name}' manually.`);
+        p.outro("Done");
+        return;
+      case "skipped":
+        p.log.warn(`External tool '${tool.name}' not installed. Hooks will skip silently.`);
+        p.outro("Done");
+        return;
+      case "failed":
+        p.log.error(`${color.red(sym.fail)} Install failed: ${result.error}`);
+        p.outro(dim("Plugin registered but external tool install failed. Install manually."));
+        return;
+      default:
+        p.log.success(`${color.green(sym.ok)} Installed ${accent(tool.name)}`);
+        p.outro(`${color.green("Done")} ${dim("— run 'navori render --apply' to apply")}`);
+        return;
     }
-
-    const shouldInstall = args.yes
-      ? true
-      : await p.confirm({
-          message: `Install '${tool.name}'? Will run: ${installCmd}`,
-          initialValue: false,
-        });
-
-    if (p.isCancel(shouldInstall) || !shouldInstall) {
-      p.log.warn(`External tool '${tool.name}' not installed. Hooks will skip silently.`);
-      p.outro("Done");
-      return;
-    }
-
-    const spin = p.spinner();
-    try {
-      spin.start(`Installing ${accent(tool.name)} — ${dim(installCmd)}`);
-      runShellCommand(installCmd);
-      if (tool.postInstall) {
-        spin.message(`Post-install — ${dim(tool.postInstall)}`);
-        runShellCommand(tool.postInstall);
-      }
-      spin.stop(`${color.green("✓")} Installed ${accent(tool.name)}`);
-    } catch (err) {
-      spin.stop(`${color.red("✗")} Install failed: ${(err as Error).message}`, 1);
-      p.outro(dim("Plugin registered but external tool install failed. Install manually."));
-      return;
-    }
-
-    p.outro(`${color.green("Done")} ${dim("— run 'navori render --apply' to apply")}`);
   },
 });
 
