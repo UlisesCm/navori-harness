@@ -90,7 +90,12 @@ const CORE_AGENTS: ReadonlyArray<{
   { id: "auditor", harnessKey: "auditor" },
 ];
 
-const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
+const CORE_SKILLS: ReadonlyArray<string> = [
+  "verify-before-done",
+  "loop-back-debug",
+  "review-diff",
+  "security-guidance",
+];
 
 /**
  * Workflow skills — always-on process skills (ticket pipeline, PR flow) that are
