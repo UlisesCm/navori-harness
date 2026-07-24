@@ -2,6 +2,8 @@
 name: pr-create
 description: Crea un PR en GitHub contra la rama target del repo, delegando title/body a un modelo y validando el output. Antes de crear cualquier PR al cerrar el ciclo de un ticket (Fase 8 de ticket-intake).
 type: reference
+# maxWords raised above the 500 reference cap: el pre-flight bloqueante es load-bearing y no se puede recortar sin perder chequeos de seguridad.
+maxWords: 560
 ---
 
 # pr-create — crear PR contra `{{prTarget}}`
@@ -18,7 +20,7 @@ Al cierre del ciclo, tras el `APPROVED` del reviewer (Fase 8 de `ticket-intake`)
 2. **No estás en una rama protegida**: aborta si la rama actual es `main|master|{{branchBase}}|{{prTarget}}`.
 3. **`gh` autenticado**: `gh auth status`.
 4. **Gate verde en este turno**: `{{qualityGate.fast}}`. Falla → manda al implementer.
-5. **Review APPROVED** (si el harness está activo): `grep -q APPROVED .claude/progress/review_*.md`. Falla → manda al reviewer.
+5. **Review APPROVED de esta feature** (harness activo): `.claude/progress/review_<feature>.md` puntual — glob `review_*.md` no vale. Ausente/ambiguo/scope distinto → NO aprobado, manda al reviewer. Si lista archivos, compáralos con `git diff --name-only`: archivos tocados que el review NO cubre → NO aprobado, aborta y devuelve al reviewer (no basta con mencionar la diferencia y seguir). <!-- Mantén este chequeo de cobertura en sync con `agents/commit-pr-pilot.md`. -->
 6. **Hay commits para el PR**: `git fetch origin {{prTarget}} --quiet` y `git log origin/{{prTarget}}..HEAD --oneline`. Vacío → nada que PR-ear.
 7. **Branch sincronizada**: `git log HEAD..origin/{{prTarget}} --oneline`. Si origin va adelante, rebase y pregunta.
 8. **Arrastre de commits** (solo si `{{branchBase}}` ≠ `{{prTarget}}`): `git rev-list --count origin/{{prTarget}}..origin/{{branchBase}}`. Si es > 0, `{{branchBase}}` va adelantado de `{{prTarget}}` y el PR arrastra esos commits ajenos: avisa y sugiere `git rebase origin/{{prTarget}}` antes de abrir.
