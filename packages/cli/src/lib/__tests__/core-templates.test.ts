@@ -91,7 +91,12 @@ describe("prompts.json", () => {
     question: z.object({ es: z.string().min(1), en: z.string().min(1) }),
     type: z.enum(["string", "string-list", "boolean", "number", "select"]),
     options: z
-      .array(z.object({ value: z.string().min(1), label: z.object({ es: z.string().min(1), en: z.string().min(1) }) }))
+      .array(
+        z.object({
+          value: z.string().min(1),
+          label: z.object({ es: z.string().min(1), en: z.string().min(1) }),
+        }),
+      )
       .optional(),
     placeholder: z.string().optional(),
     optional: z.boolean().default(false),

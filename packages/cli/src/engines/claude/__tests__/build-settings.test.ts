@@ -112,7 +112,9 @@ describe("buildClaudeSettings — base shape", () => {
 
   it("always injects the defensive guard PreToolUse(Bash) hook, regardless of config", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
-    const pre = (s.hooks as { PreToolUse: Array<{ matcher?: string; hooks: Array<{ command: string }> }> }).PreToolUse;
+    const pre = (
+      s.hooks as { PreToolUse: Array<{ matcher?: string; hooks: Array<{ command: string }> }> }
+    ).PreToolUse;
     const guard = pre.find((b) => b.hooks.some((h) => h.command.includes("guard-destructive.sh")));
     expect(guard).toBeDefined();
     expect(guard?.matcher).toBe("Bash");
@@ -120,8 +122,11 @@ describe("buildClaudeSettings — base shape", () => {
 
   it("does NOT inject quality-gate hook when config.qualityGate.fast is unset", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
-    const pre = (s.hooks as { PreToolUse?: Array<{ hooks: Array<{ command: string }> }> }).PreToolUse ?? [];
-    const qg = pre.find((b) => b.hooks.some((h) => h.command.includes("quality-gate-pre-commit.sh")));
+    const pre =
+      (s.hooks as { PreToolUse?: Array<{ hooks: Array<{ command: string }> }> }).PreToolUse ?? [];
+    const qg = pre.find((b) =>
+      b.hooks.some((h) => h.command.includes("quality-gate-pre-commit.sh")),
+    );
     expect(qg).toBeUndefined();
   });
 });
@@ -129,8 +134,14 @@ describe("buildClaudeSettings — base shape", () => {
 describe("buildClaudeSettings — quality-gate hook", () => {
   it("injects PreToolUse Bash hook referencing the QG script when qualityGate.fast set", () => {
     const s = buildClaudeSettings(withQG(), []);
-    const pre = (s.hooks as { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string; timeout?: number }> }> }).PreToolUse;
-    const qg = pre.find((b) => b.hooks.some((h) => h.command.includes("quality-gate-pre-commit.sh")));
+    const pre = (
+      s.hooks as {
+        PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string; timeout?: number }> }>;
+      }
+    ).PreToolUse;
+    const qg = pre.find((b) =>
+      b.hooks.some((h) => h.command.includes("quality-gate-pre-commit.sh")),
+    );
     expect(qg).toBeDefined();
     expect(qg?.matcher).toBe("Bash");
     const qgHook = qg?.hooks.find((h) => h.command.includes("quality-gate-pre-commit.sh"));
@@ -140,8 +151,7 @@ describe("buildClaudeSettings — quality-gate hook", () => {
 
 describe("buildClaudeSettings — hook matcher coalescing (no double PreToolUse[Bash])", () => {
   type Bucket = { matcher?: string; hooks: Array<{ command: string }> };
-  const preOf = (s: Record<string, unknown>) =>
-    (s.hooks as { PreToolUse: Bucket[] }).PreToolUse;
+  const preOf = (s: Record<string, unknown>) => (s.hooks as { PreToolUse: Bucket[] }).PreToolUse;
 
   it("collapses guard + quality-gate into a single Bash matcher bucket", () => {
     const pre = preOf(buildClaudeSettings(withQG(), []));
@@ -219,7 +229,9 @@ describe("buildClaudeSettings — plugin merging", () => {
       ],
     });
     const s = buildClaudeSettings(MINIMAL_CONFIG, [plugin]);
-    const pre = (s.hooks as { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string }> }> }).PreToolUse;
+    const pre = (
+      s.hooks as { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string }> }> }
+    ).PreToolUse;
     // Both same-event+matcher hooks land in the single Bash bucket (now shared
     // with the always-on guard via coalescing) — one bucket, both commands.
     const bashBuckets = pre.filter((b) => b.matcher === "Bash");

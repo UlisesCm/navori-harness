@@ -5,15 +5,21 @@ import { resolve } from "node:path";
 import { readConfig } from "../lib/config.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render-plan.ts";
-import {
-  renderClaudeEngine,
-  type ClaudeEngineResult,
-} from "../engines/claude/index.ts";
+import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
-import { renderStatusSymbol, renderStatusLabel, dim, color, accent, brand, sym, type RenderStatus } from "../lib/style.ts";
+import {
+  renderStatusSymbol,
+  renderStatusLabel,
+  dim,
+  color,
+  accent,
+  brand,
+  sym,
+  type RenderStatus,
+} from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 import { effectiveConfigForWorkspace, buildMonorepoContext } from "../lib/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
@@ -72,7 +78,11 @@ function renderNonClaudeEngines(
   // destination/format). Keyed by config engine id.
   const PROSE_ENGINES: Record<
     string,
-    (cwd: string, config: ReturnType<typeof readConfig>, opts: { dryRun: boolean; repoRoot: string }) => ProseEngineResult
+    (
+      cwd: string,
+      config: ReturnType<typeof readConfig>,
+      opts: { dryRun: boolean; repoRoot: string },
+    ) => ProseEngineResult
   > = {
     "agents-md": (c, cfg, o) => renderAgentsMdEngine(c, cfg, o),
     cursor: (c, cfg, o) => renderCursorEngine(c, cfg, o),
@@ -154,9 +164,7 @@ export function runRender(
 } {
   // Back-compat: callers passing (cwd, dryRun, force) keep working.
   const opts: RunRenderOptions =
-    typeof dryRunOrOptions === "boolean"
-      ? { dryRun: dryRunOrOptions, force }
-      : dryRunOrOptions;
+    typeof dryRunOrOptions === "boolean" ? { dryRun: dryRunOrOptions, force } : dryRunOrOptions;
   const dryRun = Boolean(opts.dryRun);
   const forceFlag = Boolean(opts.force);
   const workspaceFilter = opts.workspaceFilter ?? null;
@@ -358,7 +366,8 @@ export const renderCommand = defineCommand({
     },
     "dry-run": {
       type: "boolean",
-      description: "Deprecated: preview is the default now. Kept as an explicit alias for --no-apply.",
+      description:
+        "Deprecated: preview is the default now. Kept as an explicit alias for --no-apply.",
     },
     force: {
       type: "boolean",
@@ -372,7 +381,8 @@ export const renderCommand = defineCommand({
     },
     json: {
       type: "boolean",
-      description: "Emit a machine-readable JSON result and suppress human output (for CI/automation).",
+      description:
+        "Emit a machine-readable JSON result and suppress human output (for CI/automation).",
     },
     all: {
       type: "boolean",
@@ -381,7 +391,8 @@ export const renderCommand = defineCommand({
     },
     prune: {
       type: "boolean",
-      description: "With --all: drop registry entries whose repo no longer exists before rendering.",
+      description:
+        "With --all: drop registry entries whose repo no longer exists before rendering.",
     },
     verbose: {
       type: "boolean",
@@ -395,7 +406,7 @@ export const renderCommand = defineCommand({
 
     if (args.all) {
       renderAllRepos({
-        preview: !Boolean(args.apply) || Boolean(args["dry-run"]),
+        preview: !args.apply || Boolean(args["dry-run"]),
         force: Boolean(args.force),
         prune: Boolean(args.prune),
         verbose: Boolean(args.verbose),
@@ -414,7 +425,9 @@ export const renderCommand = defineCommand({
 
     if (!existsSync(cwd)) {
       if (json) {
-        console.log(JSON.stringify({ command: "render", ok: false, reason: "directory-missing", cwd }));
+        console.log(
+          JSON.stringify({ command: "render", ok: false, reason: "directory-missing", cwd }),
+        );
       } else {
         p.cancel(tc(DEFAULT_LANG).common.dirNotFound(cwd));
       }
@@ -472,7 +485,9 @@ export const renderCommand = defineCommand({
     }
 
     for (const ws of result.workspaces) {
-      p.log.message(`${dim(tr.workspaceLabel)} ${color.cyan(ws.workspaceName)} ${dim(`(${ws.workspacePath})`)}`);
+      p.log.message(
+        `${dim(tr.workspaceLabel)} ${color.cyan(ws.workspaceName)} ${dim(`(${ws.workspacePath})`)}`,
+      );
       if (ws.engineResult) {
         reportClaudeMd(ws.filePath, ws.entries, ws.written, preview, result.language);
         reportEngineFiles(ws.engineResult, result.language);
@@ -497,9 +512,7 @@ export const renderCommand = defineCommand({
 
     reportExtraEngines(result.extraEngines ?? [], result.language);
 
-    const allDowngrades = result.downgrades.concat(
-      ...result.workspaces.map((w) => w.downgrades),
-    );
+    const allDowngrades = result.downgrades.concat(...result.workspaces.map((w) => w.downgrades));
     const downgradeWarn = formatDowngradeWarning(allDowngrades, result.language);
     if (downgradeWarn) p.log.warn(downgradeWarn);
 
@@ -621,9 +634,12 @@ function summarize(entries: AssetPlanEntry[]): string {
   const parts: string[] = [];
   if (counts.created) parts.push(color.green(`${counts.created} created`));
   if (counts.updated) parts.push(color.yellow(`${counts.updated} updated`));
-  if (counts["user-modified-skipped"]) parts.push(color.red(`${counts["user-modified-skipped"]} conflict`));
-  if (counts["downgrade-skipped"]) parts.push(color.yellow(`${counts["downgrade-skipped"]} downgrade-skip`));
-  if (counts["removed-condition-false"]) parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
+  if (counts["user-modified-skipped"])
+    parts.push(color.red(`${counts["user-modified-skipped"]} conflict`));
+  if (counts["downgrade-skipped"])
+    parts.push(color.yellow(`${counts["downgrade-skipped"]} downgrade-skip`));
+  if (counts["removed-condition-false"])
+    parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
   if (counts.unchanged) parts.push(dim(`${counts.unchanged} unchanged`));
   return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
 }
@@ -655,7 +671,9 @@ function reportExtraEngines(extraEngines: EngineRenderSummary[], lang: Lang): vo
   for (const ee of extraEngines) {
     p.log.message(`${dim(tr.engineLabel)} ${color.cyan(ee.engine)}`);
     for (const w of ee.written) {
-      p.log.message(`  ${renderStatusSymbol(w.status)} ${w.path}  ${dim("(")}${renderStatusLabel(w.status)}${dim(")")}`);
+      p.log.message(
+        `  ${renderStatusSymbol(w.status)} ${w.path}  ${dim("(")}${renderStatusLabel(w.status)}${dim(")")}`,
+      );
     }
     for (const s of ee.skipped) p.log.warn(`  ${s.path}: ${s.reason}`);
     for (const warn of ee.warnings) p.log.warn(`  ${warn}`);
@@ -690,7 +708,9 @@ function reportEngineFiles(engine: ClaudeEngineResult, lang: Lang): void {
     lines.push(`  ${sym} ${w.path}  ${dim("(")}${label}${dim(")")}`);
   }
   for (const s of engine.skipped) {
-    lines.push(`  ${color.yellow("!")} ${s.path}  ${dim("(")}${color.yellow("skipped")}${dim(")")}`);
+    lines.push(
+      `  ${color.yellow("!")} ${s.path}  ${dim("(")}${color.yellow("skipped")}${dim(")")}`,
+    );
     lines.push(`      ${dim(s.reason)}`);
   }
   if (unchangedCount > 0 && written.length === 0 && engine.skipped.length === 0) {
@@ -755,13 +775,25 @@ export function renderRepoRows(
   const rows: RepoRenderRow[] = [];
   for (const repo of repos) {
     if (!existsSync(repo.path)) {
-      rows.push({ name: repo.name, status: "missing", detail: repo.path, conflicts: 0, changed: [] });
+      rows.push({
+        name: repo.name,
+        status: "missing",
+        detail: repo.path,
+        conflicts: 0,
+        changed: [],
+      });
       continue;
     }
     try {
       const result = runRender(repo.path, { dryRun: opts.preview, force: opts.force });
       if (!result.ok) {
-        rows.push({ name: repo.name, status: "error", detail: result.reason ?? "render failed", conflicts: 0, changed: [] });
+        rows.push({
+          name: repo.name,
+          status: "error",
+          detail: result.reason ?? "render failed",
+          conflicts: 0,
+          changed: [],
+        });
         continue;
       }
       const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
@@ -770,10 +802,26 @@ export function renderRepoRows(
       const changed = allEntries
         .filter((e) => e.status !== "unchanged")
         .map((e) => ({ id: e.asset.id, status: e.status }));
-      const status: RepoRenderStatus = anyPending ? (opts.preview ? "would-write" : "written") : "up-to-date";
-      rows.push({ name: repo.name, status, detail: summarizeRenderEntries(allEntries), conflicts, changed });
+      const status: RepoRenderStatus = anyPending
+        ? opts.preview
+          ? "would-write"
+          : "written"
+        : "up-to-date";
+      rows.push({
+        name: repo.name,
+        status,
+        detail: summarizeRenderEntries(allEntries),
+        conflicts,
+        changed,
+      });
     } catch (err) {
-      rows.push({ name: repo.name, status: "error", detail: (err as Error).message, conflicts: 0, changed: [] });
+      rows.push({
+        name: repo.name,
+        status: "error",
+        detail: (err as Error).message,
+        conflicts: 0,
+        changed: [],
+      });
     }
   }
   return rows;
@@ -809,7 +857,9 @@ export function reportRepoRenderRows(
     // a file-level record (not just counts) of what the rollout touched.
     if (verbose) {
       for (const e of r.changed) {
-        lines.push(`      ${renderStatusSymbol(e.status)} ${dim(e.id)} ${dim(`(${renderStatusLabel(e.status)})`)}`);
+        lines.push(
+          `      ${renderStatusSymbol(e.status)} ${dim(e.id)} ${dim(`(${renderStatusLabel(e.status)})`)}`,
+        );
       }
     }
   }
@@ -823,7 +873,10 @@ export function reportRepoRenderRows(
   // Name the repos with conflicts so the record says exactly where to look; the
   // managed block was hand-edited and render refused to overwrite it.
   if (conflicts > 0) {
-    const names = rows.filter((r) => r.conflicts > 0).map((r) => r.name).join(", ");
+    const names = rows
+      .filter((r) => r.conflicts > 0)
+      .map((r) => r.name)
+      .join(", ");
     p.log.warn(
       `${conflicts} hand-edited managed block(s) left untouched in: ${names}. ` +
         `Reconcile with 'navori sync' in that repo, or re-apply with '--force'.`,
@@ -841,7 +894,12 @@ export function reportRepoRenderRows(
  * by default (no files touched) — `--apply` writes. `--prune` first drops
  * entries whose repo no longer exists. Exits 1 if any repo failed.
  */
-export function renderAllRepos(opts: { preview: boolean; force: boolean; prune: boolean; verbose: boolean }): void {
+export function renderAllRepos(opts: {
+  preview: boolean;
+  force: boolean;
+  prune: boolean;
+  verbose: boolean;
+}): void {
   p.intro(brand(`render ${accent("--all")}`));
 
   if (opts.prune) {
@@ -853,7 +911,9 @@ export function renderAllRepos(opts: { preview: boolean; force: boolean; prune: 
 
   const repos = listRegistryRepos();
   if (repos.length === 0) {
-    p.log.info("No repos registered. Bootstrap with 'navori registry scan <dir>' or run 'navori init' in a repo.");
+    p.log.info(
+      "No repos registered. Bootstrap with 'navori registry scan <dir>' or run 'navori init' in a repo.",
+    );
     p.outro(dim("Done"));
     return;
   }

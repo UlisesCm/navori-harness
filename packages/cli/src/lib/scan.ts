@@ -59,7 +59,11 @@ export function scanMonorepoWorkspaces(cwd: string): DetectedWorkspace[] {
 // Workspace-pattern parsing lives in `workspace-patterns.ts` so `detect.ts`
 // can reuse it without an import cycle (scan.ts imports detect.ts). Re-exported
 // here so existing importers keep resolving these from "./scan.ts".
-export { collectWorkspacePatterns, parsePnpmWorkspaceYaml, expandPattern } from "./workspace-patterns.ts";
+export {
+  collectWorkspacePatterns,
+  parsePnpmWorkspaceYaml,
+  expandPattern,
+} from "./workspace-patterns.ts";
 
 // Glob expansion moved to workspace-patterns.ts (shared with detect.ts without
 // an import cycle); re-exported below for existing importers.

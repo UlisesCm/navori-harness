@@ -4,7 +4,9 @@ import { isNavoriOwnedSettings } from "../settings-detection.ts";
 describe("isNavoriOwnedSettings", () => {
   it("returns true for $navori.managed === true", () => {
     expect(isNavoriOwnedSettings({ $navori: { managed: true } })).toBe(true);
-    expect(isNavoriOwnedSettings({ $navori: { managed: true, version: "0.0.1" }, hooks: {} })).toBe(true);
+    expect(isNavoriOwnedSettings({ $navori: { managed: true, version: "0.0.1" }, hooks: {} })).toBe(
+      true,
+    );
   });
 
   it("returns false when $navori absent", () => {

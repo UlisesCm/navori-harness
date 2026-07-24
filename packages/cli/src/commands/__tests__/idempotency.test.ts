@@ -64,9 +64,9 @@ function assertIdempotent(seed: () => void): void {
   expect(second.written).toBe(false);
   expect(second.workspaces.every((w) => !w.written)).toBe(true);
   expect((second.extraEngines ?? []).every((e) => e.written.length === 0)).toBe(true);
-  expect(
-    second.workspaces.every((w) => w.extraEngines.every((e) => e.written.length === 0)),
-  ).toBe(true);
+  expect(second.workspaces.every((w) => w.extraEngines.every((e) => e.written.length === 0))).toBe(
+    true,
+  );
 
   // No entry may report a mutation on the second pass.
   const mutatingStatuses = ["created", "updated", "removed-condition-false"];
@@ -185,9 +185,7 @@ describe("render idempotency (spec 0003 §3.1.2)", () => {
 
     const first = runRender(cwd);
     expect(first.ok).toBe(true);
-    expect(
-      first.engineResult!.warnings.some((w) => w.includes("intercalado")),
-    ).toBe(false);
+    expect(first.engineResult!.warnings.some((w) => w.includes("intercalado"))).toBe(false);
 
     const after = readFileSync(claudeMdPath, "utf-8");
     const lastClose = after.lastIndexOf("<!-- /navori:managed");
@@ -200,9 +198,7 @@ describe("render idempotency (spec 0003 §3.1.2)", () => {
     const second = runRender(cwd);
     expect(second.ok).toBe(true);
     expect(second.written).toBe(false);
-    expect(
-      second.engineResult!.warnings.some((w) => w.includes("intercalado")),
-    ).toBe(false);
+    expect(second.engineResult!.warnings.some((w) => w.includes("intercalado"))).toBe(false);
     expect(snapshotTree(cwd)).toEqual(snapshotA);
   });
 });

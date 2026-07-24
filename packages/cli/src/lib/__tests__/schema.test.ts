@@ -79,7 +79,10 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
 
 describe("NavoriConfigSchema — blocks.exclude (feature: opt out of core blocks)", () => {
   it("accepts a list of block ids to exclude", () => {
-    const c = NavoriConfigSchema.parse({ ...MINIMAL, blocks: { exclude: ["orquestacion", "sdd"] } });
+    const c = NavoriConfigSchema.parse({
+      ...MINIMAL,
+      blocks: { exclude: ["orquestacion", "sdd"] },
+    });
     expect(c.blocks?.exclude).toEqual(["orquestacion", "sdd"]);
   });
 
@@ -97,7 +100,9 @@ describe("NavoriConfigSchema — blocks.exclude (feature: opt out of core blocks
   });
 
   it("rejects a non-array exclude", () => {
-    expect(NavoriConfigSchema.safeParse({ ...MINIMAL, blocks: { exclude: "orquestacion" } }).success).toBe(false);
+    expect(
+      NavoriConfigSchema.safeParse({ ...MINIMAL, blocks: { exclude: "orquestacion" } }).success,
+    ).toBe(false);
   });
 });
 
@@ -131,7 +136,9 @@ describe("NavoriConfigSchema — boundary (spec 0003 §3.4.2)", () => {
     const c = NavoriConfigSchema.parse({ ...MINIMAL, engines: ["jetbrains"] });
     expect(c.engines).toEqual(["claude"]);
     expect(NavoriConfigSchema.parse({ ...MINIMAL, language: "fr" }).language).toBe("es");
-    expect(NavoriConfigSchema.parse({ ...MINIMAL, commits: "gitmoji" }).commits).toBe("conventional-es");
+    expect(NavoriConfigSchema.parse({ ...MINIMAL, commits: "gitmoji" }).commits).toBe(
+      "conventional-es",
+    );
   });
 
   it("still rejects a genuinely empty engines array", () => {

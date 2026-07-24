@@ -16,8 +16,18 @@ function navoriSettings(): Record<string, unknown> {
         {
           matcher: "Bash",
           hooks: [
-            { type: "command", command: "bash .claude/hooks/guard-destructive.sh", timeout: 10, statusMessage: "navori: guard-destructive" },
-            { type: "command", command: "bash .claude/hooks/quality-gate-pre-commit.sh", timeout: 180, statusMessage: "navori: quality-gate fast" },
+            {
+              type: "command",
+              command: "bash .claude/hooks/guard-destructive.sh",
+              timeout: 10,
+              statusMessage: "navori: guard-destructive",
+            },
+            {
+              type: "command",
+              command: "bash .claude/hooks/quality-gate-pre-commit.sh",
+              timeout: 180,
+              statusMessage: "navori: quality-gate fast",
+            },
           ],
         },
       ],
@@ -45,15 +55,22 @@ describe("mergeCoexistSettings", () => {
     expect((merged.permissions as { allow: string[] }).allow).toEqual(["Bash(pnpm:*)"]);
 
     // navori defensive layers present
-    const bash = (merged.hooks as { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string }> }> })
-      .PreToolUse[0];
+    const bash = (
+      merged.hooks as { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string }> }> }
+    ).PreToolUse[0];
     expect(bash.matcher).toBe("Bash");
     expect(bash.hooks.map((h) => h.command)).toEqual([
       "bash .claude/hooks/guard-destructive.sh",
       "bash .claude/hooks/quality-gate-pre-commit.sh",
     ]);
-    expect((merged.permissions as { deny: string[] }).deny).toEqual(["Bash(rm -rf /)", "Bash(mkfs*)"]);
-    expect((merged.permissions as { ask: string[] }).ask).toEqual(["Bash(rm -rf *)", "Bash(git reset --hard*)"]);
+    expect((merged.permissions as { deny: string[] }).deny).toEqual([
+      "Bash(rm -rf /)",
+      "Bash(mkfs*)",
+    ]);
+    expect((merged.permissions as { ask: string[] }).ask).toEqual([
+      "Bash(rm -rf *)",
+      "Bash(git reset --hard*)",
+    ]);
 
     // does NOT claim ownership
     expect((merged.$navori as { managed?: boolean }).managed).toBeUndefined();
@@ -79,13 +96,17 @@ describe("mergeCoexistSettings", () => {
     const user = {
       hooks: {
         PreToolUse: [
-          { matcher: "Bash", hooks: [{ type: "command", command: "bash .claude/hooks/my-own.sh" }] },
+          {
+            matcher: "Bash",
+            hooks: [{ type: "command", command: "bash .claude/hooks/my-own.sh" }],
+          },
         ],
       },
     };
     const merged = mergeCoexistSettings(user, navoriSettings());
-    const groups = (merged.hooks as { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string }> }> })
-      .PreToolUse;
+    const groups = (
+      merged.hooks as { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string }> }> }
+    ).PreToolUse;
     // single Bash group, user hook first, navori hooks appended
     expect(groups).toHaveLength(1);
     expect(groups[0].hooks.map((h) => h.command)).toEqual([
@@ -118,8 +139,9 @@ describe("mergeCoexistSettings", () => {
     (shrunk.permissions as { deny: string[] }).deny = ["Bash(rm -rf /)"];
 
     const merged = mergeCoexistSettings(withGate, shrunk);
-    const cmds = (merged.hooks as { PreToolUse: Array<{ hooks: Array<{ command: string }> }> })
-      .PreToolUse[0].hooks.map((h) => h.command);
+    const cmds = (
+      merged.hooks as { PreToolUse: Array<{ hooks: Array<{ command: string }> }> }
+    ).PreToolUse[0].hooks.map((h) => h.command);
     expect(cmds).toEqual(["bash .claude/hooks/guard-destructive.sh"]);
     expect((merged.permissions as { deny: string[] }).deny).toEqual(["Bash(rm -rf /)"]);
     // user key survived the whole dance

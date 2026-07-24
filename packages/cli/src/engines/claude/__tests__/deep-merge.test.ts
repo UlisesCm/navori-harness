@@ -25,7 +25,12 @@ describe("deepMerge", () => {
       hooks: { PreToolUse: [{ matcher: "Bash", command: "x" }] },
     };
     const ovr = {
-      hooks: { PreToolUse: [{ matcher: "Bash", command: "x" }, { matcher: "Bash", command: "y" }] },
+      hooks: {
+        PreToolUse: [
+          { matcher: "Bash", command: "x" },
+          { matcher: "Bash", command: "y" },
+        ],
+      },
     };
     const merged = deepMerge(base, ovr) as {
       hooks: { PreToolUse: Array<{ matcher: string; command: string }> };

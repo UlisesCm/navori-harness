@@ -84,7 +84,9 @@ describe("renderClaudeEngine — first render with full config", () => {
     expect(r.written.at(-1)?.path).toBe("CLAUDE.md");
     // ...and every .claude/ file is written before it.
     const claudeMdIdx = r.written.findIndex((w) => w.path === "CLAUDE.md");
-    const lastDotClaudeIdx = r.written.map((w) => w.path).reduce((acc, p, i) => (p.startsWith(".claude/") ? i : acc), -1);
+    const lastDotClaudeIdx = r.written
+      .map((w) => w.path)
+      .reduce((acc, p, i) => (p.startsWith(".claude/") ? i : acc), -1);
     expect(lastDotClaudeIdx).toBeLessThan(claudeMdIdx);
   });
 
@@ -92,10 +94,15 @@ describe("renderClaudeEngine — first render with full config", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
     const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
     expect(settings.$navori.managed).toBe(true);
-    const pre = settings.hooks.PreToolUse as Array<{ matcher: string; hooks: Array<{ command: string }> }>;
+    const pre = settings.hooks.PreToolUse as Array<{
+      matcher: string;
+      hooks: Array<{ command: string }>;
+    }>;
     const guard = pre.find((b) => b.hooks.some((h) => h.command.includes("guard-destructive.sh")));
     expect(guard?.matcher).toBe("Bash");
-    const qg = pre.find((b) => b.hooks.some((h) => h.command.includes("quality-gate-pre-commit.sh")));
+    const qg = pre.find((b) =>
+      b.hooks.some((h) => h.command.includes("quality-gate-pre-commit.sh")),
+    );
     expect(qg?.matcher).toBe("Bash");
   });
 
@@ -241,7 +248,8 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     // The gate runs only before commit/push (PreToolUse) — never on Stop.
     expect(JSON.stringify(settings.hooks?.Stop ?? [])).not.toContain("check-jscpd.sh");
     const pre = settings.hooks.PreToolUse;
-    const jscpdHook = pre.flatMap((entry: { hooks: Array<{ command: string }> }) => entry.hooks)
+    const jscpdHook = pre
+      .flatMap((entry: { hooks: Array<{ command: string }> }) => entry.hooks)
       .find((h: { command: string }) => h.command.includes("check-jscpd.sh"));
     expect(jscpdHook?.command).toContain(".claude/scripts/check-jscpd.sh");
   });
@@ -324,9 +332,7 @@ describe("renderClaudeEngine — injectInto warns when target absent (P0-fix U4)
     } as unknown as NavoriConfig;
     const r = renderClaudeEngine(cwd, cfg);
     expect(
-      r.warnings.some((w) =>
-        /engram-leader-extension.*\.claude\/agents\/leader\.md/.test(w),
-      ),
+      r.warnings.some((w) => /engram-leader-extension.*\.claude\/agents\/leader\.md/.test(w)),
     ).toBe(true);
   });
 });
@@ -356,7 +362,7 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
 
     const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
     expect(leader).toContain('<!-- navori:managed id="engram-leader-extension"');
-    expect(leader).toContain("source=\"@navori/plugin-engram\"");
+    expect(leader).toContain('source="@navori/plugin-engram"');
     expect(leader).toContain("mem_search");
     // Base block is still there
     expect(leader).toContain('<!-- navori:managed id="leader-base"');
@@ -475,7 +481,10 @@ describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
   });
 
   it("interpolates a custom specsDir", () => {
-    const cfg = { ...CONFIG_FULL, sdd: { enabled: true, specsDir: "docs/specs" } } as unknown as NavoriConfig;
+    const cfg = {
+      ...CONFIG_FULL,
+      sdd: { enabled: true, specsDir: "docs/specs" },
+    } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, cfg);
     expect(claudeMd()).toContain("docs/specs/<feature>/");
   });
@@ -498,7 +507,9 @@ describe("renderClaudeEngine — canonical block order", () => {
     const start = open.index!;
     const end = md.indexOf(close, start) + close.length;
     const block = md.slice(start, end);
-    const rest = (md.slice(0, start) + md.slice(end)).replace(/\n{3,}/g, "\n\n").replace(/^\n+/, "");
+    const rest = (md.slice(0, start) + md.slice(end))
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/^\n+/, "");
     // Reinsert at the end of the MANAGED region — before the user-section when
     // present — so the block is out of order but still anchored above the user
     // zone (reorder's job is to restore it; a block BELOW the zone is a
@@ -537,7 +548,8 @@ describe("renderClaudeEngine — canonical block order", () => {
 });
 
 describe("renderClaudeEngine — user-section preservation", () => {
-  const DOMAIN = "## Reglas del repo\n\n- Nunca usar `context.db`, siempre `context.sudo().db`.\n- PostGIS: `findZoneByCoordinates()`.";
+  const DOMAIN =
+    "## Reglas del repo\n\n- Nunca usar `context.db`, siempre `context.sudo().db`.\n- PostGIS: `findZoneByCoordinates()`.";
   const CONFIG_UPGRADED = {
     ...CONFIG_FULL,
     plugins: { engram: { enabled: true }, gh: { enabled: true }, semgrep: { enabled: true } },
@@ -549,7 +561,9 @@ describe("renderClaudeEngine — user-section preservation", () => {
     expect(md).toContain("<!-- navori:user-start -->");
     expect(md).toContain("<!-- navori:user-end -->");
     // markers sit after the last managed block
-    expect(md.indexOf("<!-- navori:user-start -->")).toBeGreaterThan(md.lastIndexOf("<!-- /navori:managed"));
+    expect(md.indexOf("<!-- navori:user-start -->")).toBeGreaterThan(
+      md.lastIndexOf("<!-- /navori:managed"),
+    );
   });
 
   it("preserves domain written inside the user-section across an upgrade that adds blocks", () => {
@@ -557,8 +571,13 @@ describe("renderClaudeEngine — user-section preservation", () => {
     const path = join(cwd, "CLAUDE.md");
     const md = readFileSync(path, "utf-8");
     // User writes domain inside the zone.
-    writeFileSync(path, md.replace(new RegExp("<!-- navori:user-start -->[\\s\\S]*?<!-- navori:user-end -->"),
-      `<!-- navori:user-start -->\n\n${DOMAIN}\n\n<!-- navori:user-end -->`));
+    writeFileSync(
+      path,
+      md.replace(
+        new RegExp("<!-- navori:user-start -->[\\s\\S]*?<!-- navori:user-end -->"),
+        `<!-- navori:user-start -->\n\n${DOMAIN}\n\n<!-- navori:user-end -->`,
+      ),
+    );
 
     // Upgrade: enabling gh + semgrep introduces NEW managed blocks and reorders.
     renderClaudeEngine(cwd, CONFIG_UPGRADED);
@@ -568,22 +587,28 @@ describe("renderClaudeEngine — user-section preservation", () => {
     expect(after).toContain("findZoneByCoordinates()");
     expect(after).toContain('id="semgrep-protocol"'); // the upgrade landed
     // Domain stays below every managed block.
-    expect(after.indexOf("## Reglas del repo")).toBeGreaterThan(after.lastIndexOf("<!-- /navori:managed"));
+    expect(after.indexOf("## Reglas del repo")).toBeGreaterThan(
+      after.lastIndexOf("<!-- /navori:managed"),
+    );
   });
 
   it("auto-migrates trailing domain from a pre-markers repo (no user-section) into the zone", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
     const path = join(cwd, "CLAUDE.md");
     // Simulate a repo onboarded before markers existed: strip the zone, append raw prose.
-    const stripped = readFileSync(path, "utf-8")
-      .replace(new RegExp("\\n*<!-- navori:user-start -->[\\s\\S]*$"), "\n");
+    const stripped = readFileSync(path, "utf-8").replace(
+      new RegExp("\\n*<!-- navori:user-start -->[\\s\\S]*$"),
+      "\n",
+    );
     writeFileSync(path, `${stripped}\n${DOMAIN}\n`);
 
     renderClaudeEngine(cwd, CONFIG_FULL);
     const after = readFileSync(path, "utf-8");
     expect(after).toContain("<!-- navori:user-start -->"); // wrapped now
     expect(after).toContain("## Reglas del repo"); // domain survived
-    expect(after.indexOf("## Reglas del repo")).toBeGreaterThan(after.indexOf("<!-- navori:user-start -->"));
+    expect(after.indexOf("## Reglas del repo")).toBeGreaterThan(
+      after.indexOf("<!-- navori:user-start -->"),
+    );
   });
 
   it("keeps the trailing newline on a managed repo with no user zone (no spurious rewrite)", () => {
@@ -609,8 +634,13 @@ describe("renderClaudeEngine — user-section preservation", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
     const path = join(cwd, "CLAUDE.md");
     const md = readFileSync(path, "utf-8");
-    writeFileSync(path, md.replace(new RegExp("<!-- navori:user-start -->[\\s\\S]*?<!-- navori:user-end -->"),
-      `<!-- navori:user-start -->\n\n${DOMAIN}\n\n<!-- navori:user-end -->`));
+    writeFileSync(
+      path,
+      md.replace(
+        new RegExp("<!-- navori:user-start -->[\\s\\S]*?<!-- navori:user-end -->"),
+        `<!-- navori:user-start -->\n\n${DOMAIN}\n\n<!-- navori:user-end -->`,
+      ),
+    );
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
     const snapshot = readFileSync(path, "utf-8");
     const second = renderClaudeEngine(cwd, CONFIG_FULL);

@@ -136,7 +136,11 @@ export function detectProject(cwd: string): DetectedProject {
   // repo actually uses pnpm. `pnpm-workspace.yaml` is a definitive pnpm signal
   // even when no lockfile is committed (detectPackageManager needs a lockfile).
   const usesPnpm = packageManager === "pnpm" || existsSync(join(cwd, "pnpm-workspace.yaml"));
-  const { preset: suggestedPreset, gap: suggestedPresetGap } = suggestPreset(stack, monorepo, usesPnpm);
+  const { preset: suggestedPreset, gap: suggestedPresetGap } = suggestPreset(
+    stack,
+    monorepo,
+    usesPnpm,
+  );
   const qualityGate = guessQualityGate(pkg, packageManager, stack);
   const claudeInfra = detectClaudeInfra(cwd);
 
@@ -258,7 +262,11 @@ function readPyproject(cwd: string): { name: string | null; deps: string[] } | n
     if (projectDeps?.[1]) {
       const items = projectDeps[1].match(/"([^"]+)"/g) ?? [];
       for (const item of items) {
-        const pkgName = item.slice(1, -1).split(/[<>=~!]/)[0]?.trim().toLowerCase();
+        const pkgName = item
+          .slice(1, -1)
+          .split(/[<>=~!]/)[0]
+          ?.trim()
+          .toLowerCase();
         if (pkgName) deps.push(pkgName);
       }
     }
@@ -315,7 +323,11 @@ function readPythonFallback(cwd: string): { name: string | null; deps: string[] 
     try {
       const req = readFileSync(setupPath, "utf-8").match(/install_requires\s*=\s*\[([\s\S]*?)\]/);
       for (const item of req?.[1]?.match(/["']([^"']+)["']/g) ?? []) {
-        const pkgName = item.slice(1, -1).split(/[<>=~!]/)[0]?.trim().toLowerCase();
+        const pkgName = item
+          .slice(1, -1)
+          .split(/[<>=~!]/)[0]
+          ?.trim()
+          .toLowerCase();
         if (pkgName) deps.push(pkgName);
       }
     } catch {
@@ -380,11 +392,7 @@ function gitRevParse(cwd: string, args: string[]): string | null {
 }
 
 function detectBranchBase(cwd: string): string | null {
-  const originHead = gitRevParse(cwd, [
-    "symbolic-ref",
-    "--short",
-    "refs/remotes/origin/HEAD",
-  ]);
+  const originHead = gitRevParse(cwd, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
   if (originHead) return originHead.replace(/^origin\//, "");
   for (const candidate of ["main", "master", "develop", "dev"]) {
     const found = gitRevParse(cwd, ["rev-parse", "--verify", "--quiet", candidate]);
@@ -659,7 +667,11 @@ function suggestPreset(
   return { preset: "custom", gap: candidate };
 }
 
-function pickPresetCandidate(stack: StackInfo, monorepo: MonorepoInfo | null, usesPnpm: boolean): string {
+function pickPresetCandidate(
+  stack: StackInfo,
+  monorepo: MonorepoInfo | null,
+  usesPnpm: boolean,
+): string {
   if (monorepo) {
     // The monorepo-turbopnpm preset ships pnpm-specific guidance (`pnpm turbo
     // run --filter`, `workspace:*`). A turbo repo on npm/yarn gets the neutral

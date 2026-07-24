@@ -27,11 +27,7 @@ function writePkg(path: string, pkg: object): void {
 describe("parsePnpmWorkspaceYaml", () => {
   it("parses block-form packages", () => {
     const content = `packages:\n  - 'apps/*'\n  - "packages/*"\n  - tools/script\n`;
-    expect(parsePnpmWorkspaceYaml(content)).toEqual([
-      "apps/*",
-      "packages/*",
-      "tools/script",
-    ]);
+    expect(parsePnpmWorkspaceYaml(content)).toEqual(["apps/*", "packages/*", "tools/script"]);
   });
 
   it("parses inline-form packages", () => {
@@ -95,10 +91,7 @@ describe("expandPattern", () => {
 
 describe("collectWorkspacePatterns", () => {
   it("reads pnpm-workspace.yaml when present", () => {
-    writeFileSync(
-      join(cwd, "pnpm-workspace.yaml"),
-      `packages:\n  - 'apps/*'\n  - 'packages/*'\n`,
-    );
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), `packages:\n  - 'apps/*'\n  - 'packages/*'\n`);
     expect(collectWorkspacePatterns(cwd)).toEqual(["apps/*", "packages/*"]);
   });
 

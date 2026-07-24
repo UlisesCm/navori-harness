@@ -41,7 +41,10 @@ const PresetExtraFileSchema = z.object({
 });
 
 export const PresetDefinitionSchema = z.object({
-  id: z.string().min(1).regex(/^[a-z0-9][a-z0-9-]*$/, "preset id must be kebab-case"),
+  id: z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9][a-z0-9-]*$/, "preset id must be kebab-case"),
   displayName: z.string().min(1),
   /** Only "core" is supported in fase 2 — the baseline always applies. */
   extends: z.literal("core").default("core"),

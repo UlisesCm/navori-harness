@@ -201,7 +201,9 @@ describe("buildFullProject", () => {
   });
 
   it("still omits testRunner when no test stack is detected", () => {
-    const result = buildFullProject(makeDetected({ stack: { ...makeDetected().stack, test: null } }));
+    const result = buildFullProject(
+      makeDetected({ stack: { ...makeDetected().stack, test: null } }),
+    );
     expect("testRunner" in result).toBe(false);
     expect(result.posture).toBe("production");
   });
@@ -219,7 +221,16 @@ describe("RECOMMENDED_MODELS", () => {
 
   it("covers every configurable agent role (no agent silently inherits the session model)", () => {
     expect(Object.keys(RECOMMENDED_MODELS).sort()).toEqual(
-      ["auditor", "commitPrPilot", "explorer", "implementer", "leader", "researcher", "reviewer", "ticketAudit"].sort(),
+      [
+        "auditor",
+        "commitPrPilot",
+        "explorer",
+        "implementer",
+        "leader",
+        "researcher",
+        "reviewer",
+        "ticketAudit",
+      ].sort(),
     );
   });
 

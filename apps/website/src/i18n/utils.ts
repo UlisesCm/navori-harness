@@ -4,9 +4,8 @@ import { ui, defaultLang, type Lang, type UIKey } from "./ui";
 export function getLangFromUrl(url: URL): Lang {
   // Strip Astro base so `/navori-harness/en/foo` parses the same as `/en/foo`.
   const base = import.meta.env.BASE_URL.replace(/\/$/, "");
-  const stripped = base && url.pathname.startsWith(base)
-    ? url.pathname.slice(base.length)
-    : url.pathname;
+  const stripped =
+    base && url.pathname.startsWith(base) ? url.pathname.slice(base.length) : url.pathname;
   const [, maybeLang] = stripped.split("/");
   if (maybeLang === "en") return "en";
   return defaultLang;

@@ -89,21 +89,27 @@ describe("CLI e2e — happy paths", () => {
     expect(config.models?.explorer).toBe("haiku");
     expect(config.models?.commitPrPilot).toBe("haiku");
     // ...and the frontmatter interpolates it into the agent files.
-    expect(readFileSync(join(repo, ".claude/agents/implementer.md"), "utf-8")).toContain("model: sonnet");
-    expect(readFileSync(join(repo, ".claude/agents/explorer.md"), "utf-8")).toContain("model: haiku");
+    expect(readFileSync(join(repo, ".claude/agents/implementer.md"), "utf-8")).toContain(
+      "model: sonnet",
+    );
+    expect(readFileSync(join(repo, ".claude/agents/explorer.md"), "utf-8")).toContain(
+      "model: haiku",
+    );
     // Effort profile: mechanical agents drop to low, orchestrator keeps xhigh.
     expect(config.effort?.leader).toBe("xhigh");
     expect(config.effort?.implementer).toBe("medium");
     expect(config.effort?.explorer).toBe("low");
-    expect(readFileSync(join(repo, ".claude/agents/explorer.md"), "utf-8")).toContain("effort: low");
+    expect(readFileSync(join(repo, ".claude/agents/explorer.md"), "utf-8")).toContain(
+      "effort: low",
+    );
     // The leader is embodied by the main agent, so its tier drives settings.json.
-    expect(
-      JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8")).effortLevel,
-    ).toBe("xhigh");
+    expect(JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8")).effortLevel).toBe(
+      "xhigh",
+    );
 
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
-    expect(claudeMd).toContain("navori:managed id=\"idioma-rol\"");
-    expect(claudeMd).toContain("navori:managed id=\"engram-protocol\"");
+    expect(claudeMd).toContain('navori:managed id="idioma-rol"');
+    expect(claudeMd).toContain('navori:managed id="engram-protocol"');
 
     // E1c: .claude/ tree now also exists
     expect(existsSync(join(repo, ".claude/agents/leader.md"))).toBe(true);
@@ -133,7 +139,7 @@ describe("CLI e2e — happy paths", () => {
       JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8")).effortLevel,
     ).toBeUndefined();
     expect(readFileSync(join(repo, "CLAUDE.md"), "utf-8")).toContain(
-      "navori:managed id=\"engram-protocol\"",
+      'navori:managed id="engram-protocol"',
     );
   });
 
@@ -751,9 +757,7 @@ describe("CLI e2e — happy paths", () => {
     expect(broken.status).toBe(2);
     const report = JSON.parse(broken.stdout);
     expect(report.ok).toBe(false);
-    const missing = report.missingInvariants
-      .map((m: { invariant: string }) => m.invariant)
-      .sort();
+    const missing = report.missingInvariants.map((m: { invariant: string }) => m.invariant).sort();
     expect(missing).toEqual(["mem_save", "mem_session_summary"]);
     expect(
       report.missingInvariants.every((m: { source: string }) => m.source === "plugin:engram"),
@@ -1033,7 +1037,9 @@ describe("CLI e2e — happy paths", () => {
     expect(parsed.targets[0].label).toBe("root");
     // The drifted block surfaces as a conflict, with stable machine keys.
     expect(parsed.conflicts.length).toBeGreaterThan(0);
-    expect(parsed.conflicts.some((c: { path: string }) => c.path.includes("idioma-rol"))).toBe(true);
+    expect(parsed.conflicts.some((c: { path: string }) => c.path.includes("idioma-rol"))).toBe(
+      true,
+    );
     // No human plan output in --json mode.
     expect(r.combined).not.toContain("Plan [root]");
   });
@@ -1214,14 +1220,7 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     const repo = seedMonorepo();
     dirs.push(repo);
 
-    const r = runCli([
-      "init",
-      "--recommended",
-      "--scan-monorepo",
-      "--no-render",
-      "--cwd",
-      repo,
-    ]);
+    const r = runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
     expect(r.status).toBe(0);
 
     const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
@@ -1241,14 +1240,7 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     });
     dirs.push(repo);
 
-    const r = runCli([
-      "init",
-      "--recommended",
-      "--scan-monorepo",
-      "--no-render",
-      "--cwd",
-      repo,
-    ]);
+    const r = runCli(["init", "--recommended", "--scan-monorepo", "--no-render", "--cwd", repo]);
     expect(r.status).toBe(0);
 
     const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));

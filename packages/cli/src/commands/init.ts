@@ -5,7 +5,12 @@ import { existsSync, mkdirSync, chmodSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { writeConfig } from "../lib/config.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
-import { detectProject, isPlaceholderName, type ClaudeInfraInventory, type PackageManager } from "../lib/detect.ts";
+import {
+  detectProject,
+  isPlaceholderName,
+  type ClaudeInfraInventory,
+  type PackageManager,
+} from "../lib/detect.ts";
 import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
 import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
 import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
@@ -68,7 +73,8 @@ export const initCommand = defineCommand({
     },
     recommended: {
       type: "boolean",
-      description: "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh if GitHub repo)",
+      description:
+        "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh if GitHub repo)",
     },
     full: {
       type: "boolean",
@@ -186,7 +192,8 @@ export const initCommand = defineCommand({
 
     // Cascade: workspace defaults take precedence over detection when present
     const wsDefaults = workspaceConfig?.defaults;
-    const defaultEngines = (wsDefaults?.engines as EngineId[] | undefined) ??
+    const defaultEngines =
+      (wsDefaults?.engines as EngineId[] | undefined) ??
       (detected.existingEngines.length > 0
         ? (detected.existingEngines as EngineId[])
         : (["claude"] as EngineId[]));
@@ -212,8 +219,8 @@ export const initCommand = defineCommand({
       const extraPlugins = isFull
         ? buildFullPlugins(listKnownPluginIds())
         : isRecommended
-        ? buildRecommendedPlugins(cwd)
-        : {};
+          ? buildRecommendedPlugins(cwd)
+          : {};
       // Merge order matters: workspace defaults are org policy and win over the
       // mode-driven extras, so a workspace that explicitly disables a plugin
       // (enabled:false) stays disabled even under --full. engram (always-on) is
@@ -244,7 +251,7 @@ export const initCommand = defineCommand({
       // it in BOTH modes keeps `<not configured: project.*>` placeholders out of
       // the rendered agents (the schema fills localSkills/etc. via .default([])).
       const fallbackQg = isRecommended
-        ? detected.qualityGate ?? buildRecommendedQualityGate(detected)
+        ? (detected.qualityGate ?? buildRecommendedQualityGate(detected))
         : detected.qualityGate;
       // Detected library skills and codeLanguage are facts of the stack, not
       // mode choices — merge them in both --recommended and plain --yes so the
@@ -254,8 +261,8 @@ export const initCommand = defineCommand({
         ...(isFull
           ? buildFullProject(detected)
           : isRecommended
-          ? buildRecommendedProject(detected)
-          : {}),
+            ? buildRecommendedProject(detected)
+            : {}),
         libraries: detected.libraries,
         libraryMigrations: detected.migrations,
         codeLanguage: detected.stack.language,
@@ -274,7 +281,9 @@ export const initCommand = defineCommand({
         // Seed the cost-aware model + effort profile in the opinionated modes only;
         // plain `--yes` stays minimal and lets every agent inherit the session
         // model and effort.
-        ...(isRecommended || isFull ? { models: RECOMMENDED_MODELS, effort: RECOMMENDED_EFFORT } : {}),
+        ...(isRecommended || isFull
+          ? { models: RECOMMENDED_MODELS, effort: RECOMMENDED_EFFORT }
+          : {}),
         ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
         project: projectBlock,
         ...(monorepoBlock ? { monorepo: monorepoBlock } : {}),
@@ -345,7 +354,10 @@ export const initCommand = defineCommand({
             value: "name",
             label: `${tr.labelProjectName}${detected.name ? ` (${detected.name})` : ` ${tr.notDetectedParen}`}`,
           },
-          { value: "language", label: `${tr.labelLanguage} (${defaultLanguage} — ${tr.defaultParen})` },
+          {
+            value: "language",
+            label: `${tr.labelLanguage} (${defaultLanguage} — ${tr.defaultParen})`,
+          },
           { value: "workspace", label: tr.labelWorkspace },
           { value: "engines", label: `${tr.labelEngines} (${defaultEngines.join(", ")})` },
           { value: "preset", label: `${tr.labelPreset} (${preset})` },
@@ -917,8 +929,10 @@ function renderInline(cwd: string): void {
   const parts: string[] = [];
   if (counts.created) parts.push(color.green(`${counts.created} created`));
   if (counts.updated) parts.push(color.yellow(`${counts.updated} updated`));
-  if (counts["user-modified-skipped"]) parts.push(color.red(`${counts["user-modified-skipped"]} conflict`));
-  if (counts["removed-condition-false"]) parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
+  if (counts["user-modified-skipped"])
+    parts.push(color.red(`${counts["user-modified-skipped"]} conflict`));
+  if (counts["removed-condition-false"])
+    parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
   if (counts.unchanged) parts.push(dim(`${counts.unchanged} unchanged`));
   const summary = parts.length > 0 ? ` ${dim("—")} ${parts.join(dim(", "))}` : "";
   if (result.written) {
@@ -1085,9 +1099,7 @@ export function buildConfigPreview(state: PreviewState, lang: Lang): string {
   }
   rows.push([
     "plugins",
-    state.plugins.length > 0
-      ? tr.pluginsValueLabel(state.plugins.join(", "))
-      : dim(tr.pluginsNone),
+    state.plugins.length > 0 ? tr.pluginsValueLabel(state.plugins.join(", ")) : dim(tr.pluginsNone),
   ]);
   rows.push([
     "agentAssignments",
@@ -1138,16 +1150,20 @@ export async function runProjectPrompts(
   // Two phases: general (repo posture) first, then specific (concrete rules).
   // A prompt with no declared phase falls into the specific group.
   const phases: Array<{ header: string; group: LoadedPrompt[] }> = [
-    { header: tr.phaseGeneral, group: prompts.filter((q) => (q.phase ?? "specific") === "general") },
-    { header: tr.phaseSpecific, group: prompts.filter((q) => (q.phase ?? "specific") === "specific") },
+    {
+      header: tr.phaseGeneral,
+      group: prompts.filter((q) => (q.phase ?? "specific") === "general"),
+    },
+    {
+      header: tr.phaseSpecific,
+      group: prompts.filter((q) => (q.phase ?? "specific") === "specific"),
+    },
   ];
   for (const { header, group } of phases) {
     if (group.length === 0) continue;
     p.note(header);
     for (const prompt of group) {
-      const subKey = prompt.key.startsWith("project.")
-        ? prompt.key.slice("project.".length)
-        : null;
+      const subKey = prompt.key.startsWith("project.") ? prompt.key.slice("project.".length) : null;
       if (!subKey) continue; // non-project keys not supported yet
       const value = await askProjectPrompt(prompt, lang);
       if (value === null) return null; // user cancelled mid-walk

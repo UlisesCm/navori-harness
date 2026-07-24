@@ -48,7 +48,9 @@ describe("core skill assets — shape contract", () => {
       });
 
       it("contains the user-section sentinel exactly once", () => {
-        const count = (raw.match(new RegExp(SENTINEL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length;
+        const count = (
+          raw.match(new RegExp(SENTINEL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []
+        ).length;
         expect(count).toBe(1);
       });
 

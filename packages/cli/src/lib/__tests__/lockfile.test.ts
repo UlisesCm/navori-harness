@@ -38,9 +38,9 @@ describe("withFileLock", () => {
   it("times out when a fresh lock is already held", () => {
     const fd = openSync(lockPath, "wx"); // hold the lock, fresh mtime
     try {
-      expect(() => withFileLock(lockPath, () => "never", { timeoutMs: 100, staleMs: 60_000 })).toThrow(
-        LockTimeoutError,
-      );
+      expect(() =>
+        withFileLock(lockPath, () => "never", { timeoutMs: 100, staleMs: 60_000 }),
+      ).toThrow(LockTimeoutError);
     } finally {
       closeSync(fd);
       rmSync(lockPath, { force: true });

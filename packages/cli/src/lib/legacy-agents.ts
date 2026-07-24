@@ -21,16 +21,17 @@ export const LEGACY_AGENT_ALIASES: Readonly<Record<string, string>> = {
 };
 
 /** Canonical agent id (kebab, = filename) → its `config.harness` key (camel). */
-const CANONICAL_HARNESS_KEY: Readonly<Record<string, keyof NonNullable<NavoriConfig["harness"]>>> = {
-  leader: "leader",
-  implementer: "implementer",
-  reviewer: "reviewer",
-  researcher: "researcher",
-  "ticket-audit": "ticketAudit",
-  "commit-pr-pilot": "commitPrPilot",
-  explorer: "explorer",
-  auditor: "auditor",
-};
+const CANONICAL_HARNESS_KEY: Readonly<Record<string, keyof NonNullable<NavoriConfig["harness"]>>> =
+  {
+    leader: "leader",
+    implementer: "implementer",
+    reviewer: "reviewer",
+    researcher: "researcher",
+    "ticket-audit": "ticketAudit",
+    "commit-pr-pilot": "commitPrPilot",
+    explorer: "explorer",
+    auditor: "auditor",
+  };
 
 /** A legacy agent file whose canonical navori replacement is active. */
 export interface LegacyAgent {

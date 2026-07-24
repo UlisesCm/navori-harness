@@ -192,9 +192,7 @@ export const scanCommand = defineCommand({
       process.exit(1);
     }
 
-    p.log.success(
-      `Agregué ${final.added.length} workspace(s) a ${final.configPath}`,
-    );
+    p.log.success(`Agregué ${final.added.length} workspace(s) a ${final.configPath}`);
     p.outro(dim("Corre 'navori render --apply' para generar CLAUDE.md + .claude/ por workspace"));
   },
 });
@@ -204,14 +202,9 @@ function showSummary(outcome: Extract<ScanOutcome, { kind: "ok" }>): void {
   rows.push(["detected", String(outcome.added.length + outcome.existing.length)]);
   rows.push([
     "new",
-    outcome.added.length > 0
-      ? color.green(String(outcome.added.length))
-      : dim("0"),
+    outcome.added.length > 0 ? color.green(String(outcome.added.length)) : dim("0"),
   ]);
-  rows.push([
-    "existing",
-    outcome.existing.length > 0 ? String(outcome.existing.length) : dim("0"),
-  ]);
+  rows.push(["existing", outcome.existing.length > 0 ? String(outcome.existing.length) : dim("0")]);
   if (outcome.orphan.length > 0) {
     rows.push(["orphan", color.yellow(String(outcome.orphan.length))]);
   }
@@ -233,9 +226,7 @@ function showSummary(outcome: Extract<ScanOutcome, { kind: "ok" }>): void {
   }
 }
 
-async function collectPresetOverrides(
-  added: MonorepoWorkspace[],
-): Promise<Record<string, string>> {
+async function collectPresetOverrides(added: MonorepoWorkspace[]): Promise<Record<string, string>> {
   const acceptAll = await p.confirm({
     message: `¿Usar preset sugerido en cada workspace nuevo?`,
     initialValue: true,

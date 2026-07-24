@@ -105,7 +105,11 @@ const showSubCommand = defineCommand({
     p.note(readFileSync(ticket.path, "utf-8"), "Content");
 
     if (referencing.length === 0) {
-      p.log.message(dim("Referenced in: (ningún repo del workspace referencia este ticket en su archivo de sesión)"));
+      p.log.message(
+        dim(
+          "Referenced in: (ningún repo del workspace referencia este ticket en su archivo de sesión)",
+        ),
+      );
     } else {
       const refLines = referencing.flatMap((ref) => [
         `  ${color.cyan(sym.bullet)} ${ref.path}`,
@@ -134,7 +138,9 @@ const newSubCommand = defineCommand({
     // writes the title only to discover the id is rejected.
     const id = args.id as string;
     if (!/^[A-Za-z0-9][A-Za-z0-9-_]*$/.test(id)) {
-      p.cancel(`Invalid ticket id '${id}'. Use letters, digits, hyphens, underscores (must start alphanumeric).`);
+      p.cancel(
+        `Invalid ticket id '${id}'. Use letters, digits, hyphens, underscores (must start alphanumeric).`,
+      );
       process.exit(1);
     }
 

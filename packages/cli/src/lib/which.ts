@@ -12,9 +12,8 @@ export function hasBinary(name: string): boolean {
   const pathEnv = process.env.PATH ?? "";
   const sep = process.platform === "win32" ? ";" : ":";
   const dirs = pathEnv.split(sep).filter(Boolean);
-  const exts = process.platform === "win32"
-    ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
-    : [""];
+  const exts =
+    process.platform === "win32" ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";") : [""];
 
   for (const dir of dirs) {
     for (const ext of exts) {

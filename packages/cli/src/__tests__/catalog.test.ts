@@ -20,9 +20,8 @@ const features = JSON.parse(readFileSync(resolve(cliRoot, "package.json"), "utf-
   .features as Record<string, number>;
 
 function countFiles(dir: string, ext: string): number {
-  return readdirSync(dir, { withFileTypes: true }).filter(
-    (e) => e.isFile() && e.name.endsWith(ext),
-  ).length;
+  return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile() && e.name.endsWith(ext))
+    .length;
 }
 
 /** A plugin is a directory under packages/plugins/ that carries a plugin.json. */

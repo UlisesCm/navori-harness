@@ -101,7 +101,7 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
         expect(r.stderr).not.toContain("instalado");
       });
 
-      it("skips a quoted `echo \"git commit\"` (not a real invocation)", () => {
+      it('skips a quoted `echo "git commit"` (not a real invocation)', () => {
         const r = runHook(scriptPath, 'echo "git commit"');
         expect(r.status).toBe(0);
         expect(r.stderr).not.toContain("instalado");

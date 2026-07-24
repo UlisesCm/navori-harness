@@ -3,7 +3,7 @@ import { detectLegacyAgents, LEGACY_AGENT_ALIASES } from "../legacy-agents.ts";
 import type { NavoriConfig } from "../config.ts";
 
 const cfg = (harness?: Record<string, boolean>) =>
-  ({ name: "demo", engines: ["claude"], harness } as unknown as NavoriConfig);
+  ({ name: "demo", engines: ["claude"], harness }) as unknown as NavoriConfig;
 
 describe("detectLegacyAgents", () => {
   it("maps a known legacy file to its canonical agent", () => {
@@ -17,7 +17,13 @@ describe("detectLegacyAgents", () => {
 
   it("detects several legacy files, order-stable by input", () => {
     const found = detectLegacyAgents(
-      ["sdd-leader.md", "sdd-implementer.md", "sdd-reviewer.md", "sdd-explorer.md", "deep-auditor.md"],
+      [
+        "sdd-leader.md",
+        "sdd-implementer.md",
+        "sdd-reviewer.md",
+        "sdd-explorer.md",
+        "deep-auditor.md",
+      ],
       cfg(),
     );
     expect(found.map((l) => l.canonical)).toEqual([
@@ -30,7 +36,9 @@ describe("detectLegacyAgents", () => {
   });
 
   it("ignores canonical/unknown agent files (not legacy)", () => {
-    expect(detectLegacyAgents(["leader.md", "auditor.md", "my-custom-agent.md"], cfg())).toEqual([]);
+    expect(detectLegacyAgents(["leader.md", "auditor.md", "my-custom-agent.md"], cfg())).toEqual(
+      [],
+    );
   });
 
   it("accepts filenames with or without the .md extension", () => {
@@ -64,7 +72,9 @@ describe("detectLegacyAgents", () => {
       "auditor",
     ]);
     for (const target of Object.values(LEGACY_AGENT_ALIASES)) {
-      expect(canonicals.has(target), `alias target '${target}' is not a canonical agent`).toBe(true);
+      expect(canonicals.has(target), `alias target '${target}' is not a canonical agent`).toBe(
+        true,
+      );
     }
   });
 });

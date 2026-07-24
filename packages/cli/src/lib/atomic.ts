@@ -1,4 +1,12 @@
-import { openSync, fsyncSync, closeSync, writeSync, renameSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  openSync,
+  fsyncSync,
+  closeSync,
+  writeSync,
+  renameSync,
+  mkdtempSync,
+  rmSync,
+} from "node:fs";
 import { dirname, basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
@@ -42,11 +50,15 @@ function friendlyFsError(err: unknown, target: string): Error {
   const code = (err as NodeJS.ErrnoException).code;
   switch (code) {
     case "EACCES":
-      return new Error(`Cannot write ${target}: permission denied. Check that you own the file and the parent directory is writable.`);
+      return new Error(
+        `Cannot write ${target}: permission denied. Check that you own the file and the parent directory is writable.`,
+      );
     case "EROFS":
       return new Error(`Cannot write ${target}: filesystem is read-only.`);
     case "EISDIR":
-      return new Error(`Cannot write ${target}: a directory exists at that path. Remove it or choose another location.`);
+      return new Error(
+        `Cannot write ${target}: a directory exists at that path. Remove it or choose another location.`,
+      );
     case "ENOSPC":
       return new Error(`Cannot write ${target}: no space left on device.`);
     case "ENOENT":

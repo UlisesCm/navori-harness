@@ -24,10 +24,7 @@ describe("detectProject — name detection", () => {
   it("does not crash when package.json name is not a string", () => {
     const dir = makeTmp();
     try {
-      writeFileSync(
-        join(dir, "package.json"),
-        JSON.stringify({ name: { value: "object-name" } }),
-      );
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: { value: "object-name" } }));
       // Must not throw; should fall back to directory name.
       const d = detectProject(dir);
       expect(d.name).not.toBeNull();
@@ -96,7 +93,10 @@ describe("detectProject — Python without pyproject.toml (#70)", () => {
   it("detects Python + framework + ruff/pytest gate from requirements.txt", () => {
     const dir = makeTmp();
     try {
-      writeFileSync(join(dir, "requirements.txt"), "fastapi==0.110\nuvicorn\npytest>=8\n# a comment\n-e .\n");
+      writeFileSync(
+        join(dir, "requirements.txt"),
+        "fastapi==0.110\nuvicorn\npytest>=8\n# a comment\n-e .\n",
+      );
       const d = detectProject(dir);
       expect(d.stack.language).toBe("python");
       expect(d.stack.framework).toBe("fastapi");
@@ -127,7 +127,10 @@ describe("detectProject — Python without pyproject.toml (#70)", () => {
   it("detects Python deps from Pipfile", () => {
     const dir = makeTmp();
     try {
-      writeFileSync(join(dir, "Pipfile"), '[packages]\ndjango = "*"\ncelery = "*"\n\n[dev-packages]\npytest = "*"\n');
+      writeFileSync(
+        join(dir, "Pipfile"),
+        '[packages]\ndjango = "*"\ncelery = "*"\n\n[dev-packages]\npytest = "*"\n',
+      );
       const d = detectProject(dir);
       expect(d.stack.language).toBe("python");
       expect(d.stack.framework).toBe("django");
@@ -156,7 +159,11 @@ describe("detectProject — Python without pyproject.toml (#70)", () => {
     try {
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "webmentoring", dependencies: { react: "^18", "react-dom": "^18" }, devDependencies: { vite: "^5" } }),
+        JSON.stringify({
+          name: "webmentoring",
+          dependencies: { react: "^18", "react-dom": "^18" },
+          devDependencies: { vite: "^5" },
+        }),
       );
       const d = detectProject(dir);
       expect(d.suggestedPreset).toBe("vite-react-ts");
@@ -170,7 +177,11 @@ describe("detectProject — Python without pyproject.toml (#70)", () => {
     try {
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "webapp", dependencies: { react: "^18", "@mantine/core": "^7" }, devDependencies: { vite: "^5" } }),
+        JSON.stringify({
+          name: "webapp",
+          dependencies: { react: "^18", "@mantine/core": "^7" },
+          devDependencies: { vite: "^5" },
+        }),
       );
       const d = detectProject(dir);
       expect(d.suggestedPreset).toBe("vite-react-ts-mantine");
@@ -196,7 +207,10 @@ describe("detectProject — Python without pyproject.toml (#70)", () => {
   it("does NOT misclassify a JS repo that has an incidental requirements.txt", () => {
     const dir = makeTmp();
     try {
-      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "web", dependencies: { react: "^18", vite: "^5" } }));
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "web", dependencies: { react: "^18", vite: "^5" } }),
+      );
       writeFileSync(join(dir, "requirements.txt"), "boto3\n");
       const d = detectProject(dir);
       expect(d.stack.language).not.toBe("python");
@@ -385,7 +399,10 @@ describe("detectProject — suggested preset never points to a phantom (F1)", ()
       // turbo.json + npm workspaces + package-lock.json → tool 'turbo' but NOT
       // pnpm. The monorepo-turbopnpm preset teaches pnpm-only commands, so this
       // repo must fall back to the neutral baseline instead.
-      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "mono", workspaces: ["apps/*"] }));
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "mono", workspaces: ["apps/*"] }),
+      );
       writeFileSync(join(dir, "turbo.json"), "{}");
       writeFileSync(join(dir, "package-lock.json"), "{}");
       const d = detectProject(dir);
@@ -457,10 +474,7 @@ describe("detectProject — suggested preset never points to a phantom (F1)", ()
         join(dir, "package.json"),
         JSON.stringify({ name: "api", dependencies: { express: "^4" } }),
       );
-      writeFileSync(
-        join(dir, "pnpm-workspace.yaml"),
-        "onlyBuiltDependencies:\n  - esbuild\n",
-      );
+      writeFileSync(join(dir, "pnpm-workspace.yaml"), "onlyBuiltDependencies:\n  - esbuild\n");
       const d = detectProject(dir);
       expect(d.monorepo).toBeNull();
       // express without mongoose → the neutral express preset (#70)
@@ -664,7 +678,10 @@ describe("detectProject — qualityGate only references scripts that exist (F-ga
     try {
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "x", scripts: { validate: "tsc && eslint .", typecheck: "tsc --noEmit" } }),
+        JSON.stringify({
+          name: "x",
+          scripts: { validate: "tsc && eslint .", typecheck: "tsc --noEmit" },
+        }),
       );
       expect(detectProject(dir).qualityGate).toEqual({
         fast: "npm run typecheck",
@@ -695,7 +712,10 @@ describe("detectProject — qualityGate only references scripts that exist (F-ga
     try {
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "x", scripts: { "check:all": "tsc && lint", "type-check": "tsc --noEmit" } }),
+        JSON.stringify({
+          name: "x",
+          scripts: { "check:all": "tsc && lint", "type-check": "tsc --noEmit" },
+        }),
       );
       expect(detectProject(dir).qualityGate).toEqual({
         fast: "npm run type-check",
@@ -711,7 +731,10 @@ describe("detectProject — qualityGate only references scripts that exist (F-ga
     try {
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "x", scripts: { typecheck: "tsc --noEmit", lint: "eslint .", test: "vitest run" } }),
+        JSON.stringify({
+          name: "x",
+          scripts: { typecheck: "tsc --noEmit", lint: "eslint .", test: "vitest run" },
+        }),
       );
       expect(detectProject(dir).qualityGate).toEqual({
         fast: "npm run typecheck",
@@ -730,7 +753,10 @@ describe("detectProject — qualityGate only references scripts that exist (F-ga
         JSON.stringify({ name: "x", scripts: { test: "vitest run" } }),
       );
       // no typecheck/lint — fast must be a real script (test), never "npm run lint"
-      expect(detectProject(dir).qualityGate).toEqual({ fast: "npm run test", full: "npm run test" });
+      expect(detectProject(dir).qualityGate).toEqual({
+        fast: "npm run test",
+        full: "npm run test",
+      });
     } finally {
       rmSync(dir, { recursive: true });
     }

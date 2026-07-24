@@ -30,7 +30,12 @@ describe("effectiveConfig — prTarget fallback", () => {
     const dir = makeTmpDir();
     const path = join(dir, "navori.config.json");
     try {
-      writeConfig(path, { name: "demo", engines: ["claude"], preset: "custom", branchBase: "develop" });
+      writeConfig(path, {
+        name: "demo",
+        engines: ["claude"],
+        preset: "custom",
+        branchBase: "develop",
+      });
       const onDisk = JSON.parse(readFileSync(path, "utf-8"));
       expect("prTarget" in onDisk).toBe(false);
     } finally {

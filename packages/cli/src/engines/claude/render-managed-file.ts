@@ -1,10 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { NavoriConfig } from "../../lib/config.ts";
-import {
-  injectManagedSection,
-  type CommentStyle,
-  type InjectResult,
-} from "../../lib/marker.ts";
+import { injectManagedSection, type CommentStyle, type InjectResult } from "../../lib/marker.ts";
 import { parseAsset } from "./parse-asset.ts";
 import { interpolate } from "./interpolate.ts";
 import { mergeFrontmatter } from "./frontmatter-merge.ts";
@@ -54,7 +50,11 @@ export function renderManagedFile(input: RenderManagedFileInput): RenderManagedF
   const raw = readFileSync(input.assetPath, "utf-8");
   const asset = parseAsset(raw, commentStyle);
 
-  const interpolatedFmObj = interpolateFrontmatter(asset.frontmatter, input.config, input.extraVars);
+  const interpolatedFmObj = interpolateFrontmatter(
+    asset.frontmatter,
+    input.config,
+    input.extraVars,
+  );
   const interpolatedBody = interpolate(asset.managedBody, input.config, {
     extraVars: input.extraVars,
   });
@@ -98,7 +98,9 @@ function interpolateFrontmatter(
   extraVars: Record<string, string> | undefined,
 ): Record<string, string> {
   if (Object.keys(fm).length === 0) return {};
-  const serialized = Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join("\n");
+  const serialized = Object.entries(fm)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n");
   const interp = interpolate(serialized, config, { extraVars, omitUnresolvedKeyLines: true });
   const out: Record<string, string> = {};
   for (const line of interp.split("\n")) {
@@ -117,9 +119,7 @@ function assembleFresh(
   commentStyle: CommentStyle,
 ): RenderManagedFileResult {
   const inject = injectManagedSection("", managedId, body, meta, commentStyle);
-  const fmBlock = Object.keys(fm).length > 0
-    ? serializeFrontmatter(fm) + "\n\n"
-    : "";
+  const fmBlock = Object.keys(fm).length > 0 ? serializeFrontmatter(fm) + "\n\n" : "";
   const userTail = userTpl ? "\n" + userTpl.trimEnd() + "\n" : "";
   const content = fmBlock + inject.output.trimEnd() + "\n" + userTail;
   return { content, status: "created", details: inject.details };
@@ -146,9 +146,8 @@ function rerender(
     restOfDest = existing;
   }
 
-  const fmHeader = Object.keys(assetFm).length > 0
-    ? mergeFrontmatter(assetFm, destFm).serialized + "\n"
-    : "";
+  const fmHeader =
+    Object.keys(assetFm).length > 0 ? mergeFrontmatter(assetFm, destFm).serialized + "\n" : "";
 
   const inject = injectManagedSection(restOfDest, managedId, body, meta, commentStyle);
   const content = fmHeader + inject.output;

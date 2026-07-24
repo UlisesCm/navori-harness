@@ -67,7 +67,14 @@ export const doctorCommand = defineCommand({
     } catch (err) {
       if (err instanceof ConfigError) {
         if (args.json) {
-          console.log(JSON.stringify({ ok: false, error: "config-invalid", message: err.message, issues: err.issues }));
+          console.log(
+            JSON.stringify({
+              ok: false,
+              error: "config-invalid",
+              message: err.message,
+              issues: err.issues,
+            }),
+          );
         } else {
           p.cancel(err.message);
           if (err.issues) {
@@ -218,13 +225,15 @@ export const doctorCommand = defineCommand({
       // renders. WARN so the user knows the opt-out was silently ineffective.
       if (excludedBlocks.nonExcludable.length > 0) {
         const lines = excludedBlocks.nonExcludable.map(
-          (id) => `  ${color.yellow(sym.update)} ${accent(id)}  ${grey(td.nonExcludableBlockRow(id))}`,
+          (id) =>
+            `  ${color.yellow(sym.update)} ${accent(id)}  ${grey(td.nonExcludableBlockRow(id))}`,
         );
         p.log.warn(td.nonExcludableBlocks(excludedBlocks.nonExcludable.length, lines.join("\n")));
       }
       if (excludedBlocks.unknown.length > 0) {
         const lines = excludedBlocks.unknown.map(
-          (id) => `  ${color.yellow(sym.update)} ${accent(id)}  ${grey(td.unknownExcludedBlockRow(id))}`,
+          (id) =>
+            `  ${color.yellow(sym.update)} ${accent(id)}  ${grey(td.unknownExcludedBlockRow(id))}`,
         );
         p.log.warn(td.unknownExcludedBlocks(excludedBlocks.unknown.length, lines.join("\n")));
       }
@@ -241,7 +250,9 @@ export const doctorCommand = defineCommand({
     }
 
     if (missingPlugins.length > 0) {
-      const lines = missingPlugins.map((m) => `  ${color.red(sym.fail)} ${m.id}  ${grey(`— ${m.reason}`)}`);
+      const lines = missingPlugins.map(
+        (m) => `  ${color.red(sym.fail)} ${m.id}  ${grey(`— ${m.reason}`)}`,
+      );
       p.log.warn(td.missingPlugins(missingPlugins.length, lines.join("\n")));
     }
 
@@ -292,21 +303,24 @@ export const doctorCommand = defineCommand({
 
     if (corruptedSettings.length > 0) {
       const lines = corruptedSettings.map(
-        (c) => `  ${color.red(sym.fail)} ${accent(c.path)}  ${grey(td.corruptedSettingsRow(c.error))}`,
+        (c) =>
+          `  ${color.red(sym.fail)} ${accent(c.path)}  ${grey(td.corruptedSettingsRow(c.error))}`,
       );
       p.log.error(td.corruptedSettings(corruptedSettings.length, lines.join("\n")));
     }
 
     if (missingInvariants.length > 0) {
       const lines = missingInvariants.map(
-        (m) => `  ${color.red(sym.fail)} ${accent(m.invariant)}  ${grey(td.missingInvariantRow(m.source))}`,
+        (m) =>
+          `  ${color.red(sym.fail)} ${accent(m.invariant)}  ${grey(td.missingInvariantRow(m.source))}`,
       );
       p.log.error(td.missingInvariants(missingInvariants.length, lines.join("\n")));
     }
 
     if (malformedMarkers.length > 0) {
       const lines = malformedMarkers.map(
-        (m) => `  ${color.yellow(sym.update)} ${accent(`${m.filePath}:${m.line}`)}  ${grey(`— ${m.snippet}`)}`,
+        (m) =>
+          `  ${color.yellow(sym.update)} ${accent(`${m.filePath}:${m.line}`)}  ${grey(`— ${m.snippet}`)}`,
       );
       p.log.warn(td.malformedMarkers(malformedMarkers.length, lines.join("\n")));
     }
@@ -373,10 +387,7 @@ export const doctorCommand = defineCommand({
       orderReport,
       legacyAgents,
     });
-    p.note(
-      nextSteps.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"),
-      td.nextStepsTitle,
-    );
+    p.note(nextSteps.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), td.nextStepsTitle);
 
     const hasIssues =
       missingPlugins.length > 0 ||
@@ -560,7 +571,12 @@ export function scanWorkspaceLink(cwd: string, config: NavoriConfig): WorkspaceL
   if (ws.repos.some((r) => canonicalPath(r.path) === here)) return null;
   const byName = ws.repos.find((r) => r.name === config.name);
   if (byName) {
-    return { kind: "path-mismatch", workspace: name, repoName: byName.name, registeredPath: byName.path };
+    return {
+      kind: "path-mismatch",
+      workspace: name,
+      repoName: byName.name,
+      registeredPath: byName.path,
+    };
   }
   return { kind: "repo-not-registered", workspace: name };
 }

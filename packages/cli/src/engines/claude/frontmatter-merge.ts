@@ -32,10 +32,7 @@ export function mergeFrontmatter(
  * leftover keys from the destination. Keeps the output predictable for
  * snapshot tests and reduces churn in diffs across renders.
  */
-function serialize(
-  merged: Record<string, string>,
-  assetFm: Record<string, string>,
-): string {
+function serialize(merged: Record<string, string>, assetFm: Record<string, string>): string {
   const assetKeys = Object.keys(assetFm);
   const extras = Object.keys(merged).filter((k) => !assetKeys.includes(k));
   const ordered = [...assetKeys, ...extras];
