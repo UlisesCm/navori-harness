@@ -5,7 +5,7 @@ import type { MonorepoRenderContext } from "../../lib/monorepo.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
-import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
+import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable, type RenderScope } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { librarySkillById, LIBRARY_SKILLS, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
@@ -372,6 +372,17 @@ export function renderClaudeEngine(
      * loop in `render`; absent at the root (the root reads `config.monorepo`).
      */
     monorepoContext?: MonorepoRenderContext;
+    /**
+     * Render target (spec 0005). `repo` (default) writes the project harness
+     * into `<cwd>/CLAUDE.md` + `<cwd>/.claude/…`. `global` writes the persona
+     * identity into `<cwd>/CLAUDE.md` + `<cwd>/…` (flat, no nested `.claude/`) —
+     * ONLY the scope global/both CLAUDE.md blocks plus permissions; no agents,
+     * skills, hooks, scripts, preset extras or progress. For a global render the
+     * caller passes the global config dir as `cwd`.
+     */
+    scope?: RenderScope;
+    /** Skip writing settings.json entirely (global target with permissions off). */
+    omitSettings?: boolean;
   } = {},
 ): ClaudeEngineResult {
   // Fill in render-only derived defaults (e.g. prTarget ?? branchBase) so
@@ -379,6 +390,12 @@ export function renderClaudeEngine(
   const config = effectiveConfig(inputConfig);
   const dryRun = options.dryRun === true;
   const force = options.force === true;
+  const scope: RenderScope = options.scope ?? "repo";
+  // Target layout (spec 0005): repo nests `.claude/` under cwd; the user-level
+  // global layout is flat (agents/skills/settings sit directly under cwd, which
+  // for a global render is the global config dir). `dotDir` is the ONLY path
+  // that differs between targets — CLAUDE.md is `<cwd>/CLAUDE.md` for both.
+  const dotDir = scope === "global" ? cwd : join(cwd, ".claude");
   const repoRoot = options.repoRoot ?? cwd;
   // A workspace render (repoRoot points elsewhere than cwd) omits the root-only
   // global blocks — Claude Code already loads them from the parent CLAUDE.md.
@@ -408,6 +425,7 @@ export function renderClaudeEngine(
     skipIds: options.skipIds,
     forceIds: options.forceIds,
     omitRootOnly: isWorkspace,
+    scope,
   });
   inspected += 1;
 
@@ -419,7 +437,11 @@ export function renderClaudeEngine(
   // when the body comes back empty.
   const localSkills = config.project?.localSkills ?? [];
   let claudeMdContent = claudeMdPlan.next;
-  const skillsIndexBody = buildSkillsIndexBody(config, localSkills, repoRoot);
+  // The computed identity blocks below (skills index, agents catalog, project +
+  // monorepo context) are repo-scope only — the global persona target carries
+  // none of them. At global scope each body is null, so the existing else branch
+  // strips the id if a scope violation left one behind (spec 0005 §2.4).
+  const skillsIndexBody = scope === "repo" ? buildSkillsIndexBody(config, localSkills, repoRoot) : null;
   if (skillsIndexBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -443,7 +465,7 @@ export function renderClaudeEngine(
   // 1b-bis. Agents index — the catalog of leaf subagents the orchestrator (main
   // agent) can spawn, referenced by the "## Rol: orquestador" block. Claude-only
   // (subagents are a Claude Code capability); the agents-md engine drops it.
-  const agentsIndexBody = buildAgentsIndexBody(config);
+  const agentsIndexBody = scope === "repo" ? buildAgentsIndexBody(config) : null;
   if (agentsIndexBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -467,7 +489,7 @@ export function renderClaudeEngine(
   // 1c. Project context — the init questionnaire answers turned into active
   // rules (posture, rigor, architecture, critical areas, tests). Stripped when
   // nothing is set. Replaces the old user-section comment hints.
-  const contextoBody = buildContextoProyectoBody(config);
+  const contextoBody = scope === "repo" ? buildContextoProyectoBody(config) : null;
   if (contextoBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -491,7 +513,7 @@ export function renderClaudeEngine(
   // 1c-bis. Monorepo map. At the root it lists the workspaces so the
   // orchestrator routes work to the owning app; inside a workspace it names the
   // current app + its siblings. Stripped for a non-monorepo repo.
-  const monorepoBody = buildContextoMonorepoBody(config, options.monorepoContext, isWorkspace);
+  const monorepoBody = scope === "repo" ? buildContextoMonorepoBody(config, options.monorepoContext, isWorkspace) : null;
   if (monorepoBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -518,7 +540,7 @@ export function renderClaudeEngine(
   // gravity" block that must lead the file. Restore canonical order. No-op when
   // already ordered (so no spurious diff); skipped, with a warning, when the
   // user wove prose between blocks (moving them would orphan it).
-  const reorder = reorderManagedBlocks(claudeMdContent, canonicalManagedOrder(config, repoRoot, isWorkspace));
+  const reorder = reorderManagedBlocks(claudeMdContent, canonicalManagedOrder(config, repoRoot, isWorkspace, scope));
   claudeMdContent = reorder.output;
   if (reorder.blockedByInterleaving) {
     warnings.push(
@@ -555,18 +577,38 @@ export function renderClaudeEngine(
   // here via planSettings and again for scripts/skills (issue #10).
   const enabledPlugins = loadEnabledPlugins(config.plugins).loaded;
 
-  // 2. .claude/settings.json
-  const settingsResult = planSettings(cwd, config, enabledPlugins, force);
-  inspected += 1;
-  if (settingsResult.kind === "skip") {
-    skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
-  } else if (settingsResult.kind === "write") {
-    pending.push({
-      path: settingsResult.path,
-      content: settingsResult.content,
-      status: settingsResult.status,
-    });
+  // 2. settings.json — repo: `.claude/settings.json`; global: `<dir>/settings.json`
+  // (flat user layout). The global target ships permissions only (omitHooks): no
+  // guard/quality-gate/plugin hooks, since it renders no `.claude/hooks/` scripts
+  // and the ambient hook layer is P1. `omitSettings` skips it entirely (global
+  // config with permissions off).
+  if (!options.omitSettings) {
+    const settingsResult = planSettings(
+      join(dotDir, "settings.json"),
+      config,
+      scope === "global" ? [] : enabledPlugins,
+      force,
+      { omitHooks: scope === "global" },
+    );
+    inspected += 1;
+    if (settingsResult.kind === "skip") {
+      skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
+    } else if (settingsResult.kind === "write") {
+      pending.push({
+        path: settingsResult.path,
+        content: settingsResult.content,
+        status: settingsResult.status,
+      });
+    }
   }
+
+  // Steps 3–8.7 build the repo project harness (agents, skills, hooks, scripts,
+  // preset extras, progress, plugin sub-blocks). The global persona target has
+  // none of them (spec 0005 P0) — only CLAUDE.md identity blocks + permissions —
+  // so the whole block is repo-scope only. `scriptRemovals` is hoisted because
+  // the write phase (step 9) reads it.
+  const scriptRemovals: string[] = [];
+  if (scope === "repo") {
 
   // 3. Agents
   for (const agent of CORE_AGENTS) {
@@ -820,7 +862,6 @@ export function renderClaudeEngine(
   // by computeRenderPlan, but its injectInto sub-blocks (e.g. leader.md) and its
   // .claude/scripts/* were only ever touched on the enabled path — so they'd
   // orphan. Strip them here so disabling a plugin fully cleans up (#80).
-  const scriptRemovals: string[] = [];
   for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
     for (const skill of plugin.skillAssets) {
       if (!skill.injectInto) continue;
@@ -891,6 +932,8 @@ export function renderClaudeEngine(
     scriptRemovals.push(abs);
   }
 
+  } // end repo-scope project harness (steps 3–8.7)
+
   // 9. Backup + atomic writes
   let backupPath: string | null = null;
   benchMark("plan");
@@ -929,9 +972,15 @@ export function renderClaudeEngine(
       // rendered tree so a backup is a complete picture of the harness state
       // (#79/#82). It's checked into git too, but the backup keeps restore
       // self-contained.
-      const handle = createBackup(cwd, ["CLAUDE.md", ".claude", "navori.config.json"], {
-        exclude: [".claude/settings.local.json", ".claude/progress"],
-      });
+      // The global target's layout is flat (CLAUDE.md + settings.json directly
+      // under the dir); the repo target snapshots the whole `.claude/` tree +
+      // the config source of truth (#79/#82). Both land under ~/.navori/backups.
+      const handle =
+        scope === "global"
+          ? createBackup(cwd, ["CLAUDE.md", "settings.json"])
+          : createBackup(cwd, ["CLAUDE.md", ".claude", "navori.config.json"], {
+              exclude: [".claude/settings.local.json", ".claude/progress"],
+            });
       if (handle.files.length > 0) {
         backupPath = handle.path;
         purgeOldBackups();
@@ -1018,13 +1067,13 @@ type SettingsPlan =
   | { kind: "write"; path: string; content: string; status: RenderStatus };
 
 function planSettings(
-  cwd: string,
+  path: string,
   config: NavoriConfig,
   plugins: LoadedPlugin[],
   force = false,
+  options: { omitHooks?: boolean } = {},
 ): SettingsPlan {
-  const path = join(cwd, ".claude/settings.json");
-  const newSettings = buildClaudeSettings(config, plugins);
+  const newSettings = buildClaudeSettings(config, plugins, { omitHooks: options.omitHooks });
   const newJson = JSON.stringify(newSettings, null, 2) + "\n";
 
   if (!existsSync(path)) {

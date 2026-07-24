@@ -404,6 +404,27 @@ export function removeManagedSection(
 }
 
 /**
+ * True when a managed block's body no longer hashes to the `hash=` recorded on
+ * its open marker — i.e. the user hand-edited it. Same detection
+ * `injectManagedSection` uses to yield `user-modified-skipped`, exposed so
+ * callers that REMOVE a block (scope self-heal, condition-false strip) can honor
+ * the same "never clobber hand edits silently" contract before deleting it.
+ *
+ * Returns false when the block is absent or carries no `hash=` (a hand-authored
+ * or legacy marker we can't verify) — those aren't a detectable conflict.
+ */
+export function isManagedBlockUserModified(
+  existing: string,
+  id: string,
+  commentStyle: CommentStyle = "html",
+): boolean {
+  const syntax = syntaxFor(commentStyle);
+  const match = findMarker(existing, id, syntax);
+  if (!match || match.existingHash === null) return false;
+  return hashContent(match.content) !== match.existingHash;
+}
+
+/**
  * Extract the current managed content for an id, if it exists.
  * Returns null when the marker is not present.
  */

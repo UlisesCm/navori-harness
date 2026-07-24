@@ -39,6 +39,24 @@ const ExternalToolSchema = z.object({
 
 const HOOK_EVENTS = ["PreToolUse", "PostToolUse", "Stop"] as const;
 
+const PLUGIN_SCOPES = ["global", "repo"] as const;
+export type PluginScope = (typeof PLUGIN_SCOPES)[number];
+
+/**
+ * Which render scopes a plugin is allowed to emit into (spec 0005). A plugin
+ * that is identity — engram, ponytail — declares `["global","repo"]`; a
+ * repo-only quality gate (jscpd/semgrep) stays `["repo"]`, the default. Parse is
+ * tolerant: a manifest written by a newer navori that carries an unknown scope
+ * keeps validating (unknowns dropped) and falls back to `["repo"]` if nothing
+ * known survives, so an older CLI never hard-fails on it.
+ */
+const AllowedScopesSchema = z.preprocess((val) => {
+  if (val === undefined) return ["repo"];
+  if (!Array.isArray(val)) return val; // let z.array report the shape error
+  const known = val.filter((v) => (PLUGIN_SCOPES as readonly string[]).includes(v as string));
+  return known.length > 0 ? known : ["repo"];
+}, z.array(z.enum(PLUGIN_SCOPES)).default(["repo"]));
+
 const HookEntrySchema = z.object({
   event: z.enum(HOOK_EVENTS),
   /** Claude Code matcher (regex against tool name). */
@@ -91,6 +109,8 @@ export const PluginManifestSchema = z.object({
   description: z.string(),
   version: z.string(),
   managed: z.array(ManagedEntrySchema).default([]),
+  /** Render scopes this plugin may emit into (spec 0005). Default: repo-only. */
+  allowedScopes: AllowedScopesSchema,
   externalTool: ExternalToolSchema.optional(),
   /** Deep-merged into `.claude/settings.json` at render time. */
   settingsFragment: z.record(z.string(), z.unknown()).optional(),
