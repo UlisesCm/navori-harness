@@ -2,7 +2,7 @@
   "id": "engram",
   "name": "Engram persistent memory",
   "description": "Memory persistence across Claude Code sessions via MCP server",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "allowedScopes": ["global", "repo"],
   "managed": [
     {
@@ -16,9 +16,9 @@
     "checkBinary": "engram",
     "install": {
       "darwin": "brew install gentleman-programming/tap/engram",
-      "linux": "curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/engram/main/scripts/install.sh | bash"
+      "linux": "mkdir -p ~/.local/bin && curl -fsSL https://api.github.com/repos/Gentleman-Programming/engram/releases/latest | grep -o \"https://[^\\\"]*linux_$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/)\\.tar\\.gz\" | head -1 | xargs curl -fsSL | tar -xz -C ~/.local/bin engram"
     },
-    "postInstall": "claude plugin install engram"
+    "postInstall": "claude plugin marketplace add Gentleman-Programming/engram && claude plugin install engram"
   },
   "skills": [
     {
