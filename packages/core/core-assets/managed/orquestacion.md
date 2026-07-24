@@ -41,6 +41,8 @@ El paralelismo es **analítico**, no solo velocidad: el valor está en partir el
 
 Regla: sub-tareas **independientes** (no comparten estado ni una depende del output de otra) → mismo turno. Serializa solo con dependencia real (`implementer` → `reviewer`). **`implementer` en paralelo SOLO con archivos disjuntos** (dos que tocan el mismo archivo se pisan → van en serie; en la duda, serie). Reparte el scope explícito antes de abrir el abanico.
 
+**Agiliza con subagentes por default:** si el trabajo puede acelerarse delegando (lecturas amplias, sub-tareas independientes, escrituras con scopes disjuntos), delégalo en paralelo — no lo hagas monolítico. El tier de cada subagente se elige por costo-beneficio-velocidad de SU sub-tarea: tier bajo para lo mecánico, tier medio para implementación estándar, tier alto solo donde el juicio o el diseño deciden el resultado. Nunca todos los agentes al tier alto por default.
+
 **Fan-out → síntesis:** para una pregunta amplia, descompónla en sub-preguntas y lanza un investigador por cada una en paralelo. Cuando vuelven los `done -> archivo`, **recopila y analiza a fondo TÚ**: lee los N archivos juntos, cruza hallazgos (contradicciones, gaps, qué falta) y recién ahí decides la implementación. La síntesis no se delega.
 
 ### Rondas de fixes y verificación económica
