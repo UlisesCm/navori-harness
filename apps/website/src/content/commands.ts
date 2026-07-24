@@ -18,12 +18,24 @@ const es: Record<string, CommandDoc> = {
       "Inicializa un repo con navori. Detecta el stack, hace unas preguntas y deja todo listo en un minuto.",
     usage: "navori init [--full] [--recommended] [--yes] [--scan-monorepo] [--pre-commit-hook]",
     flags: [
-      { flag: "--full", desc: "Modo máximo: --recommended + todos los plugins + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode)." },
-      { flag: "--recommended", desc: "Modo opinado: --yes + habilita plugins recomendados (engram, +gh si es repo GitHub)." },
+      {
+        flag: "--full",
+        desc: "Modo máximo: --recommended + todos los plugins + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode).",
+      },
+      {
+        flag: "--recommended",
+        desc: "Modo opinado: --yes + habilita plugins recomendados (engram, +gh si es repo GitHub).",
+      },
       { flag: "--yes, -y", desc: "Acepta todo lo detectado sin preguntar (CI-friendly)." },
       { flag: "--lang <es|en>", desc: "Idioma del wizard. Default: es." },
-      { flag: "--scan-monorepo", desc: "Si detecta un monorepo, escanea los workspaces y les asigna un preset." },
-      { flag: "--pre-commit-hook", desc: "Opt-in: scaffolda un pre-commit hook que corre 'navori doctor --strict'." },
+      {
+        flag: "--scan-monorepo",
+        desc: "Si detecta un monorepo, escanea los workspaces y les asigna un preset.",
+      },
+      {
+        flag: "--pre-commit-hook",
+        desc: "Opt-in: scaffolda un pre-commit hook que corre 'navori doctor --strict'.",
+      },
       { flag: "--no-render", desc: "Escribe el config pero no renderiza todavía." },
     ],
     example: [
@@ -44,8 +56,7 @@ const es: Record<string, CommandDoc> = {
   add: {
     id: "add",
     title: "add",
-    summary:
-      "Registra un plugin en navori.config.json, o sugiere qué agregar según tu stack.",
+    summary: "Registra un plugin en navori.config.json, o sugiere qué agregar según tu stack.",
     usage: "navori add <plugin> | navori add --suggest",
     flags: [
       { flag: "<plugin>", desc: "Plugin a registrar: engram, semgrep, jscpd, acli, gh." },
@@ -74,7 +85,10 @@ const es: Record<string, CommandDoc> = {
       "Scaffolda un preset local en .navori/presets/ para cuando tu stack no tiene un preset oficial.",
     usage: "navori preset init <id>",
     flags: [
-      { flag: "<id>", desc: "Id del preset (kebab-case). Rechaza el id reservado 'custom' y los que no son kebab-case." },
+      {
+        flag: "<id>",
+        desc: "Id del preset (kebab-case). Rechaza el id reservado 'custom' y los que no son kebab-case.",
+      },
       { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
     ],
     example: [
@@ -96,8 +110,14 @@ const es: Record<string, CommandDoc> = {
       "Reconstruye CLAUDE.md y .claude/ desde navori.config.json. Idempotente. Preview por default.",
     usage: "navori render [--apply] [--force] [--workspace <name>]",
     flags: [
-      { flag: "--apply", desc: "Escribe a disco. Sin el flag, render solo hace preview (no toca archivos)." },
-      { flag: "--force", desc: "Regenera settings.json aunque esté corrupto o sin el marcador $navori (respalda el previo)." },
+      {
+        flag: "--apply",
+        desc: "Escribe a disco. Sin el flag, render solo hace preview (no toca archivos).",
+      },
+      {
+        flag: "--force",
+        desc: "Regenera settings.json aunque esté corrupto o sin el marcador $navori (respalda el previo).",
+      },
       { flag: "--workspace <name>", desc: "Renderiza solo un workspace por nombre (monorepo)." },
       { flag: "--dry-run", desc: "Deprecado: preview ya es el default. Alias explícito." },
     ],
@@ -123,7 +143,10 @@ const es: Record<string, CommandDoc> = {
       "Trae cambios del bundle a los bloques managed. Tu código fuera de los markers nunca se pisa.",
     usage: "navori sync [--interactive] [--apply] [--workspace <name>]",
     flags: [
-      { flag: "--interactive", desc: "Resuelve cada conflicto de CLAUDE.md uno por uno: ves el diff y eliges keep-mine o accept-new." },
+      {
+        flag: "--interactive",
+        desc: "Resuelve cada conflicto de CLAUDE.md uno por uno: ves el diff y eliges keep-mine o accept-new.",
+      },
       { flag: "--apply", desc: "Aplica los cambios sin el prompt interactivo." },
       { flag: "--yes", desc: "Auto-confirma. Falla con exit 1 si hay conflictos (CI gate)." },
       { flag: "--workspace <name>", desc: "Sincroniza solo un workspace (monorepo)." },
@@ -142,8 +165,7 @@ const es: Record<string, CommandDoc> = {
   doctor: {
     id: "doctor",
     title: "doctor",
-    summary:
-      "Audit del proyecto: config, plugins, drift, invariants y próximos pasos sugeridos.",
+    summary: "Audit del proyecto: config, plugins, drift, invariants y próximos pasos sugeridos.",
     usage: "navori doctor [--json] [--strict]",
     flags: [
       { flag: "--json", desc: "Output estructurado para CI (pipeable)." },
@@ -166,9 +188,7 @@ const es: Record<string, CommandDoc> = {
     summary:
       "Snapshot rápido: config, plugins habilitados, drift y próximos pasos. El '¿cómo quedó esto?' en un comando.",
     usage: "navori status [--json]",
-    flags: [
-      { flag: "--json", desc: "Output estructurado (pipeable)." },
-    ],
+    flags: [{ flag: "--json", desc: "Output estructurado (pipeable)." }],
     example: [
       {
         title: "Snapshot",
@@ -185,18 +205,14 @@ const es: Record<string, CommandDoc> = {
     summary:
       "Mide render sobre N corridas y reporta p50/p95. Para detectar regresiones locales antes de commitear.",
     usage: "navori bench [--runs <n>]",
-    flags: [
-      { flag: "--runs <n>", desc: "Número de iteraciones. Default: 20." },
-    ],
+    flags: [{ flag: "--runs <n>", desc: "Número de iteraciones. Default: 20." }],
     example: [
       {
         title: "Benchmark",
         code: "$ navori bench --runs 20\nrender (dry-run)\n  min  1.1ms\n  p50  1.3ms\n  p95  1.6ms",
       },
     ],
-    notes: [
-      "Complementa NAVORI_BENCH=1, que instrumenta los tiempos de una sola corrida.",
-    ],
+    notes: ["Complementa NAVORI_BENCH=1, que instrumenta los tiempos de una sola corrida."],
   },
 };
 
@@ -208,12 +224,24 @@ const en: Record<string, CommandDoc> = {
       "Bootstrap a repo with navori. Detects the stack, asks a few questions, and leaves everything ready in a minute.",
     usage: "navori init [--full] [--recommended] [--yes] [--scan-monorepo] [--pre-commit-hook]",
     flags: [
-      { flag: "--full", desc: "Maximal mode: --recommended + all plugins + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode)." },
-      { flag: "--recommended", desc: "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh on GitHub repos)." },
+      {
+        flag: "--full",
+        desc: "Maximal mode: --recommended + all plugins + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode).",
+      },
+      {
+        flag: "--recommended",
+        desc: "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh on GitHub repos).",
+      },
       { flag: "--yes, -y", desc: "Accept everything detected without prompting (CI-friendly)." },
       { flag: "--lang <es|en>", desc: "Wizard language. Default: es." },
-      { flag: "--scan-monorepo", desc: "If a monorepo is detected, scan its workspaces and assign a preset to each." },
-      { flag: "--pre-commit-hook", desc: "Opt-in: scaffold a pre-commit hook that runs 'navori doctor --strict'." },
+      {
+        flag: "--scan-monorepo",
+        desc: "If a monorepo is detected, scan its workspaces and assign a preset to each.",
+      },
+      {
+        flag: "--pre-commit-hook",
+        desc: "Opt-in: scaffold a pre-commit hook that runs 'navori doctor --strict'.",
+      },
       { flag: "--no-render", desc: "Write the config but don't render yet." },
     ],
     example: [
@@ -238,7 +266,10 @@ const en: Record<string, CommandDoc> = {
     usage: "navori add <plugin> | navori add --suggest",
     flags: [
       { flag: "<plugin>", desc: "Plugin to register: engram, semgrep, jscpd, acli, gh." },
-      { flag: "--suggest", desc: "Detect the stack and suggest a preset + plugins (installs nothing)." },
+      {
+        flag: "--suggest",
+        desc: "Detect the stack and suggest a preset + plugins (installs nothing).",
+      },
       { flag: "--yes", desc: "No prompts; install the external tool if needed." },
       { flag: "--skip-install", desc: "Register the plugin without installing its external tool." },
     ],
@@ -252,9 +283,7 @@ const en: Record<string, CommandDoc> = {
         code: "$ navori add --suggest\nSuggestions:\n · Plugin engram: persistent memory across sessions — 'navori add engram'",
       },
     ],
-    notes: [
-      "add only updates navori.config.json. Then run 'navori render --apply' to apply.",
-    ],
+    notes: ["add only updates navori.config.json. Then run 'navori render --apply' to apply."],
   },
   preset: {
     id: "preset",
@@ -263,7 +292,10 @@ const en: Record<string, CommandDoc> = {
       "Scaffolds a local preset under .navori/presets/ for when your stack has no official preset.",
     usage: "navori preset init <id>",
     flags: [
-      { flag: "<id>", desc: "Preset id (kebab-case). Rejects the reserved id 'custom' and non-kebab-case ids." },
+      {
+        flag: "<id>",
+        desc: "Preset id (kebab-case). Rejects the reserved id 'custom' and non-kebab-case ids.",
+      },
       { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
     ],
     example: [
@@ -285,8 +317,14 @@ const en: Record<string, CommandDoc> = {
       "Rebuilds CLAUDE.md and .claude/ from navori.config.json. Idempotent. Preview by default.",
     usage: "navori render [--apply] [--force] [--workspace <name>]",
     flags: [
-      { flag: "--apply", desc: "Write to disk. Without it, render only previews (no files touched)." },
-      { flag: "--force", desc: "Regenerate settings.json even if corrupted or missing the $navori marker (backs up the previous one)." },
+      {
+        flag: "--apply",
+        desc: "Write to disk. Without it, render only previews (no files touched).",
+      },
+      {
+        flag: "--force",
+        desc: "Regenerate settings.json even if corrupted or missing the $navori marker (backs up the previous one).",
+      },
       { flag: "--workspace <name>", desc: "Render only one workspace by name (monorepo)." },
       { flag: "--dry-run", desc: "Deprecated: preview is the default now. Explicit alias." },
     ],
@@ -312,7 +350,10 @@ const en: Record<string, CommandDoc> = {
       "Pulls bundle changes into the managed blocks. Your code outside the markers is never overwritten.",
     usage: "navori sync [--interactive] [--apply] [--workspace <name>]",
     flags: [
-      { flag: "--interactive", desc: "Resolve each CLAUDE.md conflict one by one: see the diff and pick keep-mine or accept-new." },
+      {
+        flag: "--interactive",
+        desc: "Resolve each CLAUDE.md conflict one by one: see the diff and pick keep-mine or accept-new.",
+      },
       { flag: "--apply", desc: "Apply changes without the interactive prompt." },
       { flag: "--yes", desc: "Auto-confirm. Exits 1 if there are conflicts (CI gate)." },
       { flag: "--workspace <name>", desc: "Sync only one workspace (monorepo)." },
@@ -331,8 +372,7 @@ const en: Record<string, CommandDoc> = {
   doctor: {
     id: "doctor",
     title: "doctor",
-    summary:
-      "Project audit: config, plugins, drift, invariants and suggested next steps.",
+    summary: "Project audit: config, plugins, drift, invariants and suggested next steps.",
     usage: "navori doctor [--json] [--strict]",
     flags: [
       { flag: "--json", desc: "Structured output for CI (pipeable)." },
@@ -355,9 +395,7 @@ const en: Record<string, CommandDoc> = {
     summary:
       "Quick snapshot: config, enabled plugins, drift, and next steps. The 'where did this land?' in one command.",
     usage: "navori status [--json]",
-    flags: [
-      { flag: "--json", desc: "Structured output (pipeable)." },
-    ],
+    flags: [{ flag: "--json", desc: "Structured output (pipeable)." }],
     example: [
       {
         title: "Snapshot",
@@ -374,21 +412,26 @@ const en: Record<string, CommandDoc> = {
     summary:
       "Times render over N runs and reports p50/p95. Spots local regressions before you commit.",
     usage: "navori bench [--runs <n>]",
-    flags: [
-      { flag: "--runs <n>", desc: "Number of iterations. Default: 20." },
-    ],
+    flags: [{ flag: "--runs <n>", desc: "Number of iterations. Default: 20." }],
     example: [
       {
         title: "Benchmark",
         code: "$ navori bench --runs 20\nrender (dry-run)\n  min  1.1ms\n  p50  1.3ms\n  p95  1.6ms",
       },
     ],
-    notes: [
-      "Complements NAVORI_BENCH=1, which instruments the timings of a single run.",
-    ],
+    notes: ["Complements NAVORI_BENCH=1, which instruments the timings of a single run."],
   },
 };
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
 
-export const commandOrder = ["init", "add", "preset", "render", "sync", "doctor", "status", "bench"] as const;
+export const commandOrder = [
+  "init",
+  "add",
+  "preset",
+  "render",
+  "sync",
+  "doctor",
+  "status",
+  "bench",
+] as const;

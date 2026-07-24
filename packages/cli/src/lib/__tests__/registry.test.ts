@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 
@@ -74,7 +82,9 @@ describe("registerRepo", () => {
     const a = makeRepo(scratch, "a-repo");
     registerRepo(b, "b-repo");
     registerRepo(a, "a-repo");
-    const written = JSON.parse(readFileSync(registryPath(), "utf-8")) as { repos: Array<{ path: string }> };
+    const written = JSON.parse(readFileSync(registryPath(), "utf-8")) as {
+      repos: Array<{ path: string }>;
+    };
     expect(written.repos.map((r) => r.path)).toEqual([a, b].sort((x, y) => x.localeCompare(y)));
   });
 });

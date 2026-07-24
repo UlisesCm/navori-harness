@@ -14,21 +14,28 @@ const LANGUAGES = ["es", "en"] as const;
  * known ones) and fall back to a sane default so an older CLI keeps working.
  * readConfig surfaces a warning listing what it dropped.
  */
-function tolerantEnumArray<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
-  return z.preprocess((val) => {
-    if (!Array.isArray(val)) return val; // let z.array report a non-array
-    const known = val.filter((v) => (values as readonly string[]).includes(v as string));
-    // Substitute the fallback only when the array had values but they were ALL
-    // unknown (forward-version config). A genuinely empty [] stays empty so
-    // `.min(1)` still flags it as a real error.
-    if (known.length === 0 && val.length > 0) return [fallback];
-    return known;
-  }, z.array(z.enum(values)).min(1));
+function tolerantEnumArray<T extends readonly [string, ...string[]]>(
+  values: T,
+  fallback: T[number],
+) {
+  return z.preprocess(
+    (val) => {
+      if (!Array.isArray(val)) return val; // let z.array report a non-array
+      const known = val.filter((v) => (values as readonly string[]).includes(v as string));
+      // Substitute the fallback only when the array had values but they were ALL
+      // unknown (forward-version config). A genuinely empty [] stays empty so
+      // `.min(1)` still flags it as a real error.
+      if (known.length === 0 && val.length > 0) return [fallback];
+      return known;
+    },
+    z.array(z.enum(values)).min(1),
+  );
 }
 
 function tolerantEnum<T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) {
   return z.preprocess(
-    (val) => (val === undefined || (values as readonly string[]).includes(val as string) ? val : fallback),
+    (val) =>
+      val === undefined || (values as readonly string[]).includes(val as string) ? val : fallback,
     z.enum(values).default(fallback),
   );
 }

@@ -13,8 +13,14 @@ import { isAbsolute, join } from "node:path";
 const home = vi.hoisted(() => ({ dir: "" }));
 vi.mock("../home.ts", () => ({ safeHomedir: () => home.dir }));
 
-const { linkRepoToWorkspace, resolveRepoPath, loadWorkspace, writeWorkspace, workspacePath, WorkspaceError } =
-  await import("../workspace.ts");
+const {
+  linkRepoToWorkspace,
+  resolveRepoPath,
+  loadWorkspace,
+  writeWorkspace,
+  workspacePath,
+  WorkspaceError,
+} = await import("../workspace.ts");
 
 let repoDir: string;
 

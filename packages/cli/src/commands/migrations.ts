@@ -28,7 +28,13 @@ function listMigrations(): MigrationEntry[] {
           const repoStat = statSync(repoDir);
           if (!repoStat.isDirectory()) continue;
           const files = collectFiles(repoDir, repoDir);
-          entries.push({ timestamp: ts, repoName, path: repoDir, files, mtimeMs: repoStat.mtimeMs });
+          entries.push({
+            timestamp: ts,
+            repoName,
+            path: repoDir,
+            files,
+            mtimeMs: repoStat.mtimeMs,
+          });
         } catch {
           // skip
         }
@@ -74,13 +80,17 @@ const listSubCommand = defineCommand({
     const truncated = migrations.slice(0, limit);
 
     if (args.json) {
-      console.log(JSON.stringify({ migrations: truncated, totalAvailable: migrations.length }, null, 2));
+      console.log(
+        JSON.stringify({ migrations: truncated, totalAvailable: migrations.length }, null, 2),
+      );
       return;
     }
 
     p.intro(brand("migrations list"));
     if (migrations.length === 0) {
-      p.log.info("No migrations found. They are created when 'init' adopts navori in replace mode (the interactive wizard) on a repo with existing Claude infrastructure.");
+      p.log.info(
+        "No migrations found. They are created when 'init' adopts navori in replace mode (the interactive wizard) on a repo with existing Claude infrastructure.",
+      );
       p.outro(dim("Done"));
       return;
     }

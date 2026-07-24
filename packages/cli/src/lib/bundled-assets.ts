@@ -60,7 +60,10 @@ export function readCliVersion(): string {
     resolve(HERE, "..", "..", "package.json"), // dev: src/lib/../../package.json
   ]) {
     try {
-      const pkg = JSON.parse(readFileSync(candidate, "utf-8")) as { name?: string; version?: string };
+      const pkg = JSON.parse(readFileSync(candidate, "utf-8")) as {
+        name?: string;
+        version?: string;
+      };
       if (pkg.version && pkg.name === "navori") return pkg.version;
     } catch {
       // try next candidate

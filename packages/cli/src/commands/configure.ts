@@ -26,10 +26,15 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
-function loadOrExit(cwd: string): { config: NavoriConfig; path: string; raw: Record<string, unknown> } {
+function loadOrExit(cwd: string): {
+  config: NavoriConfig;
+  path: string;
+  raw: Record<string, unknown>;
+} {
   if (!existsSync(cwd)) fail(`Directory not found: ${cwd}`);
   const configPath = resolve(cwd, "navori.config.json");
-  if (!existsSync(configPath)) fail(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
+  if (!existsSync(configPath))
+    fail(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
   const config = readConfigOrExit(configPath);
   const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
   return { config, path: configPath, raw };
@@ -59,22 +64,26 @@ const pluginsSubCommand = defineCommand({
     const allIds = listKnownPluginIds();
     const current = config.plugins ?? {};
     const enabledNow = new Set(
-      Object.entries(current).filter(([, v]) => v.enabled).map(([k]) => k),
+      Object.entries(current)
+        .filter(([, v]) => v.enabled)
+        .map(([k]) => k),
     );
 
-    const options = allIds.map((id) => {
-      let plugin;
-      try {
-        plugin = loadPlugin(id);
-      } catch {
-        return null;
-      }
-      return {
-        value: id,
-        label: `${plugin.manifest.name} (${id})`,
-        hint: plugin.manifest.description,
-      };
-    }).filter((o): o is NonNullable<typeof o> => o !== null);
+    const options = allIds
+      .map((id) => {
+        let plugin;
+        try {
+          plugin = loadPlugin(id);
+        } catch {
+          return null;
+        }
+        return {
+          value: id,
+          label: `${plugin.manifest.name} (${id})`,
+          hint: plugin.manifest.description,
+        };
+      })
+      .filter((o): o is NonNullable<typeof o> => o !== null);
 
     const selected = await p.multiselect<string>({
       message: "Plugins enabled in this repo",
@@ -403,7 +412,9 @@ const blocksSubCommand = defineCommand({
       message: "Core managed blocks to EXCLUDE (checked = opted out of CLAUDE.md)",
       options: EXCLUDABLE_BLOCK_IDS.map((id) => ({ value: id, label: id })),
       required: false,
-      initialValues: [...current].filter((id) => (EXCLUDABLE_BLOCK_IDS as readonly string[]).includes(id)),
+      initialValues: [...current].filter((id) =>
+        (EXCLUDABLE_BLOCK_IDS as readonly string[]).includes(id),
+      ),
     });
     if (p.isCancel(selected)) {
       p.cancel("Cancelled");

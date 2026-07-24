@@ -1,6 +1,11 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { injectManagedSection, removeManagedSection, resolveCondition, type InjectResult } from "./marker.ts";
+import {
+  injectManagedSection,
+  removeManagedSection,
+  resolveCondition,
+  type InjectResult,
+} from "./marker.ts";
 import { compareSemver } from "./semver.ts";
 import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
 import { getCoreRoot, readCliVersion } from "./bundled-assets.ts";
@@ -29,18 +34,59 @@ export interface CoreManagedAsset {
 }
 
 export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
-  { id: "orquestacion", relPath: "core-assets/managed/orquestacion.md", availableLanguages: ["es"], rootOnly: true },
-  { id: "idioma-rol", relPath: "core-assets/managed/idioma-rol.md", availableLanguages: ["es"], rootOnly: true },
-  { id: "formato-respuesta", relPath: "core-assets/managed/formato-respuesta.md", availableLanguages: ["es"], rootOnly: true },
-  { id: "tipado-fuerte", relPath: "core-assets/managed/tipado-fuerte.md", availableLanguages: ["es"], condition: "project.typedLanguage" },
-  { id: "operaciones-seguras", relPath: "core-assets/managed/operaciones-seguras.md", availableLanguages: ["es"], rootOnly: true },
-  { id: "arranque-sesion", relPath: "core-assets/managed/arranque-sesion.md", availableLanguages: ["es"], rootOnly: true },
-  { id: "cierre-sesion", relPath: "core-assets/managed/cierre-sesion.md", availableLanguages: ["es"], rootOnly: true },
+  {
+    id: "orquestacion",
+    relPath: "core-assets/managed/orquestacion.md",
+    availableLanguages: ["es"],
+    rootOnly: true,
+  },
+  {
+    id: "idioma-rol",
+    relPath: "core-assets/managed/idioma-rol.md",
+    availableLanguages: ["es"],
+    rootOnly: true,
+  },
+  {
+    id: "formato-respuesta",
+    relPath: "core-assets/managed/formato-respuesta.md",
+    availableLanguages: ["es"],
+    rootOnly: true,
+  },
+  {
+    id: "tipado-fuerte",
+    relPath: "core-assets/managed/tipado-fuerte.md",
+    availableLanguages: ["es"],
+    condition: "project.typedLanguage",
+  },
+  {
+    id: "operaciones-seguras",
+    relPath: "core-assets/managed/operaciones-seguras.md",
+    availableLanguages: ["es"],
+    rootOnly: true,
+  },
+  {
+    id: "arranque-sesion",
+    relPath: "core-assets/managed/arranque-sesion.md",
+    availableLanguages: ["es"],
+    rootOnly: true,
+  },
+  {
+    id: "cierre-sesion",
+    relPath: "core-assets/managed/cierre-sesion.md",
+    availableLanguages: ["es"],
+    rootOnly: true,
+  },
   // SDD protocol block. Conditional on `sdd.enabled`, which effectiveConfig
   // defaults to true (SDD is core to navori's identity) unless a config sets it
   // to false. Renders the EARS + R<n>↔test convention that SddSchema declared
   // but nothing emitted before.
-  { id: "sdd", relPath: "core-assets/managed/sdd.md", availableLanguages: ["es"], rootOnly: true, condition: "sdd.enabled" },
+  {
+    id: "sdd",
+    relPath: "core-assets/managed/sdd.md",
+    availableLanguages: ["es"],
+    rootOnly: true,
+    condition: "sdd.enabled",
+  },
 ] as const;
 
 /** Ids of every hardcoded core managed block. Used to tell a real (but not
@@ -68,12 +114,18 @@ export const EXCLUDABLE_BLOCK_IDS: readonly string[] = ["orquestacion", "sdd"] a
 // share this version; the `source=` attr still distinguishes provenance. (#79)
 const NAVORI_VERSION = readCliVersion();
 
-function resolveAssetPath(asset: CoreManagedAsset, language: AssetLanguage = "es"): { path: string; fallback: boolean } {
+function resolveAssetPath(
+  asset: CoreManagedAsset,
+  language: AssetLanguage = "es",
+): { path: string; fallback: boolean } {
   const root = getCoreRoot();
   if (language === "es") {
     return { path: resolve(root, asset.relPath), fallback: false };
   }
-  const langPath = asset.relPath.replace(/^core-assets\/managed\//, `core-assets/managed/${language}/`);
+  const langPath = asset.relPath.replace(
+    /^core-assets\/managed\//,
+    `core-assets/managed/${language}/`,
+  );
   const abs = resolve(root, langPath);
   if (existsSync(abs)) return { path: abs, fallback: false };
   return { path: resolve(root, asset.relPath), fallback: true };
@@ -120,9 +172,7 @@ export function interpolateTemplate(content: string, config: NavoriConfig): stri
   });
 }
 
-export type AssetStatus =
-  | InjectResult["status"]
-  | "removed-condition-false";
+export type AssetStatus = InjectResult["status"] | "removed-condition-false";
 
 export interface AssetPlanEntry {
   asset: CoreManagedAsset;
@@ -193,7 +243,11 @@ export function computeRenderPlan(
   inputConfig: NavoriConfig,
   /** Repo root where `.navori/presets/` lives (resolves local presets). */
   repoRoot: string,
-  options: { skipIds?: ReadonlySet<string>; forceIds?: ReadonlySet<string>; omitRootOnly?: boolean } = {},
+  options: {
+    skipIds?: ReadonlySet<string>;
+    forceIds?: ReadonlySet<string>;
+    omitRootOnly?: boolean;
+  } = {},
 ): RenderPlan {
   // Fill in render-only derived values (prTarget, project.typedLanguage) so
   // managed-block conditions resolve the same whether called from the engine
@@ -217,9 +271,7 @@ export function computeRenderPlan(
   // config. `doctor` surfaces both cases. Applied to core assets only — preset
   // extras / plugin blocks have their own opt-out mechanisms.
   const excludable = new Set<string>(EXCLUDABLE_BLOCK_IDS);
-  const excludeIds = new Set(
-    (config.blocks?.exclude ?? []).filter((id) => excludable.has(id)),
-  );
+  const excludeIds = new Set((config.blocks?.exclude ?? []).filter((id) => excludable.has(id)));
 
   // 1) Core assets
   for (const asset of CORE_MANAGED_ASSETS) {
@@ -278,11 +330,25 @@ export function computeRenderPlan(
     if (resolved.fallback) languageFallbacks.push(asset.id);
     const rawContent = readFileSync(resolved.path, "utf-8");
     const content = interpolateTemplate(rawContent, config);
-    const result = injectManagedSection(working, asset.id, content, {
-      source: CORE_SOURCE_ID,
-      version: NAVORI_VERSION,
-    }, "html", forceIds.has(asset.id));
-    classifyVersionDrift(result, asset.id, CORE_SOURCE_ID, NAVORI_VERSION, updatesAvailable, downgrades);
+    const result = injectManagedSection(
+      working,
+      asset.id,
+      content,
+      {
+        source: CORE_SOURCE_ID,
+        version: NAVORI_VERSION,
+      },
+      "html",
+      forceIds.has(asset.id),
+    );
+    classifyVersionDrift(
+      result,
+      asset.id,
+      CORE_SOURCE_ID,
+      NAVORI_VERSION,
+      updatesAvailable,
+      downgrades,
+    );
     entries.push({
       asset,
       source: "core",
@@ -331,11 +397,25 @@ export function computeRenderPlan(
         const absPath = resolve(loaded.assetRoot, extra.relPath);
         const rawContent = readFileSync(absPath, "utf-8");
         const content = interpolateTemplate(rawContent, config);
-        const result = injectManagedSection(working, extra.id, content, {
-          source: CORE_SOURCE_ID,
-          version: NAVORI_VERSION,
-        }, "html", forceIds.has(extra.id));
-        classifyVersionDrift(result, extra.id, CORE_SOURCE_ID, NAVORI_VERSION, updatesAvailable, downgrades);
+        const result = injectManagedSection(
+          working,
+          extra.id,
+          content,
+          {
+            source: CORE_SOURCE_ID,
+            version: NAVORI_VERSION,
+          },
+          "html",
+          forceIds.has(extra.id),
+        );
+        classifyVersionDrift(
+          result,
+          extra.id,
+          CORE_SOURCE_ID,
+          NAVORI_VERSION,
+          updatesAvailable,
+          downgrades,
+        );
         entries.push({
           asset: { id: extra.id, relPath: extra.relPath },
           source: loaded.def.id,
@@ -376,11 +456,25 @@ export function computeRenderPlan(
         if (skipIds.has(entry.id)) continue;
         const rawContent = readFileSync(entry.absPath, "utf-8");
         const content = interpolateTemplate(rawContent, config);
-        const result = injectManagedSection(working, entry.id, content, {
-          source: pluginSource,
-          version: NAVORI_VERSION,
-        }, "html", forceIds.has(entry.id));
-        classifyVersionDrift(result, entry.id, pluginSource, NAVORI_VERSION, updatesAvailable, downgrades);
+        const result = injectManagedSection(
+          working,
+          entry.id,
+          content,
+          {
+            source: pluginSource,
+            version: NAVORI_VERSION,
+          },
+          "html",
+          forceIds.has(entry.id),
+        );
+        classifyVersionDrift(
+          result,
+          entry.id,
+          pluginSource,
+          NAVORI_VERSION,
+          updatesAvailable,
+          downgrades,
+        );
         entries.push({
           asset: { id: entry.id, relPath: entry.absPath },
           source: plugin.manifest.id,
@@ -438,7 +532,11 @@ const CLAUDE_COMPUTED_BLOCK_IDS = [
  * layout. Ids whose block is conditionally absent (condition false / plugin
  * disabled) are dropped — harmless, since an absent id never matches a block.
  */
-export function canonicalManagedOrder(config: NavoriConfig, repoRoot: string, omitRootOnly = false): string[] {
+export function canonicalManagedOrder(
+  config: NavoriConfig,
+  repoRoot: string,
+  omitRootOnly = false,
+): string[] {
   const plan = computeRenderPlan("", config, repoRoot, { omitRootOnly });
   const ids = plan.entries
     .filter((entry) => entry.newContent !== null)

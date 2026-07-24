@@ -240,7 +240,9 @@ function stripOrphanMarkers(existing: string, id: string, syntax: MarkerSyntax):
   // have shifted them. The number of opens hasn't changed (we didn't touch
   // any), but their indices may differ if removed close was before them.
   // For simplicity: re-find opens in the cleaned string.
-  const openMatchesAfter = [...cleaned.matchAll(openRegex)].map((m) => m.index ?? -1).filter((i) => i >= 0);
+  const openMatchesAfter = [...cleaned.matchAll(openRegex)]
+    .map((m) => m.index ?? -1)
+    .filter((i) => i >= 0);
   const opensToStrip = openMatchesAfter.slice(-orphanOpens);
   for (let i = opensToStrip.length - 1; i >= 0; i--) {
     const idx = opensToStrip[i]!;
@@ -315,11 +317,12 @@ export function injectManagedSection(
       const tail = tailRaw.startsWith("\n") ? tailRaw : "\n" + tailRaw;
       return { output: head + "\n\n" + block + tail, status: "created", details };
     }
-    const sep = existing.length === 0 || existing.endsWith("\n\n")
-      ? ""
-      : existing.endsWith("\n")
-        ? "\n"
-        : "\n\n";
+    const sep =
+      existing.length === 0 || existing.endsWith("\n\n")
+        ? ""
+        : existing.endsWith("\n")
+          ? "\n"
+          : "\n\n";
     return { output: existing + sep + block + "\n", status: "created", details };
   }
 
@@ -382,8 +385,7 @@ export function injectManagedSection(
   }
 
   const block = buildBlock(id, newHash, meta, syntax, canonicalContent);
-  const replaced =
-    existing.slice(0, match.openStart) + block + existing.slice(match.closeEnd);
+  const replaced = existing.slice(0, match.openStart) + block + existing.slice(match.closeEnd);
   return { output: replaced, status: "updated", details };
 }
 
@@ -589,7 +591,10 @@ function extractUserProse(raw: string): string {
  * A file with no managed blocks isn't navori-managed yet; the caller owns the
  * coexist/replace decision, so we return it untouched.
  */
-export function splitUserSection(content: string, commentStyle: CommentStyle = "html"): UserSectionSplit {
+export function splitUserSection(
+  content: string,
+  commentStyle: CommentStyle = "html",
+): UserSectionSplit {
   const syntax = syntaxFor(commentStyle);
   const blocks = locateManagedBlocks(content, syntax);
   if (blocks.length === 0) {
@@ -612,7 +617,8 @@ export function splitUserSection(content: string, commentStyle: CommentStyle = "
  */
 export function emitUserSection(managed: string, userBody: string | null): string {
   const base = managed.replace(/\s+$/, "");
-  const inner = userBody === null || userBody.trim() === "" ? USER_SECTION_PLACEHOLDER : userBody.trim();
+  const inner =
+    userBody === null || userBody.trim() === "" ? USER_SECTION_PLACEHOLDER : userBody.trim();
   return `${base}\n\n${USER_SECTION_START}\n\n${inner}\n\n${USER_SECTION_END}\n`;
 }
 
@@ -620,10 +626,7 @@ export function emitUserSection(managed: string, userBody: string | null): strin
  * Resolve a config path like "plugins.engram.enabled" against a config object
  * to a truthy/falsy value. Returns false if any segment is missing.
  */
-export function resolveCondition(
-  config: Record<string, unknown>,
-  path: string,
-): boolean {
+export function resolveCondition(config: Record<string, unknown>, path: string): boolean {
   const segments = path.split(".");
   let cursor: unknown = config;
   for (const seg of segments) {

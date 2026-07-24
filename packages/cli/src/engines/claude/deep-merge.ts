@@ -9,10 +9,7 @@
  *
  * Inputs are not mutated.
  */
-export function deepMerge<T extends Record<string, unknown>>(
-  base: T,
-  override: Partial<T>,
-): T {
+export function deepMerge<T extends Record<string, unknown>>(base: T, override: Partial<T>): T {
   const result: Record<string, unknown> = { ...base };
   for (const key of Object.keys(override)) {
     const baseVal = result[key];

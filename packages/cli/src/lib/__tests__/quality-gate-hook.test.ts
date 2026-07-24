@@ -122,7 +122,7 @@ describe("quality-gate hook — declared runner present", () => {
     expect(r.stderr).toContain("running quality-gate fast");
   });
 
-  it("does NOT trigger on a quoted `echo \"git commit\"` (not a real invocation)", () => {
+  it('does NOT trigger on a quoted `echo "git commit"` (not a real invocation)', () => {
     fakeBin("pnpm", 0);
     const r = runHook(installHook("pnpm run typecheck"), 'echo "git commit"');
     expect(r.status).toBe(0);

@@ -86,7 +86,9 @@ const initSubCommand = defineCommand({
     const written = writeWorkspace(workspace);
     p.log.success(`Wrote ${written}`);
     p.log.message(`Tickets directory: ${workspaceDirectory(name)}/tickets/`);
-    p.outro(`Run 'navori workspace show ${name}' to inspect, or add it to a repo with 'navori init --workspace ${name}'.`);
+    p.outro(
+      `Run 'navori workspace show ${name}' to inspect, or add it to a repo with 'navori init --workspace ${name}'.`,
+    );
   },
 });
 
@@ -208,7 +210,8 @@ const showSubCommand = defineCommand({
       const collisions = [...byConfigName.entries()].filter(([, repos]) => repos.length > 1);
       if (collisions.length > 0) {
         const lines = collisions.map(
-          ([name, repos]) => `  ${color.red(sym.fail)} ${accent(name)} ${dim("←")} ${repos.join(", ")}`,
+          ([name, repos]) =>
+            `  ${color.red(sym.fail)} ${accent(name)} ${dim("←")} ${repos.join(", ")}`,
         );
         p.log.warn(
           `Colisión de name entre repos (mismo config.name) — renómbralos en su package.json / ` +
@@ -216,7 +219,9 @@ const showSubCommand = defineCommand({
         );
       }
       if (placeholders.length > 0) {
-        const lines = placeholders.map((pl) => `  ${color.yellow("!")} ${accent(pl.repo)} ${dim("→")} '${pl.name}'`);
+        const lines = placeholders.map(
+          (pl) => `  ${color.yellow("!")} ${accent(pl.repo)} ${dim("→")} '${pl.name}'`,
+        );
         p.log.warn(`Names placeholder (scaffold sin renombrar):\n${lines.join("\n")}`);
       }
     }
@@ -253,7 +258,9 @@ const renameSubCommand = defineCommand({
       process.exit(1);
     }
     if (loadWorkspace(to)) {
-      console.error(`Workspace '${to}' already exists. Choose a different name or delete it first.`);
+      console.error(
+        `Workspace '${to}' already exists. Choose a different name or delete it first.`,
+      );
       process.exit(1);
     }
 

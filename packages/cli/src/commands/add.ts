@@ -96,7 +96,9 @@ export const addCommand = defineCommand({
       p.intro(brand("add --suggest"));
     } else if (!args.plugin) {
       p.intro(brand("add"));
-      p.cancel("Pasa un plugin id (ej. 'navori add engram') o usa --suggest para ver recomendaciones.");
+      p.cancel(
+        "Pasa un plugin id (ej. 'navori add engram') o usa --suggest para ver recomendaciones.",
+      );
       process.exit(1);
     } else {
       p.intro(brand(`add ${accent(args.plugin)}`));
@@ -125,7 +127,9 @@ export const addCommand = defineCommand({
       plugin = loadPlugin(pluginId);
     } catch (err) {
       if (err instanceof PluginNotFoundError) {
-        p.cancel(`Unknown plugin '${pluginId}'. Known: ${listKnownPluginIds().join(", ") || "(none)"}`);
+        p.cancel(
+          `Unknown plugin '${pluginId}'. Known: ${listKnownPluginIds().join(", ") || "(none)"}`,
+        );
         process.exit(1);
       }
       if (err instanceof PluginManifestError) {

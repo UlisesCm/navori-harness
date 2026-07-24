@@ -9,8 +9,7 @@ export type Lang = keyof typeof languages;
 
 export const ui = {
   es: {
-    "site.tagline":
-      "El harness multi-agente para cualquier repo",
+    "site.tagline": "El harness multi-agente para cualquier repo",
     "nav.docs": "Docs",
     "nav.quickstart": "Quickstart",
     "nav.deepdive": "A fondo",
@@ -53,7 +52,8 @@ export const ui = {
     "how.layer3.name": "Workspace",
     "how.layer3.body": "Reglas de toda tu organización compartidas entre repos.",
     "how.layer4.name": "Project",
-    "how.layer4.body": "Lo específico del repo en navori.config.json, incluidos los plugins que habilitas.",
+    "how.layer4.body":
+      "Lo específico del repo en navori.config.json, incluidos los plugins que habilitas.",
     "how.layer5.name": "Adapters",
     "how.layer5.body": "Renderizado por engine. Hoy Claude Code; multi-engine en el roadmap.",
     "how.config.label": "navori.config.json",
@@ -80,10 +80,8 @@ export const ui = {
       "Reconstruye CLAUDE.md y .claude/ desde el config. Preview por default; --apply escribe.",
     "commands.sync.desc":
       "Actualiza solo los bloques managed. Con --interactive resuelves cada conflicto por bloque.",
-    "commands.doctor.desc":
-      "Audit: drift, plugins rotos, invariants y próximos pasos sugeridos.",
-    "commands.status.desc":
-      "Snapshot al vuelo: config, plugins, drift y qué hacer ahora.",
+    "commands.doctor.desc": "Audit: drift, plugins rotos, invariants y próximos pasos sugeridos.",
+    "commands.status.desc": "Snapshot al vuelo: config, plugins, drift y qué hacer ahora.",
     "commands.bench.desc":
       "Mide render sobre N corridas y reporta p50/p95. Detecta regresiones locales.",
     "commands.preset.desc":
@@ -120,14 +118,12 @@ export const ui = {
     "faq.a4":
       "No. navori es un scaffolder. Genera el harness para Claude Code, pero la herramienta corre en cualquier Node 20+.",
     "faq.q5": "¿Cómo actualizo mi proyecto cuando sale una versión nueva?",
-    "faq.a5":
-      "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código.",
+    "faq.a5": "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código.",
     "faq.q6": "¿No sale caro correr un harness multi-agente?",
     "faq.a6":
       "Menos de lo que parece. Cada agente se rendea con su modelo y effort: opus/xhigh solo para el juicio (el leader), sonnet para implementación y review, haiku/low para lo mecánico — el trabajo mecánico no corre al precio del de juicio. Sumado a la disciplina de output y a los gates de calidad que corren solo cuando corresponde (y en paralelo), el harness cuesta bastante menos por sesión que poner todo en el modelo más caro.",
 
-    "footer.tagline":
-      "Open source, MIT. Hecho por developers que trabajan con muchos repos.",
+    "footer.tagline": "Open source, MIT. Hecho por developers que trabajan con muchos repos.",
     "footer.links": "Enlaces",
     "footer.legal": "Licencia",
   },
@@ -175,10 +171,10 @@ export const ui = {
     "how.layer3.name": "Workspace",
     "how.layer3.body": "Org-wide rules shared across repos.",
     "how.layer4.name": "Project",
-    "how.layer4.body": "What's unique to this repo in navori.config.json, including the plugins you enable.",
+    "how.layer4.body":
+      "What's unique to this repo in navori.config.json, including the plugins you enable.",
     "how.layer5.name": "Adapters",
-    "how.layer5.body":
-      "Per-engine rendering. Claude Code today; multi-engine on the roadmap.",
+    "how.layer5.body": "Per-engine rendering. Claude Code today; multi-engine on the roadmap.",
     "how.config.label": "navori.config.json",
 
     "flow.eyebrow": "Live",
@@ -203,12 +199,9 @@ export const ui = {
       "Rebuilds CLAUDE.md and .claude/ from the config. Preview by default; --apply writes.",
     "commands.sync.desc":
       "Updates only managed blocks. With --interactive you resolve each conflict block by block.",
-    "commands.doctor.desc":
-      "Audit: drift, broken plugins, invariants and suggested next steps.",
-    "commands.status.desc":
-      "At-a-glance snapshot: config, plugins, drift, and what to do next.",
-    "commands.bench.desc":
-      "Times render over N runs and reports p50/p95. Spots local regressions.",
+    "commands.doctor.desc": "Audit: drift, broken plugins, invariants and suggested next steps.",
+    "commands.status.desc": "At-a-glance snapshot: config, plugins, drift, and what to do next.",
+    "commands.bench.desc": "Times render over N runs and reports p50/p95. Spots local regressions.",
     "commands.preset.desc":
       "Scaffolds a local preset under .navori/presets/ when your stack has no official one; wires it into the config.",
 
@@ -222,11 +215,9 @@ export const ui = {
     "quickstart.step1.title": "Install",
     "quickstart.step1.body": "No global install needed. Use npx.",
     "quickstart.step2.title": "Initialize",
-    "quickstart.step2.body":
-      "Answer a few prompts and get navori.config.json + .claude/ ready.",
+    "quickstart.step2.body": "Answer a few prompts and get navori.config.json + .claude/ ready.",
     "quickstart.step3.title": "Render whenever you change something",
-    "quickstart.step3.body":
-      "Edit the config, run render --apply, commit. Fully idempotent.",
+    "quickstart.step3.body": "Edit the config, run render --apply, commit. Fully idempotent.",
 
     "faq.eyebrow": "FAQ",
     "faq.title": "What you're probably wondering",
@@ -249,8 +240,7 @@ export const ui = {
     "faq.a6":
       "Less than you'd think. Each agent renders with its own model and effort: opus/xhigh only for judgment (the leader), sonnet for implementation and review, haiku/low for mechanical work — mechanical work doesn't run at judgment prices. Together with output discipline and quality gates that fire only when they should (and in parallel), the harness costs far less per session than putting everything on the priciest model.",
 
-    "footer.tagline":
-      "Open source, MIT. Built by developers who juggle many repos.",
+    "footer.tagline": "Open source, MIT. Built by developers who juggle many repos.",
     "footer.links": "Links",
     "footer.legal": "License",
   },

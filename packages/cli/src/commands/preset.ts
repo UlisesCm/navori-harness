@@ -83,9 +83,7 @@ const initSubCommand = defineCommand({
 
     const presetDir = resolve(cwd, ".navori/presets", id);
     if (existsSync(presetDir)) {
-      p.cancel(
-        `Ya existe .navori/presets/${id}/ — bórralo o usa otro id si quieres regenerarlo.`,
-      );
+      p.cancel(`Ya existe .navori/presets/${id}/ — bórralo o usa otro id si quieres regenerarlo.`);
       process.exit(1);
     }
 
@@ -131,7 +129,9 @@ const initSubCommand = defineCommand({
       const config = readConfig(configPath);
       writeConfig(configPath, { ...config, preset: id });
       p.log.success(`navori.config.json → preset: ${accent(id)}`);
-      p.outro(`Listo. Edita la plantilla y corre ${accent("navori render --apply")} para materializarla.`);
+      p.outro(
+        `Listo. Edita la plantilla y corre ${accent("navori render --apply")} para materializarla.`,
+      );
     } else {
       p.log.warn(
         `No hay navori.config.json en ${cwd}. Corre ${accent("navori init")} y elige el preset '${id}' para activarlo.`,

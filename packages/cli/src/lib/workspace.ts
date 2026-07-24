@@ -251,7 +251,9 @@ export function linkRepoToWorkspace(
       action = "unchanged";
     }
     const manifestPath =
-      createdWorkspace || action !== "unchanged" ? writeWorkspace(ws) : workspacePath(workspaceName);
+      createdWorkspace || action !== "unchanged"
+        ? writeWorkspace(ws)
+        : workspacePath(workspaceName);
     return { createdWorkspace, action, manifestPath, ...(previousPath ? { previousPath } : {}) };
   });
 }
@@ -260,7 +262,9 @@ export function linkRepoToWorkspace(
  * Resolve a path from inside a workspace, e.g. "workspace://bonum/tickets/X.md".
  * Returns null if it cannot be resolved (workspace missing, bad scheme, etc.).
  */
-export function resolveWorkspaceUri(uri: string): { workspaceName: string; absPath: string } | null {
+export function resolveWorkspaceUri(
+  uri: string,
+): { workspaceName: string; absPath: string } | null {
   const match = uri.match(/^workspace:\/\/([^/]+)\/(.+)$/);
   if (!match) return null;
   const [, workspaceName = "", relPath = ""] = match;

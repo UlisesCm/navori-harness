@@ -1,4 +1,12 @@
-import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { writeFileAtomic } from "./atomic.ts";
 import { workspaceDirectory, loadWorkspace } from "./workspace.ts";
@@ -167,9 +175,7 @@ function currentProgressPath(repoRoot: string): string {
   const configPath = join(repoRoot, "navori.config.json");
   if (!existsSync(configPath)) return fallback;
   try {
-    const parsed = NavoriConfigSchema.safeParse(
-      JSON.parse(readFileSync(configPath, "utf-8")),
-    );
+    const parsed = NavoriConfigSchema.safeParse(JSON.parse(readFileSync(configPath, "utf-8")));
     if (!parsed.success) return fallback;
     const dir = parsed.data.progress?.dir ?? "progress";
     const file = parsed.data.progress?.currentFile ?? "current.md";

@@ -23,10 +23,7 @@ import { registryCommand } from "./commands/registry.ts";
 function readVersion(): string {
   // dist/index.js → ../package.json (both in dev and published layouts)
   const here = dirname(fileURLToPath(import.meta.url));
-  for (const candidate of [
-    resolve(here, "..", "package.json"),
-    resolve(here, "package.json"),
-  ]) {
+  for (const candidate of [resolve(here, "..", "package.json"), resolve(here, "package.json")]) {
     try {
       const pkg = JSON.parse(readFileSync(candidate, "utf-8")) as { version?: string };
       if (pkg.version) return pkg.version;

@@ -70,7 +70,9 @@ const listSubCommand = defineCommand({
 
     p.intro(brand("backup list"));
     if (backups.length === 0) {
-      p.log.info("No backups found. They are created automatically before each 'sync' or 'render' that modifies files.");
+      p.log.info(
+        "No backups found. They are created automatically before each 'sync' or 'render' that modifies files.",
+      );
       p.outro(dim("Done"));
       return;
     }
@@ -80,7 +82,9 @@ const listSubCommand = defineCommand({
     for (const b of truncated) {
       const date = new Date(b.mtimeMs);
       const ago = dim(humanAge(b.mtimeMs));
-      lines.push(`  ${color.cyan(sym.bullet)} ${accent(b.timestamp)}  ${dim(date.toISOString())}  ${ago}`);
+      lines.push(
+        `  ${color.cyan(sym.bullet)} ${accent(b.timestamp)}  ${dim(date.toISOString())}  ${ago}`,
+      );
       for (const f of b.files) {
         lines.push(`      ${dim(sym.bullet)} ${dim(f)}`);
       }
@@ -99,7 +103,11 @@ const restoreSubCommand = defineCommand({
     description: "Restore files from a backup snapshot to the current directory",
   },
   args: {
-    timestamp: { type: "positional", description: "Backup timestamp (from 'backup list')", required: true },
+    timestamp: {
+      type: "positional",
+      description: "Backup timestamp (from 'backup list')",
+      required: true,
+    },
     cwd: { type: "string", description: "Target directory (default: current)" },
     yes: { type: "boolean", description: "Skip confirmation" },
   },

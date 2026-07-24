@@ -33,14 +33,24 @@ vi.mock("@clack/prompts", () => {
     outro: vi.fn(),
     cancel: vi.fn(),
     spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
-    log: { message: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn(), error: vi.fn(), step: vi.fn() },
+    log: {
+      message: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      success: vi.fn(),
+      error: vi.fn(),
+      step: vi.fn(),
+    },
   };
 });
 
 // migrate.ts moves files into the real ~/.navori/migrations; here we only care
 // that the adoption flow invokes it. The backup mechanics live in migrate.test.ts.
 vi.mock("../lib/migrate.ts", () => ({
-  createMigrationBackup: vi.fn(() => ({ path: "/fake/backup", movedPaths: ["CLAUDE.md", ".claude"] })),
+  createMigrationBackup: vi.fn(() => ({
+    path: "/fake/backup",
+    movedPaths: ["CLAUDE.md", ".claude"],
+  })),
   removeOriginals: vi.fn(),
 }));
 
@@ -78,7 +88,10 @@ describe("sync — resolveConflictsInteractively (interactive conflict resolutio
       newContent: `nuevo ${id}`,
     }));
     return [
-      { target: { label: "root", cwd, repoRoot: cwd, config: {} }, plan: { claudeMdEntries: entries } },
+      {
+        target: { label: "root", cwd, repoRoot: cwd, config: {} },
+        plan: { claudeMdEntries: entries },
+      },
     ] as unknown as TargetPlan[];
   }
 

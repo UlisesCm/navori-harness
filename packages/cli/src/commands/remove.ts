@@ -23,7 +23,11 @@ export const removeCommand = defineCommand({
     description: "Disable a plugin and clean up its managed blocks, sub-blocks and scripts",
   },
   args: {
-    plugin: { type: "positional", description: "Plugin id to remove (e.g. semgrep)", required: true },
+    plugin: {
+      type: "positional",
+      description: "Plugin id to remove (e.g. semgrep)",
+      required: true,
+    },
     cwd: { type: "string", description: "Directory (default: cwd)" },
     yes: { type: "boolean", description: "Skip confirmation" },
   },
@@ -76,7 +80,9 @@ export const removeCommand = defineCommand({
       result = runRender(cwd, false);
     } catch (err) {
       p.log.error(err instanceof Error ? err.message : String(err));
-      p.outro("La limpieza falló durante el render — el plugin quedó como enabled:false. Corre 'navori render --apply'.");
+      p.outro(
+        "La limpieza falló durante el render — el plugin quedó como enabled:false. Corre 'navori render --apply'.",
+      );
       return;
     }
     if (!result.ok) {

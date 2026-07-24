@@ -166,7 +166,10 @@ export function refreshWorkspaceScopes(raw: Record<string, unknown>, cwd: string
   return changed;
 }
 
-function diffConfig(current: NavoriConfig, detected: ReturnType<typeof detectProject>): ConfigDiff[] {
+function diffConfig(
+  current: NavoriConfig,
+  detected: ReturnType<typeof detectProject>,
+): ConfigDiff[] {
   const out: ConfigDiff[] = [];
 
   // Preset
@@ -193,7 +196,9 @@ function diffConfig(current: NavoriConfig, detected: ReturnType<typeof detectPro
 
   // Engines (suggest adding ones detected in the repo, not removing)
   const currentEngines = new Set(current.engines);
-  const newlyDetected = detected.existingEngines.filter((e) => !currentEngines.has(e as typeof current.engines[number]));
+  const newlyDetected = detected.existingEngines.filter(
+    (e) => !currentEngines.has(e as (typeof current.engines)[number]),
+  );
   if (newlyDetected.length > 0) {
     out.push({
       field: "engines",
@@ -235,14 +240,22 @@ function diffConfig(current: NavoriConfig, detected: ReturnType<typeof detectPro
   if (detectedLang && detectedLang !== "unknown") {
     const currentLang = current.project?.codeLanguage;
     if (currentLang !== detectedLang) {
-      out.push({ field: "project.codeLanguage", before: currentLang ?? "(none)", after: detectedLang });
+      out.push({
+        field: "project.codeLanguage",
+        before: currentLang ?? "(none)",
+        after: detectedLang,
+      });
     }
   }
 
   return out;
 }
 
-function applyDiffs(raw: Record<string, unknown>, detected: ReturnType<typeof detectProject>, diffs: ConfigDiff[]): void {
+function applyDiffs(
+  raw: Record<string, unknown>,
+  detected: ReturnType<typeof detectProject>,
+  diffs: ConfigDiff[],
+): void {
   for (const d of diffs) {
     if (d.field === "preset") {
       raw.preset = detected.suggestedPreset;
@@ -251,7 +264,7 @@ function applyDiffs(raw: Record<string, unknown>, detected: ReturnType<typeof de
     } else if (d.field === "branchBase") {
       raw.branchBase = detected.branchBase;
     } else if (d.field === "engines") {
-      const currentEngines = new Set(((raw.engines as string[]) ?? []));
+      const currentEngines = new Set((raw.engines as string[]) ?? []);
       for (const e of detected.existingEngines) currentEngines.add(e);
       raw.engines = [...currentEngines];
     } else if (d.field === "project.libraries") {
@@ -260,7 +273,10 @@ function applyDiffs(raw: Record<string, unknown>, detected: ReturnType<typeof de
       // Apply the reconciled merge (adopt new, preserve overrides), not raw
       // detection — recomputed here from `raw` for the same deterministic result.
       const rawProject = raw.project as { libraryMigrations?: MigrationEntry[] } | undefined;
-      const { merged } = mergeLibraryMigrations(rawProject?.libraryMigrations ?? [], detected.migrations);
+      const { merged } = mergeLibraryMigrations(
+        rawProject?.libraryMigrations ?? [],
+        detected.migrations,
+      );
       raw.project = withProject(raw.project, { libraryMigrations: merged });
     } else if (d.field === "project.codeLanguage") {
       raw.project = withProject(raw.project, { codeLanguage: detected.stack.language });
@@ -336,14 +352,20 @@ export const updateCommand = defineCommand({
     const preview = runRender(cwd, true);
     const agg = aggregateRender(preview);
 
-    if (!willWriteConfig && agg.writes.length === 0 && agg.conflicts.length === 0 && agg.downgrades.length === 0) {
+    if (
+      !willWriteConfig &&
+      agg.writes.length === 0 &&
+      agg.conflicts.length === 0 &&
+      agg.downgrades.length === 0
+    ) {
       p.outro("Up to date — nothing to update");
       return;
     }
 
     if (diffs.length > 0) {
       const lines = diffs.map(
-        (d) => `  ${color.yellow(sym.updated)} ${accent(d.field)}${dim(":")} ${color.red(d.before)} ${dim("→")} ${color.green(d.after)}`,
+        (d) =>
+          `  ${color.yellow(sym.updated)} ${accent(d.field)}${dim(":")} ${color.red(d.before)} ${dim("→")} ${color.green(d.after)}`,
       );
       p.log.info(`Config drift detected (${diffs.length}):\n${lines.join("\n")}`);
     } else if (!wsScopesChanged) {
@@ -351,7 +373,9 @@ export const updateCommand = defineCommand({
     }
 
     if (wsScopesChanged) {
-      p.log.info("Re-homed per-workspace library skills onto monorepo.workspaces[] (scoping migration)");
+      p.log.info(
+        "Re-homed per-workspace library skills onto monorepo.workspaces[] (scoping migration)",
+      );
     }
 
     if (deadKeys.length > 0) {
@@ -361,20 +385,28 @@ export const updateCommand = defineCommand({
     if (agg.writes.length > 0) {
       const shown = agg.writes
         .slice(0, 12)
-        .map((w) => `  ${color.cyan(sym.update)} ${dim(`[${w.scope}]`)} ${w.path} ${dim(`(${w.status})`)}`);
+        .map(
+          (w) =>
+            `  ${color.cyan(sym.update)} ${dim(`[${w.scope}]`)} ${w.path} ${dim(`(${w.status})`)}`,
+        );
       const more = agg.writes.length > 12 ? `\n  ${dim(`… +${agg.writes.length - 12} más`)}` : "";
-      p.log.info(`Archivos que se actualizarían (${agg.writes.length}):\n${shown.join("\n")}${more}`);
+      p.log.info(
+        `Archivos que se actualizarían (${agg.writes.length}):\n${shown.join("\n")}${more}`,
+      );
     }
 
     if (agg.updates.length > 0) {
       const lines = agg.updates.map(
-        (u) => `  ${color.cyan(sym.update)} ${u.id}  ${dim(`(${u.source}  ${u.fromVersion} → ${u.toVersion})`)}`,
+        (u) =>
+          `  ${color.cyan(sym.update)} ${u.id}  ${dim(`(${u.source}  ${u.fromVersion} → ${u.toVersion})`)}`,
       );
       p.log.info(`Managed block updates available (${agg.updates.length}):\n${lines.join("\n")}`);
     }
 
     if (agg.conflicts.length > 0) {
-      p.log.warn(`${agg.conflicts.length} archivo(s) con ediciones tuyas — 'navori sync' los resuelve interactivamente`);
+      p.log.warn(
+        `${agg.conflicts.length} archivo(s) con ediciones tuyas — 'navori sync' los resuelve interactivamente`,
+      );
     }
 
     // Anti-retroceso (#79): shown even with --yes — a silent downgrade is the
@@ -385,7 +417,9 @@ export const updateCommand = defineCommand({
     if (args["dry-run"]) {
       if (diffs.some((d) => d.field === "project.libraries")) {
         p.log.message(
-          dim("Nota: aplicar el diff de project.libraries materializa las library skills (el preview de arriba refleja el config actual)."),
+          dim(
+            "Nota: aplicar el diff de project.libraries materializa las library skills (el preview de arriba refleja el config actual).",
+          ),
         );
       }
       p.outro("Dry-run complete (no files written)");
@@ -434,7 +468,9 @@ export const updateCommand = defineCommand({
       // config updated and the tree partial. Surface a clean message with the
       // backup breadcrumb the engine's RenderWriteError carries (#79).
       p.log.error(err instanceof Error ? err.message : String(err));
-      p.outro("El render falló tras actualizar el config — revisa el backup y corre 'navori render --apply'");
+      p.outro(
+        "El render falló tras actualizar el config — revisa el backup y corre 'navori render --apply'",
+      );
       return;
     }
     if (!result.ok) {
@@ -447,12 +483,16 @@ export const updateCommand = defineCommand({
     registerRepoSafe(cwd, detected.name);
     const applied = aggregateRender(result);
     if (applied.conflicts.length > 0) {
-      p.log.warn(`${applied.conflicts.length} archivo(s) con ediciones tuyas no se tocaron — 'navori sync' para resolver`);
+      p.log.warn(
+        `${applied.conflicts.length} archivo(s) con ediciones tuyas no se tocaron — 'navori sync' para resolver`,
+      );
     }
     const applyDowngradeWarn = formatDowngradeWarning(applied.downgrades);
     if (applyDowngradeWarn) p.log.warn(applyDowngradeWarn);
     if (applied.writes.length > 0) {
-      p.log.success(`Re-rendered ${applied.writes.length} archivo(s) (CLAUDE.md + .claude/, incluidos workspaces)`);
+      p.log.success(
+        `Re-rendered ${applied.writes.length} archivo(s) (CLAUDE.md + .claude/, incluidos workspaces)`,
+      );
     } else {
       p.log.info("No re-render needed");
     }

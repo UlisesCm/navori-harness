@@ -69,7 +69,9 @@ describe("core agent assets — shape contract", () => {
       });
 
       it("contains the user-section sentinel exactly once", () => {
-        const count = (raw.match(new RegExp(SENTINEL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length;
+        const count = (
+          raw.match(new RegExp(SENTINEL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []
+        ).length;
         expect(count).toBe(1);
       });
 
@@ -95,9 +97,7 @@ describe("core agent assets — shape contract", () => {
 
 describe("core agent assets — interpolation placeholders", () => {
   it("at least one agent references qualityGate (proves wiring path exists)", () => {
-    const anyRefs = AGENT_IDS.some((id) =>
-      readAgent(id).includes("{{qualityGate."),
-    );
+    const anyRefs = AGENT_IDS.some((id) => readAgent(id).includes("{{qualityGate."));
     expect(anyRefs).toBe(true);
   });
 
@@ -111,9 +111,7 @@ describe("core agent assets — interpolation placeholders", () => {
   });
 
   it("at least one agent references project.criticalAreas", () => {
-    const anyRefs = AGENT_IDS.some((id) =>
-      readAgent(id).includes("{{project.criticalAreas}}"),
-    );
+    const anyRefs = AGENT_IDS.some((id) => readAgent(id).includes("{{project.criticalAreas}}"));
     expect(anyRefs).toBe(true);
   });
 });

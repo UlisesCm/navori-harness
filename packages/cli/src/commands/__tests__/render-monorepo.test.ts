@@ -59,7 +59,10 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
 
     // qualityGate override applied per workspace: backend embeds its own command,
     // storefront inherits the root one.
-    const backendHook = readFileSync(join(cwd, "apps/backend/.claude/hooks/quality-gate-pre-commit.sh"), "utf-8");
+    const backendHook = readFileSync(
+      join(cwd, "apps/backend/.claude/hooks/quality-gate-pre-commit.sh"),
+      "utf-8",
+    );
     expect(backendHook).toContain("pnpm -F backend lint");
     expect(backendHook).not.toContain("pnpm -w lint");
     // Defensive wrapping (spec 0003 §3.6.4): skip cleanly if the runtime is absent.
@@ -472,7 +475,9 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
       expect(existsSync(join(cwd, "apps/backend/.github/copilot-instructions.md"))).toBe(true);
 
       const root = (result.extraEngines ?? []).find((e) => e.engine === "copilot");
-      expect(root?.written).toEqual([{ path: ".github/copilot-instructions.md", status: "created" }]);
+      expect(root?.written).toEqual([
+        { path: ".github/copilot-instructions.md", status: "created" },
+      ]);
     });
 
     it("--workspace X also renders copilot for that workspace", () => {
@@ -483,7 +488,9 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
       // Root and the other workspace stay untouched.
       expect(existsSync(join(cwd, ".github/copilot-instructions.md"))).toBe(false);
       const eng = (result.extraEngines ?? []).find((e) => e.engine === "copilot");
-      expect(eng?.written).toEqual([{ path: ".github/copilot-instructions.md", status: "created" }]);
+      expect(eng?.written).toEqual([
+        { path: ".github/copilot-instructions.md", status: "created" },
+      ]);
     });
   });
 });

@@ -94,12 +94,8 @@ export function detectClaudeInfra(cwd: string): ClaudeInfraInventory {
   const hasFeatureList = existsSync(join(cwd, "feature_list.json"));
   const hasNavoriConfig = existsSync(join(cwd, "navori.config.json"));
 
-  const progressFiles = existsSync(join(cwd, "progress"))
-    ? countFilesIn(join(cwd, "progress"))
-    : 0;
-  const specsDirs = existsSync(join(cwd, "specs"))
-    ? countSubdirs(join(cwd, "specs"))
-    : 0;
+  const progressFiles = existsSync(join(cwd, "progress")) ? countFilesIn(join(cwd, "progress")) : 0;
+  const specsDirs = existsSync(join(cwd, "specs")) ? countSubdirs(join(cwd, "specs")) : 0;
 
   const present =
     agentFiles.length > 0 ||

@@ -40,7 +40,9 @@ describe("computeRenderPlan forceIds / skipIds (spec 0003 §3.1.4)", () => {
     expect(forced.next).toContain("Tech Lead Senior");
 
     // keep-mine (skipIds): block left untouched (not even inspected).
-    const kept = computeRenderPlan(modified, config, repoRoot, { skipIds: new Set(["idioma-rol"]) });
+    const kept = computeRenderPlan(modified, config, repoRoot, {
+      skipIds: new Set(["idioma-rol"]),
+    });
     expect(kept.next).toContain("USER-EDIT-XYZ");
     expect(kept.entries.find((e) => e.asset.id === "idioma-rol")).toBeUndefined();
   });

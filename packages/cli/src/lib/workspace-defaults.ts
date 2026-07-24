@@ -38,7 +38,10 @@ export function applyDefault(
     const id = pluginMatch[1]!;
     const enabled = parseBool(rawValue);
     if (enabled === null) {
-      return { ok: false, error: `Value for '${key}' must be 'true' or 'false', got '${rawValue}'.` };
+      return {
+        ok: false,
+        error: `Value for '${key}' must be 'true' or 'false', got '${rawValue}'.`,
+      };
     }
     next.plugins = { ...(current.plugins ?? {}), [id]: { enabled } };
   } else if (key === "engines") {
@@ -47,7 +50,12 @@ export function applyDefault(
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-  } else if (key === "branchBase" || key === "prTarget" || key === "commits" || key === "language") {
+  } else if (
+    key === "branchBase" ||
+    key === "prTarget" ||
+    key === "commits" ||
+    key === "language"
+  ) {
     next[key] = rawValue;
   } else {
     return { ok: false, error: `Unknown default key '${key}'. Valid keys: ${VALID_DEFAULT_KEYS}.` };

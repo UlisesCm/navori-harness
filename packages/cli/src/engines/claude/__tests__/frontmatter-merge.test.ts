@@ -21,9 +21,7 @@ describe("mergeFrontmatter", () => {
     const asset = { name: "leader", description: "d", tools: "t" };
     const dest = { customField: "c", name: "leader" };
     const { serialized } = mergeFrontmatter(asset, dest);
-    expect(serialized).toBe(
-      "---\nname: leader\ndescription: d\ntools: t\ncustomField: c\n---",
-    );
+    expect(serialized).toBe("---\nname: leader\ndescription: d\ntools: t\ncustomField: c\n---");
   });
 
   it("works when dest has no extras (clean overwrite)", () => {

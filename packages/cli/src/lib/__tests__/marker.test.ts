@@ -54,7 +54,13 @@ describe("injectManagedSection", () => {
       "user prose at the very end",
       "",
     ].join("\n");
-    const result = injectManagedSection(existing, "a", "content A", { source: "@navori/core", version: "0.2.22" }, "html");
+    const result = injectManagedSection(
+      existing,
+      "a",
+      "content A",
+      { source: "@navori/core", version: "0.2.22" },
+      "html",
+    );
     expect(result.status).toBe("updated");
     expect(result.output).toContain('id="b"');
     expect(result.output).toContain("content B");
@@ -88,7 +94,11 @@ describe("injectManagedSection", () => {
   it("detects user modification and skips overwrite", () => {
     const first = injectManagedSection("", "idioma-rol", CONTENT);
     const modified = first.output.replace("inglés", "CHANGED-BY-USER");
-    const next = injectManagedSection(modified, "idioma-rol", "## Idioma y rol\n\n- New content.\n");
+    const next = injectManagedSection(
+      modified,
+      "idioma-rol",
+      "## Idioma y rol\n\n- New content.\n",
+    );
     expect(next.status).toBe("user-modified-skipped");
     expect(next.output).toBe(modified);
     expect(next.output).toContain("CHANGED-BY-USER");
@@ -178,8 +188,7 @@ describe("injectManagedSection", () => {
   });
 
   it("cleans an orphan close marker (no matching open) before injecting", () => {
-    const corrupted =
-      "Some pre-existing content\n\n<!-- /navori:managed id=\"y\" -->\n\nmore\n";
+    const corrupted = 'Some pre-existing content\n\n<!-- /navori:managed id="y" -->\n\nmore\n';
     const result = injectManagedSection(corrupted, "y", "Hello\n");
     expect(result.status).toBe("created");
     const closeCount = (result.output.match(/<!-- \/navori:managed id="y" -->/g) ?? []).length;
@@ -212,13 +221,12 @@ describe("injectManagedSection", () => {
   // interleaved between blocks (which would block reorderManagedBlocks forever).
   describe("new block insertion with trailing user prose (#77)", () => {
     it("inserts the new block after the last managed block, before user prose", () => {
-      const base = injectManagedSection("", "a", "Block A\n").output + "\n## Mis notas\n\n- nota propia\n";
+      const base =
+        injectManagedSection("", "a", "Block A\n").output + "\n## Mis notas\n\n- nota propia\n";
       const result = injectManagedSection(base, "b", "Block B\n");
       expect(result.status).toBe("created");
       // Block B sits between block A and the prose.
-      expect(result.output).toMatch(
-        /id="a".*Block B.*## Mis notas/s,
-      );
+      expect(result.output).toMatch(/id="a".*Block B.*## Mis notas/s);
       expect(result.output.indexOf('id="b"')).toBeLessThan(result.output.indexOf("## Mis notas"));
       // Prose survives verbatim at the end.
       expect(result.output.trimEnd().endsWith("- nota propia")).toBe(true);
@@ -255,7 +263,9 @@ describe("injectManagedSection", () => {
         "\n# user: custom tail\n";
       const result = injectManagedSection(base, "b", "echo b\n", {}, "shell");
       expect(result.status).toBe("created");
-      expect(result.output.indexOf('end id="b"')).toBeLessThan(result.output.indexOf("# user: custom tail"));
+      expect(result.output.indexOf('end id="b"')).toBeLessThan(
+        result.output.indexOf("# user: custom tail"),
+      );
     });
   });
 
@@ -407,7 +417,7 @@ describe("injectManagedSection — shell commentStyle", () => {
   });
 
   it("ignores text containing 'navori:managed' that is not a real marker", () => {
-    const noisy = '# A comment mentioning navori:managed-something\necho hello\n';
+    const noisy = "# A comment mentioning navori:managed-something\necho hello\n";
     const result = injectManagedSection(noisy, "x", SHELL_BODY, {}, "shell");
     expect(result.status).toBe("created");
     expect(result.output).toMatch(/A comment mentioning/);
@@ -540,7 +550,12 @@ describe("reorderManagedBlocks", () => {
 
 describe("splitUserSection / emitUserSection", () => {
   const managedDoc = (ids: string[]) =>
-    ids.map((id) => `<!-- navori:managed id="${id}" hash="h" -->\nbody ${id}\n<!-- /navori:managed id="${id}" -->`).join("\n\n");
+    ids
+      .map(
+        (id) =>
+          `<!-- navori:managed id="${id}" hash="h" -->\nbody ${id}\n<!-- /navori:managed id="${id}" -->`,
+      )
+      .join("\n\n");
 
   it("returns userBody=null and hadMarkers=false for a managed doc with no user zone", () => {
     const doc = managedDoc(["a", "b"]);

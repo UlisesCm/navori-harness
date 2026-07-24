@@ -31,7 +31,9 @@ export interface LockOptions {
 
 export class LockTimeoutError extends Error {
   constructor(lockPath: string, timeoutMs: number) {
-    super(`Timed out after ${timeoutMs}ms waiting for lock ${lockPath} (another navori process may be stuck).`);
+    super(
+      `Timed out after ${timeoutMs}ms waiting for lock ${lockPath} (another navori process may be stuck).`,
+    );
     this.name = "LockTimeoutError";
   }
 }

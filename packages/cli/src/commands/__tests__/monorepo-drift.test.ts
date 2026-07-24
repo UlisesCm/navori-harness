@@ -46,10 +46,13 @@ describe("scanMonorepoDrift", () => {
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), "packages:\n  - 'apps/*'\n");
     makeWorkspace("apps/backend", "backend");
 
-    const drift = scanMonorepoDrift(cwd, config([
-      { name: "backend", path: "apps/backend" },
-      { name: "ghost", path: "apps/ghost" },
-    ]));
+    const drift = scanMonorepoDrift(
+      cwd,
+      config([
+        { name: "backend", path: "apps/backend" },
+        { name: "ghost", path: "apps/ghost" },
+      ]),
+    );
     expect(drift?.orphan).toEqual(["apps/ghost"]);
     expect(drift?.added).toEqual([]);
     expect(drift?.emptyDeclared).toBe(false);

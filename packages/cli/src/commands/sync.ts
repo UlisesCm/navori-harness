@@ -12,7 +12,15 @@ import {
 } from "../lib/monorepo.ts";
 import { extractManagedContent } from "../lib/marker.ts";
 import { formatLineDiff } from "../lib/diff.ts";
-import { renderStatusSymbol, renderStatusLabel, dim, color, sym, brand, accent } from "../lib/style.ts";
+import {
+  renderStatusSymbol,
+  renderStatusLabel,
+  dim,
+  color,
+  sym,
+  brand,
+  accent,
+} from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 
 /**
@@ -33,7 +41,8 @@ import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 export const syncCommand = defineCommand({
   meta: {
     name: "sync",
-    description: "Sync managed blocks from the bundle into CLAUDE.md and .claude/, prompting on conflicts",
+    description:
+      "Sync managed blocks from the bundle into CLAUDE.md and .claude/, prompting on conflicts",
   },
   args: {
     cwd: { type: "string", description: "Directory to sync (default: cwd)" },
@@ -44,7 +53,10 @@ export const syncCommand = defineCommand({
       description:
         "Resolve each CLAUDE.md conflict one by one: see the diff and pick keep-mine or accept-new.",
     },
-    yes: { type: "boolean", description: "Auto-confirm. Implies --apply. Fails with exit 1 if conflicts exist." },
+    yes: {
+      type: "boolean",
+      description: "Auto-confirm. Implies --apply. Fails with exit 1 if conflicts exist.",
+    },
     workspace: {
       type: "string",
       description:
@@ -52,7 +64,8 @@ export const syncCommand = defineCommand({
     },
     json: {
       type: "boolean",
-      description: "Emit a machine-readable JSON result and suppress human output (for CI/automation).",
+      description:
+        "Emit a machine-readable JSON result and suppress human output (for CI/automation).",
     },
   },
   async run({ args }) {
@@ -64,7 +77,9 @@ export const syncCommand = defineCommand({
 
     if (!existsSync(cwd)) {
       if (json) {
-        console.log(JSON.stringify({ command: "sync", ok: false, reason: "directory-missing", cwd }));
+        console.log(
+          JSON.stringify({ command: "sync", ok: false, reason: "directory-missing", cwd }),
+        );
       } else {
         p.cancel(tc(DEFAULT_LANG).common.dirNotFound(cwd));
       }
@@ -73,7 +88,9 @@ export const syncCommand = defineCommand({
 
     if (!existsSync(configPath)) {
       if (json) {
-        console.log(JSON.stringify({ command: "sync", ok: false, reason: "config-missing", configPath }));
+        console.log(
+          JSON.stringify({ command: "sync", ok: false, reason: "config-missing", configPath }),
+        );
       } else {
         p.cancel(tc(DEFAULT_LANG).common.noConfig(configPath));
       }
@@ -168,7 +185,9 @@ export const syncCommand = defineCommand({
       const summary = [
         conflicts.length > 0 ? `${conflicts.length} conflict(s)` : null,
         hasOtherChanges ? `${pendingCount} pending` : null,
-      ].filter(Boolean).join(", ");
+      ]
+        .filter(Boolean)
+        .join(", ");
       p.outro(ts.dryRunComplete(summary));
       return;
     }
@@ -245,7 +264,9 @@ export const syncCommand = defineCommand({
       });
       writtenTotal += applied.written.length;
       if (applied.backupPath) {
-        p.log.message(`${dim(`${tc(lang).common.backupLabel} [${t.label}]`)} ${applied.backupPath}`);
+        p.log.message(
+          `${dim(`${tc(lang).common.backupLabel} [${t.label}]`)} ${applied.backupPath}`,
+        );
       }
     }
 
@@ -359,9 +380,7 @@ export async function resolveConflictsInteractively(
   const ts = tc(lang).sync;
   const resolutions = new Map<string, ConflictResolution>();
   for (const tp of plans) {
-    const cmConflicts = tp.plan.claudeMdEntries.filter(
-      (e) => e.status === "user-modified-skipped",
-    );
+    const cmConflicts = tp.plan.claudeMdEntries.filter((e) => e.status === "user-modified-skipped");
     if (cmConflicts.length === 0) continue;
 
     const claudeMdPath = join(tp.target.cwd, "CLAUDE.md");
@@ -486,14 +505,18 @@ function reportTargetPlan({ target, plan }: TargetPlan, lang: Lang): void {
   }
 
   for (const s of plan.skipped) {
-    lines.push(`  ${color.yellow(sym.conflict)} ${s.path}  ${dim("(skipped:")} ${dim(s.reason)}${dim(")")}`);
+    lines.push(
+      `  ${color.yellow(sym.conflict)} ${s.path}  ${dim("(skipped:")} ${dim(s.reason)}${dim(")")}`,
+    );
   }
 
   if (plan.updatesAvailable.length > 0) {
     lines.push("");
     lines.push(`  ${dim(ts.updatesAvailableTitle)}`);
     for (const u of plan.updatesAvailable) {
-      lines.push(`    ${color.cyan(sym.update)} ${u.id}  ${dim(`${u.fromVersion} → ${u.toVersion}`)}`);
+      lines.push(
+        `    ${color.cyan(sym.update)} ${u.id}  ${dim(`${u.fromVersion} → ${u.toVersion}`)}`,
+      );
     }
   }
 

@@ -150,7 +150,10 @@ function coalesceHookMatchers(settings: Record<string, unknown>): Record<string,
           if (!seen.has(JSON.stringify(h))) existing.hooks.push(h);
         }
       } else {
-        buckets.push({ ...(e.matcher !== undefined ? { matcher: e.matcher } : {}), hooks: [...e.hooks] });
+        buckets.push({
+          ...(e.matcher !== undefined ? { matcher: e.matcher } : {}),
+          hooks: [...e.hooks],
+        });
       }
     }
     coalesced[event] = [...buckets, ...passthrough];
@@ -166,7 +169,10 @@ function coalesceHookMatchers(settings: Record<string, unknown>): Record<string,
 function pluginHooksToClaudeShape(
   entries: PluginHookEntry[],
 ): Record<string, Array<{ matcher?: string; hooks: Array<Record<string, unknown>> }>> {
-  const grouped: Record<string, Array<{ matcher?: string; hooks: Array<Record<string, unknown>> }>> = {};
+  const grouped: Record<
+    string,
+    Array<{ matcher?: string; hooks: Array<Record<string, unknown>> }>
+  > = {};
   for (const h of entries) {
     const inner: Record<string, unknown> = { type: "command", command: h.command };
     if (h.timeout !== undefined) inner.timeout = h.timeout;

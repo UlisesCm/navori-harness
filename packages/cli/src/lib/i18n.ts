@@ -203,17 +203,20 @@ const ES: Strings = {
   assignmentsValueLabel: (n) => `${n} override(s)`,
   assignmentsNone: "(defaults)",
 
-  projectPromptsIntro: "Ahora unas preguntas para afinar el harness a tu repo (lo que navori no puede detectar). Las respuestas se vuelven reglas activas que los agentes siguen.",
+  projectPromptsIntro:
+    "Ahora unas preguntas para afinar el harness a tu repo (lo que navori no puede detectar). Las respuestas se vuelven reglas activas que los agentes siguen.",
   projectPromptsAsk: "¿Quieres contestarlas ahora?",
   projectPromptsSkip: "Saltear (después con 'navori configure')",
   projectPromptsRun: "Contestar",
   projectPromptsOptional: "(opcional — deja vacío para omitir)",
-  projectPromptsSkipNote: "Omití las preguntas de proyecto. Corre 'navori configure' cuando quieras llenarlas.",
+  projectPromptsSkipNote:
+    "Omití las preguntas de proyecto. Corre 'navori configure' cuando quieras llenarlas.",
   phaseGeneral: "Fase 1 · general — postura del repo",
   phaseSpecific: "Fase 2 · específica — reglas concretas",
   projectPromptSkipOption: "— sin preferencia / saltar —",
 
-  qualityGateNotDetected: "No detecté quality gate en package.json. El harness va a mostrar 'quality gate sin configurar' donde iría el comando y el hook pre-commit no se va a generar. Corre 'navori configure quality-gate' o agrega scripts (`typecheck`, `lint`, `test`) en package.json y re-renderea.",
+  qualityGateNotDetected:
+    "No detecté quality gate en package.json. El harness va a mostrar 'quality gate sin configurar' donde iría el comando y el hook pre-commit no se va a generar. Corre 'navori configure quality-gate' o agrega scripts (`typecheck`, `lint`, `test`) en package.json y re-renderea.",
 
   roleLeader: "leader (orquestador)",
   roleImplementer: "implementer (escribe código)",
@@ -223,8 +226,7 @@ const ES: Strings = {
   roleCommitPrPilot: "commit-pr-pilot (commits + PRs)",
   roleExplorer: "explorer (exploración inicial)",
 
-  existingInfraYesMode:
-    "Detecté infraestructura Claude — uso modo 'coexist' (seguro)",
+  existingInfraYesMode: "Detecté infraestructura Claude — uso modo 'coexist' (seguro)",
   existingInfraDetected: "Detecté infraestructura Claude:",
   howToAdopt: "¿Cómo quieres adoptar navori?",
   coexistLabel: "Coexistir (recomendado)",
@@ -242,7 +244,8 @@ const ES: Strings = {
   doneSkippedRender: "Listo (omití el render)",
   doneRunLater: "Listo (corre 'navori render --apply' cuando quieras)",
   harnessReady: "Tu harness está listo",
-  preCommitHookPrompt: "¿Scaffoldear un pre-commit hook que corra 'navori doctor --strict'? (opt-in)",
+  preCommitHookPrompt:
+    "¿Scaffoldear un pre-commit hook que corra 'navori doctor --strict'? (opt-in)",
   preCommitHookWritten: (path) =>
     `Pre-commit hook escrito en ${path} — sáltalo con 'git commit --no-verify'`,
   preCommitHookExists: (path) => `Ya existe un pre-commit hook en ${path} — no lo piso`,
@@ -300,8 +303,7 @@ const ES: Strings = {
   foundInRepo: "(encontrado en el repo)",
   defaultNothing: "(default — no detecté nada)",
   suggested: "(sugerido)",
-  assetDefaultEs:
-    "(default — cámbialo en el wizard si necesitas 'en')",
+  assetDefaultEs: "(default — cámbialo en el wizard si necesitas 'en')",
   fromScripts: "(de scripts en package.json)",
   from: (src) => `(de ${src})`,
   present: "presente",
@@ -361,17 +363,20 @@ const EN: Strings = {
   assignmentsValueLabel: (n) => `${n} override(s)`,
   assignmentsNone: "(defaults)",
 
-  projectPromptsIntro: "A few questions to tune the harness to your repo (what navori can't detect). Answers become active rules the agents follow.",
+  projectPromptsIntro:
+    "A few questions to tune the harness to your repo (what navori can't detect). Answers become active rules the agents follow.",
   projectPromptsAsk: "Answer them now?",
   projectPromptsSkip: "Skip (run 'navori configure' later)",
   projectPromptsRun: "Answer",
   projectPromptsOptional: "(optional — leave empty to skip)",
-  projectPromptsSkipNote: "Skipped project prompts. Run 'navori configure' when you want to fill them.",
+  projectPromptsSkipNote:
+    "Skipped project prompts. Run 'navori configure' when you want to fill them.",
   phaseGeneral: "Phase 1 · general — repo posture",
   phaseSpecific: "Phase 2 · specific — concrete rules",
   projectPromptSkipOption: "— no preference / skip —",
 
-  qualityGateNotDetected: "No quality gate detected in package.json. The harness will show 'quality gate sin configurar' where the command would go and the pre-commit hook will not be generated. Run 'navori configure quality-gate' or add scripts (`typecheck`, `lint`, `test`) to package.json and re-render.",
+  qualityGateNotDetected:
+    "No quality gate detected in package.json. The harness will show 'quality gate sin configurar' where the command would go and the pre-commit hook will not be generated. Run 'navori configure quality-gate' or add scripts (`typecheck`, `lint`, `test`) to package.json and re-render.",
 
   roleLeader: "leader (orchestrator)",
   roleImplementer: "implementer (writes code)",
@@ -381,8 +386,7 @@ const EN: Strings = {
   roleCommitPrPilot: "commit-pr-pilot (commits + PRs)",
   roleExplorer: "explorer (initial exploration)",
 
-  existingInfraYesMode:
-    "Existing Claude infrastructure detected — using 'coexist' mode (safe)",
+  existingInfraYesMode: "Existing Claude infrastructure detected — using 'coexist' mode (safe)",
   existingInfraDetected: "Existing Claude infrastructure detected:",
   howToAdopt: "How do you want to adopt navori?",
   coexistLabel: "Coexist (recommended)",
@@ -458,8 +462,7 @@ const EN: Strings = {
   foundInRepo: "(found in repo)",
   defaultNothing: "(default — nothing detected)",
   suggested: "(suggested)",
-  assetDefaultEs:
-    "(default — change in wizard if you need 'en' fallback)",
+  assetDefaultEs: "(default — change in wizard if you need 'en' fallback)",
   fromScripts: "(from package.json scripts)",
   from: (src) => `(from ${src})`,
   present: "present",
@@ -805,8 +808,7 @@ const CMD_EN: CmdStrings = {
     noChangePreview: "→ no changes",
     written: "→ written",
     noChanges: "→ no changes",
-    adapterMissing: (engine) =>
-      `The '${engine}' engine has no navori adapter yet; skipped.`,
+    adapterMissing: (engine) => `The '${engine}' engine has no navori adapter yet; skipped.`,
     orphanedWorkspaces: (count, list) =>
       `Workspaces declared in config but missing on disk (${count}) — ` +
       `not rendered (avoids resurrecting deleted dirs). Run 'navori scan' or remove them from config:\n${list}`,
@@ -856,8 +858,7 @@ const CMD_EN: CmdStrings = {
     unknownSource: "(unknown source)",
     assignmentsTitle: (n) => `Skill → agent assignments · ${n}`,
     overridden: "(overridden)",
-    missingPlugins: (n, lines) =>
-      `Plugins declared in config but not loadable (${n}):\n${lines}`,
+    missingPlugins: (n, lines) => `Plugins declared in config but not loadable (${n}):\n${lines}`,
     missingPreset: (preset) =>
       `Preset '${preset}' declared in config but does not exist (neither local in ` +
       `.navori/presets/${preset}/ nor bundled) — render falls back to the baseline (without the ` +

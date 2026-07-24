@@ -38,12 +38,20 @@ describe("suggestNextSteps (spec 0003 §3.5.3)", () => {
   });
 
   it("suggests sync --interactive on content drift", () => {
-    const steps = suggestNextSteps({ claudeMdExists: true, missingPlugins: [], drifts: [contentDrift] });
+    const steps = suggestNextSteps({
+      claudeMdExists: true,
+      missingPlugins: [],
+      drifts: [contentDrift],
+    });
     expect(steps.some((s) => s.includes("sync --interactive"))).toBe(true);
   });
 
   it("suggests render --apply on version drift", () => {
-    const steps = suggestNextSteps({ claudeMdExists: true, missingPlugins: [], drifts: [versionDrift] });
+    const steps = suggestNextSteps({
+      claudeMdExists: true,
+      missingPlugins: [],
+      drifts: [versionDrift],
+    });
     expect(steps.some((s) => s.includes("render --apply"))).toBe(true);
   });
 
@@ -113,7 +121,9 @@ describe("collectMissingPlugins", () => {
 
   it("returns empty when there are no plugins", () => {
     expect(
-      collectMissingPlugins(NavoriConfigSchema.parse({ name: "demo", engines: ["claude"], preset: "custom" })),
+      collectMissingPlugins(
+        NavoriConfigSchema.parse({ name: "demo", engines: ["claude"], preset: "custom" }),
+      ),
     ).toHaveLength(0);
   });
 });
@@ -333,7 +343,9 @@ describe("scanExcludedBlocks (feature: blocks.exclude)", () => {
 
   it("returns null when nothing is excluded", () => {
     expect(scanExcludedBlocks(NavoriConfigSchema.parse(base))).toBeNull();
-    expect(scanExcludedBlocks(NavoriConfigSchema.parse({ ...base, blocks: { exclude: [] } }))).toBeNull();
+    expect(
+      scanExcludedBlocks(NavoriConfigSchema.parse({ ...base, blocks: { exclude: [] } })),
+    ).toBeNull();
   });
 
   it("reports known excluded core blocks (always visible — no silent drift)", () => {

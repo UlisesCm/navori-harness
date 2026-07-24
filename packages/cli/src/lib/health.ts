@@ -403,7 +403,9 @@ export function suggestNextSteps(state: HealthState): string[] {
     steps.push("Corre 'navori render --apply' para traer los bloques a la última versión.");
   }
   if (state.orderReport && !state.orderReport.interleaved) {
-    steps.push("Corre 'navori render --apply' para reordenar los bloques de CLAUDE.md al orden canónico.");
+    steps.push(
+      "Corre 'navori render --apply' para reordenar los bloques de CLAUDE.md al orden canónico.",
+    );
   }
   if (state.orderReport?.interleaved) {
     const mf = state.orderReport.misplacedFirst;

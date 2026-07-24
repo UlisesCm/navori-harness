@@ -14,9 +14,7 @@ const ROOT_CONFIG = {
   monorepo: {
     enabled: true,
     tool: "turbo",
-    workspaces: [
-      { name: "backend", path: "apps/backend" },
-    ],
+    workspaces: [{ name: "backend", path: "apps/backend" }],
   },
 } as unknown as NavoriConfig;
 

@@ -2,7 +2,11 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { z } from "zod";
 import { NavoriError } from "./errors.ts";
-import { bundledPluginManifestPath, getPluginPath, listBundledPluginIds } from "./bundled-assets.ts";
+import {
+  bundledPluginManifestPath,
+  getPluginPath,
+  listBundledPluginIds,
+} from "./bundled-assets.ts";
 import { safeRelPath } from "./zod-helpers.ts";
 
 const AGENT_ROLES = [
@@ -28,7 +32,10 @@ const ExternalToolSchema = z.object({
   name: z.string().min(1),
   /** Binary name to look up in PATH. Safer than checkCommand because it
    * never spawns a shell — we walk PATH directories manually. */
-  checkBinary: z.string().regex(/^[a-zA-Z0-9_\-.]+$/, "binary name must be alphanumeric").optional(),
+  checkBinary: z
+    .string()
+    .regex(/^[a-zA-Z0-9_\-.]+$/, "binary name must be alphanumeric")
+    .optional(),
   install: z.record(z.string(), z.string()).optional(),
   postInstall: z.string().optional(),
 });
@@ -195,7 +202,10 @@ export function loadPlugin(pluginId: string): LoadedPlugin {
 
   const result = PluginManifestSchema.safeParse(parsed);
   if (!result.success) {
-    throw new PluginManifestError(`Invalid plugin manifest in ${manifestPath}`, result.error.issues);
+    throw new PluginManifestError(
+      `Invalid plugin manifest in ${manifestPath}`,
+      result.error.issues,
+    );
   }
 
   const manifest = result.data;

@@ -33,7 +33,10 @@ export function parseSemver(version: string | null | undefined): Semver | null {
  * what "unknown ordering" means (both {@link isDowngrade} and the render
  * classifier treat it as "not a downgrade / not an upgrade").
  */
-export function compareSemver(a: string | null | undefined, b: string | null | undefined): number | null {
+export function compareSemver(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number | null {
   const pa = parseSemver(a);
   const pb = parseSemver(b);
   if (!pa || !pb) return null;
@@ -48,6 +51,9 @@ export function compareSemver(a: string | null | undefined, b: string | null | u
  * `incoming` over `existing` would roll the version back. Both must parse;
  * an unknown ordering is never a downgrade.
  */
-export function isDowngrade(existing: string | null | undefined, incoming: string | null | undefined): boolean {
+export function isDowngrade(
+  existing: string | null | undefined,
+  incoming: string | null | undefined,
+): boolean {
   return compareSemver(existing, incoming) === 1;
 }

@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# Cancel a PR's in-flight run when a newer commit is pushed — no point burning
+# minutes on a superseded SHA. `main` pushes get a per-SHA group so releases
+# never cancel each other.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 env:
   # Opt into Node 24 ahead of GitHub's forced switch — silences the
   # "Node.js 20 actions are deprecated" warnings (matches deploy-website.yml).
@@ -36,6 +43,16 @@ jobs:
       - name: Lint
         run: pnpm --filter navori lint
 
-      # test:coverage runs the full suite AND enforces the lib/ coverage gate.
-      - name: Test + coverage gate
+      - name: Format check
+        run: pnpm format:check
+
+      # On PRs: run the full suite fast (no coverage instrumentation) for quick
+      # feedback — every test still runs, only the coverage GATE is deferred.
+      - name: Test (PR)
+        if: github.event_name == 'pull_request'
+        run: pnpm --filter navori test
+
+      # On main: the full suite AND the lib/ coverage gate (the merge bar).
+      - name: Test + coverage gate (main)
+        if: github.event_name == 'push'
         run: pnpm --filter navori test:coverage

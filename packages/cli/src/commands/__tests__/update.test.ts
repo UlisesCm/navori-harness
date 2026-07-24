@@ -21,7 +21,9 @@ afterEach(() => rmSync(cwd, { recursive: true, force: true }));
 describe("deadProgressKeys (#79)", () => {
   it("lists the removed progress keys the config still carries", () => {
     expect(
-      deadProgressKeys({ progress: { dir: "progress", checkpointsDir: "cp", archiveAfterDays: 30 } }),
+      deadProgressKeys({
+        progress: { dir: "progress", checkpointsDir: "cp", archiveAfterDays: 30 },
+      }),
     ).toEqual(["checkpointsDir", "archiveAfterDays"]);
   });
 
@@ -74,7 +76,11 @@ describe("refreshWorkspaceScopes — re-home per-workspace library skills (#80 m
 });
 
 describe("mergeLibraryMigrations (#90)", () => {
-  const mig = (legacy: string, preferred: string, domain = "http") => ({ legacy, preferred, domain });
+  const mig = (legacy: string, preferred: string, domain = "http") => ({
+    legacy,
+    preferred,
+    domain,
+  });
   const legacies = (ms: Array<{ legacy: string }>) => ms.map((m) => m.legacy).sort();
 
   it("adopts a NEW detected pair (moment→dayjs added after init auto-populated axios→ky)", () => {
@@ -179,7 +185,9 @@ describe("aggregateRender — monorepo fidelity (#79 crítico 3)", () => {
     });
     const agg = aggregateRender(runRender(cwd, true));
     expect(agg.writes.some((w) => w.path === "AGENTS.md" && w.scope.startsWith("root"))).toBe(true);
-    expect(agg.writes.some((w) => w.path === "AGENTS.md" && w.scope.startsWith("backend"))).toBe(true);
+    expect(agg.writes.some((w) => w.path === "AGENTS.md" && w.scope.startsWith("backend"))).toBe(
+      true,
+    );
   });
 });
 
@@ -199,8 +207,10 @@ describe("anti-retroceso end-to-end via runRender (#79 crítico 1)", () => {
     // far ahead and change its body.
     const bumped = before
       .replace(/(id="idioma-rol"[^>]*version=")[^"]+(")/, "$199.0.0$2")
-      .replace(/(<!-- navori:managed id="idioma-rol"[\s\S]*?-->\n)[\s\S]*?(\n<!-- \/navori:managed id="idioma-rol")/,
-        "$1CONTENIDO DE UNA NAVORI MÁS NUEVA$2");
+      .replace(
+        /(<!-- navori:managed id="idioma-rol"[\s\S]*?-->\n)[\s\S]*?(\n<!-- \/navori:managed id="idioma-rol")/,
+        "$1CONTENIDO DE UNA NAVORI MÁS NUEVA$2",
+      );
     writeFileSync(claudeMdPath, bumped);
 
     const result = runRender(cwd, false);

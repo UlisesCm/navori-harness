@@ -30,7 +30,13 @@ export const SKILL_DIR_ENTRY = "SKILL.md";
  * front so a config-supplied id can never resolve outside `.claude/skills/`.
  */
 export function resolveLocalSkillPath(cwd: string, id: string): string | null {
-  if (id === "" || id !== id.trim() || /[\\/]/.test(id) || id.split(/[\\/]/).includes("..") || id.includes("..")) {
+  if (
+    id === "" ||
+    id !== id.trim() ||
+    /[\\/]/.test(id) ||
+    id.split(/[\\/]/).includes("..") ||
+    id.includes("..")
+  ) {
     return null;
   }
   const fileRel = `.claude/skills/${id}.md`;

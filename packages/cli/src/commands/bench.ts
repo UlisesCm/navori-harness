@@ -44,7 +44,9 @@ export const benchCommand = defineCommand({
     samples.sort((a, b) => a - b);
 
     const at = (q: number): number =>
-      samples[Math.min(samples.length - 1, Math.max(0, Math.ceil((q / 100) * samples.length) - 1))]!;
+      samples[
+        Math.min(samples.length - 1, Math.max(0, Math.ceil((q / 100) * samples.length) - 1))
+      ]!;
     const fmt = (ms: number): string => `${ms.toFixed(1)}ms`;
 
     p.note(

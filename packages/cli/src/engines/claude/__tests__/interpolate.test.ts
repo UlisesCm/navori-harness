@@ -45,7 +45,9 @@ describe("interpolate — default mode", () => {
   });
 
   it("uses <not configured> for missing paths", () => {
-    expect(interpolate("v={{models.reviewer}}", CONFIG)).toBe("v=<not configured: models.reviewer>");
+    expect(interpolate("v={{models.reviewer}}", CONFIG)).toBe(
+      "v=<not configured: models.reviewer>",
+    );
   });
 
   it("respects extraVars over config paths", () => {

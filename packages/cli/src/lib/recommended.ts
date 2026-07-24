@@ -46,9 +46,11 @@ function tscCommandFor(pm: DetectedProject["packageManager"]): string {
  * The user can fill `legacyPaths` / `criticalAreas` later via
  * `navori configure project` once they know the repo specifics.
  */
-export function buildRecommendedProject(
-  detected: DetectedProject,
-): { legacyPaths: string[]; criticalAreas: string[]; testRunner?: string } {
+export function buildRecommendedProject(detected: DetectedProject): {
+  legacyPaths: string[];
+  criticalAreas: string[];
+  testRunner?: string;
+} {
   return {
     legacyPaths: [],
     criticalAreas: [],

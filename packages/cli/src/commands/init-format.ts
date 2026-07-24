@@ -10,7 +10,10 @@ export function formatInfraSummary(infra: ClaudeInfraInventory, lang: Lang = "es
   const tr = t(lang);
   const rows: Array<[string, string]> = [];
   if (infra.agentFiles.length > 0) {
-    rows.push([".claude/agents/", `${infra.agentFiles.join(", ")} ${grey(`(${infra.agentFiles.length})`)}`]);
+    rows.push([
+      ".claude/agents/",
+      `${infra.agentFiles.join(", ")} ${grey(`(${infra.agentFiles.length})`)}`,
+    ]);
   }
   if (infra.skillFiles.length > 0) {
     const preview = infra.skillFiles.slice(0, 3).join(", ");
@@ -18,7 +21,8 @@ export function formatInfraSummary(infra: ClaudeInfraInventory, lang: Lang = "es
     rows.push([".claude/skills/", `${preview}${more} ${grey(`(${infra.skillFiles.length})`)}`]);
   }
   if (infra.hasSettings) rows.push([".claude/settings.json", grey(tr.present)]);
-  if (infra.hasLocalSettings) rows.push([".claude/settings.local.json", grey(tr.presentGitignored)]);
+  if (infra.hasLocalSettings)
+    rows.push([".claude/settings.local.json", grey(tr.presentGitignored)]);
   if (infra.hasClaudeMd) rows.push(["CLAUDE.md", grey(tr.present)]);
   if (infra.hasAgentsMd) rows.push(["AGENTS.md", grey(tr.present)]);
   if (infra.hasCheckpointsMd) rows.push(["CHECKPOINTS.md", grey(tr.present)]);
@@ -57,7 +61,10 @@ export function formatDetectionSummary(d: DetectedProject, lang: Lang = "es"): s
   if (d.stack.state) rows.push(["state", d.stack.state]);
   if (d.stack.test) rows.push(["test", d.stack.test]);
   if (d.packageManager) {
-    rows.push(["packageManager", `${d.packageManager}  ${grey(tr.from(d.sources.packageManager))}`]);
+    rows.push([
+      "packageManager",
+      `${d.packageManager}  ${grey(tr.from(d.sources.packageManager))}`,
+    ]);
   }
   if (d.monorepo) {
     rows.push(["monorepo", `${d.monorepo.tool}  ${grey(tr.from(d.monorepo.source))}`]);
@@ -79,7 +86,9 @@ export function formatWorkspaceSummary(ws: WorkspaceConfig, lang: Lang = "es"): 
   if (d.language) rows.push(["language", d.language]);
   if (d.engines && d.engines.length > 0) rows.push(["engines", d.engines.join(", ")]);
   if (d.plugins && Object.keys(d.plugins).length > 0) {
-    const enabled = Object.entries(d.plugins).filter(([, v]) => v.enabled).map(([k]) => k);
+    const enabled = Object.entries(d.plugins)
+      .filter(([, v]) => v.enabled)
+      .map(([k]) => k);
     rows.push(["plugins", enabled.join(", ") || grey(tr.noneEnabled)]);
   }
   if (rows.length === 0) {

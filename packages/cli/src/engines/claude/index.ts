@@ -5,7 +5,12 @@ import type { MonorepoRenderContext } from "../../lib/monorepo.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
-import { computeRenderPlan, canonicalManagedOrder, type AssetPlanEntry, type UpdateAvailable } from "../../lib/render-plan.ts";
+import {
+  computeRenderPlan,
+  canonicalManagedOrder,
+  type AssetPlanEntry,
+  type UpdateAvailable,
+} from "../../lib/render-plan.ts";
 import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
 import { librarySkillById, LIBRARY_SKILLS, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
@@ -71,7 +76,10 @@ export interface ClaudeEngineResult {
   inspected: number;
 }
 
-const CORE_AGENTS: ReadonlyArray<{ id: string; harnessKey: keyof NonNullable<NavoriConfig["harness"]> }> = [
+const CORE_AGENTS: ReadonlyArray<{
+  id: string;
+  harnessKey: keyof NonNullable<NavoriConfig["harness"]>;
+}> = [
   { id: "leader", harnessKey: "leader" },
   { id: "implementer", harnessKey: "implementer" },
   { id: "reviewer", harnessKey: "reviewer" },
@@ -168,9 +176,10 @@ function buildSkillsIndexBody(
   if (rows.length === 0) return null;
   // The project-local note only makes sense when the repo actually declares
   // local skills; otherwise it points at a category that isn't present.
-  const localNote = localSkills.length > 0
-    ? ["Los `project-local` son tuyos — navori los indexa pero no toca su contenido."]
-    : [];
+  const localNote =
+    localSkills.length > 0
+      ? ["Los `project-local` son tuyos — navori los indexa pero no toca su contenido."]
+      : [];
   return [
     "## Skills disponibles",
     "",
@@ -191,11 +200,14 @@ const AGENTS_INDEX_ID = "agentes-disponibles";
 const AGENT_WHEN: Record<string, string> = {
   implementer: "Escribe código y tests de UNA tarea acotada con scope claro.",
   reviewer: "Valida un diff contra spec y calidad antes de cerrar (APPROVED / CHANGES_REQUESTED).",
-  researcher: "Responde una pregunta concreta del repo (¿pasa Y? ¿qué consume X?) con evidencia citada.",
+  researcher:
+    "Responde una pregunta concreta del repo (¿pasa Y? ¿qué consume X?) con evidencia citada.",
   explorer: "Mapea un área o módulo amplio: estructura, entry points, dependencias.",
-  "ticket-audit": "Analiza a fondo un ticket complejo (bug crítico, migración, feature multi-capa) antes de descomponer.",
+  "ticket-audit":
+    "Analiza a fondo un ticket complejo (bug crítico, migración, feature multi-capa) antes de descomponer.",
   "commit-pr-pilot": "Redacta commits Conventional y abre el PR tras la aprobación del reviewer.",
-  auditor: "Auditoría read-only a fondo de código existente (seguridad, performance, SOLID, edge cases). Escribe reporte + plan priorizado a disco.",
+  auditor:
+    "Auditoría read-only a fondo de código existente (seguridad, performance, SOLID, edge cases). Escribe reporte + plan priorizado a disco.",
 };
 
 /**
@@ -252,7 +264,9 @@ function buildContextoMonorepoBody(
       "",
     ];
     if (mono.siblings.length > 0) {
-      lines.push("Workspaces hermanos — no los edites desde aquí; el trabajo en un hermano se hace desde su propio harness:");
+      lines.push(
+        "Workspaces hermanos — no los edites desde aquí; el trabajo en un hermano se hace desde su propio harness:",
+      );
       for (const s of mono.siblings) {
         lines.push(`- \`${s.name}\` — \`${s.path}\`${s.preset ? ` (${s.preset})` : ""}`);
       }
@@ -297,15 +311,23 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
 
   const posture = proj.posture as string | undefined;
   if (posture === "greenfield") {
-    rows.push("- **Etapa:** greenfield — prioriza velocidad y menos ceremonia, pero el quality gate igual debe pasar.");
+    rows.push(
+      "- **Etapa:** greenfield — prioriza velocidad y menos ceremonia, pero el quality gate igual debe pasar.",
+    );
   } else if (posture === "production") {
-    rows.push("- **Etapa:** en producción — prioriza NO romper regresiones. Los cambios de blast radius alto piden validación humana antes de mergear.");
+    rows.push(
+      "- **Etapa:** en producción — prioriza NO romper regresiones. Los cambios de blast radius alto piden validación humana antes de mergear.",
+    );
   } else if (posture === "migration") {
-    rows.push("- **Etapa:** migración legacy — cuida la compatibilidad legacy↔nuevo. El reviewer marca CRÍTICO si un cambio lee de un lado y escribe en el otro.");
+    rows.push(
+      "- **Etapa:** migración legacy — cuida la compatibilidad legacy↔nuevo. El reviewer marca CRÍTICO si un cambio lee de un lado y escribe en el otro.",
+    );
   }
 
   const migrations =
-    (proj.libraryMigrations as Array<{ legacy: string; preferred: string; domain: string }> | undefined) ?? [];
+    (proj.libraryMigrations as
+      | Array<{ legacy: string; preferred: string; domain: string }>
+      | undefined) ?? [];
   for (const m of migrations) {
     rows.push(
       `- **${m.domain} (migración):** en código nuevo usa \`${m.preferred}\`. \`${m.legacy}\` es legacy — no lo agregues; si tocas un módulo que lo usa, migra ese módulo completo (no mezcles ambos en el mismo archivo). El reviewer marca ALTO el uso nuevo de \`${m.legacy}\`.`,
@@ -314,14 +336,20 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
 
   const rigor = proj.reviewRigor as string | undefined;
   if (rigor === "strict") {
-    rows.push("- **Rigor del review:** estricto — el reviewer bloquea APPROVED también con issues de confidence 65-79, no solo ≥80.");
+    rows.push(
+      "- **Rigor del review:** estricto — el reviewer bloquea APPROVED también con issues de confidence 65-79, no solo ≥80.",
+    );
   } else if (rigor === "pragmatic") {
-    rows.push("- **Rigor del review:** pragmático — el reviewer bloquea solo issues ≥80; lo demás queda como observación informativa.");
+    rows.push(
+      "- **Rigor del review:** pragmático — el reviewer bloquea solo issues ≥80; lo demás queda como observación informativa.",
+    );
   }
 
   const arch = (proj.architectureRule as string | undefined)?.trim();
   if (arch) {
-    rows.push(`- **Arquitectura:** el código nuevo DEBE seguir \`${arch}\`. El reviewer marca los desvíos como ALTO.`);
+    rows.push(
+      `- **Arquitectura:** el código nuevo DEBE seguir \`${arch}\`. El reviewer marca los desvíos como ALTO.`,
+    );
   }
 
   const critical = (proj.criticalAreas as string[] | undefined) ?? [];
@@ -331,7 +359,9 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
 
   const tests = proj.testsForNewCode as string | undefined;
   if (tests === "always") {
-    rows.push("- **Tests:** el código nuevo DEBE traer tests. El reviewer bloquea APPROVED si faltan.");
+    rows.push(
+      "- **Tests:** el código nuevo DEBE traer tests. El reviewer bloquea APPROVED si faltan.",
+    );
   } else if (tests === "when-applicable") {
     rows.push("- **Tests:** pide tests para lógica no trivial; en código simple son opcionales.");
   } else if (tests === "none") {
@@ -388,7 +418,12 @@ export function renderClaudeEngine(
   const coreAssets = resolve(getCoreRoot(), "core-assets");
   const skipped: Array<{ path: string; reason: string }> = [];
   const warnings: string[] = [];
-  const pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }> = [];
+  const pending: Array<{
+    path: string;
+    content: string;
+    status: RenderStatus;
+    chmodExec?: boolean;
+  }> = [];
   // `inspected` counts every destination file the adapter looked at this
   // render (whether it changed or not). The render command uses it to
   // surface "n unchanged" so a no-op render doesn't look like the engine
@@ -403,7 +438,11 @@ export function renderClaudeEngine(
   // swallow the user's domain (the positional-preservation bug). It's re-emitted
   // verbatim, wrapped in explicit markers, at the very end (step 1e). Repos
   // onboarded before the markers existed get their trailing prose auto-migrated.
-  const { managed: claudeMdManaged, userBody, hadMarkers: hadUserSection } = splitUserSection(claudeMdExisting);
+  const {
+    managed: claudeMdManaged,
+    userBody,
+    hadMarkers: hadUserSection,
+  } = splitUserSection(claudeMdExisting);
   const claudeMdPlan = computeRenderPlan(claudeMdManaged, config, repoRoot, {
     skipIds: options.skipIds,
     forceIds: options.forceIds,
@@ -518,7 +557,10 @@ export function renderClaudeEngine(
   // gravity" block that must lead the file. Restore canonical order. No-op when
   // already ordered (so no spurious diff); skipped, with a warning, when the
   // user wove prose between blocks (moving them would orphan it).
-  const reorder = reorderManagedBlocks(claudeMdContent, canonicalManagedOrder(config, repoRoot, isWorkspace));
+  const reorder = reorderManagedBlocks(
+    claudeMdContent,
+    canonicalManagedOrder(config, repoRoot, isWorkspace),
+  );
   claudeMdContent = reorder.output;
   if (reorder.blockedByInterleaving) {
     warnings.push(
@@ -1062,7 +1104,8 @@ function planSettings(
       return {
         kind: "skip",
         path,
-        reason: "settings.json no es un objeto JSON — no se puede fusionar. Corre 'navori render --force --apply' para regenerar.",
+        reason:
+          "settings.json no es un objeto JSON — no se puede fusionar. Corre 'navori render --force --apply' para regenerar.",
       };
     }
     const merged = mergeCoexistSettings(parsed, newSettings);
@@ -1080,8 +1123,8 @@ interface ManagedFilePlanInput {
   cwd: string;
   /** Root `assetRelPath` resolves against (core-assets/ or a local preset folder). */
   assetRoot: string;
-  assetRelPath: string;     // relative to assetRoot
-  destRelPath: string;      // relative to cwd
+  assetRelPath: string; // relative to assetRoot
+  destRelPath: string; // relative to cwd
   managedId: string;
   config: NavoriConfig;
 }
@@ -1107,7 +1150,8 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
     return {
       kind: "skip",
       path: destPath,
-      reason: "bloque managed editado por el usuario; resuelve con 'navori sync' o ajusta el destino a mano",
+      reason:
+        "bloque managed editado por el usuario; resuelve con 'navori sync' o ajusta el destino a mano",
     };
   }
   if (result.status === "downgrade-skipped") {
@@ -1137,14 +1181,12 @@ function applyManagedFilePlan(
 
 interface BootstrapFilePlanInput {
   cwd: string;
-  assetRelPath: string;     // relative to core-assets/
-  destRelPath: string;      // relative to cwd
+  assetRelPath: string; // relative to core-assets/
+  destRelPath: string; // relative to cwd
   config: NavoriConfig;
 }
 
-type BootstrapPlan =
-  | { kind: "noop" }
-  | { kind: "write"; path: string; content: string };
+type BootstrapPlan = { kind: "noop" } | { kind: "write"; path: string; content: string };
 
 /**
  * Bootstrap a one-shot file: copy + interpolate ONCE if the destination

@@ -74,10 +74,7 @@ describe("runScan", () => {
 
     expect(r.wrote).toBe(true);
     expect(r.added).toHaveLength(2);
-    expect(r.added.map((w) => w.path).sort()).toEqual([
-      "apps/backend",
-      "apps/storefront",
-    ]);
+    expect(r.added.map((w) => w.path).sort()).toEqual(["apps/backend", "apps/storefront"]);
 
     const after = readConfig(join(cwd, "navori.config.json"));
     expect(after.monorepo?.workspaces).toHaveLength(2);
@@ -223,9 +220,6 @@ describe("runScan", () => {
     if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);
 
     const after = readConfig(join(cwd, "navori.config.json"));
-    expect(after.monorepo!.workspaces!.map((w) => w.path)).toEqual([
-      "apps/backend",
-      "apps/web",
-    ]);
+    expect(after.monorepo!.workspaces!.map((w) => w.path)).toEqual(["apps/backend", "apps/web"]);
   });
 });

@@ -162,7 +162,9 @@ export function collectOmissionWarnings(config: NavoriConfig): string[] {
     );
   }
   if (config.models && Object.keys(config.models).length > 0) {
-    warnings.push("La asignación de modelo por agente (config.models) no aplica fuera de Claude Code; se omitió.");
+    warnings.push(
+      "La asignación de modelo por agente (config.models) no aplica fuera de Claude Code; se omitió.",
+    );
   }
   return warnings;
 }

@@ -2,11 +2,7 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "./atomic.ts";
 import { NavoriError } from "./errors.ts";
-import {
-  NavoriConfigSchema,
-  type NavoriConfig,
-  type NavoriConfigInput,
-} from "./schema.ts";
+import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "./schema.ts";
 
 const SCHEMA_URL = "https://navori.dev/schema/navori.config.v1.json";
 
@@ -20,7 +16,10 @@ const SCHEMA_URL = "https://navori.dev/schema/navori.config.v1.json";
  * data round-trips untouched. A newer CLI later re-recognizes it; an older one
  * keeps ignoring it in memory (with the read-time warning).
  */
-function preserveForwardCompatEnums(input: NavoriConfigInput, validated: NavoriConfig): NavoriConfig {
+function preserveForwardCompatEnums(
+  input: NavoriConfigInput,
+  validated: NavoriConfig,
+): NavoriConfig {
   const raw = input as Record<string, unknown>;
   const out = { ...(validated as Record<string, unknown>) };
 
@@ -63,7 +62,9 @@ export function writeConfig(path: string, input: NavoriConfigInput): void {
 export function effectiveConfig(config: NavoriConfig): NavoriConfig {
   const codeLanguage = config.project?.codeLanguage;
   const typedLanguage = !(
-    codeLanguage === "python" || codeLanguage === "rust" || codeLanguage === "go"
+    codeLanguage === "python" ||
+    codeLanguage === "rust" ||
+    codeLanguage === "go"
   );
   return {
     ...config,
@@ -104,10 +105,7 @@ export function readConfig(path: string): NavoriConfig {
 
   const result = NavoriConfigSchema.safeParse(parsed);
   if (!result.success) {
-    throw new ConfigError(
-      `Validation failed for ${path}`,
-      result.error.issues,
-    );
+    throw new ConfigError(`Validation failed for ${path}`, result.error.issues);
   }
   warnDroppedEnums(parsed, result.data);
   warnRemovedProgressKeys(parsed);
