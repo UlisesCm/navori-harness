@@ -588,7 +588,7 @@ describe("CLI e2e — happy paths", () => {
     // Modify the rendered file in a way that drifts from the marker hash
     const claudeMdPath = join(repo, "CLAUDE.md");
     const content = readFileSync(claudeMdPath, "utf-8");
-    writeFileSync(claudeMdPath, content.replace("Tech Lead Senior", "MI EDIT"));
+    writeFileSync(claudeMdPath, content.replace("Eres navori", "MI EDIT"));
 
     const r = runCli(["sync", "--apply", "--yes", "--cwd", repo]);
     expect(r.status).toBe(1);
@@ -596,7 +596,7 @@ describe("CLI e2e — happy paths", () => {
     // the word "conflict" — so the user knows exactly what to resolve (#6).
     expect(r.combined).toContain("conflict");
     expect(r.combined).toContain("CLAUDE.md");
-    expect(r.combined).toContain("idioma-rol"); // the block that holds "Tech Lead Senior"
+    expect(r.combined).toContain("idioma-rol"); // the block that holds "Eres navori"
     expect(r.combined).toMatch(/managed block edited/);
   });
 
@@ -1035,7 +1035,7 @@ describe("CLI e2e — happy paths", () => {
     // Drift a managed block so a conflict is reported.
     const claudeMdPath = join(repo, "CLAUDE.md");
     const content = readFileSync(claudeMdPath, "utf-8");
-    writeFileSync(claudeMdPath, content.replace("Tech Lead Senior", "MI EDIT"));
+    writeFileSync(claudeMdPath, content.replace("Eres navori", "MI EDIT"));
 
     const r = runCli(["sync", "--json", "--cwd", repo]);
     expect(r.status).toBe(0); // plan-only (no --apply/--yes) never fails
@@ -1057,7 +1057,7 @@ describe("CLI e2e — happy paths", () => {
 
     const claudeMdPath = join(repo, "CLAUDE.md");
     const content = readFileSync(claudeMdPath, "utf-8");
-    writeFileSync(claudeMdPath, content.replace("Tech Lead Senior", "MI EDIT"));
+    writeFileSync(claudeMdPath, content.replace("Eres navori", "MI EDIT"));
 
     const r = runCli(["sync", "--json", "--yes", "--cwd", repo]);
     expect(r.status).toBe(1);
