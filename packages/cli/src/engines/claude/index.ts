@@ -155,13 +155,14 @@ const SKILLS_INDEX_ID = "skills-index";
 /**
  * Neutral defaults for the repo-flavored `{{...}}` template vars the 6 core
  * skills reference (pr-create's `{{prTarget}}`/`{{branchBase}}`,
- * verify-before-done's `{{qualityGate.fast}}`, …). At REPO scope these
+ * verify-before-done's `{{qualityGate.fast}}`/`{{project.criticalAreas}}`,
+ * loop-back-debug's `{{project.legacyPaths}}`, …). At REPO scope these
  * resolve against the actual project config (effectiveConfig() derives
- * prTarget from branchBase; qualityGate.* come straight from config). At
- * GLOBAL scope there is no repo to read — the persona skill loads into
- * whatever repo the agent happens to be working in — so `interpolate()`
- * would otherwise fall back to generic `<not configured: x>` / a
- * "run 'navori configure quality-gate'" prompt that doesn't make sense
+ * prTarget from branchBase; qualityGate.* and project.* come straight from
+ * config). At GLOBAL scope there is no repo to read — the persona skill
+ * loads into whatever repo the agent happens to be working in — so
+ * `interpolate()` would otherwise fall back to generic `<not configured: x>` /
+ * a "run 'navori configure quality-gate'" prompt that doesn't make sense
  * outside a repo. These extraVars override that with phrasing that reads
  * correctly regardless of which repo is open, without inventing per-repo
  * values the persona can't actually know. Single source so no globally
@@ -174,6 +175,8 @@ const GLOBAL_SKILL_TEMPLATE_DEFAULTS: Record<string, string> = {
   branchBase: "main",
   "qualityGate.fast": "run the repo quality gate",
   "qualityGate.full": "run the repo quality gate",
+  "project.criticalAreas": "las áreas críticas declaradas en la config del repo",
+  "project.legacyPaths": "las rutas legacy declaradas en la config del repo",
 };
 
 /**

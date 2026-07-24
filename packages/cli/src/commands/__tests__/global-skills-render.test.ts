@@ -151,6 +151,19 @@ describe("global render — repo-flavored template vars resolve at global scope"
     }
   });
 
+  it("no globally-rendered core skill leaks a '<not configured: ...>' fallback", () => {
+    // interpolate() never leaves a literal {{...}} — a var missing from
+    // GLOBAL_SKILL_TEMPLATE_DEFAULTS surfaces as placeholderFallback()'s
+    // '<not configured: path>' instead. Guard the whole catalog so any future
+    // skill introducing a new repo-coupled var fails here, not in ~/.claude.
+    const coreSkillIds = GLOBAL_SKILLS_CATALOG.filter((e) => e.source === "core-skill").map((e) => e.id);
+    runGlobalRender(skillsCfg(coreSkillIds), { dryRun: false });
+    for (const id of coreSkillIds) {
+      const md = readFileSync(skillPath(id), "utf-8");
+      expect(md, `${id} must not contain a '<not configured:' fallback`).not.toContain("<not configured:");
+    }
+  });
+
   it("pr-create resolves prTarget/branchBase to neutral 'main' defaults", () => {
     runGlobalRender(skillsCfg(["pr-create"]), { dryRun: false });
     const md = readFileSync(skillPath("pr-create"), "utf-8");
@@ -162,5 +175,29 @@ describe("global render — repo-flavored template vars resolve at global scope"
     const md = readFileSync(skillPath("verify-before-done"), "utf-8");
     expect(md).not.toContain("{{qualityGate.fast}}");
     expect(md.toLowerCase()).toContain("quality gate");
+  });
+
+  it("verify-before-done resolves project.criticalAreas to a repo-config pointer, not '<not configured: ...>'", () => {
+    runGlobalRender(skillsCfg(["verify-before-done"]), { dryRun: false });
+    const md = readFileSync(skillPath("verify-before-done"), "utf-8");
+    expect(md).not.toContain("{{project.criticalAreas}}");
+    expect(md).not.toContain("<not configured: project.criticalAreas>");
+    expect(md).toContain("las áreas críticas declaradas en la config del repo");
+  });
+
+  it("review-diff resolves project.criticalAreas to a repo-config pointer, not '<not configured: ...>'", () => {
+    runGlobalRender(skillsCfg(["review-diff"]), { dryRun: false });
+    const md = readFileSync(skillPath("review-diff"), "utf-8");
+    expect(md).not.toContain("{{project.criticalAreas}}");
+    expect(md).not.toContain("<not configured: project.criticalAreas>");
+    expect(md).toContain("las áreas críticas declaradas en la config del repo");
+  });
+
+  it("loop-back-debug resolves project.legacyPaths to a repo-config pointer, not '<not configured: ...>'", () => {
+    runGlobalRender(skillsCfg(["loop-back-debug"]), { dryRun: false });
+    const md = readFileSync(skillPath("loop-back-debug"), "utf-8");
+    expect(md).not.toContain("{{project.legacyPaths}}");
+    expect(md).not.toContain("<not configured: project.legacyPaths>");
+    expect(md).toContain("las rutas legacy declaradas en la config del repo");
   });
 });
