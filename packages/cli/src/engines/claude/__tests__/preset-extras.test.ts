@@ -96,7 +96,11 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     const BUNDLED = [
       {
         id: "nextjs",
-        skills: [".claude/skills/nextjs-app-router.md", ".claude/skills/nextjs-data-fetching.md"],
+        skills: [
+          ".claude/skills/nextjs-app-router.md",
+          ".claude/skills/nextjs-data-fetching.md",
+          ".claude/skills/new-resource.md",
+        ],
       },
       {
         id: "nestjs",

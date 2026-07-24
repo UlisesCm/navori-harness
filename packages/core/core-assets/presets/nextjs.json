@@ -21,6 +21,11 @@
         "id": "nextjs-data-fetching",
         "relPath": "presets/nextjs/skills/nextjs-data-fetching.md",
         "destRelPath": ".claude/skills/nextjs-data-fetching.md"
+      },
+      {
+        "id": "new-resource",
+        "relPath": "presets/nextjs/skills/new-resource.md",
+        "destRelPath": ".claude/skills/new-resource.md"
       }
     ],
     "hooks": []
