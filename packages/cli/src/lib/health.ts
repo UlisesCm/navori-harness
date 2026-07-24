@@ -38,6 +38,50 @@ export function listMarkers(filePath: string): MarkerInfo[] {
   return result;
 }
 
+/** Repo-relative `.md` paths directly under `cwd/<dir>` (non-recursive). */
+function collectMarkdownFlat(cwd: string, dir: string): string[] {
+  const absDir = join(cwd, dir);
+  if (!existsSync(absDir)) return [];
+  try {
+    return readdirSync(absDir)
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => `${dir}/${f}`);
+  } catch {
+    return [];
+  }
+}
+
+/** Repo-relative `.md` paths under `cwd/<dir>`, recursing subdirectories so
+ * directory-shaped skills (`<id>/SKILL.md` + sibling refs/assets, the form
+ * `resolveLocalSkillPath` already supports) are included — a flat readdir left
+ * their managed markers invisible to `doctor`. */
+function collectMarkdownRecursive(cwd: string, dir: string): string[] {
+  // Skill trees are shallow; a depth cap bounds the walk against a pathological
+  // or symlink-inflated tree, and symlinked dirs are skipped so a user symlink
+  // can't send the scan out of the tree (or into a cycle). readdir(withFileTypes)
+  // reports the link itself, so isSymbolicLink() catches a symlink even when it
+  // targets a directory.
+  const MAX_DEPTH = 6;
+  const out: string[] = [];
+  const walk = (rel: string, depth: number): void => {
+    if (depth > MAX_DEPTH) return;
+    let entries;
+    try {
+      entries = readdirSync(join(cwd, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      const childRel = `${rel}/${entry.name}`;
+      if (entry.isDirectory()) walk(childRel, depth + 1);
+      else if (entry.isFile() && entry.name.endsWith(".md")) out.push(childRel);
+    }
+  };
+  if (existsSync(join(cwd, dir))) walk(dir, 0);
+  return out;
+}
+
 export interface MissingPlugin {
   id: string;
   reason: string;
@@ -116,17 +160,11 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   for (const rel of ["AGENTS.md", ".github/copilot-instructions.md", ".cursor/rules/navori.mdc"]) {
     if (existsSync(join(cwd, rel))) files.push(rel);
   }
-  for (const dir of [".claude/agents", ".claude/skills"]) {
-    const absDir = join(cwd, dir);
-    if (!existsSync(absDir)) continue;
-    try {
-      for (const file of readdirSync(absDir)) {
-        if (file.endsWith(".md")) files.push(`${dir}/${file}`);
-      }
-    } catch {
-      continue;
-    }
-  }
+  // Agents stay flat; skills are walked RECURSIVELY so directory-shaped skills
+  // (`.claude/skills/<id>/SKILL.md` + sibling refs) are scanned too — the flat
+  // readdir missed them, leaving their managed markers invisible to doctor.
+  for (const file of collectMarkdownFlat(cwd, ".claude/agents")) files.push(file);
+  for (const file of collectMarkdownRecursive(cwd, ".claude/skills")) files.push(file);
 
   for (const rel of files) {
     const abs = join(cwd, rel);
@@ -292,17 +330,11 @@ export function scanMalformedMarkers(cwd: string): MalformedMarker[] {
   const files: string[] = [];
   if (existsSync(join(cwd, "CLAUDE.md"))) files.push("CLAUDE.md");
   if (existsSync(join(cwd, "AGENTS.md"))) files.push("AGENTS.md");
-  for (const dir of [".claude/agents", ".claude/skills"]) {
-    const absDir = join(cwd, dir);
-    if (!existsSync(absDir)) continue;
-    try {
-      for (const file of readdirSync(absDir)) {
-        if (file.endsWith(".md")) files.push(`${dir}/${file}`);
-      }
-    } catch {
-      continue;
-    }
-  }
+  // Agents stay flat; skills are walked RECURSIVELY so directory-shaped skills
+  // (`.claude/skills/<id>/SKILL.md` + sibling refs) are scanned too — the flat
+  // readdir missed them, leaving their managed markers invisible to doctor.
+  for (const file of collectMarkdownFlat(cwd, ".claude/agents")) files.push(file);
+  for (const file of collectMarkdownRecursive(cwd, ".claude/skills")) files.push(file);
   // Check close before open: the close prefix is a superset string, so testing
   // it first avoids misclassifying a close line as a broken open.
   const prefixes = ["<!-- /navori:managed", "<!-- navori:managed"];

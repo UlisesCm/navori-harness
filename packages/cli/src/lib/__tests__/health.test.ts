@@ -203,6 +203,36 @@ describe("listMarkers + scanManagedDrift", () => {
       ),
     ).toBe(true);
   });
+
+  // Directory-shaped skills (`<id>/SKILL.md` + refs) are walked recursively so
+  // their managed markers are not invisible to doctor — and unmanaged user files
+  // in the tree never false-positive.
+  it("reports no drift for a user's directory-shaped skill without navori markers", () => {
+    const skillDir = join(cwd, ".claude/skills/my-user-skill");
+    mkdirSync(join(skillDir, "refs"), { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "---\nname: my-user-skill\n---\n\nMy own skill.\n");
+    writeFileSync(join(skillDir, "refs", "notes.md"), "# Notes\n\nUnmanaged content.\n");
+    expect(scanManagedDrift(cwd, config)).toHaveLength(0);
+  });
+
+  it("detects content drift in a managed block inside a directory-shaped skill", () => {
+    const skillDir = join(cwd, ".claude/skills/big-skill");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `<!-- navori:managed id="big-skill-base" hash="deadbeef" version="9.9.9" source="@navori/core" -->\n` +
+        `hand-edited skill block\n<!-- /navori:managed id="big-skill-base" -->\n`,
+    );
+    const drifts = scanManagedDrift(cwd, config);
+    expect(
+      drifts.some(
+        (d) =>
+          d.kind === "content" &&
+          d.markerId === "big-skill-base" &&
+          d.filePath === ".claude/skills/big-skill/SKILL.md",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("scanManagedOrder", () => {
