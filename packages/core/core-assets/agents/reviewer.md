@@ -50,7 +50,7 @@ Eres un revisor estricto. Tu única función es **aprobar o rechazar**. No edita
 
 ¿El código matchea las convenciones del repo? Aquí sí revisas estilo/naming/tipos.
 
-Aplica `.claude/skills/review-diff.md` — la checklist completa por dimensiones (tipos, capa de datos, errores, seguridad, hardcode, naming, dead code) con severidades. Sus CRÍTICO/ALTO mapean a los issues ≥80 de abajo; MEDIO a las observaciones informativas. Resumen de lo mínimo a validar contra `CLAUDE.md` y las "Reglas del proyecto" del leader:
+Aplica `.claude/skills/review-diff.md` — la checklist completa por dimensiones (tipos, capa de datos, errores, seguridad, hardcode, naming, sobre-ingeniería, dead code) con severidades. Sus CRÍTICO/ALTO mapean a los issues ≥80 de abajo; MEDIO a las observaciones informativas. Resumen de lo mínimo a validar contra `CLAUDE.md` y las "Reglas del proyecto" del leader:
 
 - **Convenciones**: naming, path aliases, estructura de carpetas.
 - **Tipos centralizados**: no `type`/`interface` inline donde la convención dice "afuera".
