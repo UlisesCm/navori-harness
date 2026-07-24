@@ -106,4 +106,20 @@ describe("i18n — command catalog (tc)", () => {
       );
     }
   });
+
+  it("doctor blocks.exclude messages render with their args in both locales (feature: blocks.exclude)", () => {
+    for (const lang of SUPPORTED_LANGS) {
+      const d = tc(lang).doctor;
+      expect(d.excludedBlocksTitle(2)).toContain("2");
+      expect(d.excludedBlocksTitle(2)).toContain("blocks.exclude");
+      expect(d.excludedBlockRow("orquestacion")).not.toBe("");
+      expect(d.nonExcludableBlocks(1, "— 'operaciones-seguras'")).toContain("operaciones-seguras");
+      expect(d.nonExcludableBlockRow("operaciones-seguras")).toContain("operaciones-seguras");
+      expect(d.unknownExcludedBlocks(1, "— 'typo'")).toContain("typo");
+      expect(d.unknownExcludedBlockRow("orquestracion")).toContain("orquestracion");
+    }
+    // Locale actually differentiates the copy (not a shared fallback).
+    expect(tc("es").doctor.excludedBlocksTitle(1)).toContain("Bloques core excluidos");
+    expect(tc("en").doctor.excludedBlocksTitle(1)).toContain("Excluded core blocks");
+  });
 });
