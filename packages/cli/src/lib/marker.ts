@@ -367,7 +367,8 @@ export function injectManagedSection(
     const replaced =
       existing.slice(0, match.openStart) +
       openMarker(id, newHash, meta, syntax) +
-      existing.slice(match.openEnd, match.closeEnd);
+      existing.slice(match.openEnd, match.closeEnd) +
+      existing.slice(match.closeEnd);
     return { output: replaced, status: "updated", details };
   }
 

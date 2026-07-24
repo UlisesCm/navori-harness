@@ -36,6 +36,33 @@ describe("injectManagedSection", () => {
     expect(second.output).toBe(first.output);
   });
 
+  it("meta-only update (same content, newer version) preserves the document tail", () => {
+    // Regression: on a version bump where a block's content is byte-identical,
+    // injectManagedSection took a fast meta-only path that rebuilt the doc up to
+    // the block's close marker but DROPPED everything after it — truncating all
+    // later blocks and user prose. On `render --all --apply` this silently
+    // deleted content. The tail must survive.
+    const existing = [
+      '<!-- navori:managed id="a" version="0.2.20" source="@navori/core" -->',
+      "content A",
+      '<!-- /navori:managed id="a" -->',
+      "",
+      '<!-- navori:managed id="b" version="0.2.20" source="@navori/core" -->',
+      "content B",
+      '<!-- /navori:managed id="b" -->',
+      "",
+      "user prose at the very end",
+      "",
+    ].join("\n");
+    const result = injectManagedSection(existing, "a", "content A", { source: "@navori/core", version: "0.2.22" }, "html");
+    expect(result.status).toBe("updated");
+    expect(result.output).toContain('id="b"');
+    expect(result.output).toContain("content B");
+    expect(result.output).toContain("user prose at the very end");
+    // The updated block carries the new version; nothing after it is lost.
+    expect(result.output).toContain('version="0.2.22"');
+  });
+
   it("collapses an empty HTML section to one line (spec 0003 §3.2.4)", () => {
     const result = injectManagedSection("", "skills", "");
     expect(result.status).toBe("created");
