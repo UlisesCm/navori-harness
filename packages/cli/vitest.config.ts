@@ -4,6 +4,9 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     environment: "node",
+    // Build the CLI once before the suite: the e2e specs spawn dist/index.js,
+    // so a stale/missing dist would fail them for environmental reasons.
+    globalSetup: ["./vitest.globalSetup.ts"],
     testTimeout: 15_000, // e2e specs spawn the CLI several times
     coverage: {
       // Spec 0003 §3.4.1 — pragmatic gate over src/lib/. The critical paths
