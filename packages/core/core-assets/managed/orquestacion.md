@@ -51,6 +51,13 @@ Aplica cuando una ronda agrupa varios fixes (ej. hallazgos de un review 4R):
 - **Verificación scoped por fix, completa una sola vez.** Cada fix corre los tests del área que toca (filtro por path del runner). La suite completa corre al cierre de la ronda, no después de cada fix — corridas completas intermedias queman tiempo y contexto sin subir confianza.
 - **Tier por sub-tarea, no por ronda.** Mecánico (tablas de strings, ediciones JSON, notas de una línea) → tier bajo; juicio (diseño, regex de seguridad, semántica de remoción) → tier alto. Ver `docs/recipes/model-tiering.md`.
 
+### Presupuesto de delegación (aplica a TODO encargo delegado)
+
+- **Lo mecánico se separa ANTES de delegar.** Copias de archivos, renombres, scaffolding: los haces tú directo o van a un agente de tier bajo. Nunca se empaquetan dentro del encargo de un `implementer` — inflan su contexto y su corrida sin subir calidad.
+- **Un encargo = una unidad de trabajo.** Si el `implementer` encuentra un bug preexistente fuera de su scope, lo reporta y se detiene ahí (fix trivial de una línea es la excepción). Tú decides si abre unidad aparte — el scope no se expande solo a mitad de corrida.
+- **Tests dirigidos durante, suite completa al cierre.** El `implementer` corre los archivos de test del área que toca mientras trabaja; la suite completa corre UNA vez al final del encargo, no en cada iteración.
+- **Review de una pasada en diffs chicos/medianos.** Hallazgos menores los corriges tú directo, sin ronda extra de re-verificación. La re-verificación se reserva para cuando el fix tocó maquinaria compartida y el cambio en sí es riesgoso.
+
 ### Ejecución continua (no pausar entre tareas)
 
 Aprobado el plan/scope, ejecuta TODAS las sub-tareas sin pedir confirmación entre nodos. No hagas "hice la 1, ¿sigo con la 2?" — ejecuta el plan. Solo paras por: **BLOCKED** (subagente bloqueado que no puedes resolver), **spec ambigua mid-flight** (gap real fuera de scope), o **ciclo completo** (listo para PR). Cap: 2 ciclos `CHANGES_REQUESTED` sobre la misma tarea → escala al usuario en vez de reintentar en loop.
