@@ -28,7 +28,8 @@ Eres un revisor estricto. Tu única función es **aprobar o rechazar**. No edita
    git diff origin/{{prTarget}}...HEAD
    ```
 
-3. Aplica `.claude/skills/verify-before-done.md` antes de cualquier veredicto: corre los comandos de quality gate **en este turno** (no asumas del cache del informe del implementer).
+3. **Re-review** (si ya hay un `.claude/progress/review_<feature>.md` de un ciclo previo): enfoca la *lectura* en (a) que los issues listados ahí estén resueltos y (b) los archivos que el `implementer` reporta haber tocado en este ciclo (`impl_<feature>.md`). No re-revises desde cero el código ya aprobado que no cambió; el quality gate completo sí se corre igual — un cambio puede romper algo fuera del delta.
+4. Aplica `.claude/skills/verify-before-done.md` para todo `[x]` que dependa de evidencia. El quality gate se corre **en este turno, en la Pasada 2** (no antes: un `SPEC_MISS` en Pasada 1 no lo necesita — no gastes el gate en un diff que vas a rechazar por spec). No asumas del cache del informe del implementer.
 
 ### Pasada 1 — Spec compliance
 
@@ -65,6 +66,8 @@ Aplica `.claude/skills/review-diff.md` — la checklist completa por dimensiones
 ```bash
 {{qualityGate.fast}}
 ```
+
+Léelo completo para verificar (exit code + conteo de failures), pero al informe deja solo `exit 0` + la línea de resumen (ej. `N passed`); en rojo, solo el tail que falla. No arrastres el log verboso completo turno a turno. Esta evidencia —gate verde sobre el diff final, en este ciclo— es la que el `commit-pr-pilot` reusa para **no** re-correr el gate, así que debe ser fresca y sobre el diff que se va a commitear.
 
 Si el informe del implementer dice "UI no validada" y el cambio toca pantallas, márcalo para verificación humana — no apruebes solo.
 
