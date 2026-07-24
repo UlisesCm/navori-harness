@@ -631,6 +631,7 @@ interface GlobalCmdStrings {
   settingsManagedNote: string;
   previewWord: string;
   previewHint: string;
+  initPreviewHint: string;
   doneWord: string;
   upToDate: string;
   noConfig: (path: string) => string;
@@ -872,6 +873,7 @@ const CMD_ES: CmdStrings = {
       "Nota: una vez adoptado, navori administra los permisos de ~/.claude/settings.json. Las ediciones a mano posteriores no se fusionan de vuelta; usa la config global como fuente de verdad.",
     previewWord: "Preview",
     previewHint: "corre 'navori global render --apply' para escribir",
+    initPreviewHint: "corre 'navori global init --apply' para escribir",
     doneWord: "Listo",
     upToDate: "Al día — sin cambios",
     noConfig: (path) => `No hay config global en ${path}. Corre 'navori global init' primero.`,
@@ -1110,6 +1112,7 @@ const CMD_EN: CmdStrings = {
       "Note: once adopted, navori manages the permissions in ~/.claude/settings.json. Later hand edits are not merged back; use the global config as the source of truth.",
     previewWord: "Preview",
     previewHint: "run 'navori global render --apply' to write",
+    initPreviewHint: "run 'navori global init --apply' to write",
     doneWord: "Done",
     upToDate: "Up to date — no changes",
     noConfig: (path) => `No global config at ${path}. Run 'navori global init' first.`,

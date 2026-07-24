@@ -221,7 +221,9 @@ export const initSubCommand = defineCommand({
       await installGlobalTools(config, { assumeYes: recommended, lang });
     }
 
-    p.outro(apply ? color.green(tc(lang).global.doneWord) : color.yellow(`${tg.previewWord} · ${tg.previewHint}`));
+    // The generic previewHint points to `render --apply`, but render refuses to
+    // run until global.json exists — which only `init --apply` writes.
+    p.outro(apply ? color.green(tc(lang).global.doneWord) : color.yellow(`${tg.previewWord} · ${tg.initPreviewHint}`));
   },
 });
 
