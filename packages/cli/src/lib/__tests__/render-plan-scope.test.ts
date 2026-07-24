@@ -52,6 +52,18 @@ describe("plugin allowedScopes × renderScope gate (render-plan.ts)", () => {
   });
 });
 
+describe("aterrizaje-repo is a global-only core asset (render-plan.ts)", () => {
+  it("is included in the global render plan", () => {
+    const global = computeRenderPlan("", baseConfig, repoRoot, { scope: "global" });
+    expect(global.next).toContain('id="aterrizaje-repo"');
+  });
+
+  it("is ABSENT from the repo-scope render", () => {
+    const repo = computeRenderPlan("", baseConfig, repoRoot, { scope: "repo" });
+    expect(repo.next).not.toContain('id="aterrizaje-repo"');
+  });
+});
+
 describe("scope self-heal honors user-modified hash (render-plan.ts)", () => {
   // orquestacion is scope:repo, so a global render must strip it — UNLESS the
   // user hand-edited it, in which case deleting it silently would clobber the

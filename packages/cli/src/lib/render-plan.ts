@@ -69,6 +69,12 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
   { id: "orquestacion", relPath: "core-assets/managed/orquestacion.md", availableLanguages: ["es"], rootOnly: true, scope: "repo" },
   { id: "idioma-rol", relPath: "core-assets/managed/idioma-rol.md", availableLanguages: ["es"], rootOnly: true, scope: "both" },
   { id: "formato-respuesta", relPath: "core-assets/managed/formato-respuesta.md", availableLanguages: ["es"], rootOnly: true, scope: "both" },
+  // Global-only: teaches the globally-configured agent to detect/bootstrap the
+  // harness in whatever repo it lands on. `rootOnly` is deliberately omitted:
+  // the scope filter runs before the `omitRootOnly` check, so a repo-scope
+  // render drops this asset on scope alone, and with `rootOnly` unset the
+  // workspace split can never strip it from a global render either.
+  { id: "aterrizaje-repo", relPath: "core-assets/managed/aterrizaje-repo.md", availableLanguages: ["es"], scope: "global" },
   { id: "tipado-fuerte", relPath: "core-assets/managed/tipado-fuerte.md", availableLanguages: ["es"], condition: "project.typedLanguage", scope: "repo" },
   { id: "operaciones-seguras", relPath: "core-assets/managed/operaciones-seguras.md", availableLanguages: ["es"], rootOnly: true, scope: "repo" },
   { id: "arranque-sesion", relPath: "core-assets/managed/arranque-sesion.md", availableLanguages: ["es"], rootOnly: true, scope: "repo" },
