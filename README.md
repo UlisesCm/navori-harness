@@ -66,7 +66,8 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 |---|---|
 | `init` | Bootstrap con detección de stack + wizard (o `--recommended` sin preguntas, o `--full` para la instalación máxima) |
 | `update` | Re-detecta el repo, refresca el config y corre el engine completo — *bring me up to date* |
-| `render` | Genera `CLAUDE.md` + `.claude/` desde el config (preview por default; `--apply` escribe) |
+| `render` | Genera `CLAUDE.md` + `.claude/` desde el config (preview por default; `--apply` escribe). `--all` renderea **todos** los repos del registro global de una — el rollout tras un bump de navori en un comando |
+| `registry` | Registro global de tus repos con navori (`ls` / `scan <dir>` / `add` / `remove` / `prune`). `init` y `update` te dan de alta solos; `scan` puebla lo que ya existía |
 | `sync` | Refresca los managed blocks con conflict resolution + backups |
 | `add` / `configure` | Activa un plugin / ajusta una sección del config sin re-init |
 | `doctor` / `status` | Audita config + drift (`--strict` para CI) / snapshot rápido |
