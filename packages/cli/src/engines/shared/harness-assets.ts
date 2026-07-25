@@ -22,6 +22,7 @@ export const CORE_SKILLS: ReadonlyArray<string> = [
   "review-diff",
   "security-guidance",
   "debug-error",
+  "structural-search",
 ];
 
 export const WORKFLOW_SKILLS: ReadonlyArray<string> = [

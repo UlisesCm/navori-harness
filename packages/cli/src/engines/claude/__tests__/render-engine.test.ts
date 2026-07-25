@@ -57,6 +57,7 @@ describe("renderClaudeEngine — first render with full config", () => {
     expect(existsSync(join(cwd, ".claude/agents/explorer.md"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/skills/verify-before-done.md"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/skills/loop-back-debug.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/structural-search.md"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/hooks/quality-gate-pre-commit.sh"))).toBe(true);
 
     const agentPaths = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
@@ -299,14 +300,14 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
   it("reports inspected count on first render and on second", () => {
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
     // Inspected counts every managed asset processed:
-    //   1 CLAUDE.md + 1 settings.json + 8 agents + 5 core skills + 3 workflow
+    //   1 CLAUDE.md + 1 settings.json + 8 agents + 6 core skills + 3 workflow
     //   skills (ticket-intake, pr-create, spec-bootstrap) + 1 guard hook +
-    //   1 qg hook + 2 progress files + 1 engram-leader-extension sub-block = 23.
+    //   1 qg hook + 2 progress files + 1 engram-leader-extension sub-block = 24.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(23);
+    expect(first.inspected).toBe(24);
     // Written counts files actually emitted. engram-leader-extension is a
-    // sub-block injected into leader.md, not a separate file, so written = 22.
-    expect(first.written.length).toBe(22);
+    // sub-block injected into leader.md, not a separate file, so written = 23.
+    expect(first.written.length).toBe(23);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -404,9 +405,8 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
 describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
-    // Dry-run still reports the would-write set: the full 22 files
-    // (21 + debug-error skill).
-    expect(r.written).toHaveLength(22);
+    // Dry-run still reports the would-write set, including structural-search.
+    expect(r.written).toHaveLength(23);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

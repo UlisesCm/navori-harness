@@ -110,11 +110,13 @@ describe("CLI e2e — happy paths", () => {
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
     expect(claudeMd).toContain('navori:managed id="idioma-rol"');
     expect(claudeMd).toContain('navori:managed id="engram-protocol"');
+    expect(claudeMd).toContain("topic_key");
 
     // E1c: .claude/ tree now also exists
     expect(existsSync(join(repo, ".claude/agents/leader.md"))).toBe(true);
     expect(existsSync(join(repo, ".claude/agents/implementer.md"))).toBe(true);
     expect(existsSync(join(repo, ".claude/skills/verify-before-done.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude/skills/structural-search.md"))).toBe(true);
     expect(existsSync(join(repo, ".claude/settings.json"))).toBe(true);
 
     const settings = JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8"));

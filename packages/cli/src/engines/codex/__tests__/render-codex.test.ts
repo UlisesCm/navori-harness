@@ -36,6 +36,7 @@ describe("renderCodexEngine", () => {
     expect(agentsMd).not.toContain("CLAUDE.md");
     expect(agentsMd).not.toContain(".claude/agents");
     expect(existsSync(join(cwd, ".agents/skills/verify-before-done/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".agents/skills/structural-search/SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, ".codex/agents/implementer.toml"))).toBe(true);
     expect(existsSync(join(cwd, ".codex/hooks/guard-destructive.sh"))).toBe(true);
 
@@ -48,6 +49,7 @@ describe("renderCodexEngine", () => {
     expect(toml).toContain('[mcp_servers."engram"]');
     expect(toml).toContain('args = ["mcp", "--tools=agent"]');
     expect(toml).toContain("[[hooks.PreToolUse]]");
+    expect(agentsMd).toContain("topic_key");
 
     const implementer = readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8");
     expect(implementer).toContain('model = "gpt-5.6-terra"');

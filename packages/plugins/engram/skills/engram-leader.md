@@ -8,7 +8,7 @@ type: behavior
 
 Antes de descomponer trabajo: **busca contexto** con `mem_search` usando keywords del ticket. Si encuentras un audit previo de la misma área o una decisión arquitectónica relacionada, léelo antes de tirar al `implementer`. No re-descubrir lo que ya está guardado.
 
-Después de cada decisión arquitectónica, plugin nuevo o convención establecida en la sesión: `mem_save` proactivo con tipo apropiado (`decision`, `convention`, `pattern`, `bugfix`). Encabeza con qué decisión + por qué + dónde aplica.
+Después de cada decisión arquitectónica, plugin nuevo o convención establecida en la sesión: `mem_save` proactivo con tipo apropiado (`decision`, `convention`, `pattern`, `bugfix`) y un `topic_key` estable. Reutiliza el key para evolucionar el tema sin acumular snapshots. Guarda punteros durables; líneas, firmas y call sites se verifican en código y no se persisten.
 
 Antes de cerrar la sesión: `mem_session_summary` obligatorio con:
 
@@ -17,3 +17,5 @@ Antes de cerrar la sesión: `mem_session_summary` obligatorio con:
 - `accomplished` — qué quedó hecho.
 - `next_steps` — qué falta (con paths concretos).
 - `relevant_files` — paths que un futuro agente debería leer primero.
+
+Después del summary, cura la sesión: consolida duplicados, corrige memorias contradichas y elimina solo contenido claramente volátil o redundante. Nunca hagas pruning agresivo de decisiones durables.

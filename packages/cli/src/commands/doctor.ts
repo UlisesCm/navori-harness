@@ -96,6 +96,7 @@ export const doctorCommand = defineCommand({
     const missingInvariants = scanMissingInvariants(cwd, config);
     const malformedMarkers = scanMalformedMarkers(cwd);
     const missingExternalTools = scanMissingExternalTools(config);
+    const missingOptionalTools = scanMissingOptionalTools();
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     const workspaceLink = scanWorkspaceLink(cwd, config);
     // Legacy agent files (sdd-*/deep-auditor) superseded by a canonical navori
@@ -148,6 +149,7 @@ export const doctorCommand = defineCommand({
       missingInvariants,
       malformedMarkers,
       missingExternalTools,
+      missingOptionalTools,
       monorepoDrift,
       workspaceLink,
       missingPreset,
@@ -343,6 +345,19 @@ export const doctorCommand = defineCommand({
       p.log.warn(td.externalTools(missingExternalTools.length, lines.join("\n")));
     }
 
+    if (missingOptionalTools.length > 0) {
+      const lines = missingOptionalTools.map(
+        (tool) =>
+          `  ${color.yellow(sym.update)} ${accent(tool.id)}  ${grey(
+            td.optionalToolRow(
+              tool.binaries.map((binary) => `'${binary}'`).join(" / "),
+              tool.install,
+            ),
+          )}`,
+      );
+      p.log.warn(td.optionalTools(missingOptionalTools.length, lines.join("\n")));
+    }
+
     if (monorepoDrift) {
       const lines: string[] = [];
       if (monorepoDrift.emptyDeclared) {
@@ -509,6 +524,29 @@ export function scanMissingExternalTools(config: NavoriConfig): MissingExternalT
     }
   }
   return missing;
+}
+
+export interface MissingOptionalTool {
+  id: string;
+  binaries: string[];
+  install: string;
+}
+
+/**
+ * Optional precision tools improve the generated harness but never gate it.
+ * structural-search supports both official CLI names and falls back to Grep,
+ * so doctor only warns when neither binary is available.
+ */
+export function scanMissingOptionalTools(): MissingOptionalTool[] {
+  const binaries = ["sg", "ast-grep"];
+  if (binaries.some((binary) => hasBinary(binary))) return [];
+  return [
+    {
+      id: "structural-search",
+      binaries,
+      install: "npm install --global @ast-grep/cli",
+    },
+  ];
 }
 
 interface MonorepoDrift {
