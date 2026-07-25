@@ -74,7 +74,7 @@ describe("i18n — runtime language resolution (#84)", () => {
 });
 
 describe("i18n — command catalog (tc)", () => {
-  it("returns different prose per locale for render / sync / doctor", () => {
+  it("returns different prose per locale for command output", () => {
     expect(tc("es").render.previewHint).not.toBe(tc("en").render.previewHint);
     expect(tc("es").render.previewHint).toContain("para escribir");
     expect(tc("en").render.previewHint).toContain("to write");
@@ -84,6 +84,13 @@ describe("i18n — command catalog (tc)", () => {
 
     expect(tc("es").doctor.nextStepsTitle).toBe("Próximos pasos");
     expect(tc("en").doctor.nextStepsTitle).toBe("Next steps");
+
+    expect(tc("es").update.upToDate).toContain("Al día");
+    expect(tc("en").update.upToDate).toContain("Up to date");
+    expect(tc("es").add.suggestionsTitle).toBe("Sugerencias");
+    expect(tc("en").add.suggestionsTitle).toBe("Suggestions");
+    expect(tc("es").status.nextStepsTitle).toBe("Próximos pasos");
+    expect(tc("en").status.nextStepsTitle).toBe("Next steps");
   });
 
   it("parameterized entries interpolate their args in both locales", () => {
@@ -93,6 +100,12 @@ describe("i18n — command catalog (tc)", () => {
       expect(c.sync.workspaceNotFound("ghost", "a, b")).toContain("a, b");
       expect(c.doctor.missingPreset("phantom")).toContain("phantom");
       expect(c.render.adapterMissing("cursor")).toContain("cursor");
+      expect(c.update.configUpdated("/tmp/config")).toContain("/tmp/config");
+      expect(c.add.unknownPlugin("ghost", "engram")).toContain("ghost");
+      expect(c.scan.added(2, "/tmp/config")).toContain("2");
+      expect(c.configure.languageUpdated("en")).toContain("en");
+      expect(c.workspace.notFound("ghost")).toContain("ghost");
+      expect(c.status.nextMissingPlugins(2)).toContain("2");
     }
   });
 
@@ -100,7 +113,18 @@ describe("i18n — command catalog (tc)", () => {
     const keysOf = (o: Record<string, unknown>) => Object.keys(o).sort();
     const es = tc("es");
     const en = tc("en");
-    for (const section of ["common", "render", "sync", "doctor"] as const) {
+    for (const section of [
+      "common",
+      "render",
+      "sync",
+      "doctor",
+      "update",
+      "add",
+      "scan",
+      "configure",
+      "workspace",
+      "status",
+    ] as const) {
       expect(keysOf(es[section] as unknown as Record<string, unknown>)).toEqual(
         keysOf(en[section] as unknown as Record<string, unknown>),
       );

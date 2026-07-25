@@ -7,6 +7,7 @@ import { canonicalManagedOrder, EXCLUDABLE_BLOCK_IDS, CORE_BLOCK_IDS } from "./r
 import { detectClaudeInfra } from "./claude-infra.ts";
 import { detectLegacyAgents, type LegacyAgent } from "./legacy-agents.ts";
 import type { NavoriConfig } from "./config.ts";
+import { tc, DEFAULT_LANG, type Lang } from "./i18n.ts";
 
 /**
  * Shared health-check logic for `doctor` (verbose) and `status` (concise) —
@@ -386,44 +387,35 @@ export interface HealthState {
  * Derive the suggested next actions from the current health state. Used by
  * `status` (and as the footer of `doctor`) to answer "what should I do now?".
  */
-export function suggestNextSteps(state: HealthState): string[] {
+export function suggestNextSteps(state: HealthState, lang: Lang = DEFAULT_LANG): string[] {
+  const tr = tc(lang).status;
   const steps: string[] = [];
   if (!state.claudeMdExists) {
-    steps.push("Corre 'navori render --apply' para generar CLAUDE.md + .claude/.");
+    steps.push(tr.nextRender);
   }
   if (state.missingPlugins.length > 0) {
-    steps.push(
-      `Resuelve ${state.missingPlugins.length} plugin(s) faltante(s): instálalos o quítalos del config.`,
-    );
+    steps.push(tr.nextMissingPlugins(state.missingPlugins.length));
   }
   if (state.drifts.some((d) => d.kind === "content")) {
-    steps.push("Corre 'navori sync --interactive' para resolver bloques editados a mano.");
+    steps.push(tr.nextContentDrift);
   }
   if (state.drifts.some((d) => d.kind === "version")) {
-    steps.push("Corre 'navori render --apply' para traer los bloques a la última versión.");
+    steps.push(tr.nextVersionDrift);
   }
   if (state.orderReport && !state.orderReport.interleaved) {
-    steps.push(
-      "Corre 'navori render --apply' para reordenar los bloques de CLAUDE.md al orden canónico.",
-    );
+    steps.push(tr.nextReorder);
   }
   if (state.orderReport?.interleaved) {
     const mf = state.orderReport.misplacedFirst;
-    const lead = mf
-      ? ` (p.ej. '${mf.id}' está en posición ${mf.currentPos} de ${mf.total} y debería ir 1º)`
-      : "";
-    steps.push(
-      `Mueve el texto que tienes entre bloques managed de CLAUDE.md arriba del primer bloque o abajo del último${lead}; luego corre 'navori render --apply' para reordenarlos.`,
-    );
+    const lead = mf ? tr.nextInterleavedLead(mf.id, mf.currentPos, mf.total) : "";
+    steps.push(tr.nextInterleaved(lead));
   }
   if (state.legacyAgents && state.legacyAgents.length > 0) {
     const names = state.legacyAgents.map((l) => l.legacyName).join(", ");
-    steps.push(
-      `Archiva o borra ${state.legacyAgents.length} agente(s) legacy (${names}); navori ya provee sus equivalentes canónicos.`,
-    );
+    steps.push(tr.nextLegacyAgents(state.legacyAgents.length, names));
   }
   if (steps.length === 0) {
-    steps.push("Todo al día — sin acciones pendientes.");
+    steps.push(tr.allCurrent);
   }
   return steps;
 }

@@ -10,6 +10,7 @@ import { runRender, formatDowngradeWarning } from "./render.ts";
 import { registerRepoSafe } from "../lib/registry.ts";
 import type { UpdateAvailable } from "../lib/render-plan.ts";
 import { brand, dim, color, accent, sym, type RenderStatus } from "../lib/style.ts";
+import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 
 /** Progress keys removed from the schema (#75). `update` cleans them when it
  * rewrites config so the "dead keys" warning doesn't recur forever (#79). */
@@ -302,16 +303,18 @@ export const updateCommand = defineCommand({
     p.intro(brand("update"));
 
     if (!existsSync(cwd)) {
-      p.cancel(`Directory not found: ${cwd}`);
+      p.cancel(tc(DEFAULT_LANG).common.dirNotFound(cwd));
       process.exit(1);
     }
 
     if (!existsSync(configPath)) {
-      p.cancel(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
+      p.cancel(tc(DEFAULT_LANG).common.noConfig(configPath));
       process.exit(1);
     }
 
     const config = readConfigOrExit(configPath);
+    const lang = resolveLang(config.language);
+    const tr = tc(lang).update;
     const detected = detectProject(cwd);
     const diffs = diffConfig(config, detected);
 
@@ -329,12 +332,10 @@ export const updateCommand = defineCommand({
       const detail = changedOverrides
         .map((m) => {
           const det = detByLegacy.get(m.legacy);
-          return `${m.legacy}→${m.preferred}${det ? ` (detección sugiere ${det.legacy}→${det.preferred})` : ""}`;
+          return `${m.legacy}→${m.preferred}${det ? ` ${tr.detectedMigrationSuggestion(det.legacy, det.preferred)}` : ""}`;
         })
         .join(", ");
-      p.log.info(
-        `project.libraryMigrations: respeto tu override manual — ${detail}. No lo sobrescribo; edítalo a mano si quieres adoptar la sugerencia.`,
-      );
+      p.log.info(tr.manualMigrationOverride(detail));
     }
 
     const rawConfig = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
@@ -358,7 +359,7 @@ export const updateCommand = defineCommand({
       agg.conflicts.length === 0 &&
       agg.downgrades.length === 0
     ) {
-      p.outro("Up to date — nothing to update");
+      p.outro(tr.upToDate);
       return;
     }
 
@@ -367,19 +368,17 @@ export const updateCommand = defineCommand({
         (d) =>
           `  ${color.yellow(sym.updated)} ${accent(d.field)}${dim(":")} ${color.red(d.before)} ${dim("→")} ${color.green(d.after)}`,
       );
-      p.log.info(`Config drift detected (${diffs.length}):\n${lines.join("\n")}`);
+      p.log.info(tr.configDrift(diffs.length, lines.join("\n")));
     } else if (!wsScopesChanged) {
-      p.log.info("Config is in sync with the repo");
+      p.log.info(tr.configInSync);
     }
 
     if (wsScopesChanged) {
-      p.log.info(
-        "Re-homed per-workspace library skills onto monorepo.workspaces[] (scoping migration)",
-      );
+      p.log.info(tr.rehomedLibraries);
     }
 
     if (deadKeys.length > 0) {
-      p.log.info(`Claves obsoletas en "progress" que se limpiarán: ${deadKeys.join(", ")}`);
+      p.log.info(tr.deadProgressKeys(deadKeys.join(", ")));
     }
 
     if (agg.writes.length > 0) {
@@ -389,10 +388,8 @@ export const updateCommand = defineCommand({
           (w) =>
             `  ${color.cyan(sym.update)} ${dim(`[${w.scope}]`)} ${w.path} ${dim(`(${w.status})`)}`,
         );
-      const more = agg.writes.length > 12 ? `\n  ${dim(`… +${agg.writes.length - 12} más`)}` : "";
-      p.log.info(
-        `Archivos que se actualizarían (${agg.writes.length}):\n${shown.join("\n")}${more}`,
-      );
+      const more = agg.writes.length > 12 ? `\n  ${dim(tr.moreFiles(agg.writes.length - 12))}` : "";
+      p.log.info(tr.filesToUpdate(agg.writes.length, shown.join("\n"), more));
     }
 
     if (agg.updates.length > 0) {
@@ -400,13 +397,11 @@ export const updateCommand = defineCommand({
         (u) =>
           `  ${color.cyan(sym.update)} ${u.id}  ${dim(`(${u.source}  ${u.fromVersion} → ${u.toVersion})`)}`,
       );
-      p.log.info(`Managed block updates available (${agg.updates.length}):\n${lines.join("\n")}`);
+      p.log.info(tr.managedUpdates(agg.updates.length, lines.join("\n")));
     }
 
     if (agg.conflicts.length > 0) {
-      p.log.warn(
-        `${agg.conflicts.length} archivo(s) con ediciones tuyas — 'navori sync' los resuelve interactivamente`,
-      );
+      p.log.warn(tr.conflicts(agg.conflicts.length));
     }
 
     // Anti-retroceso (#79): shown even with --yes — a silent downgrade is the
@@ -416,13 +411,9 @@ export const updateCommand = defineCommand({
 
     if (args["dry-run"]) {
       if (diffs.some((d) => d.field === "project.libraries")) {
-        p.log.message(
-          dim(
-            "Nota: aplicar el diff de project.libraries materializa las library skills (el preview de arriba refleja el config actual).",
-          ),
-        );
+        p.log.message(dim(tr.libraryPreviewNote));
       }
-      p.outro("Dry-run complete (no files written)");
+      p.outro(tr.dryRunComplete);
       return;
     }
 
@@ -430,11 +421,11 @@ export const updateCommand = defineCommand({
     // any managed block you edited by hand rather than clobbering it).
     if (!args.yes && willWriteConfig) {
       const ok = await p.confirm({
-        message: `Apply config changes + re-render?`,
+        message: tr.applyChanges,
         initialValue: true,
       });
       if (p.isCancel(ok) || !ok) {
-        p.cancel("Aborted");
+        p.cancel(tc(lang).common.aborted);
         return;
       }
     }
@@ -449,11 +440,11 @@ export const updateCommand = defineCommand({
         for (const k of deadKeys) delete (rawConfig.progress as Record<string, unknown>)[k];
       }
       writeConfig(configPath, rawConfig as Parameters<typeof writeConfig>[1]);
-      p.log.success(`Updated ${configPath}`);
+      p.log.success(tr.configUpdated(configPath));
     }
 
     if (args["config-only"]) {
-      p.outro("Config updated. Corre 'navori sync' para refrescar CLAUDE.md + .claude/.");
+      p.outro(tr.configOnlyDone);
       return;
     }
 
@@ -468,14 +459,12 @@ export const updateCommand = defineCommand({
       // config updated and the tree partial. Surface a clean message with the
       // backup breadcrumb the engine's RenderWriteError carries (#79).
       p.log.error(err instanceof Error ? err.message : String(err));
-      p.outro(
-        "El render falló tras actualizar el config — revisa el backup y corre 'navori render --apply'",
-      );
+      p.outro(tr.renderAfterConfigFailed);
       return;
     }
     if (!result.ok) {
-      p.log.error(result.reason ?? "Render failed");
-      p.outro("Done (config actualizado, pero el render falló)");
+      p.log.error(result.reason ?? tr.renderFailed);
+      p.outro(tr.doneRenderFailed);
       return;
     }
     // Keep the global registry current (best-effort) so `render --all` sees this
@@ -483,20 +472,16 @@ export const updateCommand = defineCommand({
     registerRepoSafe(cwd, detected.name);
     const applied = aggregateRender(result);
     if (applied.conflicts.length > 0) {
-      p.log.warn(
-        `${applied.conflicts.length} archivo(s) con ediciones tuyas no se tocaron — 'navori sync' para resolver`,
-      );
+      p.log.warn(tr.conflictsKept(applied.conflicts.length));
     }
     const applyDowngradeWarn = formatDowngradeWarning(applied.downgrades);
     if (applyDowngradeWarn) p.log.warn(applyDowngradeWarn);
     if (applied.writes.length > 0) {
-      p.log.success(
-        `Re-rendered ${applied.writes.length} archivo(s) (CLAUDE.md + .claude/, incluidos workspaces)`,
-      );
+      p.log.success(tr.rerendered(applied.writes.length));
     } else {
-      p.log.info("No re-render needed");
+      p.log.info(tr.noRenderNeeded);
     }
 
-    p.outro("Done");
+    p.outro(tr.done);
   },
 });

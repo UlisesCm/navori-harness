@@ -14,6 +14,7 @@ import { hasBinary } from "../lib/which.ts";
 import { InstallError } from "../lib/errors.ts";
 import { detectProject } from "../lib/detect.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
+import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 
 type Platform = "darwin" | "linux" | "win32";
 
@@ -38,7 +39,7 @@ function currentPlatform(): Platform {
  */
 const INSTALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min — generous for brew install + downloads
 
-function runShellCommand(cmd: string): void {
+function runShellCommand(cmd: string, lang: Lang): void {
   const result = spawnSync(cmd, {
     shell: true,
     stdio: "inherit",
@@ -46,17 +47,13 @@ function runShellCommand(cmd: string): void {
   });
   // spawnSync sets result.error with the killed signal when timeout fires
   if (result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
-    throw new InstallError(
-      `Install command timed out after ${INSTALL_TIMEOUT_MS / 1000}s. ` +
-        `It may be waiting for interactive input (run from a TTY) or hung. ` +
-        `Install the tool manually and re-run navori with --skip-install.`,
-    );
+    throw new InstallError(tc(lang).add.installTimeout(INSTALL_TIMEOUT_MS / 1000));
   }
   if (result.signal) {
-    throw new InstallError(`Command killed by signal ${result.signal}`);
+    throw new InstallError(tc(lang).add.commandKilled(result.signal));
   }
   if (result.status !== 0) {
-    throw new InstallError(`Command exited with status ${result.status}`);
+    throw new InstallError(tc(lang).add.commandExited(result.status));
   }
 }
 
@@ -96,21 +93,19 @@ export const addCommand = defineCommand({
       p.intro(brand("add --suggest"));
     } else if (!args.plugin) {
       p.intro(brand("add"));
-      p.cancel(
-        "Pasa un plugin id (ej. 'navori add engram') o usa --suggest para ver recomendaciones.",
-      );
+      p.cancel(tc(DEFAULT_LANG).add.pluginRequired);
       process.exit(1);
     } else {
       p.intro(brand(`add ${accent(args.plugin)}`));
     }
 
     if (!existsSync(cwd)) {
-      p.cancel(`Directory not found: ${cwd}`);
+      p.cancel(tc(DEFAULT_LANG).common.dirNotFound(cwd));
       process.exit(1);
     }
 
     if (!existsSync(configPath)) {
-      p.cancel(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
+      p.cancel(tc(DEFAULT_LANG).common.noConfig(configPath));
       process.exit(1);
     }
 
@@ -121,15 +116,16 @@ export const addCommand = defineCommand({
 
     // Validated above: without --suggest a missing plugin already exited.
     const pluginId = args.plugin as string;
+    const config = readConfig(configPath);
+    const lang = resolveLang(config.language);
+    const tr = tc(lang).add;
 
     let plugin;
     try {
       plugin = loadPlugin(pluginId);
     } catch (err) {
       if (err instanceof PluginNotFoundError) {
-        p.cancel(
-          `Unknown plugin '${pluginId}'. Known: ${listKnownPluginIds().join(", ") || "(none)"}`,
-        );
+        p.cancel(tr.unknownPlugin(pluginId, listKnownPluginIds().join(", ") || tr.none));
         process.exit(1);
       }
       if (err instanceof PluginManifestError) {
@@ -142,11 +138,10 @@ export const addCommand = defineCommand({
     p.log.info(`${plugin.manifest.name} v${plugin.manifest.version}`);
     p.log.message(plugin.manifest.description);
 
-    const config = readConfig(configPath);
     const already = config.plugins?.[plugin.manifest.id]?.enabled === true;
 
     if (already) {
-      p.log.warn(`'${plugin.manifest.id}' is already enabled in this config`);
+      p.log.warn(tr.alreadyEnabled(plugin.manifest.id));
     } else {
       // Update config — preserve existing values
       const updatedPlugins = {
@@ -155,66 +150,66 @@ export const addCommand = defineCommand({
       };
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
       writeConfig(configPath, { ...raw, plugins: updatedPlugins });
-      p.log.success(`Added '${plugin.manifest.id}' to ${configPath}`);
+      p.log.success(tr.added(plugin.manifest.id, configPath));
     }
 
     // Handle external tool
     const tool = plugin.manifest.externalTool;
     if (!tool) {
-      p.outro("Done — run 'navori render --apply' to apply");
+      p.outro(tr.doneRender);
       return;
     }
 
     const installed = tool.checkBinary ? hasBinary(tool.checkBinary) : true;
     if (installed) {
-      p.log.success(`External tool '${tool.name}' is already installed`);
-      p.outro("Done — run 'navori render --apply' to apply");
+      p.log.success(tr.externalAlreadyInstalled(tool.name));
+      p.outro(tr.doneRender);
       return;
     }
 
     if (args["skip-install"]) {
-      p.log.warn(`External tool '${tool.name}' is not installed. Skip-install requested.`);
-      p.outro("Done — install manually later");
+      p.log.warn(tr.externalSkipped(tool.name));
+      p.outro(tr.doneInstallLater);
       return;
     }
 
     const platform = currentPlatform();
     const installCmd = tool.install?.[platform];
     if (!installCmd) {
-      p.log.warn(`No install command for platform '${platform}'. Install '${tool.name}' manually.`);
-      p.outro("Done");
+      p.log.warn(tr.noInstallCommand(platform, tool.name));
+      p.outro(tr.done);
       return;
     }
 
     const shouldInstall = args.yes
       ? true
       : await p.confirm({
-          message: `Install '${tool.name}'? Will run: ${installCmd}`,
+          message: tr.installPrompt(tool.name, installCmd),
           initialValue: false,
         });
 
     if (p.isCancel(shouldInstall) || !shouldInstall) {
-      p.log.warn(`External tool '${tool.name}' not installed. Hooks will skip silently.`);
-      p.outro("Done");
+      p.log.warn(tr.externalNotInstalled(tool.name));
+      p.outro(tr.done);
       return;
     }
 
     const spin = p.spinner();
     try {
-      spin.start(`Installing ${accent(tool.name)} — ${dim(installCmd)}`);
-      runShellCommand(installCmd);
+      spin.start(tr.installing(accent(tool.name), dim(installCmd)));
+      runShellCommand(installCmd, lang);
       if (tool.postInstall) {
-        spin.message(`Post-install — ${dim(tool.postInstall)}`);
-        runShellCommand(tool.postInstall);
+        spin.message(tr.postInstall(dim(tool.postInstall)));
+        runShellCommand(tool.postInstall, lang);
       }
-      spin.stop(`${color.green("✓")} Installed ${accent(tool.name)}`);
+      spin.stop(`${color.green("✓")} ${tr.installed(accent(tool.name))}`);
     } catch (err) {
-      spin.stop(`${color.red("✗")} Install failed: ${(err as Error).message}`, 1);
-      p.outro(dim("Plugin registered but external tool install failed. Install manually."));
+      spin.stop(`${color.red("✗")} ${tr.installFailed((err as Error).message)}`, 1);
+      p.outro(dim(tr.registeredInstallFailed));
       return;
     }
 
-    p.outro(`${color.green("Done")} ${dim("— run 'navori render --apply' to apply")}`);
+    p.outro(color.green(tr.doneRender));
   },
 });
 
@@ -227,14 +222,18 @@ export const addCommand = defineCommand({
 function printSuggestions(cwd: string, configPath: string): void {
   const detected = detectProject(cwd);
   const config = readConfig(configPath);
+  const tr = tc(resolveLang(config.language)).add;
   const lines: string[] = [];
 
   const sp = detected.suggestedPreset;
   if (sp && sp !== "custom" && sp !== config.preset) {
     const what = detected.stack.ui ?? detected.stack.framework ?? detected.stack.language;
     lines.push(
-      `${color.cyan(sym.bullet)} Preset: detecté ${accent(what)} → sugerido ${accent(sp)} ` +
-        `${dim(`(actual: ${config.preset})`)} — cámbialo con 'navori configure' o edita navori.config.json.`,
+      `${color.cyan(sym.bullet)} ${tr.suggestedPreset(
+        accent(what),
+        accent(sp),
+        dim(config.preset),
+      )}`,
     );
   }
 
@@ -244,17 +243,13 @@ function printSuggestions(cwd: string, configPath: string): void {
       .map(([k]) => k),
   );
   if (!enabled.has("engram")) {
-    lines.push(
-      `${color.cyan(sym.bullet)} Plugin ${accent("engram")}: memoria persistente entre sesiones — 'navori add engram'.`,
-    );
+    lines.push(`${color.cyan(sym.bullet)} ${tr.suggestedEngram}`);
   }
 
   if (lines.length === 0) {
-    p.outro(
-      `${color.green("Nada que sugerir")} ${dim("— el preset matchea el stack y engram ya está habilitado.")}`,
-    );
+    p.outro(color.green(tr.nothingToSuggest));
     return;
   }
-  p.note(lines.join("\n"), "Sugerencias");
-  p.outro(dim("Sugerencias, no aplicadas — corre 'navori add <id>' o 'navori configure'."));
+  p.note(lines.join("\n"), tr.suggestionsTitle);
+  p.outro(dim(tr.suggestionsOutro));
 }

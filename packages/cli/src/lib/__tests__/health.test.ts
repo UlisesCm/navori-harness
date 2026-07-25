@@ -70,6 +70,12 @@ describe("suggestNextSteps (spec 0003 §3.5.3)", () => {
     expect(steps[0]).toMatch(/al día/i);
   });
 
+  it("renders next steps in the requested runtime locale", () => {
+    const state = { claudeMdExists: true, missingPlugins: [], drifts: [] };
+    expect(suggestNextSteps(state, "es")[0]).toMatch(/al día/i);
+    expect(suggestNextSteps(state, "en")[0]).toMatch(/up to date/i);
+  });
+
   it("suggests render --apply to reorder out-of-order blocks", () => {
     const steps = suggestNextSteps({
       claudeMdExists: true,

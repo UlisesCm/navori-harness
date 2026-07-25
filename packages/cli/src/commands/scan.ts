@@ -11,6 +11,7 @@ import {
 } from "../lib/scan.ts";
 import type { MonorepoWorkspace } from "../lib/monorepo.ts";
 import { brand, dim, color, kv } from "../lib/style.ts";
+import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 
 export type ScanOutcome =
   | { kind: "no-config"; configPath: string }
@@ -136,37 +137,29 @@ export const scanCommand = defineCommand({
     const dryRun = runScan({ cwd, yes: false });
 
     if (dryRun.kind === "no-config") {
-      p.cancel(
-        `No encontré navori.config.json en ${dryRun.configPath}. Corre 'navori init' primero.`,
-      );
+      p.cancel(tc(DEFAULT_LANG).scan.noConfig(dryRun.configPath));
       process.exit(1);
     }
+    const lang = resolveLang(readConfig(dryRun.configPath).language);
+    const tr = tc(lang).scan;
     if (dryRun.kind === "not-monorepo") {
-      p.cancel(
-        `${dryRun.configPath} no declara 'monorepo'. ` +
-          `Edita el config para agregar { monorepo: { enabled: true, tool: '...' } } y vuelve a correr scan.`,
-      );
+      p.cancel(tr.notMonorepo(dryRun.configPath));
       process.exit(1);
     }
     if (dryRun.kind === "no-patterns") {
-      p.log.info(
-        `No encontré patrones de workspace en pnpm-workspace.yaml ni en package.json#workspaces.`,
-      );
-      p.outro(dim("Nada que escanear"));
+      p.log.info(tr.noPatterns);
+      p.outro(dim(tr.nothingToScan));
       return;
     }
 
     // dryRun.kind === "ok"
-    showSummary(dryRun);
+    showSummary(dryRun, lang);
 
     if (dryRun.added.length === 0) {
       if (dryRun.orphan.length > 0) {
-        p.log.warn(
-          `${dryRun.orphan.length} workspace(s) en config ya no existen en disco. ` +
-            `Edita navori.config.json para removerlos.`,
-        );
+        p.log.warn(tr.orphaned(dryRun.orphan.length));
       }
-      p.outro(dim("Config al día"));
+      p.outro(dim(tr.configCurrent));
       return;
     }
 
@@ -175,29 +168,30 @@ export const scanCommand = defineCommand({
       // Acepta todas las sugerencias.
     } else {
       const ok = await p.confirm({
-        message: `¿Agregar ${dryRun.added.length} workspace(s) a navori.config.json?`,
+        message: tr.addWorkspaces(dryRun.added.length),
         initialValue: true,
       });
       if (p.isCancel(ok) || !ok) {
-        p.cancel("Cancelado");
+        p.cancel(tr.cancelled);
         return;
       }
 
-      overrides = await collectPresetOverrides(dryRun.added);
+      overrides = await collectPresetOverrides(dryRun.added, lang);
     }
 
     const final = runScan({ cwd, yes: true, presetOverrides: overrides });
     if (final.kind !== "ok") {
-      p.cancel(`Resultado inesperado: ${final.kind}`);
+      p.cancel(tr.unexpectedResult(final.kind));
       process.exit(1);
     }
 
-    p.log.success(`Agregué ${final.added.length} workspace(s) a ${final.configPath}`);
-    p.outro(dim("Corre 'navori render --apply' para generar CLAUDE.md + .claude/ por workspace"));
+    p.log.success(tr.added(final.added.length, final.configPath));
+    p.outro(dim(tr.renderHint));
   },
 });
 
-function showSummary(outcome: Extract<ScanOutcome, { kind: "ok" }>): void {
+function showSummary(outcome: Extract<ScanOutcome, { kind: "ok" }>, lang: Lang): void {
+  const tr = tc(lang).scan;
   const rows: Array<[string, string]> = [];
   rows.push(["detected", String(outcome.added.length + outcome.existing.length)]);
   rows.push([
@@ -208,7 +202,7 @@ function showSummary(outcome: Extract<ScanOutcome, { kind: "ok" }>): void {
   if (outcome.orphan.length > 0) {
     rows.push(["orphan", color.yellow(String(outcome.orphan.length))]);
   }
-  p.note(kv(rows), "summary");
+  p.note(kv(rows), tr.summaryTitle);
 
   if (outcome.added.length > 0) {
     const lines = outcome.diff.added
@@ -217,18 +211,22 @@ function showSummary(outcome: Extract<ScanOutcome, { kind: "ok" }>): void {
         return `  ${color.green("+")} ${w.path}${fw}  ${dim("→")} ${w.suggestedPreset}`;
       })
       .join("\n");
-    p.log.message(`${dim("Workspaces nuevos:")}\n${lines}`);
+    p.log.message(`${dim(tr.newWorkspacesTitle)}\n${lines}`);
   }
 
   if (outcome.orphan.length > 0) {
     const lines = outcome.orphan.map((w) => `  ${color.yellow("?")} ${w.path}`).join("\n");
-    p.log.message(`${dim("Huérfanos (en config, no existen en disco):")}\n${lines}`);
+    p.log.message(`${dim(tr.orphanedTitle)}\n${lines}`);
   }
 }
 
-async function collectPresetOverrides(added: MonorepoWorkspace[]): Promise<Record<string, string>> {
+async function collectPresetOverrides(
+  added: MonorepoWorkspace[],
+  lang: Lang,
+): Promise<Record<string, string>> {
+  const tr = tc(lang).scan;
   const acceptAll = await p.confirm({
-    message: `¿Usar preset sugerido en cada workspace nuevo?`,
+    message: tr.useSuggestedPresets,
     initialValue: true,
   });
   if (p.isCancel(acceptAll)) return {};
@@ -237,8 +235,8 @@ async function collectPresetOverrides(added: MonorepoWorkspace[]): Promise<Recor
   const overrides: Record<string, string> = {};
   for (const ws of added) {
     const value = await p.text({
-      message: `Preset para ${ws.path}`,
-      placeholder: ws.preset ?? "(heredar del root)",
+      message: tr.presetFor(ws.path),
+      placeholder: ws.preset ?? tr.inheritRoot,
       defaultValue: ws.preset ?? "",
     });
     if (p.isCancel(value)) return overrides;

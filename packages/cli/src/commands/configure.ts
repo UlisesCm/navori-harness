@@ -7,6 +7,7 @@ import { readConfigOrExit } from "../lib/cli-config.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
 import { EXCLUDABLE_BLOCK_IDS } from "../lib/render-plan.ts";
 import { brand, dim } from "../lib/style.ts";
+import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 
 const ENGINE_OPTIONS = [
   { value: "claude", label: "Claude Code (.claude/)" },
@@ -31,10 +32,9 @@ function loadOrExit(cwd: string): {
   path: string;
   raw: Record<string, unknown>;
 } {
-  if (!existsSync(cwd)) fail(`Directory not found: ${cwd}`);
+  if (!existsSync(cwd)) fail(tc(DEFAULT_LANG).common.dirNotFound(cwd));
   const configPath = resolve(cwd, "navori.config.json");
-  if (!existsSync(configPath))
-    fail(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
+  if (!existsSync(configPath)) fail(tc(DEFAULT_LANG).common.noConfig(configPath));
   const config = readConfigOrExit(configPath);
   const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
   return { config, path: configPath, raw };
@@ -58,6 +58,7 @@ const pluginsSubCommand = defineCommand({
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
+    const tr = tc(resolveLang(config.language)).configure;
 
     p.intro(brand("configure plugins"));
 
@@ -86,13 +87,13 @@ const pluginsSubCommand = defineCommand({
       .filter((o): o is NonNullable<typeof o> => o !== null);
 
     const selected = await p.multiselect<string>({
-      message: "Plugins enabled in this repo",
+      message: tr.pluginsPrompt,
       options,
       required: false,
       initialValues: [...enabledNow],
     });
     if (p.isCancel(selected)) {
-      p.cancel("Cancelled");
+      p.cancel(tr.cancelled);
       return;
     }
     const selectedSet = new Set(selected as string[]);
@@ -119,11 +120,11 @@ const pluginsSubCommand = defineCommand({
 
     const added = [...selectedSet].filter((id) => !enabledNow.has(id));
     const removed = [...enabledNow].filter((id) => !selectedSet.has(id));
-    if (added.length > 0) p.log.success(`Enabled: ${added.join(", ")}`);
-    if (removed.length > 0) p.log.warn(`Disabled: ${removed.join(", ")}`);
-    if (forcedEngram) p.log.warn(`engram is always-on with navori — kept enabled.`);
-    if (added.length === 0 && removed.length === 0 && !forcedEngram) p.log.info("No changes");
-    p.outro("Run 'navori render --apply' or 'navori sync' to apply.");
+    if (added.length > 0) p.log.success(tr.enabled(added.join(", ")));
+    if (removed.length > 0) p.log.warn(tr.disabled(removed.join(", ")));
+    if (forcedEngram) p.log.warn(tr.engramAlwaysOn);
+    if (added.length === 0 && removed.length === 0 && !forcedEngram) p.log.info(tr.noChanges);
+    p.outro(tr.renderOrSyncHint);
   },
 });
 
@@ -140,6 +141,7 @@ const qualityGateSubCommand = defineCommand({
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
+    const tr = tc(resolveLang(config.language)).configure;
 
     p.intro(brand("configure quality-gate"));
 
@@ -148,36 +150,36 @@ const qualityGateSubCommand = defineCommand({
 
     if (!fast || !full) {
       const fastVal = await p.text({
-        message: "Fast gate command (runs on Stop hook)",
+        message: tr.fastGatePrompt,
         placeholder: config.qualityGate?.fast ?? "pnpm tsc --noEmit",
         defaultValue: config.qualityGate?.fast ?? "",
       });
       if (p.isCancel(fastVal)) {
-        p.cancel("Cancelled");
+        p.cancel(tr.cancelled);
         return;
       }
       fast = (fastVal as string).trim();
       const fullVal = await p.text({
-        message: "Full gate command (runs before close session)",
+        message: tr.fullGatePrompt,
         placeholder: config.qualityGate?.full ?? fast,
         defaultValue: config.qualityGate?.full ?? fast,
       });
       if (p.isCancel(fullVal)) {
-        p.cancel("Cancelled");
+        p.cancel(tr.cancelled);
         return;
       }
       full = (fullVal as string).trim();
     }
 
     if (!fast || !full) {
-      p.cancel("Both fast and full commands are required");
+      p.cancel(tr.bothGatesRequired);
       return;
     }
 
     raw.qualityGate = { fast, full };
     persist(path, raw);
-    p.log.success(`qualityGate updated`);
-    p.outro("Done");
+    p.log.success(tr.qualityGateUpdated);
+    p.outro(tr.done);
   },
 });
 
@@ -193,35 +195,37 @@ const languageSubCommand = defineCommand({
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
+    const tr = tc(resolveLang(config.language)).configure;
 
     p.intro(brand("configure language"));
 
     let value = args.value as string | undefined;
     if (!value) {
       const choice = await p.select<"es" | "en">({
-        message: "Language for managed Core assets",
+        message: tr.languagePrompt,
         options: [
-          { value: "es", label: "Español (default — full coverage)" },
-          { value: "en", label: "English (limited — falls back to es)" },
+          { value: "es", label: tr.languageEs },
+          { value: "en", label: tr.languageEn },
         ],
         initialValue: config.language,
       });
       if (p.isCancel(choice)) {
-        p.cancel("Cancelled");
+        p.cancel(tr.cancelled);
         return;
       }
       value = choice;
     }
 
     if (value !== "es" && value !== "en") {
-      p.cancel(`Invalid language '${value}'. Must be 'es' or 'en'.`);
+      p.cancel(tr.invalidLanguage(value));
       return;
     }
 
     raw.language = value;
     persist(path, raw);
-    p.log.success(`language → ${value}`);
-    p.outro("Run 'navori render --apply' to re-render managed blocks in the new language.");
+    const nextTr = tc(value).configure;
+    p.log.success(nextTr.languageUpdated(value));
+    p.outro(nextTr.languageRenderHint);
   },
 });
 
@@ -237,32 +241,33 @@ const branchBaseSubCommand = defineCommand({
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
+    const tr = tc(resolveLang(config.language)).configure;
 
     p.intro(brand("configure branch-base"));
 
     let value = (args.value as string | undefined)?.trim();
     if (!value) {
       const input = await p.text({
-        message: "Base branch that gates (semgrep / jscpd) diff against",
+        message: tr.branchBasePrompt,
         placeholder: config.branchBase,
         defaultValue: config.branchBase,
       });
       if (p.isCancel(input)) {
-        p.cancel("Cancelled");
+        p.cancel(tr.cancelled);
         return;
       }
       value = (input as string).trim();
     }
 
     if (!value) {
-      p.cancel("Branch name cannot be empty");
+      p.cancel(tr.branchRequired);
       return;
     }
 
     raw.branchBase = value;
     persist(path, raw);
-    p.log.success(`branchBase → ${value}`);
-    p.outro("Run 'navori render --apply' to update the gate scripts.");
+    p.log.success(tr.branchBaseUpdated(value));
+    p.outro(tr.branchBaseRenderHint);
   },
 });
 
@@ -278,6 +283,7 @@ const prTargetSubCommand = defineCommand({
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
+    const tr = tc(resolveLang(config.language)).configure;
 
     p.intro(brand("configure pr-target"));
 
@@ -285,29 +291,29 @@ const prTargetSubCommand = defineCommand({
     if (!value) {
       const fallback = config.prTarget ?? config.branchBase;
       const input = await p.text({
-        message: "Branch PRs open against (gh pr create --base)",
+        message: tr.prTargetPrompt,
         placeholder: fallback,
         defaultValue: fallback,
       });
       if (p.isCancel(input)) {
-        p.cancel("Cancelled");
+        p.cancel(tr.cancelled);
         return;
       }
       value = (input as string).trim();
     }
 
     if (!value) {
-      p.cancel("Branch name cannot be empty");
+      p.cancel(tr.branchRequired);
       return;
     }
 
     raw.prTarget = value;
     persist(path, raw);
-    p.log.success(`prTarget → ${value}`);
+    p.log.success(tr.prTargetUpdated(value));
     if (value === config.branchBase) {
-      p.log.message(dim(`Same as branchBase — PRs target ${value} as before.`));
+      p.log.message(dim(tr.prTargetSame(value)));
     }
-    p.outro("Run 'navori render --apply' to update the PR skills.");
+    p.outro(tr.prTargetRenderHint);
   },
 });
 
@@ -322,24 +328,25 @@ const enginesSubCommand = defineCommand({
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
+    const tr = tc(resolveLang(config.language)).configure;
 
     p.intro(brand("configure engines"));
 
     const selected = await p.multiselect<string>({
-      message: "Engines to target",
+      message: tr.enginesPrompt,
       options: ENGINE_OPTIONS,
       required: true,
       initialValues: config.engines,
     });
     if (p.isCancel(selected)) {
-      p.cancel("Cancelled");
+      p.cancel(tr.cancelled);
       return;
     }
 
     raw.engines = selected as EngineId[];
     persist(path, raw);
-    p.log.success(`engines → ${(selected as string[]).join(", ")}`);
-    p.outro("Done");
+    p.log.success(tr.enginesUpdated((selected as string[]).join(", ")));
+    p.outro(tr.done);
   },
 });
 
@@ -355,7 +362,8 @@ const workspaceSubCommand = defineCommand({
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
-    const { path, raw } = loadOrExit(cwd);
+    const { config, path, raw } = loadOrExit(cwd);
+    const tr = tc(resolveLang(config.language)).configure;
     const value = (args.value as string | undefined)?.trim();
 
     p.intro(brand("configure workspace"));
@@ -363,7 +371,7 @@ const workspaceSubCommand = defineCommand({
     if (!value) {
       const currentWorkspace = raw.workspace as string | undefined;
       if (!currentWorkspace) {
-        p.outro("No workspace associated. Nothing to remove.");
+        p.outro(tr.noWorkspace);
         return;
       }
       if (!args.yes) {
@@ -371,25 +379,25 @@ const workspaceSubCommand = defineCommand({
         // applied at init time); the association only feeds workspace
         // commands — don't imply the render will change.
         const ok = await p.confirm({
-          message: `Remove workspace association '${currentWorkspace}'? This only detaches the repo from workspace commands (cross-repo tickets, 'navori workspace render'); rendered files are not affected.`,
+          message: tr.removeWorkspacePrompt(currentWorkspace),
           initialValue: false,
         });
         if (p.isCancel(ok) || !ok) {
-          p.cancel("Aborted");
+          p.cancel(tr.aborted);
           return;
         }
       }
       delete raw.workspace;
       persist(path, raw);
-      p.log.success("Workspace association removed");
-      p.outro("Done. Rendered files are unaffected.");
+      p.log.success(tr.workspaceRemoved);
+      p.outro(tr.workspaceRemovedDone);
       return;
     }
 
     raw.workspace = value;
     persist(path, raw);
-    p.log.success(`workspace → ${value}`);
-    p.outro(`Run 'navori workspace link' to register this repo in the workspace's local registry.`);
+    p.log.success(tr.workspaceUpdated(value));
+    p.outro(tr.workspaceLinkHint);
   },
 });
 
@@ -404,12 +412,13 @@ const blocksSubCommand = defineCommand({
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     const { config, path, raw } = loadOrExit(cwd);
+    const tr = tc(resolveLang(config.language)).configure;
 
     p.intro(brand("configure blocks"));
 
     const current = new Set(config.blocks?.exclude ?? []);
     const selected = await p.multiselect<string>({
-      message: "Core managed blocks to EXCLUDE (checked = opted out of CLAUDE.md)",
+      message: tr.blocksPrompt,
       options: EXCLUDABLE_BLOCK_IDS.map((id) => ({ value: id, label: id })),
       required: false,
       initialValues: [...current].filter((id) =>
@@ -417,7 +426,7 @@ const blocksSubCommand = defineCommand({
       ),
     });
     if (p.isCancel(selected)) {
-      p.cancel("Cancelled");
+      p.cancel(tr.cancelled);
       return;
     }
 
@@ -435,9 +444,9 @@ const blocksSubCommand = defineCommand({
     }
     persist(path, raw);
 
-    if (exclude.length > 0) p.log.success(`blocks.exclude → ${exclude.join(", ")}`);
-    else p.log.info("blocks.exclude cleared — all core blocks render");
-    p.outro("Run 'navori render --apply' or 'navori sync' to apply (excluded blocks are removed).");
+    if (exclude.length > 0) p.log.success(tr.blocksUpdated(exclude.join(", ")));
+    else p.log.info(tr.blocksCleared);
+    p.outro(tr.blocksRenderHint);
   },
 });
 

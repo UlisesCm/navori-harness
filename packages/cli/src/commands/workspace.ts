@@ -16,7 +16,7 @@ import {
 import { applyDefault, VALID_DEFAULT_KEYS } from "../lib/workspace-defaults.ts";
 import { safeHomedir } from "../lib/home.ts";
 import { readConfig, writeConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
-import { t } from "../lib/i18n.ts";
+import { t, tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
 import { renderRepoRows, reportRepoRenderRows } from "./render.ts";
 import { brand, dim, kv, color, sym, accent } from "../lib/style.ts";
@@ -49,14 +49,15 @@ const initSubCommand = defineCommand({
   },
   async run({ args }) {
     const name = args.name as string;
+    const tr = tc(DEFAULT_LANG).workspace;
     if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
-      console.error(`Workspace name must be kebab-case: ${name}`);
+      console.error(tr.invalidName(name));
       process.exit(1);
     }
 
     const path = workspacePath(name);
     if (existsSync(path)) {
-      console.error(`Workspace '${name}' already exists at ${path}`);
+      console.error(tr.alreadyExistsAt(name, path));
       process.exit(1);
     }
 
@@ -65,11 +66,11 @@ const initSubCommand = defineCommand({
     let description = args.description ?? "";
     if (!args.yes && !description) {
       const value = await p.text({
-        message: "Workspace description (optional)",
-        placeholder: "e.g. Bonum coaching platform — multi-repo",
+        message: tr.descriptionPrompt,
+        placeholder: tr.descriptionPlaceholder,
       });
       if (p.isCancel(value)) {
-        p.cancel("Cancelled");
+        p.cancel(tr.cancelled);
         process.exit(0);
       }
       description = (value as string).trim();
@@ -84,11 +85,9 @@ const initSubCommand = defineCommand({
     };
 
     const written = writeWorkspace(workspace);
-    p.log.success(`Wrote ${written}`);
-    p.log.message(`Tickets directory: ${workspaceDirectory(name)}/tickets/`);
-    p.outro(
-      `Run 'navori workspace show ${name}' to inspect, or add it to a repo with 'navori init --workspace ${name}'.`,
-    );
+    p.log.success(tr.wrote(written));
+    p.log.message(tr.ticketsDirectory(`${workspaceDirectory(name)}/tickets/`));
+    p.outro(tr.initHint(name));
   },
 });
 
@@ -101,6 +100,7 @@ const lsSubCommand = defineCommand({
     json: { type: "boolean", description: "Output as JSON" },
   },
   run({ args }) {
+    const tr = tc(DEFAULT_LANG).workspace;
     const names = listWorkspaces();
     if (args.json) {
       console.log(JSON.stringify(names, null, 2));
@@ -108,8 +108,8 @@ const lsSubCommand = defineCommand({
     }
     p.intro(brand("workspace ls"));
     if (names.length === 0) {
-      p.log.info("No workspaces found. Create one with 'navori workspace init <name>'.");
-      p.outro(dim("Done"));
+      p.log.info(tr.noneFound);
+      p.outro(dim(tr.done));
       return;
     }
     const lines: string[] = [];
@@ -119,14 +119,14 @@ const lsSubCommand = defineCommand({
         if (!ws) continue;
         const desc = ws.description ? dim(` — ${ws.description}`) : "";
         const count = ws.repos.length;
-        const repoLabel = `${count} repo${count === 1 ? "" : "s"}`;
+        const repoLabel = tr.repoCount(count);
         lines.push(`  ${color.cyan(sym.bullet)} ${accent(name)}${desc}  ${dim(`(${repoLabel})`)}`);
       } catch {
-        lines.push(`  ${color.red(sym.fail)} ${name}  ${dim("(invalid manifest)")}`);
+        lines.push(`  ${color.red(sym.fail)} ${name}  ${dim(tr.invalidManifest)}`);
       }
     }
     p.log.message(lines.join("\n"));
-    p.outro(dim(`${names.length} workspace${names.length === 1 ? "" : "s"}`));
+    p.outro(dim(tr.workspaceCount(names.length)));
   },
 });
 
@@ -141,6 +141,7 @@ const showSubCommand = defineCommand({
   },
   run({ args }) {
     const name = args.name as string;
+    const fallbackTr = tc(DEFAULT_LANG).workspace;
     let workspace: WorkspaceConfig | null;
     try {
       workspace = loadWorkspace(name);
@@ -156,9 +157,9 @@ const showSubCommand = defineCommand({
     }
     if (!workspace) {
       process.stderr.write(
-        `Workspace '${name}' not found at ${workspacePath(name)}.\n` +
-          `Create it with: navori workspace init ${name}\n` +
-          `Or list known workspaces: navori workspace ls\n`,
+        `${fallbackTr.notFoundAt(name, workspacePath(name))}\n` +
+          `${fallbackTr.createHint(name)}\n` +
+          `${fallbackTr.listHint}\n`,
       );
       process.exit(1);
     }
@@ -166,6 +167,7 @@ const showSubCommand = defineCommand({
       console.log(JSON.stringify(workspace, null, 2));
       return;
     }
+    const tr = tc(resolveLang(workspace.defaults.language)).workspace;
     p.intro(brand(`workspace show ${accent(workspace.name)}`));
 
     const rows: Array<[string, string]> = [];
@@ -193,7 +195,7 @@ const showSubCommand = defineCommand({
         const cfgLabel = cfgName && cfgName !== repo.name ? dim(` (name: ${cfgName})`) : "";
         return `    ${color.cyan(sym.bullet)} ${accent(repo.name)}${stack}${cfgLabel}  ${dim(repo.path)}${desc}`;
       });
-      p.log.message(`Repos:\n${repoLines.join("\n")}`);
+      p.log.message(`${tr.reposTitle}\n${repoLines.join("\n")}`);
 
       // Cross-repo name collisions: two repos sharing the same config.name
       // (forks left with the same package.json name). Placeholders: scaffold
@@ -213,19 +215,16 @@ const showSubCommand = defineCommand({
           ([name, repos]) =>
             `  ${color.red(sym.fail)} ${accent(name)} ${dim("←")} ${repos.join(", ")}`,
         );
-        p.log.warn(
-          `Colisión de name entre repos (mismo config.name) — renómbralos en su package.json / ` +
-            `navori.config.json para que cada repo tenga identidad única:\n${lines.join("\n")}`,
-        );
+        p.log.warn(tr.nameCollision(lines.join("\n")));
       }
       if (placeholders.length > 0) {
         const lines = placeholders.map(
           (pl) => `  ${color.yellow("!")} ${accent(pl.repo)} ${dim("→")} '${pl.name}'`,
         );
-        p.log.warn(`Names placeholder (scaffold sin renombrar):\n${lines.join("\n")}`);
+        p.log.warn(tr.placeholderNames(lines.join("\n")));
       }
     }
-    p.outro(dim("Done"));
+    p.outro(dim(tr.done));
   },
 });
 
@@ -242,45 +241,39 @@ const renameSubCommand = defineCommand({
   async run({ args }) {
     const from = args.from as string;
     const to = args.to as string;
+    const fallbackTr = tc(DEFAULT_LANG).workspace;
 
     if (!/^[a-z0-9][a-z0-9-]*$/.test(to)) {
-      console.error(`Workspace name must be kebab-case: ${to}`);
+      console.error(fallbackTr.invalidName(to));
       process.exit(1);
     }
     if (from === to) {
-      console.error("Source and destination names are the same");
+      console.error(fallbackTr.sameName);
       process.exit(1);
     }
 
     const ws = loadWorkspace(from);
     if (!ws) {
-      console.error(`Workspace '${from}' not found`);
+      console.error(fallbackTr.notFound(from));
       process.exit(1);
     }
+    const tr = tc(resolveLang(ws.defaults.language)).workspace;
     if (loadWorkspace(to)) {
-      console.error(
-        `Workspace '${to}' already exists. Choose a different name or delete it first.`,
-      );
+      console.error(tr.alreadyExists(to));
       process.exit(1);
     }
 
     p.intro(brand(`workspace rename ${accent(from)} ${dim("→")} ${accent(to)}`));
-    p.log.message(
-      `Will rename the workspace directory and update the manifest's 'name' field. ` +
-        `${ws.repos.length} repo registration(s) and any tickets will be preserved.`,
-    );
-    p.log.warn(
-      `Repos that have 'workspace: ${from}' in their navori.config.json must be updated ` +
-        `manually: cd to each repo and run 'navori configure workspace ${to}'.`,
-    );
+    p.log.message(tr.renameSummary(ws.repos.length));
+    p.log.warn(tr.renameRepoWarning(from, to));
 
     if (!args.yes) {
       const ok = await p.confirm({
-        message: `Rename workspace '${from}' to '${to}'?`,
+        message: tr.renamePrompt(from, to),
         initialValue: false,
       });
       if (p.isCancel(ok) || !ok) {
-        p.cancel("Aborted");
+        p.cancel(tr.aborted);
         return;
       }
     }
@@ -292,7 +285,7 @@ const renameSubCommand = defineCommand({
     // Update the manifest's name field in place
     const renamed = { ...ws, name: to };
     writeWorkspace(renamed);
-    p.outro(`Renamed. New path: ${newDir}`);
+    p.outro(tr.renamed(newDir));
   },
 });
 
@@ -309,23 +302,22 @@ const deleteSubCommand = defineCommand({
     const name = args.name as string;
     const ws = loadWorkspace(name);
     if (!ws) {
-      console.error(`Workspace '${name}' not found`);
+      console.error(tc(DEFAULT_LANG).workspace.notFound(name));
       process.exit(1);
     }
+    const tr = tc(resolveLang(ws.defaults.language)).workspace;
     const dir = workspaceDirectory(name);
 
     p.intro(brand(`workspace delete ${accent(name)}`));
-    p.log.warn(
-      `Will move ${dir} to ~/.navori/.trash/. Includes ${ws.repos.length} repo registration(s) and any tickets in that workspace.`,
-    );
+    p.log.warn(tr.deleteSummary(dir, ws.repos.length));
 
     if (!args.yes) {
       const ok = await p.confirm({
-        message: `Delete workspace '${name}'?`,
+        message: tr.deletePrompt(name),
         initialValue: false,
       });
       if (p.isCancel(ok) || !ok) {
-        p.cancel("Aborted");
+        p.cancel(tr.aborted);
         return;
       }
     }
@@ -340,7 +332,7 @@ const deleteSubCommand = defineCommand({
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const dest = joinPath(trashRoot, `${name}-${ts}`);
     if (existsSync(dir)) renameSync(dir, dest);
-    p.outro(`Moved to ${dest}. Restore manually if needed.`);
+    p.outro(tr.movedToTrash(dest));
   },
 });
 
@@ -362,7 +354,7 @@ const linkSubCommand = defineCommand({
     const cwd = resolve((args.cwd as string | undefined) ?? process.cwd());
     const configPath = join(cwd, "navori.config.json");
     if (!existsSync(configPath)) {
-      console.error(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
+      console.error(tc(DEFAULT_LANG).common.noConfig(configPath));
       process.exit(1);
     }
     let config: NavoriConfig;
@@ -375,16 +367,18 @@ const linkSubCommand = defineCommand({
       }
       throw err;
     }
-    const tr = t(config.language);
+    const lang = resolveLang(config.language);
+    const trWizard = t(lang);
+    const tr = tc(lang).workspace;
 
     const explicit = (args.name as string | undefined)?.trim();
     const name = explicit || config.workspace;
     if (!name) {
-      console.error(tr.wsLinkNoName);
+      console.error(trWizard.wsLinkNoName);
       process.exit(1);
     }
     if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
-      console.error(`Workspace name must be kebab-case: ${name}`);
+      console.error(tr.invalidName(name));
       process.exit(1);
     }
 
@@ -392,13 +386,13 @@ const linkSubCommand = defineCommand({
 
     const repoPath = resolveRepoPath(cwd);
     const result = linkRepoToWorkspace(name, { name: config.name, path: repoPath });
-    if (result.createdWorkspace) p.log.info(tr.wsLinkCreated(name));
+    if (result.createdWorkspace) p.log.info(trWizard.wsLinkCreated(name));
     if (result.action === "added") {
-      p.log.success(tr.wsLinkAdded(config.name, name));
+      p.log.success(trWizard.wsLinkAdded(config.name, name));
     } else if (result.action === "updated-path") {
-      p.log.success(tr.wsLinkUpdatedPath(config.name, result.previousPath ?? "?", repoPath));
+      p.log.success(trWizard.wsLinkUpdatedPath(config.name, result.previousPath ?? "?", repoPath));
     } else {
-      p.log.info(tr.wsLinkUnchanged(config.name, name));
+      p.log.info(trWizard.wsLinkUnchanged(config.name, name));
     }
 
     // Keep navori.config.json in sync with the explicit name: set `workspace`
@@ -408,11 +402,11 @@ const linkSubCommand = defineCommand({
       raw.workspace = name;
       delete raw.$schema;
       writeConfig(configPath, raw as Parameters<typeof writeConfig>[1]);
-      p.log.success(tr.wsLinkConfigSet(name));
+      p.log.success(trWizard.wsLinkConfigSet(name));
     } else if (explicit && config.workspace && config.workspace !== name) {
-      p.log.warn(tr.wsLinkConfigMismatch(config.workspace, name));
+      p.log.warn(trWizard.wsLinkConfigMismatch(config.workspace, name));
     }
-    p.outro(dim(tr.done));
+    p.outro(dim(trWizard.done));
   },
 });
 
@@ -431,11 +425,12 @@ const addRepoSubCommand = defineCommand({
   run({ args }) {
     const ws = loadWorkspace(args.workspace as string);
     if (!ws) {
-      console.error(`Workspace '${args.workspace}' not found`);
+      console.error(tc(DEFAULT_LANG).workspace.notFound(args.workspace as string));
       process.exit(1);
     }
+    const tr = tc(resolveLang(ws.defaults.language)).workspace;
     if (ws.repos.some((r) => r.name === args.name)) {
-      console.error(`Repo '${args.name}' already registered in workspace '${ws.name}'`);
+      console.error(tr.repoAlreadyRegistered(args.name as string, ws.name));
       process.exit(1);
     }
     // Paths are stored verbatim in the machine-local registry: normalize to an
@@ -445,7 +440,7 @@ const addRepoSubCommand = defineCommand({
       repoPath = resolveRepoPath(args.path as string);
     } catch (err) {
       if (err instanceof WorkspaceError) {
-        console.error(`${err.message}. Pass an existing directory (absolute or relative to cwd).`);
+        console.error(tr.existingDirectoryHint(err.message));
         process.exit(1);
       }
       throw err;
@@ -458,8 +453,8 @@ const addRepoSubCommand = defineCommand({
     });
     const written = writeWorkspace(ws);
     p.intro(brand(`workspace add-repo ${accent(ws.name)}`));
-    p.log.success(`Registered '${accent(args.name as string)}' (${dim(written)})`);
-    p.outro(dim("Done"));
+    p.log.success(tr.registeredRepo(accent(args.name as string), dim(written)));
+    p.outro(dim(tr.done));
   },
 });
 
@@ -484,20 +479,22 @@ const setDefaultSubCommand = defineCommand({
   run({ args }) {
     const ws = loadWorkspace(args.workspace as string);
     if (!ws) {
-      console.error(`Workspace '${args.workspace}' not found`);
+      console.error(tc(DEFAULT_LANG).workspace.notFound(args.workspace as string));
       process.exit(1);
     }
+    const tr = tc(resolveLang(ws.defaults.language)).workspace;
     const result = applyDefault(ws.defaults, args.key as string, args.value as string);
     if (!result.ok || !result.defaults) {
-      console.error(result.error ?? "Could not apply default");
+      console.error(result.error ?? tr.defaultApplyFailed);
       process.exit(1);
     }
     ws.defaults = result.defaults;
     const written = writeWorkspace(ws);
+    const nextTr = tc(resolveLang(ws.defaults.language)).workspace;
     p.intro(brand(`workspace set-default ${accent(ws.name)}`));
-    p.log.success(`Set ${accent(args.key as string)} ${dim(`(${written})`)}`);
+    p.log.success(nextTr.defaultSet(accent(args.key as string), dim(written)));
     p.log.message(kv([["defaults", JSON.stringify(ws.defaults)]]));
-    p.outro(dim("Done"));
+    p.outro(dim(nextTr.done));
   },
 });
 
@@ -524,9 +521,11 @@ const renderSubCommand = defineCommand({
   run({ args }) {
     const ws = loadWorkspace(args.name as string);
     if (!ws) {
-      console.error(`Workspace '${args.name}' not found`);
+      console.error(tc(DEFAULT_LANG).workspace.notFound(args.name as string));
       process.exit(1);
     }
+    const lang = resolveLang(ws.defaults.language);
+    const tr = tc(lang).workspace;
 
     const apply = Boolean(args.apply);
     const preview = !apply;
@@ -535,8 +534,8 @@ const renderSubCommand = defineCommand({
 
     p.intro(brand(`workspace render ${accent(ws.name)}`));
     if (ws.repos.length === 0) {
-      p.log.info("No repos registered. Add one with 'navori workspace add-repo'.");
-      p.outro(dim("Done"));
+      p.log.info(tr.noRepos);
+      p.outro(dim(tr.done));
       return;
     }
 
@@ -544,13 +543,13 @@ const renderSubCommand = defineCommand({
       ws.repos.map((r) => ({ name: r.name, path: r.path })),
       { preview, force },
     );
-    const { failed, summary } = reportRepoRenderRows(rows, preview, verbose);
+    const { failed, summary } = reportRepoRenderRows(rows, preview, verbose, lang);
 
     if (failed > 0) {
-      p.outro(`${color.yellow("Done with errors")} ${dim(summary)}`);
+      p.outro(`${color.yellow(tr.doneWithErrors)} ${dim(summary)}`);
       process.exit(1);
     }
-    p.outro(`${preview ? color.yellow("Preview") : color.green("Done")} ${dim(summary)}`);
+    p.outro(`${preview ? color.yellow(tr.preview) : color.green(tr.done)} ${dim(summary)}`);
   },
 });
 

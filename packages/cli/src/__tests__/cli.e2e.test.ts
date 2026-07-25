@@ -537,7 +537,10 @@ describe("CLI e2e — happy paths", () => {
     expect(report.claudeMdExists).toBe(true);
     expect(report.enabledPlugins).toContain("engram");
     expect(report.drift).toBe(0);
-    expect(report.nextSteps).toEqual(expect.arrayContaining([expect.stringMatching(/al día/i)]));
+    // JSON prose stays stable in English regardless of config.language.
+    expect(report.nextSteps).toEqual(
+      expect.arrayContaining([expect.stringMatching(/up to date/i)]),
+    );
   });
 
   it("add --suggest recommends engram when not enabled (spec 0003 §3.5.2)", () => {
@@ -895,7 +898,7 @@ describe("CLI e2e — happy paths", () => {
 
     const r = runCli(["update", "--dry-run", "--cwd", repo]);
     expect(r.status).toBe(0);
-    expect(r.combined).toContain("drift detected");
+    expect(r.combined).toContain("Drift de config detectado");
     expect(r.combined).toContain("nextjs");
 
     const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
@@ -1124,6 +1127,31 @@ describe("CLI e2e — happy paths", () => {
     // doctor also honors the locale (outcome + next-steps heading).
     const doc = runCli(["doctor", "--cwd", repo]);
     expect(doc.combined).toContain("Next steps");
+
+    const status = runCli(["status", "--cwd", repo]);
+    expect(status.combined).toContain("Next steps");
+    expect(status.combined).not.toContain("Próximos pasos");
+
+    const suggestions = runCli(["add", "--suggest", "--cwd", repo]);
+    expect(suggestions.combined).toContain("Nothing to suggest");
+
+    const update = runCli(["update", "--dry-run", "--cwd", repo]);
+    expect(update.combined).toMatch(/Up to date|Files that would be updated/);
+    expect(update.combined).not.toContain("Archivos que se actualizarían");
+
+    const configured = runCli(["configure", "branch-base", "develop", "--cwd", repo]);
+    expect(configured.combined).toContain("update the gate scripts");
+
+    const scan = runCli(["scan", "--cwd", repo]);
+    expect(scan.status).toBe(1);
+    expect(scan.combined).toContain("does not declare 'monorepo'");
+
+    const workspaceName = `locale-${Date.now()}`;
+    expect(runCli(["workspace", "init", workspaceName, "--yes"]).status).toBe(0);
+    const setLanguage = runCli(["workspace", "set-default", workspaceName, "language", "en"]);
+    expect(setLanguage.combined).toContain("Set language");
+    const workspaceRender = runCli(["workspace", "render", workspaceName]);
+    expect(workspaceRender.combined).toContain("No repos registered");
   });
 });
 

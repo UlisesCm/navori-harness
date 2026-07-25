@@ -496,7 +496,7 @@ export function resolveLang(value: unknown): Lang {
 }
 
 /* ------------------------------------------------------------------------- *
- * Command output catalog (render / sync / doctor)
+ * Command output catalog
  *
  * Separate from the wizard `Strings` above so each concern stays small. Same
  * rule: every key lives in BOTH locales, so a missing translation is a compile
@@ -618,11 +618,195 @@ interface DoctorCmdStrings {
   outroOk: string;
 }
 
+interface UpdateCmdStrings {
+  detectedMigrationSuggestion: (legacy: string, preferred: string) => string;
+  manualMigrationOverride: (detail: string) => string;
+  upToDate: string;
+  configDrift: (count: number, lines: string) => string;
+  configInSync: string;
+  rehomedLibraries: string;
+  deadProgressKeys: (keys: string) => string;
+  filesToUpdate: (count: number, lines: string, more: string) => string;
+  moreFiles: (count: number) => string;
+  managedUpdates: (count: number, lines: string) => string;
+  conflicts: (count: number) => string;
+  libraryPreviewNote: string;
+  dryRunComplete: string;
+  applyChanges: string;
+  configUpdated: (path: string) => string;
+  configOnlyDone: string;
+  renderAfterConfigFailed: string;
+  renderFailed: string;
+  doneRenderFailed: string;
+  conflictsKept: (count: number) => string;
+  rerendered: (count: number) => string;
+  noRenderNeeded: string;
+  done: string;
+}
+
+interface AddCmdStrings {
+  pluginRequired: string;
+  none: string;
+  unknownPlugin: (id: string, known: string) => string;
+  alreadyEnabled: (id: string) => string;
+  added: (id: string, path: string) => string;
+  doneRender: string;
+  externalAlreadyInstalled: (name: string) => string;
+  externalSkipped: (name: string) => string;
+  doneInstallLater: string;
+  noInstallCommand: (platform: string, name: string) => string;
+  done: string;
+  installPrompt: (name: string, command: string) => string;
+  externalNotInstalled: (name: string) => string;
+  installing: (name: string, command: string) => string;
+  postInstall: (command: string) => string;
+  installed: (name: string) => string;
+  installFailed: (message: string) => string;
+  registeredInstallFailed: string;
+  installTimeout: (seconds: number) => string;
+  commandKilled: (signal: string) => string;
+  commandExited: (status: number | null) => string;
+  suggestedPreset: (stack: string, preset: string, current: string) => string;
+  suggestedEngram: string;
+  nothingToSuggest: string;
+  suggestionsTitle: string;
+  suggestionsOutro: string;
+}
+
+interface ScanCmdStrings {
+  noConfig: (path: string) => string;
+  notMonorepo: (path: string) => string;
+  noPatterns: string;
+  nothingToScan: string;
+  orphaned: (count: number) => string;
+  configCurrent: string;
+  addWorkspaces: (count: number) => string;
+  cancelled: string;
+  unexpectedResult: (kind: string) => string;
+  added: (count: number, path: string) => string;
+  renderHint: string;
+  summaryTitle: string;
+  newWorkspacesTitle: string;
+  orphanedTitle: string;
+  useSuggestedPresets: string;
+  presetFor: (path: string) => string;
+  inheritRoot: string;
+}
+
+interface ConfigureCmdStrings {
+  pluginsPrompt: string;
+  cancelled: string;
+  enabled: (ids: string) => string;
+  disabled: (ids: string) => string;
+  engramAlwaysOn: string;
+  noChanges: string;
+  renderOrSyncHint: string;
+  fastGatePrompt: string;
+  fullGatePrompt: string;
+  bothGatesRequired: string;
+  qualityGateUpdated: string;
+  done: string;
+  languagePrompt: string;
+  languageEs: string;
+  languageEn: string;
+  invalidLanguage: (value: string) => string;
+  languageUpdated: (value: string) => string;
+  languageRenderHint: string;
+  branchBasePrompt: string;
+  branchRequired: string;
+  branchBaseUpdated: (value: string) => string;
+  branchBaseRenderHint: string;
+  prTargetPrompt: string;
+  prTargetUpdated: (value: string) => string;
+  prTargetSame: (value: string) => string;
+  prTargetRenderHint: string;
+  enginesPrompt: string;
+  enginesUpdated: (values: string) => string;
+  noWorkspace: string;
+  removeWorkspacePrompt: (name: string) => string;
+  aborted: string;
+  workspaceRemoved: string;
+  workspaceRemovedDone: string;
+  workspaceUpdated: (value: string) => string;
+  workspaceLinkHint: string;
+  blocksPrompt: string;
+  blocksUpdated: (values: string) => string;
+  blocksCleared: string;
+  blocksRenderHint: string;
+}
+
+interface WorkspaceCmdStrings {
+  invalidName: (name: string) => string;
+  alreadyExistsAt: (name: string, path: string) => string;
+  descriptionPrompt: string;
+  descriptionPlaceholder: string;
+  cancelled: string;
+  wrote: (path: string) => string;
+  ticketsDirectory: (path: string) => string;
+  initHint: (name: string) => string;
+  noneFound: string;
+  done: string;
+  repoCount: (count: number) => string;
+  invalidManifest: string;
+  workspaceCount: (count: number) => string;
+  notFoundAt: (name: string, path: string) => string;
+  createHint: (name: string) => string;
+  listHint: string;
+  reposTitle: string;
+  nameCollision: (lines: string) => string;
+  placeholderNames: (lines: string) => string;
+  sameName: string;
+  notFound: (name: string) => string;
+  alreadyExists: (name: string) => string;
+  renameSummary: (count: number) => string;
+  renameRepoWarning: (from: string, to: string) => string;
+  renamePrompt: (from: string, to: string) => string;
+  aborted: string;
+  renamed: (path: string) => string;
+  deleteSummary: (path: string, count: number) => string;
+  deletePrompt: (name: string) => string;
+  movedToTrash: (path: string) => string;
+  repoAlreadyRegistered: (repo: string, workspace: string) => string;
+  existingDirectoryHint: (message: string) => string;
+  registeredRepo: (repo: string, path: string) => string;
+  defaultApplyFailed: string;
+  defaultSet: (key: string, path: string) => string;
+  noRepos: string;
+  renderConflicts: (count: number, names: string) => string;
+  doneWithErrors: string;
+  preview: string;
+}
+
+interface StatusCmdStrings {
+  nextRender: string;
+  nextMissingPlugins: (count: number) => string;
+  nextContentDrift: string;
+  nextVersionDrift: string;
+  nextReorder: string;
+  nextInterleaved: (lead: string) => string;
+  nextInterleavedLead: (id: string, pos: number, total: number) => string;
+  nextLegacyAgents: (count: number, names: string) => string;
+  allCurrent: string;
+  none: string;
+  present: string;
+  missing: string;
+  statusTitle: (cwd: string) => string;
+  nextStepsTitle: string;
+  issuesFound: string;
+  ok: string;
+}
+
 interface CmdStrings {
   common: CommonCmdStrings;
   render: RenderCmdStrings;
   sync: SyncCmdStrings;
   doctor: DoctorCmdStrings;
+  update: UpdateCmdStrings;
+  add: AddCmdStrings;
+  scan: ScanCmdStrings;
+  configure: ConfigureCmdStrings;
+  workspace: WorkspaceCmdStrings;
+  status: StatusCmdStrings;
 }
 
 const CMD_ES: CmdStrings = {
@@ -785,6 +969,220 @@ const CMD_ES: CmdStrings = {
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
   },
+  update: {
+    detectedMigrationSuggestion: (legacy, preferred) =>
+      `(detección sugiere ${legacy}→${preferred})`,
+    manualMigrationOverride: (detail) =>
+      `project.libraryMigrations: respeto tu override manual — ${detail}. No lo sobrescribo; edítalo a mano si quieres adoptar la sugerencia.`,
+    upToDate: "Al día — nada que actualizar",
+    configDrift: (count, lines) => `Drift de config detectado (${count}):\n${lines}`,
+    configInSync: "El config está sincronizado con el repo",
+    rehomedLibraries:
+      "Moví las library skills por workspace a monorepo.workspaces[] (migración de scope)",
+    deadProgressKeys: (keys) => `Claves obsoletas en "progress" que se limpiarán: ${keys}`,
+    filesToUpdate: (count, lines, more) =>
+      `Archivos que se actualizarían (${count}):\n${lines}${more}`,
+    moreFiles: (count) => `… +${count} más`,
+    managedUpdates: (count, lines) =>
+      `Actualizaciones de bloques managed disponibles (${count}):\n${lines}`,
+    conflicts: (count) =>
+      `${count} archivo(s) con ediciones tuyas — 'navori sync' los resuelve interactivamente`,
+    libraryPreviewNote:
+      "Nota: aplicar el diff de project.libraries materializa las library skills (el preview de arriba refleja el config actual).",
+    dryRunComplete: "Dry-run completo (no se escribió ningún archivo)",
+    applyChanges: "¿Aplicar cambios de config y volver a renderizar?",
+    configUpdated: (path) => `Config actualizado: ${path}`,
+    configOnlyDone:
+      "Config actualizado. Corre 'navori sync' para refrescar los archivos de los engines configurados.",
+    renderAfterConfigFailed:
+      "El render falló tras actualizar el config — revisa el backup y corre 'navori render --apply'",
+    renderFailed: "El render falló",
+    doneRenderFailed: "Listo (config actualizado, pero el render falló)",
+    conflictsKept: (count) =>
+      `${count} archivo(s) con ediciones tuyas no se tocaron — corre 'navori sync' para resolver`,
+    rerendered: (count) =>
+      `Volví a renderizar ${count} archivo(s) de los engines configurados, incluidos workspaces`,
+    noRenderNeeded: "No fue necesario volver a renderizar",
+    done: "Listo",
+  },
+  add: {
+    pluginRequired:
+      "Pasa un plugin id (ej. 'navori add engram') o usa --suggest para ver recomendaciones.",
+    none: "(ninguno)",
+    unknownPlugin: (id, known) => `Plugin desconocido '${id}'. Conocidos: ${known}`,
+    alreadyEnabled: (id) => `'${id}' ya está habilitado en este config`,
+    added: (id, path) => `Agregué '${id}' a ${path}`,
+    doneRender: "Listo — corre 'navori render --apply' para aplicar",
+    externalAlreadyInstalled: (name) => `La herramienta externa '${name}' ya está instalada`,
+    externalSkipped: (name) =>
+      `La herramienta externa '${name}' no está instalada. Se pidió --skip-install.`,
+    doneInstallLater: "Listo — instálala manualmente después",
+    noInstallCommand: (platform, name) =>
+      `No hay comando de instalación para '${platform}'. Instala '${name}' manualmente.`,
+    done: "Listo",
+    installPrompt: (name, command) => `¿Instalar '${name}'? Se ejecutará: ${command}`,
+    externalNotInstalled: (name) =>
+      `La herramienta externa '${name}' no se instaló. Los hooks la omitirán sin ruido.`,
+    installing: (name, command) => `Instalando ${name} — ${command}`,
+    postInstall: (command) => `Post-instalación — ${command}`,
+    installed: (name) => `Instalado ${name}`,
+    installFailed: (message) => `Falló la instalación: ${message}`,
+    registeredInstallFailed:
+      "El plugin quedó registrado, pero falló la instalación de la herramienta externa. Instálala manualmente.",
+    installTimeout: (seconds) =>
+      `El comando de instalación agotó el tiempo después de ${seconds}s. Puede estar esperando entrada interactiva (ejecútalo en una TTY) o haberse colgado. Instala la herramienta manualmente y vuelve a correr navori con --skip-install.`,
+    commandKilled: (signal) => `El comando terminó por la señal ${signal}`,
+    commandExited: (status) => `El comando terminó con status ${status}`,
+    suggestedPreset: (stack, preset, current) =>
+      `Preset: detecté ${stack} → sugerido ${preset} (actual: ${current}) — cámbialo con 'navori configure' o edita navori.config.json.`,
+    suggestedEngram: "Plugin engram: memoria persistente entre sesiones — 'navori add engram'.",
+    nothingToSuggest:
+      "Nada que sugerir — el preset coincide con el stack y engram ya está habilitado.",
+    suggestionsTitle: "Sugerencias",
+    suggestionsOutro: "Sugerencias, no aplicadas — corre 'navori add <id>' o 'navori configure'.",
+  },
+  scan: {
+    noConfig: (path) => `No encontré navori.config.json en ${path}. Corre 'navori init' primero.`,
+    notMonorepo: (path) =>
+      `${path} no declara 'monorepo'. Edita el config para agregar { monorepo: { enabled: true, tool: '...' } } y vuelve a correr scan.`,
+    noPatterns:
+      "No encontré patrones de workspace en pnpm-workspace.yaml ni en package.json#workspaces.",
+    nothingToScan: "Nada que escanear",
+    orphaned: (count) =>
+      `${count} workspace(s) en config ya no existen en disco. Edita navori.config.json para removerlos.`,
+    configCurrent: "Config al día",
+    addWorkspaces: (count) => `¿Agregar ${count} workspace(s) a navori.config.json?`,
+    cancelled: "Cancelado",
+    unexpectedResult: (kind) => `Resultado inesperado: ${kind}`,
+    added: (count, path) => `Agregué ${count} workspace(s) a ${path}`,
+    renderHint:
+      "Corre 'navori render --apply' para generar los archivos de los engines por workspace",
+    summaryTitle: "resumen",
+    newWorkspacesTitle: "Workspaces nuevos:",
+    orphanedTitle: "Huérfanos (en config, no existen en disco):",
+    useSuggestedPresets: "¿Usar el preset sugerido en cada workspace nuevo?",
+    presetFor: (path) => `Preset para ${path}`,
+    inheritRoot: "(heredar del root)",
+  },
+  configure: {
+    pluginsPrompt: "Plugins habilitados en este repo",
+    cancelled: "Cancelado",
+    enabled: (ids) => `Habilitados: ${ids}`,
+    disabled: (ids) => `Deshabilitados: ${ids}`,
+    engramAlwaysOn: "engram siempre está activo con navori — se mantuvo habilitado.",
+    noChanges: "Sin cambios",
+    renderOrSyncHint: "Corre 'navori render --apply' o 'navori sync' para aplicar.",
+    fastGatePrompt: "Comando del gate rápido (corre en el hook Stop)",
+    fullGatePrompt: "Comando del gate completo (corre antes de cerrar la sesión)",
+    bothGatesRequired: "Se requieren los comandos fast y full",
+    qualityGateUpdated: "qualityGate actualizado",
+    done: "Listo",
+    languagePrompt: "Idioma de los assets Core administrados",
+    languageEs: "Español (predeterminado — cobertura completa)",
+    languageEn: "Inglés (limitado — usa español como fallback)",
+    invalidLanguage: (value) => `Idioma inválido '${value}'. Debe ser 'es' o 'en'.`,
+    languageUpdated: (value) => `language → ${value}`,
+    languageRenderHint:
+      "Corre 'navori render --apply' para volver a renderizar los bloques managed en el nuevo idioma.",
+    branchBasePrompt: "Rama base contra la que comparan los gates (semgrep / jscpd)",
+    branchRequired: "El nombre de la rama no puede estar vacío",
+    branchBaseUpdated: (value) => `branchBase → ${value}`,
+    branchBaseRenderHint: "Corre 'navori render --apply' para actualizar los scripts de gates.",
+    prTargetPrompt: "Rama destino de los PR (gh pr create --base)",
+    prTargetUpdated: (value) => `prTarget → ${value}`,
+    prTargetSame: (value) => `Igual que branchBase — los PR siguen apuntando a ${value}.`,
+    prTargetRenderHint: "Corre 'navori render --apply' para actualizar las skills de PR.",
+    enginesPrompt: "Engines objetivo",
+    enginesUpdated: (values) => `engines → ${values}`,
+    noWorkspace: "No hay workspace asociado. Nada que quitar.",
+    removeWorkspacePrompt: (name) =>
+      `¿Quitar la asociación con el workspace '${name}'? Esto solo desconecta el repo de los comandos de workspace (tickets cross-repo, 'navori workspace render'); no afecta los archivos renderizados.`,
+    aborted: "Abortado",
+    workspaceRemoved: "Asociación con workspace eliminada",
+    workspaceRemovedDone: "Listo. Los archivos renderizados no cambiaron.",
+    workspaceUpdated: (value) => `workspace → ${value}`,
+    workspaceLinkHint:
+      "Corre 'navori workspace link' para registrar este repo en el registro local del workspace.",
+    blocksPrompt: "Bloques Core managed a EXCLUIR (marcado = fuera de CLAUDE.md)",
+    blocksUpdated: (values) => `blocks.exclude → ${values}`,
+    blocksCleared: "blocks.exclude limpio — se renderizan todos los bloques Core",
+    blocksRenderHint:
+      "Corre 'navori render --apply' o 'navori sync' para aplicar (los bloques excluidos se eliminan).",
+  },
+  workspace: {
+    invalidName: (name) => `El nombre del workspace debe estar en kebab-case: ${name}`,
+    alreadyExistsAt: (name, path) => `El workspace '${name}' ya existe en ${path}`,
+    descriptionPrompt: "Descripción del workspace (opcional)",
+    descriptionPlaceholder: "ej. Plataforma Bonum — multi-repo",
+    cancelled: "Cancelado",
+    wrote: (path) => `Escribí ${path}`,
+    ticketsDirectory: (path) => `Directorio de tickets: ${path}`,
+    initHint: (name) =>
+      `Corre 'navori workspace show ${name}' para inspeccionarlo, o agrégalo a un repo con 'navori init --workspace ${name}'.`,
+    noneFound: "No encontré workspaces. Crea uno con 'navori workspace init <name>'.",
+    done: "Listo",
+    repoCount: (count) => `${count} repo${count === 1 ? "" : "s"}`,
+    invalidManifest: "(manifest inválido)",
+    workspaceCount: (count) => `${count} workspace${count === 1 ? "" : "s"}`,
+    notFoundAt: (name, path) => `Workspace '${name}' no encontrado en ${path}.`,
+    createHint: (name) => `Créalo con: navori workspace init ${name}`,
+    listHint: "O lista los workspaces conocidos: navori workspace ls",
+    reposTitle: "Repos:",
+    nameCollision: (lines) =>
+      `Colisión de name entre repos (mismo config.name) — renómbralos en su package.json / navori.config.json para que cada repo tenga identidad única:\n${lines}`,
+    placeholderNames: (lines) => `Names placeholder (scaffold sin renombrar):\n${lines}`,
+    sameName: "Los nombres de origen y destino son iguales",
+    notFound: (name) => `Workspace '${name}' no encontrado`,
+    alreadyExists: (name) =>
+      `El workspace '${name}' ya existe. Elige otro nombre o elimínalo primero.`,
+    renameSummary: (count) =>
+      `Se renombrará el directorio del workspace y el campo 'name' del manifest. Se conservarán ${count} registro(s) de repo y sus tickets.`,
+    renameRepoWarning: (from, to) =>
+      `Los repos con 'workspace: ${from}' en navori.config.json deben actualizarse manualmente: entra a cada repo y corre 'navori configure workspace ${to}'.`,
+    renamePrompt: (from, to) => `¿Renombrar el workspace '${from}' a '${to}'?`,
+    aborted: "Abortado",
+    renamed: (path) => `Renombrado. Nueva ruta: ${path}`,
+    deleteSummary: (path, count) =>
+      `Se moverá ${path} a ~/.navori/.trash/. Incluye ${count} registro(s) de repo y sus tickets.`,
+    deletePrompt: (name) => `¿Eliminar el workspace '${name}'?`,
+    movedToTrash: (path) => `Movido a ${path}. Restáuralo manualmente si hace falta.`,
+    repoAlreadyRegistered: (repo, workspace) =>
+      `El repo '${repo}' ya está registrado en el workspace '${workspace}'`,
+    existingDirectoryHint: (message) =>
+      `${message}. Pasa un directorio existente (absoluto o relativo al cwd).`,
+    registeredRepo: (repo, path) => `Registré '${repo}' (${path})`,
+    defaultApplyFailed: "No se pudo aplicar el default",
+    defaultSet: (key, path) => `Definí ${key} (${path})`,
+    noRepos: "No hay repos registrados. Agrega uno con 'navori workspace add-repo'.",
+    renderConflicts: (count, names) =>
+      `${count} bloque(s) managed editado(s) a mano no se tocaron en: ${names}. Resuélvelos con 'navori sync' en ese repo, o vuelve a aplicar con '--force'.`,
+    doneWithErrors: "Listo con errores",
+    preview: "Preview",
+  },
+  status: {
+    nextRender:
+      "Corre 'navori render --apply' para generar los archivos de los engines configurados.",
+    nextMissingPlugins: (count) =>
+      `Resuelve ${count} plugin(s) faltante(s): instálalos o quítalos del config.`,
+    nextContentDrift: "Corre 'navori sync --interactive' para resolver bloques editados a mano.",
+    nextVersionDrift: "Corre 'navori render --apply' para traer los bloques a la última versión.",
+    nextReorder:
+      "Corre 'navori render --apply' para reordenar los bloques de CLAUDE.md al orden canónico.",
+    nextInterleaved: (lead) =>
+      `Mueve el texto que tienes entre bloques managed de CLAUDE.md arriba del primer bloque o abajo del último${lead}; luego corre 'navori render --apply' para reordenarlos.`,
+    nextInterleavedLead: (id, pos, total) =>
+      ` (p.ej. '${id}' está en posición ${pos} de ${total} y debería ir 1º)`,
+    nextLegacyAgents: (count, names) =>
+      `Archiva o borra ${count} agente(s) legacy (${names}); navori ya provee sus equivalentes canónicos.`,
+    allCurrent: "Todo al día — sin acciones pendientes.",
+    none: "(ninguno)",
+    present: "presente",
+    missing: "faltante",
+    statusTitle: (cwd) => `Estado · ${cwd}`,
+    nextStepsTitle: "Próximos pasos",
+    issuesFound: "Se encontraron problemas",
+    ok: "OK",
+  },
 };
 
 const CMD_EN: CmdStrings = {
@@ -945,11 +1343,220 @@ const CMD_EN: CmdStrings = {
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
   },
+  update: {
+    detectedMigrationSuggestion: (legacy, preferred) =>
+      `(detection suggests ${legacy}→${preferred})`,
+    manualMigrationOverride: (detail) =>
+      `project.libraryMigrations: keeping your manual override — ${detail}. It will not be overwritten; edit it manually to adopt the detected suggestion.`,
+    upToDate: "Up to date — nothing to update",
+    configDrift: (count, lines) => `Config drift detected (${count}):\n${lines}`,
+    configInSync: "Config is in sync with the repo",
+    rehomedLibraries:
+      "Re-homed per-workspace library skills onto monorepo.workspaces[] (scoping migration)",
+    deadProgressKeys: (keys) => `Obsolete "progress" keys to remove: ${keys}`,
+    filesToUpdate: (count, lines, more) =>
+      `Files that would be updated (${count}):\n${lines}${more}`,
+    moreFiles: (count) => `… +${count} more`,
+    managedUpdates: (count, lines) => `Managed block updates available (${count}):\n${lines}`,
+    conflicts: (count) =>
+      `${count} file(s) have your edits — 'navori sync' resolves them interactively`,
+    libraryPreviewNote:
+      "Note: applying the project.libraries diff materializes library skills (the preview above reflects the current config).",
+    dryRunComplete: "Dry-run complete (no files written)",
+    applyChanges: "Apply config changes and re-render?",
+    configUpdated: (path) => `Updated ${path}`,
+    configOnlyDone:
+      "Config updated. Run 'navori sync' to refresh files for the configured engines.",
+    renderAfterConfigFailed:
+      "Render failed after updating the config — inspect the backup and run 'navori render --apply'",
+    renderFailed: "Render failed",
+    doneRenderFailed: "Done (config updated, but render failed)",
+    conflictsKept: (count) =>
+      `${count} file(s) with your edits were left untouched — run 'navori sync' to resolve`,
+    rerendered: (count) => `Re-rendered ${count} configured-engine file(s), including workspaces`,
+    noRenderNeeded: "No re-render needed",
+    done: "Done",
+  },
+  add: {
+    pluginRequired:
+      "Pass a plugin id (e.g. 'navori add engram') or use --suggest to see recommendations.",
+    none: "(none)",
+    unknownPlugin: (id, known) => `Unknown plugin '${id}'. Known: ${known}`,
+    alreadyEnabled: (id) => `'${id}' is already enabled in this config`,
+    added: (id, path) => `Added '${id}' to ${path}`,
+    doneRender: "Done — run 'navori render --apply' to apply",
+    externalAlreadyInstalled: (name) => `External tool '${name}' is already installed`,
+    externalSkipped: (name) =>
+      `External tool '${name}' is not installed. --skip-install was requested.`,
+    doneInstallLater: "Done — install it manually later",
+    noInstallCommand: (platform, name) =>
+      `No install command for platform '${platform}'. Install '${name}' manually.`,
+    done: "Done",
+    installPrompt: (name, command) => `Install '${name}'? This will run: ${command}`,
+    externalNotInstalled: (name) =>
+      `External tool '${name}' was not installed. Hooks will skip it silently.`,
+    installing: (name, command) => `Installing ${name} — ${command}`,
+    postInstall: (command) => `Post-install — ${command}`,
+    installed: (name) => `Installed ${name}`,
+    installFailed: (message) => `Install failed: ${message}`,
+    registeredInstallFailed:
+      "The plugin was registered, but the external tool installation failed. Install it manually.",
+    installTimeout: (seconds) =>
+      `Install command timed out after ${seconds}s. It may be waiting for interactive input (run it from a TTY) or be hung. Install the tool manually and re-run navori with --skip-install.`,
+    commandKilled: (signal) => `Command killed by signal ${signal}`,
+    commandExited: (status) => `Command exited with status ${status}`,
+    suggestedPreset: (stack, preset, current) =>
+      `Preset: detected ${stack} → suggested ${preset} (current: ${current}) — change it with 'navori configure' or edit navori.config.json.`,
+    suggestedEngram: "Plugin engram: persistent memory across sessions — 'navori add engram'.",
+    nothingToSuggest:
+      "Nothing to suggest — the preset matches the stack and engram is already enabled.",
+    suggestionsTitle: "Suggestions",
+    suggestionsOutro:
+      "Suggestions only, not applied — run 'navori add <id>' or 'navori configure'.",
+  },
+  scan: {
+    noConfig: (path) => `No navori.config.json found at ${path}. Run 'navori init' first.`,
+    notMonorepo: (path) =>
+      `${path} does not declare 'monorepo'. Add { monorepo: { enabled: true, tool: '...' } } to the config and run scan again.`,
+    noPatterns: "No workspace patterns found in pnpm-workspace.yaml or package.json#workspaces.",
+    nothingToScan: "Nothing to scan",
+    orphaned: (count) =>
+      `${count} workspace(s) in config no longer exist on disk. Edit navori.config.json to remove them.`,
+    configCurrent: "Config is up to date",
+    addWorkspaces: (count) => `Add ${count} workspace(s) to navori.config.json?`,
+    cancelled: "Cancelled",
+    unexpectedResult: (kind) => `Unexpected result: ${kind}`,
+    added: (count, path) => `Added ${count} workspace(s) to ${path}`,
+    renderHint: "Run 'navori render --apply' to generate engine files for each workspace",
+    summaryTitle: "summary",
+    newWorkspacesTitle: "New workspaces:",
+    orphanedTitle: "Orphans (in config, missing on disk):",
+    useSuggestedPresets: "Use the suggested preset for every new workspace?",
+    presetFor: (path) => `Preset for ${path}`,
+    inheritRoot: "(inherit from root)",
+  },
+  configure: {
+    pluginsPrompt: "Plugins enabled in this repo",
+    cancelled: "Cancelled",
+    enabled: (ids) => `Enabled: ${ids}`,
+    disabled: (ids) => `Disabled: ${ids}`,
+    engramAlwaysOn: "engram is always on with navori — kept enabled.",
+    noChanges: "No changes",
+    renderOrSyncHint: "Run 'navori render --apply' or 'navori sync' to apply.",
+    fastGatePrompt: "Fast gate command (runs on the Stop hook)",
+    fullGatePrompt: "Full gate command (runs before closing the session)",
+    bothGatesRequired: "Both fast and full commands are required",
+    qualityGateUpdated: "qualityGate updated",
+    done: "Done",
+    languagePrompt: "Language for managed Core assets",
+    languageEs: "Spanish (default — full coverage)",
+    languageEn: "English (limited — falls back to Spanish)",
+    invalidLanguage: (value) => `Invalid language '${value}'. Must be 'es' or 'en'.`,
+    languageUpdated: (value) => `language → ${value}`,
+    languageRenderHint:
+      "Run 'navori render --apply' to re-render managed blocks in the new language.",
+    branchBasePrompt: "Base branch that gates (semgrep / jscpd) diff against",
+    branchRequired: "Branch name cannot be empty",
+    branchBaseUpdated: (value) => `branchBase → ${value}`,
+    branchBaseRenderHint: "Run 'navori render --apply' to update the gate scripts.",
+    prTargetPrompt: "Branch PRs open against (gh pr create --base)",
+    prTargetUpdated: (value) => `prTarget → ${value}`,
+    prTargetSame: (value) => `Same as branchBase — PRs still target ${value}.`,
+    prTargetRenderHint: "Run 'navori render --apply' to update the PR skills.",
+    enginesPrompt: "Target engines",
+    enginesUpdated: (values) => `engines → ${values}`,
+    noWorkspace: "No workspace associated. Nothing to remove.",
+    removeWorkspacePrompt: (name) =>
+      `Remove workspace association '${name}'? This only detaches the repo from workspace commands (cross-repo tickets, 'navori workspace render'); rendered files are not affected.`,
+    aborted: "Aborted",
+    workspaceRemoved: "Workspace association removed",
+    workspaceRemovedDone: "Done. Rendered files are unaffected.",
+    workspaceUpdated: (value) => `workspace → ${value}`,
+    workspaceLinkHint:
+      "Run 'navori workspace link' to register this repo in the workspace's local registry.",
+    blocksPrompt: "Core managed blocks to EXCLUDE (checked = omitted from CLAUDE.md)",
+    blocksUpdated: (values) => `blocks.exclude → ${values}`,
+    blocksCleared: "blocks.exclude cleared — all Core blocks render",
+    blocksRenderHint:
+      "Run 'navori render --apply' or 'navori sync' to apply (excluded blocks are removed).",
+  },
+  workspace: {
+    invalidName: (name) => `Workspace name must be kebab-case: ${name}`,
+    alreadyExistsAt: (name, path) => `Workspace '${name}' already exists at ${path}`,
+    descriptionPrompt: "Workspace description (optional)",
+    descriptionPlaceholder: "e.g. Bonum platform — multi-repo",
+    cancelled: "Cancelled",
+    wrote: (path) => `Wrote ${path}`,
+    ticketsDirectory: (path) => `Tickets directory: ${path}`,
+    initHint: (name) =>
+      `Run 'navori workspace show ${name}' to inspect it, or add it to a repo with 'navori init --workspace ${name}'.`,
+    noneFound: "No workspaces found. Create one with 'navori workspace init <name>'.",
+    done: "Done",
+    repoCount: (count) => `${count} repo${count === 1 ? "" : "s"}`,
+    invalidManifest: "(invalid manifest)",
+    workspaceCount: (count) => `${count} workspace${count === 1 ? "" : "s"}`,
+    notFoundAt: (name, path) => `Workspace '${name}' not found at ${path}.`,
+    createHint: (name) => `Create it with: navori workspace init ${name}`,
+    listHint: "Or list known workspaces: navori workspace ls",
+    reposTitle: "Repos:",
+    nameCollision: (lines) =>
+      `Repo name collision (same config.name) — rename them in package.json / navori.config.json so every repo has a unique identity:\n${lines}`,
+    placeholderNames: (lines) => `Placeholder names (scaffold not renamed):\n${lines}`,
+    sameName: "Source and destination names are the same",
+    notFound: (name) => `Workspace '${name}' not found`,
+    alreadyExists: (name) =>
+      `Workspace '${name}' already exists. Choose a different name or delete it first.`,
+    renameSummary: (count) =>
+      `The workspace directory and manifest 'name' field will be renamed. ${count} repo registration(s) and all tickets will be preserved.`,
+    renameRepoWarning: (from, to) =>
+      `Repos with 'workspace: ${from}' in navori.config.json must be updated manually: enter each repo and run 'navori configure workspace ${to}'.`,
+    renamePrompt: (from, to) => `Rename workspace '${from}' to '${to}'?`,
+    aborted: "Aborted",
+    renamed: (path) => `Renamed. New path: ${path}`,
+    deleteSummary: (path, count) =>
+      `This will move ${path} to ~/.navori/.trash/. It includes ${count} repo registration(s) and all tickets.`,
+    deletePrompt: (name) => `Delete workspace '${name}'?`,
+    movedToTrash: (path) => `Moved to ${path}. Restore it manually if needed.`,
+    repoAlreadyRegistered: (repo, workspace) =>
+      `Repo '${repo}' is already registered in workspace '${workspace}'`,
+    existingDirectoryHint: (message) =>
+      `${message}. Pass an existing directory (absolute or relative to cwd).`,
+    registeredRepo: (repo, path) => `Registered '${repo}' (${path})`,
+    defaultApplyFailed: "Could not apply default",
+    defaultSet: (key, path) => `Set ${key} (${path})`,
+    noRepos: "No repos registered. Add one with 'navori workspace add-repo'.",
+    renderConflicts: (count, names) =>
+      `${count} hand-edited managed block(s) left untouched in: ${names}. Reconcile with 'navori sync' in that repo, or re-apply with '--force'.`,
+    doneWithErrors: "Done with errors",
+    preview: "Preview",
+  },
+  status: {
+    nextRender: "Run 'navori render --apply' to generate files for the configured engines.",
+    nextMissingPlugins: (count) =>
+      `Resolve ${count} missing plugin(s): install them or remove them from the config.`,
+    nextContentDrift: "Run 'navori sync --interactive' to resolve manually edited blocks.",
+    nextVersionDrift: "Run 'navori render --apply' to update blocks to the latest version.",
+    nextReorder: "Run 'navori render --apply' to reorder CLAUDE.md blocks into canonical order.",
+    nextInterleaved: (lead) =>
+      `Move your text between managed CLAUDE.md blocks above the first block or below the last${lead}; then run 'navori render --apply' to reorder them.`,
+    nextInterleavedLead: (id, pos, total) =>
+      ` (e.g. '${id}' is at position ${pos} of ${total} and should be 1st)`,
+    nextLegacyAgents: (count, names) =>
+      `Archive or delete ${count} legacy agent(s) (${names}); navori already provides their canonical replacements.`,
+    allCurrent: "Everything is up to date — no pending actions.",
+    none: "(none)",
+    present: "present",
+    missing: "missing",
+    statusTitle: (cwd) => `Status · ${cwd}`,
+    nextStepsTitle: "Next steps",
+    issuesFound: "Issues found",
+    ok: "OK",
+  },
 };
 
 const CMD_DICTS: Record<Lang, CmdStrings> = { es: CMD_ES, en: CMD_EN };
 
-/** Command-output catalog for a locale (render / sync / doctor). */
+/** Command-output catalog for a locale. */
 export function tc(lang: Lang): CmdStrings {
   return CMD_DICTS[lang];
 }

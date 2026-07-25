@@ -857,6 +857,7 @@ export function reportRepoRenderRows(
   rows: RepoRenderRow[],
   preview: boolean,
   verbose = false,
+  lang: Lang = "en",
 ): { failed: number; pending: number; ok: number; conflicts: number; summary: string } {
   const marker: Record<RepoRenderStatus, string> = {
     written: color.green(sym.ok),
@@ -896,10 +897,7 @@ export function reportRepoRenderRows(
       .filter((r) => r.conflicts > 0)
       .map((r) => r.name)
       .join(", ");
-    p.log.warn(
-      `${conflicts} hand-edited managed block(s) left untouched in: ${names}. ` +
-        `Reconcile with 'navori sync' in that repo, or re-apply with '--force'.`,
-    );
+    p.log.warn(tc(lang).workspace.renderConflicts(conflicts, names));
   }
 
   const summary =
