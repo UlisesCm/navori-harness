@@ -10,6 +10,7 @@ import { loadPreset } from "../../lib/presets.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
 import { readCliVersion } from "../../lib/bundled-assets.ts";
 import type { RenderStatus } from "../../lib/style.ts";
+import { CORE_SKILLS, WORKFLOW_SKILLS } from "./harness-assets.ts";
 
 /**
  * Shared engine for the non-Claude "prose" targets: AGENTS.md (universal),
@@ -43,11 +44,6 @@ export interface ProseEngineResult {
 // Stamp the navori release version (bumps per release) for the anti-retroceso
 // guard, not @navori/core's static version. (#79)
 const CORE_META = { source: "@navori/core" as const, version: readCliVersion() };
-const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
-/** Always-on, stack-agnostic process skills — mirror of the Claude engine's
- * WORKFLOW_SKILLS so the prose index lists them for non-Claude tools too. */
-const WORKFLOW_SKILLS: ReadonlyArray<string> = ["ticket-intake", "pr-create"];
-
 /**
  * Build the skills index as prose. Independent from the Claude engine's
  * `buildSkillsIndexBody` (which references `.claude/skills/` paths that don't
@@ -109,6 +105,7 @@ export function buildHarnessProse(
   config: NavoriConfig,
   repoRoot: string,
   isWorkspace: boolean,
+  options: { includeOrchestration?: boolean; includePluginBlocks?: boolean } = {},
 ): string {
   // Workspace renders omit root-only blocks — same semantics as the Claude
   // engine (#70): the tools that read these files merge/inherit the root file,
@@ -124,8 +121,8 @@ export function buildHarnessProse(
       (e) =>
         e.newContent != null &&
         e.status !== "removed-condition-false" &&
-        e.asset.id !== "orquestacion" &&
-        (e.source === "core" || e.source === config.preset),
+        (options.includeOrchestration === true || e.asset.id !== "orquestacion") &&
+        (options.includePluginBlocks === true || e.source === "core" || e.source === config.preset),
     )
     .map((e) => e.newContent!.trim());
 
@@ -184,6 +181,10 @@ export interface ProseRenderSpec {
   dryRun?: boolean;
   /** Repo root (resolves shared presets); defaults to cwd. */
   repoRoot?: string;
+  /** Codex has native subagents, so its AGENTS.md keeps orchestration rules. */
+  includeOrchestration?: boolean;
+  /** Full engines may retain plugin protocol blocks they can back with MCP. */
+  includePluginBlocks?: boolean;
 }
 
 /**
@@ -203,7 +204,10 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
 
   const firstRender = !existsSync(destPath);
   const existing = firstRender ? spec.header : readFileSync(destPath, "utf-8");
-  const body = buildHarnessProse(config, repoRoot, isWorkspace);
+  const body = buildHarnessProse(config, repoRoot, isWorkspace, {
+    includeOrchestration: spec.includeOrchestration,
+    includePluginBlocks: spec.includePluginBlocks,
+  });
 
   const result = injectManagedSection(existing, spec.managedId, body, CORE_META, "html");
   // First render seeds a user-section after the managed block; on re-render the

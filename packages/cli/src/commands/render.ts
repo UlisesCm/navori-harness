@@ -2,13 +2,14 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { readConfig } from "../lib/config.ts";
+import type { NavoriConfig } from "../lib/config.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render-plan.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
+import { renderCodexEngine } from "../engines/codex/index.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
 import {
   renderStatusSymbol,
@@ -64,9 +65,9 @@ export interface EngineRenderSummary {
  * local presets). `warnMissingAdapters: false` silences the "no adapter yet"
  * entries for per-workspace runs — the root run already warned once.
  */
-function renderNonClaudeEngines(
+export function renderNonClaudeEngines(
   cwd: string,
-  config: ReturnType<typeof readConfig>,
+  config: NavoriConfig,
   engines: readonly string[],
   dryRun: boolean,
   options: { repoRoot?: string; warnMissingAdapters?: boolean; lang?: Lang } = {},
@@ -80,18 +81,31 @@ function renderNonClaudeEngines(
     string,
     (
       cwd: string,
-      config: ReturnType<typeof readConfig>,
+      config: NavoriConfig,
       opts: { dryRun: boolean; repoRoot: string },
     ) => ProseEngineResult
   > = {
     "agents-md": (c, cfg, o) => renderAgentsMdEngine(c, cfg, o),
     cursor: (c, cfg, o) => renderCursorEngine(c, cfg, o),
     copilot: (c, cfg, o) => renderCopilotEngine(c, cfg, o),
+    codex: (c, cfg, o) => renderCodexEngine(c, cfg, o),
   };
 
   const out: EngineRenderSummary[] = [];
   for (const eng of engines) {
     if (eng === "claude") continue;
+    if (eng === "agents-md" && engines.includes("codex")) {
+      out.push({
+        engine: eng,
+        written: [],
+        skipped: [],
+        warnings: [
+          "El engine 'agents-md' es redundante junto a 'codex'; Codex será el único dueño de AGENTS.md.",
+        ],
+        backupPath: null,
+      });
+      continue;
+    }
     const render = PROSE_ENGINES[eng];
     if (render) {
       const r = render(cwd, config, { dryRun, repoRoot });
@@ -356,7 +370,7 @@ export function runRender(
 export const renderCommand = defineCommand({
   meta: {
     name: "render",
-    description: "Render managed Core blocks into CLAUDE.md + .claude/ from navori.config.json",
+    description: "Render every configured engine from navori.config.json",
   },
   args: {
     cwd: { type: "string", description: "Directory to render into (default: cwd)" },

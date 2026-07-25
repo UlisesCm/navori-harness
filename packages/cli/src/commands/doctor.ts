@@ -596,7 +596,7 @@ function formatWorkspaceLinkWarning(issue: WorkspaceLinkIssue, lang = DEFAULT_LA
 /**
  * Spec 0003 §3.1.1 — each enabled plugin and the active preset may declare
  * `invariants[]`: load-bearing substrings that MUST survive into the rendered
- * output. We concatenate every rendered text file (CLAUDE.md + .claude/**) and
+ * output. We concatenate the native outputs for every configured engine and
  * flag any declared invariant that no longer appears verbatim. Catches the
  * whole class of "a template refactor silently ate a load-bearing rule".
  *
@@ -629,7 +629,7 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
 
   if (sources.length === 0) return [];
 
-  const output = readRenderedText(cwd);
+  const output = readRenderedText(cwd, config);
   if (output.trim() === "") return []; // nothing rendered yet
 
   const missing: MissingInvariant[] = [];
@@ -641,19 +641,42 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
   return missing;
 }
 
-/** Concatenate every rendered text file navori owns: CLAUDE.md + .claude/**. */
-function readRenderedText(cwd: string): string {
+/** Concatenate the rendered text owned by the configured engines only. */
+function readRenderedText(cwd: string, config: NavoriConfig): string {
   const parts: string[] = [];
-  const claudeMd = join(cwd, "CLAUDE.md");
-  if (existsSync(claudeMd)) {
+  const seen = new Set<string>();
+  const addFile = (path: string): void => {
+    if (seen.has(path) || !existsSync(path)) return;
+    seen.add(path);
     try {
-      parts.push(readFileSync(claudeMd, "utf-8"));
+      parts.push(readFileSync(path, "utf-8"));
     } catch {
       // unreadable — treat as absent
     }
+  };
+  const addDir = (path: string): void => {
+    if (seen.has(path) || !existsSync(path)) return;
+    seen.add(path);
+    collectText(path, parts);
+  };
+
+  for (const engine of config.engines ?? ["claude"]) {
+    if (engine === "claude") {
+      addFile(join(cwd, "CLAUDE.md"));
+      addDir(join(cwd, ".claude"));
+    } else if (engine === "codex") {
+      addFile(join(cwd, "AGENTS.md"));
+      addDir(join(cwd, ".agents"));
+      addDir(join(cwd, ".codex"));
+    } else if (engine === "agents-md") {
+      addFile(join(cwd, "AGENTS.md"));
+    } else if (engine === "cursor") {
+      addDir(join(cwd, ".cursor"));
+    } else if (engine === "copilot") {
+      addFile(join(cwd, ".github/copilot-instructions.md"));
+    }
   }
-  const claudeDir = join(cwd, ".claude");
-  if (existsSync(claudeDir)) collectText(claudeDir, parts);
+
   return parts.join("\n");
 }
 

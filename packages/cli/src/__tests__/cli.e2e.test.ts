@@ -764,6 +764,33 @@ describe("CLI e2e — happy paths", () => {
     ).toBe(true);
   });
 
+  it("doctor checks plugin invariants in Codex-only outputs", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+
+    const configPath = join(repo, "navori.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    config.engines = ["codex"];
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+    runCli(["render", "--apply", "--cwd", repo]);
+
+    const clean = JSON.parse(runCli(["doctor", "--json", "--cwd", repo]).stdout);
+    expect(clean.missingInvariants).toHaveLength(0);
+
+    // Keep config.toml/hooks as non-empty rendered Codex output, but remove
+    // every guidance location that carries the engram protocol.
+    rmSync(join(repo, "AGENTS.md"), { force: true });
+    rmSync(join(repo, ".agents"), { recursive: true, force: true });
+    rmSync(join(repo, ".codex/agents"), { recursive: true, force: true });
+
+    const broken = runCli(["doctor", "--json", "--cwd", repo]);
+    const report = JSON.parse(broken.stdout);
+    const missing = report.missingInvariants.map((item: { invariant: string }) => item.invariant);
+    expect(missing).toContain("mem_save");
+    expect(missing).toContain("mem_session_summary");
+  });
+
   it("doctor reports content drift when user edited inside the managed block (P0-fix B3)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
@@ -981,6 +1008,28 @@ describe("CLI e2e — happy paths", () => {
     expect(readFileSync(copilot, "utf-8")).toContain("## Idioma y rol");
   });
 
+  it("render emits the full Codex engine end-to-end", () => {
+    const repo = makeTmpRepo({ "package.json": JSON.stringify({ name: "codex-engine" }) });
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+
+    const cfgPath = join(repo, "navori.config.json");
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    cfg.engines = ["codex"];
+    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+
+    const r = runCli(["render", "--apply", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(existsSync(join(repo, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(repo, ".agents/skills/verify-before-done/SKILL.md"))).toBe(true);
+    expect(existsSync(join(repo, ".codex/agents/implementer.toml"))).toBe(true);
+    expect(existsSync(join(repo, ".codex/hooks/guard-destructive.sh"))).toBe(true);
+    expect(readFileSync(join(repo, ".codex/config.toml"), "utf-8")).toContain(
+      '[mcp_servers."engram"]',
+    );
+    expect(existsSync(join(repo, "CLAUDE.md"))).toBe(false);
+  });
+
   it("render --json emits valid JSON and suppresses human output (#84)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
@@ -1060,6 +1109,31 @@ describe("CLI e2e — happy paths", () => {
     // `reason` is a STABLE English code, never localized prose.
     expect(parsed.reason).toBe("conflicts-detected");
     expect(parsed.conflicts.length).toBeGreaterThan(0);
+  });
+
+  it("sync --json --apply renders a Codex-only config without creating Claude files", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+
+    const configPath = join(repo, "navori.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    config.engines = ["codex"];
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    const r = runCli(["sync", "--json", "--apply", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(r.stdout);
+    const codex = parsed.targets[0].engines.find(
+      (engine: { engine: string }) => engine.engine === "codex",
+    );
+
+    expect(codex.written.length).toBeGreaterThan(0);
+    expect(existsSync(join(repo, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(repo, ".codex/config.toml"))).toBe(true);
+    expect(existsSync(join(repo, ".agents/skills/verify-before-done/SKILL.md"))).toBe(true);
+    expect(existsSync(join(repo, "CLAUDE.md"))).toBe(false);
+    expect(existsSync(join(repo, ".claude/settings.json"))).toBe(false);
   });
 
   it("--json error `reason` is a stable English code regardless of config.language (#84)", () => {

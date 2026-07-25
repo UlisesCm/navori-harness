@@ -40,6 +40,12 @@ const ExternalToolSchema = z.object({
   postInstall: z.string().optional(),
 });
 
+const McpServerSchema = z.object({
+  command: z.string().min(1),
+  args: z.array(z.string()).default([]),
+  env: z.record(z.string(), z.string()).optional(),
+});
+
 // Spec 0002 — extensions for the Claude engine adapter.
 // All fields below are optional and additive: existing plugins keep
 // validating without changes.
@@ -99,6 +105,8 @@ export const PluginManifestSchema = z.object({
   version: z.string(),
   managed: z.array(ManagedEntrySchema).default([]),
   externalTool: ExternalToolSchema.optional(),
+  /** Engine-agnostic stdio MCP launch contract used by non-Claude adapters. */
+  mcpServer: McpServerSchema.optional(),
   /** Deep-merged into `.claude/settings.json` at render time. */
   settingsFragment: z.record(z.string(), z.unknown()).optional(),
   hooks: z.array(HookEntrySchema).optional(),

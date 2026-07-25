@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { safeRelPath } from "./zod-helpers.ts";
 
-const ENGINES = ["claude", "agents-md", "cursor", "copilot"] as const;
+const ENGINES = ["claude", "agents-md", "cursor", "copilot", "codex"] as const;
 const MODELS = ["opus", "sonnet", "haiku"] as const;
 const COMMITS = ["conventional", "conventional-es", "free"] as const;
 const LANGUAGES = ["es", "en"] as const;

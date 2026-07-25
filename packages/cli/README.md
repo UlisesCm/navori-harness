@@ -4,6 +4,26 @@ Multi-agent harness + SDD scaffolder for Claude Code (and other AI engines).
 
 `navori` lleva tu setup de Claude Code (agentes, skills, hooks, CLAUDE.md, AGENTS.md) a múltiples repos con un solo comando — sin perder customización local, sin sobrescribir lo que ya tenías.
 
+También renderiza un harness Codex completo: `AGENTS.md`, skills en
+`.agents/skills/`, agentes y hooks en `.codex/`, y MCP project-local.
+
+### Perfiles de engines
+
+```jsonc
+// Paridad completa para ambos proveedores
+{ "engines": ["claude", "codex"] }
+
+// Claude completo + guía AGENTS.md ligera para Codex y otras herramientas
+{ "engines": ["claude", "agents-md"] }
+
+// Solo guía universal, con el menor número de archivos
+{ "engines": ["agents-md"] }
+```
+
+`codex` ya incluye y administra `AGENTS.md`; no necesitas combinarlo con
+`agents-md`. Si ambos aparecen en un config, el adapter Codex toma precedencia
+para evitar bloques duplicados.
+
 ## Instalación
 
 ```bash
@@ -47,9 +67,9 @@ Y genera:
 | `add <plugin>` | Activa un plugin y opcionalmente instala la tool externa |
 | `configure <section>` | Ajusta una sección del config sin re-correr el wizard |
 | `update` | Re-detecta el repo, refresca config y corre sync en un paso |
-| `render` | Genera CLAUDE.md y `.claude/` desde el config (preview por default; `--apply` escribe). `--all` renderea todos los repos del registro global; `--prune` limpia los que ya no existen |
+| `render` | Genera los archivos nativos de cada engine configurado (preview por default; `--apply` escribe). `--all` renderea todos los repos del registro global; `--prune` limpia los que ya no existen |
 | `registry <sub>` | Registro global de tus repos con navori, para `render --all` (`ls`, `scan <dir>`, `add`, `remove`, `prune`) |
-| `sync` | Refresca los managed blocks con conflict resolution + backups |
+| `sync` | Refresca todos los engines configurados con conflict resolution + backups |
 | `preset init <id>` | Scaffoldea un preset local en `.navori/presets/<id>/` |
 | `scan` | Detecta workspaces nuevos en monorepos (`pnpm-workspace.yaml` / `package.json#workspaces`) |
 | `doctor` | Audita el config + drift de cada managed block (CLAUDE.md **y AGENTS.md**), orden canónico, markers malformados, desincronización de monorepo y tools externas faltantes (`--strict` para CI) |
@@ -211,7 +231,8 @@ Conflict in 'idioma-rol':
   - tu versión
   + versión del Core
 ```
-Y eliges: `skip-conflicts` (mantener tu edit), `apply-all` (pisar) o `abort`.
+Y eliges `skip-conflicts`, resolución interactiva para bloques de `CLAUDE.md`, o `abort`.
+Los conflictos de archivo completo nunca se pisan automáticamente.
 
 Backups automáticos en `~/.navori/backups/<timestamp>/` antes de cada `sync` (retención 30 días).
 
@@ -223,7 +244,7 @@ Cambiar una sola cosa sin re-init:
 navori configure plugins              # multiselect de plugins activos
 navori configure quality-gate         # nuevo comando de quality gate
 navori configure language en          # switch a inglés (fallback a es)
-navori configure engines              # multiselect: claude / agents-md / cursor / copilot
+navori configure engines              # multiselect: claude / codex / agents-md / cursor / copilot
 navori configure branch-base main     # punto de fork / rama protegida
 navori configure pr-target develop    # rama destino del PR (gh pr create --base)
 navori configure workspace bonum      # asociar a un workspace

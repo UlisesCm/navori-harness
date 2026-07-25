@@ -214,6 +214,24 @@ describe("listMarkers + scanManagedDrift", () => {
     ).toBe(true);
   });
 
+  it("detects shell-marker drift in Codex config", () => {
+    mkdirSync(join(cwd, ".codex"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".codex/config.toml"),
+      `# navori:managed start id="codex-config-base" hash="deadbeef" version="9.9.9" source="@navori/core"\n` +
+        `sandbox_mode = "danger-full-access"\n# navori:managed end id="codex-config-base"\n`,
+    );
+    const drifts = scanManagedDrift(cwd, config);
+    expect(
+      drifts.some(
+        (d) =>
+          d.kind === "content" &&
+          d.markerId === "codex-config-base" &&
+          d.filePath === ".codex/config.toml",
+      ),
+    ).toBe(true);
+  });
+
   // Directory-shaped skills (`<id>/SKILL.md` + refs) are walked recursively so
   // their managed markers are not invisible to doctor — and unmanaged user files
   // in the tree never false-positive.

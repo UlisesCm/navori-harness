@@ -42,11 +42,12 @@ type AdoptionMode = "fresh" | "coexist" | "replace";
 const ENGINE_OPTIONS = [
   { value: "claude", label: "Claude Code (.claude/)" },
   { value: "agents-md", label: "AGENTS.md (universal — Cursor / Codex / Gemini read it)" },
+  { value: "codex", label: "Codex (full — agents, skills, hooks, MCP)" },
   { value: "cursor", label: "Cursor (.cursor/rules/)" },
   { value: "copilot", label: "Copilot (.github/copilot-instructions.md)" },
 ];
 
-type EngineId = "claude" | "agents-md" | "cursor" | "copilot";
+type EngineId = "claude" | "agents-md" | "cursor" | "copilot" | "codex";
 
 export const initCommand = defineCommand({
   meta: {

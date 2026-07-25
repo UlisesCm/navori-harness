@@ -301,6 +301,17 @@ describe("detectProject — engines detection", () => {
     }
   });
 
+  it("detects .codex/ directory", () => {
+    const dir = makeTmp();
+    try {
+      mkdirSync(join(dir, ".codex"));
+      const d = detectProject(dir);
+      expect(d.existingEngines).toContain("codex");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   it("detects multiple engines at once", () => {
     const dir = makeTmp();
     try {

@@ -344,8 +344,8 @@ export const updateCommand = defineCommand({
     const wsScopesChanged = refreshWorkspaceScopes(rawConfig, cwd);
     const willWriteConfig = diffs.length > 0 || deadKeys.length > 0 || wsScopesChanged;
 
-    // Preview the FULL engine render (CLAUDE.md + the .claude/ tree) against the
-    // current config, aggregating root + every workspace + non-Claude engines.
+    // Preview the full configured-engine render against the current config,
+    // aggregating root + every workspace.
     // This surfaces bundle / version drift a config-field diff can't see — new
     // core skills, settings fixes, the skills-index — and is the same engine the
     // apply pass runs, so the preview matches what will happen.
@@ -453,13 +453,12 @@ export const updateCommand = defineCommand({
     }
 
     if (args["config-only"]) {
-      p.outro("Config updated. Corre 'navori sync' para refrescar CLAUDE.md + .claude/.");
+      p.outro("Config updated. Corre 'navori sync' para refrescar los engines configurados.");
       return;
     }
 
-    // Full engine sync: CLAUDE.md + the .claude/ tree (skills, agents, settings,
-    // hooks). Re-detected library skills and preset shifts only materialize here.
-    // (Earlier this re-rendered CLAUDE.md alone, leaving the .claude/ tree stale.)
+    // Full configured-engine sync. Re-detected library skills and preset shifts
+    // only materialize here.
     let result: ReturnType<typeof runRender>;
     try {
       result = runRender(cwd, false);
@@ -491,7 +490,7 @@ export const updateCommand = defineCommand({
     if (applyDowngradeWarn) p.log.warn(applyDowngradeWarn);
     if (applied.writes.length > 0) {
       p.log.success(
-        `Re-rendered ${applied.writes.length} archivo(s) (CLAUDE.md + .claude/, incluidos workspaces)`,
+        `Re-rendered ${applied.writes.length} archivo(s) de los engines configurados, incluidos workspaces`,
       );
     } else {
       p.log.info("No re-render needed");

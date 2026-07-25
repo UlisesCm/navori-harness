@@ -90,7 +90,8 @@ describe("sync — resolveConflictsInteractively (interactive conflict resolutio
     return [
       {
         target: { label: "root", cwd, repoRoot: cwd, config: {} },
-        plan: { claudeMdEntries: entries },
+        claude: { claudeMdEntries: entries },
+        engines: [],
       },
     ] as unknown as TargetPlan[];
   }
@@ -124,11 +125,12 @@ describe("sync — resolveConflictsInteractively (interactive conflict resolutio
     const plans = [
       {
         target: { label: "root", cwd: "/x" },
-        plan: {
+        claude: {
           claudeMdEntries: [
             { asset: { id: "idioma-rol" }, source: "core", status: "unchanged", newContent: null },
           ],
         },
+        engines: [],
       },
     ] as unknown as TargetPlan[];
 
