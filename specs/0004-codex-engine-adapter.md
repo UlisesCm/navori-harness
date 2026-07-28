@@ -406,8 +406,28 @@ Si el gate jscpd marca duplicación entre `claude/index.ts` y `codex/index.ts`, 
 
 ---
 
-## Resultados Fase 0 (rellenar antes de la Fase 1)
-- **Payload PreToolUse Codex:** _(ruta JSON del comando: ______)_
-- **Ruta de skills project-level válida:** _(`.codex/skills/` | `.agents/skills/` | ______)_
-- **Comando MCP engram:** _(`command` = ______, `args` = ______)_
-- **Nombres de modelo Codex (R3):** _(mapa opus/sonnet/haiku → ______)_
+## Resultados Fase 0 (COMPLETA — spike ejecutado contra Codex CLI v0.145.0, 2026-07-27)
+
+**Método:** repos de prueba efímeros + `codex exec --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust`. Payload de hook capturado volcando stdin a archivo; discovery de skills verificado pidiendo al modelo listar sus skills SIN leer archivos.
+
+- **Payload PreToolUse Codex:** el comando viene en **`.tool_input.command`** — ruta JSON **idéntica a Claude**. Payload real:
+  ```json
+  { "hook_event_name": "PreToolUse", "tool_name": "Bash",
+    "tool_input": { "command": "echo ..." }, "cwd": "...",
+    "session_id": "...", "turn_id": "...", "tool_use_id": "...",
+    "permission_mode": "bypassPermissions", "model": "gpt-5.6-sol" }
+  ```
+  → **Consecuencia: la Fase 5.2 se ELIMINA.** El `extract_cmd()` de los hooks ya lee `.tool_input.command`; un solo asset sirve a ambos engines sin cambios. DT-4 se cumple con cero código nuevo en el shell.
+
+- **Ruta de skills project-level válida:** **AMBAS** funcionan con discovery **nativo** (aparecen en la lista de skills inyectada sin leer archivos): `.codex/skills/<id>/SKILL.md` **y** `.agents/skills/<id>/SKILL.md`. **Decisión: se usa `.codex/skills/<id>/SKILL.md`** (DT-2) por consistencia — todos los artefactos Codex bajo una sola raíz `.codex/` (config.toml + hooks + skills), espejando `~/.codex/skills/`. La mención de `.agents/skills/` en Spec 0005 §Fase-1.2 queda corregida a `.codex/skills/`. Formato de skill confirmado: dir-por-skill `<id>/SKILL.md` con frontmatter `name:` == `<id>`.
+
+- **Comando MCP engram:** `command = "engram"` (o path absoluto `/opt/homebrew/bin/engram`), `args = ["mcp", "--tools=agent"]`. Verificado además en el `~/.codex/config.toml` real del usuario (ya lo usa así). El perfil `agent` = 15 tools; default (sin `--tools`) = 19.
+
+- **Nombres de modelo Codex (R3):** modelos disponibles en la instalación: `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`. Default del usuario: `gpt-5.6-sol` + `model_reasoning_effort = "medium"`. **DECISIÓN DE ULISES PENDIENTE** sobre el mapa `opus|sonnet|haiku → gpt-5.6-*`. `reasoning_effort` válidos: `low|medium|high` seguros; `max`/`xhigh` aceptados a nivel config; `minimal` lo rechaza el modelo actual.
+
+### Hallazgos extra (no previstos en la spec)
+- **Eventos de hook Codex** son más ricos que solo PreToolUse: se observaron `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `Stop`. Amplía la paridad de hooks (oportunidad futura).
+- **Hook trust:** Codex exige confianza persistida de los hooks (o `--dangerously-bypass-hook-trust`). **Detalle de rollout obligatorio a documentar:** en un repo con hooks generados por navori, el usuario debe aprobar/confiar los hooks la primera vez que corre Codex, o los hooks no disparan.
+- **Config del repo:** confirmado que Codex lee y mergea `<repo>/.codex/config.toml` + `<repo>/.codex/hooks/*.sh` (no solo `~/.codex/`). El diseño de la spec es válido.
+
+### Gate Fase 0: ✅ PASADO — ninguna incompatibilidad grave. Se puede proceder a Fase 1.
