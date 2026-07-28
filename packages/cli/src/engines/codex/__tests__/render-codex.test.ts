@@ -63,6 +63,22 @@ describe("renderCodexEngine", () => {
     );
   });
 
+  it("models.codexMap overrides the built-in tier→model map, tier by tier (M3)", () => {
+    const cwd = tempRepo();
+    // implementer=sonnet, reviewer=haiku (from config()); override only sonnet.
+    renderCodexEngine(
+      cwd,
+      config({
+        models: { implementer: "sonnet", reviewer: "haiku", codexMap: { sonnet: "gpt-6-custom" } },
+      }),
+    );
+    const implementer = readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8");
+    expect(implementer).toContain('model = "gpt-6-custom"');
+    // haiku has no override → falls back to the built-in default.
+    const reviewer = readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8");
+    expect(reviewer).toContain('model = "gpt-5.6-luna"');
+  });
+
   it("is byte-idempotent and preserves user-owned config/guidance", () => {
     const cwd = tempRepo();
     renderCodexEngine(cwd, config());
