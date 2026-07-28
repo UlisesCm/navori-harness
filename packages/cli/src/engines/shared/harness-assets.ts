@@ -2,18 +2,25 @@ import type { NavoriConfig } from "../../lib/config.ts";
 import { resolveCondition } from "../../lib/marker.ts";
 import type { PresetExtraFile } from "../../lib/presets.ts";
 
+/**
+ * `sandbox` is a property of the ROLE, not of any engine: a reviewer/auditor
+ * inspects without mutating, so it renders read-only wherever a provider
+ * supports sandboxing (today Codex's `sandbox_mode`). Absent → workspace-write.
+ * Keeping it here means the next provider inherits it for free (Spec 0007 M4).
+ */
 export const CORE_AGENTS: ReadonlyArray<{
   id: string;
   harnessKey: keyof NonNullable<NavoriConfig["harness"]>;
+  sandbox?: "read-only" | "workspace-write";
 }> = [
   { id: "leader", harnessKey: "leader" },
   { id: "implementer", harnessKey: "implementer" },
-  { id: "reviewer", harnessKey: "reviewer" },
-  { id: "researcher", harnessKey: "researcher" },
-  { id: "ticket-audit", harnessKey: "ticketAudit" },
+  { id: "reviewer", harnessKey: "reviewer", sandbox: "read-only" },
+  { id: "researcher", harnessKey: "researcher", sandbox: "read-only" },
+  { id: "ticket-audit", harnessKey: "ticketAudit", sandbox: "read-only" },
   { id: "commit-pr-pilot", harnessKey: "commitPrPilot" },
-  { id: "explorer", harnessKey: "explorer" },
-  { id: "auditor", harnessKey: "auditor" },
+  { id: "explorer", harnessKey: "explorer", sandbox: "read-only" },
+  { id: "auditor", harnessKey: "auditor", sandbox: "read-only" },
 ];
 
 export const CORE_SKILLS: ReadonlyArray<string> = [
