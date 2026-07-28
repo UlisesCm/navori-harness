@@ -1,12 +1,12 @@
 # Spec 0008 — Fase C: Claude sobre el spine compartido (runbook ejecutable)
 
-**Status:** 🟡 DRAFT para revisión — NO ejecutado. Requiere aprobación de Ulises antes de tocar `claude/index.ts`.
+**Status:** ✅ **PLAN FINAL** — DT-C1 ratificada por Ulises (2026-07-28); incógnitas de código cerradas (§7). Listo para ejecutar por fases. NO ejecutado aún.
 **Fecha:** 2026-07-28
 **Driver:** Ulises Ciprés
 **Depende de:** [Spec 0007](./0007-render-plan-unificado.md) Fases A y B (mergeadas en rama `refactor/spec-0007-fase-b-execute-plan`): `resolveHarnessPlan` (Capa 1) y `executePlan` + contrato `EngineAdapter` (Capa 3) ya existen y Codex ya corre sobre ellos.
 **Objetivo:** que Claude comparta el spine para la lógica que HOY duplica con Codex (resolver inventario + placement + backup/write/prune), sin forzar sus rarezas legítimas dentro del contrato. Cerrar la duplicación real, no mudar todo el archivo por simetría.
 
-> **Cómo leer esta spec:** es la "spec propia" que el runbook 0007 (§2 Fase C, DT-1) exigía antes de tocar Claude. Primero léela completa y **decide el alcance** (§4 DT-C1) — hay una elección de diseño abierta que es tuya. El runbook §6 solo es ejecutable DESPUÉS de esa decisión. Mismos gates que 0007: V-BYTE byte a byte (§7) como gate duro, no solo tests verdes.
+> **Cómo leer esta spec:** es la "spec propia" que el runbook 0007 (§2 Fase C, DT-1) exigía antes de tocar Claude. La decisión de diseño abierta (DT-C1) ya está **ratificada** (§4); el runbook §6 es ejecutable en orden. Mismos gates que 0007: V-BYTE byte a byte (§7) como gate duro, no solo tests verdes. Localizar bloques `ANTES` por grep, no por línea.
 
 ---
 
@@ -63,13 +63,13 @@ Ventaja: una sola fontanería de verdad; Claude reusa exactamente la del executo
 ### Opción C-válvulas (alternativa)
 Extender el contrato `EngineAdapter` con hooks: `bootstrapFiles`, `subBlockInjects`, `extraRemovals`, `reportExtras`, `writeLastPredicate`. Claude implementa todas; `executePlan` las invoca. Rechazada de entrada: infla el contrato con 5+ ganchos que solo Claude usa (el anti-objetivo), y `computeRenderPlan`/reorder de CLAUDE.md no caben en ningún gancho razonable.
 
-**Decisión requerida (DT-C1):** confirmar C-plan/write. El runbook §6 la asume.
+**Decisión (DT-C1): ✅ RATIFICADA — C-plan/write.** Ulises la aprobó (2026-07-28). El runbook §6 la implementa.
 
 ---
 
-## 4. Decisiones (DT) — a ratificar por Ulises
+## 4. Decisiones (DT) — ratificadas 2026-07-28
 
-- **DT-C1 — Enfoque C-plan/write.** Separar `executePlan` en `collectPlan` + `commitWrites`; Claude comparte `commitWrites` con un `pending` combinado. (§3)
+- **DT-C1 — Enfoque C-plan/write. ✅ RATIFICADA.** Separar `executePlan` en `collectPlan` + `commitWrites`; Claude comparte `commitWrites` con un `pending` combinado. (§3)
 - **DT-C2 — Migrar SOLO agents/skills/hooks de Claude al `ClaudeAdapter`.** CLAUDE.md, settings, bootstrap, scripts, injectInto y la reconciliación de 3 vías se quedan Claude-only. No se toca su lógica; solo se saca su backup/write al `commitWrites` compartido.
 - **DT-C3 — El reporte extendido se ensambla en `renderClaudeEngine`, no en el spine.** `commitWrites` devuelve `{written, backupPath}`; Claude le agrega `claudeMdEntries`/`updatesAvailable`/`downgrades`/`languageFallbacks`/`inspected`. El contrato no crece.
 - **DT-C4 — V-BYTE con matriz ampliada.** Claude tiene más ejes (monorepo, `skipIds`/`forceIds`, plugins con injectInto, preset extras condicionales, `language="en"` con fallback). El baseline V-BYTE (§7) cubre: repo simple, workspace de monorepo, y repo con plugin injectInto + preset extras. Cero bytes de diferencia en los tres.
@@ -109,7 +109,7 @@ settings/bootstrap/scripts/injectInto  ──(pending Claude-only)──┘
   - ⚠️ **`includeLeader: true`** — Claude SÍ emite `leader.md` (a diferencia de Codex). El parity test (0007 M1) ya trata `leader` como diff intencional.
   - ⚠️ Preservar el **dedup** `renderedSkillDests` (preset gana sobre library) — hoy vive en el loop; debe seguir aplicándose antes de construir el plan o dentro del adapter.
   - ⚠️ Preservar el conteo **`inspected`** exacto (DT-C5).
-- **VERIFICAR C.2:** `pnpm test` verde · V-BYTE §7 matriz completa → byte-idéntico.
+- **VERIFICAR C.2:** `pnpm test` verde — en particular los asserts de conteo (`render-engine` `inspected===24`, `preset-extras` `===25`) deben pasar SIN tocarlos (si fallan, el conteo derivó — arréglalo, no maquilles el número) · V-BYTE §7 matriz completa → byte-idéntico.
 
 ### Fase C.3 — Escritura unificada + reconciliación Claude-only
 - Sustituir el bloque §9 de `renderClaudeEngine` por una sola llamada `commitWrites` con el `pending` combinado (CLAUDE.md incluido) y `writeLast: p => p.path === claudeMdPath`.
@@ -132,8 +132,8 @@ Tres configs, baseline ANTES de editar, diff al final (procedimiento idéntico a
 
 ## 8. Riesgos
 - **R-C1 — El pipeline de CLAUDE.md se enreda con el spine.** Mitigado por DT-C2: CLAUDE.md ni se toca; solo su `pending` fluye al `commitWrites` común.
-- **R-C2 — `inspected` deriva.** Mitigado por DT-C5 + un test que hoy afirma el conteo (verificar `render-engine.test.ts`); si no existe, añadir uno ANTES de C.2.
-- **R-C3 — Backup/exclude no soportado por el spine.** Mitigado en C.2: `commitWrites` debe aceptar `exclude`; si no, es un ajuste de firma previo (bajo riesgo).
+- **R-C2 — `inspected` deriva.** ✅ **Red de seguridad ya existe** (verificado 2026-07-28): `render-engine.test.ts:307` afirma `inspected === 24` (repo simple, 1ª render) y `=== first.inspected` en la 2ª; `preset-extras.test.ts:90` afirma `=== 25` (con un preset extra); `render-monorepo.test.ts:251` afirma `> 0` en workspace. Cualquier deriva del conteo revienta la suite. No hace falta añadir test.
+- **R-C3 — Backup/exclude no soportado por el spine.** ✅ **Cerrado** (verificado 2026-07-28): `createBackup` YA acepta `options.exclude` (`lib/backup.ts:63`, con exclusión por igualdad o prefijo de subárbol). `commitWrites` solo debe reenviarlo desde el adapter — ajuste de firma trivial, sin lógica nueva.
 - **R-C4 — Orden de escritura de CLAUDE.md.** Mitigado por `writeLast` parametrizado (C.1).
 - **R-C5 — La ganancia real es modesta.** Honesto: se comparten ~150 LOC de fontanería; el grueso de Claude (CLAUDE.md) seguirá siendo Claude-only. Si al revisar juzgas que no compensa el riesgo sobre un archivo tan sensible, **la decisión válida es NO ejecutar** y dejar Claude como caso especial (DT-1 de 0007 ya lo contempla: "si Claude nunca migra, la duplicación igual muere" al compartir Codex+futuros el spine).
 
