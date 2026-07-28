@@ -40,7 +40,7 @@ Plan → backup → escritura atómica → chmod → poda de huérfanos → repo
 | **M1** | Test de paridad de inventario | ✅ **EJECUTADA 2026-07-28** — 3/3 verde | — |
 | **A** | Extraer `resolveHarnessPlan` a shared | ✅ **EJECUTADA 2026-07-28** — build+test verde, V-BYTE idéntico | ninguno; riesgo ~0 |
 | **B** | `executePlan` compartido + codex como adapter | ✅ **EJECUTADA 2026-07-28** — DT-2 adelantado por decisión explícita de Ulises; build+test verde, V-BYTE idéntico | (gate levantado por el driver) |
-| **C** | Claude sobre el spine | 🔒 **GATED** | se especifica en spec propia al aprobarse; NO está en este runbook |
+| **C** | Claude sobre el spine | 🟡 **DRAFT** — runbook en [Spec 0008](./0008-fase-c-claude-spine.md), pendiente de ratificar DT-C1 | requiere aprobación de Ulises (spec propia) |
 | M3-M9 | Mejoras independientes (§9) | 🟡 backlog | aprobación por mejora |
 
 ---
