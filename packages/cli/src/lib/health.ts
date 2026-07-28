@@ -165,6 +165,9 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   // readdir missed them, leaving their managed markers invisible to doctor.
   for (const file of collectMarkdownFlat(cwd, ".claude/agents")) files.push(file);
   for (const file of collectMarkdownRecursive(cwd, ".claude/skills")) files.push(file);
+  // Codex skills live directory-shaped under .codex/skills/<id>/SKILL.md — walk
+  // them too so their managed markers drift like the Claude ones (Spec 0004).
+  for (const file of collectMarkdownRecursive(cwd, ".codex/skills")) files.push(file);
 
   for (const rel of files) {
     const abs = join(cwd, rel);
@@ -335,6 +338,7 @@ export function scanMalformedMarkers(cwd: string): MalformedMarker[] {
   // readdir missed them, leaving their managed markers invisible to doctor.
   for (const file of collectMarkdownFlat(cwd, ".claude/agents")) files.push(file);
   for (const file of collectMarkdownRecursive(cwd, ".claude/skills")) files.push(file);
+  for (const file of collectMarkdownRecursive(cwd, ".codex/skills")) files.push(file);
   // Check close before open: the close prefix is a superset string, so testing
   // it first avoids misclassifying a close line as a broken open.
   const prefixes = ["<!-- /navori:managed", "<!-- navori:managed"];

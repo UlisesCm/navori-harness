@@ -411,6 +411,7 @@ function detectExistingEngines(cwd: string): string[] {
   if (existsSync(join(cwd, "AGENTS.md"))) found.push("agents-md");
   if (existsSync(join(cwd, ".cursor"))) found.push("cursor");
   if (existsSync(join(cwd, ".github", "copilot-instructions.md"))) found.push("copilot");
+  if (existsSync(join(cwd, ".codex"))) found.push("codex");
   return found;
 }
 

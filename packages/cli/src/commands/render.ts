@@ -9,6 +9,7 @@ import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/i
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
+import { renderCodexEngine } from "../engines/codex/index.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
 import {
   renderStatusSymbol,
@@ -87,6 +88,9 @@ function renderNonClaudeEngines(
     "agents-md": (c, cfg, o) => renderAgentsMdEngine(c, cfg, o),
     cursor: (c, cfg, o) => renderCursorEngine(c, cfg, o),
     copilot: (c, cfg, o) => renderCopilotEngine(c, cfg, o),
+    // Codex is not a prose engine (DT-1) but returns the same ProseEngineResult
+    // shape, so it plugs into this dispatcher unchanged.
+    codex: (c, cfg, o) => renderCodexEngine(c, cfg, o),
   };
 
   const out: EngineRenderSummary[] = [];
