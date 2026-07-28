@@ -109,6 +109,7 @@ export function buildHarnessProse(
   config: NavoriConfig,
   repoRoot: string,
   isWorkspace: boolean,
+  opts: { includeOrchestration?: boolean } = {},
 ): string {
   // Workspace renders omit root-only blocks — same semantics as the Claude
   // engine (#70): the tools that read these files merge/inherit the root file,
@@ -119,12 +120,14 @@ export function buildHarnessProse(
   // dropped — other tools don't have that infra. The "orquestacion" block is
   // also Claude-only (it drives subagents via the Agent tool, which non-Claude
   // tools lack); its engine-agnostic core lives in the workflow section below.
+  // Codex DOES have subagents, so it opts into the orchestration block via
+  // includeOrchestration (Spec 0004 Fase 2) — parity of context, not a subset.
   const ruleBlocks = plan.entries
     .filter(
       (e) =>
         e.newContent != null &&
         e.status !== "removed-condition-false" &&
-        e.asset.id !== "orquestacion" &&
+        (opts.includeOrchestration === true || e.asset.id !== "orquestacion") &&
         (e.source === "core" || e.source === config.preset),
     )
     .map((e) => e.newContent!.trim());
@@ -184,6 +187,13 @@ export interface ProseRenderSpec {
   dryRun?: boolean;
   /** Repo root (resolves shared presets); defaults to cwd. */
   repoRoot?: string;
+  /** Include the Claude-only "orquestacion" block. Codex has subagents, so it
+   * opts in for context parity (Spec 0004 Fase 2). Defaults to false. */
+  includeOrchestration?: boolean;
+  /** Suppress the "does not replicate Claude infra" omission warnings. Codex
+   * DOES replicate hooks/permissions/subagents, so those warnings are false for
+   * it. Defaults to false (prose engines keep the warnings). */
+  suppressOmissionWarnings?: boolean;
 }
 
 /**
@@ -203,7 +213,9 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
 
   const firstRender = !existsSync(destPath);
   const existing = firstRender ? spec.header : readFileSync(destPath, "utf-8");
-  const body = buildHarnessProse(config, repoRoot, isWorkspace);
+  const body = buildHarnessProse(config, repoRoot, isWorkspace, {
+    includeOrchestration: spec.includeOrchestration,
+  });
 
   const result = injectManagedSection(existing, spec.managedId, body, CORE_META, "html");
   // First render seeds a user-section after the managed block; on re-render the
@@ -250,6 +262,7 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
 
   // Parity warnings are repo-level advisories; emitting them again for every
   // workspace of a monorepo would just repeat the same text N times.
-  const warnings = isWorkspace ? [] : collectOmissionWarnings(config);
+  const warnings =
+    isWorkspace || spec.suppressOmissionWarnings ? [] : collectOmissionWarnings(config);
   return { written, skipped, warnings, backupPath };
 }
