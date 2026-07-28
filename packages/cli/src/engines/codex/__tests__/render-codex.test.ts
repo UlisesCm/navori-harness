@@ -50,6 +50,9 @@ describe("renderCodexEngine", () => {
     expect(toml).toContain('args = ["mcp", "--tools=agent"]');
     expect(toml).toContain("[[hooks.PreToolUse]]");
     expect(agentsMd).toContain("topic_key");
+    // M6: Codex has no engram start hook, so the protocol makes the mem_context
+    // startup call an explicit first step in-prose.
+    expect(agentsMd).toContain("mem_context");
 
     const implementer = readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8");
     expect(implementer).toContain('model = "gpt-5.6-terra"');
