@@ -5,6 +5,7 @@ import { resolve, join } from "node:path";
 import { type NavoriConfig } from "../lib/config.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
+import { renderNonClaudeEngines, type EngineRenderSummary } from "./render.ts";
 import {
   effectiveConfigForWorkspace,
   buildMonorepoContext,
@@ -24,12 +25,12 @@ import {
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 
 /**
- * `sync` re-runs the Claude engine but exposes the plan up front so the
+ * `sync` re-runs every configured engine but exposes the plan up front so the
  * user can pick what to do about user-modified conflicts:
  *
- *   - `.claude/` and CLAUDE.md are both covered (P0-fix B2 — before this,
- *     sync only knew about CLAUDE.md and silently ignored agent / skill /
- *     hook conflicts that doctor was telling the user to "run sync" for).
+ *   - Every configured engine is covered. Claude keeps block-level interactive
+ *     resolution for CLAUDE.md; whole-file conflicts from any engine stay
+ *     untouched unless the user resolves them by hand.
  *   - Monorepos: sync iterates the root + every declared workspace, mirroring
  *     `render`. `--workspace <name>` acota la operación a uno solo (fase 4).
  *   - Modes mirror render: dry-run shows only, --apply / --yes write,
@@ -41,8 +42,7 @@ import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 export const syncCommand = defineCommand({
   meta: {
     name: "sync",
-    description:
-      "Sync managed blocks from the bundle into CLAUDE.md and .claude/, prompting on conflicts",
+    description: "Sync every configured engine from the bundle, prompting on conflicts",
   },
   args: {
     cwd: { type: "string", description: "Directory to sync (default: cwd)" },
@@ -51,7 +51,7 @@ export const syncCommand = defineCommand({
     interactive: {
       type: "boolean",
       description:
-        "Resolve each CLAUDE.md conflict one by one: see the diff and pick keep-mine or accept-new.",
+        "Resolve each CLAUDE.md block conflict: see the diff and pick keep-mine or accept-new.",
     },
     yes: {
       type: "boolean",
@@ -122,18 +122,11 @@ export const syncCommand = defineCommand({
     const targets = targetsResult.targets;
 
     // Dry-run pass: get the full plan for every target without writing anything.
-    const plans: TargetPlan[] = targets.map((t) => ({
-      target: t,
-      plan: renderClaudeEngine(t.cwd, t.config, {
-        dryRun: true,
-        repoRoot: t.repoRoot,
-        monorepoContext: t.monorepoContext,
-      }),
-    }));
+    const plans = targets.map((target) => renderSyncTarget(target, true));
 
     const conflicts = collectAllConflicts(plans);
-    const hasOtherChanges = plans.some((pl) => pl.plan.written.length > 0);
-    const pendingCount = plans.reduce((acc, pl) => acc + pl.plan.written.length, 0);
+    const pendingCount = plans.reduce((acc, plan) => acc + countTargetWrites(plan), 0);
+    const hasOtherChanges = pendingCount > 0;
 
     // --json: never prompt. Emit the plan; apply the non-conflicting changes
     // only when --apply/--yes is passed (conflicts are always skipped, never
@@ -145,12 +138,9 @@ export const syncCommand = defineCommand({
       const backups: Array<{ label: string; path: string }> = [];
       if (autoApply && !yesBlocked) {
         for (const t of targets) {
-          const applied = renderClaudeEngine(t.cwd, t.config, {
-            repoRoot: t.repoRoot,
-            monorepoContext: t.monorepoContext,
-          });
-          writtenTotal += applied.written.length;
-          if (applied.backupPath) backups.push({ label: t.label, path: applied.backupPath });
+          const applied = renderSyncTarget(t, false);
+          writtenTotal += countTargetWrites(applied);
+          backups.push(...collectTargetBackups(applied));
         }
       }
       const mode = args["dry-run"] ? "dry-run" : autoApply ? "apply" : "plan";
@@ -211,8 +201,8 @@ export const syncCommand = defineCommand({
           process.exit(0);
         }
         resolutions = resolved;
-        // .claude/ file conflicts aren't resolved block-by-block (they're whole
-        // managed files). They stay as-is; surface that explicitly.
+        // Whole-file conflicts aren't resolved block-by-block. They stay as-is;
+        // surface that explicitly.
         const fileConflicts = conflicts.filter((c) => !c.path.includes("CLAUDE.md"));
         if (fileConflicts.length > 0) {
           p.log.warn(ts.fileConflictsRemain(fileConflicts.length));
@@ -250,23 +240,16 @@ export const syncCommand = defineCommand({
       }
     }
 
-    // Apply pass: actually write. The engine skips conflict files automatically
+    // Apply pass: actually write. Engines skip conflict files automatically
     // (user-modified-skipped never lands in `pending`); accept-new resolutions
     // are passed as forceIds so those CLAUDE.md blocks are overwritten.
     let writtenTotal = 0;
     for (const t of targets) {
       const res = resolutions.get(t.label);
-      const applied = renderClaudeEngine(t.cwd, t.config, {
-        skipIds: res?.skipIds,
-        forceIds: res?.forceIds,
-        repoRoot: t.repoRoot,
-        monorepoContext: t.monorepoContext,
-      });
-      writtenTotal += applied.written.length;
-      if (applied.backupPath) {
-        p.log.message(
-          `${dim(`${tc(lang).common.backupLabel} [${t.label}]`)} ${applied.backupPath}`,
-        );
+      const applied = renderSyncTarget(t, false, res);
+      writtenTotal += countTargetWrites(applied);
+      for (const backup of collectTargetBackups(applied)) {
+        p.log.message(`${dim(`${tc(lang).common.backupLabel} [${backup.label}]`)} ${backup.path}`);
       }
     }
 
@@ -292,7 +275,10 @@ export interface SyncTarget {
 
 export interface TargetPlan {
   target: SyncTarget;
-  plan: ClaudeEngineResult;
+  /** Rich Claude plan when the target enables the Claude engine. */
+  claude?: ClaudeEngineResult;
+  /** Flat summaries for every configured non-Claude engine. */
+  engines: EngineRenderSummary[];
 }
 
 export type SyncTargetsResult =
@@ -365,13 +351,58 @@ interface ConflictResolution {
   forceIds: Set<string>;
 }
 
+function renderSyncTarget(
+  target: SyncTarget,
+  dryRun: boolean,
+  resolution?: ConflictResolution,
+): TargetPlan {
+  const engines = target.config.engines ?? ["claude"];
+  const claude = engines.includes("claude")
+    ? renderClaudeEngine(target.cwd, target.config, {
+        dryRun,
+        skipIds: resolution?.skipIds,
+        forceIds: resolution?.forceIds,
+        repoRoot: target.repoRoot,
+        monorepoContext: target.monorepoContext,
+      })
+    : undefined;
+  const additional = renderNonClaudeEngines(target.cwd, target.config, engines, dryRun, {
+    repoRoot: target.repoRoot,
+    warnMissingAdapters: target.label === "root",
+  });
+  return { target, claude, engines: additional };
+}
+
+function countTargetWrites(plan: TargetPlan): number {
+  return (
+    (plan.claude?.written.length ?? 0) +
+    plan.engines.reduce((count, engine) => count + engine.written.length, 0)
+  );
+}
+
+function collectTargetBackups(plan: TargetPlan): Array<{ label: string; path: string }> {
+  const backups: Array<{ label: string; path: string }> = [];
+  if (plan.claude?.backupPath) {
+    backups.push({ label: `${plan.target.label}:claude`, path: plan.claude.backupPath });
+  }
+  for (const engine of plan.engines) {
+    if (engine.backupPath) {
+      backups.push({
+        label: `${plan.target.label}:${engine.engine}`,
+        path: engine.backupPath,
+      });
+    }
+  }
+  return backups;
+}
+
 /**
  * Walk each target's CLAUDE.md conflicts and ask, per block, whether to keep
  * the user's edit or accept the newly rendered version — showing the diff.
  * Returns per-target {skipIds, forceIds}, or null if the user cancelled.
  *
- * Only CLAUDE.md managed blocks are resolved here; .claude/ file conflicts are
- * whole-file and stay as-is (reported separately by the caller).
+ * Only CLAUDE.md managed blocks are resolved here; all whole-file conflicts
+ * stay as-is (reported separately by the caller).
  */
 export async function resolveConflictsInteractively(
   plans: TargetPlan[],
@@ -380,7 +411,8 @@ export async function resolveConflictsInteractively(
   const ts = tc(lang).sync;
   const resolutions = new Map<string, ConflictResolution>();
   for (const tp of plans) {
-    const cmConflicts = tp.plan.claudeMdEntries.filter((e) => e.status === "user-modified-skipped");
+    const cmConflicts =
+      tp.claude?.claudeMdEntries.filter((e) => e.status === "user-modified-skipped") ?? [];
     if (cmConflicts.length === 0) continue;
 
     const claudeMdPath = join(tp.target.cwd, "CLAUDE.md");
@@ -433,17 +465,26 @@ function buildSyncJson(
     ok: meta.ok,
     ...(meta.reason ? { reason: meta.reason } : {}),
     mode: meta.mode,
-    targets: plans.map(({ target, plan }) => ({
+    targets: plans.map(({ target, claude, engines }) => ({
       label: target.label,
-      claudeMd: plan.claudeMdEntries.map((e) => ({ id: e.asset.id, status: e.status })),
-      written: plan.written
+      claudeMd: (claude?.claudeMdEntries ?? []).map((e) => ({
+        id: e.asset.id,
+        status: e.status,
+      })),
+      written: (claude?.written ?? [])
         .filter((w) => w.path !== "CLAUDE.md")
         .map((w) => ({ path: w.path, status: w.status })),
-      skipped: plan.skipped.map((s) => ({ path: s.path, reason: s.reason })),
-      updatesAvailable: plan.updatesAvailable.map((u) => ({
+      skipped: (claude?.skipped ?? []).map((s) => ({ path: s.path, reason: s.reason })),
+      updatesAvailable: (claude?.updatesAvailable ?? []).map((u) => ({
         id: u.id,
         fromVersion: u.fromVersion,
         toVersion: u.toVersion,
+      })),
+      engines: engines.map((engine) => ({
+        engine: engine.engine,
+        written: engine.written.map((w) => ({ path: w.path, status: w.status })),
+        skipped: engine.skipped.map((s) => ({ path: s.path, reason: s.reason })),
+        warnings: engine.warnings,
       })),
     })),
     conflicts: conflicts.map((c) => ({ path: c.path, reason: c.reason })),
@@ -461,10 +502,10 @@ function collectAllConflicts(plans: TargetPlan[]): Conflict[] {
   return out;
 }
 
-function collectTargetConflicts({ target, plan }: TargetPlan): Conflict[] {
+function collectTargetConflicts({ target, claude, engines }: TargetPlan): Conflict[] {
   const out: Conflict[] = [];
   const prefix = target.label === "root" ? "" : `[${target.label}] `;
-  for (const e of plan.claudeMdEntries) {
+  for (const e of claude?.claudeMdEntries ?? []) {
     if (e.status === "user-modified-skipped") {
       out.push({
         path: `${prefix}CLAUDE.md (${e.asset.id})`,
@@ -472,9 +513,19 @@ function collectTargetConflicts({ target, plan }: TargetPlan): Conflict[] {
       });
     }
   }
-  for (const s of plan.skipped) {
+  for (const s of claude?.skipped ?? []) {
     if (/editad|edit/i.test(s.reason)) {
       out.push({ path: `${prefix}${s.path}`, reason: s.reason });
+    }
+  }
+  for (const engine of engines) {
+    for (const skipped of engine.skipped) {
+      if (/editad|edit/i.test(skipped.reason)) {
+        out.push({
+          path: `${prefix}[${engine.engine}] ${skipped.path}`,
+          reason: skipped.reason,
+        });
+      }
     }
   }
   return out;
@@ -486,37 +537,55 @@ function reportPlans(plans: TargetPlan[], lang: Lang): void {
   }
 }
 
-function reportTargetPlan({ target, plan }: TargetPlan, lang: Lang): void {
+function reportTargetPlan({ target, claude, engines }: TargetPlan, lang: Lang): void {
   const ts = tc(lang).sync;
   const lines: string[] = [ts.planTitle(target.label)];
 
-  for (const e of plan.claudeMdEntries) {
+  for (const e of claude?.claudeMdEntries ?? []) {
     const symStr = renderStatusSymbol(e.status);
     const label = renderStatusLabel(e.status);
     const cond = e.asset.condition ? dim(` [cond: ${e.asset.condition}]`) : "";
-    lines.push(`  ${symStr} CLAUDE.md:${e.asset.id}  ${dim("(")}${label}${dim(")")}${cond}`);
-  }
-
-  for (const w of plan.written) {
-    if (w.path === "CLAUDE.md") continue; // already shown via claudeMdEntries
-    const symStr = renderStatusSymbol(w.status);
-    const label = renderStatusLabel(w.status);
-    lines.push(`  ${symStr} ${w.path}  ${dim("(")}${label}${dim(")")}`);
-  }
-
-  for (const s of plan.skipped) {
     lines.push(
-      `  ${color.yellow(sym.conflict)} ${s.path}  ${dim("(skipped:")} ${dim(s.reason)}${dim(")")}`,
+      `  ${symStr} [claude] CLAUDE.md:${e.asset.id}  ${dim("(")}${label}${dim(")")}${cond}`,
     );
   }
 
-  if (plan.updatesAvailable.length > 0) {
+  for (const w of claude?.written ?? []) {
+    if (w.path === "CLAUDE.md") continue; // already shown via claudeMdEntries
+    const symStr = renderStatusSymbol(w.status);
+    const label = renderStatusLabel(w.status);
+    lines.push(`  ${symStr} [claude] ${w.path}  ${dim("(")}${label}${dim(")")}`);
+  }
+
+  for (const s of claude?.skipped ?? []) {
+    lines.push(
+      `  ${color.yellow(sym.conflict)} [claude] ${s.path}  ${dim("(skipped:")} ${dim(s.reason)}${dim(")")}`,
+    );
+  }
+
+  if ((claude?.updatesAvailable.length ?? 0) > 0) {
     lines.push("");
     lines.push(`  ${dim(ts.updatesAvailableTitle)}`);
-    for (const u of plan.updatesAvailable) {
+    for (const u of claude?.updatesAvailable ?? []) {
       lines.push(
         `    ${color.cyan(sym.update)} ${u.id}  ${dim(`${u.fromVersion} → ${u.toVersion}`)}`,
       );
+    }
+  }
+
+  for (const engine of engines) {
+    for (const w of engine.written) {
+      const symStr = renderStatusSymbol(w.status);
+      const label = renderStatusLabel(w.status);
+      lines.push(`  ${symStr} [${engine.engine}] ${w.path}  ${dim("(")}${label}${dim(")")}`);
+    }
+    for (const skipped of engine.skipped) {
+      lines.push(
+        `  ${color.yellow(sym.conflict)} [${engine.engine}] ${skipped.path}  ${dim("(skipped:")} ${dim(skipped.reason)}${dim(")")}`,
+      );
+    }
+    for (const warning of engine.warnings) {
+      lines.push(`  ${color.yellow(sym.conflict)} [${engine.engine}] ${warning}`);
     }
   }
 

@@ -30,7 +30,7 @@
     {
       "event": "PreToolUse",
       "matcher": "Bash",
-      "command": "bash .claude/scripts/check-jscpd.sh",
+      "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/check-jscpd.sh\"",
       "timeout": 180,
       "statusMessage": "navori/jscpd: dup check"
     }

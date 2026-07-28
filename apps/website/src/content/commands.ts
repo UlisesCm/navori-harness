@@ -107,7 +107,7 @@ const es: Record<string, CommandDoc> = {
     id: "render",
     title: "render",
     summary:
-      "Reconstruye CLAUDE.md y .claude/ desde navori.config.json. Idempotente. Preview por default.",
+      "Reconstruye todos los engines configurados desde navori.config.json. Idempotente. Preview por default.",
     usage: "navori render [--apply] [--force] [--workspace <name>]",
     flags: [
       {
@@ -139,8 +139,7 @@ const es: Record<string, CommandDoc> = {
   sync: {
     id: "sync",
     title: "sync",
-    summary:
-      "Trae cambios del bundle a los bloques managed. Tu código fuera de los markers nunca se pisa.",
+    summary: "Trae cambios del bundle a todos los engines configurados sin pisar tus ediciones.",
     usage: "navori sync [--interactive] [--apply] [--workspace <name>]",
     flags: [
       {
@@ -314,7 +313,7 @@ const en: Record<string, CommandDoc> = {
     id: "render",
     title: "render",
     summary:
-      "Rebuilds CLAUDE.md and .claude/ from navori.config.json. Idempotent. Preview by default.",
+      "Rebuilds every configured engine from navori.config.json. Idempotent. Preview by default.",
     usage: "navori render [--apply] [--force] [--workspace <name>]",
     flags: [
       {
@@ -346,8 +345,7 @@ const en: Record<string, CommandDoc> = {
   sync: {
     id: "sync",
     title: "sync",
-    summary:
-      "Pulls bundle changes into the managed blocks. Your code outside the markers is never overwritten.",
+    summary: "Pulls bundle changes into every configured engine without overwriting your edits.",
     usage: "navori sync [--interactive] [--apply] [--workspace <name>]",
     flags: [
       {

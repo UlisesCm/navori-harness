@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { safeRelPath } from "./zod-helpers.ts";
 
-const ENGINES = ["claude", "agents-md", "cursor", "copilot"] as const;
+const ENGINES = ["claude", "agents-md", "cursor", "copilot", "codex"] as const;
 const MODELS = ["opus", "sonnet", "haiku"] as const;
 const COMMITS = ["conventional", "conventional-es", "free"] as const;
 const LANGUAGES = ["es", "en"] as const;
@@ -96,6 +96,16 @@ const ModelsSchema = z.object({
   commitPrPilot: z.enum(MODELS).optional(),
   explorer: z.enum(MODELS).optional(),
   auditor: z.enum(MODELS).optional(),
+  // Codex maps each Claude tier to a concrete model id. Override the built-in
+  // gpt-5.6-* map here when OpenAI renames faster than a navori release ships
+  // (Spec 0007 M3). A missing tier falls back to the built-in default.
+  codexMap: z
+    .object({
+      opus: z.string().optional(),
+      sonnet: z.string().optional(),
+      haiku: z.string().optional(),
+    })
+    .optional(),
 });
 
 // Reasoning-effort tier per agent, emitted as the `effort:` frontmatter field

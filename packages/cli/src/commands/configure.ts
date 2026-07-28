@@ -11,11 +11,12 @@ import { brand, dim } from "../lib/style.ts";
 const ENGINE_OPTIONS = [
   { value: "claude", label: "Claude Code (.claude/)" },
   { value: "agents-md", label: "AGENTS.md (universal — Cursor / Codex / Gemini read it)" },
+  { value: "codex", label: "Codex (full — agents, skills, hooks, MCP)" },
   { value: "cursor", label: "Cursor (.cursor/rules/)" },
   { value: "copilot", label: "Copilot (.github/copilot-instructions.md)" },
 ];
 
-type EngineId = "claude" | "agents-md" | "cursor" | "copilot";
+type EngineId = "claude" | "agents-md" | "cursor" | "copilot" | "codex";
 
 /** The always-on plugin — ships with navori and can't be disabled (#68). */
 const ENGRAM_ID = "engram";
@@ -314,7 +315,7 @@ const prTargetSubCommand = defineCommand({
 const enginesSubCommand = defineCommand({
   meta: {
     name: "engines",
-    description: "Add or remove target engines (claude / agents-md / cursor / copilot)",
+    description: "Add or remove target engines (claude / agents-md / cursor / copilot / codex)",
   },
   args: {
     cwd: { type: "string", description: "Directory (default: cwd)" },

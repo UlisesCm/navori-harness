@@ -602,6 +602,8 @@ interface DoctorCmdStrings {
   externalTools: (n: number, lines: string) => string;
   externalToolRow: (binary: string, how: string) => string;
   externalToolFallbackHow: string;
+  optionalTools: (n: number, lines: string) => string;
+  optionalToolRow: (binaries: string, how: string) => string;
   monorepoEmptyDeclared: string;
   monorepoAddedRow: string;
   monorepoOrphanRow: string;
@@ -753,6 +755,11 @@ const CMD_ES: CmdStrings = {
       `su protocolo/scan referencia algo que no está disponible en esta máquina:\n${lines}`,
     externalToolRow: (binary, how) => `— falta '${binary}' en PATH; ${how}`,
     externalToolFallbackHow: "instala la herramienta y reinicia Claude Code",
+    optionalTools: (n, lines) =>
+      `Herramientas opcionales no instaladas (${n}) — el harness funciona con fallback, ` +
+      `pero pierde precisión en estos flujos:\n${lines}`,
+    optionalToolRow: (binaries, how) =>
+      `— falta ${binaries} en PATH; ${how}. Mientras tanto, structural-search cae a Grep`,
     monorepoEmptyDeclared:
       "monorepo declarado pero workspaces[] vacío — corre 'navori scan' para poblarlo",
     monorepoAddedRow: "— en disco, falta en config (corre 'navori scan')",
@@ -913,6 +920,11 @@ const CMD_EN: CmdStrings = {
       `their protocol/scan references something not available on this machine:\n${lines}`,
     externalToolRow: (binary, how) => `— missing '${binary}' in PATH; ${how}`,
     externalToolFallbackHow: "install the tool and restart Claude Code",
+    optionalTools: (n, lines) =>
+      `Optional tools not installed (${n}) — the harness keeps working with a fallback, ` +
+      `but loses precision in these flows:\n${lines}`,
+    optionalToolRow: (binaries, how) =>
+      `— missing ${binaries} in PATH; ${how}. Until then, structural-search falls back to Grep`,
     monorepoEmptyDeclared:
       "monorepo declared but workspaces[] empty — run 'navori scan' to populate it",
     monorepoAddedRow: "— on disk, missing in config (run 'navori scan')",

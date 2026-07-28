@@ -1,8 +1,12 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, resolve, relative } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
+import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
+import { getCoreRoot } from "../lib/bundled-assets.ts";
+import { isDowngrade } from "../lib/semver.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
 import { loadPlugin } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
@@ -96,6 +100,7 @@ export const doctorCommand = defineCommand({
     const missingInvariants = scanMissingInvariants(cwd, config);
     const malformedMarkers = scanMalformedMarkers(cwd);
     const missingExternalTools = scanMissingExternalTools(config);
+    const missingOptionalTools = scanMissingOptionalTools();
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     const workspaceLink = scanWorkspaceLink(cwd, config);
     // Legacy agent files (sdd-*/deep-auditor) superseded by a canonical navori
@@ -117,6 +122,8 @@ export const doctorCommand = defineCommand({
     const presetOverride =
       resolvedPreset?.source === "local" && presetExists(config.preset) ? config.preset : null;
     const missingPresetFiles = scanMissingPresetFiles(cwd, config);
+    const codexHealth = scanCodexHealth(cwd, config);
+    const engineInventory = buildEngineInventory(config, cwd);
     // Informational: a name like `temp-app` or `my-app` is almost always a
     // never-renamed scaffold (the package.json carried it through). Doesn't
     // break the render, so it's a warning, not an `ok`-flipping error.
@@ -131,7 +138,8 @@ export const doctorCommand = defineCommand({
         corruptedSettings.length === 0 &&
         missingInvariants.length === 0 &&
         missingPreset === null &&
-        missingPresetFiles.length === 0,
+        missingPresetFiles.length === 0 &&
+        codexHealth?.configMalformed !== true,
       configPath,
       config,
       checks: {
@@ -148,6 +156,7 @@ export const doctorCommand = defineCommand({
       missingInvariants,
       malformedMarkers,
       missingExternalTools,
+      missingOptionalTools,
       monorepoDrift,
       workspaceLink,
       missingPreset,
@@ -156,6 +165,8 @@ export const doctorCommand = defineCommand({
       placeholderName,
       legacyAgents,
       excludedBlocks,
+      codexHealth,
+      engineInventory,
     };
 
     if (args.json) {
@@ -168,7 +179,8 @@ export const doctorCommand = defineCommand({
         corruptedSettings.length > 0 ||
         missingInvariants.length > 0 ||
         missingPreset !== null ||
-        missingPresetFiles.length > 0
+        missingPresetFiles.length > 0 ||
+        codexHealth?.configMalformed === true
       ) {
         process.exit(2);
       }
@@ -343,6 +355,19 @@ export const doctorCommand = defineCommand({
       p.log.warn(td.externalTools(missingExternalTools.length, lines.join("\n")));
     }
 
+    if (missingOptionalTools.length > 0) {
+      const lines = missingOptionalTools.map(
+        (tool) =>
+          `  ${color.yellow(sym.update)} ${accent(tool.id)}  ${grey(
+            td.optionalToolRow(
+              tool.binaries.map((binary) => `'${binary}'`).join(" / "),
+              tool.install,
+            ),
+          )}`,
+      );
+      p.log.warn(td.optionalTools(missingOptionalTools.length, lines.join("\n")));
+    }
+
     if (monorepoDrift) {
       const lines: string[] = [];
       if (monorepoDrift.emptyDeclared) {
@@ -389,12 +414,38 @@ export const doctorCommand = defineCommand({
     });
     p.note(nextSteps.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), td.nextStepsTitle);
 
+    if (codexHealth) {
+      const cx: string[] = [];
+      if (codexHealth.configMalformed) {
+        cx.push(
+          `  ${color.red(sym.fail)} .codex/config.toml: bloque managed desbalanceado (corre 'navori render --apply')`,
+        );
+      }
+      for (const h of codexHealth.hooksNotExecutable) {
+        cx.push(
+          `  ${color.yellow(sym.update)} ${h} sin bit ejecutable — Codex no lo dispara (chmod +x)`,
+        );
+      }
+      if (codexHealth.versionWarning) {
+        cx.push(
+          `  ${color.yellow(sym.update)} codex ${codexHealth.versionWarning.found} < ${codexHealth.versionWarning.min} requerido`,
+        );
+      }
+      if (codexHealth.hookTrustHint) {
+        cx.push(
+          `  ${color.cyan(sym.bullet)} Codex solo dispara hooks en repos confiables: revísalos y autorízalos con '/hooks'`,
+        );
+      }
+      if (cx.length > 0) p.note(cx.join("\n"), "Codex");
+    }
+
     const hasIssues =
       missingPlugins.length > 0 ||
       corruptedSettings.length > 0 ||
       missingInvariants.length > 0 ||
       missingPreset !== null ||
-      missingPresetFiles.length > 0;
+      missingPresetFiles.length > 0 ||
+      codexHealth?.configMalformed === true;
     const strictFail = Boolean(args.strict) && drifts.length > 0;
     p.outro(
       hasIssues
@@ -511,6 +562,29 @@ export function scanMissingExternalTools(config: NavoriConfig): MissingExternalT
   return missing;
 }
 
+export interface MissingOptionalTool {
+  id: string;
+  binaries: string[];
+  install: string;
+}
+
+/**
+ * Optional precision tools improve the generated harness but never gate it.
+ * structural-search supports both official CLI names and falls back to Grep,
+ * so doctor only warns when neither binary is available.
+ */
+export function scanMissingOptionalTools(): MissingOptionalTool[] {
+  const binaries = ["sg", "ast-grep"];
+  if (binaries.some((binary) => hasBinary(binary))) return [];
+  return [
+    {
+      id: "structural-search",
+      binaries,
+      install: "npm install --global @ast-grep/cli",
+    },
+  ];
+}
+
 interface MonorepoDrift {
   /** Workspaces on disk not yet in config (run scan). */
   added: string[];
@@ -596,7 +670,7 @@ function formatWorkspaceLinkWarning(issue: WorkspaceLinkIssue, lang = DEFAULT_LA
 /**
  * Spec 0003 §3.1.1 — each enabled plugin and the active preset may declare
  * `invariants[]`: load-bearing substrings that MUST survive into the rendered
- * output. We concatenate every rendered text file (CLAUDE.md + .claude/**) and
+ * output. We concatenate the native outputs for every configured engine and
  * flag any declared invariant that no longer appears verbatim. Catches the
  * whole class of "a template refactor silently ate a load-bearing rule".
  *
@@ -629,7 +703,7 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
 
   if (sources.length === 0) return [];
 
-  const output = readRenderedText(cwd);
+  const output = readRenderedText(cwd, config);
   if (output.trim() === "") return []; // nothing rendered yet
 
   const missing: MissingInvariant[] = [];
@@ -641,19 +715,42 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
   return missing;
 }
 
-/** Concatenate every rendered text file navori owns: CLAUDE.md + .claude/**. */
-function readRenderedText(cwd: string): string {
+/** Concatenate the rendered text owned by the configured engines only. */
+function readRenderedText(cwd: string, config: NavoriConfig): string {
   const parts: string[] = [];
-  const claudeMd = join(cwd, "CLAUDE.md");
-  if (existsSync(claudeMd)) {
+  const seen = new Set<string>();
+  const addFile = (path: string): void => {
+    if (seen.has(path) || !existsSync(path)) return;
+    seen.add(path);
     try {
-      parts.push(readFileSync(claudeMd, "utf-8"));
+      parts.push(readFileSync(path, "utf-8"));
     } catch {
       // unreadable — treat as absent
     }
+  };
+  const addDir = (path: string): void => {
+    if (seen.has(path) || !existsSync(path)) return;
+    seen.add(path);
+    collectText(path, parts);
+  };
+
+  for (const engine of config.engines ?? ["claude"]) {
+    if (engine === "claude") {
+      addFile(join(cwd, "CLAUDE.md"));
+      addDir(join(cwd, ".claude"));
+    } else if (engine === "codex") {
+      addFile(join(cwd, "AGENTS.md"));
+      addDir(join(cwd, ".agents"));
+      addDir(join(cwd, ".codex"));
+    } else if (engine === "agents-md") {
+      addFile(join(cwd, "AGENTS.md"));
+    } else if (engine === "cursor") {
+      addDir(join(cwd, ".cursor"));
+    } else if (engine === "copilot") {
+      addFile(join(cwd, ".github/copilot-instructions.md"));
+    }
   }
-  const claudeDir = join(cwd, ".claude");
-  if (existsSync(claudeDir)) collectText(claudeDir, parts);
+
   return parts.join("\n");
 }
 
@@ -697,6 +794,126 @@ function collectAssignments(config: NavoriConfig): AssignmentRow[] {
         out.push({ id: entry.id, agent: entry.recommendedAgent, override: false });
       }
     }
+  }
+  return out;
+}
+
+const MIN_CODEX_VERSION = "0.145.0";
+
+export interface CodexHealth {
+  /** `.codex/config.toml` has an unbalanced/malformed navori managed block. */
+  configMalformed: boolean;
+  /** Rendered hook scripts that lack the executable bit (Codex won't fire them). */
+  hooksNotExecutable: string[];
+  /** Codex CLI in PATH but older than the minimum supported version. */
+  versionWarning: { found: string; min: string } | null;
+  /** Whether to remind the user Codex needs the hooks trusted (`/hooks`). */
+  hookTrustHint: boolean;
+}
+
+/**
+ * Codex-specific health (Spec 0007 M5). Only meaningful when `codex` is a
+ * configured engine and its tree was rendered. Returns null otherwise so the
+ * report omits the section entirely.
+ *
+ * (a) config.toml managed block is structurally intact — a full TOML parse
+ *     would need a new dependency; the real failure mode is a hand-broken
+ *     managed block, which the marker-balance check catches.
+ * (b) hooks carry +x (Codex silently won't run a non-executable hook).
+ * (c) `codex --version` ≥ 0.145.0 when the binary is in PATH (warning only).
+ * (d) hook-trust reminder — the most treacherous failure: a rendered harness
+ *     that looks active but never fires because Codex hasn't trusted `.codex/`.
+ */
+export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth | null {
+  if (!config.engines.includes("codex")) return null;
+  const codexDir = join(cwd, ".codex");
+  if (!existsSync(codexDir)) return null;
+
+  // (a) config.toml managed-block balance.
+  let configMalformed = false;
+  const tomlPath = join(codexDir, "config.toml");
+  if (existsSync(tomlPath)) {
+    const body = readFileSync(tomlPath, "utf-8");
+    const starts = (body.match(/navori:managed start/g) ?? []).length;
+    const ends = (body.match(/navori:managed end/g) ?? []).length;
+    configMalformed = starts !== ends;
+  }
+
+  // (b) hooks executable bit.
+  const hooksNotExecutable: string[] = [];
+  const hooksDir = join(codexDir, "hooks");
+  if (existsSync(hooksDir)) {
+    for (const entry of readdirSync(hooksDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".sh")) continue;
+      try {
+        const mode = statSync(join(hooksDir, entry.name)).mode;
+        if ((mode & 0o111) === 0) hooksNotExecutable.push(`.codex/hooks/${entry.name}`);
+      } catch {
+        // Unreadable — skip rather than guess.
+      }
+    }
+  }
+
+  // (c) codex --version (best effort; absent binary is not an error).
+  let versionWarning: CodexHealth["versionWarning"] = null;
+  try {
+    const raw = execFileSync("codex", ["--version"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const found = raw.match(/\d+\.\d+\.\d+/)?.[0];
+    if (found && isDowngrade(found, MIN_CODEX_VERSION)) {
+      versionWarning = { found, min: MIN_CODEX_VERSION };
+    }
+  } catch {
+    // Codex not in PATH — nothing to check.
+  }
+
+  return {
+    configMalformed,
+    hooksNotExecutable,
+    versionWarning,
+    hookTrustHint: existsSync(hooksDir),
+  };
+}
+
+export interface EngineInventory {
+  agents: string[];
+  skills: string[];
+  hooks: string[];
+}
+
+/**
+ * Per-engine harness inventory (Spec 0007 M8) for `doctor --json`, so a repo's
+ * CI can assert Claude↔Codex parity after `render --all`. Only the disk engines
+ * (claude, codex) carry a distinct agents/skills/hooks set; prose engines are
+ * omitted. Claude includes the leader; Codex embodies it in the main thread.
+ */
+export function buildEngineInventory(
+  config: NavoriConfig,
+  cwd: string,
+): Record<string, EngineInventory> {
+  const diskEngines = config.engines.filter((e) => e === "claude" || e === "codex");
+  if (diskEngines.length === 0) return {};
+  const coreAssets = resolve(getCoreRoot(), "core-assets");
+  let preset: ReturnType<typeof loadPreset> = null;
+  if (config.preset && config.preset !== "custom") {
+    try {
+      preset = loadPreset(config.preset, cwd);
+    } catch {
+      preset = null; // a broken preset is surfaced elsewhere; inventory stays core-only
+    }
+  }
+  const out: Record<string, EngineInventory> = {};
+  for (const engine of diskEngines) {
+    const plan = resolveHarnessPlan(config, coreAssets, preset, {
+      includeLeader: engine === "claude",
+    });
+    out[engine] = {
+      agents: plan.agents.map((a) => a.id).sort(),
+      skills: plan.skills.map((s) => s.id).sort(),
+      hooks: plan.hooks.map((h) => h.id).sort(),
+    };
   }
   return out;
 }

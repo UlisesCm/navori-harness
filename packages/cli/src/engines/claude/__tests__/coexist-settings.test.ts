@@ -18,13 +18,13 @@ function navoriSettings(): Record<string, unknown> {
           hooks: [
             {
               type: "command",
-              command: "bash .claude/hooks/guard-destructive.sh",
+              command: 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh"',
               timeout: 10,
               statusMessage: "navori: guard-destructive",
             },
             {
               type: "command",
-              command: "bash .claude/hooks/quality-gate-pre-commit.sh",
+              command: 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh"',
               timeout: 180,
               statusMessage: "navori: quality-gate fast",
             },
@@ -60,8 +60,8 @@ describe("mergeCoexistSettings", () => {
     ).PreToolUse[0];
     expect(bash.matcher).toBe("Bash");
     expect(bash.hooks.map((h) => h.command)).toEqual([
-      "bash .claude/hooks/guard-destructive.sh",
-      "bash .claude/hooks/quality-gate-pre-commit.sh",
+      'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh"',
+      'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh"',
     ]);
     expect((merged.permissions as { deny: string[] }).deny).toEqual([
       "Bash(rm -rf /)",
@@ -111,8 +111,8 @@ describe("mergeCoexistSettings", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].hooks.map((h) => h.command)).toEqual([
       "bash .claude/hooks/my-own.sh",
-      "bash .claude/hooks/guard-destructive.sh",
-      "bash .claude/hooks/quality-gate-pre-commit.sh",
+      'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh"',
+      'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh"',
     ]);
   });
 
@@ -142,7 +142,7 @@ describe("mergeCoexistSettings", () => {
     const cmds = (
       merged.hooks as { PreToolUse: Array<{ hooks: Array<{ command: string }> }> }
     ).PreToolUse[0].hooks.map((h) => h.command);
-    expect(cmds).toEqual(["bash .claude/hooks/guard-destructive.sh"]);
+    expect(cmds).toEqual(['bash "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh"']);
     expect((merged.permissions as { deny: string[] }).deny).toEqual(["Bash(rm -rf /)"]);
     // user key survived the whole dance
     expect((merged.permissions as { allow: string[] }).allow).toEqual(["Bash(pnpm:*)"]);

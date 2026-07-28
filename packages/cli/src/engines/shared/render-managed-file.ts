@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import type { NavoriConfig } from "../../lib/config.ts";
 import { injectManagedSection, type CommentStyle, type InjectResult } from "../../lib/marker.ts";
-import { parseAsset } from "./parse-asset.ts";
-import { interpolate } from "./interpolate.ts";
-import { mergeFrontmatter } from "./frontmatter-merge.ts";
+import { parseAsset } from "../claude/parse-asset.ts";
+import { interpolate } from "../claude/interpolate.ts";
+import { mergeFrontmatter } from "../claude/frontmatter-merge.ts";
 
 /**
  * Render one bundled asset against the current destination file. Pure-ish:

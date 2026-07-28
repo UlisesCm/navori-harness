@@ -19,6 +19,10 @@
     },
     "postInstall": "claude plugin install engram"
   },
+  "mcpServer": {
+    "command": "engram",
+    "args": ["mcp", "--tools=agent"]
+  },
   "skills": [
     {
       "id": "engram-leader-extension",

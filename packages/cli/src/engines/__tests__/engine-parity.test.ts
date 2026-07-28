@@ -1,0 +1,91 @@
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { NavoriConfigSchema, type NavoriConfig } from "../../lib/schema.ts";
+import { renderClaudeEngine } from "../claude/index.ts";
+import { renderCodexEngine } from "../codex/index.ts";
+
+/**
+ * Inventory-parity guard between the Claude and Codex engines (Spec 0007 M1).
+ * Both engines must materialize the SAME semantic set of agents, skills and
+ * hooks for a given config — only destinations and formats may differ. An
+ * asset wired into one engine but forgotten in the other fails here, not in
+ * production repos after a rollout.
+ */
+
+/** Intentional inventory differences. leader: the main Codex thread embodies
+ * the leader role, so the Codex engine deliberately emits no spawnable leader
+ * agent (see resolveHarnessPlan's includeLeader option in engines/shared/harness-plan.ts). */
+const AGENT_KNOWN_DIFFS: ReadonlySet<string> = new Set(["leader"]);
+
+function parityConfig(): NavoriConfig {
+  return NavoriConfigSchema.parse({
+    name: "parity-demo",
+    engines: ["claude", "codex"],
+    preset: "custom",
+    branchBase: "main",
+    qualityGate: { fast: "pnpm test", full: "pnpm test" },
+    plugins: { engram: { enabled: true } },
+    project: { libraries: ["zod-validation"] },
+  });
+}
+
+/** Sorted entry names under `dir` mapped through `strip`; [] if missing. */
+function names(dir: string, strip: (name: string) => string | null): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return entries
+    .map(strip)
+    .filter((n): n is string => n !== null)
+    .sort();
+}
+
+const stripMd = (n: string): string | null => (n.endsWith(".md") ? n.slice(0, -3) : null);
+const stripToml = (n: string): string | null => (n.endsWith(".toml") ? n.slice(0, -5) : null);
+const stripSh = (n: string): string | null => (n.endsWith(".sh") ? n.slice(0, -3) : null);
+const asDir = (n: string): string | null => (n.startsWith(".") ? null : n);
+
+let claudeCwd: string;
+let codexCwd: string;
+
+beforeEach(() => {
+  claudeCwd = mkdtempSync(join(tmpdir(), "navori-parity-claude-"));
+  codexCwd = mkdtempSync(join(tmpdir(), "navori-parity-codex-"));
+  const config = parityConfig();
+  renderClaudeEngine(claudeCwd, config);
+  renderCodexEngine(codexCwd, config);
+});
+
+afterEach(() => {
+  rmSync(claudeCwd, { recursive: true, force: true });
+  rmSync(codexCwd, { recursive: true, force: true });
+});
+
+describe("engine inventory parity (claude ↔ codex)", () => {
+  it("emits the same skill set", () => {
+    const claudeSkills = names(join(claudeCwd, ".claude/skills"), stripMd);
+    const codexSkills = names(join(codexCwd, ".agents/skills"), asDir);
+    expect(codexSkills).toEqual(claudeSkills);
+  });
+
+  it("emits the same agent set (minus known diffs)", () => {
+    const claudeAgents = names(join(claudeCwd, ".claude/agents"), stripMd).filter(
+      (id) => !AGENT_KNOWN_DIFFS.has(id),
+    );
+    const codexAgents = names(join(codexCwd, ".codex/agents"), stripToml).filter(
+      (id) => !AGENT_KNOWN_DIFFS.has(id),
+    );
+    expect(codexAgents).toEqual(claudeAgents);
+  });
+
+  it("emits the same hook set", () => {
+    const claudeHooks = names(join(claudeCwd, ".claude/hooks"), stripSh);
+    const codexHooks = names(join(codexCwd, ".codex/hooks"), stripSh);
+    expect(codexHooks).toEqual(claudeHooks);
+  });
+});

@@ -64,6 +64,8 @@ describe("buildClaudeSettings — base shape", () => {
     expect(allow).toContain("Bash(ls:*)");
     // Search / text inspection — read-only, no in-place write mode.
     expect(allow).toContain("Bash(grep:*)");
+    expect(allow).toContain("Bash(sg:*)");
+    expect(allow).toContain("Bash(ast-grep:*)");
     expect(allow).toContain("Bash(jq:*)");
     expect(allow).toContain("Bash(diff:*)");
     // Read-only git introspection.

@@ -17,9 +17,13 @@ import { deepMerge } from "./deep-merge.ts";
  *      Read/Glob/Grep tools, so trivial reads don't prompt), .ask
  *      (destructive-but-legit) and .deny (catastrophic, no-legit-use) rules.
  *   1b. Defensive guard PreToolUse(Bash) hook — always registered, references
- *      `.claude/hooks/guard-destructive.sh`. Exit 2 precedes permission rules.
+ *      `$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh`. The absolute
+ *      `$CLAUDE_PROJECT_DIR` anchor (not a cwd-relative path) is what lets the
+ *      hook resolve when the Bash cwd is a git worktree without its own
+ *      `.claude/`. Exit 2 precedes permission rules.
  *   2. Quality-gate PreToolUse hook, only if `config.qualityGate.fast` is
- *      set. The hook entry references `.claude/hooks/quality-gate-pre-commit.sh`
+ *      set. The hook entry references
+ *      `$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh`
  *      (rendered separately by the file pipeline).
  *   3. For each enabled plugin: `settingsFragment` and `hooks[]` translated
  *      from the flat manifest shape into Claude Code's nested
@@ -65,7 +69,7 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash ${GUARD_HOOK_DEST}`,
+              command: `bash "$CLAUDE_PROJECT_DIR/${GUARD_HOOK_DEST}"`,
               timeout: 10,
               statusMessage: "navori: guard-destructive",
             },
@@ -84,7 +88,7 @@ export function buildClaudeSettings(
             hooks: [
               {
                 type: "command",
-                command: `bash ${QG_HOOK_DEST}`,
+                command: `bash "$CLAUDE_PROJECT_DIR/${QG_HOOK_DEST}"`,
                 timeout: 180,
                 statusMessage: "navori: quality-gate fast",
               },

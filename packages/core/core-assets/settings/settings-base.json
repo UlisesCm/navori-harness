@@ -40,6 +40,8 @@
       "Bash(stat:*)",
       "Bash(tree:*)",
       "Bash(grep:*)",
+      "Bash(sg:*)",
+      "Bash(ast-grep:*)",
       "Bash(jq:*)",
       "Bash(diff:*)",
       "Bash(cut:*)",

@@ -117,6 +117,10 @@ describe("NavoriConfigSchema — boundary (spec 0003 §3.4.2)", () => {
     expect(NavoriConfigSchema.safeParse({ ...MINIMAL, engines: [] }).success).toBe(false);
   });
 
+  it("accepts the full Codex engine", () => {
+    expect(NavoriConfigSchema.parse({ ...MINIMAL, engines: ["codex"] }).engines).toEqual(["codex"]);
+  });
+
   it("rejects an empty preset string (min 1)", () => {
     expect(NavoriConfigSchema.safeParse({ ...MINIMAL, preset: "" }).success).toBe(false);
   });

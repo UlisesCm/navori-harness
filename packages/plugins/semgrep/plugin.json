@@ -29,7 +29,7 @@
     {
       "event": "PreToolUse",
       "matcher": "Bash",
-      "command": "bash .claude/scripts/check-semgrep.sh",
+      "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/check-semgrep.sh\"",
       "timeout": 180,
       "statusMessage": "navori/semgrep: security scan"
     }
