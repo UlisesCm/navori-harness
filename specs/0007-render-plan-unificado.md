@@ -441,18 +441,18 @@ Mapa call-site → contrato (todo el código citado ya existe en el archivo; se 
 
 ## 9. Mejoras independientes (backlog priorizado; aprobación por mejora)
 
-| # | Mejora | Detalle | Prioridad |
+| # | Mejora | Detalle | Estado |
 |---|---|---|---|
-| ~~M2~~ | ~~Colisión managed-id `navori-agents`~~ | **RESUELTA** — ver DT-5 (verificada en el dispatcher) | — |
-| **M3** | Mapa de modelos configurable | `CODEX_MODEL_BY_CLAUDE_TIER` hardcodea `gpt-5.6-*`; OpenAI renombra más rápido que los releases. Agregar override `models.codexMap: { opus?, sonnet?, haiku? }` en el schema con fallback al mapa fijo. | 🟡 Media |
-| **M4** | Sandbox por rol al catálogo | La lista `["reviewer","researcher","ticket-audit","explorer","auditor"] → read-only` vive inline en `planAgentFile`. Es semántica del ROL: moverla a `CORE_AGENTS[i].sandbox` en `harness-assets.ts`. El proveedor #3 la hereda gratis. | 🟡 Media |
-| **M5** | Doctor checks Codex | (a) `.codex/config.toml` parsea como TOML; (b) hooks con bit ejecutable; (c) `codex --version` ≥ 0.145.0 si está en PATH (warning); (d) hint de hook-trust — el modo de fallo más traicionero: harness renderizado que parece activo pero Codex no dispara hooks sin confianza persistida (hallazgo Fase 0 de Spec 0004). | 🟡 Media |
-| **M6** | Hook SessionStart de engram en Codex | Fase 0 confirmó eventos `SessionStart`/`UserPromptSubmit`/`Stop` en Codex. Emitir el arranque de engram también ahí → misma memoria en ambos proveedores. Requiere spike corto del payload de `SessionStart`. | 🟡 Media |
-| **M7** | Sellar el split-root de skills | Skills en `.agents/skills/` (cross-tool, otros agentes también la leen) + resto en `.codex/`. Recomendación: **sellar** (es el seam multi-proveedor gratis), documentarlo en el README del engine y en el gitignore de repos destino. | 🟢 Baja |
-| **M8** | Inventario en `doctor --json` | Exponer agents/skills/hooks por engine en salida machine-readable para que CI de los repos afirme paridad tras `render --all`. | 🟢 Baja |
-| **M9** | `engines/README.md` — "cómo agregar un proveedor" | El contrato §8.1 + checklist de spike (los 4 unknowns de Fase 0 de Spec 0004: payload de hooks, discovery de skills, ubicación de config, mapa de modelos) + criterio DT-2. | 🟢 Baja |
+| ~~M2~~ | ~~Colisión managed-id `navori-agents`~~ | **RESUELTA** — ver DT-5 (verificada en el dispatcher) | ✅ |
+| **M3** | Mapa de modelos configurable | Override `models.codexMap: { opus?, sonnet?, haiku? }` en el schema con fallback al mapa fijo `gpt-5.6-*`. | ✅ **2026-07-28** |
+| **M4** | Sandbox por rol al catálogo | `sandbox` movido inline→`CORE_AGENTS[i].sandbox` (`harness-assets.ts`); `PlannedAgent.sandbox` lo transporta; `buildAgentToml` lo consume. El proveedor #3 lo hereda gratis. | ✅ **2026-07-28** |
+| **M5** | Doctor checks Codex | `scanCodexHealth`: (a) config.toml managed-block balanceado (parser TOML completo evitado; el modo de fallo real es el block hand-editado), (b) hooks +x, (c) `codex --version` ≥ 0.145.0, (d) hint de hook-trust. | ✅ **2026-07-28** |
+| **M6** | Hook SessionStart de engram en Codex | **Spike hecho** (v0.145.0): `SessionStart`/`UserPromptSubmit`/`Stop` disparan vía `[[hooks.<Event>]]` + `[[hooks.<Event>.hooks]]` (mismo patrón que PreToolUse); corren en **sandbox** (aíslan `/tmp`, escritura al workspace no observada — el payload por stdin no se pudo volcar). **Bloqueado por diseño**: navori NO emite hoy ningún hook SessionStart de engram en NINGÚN engine (el arranque de engram viene del plugin Claude Code externo, no de navori — verificado: `grep SessionStart` = 0 hits). Implementarlo requiere definir QUÉ inyecta el hook (decisión de producto), no es mecánico. | 🟡 spike hecho / gated por diseño |
+| **M7** | Sellar el split-root de skills | Documentado en `engines/README.md` (sellado + recomendación de versionado/gitignore para repos destino; navori no gestiona el `.gitignore` del repo). | ✅ **2026-07-28** |
+| **M8** | Inventario en `doctor --json` | `buildEngineInventory`: agents/skills/hooks por engine de disco vía `resolveHarnessPlan`, en `report.engineInventory`. | ✅ **2026-07-28** |
+| **M9** | `engines/README.md` — "cómo agregar un proveedor" | Creado: 3 capas + contrato `EngineAdapter` + válvulas + checklist de spike (4 unknowns) + criterio DT-2. | ✅ **2026-07-28** |
 
-**Secuencia sugerida:** M4+M5 en la próxima iteración de calidad · M3/M6 cuando haya señal real · M7+M9 antes de que aparezca el proveedor #3 · M8 tras Fase B.
+**Estado:** M3/M4/M5/M7/M8/M9 ejecutadas (2026-07-28). M6 con spike hecho pero gated por una decisión de producto (definir el arranque de engram, inexistente hoy en cualquier engine).
 
 ---
 
