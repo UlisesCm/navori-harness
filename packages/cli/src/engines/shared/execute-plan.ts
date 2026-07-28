@@ -79,7 +79,7 @@ export interface ExecuteResult {
   backupPath: string | null;
 }
 
-interface PendingWrite {
+export interface PendingWrite {
   path: string;
   relPath: string;
   content: string;
@@ -87,19 +87,26 @@ interface PendingWrite {
   chmodExec?: boolean;
 }
 
-interface PendingRemoval {
+export interface PendingRemoval {
   path: string;
   recursive?: boolean;
 }
 
-export function executePlan(
+/**
+ * Capa 3, mitad 1: resolve the HarnessPlan through the adapter into pending
+ * writes + orphan removals, WITHOUT touching disk. Split out (Spec 0008 C.1)
+ * so an engine with its own extra pending (e.g. Claude's CLAUDE.md pipeline)
+ * can concatenate and share a single `commitWrites` — one backup, one write
+ * loop, one write-order invariant.
+ */
+export function collectPlan(
   plan: HarnessPlan,
   adapter: EngineAdapter,
   ctx: AdapterCtx,
-  options: { dryRun?: boolean; prune?: boolean } = {},
-): ExecuteResult {
-  const dryRun = options.dryRun === true;
+  options: { prune?: boolean; skipReason?: SkipReason } = {},
+): { pending: PendingWrite[]; removals: PendingRemoval[]; skipped: ExecuteResult["skipped"] } {
   const prune = options.prune !== false;
+  const skipReason = options.skipReason ?? DEFAULT_SKIP_REASON;
   const pending: PendingWrite[] = [];
   const skipped: ExecuteResult["skipped"] = [];
 
@@ -120,34 +127,59 @@ export function executePlan(
   // agents/skills (e.g. Codex's AGENTS.md agent catalog) see the full set.
   requests.push(...adapter.extraFiles(ctx));
 
-  for (const req of requests) collectRequest(req, ctx, pending, skipped);
+  for (const req of requests) collectRequest(req, ctx, pending, skipped, skipReason);
 
   const removals = prune ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd) : [];
 
-  const backupPath = writeAll(pending, removals, ctx.cwd, adapter, dryRun);
-
-  return {
-    written: [
-      ...pending.map((item) => ({ path: item.relPath, status: item.status })),
-      ...removals.map((item) => ({
-        path: relative(ctx.cwd, item.path),
-        status: "removed-condition-false" as const,
-      })),
-    ],
-    skipped,
-    backupPath,
-  };
+  return { pending, removals, skipped };
 }
+
+export function executePlan(
+  plan: HarnessPlan,
+  adapter: EngineAdapter,
+  ctx: AdapterCtx,
+  options: { dryRun?: boolean; prune?: boolean } = {},
+): ExecuteResult {
+  const { pending, removals, skipped } = collectPlan(plan, adapter, ctx, options);
+  const { written, backupPath } = commitWrites({
+    pending,
+    removals,
+    cwd: ctx.cwd,
+    backupTargets: adapter.backupTargets,
+    dryRun: options.dryRun === true,
+    writeLast: (p) => p.path.endsWith("/AGENTS.md"),
+    engineLabel: adapter.label ?? adapter.id,
+  });
+  return { written, skipped, backupPath };
+}
+
+/**
+ * Skip-reason localizer. Engines share the render mechanics but surface their
+ * own skip prose (Claude keeps its detailed `navori sync` hints). `collectPlan`
+ * takes one via options; Codex uses this default.
+ */
+export type SkipReason = (
+  status: "user-modified-skipped" | "downgrade-skipped",
+  destRelPath: string,
+  existingVersion: string | undefined,
+) => string;
+
+const DEFAULT_SKIP_REASON: SkipReason = (status) =>
+  status === "user-modified-skipped"
+    ? "managed block edited by hand"
+    : "escrito por una navori más nueva";
 
 function collectRequest(
   req: PlacementRequest,
   ctx: AdapterCtx,
   pending: PendingWrite[],
   skipped: ExecuteResult["skipped"],
+  skipReason: SkipReason,
 ): void {
   const path = join(ctx.cwd, req.destRelPath);
   let content: string;
   let status: RenderStatus;
+  let existingVersion: string | undefined;
 
   if (req.assetPath !== undefined) {
     const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
@@ -161,6 +193,7 @@ function collectRequest(
     });
     content = result.content;
     status = result.status;
+    existingVersion = result.details?.existingVersion;
   } else {
     const exists = existsSync(path);
     const existing = exists ? readFileSync(path, "utf-8") : (req.firstRenderSeed?.header ?? "");
@@ -174,16 +207,14 @@ function collectRequest(
     content = result.output;
     if (!exists && req.firstRenderSeed?.trailer) content += req.firstRenderSeed.trailer;
     status = result.status;
+    existingVersion = result.details?.existingVersion;
   }
 
   if (status === "unchanged") return;
   if (status === "user-modified-skipped" || status === "downgrade-skipped") {
     skipped.push({
       path: req.destRelPath,
-      reason:
-        status === "user-modified-skipped"
-          ? "managed block edited by hand"
-          : "escrito por una navori más nueva",
+      reason: skipReason(status, req.destRelPath, existingVersion),
     });
     return;
   }
@@ -218,56 +249,106 @@ function collectOrphans(scans: readonly OrphanScan[], cwd: string): PendingRemov
   return removals;
 }
 
-function writeAll(
-  pending: PendingWrite[],
-  removals: PendingRemoval[],
-  cwd: string,
-  adapter: EngineAdapter,
-  dryRun: boolean,
-): string | null {
+/**
+ * Capa 3, mitad 2: back up, write atomically, chmod, prune — once. Shared by
+ * every engine (Spec 0008 C.1). Parametrized where engines legitimately
+ * differ: which roots to back up (+ excludes), which file to write LAST (its
+ * human-facing entry point — AGENTS.md for Codex, CLAUDE.md for Claude), and
+ * the engine label for the write-error message. Builds `written` from the
+ * post-sort pending + removals so a dry-run reports the same set it would write.
+ */
+export function commitWrites(input: {
+  pending: PendingWrite[];
+  removals: PendingRemoval[];
+  cwd: string;
+  backupTargets: string[];
+  backupExclude?: string[];
+  dryRun?: boolean;
+  /** Predicate: matching files sort to the END of the write loop. */
+  writeLast?: (p: PendingWrite) => boolean;
+  /** Engine name for the write-error message; omitted → "El render falló…". */
+  engineLabel?: string;
+  /**
+   * When true, removals run AFTER the write loop, each in its own try/catch, so
+   * a failed unlink is swallowed (Claude's disabled-plugin script cleanup). When
+   * false (default), removals share the write try/catch and a failure throws
+   * (Codex's orphan prune).
+   */
+  removalsBestEffort?: boolean;
+}): { written: ExecuteResult["written"]; backupPath: string | null } {
+  const { pending, removals, cwd } = input;
+  const dryRun = input.dryRun === true;
   let backupPath: string | null = null;
-  if (!((pending.length > 0 || removals.length > 0) && !dryRun)) return backupPath;
 
-  if (pending.some((item) => existsSync(item.path)) || removals.length > 0) {
-    const handle = createBackup(cwd, adapter.backupTargets);
-    if (handle.files.length > 0) {
-      backupPath = handle.path;
-      purgeOldBackups();
+  if ((pending.length > 0 || removals.length > 0) && !dryRun) {
+    if (pending.some((item) => existsSync(item.path)) || removals.length > 0) {
+      const handle = createBackup(
+        cwd,
+        input.backupTargets,
+        input.backupExclude ? { exclude: input.backupExclude } : undefined,
+      );
+      if (handle.files.length > 0) {
+        backupPath = handle.path;
+        purgeOldBackups();
+      }
     }
-  }
-  // AGENTS.md is the human-facing entry point; write it last so a partial
-  // failure leaves the prior guidance intact.
-  pending.sort(
-    (a, b) => Number(a.path.endsWith("/AGENTS.md")) - Number(b.path.endsWith("/AGENTS.md")),
-  );
-  let current = "";
-  try {
-    for (const item of pending) {
-      current = item.path;
-      mkdirSync(dirname(item.path), { recursive: true });
-      writeFileAtomic(item.path, item.content);
-      if (item.chmodExec) {
+    // The engine's human-facing entry point is written LAST so a partial
+    // failure leaves the prior version intact.
+    if (input.writeLast) {
+      const writeLast = input.writeLast;
+      pending.sort((a, b) => Number(writeLast(a)) - Number(writeLast(b)));
+    }
+    let current = "";
+    try {
+      for (const item of pending) {
+        current = item.path;
+        mkdirSync(dirname(item.path), { recursive: true });
+        writeFileAtomic(item.path, item.content);
+        if (item.chmodExec) {
+          try {
+            chmodSync(item.path, 0o755);
+          } catch {
+            // Best effort on filesystems without executable bits.
+          }
+        }
+      }
+      if (!input.removalsBestEffort) {
+        for (const removal of removals) {
+          current = removal.path;
+          rmSync(removal.path, { recursive: removal.recursive === true, force: true });
+        }
+      }
+    } catch (error) {
+      const hint = backupPath ? ` Backup pre-escritura disponible en: ${backupPath}` : "";
+      const who = input.engineLabel ? `El render ${input.engineLabel} falló` : "El render falló";
+      throw new RenderWriteError(
+        `${who} escribiendo ${current}: ${
+          error instanceof Error ? error.message : String(error)
+        }.${hint}`,
+        backupPath,
+      );
+    }
+    if (input.removalsBestEffort) {
+      for (const removal of removals) {
         try {
-          chmodSync(item.path, 0o755);
+          rmSync(removal.path, { recursive: removal.recursive === true, force: true });
         } catch {
-          // Best effort on filesystems without executable bits.
+          // Best effort — a read-only scripts dir shouldn't crash the render.
         }
       }
     }
-    for (const removal of removals) {
-      current = removal.path;
-      rmSync(removal.path, { recursive: removal.recursive === true, force: true });
-    }
-  } catch (error) {
-    const hint = backupPath ? ` Backup pre-escritura disponible en: ${backupPath}` : "";
-    throw new RenderWriteError(
-      `El render ${adapter.label ?? adapter.id} falló escribiendo ${current}: ${
-        error instanceof Error ? error.message : String(error)
-      }.${hint}`,
-      backupPath,
-    );
   }
-  return backupPath;
+
+  return {
+    written: [
+      ...pending.map((item) => ({ path: item.relPath, status: item.status })),
+      ...removals.map((item) => ({
+        path: relative(cwd, item.path),
+        status: "removed-condition-false" as const,
+      })),
+    ],
+    backupPath,
+  };
 }
 
 function readDirSafe(path: string) {

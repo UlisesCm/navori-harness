@@ -1,6 +1,6 @@
 # Spec 0008 — Fase C: Claude sobre el spine compartido (runbook ejecutable)
 
-**Status:** ✅ **PLAN FINAL** — DT-C1 ratificada por Ulises (2026-07-28); incógnitas de código cerradas (§7). Listo para ejecutar por fases. NO ejecutado aún.
+**Status:** ✅ **EJECUTADA 2026-07-28** — C.1/C.2/C.3 verdes. V-BYTE (codex + matriz Claude simple/monorepo/plugins+injectInto+extras+language=en) byte-idéntico; suite 72/1108 verde; `claude/index.ts` 1354→1189 LOC. Ver Registro.
 **Fecha:** 2026-07-28
 **Driver:** Ulises Ciprés
 **Depende de:** [Spec 0007](./0007-render-plan-unificado.md) Fases A y B (mergeadas en rama `refactor/spec-0007-fase-b-execute-plan`): `resolveHarnessPlan` (Capa 1) y `executePlan` + contrato `EngineAdapter` (Capa 3) ya existen y Codex ya corre sobre ellos.
@@ -146,6 +146,13 @@ C.1 ~medio día · C.2 ~1 día · C.3 ~1 día + endurecer V-BYTE. Total ~2.5 dí
 
 | Fecha | Fase | Resultado | Notas |
 |---|---|---|---|
-| | C.1 | | |
-| | C.2 | | |
-| | C.3 | | |
+| 2026-07-28 | C.1 | ✅ verde | `executePlan` partido en `collectPlan` (planea sin escribir) + `commitWrites` (backup/write/chmod/prune parametrizado: `backupTargets`/`backupExclude`, `writeLast`, `engineLabel`, `dryRun`). `executePlan = commitWrites(collectPlan(...))`. V-BYTE solo-codex byte-idéntico; 162 tests de engines verde. |
+| 2026-07-28 | C.2 | ✅ verde | Nuevo `claude/adapter.ts` (`place{Agent,Skill,Hook}` a `.claude/`; extraFiles/orphanScans vacíos). `PlannedAgent.managedId` añadido a `resolveHarnessPlan` (Codex lo ignora). `collectPlan` gana `skipReason` parametrizable → Claude conserva su prosa de skip. `renderClaudeEngine` reemplaza §3/§4/§4b/§6/§6.1/§6.5(agents,skills)/§6.6 por el plan compartido; preservados warning de quality-gate, conteo `inspected` (tests 24/25 sin tocar) y loop de preset HOOKS Claude-only. V-BYTE matriz + 1108 tests verde. |
+| 2026-07-28 | C.3 | ✅ verde | Escritura unificada: el pending combinado + removals de la reconciliación de 3 vías van por `commitWrites`; `removalsBestEffort` preserva la limpieza no-fatal de scripts de plugins. Reporte extendido ensamblado en el engine. Borrado el bloque §9 + imports muertos; `claude/index.ts` 486→ (total 1354→1189 LOC). V-BYTE codex + matriz Claude byte-idéntico; 1108 tests verde; oxlint + biome limpios. |
+
+### Desviaciones / notas de ejecución
+1. **Preset HOOKS quedan Claude-only** (no en el spine): el contrato no modela destino arbitrario + exec sin id derivado. Vacíos en todos los presets bundled → no ejercitados; se levantan al plan cuando un preset real los use (regla de tres). Divergencia latente pre-existente (Codex tampoco los renderiza), no introducida aquí.
+2. **`skipReason` parametrizado** en `collectPlan` (no en el `EngineAdapter`) para no inflar el contrato; Codex usa el default en inglés, Claude su prosa detallada.
+3. **`PlannedAgent.managedId`** es el id canónico Claude-style; Codex deriva su propio `-codex-base` e ignora el campo (documentado en `harness-plan.ts`).
+4. **Logs debug perdidos**: los `log.debug("wrote"/"pre-write backup")` por-archivo del viejo bloque §9 no se replican en `commitWrites` (instrumentación, no comportamiento). Los `benchMark("plan"/"write")` se conservan alrededor de la llamada.
+5. **R-C5 revisado post-hoc:** la ganancia fue mayor de lo estimado — `claude/index.ts` bajó 165 LOC (no ~150) y ahora los tres engines de disco (codex + claude) comparten un único pipeline de escritura; un fix de poda/backup/anti-retroceso llega a ambos a la vez.
