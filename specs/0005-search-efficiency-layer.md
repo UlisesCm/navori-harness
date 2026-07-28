@@ -158,8 +158,8 @@ Estado real medido: **786 sesiones · 1510 obs · 32 proyectos** (~12 reales). D
    - Zona `<!-- navori:user-section -->` para patrones del stack.
 2. Registrar id en `CORE_SKILLS` (`packages/cli/src/engines/shared/harness-assets.ts`).
    Ambos engines lo renderizan solos (Claude `.claude/skills/`, Codex
-   `.codex/skills/<id>/SKILL.md` — confirmado en Spec 0004 Fase 0; `.agents/skills/`
-   también funciona pero se estandariza en `.codex/` por consistencia de raíz).
+   `.agents/skills/<id>/SKILL.md` — el adapter shipeó con esta ubicación cross-tool;
+   `.codex/skills/` también funciona nativamente, ver Spec 0004 Fase 0).
 3. Allowlist en `packages/core/core-assets/settings/settings-base.json` →
    `permissions.allow`: `"Bash(sg:*)"`, `"Bash(ast-grep:*)"`. Claude-only; Codex ya lo
    permite por `sandbox_mode = workspace-write`.
