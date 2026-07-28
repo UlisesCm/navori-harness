@@ -52,7 +52,11 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 - **Library skills** — skills modulares **transversales a presets**, inyectadas por *detección de dependencia*: un repo recibe `socketio`, `mongoose`, `redux-toolkit`, `formik`, `zod`, etc. cuando trae esa dependencia, sin importar el preset.
 - **Workspace** — defaults heredables y tickets cross-repo cuando un cambio toca varios repos.
 - **Project config** — tus overrides en `navori.config.json`.
-- **Engine adapters** — el core es *engine-agnostic*: hoy renderiza a Claude Code (`.claude/`), con soporte para `AGENTS.md` universal, Cursor y Copilot.
+- **Engine adapters** — Claude Code (`.claude/`) y Codex completo (`AGENTS.md`, `.agents/skills`, `.codex/agents`, hooks y MCP), además de `AGENTS.md` universal, Cursor y Copilot.
+
+Para paridad completa usa `"engines": ["claude", "codex"]`. Para un Codex
+ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un
+`codexMode` adicional.
 
 **Modelo de sincronización** — los managed blocks llevan `hash`, `version` y `source`. `sync` reporta updates disponibles y avisa antes de pisar un bloque que editaste a mano; hay backups automáticos antes de cada write.
 
@@ -66,9 +70,9 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 |---|---|
 | `init` | Bootstrap con detección de stack + wizard (o `--recommended` sin preguntas, o `--full` para la instalación máxima) |
 | `update` | Re-detecta el repo, refresca el config y corre el engine completo — *bring me up to date* |
-| `render` | Genera `CLAUDE.md` + `.claude/` desde el config (preview por default; `--apply` escribe). `--all` renderea **todos** los repos del registro global de una — el rollout tras un bump de navori en un comando |
+| `render` | Genera los archivos nativos de cada engine configurado (preview por default; `--apply` escribe). `--all` renderea **todos** los repos del registro global de una — el rollout tras un bump de navori en un comando |
 | `registry` | Registro global de tus repos con navori (`ls` / `scan <dir>` / `add` / `remove` / `prune`). `init` y `update` te dan de alta solos; `scan` puebla lo que ya existía |
-| `sync` | Refresca los managed blocks con conflict resolution + backups |
+| `sync` | Refresca todos los engines configurados con conflict resolution + backups |
 | `add` / `configure` | Activa un plugin / ajusta una sección del config sin re-init |
 | `doctor` / `status` | Audita config + drift (`--strict` para CI) / snapshot rápido |
 | `workspace` / `ticket` | Config y tickets cross-repo |

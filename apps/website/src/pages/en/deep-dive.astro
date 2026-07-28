@@ -322,8 +322,8 @@ const onboarding = [
   {
     n: "02",
     title: "Clone and rebuild the harness",
-    body: "The repo already ships navori.config.json (the source of truth). A single command rebuilds .claude/ + CLAUDE.md identical to the rest of the team's. Idempotent: running it twice changes nothing.",
-    code: "$ git clone <repo> && cd <repo>\n$ npx navori render --apply\n\n✓ CLAUDE.md + .claude/ rebuilt from the config",
+    body: "The repo already ships navori.config.json (the source of truth). A single command rebuilds every configured engine identically for the whole team. Idempotent: running it twice changes nothing.",
+    code: "$ git clone <repo> && cd <repo>\n$ npx navori render --apply\n\n✓ configured engines rebuilt from the config",
   },
   {
     n: "03",

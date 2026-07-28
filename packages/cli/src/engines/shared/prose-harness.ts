@@ -10,6 +10,7 @@ import { loadPreset } from "../../lib/presets.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
 import { readCliVersion } from "../../lib/bundled-assets.ts";
 import type { RenderStatus } from "../../lib/style.ts";
+import { CORE_SKILLS, WORKFLOW_SKILLS } from "./harness-assets.ts";
 
 /**
  * Shared engine for the non-Claude "prose" targets: AGENTS.md (universal),
@@ -43,11 +44,6 @@ export interface ProseEngineResult {
 // Stamp the navori release version (bumps per release) for the anti-retroceso
 // guard, not @navori/core's static version. (#79)
 const CORE_META = { source: "@navori/core" as const, version: readCliVersion() };
-const CORE_SKILLS: ReadonlyArray<string> = ["verify-before-done", "loop-back-debug", "review-diff"];
-/** Always-on, stack-agnostic process skills — mirror of the Claude engine's
- * WORKFLOW_SKILLS so the prose index lists them for non-Claude tools too. */
-const WORKFLOW_SKILLS: ReadonlyArray<string> = ["ticket-intake", "pr-create"];
-
 /**
  * Build the skills index as prose. Independent from the Claude engine's
  * `buildSkillsIndexBody` (which references `.claude/skills/` paths that don't
@@ -109,7 +105,7 @@ export function buildHarnessProse(
   config: NavoriConfig,
   repoRoot: string,
   isWorkspace: boolean,
-  opts: { includeOrchestration?: boolean } = {},
+  options: { includeOrchestration?: boolean; includePluginBlocks?: boolean } = {},
 ): string {
   // Workspace renders omit root-only blocks — same semantics as the Claude
   // engine (#70): the tools that read these files merge/inherit the root file,
@@ -120,15 +116,13 @@ export function buildHarnessProse(
   // dropped — other tools don't have that infra. The "orquestacion" block is
   // also Claude-only (it drives subagents via the Agent tool, which non-Claude
   // tools lack); its engine-agnostic core lives in the workflow section below.
-  // Codex DOES have subagents, so it opts into the orchestration block via
-  // includeOrchestration (Spec 0004 Fase 2) — parity of context, not a subset.
   const ruleBlocks = plan.entries
     .filter(
       (e) =>
         e.newContent != null &&
         e.status !== "removed-condition-false" &&
-        (opts.includeOrchestration === true || e.asset.id !== "orquestacion") &&
-        (e.source === "core" || e.source === config.preset),
+        (options.includeOrchestration === true || e.asset.id !== "orquestacion") &&
+        (options.includePluginBlocks === true || e.source === "core" || e.source === config.preset),
     )
     .map((e) => e.newContent!.trim());
 
@@ -187,13 +181,10 @@ export interface ProseRenderSpec {
   dryRun?: boolean;
   /** Repo root (resolves shared presets); defaults to cwd. */
   repoRoot?: string;
-  /** Include the Claude-only "orquestacion" block. Codex has subagents, so it
-   * opts in for context parity (Spec 0004 Fase 2). Defaults to false. */
+  /** Codex has native subagents, so its AGENTS.md keeps orchestration rules. */
   includeOrchestration?: boolean;
-  /** Suppress the "does not replicate Claude infra" omission warnings. Codex
-   * DOES replicate hooks/permissions/subagents, so those warnings are false for
-   * it. Defaults to false (prose engines keep the warnings). */
-  suppressOmissionWarnings?: boolean;
+  /** Full engines may retain plugin protocol blocks they can back with MCP. */
+  includePluginBlocks?: boolean;
 }
 
 /**
@@ -215,6 +206,7 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
   const existing = firstRender ? spec.header : readFileSync(destPath, "utf-8");
   const body = buildHarnessProse(config, repoRoot, isWorkspace, {
     includeOrchestration: spec.includeOrchestration,
+    includePluginBlocks: spec.includePluginBlocks,
   });
 
   const result = injectManagedSection(existing, spec.managedId, body, CORE_META, "html");
@@ -262,7 +254,6 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
 
   // Parity warnings are repo-level advisories; emitting them again for every
   // workspace of a monorepo would just repeat the same text N times.
-  const warnings =
-    isWorkspace || spec.suppressOmissionWarnings ? [] : collectOmissionWarnings(config);
+  const warnings = isWorkspace ? [] : collectOmissionWarnings(config);
   return { written, skipped, warnings, backupPath };
 }

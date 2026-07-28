@@ -20,15 +20,15 @@ export interface MarkerInfo {
   source: string | null;
 }
 
-/** Parse navori managed-marker metadata out of a markdown file. */
+/** Parse navori managed-marker metadata out of an HTML- or shell-comment file. */
 export function listMarkers(filePath: string): MarkerInfo[] {
   if (!existsSync(filePath)) return [];
   const content = readFileSync(filePath, "utf-8");
-  const re = /<!-- navori:managed [^>]*-->/g;
+  const re = /(?:<!--|#) navori:managed [^\n>]*(?:-->)?/g;
   const result: MarkerInfo[] = [];
   for (const match of content.matchAll(re)) {
     const tag = match[0];
-    if (tag.startsWith("<!-- /navori:managed")) continue;
+    if (tag.startsWith("<!-- /navori:managed") || tag.startsWith("# navori:managed end")) continue;
     const id = tag.match(/id="([^"]+)"/)?.[1] ?? "?";
     const hash = tag.match(/hash="([^"]+)"/)?.[1] ?? null;
     const version = tag.match(/version="([^"]+)"/)?.[1] ?? null;
@@ -56,6 +56,14 @@ function collectMarkdownFlat(cwd: string, dir: string): string[] {
  * `resolveLocalSkillPath` already supports) are included — a flat readdir left
  * their managed markers invisible to `doctor`. */
 function collectMarkdownRecursive(cwd: string, dir: string): string[] {
+  return collectFilesRecursive(cwd, dir, (name) => name.endsWith(".md"));
+}
+
+function collectFilesRecursive(
+  cwd: string,
+  dir: string,
+  include: (name: string) => boolean,
+): string[] {
   // Skill trees are shallow; a depth cap bounds the walk against a pathological
   // or symlink-inflated tree, and symlinked dirs are skipped so a user symlink
   // can't send the scan out of the tree (or into a cycle). readdir(withFileTypes)
@@ -75,7 +83,7 @@ function collectMarkdownRecursive(cwd: string, dir: string): string[] {
       if (entry.isSymbolicLink()) continue;
       const childRel = `${rel}/${entry.name}`;
       if (entry.isDirectory()) walk(childRel, depth + 1);
-      else if (entry.isFile() && entry.name.endsWith(".md")) out.push(childRel);
+      else if (entry.isFile() && include(entry.name)) out.push(childRel);
     }
   };
   if (existsSync(join(cwd, dir))) walk(dir, 0);
@@ -165,9 +173,12 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   // readdir missed them, leaving their managed markers invisible to doctor.
   for (const file of collectMarkdownFlat(cwd, ".claude/agents")) files.push(file);
   for (const file of collectMarkdownRecursive(cwd, ".claude/skills")) files.push(file);
-  // Codex skills live directory-shaped under .codex/skills/<id>/SKILL.md — walk
-  // them too so their managed markers drift like the Claude ones (Spec 0004).
-  for (const file of collectMarkdownRecursive(cwd, ".codex/skills")) files.push(file);
+  for (const file of collectMarkdownRecursive(cwd, ".agents/skills")) files.push(file);
+  if (existsSync(join(cwd, ".codex/config.toml"))) files.push(".codex/config.toml");
+  for (const file of collectFilesRecursive(cwd, ".codex/agents", (name) => name.endsWith(".toml")))
+    files.push(file);
+  for (const file of collectFilesRecursive(cwd, ".codex/hooks", (name) => name.endsWith(".sh")))
+    files.push(file);
 
   for (const rel of files) {
     const abs = join(cwd, rel);
@@ -197,7 +208,8 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
       }
 
       if (m.hash && fileContent !== null) {
-        const body = extractManagedContent(fileContent, m.id, "html");
+        const style = rel.endsWith(".toml") || rel.endsWith(".sh") ? "shell" : "html";
+        const body = extractManagedContent(fileContent, m.id, style);
         if (body !== null) {
           const actual = computeManagedHash(body);
           if (actual !== m.hash) {
@@ -338,7 +350,7 @@ export function scanMalformedMarkers(cwd: string): MalformedMarker[] {
   // readdir missed them, leaving their managed markers invisible to doctor.
   for (const file of collectMarkdownFlat(cwd, ".claude/agents")) files.push(file);
   for (const file of collectMarkdownRecursive(cwd, ".claude/skills")) files.push(file);
-  for (const file of collectMarkdownRecursive(cwd, ".codex/skills")) files.push(file);
+  for (const file of collectMarkdownRecursive(cwd, ".agents/skills")) files.push(file);
   // Check close before open: the close prefix is a superset string, so testing
   // it first avoids misclassifying a close line as a broken open.
   const prefixes = ["<!-- /navori:managed", "<!-- navori:managed"];

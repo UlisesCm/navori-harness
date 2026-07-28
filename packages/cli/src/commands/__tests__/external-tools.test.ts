@@ -12,7 +12,7 @@ import type { NavoriConfig } from "../../lib/config.ts";
 const hasBinary = vi.fn();
 vi.mock("../../lib/which.ts", () => ({ hasBinary: (n: string) => hasBinary(n) }));
 
-const { scanMissingExternalTools } = await import("../doctor.ts");
+const { scanMissingExternalTools, scanMissingOptionalTools } = await import("../doctor.ts");
 
 function config(plugins: Record<string, { enabled: boolean }>): NavoriConfig {
   return { plugins } as unknown as NavoriConfig;
@@ -52,5 +52,25 @@ describe("scanMissingExternalTools", () => {
       expect(typeof m.binary).toBe("string");
       expect(m.pluginId).toBe("jscpd");
     }
+  });
+});
+
+describe("scanMissingOptionalTools", () => {
+  beforeEach(() => hasBinary.mockReset());
+
+  it("warns with an install hint when neither ast-grep binary exists", () => {
+    hasBinary.mockReturnValue(false);
+    expect(scanMissingOptionalTools()).toEqual([
+      {
+        id: "structural-search",
+        binaries: ["sg", "ast-grep"],
+        install: "npm install --global @ast-grep/cli",
+      },
+    ]);
+  });
+
+  it.each(["sg", "ast-grep"])("stays silent when %s is available", (available) => {
+    hasBinary.mockImplementation((binary: string) => binary === available);
+    expect(scanMissingOptionalTools()).toEqual([]);
   });
 });

@@ -157,6 +157,21 @@ describe("render idempotency (spec 0003 §3.1.2)", () => {
     });
   });
 
+  it("engines [codex, agents-md]: Codex supersedes the light adapter without duplicate AGENTS.md blocks", () => {
+    assertIdempotent(() => {
+      writeConfig(join(cwd, "navori.config.json"), {
+        name: "codex-full-wins",
+        engines: ["codex", "agents-md"],
+        preset: "custom",
+        qualityGate: { fast: "pnpm lint", full: "pnpm test" },
+      });
+    });
+
+    const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+    expect(agentsMd.match(/<!-- navori:managed id="navori-agents"/g)).toHaveLength(1);
+    expect(agentsMd).toContain("## Agentes disponibles");
+  });
+
   it("upgrade with trailing user prose: a NEW managed block lands before the prose and stays stable (#77)", () => {
     // Scenario: the user wrote notes at the END of CLAUDE.md, then an upgrade
     // (here: enabling engram) introduces a new managed block. It must be

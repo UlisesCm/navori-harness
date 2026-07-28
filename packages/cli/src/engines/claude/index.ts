@@ -18,7 +18,6 @@ import {
   injectManagedSection,
   removeManagedSection,
   reorderManagedBlocks,
-  resolveCondition,
   splitUserSection,
   emitUserSection,
 } from "../../lib/marker.ts";
@@ -32,6 +31,13 @@ import { benchMark } from "../../lib/bench.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
 import { log } from "../../lib/log.ts";
 import { RenderWriteError } from "../../lib/errors.ts";
+import {
+  CORE_AGENTS,
+  CORE_SKILLS,
+  WORKFLOW_SKILLS,
+  extraConditionMet,
+  isAgentEnabled,
+} from "../shared/harness-assets.ts";
 
 /**
  * Claude engine adapter — entry point. Orchestrates the full render of a
@@ -76,28 +82,6 @@ export interface ClaudeEngineResult {
   inspected: number;
 }
 
-const CORE_AGENTS: ReadonlyArray<{
-  id: string;
-  harnessKey: keyof NonNullable<NavoriConfig["harness"]>;
-}> = [
-  { id: "leader", harnessKey: "leader" },
-  { id: "implementer", harnessKey: "implementer" },
-  { id: "reviewer", harnessKey: "reviewer" },
-  { id: "researcher", harnessKey: "researcher" },
-  { id: "ticket-audit", harnessKey: "ticketAudit" },
-  { id: "commit-pr-pilot", harnessKey: "commitPrPilot" },
-  { id: "explorer", harnessKey: "explorer" },
-  { id: "auditor", harnessKey: "auditor" },
-];
-
-const CORE_SKILLS: ReadonlyArray<string> = [
-  "verify-before-done",
-  "loop-back-debug",
-  "review-diff",
-  "security-guidance",
-  "debug-error",
-];
-
 /**
  * Workflow skills — always-on process skills (ticket pipeline, PR flow) that are
  * stack-agnostic, so they render for every preset, not just backend ones. Unlike
@@ -105,8 +89,6 @@ const CORE_SKILLS: ReadonlyArray<string> = [
  * wrote before they were promoted here), so an `update` recognizes the existing
  * block in place instead of orphaning it and appending a duplicate.
  */
-const WORKFLOW_SKILLS: ReadonlyArray<string> = ["ticket-intake", "pr-create", "spec-bootstrap"];
-
 // Managed blocks stamp the navori release version (bumps every release) so the
 // anti-retroceso guard has a per-release signal — not @navori/core's static
 // version. `source` still records provenance. See render-plan NAVORI_VERSION (#79).
@@ -122,11 +104,6 @@ const SKILLS_INDEX_ID = "skills-index";
  * resolves truthy (same semantics as CoreManagedAsset.condition). Used in BOTH
  * the skills index and the extras render loop so they never disagree.
  */
-function extraConditionMet(extra: PresetExtraFile, config: NavoriConfig): boolean {
-  if (!extra.condition) return true;
-  return resolveCondition(config as unknown as Record<string, unknown>, extra.condition);
-}
-
 /**
  * Build the body of the skills index — a navigation map of the skills agents
  * can apply: core (navori), preset (stack), library (detected from deps), and
@@ -1050,15 +1027,6 @@ export function renderClaudeEngine(
 }
 
 // ─────────────────────────── helpers ───────────────────────────
-
-function isAgentEnabled(
-  config: NavoriConfig,
-  key: keyof NonNullable<NavoriConfig["harness"]>,
-): boolean {
-  const h = config.harness;
-  if (!h) return true; // default: render all agents
-  return h[key] !== false;
-}
 
 type SettingsPlan =
   | { kind: "noop" }

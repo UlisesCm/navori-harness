@@ -21,7 +21,7 @@ export const ui = {
     "hero.headlineA": "El harness multi-agente",
     "hero.headlineB": "para cualquier repo.",
     "hero.subhead":
-      "Harness multi-agente + SDD en segundos: skills, hooks y agents desde una sola config. Hoy para Claude Code; multi-engine (Cursor, Copilot, AGENTS.md) en el roadmap.",
+      "Harness multi-agente + SDD en segundos: Claude Code, Codex, Cursor, Copilot y AGENTS.md desde una sola config.",
     "hero.cta.primary": "Empezar",
     "hero.cta.secondary": "Ver en GitHub",
     "hero.install.label": "Instalación",
@@ -55,15 +55,16 @@ export const ui = {
     "how.layer4.body":
       "Lo específico del repo en navori.config.json, incluidos los plugins que habilitas.",
     "how.layer5.name": "Adapters",
-    "how.layer5.body": "Renderizado por engine. Hoy Claude Code; multi-engine en el roadmap.",
+    "how.layer5.body":
+      "Renderizado por engine para Claude Code, Codex, Cursor, Copilot y AGENTS.md.",
     "how.config.label": "navori.config.json",
 
     "flow.eyebrow": "En vivo",
     "flow.title": "Mira qué aporta cada capa",
     "flow.subtitle":
-      "Haz click en una capa para resaltar qué parte del harness genera. El engine (Claude) materializa todo en .claude/ + CLAUDE.md.",
+      "Haz click en una capa para resaltar qué parte del harness genera. Los adapters lo materializan en el formato nativo de cada engine.",
     "flow.all": "Todas",
-    "flow.engineLabel": "Claude engine →",
+    "flow.engineLabel": "Engine adapters →",
     "flow.hint": "Selecciona una capa para ver su aporte.",
     "flow.core.note": "Baseline: agents, skills y los bloques de reglas siempre presentes.",
     "flow.preset.note": "Skills específicas del stack — acá, Next.js.",
@@ -77,9 +78,9 @@ export const ui = {
     "commands.add.desc":
       "Registra plugins (engram, semgrep, jscpd, acli, gh) o sugiere según tu stack.",
     "commands.render.desc":
-      "Reconstruye CLAUDE.md y .claude/ desde el config. Preview por default; --apply escribe.",
+      "Reconstruye todos los engines configurados. Preview por default; --apply escribe.",
     "commands.sync.desc":
-      "Actualiza solo los bloques managed. Con --interactive resuelves cada conflicto por bloque.",
+      "Actualiza todos los engines. Con --interactive resuelves los conflictos de CLAUDE.md por bloque.",
     "commands.doctor.desc": "Audit: drift, plugins rotos, invariants y próximos pasos sugeridos.",
     "commands.status.desc": "Snapshot al vuelo: config, plugins, drift y qué hacer ahora.",
     "commands.bench.desc":
@@ -90,7 +91,7 @@ export const ui = {
     "engines.eyebrow": "Multi-engine",
     "engines.title": "Una config, lista para multi-engine.",
     "engines.subtitle":
-      "Hoy navori renderiza Claude Code (.claude/) y AGENTS.md —la spec universal que leen Cursor, Codex, Gemini y Copilot—. El core es engine-agnostic por diseño; los adapters nativos de Cursor y Copilot están en el roadmap.",
+      "Hoy navori renderiza Claude Code (.claude/), Codex completo (agentes, skills, hooks y MCP), AGENTS.md universal, Cursor y Copilot.",
 
     "quickstart.eyebrow": "Quickstart",
     "quickstart.title": "De cero a productivo en tres pasos",
@@ -110,7 +111,7 @@ export const ui = {
       "navori coexiste. init detecta tu harness existente y solo agrega bloques managed con marcadores; tu contenido personalizado queda intacto. Y si tu setup ya trae su propia orquestación o SDD, blocks.exclude deja que navori opte por no renderear esos bloques (orquestacion / sdd) para no competir con los tuyos — el resto del harness sigue igual.",
     "faq.q2": "¿Cuándo sale soporte para Cursor y Copilot?",
     "faq.a2":
-      "En parte ya está: navori genera AGENTS.md, la spec universal que Cursor, Codex, Gemini y Copilot leen de forma nativa. Los adapters dedicados de Cursor (.cursor/rules/) y Copilot (.github/copilot-instructions.md) están en el roadmap, sin fecha comprometida.",
+      "Sí. El adapter Codex genera AGENTS.md, .agents/skills, .codex/agents, hooks y MCP. Cursor y Copilot también tienen adapters dedicados.",
     "faq.q3": "¿Por qué un monorepo y no un solo paquete?",
     "faq.a3":
       "@navori/core es engine-agnostic y publicable como librería. @navori/cli es el binario. Los plugins viven en @navori/plugin-*. Mantiene límites claros.",
@@ -140,7 +141,7 @@ export const ui = {
     "hero.headlineA": "The multi-agent harness",
     "hero.headlineB": "for any repo.",
     "hero.subhead":
-      "Multi-agent harness + SDD in seconds: skills, hooks and agents from one config. Claude Code today; multi-engine (Cursor, Copilot, AGENTS.md) on the roadmap.",
+      "Multi-agent harness + SDD in seconds: Claude Code, Codex, Cursor, Copilot and AGENTS.md from one config.",
     "hero.cta.primary": "Get started",
     "hero.cta.secondary": "View on GitHub",
     "hero.install.label": "Install",
@@ -174,15 +175,16 @@ export const ui = {
     "how.layer4.body":
       "What's unique to this repo in navori.config.json, including the plugins you enable.",
     "how.layer5.name": "Adapters",
-    "how.layer5.body": "Per-engine rendering. Claude Code today; multi-engine on the roadmap.",
+    "how.layer5.body":
+      "Per-engine rendering for Claude Code, Codex, Cursor, Copilot and AGENTS.md.",
     "how.config.label": "navori.config.json",
 
     "flow.eyebrow": "Live",
     "flow.title": "See what each layer contributes",
     "flow.subtitle":
-      "Click a layer to highlight the part of the harness it generates. The engine (Claude) materializes everything into .claude/ + CLAUDE.md.",
+      "Click a layer to highlight what it contributes. Adapters materialize it in each engine's native format.",
     "flow.all": "All",
-    "flow.engineLabel": "Claude engine →",
+    "flow.engineLabel": "Engine adapters →",
     "flow.hint": "Pick a layer to see what it adds.",
     "flow.core.note": "Baseline: agents, skills and the rule blocks that are always present.",
     "flow.preset.note": "Stack-specific skills — here, Next.js.",
@@ -195,10 +197,9 @@ export const ui = {
       "Detects the stack, asks a few questions, and leaves the repo ready in a minute.",
     "commands.add.desc":
       "Registers plugins (engram, semgrep, jscpd, acli, gh) or suggests based on your stack.",
-    "commands.render.desc":
-      "Rebuilds CLAUDE.md and .claude/ from the config. Preview by default; --apply writes.",
+    "commands.render.desc": "Rebuilds every configured engine. Preview by default; --apply writes.",
     "commands.sync.desc":
-      "Updates only managed blocks. With --interactive you resolve each conflict block by block.",
+      "Updates every configured engine. With --interactive you resolve CLAUDE.md conflicts block by block.",
     "commands.doctor.desc": "Audit: drift, broken plugins, invariants and suggested next steps.",
     "commands.status.desc": "At-a-glance snapshot: config, plugins, drift, and what to do next.",
     "commands.bench.desc": "Times render over N runs and reports p50/p95. Spots local regressions.",
@@ -208,7 +209,7 @@ export const ui = {
     "engines.eyebrow": "Multi-engine",
     "engines.title": "One config, ready for multi-engine.",
     "engines.subtitle":
-      "Today navori renders Claude Code (.claude/) and AGENTS.md —the universal spec Cursor, Codex, Gemini and Copilot read. The core is engine-agnostic by design; native Cursor and Copilot adapters are on the roadmap.",
+      "Today navori renders Claude Code (.claude/), full Codex (agents, skills, hooks and MCP), universal AGENTS.md, Cursor and Copilot.",
 
     "quickstart.eyebrow": "Quickstart",
     "quickstart.title": "From zero to productive in three steps",
@@ -226,7 +227,7 @@ export const ui = {
       "navori coexists. init detects your existing harness and only adds managed blocks marked with delimiters; your custom content stays put. And if your setup already ships its own orchestration or SDD, blocks.exclude lets navori opt out of rendering those blocks (orquestacion / sdd) so it never competes with yours — the rest of the harness stays the same.",
     "faq.q2": "When do Cursor and Copilot ship?",
     "faq.a2":
-      "Partly here already: navori generates AGENTS.md, the universal spec Cursor, Codex, Gemini and Copilot read natively. Dedicated adapters for Cursor (.cursor/rules/) and Copilot (.github/copilot-instructions.md) are on the roadmap, with no committed date.",
+      "Yes. The Codex adapter generates AGENTS.md, .agents/skills, .codex/agents, hooks and MCP. Cursor and Copilot also have dedicated adapters.",
     "faq.q3": "Why a monorepo and not a single package?",
     "faq.a3":
       "@navori/core is engine-agnostic and publishable as a library. @navori/cli is the binary. Plugins live in @navori/plugin-*. Clean boundaries.",
