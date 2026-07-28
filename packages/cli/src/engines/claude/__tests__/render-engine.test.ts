@@ -169,7 +169,7 @@ describe("renderClaudeEngine — settings.json coexist injection (DT-2 / #69)", 
     const commands = (settings.hooks.PreToolUse as Array<{ hooks: Array<{ command: string }> }>)
       .flatMap((e) => e.hooks)
       .map((h) => h.command);
-    expect(commands).toContain("bash .claude/hooks/guard-destructive.sh");
+    expect(commands).toContain('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh"');
     // deny/ask defensive rules injected.
     expect(settings.permissions.deny).toContain("Bash(rm -rf /)");
     // navori tracks what it injected but does NOT claim ownership.
