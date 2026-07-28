@@ -268,6 +268,13 @@ export function commitWrites(input: {
   writeLast?: (p: PendingWrite) => boolean;
   /** Engine name for the write-error message; omitted → "El render falló…". */
   engineLabel?: string;
+  /**
+   * When true, removals run AFTER the write loop, each in its own try/catch, so
+   * a failed unlink is swallowed (Claude's disabled-plugin script cleanup). When
+   * false (default), removals share the write try/catch and a failure throws
+   * (Codex's orphan prune).
+   */
+  removalsBestEffort?: boolean;
 }): { written: ExecuteResult["written"]; backupPath: string | null } {
   const { pending, removals, cwd } = input;
   const dryRun = input.dryRun === true;
@@ -305,9 +312,11 @@ export function commitWrites(input: {
           }
         }
       }
-      for (const removal of removals) {
-        current = removal.path;
-        rmSync(removal.path, { recursive: removal.recursive === true, force: true });
+      if (!input.removalsBestEffort) {
+        for (const removal of removals) {
+          current = removal.path;
+          rmSync(removal.path, { recursive: removal.recursive === true, force: true });
+        }
       }
     } catch (error) {
       const hint = backupPath ? ` Backup pre-escritura disponible en: ${backupPath}` : "";
@@ -318,6 +327,15 @@ export function commitWrites(input: {
         }.${hint}`,
         backupPath,
       );
+    }
+    if (input.removalsBestEffort) {
+      for (const removal of removals) {
+        try {
+          rmSync(removal.path, { recursive: removal.recursive === true, force: true });
+        } catch {
+          // Best effort — a read-only scripts dir shouldn't crash the render.
+        }
+      }
     }
   }
 

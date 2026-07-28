@@ -1,9 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, chmodSync, rmSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import type { MonorepoRenderContext } from "../../lib/monorepo.ts";
-import { writeFileAtomic } from "../../lib/atomic.ts";
-import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import {
   computeRenderPlan,
@@ -29,8 +27,6 @@ import { renderManagedFile } from "../shared/render-managed-file.ts";
 import { interpolate } from "./interpolate.ts";
 import { benchMark } from "../../lib/bench.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
-import { log } from "../../lib/log.ts";
-import { RenderWriteError } from "../../lib/errors.ts";
 import {
   CORE_AGENTS,
   CORE_SKILLS,
@@ -39,7 +35,12 @@ import {
   isAgentEnabled,
 } from "../shared/harness-assets.ts";
 import { resolveHarnessPlan } from "../shared/harness-plan.ts";
-import { collectPlan, type AdapterCtx, type SkipReason } from "../shared/execute-plan.ts";
+import {
+  collectPlan,
+  commitWrites,
+  type AdapterCtx,
+  type SkipReason,
+} from "../shared/execute-plan.ts";
 import { createClaudeAdapter } from "./adapter.ts";
 
 /**
@@ -797,102 +798,24 @@ export function renderClaudeEngine(
     scriptRemovals.push(abs);
   }
 
-  // 9. Backup + atomic writes
-  let backupPath: string | null = null;
+  // 9. Backup + atomic writes — shared spine (Spec 0008 C.3). The CLAUDE.md-only
+  // pending (built above), the shared-plan pending (§3–6.6) and the
+  // reconciliation removals all flow through ONE commitWrites: a single backup
+  // (CLAUDE.md + .claude minus per-user/live state + navori.config.json),
+  // CLAUDE.md written LAST so a crash leaves the file the user reads intact, and
+  // one write-error surface. `removalsBestEffort` keeps disabled-plugin script
+  // cleanup non-fatal. Claude assembles its extended report on top.
   benchMark("plan");
-  const written: Array<{ path: string; status: RenderStatus }> = [];
-
-  if (pending.length === 0 && scriptRemovals.length === 0) {
-    return {
-      written,
-      skipped,
-      warnings,
-      backupPath: null,
-      claudeMdEntries: claudeMdPlan.entries,
-      updatesAvailable: claudeMdPlan.updatesAvailable,
-      downgrades: claudeMdPlan.downgrades,
-      languageFallbacks: claudeMdPlan.languageFallbacks,
-      inspected,
-    };
-  }
-
-  // The writes below are atomic per-file but not transactional across files, so
-  // a crash mid-loop leaves a partial tree. Write CLAUDE.md LAST (stable sort):
-  // it's the file the user actually reads, so on a crash it stays at its intact
-  // prior version while only the .claude/ subtree is partial — the least
-  // surprising failure mode. Issue #71 item 10.
-  pending.sort((a, b) => Number(a.path === claudeMdPath) - Number(b.path === claudeMdPath));
-
-  if (!dryRun) {
-    // Backup the full pre-render state of files navori owns. Recursive over
-    // .claude/ but skipping settings.local.json (per-user, gitignored) and
-    // progress/ (live state, not the kind of thing a snapshot helps with).
-    // The CLAUDE.md file is included explicitly; future engines will add
-    // their own roots here.
-    const hasExistingTarget = pending.some((p) => existsSync(p.path)) || scriptRemovals.length > 0;
-    if (hasExistingTarget) {
-      // navori.config.json is the source of truth; snapshot it alongside the
-      // rendered tree so a backup is a complete picture of the harness state
-      // (#79/#82). It's checked into git too, but the backup keeps restore
-      // self-contained.
-      const handle = createBackup(cwd, ["CLAUDE.md", ".claude", "navori.config.json"], {
-        exclude: [".claude/settings.local.json", ".claude/progress"],
-      });
-      if (handle.files.length > 0) {
-        backupPath = handle.path;
-        purgeOldBackups();
-      }
-    }
-
-    // Log the backup path up front as an extra breadcrumb; the user-visible
-    // copies are the render reporter (result.backupPath) and, on a mid-loop
-    // crash, the RenderWriteError below (#77).
-    if (backupPath) log.debug("pre-write backup", { path: backupPath });
-
-    let current: string | null = null;
-    try {
-      for (const p of pending) {
-        current = p.path;
-        mkdirSync(dirname(p.path), { recursive: true });
-        writeFileAtomic(p.path, p.content);
-        log.debug("wrote", { path: relative(cwd, p.path), status: p.status });
-        if (p.chmodExec) {
-          try {
-            chmodSync(p.path, 0o755);
-          } catch {
-            // best-effort; some filesystems (FAT) won't grant +x
-          }
-        }
-        written.push({ path: relative(cwd, p.path), status: p.status });
-      }
-    } catch (err) {
-      // A crash mid-loop leaves a partial tree and the return value (with its
-      // backupPath) never lands — the error the user sees must carry the
-      // recovery breadcrumb itself.
-      const hint = backupPath ? ` Backup pre-escritura disponible en: ${backupPath}` : "";
-      throw new RenderWriteError(
-        `El render falló escribiendo ${current ?? "?"}: ${err instanceof Error ? err.message : String(err)}.${hint}`,
-        backupPath,
-      );
-    }
-    // Delete disabled-plugin scripts (already captured in the backup above).
-    for (const abs of scriptRemovals) {
-      try {
-        rmSync(abs, { force: true });
-      } catch {
-        // best-effort — a scripts dir the user chmod'd read-only shouldn't crash
-      }
-      written.push({ path: relative(cwd, abs), status: "removed-condition-false" });
-    }
-  } else {
-    for (const p of pending) {
-      written.push({ path: relative(cwd, p.path), status: p.status });
-    }
-    for (const abs of scriptRemovals) {
-      written.push({ path: relative(cwd, abs), status: "removed-condition-false" });
-    }
-  }
-
+  const { written, backupPath } = commitWrites({
+    pending: pending.map((p) => ({ ...p, relPath: relative(cwd, p.path) })),
+    removals: scriptRemovals.map((path) => ({ path })),
+    cwd,
+    backupTargets: ["CLAUDE.md", ".claude", "navori.config.json"],
+    backupExclude: [".claude/settings.local.json", ".claude/progress"],
+    dryRun,
+    writeLast: (p) => p.path === claudeMdPath,
+    removalsBestEffort: true,
+  });
   benchMark("write");
   return {
     written,
