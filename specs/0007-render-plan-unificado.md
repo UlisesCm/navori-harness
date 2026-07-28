@@ -1,206 +1,477 @@
-# Spec 0007 — Render plan unificado: eliminar duplicidad Claude ↔ Codex (y abaratar el proveedor N+1)
+# Spec 0007 — Render plan unificado: eliminar duplicidad Claude ↔ Codex (runbook ejecutable)
 
-- **Status**: proposed (planning only — NO implementar hasta aprobación)
-- **Fecha**: 2026-07-28
-- **Autor**: Ulises Ciprés
-- **Relacionado**: Spec 0002 (engine Claude), Spec 0004 (engine Codex, ya mergeado en rama `codex`), Spec 0005 (search layer)
-- **Disparador**: auditoría post-merge de la rama `codex` (2026-07-27). El adapter Codex funciona (1105 tests verdes, e2e OK) pero reimplementa ~250 LOC de lógica que no es específica de ningún proveedor.
+**Status:** partially executed — M1 ejecutada y verde; Fase A lista para ejecutar; Fases B/C gated (DT-2)
+**Fecha:** 2026-07-28
+**Driver:** Ulises Ciprés
+**Depende de:** [Spec 0002](./0002-claude-engine-adapter.md) (engine Claude), [Spec 0004](./0004-codex-engine-adapter.md) (engine Codex, mergeado en rama `codex`), [Spec 0005](./0005-search-efficiency-layer.md)
+**Objetivo:** que el proveedor N+1 cueste ~80 LOC de tabla declarativa (no 573 de reimplementación) y que un fix de pipeline llegue a todos los engines a la vez.
+
+> **Cómo leer esta spec (agente ejecutor):** ejecuta SOLO las fases marcadas `EJECUTABLE` en la tabla §2, **en orden**. Cada fase termina con un bloque **VERIFICAR** con comandos exactos; **no avances** hasta que todos pasen. Los diffs se dan con `ANTES` / `DESPUÉS` **literales** — localiza el bloque `ANTES` con grep (NO con número de línea, que puede derivar) y aplica el cambio exacto. Si un comando de VERIFICAR falla, o un bloque `ANTES` no aparece con grep, **detente y reporta** — no improvises. Al terminar cada fase, llena el **Registro de ejecución** al final del archivo.
 
 ---
 
-## 1. Problema: qué está duplicado hoy (medido, no de oído)
+## 1. Problema (medido en el código, no de oído)
 
 `claude/index.ts` (2297 LOC) y `codex/index.ts` (573 LOC) duplican dos categorías de lógica que **no varían por proveedor**:
 
 ### 1.1 Resolvers de inventario ("qué emitir")
-Ambos engines recorren config + preset + libraries para decidir qué agents/skills/hooks materializar:
-
 | Lógica | Claude | Codex |
 |---|---|---|
-| Skills: core + workflow + preset extras + libraries | `claude/index.ts:616-643` + extras `:751-754` + libs `:779` | `collectSkillSources` (`codex/index.ts:404-435`) |
-| Agents: CORE_AGENTS filtrados por `isAgentEnabled` + preset extras | `claude/index.ts:205-207, 597-598` | `collectAgentSources` (`codex/index.ts:325-349`) |
-| Hooks: guard-destructive siempre, quality-gate si `config.qualityGate.fast` | inline en claude | inline en codex (`:126-153`) |
+| Skills: core + workflow + preset extras + libraries | loops en `claude/index.ts` (`buildSkillsIndexBody`, emisión `.claude/skills/`) | `collectSkillSources` en `codex/index.ts` |
+| Agents: `CORE_AGENTS` × `isAgentEnabled` + preset extras | loop propio en claude | `collectAgentSources` en codex |
+| Hooks: guard-destructive siempre; quality-gate si `config.qualityGate.fast` | inline | inline |
 
-Los dos consultan el mismo catálogo compartido (`shared/harness-assets.ts`: `CORE_AGENTS`, `CORE_SKILLS`, `WORKFLOW_SKILLS`, `isAgentEnabled`, `extraConditionMet`) — el catálogo NO está duplicado; el **recorrido** sí, dos veces, con el destino incrustado en el loop.
+Ambos consultan el catálogo compartido (`shared/harness-assets.ts`) — el catálogo NO está duplicado; el **recorrido** sí, con el destino incrustado en el loop.
 
 ### 1.2 Pipeline de ejecución ("cómo escribir")
-Plan → backup → escritura atómica → chmod → orphan-collection → reporte de status:
+Plan → backup → escritura atómica → chmod → poda de huérfanos → reporte: existe dos veces (inline en claude; `collectPlan`/`planManagedAsset`/`planRawManagedFile`/`collectOrphanedManagedFiles` + bloque de escritura en codex).
 
-| Pieza | Claude | Codex |
-|---|---|---|
-| Acumular pending/skipped por status | inline | `collectPlan` (`codex/index.ts:551-573`) |
-| Render de un asset managed | `renderManagedFile` (compartido ✅) | `planManagedAsset` / `planRawManagedFile` (wrappers propios, `:504-549`) |
-| Backup + write atómico + chmod + rollback hint | inline en claude | `codex/index.ts:171-212` |
-| Poda de huérfanos (assets deseleccionados) | `claude/index.ts:716-898` | `collectOrphanedManagedFiles` (`:437-480`) |
+**El riesgo real es la divergencia silenciosa:** un fix en la poda de huérfanos de un engine (p.ej. #105) no llega solo al otro. Dos pipelines = dos superficies de bugs para el mismo contrato.
 
-**Riesgo real de esta duplicación**: no es (solo) el costo de escribirla — es la **divergencia silenciosa**. Un fix en la poda de huérfanos de Claude (p.ej. el bug #105 de library skills) no llega solo a Codex; hay que acordarse de portarlo. Dos pipelines = dos superficies de bugs para el mismo contrato.
-
-### 1.3 Lo que NO está duplicado (y hay que preservar)
-- El catálogo (`shared/harness-assets.ts`) — única fuente de verdad de qué existe. ✅
-- El cuerpo de prosa (`shared/prose-harness.ts` → `buildHarnessProse`) — AGENTS.md sale del mismo builder con flags. ✅
-- La mecánica de markers (`injectManagedSection`, `renderManagedFile`, `parseAsset`, `interpolate`). ✅
-
-La arquitectura ya acertó en compartir lo semántico; lo que falta es compartir el **recorrido** y la **fontanería**.
+### 1.3 Lo que YA está compartido (preservar, no tocar)
+`shared/harness-assets.ts` (catálogo), `shared/prose-harness.ts` (`buildHarnessProse`), `injectManagedSection`/`renderManagedFile`/`parseAsset`/`interpolate` (mecánica de markers).
 
 ---
 
-## 2. Diseño: resolver una vez → mapear declarativo → ejecutar una vez
+## 2. Estado y gates de ejecución por fase
+
+| Fase | Qué | Estado | Gate |
+|---|---|---|---|
+| **M1** | Test de paridad de inventario | ✅ **EJECUTADA 2026-07-28** — 3/3 verde | — |
+| **A** | Extraer `resolveHarnessPlan` a shared | 🟢 **EJECUTABLE** (runbook §6) | ninguno; riesgo ~0 |
+| **B** | `executePlan` compartido + codex como adapter | 🔒 **GATED** | requiere aprobación explícita de Ulises (DT-2: proveedor #3 comprometido O bug de divergencia) |
+| **C** | Claude sobre el spine | 🔒 **GATED** | se especifica en spec propia al aprobarse; NO está en este runbook |
+| M3-M9 | Mejoras independientes (§9) | 🟡 backlog | aprobación por mejora |
+
+---
+
+## 3. Diseño: resolver una vez → mapear declarativo → ejecutar una vez
 
 ```
 ┌─────────────────────────┐   ┌──────────────────────────────┐   ┌───────────────────────────┐
 │ CAPA 1: resolveHarness- │   │ CAPA 2: EngineAdapter        │   │ CAPA 3: executePlan       │
-│ Plan (shared, NUEVA)    │──▶│ (por engine, ~80 LOC c/u)    │──▶│ (shared, NUEVA)           │
-│ config+preset+libraries │   │ tabla: kind → destino+formato│   │ backup/write/chmod/orphan │
-│ → PlannedAsset[]        │   │ + extraFiles (settings/toml) │   │ /idempotencia/reporte     │
+│ Plan (shared)           │──▶│ (por engine, ~80 LOC c/u)    │──▶│ (shared)                  │
+│ config+preset+libraries │   │ tabla: asset → destino+forma │   │ backup/write/chmod/poda/  │
+│ → HarnessPlan           │   │ + extraFiles (settings/toml) │   │ idempotencia/reporte      │
 └─────────────────────────┘   └──────────────────────────────┘   └───────────────────────────┘
 ```
 
-### 2.1 Capa 1 — `shared/harness-plan.ts` (nueva)
-Unifica los resolvers duplicados de §1.1 en una función pura:
-
-```ts
-type AssetKind = "agent" | "skill" | "hook" | "rule-doc";
-
-interface PlannedAsset {
-  kind: AssetKind;
-  id: string;                    // "reviewer", "verify-before-done", "guard-destructive"
-  assetPath: string;             // ruta absoluta al asset fuente en @navori/core o preset
-  managedId: string;             // id del marcador (estable, anti-retroceso)
-  meta: {
-    modelKey?: keyof NonNullable<NavoriConfig["models"]>;  // para agents
-    exec?: boolean;              // para hooks (chmod +x)
-    sandbox?: "read-only" | "workspace-write";             // ver mejora M5
-  };
-}
-
-export function resolveHarnessPlan(config: NavoriConfig, repoRoot: string): {
-  assets: PlannedAsset[];
-  warnings: string[];            // preset inválido, plugin no cargable, etc.
-}
-```
-
-Regla: esta función NO conoce rutas de destino ni formatos. Solo "qué existe y qué metadata tiene". Se extrae mecánicamente de `collectSkillSources`/`collectAgentSources` (Codex) verificando equivalencia contra los loops de Claude.
-
-### 2.2 Capa 2 — contrato `EngineAdapter` (por proveedor)
-Lo ÚNICO que un proveedor define. Declarativo, sin loops ni I/O:
-
-```ts
-interface Placement {
-  destRelPath: string;
-  commentStyle: "html" | "shell";
-  /** Serialización específica del engine (p.ej. agent .md → .toml de Codex). */
-  transform?: (body: string, asset: PlannedAsset, config: NavoriConfig) => string;
-}
-
-interface EngineAdapter {
-  id: string;
-  /** null = este engine no emite ese asset (p.ej. cursor no emite hooks). */
-  place(asset: PlannedAsset): Placement | null;
-  /** Archivos que no derivan 1:1 de un asset: settings.json (Claude), config.toml (Codex). */
-  extraFiles(config: NavoriConfig, plan: PlannedAsset[], plugins: LoadedPlugin[]): PlannedFile[];
-  /** Raíces a respaldar antes de escribir. */
-  backupTargets: string[];
-  /** Advertencias one-shot del engine (p.ej. hook-trust de Codex). */
-  engineWarnings?(config: NavoriConfig): string[];
-}
-```
-
-El adapter Codex queda en ~80 LOC: una tabla `kind → { .codex/agents/<id>.toml | .agents/skills/<id>/SKILL.md | .codex/hooks/<id>.sh | AGENTS.md }`, el transform `toCodexAgentToml` (hoy `planAgentFile:383-390`) + `adaptHarnessTextForCodex` (compat.ts), y `buildCodexConfigToml` como `extraFiles`. Los prose engines (agents-md/cursor/copilot) son adapters de UNA fila (`rule-doc`).
-
-### 2.3 Capa 3 — `shared/execute-plan.ts` (nueva)
-El pipeline de §1.2, una sola vez:
-
-```ts
-export function executePlan(
-  cwd: string,
-  plan: PlannedAsset[],
-  adapter: EngineAdapter,
-  config: NavoriConfig,
-  options: { dryRun?: boolean; repoRoot?: string },
-): ProseEngineResult
-```
-
-Responsabilidades (portadas del bloque más maduro de cada una):
-1. Por asset: `adapter.place()` → `renderManagedFile`/`injectManagedSection` → pending/skipped por status (incluye `user-modified-skipped` y `downgrade-skipped` — el anti-retroceso #79 vive AQUÍ, no por engine).
-2. `adapter.extraFiles()` al final del plan.
-3. Backup una sola vez sobre `adapter.backupTargets` + `purgeOldBackups`.
-4. Escritura atómica con orden estable (rule-doc al último — regla actual de codex `:180-184`) + chmod + `RenderWriteError` con hint de backup.
-5. Poda de huérfanos: archivos `navori:managed` presentes en disco cuyo destino ya no está en el plan (generaliza `collectOrphanedManagedFiles` y la poda de Claude `:716-898`), respetando `isRemovableNavoriFile` (no tocar lo escrito por un navori más nuevo).
-6. Idempotencia: segundo run sin cambios → `unchanged`, cero writes.
+- **Capa 1** no conoce rutas de destino ni formatos: solo "qué existe y su metadata".
+- **Capa 2** es lo ÚNICO que define un proveedor: dónde aterriza cada kind y cómo se serializa (+ archivos propios como `settings.json`/`config.toml` vía `extraFiles`).
+- **Capa 3** es la fontanería una sola vez: el anti-retroceso (#79), `user-modified-skipped`, backup, escritura atómica, poda respetando `isRemovableNavoriFile`, idempotencia byte a byte.
 
 ---
 
-## 3. Decisiones (DT)
+## 4. Decisiones (DT)
 
 ### DT-1 — Claude NO migra en la primera ola
-El engine Claude (2297 LOC) es la referencia madura con features que el modelo debe absorber con calma (settings.json con coexist-detection, bloques CLAUDE.md vía `computeRenderPlan`, monorepo per-workspace, prompts-loader, frontmatter-merge). Migrarlo primero es riesgo máximo por ahorro mínimo. **Orden: prose engines → codex → (evaluar) claude.** Si Claude nunca migra, la duplicación igual muere: codex + todos los futuros comparten el spine, y Claude queda como único caso especial documentado.
+Orden: codex (Fase B) → evaluar claude (Fase C). Si Claude nunca migra, la duplicación igual muere: codex + futuros comparten el spine; Claude queda como único caso especial documentado. Los prose engines (`agents-md`/`cursor`/`copilot`) **no migran**: ya comparten su propio spine (`renderProseFile`) y son wrappers de ~40 LOC — migrarlos es churn sin ganancia.
 
-### DT-2 — Regla de tres: la extracción se ejecuta cuando haya compromiso real con un proveedor #3, O cuando un bug de divergencia muerda
-Con 2 implementaciones la abstracción se adivina; con 3 se factoriza contra casos reales. Excepción: si antes aparece un bug del tipo "fix aplicado a un engine y olvidado en el otro" (§1.2), eso adelanta la ejecución — es la prueba empírica de que la duplicación ya cobra intereses. Mientras tanto, esta spec ES el contrato documentado.
+### DT-2 — Regla de tres: Fase B se ejecuta con proveedor #3 comprometido O al morder un bug de divergencia
+Con 2 implementaciones la abstracción se adivina; con 3 se factoriza contra casos reales. Un bug del tipo "fix aplicado a un engine y olvidado en el otro" adelanta la ejecución (es la prueba de que la duplicación ya cobra intereses). Mientras tanto: M1 vigila la divergencia de inventario en cada `pnpm test`.
 
-### DT-3 — El contrato `EngineAdapter` se congela en esta spec
-Cualquier engine nuevo que se escriba ANTES de la extracción debe estructurarse internamente como si el contrato existiera (tabla de placement separada de la fontanería), para que la migración posterior sea mecánica.
+### DT-3 — El contrato `EngineAdapter` (§7.1) se congela en esta spec
+Todo engine nuevo escrito ANTES de la Fase B debe estructurarse internamente como si el contrato existiera (tabla de placement separada de la fontanería), para que su migración sea mecánica.
 
-### DT-4 — `resolveHarnessPlan` se valida por equivalencia, no por reescritura
-Al extraerla, un test de paridad (M1) compara su output contra el inventario que HOY emite cada engine sobre configs representativas. La extracción no puede cambiar ni un archivo emitido.
+### DT-4 — Toda migración se valida byte a byte, no solo con tests verdes
+Procedimiento V-BYTE (§5). La extracción no puede cambiar ni un byte de lo emitido.
 
----
-
-## 4. Fases de implementación (cuando se apruebe ejecutar)
-
-### Fase A — Capa 1 + test de paridad de inventario (riesgo ~0)
-1. Crear `shared/harness-plan.ts` extrayendo `collectSkillSources`/`collectAgentSources` de codex + lista de hooks.
-2. Codex consume `resolveHarnessPlan` (borra sus resolvers). Claude NO se toca.
-3. Test de paridad M1 (ver §5).
-
-**VERIFICAR**: `cd packages/cli && pnpm build && pnpm test` verde; render e2e sobre repo de prueba produce byte-a-byte lo mismo que antes (diff vacío contra un render pre-refactor).
-
-### Fase B — Capa 3 + migrar prose engines y codex
-1. Crear `shared/execute-plan.ts` portando el pipeline de codex (el más limpio) + la poda generalizada.
-2. `agents-md`/`cursor`/`copilot` → adapters de una fila. `codex/index.ts` → adapter declarativo + `buildCodexConfigToml` en `extraFiles`.
-3. Borrar `collectPlan`/`planRawManagedFile`/`planManagedAsset`/`collectOrphanedManagedFiles` de codex.
-
-**VERIFICAR**: suite verde; e2e codex idéntico byte-a-byte; jscpd sin duplicación nueva; `codex/index.ts` < 150 LOC.
-
-### Fase C — (opcional, evaluar tras B) Claude sobre el spine
-Solo si el balance riesgo/beneficio lo justifica en ese momento. `settings.json`, coexist y monorepo entran por `extraFiles` + hooks del ejecutor. Requiere su propia ronda de VERIFICAR contra los 15 repos Bonum (doctor.ok en todos).
+### DT-5 — La colisión de `AGENTS.md` entre `agents-md` y `codex` YA está resuelta (verificado)
+El dispatcher (`commands/render.ts`, función `renderNonClaudeEngines`) salta `agents-md` con warning cuando `codex` está activo, y codex reusa el managed-id `navori-agents` para hacer upgrade in place del bloque. **No hay fase que ejecutar aquí.** (Esto corrige la "M2" de la versión anterior de esta spec, que la daba por pendiente.)
 
 ---
 
-## 5. Mejoras adicionales para ambos proveedores (y el N+1)
+## 5. Procedimiento V-BYTE (compartido por Fases A y B)
 
-Catálogo priorizado; cada una es independiente y commiteable por separado.
+Congela un baseline ANTES de editar y compara al final. Ejecutar desde la raíz del repo navori.
+
+```bash
+# ── PASO 0 (ANTES de editar nada): baseline ──
+TMP=$(mktemp -d) && mkdir -p "$TMP/repo"
+cat > "$TMP/repo/navori.config.json" <<'EOF'
+{ "name": "byte-diff-check", "version": "1.0.0", "preset": "nextjs", "engines": ["codex"], "language": "es",
+  "qualityGate": { "fast": "pnpm test", "full": "pnpm test" },
+  "plugins": { "engram": { "enabled": true } } }
+EOF
+(cd packages/cli && pnpm build)
+node packages/cli/dist/index.js render --cwd "$TMP/repo" --apply
+cp -R "$TMP/repo" "$TMP/before"
+echo "BASELINE OK en $TMP"   # ANOTA la ruta $TMP — la necesitas al final de la fase
+
+# ── PASO FINAL (tras aplicar los cambios de la fase): comparar ──
+(cd packages/cli && pnpm build)
+rm -rf "$TMP/repo" && mkdir -p "$TMP/repo" && cp "$TMP/before/navori.config.json" "$TMP/repo/"
+node packages/cli/dist/index.js render --cwd "$TMP/repo" --apply
+diff -r "$TMP/before" "$TMP/repo" && echo "OK: byte-idéntico"
+```
+
+Si `diff` imprime CUALQUIER diferencia: **detente y reporta** el diff completo.
+
+---
+
+## 6. Fase M1 — Test de paridad de inventario ✅ EJECUTADA
+
+**Archivo:** `packages/cli/src/engines/__tests__/engine-parity.test.ts` (commiteado; 3/3 verde el 2026-07-28).
+
+Qué garantiza: para un mismo config, Claude y Codex emiten el MISMO conjunto semántico de skills (`.claude/skills/*.md` ↔ `.agents/skills/*/`), agents (`.claude/agents/*.md` ↔ `.codex/agents/*.toml`, excluyendo `leader` — diff intencional: el hilo principal de Codex encarna al leader) y hooks (`.claude/hooks/*.sh` ↔ `.codex/hooks/*.sh`). Un asset cableado en un engine y olvidado en el otro revienta la suite, no producción.
+
+**Regla de mantenimiento (para ejecutores futuros):** si este test falla, NO lo maquilles agregando a `AGENT_KNOWN_DIFFS` — una falla es una divergencia real. Repórtala al driver; solo se agrega a `KNOWN_DIFFS` con su aprobación y con el porqué comentado en el código.
+
+**VERIFICAR (ya pasado, re-ejecutable):**
+```bash
+cd packages/cli && npx vitest run src/engines/__tests__/engine-parity.test.ts   # 3 passed
+```
+
+---
+
+## 7. Fase A — Capa 1: `resolveHarnessPlan` 🟢 EJECUTABLE
+
+Extrae los resolvers duplicados a `shared/`. Codex la consume; Claude NO se toca (DT-1). **Ejecuta el PASO 0 de V-BYTE (§5) antes de editar.**
+
+### A.1 — NUEVO archivo `packages/cli/src/engines/shared/harness-plan.ts` (contenido completo)
+
+```ts
+import { basename, join } from "node:path";
+import type { NavoriConfig } from "../../lib/config.ts";
+import { librarySkillById } from "../../lib/library-skills.ts";
+import type { loadPreset } from "../../lib/presets.ts";
+import {
+  CORE_AGENTS,
+  CORE_SKILLS,
+  WORKFLOW_SKILLS,
+  extraConditionMet,
+  isAgentEnabled,
+} from "./harness-assets.ts";
+
+/**
+ * Provider-agnostic harness inventory (Spec 0007, Capa 1). Resolves WHICH
+ * agents/skills/hooks a render must materialize from config + preset +
+ * detected libraries. Knows nothing about destinations or formats — those
+ * belong to each engine adapter (Capa 2).
+ */
+
+export interface PlannedAgent {
+  id: string;
+  assetPath: string;
+  /** Key into config.models / config.effort for per-role assignment. */
+  modelKey?: keyof NonNullable<NavoriConfig["models"]>;
+}
+
+export interface PlannedSkill {
+  id: string;
+  assetPath: string;
+  managedId: string;
+}
+
+export interface PlannedHook {
+  /** Basename without extension; engines derive `<dir>/<id>.sh`. */
+  id: string;
+  assetPath: string;
+  managedId: string;
+}
+
+export interface HarnessPlan {
+  agents: PlannedAgent[];
+  skills: PlannedSkill[];
+  hooks: PlannedHook[];
+}
+
+export function resolveHarnessPlan(
+  config: NavoriConfig,
+  coreAssets: string,
+  preset: ReturnType<typeof loadPreset>,
+  options: { includeLeader?: boolean } = {},
+): HarnessPlan {
+  const agents: PlannedAgent[] = [];
+  for (const agent of CORE_AGENTS) {
+    // Engines whose main thread embodies the leader (Codex) leave this off.
+    if (agent.id === "leader" && options.includeLeader !== true) continue;
+    if (!isAgentEnabled(config, agent.harnessKey)) continue;
+    agents.push({
+      id: agent.id,
+      assetPath: join(coreAssets, `agents/${agent.id}.md`),
+      modelKey: agent.harnessKey,
+    });
+  }
+  for (const extra of preset?.def.extras.agents ?? []) {
+    if (!extraConditionMet(extra, config)) continue;
+    agents.push({
+      id: basename(extra.destRelPath).replace(/\.md$/, ""),
+      assetPath: join(preset!.assetRoot, extra.relPath),
+    });
+  }
+
+  const skills: PlannedSkill[] = [
+    ...CORE_SKILLS.map((id) => ({
+      id,
+      assetPath: join(coreAssets, `skills/${id}.md`),
+      managedId: `${id}-base`,
+    })),
+    ...WORKFLOW_SKILLS.map((id) => ({
+      id,
+      assetPath: join(coreAssets, `skills/${id}.md`),
+      managedId: id,
+    })),
+  ];
+  const seen = new Set(skills.map(({ id }) => id));
+  for (const extra of preset?.def.extras.skills ?? []) {
+    if (!extraConditionMet(extra, config)) continue;
+    const id = basename(extra.destRelPath).replace(/\.md$/, "");
+    if (seen.has(id)) continue;
+    seen.add(id);
+    skills.push({ id, assetPath: join(preset!.assetRoot, extra.relPath), managedId: extra.id });
+  }
+  for (const id of config.project?.libraries ?? []) {
+    if (seen.has(id) || !librarySkillById(id)) continue;
+    seen.add(id);
+    skills.push({ id, assetPath: join(coreAssets, `lib-skills/${id}.md`), managedId: id });
+  }
+
+  const hooks: PlannedHook[] = [
+    {
+      id: "guard-destructive",
+      assetPath: join(coreAssets, "hooks/guard-destructive.sh"),
+      managedId: "guard-destructive-base",
+    },
+  ];
+  if (config.qualityGate?.fast) {
+    hooks.push({
+      id: "quality-gate-pre-commit",
+      assetPath: join(coreAssets, "hooks/quality-gate-pre-commit.sh"),
+      managedId: "qg-pre-commit-base",
+    });
+  }
+
+  return { agents, skills, hooks };
+}
+```
+
+### A.2 — `packages/cli/src/engines/codex/index.ts`: imports
+
+```
+ANTES:   import { basename, dirname, join, relative, resolve } from "node:path";
+DESPUÉS: import { dirname, join, relative, resolve } from "node:path";
+```
+```
+ANTES:   import { librarySkillById } from "../../lib/library-skills.ts";
+DESPUÉS: (línea eliminada)
+```
+```
+ANTES:
+import {
+  CORE_AGENTS,
+  CORE_SKILLS,
+  WORKFLOW_SKILLS,
+  extraConditionMet,
+  isAgentEnabled,
+} from "../shared/harness-assets.ts";
+DESPUÉS:
+import { resolveHarnessPlan, type PlannedAgent } from "../shared/harness-plan.ts";
+```
+
+### A.3 — call sites del cuerpo de `renderCodexEngine`
+
+```
+ANTES:   const agentSources = collectAgentSources(config, coreAssets, preset);
+DESPUÉS:
+  const plan = resolveHarnessPlan(config, coreAssets, preset);
+  const agentSources = plan.agents;
+```
+```
+ANTES:   const skillSources = collectSkillSources(config, coreAssets, preset);
+DESPUÉS: const skillSources = plan.skills;
+```
+
+### A.4 — bloque de hooks (reemplazo completo)
+
+`ANTES` (localizar con `grep -n "hooks/guard-destructive.sh" packages/cli/src/engines/codex/index.ts` — es el bloque de DOS `collectPlan(...)` consecutivos dentro de `renderCodexEngine`):
+
+```ts
+  collectPlan(
+    planManagedAsset({
+      cwd,
+      config,
+      assetPath: join(coreAssets, "hooks/guard-destructive.sh"),
+      destRelPath: ".codex/hooks/guard-destructive.sh",
+      managedId: "guard-destructive-base",
+      commentStyle: "shell",
+      chmodExec: true,
+    }),
+    pending,
+    skipped,
+  );
+  if (config.qualityGate?.fast) {
+    collectPlan(
+      planManagedAsset({
+        cwd,
+        config,
+        assetPath: join(coreAssets, "hooks/quality-gate-pre-commit.sh"),
+        destRelPath: ".codex/hooks/quality-gate-pre-commit.sh",
+        managedId: "qg-pre-commit-base",
+        commentStyle: "shell",
+        chmodExec: true,
+      }),
+      pending,
+      skipped,
+    );
+  }
+```
+
+`DESPUÉS`:
+
+```ts
+  for (const hook of plan.hooks) {
+    collectPlan(
+      planManagedAsset({
+        cwd,
+        config,
+        assetPath: hook.assetPath,
+        destRelPath: `.codex/hooks/${hook.id}.sh`,
+        managedId: hook.managedId,
+        commentStyle: "shell",
+        chmodExec: true,
+      }),
+      pending,
+      skipped,
+    );
+  }
+```
+
+### A.5 — set de hooks deseados en la poda de huérfanos
+
+```
+ANTES:
+        new Set([
+          ".codex/hooks/guard-destructive.sh",
+          ...(config.qualityGate?.fast ? [".codex/hooks/quality-gate-pre-commit.sh"] : []),
+        ]),
+DESPUÉS:
+        new Set(plan.hooks.map(({ id }) => `.codex/hooks/${id}.sh`)),
+```
+
+### A.6 — borrar código muerto en `codex/index.ts`
+1. Borrar la interface `AgentSource` completa (grep `interface AgentSource`).
+2. En `planAgentFile`, cambiar el tipo del parámetro: `source: AgentSource` → `source: PlannedAgent`.
+3. Borrar la función `collectAgentSources` completa (grep `function collectAgentSources`).
+4. Borrar la función `collectSkillSources` completa (grep `function collectSkillSources`).
+
+**VERIFICAR Fase A:**
+```bash
+# cero referencias muertas:
+grep -rn "collectAgentSources\|collectSkillSources\|AgentSource" packages/cli/src && echo "FALLA: quedan referencias" || echo "OK limpio"
+cd packages/cli && pnpm build && pnpm test        # suite completa verde (incluye engine-parity 3/3)
+cd ../..
+# PASO FINAL de V-BYTE (§5) con el $TMP anotado en el PASO 0 → "OK: byte-idéntico"
+```
+
+---
+
+## 8. Fase B — Capa 2 + Capa 3 🔒 GATED (NO ejecutar sin aprobación explícita de Ulises)
+
+> El código de esta fase es el **punto de partida congelado** (DT-3). El repo habrá derivado cuando se apruebe: si el build falla por drift, ajusta SOLO imports/tipos, nunca la lógica, y reporta cada ajuste en el Registro.
+
+### 8.1 Contrato `EngineAdapter` (congelado)
+
+```ts
+/** One file the engine wants on disk, fully placed (output de la Capa 2). */
+export interface PlacementRequest {
+  /** Managed asset rendered from a source file (renderManagedFile path)… */
+  assetPath?: string;
+  /** …or a raw body already serialized by the adapter (config.toml, agent .toml). */
+  body?: string;
+  destRelPath: string;
+  managedId: string;
+  commentStyle: "html" | "shell";
+  chmodExec?: boolean;
+  /** Written before/after the managed block only the FIRST time the file is created. */
+  firstRenderSeed?: { header?: string; trailer?: string };
+}
+
+export interface OrphanScan {
+  /** Dir to scan, relative to cwd (e.g. ".codex/agents"). */
+  dir: string;
+  /** File filter (e.g. name => name.endsWith(".toml")). */
+  match: (name: string) => boolean;
+  /** Desired rel paths that must NOT be removed. */
+  desired: ReadonlySet<string>;
+  /** "file" removes the file; "skill-dir" removes `<dir>/<name>` when SKILL.md is its only child. */
+  shape: "file" | "skill-dir";
+}
+
+export interface EngineAdapter {
+  id: string;
+  /** Placement de cada asset del HarnessPlan; null = este engine no lo emite. */
+  placeAgent(a: PlannedAgent, ctx: AdapterCtx): PlacementRequest | null;
+  placeSkill(s: PlannedSkill, ctx: AdapterCtx): PlacementRequest | null;
+  placeHook(h: PlannedHook, ctx: AdapterCtx): PlacementRequest | null;
+  /** Archivos que no derivan 1:1 de un asset (settings.json / config.toml / AGENTS.md). */
+  extraFiles(ctx: AdapterCtx): PlacementRequest[];
+  orphanScans(plan: HarnessPlan, ctx: AdapterCtx): OrphanScan[];
+  backupTargets: string[];
+  engineWarnings?(ctx: AdapterCtx): string[];
+}
+// AdapterCtx = { cwd, config, repoRoot, isWorkspace, coreAssets, preset, plugins }
+```
+
+### 8.2 — NUEVO `packages/cli/src/engines/shared/execute-plan.ts`
+Porta el pipeline de `codex/index.ts` (el más limpio) UNA sola vez. Fuente de cada pieza (localizar por nombre de función, no por línea):
+1. Acumulación pending/skipped por status → portar `collectPlan` tal cual.
+2. Render de asset managed → portar `planManagedAsset` / `planRawManagedFile` (el executor decide por `assetPath` vs `body` del `PlacementRequest`; `firstRenderSeed` reproduce el seeding de `planAgentsMd`/`planCodexConfig`).
+3. Poda → generalizar `collectOrphanedManagedFiles` + `isRemovableNavoriFile` + `readDirSafe` iterando `OrphanScan[]` (las tres pasadas actuales de codex se vuelven 3 entradas de datos).
+4. Backup + orden estable (rule-doc/AGENTS.md al final) + escritura atómica + chmod + `RenderWriteError` con hint → portar el bloque `if ((pending.length > 0 || removals.length > 0) && !dryRun)` completo.
+5. Reporte `{ written, skipped, warnings, backupPath }` → portar el `return` final.
+
+Además: `git mv packages/cli/src/engines/claude/render-managed-file.ts packages/cli/src/engines/shared/render-managed-file.ts` y actualizar TODOS los imports (`grep -rn "render-managed-file" packages/cli/src`).
+
+### 8.3 — `codex/index.ts` → adapter declarativo
+Mapa call-site → contrato (todo el código citado ya existe en el archivo; se mueve, no se reescribe):
+| Hoy en codex | Va a |
+|---|---|
+| `planAgentFile` (serialización .toml + inyecciones de plugins + sandbox + `CODEX_MODEL_BY_CLAUDE_TIER`) | `placeAgent` (devuelve `body`) |
+| loop de `skillSources` | `placeSkill` (devuelve `assetPath` + dest `.agents/skills/<id>/SKILL.md`) |
+| loop de `plan.hooks` (Fase A) | `placeHook` |
+| `planAgentsMd` + `planCodexConfig` + `buildCodexConfigToml` | `extraFiles` |
+| `collectOrphanedManagedFiles` (3 pasadas) | `orphanScans` (3 entradas de datos) |
+| array de `createBackup` | `backupTargets` |
+| warning de versión mínima / hook-trust | `engineWarnings` |
+
+**VERIFICAR Fase B:** `grep` cero referencias a los helpers borrados de codex · `pnpm build && pnpm test` verde (incluye `engine-parity` y `render-codex` intactos) · V-BYTE completo (§5) → "OK: byte-idéntico" · `wc -l packages/cli/src/engines/codex/index.ts` < 250.
+
+---
+
+## 9. Mejoras independientes (backlog priorizado; aprobación por mejora)
 
 | # | Mejora | Detalle | Prioridad |
 |---|---|---|---|
-| **M1** | **Test de paridad de inventario entre engines** | Test que corre `resolveHarnessPlan` (o, pre-extracción, ambos engines) sobre configs representativas y verifica que Claude y Codex emiten el MISMO conjunto semántico de agents/skills/hooks (ids, no rutas). Detecta divergencia silenciosa — el riesgo #1 de §1.2 — sin esperar el refactor. **Se puede escribir HOY.** | 🔴 Alta |
-| **M2** | **Resolver la colisión de managed-id `navori-agents`** | `codex/index.ts:260` reusa el id del engine `agents-md`. Con `engines: ["agents-md", "codex"]` ambos pelean por el mismo bloque de AGENTS.md (last-writer-wins por orden de dispatcher). Fix barato: `doctor` + `render` emiten warning y documentan "codex supersede a agents-md"; fix completo: dedupe en el dispatcher (si codex está activo, saltar agents-md). | 🔴 Alta |
-| **M3** | **Mapa de modelos configurable** | `CODEX_MODEL_BY_CLAUDE_TIER` (`codex/index.ts:37-41`) está hardcodeado a `gpt-5.6-*`. OpenAI renombra modelos más rápido que los releases de navori. Agregar override opcional en config: `models.codexMap: { opus?: string, sonnet?: string, haiku?: string }` con fallback al mapa fijo + warning si el hardcode quedó obsoleto (modelo no listado en `codex doctor`/models_cache). | 🟡 Media |
-| **M4** | **Sandbox por agente al catálogo, no hardcodeado** | La lista `["reviewer","researcher","ticket-audit","explorer","auditor"] → read-only` vive inline en `planAgentFile` (`codex/index.ts:378`). Ese dato es semántico del ROL, no de Codex: moverlo a `CORE_AGENTS[i].sandbox` en `shared/harness-assets.ts`. Claude puede consumirlo a futuro (p.ej. `permissions` por subagente) y el proveedor #3 lo hereda gratis. | 🟡 Media |
-| **M5** | **Doctor checks específicos de Codex** | Hoy doctor valida markers/drift pero no la salud Codex: (a) `.codex/config.toml` parsea como TOML; (b) hooks con bit ejecutable; (c) `codex --version` ≥ 0.145.0 si el binario está en PATH (warning no-bloqueante); (d) hint del hook-trust (Fase 0: Codex no dispara hooks sin confianza persistida — silenciosamente). El (d) evita el modo de fallo más traicionero: harness renderizado que parece activo pero no protege. | 🟡 Media |
-| **M6** | **Paridad de eventos de hook ampliada** | El spike Fase 0 confirmó que Codex soporta `SessionStart`, `UserPromptSubmit`, `Stop` además de `PreToolUse`. Claude usa SessionStart para engram (session-start.sh). Oportunidad: emitir el hook de arranque de engram también en Codex → misma memoria inyectada en ambos proveedores. Requiere spike corto del payload de `SessionStart` en Codex. | 🟡 Media |
-| **M7** | **Consolidar (o sellar) el split-root de skills** | Skills en `.agents/skills/`, resto en `.codex/` (ambas rutas funcionan nativamente, per Fase 0). Decidir: (a) consolidar todo bajo `.codex/` — una raíz, un gitignore, mental model simple; o (b) sellar `.agents/` como decisión (es la ubicación cross-tool que otros agentes también leen — apunta a compartir skills con el proveedor #3 sin re-render). Recomendación: **(b) sellar**, porque `.agents/skills/` es justamente el seam multi-proveedor gratis; documentarlo en README del engine y en el gitignore de los repos destino. | 🟢 Baja |
-| **M8** | **Inventario de paridad en `doctor --json`** | Exponer el inventario (agents/skills/hooks por engine) en la salida machine-readable. Permite a CI de los repos Bonum afirmar "Claude y Codex tienen el mismo harness" tras cada `render --all`. Se apoya en M1/Capa 1. | 🟢 Baja |
-| **M9** | **Guía "cómo agregar un proveedor"** | `packages/cli/src/engines/README.md` con el contrato de §2.2, el checklist de spike (los 4 unknowns de la Fase 0 de Spec 0004: payload de hooks, discovery de skills, config location, mapa de modelos) y el criterio DT-2. Convierte esta spec en documentación operativa para el proveedor #3 (Gemini CLI, Amazon Q, etc.). | 🟢 Baja |
+| ~~M2~~ | ~~Colisión managed-id `navori-agents`~~ | **RESUELTA** — ver DT-5 (verificada en el dispatcher) | — |
+| **M3** | Mapa de modelos configurable | `CODEX_MODEL_BY_CLAUDE_TIER` hardcodea `gpt-5.6-*`; OpenAI renombra más rápido que los releases. Agregar override `models.codexMap: { opus?, sonnet?, haiku? }` en el schema con fallback al mapa fijo. | 🟡 Media |
+| **M4** | Sandbox por rol al catálogo | La lista `["reviewer","researcher","ticket-audit","explorer","auditor"] → read-only` vive inline en `planAgentFile`. Es semántica del ROL: moverla a `CORE_AGENTS[i].sandbox` en `harness-assets.ts`. El proveedor #3 la hereda gratis. | 🟡 Media |
+| **M5** | Doctor checks Codex | (a) `.codex/config.toml` parsea como TOML; (b) hooks con bit ejecutable; (c) `codex --version` ≥ 0.145.0 si está en PATH (warning); (d) hint de hook-trust — el modo de fallo más traicionero: harness renderizado que parece activo pero Codex no dispara hooks sin confianza persistida (hallazgo Fase 0 de Spec 0004). | 🟡 Media |
+| **M6** | Hook SessionStart de engram en Codex | Fase 0 confirmó eventos `SessionStart`/`UserPromptSubmit`/`Stop` en Codex. Emitir el arranque de engram también ahí → misma memoria en ambos proveedores. Requiere spike corto del payload de `SessionStart`. | 🟡 Media |
+| **M7** | Sellar el split-root de skills | Skills en `.agents/skills/` (cross-tool, otros agentes también la leen) + resto en `.codex/`. Recomendación: **sellar** (es el seam multi-proveedor gratis), documentarlo en el README del engine y en el gitignore de repos destino. | 🟢 Baja |
+| **M8** | Inventario en `doctor --json` | Exponer agents/skills/hooks por engine en salida machine-readable para que CI de los repos afirme paridad tras `render --all`. | 🟢 Baja |
+| **M9** | `engines/README.md` — "cómo agregar un proveedor" | El contrato §8.1 + checklist de spike (los 4 unknowns de Fase 0 de Spec 0004: payload de hooks, discovery de skills, ubicación de config, mapa de modelos) + criterio DT-2. | 🟢 Baja |
 
-### Secuencia recomendada de mejoras (independiente del refactor grande)
-1. **M1 + M2 ahora** (baratas, matan los dos riesgos activos: divergencia silenciosa y colisión de managed-id).
-2. **M4 + M5** en la siguiente iteración de calidad.
-3. **M3, M6** cuando haya señal real (rename de modelos OpenAI / demanda de memoria en Codex).
-4. **M7 decidir + M9 escribir** antes de que alguien pregunte por el proveedor #3. M8 cuando exista Capa 1.
+**Secuencia sugerida:** M4+M5 en la próxima iteración de calidad · M3/M6 cuando haya señal real · M7+M9 antes de que aparezca el proveedor #3 · M8 tras Fase B.
 
 ---
 
-## 6. Riesgos
+## 10. Riesgos
+- **R1 — Refactor prematuro.** Mitigado por los gates de §2 + DT-2. M1 (ya activa) vigila la divergencia mientras tanto.
+- **R2 — El executor no absorbe una rareza de Claude.** Mitigado por DT-1: Claude al final y opcional; `extraFiles`/`engineWarnings` como válvulas.
+- **R3 — Byte-drift en la migración.** Mitigado por V-BYTE (§5) como gate duro, no solo tests.
+- **R4 — El contrato se queda corto para el proveedor #3.** Aceptado: se ajusta CON el proveedor #3 en la mano; lo congelado es la forma (3 capas), no cada firma.
+- **R5 — Drift del repo vs los diffs de esta spec.** Mitigado: los `ANTES` se localizan por grep, no por línea; si un `ANTES` no aparece, la regla es detenerse y reportar.
 
-- **R1 — Refactor prematuro (el meta-riesgo).** Mitigado por DT-2: no se ejecuta hasta proveedor #3 o bug de divergencia. Esta spec fija el diseño para que la espera no cueste re-descubrimiento.
-- **R2 — El ejecutor compartido no absorbe una rareza de Claude.** Mitigado por DT-1 (Claude al final y opcional) + `extraFiles`/hooks del contrato como válvulas de escape.
-- **R3 — Byte-drift en la migración.** Mitigado por el criterio de VERIFICAR de Fases A/B: diff vacío contra render pre-refactor, no solo "tests verdes".
-- **R4 — El contrato se queda corto para el proveedor #3.** Aceptado: el contrato se ajusta CON el proveedor #3 en la mano (para eso es la regla de tres); lo congelado es la forma (3 capas), no cada firma.
+## 11. Estimación
+Fase A: ~medio día (extracción mecánica + V-BYTE). Fase B: ~2-3 días. Fase C: se estima al especificarse. M4+M5: ~1 día.
 
-## 7. Estimación
+---
 
-- Fase A: ~1 día (extracción mecánica + test de paridad).
-- Fase B: ~2-3 días (ejecutor + 4 adapters + verificación byte-a-byte).
-- Fase C: ~3-5 días, solo si se decide.
-- Mejoras M1+M2: ~medio día. M4+M5: ~1 día. Resto: incremental.
+## Registro de ejecución (el ejecutor llena esto)
+
+| Fecha | Fase | Resultado | Notas |
+|---|---|---|---|
+| 2026-07-28 | M1 | ✅ 3/3 verde a la primera | Paridad real confirmada: skills idénticos, agents idénticos (excepto `leader`, intencional), hooks idénticos. Archivo commiteado en `engines/__tests__/engine-parity.test.ts`. |
+| | A | | |
+| | B | | |
