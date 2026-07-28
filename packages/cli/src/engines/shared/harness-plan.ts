@@ -28,6 +28,8 @@ export interface PlannedAgent {
   managedId: string;
   /** Key into config.models / config.effort for per-role assignment. */
   modelKey?: keyof NonNullable<NavoriConfig["models"]>;
+  /** Role sandbox from the catalog; providers that sandbox honor it (Codex). */
+  sandbox?: "read-only" | "workspace-write";
 }
 
 export interface PlannedSkill {
@@ -65,6 +67,7 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, `agents/${agent.id}.md`),
       managedId: `${agent.id}-base`,
       modelKey: agent.harnessKey,
+      sandbox: agent.sandbox,
     });
   }
   for (const extra of preset?.def.extras.agents ?? []) {

@@ -23,8 +23,6 @@ const CODEX_MODEL_BY_CLAUDE_TIER = {
   haiku: "gpt-5.6-luna",
 } as const;
 
-const READ_ONLY_ROLES = ["reviewer", "researcher", "ticket-audit", "explorer", "auditor"];
-
 export type CodexEngineResult = ProseEngineResult;
 
 /**
@@ -218,7 +216,7 @@ function buildAgentToml(
 
   const modelTier = source.modelKey ? config.models?.[source.modelKey] : undefined;
   const effort = source.modelKey ? config.effort?.[source.modelKey] : undefined;
-  const sandbox = READ_ONLY_ROLES.includes(source.id) ? "read-only" : "workspace-write";
+  const sandbox = source.sandbox ?? "workspace-write";
   const lines = [
     `name = ${JSON.stringify(source.id)}`,
     `description = ${JSON.stringify(description)}`,
