@@ -1,6 +1,6 @@
 # Spec 0007 — Render plan unificado: eliminar duplicidad Claude ↔ Codex (runbook ejecutable)
 
-**Status:** partially executed — M1 ejecutada y verde; Fase A lista para ejecutar; Fases B/C gated (DT-2)
+**Status:** partially executed — M1 y Fase A ejecutadas y verdes; Fases B/C gated (DT-2)
 **Fecha:** 2026-07-28
 **Driver:** Ulises Ciprés
 **Depende de:** [Spec 0002](./0002-claude-engine-adapter.md) (engine Claude), [Spec 0004](./0004-codex-engine-adapter.md) (engine Codex, mergeado en rama `codex`), [Spec 0005](./0005-search-efficiency-layer.md)
@@ -38,7 +38,7 @@ Plan → backup → escritura atómica → chmod → poda de huérfanos → repo
 | Fase | Qué | Estado | Gate |
 |---|---|---|---|
 | **M1** | Test de paridad de inventario | ✅ **EJECUTADA 2026-07-28** — 3/3 verde | — |
-| **A** | Extraer `resolveHarnessPlan` a shared | 🟢 **EJECUTABLE** (runbook §6) | ninguno; riesgo ~0 |
+| **A** | Extraer `resolveHarnessPlan` a shared | ✅ **EJECUTADA 2026-07-28** — build+test verde, V-BYTE idéntico | ninguno; riesgo ~0 |
 | **B** | `executePlan` compartido + codex como adapter | 🔒 **GATED** | requiere aprobación explícita de Ulises (DT-2: proveedor #3 comprometido O bug de divergencia) |
 | **C** | Claude sobre el spine | 🔒 **GATED** | se especifica en spec propia al aprobarse; NO está en este runbook |
 | M3-M9 | Mejoras independientes (§9) | 🟡 backlog | aprobación por mejora |
@@ -124,7 +124,7 @@ cd packages/cli && npx vitest run src/engines/__tests__/engine-parity.test.ts   
 
 ---
 
-## 7. Fase A — Capa 1: `resolveHarnessPlan` 🟢 EJECUTABLE
+## 7. Fase A — Capa 1: `resolveHarnessPlan` ✅ EJECUTADA
 
 Extrae los resolvers duplicados a `shared/`. Codex la consume; Claude NO se toca (DT-1). **Ejecuta el PASO 0 de V-BYTE (§5) antes de editar.**
 
@@ -473,5 +473,5 @@ Fase A: ~medio día (extracción mecánica + V-BYTE). Fase B: ~2-3 días. Fase C
 | Fecha | Fase | Resultado | Notas |
 |---|---|---|---|
 | 2026-07-28 | M1 | ✅ 3/3 verde a la primera | Paridad real confirmada: skills idénticos, agents idénticos (excepto `leader`, intencional), hooks idénticos. Archivo commiteado en `engines/__tests__/engine-parity.test.ts`. |
-| | A | | |
+| 2026-07-28 | A | ✅ verde a la primera | `resolveHarnessPlan` extraído a `shared/harness-plan.ts` (113 LOC); codex lo consume. Borrados `AgentSource`/`collectAgentSources`/`collectSkillSources`; `codex/index.ts` 573→486 LOC. Grep de referencias muertas limpio (solo un comentario en engine-parity.test.ts actualizado). `pnpm build && pnpm test` → 72 files/1108 passed. V-BYTE (§5) → byte-idéntico. Sin cambios de comportamiento (DT-4). |
 | | B | | |

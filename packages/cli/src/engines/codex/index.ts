@@ -7,7 +7,7 @@ import {
   rmSync,
   type Dirent,
 } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
@@ -16,20 +16,13 @@ import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import { injectManagedSection } from "../../lib/marker.ts";
 import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
-import { librarySkillById } from "../../lib/library-skills.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { isDowngrade } from "../../lib/semver.ts";
 import { renderManagedFile } from "../claude/render-managed-file.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { interpolate } from "../claude/interpolate.ts";
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
-import {
-  CORE_AGENTS,
-  CORE_SKILLS,
-  WORKFLOW_SKILLS,
-  extraConditionMet,
-  isAgentEnabled,
-} from "../shared/harness-assets.ts";
+import { resolveHarnessPlan, type PlannedAgent } from "../shared/harness-plan.ts";
 import { buildCodexConfigToml } from "./build-config-toml.ts";
 import { adaptHarnessTextForCodex } from "./compat.ts";
 
@@ -50,12 +43,6 @@ interface PendingWrite {
 interface PendingRemoval {
   path: string;
   recursive?: boolean;
-}
-
-interface AgentSource {
-  id: string;
-  assetPath: string;
-  modelKey?: keyof NonNullable<NavoriConfig["models"]>;
 }
 
 interface CodexAgentDefinition {
@@ -97,7 +84,8 @@ export function renderCodexEngine(
   const preset = loadActivePreset(config, repoRoot, warnings);
   const presetLoadedSafely =
     !config.preset || config.preset === "custom" || config.preset === preset?.def.id;
-  const agentSources = collectAgentSources(config, coreAssets, preset);
+  const plan = resolveHarnessPlan(config, coreAssets, preset);
+  const agentSources = plan.agents;
   const agentDefs: CodexAgentDefinition[] = [];
   for (const source of agentSources) {
     // Codex auto-discovers standalone project agents from `.codex/agents/`;
@@ -108,7 +96,7 @@ export function renderCodexEngine(
   }
   planAgentsMd(cwd, config, repoRoot, isWorkspace, agentDefs, pending, skipped);
 
-  const skillSources = collectSkillSources(config, coreAssets, preset);
+  const skillSources = plan.skills;
   for (const skill of skillSources) {
     collectPlan(
       planManagedAsset({
@@ -123,27 +111,14 @@ export function renderCodexEngine(
     );
   }
 
-  collectPlan(
-    planManagedAsset({
-      cwd,
-      config,
-      assetPath: join(coreAssets, "hooks/guard-destructive.sh"),
-      destRelPath: ".codex/hooks/guard-destructive.sh",
-      managedId: "guard-destructive-base",
-      commentStyle: "shell",
-      chmodExec: true,
-    }),
-    pending,
-    skipped,
-  );
-  if (config.qualityGate?.fast) {
+  for (const hook of plan.hooks) {
     collectPlan(
       planManagedAsset({
         cwd,
         config,
-        assetPath: join(coreAssets, "hooks/quality-gate-pre-commit.sh"),
-        destRelPath: ".codex/hooks/quality-gate-pre-commit.sh",
-        managedId: "qg-pre-commit-base",
+        assetPath: hook.assetPath,
+        destRelPath: `.codex/hooks/${hook.id}.sh`,
+        managedId: hook.managedId,
         commentStyle: "shell",
         chmodExec: true,
       }),
@@ -161,10 +136,7 @@ export function renderCodexEngine(
         cwd,
         new Set(agentSources.map(({ id }) => `.codex/agents/${id}.toml`)),
         new Set(skillSources.map(({ id }) => `.agents/skills/${id}/SKILL.md`)),
-        new Set([
-          ".codex/hooks/guard-destructive.sh",
-          ...(config.qualityGate?.fast ? [".codex/hooks/quality-gate-pre-commit.sh"] : []),
-        ]),
+        new Set(plan.hooks.map(({ id }) => `.codex/hooks/${id}.sh`)),
       )
     : [];
 
@@ -322,36 +294,10 @@ function loadActivePreset(
   }
 }
 
-function collectAgentSources(
-  config: NavoriConfig,
-  coreAssets: string,
-  preset: ReturnType<typeof loadPreset>,
-): AgentSource[] {
-  const sources: AgentSource[] = [];
-  for (const agent of CORE_AGENTS) {
-    // The main Codex thread embodies leader; registering it as a spawnable
-    // custom role would contradict the leader asset itself.
-    if (agent.id === "leader" || !isAgentEnabled(config, agent.harnessKey)) continue;
-    sources.push({
-      id: agent.id,
-      assetPath: join(coreAssets, `agents/${agent.id}.md`),
-      modelKey: agent.harnessKey,
-    });
-  }
-  for (const extra of preset?.def.extras.agents ?? []) {
-    if (!extraConditionMet(extra, config)) continue;
-    sources.push({
-      id: basename(extra.destRelPath).replace(/\.md$/, ""),
-      assetPath: join(preset!.assetRoot, extra.relPath),
-    });
-  }
-  return sources;
-}
-
 function planAgentFile(
   cwd: string,
   config: NavoriConfig,
-  source: AgentSource,
+  source: PlannedAgent,
   plugins: readonly LoadedPlugin[],
 ): ReturnType<typeof planRawManagedFile> & { description: string } {
   const raw = readFileSync(source.assetPath, "utf-8");
@@ -399,39 +345,6 @@ function planAgentFile(
     ),
     description,
   };
-}
-
-function collectSkillSources(
-  config: NavoriConfig,
-  coreAssets: string,
-  preset: ReturnType<typeof loadPreset>,
-): Array<{ id: string; assetPath: string; managedId: string }> {
-  const out = [
-    ...CORE_SKILLS.map((id) => ({
-      id,
-      assetPath: join(coreAssets, `skills/${id}.md`),
-      managedId: `${id}-base`,
-    })),
-    ...WORKFLOW_SKILLS.map((id) => ({
-      id,
-      assetPath: join(coreAssets, `skills/${id}.md`),
-      managedId: id,
-    })),
-  ];
-  const seen = new Set(out.map(({ id }) => id));
-  for (const extra of preset?.def.extras.skills ?? []) {
-    if (!extraConditionMet(extra, config)) continue;
-    const id = basename(extra.destRelPath).replace(/\.md$/, "");
-    if (seen.has(id)) continue;
-    seen.add(id);
-    out.push({ id, assetPath: join(preset!.assetRoot, extra.relPath), managedId: extra.id });
-  }
-  for (const id of config.project?.libraries ?? []) {
-    if (seen.has(id) || !librarySkillById(id)) continue;
-    seen.add(id);
-    out.push({ id, assetPath: join(coreAssets, `lib-skills/${id}.md`), managedId: id });
-  }
-  return out;
 }
 
 function collectOrphanedManagedFiles(
