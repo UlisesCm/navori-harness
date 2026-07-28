@@ -1,0 +1,67 @@
+import type { AdapterCtx, EngineAdapter, PlacementRequest } from "../shared/execute-plan.ts";
+
+/**
+ * Claude adapter (Spec 0008, Capa 2) — the SHARED slice only: core/preset
+ * agents, core/workflow/preset/library skills, and core hooks, placed under
+ * `.claude/`. Everything Claude-only (the CLAUDE.md pipeline, settings.json,
+ * progress bootstrap, plugin scripts, injectInto sub-blocks and the 3-way
+ * reconciliation) stays in `renderClaudeEngine` and feeds the SAME pending +
+ * a single `commitWrites`. `extraFiles`/`orphanScans` are empty here on
+ * purpose: those concerns live in the engine, not the adapter.
+ *
+ * Destinations are derived from the canonical id (`.claude/skills/<id>.md`,
+ * etc.), matching how the bundled presets already declare their extras. A
+ * local preset that ships an extra at a non-standard path would be normalized
+ * to the derived path — none of the bundled presets do (their `destRelPath`
+ * is always `.claude/<kind>/<id>.<ext>`), so parity holds; revisit if a real
+ * preset needs an off-tree destination.
+ *
+ * `label` is intentionally omitted so a write failure reads "El render falló…"
+ * exactly as Claude did before the spine.
+ */
+export function createClaudeAdapter(): EngineAdapter {
+  return {
+    id: "claude",
+    backupTargets: ["CLAUDE.md", ".claude", "navori.config.json"],
+
+    placeAgent(agent): PlacementRequest {
+      return {
+        assetPath: agent.assetPath,
+        destRelPath: `.claude/agents/${agent.id}.md`,
+        managedId: agent.managedId,
+        commentStyle: "html",
+      };
+    },
+
+    placeSkill(skill): PlacementRequest {
+      return {
+        assetPath: skill.assetPath,
+        destRelPath: `.claude/skills/${skill.id}.md`,
+        managedId: skill.managedId,
+        commentStyle: "html",
+      };
+    },
+
+    placeHook(hook): PlacementRequest {
+      return {
+        assetPath: hook.assetPath,
+        destRelPath: `.claude/hooks/${hook.id}.sh`,
+        managedId: hook.managedId,
+        commentStyle: "shell",
+        chmodExec: true,
+      };
+    },
+
+    // CLAUDE.md, settings.json, scripts and bootstrap are built in the engine
+    // (Claude-only) and merged into the shared pending — not here.
+    extraFiles(_ctx: AdapterCtx): PlacementRequest[] {
+      return [];
+    },
+
+    // Claude's reconciliation (disabled plugins, removed/orphaned lib skills,
+    // sub-block removal) is richer than OrphanScan[] and stays in the engine.
+    orphanScans() {
+      return [];
+    },
+  };
+}

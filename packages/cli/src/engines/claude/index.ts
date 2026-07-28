@@ -11,7 +11,7 @@ import {
   type AssetPlanEntry,
   type UpdateAvailable,
 } from "../../lib/render-plan.ts";
-import { loadPreset, PresetError, type PresetExtraFile } from "../../lib/presets.ts";
+import { loadPreset, PresetError } from "../../lib/presets.ts";
 import { librarySkillById, LIBRARY_SKILLS, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import {
@@ -38,6 +38,20 @@ import {
   extraConditionMet,
   isAgentEnabled,
 } from "../shared/harness-assets.ts";
+import { resolveHarnessPlan } from "../shared/harness-plan.ts";
+import { collectPlan, type AdapterCtx, type SkipReason } from "../shared/execute-plan.ts";
+import { createClaudeAdapter } from "./adapter.ts";
+
+/**
+ * Claude keeps its detailed skip prose (with the `navori sync` hint and the
+ * upgrade nudge) when a managed block was hand-edited or written by a newer
+ * navori. Passed to `collectPlan` so the shared spine surfaces Claude's
+ * messages, not the generic English defaults (Spec 0008 C.2).
+ */
+const claudeSkipReason: SkipReason = (status, _destRelPath, existingVersion) =>
+  status === "user-modified-skipped"
+    ? "bloque managed editado por el usuario; resuelve con 'navori sync' o ajusta el destino a mano"
+    : `bloque escrito por una navori más nueva (${existingVersion ?? "?"}); no lo toqué. Actualiza tu CLI: npm i -g navori@latest`;
 
 /**
  * Claude engine adapter — entry point. Orchestrates the full render of a
@@ -593,61 +607,34 @@ export function renderClaudeEngine(
     });
   }
 
-  // 3. Agents
-  for (const agent of CORE_AGENTS) {
-    if (!isAgentEnabled(config, agent.harnessKey)) continue;
-    inspected += 1;
-    applyManagedFilePlan(
-      planManagedFile({
-        cwd,
-        assetRoot: coreAssets,
-        assetRelPath: `agents/${agent.id}.md`,
-        destRelPath: `.claude/agents/${agent.id}.md`,
-        managedId: `${agent.id}-base`,
-        config,
-      }),
-      cwd,
-      pending,
-      skipped,
-    );
+  // 3–6.6 (Spec 0008 C.2) — SHARED inventory via the spine. resolveHarnessPlan
+  // resolves core/preset agents, core/workflow/preset/library skills and core
+  // hooks; collectPlan renders them through the Claude adapter into the SAME
+  // `pending`. Claude-only work (CLAUDE.md above; settings/bootstrap/scripts/
+  // injectInto/preset-hooks/reconciliation below) shares that pending and one
+  // commitWrites. `includeLeader` because Claude DOES emit leader.md.
+  const preset = loadActivePreset(config, repoRoot, warnings);
+  const harnessPlan = resolveHarnessPlan(config, coreAssets, preset, { includeLeader: true });
+  const adapterCtx: AdapterCtx = {
+    cwd,
+    config,
+    repoRoot,
+    isWorkspace,
+    coreAssets,
+    preset,
+    plugins: enabledPlugins,
+  };
+  const sharedPlan = collectPlan(harnessPlan, createClaudeAdapter(), adapterCtx, {
+    prune: false,
+    skipReason: claudeSkipReason,
+  });
+  for (const p of sharedPlan.pending) {
+    pending.push({ path: p.path, content: p.content, status: p.status, chmodExec: p.chmodExec });
   }
-
-  // 4. Skills (always on for now)
-  for (const skillId of CORE_SKILLS) {
-    inspected += 1;
-    applyManagedFilePlan(
-      planManagedFile({
-        cwd,
-        assetRoot: coreAssets,
-        assetRelPath: `skills/${skillId}.md`,
-        destRelPath: `.claude/skills/${skillId}.md`,
-        managedId: `${skillId}-base`,
-        config,
-      }),
-      cwd,
-      pending,
-      skipped,
-    );
-  }
-
-  // 4b. Workflow skills — always-on, stack-agnostic process skills. Bare
-  // managed-id (not `-base`) to match the block the express preset wrote before
-  // these were promoted, so `update` refreshes in place instead of duplicating.
-  for (const skillId of WORKFLOW_SKILLS) {
-    inspected += 1;
-    applyManagedFilePlan(
-      planManagedFile({
-        cwd,
-        assetRoot: coreAssets,
-        assetRelPath: `skills/${skillId}.md`,
-        destRelPath: `.claude/skills/${skillId}.md`,
-        managedId: skillId,
-        config,
-      }),
-      cwd,
-      pending,
-      skipped,
-    );
+  for (const s of sharedPlan.skipped) skipped.push(s);
+  inspected += harnessPlan.agents.length + harnessPlan.skills.length + harnessPlan.hooks.length;
+  if (!config.qualityGate?.fast) {
+    warnings.push("quality-gate hook skipped: config.qualityGate.fast no está set");
   }
 
   // 5. progress/ bootstrap (one-shot, never overwritten)
@@ -673,134 +660,28 @@ export function renderClaudeEngine(
     pending,
   );
 
-  // 6. Defensive guard hook (always rendered — no config dependency).
-  inspected += 1;
-  applyManagedFilePlan(
-    planManagedFile({
-      cwd,
-      assetRoot: coreAssets,
-      assetRelPath: `hooks/guard-destructive.sh`,
-      destRelPath: `.claude/hooks/guard-destructive.sh`,
-      managedId: "guard-destructive-base",
-      config,
-    }),
-    cwd,
-    pending,
-    skipped,
-    /* chmodExec */ true,
-  );
-
-  // 6.1. Hook quality-gate (only if config has a fast gate)
-  if (config.qualityGate?.fast) {
+  // 6.5-bis. Preset HOOKS — the one preset-extra kind the spine doesn't model
+  // (arbitrary destRelPath + exec bit, no id-derived path). Preset agents/skills
+  // and library skills already went through the shared plan above; only hooks
+  // remain here. Every bundled preset ships `extras.hooks: []`, so this is a
+  // no-op today — kept Claude-only until a real preset needs it (then lift into
+  // the plan). The preset was loaded (with its warnings) by loadActivePreset.
+  for (const extra of preset?.def.extras.hooks ?? []) {
+    if (!extraConditionMet(extra, config)) continue;
     inspected += 1;
     applyManagedFilePlan(
       planManagedFile({
         cwd,
-        assetRoot: coreAssets,
-        assetRelPath: `hooks/quality-gate-pre-commit.sh`,
-        destRelPath: `.claude/hooks/quality-gate-pre-commit.sh`,
-        managedId: "qg-pre-commit-base",
+        assetRoot: preset!.assetRoot,
+        assetRelPath: extra.relPath,
+        destRelPath: extra.destRelPath,
+        managedId: extra.id,
         config,
       }),
       cwd,
       pending,
       skipped,
       /* chmodExec */ true,
-    );
-  } else {
-    warnings.push("quality-gate hook skipped: config.qualityGate.fast no está set");
-  }
-
-  // 6.5. Preset extras — stack-specific agents/skills/hooks the active preset
-  // contributes on top of the core baseline. Same managed-file semantics as
-  // CORE_AGENTS/CORE_SKILLS; the preset's `extras.{agents,skills,hooks}[]`
-  // declares its own destination paths so a preset can target either the
-  // `.claude/` tree or extend specific managed sub-blocks elsewhere.
-  // A malformed preset surfaces via warning. A missing preset file also
-  // surfaces — silent-skip masked the medusa-v2/medusa.json mismatch in
-  // moonar where the backend workspace was missing the medusa skills.
-  // Destination paths already claimed by core + preset skills. Library skills
-  // (step 6.6) dedup against these so a preset that ships a skill at the same
-  // path always wins over the auto-detected library version.
-  const renderedSkillDests = new Set<string>(
-    [...CORE_SKILLS, ...WORKFLOW_SKILLS].map((id) => `.claude/skills/${id}.md`),
-  );
-  if (config.preset && config.preset !== "custom") {
-    let loaded = null;
-    try {
-      loaded = loadPreset(config.preset, repoRoot);
-    } catch (err) {
-      if (err instanceof PresetError) {
-        warnings.push(`preset '${config.preset}' invalid: ${err.message}`);
-      } else {
-        throw err;
-      }
-    }
-    if (!loaded) {
-      warnings.push(
-        `preset '${config.preset}' not found (no .navori/presets/${config.preset}/ nor bundled). ` +
-          `Workspace will render with the core baseline only.`,
-      );
-    }
-    if (loaded) {
-      const allFileExtras: Array<{ extra: PresetExtraFile; exec: boolean }> = [
-        ...loaded.def.extras.agents.map((e) => ({ extra: e, exec: false })),
-        ...loaded.def.extras.skills.map((e) => ({ extra: e, exec: false })),
-        ...loaded.def.extras.hooks.map((e) => ({ extra: e, exec: true })),
-      ];
-      for (const { extra, exec } of allFileExtras) {
-        // A conditional extra whose condition is false is not materialized —
-        // it never lands on disk and isn't counted as inspected.
-        if (!extraConditionMet(extra, config)) continue;
-        renderedSkillDests.add(extra.destRelPath);
-        inspected += 1;
-        applyManagedFilePlan(
-          planManagedFile({
-            cwd,
-            assetRoot: loaded.assetRoot,
-            assetRelPath: extra.relPath,
-            destRelPath: extra.destRelPath,
-            managedId: extra.id,
-            config,
-          }),
-          cwd,
-          pending,
-          skipped,
-          exec,
-        );
-      }
-    }
-  }
-
-  // 6.6. Library skills — modular skills injected by dependency detection
-  // (config.project.libraries), orthogonal to the active preset. Same
-  // managed-file semantics as preset extras; deduped by destination against
-  // core + preset skills so a preset never gets overwritten by a library skill.
-  for (const id of config.project?.libraries ?? []) {
-    const skill = librarySkillById(id);
-    // An unknown id in config (stale/hand-edited) is ignored, not fatal.
-    if (!skill) continue;
-    const destRelPath = `.claude/skills/${id}.md`;
-    if (renderedSkillDests.has(destRelPath)) continue;
-    renderedSkillDests.add(destRelPath);
-    inspected += 1;
-    applyManagedFilePlan(
-      planManagedFile({
-        cwd,
-        assetRoot: coreAssets,
-        assetRelPath: `lib-skills/${id}.md`,
-        destRelPath,
-        // The managed-block id is the bare skill id — the SAME id the
-        // express-mongoose preset used to write for mongoose/zod/joi before they
-        // moved to this layer. On upgrade the marker is recognized and updated
-        // in place; a distinct id (e.g. `${id}-lib`) would leave the preset-era
-        // block untouched and append a duplicate block in the same file.
-        managedId: id,
-        config,
-      }),
-      cwd,
-      pending,
-      skipped,
     );
   }
 
@@ -1027,6 +908,37 @@ export function renderClaudeEngine(
 }
 
 // ─────────────────────────── helpers ───────────────────────────
+
+/**
+ * Load the active preset for the plan, surfacing Claude's own warnings. A
+ * `custom`/absent preset returns null with no warning; an invalid preset warns
+ * (and, because it stays null, also emits the not-found warning — same two-note
+ * behavior as the pre-spine §6.5 loop).
+ */
+function loadActivePreset(
+  config: NavoriConfig,
+  repoRoot: string,
+  warnings: string[],
+): ReturnType<typeof loadPreset> {
+  if (!config.preset || config.preset === "custom") return null;
+  let loaded: ReturnType<typeof loadPreset> = null;
+  try {
+    loaded = loadPreset(config.preset, repoRoot);
+  } catch (err) {
+    if (err instanceof PresetError) {
+      warnings.push(`preset '${config.preset}' invalid: ${err.message}`);
+    } else {
+      throw err;
+    }
+  }
+  if (!loaded) {
+    warnings.push(
+      `preset '${config.preset}' not found (no .navori/presets/${config.preset}/ nor bundled). ` +
+        `Workspace will render with the core baseline only.`,
+    );
+  }
+  return loaded;
+}
 
 type SettingsPlan =
   | { kind: "noop" }

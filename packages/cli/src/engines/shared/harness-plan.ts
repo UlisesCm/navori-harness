@@ -20,6 +20,12 @@ import {
 export interface PlannedAgent {
   id: string;
   assetPath: string;
+  /**
+   * Canonical (Claude-style) managed-block id: `<id>-base` for core agents,
+   * the preset extra's own id for preset agents. Codex ignores it and derives
+   * its own `<id>-codex-base` namespace to avoid collisions.
+   */
+  managedId: string;
   /** Key into config.models / config.effort for per-role assignment. */
   modelKey?: keyof NonNullable<NavoriConfig["models"]>;
 }
@@ -57,6 +63,7 @@ export function resolveHarnessPlan(
     agents.push({
       id: agent.id,
       assetPath: join(coreAssets, `agents/${agent.id}.md`),
+      managedId: `${agent.id}-base`,
       modelKey: agent.harnessKey,
     });
   }
@@ -65,6 +72,7 @@ export function resolveHarnessPlan(
     agents.push({
       id: basename(extra.destRelPath).replace(/\.md$/, ""),
       assetPath: join(preset!.assetRoot, extra.relPath),
+      managedId: extra.id,
     });
   }
 

@@ -103,9 +103,10 @@ export function collectPlan(
   plan: HarnessPlan,
   adapter: EngineAdapter,
   ctx: AdapterCtx,
-  options: { prune?: boolean } = {},
+  options: { prune?: boolean; skipReason?: SkipReason } = {},
 ): { pending: PendingWrite[]; removals: PendingRemoval[]; skipped: ExecuteResult["skipped"] } {
   const prune = options.prune !== false;
+  const skipReason = options.skipReason ?? DEFAULT_SKIP_REASON;
   const pending: PendingWrite[] = [];
   const skipped: ExecuteResult["skipped"] = [];
 
@@ -126,7 +127,7 @@ export function collectPlan(
   // agents/skills (e.g. Codex's AGENTS.md agent catalog) see the full set.
   requests.push(...adapter.extraFiles(ctx));
 
-  for (const req of requests) collectRequest(req, ctx, pending, skipped);
+  for (const req of requests) collectRequest(req, ctx, pending, skipped, skipReason);
 
   const removals = prune ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd) : [];
 
@@ -152,15 +153,33 @@ export function executePlan(
   return { written, skipped, backupPath };
 }
 
+/**
+ * Skip-reason localizer. Engines share the render mechanics but surface their
+ * own skip prose (Claude keeps its detailed `navori sync` hints). `collectPlan`
+ * takes one via options; Codex uses this default.
+ */
+export type SkipReason = (
+  status: "user-modified-skipped" | "downgrade-skipped",
+  destRelPath: string,
+  existingVersion: string | undefined,
+) => string;
+
+const DEFAULT_SKIP_REASON: SkipReason = (status) =>
+  status === "user-modified-skipped"
+    ? "managed block edited by hand"
+    : "escrito por una navori más nueva";
+
 function collectRequest(
   req: PlacementRequest,
   ctx: AdapterCtx,
   pending: PendingWrite[],
   skipped: ExecuteResult["skipped"],
+  skipReason: SkipReason,
 ): void {
   const path = join(ctx.cwd, req.destRelPath);
   let content: string;
   let status: RenderStatus;
+  let existingVersion: string | undefined;
 
   if (req.assetPath !== undefined) {
     const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
@@ -174,6 +193,7 @@ function collectRequest(
     });
     content = result.content;
     status = result.status;
+    existingVersion = result.details?.existingVersion;
   } else {
     const exists = existsSync(path);
     const existing = exists ? readFileSync(path, "utf-8") : (req.firstRenderSeed?.header ?? "");
@@ -187,16 +207,14 @@ function collectRequest(
     content = result.output;
     if (!exists && req.firstRenderSeed?.trailer) content += req.firstRenderSeed.trailer;
     status = result.status;
+    existingVersion = result.details?.existingVersion;
   }
 
   if (status === "unchanged") return;
   if (status === "user-modified-skipped" || status === "downgrade-skipped") {
     skipped.push({
       path: req.destRelPath,
-      reason:
-        status === "user-modified-skipped"
-          ? "managed block edited by hand"
-          : "escrito por una navori más nueva",
+      reason: skipReason(status, req.destRelPath, existingVersion),
     });
     return;
   }
