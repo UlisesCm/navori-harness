@@ -16,7 +16,7 @@ import { renderCodexEngine } from "../codex/index.ts";
 
 /** Intentional inventory differences. leader: the main Codex thread embodies
  * the leader role, so the Codex engine deliberately emits no spawnable leader
- * agent (see engines/codex/index.ts collectAgentSources). */
+ * agent (see resolveHarnessPlan's includeLeader option in engines/shared/harness-plan.ts). */
 const AGENT_KNOWN_DIFFS: ReadonlySet<string> = new Set(["leader"]);
 
 function parityConfig(): NavoriConfig {

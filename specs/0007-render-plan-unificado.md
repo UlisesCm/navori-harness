@@ -1,6 +1,6 @@
 # Spec 0007 — Render plan unificado: eliminar duplicidad Claude ↔ Codex (runbook ejecutable)
 
-**Status:** partially executed — M1 ejecutada y verde; Fase A lista para ejecutar; Fases B/C gated (DT-2)
+**Status:** partially executed — M1 + Fases A y B ejecutadas y verdes; Fase C gated (spec propia)
 **Fecha:** 2026-07-28
 **Driver:** Ulises Ciprés
 **Depende de:** [Spec 0002](./0002-claude-engine-adapter.md) (engine Claude), [Spec 0004](./0004-codex-engine-adapter.md) (engine Codex, mergeado en rama `codex`), [Spec 0005](./0005-search-efficiency-layer.md)
@@ -38,9 +38,9 @@ Plan → backup → escritura atómica → chmod → poda de huérfanos → repo
 | Fase | Qué | Estado | Gate |
 |---|---|---|---|
 | **M1** | Test de paridad de inventario | ✅ **EJECUTADA 2026-07-28** — 3/3 verde | — |
-| **A** | Extraer `resolveHarnessPlan` a shared | 🟢 **EJECUTABLE** (runbook §6) | ninguno; riesgo ~0 |
-| **B** | `executePlan` compartido + codex como adapter | 🔒 **GATED** | requiere aprobación explícita de Ulises (DT-2: proveedor #3 comprometido O bug de divergencia) |
-| **C** | Claude sobre el spine | 🔒 **GATED** | se especifica en spec propia al aprobarse; NO está en este runbook |
+| **A** | Extraer `resolveHarnessPlan` a shared | ✅ **EJECUTADA 2026-07-28** — build+test verde, V-BYTE idéntico | ninguno; riesgo ~0 |
+| **B** | `executePlan` compartido + codex como adapter | ✅ **EJECUTADA 2026-07-28** — DT-2 adelantado por decisión explícita de Ulises; build+test verde, V-BYTE idéntico | (gate levantado por el driver) |
+| **C** | Claude sobre el spine | 🟡 **DRAFT** — runbook en [Spec 0008](./0008-fase-c-claude-spine.md), pendiente de ratificar DT-C1 | requiere aprobación de Ulises (spec propia) |
 | M3-M9 | Mejoras independientes (§9) | 🟡 backlog | aprobación por mejora |
 
 ---
@@ -124,7 +124,7 @@ cd packages/cli && npx vitest run src/engines/__tests__/engine-parity.test.ts   
 
 ---
 
-## 7. Fase A — Capa 1: `resolveHarnessPlan` 🟢 EJECUTABLE
+## 7. Fase A — Capa 1: `resolveHarnessPlan` ✅ EJECUTADA
 
 Extrae los resolvers duplicados a `shared/`. Codex la consume; Claude NO se toca (DT-1). **Ejecuta el PASO 0 de V-BYTE (§5) antes de editar.**
 
@@ -366,9 +366,9 @@ cd ../..
 
 ---
 
-## 8. Fase B — Capa 2 + Capa 3 🔒 GATED (NO ejecutar sin aprobación explícita de Ulises)
+## 8. Fase B — Capa 2 + Capa 3 ✅ EJECUTADA 2026-07-28
 
-> El código de esta fase es el **punto de partida congelado** (DT-3). El repo habrá derivado cuando se apruebe: si el build falla por drift, ajusta SOLO imports/tipos, nunca la lógica, y reporta cada ajuste en el Registro.
+> **Ejecutada** adelantando DT-2 por decisión explícita del driver (Ulises), sin esperar al proveedor #3. El contrato §8.1 se siguió como guía; ver "Desviaciones respecto al contrato congelado" en el Registro de ejecución.
 
 ### 8.1 Contrato `EngineAdapter` (congelado)
 
@@ -473,5 +473,12 @@ Fase A: ~medio día (extracción mecánica + V-BYTE). Fase B: ~2-3 días. Fase C
 | Fecha | Fase | Resultado | Notas |
 |---|---|---|---|
 | 2026-07-28 | M1 | ✅ 3/3 verde a la primera | Paridad real confirmada: skills idénticos, agents idénticos (excepto `leader`, intencional), hooks idénticos. Archivo commiteado en `engines/__tests__/engine-parity.test.ts`. |
-| | A | | |
-| | B | | |
+| 2026-07-28 | A | ✅ verde a la primera | `resolveHarnessPlan` extraído a `shared/harness-plan.ts` (113 LOC); codex lo consume. Borrados `AgentSource`/`collectAgentSources`/`collectSkillSources`; `codex/index.ts` 573→486 LOC. Grep de referencias muertas limpio (solo un comentario en engine-parity.test.ts actualizado). `pnpm build && pnpm test` → 72 files/1108 passed. V-BYTE (§5) → byte-idéntico. Sin cambios de comportamiento (DT-4). |
+| 2026-07-28 | B | ✅ verde | Capa 3 `shared/execute-plan.ts` (293 LOC): `PlacementRequest`/`OrphanScan`/`AdapterCtx`/`EngineAdapter` + `executePlan` (render asset|body, poda genérica por `OrphanScan[]`, backup/escritura atómica/chmod, reporte). `render-managed-file.ts` movido `claude/`→`shared/` (+ su test). Codex reescrito como adapter declarativo (`createCodexAdapter`, `buildAgentToml`, `buildAgentsMdRequest`); fontanería fuera; `codex/index.ts` 486→252 LOC. Gates: oxlint + biome limpios, `pnpm test` 72/1108 verde (incluye `render-codex`, `engine-parity`, `render-managed-file` movido), V-BYTE claude+codex → **byte-idéntico**. |
+
+### Desviaciones respecto al contrato congelado §8.1 (Fase B)
+El contrato §8.1 se siguió como guía; ajustes menores hechos para preservar el comportamiento byte a byte (DT-4) sin alterar la lógica:
+1. **Warnings se quedan en el caller (`renderCodexEngine`), no en `engineWarnings`.** Las warnings de Codex provienen de plugins faltantes, carga de preset y `buildCodexConfigToml` — todo lo tiene el caller antes de invocar `executePlan`. Mantenerlas ahí (con el gate `isWorkspace ? [] : warnings` intacto) evita mover el flujo de warnings al executor y reduce la superficie de cambio. Por eso `engineWarnings?` se omitió del `EngineAdapter` implementado. Cuando migre otro engine con warnings propias del pipeline, se reevalúa reintroducirlo.
+2. **Adapter con estado por render.** `createCodexAdapter` es una factory que devuelve un adapter fresco cuyo `placeAgent` acumula el catálogo de agentes (id + description) que `extraFiles` pliega en `AGENTS.md`. El executor garantiza el orden (agents → skills → hooks → `extraFiles`), así el estado siempre está completo. El `body` del `config.toml` se pasa a la factory ya construido (para capturar sus warnings en el caller).
+3. **`label` añadido al `EngineAdapter`** (`"Codex"`) para preservar el texto exacto del `RenderWriteError` ("El render Codex falló…"); default al `id`.
+4. **`codex/index.ts` quedó en 252 LOC** (meta orientativa §8.3 era <250). Se priorizó legibilidad del adapter sobre recortes cosméticos por 2 líneas; la intención del umbral (adapter declarativo, fontanería en el executor) está cumplida.
