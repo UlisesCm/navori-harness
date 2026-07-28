@@ -9,6 +9,10 @@ coverage/
 .claude/
 CLAUDE.md
 
+# Local Codex state (not committed per workspace convention)
+.codex/
+AGENTS.md
+
 # navori-ai runtime state in dev/test repos
 .navori/
 
