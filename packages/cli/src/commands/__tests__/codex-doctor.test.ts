@@ -1,4 +1,5 @@
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -7,6 +8,18 @@ import { scanCodexHealth, buildEngineInventory } from "../doctor.ts";
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-codex-doctor-"));
+}
+
+function gitInit(cwd: string): void {
+  execFileSync("git", ["-C", cwd, "init", "-q"], { stdio: "ignore" });
+}
+
+function writeGuard(cwd: string): string {
+  mkdirSync(join(cwd, ".codex/hooks"), { recursive: true });
+  const hook = join(cwd, ".codex/hooks/guard-destructive.sh");
+  writeFileSync(hook, "#!/bin/sh\n");
+  chmodSync(hook, 0o755);
+  return hook;
 }
 
 function config(overrides: Partial<NavoriConfig> = {}): NavoriConfig {
@@ -64,6 +77,32 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
     );
     const health = scanCodexHealth(cwd, config());
     expect(health?.configMalformed).toBe(false);
+  });
+
+  it("does not flag unversioned hooks outside a git work tree (no worktrees ⇒ no exposure)", () => {
+    const cwd = tempRepo();
+    writeGuard(cwd); // untracked, but the dir is not a git repo
+    const health = scanCodexHealth(cwd, config());
+    expect(health?.guardNotVersioned).toEqual([]);
+  });
+
+  it("flags a hook untracked by git (absent from a worktree checkout ⇒ guard off there)", () => {
+    const cwd = tempRepo();
+    gitInit(cwd);
+    writeGuard(cwd); // git repo but never `git add`-ed
+    const health = scanCodexHealth(cwd, config());
+    expect(health?.guardNotVersioned).toContain(".codex/hooks/guard-destructive.sh");
+  });
+
+  it("passes when the hook is tracked by git (travels to every worktree/clone)", () => {
+    const cwd = tempRepo();
+    gitInit(cwd);
+    writeGuard(cwd);
+    execFileSync("git", ["-C", cwd, "add", ".codex/hooks/guard-destructive.sh"], {
+      stdio: "ignore",
+    });
+    const health = scanCodexHealth(cwd, config());
+    expect(health?.guardNotVersioned).toEqual([]);
   });
 });
 

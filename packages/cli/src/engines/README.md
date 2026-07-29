@@ -97,6 +97,18 @@ comparte las skills sin re-render. No lo colapses a un único árbol por engine.
 si prefieres no versionarlos, agrégalos al `.gitignore` del repo destino junto con
 `.claude/` — navori no gestiona el `.gitignore` del repo, es decisión del equipo.
 
+> **`.codex/hooks/` y worktrees**: a diferencia de `.claude/`, versionar
+> `.codex/hooks/` no es solo cosmético. Si `.codex/` está gitignored/untracked,
+> un git worktree recién creado **no lo hereda**; una sesión de Codex abierta
+> **dentro** de ese worktree carga su config por raíz-de-proyecto (marcador
+> `.git` del worktree), no encuentra `.codex/config.toml` y **no registra los
+> hooks** — el guard destructivo queda silenciosamente apagado. Codex corre los
+> hooks con el *session cwd* y no expone un env var de raíz de proyecto
+> (equivalente a `$CLAUDE_PROJECT_DIR`), así que la resolución vía path no lo
+> arregla: la defensa robusta es **trackear `.codex/hooks/` en git** para que
+> viaje a cada worktree y clon. `navori doctor` lo advierte si están sin
+> versionar (`guardNotVersioned`).
+
 ## Prose engines (agents-md / cursor / copilot) — NO usan el spine
 
 Comparten su propio spine (`renderProseFile`) y son wrappers de ~40 LOC. No
