@@ -55,9 +55,12 @@ describe("renderClaudeEngine — first render with full config", () => {
     expect(existsSync(join(cwd, ".claude/settings.json"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/explorer.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/verify-before-done.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/loop-back-debug.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/structural-search.md"))).toBe(true);
+    // Skills materialize in directory form (`<id>/SKILL.md`) — the shape Claude
+    // Code auto-discovers; a flat `<id>.md` is inert (#166).
+    expect(existsSync(join(cwd, ".claude/skills/verify-before-done/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/loop-back-debug/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/structural-search.md"))).toBe(false);
     expect(existsSync(join(cwd, ".claude/hooks/quality-gate-pre-commit.sh"))).toBe(true);
 
     const agentPaths = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
@@ -491,7 +494,7 @@ describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
 
   it("writes the spec-bootstrap scaffolder skill", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
-    expect(existsSync(join(cwd, ".claude/skills/spec-bootstrap.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"))).toBe(true);
   });
 });
 
@@ -647,5 +650,91 @@ describe("renderClaudeEngine — user-section preservation", () => {
     expect(second.written.some((w) => w.path === "CLAUDE.md")).toBe(false);
     expect(readFileSync(path, "utf-8")).toBe(snapshot);
     void first;
+  });
+});
+
+describe("renderClaudeEngine — skills directory form + legacy migration (#166)", () => {
+  /** Simulate a repo onboarded before the directory-form change: navori's own
+   * FLAT `.claude/skills/<id>.md`, carrying the managed marker it used to stamp. */
+  const writeLegacyFlatSkill = (id: string, markerId: string) => {
+    const p = join(cwd, ".claude/skills", `${id}.md`);
+    mkdirSync(join(cwd, ".claude/skills"), { recursive: true });
+    writeFileSync(
+      p,
+      [
+        "---",
+        `name: ${id}`,
+        "---",
+        "",
+        `<!-- navori:managed id="${markerId}" hash="x" version="0.0.1" source="@navori/core" -->`,
+        `OLD flat ${id} body`,
+        `<!-- /navori:managed id="${markerId}" -->`,
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    return p;
+  };
+
+  it("writes every core/workflow skill as `<id>/SKILL.md`, never a flat `<id>.md`", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    for (const id of ["structural-search", "review-diff", "verify-before-done", "ticket-intake"]) {
+      expect(existsSync(join(cwd, ".claude/skills", id, "SKILL.md"))).toBe(true);
+      expect(existsSync(join(cwd, ".claude/skills", `${id}.md`))).toBe(false);
+    }
+  });
+
+  it("preserves unknown frontmatter (e.g. a future `allowed-tools`) through the render", () => {
+    // The SKILL.md content is rendered verbatim from the asset; the pipeline must
+    // not strip frontmatter it doesn't recognize, so wiring per-skill
+    // `allowed-tools` later is a content change, not a pipeline change.
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const body = readFileSync(join(cwd, ".claude/skills/structural-search/SKILL.md"), "utf-8");
+    expect(body).toContain("name: structural-search");
+    expect(body).toContain("description:");
+    expect(body).toContain("type:");
+  });
+
+  it("prunes the stale FLAT `<id>.md` when migrating a core skill to directory form", () => {
+    // Core skill managed-id is `<id>-base`; workflow skills keep the bare id.
+    const flatCore = writeLegacyFlatSkill("structural-search", "structural-search-base");
+    const flatWorkflow = writeLegacyFlatSkill("spec-bootstrap", "spec-bootstrap");
+
+    const r = renderClaudeEngine(cwd, CONFIG_FULL);
+
+    // Directory form written…
+    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"))).toBe(true);
+    // …and the flat twins pruned, so the model never sees the skill twice.
+    expect(existsSync(flatCore)).toBe(false);
+    expect(existsSync(flatWorkflow)).toBe(false);
+    expect(r.written.some((w) => w.path === ".claude/skills/structural-search.md")).toBe(true);
+    expect(r.written.some((w) => w.path === ".claude/skills/spec-bootstrap.md")).toBe(true);
+  });
+
+  it("never prunes a user's hand-written flat `<id>.md` (no navori marker)", () => {
+    const userOwned = join(cwd, ".claude/skills/structural-search.md");
+    mkdirSync(join(cwd, ".claude/skills"), { recursive: true });
+    writeFileSync(userOwned, "# My own structural-search notes — not navori's\n", "utf-8");
+
+    renderClaudeEngine(cwd, CONFIG_FULL);
+
+    // navori wrote its directory form; the user's unmarked flat file is untouched.
+    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(userOwned)).toBe(true);
+    expect(readFileSync(userOwned, "utf-8")).toContain("My own structural-search notes");
+  });
+
+  it("second render is idempotent — no duplicate skill files, no orphans", () => {
+    writeLegacyFlatSkill("structural-search", "structural-search-base");
+    renderClaudeEngine(cwd, CONFIG_FULL); // migrates + prunes the flat
+
+    const second = renderClaudeEngine(cwd, CONFIG_FULL);
+
+    // No skill file re-written on the steady-state render…
+    expect(second.written.some((w) => w.path.includes(".claude/skills/"))).toBe(false);
+    // …the flat twin stays gone, and only the directory form remains.
+    expect(existsSync(join(cwd, ".claude/skills/structural-search.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
   });
 });

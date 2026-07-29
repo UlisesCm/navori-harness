@@ -67,7 +67,8 @@ método de la Spec 0004 §Fase 0 para Codex):
 1. **Payload de hooks** — ¿qué recibe un hook y por qué canal (stdin/env/arg)?
    ¿En qué eventos (PreToolUse/SessionStart/Stop…)? ¿Corren en sandbox?
 2. **Discovery de skills** — ¿de qué directorio lee las skills la herramienta?
-   (Codex: `.agents/skills/<id>/SKILL.md`; Claude: `.claude/skills/<id>.md`.)
+   (Codex: `.agents/skills/<id>/SKILL.md`; Claude: `.claude/skills/<id>/SKILL.md`
+   — forma-directorio; Claude Code solo auto-descubre esa forma, no el `<id>.md` plano.)
 3. **Ubicación de config** — ¿dónde vive la config del proyecto y en qué formato?
    (Claude: `.claude/settings.json`; Codex: `.codex/config.toml`.)
 4. **Mapa de modelos** — ¿cómo nombra sus modelos? Mapea los tiers Claude

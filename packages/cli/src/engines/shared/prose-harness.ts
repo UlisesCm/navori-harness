@@ -8,7 +8,8 @@ import { computeRenderPlan } from "../../lib/render-plan.ts";
 import { injectManagedSection } from "../../lib/marker.ts";
 import { loadPreset } from "../../lib/presets.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
-import { readCliVersion } from "../../lib/bundled-assets.ts";
+import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
+import { readSkillTrigger } from "../../lib/skill-meta.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { CORE_SKILLS, WORKFLOW_SKILLS } from "./harness-assets.ts";
 
@@ -50,14 +51,23 @@ const CORE_META = { source: "@navori/core" as const, version: readCliVersion() }
  * exist for non-Claude tools); here the listing is path-free.
  */
 function buildSkillsSection(config: NavoriConfig, repoRoot: string): string | null {
+  const coreAssets = resolve(getCoreRoot(), "core-assets");
   const rows: string[] = [];
   const listed = new Set<string>();
+  // Each row carries a one-line trigger from the skill's `description` (H8).
+  // These prose engines have NO native autoload, so the trigger is the only
+  // signal telling the model when to reach for a skill. Read from the
+  // navori-owned asset — deterministic across checkouts.
+  const row = (id: string, tag: string, assetPath: string): string => {
+    const trigger = readSkillTrigger(assetPath);
+    return trigger ? `- \`${id}\` — ${tag} · ${trigger}` : `- \`${id}\` — ${tag}`;
+  };
   for (const id of CORE_SKILLS) {
-    rows.push(`- \`${id}\` — navori`);
+    rows.push(row(id, "navori", join(coreAssets, `skills/${id}.md`)));
     listed.add(id);
   }
   for (const id of WORKFLOW_SKILLS) {
-    rows.push(`- \`${id}\` — navori (workflow)`);
+    rows.push(row(id, "navori (workflow)", join(coreAssets, `skills/${id}.md`)));
     listed.add(id);
   }
   if (config.preset && config.preset !== "custom") {
@@ -67,7 +77,7 @@ function buildSkillsSection(config: NavoriConfig, repoRoot: string): string | nu
         if (e.condition) continue; // conditional skills depend on Claude-side state
         const name = basename(e.destRelPath).replace(/\.md$/, "");
         if (listed.has(name)) continue;
-        rows.push(`- \`${name}\` — preset (\`${config.preset}\`)`);
+        rows.push(row(name, `preset (\`${config.preset}\`)`, join(loaded!.assetRoot, e.relPath)));
         listed.add(name);
       }
     } catch {
@@ -76,7 +86,7 @@ function buildSkillsSection(config: NavoriConfig, repoRoot: string): string | nu
   }
   for (const id of config.project?.libraries ?? []) {
     if (listed.has(id) || !librarySkillById(id)) continue;
-    rows.push(`- \`${id}\` — library (detected)`);
+    rows.push(row(id, "library (detected)", join(coreAssets, `lib-skills/${id}.md`)));
     listed.add(id);
   }
   if (rows.length === 0) return null;

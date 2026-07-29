@@ -115,8 +115,8 @@ describe("CLI e2e — happy paths", () => {
     // E1c: .claude/ tree now also exists
     expect(existsSync(join(repo, ".claude/agents/leader.md"))).toBe(true);
     expect(existsSync(join(repo, ".claude/agents/implementer.md"))).toBe(true);
-    expect(existsSync(join(repo, ".claude/skills/verify-before-done.md"))).toBe(true);
-    expect(existsSync(join(repo, ".claude/skills/structural-search.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude/skills/verify-before-done/SKILL.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
     expect(existsSync(join(repo, ".claude/settings.json"))).toBe(true);
 
     const settings = JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8"));
@@ -229,7 +229,7 @@ describe("CLI e2e — happy paths", () => {
 
     expect(runCli(["init", "--recommended", "--cwd", repo]).status).toBe(0);
 
-    const skillPath = join(repo, ".claude/skills/review-diff.md");
+    const skillPath = join(repo, ".claude/skills/review-diff/SKILL.md");
     expect(existsSync(skillPath)).toBe(true);
     const skill = readFileSync(skillPath, "utf-8");
     expect(skill).toContain("CRITICAL");
@@ -349,7 +349,7 @@ describe("CLI e2e — happy paths", () => {
       ".claude/agents/leader.md",
       ".claude/agents/implementer.md",
       ".claude/agents/reviewer.md",
-      ".claude/skills/verify-before-done.md",
+      ".claude/skills/verify-before-done/SKILL.md",
     ]) {
       const content = readFileSync(join(repo, rel), "utf-8");
       expect(content, `${rel} should have no <not configured> placeholders`).not.toMatch(
@@ -751,8 +751,8 @@ describe("CLI e2e — happy paths", () => {
     for (const rel of [
       "CLAUDE.md",
       ".claude/agents/leader.md",
-      ".claude/skills/ticket-intake.md",
-      ".claude/skills/pr-create.md",
+      ".claude/skills/ticket-intake/SKILL.md",
+      ".claude/skills/pr-create/SKILL.md",
     ]) {
       const path = join(repo, rel);
       const gutted = readFileSync(path, "utf-8")
@@ -968,7 +968,7 @@ describe("CLI e2e — happy paths", () => {
     expect(after.project.libraries).toContain("mongoose");
     // ...and the engine materialized its skill file (the gap: update used to
     // re-render CLAUDE.md only, never the .claude/ tree).
-    expect(existsSync(join(repo, ".claude/skills/mongoose.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude/skills/mongoose/SKILL.md"))).toBe(true);
     // express-mongoose stays put even though we could add a worker — no churn here.
     expect(after.preset).toBe("express-mongoose");
   });
@@ -1503,8 +1503,8 @@ describe("CLI e2e — local presets (fase 2)", () => {
 
     expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
 
-    // The example skill landed in .claude/skills/.
-    expect(existsSync(join(repo, ".claude/skills/mistack-example.md"))).toBe(true);
+    // The example skill landed in .claude/skills/ (directory form).
+    expect(existsSync(join(repo, ".claude/skills/mistack-example/SKILL.md"))).toBe(true);
     // The stack managed block landed in CLAUDE.md.
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
     expect(claudeMd).toContain('navori:managed id="stack-mistack"');

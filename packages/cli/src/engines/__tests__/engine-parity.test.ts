@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -9,9 +9,14 @@ import { renderCodexEngine } from "../codex/index.ts";
 /**
  * Inventory-parity guard between the Claude and Codex engines (Spec 0007 M1).
  * Both engines must materialize the SAME semantic set of agents, skills and
- * hooks for a given config — only destinations and formats may differ. An
- * asset wired into one engine but forgotten in the other fails here, not in
- * production repos after a rollout.
+ * hooks for a given config — only destinations may differ. An asset wired into
+ * one engine but forgotten in the other fails here, not in production repos
+ * after a rollout.
+ *
+ * Skills also assert FORM, not just names (issue #161 C2): both engines must
+ * materialize the DISCOVERABLE `<id>/SKILL.md` directory shape. The original
+ * name-only check passed even while Claude wrote inert flat `<id>.md` files
+ * (#166 C1) — the eje that actually decides whether the model ever sees a skill.
  */
 
 /** Intentional inventory differences. leader: the main Codex thread embodies
@@ -49,6 +54,8 @@ const stripMd = (n: string): string | null => (n.endsWith(".md") ? n.slice(0, -3
 const stripToml = (n: string): string | null => (n.endsWith(".toml") ? n.slice(0, -5) : null);
 const stripSh = (n: string): string | null => (n.endsWith(".sh") ? n.slice(0, -3) : null);
 const asDir = (n: string): string | null => (n.startsWith(".") ? null : n);
+/** A skill materialized in discoverable directory form: `<dir>/<id>/SKILL.md`. */
+const isSkillDir = (dir: string, id: string): boolean => existsSync(join(dir, id, "SKILL.md"));
 
 let claudeCwd: string;
 let codexCwd: string;
@@ -68,9 +75,27 @@ afterEach(() => {
 
 describe("engine inventory parity (claude ↔ codex)", () => {
   it("emits the same skill set", () => {
-    const claudeSkills = names(join(claudeCwd, ".claude/skills"), stripMd);
+    // Both engines materialize skills as `<id>/SKILL.md` directories now, so
+    // read directory names on both sides (a flat `<id>.md` would NOT count).
+    const claudeSkills = names(join(claudeCwd, ".claude/skills"), asDir);
     const codexSkills = names(join(codexCwd, ".agents/skills"), asDir);
+    expect(claudeSkills.length).toBeGreaterThan(0);
     expect(codexSkills).toEqual(claudeSkills);
+  });
+
+  it("materializes every skill in the DISCOVERABLE `<id>/SKILL.md` directory form (C1/C2)", () => {
+    const claudeDir = join(claudeCwd, ".claude/skills");
+    const codexDir = join(codexCwd, ".agents/skills");
+    const claudeSkills = names(claudeDir, asDir);
+    expect(claudeSkills.length).toBeGreaterThan(0);
+    for (const id of claudeSkills) {
+      // Claude Code auto-discovers skills ONLY in directory form; the inert flat
+      // `<id>.md` must NOT coexist (it would make the model see the skill twice).
+      expect(isSkillDir(claudeDir, id)).toBe(true);
+      expect(existsSync(join(claudeDir, `${id}.md`))).toBe(false);
+      // Codex uses the same shape under `.agents/skills/`.
+      expect(isSkillDir(codexDir, id)).toBe(true);
+    }
   });
 
   it("emits the same agent set (minus known diffs)", () => {

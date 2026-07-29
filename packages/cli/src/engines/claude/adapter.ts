@@ -9,12 +9,18 @@ import type { AdapterCtx, EngineAdapter, PlacementRequest } from "../shared/exec
  * a single `commitWrites`. `extraFiles`/`orphanScans` are empty here on
  * purpose: those concerns live in the engine, not the adapter.
  *
- * Destinations are derived from the canonical id (`.claude/skills/<id>.md`,
- * etc.), matching how the bundled presets already declare their extras. A
- * local preset that ships an extra at a non-standard path would be normalized
- * to the derived path — none of the bundled presets do (their `destRelPath`
- * is always `.claude/<kind>/<id>.<ext>`), so parity holds; revisit if a real
- * preset needs an off-tree destination.
+ * Destinations are derived from the canonical id (`.claude/agents/<id>.md`,
+ * `.claude/skills/<id>/SKILL.md`, etc.), matching how the bundled presets
+ * already declare their extras. A local preset that ships an extra at a
+ * non-standard path would be normalized to the derived path — none of the
+ * bundled presets do (their `destRelPath` is always `.claude/<kind>/<id>.<ext>`),
+ * so parity holds; revisit if a real preset needs an off-tree destination.
+ *
+ * Skills use the DIRECTORY form `.claude/skills/<id>/SKILL.md` — the only shape
+ * Claude Code auto-discovers (a flat `<id>.md` never surfaces its
+ * `description`/trigger to the model). Codex already uses the same shape under
+ * `.agents/skills/`. The FLAT legacy `<id>.md` from repos onboarded before this
+ * change is pruned by the engine's reconciliation (see `renderClaudeEngine`).
  *
  * `label` is intentionally omitted so a write failure reads "El render falló…"
  * exactly as Claude did before the spine.
@@ -36,7 +42,9 @@ export function createClaudeAdapter(): EngineAdapter {
     placeSkill(skill): PlacementRequest {
       return {
         assetPath: skill.assetPath,
-        destRelPath: `.claude/skills/${skill.id}.md`,
+        // Directory form — the shape Claude Code auto-discovers. See the module
+        // header; the flat legacy `<id>.md` is pruned by the engine.
+        destRelPath: `.claude/skills/${skill.id}/SKILL.md`,
         managedId: skill.managedId,
         commentStyle: "html",
       };

@@ -7,7 +7,7 @@
  * override when the length is justified — the override is loud, not silent.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { splitFrontmatter, getFrontmatterField } from "./frontmatter.ts";
 
@@ -106,4 +106,47 @@ const TRIGGER_RE = /\b(aplica|us[aá]r?|use\s+(when|this)|para cuando|cuando|ant
 
 export function hasTrigger(description: string | null): boolean {
   return description !== null && TRIGGER_RE.test(description);
+}
+
+/** Max length of a one-line trigger in the skills index (H8). Keeps the
+ * always-on index lean — a full multi-sentence `description` would inflate the
+ * token floor. */
+const TRIGGER_MAX = 120;
+
+/**
+ * Condense a skill `description` to a single-line activation trigger for the
+ * skills index (issue #166 H8). Engines without native autoload
+ * (Cursor/Copilot/AGENTS.md) rely on this "when to reach for it" line. Takes the
+ * first clause (up to the first sentence break or em-dash — the "when", not the
+ * full behavioral note) and caps the length. Returns null when there's no
+ * description to summarize.
+ */
+export function summarizeTrigger(description: string | null): string | null {
+  if (!description) return null;
+  const flat = description.replace(/\s+/g, " ").trim();
+  if (flat === "") return null;
+  let cut = flat.length;
+  for (const sep of [". ", " — ", " – ", "; "]) {
+    const at = flat.indexOf(sep);
+    if (at > 0 && at < cut) cut = at;
+  }
+  let out = flat.slice(0, cut).trim().replace(/[.;,]$/, "");
+  if (out.length > TRIGGER_MAX) out = `${out.slice(0, TRIGGER_MAX - 1).trimEnd()}…`;
+  return out === "" ? null : out;
+}
+
+/**
+ * Read a skill asset and return its one-line trigger (see `summarizeTrigger`).
+ * Returns null when the asset is unreadable or declares no `description`, so the
+ * index degrades to a bare name row. Used by both skills-index builders (Claude
+ * CLAUDE.md and the prose engines).
+ */
+export function readSkillTrigger(assetPath: string): string | null {
+  let raw: string;
+  try {
+    raw = readFileSync(assetPath, "utf-8");
+  } catch {
+    return null;
+  }
+  return summarizeTrigger(parseSkillFrontmatter(raw).meta.description);
 }

@@ -183,13 +183,13 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
     const result = runRender(cwd);
     expect(result.ok).toBe(true);
 
-    // Root materialized the local preset.
-    expect(existsSync(join(cwd, ".claude/skills/mistack-example.md"))).toBe(true);
+    // Root materialized the local preset (skills render in directory form).
+    expect(existsSync(join(cwd, ".claude/skills/mistack-example/SKILL.md"))).toBe(true);
     expect(readFileSync(join(cwd, "CLAUDE.md"), "utf-8")).toContain('id="stack-mistack"');
 
     // The workspace did too — proof it resolved the preset from the root, not
     // from apps/api/.navori/ (which does not exist).
-    expect(existsSync(join(cwd, "apps/api/.claude/skills/mistack-example.md"))).toBe(true);
+    expect(existsSync(join(cwd, "apps/api/.claude/skills/mistack-example/SKILL.md"))).toBe(true);
     const wsClaudeMd = readFileSync(join(cwd, "apps/api/CLAUDE.md"), "utf-8");
     expect(wsClaudeMd).toContain('id="stack-mistack"');
     expect(wsClaudeMd).toContain("## Stack — mistack");
