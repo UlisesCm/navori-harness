@@ -111,6 +111,17 @@ export function buildClaudeSettings(
     }
   }
 
+  // Pre-approve the exact commands this repo's quality gate runs plus the
+  // package-manager dev-loop scripts, so `pnpm test` / `pnpm build` / the gate
+  // itself and `git commit` stop prompting on every run. Safe by construction:
+  // each rule is a boundary-enforcing prefix (`…:*`), Claude Code won't
+  // auto-approve a compound like `pnpm build && rm -rf x` from a prefix rule,
+  // and the guard-destructive hook (exit 2) still precedes permission checks.
+  const derivedAllow = deriveQualityGateAllow(config);
+  if (derivedAllow.length > 0) {
+    settings = deepMerge(settings, { permissions: { allow: derivedAllow } });
+  }
+
   // The guard (1b), quality-gate (2) and plugin hooks each deep-merge their own
   // `{matcher:"Bash", hooks:[...]}`, which concat into redundant matcher buckets
   // (e.g. two `matcher:"Bash"` entries → a Bash command pays two matcher
@@ -118,6 +129,47 @@ export function buildClaudeSettings(
   // sees a single bucket per matcher — same intent as pluginHooksToClaudeShape,
   // now across all layers.
   return coalesceHookMatchers(settings);
+}
+
+const PACKAGE_MANAGERS = new Set(["pnpm", "npm", "yarn", "bun"]);
+// Sequencers navori's quality gate uses to join steps. Bare pipes are excluded:
+// a `| tee`/`| grep` tail is part of one logical step, not a command to allow.
+const GATE_SEQUENCERS = /\s*(?:&&|\|\||;)\s*/;
+
+/**
+ * Resolve the repo's package manager: the persisted `config.packageManager`
+ * (written by init/update — the source of truth), falling back to the runner
+ * token of `qualityGate.fast` for configs written before the field existed.
+ */
+function resolvePackageManager(config: NavoriConfig): string | null {
+  if (config.packageManager) return config.packageManager;
+  const first = config.qualityGate?.fast?.trim().split(/\s+/)[0];
+  return first && PACKAGE_MANAGERS.has(first) ? first : null;
+}
+
+/**
+ * Permission allow-rules derived from the repo's own quality gate + package
+ * manager. Two sources: (1) the exact commands the gate runs (split on shell
+ * sequencers), so the gate stops prompting; (2) the `<pm> run <script>` dev-loop
+ * (build/test/lint/typecheck/format), since `build` in particular is rarely in
+ * the gate yet run constantly. Prefix rules use `…:*` (word-boundary wildcard).
+ */
+function deriveQualityGateAllow(config: NavoriConfig): string[] {
+  const rules = new Set<string>();
+  for (const gate of [config.qualityGate?.fast, config.qualityGate?.full]) {
+    if (!gate) continue;
+    for (const step of gate.split(GATE_SEQUENCERS)) {
+      const cmd = step.trim();
+      if (cmd) rules.add(`Bash(${cmd}:*)`);
+    }
+  }
+  const pm = resolvePackageManager(config);
+  if (pm) {
+    for (const script of ["build", "test", "lint", "typecheck", "format"]) {
+      rules.add(`Bash(${pm} run ${script}:*)`);
+    }
+  }
+  return [...rules];
 }
 
 /**

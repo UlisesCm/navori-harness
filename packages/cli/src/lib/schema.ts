@@ -243,6 +243,12 @@ export const NavoriConfigSchema = z
     prTarget: z.string().optional(),
     commits: tolerantEnum(COMMITS, "conventional-es"),
     qualityGate: QualityGateSchema.optional(),
+    /** Package manager detected in the repo (pnpm/npm/yarn/bun). Persisted so
+     * `render` derives the `<pm> run …` permission allowlist from config alone
+     * (source of truth), not by re-scanning the filesystem. Configs written
+     * before this field existed fall back to parsing the runner out of
+     * `qualityGate.fast` — see engines/claude/build-settings.ts. */
+    packageManager: z.enum(["pnpm", "npm", "yarn", "bun"]).optional(),
     sdd: SddSchema.optional(),
     harness: HarnessSchema.optional(),
     models: ModelsSchema.optional(),

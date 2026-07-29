@@ -194,6 +194,16 @@ function diffConfig(
     out.push({ field: "branchBase", before: current.branchBase, after: detected.branchBase });
   }
 
+  // Package manager — refresh so the derived permission allowlist tracks a
+  // pnpm→bun switch instead of going stale on the persisted field.
+  if (detected.packageManager && current.packageManager !== detected.packageManager) {
+    out.push({
+      field: "packageManager",
+      before: current.packageManager ?? "(none)",
+      after: detected.packageManager,
+    });
+  }
+
   // Engines (suggest adding ones detected in the repo, not removing)
   const currentEngines = new Set(current.engines);
   const newlyDetected = detected.existingEngines.filter(
@@ -263,6 +273,8 @@ function applyDiffs(
       raw.qualityGate = detected.qualityGate ?? raw.qualityGate;
     } else if (d.field === "branchBase") {
       raw.branchBase = detected.branchBase;
+    } else if (d.field === "packageManager") {
+      raw.packageManager = detected.packageManager;
     } else if (d.field === "engines") {
       const currentEngines = new Set((raw.engines as string[]) ?? []);
       for (const e of detected.existingEngines) currentEngines.add(e);
