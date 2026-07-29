@@ -11,7 +11,8 @@
     "dev": "pnpm -r dev",
     "lint": "oxlint packages/cli/src",
     "format": "biome format --write packages/cli/src apps/website/src",
-    "format:check": "biome format packages/cli/src apps/website/src"
+    "format:check": "biome format packages/cli/src apps/website/src",
+    "check": "pnpm --filter navori build && pnpm --filter navori check:size && pnpm lint && pnpm format:check && pnpm --filter navori test"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.5",
