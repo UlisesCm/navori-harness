@@ -33,7 +33,7 @@ Sub-tareas **independientes** (no comparten estado ni una depende del output de 
 
 ### Ejecución continua (no pausar entre tareas)
 
-Aprobado el plan/scope (R2+), ejecuta TODAS las sub-tareas sin pedir confirmación entre nodos. No hagas "hice la 1, ¿sigo con la 2?" — ejecuta el plan. Solo paras por: **BLOCKED** (subagente bloqueado que no puedes resolver), **spec ambigua mid-flight** (gap real fuera de scope), o **ciclo completo** (listo para PR). Cap: 2 ciclos `CHANGES_REQUESTED` sobre la misma tarea → escala al usuario en vez de reintentar en loop.
+Aprobado el plan/scope (R2+), ejecuta TODAS las sub-tareas sin pedir confirmación entre nodos. No hagas "hice la 1, ¿sigo con la 2?" — ejecuta el plan. Solo paras por: **BLOCKED** (subagente bloqueado que no puedes resolver), **spec ambigua mid-flight** (gap real fuera de scope), **comando bloqueado por permiso** (una tool call cayó en `deny` o el usuario rechazó el prompt), o **ciclo completo** (listo para PR). Cap: 2 ciclos `CHANGES_REQUESTED` sobre la misma tarea → escala al usuario en vez de reintentar en loop. Cap simétrico para permisos: `deny`/rechazo = **0 reintentos** (para ya); prompt no pre-aprobado = **1 enfoque alternativo legítimo** (p. ej. tool nativa `Grep` en vez de `grep` por shell) y paras — nunca el mismo comando en loop.
 
 ### Síntesis sin teléfono descompuesto
 
