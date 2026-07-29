@@ -661,6 +661,12 @@ describe("CLI e2e — happy paths", () => {
     // spawned `leader` subagent can't recreate the serialized-work regression.
     expect(claudeMd).toContain("actúas como el orquestador");
     expect(claudeMd).toContain("Agent(subagent_type: leader)");
+    // Organic routing (M1): the block leads with the smallest-route model, so a
+    // 1–3 file mechanical change is done inline — not funneled through a
+    // subagent as the old "Trivial (1 archivo) → 1 implementer" floor did.
+    expect(claudeMd).toContain("R1 · Inline");
+    expect(claudeMd).toContain("Regla de 4 archivos");
+    expect(claudeMd).not.toContain("Trivial (1 archivo)");
 
     // The agents index lists the spawnable leaf agents — but NOT the leader,
     // since the main agent embeds that role rather than delegating to it.
