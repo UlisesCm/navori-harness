@@ -1,24 +1,24 @@
 ---
 name: react-router
-description: Patrones de React Router (v6/v7) — rutas anidadas, loaders, navegación, params y guards. Aplica al crear rutas, leer params, redirigir o proteger vistas.
+description: Use when creating routes, reading params, redirecting, or protecting views — React Router (v6/v7) patterns: nested routes, loaders, navigation, params, and guards.
 type: reference
 ---
 
-# React Router — convenciones
+# React Router — conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al tocar navegación: declarar una ruta, leer un param, redirigir, proteger una vista por rol, o cablear links. React Router es la fuente de verdad de **en qué URL estás y a dónde vas** — no dupliques la ruta en estado propio ni parsees `window.location` a mano.
+When touching navigation: declaring a route, reading a param, redirecting, protecting a view by role, or wiring links. React Router is the source of truth for **which URL you're on and where you're going** — don't duplicate the route in your own state or parse `window.location` by hand.
 
-## El patrón
+## The pattern
 
-Rutas anidadas con layout compartido vía `<Outlet />`; navegación por hooks, no por mutar `window.location`:
+Nested routes with a shared layout via `<Outlet />`; navigation via hooks, not by mutating `window.location`:
 
 ```tsx
 const router = createBrowserRouter([
   {
     path: '/',
-    element: <AppLayout />,           // renderiza <Outlet /> para los hijos
+    element: <AppLayout />,           // renders <Outlet /> for the children
     children: [
       { index: true, element: <Home /> },
       { path: 'sessions/:id', element: <SessionDetail /> },
@@ -28,34 +28,34 @@ const router = createBrowserRouter([
 ]);
 
 function SessionDetail() {
-  const { id } = useParams();                 // string | undefined, siempre
+  const { id } = useParams();                 // string | undefined, always
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   // ...
-  navigate('/sessions', { replace: true });   // no <a href> manual
+  navigate('/sessions', { replace: true });   // no manual <a href>
 }
 ```
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **`useParams()` siempre da `string | undefined`.** Nunca `number`. Convierte y valida (`Number(id)`, guard) antes de usarlo como id; una ruta mal tecleada no lanza, solo llega `undefined`.
-- **Navegar imperativo con `useNavigate`, no `window.location`.** `window.location.href = …` recarga toda la SPA y tira el estado. Para volver: `navigate(-1)`; para redirigir sin dejar historial: `{ replace: true }`.
-- **`<NavLink>` para tabs/menús, `<Link>` para el resto.** `NavLink` expone `isActive` en `className`/`style`/children; no reimplementes "está activo" comparando `pathname` a mano.
-- **Search params son la URL, no `useState`.** Filtros/paginación viven en `useSearchParams` para que la vista sea linkeable y sobreviva al refresh. `setParams` reemplaza TODO el query — clona lo actual si solo cambias una clave.
-- **Ruta protegida = un wrapper con `<Navigate>`, no un `if` suelto.** `if (!user) return <Navigate to="/login" replace />;` dentro de un guard/layout. Redirigir desde un `useEffect` parpadea la vista privada un frame.
-- **Rutas relativas anidan; un `/` inicial las hace absolutas.** Dentro de `sessions/:id`, `navigate('edit')` va a `sessions/:id/edit`; `navigate('/edit')` va a la raíz. Es el error #1 al mover un componente de nivel.
+- **`useParams()` always gives `string | undefined`.** Never `number`. Convert and validate (`Number(id)`, guard) before using it as an id; a mistyped route doesn't throw, it just arrives as `undefined`.
+- **Navigate imperatively with `useNavigate`, not `window.location`.** `window.location.href = …` reloads the whole SPA and drops state. To go back: `navigate(-1)`; to redirect without leaving history: `{ replace: true }`.
+- **`<NavLink>` for tabs/menus, `<Link>` for the rest.** `NavLink` exposes `isActive` in `className`/`style`/children; don't reimplement "is active" by comparing `pathname` by hand.
+- **Search params are the URL, not `useState`.** Filters/pagination live in `useSearchParams` so the view is linkable and survives a refresh. `setParams` replaces the ENTIRE query — clone the current one if you only change one key.
+- **A protected route = a wrapper with `<Navigate>`, not a loose `if`.** `if (!user) return <Navigate to="/login" replace />;` inside a guard/layout. Redirecting from a `useEffect` flashes the private view for a frame.
+- **Relative routes nest; a leading `/` makes them absolute.** Inside `sessions/:id`, `navigate('edit')` goes to `sessions/:id/edit`; `navigate('/edit')` goes to the root. It's the #1 mistake when moving a component up/down a level.
 
-## Reglas duras
+## Hard rules
 
-1. Navegación por `useNavigate`/`<Link>`/`<NavLink>`; nunca `window.location` ni `<a href>` interno.
-2. `useParams` se valida antes de usar (puede ser `undefined`); ids numéricos se convierten explícito.
-3. Estado de filtros/paginación en `useSearchParams`, no en `useState` espejo.
-4. Vistas protegidas por un guard con `<Navigate replace>`, no por `if` + efecto.
-5. Layouts compartidos con rutas anidadas + `<Outlet />`; nada de repetir el chrome por página.
+1. Navigation via `useNavigate`/`<Link>`/`<NavLink>`; never `window.location` or an internal `<a href>`.
+2. `useParams` is validated before use (may be `undefined`); numeric ids are converted explicitly.
+3. Filter/pagination state in `useSearchParams`, not in a mirror `useState`.
+4. Protected views via a guard with `<Navigate replace>`, not by `if` + effect.
+5. Shared layouts with nested routes + `<Outlet />`; no repeating the chrome per page.
 
-## Antes de declarar listo
+## Before declaring done
 
-- Sin `window.location`/`<a href>` para navegación interna; links con `<Link>`/`<NavLink>`.
-- Params validados; el estado de la URL (filtros, tab) vive en search params.
-- Rutas protegidas redirigen con `<Navigate replace>`; sin parpadeo de la vista privada.
-- `{{qualityGate.fast}}` en verde.
+- No `window.location`/`<a href>` for internal navigation; links with `<Link>`/`<NavLink>`.
+- Params validated; URL state (filters, tab) lives in search params.
+- Protected routes redirect with `<Navigate replace>`; no flash of the private view.
+- `{{qualityGate.fast}}` green.

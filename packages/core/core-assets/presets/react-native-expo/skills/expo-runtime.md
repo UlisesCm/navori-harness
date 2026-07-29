@@ -1,46 +1,46 @@
 ---
 name: expo-runtime
-description: Runtime de Expo — safe areas, teclado, edge-to-edge, prebuild y EAS. Aplica al maquetar pantallas, tocar config nativa (app.config/plugins) o configurar builds.
+description: Use when laying out screens, touching native config (app.config/plugins), or configuring builds in Expo — runtime: safe areas, keyboard, edge-to-edge, prebuild, and EAS.
 type: reference
 ---
 
-# Expo — runtime nativo
+# Expo — native runtime
 
-La config nativa se declara, no se edita a mano. Las pantallas respetan las zonas seguras del dispositivo, no valores hardcodeados.
+Native config is declared, not hand-edited. Screens respect the device's safe areas, not hardcoded values.
 
 ## Safe areas
 
-- **`react-native-safe-area-context`** con `useSafeAreaInsets()`. Nunca hardcodees `paddingTop: 44`. Centraliza en un componente `Screen` en vez de rodar tu propio `SafeAreaView` por pantalla.
-- **Insets asimétricos por plataforma:** en Android respeta `bottom` (barra de gestos), en iOS lo maneja el OS → típico `["top","bottom"]` en Android, `["top"]` en iOS.
-- En un scroll raíz, `contentInsetAdjustmentBehavior="automatic"` deja que iOS maneje los insets nativamente (contenido detrás del status bar).
+- **`react-native-safe-area-context`** with `useSafeAreaInsets()`. Never hardcode `paddingTop: 44`. Centralize in a `Screen` component instead of rolling your own `SafeAreaView` per screen.
+- **Asymmetric insets per platform:** on Android respect `bottom` (the gesture bar), on iOS the OS handles it → typically `["top","bottom"]` on Android, `["top"]` on iOS.
+- On a root scroll, `contentInsetAdjustmentBehavior="automatic"` lets iOS handle insets natively (content behind the status bar).
 
-## Teclado
+## Keyboard
 
-- **`behavior` por plataforma:** `KeyboardAvoidingView behavior={isIos ? "padding" : "height"}`.
-- Con **`react-native-keyboard-controller`** (`KeyboardAwareScrollView`), NO lo envuelvas además en `KeyboardAvoidingView` — doble offset. Un solo mecanismo por pantalla.
+- **`behavior` per platform:** `KeyboardAvoidingView behavior={isIos ? "padding" : "height"}`.
+- With **`react-native-keyboard-controller`** (`KeyboardAwareScrollView`), do NOT also wrap it in `KeyboardAvoidingView` — double offset. One mechanism per screen.
 
 ## Edge-to-edge (Android 15+)
 
-- `edgeToEdgeEnabled: true` + **`react-native-edge-to-edge`**. Estila las barras con su `SystemBars`, NO con `expo-status-bar` cuando edge-to-edge está activo.
+- `edgeToEdgeEnabled: true` + **`react-native-edge-to-edge`**. Style the bars with its `SystemBars`, NOT with `expo-status-bar` when edge-to-edge is active.
 
-## Config nativa: declarar, no editar
+## Native config: declare, don't edit
 
-- **Prebuild** (`ios/` commiteado, `android/` generado) o managed. En cualquier caso **no edites `ios/`/`android/`, `Info.plist` ni `AndroidManifest.xml` a mano** — se regeneran. Cambia vía `app.json`/`app.config.ts` o un config plugin en `plugins/`.
-- Tras tocar `app.config`/plugins, corre `expo prebuild --clean` (o el script del repo).
-- Permisos: `ios.infoPlist` / `android.permissions`, o deja que el plugin del módulo (`expo-image-picker`, `expo-location`) inyecte su purpose string — no lo dupliques.
-- Instala capas nativas con **`expo install`** (pinea la versión del SDK); `expo install --fix` re-pinea. Prefiere módulos `expo-*` sobre equivalentes bare.
+- **Prebuild** (`ios/` committed, `android/` generated) or managed. Either way **don't edit `ios/`/`android/`, `Info.plist`, or `AndroidManifest.xml` by hand** — they get regenerated. Change via `app.json`/`app.config.ts` or a config plugin in `plugins/`.
+- After touching `app.config`/plugins, run `expo prebuild --clean` (or the repo's script).
+- Permissions: `ios.infoPlist` / `android.permissions`, or let the module's plugin (`expo-image-picker`, `expo-location`) inject its purpose string — don't duplicate it.
+- Install native layers with **`expo install`** (pins the SDK version); `expo install --fix` re-pins. Prefer `expo-*` modules over bare equivalents.
 
-## EAS y env
+## EAS and env
 
-- Perfiles en `eas.json` (`development`, `preview`, `production`). Las env vars requeridas por builds nativos van en cada perfil.
-- **Runtime:** `process.env.EXPO_PUBLIC_*` para lo público; secrets (`google-services.json`, APNs `.p8`) por **EAS secrets**, nunca commiteados.
+- Profiles in `eas.json` (`development`, `preview`, `production`). Env vars required by native builds go in each profile.
+- **Runtime:** `process.env.EXPO_PUBLIC_*` for public values; secrets (`google-services.json`, APNs `.p8`) via **EAS secrets**, never committed.
 
-## Gotcha de build
+## Build gotcha
 
-- **Reanimated/Worklets:** `react-native-worklets/plugin` debe ser el **último** plugin de `babel.config.js`.
+- **Reanimated/Worklets:** `react-native-worklets/plugin` must be the **last** plugin in `babel.config.js`.
 
-## Antes de declarar listo
+## Before calling it done
 
-- Insets vía `useSafeAreaInsets`, no valores fijos; un solo mecanismo de teclado por pantalla.
-- Cambios nativos vía `app.config`/plugin (no en `ios/`/`android/`); `expo prebuild --clean` corrido si tocaste config.
-- Ningún secret commiteado. `{{qualityGate.fast}}` en verde.
+- Insets via `useSafeAreaInsets`, not fixed values; one keyboard mechanism per screen.
+- Native changes via `app.config`/plugin (not in `ios/`/`android/`); `expo prebuild --clean` run if you touched config.
+- No secret committed. `{{qualityGate.fast}}` green.

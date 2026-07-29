@@ -1,14 +1,14 @@
-## Security gate local (semgrep)
+## Local security gate (semgrep)
 
-Antes de cerrar un cambio relevante (auth, RBAC, secrets, input validation), correr semgrep sobre el diff.
+Before closing a relevant change (auth, RBAC, secrets, input validation), run semgrep over the diff.
 
-- Scan rápido del diff:
+- Quick diff scan:
   ```
   git diff --name-only $BRANCH_BASE...HEAD | xargs semgrep --config=auto --severity=ERROR
   ```
-- Scan completo del proyecto (más lento, opt-in):
+- Full project scan (slower, opt-in):
   ```
   semgrep --config=auto --error
   ```
-- Reglas custom: ver `.semgrep.yml` en la raíz del repo si existe.
-- Skip silencioso si `semgrep` no está instalado (no bloquear si el dev no lo tiene).
+- Custom rules: see `.semgrep.yml` at the repo root if it exists.
+- Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).

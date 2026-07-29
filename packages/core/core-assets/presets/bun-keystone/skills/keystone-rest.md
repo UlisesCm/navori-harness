@@ -1,47 +1,47 @@
 ---
 name: keystone-rest
-description: Endpoints REST/Express sobre Keystone 6 — el controller valida el input con Zod safeParse y delega a un service que usa context.sudo().db. Aplica al crear o tocar una ruta, un controller o un service REST.
+description: REST/Express endpoints over Keystone 6 — the controller validates input with Zod safeParse and delegates to a service that uses context.sudo().db. Use when creating or touching a route, a controller or a REST service.
 type: reference
 ---
 
-# Keystone REST — controller fino, service con la lógica
+# Keystone REST — thin controller, service holds the logic
 
-Keystone expone GraphQL, pero un backend suele montar además rutas REST/Express (vía `extendExpressApp` o un router propio) para webhooks, integraciones y endpoints a medida. La regla: el **controller** solo habla HTTP; la **lógica de datos vive en un service** que usa el `context` de Keystone.
+Keystone exposes GraphQL, but a backend usually also mounts REST/Express routes (via `extendExpressApp` or its own router) for webhooks, integrations and custom endpoints. The rule: the **controller** only speaks HTTP; the **data logic lives in a service** that uses Keystone's `context`.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al crear o tocar una ruta REST, su controller o el service que hay detrás; o al depurar un endpoint que valida mal, filtra de más o expone internals.
+When creating or touching a REST route, its controller or the service behind it; or when debugging an endpoint that validates poorly, over-filters or leaks internals.
 
-## El patrón
+## The pattern
 
 ```ts
-// controller — SOLO HTTP: valida el borde y delega. Nunca lógica de negocio aquí.
+// controller — HTTP ONLY: validate the edge and delegate. Never business logic here.
 export async function createReport(req: Request, res: Response) {
-  const parsed = CreateReportSchema.safeParse(req.body); // safeParse, NUNCA parse
-  if (!parsed.success) return sendError(res, "Input inválido", 422);
+  const parsed = CreateReportSchema.safeParse(req.body); // safeParse, NEVER parse
+  if (!parsed.success) return sendError(res, "Invalid input", 422);
   const report = await reportService.create(parsed.data, req.context);
   return sendSuccess(res, { data: report }, 201);
 }
 
-// service — la lógica; recibe context, no (req, res). context.sudo().db, no context.db.
+// service — the logic; receives context, not (req, res). context.sudo().db, not context.db.
 export const reportService = {
-  /** Crea un Report aplicando las reglas de negocio (no el access de la sesión). */
+  /** Creates a Report applying business rules (not the session's access). */
   async create(input: CreateReportInput, context: Context) {
     return context.sudo().db.Report.createOne({ data: input });
   },
 };
 ```
 
-## Reglas duras
+## Hard rules
 
-1. **`safeParse`, nunca `parse`.** El input HTTP es hostil: valídalo con el schema Zod y responde 4xx ante el fallo; una excepción sin capturar se fuga como 500.
-2. **Controller fino.** El controller no accede a la DB ni implementa reglas: parsea, delega al service, formatea la respuesta. Toda la lógica testeable vive en el service.
-3. **El service recibe `context`, no `req`/`res`.** Así se testea sin HTTP y se reusa desde otro controller, un hook o un job. Dentro usa `context.sudo().db` (ver `keystone-access` para el porqué de `sudo`).
-4. **Errores sin internals.** Nunca devuelvas stacktraces, SQL ni mensajes de librería al cliente; loguea el detalle y responde un mensaje acotado con su código.
-5. **Respuestas consistentes.** Éxito y error pasan por un formateador único (un `sendSuccess`/`sendError` o equivalente), no por `res.json` suelto en cada controller.
+1. **`safeParse`, never `parse`.** HTTP input is hostile: validate it with the Zod schema and respond 4xx on failure; an uncaught exception leaks as a 500.
+2. **Thin controller.** The controller doesn't access the DB nor implement rules: it parses, delegates to the service, formats the response. All testable logic lives in the service.
+3. **The service receives `context`, not `req`/`res`.** That way it's tested without HTTP and reused from another controller, a hook or a job. Inside, use `context.sudo().db` (see `keystone-access` for why `sudo`).
+4. **Errors without internals.** Never return stacktraces, SQL or library messages to the client; log the detail and respond with a bounded message and its code.
+5. **Consistent responses.** Success and error both go through a single formatter (a `sendSuccess`/`sendError` or equivalent), not loose `res.json` in every controller.
 
-## Antes de declarar el cambio "listo"
+## Before declaring the change "done"
 
-- Ningún controller llama a `.parse(` sobre el input HTTP (búscalo: debe ser `safeParse`).
-- Ningún controller usa `context.db.` directo — la lógica está en un service con `context.sudo().db`.
-- El service nuevo/tocado tiene unit tests (recibe un `context` mockeado; ver `keystone-testing`).
+- No controller calls `.parse(` on HTTP input (search for it: it must be `safeParse`).
+- No controller uses `context.db.` directly — the logic is in a service with `context.sudo().db`.
+- The new/touched service has unit tests (receives a mocked `context`; see `keystone-testing`).

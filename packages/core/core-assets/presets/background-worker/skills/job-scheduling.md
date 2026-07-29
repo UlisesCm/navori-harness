@@ -1,55 +1,55 @@
 ---
 name: job-scheduling
-description: Definir y agendar jobs en un worker (agenda / bullmq) — idempotencia, reintentos con backoff, concurrencia. Aplica al crear o tocar un job programado o recurrente.
+description: Define and schedule jobs in a worker (agenda / bullmq) — idempotency, retries with backoff, concurrency. Use when creating or touching a scheduled or recurring job.
 type: reference
 ---
 
-# job-scheduling — jobs idempotentes y reintentables
+# job-scheduling — idempotent, retryable jobs
 
-Un job define **qué** hacer; el scheduler decide **cuándo** y **cuántas veces**. Como un job puede correr más de una vez (reintento, doble disparo), el handler debe ser idempotente.
+A job defines **what** to do; the scheduler decides **when** and **how many times**. Since a job can run more than once (retry, double-fire), the handler must be idempotent.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al definir un job nuevo, agendar uno recurrente, o ajustar reintentos/concurrencia.
+When defining a new job, scheduling a recurring one, or adjusting retries/concurrency.
 
-## El patrón (agenda)
+## The pattern (agenda)
 
-Un archivo por job (`<name>.job.ts`) que registra el handler; el scheduling vive aparte del handler.
+One file per job (`<name>.job.ts`) that registers the handler; scheduling lives apart from the handler.
 
 ```ts
 export function defineSyncJob(agenda: Agenda) {
   agenda.define('sync-user', { concurrency: 5, lockLifetime: 60_000 }, async (job) => {
     const { userId } = job.attrs.data as { userId: string };
-    // idempotente: chequea estado antes de actuar
+    // idempotent: check state before acting
     if (await alreadySynced(userId, job.attrs.lastRunAt)) return;
     await syncUser(userId);
   });
 }
 
-// scheduling, separado del handler:
-await agenda.every('0 * * * *', 'sync-user', { userId });   // recurrente
+// scheduling, separate from the handler:
+await agenda.every('0 * * * *', 'sync-user', { userId });   // recurring
 await agenda.schedule('in 5 minutes', 'sync-user', { userId }); // one-off
 ```
 
-bullmq es equivalente: `new Worker(name, handler, { concurrency, connection })` + `queue.add(name, data, { attempts, backoff })`. Para recurrentes usa **`queue.upsertJobScheduler(id, { pattern: '0 * * * *' }, { name, data })`** — NO la opción `repeat` (deprecada en BullMQ 5); `upsert` con el mismo `id` actualiza el schedule en vez de duplicarlo en cada deploy.
+bullmq is equivalent: `new Worker(name, handler, { concurrency, connection })` + `queue.add(name, data, { attempts, backoff })`. For recurring ones use **`queue.upsertJobScheduler(id, { pattern: '0 * * * *' }, { name, data })`** — NOT the `repeat` option (deprecated in BullMQ 5); `upsert` with the same `id` updates the schedule instead of duplicating it on every deploy.
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **Doble disparo**: dos workers pueden tomar el mismo job. agenda usa `lockLifetime`; bullmq re-procesa si el `lockDuration` expira antes de renovarse (`stalledInterval`/`maxStalledCount`). Aun así, **el handler debe ser idempotente** — no confíes solo en el lock.
-- **BullMQ: la conexión IORedis del `Worker` DEBE llevar `maxRetriesPerRequest: null`**, o el arranque falla (error #1). Y setea `removeOnComplete`/`removeOnFail` (`{ age, count }`), sino Redis crece sin límite con jobs viejos.
-- **Reintentos sin backoff** martillan un servicio caído. Configura `attempts` + `backoff` exponencial.
-- **`lockLifetime`/`lockDuration` corto** + job largo → el lock expira y otro worker lo retoma en paralelo. Ajústalo por encima de la duración real del job.
+- **Double-fire**: two workers can pick up the same job. agenda uses `lockLifetime`; bullmq re-processes if `lockDuration` expires before it's renewed (`stalledInterval`/`maxStalledCount`). Even so, **the handler must be idempotent** — don't rely on the lock alone.
+- **BullMQ: the Worker's IORedis connection MUST carry `maxRetriesPerRequest: null`**, or startup fails (error #1). And set `removeOnComplete`/`removeOnFail` (`{ age, count }`), otherwise Redis grows unbounded with old jobs.
+- **Retries without backoff** hammer a downed service. Configure `attempts` + exponential `backoff`.
+- **Short `lockLifetime`/`lockDuration`** + long job → the lock expires and another worker picks it up in parallel. Set it above the job's real duration.
 
-## Reglas duras
+## Hard rules
 
-1. Un job por archivo `<name>.job.ts`; handler separado del scheduling.
-2. Handler **idempotente**: chequea estado antes de mutar; usa upserts/claves de dedup.
-3. Reintentos con backoff exponencial y un tope (`attempts`); sin reintento infinito.
-4. `concurrency` y `lockLifetime` explícitos y coherentes con la duración del job.
-5. Nada de trabajo no idempotente que dependa de "correr exactamente una vez".
+1. One job per `<name>.job.ts` file; handler separate from scheduling.
+2. **Idempotent** handler: check state before mutating; use upserts/dedup keys.
+3. Retries with exponential backoff and a cap (`attempts`); no infinite retry.
+4. Explicit `concurrency` and `lockLifetime`, consistent with the job's duration.
+5. No non-idempotent work that relies on "running exactly once".
 
-## Antes de declarar listo
+## Before declaring done
 
-- El handler es seguro de re-ejecutar (probado corriéndolo dos veces).
-- Reintentos con backoff y tope configurados.
-- `{{qualityGate.fast}}` en verde.
+- The handler is safe to re-run (tested by running it twice).
+- Retries with backoff and cap configured.
+- `{{qualityGate.fast}}` green.

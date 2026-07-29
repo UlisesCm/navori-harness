@@ -40,9 +40,9 @@ describe("renderCursorEngine", () => {
     expect(md).toContain("alwaysApply: true");
     // harness prose
     expect(md).toContain("## Idioma y rol");
-    expect(md).toContain("## Skills disponibles");
+    expect(md).toContain("## Available skills");
     expect(md).toContain("verify-before-done");
-    expect(md).toContain("## Flujo de trabajo");
+    expect(md).toContain("## Workflow");
     // managed marker + user-section
     expect(md).toContain('navori:managed id="navori-cursor"');
     expect(md).toContain("navori:user-section");
@@ -55,7 +55,7 @@ describe("renderCursorEngine", () => {
       baseConfig({ plugins: { engram: { enabled: true } } } as Partial<NavoriConfig>),
     );
     const md = readFileSync(join(cwd, MDC), "utf-8");
-    expect(md).not.toContain("## Rol: orquestador");
+    expect(md).not.toContain("## Role: orchestrator");
     expect(md).not.toContain("mem_save");
   });
 
@@ -79,7 +79,7 @@ describe("renderCursorEngine", () => {
     renderCursorEngine(cwd, baseConfig());
     const path = join(cwd, MDC);
     const edited = readFileSync(path, "utf-8").replace(
-      "<!-- Agrega aquí lo específico de tu repo; navori no toca esta sección. -->",
+      "<!-- Add your repo-specific rules here; navori doesn't touch this section. -->",
       "- Mi regla propia del repo.",
     );
     writeFileSync(path, edited, "utf-8");

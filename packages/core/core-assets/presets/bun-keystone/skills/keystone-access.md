@@ -1,52 +1,52 @@
 ---
 name: keystone-access
-description: Access control de Keystone 6 en 3 capas (operation / filter / field). allowAll prohibido; sesión nula → filtro restrictivo. Aplica al definir o cambiar el access de cualquier list.
+description: Keystone 6 access control in 3 layers (operation / filter / field). allowAll forbidden; null session → restrictive filter. Use when defining or changing the access of any list.
 type: reference
 ---
 
-# Keystone Access Control — 3 capas
+# Keystone Access Control — 3 layers
 
-## Cuándo usar este skill
+## When to use this skill
 
-Siempre que definas o modifiques el `access` de una list. Una línea mal puesta aquí es una fuga de datos o un bloqueo total — es el código más sensible del backend. Léelo completo antes de tocar `access`.
+Whenever you define or modify a list's `access`. A misplaced line here is a data leak or a total lockout — it's the most sensitive code in the backend. Read it in full before touching `access`.
 
-## Las 3 capas
+## The 3 layers
 
 ```ts
 access: {
-  operation: { query, create, update, delete }, // ¿puede el usuario ejecutar la operación?
-  filter:    { query, update, delete },          // ¿sobre QUÉ registros? (devuelve un where)
-  field:     { fieldName: { read, create, update } }, // ¿puede leer/escribir ESTE campo?
+  operation: { query, create, update, delete }, // can the user run the operation?
+  filter:    { query, update, delete },          // over WHICH records? (returns a where)
+  field:     { fieldName: { read, create, update } }, // can it read/write THIS field?
 }
 ```
 
-1. **`operation`** — gate booleano por operación. Devuelve `true`/`false` según la sesión. Es el "¿tiene permiso de intentarlo?".
-2. **`filter`** — devuelve un `where` de Prisma que acota el conjunto de registros visibles/afectables. Es el "¿sobre cuáles?". Ej.: un usuario solo ve/edita sus propios registros → `{ author: { id: { equals: session.itemId } } }`.
-3. **`field`** — control fino por campo (ocultar un campo sensible en lectura, impedir escribir un campo calculado).
+1. **`operation`** — boolean gate per operation. Returns `true`/`false` based on the session. It's the "does it have permission to attempt it?".
+2. **`filter`** — returns a Prisma `where` that narrows the set of visible/affectable records. It's the "over which?". E.g.: a user only sees/edits their own records → `{ author: { id: { equals: session.itemId } } }`.
+3. **`field`** — fine-grained per-field control (hide a sensitive field on read, prevent writing a computed field).
 
-Las tres se combinan: `operation` decide si la request entra, `filter` acota el set, `field` recorta columnas.
+The three combine: `operation` decides whether the request gets in, `filter` narrows the set, `field` trims columns.
 
-## Reglas duras
+## Hard rules
 
-1. **`allowAll` está prohibido.** Nunca `access: allowAll`. Todo list declara reglas explícitas por operación. Si algo "es público", exprésalo con una función que retorna `true` acotada, no con `allowAll`.
-2. **Sesión nula → restrictivo, no abierto.** Cuando no hay sesión, el default es negar (o un `filter` que no matchee nada), nunca abrir. Empieza cerrando y abre lo justo.
-3. **`filter` devuelve un where, no un booleano.** Si necesitas negar todo en una capa `filter`, devuelve un where imposible (`{ id: { equals: null } }`), no `false`.
-4. **La lógica de access va en `access/`, no inline.** Extrae funciones reutilizables (`isSignedIn`, `isOwner`, `isAdmin`) a archivos de `access/` y compón; no dupliques la misma condición inline en varias lists.
-5. **Access ≠ validación de negocio.** Access decide quién ve/toca qué; las reglas de negocio (un valor válido, un estado permitido) van en `validateInput` (ver `keystone-models`).
+1. **`allowAll` is forbidden.** Never `access: allowAll`. Every list declares explicit rules per operation. If something "is public", express it with a scoped function that returns `true`, not with `allowAll`.
+2. **Null session → restrictive, not open.** When there's no session, the default is to deny (or a `filter` that matches nothing), never to open. Start closed and open just enough.
+3. **`filter` returns a where, not a boolean.** If you need to deny everything in a `filter` layer, return an impossible where (`{ id: { equals: null } }`), not `false`.
+4. **Access logic goes in `access/`, not inline.** Extract reusable functions (`isSignedIn`, `isOwner`, `isAdmin`) into `access/` files and compose; don't duplicate the same condition inline across lists.
+5. **Access ≠ business validation.** Access decides who sees/touches what; business rules (a valid value, an allowed state) go in `validateInput` (see `keystone-models`).
 
-## Tabla rápida
+## Quick table
 
-| Quiero | Capa | Forma |
+| I want | Layer | Form |
 |---|---|---|
-| Bloquear crear a no-admins | `operation.create` | `({ session }) => isAdmin(session)` |
-| Que cada quien vea lo suyo | `filter.query` | `({ session }) => ({ owner: { id: { equals: session?.itemId } } })` |
-| Ocultar un campo sensible | `field.<campo>.read` | `({ session }) => isAdmin(session)` |
-| Impedir editar un campo calculado | `field.<campo>.update` | `() => false` |
+| Block create for non-admins | `operation.create` | `({ session }) => isAdmin(session)` |
+| Everyone sees their own | `filter.query` | `({ session }) => ({ owner: { id: { equals: session?.itemId } } })` |
+| Hide a sensitive field | `field.<field>.read` | `({ session }) => isAdmin(session)` |
+| Prevent editing a computed field | `field.<field>.update` | `() => false` |
 
-## Antes de declarar el cambio "listo"
+## Before declaring the change "done"
 
-- `{{qualityGate.fast}}` en verde.
-- `grep -rn "allowAll" access/ models/` → 0 resultados.
-- Toda list tocada declara las 3 capas donde apliquen; ninguna operación quedó implícitamente abierta.
-- Sesión nula probada: la list niega o filtra, nunca expone todo.
-- Las condiciones nuevas se extrajeron a `access/` si se repiten en más de una list.
+- `{{qualityGate.fast}}` green.
+- `grep -rn "allowAll" access/ models/` → 0 results.
+- Every touched list declares the 3 layers where they apply; no operation was left implicitly open.
+- Null session tested: the list denies or filters, never exposes everything.
+- New conditions extracted into `access/` if they repeat across more than one list.

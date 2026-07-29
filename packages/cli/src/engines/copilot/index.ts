@@ -20,7 +20,7 @@ const HEADER = "# Copilot instructions\n";
 const USER_SECTION =
   "\n<!-- navori:user-section -->\n" +
   "## Reglas del repo (tuyas)\n\n" +
-  "<!-- Agrega aquí lo específico de tu repo; navori no toca esta sección. -->\n";
+  "<!-- Add your repo-specific rules here; navori doesn't touch this section. -->\n";
 
 export function renderCopilotEngine(
   cwd: string,

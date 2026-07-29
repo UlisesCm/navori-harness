@@ -1,18 +1,18 @@
 ---
 name: winston-logging
-description: Logging con winston — Logger.error/warn/info/debug, niveles correctos, mensajes accionables con contexto, nada de console.log. Aplica al agregar logs o auditar las traces de un bug.
+description: Use when adding logs or auditing a bug's traces — logging with winston: Logger.error/warn/info/debug, correct levels, actionable messages with context, no console.log.
 type: reference
 ---
 
-# Winston Logging — patterns del repo
+# Winston Logging — repo patterns
 
-El `Logger` del repo (winston, típicamente en `infrastructure/`) reemplaza por completo a `console`. Escribe a consola y archivo en dev, solo consola en prod.
+The repo's `Logger` (winston, typically in `infrastructure/`) fully replaces `console`. It writes to console and file in dev, console only in prod.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al agregar logs a un controller, job o servicio, elegir el nivel correcto, auditar traces de un bug, o limpiar `console.log` heredados.
+When adding logs to a controller, job, or service, choosing the right level, auditing a bug's traces, or cleaning up inherited `console.log`.
 
-## El patrón
+## The pattern
 
 ```ts
 import Logger from '../../infrastructure/core/Logger';
@@ -22,41 +22,41 @@ try {
   Logger.info(`[resource:create] ${created._id} owner ${dto.owner}`);
 } catch (err) {
   Logger.error(`Failed to create Resource`, err);
-  throw err; // re-throw → middleware global lo mapea a InternalError
+  throw err; // re-throw → the global middleware maps it to InternalError
 }
 ```
 
-Con `format.errors({ stack: true })` (config típica), pasar un `Error` loguea el stack solo. Prefija con `[<scope>:<verb>]` (`[job:sendReminder]`, `[email:welcome]`) para que sea grep-friendly.
+With `format.errors({ stack: true })` (typical config), passing an `Error` logs the stack on its own. Prefix with `[<scope>:<verb>]` (`[job:sendReminder]`, `[email:welcome]`) so it's grep-friendly.
 
-Si tu framework ya centraliza el error async (`asyncHandler` en Express, exception filters en Nest, error middleware global), NO dupliques try/catch en cada handler. Agrégalo solo para loguear contexto extra, mapear un error específico (ej. `MongoServerError` 11000 → `BadRequestError`), o hacer cleanup antes del re-throw.
+If your framework already centralizes async errors (`asyncHandler` in Express, exception filters in Nest, global error middleware), do NOT duplicate try/catch in every handler. Add it only to log extra context, map a specific error (e.g. `MongoServerError` 11000 → `BadRequestError`), or do cleanup before the re-throw.
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **`Logger.debug` no se imprime en prod** cuando `logLevel = isDev ? 'debug' : 'info'`. Perfecto para diagnóstico que no quieres exponer; inútil si esperabas verlo en prod.
-- **`JSON.stringify(req)` revienta**: los Request son enormes y tienen circular refs. Loguea solo lo que necesitas.
+- **`Logger.debug` doesn't print in prod** when `logLevel = isDev ? 'debug' : 'info'`. Perfect for diagnostics you don't want to expose; useless if you expected to see it in prod.
+- **`JSON.stringify(req)` blows up**: Requests are huge and have circular refs. Log only what you need.
 
-## Reglas duras
+## Hard rules
 
-1. `Logger` siempre, nunca `console.log/error/warn`. Borra los `console.log` temporales antes del commit.
-2. Nivel correcto: `error` (capturado/crítico), `warn` (recuperable pero notable), `info` (evento de dominio: job, login, email), `debug` (solo dev).
-3. Mensajes accionables: incluye IDs y contexto, no solo "Error"/"Failed".
-4. No spammees — un `info` por request es ruido; resérvalo para eventos.
-5. Re-lanza (`throw err`) tras el `Logger.error` cuando el flujo lo necesita; el caller debe enterarse del fallo.
-6. Nunca loguees secrets (tokens, passwords) ni `JSON.stringify(req)` completo. Nada de `catch (e) {}` tragador.
+1. `Logger` always, never `console.log/error/warn`. Delete temporary `console.log` before committing.
+2. Correct level: `error` (caught/critical), `warn` (recoverable but notable), `info` (domain event: job, login, email), `debug` (dev only).
+3. Actionable messages: include IDs and context, not just "Error"/"Failed".
+4. Don't spam — one `info` per request is noise; reserve it for events.
+5. Re-throw (`throw err`) after `Logger.error` when the flow needs it; the caller must learn about the failure.
+6. Never log secrets (tokens, passwords) or a full `JSON.stringify(req)`. No swallowing `catch (e) {}`.
 
-## Tabla rápida
+## Quick table
 
-| Situación | Nivel |
+| Situation | Level |
 |---|---|
-| Error capturado o evento crítico | `Logger.error(err)` |
-| Recuperable pero notable | `Logger.warn(msg)` |
-| Evento de dominio (job, login, email) | `Logger.info(msg)` |
-| Diagnóstico de desarrollo | `Logger.debug(msg)` |
+| Caught error or critical event | `Logger.error(err)` |
+| Recoverable but notable | `Logger.warn(msg)` |
+| Domain event (job, login, email) | `Logger.info(msg)` |
+| Development diagnostics | `Logger.debug(msg)` |
 
-## Antes de declarar listo
+## Before declaring done
 
-- No quedó ningún `console.log` nuevo; los temporales se borraron.
-- Cada log usa el nivel correcto y lleva IDs/contexto accionable.
-- Los errores capturados re-lanzan cuando el flujo lo necesita.
-- No se loguean secrets ni `JSON.stringify(req)` completo.
-- `{{qualityGate.fast}}` en verde.
+- No new `console.log` left; temporary ones deleted.
+- Every log uses the right level and carries actionable IDs/context.
+- Caught errors re-throw when the flow needs it.
+- No secrets or full `JSON.stringify(req)` logged.
+- `{{qualityGate.fast}}` green.

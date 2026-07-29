@@ -1,56 +1,56 @@
 ---
 name: nestjs-modules
-description: Reglas para módulos NestJS — controllers, services, providers, DI scopes. Aplica al crear o modificar src/<feature>/.
+description: Use when creating or modifying src/<feature>/ in NestJS — rules for modules: controllers, services, providers, DI scopes.
 type: reference
 ---
 
-# NestJS Modules — convenciones del proyecto
+# NestJS Modules — project conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Antes de crear un nuevo feature module, agregar provider, exponer endpoints o tocar la grafa de dependencias. El modelo de módulos + DI es lo que mantiene la app testeable; saltarse el patrón rompe los unit tests rápidos.
+Before creating a new feature module, adding a provider, exposing endpoints, or touching the dependency graph. The module + DI model is what keeps the app testable; skipping the pattern breaks the fast unit tests.
 
-## Estructura mínima de un feature module
+## Minimal structure of a feature module
 
 ```
 src/<feature>/
 ├── <feature>.module.ts       # @Module decorator: imports, providers, controllers, exports
-├── <feature>.controller.ts   # HTTP layer — recibe DTOs, llama service, devuelve DTOs
-├── <feature>.service.ts      # Lógica — orquesta repos/clients
+├── <feature>.controller.ts   # HTTP layer — receives DTOs, calls service, returns DTOs
+├── <feature>.service.ts      # Logic — orchestrates repos/clients
 ├── dto/
 │   ├── create-<x>.dto.ts
 │   └── update-<x>.dto.ts
-├── entities/                 # Si usas ORM (TypeORM/Mongoose schemas)
+├── entities/                 # If you use an ORM (TypeORM/Mongoose schemas)
 │   └── <x>.entity.ts
 └── __tests__/
     ├── <feature>.controller.spec.ts
     └── <feature>.service.spec.ts
 ```
 
-## Reglas duras
+## Hard rules
 
-1. **Un módulo expone solo lo que otros consumen.** El `exports: []` del `@Module` declara explícitamente qué providers son públicos. Si no está exportado, otro módulo NO debería importarlo (rompe encapsulación).
-2. **Inyección por constructor, no por propiedad.** `constructor(private readonly users: UsersService) {}`. Property injection (`@Inject() users: UsersService`) es para casos raros (circular deps, factory tokens). Si lo necesitas, es señal de que el módulo debería estar dividido.
-3. **Default scope es singleton.** Solo usa `@Injectable({ scope: Scope.REQUEST })` cuando el provider necesite contexto por-request (current user, request-scoped cache). Cada provider request-scoped fuerza a sus consumidores a serlo también — propaga rápido.
-4. **Controllers NO tienen lógica.** Reciben DTO, llaman service, devuelven response DTO. Toda transformación, validación de negocio o coordinación va en el service.
-5. **Imports vs providers.** `imports` para módulos completos (`TypeOrmModule.forFeature([User])`); `providers` para clases del propio módulo. Confundir los dos es bug común.
+1. **A module exposes only what others consume.** The `@Module`'s `exports: []` explicitly declares which providers are public. If it isn't exported, another module should NOT import it (breaks encapsulation).
+2. **Constructor injection, not property injection.** `constructor(private readonly users: UsersService) {}`. Property injection (`@Inject() users: UsersService`) is for rare cases (circular deps, factory tokens). If you need it, it's a sign the module should be split.
+3. **Default scope is singleton.** Only use `@Injectable({ scope: Scope.REQUEST })` when the provider needs per-request context (current user, request-scoped cache). Every request-scoped provider forces its consumers to be request-scoped too — it propagates fast.
+4. **Controllers have NO logic.** They receive a DTO, call the service, return a response DTO. All transformation, business validation, or coordination goes in the service.
+5. **Imports vs providers.** `imports` for whole modules (`TypeOrmModule.forFeature([User])`); `providers` for classes of the module itself. Confusing the two is a common bug.
 
-## Tabla rápida
+## Quick table
 
-| Necesito | Dónde |
+| I need | Where |
 |---|---|
-| Endpoint HTTP nuevo | `<feature>.controller.ts` + DTO de entrada/salida |
-| Lógica de negocio | `<feature>.service.ts` |
-| Llamar otra feature | Import el módulo de la otra; resuelve su service exportado por DI |
-| Connection a DB | `TypeOrmModule.forFeature(...)` en `imports` del módulo |
-| Validación de DTO | `class-validator` decorators en el DTO + `ValidationPipe` global |
-| Cross-cutting (logging, auth) | Interceptor / Guard / Pipe en `app.module.ts` global |
-| Provider con dependencia async | `useFactory` en `providers: [{ provide, useFactory, inject }]` |
+| New HTTP endpoint | `<feature>.controller.ts` + input/output DTO |
+| Business logic | `<feature>.service.ts` |
+| Call another feature | Import the other module; resolve its exported service via DI |
+| DB connection | `TypeOrmModule.forFeature(...)` in the module's `imports` |
+| DTO validation | `class-validator` decorators on the DTO + global `ValidationPipe` |
+| Cross-cutting (logging, auth) | Interceptor / Guard / Pipe global in `app.module.ts` |
+| Provider with async dependency | `useFactory` in `providers: [{ provide, useFactory, inject }]` |
 
-## Antes de declarar el cambio "listo"
+## Before calling the change "done"
 
-- `{{qualityGate.fast}}` en verde.
-- Si agregaste un módulo: aparece en `app.module.ts` (imports) o como sub-import de otro módulo declarado.
-- Si exportaste un provider: documenta por qué. Solo se exporta lo que otros van a consumir desde fuera.
-- Si tocaste DI scopes: confirma que el cambio no convirtió un provider singleton en request-scoped por accidente (busca cascada).
-- Spec del controller llama al service mockeado (no a la implementación real).
+- `{{qualityGate.fast}}` green.
+- If you added a module: it appears in `app.module.ts` (imports) or as a sub-import of another declared module.
+- If you exported a provider: document why. Only export what others will consume from outside.
+- If you touched DI scopes: confirm the change didn't accidentally turn a singleton provider into a request-scoped one (look for a cascade).
+- The controller spec calls the mocked service (not the real implementation).

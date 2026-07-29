@@ -1,18 +1,18 @@
 ---
 name: mantine-form
-description: Patrones de @mantine/form — useForm, getInputProps, validación con zodResolver, campos anidados y listas. Aplica al crear o tocar formularios con Mantine.
+description: Use when creating or touching forms with Mantine — @mantine/form patterns: useForm, getInputProps, validation with zodResolver, nested fields, and lists.
 type: reference
 ---
 
-# Mantine Form — convenciones
+# Mantine Form — conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al crear o tocar un formulario con `@mantine/form`: cablear inputs de Mantine, validar, manejar submit, o campos anidados/listas. `useForm` es la fuente de verdad del form — no espejees sus valores en `useState`, y valida con un schema Zod (vía `mantine-form-zod-resolver`), no con funciones sueltas por campo.
+When creating or touching a form with `@mantine/form`: wiring Mantine inputs, validating, handling submit, or nested/list fields. `useForm` is the form's source of truth — don't mirror its values in `useState`, and validate with a Zod schema (via `mantine-form-zod-resolver`), not with loose per-field functions.
 
-## El patrón
+## The pattern
 
-`useForm` + `getInputProps` (esparce value/onChange/error de un jalón) + `zodResolver` para el schema:
+`useForm` + `getInputProps` (spreads value/onChange/error in one shot) + `zodResolver` for the schema:
 
 ```tsx
 const schema = z.object({
@@ -21,38 +21,38 @@ const schema = z.object({
 });
 
 const form = useForm({
-  mode: 'uncontrolled',                 // menos re-renders; el default recomendado
+  mode: 'uncontrolled',                 // fewer re-renders; the recommended default
   initialValues: { email: '', role: 'coachee' },
-  validate: zodResolver(schema),        // desde 'mantine-form-zod-resolver'
+  validate: zodResolver(schema),        // from 'mantine-form-zod-resolver'
 });
 
 <form onSubmit={form.onSubmit((values) => save(values))}>
   <TextInput {...form.getInputProps('email')} />
   <Select data={['coach', 'coachee']} {...form.getInputProps('role')} />
-  <Button type="submit">Guardar</Button>
+  <Button type="submit">Save</Button>
 </form>
 ```
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **`getInputProps('campo')` cablea todo; no lo desarmes.** Ya trae `value`/`onChange`/`error`/`onBlur`. Pasar `value`/`onChange` a mano encima rompe el binding — deja que el spread mande.
-- **`mode: 'uncontrolled'` cambia cómo lees valores.** En uncontrolled, `form.values` no re-renderiza al teclear; para reflejar un campo en la UI usa `form.watch('campo')` o `form.getValues()`. En `controlled` sí re-renderiza cada tecla (más caro en forms grandes).
-- **Validación con `zodResolver`, no funciones por campo.** `validate: { email: (v) => … }` disemina reglas y tipos. Un schema Zod + `zodResolver` da una fuente única y el tipo por `z.infer`. Requiere el paquete `mantine-form-zod-resolver`.
-- **Campos anidados/listas con notación de path.** `getInputProps('address.city')`, y listas con `form.insertListItem('items', {...})` / `form.removeListItem('items', i)` + `getInputProps('items.0.name')`. No manejes el array en `useState` aparte.
-- **`initialValues` define el shape; llénalo completo.** Un campo ausente arranca `undefined` → warning uncontrolled→controlled. Para edición async usa `form.setValues(data)` / `form.initialize(data)` en un efecto, no valores a mano por render.
-- **Submit con `form.onSubmit(handler)`.** Corre la validación y solo llama tu handler si pasa; además expone el segundo callback `(errors) => …` para enfocar el primer inválido. No valides "a mano" antes de enviar.
+- **`getInputProps('field')` wires everything; don't take it apart.** It already brings `value`/`onChange`/`error`/`onBlur`. Passing `value`/`onChange` by hand on top breaks the binding — let the spread rule.
+- **`mode: 'uncontrolled'` changes how you read values.** In uncontrolled, `form.values` doesn't re-render on keystroke; to reflect a field in the UI use `form.watch('field')` or `form.getValues()`. In `controlled` it does re-render on every keystroke (more expensive in large forms).
+- **Validation with `zodResolver`, not per-field functions.** `validate: { email: (v) => … }` scatters rules and types. A Zod schema + `zodResolver` gives a single source and the type via `z.infer`. Requires the `mantine-form-zod-resolver` package.
+- **Nested/list fields with path notation.** `getInputProps('address.city')`, and lists with `form.insertListItem('items', {...})` / `form.removeListItem('items', i)` + `getInputProps('items.0.name')`. Don't manage the array in a separate `useState`.
+- **`initialValues` defines the shape; fill it completely.** A missing field starts `undefined` → uncontrolled→controlled warning. For async editing use `form.setValues(data)` / `form.initialize(data)` in an effect, not hand-set values per render.
+- **Submit with `form.onSubmit(handler)`.** It runs validation and only calls your handler if it passes; it also exposes a second callback `(errors) => …` to focus the first invalid field. Don't validate "by hand" before sending.
 
-## Reglas duras
+## Hard rules
 
-1. `useForm` es la única fuente del estado del form; nada de `useState` espejo.
-2. Inputs cableados con `getInputProps`; no dupliques `value`/`onChange`.
-3. Validación con schema Zod vía `zodResolver`; tipo por `z.infer`, sin reglas por campo.
-4. `initialValues` completo; edición async con `setValues`/`initialize`.
-5. Submit vía `form.onSubmit`; listas/anidados con la API de path, no arrays sueltos.
+1. `useForm` is the single source of the form state; no mirror `useState`.
+2. Inputs wired with `getInputProps`; don't duplicate `value`/`onChange`.
+3. Validation with a Zod schema via `zodResolver`; type via `z.infer`, no per-field rules.
+4. Complete `initialValues`; async editing with `setValues`/`initialize`.
+5. Submit via `form.onSubmit`; lists/nested with the path API, not loose arrays.
 
-## Antes de declarar listo
+## Before declaring done
 
-- Todos los inputs usan `getInputProps`; sin estado espejo ni handlers duplicados.
-- Validación centralizada en un schema Zod con `zodResolver`; tipos por `z.infer`.
-- `initialValues` seteado; sin warnings uncontrolled→controlled. Submit con `form.onSubmit`.
-- `{{qualityGate.fast}}` en verde.
+- All inputs use `getInputProps`; no mirror state or duplicated handlers.
+- Validation centralized in a Zod schema with `zodResolver`; types via `z.infer`.
+- `initialValues` set; no uncontrolled→controlled warnings. Submit with `form.onSubmit`.
+- `{{qualityGate.fast}}` green.

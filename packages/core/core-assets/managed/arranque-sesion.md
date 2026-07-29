@@ -1,11 +1,11 @@
-## Arranque de sesión
+## Session startup
 
-Antes de tocar código, valida que el harness está sano:
+Before touching code, validate the harness is healthy:
 
-1. **Contexto**: lee `CLAUDE.md` (tu rol de orquestador + el catálogo `## Agentes disponibles`) y `progress/current.md` para retomar la sesión anterior. Si el repo usa memoria persistente, recupérala.
-2. **Config sana**: si `navori.config.json` o `.claude/` se ven inconsistentes, corre `navori doctor` antes de seguir.
-3. **Gates listos**: los quality gates que el repo declara corren de verdad (binarios en PATH, toolchains bootstrapeados). Un gate declarado que no ejecuta es deuda silenciosa — instálalo o anótalo en `progress/current.md`.
-4. **Branch de trabajo**: confirma que no estás sobre la branch base (`{{branchBase}}`).
-5. **Tarea acotada**: una tarea **de usuario** a la vez (no mezcles pedidos); tú la descompones en sub-tareas y, si son independientes, las lanzas en paralelo — ver tu rol de orquestador.
+1. **Context**: read `CLAUDE.md` (your orchestrator role + the `## Available agents` catalog) and `progress/current.md` to resume the previous session. If the repo uses persistent memory, recover it.
+2. **Healthy config**: if `navori.config.json` or `.claude/` look inconsistent, run `navori doctor` before continuing.
+3. **Gates ready**: the quality gates the repo declares actually run (binaries on PATH, toolchains bootstrapped). A declared gate that doesn't execute is silent debt — install it or note it in `progress/current.md`.
+4. **Working branch**: confirm you're not on the base branch (`{{branchBase}}`).
+5. **Scoped task**: one **user** task at a time (don't mix requests); you decompose it into sub-tasks and, if they're independent, launch them in parallel — see your orchestrator role.
 
-Espejo de **Cierre de sesión** (más abajo): arrancas sano, cierras limpio.
+Mirror of **Session closeout** (below): start healthy, close clean.

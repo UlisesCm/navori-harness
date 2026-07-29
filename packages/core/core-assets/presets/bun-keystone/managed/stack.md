@@ -1,13 +1,13 @@
 ## Stack — Keystone 6 (Bun + Prisma)
 
-Backend GraphQL sobre **Keystone 6**, runtime **Bun**, persistencia **Prisma + PostgreSQL**. Los datos se modelan como *lists* (`list({ access, hooks, fields })`) y Keystone deriva de ahí el schema Prisma y la API GraphQL: `schema.prisma` y `schema.graphql` son **autogenerados**, nunca se editan a mano (ver `prisma-keystone`).
+GraphQL backend on **Keystone 6**, **Bun** runtime, **Prisma + PostgreSQL** persistence. Data is modeled as *lists* (`list({ access, hooks, fields })`) and Keystone derives from them both the Prisma schema and the GraphQL API: `schema.prisma` and `schema.graphql` are **auto-generated**, never edited by hand (see `prisma-keystone`).
 
-Tres contratos gobiernan todo el código de datos:
+Three contracts govern all data code:
 
-- **Access control en 3 capas** — cada list declara `operation`, `filter` y `field`; `allowAll` está prohibido. Una sesión nula recibe un filtro restrictivo, nunca abierto. Ver `keystone-access`.
-- **Hooks con contrato estricto** — `resolveInput` retorna datos, `validateInput` lanza `Error` (nunca retorna un valor), `afterOperation` chequea `operation` antes de actuar. Ver `keystone-models`.
-- **`context.sudo()` en hooks y services** — nunca `context.db` (aplicaría el access de la sesión actual) ni Prisma directo; `context.prisma` queda solo para scripts de seed/migración.
+- **3-layer access control** — each list declares `operation`, `filter` and `field`; `allowAll` is forbidden. A null session gets a restrictive filter, never an open one. See `keystone-access`.
+- **Hooks with a strict contract** — `resolveInput` returns data, `validateInput` throws `Error` (never returns a value), `afterOperation` checks `operation` before acting. See `keystone-models`.
+- **`context.sudo()` in hooks and services** — never `context.db` (it would apply the current session's access) or raw Prisma; `context.prisma` is reserved for seed/migration scripts only.
 
-Toda dependencia externa (SMS, pagos, APIs de terceros) va detrás de una interfaz en `[servicio].adapter.ts`: los services reciben la interfaz, no la implementación, para poder mockearla en tests.
+Every external dependency (SMS, payments, third-party APIs) sits behind an interface in `[service].adapter.ts`: services receive the interface, not the implementation, so it can be mocked in tests.
 
-**Eficiencia de contexto** — los artefactos generados (`types/graphql.ts` puede rondar decenas de miles de tokens, `schema.graphql`, `migrations/`, el lockfile) **no se leen completos**: infiere los tipos desde la *list* en `models/` o desde `schema.prisma`, y busca con `grep`/`Grep` en vez de abrir el archivo entero.
+**Context efficiency** — the generated artifacts (`types/graphql.ts` can run into tens of thousands of tokens, `schema.graphql`, `migrations/`, the lockfile) are **not read in full**: infer the types from the *list* in `models/` or from `schema.prisma`, and search with `grep`/`Grep` instead of opening the whole file.

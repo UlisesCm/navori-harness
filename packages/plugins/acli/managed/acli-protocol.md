@@ -1,10 +1,10 @@
-## Tickets de Jira (acli)
+## Jira tickets (acli)
 
-Para leer tickets de Jira usa **acli** (no el MCP de Atlassian).
+To read Jira tickets use **acli** (not the Atlassian MCP).
 
-- Ver un ticket: `acli jira workitem view <KEY>` (ej. `acli jira workitem view BNM-123`)
-- Buscar tickets: `acli jira workitem search --jql "<JQL>"`
-- Listar comentarios: `acli jira workitem comment list --key <KEY>`
-- Listar transiciones: `acli jira workitem transition list --key <KEY>`
+- View a ticket: `acli jira workitem view <KEY>` (e.g. `acli jira workitem view BNM-123`)
+- Search tickets: `acli jira workitem search --jql "<JQL>"`
+- List comments: `acli jira workitem comment list --key <KEY>`
+- List transitions: `acli jira workitem transition list --key <KEY>`
 
-El MCP de Atlassian/Rovo queda como fallback si `acli` falla o no está disponible.
+The Atlassian/Rovo MCP remains the fallback if `acli` fails or is unavailable.

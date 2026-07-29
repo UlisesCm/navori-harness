@@ -1,45 +1,45 @@
 ---
 name: new-feature
-description: Usar al crear un recurso/feature nuevo end-to-end. Define el orden estricto de capas (interface → service → adapter → component → router) para que el dato fluya consistente. Los templates concretos del dominio van en la user-section.
+description: Use when creating a new resource/feature end-to-end. Defines the strict layer order (interface → service → adapter → component → router) so data flows consistently. Domain-specific templates go in the user-section.
 type: reference
 ---
 
-# New feature — orden de capas
+# New feature — layer order
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al crear un recurso o feature nuevo de punta a punta (un endpoint que termina consumido en una pantalla). Define el ORDEN en que se construyen las capas; el contenido concreto de cada una es del dominio de tu repo (va en la user-section).
+When creating a new resource or feature end-to-end (an endpoint that ends up consumed on a screen). It defines the ORDER in which the layers are built; the concrete content of each is your repo's domain (goes in the user-section).
 
-## Orden estricto
+## Strict order
 
-Construye de adentro hacia afuera. No saltees capas ni las hagas en desorden:
+Build from the inside out. Don't skip layers or do them out of order:
 
-1. **interface / tipos** — define la forma del dato: el shape de la respuesta cruda y el del modelo que consume la UI. Sin esto, todo lo de arriba se castea a ciegas.
-2. **service** — la llamada de red. URL desde config (sin hardcode), cancelación, manejo de error. Devuelve el dato crudo tipado.
-3. **adapter** — función PURA que transforma el dato crudo al modelo de UI. Defaults explícitos para nullables, fallback de enums desconocidos. Sin I/O, sin estado global.
-4. **component / page** — consume el modelo vía el adapter. Loading + error states. Nada de fetch crudo en el componente.
-5. **router / navegación** — recién cuando la pantalla anda, la enganchas al router.
+1. **interface / types** — define the shape of the data: the shape of the raw response and of the model the UI consumes. Without this, everything above is cast blindly.
+2. **service** — the network call. URL from config (no hardcode), cancellation, error handling. Returns the typed raw data.
+3. **adapter** — PURE function that transforms the raw data into the UI model. Explicit defaults for nullables, fallback for unknown enums. No I/O, no global state.
+4. **component / page** — consumes the model via the adapter. Loading + error states. No raw fetch in the component.
+5. **router / navigation** — only once the screen works, you wire it into the router.
 
-Regla: si la capa N necesita algo de la capa N-1 que todavía no existe, **paras y haces N-1 primero**. El dato fluye `red → service → adapter → component`; construir al revés genera casts y deuda.
+Rule: if layer N needs something from layer N-1 that doesn't exist yet, **stop and do N-1 first**. Data flows `network → service → adapter → component`; building it backwards creates casts and debt.
 
-## Antes de declarar "listo"
+## Before calling it "done"
 
-- `{{qualityGate.fast}}` en verde.
-- El dato se ve correcto en la UI con datos reales (no solo el happy path mockeado).
-- Aplica `verify-before-done`; si tocaste pantallas, valida manualmente.
+- `{{qualityGate.fast}}` green.
+- The data looks correct in the UI with real data (not just the mocked happy path).
+- Apply `verify-before-done`; if you touched screens, validate manually.
 
-## Conexión
+## Connection
 
-- `implementer`: sigue este orden al crear un recurso; documenta en `progress/impl_<feature>.md` qué quedó en cada capa.
-- `review-diff`: el reviewer valida cada capa (tipos, capa de datos, component/page) con sus severidades.
+- `implementer`: follow this order when creating a resource; document in `progress/impl_<feature>.md` what was left in each layer.
+- `review-diff`: the reviewer validates each layer (types, data layer, component/page) with its severities.
 
 <!-- navori:user-section -->
-## Templates y reglas del recurso (tu dominio)
+## Resource templates and rules (your domain)
 
-<!-- user: agrega aquí los templates concretos de TU stack para cada capa (los que NO son generalizables). Sugerencias:
-     - El esqueleto real de un service (cliente HTTP, headers obligatorios, patrón de cancelación).
-     - El patrón de adapter del repo (naming, defaults, fallback de enums).
-     - El patrón de form/validación (lib + resolver).
-     - Convención de carpetas y sufijos (dónde va cada capa, naming de archivos).
-     - Reglas de migración legacy ↔ nuevo backend si aplica.
+<!-- user: add here the concrete templates for YOUR stack for each layer (the ones that are NOT generalizable). Suggestions:
+     - The real skeleton of a service (HTTP client, required headers, cancellation pattern).
+     - The repo's adapter pattern (naming, defaults, enum fallback).
+     - The form/validation pattern (lib + resolver).
+     - Folder convention and suffixes (where each layer goes, file naming).
+     - Legacy ↔ new backend migration rules if applicable.
 -->

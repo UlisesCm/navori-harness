@@ -1,5 +1,5 @@
 ## Stack — Next.js (App Router)
 
-App con App Router (`app/`). Server Components por default; `"use client"` solo en componentes con interactividad o estado de cliente. El data fetching vive en el servidor (Server Components, route handlers, server actions).
+App with the App Router (`app/`). Server Components by default; `"use client"` only in components with interactivity or client state. Data fetching lives on the server (Server Components, route handlers, server actions).
 
-Regla de oro: no marques `"use client"` un árbol entero por una hoja interactiva — empuja el límite cliente lo más abajo posible. Aplica `nextjs-app-router` para estructura y `nextjs-data-fetching` para fetching/caching.
+Golden rule: don't mark a whole tree `"use client"` for one interactive leaf — push the client boundary as far down as possible. Apply `nextjs-app-router` for structure and `nextjs-data-fetching` for fetching/caching.

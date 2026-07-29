@@ -1,57 +1,57 @@
 ---
 name: queue-consumers
-description: Consumir mensajes de una cola en un worker (amqplib / bullmq) — ack/nack, dead-letter, prefetch/backpressure, idempotencia. Aplica al crear o tocar un consumidor de cola.
+description: Consume messages from a queue in a worker (amqplib / bullmq) — ack/nack, dead-letter, prefetch/backpressure, idempotency. Use when creating or touching a queue consumer.
 type: reference
 ---
 
-# queue-consumers — consumir sin perder ni duplicar
+# queue-consumers — consume without losing or duplicating
 
-Un consumer reacciona a mensajes. La regla central: **un mensaje no se confirma (`ack`) hasta que se procesó con éxito**; si falla, se re-encola o va a dead-letter — nunca se pierde en silencio.
+A consumer reacts to messages. The core rule: **a message is not acknowledged (`ack`) until it's processed successfully**; on failure, it's requeued or goes to dead-letter — never silently lost.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al crear un consumer, manejar fallos de procesamiento, o ajustar prefetch / dead-letter.
+When creating a consumer, handling processing failures, or tuning prefetch / dead-letter.
 
-## El patrón (amqplib)
+## The pattern (amqplib)
 
 ```ts
-await channel.prefetch(10); // backpressure: máx 10 sin ack a la vez
+await channel.prefetch(10); // backpressure: max 10 unacked at a time
 await channel.consume(queue, async (msg) => {
   if (!msg) return;
   try {
     const payload = JSON.parse(msg.content.toString());
-    if (await alreadyProcessed(payload.id)) { channel.ack(msg); return; } // idempotente
+    if (await alreadyProcessed(payload.id)) { channel.ack(msg); return; } // idempotent
     await handle(payload);
     channel.ack(msg);
   } catch (err) {
     logger.error({ err }, 'consume failed');
-    // requeue una vez; si ya fue redelivered, mándalo a la DLQ (no requeue infinito)
+    // requeue once; if already redelivered, send it to the DLQ (no infinite requeue)
     channel.nack(msg, false, !msg.fields.redelivered);
   }
 });
 ```
 
-bullmq: lanzar dentro del `Worker` handler re-encola según `attempts`/`backoff`; al agotarse, el job queda `failed`. **`failed` NO es una DLQ**: nadie reprocesa ni alerta solo — escucha `worker.on('failed')` / `QueueEvents`, o mueve a una `failed`-queue dedicada con monitoreo.
+bullmq: throwing inside the `Worker` handler requeues per `attempts`/`backoff`; once exhausted, the job stays `failed`. **`failed` is NOT a DLQ**: nobody reprocesses or alerts on its own — listen to `worker.on('failed')` / `QueueEvents`, or move to a dedicated `failed`-queue with monitoring.
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **`redelivered` es una heurística pobre para reintentos.** Se activa en **cualquier** re-entrega (incluida recuperación de conexión) y solo distingue "0 vs ≥1", no un contador; `nack` con requeue reencola en la **cabeza** → hot-loop sin backoff. El patrón robusto es **dead-letter exchange (DLX) + retry queue con TTL** (o header `x-death`/contador), no `redelivered`.
-- **Dedup atómica, no check-then-act.** `if (await alreadyProcessed(id))` es TOCTOU: con `prefetch>1` o dos consumers, dos entregas pasan ambas el check. Usa `INSERT` con unique index (captura duplicate-key) o `SET NX` en Redis.
-- **Parse fallido = no-retryable** → DLQ directo, no requeue (un payload corrupto haría loop eterno).
-- **Sin `prefetch`** el consumer traga toda la cola en memoria. Fija un prefetch acorde a la duración del handler.
-- **`ack` antes de procesar** = pérdida de mensajes si el handler crashea. Confirma **después** del éxito.
-- **Mensajes duplicados** son normales (redelivery). El handler debe ser idempotente.
+- **`redelivered` is a poor heuristic for retries.** It fires on **any** re-delivery (including connection recovery) and only distinguishes "0 vs ≥1", not a counter; `nack` with requeue re-enqueues at the **head** → hot-loop with no backoff. The robust pattern is a **dead-letter exchange (DLX) + retry queue with TTL** (or an `x-death` header/counter), not `redelivered`.
+- **Atomic dedup, not check-then-act.** `if (await alreadyProcessed(id))` is TOCTOU: with `prefetch>1` or two consumers, two deliveries both pass the check. Use `INSERT` with a unique index (catch duplicate-key) or `SET NX` in Redis.
+- **Failed parse = non-retryable** → straight to DLQ, no requeue (a corrupt payload would loop forever).
+- **Without `prefetch`** the consumer swallows the whole queue into memory. Set a prefetch matching the handler's duration.
+- **`ack` before processing** = message loss if the handler crashes. Acknowledge **after** success.
+- **Duplicate messages** are normal (redelivery). The handler must be idempotent.
 
-## Reglas duras
+## Hard rules
 
-1. `ack` solo tras éxito; en fallo, reintento acotado (DLX + retry queue / contador) o dead-letter.
-2. Nunca requeue infinito de un mensaje venenoso; un parse fallido va directo a DLQ.
-3. `prefetch` explícito para backpressure.
-4. Handler **idempotente** con dedup **atómica** (unique index / `SET NX`), no check-then-act.
-5. Errores logueados (estructurado), nunca tragados en silencio.
+1. `ack` only after success; on failure, bounded retry (DLX + retry queue / counter) or dead-letter.
+2. Never infinite-requeue a poison message; a failed parse goes straight to DLQ.
+3. Explicit `prefetch` for backpressure.
+4. **Idempotent** handler with **atomic** dedup (unique index / `SET NX`), not check-then-act.
+5. Errors logged (structured), never silently swallowed.
 
-## Antes de declarar listo
+## Before declaring done
 
-- Un mensaje que falla no se pierde ni hace loop infinito (va a DLQ).
-- `prefetch` configurado; el handler es idempotente.
-- `{{qualityGate.fast}}` en verde.
+- A message that fails is neither lost nor infinite-looped (it goes to DLQ).
+- `prefetch` configured; the handler is idempotent.
+- `{{qualityGate.fast}}` green.

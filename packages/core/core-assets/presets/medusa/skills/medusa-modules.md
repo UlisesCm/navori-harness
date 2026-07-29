@@ -1,46 +1,46 @@
 ---
 name: medusa-modules
-description: Reglas para crear/modificar módulos de Medusa v2 — entidades, services, workflows. Aplica antes de tocar src/modules/.
+description: Rules for creating/modifying Medusa v2 modules — entities, services, workflows. Use when creating or modifying files under src/modules/.
 type: reference
 ---
 
-# Medusa Modules — convenciones del proyecto
+# Medusa Modules — project conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Antes de crear o modificar cualquier archivo bajo `src/modules/`. Los módulos en Medusa v2 son el contrato entre dominio y resto del backend; tocar uno sin respetar el shape rompe inyección de dependencias.
+Before creating or modifying any file under `src/modules/`. Modules in Medusa v2 are the contract between the domain and the rest of the backend; touching one without respecting the shape breaks dependency injection.
 
-## Estructura mínima de un módulo
+## Minimal structure of a module
 
 ```
 src/modules/<module-name>/
-├── index.ts          # default export del Module
+├── index.ts          # default export of the Module
 ├── service.ts        # extends MedusaService
-├── models/           # entities con DML (entity model)
+├── models/           # entities with DML (entity model)
 │   └── <entity>.ts
-└── migrations/       # generadas con `npx medusa db:generate`
+└── migrations/       # generated with `npx medusa db:generate`
 ```
 
-## Reglas duras
+## Hard rules
 
-1. **Nunca editar migraciones generadas a mano.** Si cambia el modelo, regenera con `npx medusa db:generate <ModuleName>`. La excepción son data migrations explícitas — esas sí se escriben, pero en archivo aparte.
-2. **El service extiende `MedusaService<{ Entity: typeof Entity, ... }>`.** No reimplementar CRUD — los métodos `list/create/update/delete` salen del factory automáticamente.
-3. **Entidades con DML (`model.define(...)`)**, no con decoradores de MikroORM directos. DML es la API pública v2 estable; los decoradores son internos y pueden cambiar.
-4. **Resolver del module via container key.** Inyectar con `container.resolve(Modules.<NAME>)` o el key string del manifest, nunca importar el service directo desde otro módulo (rompe el aislamiento del DI).
-5. **Workflows en `src/workflows/`, no en el módulo.** El módulo expone primitivas; los workflows orquestan múltiples módulos.
+1. **Never edit generated migrations by hand.** If the model changes, regenerate with `npx medusa db:generate <ModuleName>`. The exception is explicit data migrations — those are written, but in a separate file.
+2. **The service extends `MedusaService<{ Entity: typeof Entity, ... }>`.** Don't reimplement CRUD — the `list/create/update/delete` methods come from the factory automatically.
+3. **Entities with DML (`model.define(...)`)**, not with MikroORM decorators directly. DML is the stable v2 public API; the decorators are internal and can change.
+4. **Resolve the module via container key.** Inject with `container.resolve(Modules.<NAME>)` or the manifest's key string, never import the service directly from another module (breaks DI isolation).
+5. **Workflows in `src/workflows/`, not in the module.** The module exposes primitives; workflows orchestrate multiple modules.
 
-## Tabla rápida
+## Quick table
 
-| Necesito | Archivo |
+| I need | File |
 |---|---|
-| Definir entidad nueva | `src/modules/<m>/models/<entity>.ts` con `model.define` |
-| Exponer query | extender el service con método nuevo |
-| Cambiar shape de tabla | editar el modelo → `npx medusa db:generate <m>` |
-| Llamar otro módulo | resolver del container, NO importar |
-| Lógica multi-módulo | `src/workflows/<workflow>.ts` con `createWorkflow` |
+| Define a new entity | `src/modules/<m>/models/<entity>.ts` with `model.define` |
+| Expose a query | extend the service with a new method |
+| Change table shape | edit the model → `npx medusa db:generate <m>` |
+| Call another module | resolve from the container, NOT import |
+| Multi-module logic | `src/workflows/<workflow>.ts` with `createWorkflow` |
 
-## Antes de declarar el cambio "listo"
+## Before declaring the change "done"
 
-- `pnpm tsc --noEmit` (o el `{{qualityGate.fast}}` del proyecto) en verde.
-- Si tocaste un modelo: la migración nueva está commited.
-- Si tocaste el service: arranca el server y prueba la ruta o método que consume el cambio.
+- `pnpm tsc --noEmit` (or the project's `{{qualityGate.fast}}`) green.
+- If you touched a model: the new migration is committed.
+- If you touched the service: start the server and test the route or method that consumes the change.

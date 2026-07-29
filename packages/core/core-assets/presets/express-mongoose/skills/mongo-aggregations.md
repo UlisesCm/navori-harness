@@ -1,18 +1,18 @@
 ---
 name: mongo-aggregations
-description: Aggregation pipelines de Mongoose — $lookup, $unwind, $match, $project, $group, $facet. Castear ObjectId con new Types.ObjectId, evitar leaks de campos. Aplica al hacer joins entre colecciones o estadísticas.
+description: Mongoose aggregation pipelines — $lookup, $unwind, $match, $project, $group, $facet. Cast ObjectId with new Types.ObjectId, avoid field leaks. Use when doing joins across collections or statistics.
 type: reference
 ---
 
-# Mongo Aggregations — patterns del repo
+# Mongo Aggregations — repo patterns
 
-Aggregation pipelines para joins, agregaciones y listados paginados con count en una sola query.
+Aggregation pipelines for joins, aggregations and paginated listings with count in a single query.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Usa aggregation en vez de `find + populate` cuando filtras/ordenas/agrupas por un campo de la colección child (populate no lo hace: batchea con `$in` pero no filtra server-side). Para CRUD simple, `find()` directo basta.
+Use aggregation instead of `find + populate` when you filter/sort/group by a child-collection field (populate batches with `$in` but doesn't filter server-side). For simple CRUD, plain `find()` suffices.
 
-## El patrón
+## The pattern
 
 ```ts
 const pipeline = [
@@ -28,36 +28,36 @@ const pipeline = [
 const [result] = await Model.aggregate<ResultType>(pipeline);
 ```
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **ObjectId en `$match`**: Mongoose NO castea ObjectIds en aggregation. Un string no matchea y falla silencioso. Usa `new Types.ObjectId(id)` (o string directo si el schema declara el campo como `String`).
-- **`$unwind` sin `preserveNullAndEmptyArrays`** pierde los docs sin match (INNER en vez de LEFT join).
-- **`from` es el nombre real de la colección** (lowercase plural, p. ej. `related`), no el Model (`Related`). Si dudas: `db.getCollectionNames()`.
-- **Soft-delete NO se aplica solo.** El pipeline ignora `mongoose-delete` y todo middleware/filtro del schema: `find` esconde los borrados, `aggregate` los **devuelve** → leak. Agrega `{ deleted: { $ne: true } }` en el primer `$match`.
-- **`$lookup` sin índice en `foreignField` = COLLSCAN por doc de entrada.** Asegúrate de que el `foreignField` esté indexado, o el join es O(n·m).
-- **`$group`/`$sort` grandes revientan a los 100 MB/stage** ("Exceeded memory limit") → `.option({ allowDiskUse: true })`. `$match`/`$sort` solo usan índice al inicio; ponlos arriba.
+- **ObjectId in `$match`**: Mongoose does NOT cast ObjectIds in aggregation. A string won't match and fails silently. Use `new Types.ObjectId(id)` (or a raw string if the schema declares the field as `String`).
+- **`$unwind` without `preserveNullAndEmptyArrays`** drops docs with no match (INNER instead of LEFT join).
+- **`from` is the real collection name** (lowercase plural, e.g. `related`), not the Model (`Related`). If in doubt: `db.getCollectionNames()`.
+- **Soft-delete does NOT apply on its own.** The pipeline ignores `mongoose-delete` and every schema middleware/filter: `find` hides deleted docs, `aggregate` **returns** them → leak. Add `{ deleted: { $ne: true } }` in the first `$match`.
+- **`$lookup` without an index on `foreignField` = COLLSCAN per input doc.** Make sure `foreignField` is indexed, or the join is O(n·m).
+- **Large `$group`/`$sort` blow up at 100 MB/stage** ("Exceeded memory limit") → `.option({ allowDiskUse: true })`. `$match`/`$sort` only use an index at the start; put them at the top.
 
-## Reglas duras
+## Hard rules
 
-1. `$match` primero (antes del `$lookup`), lo más arriba posible; incluye `{ deleted: { $ne: true } }` si el modelo usa soft-delete (el pipeline no lo aplica solo).
-2. `new Types.ObjectId(id)` en `$match` cuando el campo es ObjectId (string directo si el schema es `String`).
-3. `$unwind` con `preserveNullAndEmptyArrays` cuando esperas left-join.
-4. `aggregate<T>(...)` siempre tipado — Mongoose no tipa el output; sin esto es `any[]`.
-5. `$project` sin mezclar `1` y `0` (salvo `_id`); úsalo para ocultar campos sensibles.
-6. `foreignField` indexado; `allowDiskUse` para `$group`/`$sort` grandes.
+1. `$match` first (before the `$lookup`), as high as possible; include `{ deleted: { $ne: true } }` if the model uses soft-delete.
+2. `new Types.ObjectId(id)` in `$match` when the field is an ObjectId (raw string if the schema is `String`).
+3. `$unwind` with `preserveNullAndEmptyArrays` when you expect a left-join.
+4. `aggregate<T>(...)` always typed — Mongoose doesn't type the output; without this it's `any[]`.
+5. `$project` without mixing `1` and `0` (except `_id`); use it to hide sensitive fields.
+6. `foreignField` indexed; `allowDiskUse` for large `$group`/`$sort`.
 
-## Tabla rápida
+## Quick table
 
-| Stage | Para qué |
+| Stage | For what |
 |---|---|
-| `$match` | WHERE — lo más temprano posible (usa índice solo al inicio) |
-| `$lookup` | JOIN (`from` = colección real, lowercase plural; `foreignField` indexado) |
-| `$unwind` | Aplanar el array del lookup (`preserveNullAndEmptyArrays` = left-join) |
-| `$project` | SELECT / renombrar / ocultar sensibles |
-| `$group` / `$facet` | agregados (`$sum/$avg/$push`) / docs + count en una query |
+| `$match` | WHERE — as early as possible (uses an index only at the start) |
+| `$lookup` | JOIN (`from` = real collection, lowercase plural; `foreignField` indexed) |
+| `$unwind` | Flatten the lookup array (`preserveNullAndEmptyArrays` = left-join) |
+| `$project` | SELECT / rename / hide sensitive |
+| `$group` / `$facet` | aggregates (`$sum/$avg/$push`) / docs + count in one query |
 
-## Antes de declarar listo
+## Before declaring done
 
-- `$match` temprano con `new Types.ObjectId(id)` y `{ deleted: { $ne: true } }` si aplica soft-delete.
-- Resultado tipado con `aggregate<T>(...)`; `$project` oculta sensibles y no mezcla `1`/`0`.
-- `{{qualityGate.fast}}` en verde.
+- `$match` early with `new Types.ObjectId(id)` and `{ deleted: { $ne: true } }` if soft-delete applies.
+- Result typed with `aggregate<T>(...)`; `$project` hides sensitive fields and doesn't mix `1`/`0`.
+- `{{qualityGate.fast}}` green.

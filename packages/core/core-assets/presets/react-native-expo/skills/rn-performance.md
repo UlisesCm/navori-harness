@@ -1,19 +1,19 @@
 ---
 name: rn-performance
-description: Performance de React Native — listas virtualizadas, re-renders, animaciones en UI thread. Aplica al crear listas, animaciones/gestos, o al optimizar pantallas que se sienten lentas.
+description: Use when building lists, animations/gestures, or optimizing screens that feel slow in React Native — performance: virtualized lists, re-renders, UI-thread animations.
 type: reference
 ---
 
 # React Native — performance
 
-El costo real vive en el puente JS↔nativo y en el JS thread. La meta: menos renders, referencias estables, y el trabajo pesado en el UI thread.
+The real cost lives in the JS↔native bridge and the JS thread. The goal: fewer renders, stable references, and heavy work on the UI thread.
 
-## Listas (lo más crítico)
+## Lists (the most critical)
 
-- **Virtualiza siempre.** Nunca `ScrollView` + `.map()` para datos: monta todo. Usa `FlashList`/`FlatList` con `keyExtractor` y `estimatedItemSize`/`getItemLayout`. Con layouts heterogéneos, `getItemType` para pools de reciclaje separados.
-- **`data` estable.** Nada de `.map()`/`.filter()` sobre `data` en cada render: crea referencias nuevas y re-renderiza toda la lista visible en cada keystroke. Pasa el array estable y transforma dentro del ítem.
-- **`renderItem` sin inline.** `item={{...}}` o `style={{...}}` rompen el `memo()`. Pasa primitivos o estilos hoisteados a módulo. Hoistea también los callbacks (una instancia que reciba el `id`), no uno nuevo por ítem.
-- **Ítem ligero y memoizado.** Sin `useQuery` ni cómputo caro dentro; fetch en el padre. `memo()` + solo los campos que usa (`name`, no el objeto entero).
+- **Always virtualize.** Never `ScrollView` + `.map()` for data: it mounts everything. Use `FlashList`/`FlatList` with `keyExtractor` and `estimatedItemSize`/`getItemLayout`. With heterogeneous layouts, `getItemType` for separate recycling pools.
+- **Stable `data`.** No `.map()`/`.filter()` over `data` on every render: it creates new references and re-renders the whole visible list on every keystroke. Pass the stable array and transform inside the item.
+- **`renderItem` without inline.** `item={{...}}` or `style={{...}}` break `memo()`. Pass primitives or module-hoisted styles. Also hoist the callbacks (one instance that takes the `id`), not a new one per item.
+- **Light, memoized item.** No `useQuery` or expensive compute inside; fetch in the parent. `memo()` + only the fields it uses (`name`, not the whole object).
 
 ```tsx
 const renderItem = ({ item }: { item: Row }) => <RowItem row={item} />;
@@ -23,28 +23,28 @@ const renderItem = ({ item }: { item: Row }) => <RowItem row={item} />;
 
 ## Re-renders
 
-- **Minimiza estado, deriva el resto** en render (no `useState`+`useEffect`).
-- **Selectores de store** (`useStore(s => s.has(id))`) sobre `useContext` (Context re-renderiza ante cualquier cambio).
-- Con **React Compiler** ON, `memo`/`useCallback` manuales sobran — pero la estabilidad de referencias de objetos sigue importando.
+- **Minimize state, derive the rest** in render (not `useState`+`useEffect`).
+- **Store selectors** (`useStore(s => s.has(id))`) over `useContext` (Context re-renders on any change).
+- With **React Compiler** ON, manual `memo`/`useCallback` are unnecessary — but object reference stability still matters.
 
-## Animaciones y gestos
+## Animations and gestures
 
-- **Anima solo `transform` y `opacity`** (GPU). Nunca `width/height/top/margin`: recalculan layout por frame. Colapsar = `scaleY`, no `height`.
-- **Gestos en UI thread** con Reanimated worklets (`useSharedValue`/`useAnimatedStyle`, `GestureDetector`), no `onPressIn/onPressOut` con round-trip al JS thread. `runOnJS` para saltar a JS.
-- **Scroll con `useAnimatedScrollHandler`** + shared value, jamás en `useState` (render thrashing).
+- **Animate only `transform` and `opacity`** (GPU). Never `width/height/top/margin`: they recompute layout per frame. Collapse = `scaleY`, not `height`.
+- **Gestures on the UI thread** with Reanimated worklets (`useSharedValue`/`useAnimatedStyle`, `GestureDetector`), not `onPressIn/onPressOut` with a round-trip to the JS thread. `runOnJS` to jump to JS.
+- **Scroll with `useAnimatedScrollHandler`** + a shared value, never in `useState` (render thrashing).
 
-## Imágenes y misc
+## Images and misc
 
-- **`expo-image`** para todo (caché memoria/disco, `contentFit`, `recyclingKey`). En listas, pide al CDN el tamaño real (`?w=200` a 2x), no full-res para un thumbnail.
-- Hoistea formatters `Intl` a nivel de módulo. Difiere trabajo pesado con `InteractionManager.runAfterInteractions`.
+- **`expo-image`** for everything (memory/disk cache, `contentFit`, `recyclingKey`). In lists, ask the CDN for the real size (`?w=200` at 2x), not full-res for a thumbnail.
+- Hoist `Intl` formatters to module level. Defer heavy work with `InteractionManager.runAfterInteractions`.
 
-## Evita crashes de render
+## Avoid render crashes
 
-- **Nunca `{value && <C/>}` con falsy** (`""`/`0` crashea en release): usa `!!value &&` o ternario `? : null`.
-- Todo string va dentro de `<Text>`.
+- **Never `{value && <C/>}` with a falsy value** (`""`/`0` crashes in release): use `!!value &&` or a ternary `? : null`.
+- Every string goes inside `<Text>`.
 
-## Antes de declarar listo
+## Before calling it done
 
-- Listas virtualizadas con `keyExtractor` + `estimatedItemSize`; `renderItem` y sus props estables.
-- Animaciones/gestos en UI thread; nada de layout animado por frame.
-- `{cond && …}` sin falsy crudo. `{{qualityGate.fast}}` en verde.
+- Virtualized lists with `keyExtractor` + `estimatedItemSize`; `renderItem` and its props stable.
+- Animations/gestures on the UI thread; no layout animated per frame.
+- `{cond && …}` without a raw falsy. `{{qualityGate.fast}}` green.

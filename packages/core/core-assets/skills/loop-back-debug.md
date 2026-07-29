@@ -1,112 +1,112 @@
 ---
 name: loop-back-debug
-description: Protocolo para cuando un fix no funciona la primera vez. Forza re-leer el síntoma original, validar la hipótesis vs el diff aplicado, y NO tirar más patches sin entender qué falló.
+description: Use when a fix doesn't work the first time. Forces re-reading the original symptom, validating the hypothesis vs the applied diff, and NOT throwing more patches without understanding what failed.
 type: behavior
 maxWords: 1000
 ---
 
 # Loop-Back Debug
 
-## El anti-pattern que este skill ataca
+## The anti-pattern this skill attacks
 
-Patrón recurrente cuando un bug es persistente:
+Recurring pattern when a bug is persistent:
 
-1. Intento de fix #1 → "debería andar" → no anda.
-2. Intento de fix #2 → "ahora sí" → no anda.
-3. Intento de fix #3 → cambio random → no anda.
-4. Eventualmente el código está peor que al inicio y el bug sigue.
+1. Fix attempt #1 → "should work" → doesn't work.
+2. Fix attempt #2 → "now it will" → doesn't work.
+3. Fix attempt #3 → random change → doesn't work.
+4. Eventually the code is worse than at the start and the bug is still there.
 
-El error de raíz es **escalar el cambio sin re-validar la hipótesis**. Cada intento asume que el anterior estaba "casi bien", cuando en realidad el modelo mental del bug estaba mal desde el #1.
+The root mistake is **escalating the change without re-validating the hypothesis**. Each attempt assumes the previous one was "almost right", when in reality the mental model of the bug was wrong since #1.
 
 ## The Rule
 
 ```
-SI UN FIX NO ARREGLÓ EL SÍNTOMA EN EL PRIMER REPRO POST-FIX,
-PARAS DE PATCHEAR Y RE-VALIDAS LA HIPÓTESIS.
+IF A FIX DIDN'T CLEAR THE SYMPTOM ON THE FIRST POST-FIX REPRO,
+YOU STOP PATCHING AND RE-VALIDATE THE HYPOTHESIS.
 ```
 
-No más patches encima del patch anterior. Vuelves al síntoma original y al diff actual, comparas contra la hipótesis. Si la hipótesis era correcta y el síntoma persiste, el fix no es completo. Si la hipótesis era incorrecta, ningún patch sobre esta línea va a funcionar — cambia la hipótesis.
+No more patches on top of the previous one. Go back to the original symptom and current diff, and compare against the hypothesis. If the hypothesis was correct and the symptom persists, the fix is incomplete. If the hypothesis was wrong, no patch on this line will work — change the hypothesis.
 
 ## Gate function (post-fix)
 
-DESPUÉS de aplicar un fix y ANTES de afirmar "arreglado":
+AFTER applying a fix and BEFORE claiming "fixed":
 
-1. **REPRO**: corre el repro exacto que producía el síntoma original. En este turno. No "asumiendo que".
-2. **OBSERVE**: ¿el síntoma sigue / cambió / desapareció?
+1. **REPRO**: run the exact repro that produced the original symptom. In this turn. Not "assuming that".
+2. **OBSERVE**: is the symptom still there / changed / gone?
 3. **CLASSIFY**:
-   - **Desapareció** → aplica `verify-before-done` para confirmar y declarar fix completo.
-   - **Persiste exactamente igual** → hipótesis estaba mal. NO patchees encima. Vuelve a § Reset hipótesis.
-   - **Cambió de forma** → el fix tocó algo real pero no era la causa raíz. Vuelve a § Reset hipótesis con la nueva info.
+   - **Gone** → apply `verify-before-done` to confirm and declare the fix complete.
+   - **Persists exactly the same** → the hypothesis was wrong. DON'T patch on top. Go to § Reset hypothesis.
+   - **Changed shape** → the fix touched something real but it wasn't the root cause. Go to § Reset hypothesis with the new info.
 
-## Reset hipótesis (cuando el fix no funcionó)
+## Reset hypothesis (when the fix didn't work)
 
-NO aplicar otro fix hasta completar estos pasos:
+DO NOT apply another fix until you complete these steps:
 
-1. **Lee de vuelta el síntoma original**, literal del ticket / bug report / repro inicial. No el síntoma de tu cabeza, el escrito.
-2. **Lista el diff aplicado** (`git diff HEAD~1`) y descríbelo en una frase: "Cambié X en archivo:línea de Y a Z porque hipótesis era W".
-3. **Valida lógicamente**: si la hipótesis W fuera cierta, ¿el cambio Y→Z debería haber arreglado el síntoma?
-   - Si la respuesta es "sí debería", pero el síntoma persiste → tu modelo del flujo está incompleto. Hay un step intermedio que no estás viendo.
-   - Si la respuesta es "no necesariamente", la hipótesis era débil desde el inicio.
-4. **Genera 2–3 hipótesis alternativas** antes de tocar código:
-   - ¿Hay caching? (browser, build, CDN, redis).
-   - ¿El código que cambiaste es el que se ejecuta? (path resolution, dynamic imports, env-gated branches).
-   - ¿El cambio fue al server o al cliente cuando el bug está del otro lado?
-   - ¿Hay un middleware / interceptor entre lo que cambiaste y donde se observa el síntoma?
-   - ¿El estado en memoria / DB ya estaba en un estado inválido y tu fix solo cubre el path "nuevo"?
-5. **Elige UNA hipótesis nueva** con evidence-based reasoning. Documéntala antes de tocar código.
-6. **Aplica el siguiente intento** sabiendo qué estás probando.
+1. **Re-read the original symptom**, literally from the ticket / bug report / initial repro. Not the symptom in your head, the written one.
+2. **List the applied diff** (`git diff HEAD~1`) and describe it in one sentence: "I changed X in file:line from Y to Z because the hypothesis was W".
+3. **Validate logically**: if hypothesis W were true, should the change Y→Z have fixed the symptom?
+   - If the answer is "yes it should", but the symptom persists → your model of the flow is incomplete. There is an intermediate step you're not seeing.
+   - If the answer is "not necessarily", the hypothesis was weak from the start.
+4. **Generate 2–3 alternative hypotheses** before touching code:
+   - Is there caching? (browser, build, CDN, redis).
+   - Is the code you changed the one that actually runs? (path resolution, dynamic imports, env-gated branches).
+   - Was the change on the server or the client when the bug is on the other side?
+   - Is there a middleware / interceptor between what you changed and where the symptom is observed?
+   - Was the in-memory / DB state already in an invalid state and your fix only covers the "new" path?
+5. **Pick ONE new hypothesis** with evidence-based reasoning. Document it before touching code.
+6. **Apply the next attempt** knowing what you're testing.
 
-## Cuándo escalar / pedir ayuda al usuario
+## When to escalate / ask the user for help
 
-Si llevas **2 intentos fallidos** sobre el mismo bug, paras y reportas al usuario:
+If you've had **2 failed attempts** on the same bug, you stop and report to the user:
 
-- Síntoma original.
-- Hipótesis #1, fix aplicado, resultado del repro.
-- Hipótesis #2, fix aplicado, resultado del repro.
-- Hipótesis #3 que piensas probar, con evidencia que la sustenta.
-- Pregunta concreta: "¿conoces más contexto que apoye / refute esta hipótesis?"
+- Original symptom.
+- Hypothesis #1, applied fix, repro result.
+- Hypothesis #2, applied fix, repro result.
+- Hypothesis #3 you plan to test, with the evidence backing it.
+- Concrete question: "do you know more context that supports / refutes this hypothesis?"
 
-No es debilidad — es eficiencia. 3 intentos a ciegas valen menos que 1 conversación con quien tiene contexto.
+It's not weakness — it's efficiency. 3 blind attempts are worth less than 1 conversation with whoever has the context.
 
-## Red flags (PARA)
+## Red flags (STOP)
 
-- Estás por hacer un segundo cambio sobre la misma línea sin haber re-corrido el repro.
-- Estás por escribir "ahora sí debería andar" sin evidence fresca.
-- Estás revertiendo y re-aplicando variaciones del mismo cambio.
-- Estás agregando logs / try-catch / fallbacks para "cubrir" en vez de entender.
-- El diff acumula >3 commits sobre el mismo archivo intentando arreglar la misma cosa.
+- You're about to make a second change on the same line without having re-run the repro.
+- You're about to write "now it should work" without fresh evidence.
+- You're reverting and re-applying variations of the same change.
+- You're adding logs / try-catch / fallbacks to "cover" instead of understanding.
+- The diff accumulates >3 commits on the same file trying to fix the same thing.
 
 ## Anti-patterns
 
-- ❌ "Voy a probar esto otro fix" sin haber corrido el repro del fix anterior.
-- ❌ Patches defensivos: try-catch alrededor del código sospechoso para "que no rompa". Eso oculta el bug, no lo arregla.
-- ❌ "Es flaky" como excusa sin evidencia de flakiness real.
-- ❌ Cambiar lib / framework / approach porque "tal vez con X andaría" — eso es ducha caliente, no debugging.
-- ❌ Pedirle al usuario "pruébalo de nuevo" sin haber cambiado nada relevante.
+- ❌ "Let me try this other fix" without having run the repro of the previous fix.
+- ❌ Defensive patches: try-catch around the suspicious code so "it won't break". That hides the bug, doesn't fix it.
+- ❌ "It's flaky" as an excuse without evidence of real flakiness.
+- ❌ Changing lib / framework / approach because "maybe with X it would work" — that's a hot shower, not debugging.
+- ❌ Asking the user to "try it again" without having changed anything relevant.
 
-## Conexión con el resto del harness
+## Connection with the rest of the harness
 
-- `implementer`: invoca este skill cuando el primer fix no resuelve el síntoma. NO devuelve `done` hasta haber pasado por Reset hipótesis si el repro inicial falla.
-- `verify-before-done`: este skill se aplica ANTES de verify-before-done — primero validas que el fix realmente arregló el síntoma (esto), luego validas que el resto del quality gate sigue verde (verify-before-done).
-- `ticket-audit`: cuando un bug entra al agente ticket-audit, la "Hipótesis de causa raíz" es el primer candidate del loop. Si el fix de esa hipótesis no funciona, ticket-audit puede ser reinvocado con la info nueva.
+- `implementer`: invokes this skill when the first fix doesn't resolve the symptom. Does NOT return `done` until it has gone through Reset hypothesis if the initial repro fails.
+- `verify-before-done`: this skill applies BEFORE verify-before-done — first validate the fix actually cleared the symptom (this), then that the rest of the quality gate is still green (verify-before-done).
+- `ticket-audit`: when a bug enters the ticket-audit agent, the "Root cause hypothesis" is the first candidate of the loop. If that hypothesis's fix doesn't work, ticket-audit can be re-invoked with the new info.
 
-## Cierre
+## Closing
 
-Al aplicar este skill, el output al usuario incluye:
+When applying this skill, the output to the user includes:
 
-1. Hipótesis que se probó.
-2. Cambio aplicado (archivo:línea + descripción).
-3. Resultado del repro post-fix (en este turno).
-4. Si funcionó → aplicar `verify-before-done` para cierre.
-5. Si no funcionó → próxima hipótesis a probar O escalación al usuario (según conteo de intentos).
+1. Hypothesis that was tested.
+2. Change applied (file:line + description).
+3. Post-fix repro result (in this turn).
+4. If it worked → apply `verify-before-done` to close.
+5. If it didn't work → next hypothesis to test OR escalation to the user (per the attempt count).
 
 <!-- navori:user-section -->
-## Patrones de bug recurrentes del proyecto
+## Recurring bug patterns of the project
 
-<!-- user: agrega aquí patrones de bug específicos de tu repo donde la hipótesis típica falla. Sugerencias:
-     - Caches que el dev olvida invalidar (CDN, redis, browser SW, build cache).
-     - Race conditions conocidas en módulos específicos.
-     - Áreas donde "lo obvio" no es la causa raíz históricamente.
-     - Migraciones a medias (legacy/{{project.legacyPaths}} → nuevo backend) que crean estados inconsistentes.
-     - Comandos de repro estandarizados para bugs frecuentes (ej. `pnpm dev:e2e:auth-flow`).
+<!-- user: add here bug patterns specific to your repo where the typical hypothesis fails. Suggestions:
+     - Caches the dev forgets to invalidate (CDN, redis, browser SW, build cache).
+     - Known race conditions in specific modules.
+     - Areas where "the obvious thing" is historically not the root cause.
+     - Half-done migrations (legacy/{{project.legacyPaths}} → new backend) that create inconsistent states.
+     - Standardized repro commands for frequent bugs (e.g. `pnpm dev:e2e:auth-flow`).
 -->

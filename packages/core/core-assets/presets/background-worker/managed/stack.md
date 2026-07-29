@@ -1,18 +1,18 @@
 ## Stack — Background worker (jobs + queues)
 
-Proceso de fondo en Node/TS cuyo trabajo es **procesar jobs y mensajes**, no servir HTTP. El flujo típico: un scheduler (`agenda` / `bullmq` / `node-cron`) dispara jobs en el tiempo, y/o un consumidor de cola (`amqplib` / `bullmq` / `kafkajs`) reacciona a mensajes. Cada handler hace su trabajo (mandar email, push, recalcular, sincronizar) y reporta éxito/fallo a la infraestructura de jobs.
+Background process in Node/TS whose job is to **process jobs and messages**, not serve HTTP. Typical flow: a scheduler (`agenda` / `bullmq` / `node-cron`) fires jobs on a schedule, and/or a queue consumer (`amqplib` / `bullmq` / `kafkajs`) reacts to messages. Each handler does its work (send email, push, recompute, sync) and reports success/failure to the jobs infrastructure.
 
-Aunque el repo tenga `express` en deps, **no expone endpoints de negocio** — a lo sumo un `/health` para el orquestador. Si te piden agregar una "ruta", confirma: casi siempre es un job o un consumer nuevo, no un endpoint.
+Even if the repo has `express` in its deps, it **exposes no business endpoints** — at most a `/health` for the orchestrator. If you're asked to add a "route", confirm: it's almost always a new job or consumer, not an endpoint.
 
-Reglas de oro:
-- **Idempotencia**: un job/mensaje puede entregarse más de una vez. Todo handler debe ser seguro de re-ejecutar (claves de deduplicación, upserts, chequear estado antes de actuar).
-- **Graceful shutdown**: en `SIGTERM`/`SIGINT`, deja de tomar trabajo nuevo, espera a que los jobs en vuelo terminen (con timeout) y cierra conexiones (DB, broker) antes de salir. Nunca mates un job a la mitad sin re-encolar.
-- **Errores explícitos**: un fallo se reintenta con backoff o va a una dead-letter; nunca se traga en silencio. El logging va por el `Logger` estructurado, nunca `console.log`.
-- **Nada de `process.env`** fuera del módulo de config.
+Golden rules:
+- **Idempotency**: a job/message can be delivered more than once. Every handler must be safe to re-run (deduplication keys, upserts, check state before acting).
+- **Graceful shutdown**: on `SIGTERM`/`SIGINT`, stop taking new work, wait for in-flight jobs to finish (with a timeout) and close connections (DB, broker) before exiting. Never kill a job mid-way without re-queuing it.
+- **Explicit errors**: a failure is retried with backoff or sent to a dead-letter; never swallowed silently. Logging goes through the structured `Logger`, never `console.log`.
+- **No `process.env`** outside the config module.
 
-Aplica las skills según la capa que toques:
-- `worker-lifecycle` — bootstrap, graceful shutdown, healthcheck, no servir HTTP de negocio.
-- `job-scheduling` — definir/agendar jobs (agenda/bullmq), idempotencia, reintentos con backoff.
-- `queue-consumers` — consumir mensajes (amqplib/bullmq), `ack`/`nack`, dead-letter, backpressure.
+Apply the skills according to the layer you touch:
+- `worker-lifecycle` — bootstrap, graceful shutdown, healthcheck, no business HTTP.
+- `job-scheduling` — define/schedule jobs (agenda/bullmq), idempotency, retries with backoff.
+- `queue-consumers` — consume messages (amqplib/bullmq), `ack`/`nack`, dead-letter, backpressure.
 
-El logging y el flujo de tickets/PR los cubre el harness base (agentes `leader`, `implementer`, `reviewer`, `commit-pr-pilot` y las skills core).
+Logging and the ticket/PR flow are covered by the base harness (agents `leader`, `implementer`, `reviewer`, `commit-pr-pilot` and the core skills).

@@ -439,19 +439,19 @@ describe("renderClaudeEngine — language-aware baseline (tipado-fuerte)", () =>
 
   it("renders tipado-fuerte for a TS repo", () => {
     renderClaudeEngine(cwd, withLang("ts"));
-    expect(claudeMd()).toContain("Tipado fuerte");
+    expect(claudeMd()).toContain("Strong typing");
   });
 
   it("suppresses tipado-fuerte for a Python repo", () => {
     renderClaudeEngine(cwd, withLang("python"));
     const md = claudeMd();
-    expect(md).not.toContain("Tipado fuerte");
+    expect(md).not.toContain("Strong typing");
     expect(md).not.toContain('id="tipado-fuerte"');
   });
 
   it("renders tipado-fuerte when codeLanguage is absent (back-compat)", () => {
     renderClaudeEngine(cwd, CONFIG_FULL); // no project.codeLanguage
-    expect(claudeMd()).toContain("Tipado fuerte");
+    expect(claudeMd()).toContain("Strong typing");
   });
 });
 

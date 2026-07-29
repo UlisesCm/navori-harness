@@ -1,10 +1,10 @@
-## Duplicación de código (jscpd)
+## Code duplication (jscpd)
 
-Antes de aprobar un cambio, correr jscpd sobre el diff vs la branch base.
+Before approving a change, run jscpd over the diff vs the base branch.
 
-- Solo sobre archivos modificados:
+- Only over modified files:
   ```
   git diff --name-only $BRANCH_BASE...HEAD | grep -E '\.(ts|tsx|js|jsx)$' | xargs jscpd --silent
   ```
-- Si reporta clones >0 con threshold del proyecto: **no aprobar** el cambio sin justificar (los reviewers deben pedir refactor o extracción).
-- Skip silencioso si `jscpd` no está en `PATH` (no bloquear si el dev no tiene la tool instalada).
+- If it reports clones >0 with the project's threshold: **do not approve** the change without justification (reviewers must ask for a refactor or extraction).
+- Silent skip if `jscpd` is not in `PATH` (don't block if the dev doesn't have the tool installed).

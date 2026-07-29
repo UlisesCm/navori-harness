@@ -1,16 +1,16 @@
 ---
 name: tamagui
-description: UI con Tamagui v4 — styled() + variants, tokens de tema y qué mantiene contento al compiler. Aplica al crear componentes con estilo, definir el design system o tocar la config/tema.
+description: Use when creating styled components, defining the design system, or touching the config/theme — UI with Tamagui v4: styled() + variants, theme tokens, and what keeps the compiler happy.
 type: reference
 ---
 
-# Tamagui — el patrón canónico
+# Tamagui — the canonical pattern
 
-Componentes con `styled()` y **variants**; estilos por **tokens** de tema (`$`), no por valores hardcodeados. El compiler extrae en build lo que sea estático — el trabajo es no romperlo.
+Components with `styled()` and **variants**; styles by theme **tokens** (`$`), not hardcoded values. The compiler extracts whatever is static at build time — the job is to not break it.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al crear un componente con estilo, definir tokens/themes del design system, o tocar `createTamagui`.
+When creating a styled component, defining design-system tokens/themes, or touching `createTamagui`.
 
 ## Config
 
@@ -25,9 +25,9 @@ export const config = createTamagui({
 declare module 'tamagui' { interface TamaguiCustomConfig extends typeof config {} }
 ```
 
-El `declare module` da props tipadas y autocompletado en todo el proyecto. Elige **un solo paquete de import** (`tamagui` o `@tamagui/core`), no ambos.
+The `declare module` gives typed props and autocompletion across the whole project. Pick **a single import package** (`tamagui` or `@tamagui/core`), not both.
 
-## styled() + variants (no condicionales inline)
+## styled() + variants (not inline conditionals)
 
 ```tsx
 const Box = styled(View, {
@@ -37,25 +37,25 @@ const Box = styled(View, {
 })
 ```
 
-Prefiere variants sobre `bg={isError ? '$red10' : '$green10'}`: los valores runtime rompen el flattening del compiler. Usa `as const` en `variants`.
+Prefer variants over `bg={isError ? '$red10' : '$green10'}`: runtime values break the compiler's flattening. Use `as const` on `variants`.
 
-## Reglas duras
+## Hard rules
 
-1. **Tokens en props** (`bg="$blue10"`, `p="$4"`, `color="$color"`), nunca `style={{...}}` con variables ni `StyleSheet` de RN (no resuelven tokens).
-2. **No rompas el compiler:** evita valores runtime (`width={w*0.5}`), funciones inline y spreads no deterministas en props de estilo. Muévelos a variants.
-3. **Themes semánticos** (`success`/`warning`/`error`) vía `createThemes`; colorea por contexto con `<Theme name="...">`, no con hex hardcodeado. Al definir el theme, sin `$`; al consumir, con `$`.
-4. **Orden de props = prioridad:** lo que va después de un `{...spread}` gana; en `variants`, la primera listada gana.
-5. **Animaciones:** driver `react-native-reanimated` en native; anima con `enterStyle`/`exitStyle`, `pressStyle`/`hoverStyle` y `AnimatePresence` para salidas.
-6. **Ramifica plataforma con `Adapt`** (Dialog/Sheet), no con `Platform.OS`.
-7. Al envolver un `styled`, usa `.styleable()` para preservar variantes.
+1. **Tokens in props** (`bg="$blue10"`, `p="$4"`, `color="$color"`), never `style={{...}}` with variables or RN `StyleSheet` (they don't resolve tokens).
+2. **Don't break the compiler:** avoid runtime values (`width={w*0.5}`), inline functions, and non-deterministic spreads in style props. Move them to variants.
+3. **Semantic themes** (`success`/`warning`/`error`) via `createThemes`; color by context with `<Theme name="...">`, not with hardcoded hex. When defining the theme, no `$`; when consuming, with `$`.
+4. **Prop order = priority:** whatever comes after a `{...spread}` wins; in `variants`, the first one listed wins.
+5. **Animations:** `react-native-reanimated` driver on native; animate with `enterStyle`/`exitStyle`, `pressStyle`/`hoverStyle` and `AnimatePresence` for exits.
+6. **Branch by platform with `Adapt`** (Dialog/Sheet), not with `Platform.OS`.
+7. When wrapping a `styled`, use `.styleable()` to preserve variants.
 
 ## Dev vs prod
 
-`disableExtraction: true` en dev (HMR más rápido); extracción completa en prod. Ignora `.tamagui/` en git.
+`disableExtraction: true` in dev (faster HMR); full extraction in prod. Ignore `.tamagui/` in git.
 
-## Antes de declarar listo
+## Before declaring done
 
-- Estilos por tokens `$`, no hardcodeados ni `style` inline con variables.
-- Lógica condicional de estilo en `variants`, no inline (compiler-friendly).
-- Un solo paquete de import; `declare module` registrado.
-- `{{qualityGate.fast}}` en verde.
+- Styles by `$` tokens, not hardcoded or inline `style` with variables.
+- Conditional style logic in `variants`, not inline (compiler-friendly).
+- A single import package; `declare module` registered.
+- `{{qualityGate.fast}}` green.

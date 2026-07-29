@@ -1,19 +1,19 @@
 ---
 name: nestjs-dtos-validation
-description: Reglas para DTOs y validación en NestJS — class-validator, ValidationPipe, transform. Aplica al definir contratos HTTP de entrada/salida.
+description: Use when defining or modifying input/output HTTP contracts in NestJS — rules for DTOs and validation: class-validator, ValidationPipe, transform.
 type: reference
 ---
 
-# NestJS DTOs + Validation — convenciones del proyecto
+# NestJS DTOs + Validation — project conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Antes de definir o modificar el shape de cualquier endpoint HTTP. El DTO es el contrato de entrada; sin validación el service recibe cualquier shape y explota o corrompe data.
+Before defining or modifying the shape of any HTTP endpoint. The DTO is the input contract; without validation the service receives any shape and blows up or corrupts data.
 
-## Reglas duras
+## Hard rules
 
-1. **DTO por dirección + intención.** `Create<X>Dto`, `Update<X>Dto`, `<X>ResponseDto`. No reuses el mismo DTO para create y update, ni para entrada y salida (la respuesta expone `id`/`createdAt` que el cliente no envía). El `Update` idiomático es `class UpdateXDto extends PartialType(CreateXDto) {}` (`@nestjs/mapped-types`): hereda los validadores como opcionales, sin copiar-pegar ni desincronizar.
-2. **`ValidationPipe` global con `whitelist: true` + `forbidNonWhitelisted: true`.** Sin esto, propiedades extra del cliente pasan al service. Configúralo en `main.ts`:
+1. **One DTO per direction + intent.** `Create<X>Dto`, `Update<X>Dto`, `<X>ResponseDto`. Don't reuse the same DTO for create and update, nor for input and output (the response exposes `id`/`createdAt` that the client doesn't send). The idiomatic `Update` is `class UpdateXDto extends PartialType(CreateXDto) {}` (`@nestjs/mapped-types`): it inherits the validators as optional, without copy-paste or drift.
+2. **Global `ValidationPipe` with `whitelist: true` + `forbidNonWhitelisted: true`.** Without this, extra client properties reach the service. Configure it in `main.ts`:
    ```ts
    app.useGlobalPipes(new ValidationPipe({
      whitelist: true,
@@ -21,11 +21,11 @@ Antes de definir o modificar el shape de cualquier endpoint HTTP. El DTO es el c
      transform: true,
    }));
    ```
-3. **`@Type(() => X)` para nested objects + arrays.** Sin `class-transformer`, los objetos anidados llegan como plain objects (no instancias) y `class-validator` no los recursea.
-4. **Response DTO con `class-transformer` — y ojo con plain objects.** `@Exclude()`/`@Expose()` + `ClassSerializerInterceptor` para no devolver campos sensibles. **Gotcha de seguridad:** el interceptor solo transforma si el handler devuelve una **instancia** de la clase; con un plain object (Mongoose `.lean()`, objeto literal) `@Exclude()` se ignora y el `password` **se filtra**. Devuelve `plainToInstance(UserResponseDto, obj, { excludeExtraneousValues: true })`.
-5. **Mensajes de error en el DTO, no en el controller.** Cada decorador acepta `{ message: "..." }`. El cliente recibe un array de errores específico por campo, no un 400 genérico.
+3. **`@Type(() => X)` for nested objects + arrays.** Without `class-transformer`, nested objects arrive as plain objects (not instances) and `class-validator` doesn't recurse into them.
+4. **Response DTO with `class-transformer` — and watch out for plain objects.** `@Exclude()`/`@Expose()` + `ClassSerializerInterceptor` to avoid returning sensitive fields. **Security gotcha:** the interceptor only transforms if the handler returns an **instance** of the class; with a plain object (Mongoose `.lean()`, an object literal) `@Exclude()` is ignored and the `password` **leaks**. Return `plainToInstance(UserResponseDto, obj, { excludeExtraneousValues: true })`.
+5. **Error messages in the DTO, not in the controller.** Each decorator accepts `{ message: "..." }`. The client receives a per-field, specific error array, not a generic 400.
 
-## Patrón típico
+## Typical pattern
 
 ```ts
 // dto/create-user.dto.ts
@@ -53,24 +53,24 @@ export class UserResponseDto {
   @Expose() email!: string;
   @Expose() createdAt!: Date;
 
-  @Exclude() password!: string;        // nunca al cliente
+  @Exclude() password!: string;        // never to the client
   @Exclude() passwordResetToken?: string;
 }
 ```
 
-## Tabla rápida
+## Quick table
 
-| Necesito | Decorador / approach |
+| I need | Decorator / approach |
 |---|---|
-| Campo obligatorio / opcional | `@IsXxx` / `@IsOptional()` antes del validador |
-| String largo mínimo / Email | `@IsString() @MinLength(N)` / `@IsEmail()` |
-| Number rango / Enum | `@IsInt() @Min(N) @Max(M)` / `@IsEnum(MyEnum)` |
-| Array de objetos | `@IsArray() @ValidateNested({ each: true }) @Type(() => ItemDto)` |
-| Object anidado | `@ValidateNested() @Type(() => ChildDto)` |
-| Excluir / renombrar en response | `@Exclude()` + interceptor / `@Expose({ name })` |
+| Required / optional field | `@IsXxx` / `@IsOptional()` before the validator |
+| Min-length string / Email | `@IsString() @MinLength(N)` / `@IsEmail()` |
+| Number range / Enum | `@IsInt() @Min(N) @Max(M)` / `@IsEnum(MyEnum)` |
+| Array of objects | `@IsArray() @ValidateNested({ each: true }) @Type(() => ItemDto)` |
+| Nested object | `@ValidateNested() @Type(() => ChildDto)` |
+| Exclude / rename in response | `@Exclude()` + interceptor / `@Expose({ name })` |
 
-## Antes de declarar el cambio "listo"
+## Before calling the change "done"
 
-- `{{qualityGate.fast}}` en verde; probado con payload válido e inválido (error específico por campo, no 400 genérico).
-- Campo nuevo en CreateDto → reflejado en UpdateDto (`PartialType` lo hace solo) y ResponseDto si se devuelve.
-- Response DTO: ningún campo sensible llega al cliente **con la data real del service** — si viene de `.lean()`/plain object, confirma que pasa por `plainToInstance`, no solo que tiene `@Exclude()`.
+- `{{qualityGate.fast}}` green; tested with valid and invalid payloads (specific per-field error, not a generic 400).
+- New field in CreateDto → reflected in UpdateDto (`PartialType` does it automatically) and ResponseDto if returned.
+- Response DTO: no sensitive field reaches the client **with the service's real data** — if it comes from `.lean()`/a plain object, confirm it goes through `plainToInstance`, not just that it has `@Exclude()`.

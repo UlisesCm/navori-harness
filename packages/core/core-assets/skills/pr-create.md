@@ -1,59 +1,59 @@
 ---
 name: pr-create
-description: Crea un PR en GitHub contra la rama target del repo, delegando title/body a un modelo y validando el output. Antes de crear cualquier PR al cerrar el ciclo de un ticket (Fase 8 de ticket-intake).
+description: Use when creating a PR on GitHub against the repo's target branch — delegates title/body to a model and validates the output. Run before creating any PR while closing a ticket's cycle (Phase 8 of ticket-intake).
 type: reference
-# maxWords raised above the 500 reference cap: el pre-flight bloqueante es load-bearing y no se puede recortar sin perder chequeos de seguridad.
+# maxWords raised above the 500 reference cap: the blocking pre-flight is load-bearing and can't be trimmed without losing safety checks.
 maxWords: 560
 ---
 
-# pr-create — crear PR contra `{{prTarget}}`
+# pr-create — create PR against `{{prTarget}}`
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al cierre del ciclo, tras el `APPROVED` del reviewer (Fase 8 de `ticket-intake`). El pre-flight es bloqueante: ningún PR sale con el gate en rojo o sin aprobación (harness activo).
+At the close of the cycle, after the reviewer's `APPROVED` (Phase 8 of `ticket-intake`). The pre-flight is blocking: no PR ships with the gate red or without approval (harness active).
 
-`{{branchBase}}` es el punto de fork; `{{prTarget}}` es la rama destino del PR. Cuando difieren, el PR y su diff van contra `{{prTarget}}`.
+`{{branchBase}}` is the fork point; `{{prTarget}}` is the PR's target branch. When they differ, the PR and its diff go against `{{prTarget}}`.
 
-## Pre-flight (bloqueante — cualquier check falla → ABORT con mensaje claro)
+## Pre-flight (blocking — any check fails → ABORT with a clear message)
 
-1. **Working tree limpio** o solo cambios del feature: `git status --porcelain`. Si hay cambios uncommitted que NO son del feature, párate y pregunta.
-2. **No estás en una rama protegida**: aborta si la rama actual es `main|master|{{branchBase}}|{{prTarget}}`.
-3. **`gh` autenticado**: `gh auth status`.
-4. **Gate verde en este turno**: `{{qualityGate.fast}}`. Falla → manda al implementer.
-5. **Review APPROVED de esta feature** (harness activo): `.claude/progress/review_<feature>.md` puntual — glob `review_*.md` no vale. Ausente/ambiguo/scope distinto → NO aprobado, manda al reviewer. Si lista archivos, compáralos con `git diff --name-only`: archivos tocados que el review NO cubre → NO aprobado, aborta y devuelve al reviewer (no basta con mencionar la diferencia y seguir). <!-- Mantén este chequeo de cobertura en sync con `agents/commit-pr-pilot.md`. -->
-6. **Hay commits para el PR**: `git fetch origin {{prTarget}} --quiet` y `git log origin/{{prTarget}}..HEAD --oneline`. Vacío → nada que PR-ear.
-7. **Branch sincronizada**: `git log HEAD..origin/{{prTarget}} --oneline`. Si origin va adelante, rebase y pregunta.
-8. **Arrastre de commits** (solo si `{{branchBase}}` ≠ `{{prTarget}}`): `git rev-list --count origin/{{prTarget}}..origin/{{branchBase}}`. Si es > 0, `{{branchBase}}` va adelantado de `{{prTarget}}` y el PR arrastra esos commits ajenos: avisa y sugiere `git rebase origin/{{prTarget}}` antes de abrir.
+1. **Working tree clean** or only feature changes: `git status --porcelain`. If there are uncommitted changes that are NOT part of the feature, stop and ask.
+2. **You're not on a protected branch**: abort if the current branch is `main|master|{{branchBase}}|{{prTarget}}`.
+3. **`gh` authenticated**: `gh auth status`.
+4. **Gate green this turn**: `{{qualityGate.fast}}`. Fails → send it to the implementer.
+5. **Review APPROVED for this feature** (harness active): `.claude/progress/review_<feature>.md` specifically — a `review_*.md` glob doesn't count. Missing/ambiguous/different scope → NOT approved, send it to the reviewer. If it lists files, compare them with `git diff --name-only`: touched files the review does NOT cover → NOT approved, abort and return to the reviewer (it's not enough to mention the difference and move on). <!-- Keep this coverage check in sync with `agents/commit-pr-pilot.md`. -->
+6. **There are commits for the PR**: `git fetch origin {{prTarget}} --quiet` and `git log origin/{{prTarget}}..HEAD --oneline`. Empty → nothing to PR.
+7. **Branch synced**: `git log HEAD..origin/{{prTarget}} --oneline`. If origin is ahead, rebase and ask.
+8. **Commit drag** (only if `{{branchBase}}` ≠ `{{prTarget}}`): `git rev-list --count origin/{{prTarget}}..origin/{{branchBase}}`. If it's > 0, `{{branchBase}}` is ahead of `{{prTarget}}` and the PR drags those foreign commits: warn and suggest `git rebase origin/{{prTarget}}` before opening.
 
-## Push y redacción
+## Push and drafting
 
-Si la branch no está pusheada: `git push -u origin "$current_branch"`. Si el upstream diverge, **no fuerces push** — pregunta.
+If the branch isn't pushed: `git push -u origin "$current_branch"`. If the upstream diverges, **do not force push** — ask.
 
-Delega title + body a un `Agent` (modelo rápido). Reglas que le impones:
-- **Title**: Conventional Commit con scope de tu dominio, ≤70 chars, español MX, sin emojis ni puntuación final.
-- **Body**: secciones fijas `## Resumen`, `## Cambios`, `## Test plan`, `## Notas` (opcional). Tono directo, sin "Generated by Claude".
-- **Contexto al redactor**: branch, base `{{prTarget}}`, ticket, `impl_<feature>.md`, `review_<feature>.md`, y el diff REAL del PR — `git log origin/{{prTarget}}..HEAD --oneline` + `git diff origin/{{prTarget}}...HEAD --stat`.
-- **Output**: JSON exacto `{"title": "...", "body": "..."}` sin fences.
+Delegate title + body to an `Agent` (fast model). Rules you impose on it:
+- **Title**: Conventional Commit with a scope from your domain, ≤70 chars, Spanish MX, no emojis or trailing punctuation.
+- **Body**: fixed sections `## Resumen`, `## Cambios`, `## Test plan`, `## Notas` (optional). Direct tone, no "Generated by Claude".
+- **Context for the writer**: branch, base `{{prTarget}}`, ticket, `impl_<feature>.md`, `review_<feature>.md`, and the REAL PR diff — `git log origin/{{prTarget}}..HEAD --oneline` + `git diff origin/{{prTarget}}...HEAD --stat`.
+- **Output**: exact JSON `{"title": "...", "body": "..."}` with no fences.
 
-Valida: `title` ≤70 y Conventional Commit; `body` con Resumen, Cambios y Test plan. Si falla, reintenta (máx. 2).
+Validate: `title` ≤70 and Conventional Commit; `body` with Resumen, Cambios and Test plan. If it fails, retry (max 2).
 
-## Crear el PR
+## Create the PR
 
 ```bash
 gh pr create --base {{prTarget}} --title "$title" --body "$body"
 ```
 
-Captura la URL del output y muéstrasela al usuario.
+Capture the URL from the output and show it to the user.
 
-## Reglas duras
+## Hard rules
 
-- **NUNCA `git push --force`** ni `--no-verify` sin que lo pida el usuario.
-- **Siempre `--base {{prTarget}}`.** No lo cambies a mano; si el target del repo cambió, ajústalo con `navori configure pr-target`.
-- **Cambios uncommitted ajenos al feature** → párate y pregunta, no los arrastres al PR.
-- **Reviewers/labels**: no los agregues automático salvo que el usuario lo pida.
+- **NEVER `git push --force`** or `--no-verify` unless the user asks.
+- **Always `--base {{prTarget}}`.** Don't change it by hand; if the repo's target changed, adjust it with `navori configure pr-target`.
+- **Uncommitted changes unrelated to the feature** → stop and ask, don't drag them into the PR.
+- **Reviewers/labels**: don't add them automatically unless the user asks.
 
-## Antes de declarar listo
+## Before declaring done
 
-- El pre-flight pasó completo y el title/body validaron.
-- El PR se creó contra `{{prTarget}}` y su URL quedó mostrada al usuario.
-- Post-PR: `mem_save` de decisiones no obvias, entrada en `history.md`, `current.md` a `state: idle`, y `mem_session_summary`.
+- The pre-flight passed completely and the title/body validated.
+- The PR was created against `{{prTarget}}` and its URL was shown to the user.
+- Post-PR: `mem_save` of non-obvious decisions, an entry in `history.md`, `current.md` to `state: idle`, and `mem_session_summary`.

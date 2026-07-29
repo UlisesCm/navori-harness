@@ -1,6 +1,6 @@
 ---
 name: verify-before-done
-description: Iron Law del cierre de tarea — no afirmar éxito sin evidencia fresca del comando que respalda el claim. Aplica a implementer, reviewer, commit-pr-pilot y a cualquier respuesta que declare "listo".
+description: Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, commit-pr-pilot and any response that declares "done".
 type: behavior
 maxWords: 1000
 ---
@@ -13,108 +13,108 @@ maxWords: 1000
 NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 ```
 
-Si no corriste el comando de verificación EN ESTE TURNO, no puedes afirmar el claim. "Should work", "previous run was green", "looks fine" NO son evidencia.
+If you didn't run the verification command THIS TURN, you can't make the claim. "Should work", "previous run was green", "looks fine" are NOT evidence.
 
-## Por qué este skill existe
+## Why this skill exists
 
-El bug recurrente es declarar "listo" en base a inferencia:
+The recurring bug is declaring "done" based on inference:
 
-- "corrí el check hace 2 cambios atrás, debería seguir verde"
-- "el código compila, la UI debería andar"
-- "el adapter está bien, el render debe funcionar"
+- "I ran the check 2 changes ago, it should still be green"
+- "the code compiles, the UI should work"
+- "the adapter is fine, the render must work"
 
-Inferencia ≠ evidencia. Este skill fuerza el rigor.
+Inference ≠ evidence. This skill forces rigor.
 
 ## Gate function
 
-ANTES de afirmar cualquier "listo / done / completed / approved":
+BEFORE claiming any "done / ready / completed / approved":
 
-1. **IDENTIFY**: ¿qué comando prueba este claim?
-2. **RUN**: ejecuta el comando COMPLETO en este turno (no parcial, no cached).
-3. **READ**: output completo, exit code, contar failures.
-4. **VERIFY**: ¿el output confirma el claim?
-   - NO → declara el estado real con evidencia.
-   - SÍ → afirma el claim CON el evidence visible.
-5. **ONLY THEN**: haz el claim.
+1. **IDENTIFY**: what command proves this claim?
+2. **RUN**: run the FULL command this turn (not partial, not cached).
+3. **READ**: full output, exit code, count failures.
+4. **VERIFY**: does the output confirm the claim?
+   - NO → declare the real state with evidence.
+   - YES → make the claim WITH the evidence visible.
+5. **ONLY THEN**: make the claim.
 
-Saltarse cualquier step = mentira, no verificación.
+Skipping any step = a lie, not verification.
 
-## Tabla claim → required output → not sufficient
+## Table: claim → required output → not sufficient
 
 | Claim | Required output | Not sufficient |
 |---|---|---|
-| `{{qualityGate.fast}}` verde | Comando completo corrido en este turno con exit 0 | "corrí antes", "should be green", "lint pasaba ayer" |
-| `{{qualityGate.full}}` verde | Mismo — exit 0 fresco en este turno | "el dev server anda", "build pasó hace rato" |
-| Cero errores nuevos vs baseline | `git stash` → re-run → comparar conteos → `git stash pop` | "lint dijo OK" sin comparar baseline |
-| UI validada (golden path) | Repro step + comportamiento observado en navegador con dev server vivo en este turno | "se ve bien en código", "should render correctly" |
-| Bug fixed | Reproducir síntoma original y verlo NO ocurrir | "code changed, assumed fixed", "el diff cubre el caso" |
-| Filtro / feature funciona | Click real + descripción del resultado | "el handler está bien escrito" |
-| Migración estructural completa | Lectura Y escritura van al mismo destino en el flujo afectado, validado en navegador o test | "cambié el service, debería andar" |
-| PR creable | Pre-flight verde (status limpio, no en `{{branchBase}}`, gh auth ok, quality gate verde) EN ESTE TURNO | "el branch tiene commits, podemos crear" |
-| Tests pasan | Suite corrida fresca con exit 0 en este turno + conteo de tests | "no tocamos tests", "deberían seguir verdes" |
-| Type-check limpio | `tsc --noEmit` (o equivalente del runtime) exit 0 en este turno | "TS no se quejó cuando lo guardé" |
+| `{{qualityGate.fast}}` green | Full command run this turn with exit 0 | "ran it before", "should be green", "lint passed yesterday" |
+| `{{qualityGate.full}}` green | Same — fresh exit 0 this turn | "the dev server runs", "build passed a while ago" |
+| Zero new errors vs baseline | `git stash` → re-run → compare counts → `git stash pop` | "lint said OK" without comparing baseline |
+| UI validated (golden path) | Repro step + observed behavior in the browser with a live dev server this turn | "looks fine in code", "should render correctly" |
+| Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed", "the diff covers the case" |
+| Filter / feature works | Real click + description of the result | "the handler is well written" |
+| Structural migration complete | Read AND write go to the same destination in the affected flow, validated in browser or test | "I changed the service, it should work" |
+| PR creatable | Pre-flight green (clean status, not on `{{branchBase}}`, gh auth ok, quality gate green) THIS TURN | "the branch has commits, we can create it" |
+| Tests pass | Suite run fresh with exit 0 this turn + test count | "we didn't touch tests", "they should still be green" |
+| Type-check clean | `tsc --noEmit` (or the runtime's equivalent) exit 0 this turn | "TS didn't complain when I saved it" |
 
-## Red flags (PARA)
+## Red flags (STOP)
 
-- Estás por escribir "listo" / "done" / "perfect" / "should work".
-- Estás por hacer `git commit` sin haber corrido `{{qualityGate.fast}}` en este turno.
-- Estás por marcar `APPROVED` un review sin haber leído el diff completo.
-- Estás cansado y quieres cerrar.
-- "Just this once" — NO. Cero excepciones.
-- Confías en el reporte de un subagente sin verificar el diff tú mismo.
+- You're about to write "done" / "ready" / "perfect" / "should work".
+- You're about to `git commit` without having run `{{qualityGate.fast}}` this turn.
+- You're about to mark a review `APPROVED` without having read the full diff.
+- You're tired and want to close it out.
+- "Just this once" — NO. Zero exceptions.
+- You trust a subagent's report without verifying the diff yourself.
 
 ## Rationalization prevention
 
-| Excusa | Realidad |
+| Excuse | Reality |
 |---|---|
-| "Tengo confianza" | Confianza ≠ evidencia. |
-| "Si compila, anda" | TS con `strict: false` no atrapa undefined runtime. Verifica UI / runtime. |
-| "El check pasó hace 10 min" | Re-corre. Fresh. |
-| "Es trivial, no hace falta" | Trivialidad no exime de verificación. |
-| "El subagente dijo done" | Mira el diff tú mismo. Trust pero verify. |
-| "El usuario tiene prisa" | Prisa ≠ excusa. Verificación rápida es más rápida que rollback. |
-| "Same words diferentes = la regla no aplica" | Spirit > letter. |
+| "I'm confident" | Confidence ≠ evidence. |
+| "If it compiles, it runs" | TS with `strict: false` doesn't catch runtime undefined. Verify UI / runtime. |
+| "The check passed 10 min ago" | Re-run. Fresh. |
+| "It's trivial, no need" | Triviality doesn't exempt you from verification. |
+| "The subagent said done" | Look at the diff yourself. Trust but verify. |
+| "The user is in a hurry" | Hurry ≠ excuse. A quick verification is faster than a rollback. |
+| "Different wording = the rule doesn't apply" | Spirit > letter. |
 
-## Cuándo se invoca este skill
+## When this skill is invoked
 
-- **`implementer`**: antes de devolver `done -> .claude/progress/impl_<feature>.md`. Antes de pasar al `reviewer`.
-- **`reviewer`**: antes de marcar `APPROVED`.
-- **`commit-pr-pilot`**: antes de `gh pr create`.
-- **Cualquier agent**: antes de decir "listo" al usuario en cualquier respuesta de tarea de código.
+- **`implementer`**: before returning `done -> .claude/progress/impl_<feature>.md`. Before handing off to the `reviewer`.
+- **`reviewer`**: before marking `APPROVED`.
+- **`commit-pr-pilot`**: before `gh pr create`.
+- **Any agent**: before telling the user "done" in any code-task response.
 
-## Conexión con el resto del harness
+## Connection with the rest of the harness
 
-- `CLAUDE.md` § Cierre menciona `{{qualityGate.full}}` verde. Este skill añade rigor "fresh evidence" + cubre dimensiones UI / bug-fixed que el quality gate no toca.
-- El `implementer` referencia este skill en su "Evidence-based completion".
-- El `reviewer` debe citar este skill cuando marca `APPROVED`.
-- El `commit-pr-pilot` lo aplica en su pre-flight antes de tocar `gh`.
+- `CLAUDE.md` § Session closeout mentions `{{qualityGate.full}}` green. This skill adds "fresh evidence" rigor + covers UI / bug-fixed dimensions the quality gate doesn't touch.
+- The `implementer` references this skill in its "Evidence-based completion".
+- The `reviewer` must cite this skill when marking `APPROVED`.
+- The `commit-pr-pilot` applies it in its pre-flight before touching `gh`.
 
 ## Anti-patterns
 
-- ❌ Mostrar output cached de hace 5 mensajes y decir "ya está verde" — fresh, no cached.
-- ❌ Inferir UI desde el código — la UI necesita repro en navegador.
-- ❌ "Trust me, runs locally" — no es claim válido sin evidence en el chat.
-- ❌ Hacer el claim ANTES del comando ("voy a correr X y debería estar verde").
-- ❌ Marcar `[x]` un step del plan atómico sin haber corrido la verificación que respalda ese step.
-- ❌ Aceptar el reporte de un subagente sin abrir el diff y validar al menos los archivos críticos.
+- ❌ Showing cached output from 5 messages ago and saying "it's already green" — fresh, not cached.
+- ❌ Inferring UI from the code — the UI needs a browser repro.
+- ❌ "Trust me, runs locally" — not a valid claim without evidence in the chat.
+- ❌ Making the claim BEFORE the command ("I'll run X and it should be green").
+- ❌ Marking a step of the atomic plan `[x]` without having run the verification that backs that step.
+- ❌ Accepting a subagent's report without opening the diff and validating at least the critical files.
 
-## Cierre
+## Closing
 
-Skill **siempre activa** durante cualquier flow de implementación. No requiere invocación explícita — es principio que aplica a todo claim de "listo".
+Skill **always active** during any implementation flow. It doesn't require explicit invocation — it's a principle that applies to every "done" claim.
 
-Al aplicarla, el output al usuario debe incluir:
+When applying it, the output to the user must include:
 
-1. El claim explícito (qué se logró).
-2. El output completo (o referencia al comando corrido) que lo respalda.
-3. Si algún sub-claim NO pudo verificarse (ej. UI sin browser disponible), decirlo EXPLÍCITO — no inferir.
+1. The explicit claim (what was accomplished).
+2. The full output (or a reference to the run command) that backs it.
+3. If any sub-claim COULD NOT be verified (e.g. UI with no browser available), say it EXPLICITLY — don't infer.
 
 <!-- navori:user-section -->
-## Checks específicos del proyecto
+## Project-specific checks
 
-<!-- user: agrega aquí claims específicos de tu repo y su evidencia requerida. Sugerencias:
-     - Migraciones de DB: comando para validar el estado (ej. el status de migraciones de tu ORM).
-     - Áreas críticas: {{project.criticalAreas}} → checks específicos por área.
-     - Scripts del repo que cuentan como "evidencia válida" (ej. `pnpm e2e:smoke`).
-     - Comandos prohibidos como evidencia (ej. "el preview de Vercel" si no es repro real).
-     - Patrones de bug recurrentes del repo donde la inferencia históricamente falló.
+<!-- user: add here claims specific to your repo and their required evidence. Suggestions:
+     - DB migrations: command to validate the state (e.g. your ORM's migration status).
+     - Critical areas: {{project.criticalAreas}} → specific checks per area.
+     - Repo scripts that count as "valid evidence" (e.g. `pnpm e2e:smoke`).
+     - Commands forbidden as evidence (e.g. "the Vercel preview" if it's not a real repro).
+     - Recurring bug patterns of the repo where inference has historically failed.
 -->

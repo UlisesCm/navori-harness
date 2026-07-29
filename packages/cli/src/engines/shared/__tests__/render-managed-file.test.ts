@@ -183,7 +183,9 @@ describe("renderManagedFile — real core agents render array placeholders (#89)
       meta: META,
       config,
     });
-    const line = r.content.split("\n").find((l) => l.includes("Paths legacy donde NO aplican"));
+    const line = r.content
+      .split("\n")
+      .find((l) => l.includes("Legacy paths where these rules do NOT apply"));
     expect(line).toBeTruthy();
     expect(line).toContain("src/legacy, vendor/old");
   });
@@ -196,8 +198,8 @@ describe("renderManagedFile — real core agents render array placeholders (#89)
       meta: META,
       config,
     });
-    expect(r.content).toContain("Carpetas legacy con reglas distintas: src/legacy, vendor/old");
-    expect(r.content).toContain("Áreas críticas que requieren review extra: src/auth, src/billing");
+    expect(r.content).toContain("Legacy folders with different rules: src/legacy, vendor/old");
+    expect(r.content).toContain("Critical areas that need extra review: src/auth, src/billing");
   });
 });
 

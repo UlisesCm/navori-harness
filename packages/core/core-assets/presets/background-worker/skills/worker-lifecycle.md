@@ -1,18 +1,18 @@
 ---
 name: worker-lifecycle
-description: Ciclo de vida de un worker de fondo en Node/TS — bootstrap, graceful shutdown, healthcheck mínimo, sin servir HTTP de negocio. Aplica al tocar el arranque/apagado del proceso o la conexión a DB/broker.
+description: Lifecycle of a background worker in Node/TS — bootstrap, graceful shutdown, minimal healthcheck, no business HTTP served. Use when touching process startup/shutdown or the DB/broker connection.
 type: reference
 ---
 
-# worker-lifecycle — arrancar y apagar limpio
+# worker-lifecycle — start and shut down cleanly
 
-Un worker no es un HTTP server: arranca conexiones, registra schedulers/consumers, y debe **apagar limpio** sin matar trabajo en vuelo. Su `main` orquesta el bootstrap y un único shutdown idempotente.
+A worker is not an HTTP server: it opens connections, registers schedulers/consumers, and must **shut down cleanly** without killing in-flight work. Its `main` orchestrates the bootstrap and a single idempotent shutdown.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al tocar `index.ts`/`main.ts`, el arranque del scheduler/consumer, la conexión a Mongo/broker, o el manejo de señales.
+When touching `index.ts`/`main.ts`, the scheduler/consumer startup, the Mongo/broker connection, or signal handling.
 
-## El patrón
+## The pattern
 
 ```ts
 async function main() {
@@ -23,9 +23,9 @@ async function main() {
 
   const shutdown = once(async (signal: string) => {
     logger.info({ signal }, 'shutting down');
-    await consumer.stop();        // deja de tomar mensajes nuevos
-    await scheduler.stop();       // deja de disparar jobs
-    await drainInflight(15_000);  // espera lo en vuelo, con timeout
+    await consumer.stop();        // stop taking new messages
+    await scheduler.stop();       // stop firing jobs
+    await drainInflight(15_000);  // wait for in-flight, with timeout
     await broker.close();
     await db.close();
     process.exit(0);
@@ -36,25 +36,25 @@ async function main() {
 main().catch((err) => { logger.error({ err }, 'fatal on boot'); process.exit(1); });
 ```
 
-`once` garantiza que dos señales seguidas no disparen dos shutdowns. El orden importa: **primero dejas de aceptar trabajo**, luego drenas lo en vuelo, luego cierras conexiones.
+`once` guarantees that two back-to-back signals don't trigger two shutdowns. Order matters: **first you stop accepting work**, then you drain in-flight, then you close connections.
 
-Sin HTTP server no hay red de seguridad: registra también `process.on('unhandledRejection'|'uncaughtException', ...)` con log estructurado + shutdown, o una promesa sin catch mata el proceso en silencio. El timeout de drenado debe ser **menor** que el `terminationGracePeriodSeconds` del orquestador (30s default en K8s), o el pod recibe `SIGKILL` a media faena. En BullMQ, `worker.close()` **no** tiene timeout propio: acótalo con un `Promise.race` contra tu propio timeout.
+Without an HTTP server there's no safety net: also register `process.on('unhandledRejection'|'uncaughtException', ...)` with structured logging + shutdown, or an uncaught promise kills the process silently. The drain timeout must be **less** than the orchestrator's `terminationGracePeriodSeconds` (30s default in K8s), or the pod gets `SIGKILL` mid-task. In BullMQ, `worker.close()` has **no** timeout of its own: bound it with a `Promise.race` against your own timeout.
 
-## Healthcheck (si el orquestador lo exige)
+## Healthcheck (if the orchestrator requires it)
 
-Un solo endpoint `/health` con un `http.createServer` mínimo está bien — **no es** una API. Devuelve `200` si las conexiones (DB, broker) están vivas. Nada de rutas de negocio aquí.
+A single `/health` endpoint with a minimal `http.createServer` is fine — it is **not** an API. Return `200` if the connections (DB, broker) are alive. No business routes here.
 
-## Reglas duras
+## Hard rules
 
-1. Un único punto de shutdown, idempotente (`once`), escuchando `SIGTERM` y `SIGINT`.
-2. Dejar de aceptar trabajo **antes** de drenar; drenar con timeout; cerrar conexiones al final.
-3. Nunca `process.exit` a mitad de un job sin re-encolarlo o dejarlo `nack`-eado.
-4. Sin rutas HTTP de negocio. `/health` es el único endpoint permitido.
-5. Errores de arranque → log estructurado + `exit(1)`; no arranques a medias.
-6. Registra `unhandledRejection`/`uncaughtException`; drain-timeout < grace period del orquestador.
+1. A single shutdown point, idempotent (`once`), listening for `SIGTERM` and `SIGINT`.
+2. Stop accepting work **before** draining; drain with a timeout; close connections last.
+3. Never `process.exit` mid-job without requeuing it or leaving it `nack`-ed.
+4. No business HTTP routes. `/health` is the only allowed endpoint.
+5. Boot errors → structured log + `exit(1)`; don't start halfway.
+6. Register `unhandledRejection`/`uncaughtException`; drain-timeout < orchestrator's grace period.
 
-## Antes de declarar listo
+## Before declaring done
 
-- `SIGTERM` apaga limpio: sin jobs muertos a la mitad, conexiones cerradas.
-- El proceso no expone endpoints de negocio.
-- `{{qualityGate.fast}}` en verde.
+- `SIGTERM` shuts down cleanly: no half-dead jobs, connections closed.
+- The process exposes no business endpoints.
+- `{{qualityGate.fast}}` green.

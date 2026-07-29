@@ -1,16 +1,16 @@
 ---
 name: express-routes
-description: Patrón de rutas Express en un servicio TS — asyncHandler obligatorio, ApiResponse para data, ApiError para errores, validate antes del handler, mount bajo un prefix único. Aplica al tocar presentation/routes o presentation/controllers.
+description: Express routing pattern in a TS service — mandatory asyncHandler, ApiResponse for data, ApiError for errors, validate before the handler, mount under a single prefix. Use when touching presentation/routes or presentation/controllers.
 type: reference
 ---
 
-# Express Routes — convenciones del servicio
+# Express Routes — service conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Antes de crear o modificar archivos en `presentation/routes` o `presentation/controllers`, o cablear un endpoint. Express 4+. Saltarte `asyncHandler` + `validate` + delegación al controller es la fuente más común de errores async perdidos y de lógica fugada al routing.
+Before creating or modifying files in `presentation/routes` or `presentation/controllers`, or wiring an endpoint. Express 4+. Skipping `asyncHandler` + `validate` + delegation to the controller is the most common source of lost async errors and logic leaked into routing.
 
-## Patrón canónico
+## Canonical pattern
 
 ```ts
 const router = express.Router();
@@ -29,45 +29,45 @@ router.route('/')
 export default router;
 ```
 
-Luego se monta en `routes/index.ts` bajo el prefix único de tu repo (`<API_PREFIX>`): `router.use('/<resource>', resourceRoutes)`. Agrupa sub-dominios en una sección comentada y respeta el orden existente.
+Then it's mounted in `routes/index.ts` under your repo's single prefix (`<API_PREFIX>`): `router.use('/<resource>', resourceRoutes)`. Group sub-domains into a commented section and respect the existing order.
 
-## Contratos del repo (no los reinventes)
+## Repo contracts (don't reinvent them)
 
-- **`asyncHandler`** — envuelve el handler async y reenvía el `Promise.reject` a `next(err)`, que llega al error middleware global de `app.ts`. Sin él, los errores async crashean o se pierden.
-- **`validate(schema, target)`** — valida el input (`'body'`/`'query'`/`'params'`) antes de tocar el controller.
-- **`ApiResponse`** — único canal de salida HTTP. `new SuccessResponse(msg, data).send(res)`, `new CreatedResponse(...)` (201), `new NotFoundResponse(...)` (404).
-- **`ApiError`** — único canal de error: `throw new NotFoundError(...)` / `BadRequestError` / `ForbiddenError`. El middleware global los traduce; nunca los manejes a mano.
+- **`asyncHandler`** — wraps the async handler and forwards the `Promise.reject` to `next(err)`, which reaches the global error middleware in `app.ts`. Without it, async errors crash or get lost.
+- **`validate(schema, target)`** — validates the input (`'body'`/`'query'`/`'params'`) before touching the controller.
+- **`ApiResponse`** — the single HTTP output channel. `new SuccessResponse(msg, data).send(res)`, `new CreatedResponse(...)` (201), `new NotFoundResponse(...)` (404).
+- **`ApiError`** — the single error channel: `throw new NotFoundError(...)` / `BadRequestError` / `ForbiddenError`. The global middleware translates them; never handle them by hand.
 
-Si alguno no existe en tu repo, define el contrato análogo antes de usarlo.
+If any of them doesn't exist in your repo, define the analogous contract before using it.
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- Instancia el controller **una vez** al top del archivo, nunca dentro del handler.
-- Rutas específicas antes que genéricas: `/foo/bar` antes de `/foo/:id`.
-- `app.ts` ya define rutas reservadas (`/healthcheck`, `/json/*`, `/favicon.ico`); no las toques.
+- Instantiate the controller **once** at the top of the file, never inside the handler.
+- Specific routes before generic ones: `/foo/bar` before `/foo/:id`.
+- `app.ts` already defines reserved routes (`/healthcheck`, `/json/*`, `/favicon.ico`); don't touch them.
 
-## Reglas duras
+## Hard rules
 
-1. **`asyncHandler` SIEMPRE** envolviendo el handler. Sin él, los errores async se pierden.
-2. **`validate(schema, target)` ANTES** del `asyncHandler` cuando el endpoint parsea input. Un `validate` por target.
-3. **Toda salida por `ApiResponse`**, todo error por `ApiError`. Nada de `res.json`, `res.send`, `res.status(...).json(...)` ni `try/catch` que mande la respuesta de error.
-4. **Cero lógica en la ruta** — la ruta solo cablea; la lógica vive en el controller method.
-5. **Path consistente** con los vecinos (si usan `GetByX`, no inventes `get-by-x`) y sin leading slash que duplique el prefix.
+1. **`asyncHandler` ALWAYS** wrapping the handler. Without it, async errors get lost.
+2. **`validate(schema, target)` BEFORE** the `asyncHandler` when the endpoint parses input. One `validate` per target.
+3. **All output via `ApiResponse`**, all errors via `ApiError`. No `res.json`, `res.send`, `res.status(...).json(...)` nor `try/catch` that sends the error response.
+4. **Zero logic in the route** — the route only wires; the logic lives in the controller method.
+5. **Consistent path** with the neighbors (if they use `GetByX`, don't invent `get-by-x`) and no leading slash that duplicates the prefix.
 
-## Tabla rápida
+## Quick table
 
-| Necesito | Cómo |
+| I need | How |
 |---|---|
-| Capturar errores async | Envolver el handler en `asyncHandler` |
-| Validar input | `validate(schema, 'body'\|'query'\|'params')` antes de `asyncHandler` |
-| Devolver data | `new SuccessResponse(msg, data).send(res)` |
-| Lanzar error de dominio | `throw new NotFoundError(...)` / `BadRequestError` |
-| Montar el recurso | `router.use('/<resource>', xRoutes)` en `routes/index.ts` |
-| Lógica de negocio | Controller method, nunca en la ruta |
+| Catch async errors | Wrap the handler in `asyncHandler` |
+| Validate input | `validate(schema, 'body'\|'query'\|'params')` before `asyncHandler` |
+| Return data | `new SuccessResponse(msg, data).send(res)` |
+| Throw a domain error | `throw new NotFoundError(...)` / `BadRequestError` |
+| Mount the resource | `router.use('/<resource>', xRoutes)` in `routes/index.ts` |
+| Business logic | Controller method, never in the route |
 
-## Antes de declarar listo
+## Before declaring done
 
-- Cada handler async va envuelto en `asyncHandler`; ningún `try/catch` manual manda el error.
-- Toda salida sale por `ApiResponse`; ningún `res.json`/`res.send` directo.
-- La ruta solo cablea; la lógica vive en el controller.
-- `{{qualityGate.fast}}` en verde.
+- Every async handler is wrapped in `asyncHandler`; no manual `try/catch` sends the error.
+- All output goes through `ApiResponse`; no direct `res.json`/`res.send`.
+- The route only wires; the logic lives in the controller.
+- `{{qualityGate.fast}}` green.

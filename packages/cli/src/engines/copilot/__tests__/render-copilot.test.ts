@@ -37,9 +37,9 @@ describe("renderCopilotEngine", () => {
     const md = readFileSync(join(cwd, FILE), "utf-8");
     expect(md).toContain("# Copilot instructions");
     expect(md).toContain("## Idioma y rol");
-    expect(md).toContain("## Skills disponibles");
+    expect(md).toContain("## Available skills");
     expect(md).toContain("verify-before-done");
-    expect(md).toContain("## Flujo de trabajo");
+    expect(md).toContain("## Workflow");
     expect(md).toContain('navori:managed id="navori-copilot"');
     expect(md).toContain("navori:user-section");
   });
@@ -51,7 +51,7 @@ describe("renderCopilotEngine", () => {
       baseConfig({ plugins: { engram: { enabled: true } } } as Partial<NavoriConfig>),
     );
     const md = readFileSync(join(cwd, FILE), "utf-8");
-    expect(md).not.toContain("## Rol: orquestador");
+    expect(md).not.toContain("## Role: orchestrator");
     expect(md).not.toContain("mem_save");
   });
 
@@ -77,7 +77,7 @@ describe("renderCopilotEngine", () => {
     renderCopilotEngine(cwd, baseConfig());
     const path = join(cwd, FILE);
     const edited = readFileSync(path, "utf-8").replace(
-      "<!-- Agrega aquí lo específico de tu repo; navori no toca esta sección. -->",
+      "<!-- Add your repo-specific rules here; navori doesn't touch this section. -->",
       "- Mi regla propia del repo.",
     );
     writeFileSync(path, edited, "utf-8");

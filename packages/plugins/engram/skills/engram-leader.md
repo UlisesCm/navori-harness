@@ -1,21 +1,21 @@
 ---
 name: engram-leader-extension
-description: Protocolo Engram para el agente líder. Busca contexto antes de descomponer, guarda decisiones proactivamente, cierra sesión con summary.
+description: Use when the leader agent is orchestrating work — the Engram protocol: search context before decomposing, save decisions proactively, close the session with a summary.
 type: behavior
 ---
 
-## Engram (memoria persistente)
+## Engram (persistent memory)
 
-Antes de descomponer trabajo: **busca contexto** con `mem_search` usando keywords del ticket. Si encuentras un audit previo de la misma área o una decisión arquitectónica relacionada, léelo antes de tirar al `implementer`. No re-descubrir lo que ya está guardado.
+Before decomposing work: **search for context** with `mem_search` using keywords from the ticket. If you find a previous audit of the same area or a related architectural decision, read it before dispatching the `implementer`. Don't re-discover what's already saved.
 
-Después de cada decisión arquitectónica, plugin nuevo o convención establecida en la sesión: `mem_save` proactivo con tipo apropiado (`decision`, `convention`, `pattern`, `bugfix`) y un `topic_key` estable. Reutiliza el key para evolucionar el tema sin acumular snapshots. Guarda punteros durables; líneas, firmas y call sites se verifican en código y no se persisten.
+After each architectural decision, new plugin or convention established in the session: a proactive `mem_save` with the appropriate type (`decision`, `convention`, `pattern`, `bugfix`) and a stable `topic_key`. Reuse the key to evolve the topic without piling up snapshots. Save durable pointers; lines, signatures and call sites are verified in code and not persisted.
 
-Antes de cerrar la sesión: `mem_session_summary` obligatorio con:
+Before closing the session: a mandatory `mem_session_summary` with:
 
-- `goal` — qué se intentó lograr.
-- `discoveries` — gotchas, archivos críticos, decisiones intermedias.
-- `accomplished` — qué quedó hecho.
-- `next_steps` — qué falta (con paths concretos).
-- `relevant_files` — paths que un futuro agente debería leer primero.
+- `goal` — what was attempted.
+- `discoveries` — gotchas, critical files, intermediate decisions.
+- `accomplished` — what got done.
+- `next_steps` — what's left (with concrete paths).
+- `relevant_files` — paths a future agent should read first.
 
-Después del summary, cura la sesión: consolida duplicados, corrige memorias contradichas y elimina solo contenido claramente volátil o redundante. Nunca hagas pruning agresivo de decisiones durables.
+After the summary, curate the session: consolidate duplicates, fix contradicted memories and delete only clearly volatile or redundant content. Never aggressively prune durable decisions.

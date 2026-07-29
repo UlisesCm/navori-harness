@@ -1,36 +1,36 @@
 ---
 name: debug-error
-description: Usar cuando un comando (tsc, lint, build, test) o el runtime escupe un muro de errores. Antes de tocar código: filtra el ruido, clasifica el tipo de error, y arregla la CAUSA RAÍZ, no los síntomas en cascada. Los patrones de error de tu stack van en la user-section.
+description: Use when a command (tsc, lint, build, test) or the runtime spews a wall of errors. Before touching code: filter the noise, classify the error type, and fix the ROOT CAUSE, not the cascading symptoms. Your stack's error patterns go in the user-section.
 type: behavior
 maxWords: 600
 ---
 
-# Debug error — triage antes de arreglar
+# Debug error — triage before fixing
 
-Cuando un comando falla con muchas líneas, el error es reaccionar al primero (o al más ruidoso) y tirar un fix. Este skill fuerza el triage previo.
+When a command fails with many lines, the mistake is to react to the first (or the loudest) one and throw a fix at it. This skill forces the triage step first.
 
-## El protocolo (en orden)
+## The protocol (in order)
 
-1. **Filtra el ruido.** Aísla los errores reales del chatter de la herramienta: líneas de progreso/éxito (`compiled`, `generating…`), warnings (no son errores) y logs sin stack. Quédate solo con las líneas que son un error de verdad.
-2. **Clasifica el tipo.** Antes de arreglar, identifica la categoría — cada una tiene una forma de causa distinta:
-   - **Tipos / compilador** (tsc): tipo esperado vs recibido; a menudo un tipo desactualizado o una regeneración pendiente (codegen / schema).
-   - **Lint**: mecánico, casi siempre auto-fixable; no lo trates como bug de lógica.
-   - **Build**: config, env, o boundary (server/client, dynamic) — no es el código de negocio.
-   - **Runtime**: `undefined` / `null` no manejado, red, o auth / sesión.
-3. **Encuentra la causa RAÍZ.** Un solo error raíz suele cascadear en 10-20 downstream (un import o tipo faltante rompe todo lo que lo usa). **Arregla la raíz, re-corre y RE-CLASIFICA** — no dispares varios fixes a la vez contra los síntomas.
-4. **Reporta / arregla** con el formato de `formato-respuesta` (`CAUSA` + `archivo:línea` + `FIX` mínimo). Sin preámbulo.
+1. **Filter the noise.** Isolate the real errors from the tool's chatter: progress/success lines (`compiled`, `generating…`), warnings (not errors) and logs with no stack. Keep only the lines that are an actual error.
+2. **Classify the type.** Before fixing, identify the category — each one has a distinct cause shape:
+   - **Types / compiler** (tsc): expected vs received type; often a stale type or a pending regeneration (codegen / schema).
+   - **Lint**: mechanical, almost always auto-fixable; don't treat it as a logic bug.
+   - **Build**: config, env, or boundary (server/client, dynamic) — not the business code.
+   - **Runtime**: unhandled `undefined` / `null`, network, or auth / session.
+3. **Find the ROOT cause.** A single root error usually cascades into 10-20 downstream ones (a missing import or type breaks everything that uses it). **Fix the root, re-run and RE-CLASSIFY** — don't fire several fixes at once against the symptoms.
+4. **Report / fix** using the `formato-respuesta` format (`CAUSA` + `file:line` + minimal `FIX`). No preamble.
 
-## Reglas
+## Rules
 
-- **Un fix a la vez** contra la raíz, luego re-corre. Si el mismo error persiste tras el fix → cambia a `loop-back-debug` (re-valida la hipótesis, no sigas patcheando).
-- **No arregles síntomas** que van a desaparecer solos al arreglar la raíz.
-- **Warning ≠ error** — un warning no bloquea; no gastes el turno en él salvo que lo pidan.
+- **One fix at a time** against the root, then re-run. If the same error persists after the fix → switch to `loop-back-debug` (re-validate the hypothesis, don't keep patching).
+- **Don't fix symptoms** that will disappear on their own once the root is fixed.
+- **Warning ≠ error** — a warning doesn't block; don't spend the turn on it unless asked.
 
 <!-- navori:user-section -->
-## Patrones de error de tu stack
+## Your stack's error patterns
 
-<!-- user: documenta aquí los errores recurrentes de TU toolchain y su fix, para triage instantáneo. Sugerencias:
-     - Filtros de ruido específicos (líneas del build/runner que NO son errores).
-     - Errores típicos con su causa + fix (ej. codegen no corrido, boundary server/client, import path/alias, env faltante).
-     - Comandos de regeneración/validación (codegen, migrations) que resuelven categorías enteras de errores.
+<!-- user: document here the recurring errors of YOUR toolchain and their fix, for instant triage. Suggestions:
+     - Specific noise filters (build/runner lines that are NOT errors).
+     - Typical errors with their cause + fix (e.g. codegen not run, server/client boundary, import path/alias, missing env).
+     - Regeneration/validation commands (codegen, migrations) that resolve entire categories of errors.
 -->

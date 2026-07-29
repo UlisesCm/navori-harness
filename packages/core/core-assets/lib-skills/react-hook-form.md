@@ -1,18 +1,18 @@
 ---
 name: react-hook-form
-description: Patrones de React Hook Form en React+TS — register vs Controller, zodResolver, errores por campo, re-renders. Aplica al crear o tocar formularios con RHF.
+description: Use when creating or touching forms with RHF — React Hook Form patterns in React+TS: register vs Controller, zodResolver, per-field errors, re-renders.
 type: reference
 ---
 
-# React Hook Form — convenciones
+# React Hook Form — conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al crear o tocar un formulario con RHF: validación con Zod, submit, errores, o cablear inputs de una lib controlada (Mantine/MUI `Select`, `DatePicker`). RHF es la fuente de verdad del form — no dupliques sus valores en `useState`. Ventaja sobre Formik: los inputs nativos van **uncontrolled** (vía refs), así que teclear no re-renderiza el form entero.
+When creating or touching a form with RHF: validation with Zod, submit, errors, or wiring inputs from a controlled lib (Mantine/MUI `Select`, `DatePicker`). RHF is the form's source of truth — don't duplicate its values in `useState`. Advantage over Formik: native inputs are **uncontrolled** (via refs), so typing doesn't re-render the whole form.
 
-## El patrón
+## The pattern
 
-Uncontrolled por defecto + Zod como schema + `Controller` **solo** donde el input no emite un evento DOM nativo.
+Uncontrolled by default + Zod as the schema + `Controller` **only** where the input doesn't emit a native DOM event.
 
 ```tsx
 const schema = z.object({ email: z.string().email(), role: z.enum(['coach', 'coachee']) });
@@ -21,41 +21,41 @@ type FormValues = z.infer<typeof schema>;
 const { register, control, handleSubmit, formState: { errors, isSubmitting } } =
   useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: { email: '', role: 'coachee' } });
 
-<TextInput error={errors.email?.message} {...register('email')} />  // nativo → register
-// Select de Mantine (onChange da el valor, no un event) → Controller:
+<TextInput error={errors.email?.message} {...register('email')} />  // native → register
+// Mantine Select (onChange gives the value, not an event) → Controller:
 <Controller control={control} name="role" render={({ field, fieldState }) => (
   <Select data={['coach','coachee']} error={fieldState.error?.message} {...field} />
 )} />
 ```
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **`register` por defecto; `Controller` es la excepción.** Un input que reenvía `ref` y dispara `onChange` con un evento DOM (texto, textarea, checkbox nativo, `<TextInput>` de Mantine) va con `{...register('campo')}`. Envolverlo en `Controller` re-introduce el re-render por tecla que RHF existe para evitar.
-- **Cuándo SÍ va `Controller`:** componentes cuyo `onChange` entrega el **valor directo** — Mantine `Select`/`MultiSelect`/`NumberInput`/`DateInput`, todo MUI, `react-select`. Cablea `field.value`/`onChange`/`onBlur`/`ref`; el error sale de `fieldState.error?.message`.
-- **`defaultValues` no es opcional.** Sin él, un campo arranca `undefined` → warning "uncontrolled to controlled" (`Controller` con `undefined` es inválido: usa `null`/`''`). Para edición async usa `reset(data)` en un `useEffect`, no valores a mano en cada render.
-- **`watch()` re-renderiza todo.** Para leer en submit usa `getValues('campo')`; para que un hijo dependa de un campo, `useWatch({ control, name })` en ese hijo. `watch()` global en un form grande es anti-patrón.
-- **Números: `register('age', { valueAsNumber: true })`.** Sin esto un `type="number"` entrega **string** y tu `z.number()` falla. Corre antes del resolver, así validas con `z.number()` directo.
-- **`useFieldArray` con `key={field.id}`, nunca el índice** (corrompe el estado al reordenar). Error de servidor con `setError('root.server', …)`, no en un campo.
+- **`register` by default; `Controller` is the exception.** An input that forwards `ref` and fires `onChange` with a DOM event (text, textarea, native checkbox, Mantine's `<TextInput>`) goes with `{...register('field')}`. Wrapping it in `Controller` reintroduces the per-keystroke re-render RHF exists to avoid.
+- **When `Controller` IS needed:** components whose `onChange` delivers the **value directly** — Mantine `Select`/`MultiSelect`/`NumberInput`/`DateInput`, all of MUI, `react-select`. Wire `field.value`/`onChange`/`onBlur`/`ref`; the error comes from `fieldState.error?.message`.
+- **`defaultValues` is not optional.** Without it, a field starts `undefined` → "uncontrolled to controlled" warning (`Controller` with `undefined` is invalid: use `null`/`''`). For async editing use `reset(data)` in a `useEffect`, not hand-set values on every render.
+- **`watch()` re-renders everything.** To read on submit use `getValues('field')`; for a child to depend on a field, `useWatch({ control, name })` in that child. A global `watch()` in a large form is an anti-pattern.
+- **Numbers: `register('age', { valueAsNumber: true })`.** Without it a `type="number"` delivers a **string** and your `z.number()` fails. It runs before the resolver, so you validate with `z.number()` directly.
+- **`useFieldArray` with `key={field.id}`, never the index** (corrupts the state on reorder). Server error with `setError('root.server', …)`, not on a field.
 
-## Reglas duras
+## Hard rules
 
-1. Validación en schema Zod vía `zodResolver`; tipo por `z.infer`. Nada de `rules` inline ni tipos paralelos.
-2. `register` por defecto; `Controller` solo para inputs sin evento DOM nativo.
-3. `defaultValues` siempre; edición async con `reset(data)`, sin `useState` espejo.
-4. `getValues`/`useWatch` para leer sin re-render; `isSubmitting` deshabilita el botón.
+1. Validation in a Zod schema via `zodResolver`; type via `z.infer`. No inline `rules` or parallel types.
+2. `register` by default; `Controller` only for inputs without a native DOM event.
+3. `defaultValues` always; async editing with `reset(data)`, no mirror `useState`.
+4. `getValues`/`useWatch` to read without re-render; `isSubmitting` disables the button.
 
-## Tabla rápida
+## Quick table
 
-| Input | Cómo cablear |
+| Input | How to wire |
 |---|---|
-| Texto / textarea / checkbox nativo | `{...register('campo')}` |
-| Número | `register('n', { valueAsNumber: true })` |
-| Select / Date / Number de Mantine/MUI | `<Controller>` + `{...field}` |
-| Lista dinámica | `useFieldArray` + `key={field.id}` |
+| Text / textarea / native checkbox | `{...register('field')}` |
+| Number | `register('n', { valueAsNumber: true })` |
+| Mantine/MUI Select / Date / Number | `<Controller>` + `{...field}` |
+| Dynamic list | `useFieldArray` + `key={field.id}` |
 
-## Antes de declarar listo
+## Before declaring done
 
-- Zod + `zodResolver`, tipo por `z.infer`; `Controller` para inputs controlados, `register` para texto; sin `useState` espejo.
-- `defaultValues` seteado; sin warnings "uncontrolled to controlled". Submit con `handleSubmit` + `isSubmitting`.
-- `{{qualityGate.fast}}` en verde.
+- Zod + `zodResolver`, type via `z.infer`; `Controller` for controlled inputs, `register` for text; no mirror `useState`.
+- `defaultValues` set; no "uncontrolled to controlled" warnings. Submit with `handleSubmit` + `isSubmitting`.
+- `{{qualityGate.fast}}` green.
 </content>
