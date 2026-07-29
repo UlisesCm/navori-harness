@@ -259,3 +259,65 @@ describe("buildClaudeSettings — effortLevel from leader tier", () => {
     expect(buildClaudeSettings(cfg, []).effortLevel).toBeUndefined();
   });
 });
+
+describe("buildClaudeSettings — preset-aware allow (M4+A1)", () => {
+  const allowOf = (config: NavoriConfig): string[] =>
+    (buildClaudeSettings(config, []).permissions as { allow: string[] }).allow;
+
+  it("pre-approves git write commands so add/commit stop prompting", () => {
+    const allow = allowOf(MINIMAL_CONFIG);
+    expect(allow).toContain("Bash(git add:*)");
+    expect(allow).toContain("Bash(git commit:*)");
+  });
+
+  it("derives allow rules from the quality gate + package manager", () => {
+    const config = {
+      ...MINIMAL_CONFIG,
+      qualityGate: {
+        fast: "pnpm run typecheck",
+        full: "pnpm run typecheck && pnpm run lint && pnpm run test",
+      },
+      packageManager: "pnpm",
+    } as unknown as NavoriConfig;
+    const allow = allowOf(config);
+    // the exact commands the gate runs
+    expect(allow).toContain("Bash(pnpm run typecheck:*)");
+    expect(allow).toContain("Bash(pnpm run lint:*)");
+    expect(allow).toContain("Bash(pnpm run test:*)");
+    // the dev-loop scripts the gate doesn't list (build was the explicit pain)
+    expect(allow).toContain("Bash(pnpm run build:*)");
+  });
+
+  it("falls back to the qualityGate runner when packageManager is absent (pre-field configs)", () => {
+    const config = {
+      ...MINIMAL_CONFIG,
+      qualityGate: { fast: "pnpm run typecheck", full: "pnpm run test" },
+    } as unknown as NavoriConfig;
+    expect(allowOf(config)).toContain("Bash(pnpm run build:*)");
+  });
+
+  it("emits no <pm> run rules for a non-JS gate (python/ruff)", () => {
+    const config = {
+      ...MINIMAL_CONFIG,
+      qualityGate: { fast: "ruff check .", full: "ruff check . && pytest" },
+    } as unknown as NavoriConfig;
+    const allow = allowOf(config);
+    expect(allow).toContain("Bash(ruff check .:*)");
+    expect(allow).toContain("Bash(pytest:*)");
+    expect(allow.some((r) => r.includes(" run "))).toBe(false);
+  });
+
+  it("adds no derived <pm> run rules when there is no quality gate", () => {
+    expect(allowOf(MINIMAL_CONFIG).some((r) => r.includes(" run "))).toBe(false);
+  });
+
+  it("is idempotent — no duplicate rules across base + derived merge", () => {
+    const config = {
+      ...MINIMAL_CONFIG,
+      qualityGate: { fast: "pnpm run test", full: "pnpm run test" },
+      packageManager: "pnpm",
+    } as unknown as NavoriConfig;
+    const allow = allowOf(config);
+    expect(new Set(allow).size).toBe(allow.length);
+  });
+});

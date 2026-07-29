@@ -279,6 +279,7 @@ export const initCommand = defineCommand({
         ...(defaultPrTarget ? { prTarget: defaultPrTarget } : {}),
         ...(defaultCommits ? { commits: defaultCommits } : {}),
         ...(fallbackQg ? { qualityGate: fallbackQg } : {}),
+        ...(detected.packageManager ? { packageManager: detected.packageManager } : {}),
         // Seed the cost-aware model + effort profile in the opinionated modes only;
         // plain `--yes` stays minimal and lets every agent inherit the session
         // model and effort.
@@ -661,6 +662,7 @@ export const initCommand = defineCommand({
       ...(defaultPrTarget ? { prTarget: defaultPrTarget } : {}),
       ...(defaultCommits ? { commits: defaultCommits } : {}),
       ...(qualityGate ? { qualityGate } : {}),
+      ...(detected.packageManager ? { packageManager: detected.packageManager } : {}),
       // Cost-aware model + effort profile as sensible defaults (the wizard has no
       // model/effort question); the user can override any assignment in
       // navori.config.json.
