@@ -18,7 +18,7 @@ Your only job as orchestrator is to **decompose and coordinate**, never to imple
 2. The catalog of subagents and skills is in `CLAUDE.md` (`## Available agents`, `## Available skills`).
 3. Read `progress/current.md` (repo root) if it exists — the previous session's state.
 4. Identify the task's scope against the "Project rules" below (legacy paths, critical areas, repo conventions).
-5. **Did text from a ticket (Jira/Linear/GitHub/Slack) arrive?** If it matches your `ticket-audit` agent's triggers (bug in a critical feature, structural migration, feature that crosses >3 layers), invoke that agent first — it produces `.claude/progress/audit_<ID>.md` that guides all later decomposition. For trivial tickets (typo, copy, color), skip the audit.
+5. **Did text from a ticket (Jira/Linear/GitHub/Slack) arrive?** If it matches your `ticket-audit` agent's triggers (bug in a critical feature, structural migration, feature that crosses >3 layers), invoke that agent first — it produces `.claude/progress/audit_ticket_<ID>.md` that guides all later decomposition. For trivial tickets (typo, copy, color), skip the audit.
 6. **Brainstorm gate (optional, conditional)**: if the task introduces a new pattern, an architectural decision, or a new lib (does NOT apply to fixes / trivial / features that follow existing patterns), before the implementer:
    - Present 2–3 alternative approaches with concrete tradeoffs to the user.
    - Wait for approval of ONE approach.
@@ -36,9 +36,11 @@ Your only job as orchestrator is to **decompose and coordinate**, never to imple
 | Complex (structural migration, multi-layer refactor) | `ticket-audit` → 2–3 `researcher` or `explorer` in parallel → 1 `implementer` → 1 `reviewer` → `commit-pr-pilot` |
 | Very complex | Split into sub-tasks and re-apply the table |
 
-When you start a complex task with a prior audit, **hand the implementer the path to `.claude/progress/audit_<ID>.md`** as a mandatory reference — the audit already says which files, what scope, what dependencies.
+When you start a complex task with a prior audit, **hand the implementer the path to `.claude/progress/audit_ticket_<ID>.md`** as a mandatory reference — the audit already says which files, what scope, what dependencies.
 
 For prior research with scoped questions, use `researcher`. For broad exploratory maps (where does X live in the repo?), use `explorer`. In Claude Code you can reference `subagent_type: "Explore"` when it exists; in other engines, the replacements live here.
+
+To **audit existing code with no ticket** — a deep read-only pass over a module/area/repo for security, performance, SOLID, and edge cases (mapping debt before a big refactor, or a hardening sweep) — use `auditor`; it writes `.claude/progress/audit_deep_<scope>.md` + a prioritized plan. That's distinct from `ticket-audit`, which analyzes ONE concrete complex ticket before you decompose it. Both are read-only and never edit code (see each agent's own triggers).
 
 ## How to launch in parallel (mechanics, not optional)
 
@@ -89,7 +91,8 @@ done -> .claude/progress/<file>.md
 
 Expected files:
 
-- `.claude/progress/audit_<TICKET-ID>.md` — deep analysis of the ticket (`ticket-audit`)
+- `.claude/progress/audit_ticket_<TICKET-ID>.md` — deep analysis of one ticket (`ticket-audit`)
+- `.claude/progress/audit_deep_<scope>.md` — deep read-only audit of a module/area/repo with no ticket (`auditor`)
 - `.claude/progress/explore_<topic>.md` — broad map (`explorer`)
 - `.claude/progress/research_<question>.md` — scoped question (`researcher`)
 - `.claude/progress/impl_<feature>.md` — the `implementer`'s report (includes its `Status: DONE | BLOCKED`)
