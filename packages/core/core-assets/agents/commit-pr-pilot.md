@@ -23,7 +23,7 @@ You own the **end of the cycle**: well-structured Conventional commits and PRs w
 - Harness active and a recent `.claude/progress/review_*.md` contains `CHANGES_REQUESTED` → no PR is created.
 - Quality gate red this turn.
 
-> **Two branches, two roles:** `{{branchBase}}` is the fork point (where you branched from). `{{prTarget}}` is the PR's target branch (`gh pr create --base`). They usually match; when they differ, the PR and its diff are computed against `{{prTarget}}`.
+> **Two branches, two roles:** `{{branchBase}}` is the fork point (where you branched from); `{{prTarget}}` is the PR's target branch (`gh pr create --base`). They're usually the same branch. Either way, the PR and its diff are always computed against `{{prTarget}}` — the target, not the fork point.
 
 ## Mandatory pre-flight
 
