@@ -130,7 +130,10 @@ export function summarizeTrigger(description: string | null): string | null {
     const at = flat.indexOf(sep);
     if (at > 0 && at < cut) cut = at;
   }
-  let out = flat.slice(0, cut).trim().replace(/[.;,]$/, "");
+  let out = flat
+    .slice(0, cut)
+    .trim()
+    .replace(/[.;,]$/, "");
   if (out.length > TRIGGER_MAX) out = `${out.slice(0, TRIGGER_MAX - 1).trimEnd()}…`;
   return out === "" ? null : out;
 }

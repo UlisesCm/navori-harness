@@ -765,10 +765,7 @@ export function renderClaudeEngine(
   // same name. Both shapes are swept: the legacy FLAT `<id>.md` AND the current
   // DIRECTORY `<id>/SKILL.md` (a repo may have rendered the lib in either form).
   for (const id of REMOVED_LIB_SKILLS) {
-    for (const removal of [
-      planFlatSkillRemoval(cwd, id, id),
-      planDirSkillRemoval(cwd, id, id),
-    ]) {
+    for (const removal of [planFlatSkillRemoval(cwd, id, id), planDirSkillRemoval(cwd, id, id)]) {
       if (!removal) continue;
       inspected += 1;
       removals.push(removal);
@@ -801,10 +798,7 @@ export function renderClaudeEngine(
     // Sweep both shapes: the legacy FLAT `<id>.md` and the current DIRECTORY
     // `<id>/SKILL.md`. A deselected lib rendered by this version orphans as a
     // directory; one rendered by an older version orphans as a flat file.
-    for (const removal of [
-      planFlatSkillRemoval(cwd, id, id),
-      planDirSkillRemoval(cwd, id, id),
-    ]) {
+    for (const removal of [planFlatSkillRemoval(cwd, id, id), planDirSkillRemoval(cwd, id, id)]) {
       if (!removal) continue;
       inspected += 1;
       removals.push(removal);
