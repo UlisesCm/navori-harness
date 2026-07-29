@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync, chmodSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { getCoreRoot } from "../bundled-assets.ts";
 
@@ -157,5 +157,97 @@ describe("quality-gate hook — declared runner missing (#88)", () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toContain("BLOQUEADO");
     expect(r.stderr).not.toContain("running quality-gate fast");
+  });
+});
+
+// The content receipt (RDD, #167) binds the commit to the exact bytes the
+// reviewer approved: a `<blob-sha>  <path>` line per approved file. The hook
+// recomputes it over the STAGED set and blocks if an approved file drifted.
+describe("quality-gate hook — content receipt (RDD)", () => {
+  function git(...args: string[]): void {
+    const r = spawnSync("git", args, { cwd: dir, encoding: "utf-8" });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
+  }
+  function hashObject(rel: string): string {
+    return spawnSync("git", ["hash-object", rel], { cwd: dir, encoding: "utf-8" }).stdout.trim();
+  }
+  function initRepo(): void {
+    git("init", "-q");
+    git("config", "user.email", "t@t.co");
+    git("config", "user.name", "t");
+  }
+  /** Write a receipt fingerprinting `paths` (default Claude location). */
+  function writeReceipt(paths: string[], rel = ".claude/progress/receipt.txt"): void {
+    const lines = ["# navori-receipt v1 feature=demo"];
+    for (const p of paths) lines.push(`${hashObject(p)}  ${p}`);
+    const full = join(dir, rel);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, `${lines.join("\n")}\n`);
+  }
+
+  it("no receipt present → the gate still runs unchanged in a git repo", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "a.txt"), "hello\n");
+    git("add", "a.txt");
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+  });
+
+  it("receipt matches the staged content → the gate runs (exit 0)", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "a.txt"), "hello\n");
+    git("add", "a.txt");
+    writeReceipt(["a.txt"]);
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+    expect(r.stderr).not.toContain("receipt mismatch");
+  });
+
+  it("a staged file drifted from the approval → BLOCKS (exit 2) before the gate", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "a.txt"), "approved\n");
+    git("add", "a.txt");
+    writeReceipt(["a.txt"]);
+    writeFileSync(join(dir, "a.txt"), "tampered\n"); // drift, restaged below
+    git("add", "a.txt");
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("receipt mismatch");
+    expect(r.stderr).toContain("a.txt");
+    expect(r.stderr).not.toContain("running quality-gate fast");
+  });
+
+  it("drift in an UNSTAGED file (not part of this commit) → does NOT block", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "a.txt"), "approved\n");
+    git("add", "a.txt");
+    git("commit", "-qm", "seed"); // a.txt now tracked
+    writeReceipt(["a.txt"]);
+    writeFileSync(join(dir, "a.txt"), "drifted-but-unstaged\n"); // NOT staged
+    writeFileSync(join(dir, "b.txt"), "new\n");
+    git("add", "b.txt"); // only b.txt is in this commit
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+    expect(r.stderr).not.toContain("receipt mismatch");
+  });
+
+  it("also enforces a receipt at the Codex location (progress/receipt.txt)", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "a.txt"), "approved\n");
+    git("add", "a.txt");
+    writeReceipt(["a.txt"], "progress/receipt.txt");
+    writeFileSync(join(dir, "a.txt"), "tampered\n");
+    git("add", "a.txt");
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("receipt mismatch");
   });
 });

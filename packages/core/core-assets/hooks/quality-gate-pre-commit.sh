@@ -56,6 +56,64 @@ run_gate() {
   }
 }
 
+# --- content receipt (RDD) --------------------------------------------------
+# Backstop that binds the commit to the exact bytes the reviewer approved. The
+# reviewer writes a receipt (`<blob-sha>  <path>` lines, one per approved file,
+# via `git hash-object`) when it marks APPROVED; the commit-pr-pilot recomputes
+# it before committing and consumes it after. THIS is the mechanical net for a
+# direct `git commit` that skips the pilot: if an approved file's content
+# drifted since the review (rebase, human tweak, follow-up edit), block. It
+# never re-runs the review — it only refuses to commit content that no longer
+# matches the approval. No receipt (e.g. an R1 diff with no reviewer) → nothing
+# to bind → skip. Seatbelt, not a sandbox: `git commit -am` (no prior `git add`)
+# and a re-edit after `git add` fall outside its scope.
+check_content_receipt() {
+  # Only meaningful inside a git work tree with git available.
+  command -v git >/dev/null 2>&1 || return 0
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+
+  # The reviewer writes to `.claude/progress/` (Claude) or `progress/` (Codex,
+  # rewritten by compat). Check both so the backstop works on either engine
+  # without depending on whether the hook body itself was retargeted.
+  local receipt=""
+  local candidate
+  for candidate in .claude/progress/receipt.txt progress/receipt.txt; do
+    if [ -f "$candidate" ]; then receipt="$candidate"; break; fi
+  done
+  [ -n "$receipt" ] || return 0
+
+  # Scope the check to the STAGED set — exactly what this commit will include —
+  # so an armed-but-stale receipt never blocks an unrelated commit, and an
+  # approved-but-unstaged working-tree edit (that won't be committed) never
+  # false-positives. `git commit -a` (auto-stage at commit time, after this
+  # hook) therefore falls outside the check — a documented seatbelt gap; the
+  # pilot stages explicitly with `git add`. quotepath=false keeps non-ASCII
+  # paths byte-identical to what the reviewer recorded.
+  local commit_set
+  commit_set=$(git -c core.quotepath=false diff --cached --name-only 2>/dev/null | sort -u)
+
+  local drift="" blob path now
+  while IFS= read -r line; do
+    case "$line" in ''|'#'*) continue ;; esac          # skip header/blank
+    blob=${line%%  *}                                  # blob = up to the 2-space sep
+    path=${line#*  }                                   # path = the rest (may contain spaces)
+    [ -n "$blob" ] && [ "$blob" != "$path" ] || continue
+    printf '%s\n' "$commit_set" | grep -qxF "$path" || continue   # not in this commit → ignore
+    now=$(git hash-object "$path" 2>/dev/null || true)
+    if [ "$now" != "$blob" ]; then
+      drift="${drift}  - ${path}"$'\n'
+    fi
+  done < "$receipt"
+
+  if [ -n "$drift" ]; then
+    echo "[navori] APPROVED content changed since review (receipt mismatch). Commit BLOCKED." >&2
+    printf '%s' "$drift" >&2
+    echo "[navori] Re-run the reviewer over the current diff, or override with 'git commit --no-verify'." >&2
+    echo "[navori] To clear a stale receipt: rm $receipt" >&2
+    exit 2
+  fi
+}
+
 # --- shared gate detection (keep IN SYNC across sibling hooks) --------------
 # Detect a `git commit` invocation anywhere in a (possibly
 # compound) command. Splits $1 on the shell separators && || ; | and newlines,
@@ -115,6 +173,9 @@ is_git_commit() {
 }
 
 if is_git_commit "$cmd"; then
+  # Content-bind first: refuse to commit bytes that drifted from the approval
+  # before spending the fast gate on them.
+  check_content_receipt
   gate="{{qualityGate.fast}}"
   gate_bin="${gate%% *}"
   if command -v "$gate_bin" >/dev/null 2>&1; then

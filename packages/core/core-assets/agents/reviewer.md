@@ -77,6 +77,22 @@ If the implementer's report says "UI not validated" and the change touches scree
 - `QUALITY_OK` → final verdict `APPROVED`.
 - `QUALITY_MISS` → final verdict `CHANGES_REQUESTED`, list issues with a confidence score.
 
+### Content receipt (write ONLY on APPROVED)
+
+Your APPROVED verdict is bound to the exact bytes you reviewed. Before handing off, fingerprint every reviewed file with `git hash-object` and write a receipt. The `commit-pr-pilot` and the pre-commit hook recompute it and refuse to commit if any approved file drifted since now (rebase, human tweak, follow-up edit) — so a stale approval can't ship content you never saw.
+
+```bash
+printf '# navori-receipt v1 feature=<feature>\n' > .claude/progress/receipt.txt
+{ git diff --name-only "origin/{{prTarget}}"; git ls-files --others --exclude-standard; } \
+  | sort -u \
+  | grep -vE '^(\.claude/progress/|progress/)' \
+  | while IFS= read -r f; do
+      [ -f "$f" ] && printf '%s  %s\n' "$(git hash-object "$f")" "$f"
+    done >> .claude/progress/receipt.txt
+```
+
+It captures the working-tree bytes under review (committed **and** uncommitted). The `grep -v` drops the harness's own ephemeral progress files (the receipt, `impl_*`, `review_*`) — they never get committed, so fingerprinting them would be self-referential noise. Skip the whole step for `CHANGES_REQUESTED` — a rejected diff has nothing to bind.
+
 ### Confidence scoring per finding (Pass 2)
 
 Each issue is scored 0-100. Only issues ≥80 block APPROVED. Issues 50-79 are listed as "informational observations" (they don't block). <50 = don't report.
@@ -97,6 +113,7 @@ Write `.claude/progress/review_<feature>.md`:
 # Review — <task>
 
 **Final verdict:** APPROVED | CHANGES_REQUESTED
+**Content receipt:** `.claude/progress/receipt.txt` (written on APPROVED — binds the diff to the reviewed bytes)
 
 ## Pass 1 — Spec compliance
 **Partial verdict:** SPEC_OK | SPEC_MISS
@@ -152,6 +169,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ❌ Never approve if the new code **adds new errors or warnings** vs baseline.
 - ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.
 - ❌ Never approve if the UI wasn't validated manually and the change touches screens.
+- ✅ On APPROVED, write the content receipt (`.claude/progress/receipt.txt`) so the commit is bound to the reviewed bytes.
 - ❌ In SDD features (with `tasks.md`), never approve if some `R<n>` in the batch has no traceable test covering it.
 - ❌ You never edit the code. You only point out what fails and where.
 - ✅ Be concrete: cite `file:line`. No generic feedback.
