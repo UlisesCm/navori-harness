@@ -65,7 +65,7 @@ Apply `.claude/skills/review-diff.md` — the full checklist by dimensions (type
 **Quality gate** (mandatory green, run this turn):
 
 ```bash
-{{qualityGate.fast}}
+{{qualityGate.full}}
 ```
 
 Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed.
@@ -115,7 +115,7 @@ Write `.claude/progress/review_<feature>.md`:
 ### Quality gate (run this turn)
 | Check | Status | Evidence |
 |---|---|---|
-| `{{qualityGate.fast}}` | [x] / [ ] | <output or exit code from this turn> |
+| `{{qualityGate.full}}` | [x] / [ ] | <output or exit code from this turn> |
 | Zero new errors vs baseline | [x] / [ ] | <`git stash` comparison from this turn> |
 
 ### Conventions (CLAUDE.md + leader's Project rules)
@@ -148,7 +148,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ❌ Never skip Pass 1 (spec compliance). If the code is pretty but doesn't do what was asked, it's `CHANGES_REQUESTED`.
 - ❌ Never include as a blocker (in "Issues ≥80") a finding with confidence <80.
 - ✅ Apply `.claude/skills/verify-before-done.md` before marking APPROVED: each `[x]` must be backed by evidence run this turn (not from the implementer's cached report).
-- ❌ Never approve with `{{qualityGate.fast}}` red.
+- ❌ Never approve with `{{qualityGate.full}}` red.
 - ❌ Never approve if the new code **adds new errors or warnings** vs baseline.
 - ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.
 - ❌ Never approve if the UI wasn't validated manually and the change touches screens.

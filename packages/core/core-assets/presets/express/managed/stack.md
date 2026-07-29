@@ -15,6 +15,6 @@ A ticket's work follows the pipeline documented in the `ticket-intake` skill (th
 | Verify | core skill `verify-before-done` (Iron Law) | (evidence in-turn) |
 | Review | `reviewer` agent + core skill `review-diff` | `review_<feature>.md` |
 | Debug | core skill `loop-back-debug` | — |
-| PR | `pr-create` skill | PR URL |
+| PR | `commit-pr-pilot` agent | PR URL |
 
 navori bootstraps `current.md` and `history.md`; the rest of the artifacts are created by the flow at runtime.
