@@ -11,7 +11,7 @@ You are the main agent. For any task, **pick the smallest route that covers it**
 | **R2-fan · Analytical fan-out** | Genuinely independent sub-questions or sub-bugs (no shared state) | N `researcher`/`explorer`, or N `implementer` on **disjoint files**, in PARALLEL (same turn) → your synthesis |
 | **R3 · SDD** (opt-in) | Durable artifacts cut ambiguity substantially **and** there was an explicit request / accepted proposal | `spec-bootstrap` → `tasks.md`; see the **SDD** block (don't duplicate its criteria) |
 
-Scoped research → `researcher`; broad maps (where does X live?) → `explorer`. With a prior audit, hand the `implementer` the path to `.claude/progress/audit_<ID>.md`.
+Scoped research → `researcher`; broad maps (where does X live?) → `explorer`. Deep read-only audit of a module/area/repo with **no ticket** (security/perf/SOLID/edge-cases, e.g. mapping debt before a refactor) → `auditor` (writes `audit_deep_<scope>.md`); a concrete complex ticket to analyze before decomposing → `ticket-audit` (writes `audit_ticket_<ID>.md`). With a prior ticket audit, hand the `implementer` the path to `.claude/progress/audit_ticket_<ID>.md`.
 
 ### Thresholds that make you STEP UP a route
 
