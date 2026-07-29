@@ -47,13 +47,25 @@ Open that specific file and confirm its verdict is `APPROVED` and that its scope
 
 An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
+**Content receipt (R2+): the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`). Before committing, confirm no approved file drifted since the review (rebase, human tweak, follow-up edit):
+
+```bash
+while IFS= read -r line; do
+  case "$line" in ''|'#'*) continue ;; esac
+  blob=${line%%  *}; path=${line#*  }
+  [ "$(git hash-object "$path" 2>/dev/null)" = "$blob" ] || echo "DRIFT: $path"
+done < .claude/progress/receipt.txt
+```
+
+Any `DRIFT` line — or a missing `receipt.txt` for a reviewed (R2+) change — means the approval no longer covers the current diff. Abort, don't commit, and send it back to the `reviewer` to re-approve over the current bytes. (The pre-commit hook re-checks the staged set mechanically as a backstop; catching it here is earlier and clearer.)
+
 **R1 exception (trivial diff, no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `{{qualityGate.full}}` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
 
 ### Gate: `{{qualityGate.full}}` green before the PR
 
 The PR gate is `{{qualityGate.full}}` (lint + tests) — **not** just `{{qualityGate.fast}}` (typecheck). A PR must not ship with lint errors or red tests, so `full` must be green over the diff that ships. Two paths:
 
-- **R2+ (reviewed):** the `reviewer` already ran `{{qualityGate.full}}` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. The `git commit`/`push` `PreToolUse` hooks still run **mechanically** as a backstop: `quality-gate-pre-commit` re-runs `{{qualityGate.fast}}` and blocks if red, plus jscpd/semgrep (duplication/security).
+- **R2+ (reviewed):** the `reviewer` already ran `{{qualityGate.full}}` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which the content receipt above enforces. The `git commit`/`push` `PreToolUse` hooks still run **mechanically** as a backstop: `quality-gate-pre-commit` re-checks the content receipt over the staged set and re-runs `{{qualityGate.fast}}` (blocks if either fails), plus jscpd/semgrep (duplication/security).
 - **R1 (no reviewer):** there's no review evidence to trust — YOU run `{{qualityGate.full}}` green in pre-flight before `gh pr create`.
 - ▶️ **Re-run `{{qualityGate.full}}` by hand** whenever the diff changed since the review (rebase/merge/follow-up edit) or there's no fresh evidence over the diff being committed — stale evidence doesn't count.
 
@@ -72,6 +84,7 @@ Never open the PR with the gate red.
 5. `git add <files>` (prefer explicit over `git add -A`).
 6. `git commit -m "..."` with a HEREDOC for the body if applicable.
 7. Validate with `git status` that the commit landed.
+8. **Consume the receipt:** `rm -f .claude/progress/receipt.txt`. The approval is now frozen into the commit; leaving it armed could false-block a later feature that touches the same file.
 
 ## PR flow
 
