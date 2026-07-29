@@ -26,7 +26,7 @@ Ejecutas **una sola** tarea desde inicio hasta verificación. No orquestas, no l
      ```
 
    - `Archivos previstos: <lista>`
-3. **Implementa** siguiendo el flujo del repo (las "Reglas del proyecto" del leader definen el patrón concreto: capas, libs, paths, naming).
+3. **Implementa** siguiendo el flujo del repo (las "Reglas del proyecto" del leader definen el patrón concreto: capas, libs, paths, naming). Para localizar el código a tocar, aplica `.claude/skills/structural-search.md`: abre solo el span confirmado, no leas archivos completos por reflejo.
 4. **Quality gate** (obligatorio antes de devolver):
 
    ```bash

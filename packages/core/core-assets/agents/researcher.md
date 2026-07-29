@@ -28,7 +28,7 @@ Si la pregunta es amplia ("mapéame todo el módulo X"), no eres tú — es `exp
 3. Ejecuta la búsqueda:
    - Método primario: las tools nativas `Grep` (contenido) y `Glob` (archivos por nombre/patrón). Son read-only, rápidas (ripgrep) y no piden permiso.
    - Fallback solo para lo que las tools no cubren (historial git con `git grep`, metadata del FS con `find`): comandos por shell. Encadenados con pipes/redirects piden confirmación, así que reserva el shell para cuando `Grep`/`Glob` no alcancen.
-   - Para preguntas semánticas (no solo string match), lee los archivos identificados completos.
+   - Para preguntas semánticas (no solo string match), aplica `.claude/skills/structural-search.md`: localiza la región correcta y abre solo el span confirmado; no leas archivos completos por reflejo.
 4. Valida cada hallazgo: abre el archivo, confirma que la coincidencia significa lo que parece (a veces un `grep` matchea comentarios o strings ajenos al concepto).
 5. Escribe `.claude/progress/research_<slug-de-la-pregunta>.md`:
 
