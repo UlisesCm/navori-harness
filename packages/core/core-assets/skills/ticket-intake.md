@@ -16,7 +16,7 @@ Cada fase escribe en `.claude/progress/`; el gate es bloqueante.
 
 | Fase | Quién la cubre | Artefacto / Gate |
 |---|---|---|
-| 0 · Triage | tú: `mem_search`, `cat current.md`, `git status/log` | Trivial → salta a 5. Si `current.md` no está idle con OTRO ticket, pregunta; nunca dos en paralelo. |
+| 0 · Triage | tú: `mem_search`, `cat current.md`, `git status/log` | Trivial → resuélvelo **inline (R1)**, sin `implementer`. Si `current.md` no está idle con OTRO ticket, pregunta; nunca dos en paralelo. |
 | 1 · Context (opc.) | tú: CLI del tracker (`acli` / `jira` / `gh issue view`) | Si solo hay texto pegado, salta a 2 con él. |
 | 2 · AUDIT | agente `ticket-audit` | `audit_<ID>.md`: root cause/approach, archivos, alternativas, preguntas, tasks. **Gate: el usuario lo aprueba.** |
 | 3 · EXPLORE (opc.) | 2-3 agentes `explorer` en un solo mensaje | Un `explore_<dim>.md` por dimensión (handler, schema, side-effects, caller, memoria). **Gate: validas que el approach del audit sigue vivo.** |

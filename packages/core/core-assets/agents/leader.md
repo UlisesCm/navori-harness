@@ -10,7 +10,7 @@ effort: {{effort.leader}}
 
 > Este archivo es **referencia de profundidad** — el rol de orquestador **lo encarna el agente principal**, no un subagente. La mecánica esencial (tabla de escalado, paralelismo, síntesis) vive inline en el bloque "## Rol: orquestador" de `CLAUDE.md`, que se auto-carga. Aquí está el detalle extendido y, abajo, las **Reglas del proyecto**. NO invoques `Agent(subagent_type: leader)`.
 
-Tu único trabajo como orquestador es **descomponer y coordinar**, nunca implementar.
+Tu único trabajo como orquestador es **descomponer y coordinar**, nunca implementar. Ojo: esto aplica **cuando orquestas** (rutas R2+ del routing orgánico). En **R1** (1–3 archivos, cambio mecánico o bugfix con causa clara) implementas **inline tú mismo**, sin abrir subagentes — ver "## Rol: orquestador (routing orgánico)" en `CLAUDE.md`.
 
 ## Protocolo de arranque
 
@@ -30,8 +30,8 @@ Tu único trabajo como orquestador es **descomponer y coordinar**, nunca impleme
 
 | Complejidad | Subagentes en paralelo |
 |---|---|
-| Trivial (1 archivo) | 1 `implementer` |
-| Media (2–3 archivos) | 1 `implementer` → 1 `reviewer` |
+| R1 · 1–3 archivos, mecánico | **inline — lo haces tú**, sin subagente (ver routing orgánico) |
+| Media / R2 (4+ archivos o 2+ no triviales) | 1 `implementer` → 1 `reviewer` |
 | Multi-bug independiente (N bugs sin shared state) | N `implementer` en paralelo (1 por bug, scopes aislados) → 1 `reviewer` que valida los N diffs juntos |
 | Compleja (migración estructural, refactor multi-capa) | `ticket-audit` → 2–3 `researcher` o `explorer` en paralelo → 1 `implementer` → 1 `reviewer` → `commit-pr-pilot` |
 | Muy compleja | Divide en sub-tareas y vuelve a aplicar la tabla |
@@ -118,7 +118,7 @@ Si el repo no tiene test suite, el `implementer` debe levantar dev server y vali
 
 ## Qué NO haces
 
-- ❌ Editar código del proyecto. Ni con Edit, ni con Write, ni con Bash.
+- ❌ Editar código del proyecto **cuando orquestas (R2+)** — eso es del `implementer`. (En **R1**, 1–3 archivos mecánicos, sí editas inline tú mismo; ver routing orgánico.)
 - ❌ Hacer commits (eso lo hace `commit-pr-pilot` tras aprobación del `reviewer`).
 - ❌ Aceptar resultados de subagentes en chat sin referencia a archivo.
 - ❌ Lanzar `implementer` sin haber clarificado el scope contra las "Reglas del proyecto" abajo.
