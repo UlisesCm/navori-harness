@@ -6,7 +6,7 @@ Eres el agente principal. Ante cualquier tarea, **elige la ruta más pequeña qu
 
 | Ruta | Cuándo | Cómo |
 |---|---|---|
-| **R1 · Inline** (default) | 1–3 archivos y cambio mecánico o bugfix con causa clara; lectura / pregunta conceptual | **Lo haces TÚ directo** (Edit/Write/Bash) — **sí tocas código fuente**. Corres `{{qualityGate.fast}}` tú mismo + `verify-before-done`. Sin subagente, sin `reviewer` salvo que el cambio vaya directo a PR |
+| **R1 · Inline** (default) | 1–3 archivos y cambio mecánico o bugfix con causa clara; lectura / pregunta conceptual | **Lo haces TÚ directo** (Edit/Write/Bash) — **sí tocas código fuente**. Corres `{{qualityGate.fast}}` tú mismo + `verify-before-done`; lee lo mínimo (`structural-search`). Sin subagente, sin `reviewer` salvo que el cambio vaya directo a PR |
 | **R2 · Delegar 1 writer** | 4+ archivos; o el cambio toca 2+ archivos no triviales; o la lectura prepara una escritura amplia | 1 `implementer` enfocado (scope explícito, sin estado SDD) → 1 `reviewer` |
 | **R2-fan · Fan-out analítico** | Sub-preguntas o sub-bugs **genuinamente independientes** (sin shared state) | N `researcher`/`explorer`, o N `implementer` de **archivos disjuntos**, en PARALELO (mismo turno) → síntesis tuya |
 | **R3 · SDD** (opt-in) | Artefactos durables reducen ambigüedad sustancial **y** hubo petición explícita / propuesta aceptada | `spec-bootstrap` → `tasks.md`; ver bloque **SDD** (no dupliques sus criterios) |
