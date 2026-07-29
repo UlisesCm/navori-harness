@@ -8,7 +8,7 @@ A ticket's work follows the pipeline documented in the `ticket-intake` skill (th
 
 | Phase | Who covers it | Artifact |
 |---|---|---|
-| Audit | `ticket-audit` agent | `audit_<id>.md` |
+| Audit | `ticket-audit` agent | `audit_ticket_<id>.md` |
 | Explore | `explorer` agent (2-3 in parallel) | `explore_<dim>.md` |
 | Design | `new-endpoint` skill by scope | (in the plan) |
 | Implement | `implementer` agent (applies the stack skills) | `impl_<feature>.md` |
