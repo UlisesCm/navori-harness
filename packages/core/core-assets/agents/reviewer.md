@@ -17,9 +17,10 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
 1. Read `CLAUDE.md`, `.claude/progress/impl_<feature>.md`, `.claude/progress/audit_<ID>.md` (if it exists).
 2. Identify modified files. Diff against `{{prTarget}}` (the PR's target
    branch), **not** against the fork point: it's the EXACT diff GitHub will show and
-   the one commit-pr-pilot reviews. When `{{branchBase}}` ≠ `{{prTarget}}` (e.g.
-   you branch from `main` but the PR goes to `develop`) reviewing against the fork
-   would show a diff different from the PR's.
+   the one commit-pr-pilot reviews. `{{branchBase}}` and `{{prTarget}}` are usually
+   the same branch; if they ever differ (e.g. you branch from `main` but the PR
+   goes to `develop`), diffing against the fork point would show a diff different
+   from the PR's — so always diff against the target.
 
    ```bash
    git status --short
