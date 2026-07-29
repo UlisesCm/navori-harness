@@ -10,11 +10,11 @@ Find the right region first and open only the confirmed span. Precision tools ve
 
 ## Ladder Rung 0–2
 
-### Rung 0 — orientation with engram
+### Rung 0 — orientation (only if the repo has persistent memory)
 
-Before searching, consult memory for durable questions: where a module lives, entry points, layers, conventions and decisions. Use the result as a **scope hypothesis**, never as a source of truth for lines, signatures or call sites.
+If this repo has persistent memory (the engram plugin is enabled), consult it first for durable questions: where a module lives, entry points, layers, conventions and decisions. Use the result as a **scope hypothesis**, never as a source of truth for lines, signatures or call sites.
 
-Confirm every pointer with a cheap search. If the code contradicts memory, correct the observation immediately. Save structural pointers, not volatile snapshots.
+Confirm every pointer with a cheap search. If the code contradicts memory, correct the observation immediately. Save structural pointers, not volatile snapshots. Without persistent memory, skip this rung and start at Rung 1.
 
 ### Rung 1 — text with Grep/ripgrep (default)
 
