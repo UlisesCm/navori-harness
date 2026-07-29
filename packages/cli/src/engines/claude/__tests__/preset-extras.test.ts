@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
 import { computeManagedHash } from "../../../lib/marker.ts";
 import type { NavoriConfig } from "../../../lib/config.ts";
+
+/** Skills materialize in directory form (`<id>/SKILL.md`) — the shape Claude
+ * Code auto-discovers (#166). Absolute path and repo-relative path helpers. */
+const skFile = (cwd: string, id: string): string => join(cwd, ".claude/skills", id, "SKILL.md");
+const skRel = (id: string): string => `.claude/skills/${id}/SKILL.md`;
 
 const BASE_CONFIG = {
   name: "demo",
@@ -32,14 +37,14 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     renderClaudeEngine(cwd, config);
 
     // Core skills always render
-    expect(existsSync(join(cwd, ".claude/skills/verify-before-done.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/loop-back-debug.md"))).toBe(true);
+    expect(existsSync(skFile(cwd, "verify-before-done"))).toBe(true);
+    expect(existsSync(skFile(cwd, "loop-back-debug"))).toBe(true);
 
     // Preset extras land alongside
-    expect(existsSync(join(cwd, ".claude/skills/medusa-modules.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/medusa-api-routes.md"))).toBe(true);
+    expect(existsSync(skFile(cwd, "medusa-modules"))).toBe(true);
+    expect(existsSync(skFile(cwd, "medusa-api-routes"))).toBe(true);
 
-    const modulesContent = readFileSync(join(cwd, ".claude/skills/medusa-modules.md"), "utf-8");
+    const modulesContent = readFileSync(skFile(cwd, "medusa-modules"), "utf-8");
     expect(modulesContent).toContain('id="medusa-modules"');
     expect(modulesContent).toContain("Medusa Modules");
   });
@@ -47,7 +52,7 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
   it("preset 'medusa' interpolates {{qualityGate.fast}} in extras", () => {
     const config = { ...BASE_CONFIG, preset: "medusa" } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, config);
-    const content = readFileSync(join(cwd, ".claude/skills/medusa-api-routes.md"), "utf-8");
+    const content = readFileSync(skFile(cwd, "medusa-api-routes"), "utf-8");
     expect(content).toContain("pnpm typecheck");
     expect(content).not.toContain("{{qualityGate.fast}}");
   });
@@ -56,10 +61,10 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     const config = { ...BASE_CONFIG, preset: "custom" } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, config);
 
-    expect(existsSync(join(cwd, ".claude/skills/verify-before-done.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/loop-back-debug.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/medusa-modules.md"))).toBe(false);
-    expect(existsSync(join(cwd, ".claude/skills/medusa-api-routes.md"))).toBe(false);
+    expect(existsSync(skFile(cwd, "verify-before-done"))).toBe(true);
+    expect(existsSync(skFile(cwd, "loop-back-debug"))).toBe(true);
+    expect(existsSync(skFile(cwd, "medusa-modules"))).toBe(false);
+    expect(existsSync(skFile(cwd, "medusa-api-routes"))).toBe(false);
   });
 
   it("preset declared in config but missing on disk surfaces a warning", () => {
@@ -71,7 +76,7 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     expect(found).toBeDefined();
     expect(found).toContain("not found");
     // Core baseline still renders normally
-    expect(existsSync(join(cwd, ".claude/skills/verify-before-done.md"))).toBe(true);
+    expect(existsSync(skFile(cwd, "verify-before-done"))).toBe(true);
   });
 
   it("preset.extras files are reported in `written` and counted in `inspected`", () => {
@@ -82,7 +87,7 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         .filter((w) => w.path.includes("medusa"))
         .map((w) => w.path)
         .sort(),
-    ).toEqual([".claude/skills/medusa-api-routes.md", ".claude/skills/medusa-modules.md"]);
+    ).toEqual([skRel("medusa-api-routes"), skRel("medusa-modules")]);
     // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 8 agents + 6 core
     // skills + 3 workflow skills (ticket-intake, pr-create, spec-bootstrap) +
     // 2 progress files + 2 medusa skills + 2 CLAUDE.md managed blocks counted
@@ -162,7 +167,10 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         expect(missing).toBeUndefined();
 
         for (const skill of preset.skills) {
-          expect(existsSync(join(cwd, skill))).toBe(true);
+          // The BUNDLED arrays document skills by their canonical `<id>.md`
+          // name; on disk they materialize as `<id>/SKILL.md` directories.
+          const id = basename(skill).replace(/\.md$/, "");
+          expect(existsSync(skFile(cwd, id))).toBe(true);
         }
       });
     }
@@ -178,29 +186,29 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
 
     it("materializes a library skill when its id is in project.libraries", () => {
       renderClaudeEngine(cwd, withLibraries(["mongoose"]));
-      expect(existsSync(join(cwd, ".claude/skills/mongoose.md"))).toBe(true);
+      expect(existsSync(skFile(cwd, "mongoose"))).toBe(true);
     });
 
     it("is additive — several library skills render together (no exclusivity)", () => {
       // Library skills have no mutual exclusion: a repo materializes every skill
       // whose dependency is present, across concerns.
       renderClaudeEngine(cwd, withLibraries(["zod-validation", "winston-logging"]));
-      expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(true);
-      expect(existsSync(join(cwd, ".claude/skills/winston-logging.md"))).toBe(true);
+      expect(existsSync(skFile(cwd, "zod-validation"))).toBe(true);
+      expect(existsSync(skFile(cwd, "winston-logging"))).toBe(true);
     });
 
     it("renders no library skill when project.libraries is empty", () => {
       renderClaudeEngine(cwd, withLibraries([]));
-      expect(existsSync(join(cwd, ".claude/skills/mongoose.md"))).toBe(false);
-      expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(false);
+      expect(existsSync(skFile(cwd, "mongoose"))).toBe(false);
+      expect(existsSync(skFile(cwd, "zod-validation"))).toBe(false);
       // The preset's own always-on skills still render.
-      expect(existsSync(join(cwd, ".claude/skills/express-routes.md"))).toBe(true);
+      expect(existsSync(skFile(cwd, "express-routes"))).toBe(true);
     });
 
     it("ignores an unknown library id without crashing the render", () => {
       const r = renderClaudeEngine(cwd, withLibraries(["does-not-exist", "mongoose"]));
-      expect(existsSync(join(cwd, ".claude/skills/does-not-exist.md"))).toBe(false);
-      expect(existsSync(join(cwd, ".claude/skills/mongoose.md"))).toBe(true);
+      expect(existsSync(skFile(cwd, "does-not-exist"))).toBe(false);
+      expect(existsSync(skFile(cwd, "mongoose"))).toBe(true);
       expect(r.warnings.find((w) => w.includes("not found"))).toBeUndefined();
     });
 
@@ -227,20 +235,19 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       expect(claudeMd).not.toContain("project-local");
     });
 
-    it("upgrades a preset-era skill file in place — no duplicate managed block", () => {
+    it("migrates a preset-era FLAT skill to directory form — no stale duplicate", () => {
       // Migration guard: mongoose/zod/joi used to ship from the express-mongoose
-      // preset with managed-block id="mongoose" (the bare id). They now ship from
-      // this library layer. The library managedId MUST equal the bare id so an
-      // existing preset-era file is recognized and updated in place; a distinct
-      // id would append a second block and duplicate the skill content.
-      const skillPath = join(cwd, ".claude/skills/mongoose.md");
+      // preset as a FLAT `.claude/skills/mongoose.md` with managed-block
+      // id="mongoose" (the bare id). They now ship from this library layer in
+      // DIRECTORY form. The library managedId MUST equal the bare id so the
+      // migration prune recognizes the flat twin by its marker and removes it;
+      // a distinct id would leave the stale flat file beside the new directory
+      // and the model would see the skill twice.
+      const flatPath = join(cwd, ".claude/skills/mongoose.md");
       mkdirSync(join(cwd, ".claude/skills"), { recursive: true });
-      // Realistic preset-era file: a navori-owned block whose hash matches its
-      // body, so the engine recognizes it as its own (not user-modified) and
-      // updates it in place rather than skipping it.
       const oldBody = "OLD preset-era mongoose body";
       writeFileSync(
-        skillPath,
+        flatPath,
         [
           "---",
           "name: mongoose",
@@ -256,11 +263,14 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
 
       renderClaudeEngine(cwd, withLibraries(["mongoose"]));
 
-      const content = readFileSync(skillPath, "utf-8");
-      // Count only OPEN markers (the close prefix is `<!-- /navori:managed`).
+      // The flat preset-era twin is pruned; the directory form carries the skill.
+      expect(existsSync(flatPath)).toBe(false);
+      const dirPath = skFile(cwd, "mongoose");
+      expect(existsSync(dirPath)).toBe(true);
+      const content = readFileSync(dirPath, "utf-8");
+      // Exactly one managed block, fresh body, and never the "-lib" suffixed id.
       const openMarkers = content.match(/<!-- navori:managed id="mongoose"/g) ?? [];
       expect(openMarkers).toHaveLength(1);
-      // The stale preset-era body was replaced, not left behind beside a new block.
       expect(content).not.toContain("OLD preset-era mongoose body");
       expect(content).not.toContain('id="mongoose-lib"');
     });
@@ -339,10 +349,14 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         expect(r.written.some((w) => w.path.endsWith("skills/zod-validation.md"))).toBe(true);
       });
 
-      it("keeps a currently-selected library skill (not an orphan)", () => {
-        writeManagedSkill("zod-validation");
+      it("migrates a currently-selected library skill from flat to directory form", () => {
+        // A selected lib rendered by an older navori exists as a flat file; this
+        // render (re)writes the directory form and prunes the flat twin. The
+        // skill survives — only its shape changes (not an orphan deletion).
+        const flat = writeManagedSkill("zod-validation");
         renderClaudeEngine(cwd, withLibraries(["zod-validation"]));
-        expect(existsSync(join(cwd, ".claude/skills/zod-validation.md"))).toBe(true);
+        expect(existsSync(flat)).toBe(false);
+        expect(existsSync(skFile(cwd, "zod-validation"))).toBe(true);
       });
 
       it("never prunes a project-local skill (declared + no navori marker)", () => {
@@ -358,9 +372,10 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         expect(readFileSync(local, "utf-8")).toContain("My own workflow");
       });
 
-      it("never prunes a directory-form skill (<id>/SKILL.md)", () => {
-        // Directory-form skills are user-owned by construction; the sweep is
-        // scoped to the flat library-skill registry, never subdirectories.
+      it("never prunes a user's directory-form skill whose id is NOT a library id", () => {
+        // The dir-form sweep is still scoped to the LIBRARY_SKILLS registry, so a
+        // user's own `<id>/SKILL.md` under a non-library id is never a candidate —
+        // and it carries no navori marker, so the marker gate protects it too.
         const dirSkill = join(cwd, ".claude/skills/custom/SKILL.md");
         mkdirSync(join(cwd, ".claude/skills/custom"), { recursive: true });
         writeFileSync(dirSkill, "# Custom directory skill\n", "utf-8");
@@ -368,6 +383,55 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         renderClaudeEngine(cwd, withLibraries([]));
 
         expect(existsSync(dirSkill)).toBe(true);
+      });
+
+      it("prunes a DESELECTED library skill left in directory form (dir orphan)", () => {
+        // A lib rendered by THIS version orphans as `<id>/SKILL.md` once
+        // deselected; §8.7 now sweeps the directory shape too, whole-dir when
+        // SKILL.md is its only child.
+        const skillDir = join(cwd, ".claude/skills/zod-validation");
+        mkdirSync(skillDir, { recursive: true });
+        writeFileSync(
+          join(skillDir, "SKILL.md"),
+          [
+            "---",
+            "name: zod-validation",
+            "---",
+            "",
+            '<!-- navori:managed id="zod-validation" hash="x" version="0.0.1" source="@navori/core" -->',
+            "OLD zod body",
+            '<!-- /navori:managed id="zod-validation" -->',
+            "",
+          ].join("\n"),
+          "utf-8",
+        );
+
+        renderClaudeEngine(cwd, withLibraries([]));
+
+        expect(existsSync(skillDir)).toBe(false);
+      });
+
+      it("prunes only SKILL.md from a dir orphan that has user sibling files", () => {
+        // Safety: a deselected lib dir that also holds the user's `references/`
+        // loses only navori's SKILL.md, never the sibling assets.
+        const skillDir = join(cwd, ".claude/skills/zod-validation");
+        mkdirSync(join(skillDir, "references"), { recursive: true });
+        writeFileSync(join(skillDir, "references", "notes.md"), "# mine\n", "utf-8");
+        writeFileSync(
+          join(skillDir, "SKILL.md"),
+          [
+            '<!-- navori:managed id="zod-validation" hash="x" version="0.0.1" source="@navori/core" -->',
+            "OLD zod body",
+            '<!-- /navori:managed id="zod-validation" -->',
+            "",
+          ].join("\n"),
+          "utf-8",
+        );
+
+        renderClaudeEngine(cwd, withLibraries([]));
+
+        expect(existsSync(join(skillDir, "SKILL.md"))).toBe(false);
+        expect(existsSync(join(skillDir, "references", "notes.md"))).toBe(true);
       });
 
       it("never prunes a managed file whose id is NOT a known library skill", () => {

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import type { MonorepoRenderContext } from "../../lib/monorepo.ts";
@@ -39,9 +39,11 @@ import {
   collectPlan,
   commitWrites,
   type AdapterCtx,
+  type PendingRemoval,
   type SkipReason,
 } from "../shared/execute-plan.ts";
 import { createClaudeAdapter } from "./adapter.ts";
+import { readSkillTrigger } from "../../lib/skill-meta.ts";
 
 /**
  * Claude keeps its detailed skip prose (with the `navori sync` hint and the
@@ -61,7 +63,8 @@ const claudeSkipReason: SkipReason = (status, _destRelPath, existingVersion) =>
  *   - CLAUDE.md          (delegated to computeRenderPlan; existing flow)
  *   - .claude/settings.json   (built from settings-base + plugins + qg hook)
  *   - .claude/agents/<role>.md  for each role enabled in config.harness
- *   - .claude/skills/<id>.md    for each core skill (always-on for now)
+ *   - .claude/skills/<id>/SKILL.md  for each core skill (directory form —
+ *     the shape Claude Code auto-discovers; always-on for now)
  *   - .claude/hooks/guard-destructive.sh        (always — defensive guard)
  *   - .claude/hooks/quality-gate-pre-commit.sh  (only if qualityGate.fast set)
  *
@@ -132,17 +135,26 @@ function buildSkillsIndexBody(
   config: NavoriConfig,
   localSkills: readonly string[],
   repoRoot: string,
+  coreAssets: string,
 ): string | null {
   const rows: string[] = [];
   // Track skill names already listed so the auto-detected library skills don't
   // duplicate a core/preset skill that occupies the same destination.
   const listed = new Set<string>();
+  // Each row carries a one-line trigger from the skill's `description` (H8) so
+  // engines without native autoload know WHEN to reach for it. The trigger is
+  // read from the navori-owned asset (deterministic across checkouts) — never
+  // from the user's on-disk copy, which would make the managed block drift.
+  const row = (id: string, tag: string, assetPath: string): string => {
+    const trigger = readSkillTrigger(assetPath);
+    return trigger ? `- \`${id}\` — ${tag} · ${trigger}` : `- \`${id}\` — ${tag}`;
+  };
   for (const id of CORE_SKILLS) {
-    rows.push(`- \`${id}\` — navori`);
+    rows.push(row(id, "navori", join(coreAssets, `skills/${id}.md`)));
     listed.add(id);
   }
   for (const id of WORKFLOW_SKILLS) {
-    rows.push(`- \`${id}\` — navori (workflow)`);
+    rows.push(row(id, "navori (workflow)", join(coreAssets, `skills/${id}.md`)));
     listed.add(id);
   }
   if (config.preset && config.preset !== "custom") {
@@ -151,7 +163,7 @@ function buildSkillsIndexBody(
       for (const e of loaded?.def.extras.skills ?? []) {
         if (!extraConditionMet(e, config)) continue;
         const name = basename(e.destRelPath).replace(/\.md$/, "");
-        rows.push(`- \`${name}\` — preset (\`${config.preset}\`)`);
+        rows.push(row(name, `preset (\`${config.preset}\`)`, join(loaded!.assetRoot, e.relPath)));
         listed.add(name);
       }
     } catch {
@@ -160,15 +172,16 @@ function buildSkillsIndexBody(
   }
   for (const id of config.project?.libraries ?? []) {
     if (listed.has(id) || !librarySkillById(id)) continue;
-    rows.push(`- \`${id}\` — library (detected)`);
+    rows.push(row(id, "library (detected)", join(coreAssets, `lib-skills/${id}.md`)));
     listed.add(id);
   }
   for (const name of localSkills) {
     // Deterministic from config: point at the skills root, not a concrete file —
     // whether the skill is a flat `<id>.md` or a `<id>/SKILL.md` directory is an
-    // on-disk detail (the header explains both forms). Resolving it here would
-    // make the managed block depend on filesystem state and drift between
-    // checkouts. doctor is where the on-disk existence check belongs.
+    // on-disk detail (the header explains both forms). Resolving it here (or
+    // reading its description for a trigger) would make the managed block depend
+    // on filesystem state and drift between checkouts. doctor is where the
+    // on-disk existence check belongs.
     rows.push(`- \`${name}\` — project-local (\`.claude/skills/${name}\`)`);
   }
   if (rows.length === 0) return null;
@@ -183,7 +196,7 @@ function buildSkillsIndexBody(
   return [
     "## Available skills",
     "",
-    "Skills the agents can apply; each lives in `.claude/skills/` (a flat `<id>.md` file or a `<id>/SKILL.md` directory).",
+    "Skills the agents can apply; navori's own live in `.claude/skills/<id>/SKILL.md` (a skill you added yourself may be a flat `<id>.md` instead). The `·` note says when to reach for each.",
     ...localNote,
     "",
     ...rows,
@@ -458,7 +471,7 @@ export function renderClaudeEngine(
   // when the body comes back empty.
   const localSkills = config.project?.localSkills ?? [];
   let claudeMdContent = claudeMdPlan.next;
-  const skillsIndexBody = buildSkillsIndexBody(config, localSkills, repoRoot);
+  const skillsIndexBody = buildSkillsIndexBody(config, localSkills, repoRoot, coreAssets);
   if (skillsIndexBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -729,7 +742,7 @@ export function renderClaudeEngine(
   // by computeRenderPlan, but its injectInto sub-blocks (e.g. leader.md) and its
   // .claude/scripts/* were only ever touched on the enabled path — so they'd
   // orphan. Strip them here so disabling a plugin fully cleans up (#80).
-  const scriptRemovals: string[] = [];
+  const removals: PendingRemoval[] = [];
   for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
     for (const skill of plugin.skillAssets) {
       if (!skill.injectInto) continue;
@@ -740,7 +753,7 @@ export function renderClaudeEngine(
       const destPath = join(cwd, ".claude/scripts", script.dest);
       if (existsSync(destPath)) {
         inspected += 1;
-        scriptRemovals.push(destPath);
+        removals.push({ path: destPath });
       }
     }
   }
@@ -749,19 +762,14 @@ export function renderClaudeEngine(
   // (a legacy lib we no longer teach) leaves a stale managed file on disk in
   // repos rendered before the removal. Delete ours — but only files carrying
   // navori's own marker for that id, never a user's hand-written skill of the
-  // same name.
+  // same name. Both shapes are swept: the legacy FLAT `<id>.md` AND the current
+  // DIRECTORY `<id>/SKILL.md` (a repo may have rendered the lib in either form).
   for (const id of REMOVED_LIB_SKILLS) {
-    const destPath = join(cwd, ".claude/skills", `${id}.md`);
-    if (!existsSync(destPath)) continue;
-    let content: string;
-    try {
-      content = readFileSync(destPath, "utf-8");
-    } catch {
-      continue; // unreadable — leave it rather than guess
+    for (const removal of [planFlatSkillRemoval(cwd, id, id), planDirSkillRemoval(cwd, id, id)]) {
+      if (!removal) continue;
+      inspected += 1;
+      removals.push(removal);
     }
-    if (!content.includes(`navori:managed id="${id}"`)) continue; // user's own — keep
-    inspected += 1;
-    scriptRemovals.push(destPath);
   }
 
   // 8.7. Reconcile ORPHANED library skills. A library skill navori materialized
@@ -787,17 +795,30 @@ export function renderClaudeEngine(
   for (const { id } of LIBRARY_SKILLS) {
     if (selectedLibs.has(id)) continue; // currently selected — keep
     if (localSkillIds.has(id)) continue; // user reclaimed the id as a local skill — keep
-    const abs = join(cwd, ".claude/skills", `${id}.md`);
-    if (!existsSync(abs)) continue;
-    let content: string;
-    try {
-      content = readFileSync(abs, "utf-8");
-    } catch {
-      continue; // unreadable — leave it rather than guess
+    // Sweep both shapes: the legacy FLAT `<id>.md` and the current DIRECTORY
+    // `<id>/SKILL.md`. A deselected lib rendered by this version orphans as a
+    // directory; one rendered by an older version orphans as a flat file.
+    for (const removal of [planFlatSkillRemoval(cwd, id, id), planDirSkillRemoval(cwd, id, id)]) {
+      if (!removal) continue;
+      inspected += 1;
+      removals.push(removal);
     }
-    if (!content.includes(`navori:managed id="${id}"`)) continue; // user's own — keep
+  }
+
+  // 8.8. Migrate legacy FLAT skill files to the DIRECTORY form. navori now writes
+  // every Claude skill as `.claude/skills/<id>/SKILL.md` (the shape Claude Code
+  // auto-discovers); a repo onboarded before this change still carries the stale
+  // flat `.claude/skills/<id>.md`. This render (re)writes the directory form, so
+  // we prune the flat twin — otherwise BOTH coexist and the model sees the skill
+  // twice. Covers core, workflow, preset and library skills uniformly (every
+  // skill the shared plan placed). Marker-gated per skill, keyed on the exact
+  // managed id navori stamped, so a user's hand-written `<id>.md` is never
+  // touched. (#166)
+  for (const skill of harnessPlan.skills) {
+    const removal = planFlatSkillRemoval(cwd, skill.id, skill.managedId);
+    if (!removal) continue;
     inspected += 1;
-    scriptRemovals.push(abs);
+    removals.push(removal);
   }
 
   // 9. Backup + atomic writes — shared spine (Spec 0008 C.3). The CLAUDE.md-only
@@ -810,7 +831,7 @@ export function renderClaudeEngine(
   benchMark("plan");
   const { written, backupPath } = commitWrites({
     pending: pending.map((p) => ({ ...p, relPath: relative(cwd, p.path) })),
-    removals: scriptRemovals.map((path) => ({ path })),
+    removals,
     cwd,
     backupTargets: ["CLAUDE.md", ".claude", "navori.config.json"],
     backupExclude: [".claude/settings.local.json", ".claude/progress"],
@@ -833,6 +854,56 @@ export function renderClaudeEngine(
 }
 
 // ─────────────────────────── helpers ───────────────────────────
+
+/**
+ * Prune a stale FLAT skill file (`.claude/skills/<id>.md`) that an earlier
+ * navori wrote, now that navori emits the DIRECTORY form
+ * `.claude/skills/<id>/SKILL.md` (the only shape Claude Code auto-discovers).
+ * Guarded by the marker so a user's hand-written `<id>.md` of the same name is
+ * never removed. `markerId` is the managed-block id navori stamped (`<id>-base`
+ * for core skills, the bare id for workflow/library/preset). Returns null when
+ * there's nothing (safe) to remove. (#166)
+ */
+function planFlatSkillRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
+  const flat = join(cwd, ".claude/skills", `${id}.md`);
+  if (!existsSync(flat)) return null;
+  let content: string;
+  try {
+    content = readFileSync(flat, "utf-8");
+  } catch {
+    return null; // unreadable — leave it rather than guess
+  }
+  if (!content.includes(`navori:managed id="${markerId}"`)) return null; // user's own — keep
+  return { path: flat };
+}
+
+/**
+ * Prune an ORPHANED DIRECTORY-form skill (`.claude/skills/<id>/SKILL.md`) navori
+ * no longer renders. Removes the whole directory when SKILL.md is its only child,
+ * else just SKILL.md so a user's sibling refs/assets survive — mirroring the
+ * `skill-dir` orphan shape the shared spine uses for Codex. Marker-gated like the
+ * flat prune. Returns null when there's nothing (safe) to remove. (#166)
+ */
+function planDirSkillRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
+  const skillDir = join(cwd, ".claude/skills", id);
+  const skillPath = join(skillDir, "SKILL.md");
+  if (!existsSync(skillPath)) return null;
+  let content: string;
+  try {
+    content = readFileSync(skillPath, "utf-8");
+  } catch {
+    return null; // unreadable — leave it rather than guess
+  }
+  if (!content.includes(`navori:managed id="${markerId}"`)) return null; // user's own — keep
+  let children: string[];
+  try {
+    children = readdirSync(skillDir);
+  } catch {
+    children = [];
+  }
+  const onlySkill = children.length === 1 && children[0] === "SKILL.md";
+  return onlySkill ? { path: skillDir, recursive: true } : { path: skillPath };
+}
 
 /**
  * Load the active preset for the plan, surfacing Claude's own warnings. A
