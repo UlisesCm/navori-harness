@@ -65,7 +65,7 @@ Los investigadores son hojas (no tienen `Agent`): el abanico lo abres tú. Cada 
 
 Una vez aprobado el plan/scope, ejecuta TODAS las sub-tareas sin pausar para pedir confirmación al usuario. Razones válidas para parar:
 
-1. **BLOCKED**: un subagente reportó bloqueo que no puedes resolver (ambigüedad de spec, herramienta rota, decisión que requiere humano).
+1. **BLOCKED**: un subagente reportó bloqueo que no puedes resolver (ambigüedad de spec, herramienta rota, decisión que requiere humano), o un **comando quedó bloqueado por permiso** (una tool call cayó en `deny` o el usuario rechazó el prompt). En el caso de permiso: `deny`/rechazo → 0 reintentos, paras; prompt no pre-aprobado → 1 enfoque alternativo legítimo (p. ej. tool nativa `Grep` en vez de `grep` por shell) y paras. Nunca reintentes el mismo comando ni pidas el mismo permiso en loop.
 2. **Spec ambigua mid-flight**: descubres que el plan tiene un gap real que afecta archivos fuera de scope.
 3. **Todas las sub-tareas completas**: el ciclo terminó, listo para `commit-pr-pilot`.
 
