@@ -197,7 +197,7 @@ const AGENTS_INDEX_ID = "agentes-disponibles";
  * it (see the "## Rol: orquestador" block). */
 const AGENT_WHEN: Record<string, string> = {
   implementer: "Escribe código y tests de UNA tarea acotada con scope claro.",
-  reviewer: "Valida un diff contra spec y calidad antes de cerrar (APPROVED / CHANGES_REQUESTED).",
+  reviewer: "Valida un diff contra spec y calidad (APPROVED / CHANGES_REQUESTED).",
   researcher:
     "Responde una pregunta concreta del repo (¿pasa Y? ¿qué consume X?) con evidencia citada.",
   explorer: "Mapea un área o módulo amplio: estructura, entry points, dependencias.",
@@ -205,7 +205,7 @@ const AGENT_WHEN: Record<string, string> = {
     "Analiza a fondo un ticket complejo (bug crítico, migración, feature multi-capa) antes de descomponer.",
   "commit-pr-pilot": "Redacta commits Conventional y abre el PR tras la aprobación del reviewer.",
   auditor:
-    "Auditoría read-only a fondo de código existente (seguridad, performance, SOLID, edge cases). Escribe reporte + plan priorizado a disco.",
+    "Auditoría read-only a fondo (seguridad, performance, SOLID, edge cases); escribe reporte + plan priorizado a disco.",
 };
 
 /**
