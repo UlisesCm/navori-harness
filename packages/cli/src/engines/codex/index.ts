@@ -224,7 +224,8 @@ function buildAgentToml(
   ];
   if (sandbox === "read-only") lines.push('sandbox_mode = "read-only"');
   if (modelTier) {
-    const codexModel = config.models?.codexMap?.[modelTier] ?? CODEX_MODEL_BY_CLAUDE_TIER[modelTier];
+    const codexModel =
+      config.models?.codexMap?.[modelTier] ?? CODEX_MODEL_BY_CLAUDE_TIER[modelTier];
     lines.push(`model = ${JSON.stringify(codexModel)}`);
   }
   if (effort) lines.push(`model_reasoning_effort = ${JSON.stringify(effort)}`);
