@@ -1,5 +1,5 @@
 ## Stack — Vite + React + TS + Mantine
 
-SPA con Vite. La UI se construye con componentes de Mantine y los tokens del theme (spacing, colors, radius) — no estilos hardcoded ni CSS ad-hoc cuando el design system ya lo resuelve.
+SPA with Vite. The UI is built with Mantine components and the theme tokens (spacing, colors, radius) — no hardcoded styles or ad-hoc CSS when the design system already solves it.
 
-Regla de oro: usa los componentes y props de Mantine antes de escribir CSS custom; respeta el theme. Aplica el skill `mantine-ui-patterns` para UI y `new-feature` para el orden de capas de un feature nuevo.
+Golden rule: use Mantine's components and props before writing custom CSS; respect the theme. Apply the `mantine-ui-patterns` skill for UI and `new-feature` for the layer order of a new feature.

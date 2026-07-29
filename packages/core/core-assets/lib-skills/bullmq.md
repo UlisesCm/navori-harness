@@ -1,56 +1,56 @@
 ---
 name: bullmq
-description: Jobs y colas con BullMQ sobre Redis — Queue/Worker/QueueEvents, jobs idempotentes, retries con backoff, concurrency y graceful shutdown. Aplica al crear/tocar un job, un worker o al encolar trabajo async.
+description: Use when creating/touching a job or worker, or enqueueing async work — jobs and queues with BullMQ over Redis: Queue/Worker/QueueEvents, idempotent jobs, retries with backoff, concurrency, and graceful shutdown.
 type: reference
 ---
 
 # BullMQ — jobs & queues
 
-BullMQ mueve trabajo pesado o diferido fuera del request: un **productor** encola (`Queue.add`) y un **worker** (proceso aparte) lo procesa. La conexión es Redis (`ioredis`). El productor y el worker viven en procesos distintos y comparten solo el nombre de la cola.
+BullMQ moves heavy or deferred work out of the request: a **producer** enqueues (`Queue.add`) and a **worker** (a separate process) handles it. The connection is Redis (`ioredis`). Producer and worker live in different processes and share only the queue name.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al crear una cola o un job nuevo, tocar el worker, encolar trabajo desde un handler/hook, o depurar jobs que se cuelgan, se reintentan en loop o se pierden.
+When creating a new queue or job, touching the worker, enqueueing work from a handler/hook, or debugging jobs that hang, retry in a loop, or get lost.
 
-## El patrón
+## The pattern
 
 ```ts
-// Productor (en un request/hook): encola y responde rápido, NO esperes el resultado.
+// Producer (in a request/hook): enqueue and respond fast, do NOT await the result.
 await queue.add("send-welcome", { userId }, {
   attempts: 3,
   backoff: { type: "exponential", delay: 1000 },
-  removeOnComplete: 1000,   // no dejes que Redis crezca sin límite
+  removeOnComplete: 1000,   // don't let Redis grow unbounded
   removeOnFail: 5000,
 });
 
-// Worker (proceso aparte): una responsabilidad por worker/cola.
+// Worker (separate process): one responsibility per worker/queue.
 const worker = new Worker("emails", async (job) => {
-  // idempotente: correr dos veces el mismo job no debe duplicar efectos
+  // idempotent: running the same job twice must not duplicate effects
   return sendEmail(job.data);
 }, { connection, concurrency: 5 });
 ```
 
-## Reglas duras
+## Hard rules
 
-1. **Jobs idempotentes.** Un job puede reintentarse o entregarse dos veces. Usa un id determinista (`jobId`) o un guard de "ya procesado" para efectos no repetibles (cobros, emails, mutaciones críticas).
-2. **`attempts` + `backoff` siempre.** Un job sin reintentos muere al primer error transitorio; uno sin backoff martillea el recurso que falla. Exponencial por default.
-3. **El productor NO espera el resultado.** Encola y responde; el valor del job se consume por eventos (`QueueEvents`) o releyendo estado, no bloqueando el request.
-4. **`removeOnComplete`/`removeOnFail`.** Sin límites, Redis se llena de jobs viejos. Acota siempre.
-5. **Graceful shutdown.** En `SIGTERM`/`SIGINT`, `await worker.close()` antes de salir para no matar un job a medias. Un worker que no cierra limpio deja jobs en `active` colgados.
-6. **Errores que deben reintentar → lanza; errores permanentes → no.** Un input inválido no se arregla reintentando: valida antes de encolar o marca el job como fallido sin reintento (`attempts: 1` o un error no-recuperable).
-7. **Una responsabilidad por worker.** No metas varios tipos de trabajo no relacionado en un solo `Worker` con `if job.name`; sepáralos por cola.
+1. **Idempotent jobs.** A job can be retried or delivered twice. Use a deterministic id (`jobId`) or an "already processed" guard for non-repeatable effects (charges, emails, critical mutations).
+2. **`attempts` + `backoff` always.** A job with no retries dies on the first transient error; one with no backoff hammers the failing resource. Exponential by default.
+3. **The producer does NOT await the result.** Enqueue and respond; the job's value is consumed via events (`QueueEvents`) or by re-reading state, not by blocking the request.
+4. **`removeOnComplete`/`removeOnFail`.** Without limits, Redis fills up with old jobs. Always bound them.
+5. **Graceful shutdown.** On `SIGTERM`/`SIGINT`, `await worker.close()` before exiting so you don't kill a job mid-run. A worker that doesn't close cleanly leaves jobs stuck in `active`.
+6. **Errors that should retry → throw; permanent errors → don't.** An invalid input isn't fixed by retrying: validate before enqueueing or mark the job as failed without retry (`attempts: 1` or a non-recoverable error).
+7. **One responsibility per worker.** Don't cram several kinds of unrelated work into a single `Worker` with `if job.name`; split them by queue.
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **La `connection` de ioredis para BullMQ necesita `maxRetriesPerRequest: null`** — si no, BullMQ lanza al reconectar.
-- **`concurrency` alto no es gratis**: cada job concurrente abre conexiones/CPU. Súbelo con medida, no por default.
-- **Un job "perdido"** casi siempre es: el worker no está corriendo, apunta a otra cola/Redis, o crasheó sin `removeOnFail` y quedó en `failed`. Revisa el estado del job antes de asumir un bug de lógica.
-- **Delayed/repeatable jobs** viven en Redis: cambiar el patrón de un repeatable no borra el viejo — límpialo explícitamente.
+- **The ioredis `connection` for BullMQ needs `maxRetriesPerRequest: null`** — otherwise BullMQ throws on reconnect.
+- **High `concurrency` isn't free**: every concurrent job opens connections/CPU. Raise it with measurement, not by default.
+- **A "lost" job** is almost always: the worker isn't running, it points to another queue/Redis, or it crashed without `removeOnFail` and stayed in `failed`. Check the job's state before assuming a logic bug.
+- **Delayed/repeatable jobs** live in Redis: changing a repeatable's pattern doesn't delete the old one — clean it up explicitly.
 
-## Antes de declarar listo
+## Before declaring done
 
-- El job es idempotente (o tiene guard de duplicados) y define `attempts` + `backoff`.
-- El worker cierra en `SIGTERM`/`SIGINT` (`worker.close()`).
-- `removeOnComplete`/`removeOnFail` acotados; la `connection` usa `maxRetriesPerRequest: null`.
-- El productor no bloquea el request esperando el job.
-- `{{qualityGate.fast}}` en verde.
+- The job is idempotent (or has a duplicate guard) and defines `attempts` + `backoff`.
+- The worker closes on `SIGTERM`/`SIGINT` (`worker.close()`).
+- `removeOnComplete`/`removeOnFail` bounded; the `connection` uses `maxRetriesPerRequest: null`.
+- The producer doesn't block the request waiting for the job.
+- `{{qualityGate.fast}}` green.

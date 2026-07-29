@@ -1,16 +1,16 @@
 ---
 name: redux-toolkit
-description: Patrones de Redux Toolkit en React+TS — slices, store tipado, hooks tipados, async thunks, selectores. Aplica al tocar estado global, slices o el store.
+description: Use when touching global state, slices, or the store — Redux Toolkit patterns in React+TS: slices, typed store, typed hooks, async thunks, selectors.
 type: reference
 ---
 
-# Redux Toolkit — convenciones
+# Redux Toolkit — conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al crear o tocar un slice, el store, async thunks, o leer/escribir estado global. RTK es el estándar — nada de `createStore` pelado, action types a mano, ni `connect`. Estado de servidor (fetch/cache) NO va aquí: eso es TanStack Query. Redux es para estado de cliente compartido (sesión, UI cross-página, carrito).
+When creating or touching a slice, the store, async thunks, or reading/writing global state. RTK is the standard — no bare `createStore`, hand-written action types, or `connect`. Server state (fetch/cache) does NOT go here: that's TanStack Query. Redux is for shared client state (session, cross-page UI, cart).
 
-## El patrón
+## The pattern
 
 ```ts
 const slice = createSlice({
@@ -18,7 +18,7 @@ const slice = createSlice({
   initialState,
   reducers: {
     setActive(state, action: PayloadAction<Session>) {
-      state.active = action.payload; // Immer: "mutas" un draft, no el real
+      state.active = action.payload; // Immer: you "mutate" a draft, not the real state
     },
   },
   extraReducers: (b) => {
@@ -28,34 +28,34 @@ const slice = createSlice({
 export const { setActive } = slice.actions;
 ```
 
-Store + hooks tipados una sola vez, y se usan en toda la app:
+Store + typed hooks once, then used across the whole app:
 
 ```ts
-export const useAppDispatch = useDispatch.withTypes<AppDispatch>();     // patrón vigente (RTK 2 / react-redux 9)
-export const useAppSelector = useSelector.withTypes<RootState>();       // no el viejo TypedUseSelectorHook
+export const useAppDispatch = useDispatch.withTypes<AppDispatch>();     // current pattern (RTK 2 / react-redux 9)
+export const useAppSelector = useSelector.withTypes<RootState>();       // not the old TypedUseSelectorHook
 ```
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **Immer solo dentro de `createSlice`.** Ahí "mutas" el draft; fuera de un reducer, mutar el state es un bug. No retornes Y mutes en el mismo reducer.
-- **Selectores memoizados** con `createSelector` cuando derivan/transforman — un selector que crea un array/objeto nuevo en cada llamada re-renderiza siempre.
-- **`useSelector` devuelve la referencia**: selecciona lo mínimo, no el slice entero. Si necesitas varios campos, envuelve con `useShallow(...)` (react-redux 9) para comparar superficial y no re-renderizar de más.
-- **Efectos reactivos → `createListenerMiddleware`**, no un `useEffect` espiando el store ni sagas. Reacciona a una acción/cambio de estado desde el middleware.
-- **Colecciones por id → `createEntityAdapter`**: `selectAll`/`selectById` memoizados gratis, CRUD normalizado, sin arreglos a mano.
-- **Async**: `createAsyncThunk` simple; si es data de API que cacheas/invalidas, evalúa RTK Query. `extraReducers` con builder callback (`(b) => b.addCase(...)`), la forma-objeto se eliminó en RTK 2.
-- **No-serializables** (Date, Map, funciones) fuera del store; rompen devtools y persistencia.
+- **Immer only inside `createSlice`.** There you "mutate" the draft; outside a reducer, mutating the state is a bug. Don't both return AND mutate in the same reducer.
+- **Memoized selectors** with `createSelector` when they derive/transform — a selector that creates a new array/object on every call always re-renders.
+- **`useSelector` returns the reference**: select the minimum, not the whole slice. If you need several fields, wrap with `useShallow(...)` (react-redux 9) for a shallow compare and avoid extra re-renders.
+- **Reactive effects → `createListenerMiddleware`**, not a `useEffect` spying on the store or sagas. React to an action/state change from the middleware.
+- **Collections by id → `createEntityAdapter`**: `selectAll`/`selectById` memoized for free, normalized CRUD, no hand-written arrays.
+- **Async**: `createAsyncThunk` when simple; if it's API data you cache/invalidate, evaluate RTK Query. `extraReducers` with the builder callback (`(b) => b.addCase(...)`), the object form was removed in RTK 2.
+- **Non-serializables** (Date, Map, functions) out of the store; they break devtools and persistence.
 
-## Reglas duras
+## Hard rules
 
-1. Estado global solo vía slices de RTK; nada de Context improvisado para lo mismo.
-2. Hooks `useAppDispatch`/`useAppSelector` tipados, nunca los crudos sin tipo.
-3. Selecciona lo mínimo y memoiza los derivados con `createSelector`.
-4. Estado de servidor no vive en Redux — eso es cache de queries.
-5. Solo valores serializables en el store.
+1. Global state only via RTK slices; no improvised Context for the same thing.
+2. Typed `useAppDispatch`/`useAppSelector` hooks, never the raw untyped ones.
+3. Select the minimum and memoize derived values with `createSelector`.
+4. Server state doesn't live in Redux — that's query cache.
+5. Only serializable values in the store.
 
-## Antes de declarar listo
+## Before declaring done
 
-- El slice nuevo expone acciones tipadas y se consume con los hooks tipados.
-- Los selectores derivados están memoizados; los componentes seleccionan lo mínimo.
-- Nada de data de API duplicada en el store si ya hay capa de queries.
-- `{{qualityGate.fast}}` en verde.
+- The new slice exposes typed actions and is consumed with the typed hooks.
+- Derived selectors are memoized; components select the minimum.
+- No API data duplicated in the store if there's already a query layer.
+- `{{qualityGate.fast}}` green.

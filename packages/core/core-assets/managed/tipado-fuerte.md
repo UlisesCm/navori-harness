@@ -1,5 +1,5 @@
-## Tipado fuerte
+## Strong typing
 
-`any` prohibido. Usar `unknown` + narrowing. Tipar explícitamente: parámetros, retornos, callbacks, eventos, props, hooks y responses de services.
+`any` is forbidden. Use `unknown` + narrowing. Type explicitly: parameters, returns, callbacks, events, props, hooks, and service responses.
 
-Excepción: `// any justificado: <razón>` — último recurso, no atajo. Si no hay razón clara, no es justificado.
+Exception: `// any justified: <reason>` — last resort, not a shortcut. If there's no clear reason, it's not justified.

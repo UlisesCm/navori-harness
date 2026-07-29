@@ -1,127 +1,127 @@
 ---
 name: review-diff
-description: Usar al revisar un diff (staged, branch o PR). Checklist de code review por dimensiones agnósticas al stack — tipos, capa de datos, errores, seguridad, hardcode, naming, dead code, quality gate — con severidades CRÍTICO/ALTO/MEDIO. Las reglas específicas del repo van en la user-section.
+description: Use when reviewing a diff (staged, branch or PR). A code-review checklist across stack-agnostic dimensions — types, data layer, errors, security, hardcode, naming, dead code, quality gate — with CRITICAL/HIGH/MEDIUM severities. Repo-specific rules go in the user-section.
 type: behavior
 maxWords: 1200
 ---
 
-# Code review — checklist de un diff
+# Code review — checklist for a diff
 
-Aplica esta checklist a un diff (staged, branch vs `{{branchBase}}`, o un PR puntual). El esqueleto es agnóstico al stack; las reglas específicas de tu repo viven en la user-section del final.
+Apply this checklist to a diff (staged, branch vs `{{branchBase}}`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
 
-## Cómo reportar
+## How to report
 
-Una línea por hallazgo, ordenadas CRÍTICO → ALTO → MEDIO:
+One line per finding, ordered CRITICAL → HIGH → MEDIUM:
 
 ```
-[CRÍTICO] <archivo>:<línea> — <descripción concreta y verificable>
-[ALTO]    <archivo>:<línea> — <descripción>
-[MEDIO]   <archivo>:<línea> — <descripción>
+[CRITICAL] <file>:<line> — <concrete, verifiable description>
+[HIGH]     <file>:<line> — <description>
+[MEDIUM]   <file>:<line> — <description>
 ```
 
-- **CRÍTICO** — rompe build, corrompe data, agujero de seguridad, contrato que no compila. *Bloquea el merge.*
-- **ALTO** — bug funcional probable, regresión, error no manejado visible al usuario, violación dura de una convención del repo. *Bloquea el merge.*
-- **MEDIO** — legibilidad, naming, doc faltante, hardcode menor, dead code. *No bloquea; se lista.*
+- **CRITICAL** — breaks the build, corrupts data, security hole, a contract that won't compile. *Blocks the merge.*
+- **HIGH** — likely functional bug, regression, unhandled error visible to the user, hard violation of a repo convention. *Blocks the merge.*
+- **MEDIUM** — readability, naming, missing doc, minor hardcode, dead code. *Doesn't block; it's listed.*
 
-Si no llega a MEDIO, no lo reportes. Nada de "nitpick" ni "consider also". (Mapea al `reviewer`: CRÍTICO/ALTO = confidence ≥80, bloquean; MEDIO = observación informativa 50-79.)
+If it doesn't reach MEDIUM, don't report it. No "nitpick" or "consider also". (Maps to the `reviewer`: CRITICAL/HIGH = confidence ≥80, blocking; MEDIUM = informational observation 50-79.)
 
-## 0. Pre-pasada (antes de leer línea por línea)
+## 0. Pre-pass (before reading line by line)
 
-- ¿El diff toca infra/config (`tsconfig*`, config de lint/build, `.env*`, CI, `settings.json`)? Flag → validar que el cambio es intencional.
-- ¿Borra archivos? Verifica que no queden imports residuales (`grep -rn "<archivo>"`).
-- ¿Mezcla cambios no relacionados (feature + refactor + format-only)? → MEDIO, pide separar.
+- Does the diff touch infra/config (`tsconfig*`, lint/build config, `.env*`, CI, `settings.json`)? Flag → validate the change is intentional.
+- Does it delete files? Verify no residual imports remain (`grep -rn "<file>"`).
+- Does it mix unrelated changes (feature + refactor + format-only)? → MEDIUM, ask to split.
 
-## 1. Tipos y contratos
+## 1. Types and contracts
 
-- `any` explícito en código nuevo sin justificación (`// any justificado: <razón>`) → ALTO.
-- Cast (`as Foo`) sin razón documentada → MEDIO; cast que oculta un tipo que en realidad no calza → CRÍTICO.
-- Tipo/interface desactualizado vs lo que el código consume (accede a un campo que el tipo no declara) → CRÍTICO.
-- Datos externos (respuesta de red, input de usuario, env) consumidos sin validar ni normalizar → ALTO.
+- Explicit `any` in new code without justification (`// any justified: <reason>`) → HIGH.
+- Cast (`as Foo`) without a documented reason → MEDIUM; a cast that hides a type that actually doesn't fit → CRITICAL.
+- Stale type/interface vs what the code consumes (accesses a field the type doesn't declare) → CRITICAL.
+- External data (network response, user input, env) consumed without validating or normalizing → HIGH.
 
-## 2. Capa de datos / lógica
+## 2. Data layer / logic
 
-- Defaults explícitos para nullables que el consumidor usa directo (`?? …`) → ALTO si falta.
-- Funciones que deberían ser puras (transformadores/adapters) con side-effects (I/O, estado global) → CRÍTICO.
-- Valor de fuente externa (status/enum desconocido) asignado crudo a un tipo cerrado → ALTO.
+- Explicit defaults for nullables the consumer uses directly (`?? …`) → HIGH if missing.
+- Functions that should be pure (transformers/adapters) with side-effects (I/O, global state) → CRITICAL.
+- Value from an external source (unknown status/enum) assigned raw to a closed type → HIGH.
 
-## 3. Manejo de errores
+## 3. Error handling
 
-- `catch` que se traga el error sin propagar ni reportar → ALTO.
-- Operación que puede fallar (red, parse, IO) sin manejo, con el fallo visible al usuario → ALTO.
-- Loading/spinner que nunca se apaga en el path de error → ALTO.
-- Recurso abierto sin cleanup en el path de error (conexión, lock, stream, listener, subscription, timer): el happy path lo libera pero un `catch`/early-return lo filtra → ALTO.
+- `catch` that swallows the error without propagating or reporting → HIGH.
+- Operation that can fail (network, parse, IO) without handling, with the failure visible to the user → HIGH.
+- Loading/spinner that never turns off on the error path → HIGH.
+- Resource opened without cleanup on the error path (connection, lock, stream, listener, subscription, timer): the happy path releases it but a `catch`/early-return leaks it → HIGH.
 
-## 4. Seguridad y autorización
+## 4. Security and authorization
 
-- Secretos/tokens/credenciales en código (no en config/env) → CRÍTICO.
-- Decisión de autorización solo en el cliente, sin validación del backend → ALTO.
-- Datos sensibles en storage del cliente más allá de lo necesario → ALTO.
+- Secrets/tokens/credentials in code (not in config/env) → CRITICAL.
+- Authorization decision only on the client, without backend validation → HIGH.
+- Sensitive data in client storage beyond what's necessary → HIGH.
 
-## 5. Sin hardcode
+## 5. No hardcode
 
-- URLs de API / endpoints literales en vez del canal de config del repo → CRÍTICO.
-- Strings de estado/rol o listas de opciones duplicadas en vez de derivarlas de una fuente única → MEDIO.
-- Fechas/formatos armados a mano en vez del util del repo → MEDIO.
+- API URLs / literal endpoints instead of the repo's config channel → CRITICAL.
+- Status/role strings or option lists duplicated instead of deriving them from a single source → MEDIUM.
+- Dates/formats assembled by hand instead of the repo's util → MEDIUM.
 
-## 6. Naming y estructura
+## 6. Naming and structure
 
-- Archivo en la carpeta equivocada según la convención del repo (componente compartido en `pages/`, etc.) → ALTO.
-- Casing/sufijos que rompen la convención del repo → MEDIO.
-- Convención de migración rota (cuando conviven código nuevo y legacy y hay un sufijo/carpeta esperado) → ALTO.
+- File in the wrong folder per the repo's convention (shared component in `pages/`, etc.) → HIGH.
+- Casing/suffixes that break the repo's convention → MEDIUM.
+- Broken migration convention (when new and legacy code coexist and there's an expected suffix/folder) → HIGH.
 
-## 7. Sobre-ingeniería / abstracción especulativa
+## 7. Over-engineering / speculative abstraction
 
-Espejo de la escalera YAGNI del `implementer`: caza el código de **más**.
+Mirror of the `implementer`'s YAGNI ladder: hunt for the code of **excess**.
 
-- Abstracción (interface, capa, helper genérico, hook) con **un solo caller** y sin segundo consumidor a la vista → MEDIO (ALTO si acopla o complica un área crítica).
-- Dependencia nueva para lo que la stdlib, una feature nativa de la plataforma o una lib ya instalada resuelven en unas líneas → ALTO.
-- Parametrización, flags de config u opciones que nadie usa todavía ("por si acaso") → MEDIO.
-- Indirección o patrón (factory, wrapper, capa de eventos) que no elimina duplicación real ni cubre un requisito presente → MEDIO.
-- Atajo deliberado sin su marca (techo + disparador de upgrade) → MEDIO: la deuda muda es peor que la declarada.
+- Abstraction (interface, layer, generic helper, hook) with **a single caller** and no second consumer in sight → MEDIUM (HIGH if it couples or complicates a critical area).
+- A new dependency for what the stdlib, a native platform feature or an already-installed lib solves in a few lines → HIGH.
+- Parametrization, config flags or options nobody uses yet ("just in case") → MEDIUM.
+- Indirection or pattern (factory, wrapper, event layer) that doesn't eliminate real duplication nor cover a present requirement → MEDIUM.
+- A deliberate shortcut without its mark (ceiling + upgrade trigger) → MEDIUM: silent debt is worse than declared debt.
 
-Regla: si quitar la abstracción deja el código **igual de correcto** y más corto, quitarla es el hallazgo.
+Rule: if removing the abstraction leaves the code **just as correct** and shorter, removing it is the finding.
 
-**No confundir con incompletitud.** Quitar el manejo de un edge case real, una validación o un path de error NO es simplificar — es un bug, y va a §1-§4 (no aquí). Esta dimensión ataca *estructura de más*, nunca *cobertura de menos*. Lo que la escalera YAGNI protege (trust boundaries, errores que evitan pérdida de datos, seguridad, accesibilidad) nunca es over-engineering.
+**Don't confuse it with incompleteness.** Removing the handling of a real edge case, a validation or an error path is NOT simplifying — it's a bug, and it goes to §1-§4 (not here). This dimension attacks *excess structure*, never *missing coverage*. What the YAGNI ladder protects (trust boundaries, errors that prevent data loss, security, accessibility) is never over-engineering.
 
-## 8. Dead code y debug
+## 8. Dead code and debug
 
-- `console.log` / print de debug sin guard en código que se mergea → MEDIO (en código nuevo: ALTO).
-- Imports o variables sin usar → MEDIO.
-- Código comentado entero / `if (false)` / `// TODO: borrar` sin issue → MEDIO.
+- `console.log` / debug print without a guard in code that gets merged → MEDIUM (in new code: HIGH).
+- Unused imports or variables → MEDIUM.
+- Whole commented-out code / `if (false)` / `// TODO: remove` without an issue → MEDIUM.
 
-## 9. Quality gate (corrido en este turno, no asumido)
+## 9. Quality gate (run this turn, not assumed)
 
-- `{{qualityGate.fast}}` pasa → CRÍTICO si falla.
-- Cero errores/warnings nuevos vs baseline → ALTO si el diff los agrega.
+- `{{qualityGate.fast}}` passes → CRITICAL if it fails.
+- Zero new errors/warnings vs baseline → HIGH if the diff adds them.
 
-## 10. Commit y PR
+## 10. Commit and PR
 
-- Commits siguen la convención del repo → MEDIO si rompe.
-- Cambios a manifest/lockfile sin razón clara en la descripción → ALTO.
+- Commits follow the repo's convention → MEDIUM if broken.
+- Changes to the manifest/lockfile without a clear reason in the description → HIGH.
 
-## Áreas críticas
+## Critical areas
 
-Presta atención extra si el diff toca las áreas críticas que declara tu repo (en `navori.config.json` / CLAUDE.md). Un hallazgo en esas zonas sube un nivel de severidad.
+Pay extra attention if the diff touches the critical areas your repo declares (in `navori.config.json` / CLAUDE.md). A finding in those zones goes up one severity level.
 
 ## Output
 
-1. Lista plana con severidades, ordenada CRÍTICO → ALTO → MEDIO. Cada línea con `archivo:línea`.
-2. Si no hay hallazgos: `Sin observaciones.`
-3. Nada de resumen, "good job", ni sugerencias fuera del checklist.
-4. Si encuentras un patrón de bug nuevo que no está aquí, guárdalo (memoria / nota) para próximas reviews.
+1. Flat list with severities, ordered CRITICAL → HIGH → MEDIUM. Each line with `file:line`.
+2. If there are no findings: `No findings.`
+3. No summary, "good job", or suggestions outside the checklist.
+4. If you find a new bug pattern that isn't here, save it (memory / note) for future reviews.
 
-## Conexión con el harness
+## Connection with the harness
 
-- `reviewer`: aplica este skill en la Pasada 2 (code quality). CRÍTICO/ALTO mapean a issues con confidence ≥80 (bloquean APPROVED); MEDIO a observaciones informativas (50-79).
-- `verify-before-done`: el quality gate del §9 se corre en este turno, no se asume del informe del implementer.
+- `reviewer`: applies this skill in Pass 2 (code quality). CRITICAL/HIGH map to issues with confidence ≥80 (they block APPROVED); MEDIUM to informational observations (50-79).
+- `verify-before-done`: the §9 quality gate is run this turn, not assumed from the implementer's report.
 
 <!-- navori:user-section -->
-## Reglas específicas del repo
+## Repo-specific rules
 
-<!-- user: agrega aquí las reglas bespoke de tu stack/dominio (las que NO son generalizables). Sugerencias:
-     - Patrones de tu UI lib / framework (componentes prohibidos, props obligatorias, mezcla de libs).
-     - Convenciones de tu capa de datos (headers obligatorios, clientes específicos, mezcla de backends legacy/nuevo).
-     - Reglas de forms/validación de tu stack.
-     - Anti-patterns del repo que son auto-CRÍTICO.
-     - Áreas críticas con reglas propias: {{project.criticalAreas}}.
+<!-- user: add here the bespoke rules of your stack/domain (the ones that are NOT generalizable). Suggestions:
+     - Patterns of your UI lib / framework (forbidden components, required props, mixing libs).
+     - Conventions of your data layer (mandatory headers, specific clients, mixing legacy/new backends).
+     - Forms/validation rules of your stack.
+     - Repo anti-patterns that are auto-CRITICAL.
+     - Critical areas with their own rules: {{project.criticalAreas}}.
 -->

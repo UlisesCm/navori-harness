@@ -1,49 +1,49 @@
 ---
 name: stripe
-description: Integración de pagos con Stripe — selección de API (Checkout/Payment/Setup Intents), claves restringidas, idempotencia y verificación de webhooks. Aplica al crear cobros, checkout, suscripciones o handlers de webhook de Stripe.
+description: Use when creating charges, checkout, subscriptions, or Stripe webhook handlers — Stripe payments integration: API selection (Checkout/Payment/Setup Intents), restricted keys, idempotency, and webhook verification.
 type: reference
 ---
 
-# Stripe — el patrón canónico
+# Stripe — the canonical pattern
 
-Alineado con la skill oficial `stripe-best-practices`. El server manda: la lógica de cobro y las claves `sk_`/`rk_` viven en el backend; el cliente solo toca la publishable key.
+Aligned with the official `stripe-best-practices` skill. The server rules: charge logic and the `sk_`/`rk_` keys live in the backend; the client only touches the publishable key.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al crear un cobro, checkout, suscripciones, o un handler de webhook de Stripe.
+When creating a charge, checkout, subscriptions, or a Stripe webhook handler.
 
-## Qué API usar
+## Which API to use
 
-| Caso | API |
+| Case | API |
 |---|---|
-| Pago único on-session | **Checkout Session** |
-| Form propio embebido | Checkout Session + **Payment Element** |
-| Guardar método de pago (sin cobrar) | **Setup Intent** |
-| Suscripciones / recurrente | **Billing** + Checkout Session |
-| Marketplace / plataforma | **Accounts v2** (`/v2/core/accounts`) |
-| Impuestos (IVA/VAT/GST) | **Stripe Tax** + Registrations API |
+| One-time on-session payment | **Checkout Session** |
+| Your own embedded form | Checkout Session + **Payment Element** |
+| Save a payment method (without charging) | **Setup Intent** |
+| Subscriptions / recurring | **Billing** + Checkout Session |
+| Marketplace / platform | **Accounts v2** (`/v2/core/accounts`) |
+| Taxes (IVA/VAT/GST) | **Stripe Tax** + Registrations API |
 
-**Nunca uses la Charges API** (legacy): si te topas con ella, migra a Checkout Session o Payment Intent — no le agregues features.
+**Never use the Charges API** (legacy): if you run into it, migrate to Checkout Session or Payment Intent — don't add features to it.
 
-## Seguridad de claves
+## Key security
 
-Tres tipos: **publishable** (`pk_`, cliente), **secret** (`sk_`, server) y **restricted** (`rk_`, server con scope acotado). Prefiere **`rk_` sobre `sk_`**. Las claves van en env vars; la `sk_`/`rk_` **jamás** entra al bundle del cliente.
+Three types: **publishable** (`pk_`, client), **secret** (`sk_`, server), and **restricted** (`rk_`, server with narrowed scope). Prefer **`rk_` over `sk_`**. Keys go in env vars; the `sk_`/`rk_` **never** enters the client bundle.
 
-## El patrón (server-side)
+## The pattern (server-side)
 
 ```ts
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-06-24.dahlia', // fija la última; no dejes el default de la cuenta
+  apiVersion: '2026-06-24.dahlia', // pin the latest; don't leave the account default
 });
 
-// idempotencyKey: reintentar la misma request NO crea un segundo cobro.
+// idempotencyKey: retrying the same request does NOT create a second charge.
 const session = await stripe.checkout.sessions.create(
   {
     mode: 'payment',
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${base}/ok?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${base}/cancel`,
-    // Sin payment_method_types: deja los dynamic payment methods del Dashboard.
+    // No payment_method_types: leave the Dashboard's dynamic payment methods.
   },
   { idempotencyKey: `checkout:${orderId}` },
 );
@@ -51,34 +51,34 @@ const session = await stripe.checkout.sessions.create(
 
 ## Webhooks
 
-El estado real llega por webhook, no por el `success_url`. Verifica **siempre** la firma y hazlo idempotente:
+The real state arrives via webhook, not via the `success_url`. **Always** verify the signature and make it idempotent:
 
 ```ts
-// rawBody = cuerpo crudo, NO el JSON parseado (el body-parser rompe la firma).
+// rawBody = the raw body, NOT the parsed JSON (the body-parser breaks the signature).
 const event = stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET!);
-if (await alreadyProcessed(event.id)) return res.sendStatus(200); // el event.id puede repetirse
+if (await alreadyProcessed(event.id)) return res.sendStatus(200); // the event.id can repeat
 ```
 
-Responde `2xx` rápido; el trabajo pesado va a una cola.
+Respond `2xx` fast; the heavy work goes to a queue.
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **`payment_method_types` fijo** apaga los dynamic payment methods del Dashboard. Omítelo (única excepción: Terminal → `['card_present']`); para restringir usa `payment_method_configurations` o `excluded_payment_method_types`.
-- **`automatic_tax: { enabled: true }` sin registro fiscal activo** cobra **cero** impuesto pareciendo habilitado — el error más común y silencioso. Verifica el registro antes.
-- **Montos en la unidad mínima y enteros** (centavos: $10.00 → `1000`). Nunca floats.
+- **A fixed `payment_method_types`** turns off the Dashboard's dynamic payment methods. Omit it (only exception: Terminal → `['card_present']`); to restrict, use `payment_method_configurations` or `excluded_payment_method_types`.
+- **`automatic_tax: { enabled: true }` without an active tax registration** charges **zero** tax while looking enabled — the most common and silent bug. Verify the registration first.
+- **Amounts in the smallest unit and as integers** (cents: $10.00 → `1000`). Never floats.
 
-## Reglas duras
+## Hard rules
 
-1. Cobro y claves `sk_`/`rk_` solo en el server (env vars); el cliente solo con `pk_`. Prefiere `rk_` sobre `sk_`.
-2. `apiVersion` fija a la última; nada de default implícito.
-3. Charges API prohibida en código nuevo.
-4. `idempotencyKey` en toda request de creación que mueva dinero.
-5. Webhooks: firma verificada con `rawBody` + handler idempotente por `event.id`.
-6. Sin `payment_method_types` salvo Terminal.
+1. Charge logic and `sk_`/`rk_` keys only on the server (env vars); the client only with `pk_`. Prefer `rk_` over `sk_`.
+2. `apiVersion` pinned to the latest; no implicit default.
+3. Charges API forbidden in new code.
+4. `idempotencyKey` on every creation request that moves money.
+5. Webhooks: signature verified with `rawBody` + handler idempotent by `event.id`.
+6. No `payment_method_types` except Terminal.
 
-## Antes de declarar listo
+## Before declaring done
 
-- Ninguna `sk_`/`rk_` quedó en el cliente ni en el repo.
-- Cada cobro lleva `idempotencyKey`; el pago se confirma por webhook (firma + idempotente), no por el redirect.
-- Si hay impuestos: registro fiscal activo verificado.
-- `{{qualityGate.fast}}` en verde.
+- No `sk_`/`rk_` left in the client or the repo.
+- Every charge carries an `idempotencyKey`; the payment is confirmed by webhook (signature + idempotent), not by the redirect.
+- If there are taxes: active tax registration verified.
+- `{{qualityGate.fast}}` green.

@@ -1,5 +1,5 @@
 ## Stack — NestJS
 
-Backend modular con inyección de dependencias. Cada feature es un módulo (`*.module.ts`) que agrupa controllers + providers. Los controllers son delgados; la lógica vive en los services (providers).
+Modular backend with dependency injection. Each feature is a module (`*.module.ts`) that groups controllers + providers. Controllers are thin; the logic lives in the services (providers).
 
-Regla de oro: nada de lógica de negocio en los controllers — solo enrutan, validan vía DTOs (class-validator) en el boundary y delegan al service. Aplica `nestjs-modules` para estructura y `nestjs-dtos-validation` para el contrato de entrada.
+Golden rule: no business logic in the controllers — they only route, validate via DTOs (class-validator) at the boundary and delegate to the service. Apply `nestjs-modules` for structure and `nestjs-dtos-validation` for the input contract.

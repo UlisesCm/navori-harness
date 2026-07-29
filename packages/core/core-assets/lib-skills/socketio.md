@@ -1,16 +1,16 @@
 ---
 name: socketio
-description: Patrones de Socket.IO en un servicio Node — namespaces, rooms, auth en el handshake, eventos tipados, cleanup. Aplica al tocar realtime, gateways o handlers de socket.
+description: Use when touching realtime, gateways, or socket handlers — Socket.IO patterns in a Node service: namespaces, rooms, auth at the handshake, typed events, cleanup.
 type: reference
 ---
 
-# Socket.IO — convenciones del servicio
+# Socket.IO — service conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al agregar o tocar realtime: un namespace, un evento, autenticación de conexión, o broadcast a un room. Socket.IO sobre el HTTP server de Express. La regla base: el handler de socket es una capa de transporte, no de negocio — delega al mismo service/controller que usan las rutas HTTP.
+When adding or touching realtime: a namespace, an event, connection authentication, or a broadcast to a room. Socket.IO over Express's HTTP server. Base rule: the socket handler is a transport layer, not a business one — it delegates to the same service/controller the HTTP routes use.
 
-## El patrón
+## The pattern
 
 ```ts
 io.of('/sessions').use(authSocket).on('connection', (socket) => {
@@ -19,7 +19,7 @@ io.of('/sessions').use(authSocket).on('connection', (socket) => {
   socket.on('message:send', async (dto, ack) => {
     try {
       const saved = await messageService.create(socket.data.userId, dto);
-      io.to(`session:${socket.data.sessionId}`).emit('message:new', saved); // room de socket.data, no del payload
+      io.to(`session:${socket.data.sessionId}`).emit('message:new', saved); // room from socket.data, not the payload
       ack?.({ ok: true, id: saved._id });
     } catch (err) {
       ack?.({ ok: false, error: toClientError(err) });
@@ -30,30 +30,30 @@ io.of('/sessions').use(authSocket).on('connection', (socket) => {
 });
 ```
 
-`authSocket` valida el token en `socket.handshake.auth.token` y rellena `socket.data` (userId/sessionId). Nunca confíes en un id que venga en el payload del evento sin cruzarlo contra `socket.data`.
+`authSocket` validates the token in `socket.handshake.auth.token` and fills `socket.data` (userId/sessionId). Never trust an id coming in the event payload without cross-checking it against `socket.data`.
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **Rooms, no broadcast global.** `io.emit` manda a todos los conectados; usa `io.to(room)` / `socket.to(room)` para no filtrar datos entre sesiones/tenants.
-- **`socket.emit` vs `io.to(...).emit`.** `socket.emit` responde solo al emisor; para incluirte y al resto del room usa `io.to(room)`, para excluirte usa `socket.to(room)`.
-- **Listeners colgados.** Toda suscripción/intervalo creado en `connection` se limpia en `disconnect`, o se filtra memoria.
-- **Errores.** Un throw dentro de un handler no llega al cliente: reporta vía el callback `ack` o un evento `error:*`, nunca dejes la promesa sin catch.
-- **Auth en el handshake**, no por evento — rechaza en el middleware `.use()` antes de `connection`.
-- **Tipa el `Server`/`Socket`** con las 4 interfaces (`Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>`): autocompletado y type-check de payloads y acks. `socket.data` se tipa vía `SocketData`, no `any`.
-- **Multi-instancia ⇒ adapter (Redis) + sticky sessions.** Sin adapter, `io.to(room)` solo alcanza a los sockets de **este** proceso (broadcasts perdidos al escalar); sin sticky, el long-polling da "Session ID unknown".
-- **Acks que esperan respuesta usan timeout**: `socket.timeout(ms).emitWithAck(...)`. Sin timeout, un ack ausente cuelga/leakea.
+- **Rooms, not global broadcast.** `io.emit` sends to everyone connected; use `io.to(room)` / `socket.to(room)` to avoid leaking data across sessions/tenants.
+- **`socket.emit` vs `io.to(...).emit`.** `socket.emit` replies to the emitter only; to include yourself and the rest of the room use `io.to(room)`, to exclude yourself use `socket.to(room)`.
+- **Dangling listeners.** Every subscription/interval created in `connection` is cleaned up on `disconnect`, or memory leaks.
+- **Errors.** A throw inside a handler doesn't reach the client: report via the `ack` callback or an `error:*` event, never leave the promise without a catch.
+- **Auth at the handshake**, not per event — reject in the `.use()` middleware before `connection`.
+- **Type the `Server`/`Socket`** with the 4 interfaces (`Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>`): autocompletion and type-check of payloads and acks. `socket.data` is typed via `SocketData`, not `any`.
+- **Multi-instance ⇒ adapter (Redis) + sticky sessions.** Without an adapter, `io.to(room)` only reaches sockets on **this** process (broadcasts lost when scaling); without sticky, long-polling gives "Session ID unknown".
+- **Acks that expect a reply use a timeout**: `socket.timeout(ms).emitWithAck(...)`. Without a timeout, a missing ack hangs/leaks.
 
-## Reglas duras
+## Hard rules
 
-1. El handler delega al service; nada de queries ni lógica de negocio inline.
-2. Identidad desde `socket.data` (poblado en auth), nunca desde el payload.
-3. Emite a un room específico; `io.emit` global solo para health/system.
-4. Cada `on(...)` con efectos secundarios tiene su cleanup en `disconnect`.
-5. Errores al cliente vía `ack`/evento `error`, con el mismo `ApiError` mapeado que HTTP.
+1. The handler delegates to the service; no inline queries or business logic.
+2. Identity from `socket.data` (populated in auth), never from the payload.
+3. Emit to a specific room; global `io.emit` only for health/system.
+4. Every `on(...)` with side effects has its cleanup in `disconnect`.
+5. Errors to the client via `ack`/`error` event, with the same `ApiError` mapping as HTTP.
 
-## Antes de declarar listo
+## Before declaring done
 
-- Los eventos nuevos validan su input igual que un endpoint HTTP.
-- Ningún `io.emit` global salvo señales de sistema; el resto va por room.
-- Auth resuelta en el middleware del namespace, no dentro de los handlers.
-- `{{qualityGate.fast}}` en verde.
+- New events validate their input just like an HTTP endpoint.
+- No global `io.emit` except system signals; the rest goes by room.
+- Auth resolved in the namespace middleware, not inside the handlers.
+- `{{qualityGate.fast}}` green.

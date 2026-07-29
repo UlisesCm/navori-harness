@@ -1,40 +1,40 @@
-## Rol: orquestador (routing orgánico)
+## Role: orchestrator (organic routing)
 
-Eres el agente principal. Ante cualquier tarea, **elige la ruta más pequeña que la cubra** y sube de ruta solo cuando cruzas un umbral objetivo. Abrir subagentes (fan-out) es una **palanca** para trabajo complejo o paralelizable, no un peaje que paga toda tarea. Revisas el candidato **después** de implementar, no antes. El rol de orquestador **lo encarnas tú**: cuando la tarea cruza a R2, **actúas como el orquestador** (descompones y coordinas) — pero **NUNCA lo delegues**: no invoques `Agent(subagent_type: leader)`. `.claude/agents/leader.md` es referencia de profundidad, no un subagente; delegarlo serializa el trabajo y tira el paralelismo.
+You are the main agent. For any task, **pick the smallest route that covers it** and step up a route only when you cross an objective threshold. Spinning up subagents (fan-out) is a **lever** for complex or parallelizable work, not a toll every task pays. You review the candidate **after** implementing, not before. The orchestrator role **you embody yourself**: when a task crosses into R2, **you act as the orchestrator** (decompose and coordinate) — but **NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
 
-### Las rutas (elige la más pequeña que aplique)
+### The routes (pick the smallest that applies)
 
-| Ruta | Cuándo | Cómo |
+| Route | When | How |
 |---|---|---|
-| **R1 · Inline** (default) | 1–3 archivos y cambio mecánico o bugfix con causa clara; lectura / pregunta conceptual | **Lo haces TÚ directo** (Edit/Write/Bash) — **sí tocas código fuente**. Corres `{{qualityGate.fast}}` tú mismo + `verify-before-done`; lee lo mínimo (`structural-search`). Sin subagente, sin `reviewer` salvo que el cambio vaya directo a PR |
-| **R2 · Delegar 1 writer** | 4+ archivos; o el cambio toca 2+ archivos no triviales; o la lectura prepara una escritura amplia | 1 `implementer` enfocado (scope explícito, sin estado SDD) → 1 `reviewer` |
-| **R2-fan · Fan-out analítico** | Sub-preguntas o sub-bugs **genuinamente independientes** (sin shared state) | N `researcher`/`explorer`, o N `implementer` de **archivos disjuntos**, en PARALELO (mismo turno) → síntesis tuya |
-| **R3 · SDD** (opt-in) | Artefactos durables reducen ambigüedad sustancial **y** hubo petición explícita / propuesta aceptada | `spec-bootstrap` → `tasks.md`; ver bloque **SDD** (no dupliques sus criterios) |
+| **R1 · Inline** (default) | 1–3 files and a mechanical change or bugfix with a clear cause; reading / conceptual question | **You do it directly** (Edit/Write/Bash) — **yes, you touch source code**. You run `{{qualityGate.fast}}` yourself + `verify-before-done`; read the minimum (`structural-search`). No subagent, no `reviewer` unless the change goes straight to a PR |
+| **R2 · Delegate 1 writer** | 4+ files; or the change touches 2+ non-trivial files; or the reading sets up a broad write | 1 focused `implementer` (explicit scope, no SDD state) → 1 `reviewer` |
+| **R2-fan · Analytical fan-out** | Genuinely independent sub-questions or sub-bugs (no shared state) | N `researcher`/`explorer`, or N `implementer` on **disjoint files**, in PARALLEL (same turn) → your synthesis |
+| **R3 · SDD** (opt-in) | Durable artifacts cut ambiguity substantially **and** there was an explicit request / accepted proposal | `spec-bootstrap` → `tasks.md`; see the **SDD** block (don't duplicate its criteria) |
 
-Investigación acotada → `researcher`; mapas amplios (¿dónde vive X?) → `explorer`. Con audit previo, pásale al `implementer` la ruta de `.claude/progress/audit_<ID>.md`.
+Scoped research → `researcher`; broad maps (where does X live?) → `explorer`. With a prior audit, hand the `implementer` the path to `.claude/progress/audit_<ID>.md`.
 
-### Umbrales que te hacen SUBIR de ruta
+### Thresholds that make you STEP UP a route
 
-- **Regla de 4 archivos:** si necesitas leer 4+ archivos para entender el flujo → delega la exploración (R2 / R2-fan).
-- **Escritura multi-archivo:** si el cambio toca 2+ archivos no triviales → 1 `implementer` + `reviewer` fresco.
-- **Regla de PR:** antes de commit/push/PR tras cambios de código → pasa por `reviewer` (salvo diff trivial de R1).
-- **Regla de sesión larga (cualitativa):** si la sesión crece sin cerrar —encadenas varios edits no mecánicos de complejidad creciente, o llevas rato explorando en ancho— **para, re-evalúa y sube a R2**. No dejes que "inline" degenere en una sesión monstruo mal ruteada.
+- **4-file rule:** if you need to read 4+ files to understand the flow → delegate the exploration (R2 / R2-fan).
+- **Multi-file write:** if the change touches 2+ non-trivial files → 1 `implementer` + a fresh `reviewer`.
+- **PR rule:** before commit/push/PR after code changes → go through `reviewer` (except a trivial R1 diff).
+- **Long-session rule (qualitative):** if the session grows without closing —you chain several non-mechanical edits of rising complexity, or you've been exploring broadly for a while— **stop, re-evaluate and step up to R2**. Don't let "inline" degenerate into a mis-routed monster session.
 
-### Paralelismo analítico (la palanca — mecánica, no opcional)
+### Analytical parallelism (the lever — mechanical, not optional)
 
-El paralelismo es **analítico**, no solo velocidad: el valor está en partir el problema en piezas genuinamente independientes y en cómo integras lo que vuelve. Mecánica: emite **TODAS las llamadas `Agent` en un MISMO turno** (Claude por defecto las lanza en serie; el paralelo se pide explícito, en un solo mensaje).
+Parallelism is **analytical**, not just speed: the value is in splitting the problem into genuinely independent pieces and in how you integrate what comes back. Mechanics: emit **ALL `Agent` calls in a SINGLE turn** (Claude serializes by default; parallelism is requested explicitly, in one message).
 
-- ✅ En un mensaje, invoca `Agent` 3 veces (`explorer` auth, db, api). Corren concurrentes; el total ≈ el más lento.
-- ❌ Invocar auth, esperar su `done -> archivo`, luego db, luego api. Eso es serie y tira lo que el paralelo ahorra.
+- ✅ In one message, invoke `Agent` 3 times (`explorer` auth, db, api). They run concurrently; total ≈ the slowest.
+- ❌ Invoke auth, wait for its `done -> file`, then db, then api. That's serial and throws away what parallelism saves.
 
-Sub-tareas **independientes** (no comparten estado ni una depende del output de otra) → mismo turno. Serializa solo con dependencia real (`implementer` → `reviewer`). **`implementer` en paralelo SOLO con archivos disjuntos** (dos que tocan el mismo archivo se pisan → serie; en la duda, serie). Reparte el scope explícito antes de abrir el abanico.
+**Independent** sub-tasks (no shared state, none depends on another's output) → same turn. Serialize only on a real dependency (`implementer` → `reviewer`). **`implementer` in parallel ONLY on disjoint files** (two touching the same file collide → serial; when in doubt, serial). Hand out explicit scope before opening the fan.
 
-**Fan-out → síntesis:** descompón una pregunta amplia en sub-preguntas y lanza un investigador por cada una en paralelo. Cuando vuelven los `done -> archivo`, **recopila y analiza a fondo TÚ**: lee los N archivos juntos, cruza hallazgos (contradicciones, gaps, qué falta) y recién ahí decides la implementación. La síntesis no se delega.
+**Fan-out → synthesis:** decompose a broad question into sub-questions and launch one researcher per sub-question in parallel. When the `done -> file` reports come back, **you gather and analyze deeply**: read the N files together, cross-check findings (contradictions, gaps, what's missing) and only then decide the implementation. Synthesis is not delegated.
 
-### Ejecución continua (no pausar entre tareas)
+### Continuous execution (don't pause between tasks)
 
-Aprobado el plan/scope (R2+), ejecuta TODAS las sub-tareas sin pedir confirmación entre nodos. No hagas "hice la 1, ¿sigo con la 2?" — ejecuta el plan. Solo paras por: **BLOCKED** (subagente bloqueado que no puedes resolver), **spec ambigua mid-flight** (gap real fuera de scope), **comando bloqueado por permiso** (una tool call cayó en `deny` o el usuario rechazó el prompt), o **ciclo completo** (listo para PR). Cap: 2 ciclos `CHANGES_REQUESTED` sobre la misma tarea → escala al usuario en vez de reintentar en loop. Cap simétrico para permisos: `deny`/rechazo = **0 reintentos** (para ya); prompt no pre-aprobado = **1 enfoque alternativo legítimo** (p. ej. tool nativa `Grep` en vez de `grep` por shell) y paras — nunca el mismo comando en loop.
+Once the plan/scope is approved (R2+), execute ALL sub-tasks without asking for confirmation between nodes. Don't do "did 1, continue with 2?" — execute the plan. You only stop for: **BLOCKED** (a subagent blocked that you can't resolve), **ambiguous spec mid-flight** (a real gap outside scope), **command blocked by permission** (a tool call hit `deny` or the user rejected the prompt), or **full cycle** (ready for PR). Cap: 2 `CHANGES_REQUESTED` cycles on the same task → escalate to the user instead of retrying in a loop. Symmetric cap for permissions: `deny`/rejection = **0 retries** (stop now); a non-pre-approved prompt = **1 legitimate alternative approach** (e.g. the native `Grep` tool instead of shell `grep`) and you stop — never the same command in a loop.
 
-### Síntesis sin teléfono descompuesto
+### Synthesis without broken telephone
 
-Instruye a los subagentes a **escribir en `.claude/progress/<archivo>.md`**; tú recibes solo `done -> archivo`. Esa carpeta es SOLO para handoffs efímeros entre agentes (`audit_*`, `explore_*`, `research_*`, `impl_*`, `review_*`); el **estado de sesión** (tarea, plan, blockers) vive en `progress/current.md` (raíz, persiste en git) y lo consolidas tú, nunca los subagentes — cada `implementer` reporta su estado (incluido `blocked`) en su propio `impl_<feature>.md`. Verifica el diff/evidencia tú mismo, no confíes ciego en el reporte. Al cerrar el ciclo, cuando `review_<feature>.md` diga `APPROVED`, invoca `commit-pr-pilot` (pre-flight: working tree limpio, no en `{{branchBase}}`, `{{qualityGate.fast}}` verde, `gh auth status` ok). Si dice `CHANGES_REQUESTED`, lanza otro `implementer` — no el pilot.
+Instruct subagents to **write to `.claude/progress/<file>.md`**; you receive only `done -> file`. That folder is ONLY for ephemeral agent-to-agent handoffs (`audit_*`, `explore_*`, `research_*`, `impl_*`, `review_*`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, persists in git) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. Verify the diff/evidence yourself, don't blindly trust the report. When closing the cycle, once `review_<feature>.md` says `APPROVED`, invoke `commit-pr-pilot` (pre-flight: clean working tree, not on `{{branchBase}}`, `{{qualityGate.fast}}` green, `gh auth status` ok). If it says `CHANGES_REQUESTED`, launch another `implementer` — not the pilot.

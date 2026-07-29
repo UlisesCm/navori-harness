@@ -176,12 +176,14 @@ function buildSkillsIndexBody(
   // local skills; otherwise it points at a category that isn't present.
   const localNote =
     localSkills.length > 0
-      ? ["Los `project-local` son tuyos — navori los indexa pero no toca su contenido."]
+      ? [
+          "The `project-local` ones are yours — navori indexes them but never touches their content.",
+        ]
       : [];
   return [
-    "## Skills disponibles",
+    "## Available skills",
     "",
-    "Skills que los agentes pueden aplicar; cada uno vive en `.claude/skills/` (un `<id>.md` o un directorio `<id>/SKILL.md`).",
+    "Skills the agents can apply; each lives in `.claude/skills/` (a flat `<id>.md` file or a `<id>/SKILL.md` directory).",
     ...localNote,
     "",
     ...rows,
@@ -194,18 +196,18 @@ const AGENTS_INDEX_ID = "agentes-disponibles";
 
 /** When to reach for each leaf agent, keyed by CORE_AGENTS id. The leader is
  * absent on purpose: the main agent embeds that role, it does not delegate to
- * it (see the "## Rol: orquestador" block). */
+ * it (see the "## Role: orchestrator" block). */
 const AGENT_WHEN: Record<string, string> = {
-  implementer: "Escribe código y tests de UNA tarea acotada con scope claro.",
-  reviewer: "Valida un diff contra spec y calidad (APPROVED / CHANGES_REQUESTED).",
+  implementer: "Writes code and tests for ONE well-scoped task.",
+  reviewer: "Validates a diff against spec and quality (APPROVED / CHANGES_REQUESTED).",
   researcher:
-    "Responde una pregunta concreta del repo (¿pasa Y? ¿qué consume X?) con evidencia citada.",
-  explorer: "Mapea un área o módulo amplio: estructura, entry points, dependencias.",
+    "Answers a concrete question about the repo (does Y happen? what consumes X?) with cited evidence.",
+  explorer: "Maps a broad area or module: structure, entry points, dependencies.",
   "ticket-audit":
-    "Analiza a fondo un ticket complejo (bug crítico, migración, feature multi-capa) antes de descomponer.",
-  "commit-pr-pilot": "Redacta commits Conventional y abre el PR tras la aprobación del reviewer.",
+    "Deeply analyzes a complex ticket (critical bug, migration, multi-layer feature) before decomposing.",
+  "commit-pr-pilot": "Writes Conventional commits and opens the PR after the reviewer's approval.",
   auditor:
-    "Auditoría read-only a fondo (seguridad, performance, SOLID, edge cases); escribe reporte + plan priorizado a disco.",
+    "Deep read-only audit (security, performance, SOLID, edge cases); writes a report + prioritized plan to disk.",
 };
 
 /**
@@ -226,9 +228,9 @@ function buildAgentsIndexBody(config: NavoriConfig): string | null {
   }
   if (rows.length === 0) return null;
   return [
-    "## Agentes disponibles",
+    "## Available agents",
     "",
-    'Subagentes que puedes lanzar vía la tool `Agent` (tú eres el orquestador; ver "## Rol: orquestador"). Investigación y review son read-only → paralelízalos sin miedo.',
+    'Subagents you can spawn via the `Agent` tool (you are the orchestrator; see "## Role: orchestrator"). Research and review are read-only → parallelize them freely.',
     "",
     ...rows,
     "",
@@ -258,22 +260,22 @@ function buildContextoMonorepoBody(
     const lines: string[] = [
       `## Monorepo — workspace \`${mono.currentName}\``,
       "",
-      `Eres el workspace **\`${mono.currentName}\`** (\`${mono.currentPath}\`) de un monorepo \`${tool}\`. Tienes tu propio harness (este \`CLAUDE.md\` + \`.claude/\`); la config raíz y los archivos transversales (\`turbo.json\`, \`pnpm-workspace.yaml\`, tsconfig/eslint base) viven en el repo root.`,
+      `You are the **\`${mono.currentName}\`** workspace (\`${mono.currentPath}\`) of a \`${tool}\` monorepo. You have your own harness (this \`CLAUDE.md\` + \`.claude/\`); the root config and cross-cutting files (\`turbo.json\`, \`pnpm-workspace.yaml\`, base tsconfig/eslint) live at the repo root.`,
       "",
     ];
     if (mono.siblings.length > 0) {
       lines.push(
-        "Workspaces hermanos — no los edites desde aquí; el trabajo en un hermano se hace desde su propio harness:",
+        "Sibling workspaces — don't edit them from here; work on a sibling happens from its own harness:",
       );
       for (const s of mono.siblings) {
         lines.push(`- \`${s.name}\` — \`${s.path}\`${s.preset ? ` (${s.preset})` : ""}`);
       }
     } else {
-      lines.push("Por ahora es el único workspace declarado.");
+      lines.push("For now it's the only declared workspace.");
     }
     lines.push("");
     lines.push(
-      `Corre tareas scopeadas con \`--filter=${mono.currentName}\`. No importes código de un hermano por ruta relativa; consúmelo como paquete (\`workspace:*\`).`,
+      `Run scoped tasks with \`--filter=${mono.currentName}\`. Don't import a sibling's code by relative path; consume it as a package (\`workspace:*\`).`,
     );
     lines.push("");
     return lines.join("\n");
@@ -284,9 +286,9 @@ function buildContextoMonorepoBody(
   if (workspaces.length === 0) return null;
   const tool = config.monorepo?.tool ?? "pnpm";
   const lines: string[] = [
-    "## Monorepo — raíz",
+    "## Monorepo — root",
     "",
-    `Este repo es un monorepo \`${tool}\`. El código real vive en los workspaces, cada uno con su propio harness (\`CLAUDE.md\` + \`.claude/\`). Al orquestar, **enruta cada tarea al workspace dueño** y trabaja desde su \`CLAUDE.md\`, no desde aquí.`,
+    `This repo is a \`${tool}\` monorepo. The real code lives in the workspaces, each with its own harness (\`CLAUDE.md\` + \`.claude/\`). When orchestrating, **route each task to the owning workspace** and work from its \`CLAUDE.md\`, not from here.`,
     "",
     "Workspaces:",
   ];
@@ -310,15 +312,15 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
   const posture = proj.posture as string | undefined;
   if (posture === "greenfield") {
     rows.push(
-      "- **Etapa:** greenfield — prioriza velocidad y menos ceremonia, pero el quality gate igual debe pasar.",
+      "- **Stage:** greenfield — favor speed and less ceremony, but the quality gate must still pass.",
     );
   } else if (posture === "production") {
     rows.push(
-      "- **Etapa:** en producción — prioriza NO romper regresiones. Los cambios de blast radius alto piden validación humana antes de mergear.",
+      "- **Stage:** in production — favor NOT breaking regressions. High-blast-radius changes need human validation before merging.",
     );
   } else if (posture === "migration") {
     rows.push(
-      "- **Etapa:** migración legacy — cuida la compatibilidad legacy↔nuevo. El reviewer marca CRÍTICO si un cambio lee de un lado y escribe en el otro.",
+      "- **Stage:** legacy migration — watch legacy↔new compatibility. The reviewer flags CRITICAL when a change reads from one side and writes to the other.",
     );
   }
 
@@ -328,50 +330,50 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
       | undefined) ?? [];
   for (const m of migrations) {
     rows.push(
-      `- **${m.domain} (migración):** en código nuevo usa \`${m.preferred}\`. \`${m.legacy}\` es legacy — no lo agregues; si tocas un módulo que lo usa, migra ese módulo completo (no mezcles ambos en el mismo archivo). El reviewer marca ALTO el uso nuevo de \`${m.legacy}\`.`,
+      `- **${m.domain} (migration):** in new code use \`${m.preferred}\`. \`${m.legacy}\` is legacy — don't add it; if you touch a module that uses it, migrate that whole module (don't mix both in the same file). The reviewer flags HIGH any new use of \`${m.legacy}\`.`,
     );
   }
 
   const rigor = proj.reviewRigor as string | undefined;
   if (rigor === "strict") {
     rows.push(
-      "- **Rigor del review:** estricto — el reviewer bloquea APPROVED también con issues de confidence 65-79, no solo ≥80.",
+      "- **Review rigor:** strict — the reviewer blocks APPROVED on confidence 65-79 issues too, not only ≥80.",
     );
   } else if (rigor === "pragmatic") {
     rows.push(
-      "- **Rigor del review:** pragmático — el reviewer bloquea solo issues ≥80; lo demás queda como observación informativa.",
+      "- **Review rigor:** pragmatic — the reviewer blocks only ≥80 issues; the rest stays as an informative note.",
     );
   }
 
   const arch = (proj.architectureRule as string | undefined)?.trim();
   if (arch) {
     rows.push(
-      `- **Arquitectura:** el código nuevo DEBE seguir \`${arch}\`. El reviewer marca los desvíos como ALTO.`,
+      `- **Architecture:** new code MUST follow \`${arch}\`. The reviewer flags deviations as HIGH.`,
     );
   }
 
   const critical = (proj.criticalAreas as string[] | undefined) ?? [];
   if (critical.length > 0) {
-    rows.push(`- **Áreas críticas** (review extra, severidad +1): ${critical.join(", ")}.`);
+    rows.push(`- **Critical areas** (extra review, severity +1): ${critical.join(", ")}.`);
   }
 
   const tests = proj.testsForNewCode as string | undefined;
   if (tests === "always") {
     rows.push(
-      "- **Tests:** el código nuevo DEBE traer tests. El reviewer bloquea APPROVED si faltan.",
+      "- **Tests:** new code MUST ship with tests. The reviewer blocks APPROVED if they're missing.",
     );
   } else if (tests === "when-applicable") {
-    rows.push("- **Tests:** pide tests para lógica no trivial; en código simple son opcionales.");
+    rows.push("- **Tests:** require tests for non-trivial logic; optional for simple code.");
   } else if (tests === "none") {
-    rows.push("- **Tests:** el repo no exige tests para código nuevo.");
+    rows.push("- **Tests:** the repo doesn't require tests for new code.");
   }
 
   if (rows.length === 0) return null;
 
   return [
-    "## Contexto del proyecto",
+    "## Project context",
     "",
-    "Reglas activas derivadas de tu config (`project.*`). Aplican a todos los agentes.",
+    "Active rules derived from your config (`project.*`). They apply to all agents.",
     "",
     ...rows,
     "",

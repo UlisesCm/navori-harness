@@ -1,18 +1,18 @@
 ---
 name: mongoose
-description: Patrones de Mongoose en un servicio TS — queries seguras, populate, paginate, soft delete, ObjectId, evitar N+1. Aplica al tocar domain/models u ops de Mongoose en controllers.
+description: Use when touching domain/models or Mongoose ops in controllers — Mongoose patterns in a TS service: safe queries, populate, paginate, soft delete, ObjectId, avoiding N+1.
 type: reference
 ---
 
-# Mongoose — convenciones del servicio
+# Mongoose — service conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Cuando la tarea toca `domain/models` o ejecuta operaciones de Mongoose en los controllers. Sin repository wrappers: los controllers tocan los Models directo, así que null-guards, casts de ObjectId y `.lean()` viven en cada controller method.
+When the task touches `domain/models` or runs Mongoose operations in the controllers. No repository wrappers: controllers touch the Models directly, so null-guards, ObjectId casts, and `.lean()` live in each method.
 
-En **NestJS** (`@nestjs/mongoose`) el Model se inyecta: `@InjectModel(Resource.name) private model: Model<ResourceDocument>`; el resto de patrones aplican igual.
+In **NestJS** (`@nestjs/mongoose`) the Model is injected: `@InjectModel(Resource.name) private model: Model<ResourceDocument>`; the rest of the patterns apply the same.
 
-## Patrón canónico
+## Canonical pattern
 
 ```ts
 const doc = await Resource.findById(id);
@@ -25,43 +25,43 @@ const updated = await Resource.findByIdAndUpdate(
 );
 ```
 
-`returnDocument: 'after'` (reemplaza el deprecado `new: true`) devuelve el doc actualizado; `runValidators: true` valida el update parcial. Ojo: `findByIdAndUpdate` **no** dispara hooks `pre('save')` ni valida el doc completo — si hay lógica en middleware `save`, usa `doc.save()`.
+`returnDocument: 'after'` (replaces the deprecated `new: true`) returns the updated doc; `runValidators: true` validates the partial update. Note: `findByIdAndUpdate` does **not** fire `pre('save')` hooks or validate the whole doc — if `save` middleware has logic, use `doc.save()`.
 
-## ObjectId — la trampa más común
+## ObjectId — the most common trap
 
-Un `id` de `req.params`/`req.body` es **string**. `findById` lo castea solo, pero aggregations y queries complejas requieren `new Types.ObjectId(id)` (el `new` es obligatorio en Mongoose 6+). Valida el formato antes (`/^[a-f\d]{24}$/i`) o un string mal-formado lanza `CastError`. Compara ObjectId con `.equals()`, nunca `==`.
+An `id` from `req.params`/`req.body` is a **string**. `findById` casts it automatically, but aggregations and complex queries require `new Types.ObjectId(id)` (the `new` is mandatory in Mongoose 6+). Validate the format first (`/^[a-f\d]{24}$/i`) or a malformed string throws `CastError`. Compare ObjectId with `.equals()`, never `==`.
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **Query injection**: `Model.find(req.query)` crudo deja pasar operadores (`{ $ne: null }`). Arma el filtro campo por campo o `.setOptions({ sanitizeFilter: true })`. Y `strictQuery` es `false` por default (Mongoose 7+): un campo con typo se ignora → filtro vacío que devuelve **toda** la colección.
-- **Atomicidad multi-doc**: escrituras relacionadas en `connection.transaction(async (session) => {...})`, pasando `{ session }` a cada op. `bulkWrite` no es transacción.
-- **Índices**: filtros y `.sort()` sobre campos sin índice = COLLSCAN. Declara `schema.index(...)`, verifica con `.explain()`.
-- **populate** batchea con `$in` (1 query por path, no N); no filtra/ordena por el child — ahí `$lookup`. `.lean()` pierde `.save()`/virtuals.
-- **Soft delete**: con `mongoose-delete`, `find` ya excluye `deleted: true`; borra con `doc.delete()` (no `findByIdAndDelete`), restaura con `doc.restore()`.
+- **Query injection**: raw `Model.find(req.query)` lets operators through (`{ $ne: null }`). Build the filter field by field or `.setOptions({ sanitizeFilter: true })`. And `strictQuery` is `false` by default (Mongoose 7+): a typo'd field is ignored → empty filter returning the **whole** collection.
+- **Multi-doc atomicity**: related writes in `connection.transaction(async (session) => {...})`, passing `{ session }` to each op. `bulkWrite` is not a transaction.
+- **Indexes**: filters and `.sort()` over unindexed fields = COLLSCAN. Declare `schema.index(...)`, verify with `.explain()`.
+- **populate** batches with `$in` (1 query per path, not N); it doesn't filter/sort by the child — for that use `$lookup`. `.lean()` loses `.save()`/virtuals.
+- **Soft delete**: with `mongoose-delete`, `find` already excludes `deleted: true`; delete with `doc.delete()` (not `findByIdAndDelete`), restore with `doc.restore()`.
 
-## Reglas duras
+## Hard rules
 
-1. **Ops de Mongoose nunca en la ruta** — siempre dentro de un controller method.
-2. **Null-guard tras `findById`/`findOne`** — `if (!doc) throw new NotFoundError(...)`.
-3. **`.lean()` cuando no necesitas mutar**; comparar ObjectId con `.equals()`, nunca `==`.
-4. **Nunca `Model.find(req.query)` crudo** — filtro campo por campo o `sanitizeFilter`.
-5. **Respeta el soft delete del repo**; escrituras relacionadas en `connection.transaction`.
+1. **Mongoose ops never in the route** — always inside a controller method.
+2. **Null-guard after `findById`/`findOne`** — `if (!doc) throw new NotFoundError(...)`.
+3. **`.lean()` when you don't need to mutate**; compare ObjectId with `.equals()`, never `==`.
+4. **Never raw `Model.find(req.query)`** — filter field by field or `sanitizeFilter`.
+5. **Respect the repo's soft delete**; related writes in `connection.transaction`.
 
-## Tabla rápida
+## Quick table
 
-| Necesito | Cómo |
+| Need | How |
 |---|---|
-| Buscar por id | `findById(id)` + null-guard → `NotFoundError` |
+| Find by id | `findById(id)` + null-guard → `NotFoundError` |
 | Cast string → ObjectId | `new Types.ObjectId(id)` |
-| Query read-only | `.find(filter).lean()` |
-| Paginar | `.paginate(...)` o `skip().limit()` + `countDocuments` |
-| Borrar con soft delete | `doc.delete()` (no `findByIdAndDelete`) |
-| Update devolviendo el nuevo | `findByIdAndUpdate(id, { $set }, { returnDocument: 'after', runValidators: true })` |
-| Escrituras relacionadas | `connection.transaction(async (session) => …)` |
+| Read-only query | `.find(filter).lean()` |
+| Paginate | `.paginate(...)` or `skip().limit()` + `countDocuments` |
+| Delete with soft delete | `doc.delete()` (not `findByIdAndDelete`) |
+| Update returning the new doc | `findByIdAndUpdate(id, { $set }, { returnDocument: 'after', runValidators: true })` |
+| Related writes | `connection.transaction(async (session) => …)` |
 
-## Antes de declarar listo
+## Before declaring done
 
-- Cada `findById`/`findOne` tiene null-guard → `NotFoundError`; read-only con `.lean()`.
-- Ningún filtro arma con `req.query`/`req.body` crudo; ObjectId comparado con `.equals()`.
-- Borrados respetan soft delete; escrituras relacionadas van en transacción.
-- `{{qualityGate.fast}}` en verde.
+- Every `findById`/`findOne` has a null-guard → `NotFoundError`; read-only with `.lean()`.
+- No filter built from raw `req.query`/`req.body`; ObjectId compared with `.equals()`.
+- Deletes respect soft delete; related writes go in a transaction.
+- `{{qualityGate.fast}}` green.

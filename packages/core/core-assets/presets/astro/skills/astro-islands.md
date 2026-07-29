@@ -1,30 +1,30 @@
 ---
 name: astro-islands
-description: Reglas para Astro Islands — client directives, framework components, performance. Aplica al agregar interactividad a un site Astro.
+description: Rules for Astro Islands — client directives, framework components, performance. Use when adding interactivity to an Astro site.
 type: reference
 maxWords: 520
 ---
 
-# Astro Islands — convenciones del proyecto
+# Astro Islands — project conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Antes de importar un componente de React/Vue/Svelte/Solid en una página Astro, o cuando agregas interactividad a un site que era static. El modelo Islands es el diferencial de Astro vs Next/Nuxt — usado mal, el bundle infla y se pierde el beneficio.
+Before importing a React/Vue/Svelte/Solid component into an Astro page, or when you add interactivity to a site that was static. The Islands model is Astro's differentiator vs Next/Nuxt — misused, the bundle bloats and the benefit is lost.
 
-## Reglas duras
+## Hard rules
 
-1. **Por default todo es server-rendered + zero JS.** Los componentes `.astro` se ejecutan en build / server y mandan HTML puro. No agregues JS al cliente a menos que necesites interactividad.
-2. **`client:*` directives son opt-in y explícitas.** Cada componente con `client:` corre en el navegador y suma al bundle. Usa la directiva mínima:
-   - `client:load` — hydrate inmediatamente al cargar la página (caro).
-   - `client:idle` — cuando el browser esté idle (mejor para widgets no-críticos).
-   - `client:visible` — solo cuando entra al viewport (mejor para below-fold).
-   - `client:media="(min-width: 768px)"` — solo si match el media query.
-   - `client:only="react"` — skip SSR; renderiza solo en cliente. Útil para libs que tocan `window` en SSR.
-3. **`client:visible` > `client:load` para todo lo que no esté above-the-fold.** Carrouseles, formularios secundarios, modales que viven al final de la página: `client:visible` evita hydratar al inicio.
-4. **Compartir state entre Islands = Nano Stores, no Context.** Los Islands están aislados — React Context no cruza fronteras. `@nanostores/persistent` o `@nanostores/react` son el patrón oficial.
-5. **`.astro` para layout / structure, framework component solo para interactividad.** Si el componente no tiene estado/handler, escríbelo en `.astro` (más rápido, menos bundle).
+1. **By default everything is server-rendered + zero JS.** `.astro` components run at build / server time and ship pure HTML. Don't add client JS unless you need interactivity.
+2. **`client:*` directives are opt-in and explicit.** Every component with `client:` runs in the browser and adds to the bundle. Use the minimal directive:
+   - `client:load` — hydrate immediately on page load (expensive).
+   - `client:idle` — when the browser is idle (better for non-critical widgets).
+   - `client:visible` — only when it enters the viewport (better for below-fold).
+   - `client:media="(min-width: 768px)"` — only if the media query matches.
+   - `client:only="react"` — skip SSR; render only on the client. Useful for libs that touch `window` during SSR.
+3. **`client:visible` > `client:load` for anything not above-the-fold.** Carousels, secondary forms, modals that live at the bottom of the page: `client:visible` avoids hydrating on load.
+4. **Sharing state between Islands = Nano Stores, not Context.** Islands are isolated — React Context doesn't cross boundaries. `@nanostores/persistent` or `@nanostores/react` is the official pattern.
+5. **`.astro` for layout / structure, framework component only for interactivity.** If the component has no state/handler, write it in `.astro` (faster, less bundle).
 
-## Patrón típico
+## Typical pattern
 
 ```astro
 ---
@@ -37,31 +37,31 @@ import CommentsSection from "../components/CommentsSection.tsx";  // React islan
 
 <Layout title="Home">
   <HeroSection />
-  <!-- Crítico para conversión → hydrate temprano -->
+  <!-- Critical for conversion → hydrate early -->
   <NewsletterForm client:idle />
-  <!-- Below-the-fold → hydrate solo si se ve -->
+  <!-- Below-the-fold → hydrate only if visible -->
   <CommentsSection client:visible />
 </Layout>
 ```
 
-## Tabla rápida
+## Quick table
 
-| Necesito | Cómo |
+| Need | How |
 |---|---|
-| Texto estático / structure | `.astro` component (sin JS al cliente) |
-| Form simple con validación | React/Vue island con `client:idle` |
-| Widget interactivo above-fold | `client:load` (caro pero crítico) |
-| Sección below-the-fold | `client:visible` |
-| Lib que toca `window` en mount | `client:only="react"` |
-| State compartido entre 2 islands | `@nanostores/persistent` + `@nanostores/react` |
-| Data en build-time | `import.meta.glob` en frontmatter `.astro` |
-| Data en SSR per-request | `Astro.cookies` / `Astro.request` en frontmatter |
-| Endpoint API | `src/pages/api/<x>.ts` con `export GET/POST` |
+| Static text / structure | `.astro` component (no client JS) |
+| Simple form with validation | React/Vue island with `client:idle` |
+| Interactive widget above-fold | `client:load` (expensive but critical) |
+| Below-the-fold section | `client:visible` |
+| Lib that touches `window` on mount | `client:only="react"` |
+| Shared state between 2 islands | `@nanostores/persistent` + `@nanostores/react` |
+| Build-time data | `import.meta.glob` in `.astro` frontmatter |
+| Per-request SSR data | `Astro.cookies` / `Astro.request` in frontmatter |
+| API endpoint | `src/pages/api/<x>.ts` with `export GET/POST` |
 
-## Antes de declarar el cambio "listo"
+## Before declaring the change "done"
 
-- `{{qualityGate.fast}}` en verde.
-- Corre `astro build` y revisa el output de bundle size por página. Cada island agrega JS — confirma que el delta es justificable.
-- Lighthouse (Performance + Best Practices) en `astro preview`. Astro debería sostener 95+ en sites mostly-static; si bajó mucho, hidrataste algo que podía ser server-only.
-- Si agregaste `client:load`: justifícalo en el PR. ¿Por qué no `client:idle` o `client:visible`?
-- Si tienes 2 islands que comparten state: confirma que usas Nano Stores, no que duplicaste fetch / estado en cada uno.
+- `{{qualityGate.fast}}` green.
+- Run `astro build` and check the per-page bundle size output. Every island adds JS — confirm the delta is justifiable.
+- Lighthouse (Performance + Best Practices) on `astro preview`. Astro should hold 95+ on mostly-static sites; if it dropped a lot, you hydrated something that could be server-only.
+- If you added `client:load`: justify it in the PR. Why not `client:idle` or `client:visible`?
+- If you have 2 islands sharing state: confirm you use Nano Stores, not that you duplicated fetch / state in each.

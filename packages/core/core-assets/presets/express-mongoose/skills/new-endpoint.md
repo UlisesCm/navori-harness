@@ -1,39 +1,39 @@
 ---
 name: new-endpoint
-description: Sumar un endpoint nuevo a un recurso Express + Mongoose que ya existe (schema Zod + método del controller + ruta). Usar cuando hay que agregar un endpoint sin crear un Model nuevo.
+description: Add a new endpoint to an existing Express + Mongoose resource (Zod schema + controller method + route). Use when you need to add an endpoint without creating a new Model.
 type: reference
 ---
 
-# new-endpoint — sumar un endpoint a un recurso existente
+# new-endpoint — add an endpoint to an existing resource
 
-## Cuándo usar este skill
+## When to use this skill
 
-Cuando hay que agregar un endpoint a un recurso cuyo Model, controller y ruta base ya existen. Para crear un recurso desde cero (Model + controller + rutas), usa `new-resource`.
+When you need to add an endpoint to a resource whose Model, controller and base route already exist. To create a resource from scratch (Model + controller + routes), use `new-resource`.
 
-Pre-requisitos: el controller, el Model + interface y el `<resource>Routes.ts` (con su `router.route('/')`) ya existen.
+Prerequisites: the controller, the Model + interface and the `<resource>Routes.ts` (with its `router.route('/')`) already exist.
 
-## Pasos (orden estricto)
+## Steps (strict order)
 
-1. **Schema Zod** — en el `<resource>.schema.ts` del recurso, agrega el schema del input (`body`/`params`/`query`) y su DTO (`z.infer`). Si el archivo ya existe, agrégalo ahí mismo y expórtalo: NO crees archivos paralelos. Convenciones: skill `zod-validation`.
-2. **Middleware `validate`** — si es la primera vez que se usa en el service, crea el helper en el directorio de helpers (lo define la skill `zod-validation`). Verifica antes que no exista; si existe con otra firma, alinéate o consulta al usuario.
-3. **Método en el Controller** — agrega el método al class existente: firma `(req, res): Promise<void>`, input ya validado → tipa con `as <Dto>`, Mongoose ops directas OK, response con `SuccessResponse`, errores con `throw new <X>Error`, `Logger` en vez de `console.log`, JSDoc con verbo HTTP + ruta + retorno. Contrato `ApiResponse`/`ApiError`: skill `express-routes`.
-4. **Route** — agrega la ruta en `<resource>Routes.ts` con `validate(schema, target)` antes de `asyncHandler(...)`. Rutas específicas antes que genéricas (`/foo/bar` antes de `/foo/:id`); casing consistente con los vecinos. Helpers: skills `zod-validation` y `express-routes`.
-5. **Verify** — ver "Antes de declarar listo".
+1. **Zod schema** — in the resource's `<resource>.schema.ts`, add the input schema (`body`/`params`/`query`) and its DTO (`z.infer`). If the file already exists, add it right there and export it: do NOT create parallel files. Conventions: skill `zod-validation`.
+2. **`validate` middleware** — if it's the first time it's used in the service, create the helper in the helpers directory (defined by the `zod-validation` skill). Check first that it doesn't exist; if it exists with a different signature, align to it or ask the user.
+3. **Method in the Controller** — add the method to the existing class: signature `(req, res): Promise<void>`, already-validated input → type with `as <Dto>`, direct Mongoose ops OK, response with `SuccessResponse`, errors with `throw new <X>Error`, `Logger` instead of `console.log`, JSDoc with HTTP verb + route + return. `ApiResponse`/`ApiError` contract: skill `express-routes`.
+4. **Route** — add the route in `<resource>Routes.ts` with `validate(schema, target)` before `asyncHandler(...)`. Specific routes before generic ones (`/foo/bar` before `/foo/:id`); casing consistent with the neighbors. Helpers: skills `zod-validation` and `express-routes`.
+5. **Verify** — see "Before declaring done".
 
-Tests (opcional): no para CRUD trivial; SÍ obligatorio si el endpoint trae lógica condicional no trivial o aggregations complejas. Integración con el runner del repo (400 con ObjectId inválido, 404 sin resultados).
+Tests (optional): not for trivial CRUD; DO required if the endpoint carries non-trivial conditional logic or complex aggregations. Integration with the repo's runner (400 on invalid ObjectId, 404 on no results).
 
-## Reglas duras
+## Hard rules
 
-- **Validación inline en el controller, no** — usa Zod + middleware `validate` (skill `zod-validation`).
-- **Respuestas con `SuccessResponse`, errores con `throw new <X>Error`** — nunca `res.status(...).json(...)` crudo (skill `express-routes`).
-- **No pases el `req` entero sin tipar** body/params/query — el middleware Zod tipa, tú usas `as <Dto>`.
-- **El controller se instancia una sola vez** al top del archivo de routes — sin `new XController()` dentro del método de ruta.
-- **No te olvides de `asyncHandler`** — sin él, los errores async se pierden o crashean el server.
+- **Inline validation in the controller, no** — use Zod + `validate` middleware (skill `zod-validation`).
+- **Responses with `SuccessResponse`, errors with `throw new <X>Error`** — never raw `res.status(...).json(...)` (skill `express-routes`).
+- **Don't pass the whole `req` untyped** body/params/query — the Zod middleware types it, you use `as <Dto>`.
+- **The controller is instantiated once** at the top of the routes file — no `new XController()` inside the route method.
+- **Don't forget `asyncHandler`** — without it, async errors get lost or crash the server.
 
-## Antes de declarar listo
+## Before declaring done
 
-- `{{qualityGate.fast}}` en verde.
-- El endpoint responde al smoke: golden path OK + edge case (ObjectId inválido) devuelve 400 con mensaje claro.
-- El schema nuevo quedó en el archivo de schema del recurso, no en uno paralelo.
-- La ruta usa `validate(...)` antes de `asyncHandler(...)` y el controller no valida inline.
-- Si el endpoint trae lógica no trivial o aggregations, dejaste un test de integración.
+- `{{qualityGate.fast}}` green.
+- The endpoint answers the smoke test: golden path OK + edge case (invalid ObjectId) returns 400 with a clear message.
+- The new schema ended up in the resource's schema file, not a parallel one.
+- The route uses `validate(...)` before `asyncHandler(...)` and the controller doesn't validate inline.
+- If the endpoint carries non-trivial logic or aggregations, you left an integration test.

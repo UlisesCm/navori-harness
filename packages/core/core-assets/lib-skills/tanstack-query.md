@@ -1,18 +1,18 @@
 ---
 name: tanstack-query
-description: Patrones de TanStack Query (React Query) — query keys, mutations, invalidación, staleTime. Aplica al tocar fetching, cache de servidor o mutaciones de datos remotos.
+description: Use when touching fetching, server cache, or remote data mutations — TanStack Query (React Query) patterns: query keys, mutations, invalidation, staleTime.
 type: reference
 ---
 
-# TanStack Query — convenciones
+# TanStack Query — conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al leer/escribir datos del servidor: un `useQuery`, un `useMutation`, invalidar cache, o paginar. TanStack Query es la fuente de verdad del **estado de servidor** (fetch + cache + revalidación). No lo uses para estado de cliente puro (eso es useState/Redux), ni dupliques su data en otro store.
+When reading/writing server data: a `useQuery`, a `useMutation`, invalidating cache, or paginating. TanStack Query is the source of truth for **server state** (fetch + cache + revalidation). Don't use it for pure client state (that's useState/Redux), and don't duplicate its data in another store.
 
-## El patrón
+## The pattern
 
-Query keys estructuradas y centralizadas para invalidar sin strings sueltos:
+Structured, centralized query keys to invalidate without loose strings:
 
 ```ts
 const sessionKeys = {
@@ -33,27 +33,27 @@ const mutation = useMutation({
 });
 ```
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **Query keys como datos, no strings.** Una factory (`sessionKeys`) evita typos y permite invalidar por prefijo (`sessionKeys.all` invalida todos los detalles).
-- **`staleTime` vs `gcTime`.** `staleTime` decide cuándo refetchea; con `0` (default) refetchea agresivo. Súbelo para data estable y evita parpadeos/llamadas extra.
-- **No espejes la data en useState/Redux.** Lee de `data` directo; copiarla a otro estado crea dos verdades que se desincronizan.
-- **`enabled`** para queries dependientes — no dispares con el id aún `undefined`.
-- **`useQuery` NO tiene `onSuccess`/`onError`/`onSettled`** (v5 los eliminó; solo sobreviven en `useMutation`). Para reaccionar a la data, hazlo en render o con `select`. Es el gotcha #1 al migrar de v4: el callback simplemente nunca corre.
-- **Update optimista completo**: en `onMutate` haz `await queryClient.cancelQueries({ queryKey })` (sin esto, un refetch en vuelo pisa tu update), snapshot con `getQueryData`, aplica con `setQueryData`; restaura el snapshot en `onError`; `invalidateQueries` en `onSettled`.
-- **`isPending` vs `isFetching`**: `isPending` es la primera carga sin data; `isFetching` es cualquier fetch en curso (incluye revalidación). Paginación: `placeholderData: keepPreviousData` (v5 reemplazó `keepPreviousData: true`).
+- **Query keys as data, not strings.** A factory (`sessionKeys`) avoids typos and lets you invalidate by prefix (`sessionKeys.all` invalidates all details).
+- **`staleTime` vs `gcTime`.** `staleTime` decides when it refetches; with `0` (default) it refetches aggressively. Raise it for stable data and avoid flicker/extra calls.
+- **Don't mirror the data in useState/Redux.** Read from `data` directly; copying it to another state creates two truths that drift apart.
+- **`enabled`** for dependent queries — don't fire with the id still `undefined`.
+- **`useQuery` has NO `onSuccess`/`onError`/`onSettled`** (v5 removed them; they only survive in `useMutation`). To react to the data, do it in render or with `select`. It's the #1 gotcha when migrating from v4: the callback simply never runs.
+- **Full optimistic update**: in `onMutate` do `await queryClient.cancelQueries({ queryKey })` (without it, an in-flight refetch overwrites your update), snapshot with `getQueryData`, apply with `setQueryData`; restore the snapshot in `onError`; `invalidateQueries` in `onSettled`.
+- **`isPending` vs `isFetching`**: `isPending` is the first load with no data; `isFetching` is any fetch in progress (including revalidation). Pagination: `placeholderData: keepPreviousData` (v5 replaced `keepPreviousData: true`).
 
-## Reglas duras
+## Hard rules
 
-1. Estado de servidor vive en Query; no se copia a otro store.
-2. Query keys desde una factory tipada, nunca arrays literales dispersos.
-3. Tras una mutation, invalida las keys afectadas.
-4. `enabled` en queries dependientes; nada de queries con params inválidos.
-5. `staleTime` explícito cuando la data no cambia cada segundo.
+1. Server state lives in Query; it's not copied to another store.
+2. Query keys from a typed factory, never scattered literal arrays.
+3. After a mutation, invalidate the affected keys.
+4. `enabled` on dependent queries; no queries with invalid params.
+5. Explicit `staleTime` when the data doesn't change every second.
 
-## Antes de declarar listo
+## Before declaring done
 
-- Las keys nuevas salen de la factory y se invalidan tras mutar.
-- Ningún dato de query duplicado en useState/Redux.
-- Las queries dependientes usan `enabled`.
-- `{{qualityGate.fast}}` en verde.
+- New keys come from the factory and are invalidated after mutating.
+- No query data duplicated in useState/Redux.
+- Dependent queries use `enabled`.
+- `{{qualityGate.fast}}` green.

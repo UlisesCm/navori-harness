@@ -1,12 +1,12 @@
 ## GitHub CLI (gh)
 
-Para interactuar con GitHub (issues, PRs, repos) usa **gh**:
+To interact with GitHub (issues, PRs, repos) use **gh**:
 
-- Ver issue: `gh issue view <number>` o `gh issue view <number> --comments`
-- Buscar issues: `gh issue list --search "<query>"` o `gh issue list --label bug --state open`
-- Crear PR: `gh pr create --title "..." --body "..."`
-- Ver PR + checks: `gh pr view <number> --checks` o `gh pr checks <number>`
-- Listar PRs: `gh pr list --state open`
-- Ver workflow runs: `gh run list --limit 5` o `gh run view <id> --log-failed`
+- View an issue: `gh issue view <number>` or `gh issue view <number> --comments`
+- Search issues: `gh issue list --search "<query>"` or `gh issue list --label bug --state open`
+- Create a PR: `gh pr create --title "..." --body "..."`
+- View a PR + checks: `gh pr view <number> --checks` or `gh pr checks <number>`
+- List PRs: `gh pr list --state open`
+- View workflow runs: `gh run list --limit 5` or `gh run view <id> --log-failed`
 
-`gh auth status` muestra si está autenticado. Si falla, correr `gh auth login`.
+`gh auth status` shows whether you're authenticated. If it fails, run `gh auth login`.

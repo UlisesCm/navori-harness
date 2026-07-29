@@ -1,9 +1,9 @@
-## Cierre de sesión
+## Session closeout
 
-Antes de cerrar la sesión:
+Before closing the session:
 
-1. **Quality gate**: {{qualityGate.full}} — confirma que pasa (o documenta deuda en `progress/current.md`).
-2. **History**: agrega entrada en `progress/history.md` con `## YYYY-MM-DD HH:MM <agente> — <resumen>` + cambios + estado del gate.
-3. **Vaciar current**: deja `progress/current.md` en `idle` o con el siguiente paso explícito.
-4. **Sin temporales**: borra scratch files; no dejes `console.log`, `debugger` ni código comentado.
-5. **Commit Conventional**: `feat|fix|chore|docs(scope): mensaje`, español MX, atómico. Nunca commitear `.claude/` ni `CLAUDE.md`.
+1. **Quality gate**: {{qualityGate.full}} — confirm it passes (or document debt in `progress/current.md`).
+2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status.
+3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
+4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
+5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, Spanish MX, atomic. Never commit `.claude/` or `CLAUDE.md`.

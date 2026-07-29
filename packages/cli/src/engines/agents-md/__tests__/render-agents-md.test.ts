@@ -35,9 +35,9 @@ describe("renderAgentsMdEngine", () => {
     const md = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
     expect(md).toContain("# AGENTS.md");
     expect(md).toContain("## Idioma y rol"); // a core rule block
-    expect(md).toContain("## Skills disponibles");
+    expect(md).toContain("## Available skills");
     expect(md).toContain("verify-before-done");
-    expect(md).toContain("## Flujo de trabajo");
+    expect(md).toContain("## Workflow");
     // managed marker + a user-section the user owns
     expect(md).toContain('navori:managed id="navori-agents"');
     expect(md).toContain("navori:user-section");
@@ -60,10 +60,10 @@ describe("renderAgentsMdEngine", () => {
     renderAgentsMdEngine(cwd, baseConfig());
     const md = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
     // Subagent orchestration is a Claude Code capability; the role block drops.
-    expect(md).not.toContain("## Rol: orquestador");
+    expect(md).not.toContain("## Role: orchestrator");
     expect(md).not.toContain("vía la tool `Agent`");
     // ...but the engine-agnostic workflow guidance still ships.
-    expect(md).toContain("## Flujo de trabajo");
+    expect(md).toContain("## Workflow");
   });
 
   it("surfaces the parity gap via warnings[] (was always empty — #71)", () => {
@@ -109,7 +109,7 @@ describe("renderAgentsMdEngine", () => {
     renderAgentsMdEngine(cwd, baseConfig());
     const path = join(cwd, "AGENTS.md");
     const edited = readFileSync(path, "utf-8").replace(
-      "<!-- Agrega aquí lo específico de tu repo; navori no toca esta sección. -->",
+      "<!-- Add your repo-specific rules here; navori doesn't touch this section. -->",
       "- Mi regla propia del repo.",
     );
     writeFileSync(path, edited, "utf-8");

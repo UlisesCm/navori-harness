@@ -1,20 +1,20 @@
 ---
 name: keystone-models
-description: Convenciones para lists de Keystone 6 — estructura list({ access, hooks, fields }), contrato de hooks (resolveInput/validateInput/afterOperation) y uso de context.sudo(). Aplica al crear o modificar un modelo.
+description: Conventions for Keystone 6 lists — list({ access, hooks, fields }) structure, hooks contract (resolveInput/validateInput/afterOperation) and use of context.sudo(). Use when creating or modifying a model.
 type: reference
 ---
 
-# Keystone Models — convenciones del proyecto
+# Keystone Models — project conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Antes de crear una list nueva, agregar/cambiar un field, o tocar un hook de un modelo. Los hooks y el access de una list son el punto donde vive la lógica de negocio y la seguridad de los datos; saltarse el contrato rompe la integridad o abre huecos de acceso.
+Before creating a new list, adding/changing a field, or touching a model's hook. A list's hooks and access are where business logic and data security live; skipping the contract breaks integrity or opens access holes.
 
-## Estructura de una list
+## Structure of a list
 
 ```ts
 export const Report = list({
-  access: { /* ver skill keystone-access */ },
+  access: { /* see keystone-access skill */ },
   hooks: { resolveInput, validateInput, afterOperation },
   fields: {
     title: text({ validation: { isRequired: true } }),
@@ -24,38 +24,38 @@ export const Report = list({
 });
 ```
 
-Un modelo se compone de tres bloques: `access` (quién puede qué — skill aparte), `hooks` (lógica de dominio en el ciclo de vida) y `fields` (forma de los datos). Manténlos en ese orden.
+A model is made of three blocks: `access` (who can do what — separate skill), `hooks` (domain logic in the lifecycle) and `fields` (the shape of the data). Keep them in that order.
 
-## Contrato de hooks (reglas duras)
+## Hooks contract (hard rules)
 
-1. **`resolveInput` transforma y retorna** — devuelve el objeto de datos resuelto: `return { ...resolvedData, slug };`. Es el único hook que muta lo que se va a persistir. Nunca lanzas desde aquí para validar (eso es `validateInput`).
-2. **`validateInput` valida y lanza** — chequea invariantes de negocio y, si algo está mal, `addValidationError(msg)` o `throw new Error(msg)`. **Nunca retorna un valor**; su único efecto es dejar pasar o abortar la operación.
-3. **`afterOperation` reacciona** — corre después de persistir (side-effects: encolar un job, recalcular un agregado, emitir un evento). **Siempre** chequea `operation` antes de actuar: `if (operation === "create" || operation === "update") { ... }`. En `delete` los datos ya no existen — usa `originalItem`.
+1. **`resolveInput` transforms and returns** — returns the resolved data object: `return { ...resolvedData, slug };`. It's the only hook that mutates what will be persisted. Never throw from here to validate (that's `validateInput`).
+2. **`validateInput` validates and throws** — checks business invariants and, if something is wrong, `addValidationError(msg)` or `throw new Error(msg)`. **Never returns a value**; its only effect is to let the operation through or abort it.
+3. **`afterOperation` reacts** — runs after persisting (side-effects: enqueue a job, recompute an aggregate, emit an event). **Always** check `operation` before acting: `if (operation === "create" || operation === "update") { ... }`. On `delete` the data no longer exists — use `originalItem`.
 
 ## context.sudo() cheatsheet
 
 ```ts
-context.sudo().db.Model;   // hooks + services: bypass del access, para lógica interna confiable
-context.db.Model;          // NUNCA en hooks/services — re-aplica el access de la sesión y puede filtrar/negar de más
-context.prisma;            // SOLO en scripts de seed/migración, nunca en runtime de la app
+context.sudo().db.Model;   // hooks + services: bypass access, for trusted internal logic
+context.db.Model;          // NEVER in hooks/services — re-applies the session's access and can over-filter/over-deny
+context.prisma;            // ONLY in seed/migration scripts, never in app runtime
 ```
 
-Dentro de un hook o service **siempre** usa `context.sudo()`. Usar `context.db` en un hook es un bug latente: la operación puede fallar o devolver datos parciales según quién esté logueado.
+Inside a hook or service **always** use `context.sudo()`. Using `context.db` in a hook is a latent bug: the operation may fail or return partial data depending on who's logged in.
 
-## Tabla rápida
+## Quick table
 
-| Necesito | Dónde / Cómo |
+| I need | Where / How |
 |---|---|
-| Derivar un campo antes de guardar | `resolveInput` → `return { ...resolvedData, campo }` |
-| Rechazar una operación inválida | `validateInput` → `throw new Error(...)` / `addValidationError(...)` |
-| Efecto secundario tras guardar | `afterOperation` con guard `operation === 'create'\|'update'` |
-| Leer/escribir otro modelo desde un hook | `context.sudo().db.OtroModelo` |
-| Relación entre modelos | `relationship({ ref: "Otro.campoInverso" })` |
+| Derive a field before saving | `resolveInput` → `return { ...resolvedData, field }` |
+| Reject an invalid operation | `validateInput` → `throw new Error(...)` / `addValidationError(...)` |
+| Side-effect after saving | `afterOperation` with an `operation === 'create'\|'update'` guard |
+| Read/write another model from a hook | `context.sudo().db.OtherModel` |
+| Relation between models | `relationship({ ref: "Other.inverseField" })` |
 
-## Antes de declarar el cambio "listo"
+## Before declaring the change "done"
 
-- `{{qualityGate.fast}}` en verde.
-- Ningún hook retorna desde `validateInput` ni lanza desde `resolveInput`.
-- Ningún `afterOperation` actúa sin chequear `operation`.
-- Ningún `context.db` ni `context.prisma` dentro de hooks/services (usa `context.sudo()`).
-- Si agregaste un field a un modelo existente: corre la migración (ver `prisma-keystone`), no edites `schema.prisma` a mano.
+- `{{qualityGate.fast}}` green.
+- No hook returns from `validateInput` nor throws from `resolveInput`.
+- No `afterOperation` acts without checking `operation`.
+- No `context.db` or `context.prisma` inside hooks/services (use `context.sudo()`).
+- If you added a field to an existing model: run the migration (see `prisma-keystone`), don't edit `schema.prisma` by hand.

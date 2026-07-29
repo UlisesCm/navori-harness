@@ -1,18 +1,18 @@
 ---
 name: zustand
-description: Estado global con Zustand v5 — selectores para evitar re-renders, acciones en el store, slices. Aplica al crear un store, leer estado en un componente o mover estado compartido fuera de Context.
+description: Use when creating a store, reading state in a component, or moving shared state out of Context — global state with Zustand v5: selectors to avoid re-renders, actions in the store, slices.
 type: reference
 ---
 
-# Zustand — el patrón canónico
+# Zustand — the canonical pattern
 
-Un store con estado y acciones juntos; los componentes se suscriben con un **selector**, no al store entero. Así solo re-renderizan cuando cambia lo que leen.
+One store with state and actions together; components subscribe with a **selector**, not to the whole store. That way they only re-render when what they read changes.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al crear un store, leer estado en un componente, o mover estado compartido/mutable frecuente fuera de Context (que re-renderiza todo el árbol del Provider).
+When creating a store, reading state in a component, or moving frequently-changing shared/mutable state out of Context (which re-renders the whole Provider tree).
 
-## El patrón
+## The pattern
 
 ```ts
 import { create } from "zustand";
@@ -32,20 +32,20 @@ const useUserStore = create<UserStore>((set) => ({
   },
 }));
 
-const name = useUserStore((s) => s.user?.name);            // un campo → sin re-render de más
-const { user, loading } = useUserStore(                    // varios campos → useShallow
+const name = useUserStore((s) => s.user?.name);            // one field → no extra re-render
+const { user, loading } = useUserStore(                    // several fields → useShallow
   useShallow((s) => ({ user: s.user, loading: s.loading })),
 );
 ```
 
-## Reglas duras
+## Hard rules
 
-1. **Siempre un selector.** `const s = useStore()` (sin selector) re-renderiza ante cualquier cambio del store. Selecciona el campo que usas.
-2. **Varios campos → `useShallow`.** Devolver un objeto/array nuevo sin `useShallow` re-renderiza en cada render por identidad nueva.
-3. **Acciones dentro del store**, no en el componente; usa `set((state) => ...)` cuando el update depende del valor actual.
-4. **Estado async con su `loading`/`error` en el store**, no suelto en el componente.
-5. **Nada de un único store global gigante.** Separa por dominio (user, cart, settings) con el **slices pattern**: cada slice es una factory `(set) => ({...})` y el store se compone por spread; el tipo es la intersección.
-6. Fuera de React: `useStore.getState()` / `setState()` / `subscribe()` — no hooks.
+1. **Always a selector.** `const s = useStore()` (no selector) re-renders on any store change. Select the field you use.
+2. **Several fields → `useShallow`.** Returning a new object/array without `useShallow` re-renders on every render due to a new identity.
+3. **Actions inside the store**, not in the component; use `set((state) => ...)` when the update depends on the current value.
+4. **Async state with its `loading`/`error` in the store**, not loose in the component.
+5. **No single giant global store.** Split by domain (user, cart, settings) with the **slices pattern**: each slice is a factory `(set) => ({...})` and the store is composed by spread; the type is the intersection.
+6. Outside React: `useStore.getState()` / `setState()` / `subscribe()` — no hooks.
 
 ```ts
 const useStore = create<UserSlice & CartSlice>()((...a) => ({
@@ -56,15 +56,15 @@ const useStore = create<UserSlice & CartSlice>()((...a) => ({
 
 ## Middlewares
 
-`persist` (hidratar desde storage, con `name`), `immer` (updates anidados mutando "directo"), `devtools` (`{ name }`). Se anidan envolviendo el creador.
+`persist` (hydrate from storage, with `name`), `immer` (nested updates by "directly" mutating), `devtools` (`{ name }`). They nest by wrapping the creator.
 
 ## Zustand vs Context
 
-Context es para inyección **estable** (theme, config, i18n). Para estado compartido que cambia seguido, Zustand — evita el re-render masivo del Provider.
+Context is for **stable** injection (theme, config, i18n). For shared state that changes often, Zustand — it avoids the massive Provider re-render.
 
-## Antes de declarar listo
+## Before declaring done
 
-- Cada componente lee con selector; multi-campo con `useShallow`.
-- Acciones y estado async (con loading/error) viven en el store.
-- Stores separados por dominio; nada de un mega-store global.
-- `{{qualityGate.fast}}` en verde.
+- Every component reads with a selector; multi-field with `useShallow`.
+- Actions and async state (with loading/error) live in the store.
+- Stores split by domain; no global mega-store.
+- `{{qualityGate.fast}}` green.

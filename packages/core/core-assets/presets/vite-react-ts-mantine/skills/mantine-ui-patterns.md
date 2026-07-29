@@ -1,24 +1,24 @@
 ---
 name: mantine-ui-patterns
-description: Reglas para UI con Mantine — usar componentes del lib en vez de raw HTML, theming, responsive. Aplica al crear o modificar componentes React.
+description: Use when creating or modifying React components with Mantine — rules for UI: use the lib's components instead of raw HTML, theming, responsive.
 type: reference
 ---
 
-# Mantine UI patterns — convenciones del proyecto
+# Mantine UI patterns — project conventions
 
-## Cuándo usar este skill
+## When to use this skill
 
-Antes de escribir un componente React nuevo o modificar uno existente. Mantine ya provee 100+ componentes con accesibilidad, theming y dark mode integrados; reinventar uno con `<div>` rompe la consistencia visual y agrega bugs de a11y.
+Before writing a new React component or modifying an existing one. Mantine already provides 100+ components with accessibility, theming, and dark mode built in; reinventing one with `<div>` breaks visual consistency and adds a11y bugs.
 
-## Reglas duras
+## Hard rules
 
-1. **`<Button>` antes que `<button>`.** Lo mismo con `<TextInput>` (no `<input>`), `<Stack>` (no `<div style={{ display: 'flex', flexDirection: 'column' }}>`), `<Group>` (no flex horizontal), `<Title>` (no `<h1>`). Si el componente Mantine no cubre tu caso, primero confirma que no exista — la lib es enorme.
-2. **Theming centralizado en `theme.ts`.** Colores, espacios, radios, breakpoints viven en el objeto `MantineThemeOverride`. No hardcodear `#3b82f6` o `padding: 12px` en componentes — usa `var(--mantine-color-blue-6)`, `theme.spacing.sm` o el prop `c="blue.6"`.
-3. **Props sobre `style={{ ... }}`.** Mantine acepta `mt`, `mb`, `p`, `gap`, `c`, `bg`, etc. como props directos. Siguen el sistema de tokens del theme. `style={{ marginTop: 16 }}` rompe responsive + theming.
-4. **Responsive con `visibleFrom` / `hiddenFrom` o `responsive prop`.** No condicionar render con `window.innerWidth`. Mantine ya tiene breakpoints + hooks (`useMediaQuery`).
-5. **Forms con `@mantine/form` en `mode: 'uncontrolled'` (recomendado en v8), no estado a mano.** Guarda valores en un ref (no re-renderiza por tecla), pero exige `key={form.key('campo')}` en cada input o `setFieldValue`/`setValues` no refrescan (bug silencioso), y lees con `form.getValues()`, no `form.values`.
+1. **`<Button>` over `<button>`.** Same with `<TextInput>` (not `<input>`), `<Stack>` (not `<div style={{ display: 'flex', flexDirection: 'column' }}>`), `<Group>` (not horizontal flex), `<Title>` (not `<h1>`). If the Mantine component doesn't cover your case, first confirm it doesn't exist — the lib is huge.
+2. **Theming centralized in `theme.ts`.** Colors, spacing, radii, breakpoints live in the `MantineThemeOverride` object. Don't hardcode `#3b82f6` or `padding: 12px` in components — use `var(--mantine-color-blue-6)`, `theme.spacing.sm`, or the `c="blue.6"` prop.
+3. **Props over `style={{ ... }}`.** Mantine accepts `mt`, `mb`, `p`, `gap`, `c`, `bg`, etc. as direct props. They follow the theme's token system. `style={{ marginTop: 16 }}` breaks responsive + theming.
+4. **Responsive with `visibleFrom` / `hiddenFrom` or a responsive prop.** Don't gate rendering with `window.innerWidth`. Mantine already has breakpoints + hooks (`useMediaQuery`).
+5. **Forms with `@mantine/form` in `mode: 'uncontrolled'` (recommended in v8), not hand-rolled state.** It stores values in a ref (no re-render per keystroke), but it requires `key={form.key('field')}` on each input or `setFieldValue`/`setValues` won't refresh (silent bug), and you read with `form.getValues()`, not `form.values`.
 
-## Patrón típico
+## Typical pattern
 
 ```tsx
 import { Stack, TextInput, Button, Title, Group } from "@mantine/core";
@@ -26,7 +26,7 @@ import { useForm } from "@mantine/form";
 
 export function CreateUserForm({ onSubmit }: Props) {
   const form = useForm({
-    mode: "uncontrolled",                    // recomendado en v8
+    mode: "uncontrolled",                    // recommended in v8
     initialValues: { email: "", name: "" },
     validate: {
       email: (v) => (/^\S+@\S+$/.test(v) ? null : "Email inválido"),
@@ -55,23 +55,23 @@ export function CreateUserForm({ onSubmit }: Props) {
 }
 ```
 
-## Tabla rápida
+## Quick table
 
-| Necesito | Componente Mantine |
+| I need | Mantine component |
 |---|---|
-| Botón | `<Button>` (variants: filled/outline/light/subtle) |
-| Input texto | `<TextInput>` |
+| Button | `<Button>` (variants: filled/outline/light/subtle) |
+| Text input | `<TextInput>` |
 | Select | `<Select>` (single) / `<MultiSelect>` |
 | Date picker | `@mantine/dates` → `<DatePicker>` / `<DateInput>` |
-| Layout vertical | `<Stack gap="md">` |
-| Layout horizontal | `<Group justify="space-between">` |
-| Grilla responsive | `<Grid>` o `<SimpleGrid cols={{ base: 1, md: 2 }}>` |
-| Card / contenedor | `<Paper p="md" radius="md" shadow="sm">` |
-| Modal | `<Modal opened={x} onClose={...}>` (usar `useDisclosure`) |
-| Loading / Tooltip | `<Loader>` o `loading` en `<Button>` / `<Tooltip label>` |
-| Notif toast | `notifications.show({ message })` de `@mantine/notifications` |
+| Vertical layout | `<Stack gap="md">` |
+| Horizontal layout | `<Group justify="space-between">` |
+| Responsive grid | `<Grid>` or `<SimpleGrid cols={{ base: 1, md: 2 }}>` |
+| Card / container | `<Paper p="md" radius="md" shadow="sm">` |
+| Modal | `<Modal opened={x} onClose={...}>` (use `useDisclosure`) |
+| Loading / Tooltip | `<Loader>` or `loading` on `<Button>` / `<Tooltip label>` |
+| Toast notif | `notifications.show({ message })` from `@mantine/notifications` |
 
-## Antes de declarar el cambio "listo"
+## Before calling the change "done"
 
-- `{{qualityGate.fast}}` en verde; probado en dark mode (si rompe, usaste color hardcoded) y responsive (mobile < 768px).
-- Cero `<div style>` con flex/grid → `<Stack>`/`<Group>`/`<SimpleGrid>`; cero hex en componentes → `theme.colors`.
+- `{{qualityGate.fast}}` green; tested in dark mode (if it breaks, you used a hardcoded color) and responsive (mobile < 768px).
+- Zero `<div style>` with flex/grid → `<Stack>`/`<Group>`/`<SimpleGrid>`; zero hex in components → `theme.colors`.

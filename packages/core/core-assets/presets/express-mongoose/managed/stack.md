@@ -1,20 +1,20 @@
 ## Stack — Express + Mongoose
 
-Backend HTTP sobre Express + Mongoose/MongoDB en TypeScript. Las peticiones fluyen en capas: `route → validate(schema) → asyncHandler → controller → Model (Mongoose) → ApiResponse`. Los controllers tocan los Models directo (sin repository wrappers); los errores se propagan vía `ApiError` y las respuestas se envuelven en `ApiResponse`. El logging va por el `Logger` de winston, nunca `console.log`.
+HTTP backend on Express + Mongoose/MongoDB in TypeScript. Requests flow through layers: `route → validate(schema) → asyncHandler → controller → Model (Mongoose) → ApiResponse`. Controllers touch the Models directly (no repository wrappers); errors propagate via `ApiError` and responses are wrapped in `ApiResponse`. Logging goes through winston's `Logger`, never `console.log`.
 
-Regla de oro: nada de `res.json` / `res.status(500)` crudos; nada de `console.log`; nada de `process.env` fuera del módulo de config. La validación SIEMPRE ocurre en el boundary (con el validador del repo — Zod o Joi), y todo `ObjectId` se construye con `new Types.ObjectId(...)`. Aplica las skills `express-routes`, `mongo-aggregations` y `winston-logging` del preset según la capa que toques. Las skills de `mongoose` y de validación (`zod-validation` o `joi-validation`) se inyectan según las dependencias que detecte navori en el repo — si están en `.claude/skills/`, aplícalas.
+Golden rule: no raw `res.json` / `res.status(500)`; no `console.log`; no `process.env` outside the config module. Validation ALWAYS happens at the boundary (with the repo's validator — Zod or Joi), and every `ObjectId` is built with `new Types.ObjectId(...)`. Apply the preset's `express-routes`, `mongo-aggregations` and `winston-logging` skills according to the layer you touch. The `mongoose` and validation skills (`zod-validation` or `joi-validation`) are injected based on the dependencies navori detects in the repo — if they're in `.claude/skills/`, apply them.
 
-El trabajo de un ticket sigue el pipeline documentado en la skill `ticket-intake` (la orquestadora). No es un generador de specs: es un protocolo que el `leader` ejecuta invocando agentes y skills en orden, con gates objetivos y artefactos en `.claude/progress/`. Mapeo de fases a la infraestructura de navori:
+A ticket's work follows the pipeline documented in the `ticket-intake` skill (the orchestrator). It's not a spec generator: it's a protocol the `leader` runs by invoking agents and skills in order, with objective gates and artifacts in `.claude/progress/`. Phase-to-navori-infrastructure mapping:
 
-| Fase | Quién la cubre | Artefacto |
+| Phase | Who covers it | Artifact |
 |---|---|---|
-| Audit | agente `ticket-audit` | `audit_<id>.md` |
-| Explore | agente `explorer` (2-3 en paralelo) | `explore_<dim>.md` |
-| Design | skills `new-endpoint` / `new-resource` según alcance | (en el plan) |
-| Implement | agente `implementer` (aplica las skills de stack) | `impl_<feature>.md` |
-| Verify | skill core `verify-before-done` (Iron Law) | (evidencia en turno) |
-| Review | agente `reviewer` + skill core `review-diff` | `review_<feature>.md` |
-| Debug | skill core `loop-back-debug` | — |
-| PR | skill `pr-create` | URL del PR |
+| Audit | `ticket-audit` agent | `audit_<id>.md` |
+| Explore | `explorer` agent (2-3 in parallel) | `explore_<dim>.md` |
+| Design | `new-endpoint` / `new-resource` skills by scope | (in the plan) |
+| Implement | `implementer` agent (applies the stack skills) | `impl_<feature>.md` |
+| Verify | core skill `verify-before-done` (Iron Law) | (evidence in-turn) |
+| Review | `reviewer` agent + core skill `review-diff` | `review_<feature>.md` |
+| Debug | core skill `loop-back-debug` | — |
+| PR | `pr-create` skill | PR URL |
 
-navori bootstrapea `current.md` e `history.md`; el resto de artefactos los crea el flujo en runtime.
+navori bootstraps `current.md` and `history.md`; the rest of the artifacts are created by the flow at runtime.

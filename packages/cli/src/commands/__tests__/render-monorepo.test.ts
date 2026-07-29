@@ -387,7 +387,7 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
       const ws = readFileSync(join(cwd, "apps/backend/AGENTS.md"), "utf-8");
       expect(root).toContain("## Idioma y rol"); // rootOnly block present at root
       expect(ws).not.toContain("## Idioma y rol"); // omitted per workspace
-      expect(ws).toContain("## Flujo de trabajo"); // engine-agnostic sections stay
+      expect(ws).toContain("## Workflow"); // engine-agnostic sections stay
     });
 
     it("engines [agents-md] only: no CLAUDE.md anywhere, AGENTS.md everywhere", () => {

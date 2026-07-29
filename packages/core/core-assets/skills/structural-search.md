@@ -1,69 +1,69 @@
 ---
 name: structural-search
-description: Usar antes de leer código para localizar algo (símbolo, forma sintáctica, relación estructural, sitio de refactor): encuentra la región correcta y abre solo el span confirmado en vez de leer archivos completos; escala de engram a Grep a ast-grep según el trigger.
+description: Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — find the right region and open only the confirmed span instead of reading whole files; escalate from engram to Grep to ast-grep per the trigger.
 type: reference
 ---
 
-# structural-search — leer lo mínimo correcto
+# structural-search — read the minimum correct amount
 
-Encuentra primero la región correcta y abre solo el span confirmado. Las herramientas de precisión verifican una hipótesis; no la forman.
+Find the right region first and open only the confirmed span. Precision tools verify a hypothesis; they don't form it.
 
-## Escalera Rung 0–2
+## Ladder Rung 0–2
 
-### Rung 0 — orientación con engram
+### Rung 0 — orientation with engram
 
-Antes de buscar, consulta memoria para preguntas durables: dónde vive un módulo, entry points, capas, convenciones y decisiones. Usa el resultado como **hipótesis de scope**, nunca como fuente de verdad para líneas, firmas o call sites.
+Before searching, consult memory for durable questions: where a module lives, entry points, layers, conventions and decisions. Use the result as a **scope hypothesis**, never as a source of truth for lines, signatures or call sites.
 
-Confirma cada puntero con una búsqueda barata. Si el código contradice la memoria, corrige la observación de inmediato. Guarda punteros estructurales, no snapshots volátiles.
+Confirm every pointer with a cheap search. If the code contradicts memory, correct the observation immediately. Save structural pointers, not volatile snapshots.
 
-### Rung 1 — texto con Grep/ripgrep (default)
+### Rung 1 — text with Grep/ripgrep (default)
 
-Úsalo cuando conoces un token literal: nombre, import, config key, string de error.
+Use it when you know a literal token: name, import, config key, error string.
 
-1. Empieza estrecho: archivo, directorio o tipo obtenido en Rung 0.
-2. Pide primero archivos (`rg -l`) o `file:line` con máximo dos líneas de contexto.
-3. Deduplica antes de leer.
-4. Abre únicamente el span que confirma el hit.
+1. Start narrow: file, directory or type obtained in Rung 0.
+2. Ask first for files (`rg -l`) or `file:line` with at most two lines of context.
+3. Dedup before reading.
+4. Open only the span that confirms the hit.
 
-Escala a Rung 2 solo si ocurre uno:
+Escalate to Rung 2 only if one of these happens:
 
-- cero resultados después de dos patrones razonables;
-- los resultados son puro ruido;
-- estás escribiendo regex para aproximar sintaxis;
-- necesitas un refactor estructural multi-sitio.
+- zero results after two reasonable patterns;
+- the results are pure noise;
+- you're writing regex to approximate syntax;
+- you need a multi-site structural refactor.
 
-### Rung 2 — estructura con ast-grep
+### Rung 2 — structure with ast-grep
 
-Usa `sg` o `ast-grep` para formas del AST:
+Use `sg` or `ast-grep` for AST shapes:
 
 ```bash
 sg -p 'async function $N($$$) { $$$ }' -l ts src/
 ast-grep -p 'useAuth($$$)' -l tsx apps/
 ```
 
-Para reescribir, prueba primero el patrón sin `--rewrite`, limita paths/lenguaje y revisa el diff antes de aplicar. Un nombre literal sigue siendo Rung 1; una pregunta conceptual vuelve a Rung 0.
+To rewrite, first test the pattern without `--rewrite`, limit paths/language and review the diff before applying. A literal name is still Rung 1; a conceptual question goes back to Rung 0.
 
-Si ninguno de los binarios existe, cae a Grep y lectura puntual: **no bloquees la tarea** ni inventes sintaxis de ast-grep.
+If neither binary exists, fall back to Grep and targeted reading: **don't block the task** nor invent ast-grep syntax.
 
-## Mapa rápido
+## Quick map
 
-| Necesidad | Rung |
+| Need | Rung |
 |---|---:|
-| Dónde vive un adapter o convención | 0 |
-| Import, símbolo o mensaje conocido | 1 |
-| Hooks/componentes con una forma concreta | 2 |
-| Codemod multi-sitio | 2 |
-| Semántica cross-file con tipos | lectura manual del span confirmado |
+| Where an adapter or convention lives | 0 |
+| Known import, symbol or message | 1 |
+| Hooks/components with a concrete shape | 2 |
+| Multi-site codemod | 2 |
+| Cross-file semantics with types | manual read of the confirmed span |
 
-## Límites
+## Limits
 
-- No leas archivos completos por reflejo.
-- No corras grep ancho sin scope.
-- No uses regex como AST.
-- Si la búsqueda consume ~15% del contexto, detente: reduce scope o actúa con la evidencia disponible.
-- No montes LSP/Serena; este harness termina en Rung 2.
+- Don't read whole files by reflex.
+- Don't run wide grep without scope.
+- Don't use regex as AST.
+- If the search consumes ~15% of the context, stop: reduce scope or act on the available evidence.
+- Don't set up LSP/Serena; this harness ends at Rung 2.
 
 <!-- navori:user-section -->
-## Patrones estructurales del proyecto
+## The project's structural patterns
 
-<!-- user: documenta aquí patrones sg/ast-grep comprobados, lenguajes y paths frecuentes. Guarda patrones reutilizables; no pegues resultados ni líneas actuales. -->
+<!-- user: document here proven sg/ast-grep patterns, frequent languages and paths. Save reusable patterns; don't paste results nor current lines. -->

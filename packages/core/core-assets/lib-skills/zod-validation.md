@@ -1,20 +1,20 @@
 ---
 name: zod-validation
-description: Validación de input con Zod en Express — schemas por recurso, middleware validate genérico, DTOs inferidos. Aplica al crear schemas o tocar input validation de body/query/params.
+description: Use when creating schemas or touching input validation of body/query/params — input validation with Zod in Express: per-resource schemas, generic validate middleware, inferred DTOs.
 type: reference
 ---
 
-# Zod Validation — el patrón canónico
+# Zod Validation — the canonical pattern
 
-Un schema por recurso (`<resource>.schema.ts`), validado por un middleware genérico que reemplaza `req[target]` con el valor parseado y tipado. El DTO sale de `z.infer`.
+One schema per resource (`<resource>.schema.ts`), validated by a generic middleware that replaces `req[target]` with the parsed and typed value. The DTO comes from `z.infer`.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al crear un schema, agregar validación a un endpoint, inferir un DTO, o tocar input de body/query/params.
+When creating a schema, adding validation to an endpoint, inferring a DTO, or touching input from body/query/params.
 
-## El patrón
+## The pattern
 
-El middleware vive en `helpers/validate.ts`: parsea `req[target]` contra el schema, y al fallar lanza `BadRequestError(\`${path}: ${first.message}\`)` con el primer issue. En éxito, reasigna `req[target] = parsed`. Schema y DTO:
+The middleware lives in `helpers/validate.ts`: it parses `req[target]` against the schema, and on failure throws `BadRequestError(\`${path}: ${first.message}\`)` with the first issue. On success, it reassigns `req[target] = parsed`. Schema and DTO:
 
 ```ts
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid ObjectId');
@@ -28,39 +28,39 @@ export const updateResourceSchema = createResourceSchema.partial();
 export type CreateResourceDto = z.infer<typeof createResourceSchema>;
 ```
 
-En la route: `router.post('/', validate(createResourceSchema, 'body'), ...)`. En el controller el cast `req.body as CreateResourceDto` es seguro porque el middleware ya parseó.
+In the route: `router.post('/', validate(createResourceSchema, 'body'), ...)`. In the controller the cast `req.body as CreateResourceDto` is safe because the middleware already parsed it.
 
-## Gotchas que muerden
+## Gotchas that bite
 
-- **ObjectId pelado** (`z.string()`) deja pasar `"abc"`; Mongoose lanza CastError 500 en vez de 400 limpio. Usa siempre el helper `objectId`.
-- **Query strings siempre son string.** Sin `z.coerce`, `z.number()` las rechaza. Usa `z.coerce.number()` / `z.coerce.date()`. **Footgun:** `z.coerce.number()` usa `Number()`, así que `""`/`" "`/`null` → `0` (un `?page=` vacío pasa como `0`). Si importa, pon límites explícitos o `z.string().regex(...).transform(Number)`.
-- **Claves desconocidas se descartan en silencio:** `z.object({...})` hace *strip*, así que un typo en el body (`{ ammount }`) se pierde sin error. En endpoints de mutación usa `z.strictObject({...})` para atraparlo.
-- **Versión:** este skill asume Zod v3. En **v4**: `z.nativeEnum`→`z.enum`, `z.string().datetime()`→`z.iso.datetime()`, y `{ message }`→`{ error }` en las opciones de error.
+- **A bare ObjectId** (`z.string()`) lets `"abc"` through; Mongoose throws a CastError 500 instead of a clean 400. Always use the `objectId` helper.
+- **Query strings are always strings.** Without `z.coerce`, `z.number()` rejects them. Use `z.coerce.number()` / `z.coerce.date()`. **Footgun:** `z.coerce.number()` uses `Number()`, so `""`/`" "`/`null` → `0` (an empty `?page=` passes as `0`). If it matters, set explicit bounds or `z.string().regex(...).transform(Number)`.
+- **Unknown keys are silently dropped:** `z.object({...})` *strips*, so a typo in the body (`{ ammount }`) is lost with no error. On mutation endpoints use `z.strictObject({...})` to catch it.
+- **Version:** this skill assumes Zod v3. In **v4**: `z.nativeEnum`→`z.enum`, `z.string().datetime()`→`z.iso.datetime()`, and `{ message }`→`{ error }` in the error options.
 
-## Reglas duras
+## Hard rules
 
-1. Toda validación en el schema, nunca inline en el controller.
-2. El schema vive en `<resource>.schema.ts`, nunca en las routes.
-3. DTO siempre con `z.infer` — no mantengas dos tipos en paralelo.
-4. Nada de `z.any()`: equivale a `any`, prohibido en código nuevo.
-5. Un solo validador por endpoint — no mezcles Joi + Zod (al migrar Joi→Zod, migra el endpoint completo).
-6. ObjectId con el helper `objectId`; query/params con `z.coerce`.
+1. All validation in the schema, never inline in the controller.
+2. The schema lives in `<resource>.schema.ts`, never in the routes.
+3. DTO always with `z.infer` — don't maintain two parallel types.
+4. No `z.any()`: it equals `any`, forbidden in new code.
+5. A single validator per endpoint — don't mix Joi + Zod (when migrating Joi→Zod, migrate the whole endpoint).
+6. ObjectId with the `objectId` helper; query/params with `z.coerce`.
 
-## Tabla rápida
+## Quick table
 
-| Necesito validar | Helper |
+| Need to validate | Helper |
 |---|---|
 | ObjectId | `objectId` (regex `/^[a-f\d]{24}$/i`) |
-| String no vacío | `z.string().trim().min(1)` |
-| Number desde query | `z.coerce.number().int().positive()` |
-| Date | `z.coerce.date()` o `z.string().datetime()` |
-| Enum TS / literal | `z.nativeEnum(MyEnum)` / `z.enum(['a','b'])` |
-| Update parcial | `createSchema.partial()` |
-| Validación cruzada | `.refine((d) => ..., { message, path })` |
+| Non-empty string | `z.string().trim().min(1)` |
+| Number from query | `z.coerce.number().int().positive()` |
+| Date | `z.coerce.date()` or `z.string().datetime()` |
+| TS enum / literal | `z.nativeEnum(MyEnum)` / `z.enum(['a','b'])` |
+| Partial update | `createSchema.partial()` |
+| Cross-field validation | `.refine((d) => ..., { message, path })` |
 
-## Antes de declarar listo
+## Before declaring done
 
-- El schema vive en `<resource>.schema.ts` y el DTO sale de `z.infer`.
-- El endpoint usa `validate(schema, target)`; sin validación inline en el controller.
-- Campos ObjectId con el helper `objectId`; campos de query con `z.coerce`.
-- `{{qualityGate.fast}}` en verde.
+- The schema lives in `<resource>.schema.ts` and the DTO comes from `z.infer`.
+- The endpoint uses `validate(schema, target)`; no inline validation in the controller.
+- ObjectId fields with the `objectId` helper; query fields with `z.coerce`.
+- `{{qualityGate.fast}}` green.

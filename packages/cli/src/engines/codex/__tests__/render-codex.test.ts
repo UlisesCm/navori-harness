@@ -30,8 +30,8 @@ describe("renderCodexEngine", () => {
 
     expect(result.written.length).toBeGreaterThan(10);
     const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
-    expect(agentsMd).toContain("orquest");
-    expect(agentsMd).toContain("## Agentes disponibles");
+    expect(agentsMd).toContain("orchestrat");
+    expect(agentsMd).toContain("## Available agents");
     expect(agentsMd).toContain("`spawn_agent`");
     expect(agentsMd).not.toContain("CLAUDE.md");
     expect(agentsMd).not.toContain(".claude/agents");

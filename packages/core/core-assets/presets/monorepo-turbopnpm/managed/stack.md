@@ -1,11 +1,11 @@
 ## Stack — Monorepo (Turborepo + pnpm)
 
-Este directorio es la **raíz de un monorepo**: orquesta, no aloja producto. El código real vive en los workspaces (`apps/*`, `packages/*`), y **cada workspace tiene su propio harness** (su `CLAUDE.md` + `.claude/`) con el preset de su stack. El mapa de workspaces vivos está en el bloque "## Monorepo — raíz".
+This directory is the **root of a monorepo**: it orchestrates, it doesn't host product. The real code lives in the workspaces (`apps/*`, `packages/*`), and **each workspace has its own harness** (its `CLAUDE.md` + `.claude/`) with its stack's preset. The map of live workspaces is in the "## Monorepo — root" block.
 
-Regla de oro: **enruta el trabajo al workspace dueño**. Un cambio de producto se hace desde el `CLAUDE.md` de su app, no desde aquí. La raíz solo se toca para lo transversal: `turbo.json`, `pnpm-workspace.yaml`, tsconfig/eslint base, scripts de CI, deps compartidas.
+Golden rule: **route the work to the owning workspace**. A product change is made from its app's `CLAUDE.md`, not from here. The root is only touched for cross-cutting concerns: `turbo.json`, `pnpm-workspace.yaml`, base tsconfig/eslint, CI scripts, shared deps.
 
-- **Tareas scopeadas, no globales.** Corre por workspace con el filtro de Turbo: `pnpm turbo run <task> --filter=<workspace>` (o `--filter=./apps/<x>`). Evita correr el pipeline entero cuando solo tocaste un app.
-- **No cruces imports entre workspaces por ruta relativa** (`../../otro-app`). Consume un hermano por su nombre de paquete con el protocolo `workspace:*`; si no es un paquete publicable, probablemente el código debería vivir en un `packages/*` compartido.
-- **La dep va en el `package.json` del workspace que la usa**, no en la raíz. Deps en la raíz son solo tooling del monorepo (turbo, changesets, linters compartidos).
+- **Scoped tasks, not global ones.** Run per workspace with Turbo's filter: `pnpm turbo run <task> --filter=<workspace>` (or `--filter=./apps/<x>`). Avoid running the whole pipeline when you only touched one app.
+- **Don't cross imports between workspaces via relative paths** (`../../other-app`). Consume a sibling by its package name with the `workspace:*` protocol; if it's not a publishable package, the code probably belongs in a shared `packages/*`.
+- **The dep goes in the `package.json` of the workspace that uses it**, not in the root. Root deps are only monorepo tooling (turbo, changesets, shared linters).
 
-Antes de tocar `turbo.json`, `pnpm-workspace.yaml` o mover deps entre workspaces, aplica el skill `turbo-workspaces`.
+Before touching `turbo.json`, `pnpm-workspace.yaml` or moving deps between workspaces, apply the `turbo-workspaces` skill.

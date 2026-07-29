@@ -1,50 +1,50 @@
 ---
 name: turbo-workspaces
-description: Cómo navegar y operar un monorepo Turborepo + pnpm — correr tareas scopeadas, agregar deps al workspace correcto, compartir código sin acoplar. Aplica antes de tocar turbo.json, pnpm-workspace.yaml o mover deps.
+description: Use when navigating or operating a Turborepo + pnpm monorepo — running scoped tasks, adding deps to the right workspace, sharing code without coupling. Applies before touching turbo.json, pnpm-workspace.yaml, or moving deps.
 type: reference
 ---
 
-# Turborepo + pnpm — operación del monorepo
+# Turborepo + pnpm — monorepo operation
 
-## Cuándo usar este skill
+## When to use this skill
 
-Antes de: correr tareas de build/test/lint, agregar o mover una dependencia, crear un workspace nuevo, o editar `turbo.json` / `pnpm-workspace.yaml`. En un monorepo, "dónde" vive un cambio importa tanto como "qué" cambia.
+Before: running build/test/lint tasks, adding or moving a dependency, creating a new workspace, or editing `turbo.json` / `pnpm-workspace.yaml`. In a monorepo, "where" a change lives matters as much as "what" changes.
 
-## Correr tareas (siempre scopeadas)
+## Running tasks (always scoped)
 
 ```bash
-# Una tarea en UN workspace (por nombre de paquete o por ruta)
+# One task in ONE workspace (by package name or by path)
 pnpm turbo run build --filter=@scope/backend
 pnpm turbo run test --filter=./apps/storefront
 
-# Un workspace y todo lo que depende de él (aguas abajo)
+# One workspace and everything that depends on it (downstream)
 pnpm turbo run build --filter=@scope/backend...
 
-# Solo lo afectado por tu diff vs una base
+# Only what's affected by your diff vs a base
 pnpm turbo run test --filter='...[origin/main]'
 ```
 
-Regla: no corras el pipeline entero (`turbo run build`) si solo tocaste un app. Turbo cachea, pero el ruido de logs y el tiempo de arranque sí cuestan. Deja el run global para CI.
+Rule: don't run the whole pipeline (`turbo run build`) if you only touched one app. Turbo caches, but log noise and startup time still cost. Leave the global run for CI.
 
-## Agregar dependencias (al workspace correcto)
+## Adding dependencies (to the right workspace)
 
 ```bash
-# Dep de un app concreto — NO en la raíz
+# Dep for a specific app — NOT at the root
 pnpm add zod --filter @scope/backend
 
-# Dep de tooling del monorepo (turbo, changesets, prettier) — esa sí va en la raíz
+# Monorepo tooling dep (turbo, changesets, prettier) — that one does go at the root
 pnpm add -Dw turbo
 ```
 
-- Una lib de producto (`stripe`, `@tanstack/react-query`, …) va en el `package.json` del app que la importa. Si aparece en la raíz, el harness de ese app no la "ve" y su skill no se materializa donde corresponde.
-- Consumir un workspace hermano se declara explícito: `"@scope/ui": "workspace:*"` en el `package.json` del consumidor. Nunca por `import '../../ui/src/...'`.
+- A product lib (`stripe`, `@tanstack/react-query`, …) goes in the `package.json` of the app that imports it. If it lands at the root, that app's harness doesn't "see" it and its skill isn't materialized where it belongs.
+- Consuming a sibling workspace is declared explicitly: `"@scope/ui": "workspace:*"` in the consumer's `package.json`. Never via `import '../../ui/src/...'`.
 
-## Compartir código sin acoplar
+## Sharing code without coupling
 
-- Código usado por ≥2 apps → extráelo a un `packages/*` con su propio `package.json` y su preset (`navori scan` lo detecta como workspace nuevo).
-- Tipos/utilidades cross-app también van en un `packages/*`, no en `apps/*`. Un app nunca es dependencia de otro app.
+- Code used by ≥2 apps → extract it to a `packages/*` with its own `package.json` and preset (`navori scan` detects it as a new workspace).
+- Cross-app types/utilities also go in a `packages/*`, not in `apps/*`. An app is never a dependency of another app.
 
-## turbo.json — lo esencial
+## turbo.json — the essentials
 
-- Cada `task` declara sus `dependsOn` (`^build` = build de las deps primero) y sus `outputs` (para cachear). Un output mal declarado = cache que no invalida o que no cachea.
-- Antes de editar el pipeline, verifica el efecto con `pnpm turbo run <task> --dry-run` (lista qué correría y desde qué caché) antes de correrlo de verdad.
+- Each `task` declares its `dependsOn` (`^build` = build deps first) and its `outputs` (for caching). A mis-declared output = a cache that doesn't invalidate or doesn't cache at all.
+- Before editing the pipeline, check the effect with `pnpm turbo run <task> --dry-run` (lists what would run and from which cache) before actually running it.

@@ -1,35 +1,35 @@
 ---
 name: nextjs-data-fetching
-description: Reglas para data fetching en Next.js App Router (Next 15+) — cache opt-in, revalidate, dedup, parallel loading, Suspense. Aplica al tocar páginas con fetch o queries server-side.
+description: Use when touching pages with fetch or server-side queries in Next.js App Router (Next 15+) — rules for data fetching: cache opt-in, revalidate, dedup, parallel loading, Suspense.
 type: reference
 ---
 
-# Next.js Data Fetching — convenciones (Next 15+)
+# Next.js Data Fetching — conventions (Next 15+)
 
-## Cuándo usar este skill
+## When to use this skill
 
-Antes de agregar `fetch()`, cliente de DB o APIs externas en Server Components, layouts o `route.ts`. **En Next 15 el cache es opt-IN**: `fetch` NO se cachea por default (es `no-store`). Asumir el viejo default de Next 14 (`force-cache`) es la fuente #1 de bugs.
+Before adding `fetch()`, a DB client, or external APIs in Server Components, layouts, or `route.ts`. **In Next 15 the cache is opt-IN**: `fetch` is NOT cached by default (it's `no-store`). Assuming the old Next 14 default (`force-cache`) is the #1 source of bugs.
 
-## Reglas duras
+## Hard rules
 
-1. **`fetch()` NO cachea por default** (Next 15). Para cachear, opt-in explícito: `fetch(url, { cache: 'force-cache' })` o `fetch(url, { next: { revalidate: <seg> } })`. Sin eso, cada request pega al origen.
-2. **No hagas `fetch` a tu propio `route.ts` desde un Server Component.** Es un round-trip HTTP interno inútil: llama la capa de datos/DB directo. Reserva `fetch` para APIs **externas**, y ahí usa URL **absoluta** (una relativa falla en server: no hay base URL).
-3. **Dedup de queries no-`fetch` con React `cache()`.** Envuelve el getter de DB en `cache()` para que múltiples componentes en un render compartan una sola query. (`fetch` con misma URL+opts ya se deduplica solo.)
-4. **`revalidateTag` > `revalidatePath`** para invalidar preciso. Etiqueta con `next: { tags: ['orders'] }` y revalida granular tras la mutación.
-5. **Paralelo con `Promise.all`, no encadenado.** Dos datasets independientes: `await Promise.all([a(), b()])`. Encadenar `await` crea un waterfall.
-6. **Streaming con `<Suspense>`**: envuelve la pieza lenta (un async child); el resto del HTML sale mientras carga.
+1. **`fetch()` does NOT cache by default** (Next 15). To cache, opt in explicitly: `fetch(url, { cache: 'force-cache' })` or `fetch(url, { next: { revalidate: <sec> } })`. Without that, every request hits the origin.
+2. **Don't `fetch` your own `route.ts` from a Server Component.** It's a useless internal HTTP round-trip: call the data/DB layer directly. Reserve `fetch` for **external** APIs, and there use an **absolute** URL (a relative one fails on the server: there's no base URL).
+3. **Dedup non-`fetch` queries with React `cache()`.** Wrap the DB getter in `cache()` so multiple components in one render share a single query. (`fetch` with the same URL+opts already dedups itself.)
+4. **`revalidateTag` > `revalidatePath`** for precise invalidation. Tag with `next: { tags: ['orders'] }` and revalidate granularly after the mutation.
+5. **Parallel with `Promise.all`, not chained.** Two independent datasets: `await Promise.all([a(), b()])`. Chaining `await` creates a waterfall.
+6. **Streaming with `<Suspense>`**: wrap the slow piece (an async child); the rest of the HTML ships while it loads.
 
-## Patrón típico
+## Typical pattern
 
 ```tsx
 import { Suspense } from 'react';
 import { cache } from 'react';
 
-// getter de DB deduplicado — NO un fetch a /api propio
+// deduplicated DB getter — NOT a fetch to your own /api
 const getUser = cache(async (id: string) => db.user.findUnique({ where: { id } }));
 
 export default async function DashboardPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;            // params es Promise en Next 15
+  const { id } = await params;            // params is a Promise in Next 15
   const user = await getUser(id);
   return (
     <div>
@@ -42,25 +42,25 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
 }
 
 async function OrdersList({ userId }: { userId: string }) {
-  const orders = await getOrders(userId);  // capa de datos directa; cache()/revalidate si aplica
+  const orders = await getOrders(userId);  // direct data layer; cache()/revalidate if applicable
   return <ul>{orders.map((o) => <li key={o.id}>{o.total}</li>)}</ul>;
 }
 ```
 
-## Tabla rápida
+## Quick table
 
-| Necesito | Cómo |
+| I need | How |
 |---|---|
-| Data fresca cada request (default) | `fetch(url)` — ya es `no-store` en Next 15 |
-| Cachear indefinido / cada N seg | `{ cache: 'force-cache' }` / `{ next: { revalidate: N } }` |
-| Query de DB (no fetch) | envolver en `cache()` (dedup por render) |
-| Invalidar tras mutación | `revalidateTag('X')` en Server Action |
-| Dos datasets independientes | `Promise.all([a(), b()])` |
-| UI parcial mientras carga | `<Suspense>` con async child |
+| Fresh data every request (default) | `fetch(url)` — already `no-store` in Next 15 |
+| Cache indefinitely / every N sec | `{ cache: 'force-cache' }` / `{ next: { revalidate: N } }` |
+| DB query (not fetch) | wrap in `cache()` (dedup per render) |
+| Invalidate after mutation | `revalidateTag('X')` in a Server Action |
+| Two independent datasets | `Promise.all([a(), b()])` |
+| Partial UI while loading | `<Suspense>` with an async child |
 
-## Antes de declarar el cambio "listo"
+## Before calling the change "done"
 
-- `{{qualityGate.fast}}` en verde; probado en `next start` (el cache difiere de `next dev`).
-- Cada `fetch` externo declara política consciente (`no-store`/`force-cache`/`revalidate: N`) y usa URL absoluta; ninguna query de DB pasa por un `route.ts` propio (getters con `cache()`).
-- Si mutaste datos en un Server Action: `revalidateTag`/`revalidatePath` se llama, sino la UI queda stale.
+- `{{qualityGate.fast}}` green; tested with `next start` (the cache differs from `next dev`).
+- Every external `fetch` declares a conscious policy (`no-store`/`force-cache`/`revalidate: N`) and uses an absolute URL; no DB query goes through your own `route.ts` (getters with `cache()`).
+- If you mutated data in a Server Action: `revalidateTag`/`revalidatePath` is called, otherwise the UI stays stale.
 </content>

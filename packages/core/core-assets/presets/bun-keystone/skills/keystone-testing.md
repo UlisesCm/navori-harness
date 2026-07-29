@@ -1,43 +1,43 @@
 ---
 name: keystone-testing
-description: Testing de Keystone 6 con Vitest — hooks y access con context mockeado, endpoints GraphQL/REST con Supertest, factories. Aplica al escribir o revisar tests de models, access, hooks o API.
+description: Testing Keystone 6 with Vitest — hooks and access with a mocked context, GraphQL/REST endpoints with Supertest, factories. Use when writing or reviewing tests for models, access, hooks or API.
 type: reference
 ---
 
 # Keystone Testing — Vitest + Supertest
 
-Dos niveles: **unit** (hooks/access/services con el `context` de Keystone mockeado, sin DB) e **integration/e2e** (API GraphQL/REST real con Supertest contra una instancia de Keystone y una DB de test). El unit es rápido y cubre la lógica; el integration cubre el contrato.
+Two levels: **unit** (hooks/access/services with Keystone's `context` mocked, no DB) and **integration/e2e** (real GraphQL/REST API with Supertest against a Keystone instance and a test DB). Unit is fast and covers the logic; integration covers the contract.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al escribir tests para un hook, una función de `access/`, un service o un endpoint; al elegir el nivel (unit vs integration); o al depurar un test flaky de mocks.
+When writing tests for a hook, an `access/` function, a service or an endpoint; when choosing the level (unit vs integration); or when debugging a flaky mock test.
 
-## Unit — hooks y access con context mockeado
+## Unit — hooks and access with a mocked context
 
-Los hooks y las funciones de access son funciones puras sobre `{ session, context, ... }`: se testean sin DB, mockeando el `context`.
+Hooks and access functions are pure functions over `{ session, context, ... }`: they're tested without a DB, mocking the `context`.
 
 ```ts
-// El mock de context expone sudo().db.<Model> y query; devuélvelo desde un helper reusable.
+// The context mock exposes sudo().db.<Model> and query; return it from a reusable helper.
 const context = makeMockContext({ session: adminSession });
 
-it("validateInput rechaza truthState manual", async () => {
+it("validateInput rejects manual truthState", async () => {
   await expect(
     Report.hooks.validateInput({ resolvedData: { truthState: "TRUE" }, operation: "create", context }),
   ).rejects.toThrow();
 });
 
-it("access.filter.query acota a los registros del dueño", () => {
+it("access.filter.query narrows to the owner's records", () => {
   expect(reportAccess.filter.query({ session: userSession })).toEqual({
     author: { id: { equals: userSession.itemId } },
   });
 });
 ```
 
-Testea **cada capa de access por separado** (`operation`/`filter`/`field`) y **la sesión nula** (debe negar/filtrar, nunca abrir).
+Test **each access layer separately** (`operation`/`filter`/`field`) and **the null session** (it must deny/filter, never open).
 
-## Integration — API con Supertest
+## Integration — API with Supertest
 
-Levanta Keystone contra una DB de test y golpea el endpoint real (valida el contrato completo: access + hooks + resolvers).
+Bring up Keystone against a test DB and hit the real endpoint (validates the full contract: access + hooks + resolvers).
 
 ```ts
 const res = await request(app)
@@ -48,25 +48,25 @@ expect(res.status).toBe(200);
 expect(res.body.errors).toBeUndefined();
 ```
 
-La DB de test se levanta/migra/siembra antes y se derriba después (scripts `test:db:*` / `test:e2e`). Requiere Docker.
+The test DB is brought up/migrated/seeded before and torn down after (`test:db:*` / `test:e2e` scripts). Requires Docker.
 
-## Reglas duras
+## Hard rules
 
-1. **Factories, no fixtures inline.** Centraliza la construcción de datos de test en factories (`test-factories`) y la sesión en helpers (`test-auth`); no repitas objetos `session`/`data` en cada archivo.
-2. **Un mock de context reusable.** El mock de `context` (con `sudo().db`) vive en un helper compartido, no re-inventado por test.
-3. **Access probado en las 3 capas + sesión nula.** Es el código más sensible; cada capa y el caso sin sesión tienen su test.
-4. **Trazabilidad SDD.** En features SDD-scope, cada `R<n>` se cubre con ≥1 test que lo referencia en nombre o comentario `// Covers: R<n>`.
-5. **No generar tests salvo que se pidan** (si el proyecto así lo define); cuando se piden, van al nivel correcto (unit para lógica, integration para contrato).
+1. **Factories, not inline fixtures.** Centralize test data construction in factories (`test-factories`) and the session in helpers (`test-auth`); don't repeat `session`/`data` objects in every file.
+2. **A single reusable context mock.** The `context` mock (with `sudo().db`) lives in a shared helper, not re-invented per test.
+3. **Access tested across the 3 layers + null session.** It's the most sensitive code; each layer and the no-session case have their test.
+4. **SDD traceability.** In SDD-scope features, each `R<n>` is covered by ≥1 test that references it in its name or a `// Covers: R<n>` comment.
+5. **Don't generate tests unless asked** (if the project defines it that way); when asked, they go to the right level (unit for logic, integration for contract).
 
-## Gotchas de Vitest (v4.x)
+## Vitest gotchas (v4.x)
 
-- **`vi.hoisted()`** para factories que usan variables externas dentro de `vi.mock` (el mock se hoistea sobre las declaraciones).
-- **Mock-constructor con función regular, no arrow** (una arrow no es `new`-able).
-- **`vi.clearAllMocks()` NO limpia implementaciones** (solo `mock.calls`); usa `vi.resetAllMocks()`/`restoreAllMocks()` cuando necesites resetear la implementación.
+- **`vi.hoisted()`** for factories that use external variables inside `vi.mock` (the mock is hoisted above the declarations).
+- **Mock-constructor with a regular function, not an arrow** (an arrow is not `new`-able).
+- **`vi.clearAllMocks()` does NOT clear implementations** (only `mock.calls`); use `vi.resetAllMocks()`/`restoreAllMocks()` when you need to reset the implementation.
 
-## Antes de declarar listo
+## Before declaring done
 
-- Los hooks/access nuevos o tocados tienen unit tests (incluida la sesión nula).
-- Los datos de test salen de factories; el context sale del mock compartido.
-- Si es SDD-scope, cada `R<n>` es trazable a un test.
-- `{{qualityGate.fast}}` en verde (los tests con Docker corren con el gate completo).
+- New or touched hooks/access have unit tests (including the null session).
+- Test data comes from factories; the context comes from the shared mock.
+- If it's SDD-scope, each `R<n>` is traceable to a test.
+- `{{qualityGate.fast}}` green (Docker tests run with the full gate).

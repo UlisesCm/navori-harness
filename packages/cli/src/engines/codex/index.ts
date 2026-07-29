@@ -170,7 +170,7 @@ function buildAgentsMdRequest(
     agents.length === 0
       ? ""
       : [
-          "## Agentes disponibles",
+          "## Available agents",
           "",
           ...agents.map(({ id, description }) => `- \`${id}\` — ${description}`),
           "",
@@ -185,7 +185,7 @@ function buildAgentsMdRequest(
     commentStyle: "html",
     firstRenderSeed: {
       header: "# AGENTS.md\n",
-      trailer: "\n<!-- navori:user-section -->\n<!-- user: reglas adicionales para Codex -->\n",
+      trailer: "\n<!-- navori:user-section -->\n<!-- user: additional rules for Codex -->\n",
     },
   };
 }

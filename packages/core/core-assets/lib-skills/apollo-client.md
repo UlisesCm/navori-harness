@@ -1,20 +1,20 @@
 ---
 name: apollo-client
-description: GraphQL con Apollo Client — hooks, fetchPolicy, normalización de caché y actualización tras mutaciones. Aplica al escribir queries/mutations, configurar la caché o los links.
+description: Use when writing queries/mutations, configuring the cache, or wiring the links — GraphQL with Apollo Client: hooks, fetchPolicy, cache normalization, and updating after mutations.
 type: reference
 ---
 
-# Apollo Client — el patrón canónico
+# Apollo Client — the canonical pattern
 
-Lecturas declarativas con hooks, caché **normalizada por id**, y la UI se mantiene en sync actualizando la caché tras cada mutación. Los concerns de red/auth viven en los links, no en los componentes.
+Declarative reads with hooks, cache **normalized by id**, and the UI stays in sync by updating the cache after every mutation. Network/auth concerns live in the links, not in the components.
 
-## Cuándo usar este skill
+## When to use this skill
 
-Al escribir una query/mutation, configurar `InMemoryCache`/`typePolicies`, o la cadena de `links`.
+When writing a query/mutation, configuring `InMemoryCache`/`typePolicies`, or the `links` chain.
 
-## Hooks y aislamiento
+## Hooks and isolation
 
-`useQuery` (lectura al montar), `useLazyQuery` (bajo demanda, retorna `execute`), `useMutation` (retorna `[mutate, { data, loading, error }]`). Aísla los hooks en una capa (hook + adapter): el componente recibe un **modelo de dominio**, no el shape crudo de GraphQL.
+`useQuery` (read on mount), `useLazyQuery` (on demand, returns `execute`), `useMutation` (returns `[mutate, { data, loading, error }]`). Isolate the hooks in a layer (hook + adapter): the component receives a **domain model**, not the raw GraphQL shape.
 
 ```ts
 export function useReport(id: string) {
@@ -23,40 +23,40 @@ export function useReport(id: string) {
 }
 ```
 
-## fetchPolicy según el dato
+## fetchPolicy by data type
 
-- `cache-first` (default) — catálogos/detalles ya traídos por una lista.
-- `cache-and-network` — feeds que cambian seguido (render instantáneo + refresh).
-- `network-only` — sesión/bootstrap, datos críticos.
-- Evita `no-cache` salvo PII estricta que no deba tocar disco.
+- `cache-first` (default) — catalogs/details already fetched by a list.
+- `cache-and-network` — feeds that change often (instant render + refresh).
+- `network-only` — session/bootstrap, critical data.
+- Avoid `no-cache` except strict PII that must not touch disk.
 
-## Normalización de caché
+## Cache normalization
 
 ```ts
 const cache = new InMemoryCache({ typePolicies: { Report: { keyFields: ['id'] } } });
 ```
 
-Con `keyFields`, Apollo identifica entidades por id y deduplica/actualiza solo. Sin normalización, las listas y detalles se desincronizan.
+With `keyFields`, Apollo identifies entities by id and deduplicates/updates on its own. Without normalization, lists and details drift out of sync.
 
-## Reglas duras
+## Hard rules
 
-1. **Tras una mutation, actualiza la caché:** `update(cache, { data })` (`cache.modify`/`evict`/`writeQuery`) o `refetchQueries`. Nunca dejes la UI desincronizada.
-2. **`optimisticResponse`** para UI instantánea (resultado temporal con `__typename` + id ficticio); `update` reconcilia al llegar la respuesta real.
-3. **No over-fetch:** pide solo los campos que el componente usa; apóyate en **fragments con colocation** (el fragmento junto al componente que lo consume). Regenera tipos (codegen) tras editar `.graphql`.
-4. **Maneja `loading` y `error` siempre.** Separa error de red (banner genérico, resuelto en un `errorLink`) de error de negocio (`graphQLErrors`, copy según `extensions.code`).
-5. **Paginación** con `fetchMore` + `updateQuery`, o `relayStylePagination`/merge en `typePolicies`.
-6. Red/auth/upload en la cadena de **links** (auth → error → upload), no en cada componente.
+1. **After a mutation, update the cache:** `update(cache, { data })` (`cache.modify`/`evict`/`writeQuery`) or `refetchQueries`. Never leave the UI out of sync.
+2. **`optimisticResponse`** for instant UI (a temporary result with `__typename` + a fake id); `update` reconciles when the real response arrives.
+3. **Don't over-fetch:** request only the fields the component uses; lean on **colocated fragments** (the fragment next to the component that consumes it). Regenerate types (codegen) after editing `.graphql`.
+4. **Always handle `loading` and `error`.** Separate network errors (generic banner, resolved in an `errorLink`) from business errors (`graphQLErrors`, copy based on `extensions.code`).
+5. **Pagination** with `fetchMore` + `updateQuery`, or `relayStylePagination`/merge in `typePolicies`.
+6. Network/auth/upload in the **links** chain (auth → error → upload), not in each component.
 
 ```ts
 const [createReport] = useCreateReportMutation({
   optimisticResponse: { createReport: { __typename: 'Report', id: 'temp', ...fields } },
-  update(cache) { cache.evict({ fieldName: 'reports' }); }, // invalida la lista
+  update(cache) { cache.evict({ fieldName: 'reports' }); }, // invalidate the list
 });
 ```
 
-## Antes de declarar listo
+## Before declaring done
 
-- Hooks aislados en capa (hook + adapter); el componente ve el modelo de dominio.
-- Caché normalizada por `keyFields`; mutaciones actualizan/invalidan la caché.
-- `fetchPolicy` elegido por tipo de dato; `loading`/`error` manejados.
-- `{{qualityGate.fast}}` en verde.
+- Hooks isolated in a layer (hook + adapter); the component sees the domain model.
+- Cache normalized by `keyFields`; mutations update/invalidate the cache.
+- `fetchPolicy` chosen by data type; `loading`/`error` handled.
+- `{{qualityGate.fast}}` green.
