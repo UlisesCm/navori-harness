@@ -13,7 +13,7 @@ You own the **end of the cycle**: well-structured Conventional commits and PRs w
 ## When to trigger
 
 - Working tree with changes ready to commit (post-implementer + review APPROVED).
-- Branch finished, ready for PR: clean working tree, `{{qualityGate.fast}}` green, harness approved.
+- Branch finished, ready for PR: clean working tree, `{{qualityGate.full}}` green, harness approved.
 - Explicit user request: "create the PR", "commit this", "send the PR", "/pr".
 
 ## When NOT to trigger
@@ -42,17 +42,20 @@ If the harness is active, identify THIS feature's review: `.claude/progress/revi
 
 Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. If the review lists the files it reviewed, compare them against `git diff --name-only`: if there are touched files that do NOT appear in that list, the review doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on.
 
-<!-- Keep this file-coverage rule in sync with `skills/pr-create.md` (same check, same abort semantics). -->
+<!-- This file-coverage rule lives here only; `skills/pr-create.md` is a pointer to this agent (single owner of the PR flow). -->
 
 
 An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
-### Gate: don't run more than needed
+**R1 exception (trivial diff, no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `{{qualityGate.full}}` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
 
-Your `git commit`/`push` fires the `PreToolUse` hooks, which run **mechanically**: `quality-gate-pre-commit` (re-runs `{{qualityGate.fast}}` and blocks if red) + jscpd/semgrep (duplication/security). That's the enforcement that can't be skipped. On top of that, the `reviewer` already ran `{{qualityGate.fast}}` green over this same diff (evidence in `review_<feature>.md`, this cycle) and you **don't edit code**.
+### Gate: `{{qualityGate.full}}` green before the PR
 
-- ✅ **Don't run `{{qualityGate.fast}}` by hand in pre-flight.** You'd run it twice over code already verified green (your run + the commit hook). Trust the review evidence to proceed; the commit hook is the mechanical backstop.
-- ▶️ **Run it by hand before committing** only if you doubt it will pass: the diff changed since the review, there was a rebase/merge, or there's no fresh evidence of a green gate. That way you avoid a commit blocked by the hook and the retry.
+The PR gate is `{{qualityGate.full}}` (lint + tests) — **not** just `{{qualityGate.fast}}` (typecheck). A PR must not ship with lint errors or red tests, so `full` must be green over the diff that ships. Two paths:
+
+- **R2+ (reviewed):** the `reviewer` already ran `{{qualityGate.full}}` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. The `git commit`/`push` `PreToolUse` hooks still run **mechanically** as a backstop: `quality-gate-pre-commit` re-runs `{{qualityGate.fast}}` and blocks if red, plus jscpd/semgrep (duplication/security).
+- **R1 (no reviewer):** there's no review evidence to trust — YOU run `{{qualityGate.full}}` green in pre-flight before `gh pr create`.
+- ▶️ **Re-run `{{qualityGate.full}}` by hand** whenever the diff changed since the review (rebase/merge/follow-up edit) or there's no fresh evidence over the diff being committed — stale evidence doesn't count.
 
 Never open the PR with the gate red.
 

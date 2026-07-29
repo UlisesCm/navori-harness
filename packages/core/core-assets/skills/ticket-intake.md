@@ -24,7 +24,7 @@ Each phase writes to `.claude/progress/`; the gate is blocking.
 | 5 · IMPLEMENT | ONE `implementer` agent | Reads CLAUDE.md → `audit_ticket_<ID>.md` → `explore_*.md` → applicable skill. Produces `impl_<feature>.md`. **Gate: `{{qualityGate.fast}}` green in the turn.** |
 | 6 · VERIFY | `verify-before-done` skill (run by the implementer) | `impl_<feature>.md` with "Verify run in this turn" at exit 0 + endpoint smoke. No evidence → to 5. |
 | 7 · REVIEW | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-stage; Stage 1 fails → `CHANGES_REQUESTED`, back to 5. `APPROVED` → continue. |
-| 8 · PR + CLOSE | `pr-create` skill | PR created and URL to the user; then `mem_save`, an entry in `history.md`, `current.md` to `idle` and `mem_session_summary`. |
+| 8 · PR + CLOSE | `commit-pr-pilot` agent | PR created and URL to the user; then `mem_save`, an entry in `history.md`, `current.md` to `idle` and `mem_session_summary`. |
 
 ## Hard rules
 
@@ -36,6 +36,6 @@ Each phase writes to `.claude/progress/`; the gate is blocking.
 
 ## Before declaring done
 
-- The cycle closed with a PR via `pr-create` and its URL to the user; `current.md` at `idle`.
+- The cycle closed with a PR via `commit-pr-pilot` and its URL to the user; `current.md` at `idle`.
 - There was a `mem_save` of every non-obvious decision and a `mem_session_summary`.
 - If it was non-trivial: an approved `audit_ticket_<ID>.md`, an `impl_<feature>.md` with verify at exit 0, and a `review_<feature>.md` at `APPROVED` all exist.
