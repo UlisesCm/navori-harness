@@ -436,6 +436,11 @@ export const doctorCommand = defineCommand({
           `  ${color.cyan(sym.bullet)} Codex solo dispara hooks en repos confiables: revísalos y autorízalos con '/hooks'`,
         );
       }
+      if (codexHealth.guardNotVersioned.length > 0) {
+        cx.push(
+          `  ${color.yellow(sym.update)} ${codexHealth.guardNotVersioned.join(", ")} sin versionar en git — en una sesión Codex abierta dentro de un git worktree el guard no corre; versiona '.codex/hooks/' (o '.codex/')`,
+        );
+      }
       if (cx.length > 0) p.note(cx.join("\n"), "Codex");
     }
 
@@ -809,6 +814,13 @@ export interface CodexHealth {
   versionWarning: { found: string; min: string } | null;
   /** Whether to remind the user Codex needs the hooks trusted (`/hooks`). */
   hookTrustHint: boolean;
+  /**
+   * Rendered hook scripts not tracked by git. An untracked hook is absent from
+   * a git worktree checkout, so a Codex session launched inside a worktree
+   * loads no project `.codex/config.toml` and the destructive guard silently
+   * never fires. Empty outside a git work tree (no worktrees ⇒ no exposure).
+   */
+  guardNotVersioned: string[];
 }
 
 /**
@@ -823,6 +835,9 @@ export interface CodexHealth {
  * (c) `codex --version` ≥ 0.145.0 when the binary is in PATH (warning only).
  * (d) hook-trust reminder — the most treacherous failure: a rendered harness
  *     that looks active but never fires because Codex hasn't trusted `.codex/`.
+ * (e) hook scripts tracked by git — an untracked guard is missing from a git
+ *     worktree checkout, so a Codex session launched inside a worktree loads
+ *     no project hooks and the guard silently never fires.
  */
 export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth | null {
   if (!config.engines.includes("codex")) return null;
@@ -869,12 +884,49 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
     // Codex not in PATH — nothing to check.
   }
 
+  // (e) hook scripts tracked by git. Only meaningful inside a git work tree:
+  // without git there are no worktrees, so no exposure and nothing to warn.
+  const guardNotVersioned: string[] = [];
+  if (existsSync(hooksDir) && isGitWorkTree(cwd)) {
+    for (const entry of readdirSync(hooksDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".sh")) continue;
+      const rel = `.codex/hooks/${entry.name}`;
+      if (!isTrackedByGit(cwd, rel)) guardNotVersioned.push(rel);
+    }
+  }
+
   return {
     configMalformed,
     hooksNotExecutable,
     versionWarning,
     hookTrustHint: existsSync(hooksDir),
+    guardNotVersioned,
   };
+}
+
+/** True when `cwd` sits inside a git work tree (linked worktrees included). */
+function isGitWorkTree(cwd: string): boolean {
+  try {
+    const out = execFileSync("git", ["-C", cwd, "rev-parse", "--is-inside-work-tree"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return out.trim() === "true";
+  } catch {
+    return false;
+  }
+}
+
+/** True when `relPath` (relative to `cwd`) is tracked by git. */
+function isTrackedByGit(cwd: string, relPath: string): boolean {
+  try {
+    execFileSync("git", ["-C", cwd, "ls-files", "--error-unmatch", relPath], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export interface EngineInventory {
