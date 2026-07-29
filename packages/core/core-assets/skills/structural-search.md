@@ -1,6 +1,6 @@
 ---
 name: structural-search
-description: Usar cuando necesitas localizar formas sintácticas, relaciones estructurales o hacer un refactor multi-sitio; escala desde engram y Grep hacia ast-grep solo con triggers explícitos.
+description: Usar antes de leer código para localizar algo (símbolo, forma sintáctica, relación estructural, sitio de refactor): encuentra la región correcta y abre solo el span confirmado en vez de leer archivos completos; escala de engram a Grep a ast-grep según el trigger.
 type: reference
 ---
 
