@@ -14,7 +14,7 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
 
 ### Setup (common to both passes)
 
-1. Read `CLAUDE.md`, `.claude/progress/impl_<feature>.md`, `.claude/progress/audit_<ID>.md` (if it exists).
+1. Read `CLAUDE.md`, `.claude/progress/impl_<feature>.md`, `.claude/progress/audit_ticket_<ID>.md` (if it exists).
 2. Identify modified files. Diff against `{{prTarget}}` (the PR's target
    branch), **not** against the fork point: it's the EXACT diff GitHub will show and
    the one commit-pr-pilot reviews. `{{branchBase}}` and `{{prTarget}}` are usually
