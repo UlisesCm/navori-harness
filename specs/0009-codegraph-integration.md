@@ -1,6 +1,6 @@
 # Spec 0009 — Integración de codegraph (plugin de contexto quirúrgico vía MCP)
 
-> Estado: **F1+F2 implementados** (plugin-bundle + gitignore/doctor) · 2026-07-29 · F3 (prompt opt-in en init) y F4 (validación en repo real con el binario) quedan como follow-ups. Deriva de `docs/audit-2026-07.md` §I2/N4 y de las
+> Estado: **F1+F2 implementados** (plugin-bundle + doctor `scanCodegraphHealth`) · 2026-07-30 · El check F2 valida **de forma determinista** la higiene de git de `.codegraph/` (no ignorado / índice commiteado) y, cuando el binario existe, que el índice esté construido; la **frescura vía `codegraph status` es best-effort** (el wording de `status` no está fijado en la beta → degrada a no-op, nunca reporta un falso "fresco"). F3 (prompt opt-in en init) y F4 (validación en repo real con el binario) quedan como follow-ups. Deriva de `docs/audit-2026-07.md` §I2/N4 y de las
 > Specs 0005 (eficiencia de búsqueda) y 0006 (reducción de contexto).
 >
 > Objetivo: integrar [codegraph](https://github.com/colbymchenry/codegraph) como un
@@ -153,7 +153,7 @@ NO confiar ciegamente. Es beta, no production-hardened.
 1. **F1 — plugin skeleton**: `packages/plugins/codegraph/` (plugin.json + `managed/codegraph-protocol.md`
    + `skills/codegraph-rung.md`). Registrar en `KNOWN_PLUGINS`. Tests de manifest + render (settingsFragment,
    mcpServer a Claude y Codex, injectInto). **Depende de #166 (forma-directorio de skills) para el injectInto.**
-2. **F2 — doctor**: check de índice fresco (`codegraph status`) + `.gitignore` de `.codegraph/`.
+2. **F2 — doctor** (`scanCodegraphHealth`): higiene de git de `.codegraph/` (no ignorado / índice commiteado, determinista vía `git check-ignore`/`ls-files`), índice construido cuando el binario está en PATH, y frescura best-effort vía `codegraph status` (solo marca stale ante señal explícita; si el wording no coincide, no-op). Gateado por el plugin `codegraph` habilitado; los avisos son warnings (no voltean `doctor.ok`).
 3. **F3 — opt-in en init/add** + prompt.
 4. **F4 — validación en repo real** + medición de uso/tokens antes del rollout.
 
