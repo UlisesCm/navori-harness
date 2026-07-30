@@ -201,6 +201,37 @@ function buildAgentsIndexBody(config: NavoriConfig): string | null {
   ].join("\n");
 }
 
+/** Managed sub-block id for the Codex cross-model review advisory in leader.md. */
+const CODEX_CROSS_REVIEW_ID = "codex-cross-review";
+
+/**
+ * Body of the Codex cross-model review advisory appended to `leader.md`. Short
+ * on purpose: the actual review criteria already live in what `.codex/` renders
+ * (`AGENTS.md` + `.codex/agents/reviewer.toml`), so this only tells the Claude
+ * orchestrator that a second opinion from a DIFFERENT provider is one command
+ * away — and when to reach for it. `{{prTarget}}` resolves against the config.
+ */
+function buildCodexCrossReviewBody(config: NavoriConfig): string {
+  const body = [
+    "## Cross-model review (Codex second opinion)",
+    "",
+    "This repo renders the `codex` engine, so a second opinion from a **different provider** is one command away. After your `reviewer` approves a non-trivial diff — or on any change touching a critical area — you MAY have Codex review the SAME diff against this repo's own standards (already rendered in `AGENTS.md` + `.codex/agents/reviewer.toml`):",
+    "",
+    "```bash",
+    'CODEX_HOME=$(pwd)/.codex codex exec --sandbox read-only "revisa el diff origin/{{prTarget}}...HEAD según los estándares del repo"',
+    "```",
+    "",
+    "- **Read-only:** Codex inspects, never edits or commits, and needs no approvals.",
+    "- The verdict lands on **stdout**; progress noise goes to stderr.",
+    "- Auth via `CODEX_API_KEY` or a prior `codex login`. Don't pass `--model` — Codex's default is correct.",
+    "- **Advisory, not a gate:** a second lens on the diff. Weigh its findings against your `reviewer`'s and decide; it doesn't block the PR on its own.",
+    "",
+    "Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user asks for a cross-check — not on every trivial diff.",
+    "",
+  ].join("\n");
+  return interpolate(body, config);
+}
+
 /** Managed-block id for the project-context rules injected into CLAUDE.md. */
 const CONTEXTO_PROYECTO_ID = "contexto-proyecto";
 
@@ -686,6 +717,15 @@ export function renderClaudeEngine(
     }
   }
 
+  // 8.4. Codex cross-model review advisory (I3/N3, #168). When this repo renders
+  // the `codex` engine, the Claude orchestrator gets a managed sub-block in
+  // leader.md telling it a second opinion from a DIFFERENT provider is one
+  // command away — reusing what `.codex/` already rendered (AGENTS.md +
+  // reviewer.toml), so the prompt stays short. GATED ON THE ENGINE, not a
+  // standalone toggle: no `codex` in engines → no `.codex/` → the block is
+  // stripped, never left orphaned. Same gating pattern as `scanCodexHealth`.
+  applyCodexCrossReview(cwd, config, pending);
+
   // 8.5. Reconcile DISABLED plugins. A plugin turned off (via `configure
   // plugins` or `navori remove`) still has its managed CLAUDE.md blocks stripped
   // by computeRenderPlan, but its injectInto sub-blocks (e.g. leader.md) and its
@@ -1162,6 +1202,52 @@ function removeSubBlock(input: {
     return;
   }
   input.pending.push({ path: targetAbs, content: stripped, status: "updated" });
+}
+
+/**
+ * Inject (or strip) the Codex cross-model review advisory as a managed sub-block
+ * in `leader.md`, gated on the `codex` engine (#168). Mirrors the injectInto
+ * sub-block flow: operate on the pending leader.md if this render is rewriting
+ * it, else on the on-disk copy, so the block appears/disappears even on a no-op
+ * render where leader.md itself is unchanged. No-op when leader.md is absent
+ * (the `leader` role is disabled, or the engine hasn't rendered it). A hand-
+ * edited block is preserved by `injectManagedSection` (its output stays put),
+ * so no explicit skip surface is needed here.
+ */
+function applyCodexCrossReview(
+  cwd: string,
+  config: NavoriConfig,
+  pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>,
+): void {
+  const targetAbs = join(cwd, ".claude/agents/leader.md");
+  const pendingEntry = pending.find((p) => p.path === targetAbs);
+
+  let currentContent: string;
+  if (pendingEntry) {
+    currentContent = pendingEntry.content;
+  } else if (existsSync(targetAbs)) {
+    currentContent = readFileSync(targetAbs, "utf-8");
+  } else {
+    return; // no leader.md to host the block
+  }
+
+  const next = config.engines.includes("codex")
+    ? injectManagedSection(
+        currentContent,
+        CODEX_CROSS_REVIEW_ID,
+        buildCodexCrossReviewBody(config),
+        CORE_META,
+        "html",
+      ).output
+    : removeManagedSection(currentContent, CODEX_CROSS_REVIEW_ID, "html");
+
+  if (next === currentContent) return; // already in the wanted state
+
+  if (pendingEntry) {
+    pendingEntry.content = next;
+    return;
+  }
+  pending.push({ path: targetAbs, content: next, status: "updated" });
 }
 
 type PluginScriptPlan =
