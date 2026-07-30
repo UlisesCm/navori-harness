@@ -111,6 +111,11 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/guard-destructive.sh"),
       managedId: "guard-destructive-base",
     },
+    {
+      id: "session-start-context",
+      assetPath: join(coreAssets, "hooks/session-start-context.sh"),
+      managedId: "session-start-context-base",
+    },
   ];
   if (config.qualityGate?.fast) {
     hooks.push({

@@ -1,11 +1,8 @@
 ## Session startup
 
-Before touching code, validate the harness is healthy:
+On Claude, a `SessionStart` hook injects the live context — branch, recent commits, and the previous session's `progress/current.md` — at the top of the session; read it to resume. Otherwise, read `progress/current.md` yourself. Then, before touching code:
 
-1. **Context**: read `CLAUDE.md` (your orchestrator role + the `## Available agents` catalog) and `progress/current.md` to resume the previous session. If the repo uses persistent memory, recover it.
-2. **Healthy config**: if `navori.config.json` or `.claude/` look inconsistent, run `navori doctor` before continuing.
-3. **Gates ready**: the quality gates the repo declares actually run (binaries on PATH, toolchains bootstrapped). A declared gate that doesn't execute is silent debt — install it or note it in `progress/current.md`.
-4. **Working branch**: confirm you're not on the base branch (`{{branchBase}}`).
-5. **Scoped task**: one **user** task at a time (don't mix requests); you decompose it into sub-tasks and, if they're independent, launch them in parallel — see your orchestrator role.
-
-Mirror of **Session closeout** (below): start healthy, close clean.
+1. **Healthy config**: run `navori doctor` if `navori.config.json` / `.claude/` look inconsistent.
+2. **Gates ready**: the declared quality gates actually run (binaries on PATH). A gate that doesn't execute is silent debt — install it or note it in `progress/current.md`.
+3. **Working branch**: confirm you're not on the base branch (`{{branchBase}}`).
+4. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
