@@ -303,15 +303,15 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
   it("reports inspected count on first render and on second", () => {
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
     // Inspected counts every managed asset processed:
-    //   1 CLAUDE.md + 1 settings.json + 8 agents + 6 core skills + 3 workflow
-    //   skills (ticket-intake, pr-create, spec-bootstrap) + 1 guard hook +
+    //   1 CLAUDE.md + 1 settings.json + 8 agents + 6 core skills + 4 workflow
+    //   skills (ticket-intake, pr-create, spec-bootstrap, dominio) + 1 guard hook +
     //   1 session-start hook + 2 lifecycle hooks (subagent-stop, precompact) +
-    //   1 qg hook + 2 progress files + 1 engram-leader-extension sub-block = 27.
+    //   1 qg hook + 2 progress files + 1 engram-leader-extension sub-block = 28.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(27);
+    expect(first.inspected).toBe(28);
     // Written counts files actually emitted. engram-leader-extension is a
-    // sub-block injected into leader.md, not a separate file, so written = 26.
-    expect(first.written.length).toBe(26);
+    // sub-block injected into leader.md, not a separate file, so written = 27.
+    expect(first.written.length).toBe(27);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -410,7 +410,7 @@ describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
     // Dry-run still reports the would-write set, including structural-search.
-    expect(r.written).toHaveLength(26);
+    expect(r.written).toHaveLength(27);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

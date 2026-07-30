@@ -89,11 +89,11 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         .sort(),
     ).toEqual([skRel("medusa-api-routes"), skRel("medusa-modules")]);
     // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 8 agents + 6 core
-    // skills + 3 workflow skills (ticket-intake, pr-create, spec-bootstrap) +
-    // 2 progress files + 2 medusa skills + 2 CLAUDE.md managed blocks counted
-    // independently of the file + 1 guard hook + 1 session-start hook +
-    // 2 lifecycle hooks (subagent-stop, precompact) = 28.
-    expect(r.inspected).toBe(28);
+    // skills + 4 workflow skills (ticket-intake, pr-create, spec-bootstrap,
+    // dominio) + 2 progress files + 2 medusa skills + 2 CLAUDE.md managed blocks
+    // counted independently of the file + 1 guard hook + 1 session-start hook +
+    // 2 lifecycle hooks (subagent-stop, precompact) = 29.
+    expect(r.inspected).toBe(29);
   });
 
   describe("bundled stack presets (B4)", () => {

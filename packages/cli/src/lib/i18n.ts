@@ -867,6 +867,24 @@ interface GlobalCmdStrings {
   outroIssues: string;
 }
 
+interface DominioCmdStrings {
+  noWorkspace: string;
+  ambiguous: (names: string) => string;
+  initDone: (dir: string) => string;
+  initExists: (dir: string) => string;
+  listEmpty: (ws: string) => string;
+  listTitle: (ws: string, count: number) => string;
+  readHint: string;
+  showNotFound: (id: string) => string;
+  reindexDone: (count: number, path: string) => string;
+  doctorTitle: (ws: string) => string;
+  doctorClean: string;
+  outroOk: string;
+  outroIssues: (count: number) => string;
+  injectHeader: (ws: string) => string;
+  injectHint: string;
+}
+
 interface CmdStrings {
   common: CommonCmdStrings;
   render: RenderCmdStrings;
@@ -880,6 +898,7 @@ interface CmdStrings {
   status: StatusCmdStrings;
   engine: EngineCmdStrings;
   global: GlobalCmdStrings;
+  dominio: DominioCmdStrings;
 }
 
 const CMD_ES: CmdStrings = {
@@ -1330,6 +1349,27 @@ const CMD_ES: CmdStrings = {
     outroOk: "OK",
     outroIssues: "Revisa lo anterior",
   },
+  dominio: {
+    noWorkspace:
+      "Este directorio no pertenece a ningún workspace. Pasa --workspace <nombre> o corre desde un repo registrado.",
+    ambiguous: (names) =>
+      `El directorio pertenece a varios workspaces (${names}). Especifica --workspace <nombre>.`,
+    initDone: (dir) => `Dominio creado en ${dir}.`,
+    initExists: (dir) => `El Dominio ya existe en ${dir}.`,
+    listEmpty: (ws) => `El Dominio de '${ws}' no tiene entradas todavía.`,
+    listTitle: (ws, count) => `Dominio de '${ws}' — ${count} entrada(s)`,
+    readHint: "Lee una entrada completa con 'navori dominio show <id>'.",
+    showNotFound: (id) => `No existe la entrada '${id}' en el Dominio.`,
+    reindexDone: (count, path) => `Índice reconstruido (${count} entrada(s)): ${path}`,
+    doctorTitle: (ws) => `Dominio de '${ws}'`,
+    doctorClean: "Dominio consistente.",
+    outroOk: "OK",
+    outroIssues: (count) => `${count} aviso(s) — revisa lo anterior`,
+    injectHeader: (ws) =>
+      `## Dominio del workspace '${ws}' — conocimiento canónico transversal a los repos`,
+    injectHint:
+      "Consulta estas entradas antes de asumir modelo de datos o reglas de negocio; abre el archivo completo cuando necesites el detalle.",
+  },
 };
 
 const CMD_EN: CmdStrings = {
@@ -1773,6 +1813,27 @@ const CMD_EN: CmdStrings = {
     uninstallDone: (dir) => `Global harness uninstalled from ${dir}.`,
     outroOk: "OK",
     outroIssues: "Check the above",
+  },
+  dominio: {
+    noWorkspace:
+      "This directory isn't part of any workspace. Pass --workspace <name> or run from a registered repo.",
+    ambiguous: (names) =>
+      `This directory belongs to several workspaces (${names}). Specify --workspace <name>.`,
+    initDone: (dir) => `Dominio created at ${dir}.`,
+    initExists: (dir) => `Dominio already exists at ${dir}.`,
+    listEmpty: (ws) => `The Dominio for '${ws}' has no entries yet.`,
+    listTitle: (ws, count) => `Dominio for '${ws}' — ${count} entr${count === 1 ? "y" : "ies"}`,
+    readHint: "Read a full entry with 'navori dominio show <id>'.",
+    showNotFound: (id) => `No entry '${id}' in the Dominio.`,
+    reindexDone: (count, path) =>
+      `Index rebuilt (${count} entr${count === 1 ? "y" : "ies"}): ${path}`,
+    doctorTitle: (ws) => `Dominio for '${ws}'`,
+    doctorClean: "Dominio is consistent.",
+    outroOk: "OK",
+    outroIssues: (count) => `${count} warning(s) — check the above`,
+    injectHeader: (ws) => `## Workspace Dominio for '${ws}' — canonical cross-repo knowledge`,
+    injectHint:
+      "Consult these entries before assuming a data model or business rule; open the full file when you need the detail.",
   },
 };
 

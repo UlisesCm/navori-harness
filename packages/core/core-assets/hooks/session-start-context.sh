@@ -59,6 +59,20 @@ if [ -n "$current" ]; then
   fi
 fi
 
+# Workspace Dominio: canonical cross-repo knowledge for the workspace this repo
+# belongs to (e.g. "coachee = user-profile.kind"), so agents don't relearn it
+# wrong in every repo. The CLI owns the resolution (which workspace is cwd in +
+# read the index); the hook stays dumb. Cheap pre-check first so the common
+# no-workspace case never spawns the binary, and `|| true` so a missing/broken
+# `navori` never blocks session startup. (spec 0011 §6.1)
+if [ -d "$HOME/.navori/workspaces" ] && command -v navori >/dev/null 2>&1; then
+  dominio=$(navori dominio inject 2>/dev/null || true)
+  if [ -n "$dominio" ]; then
+    add ""
+    add "$dominio"
+  fi
+fi
+
 [ -n "$ctx" ] || exit 0
 
 # Emit the JSON safely: node (best escaping) → jq → give up (exit 0, no context).
