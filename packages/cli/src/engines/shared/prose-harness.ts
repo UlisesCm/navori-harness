@@ -1,18 +1,15 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
 import { RenderWriteError } from "../../lib/errors.ts";
 import { computeRenderPlan } from "../../lib/render-plan.ts";
 import { injectManagedSection } from "../../lib/marker.ts";
-import { loadPreset } from "../../lib/presets.ts";
-import { librarySkillById } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
-import { readSkillTrigger } from "../../lib/skill-meta.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import type { RenderStatus } from "../../lib/style.ts";
-import { CORE_SKILLS, WORKFLOW_SKILLS } from "./harness-assets.ts";
+import { buildSkillRows } from "./skills-index.ts";
 
 /**
  * Shared engine for the non-Claude "prose" targets: AGENTS.md (universal),
@@ -53,43 +50,11 @@ const CORE_META = { source: "@navori/core" as const, version: readCliVersion() }
  */
 function buildSkillsSection(config: NavoriConfig, repoRoot: string): string | null {
   const coreAssets = resolve(getCoreRoot(), "core-assets");
-  const rows: string[] = [];
-  const listed = new Set<string>();
-  // Each row carries a one-line trigger from the skill's `description` (H8).
-  // These prose engines have NO native autoload, so the trigger is the only
-  // signal telling the model when to reach for a skill. Read from the
-  // navori-owned asset — deterministic across checkouts.
-  const row = (id: string, tag: string, assetPath: string): string => {
-    const trigger = readSkillTrigger(assetPath);
-    return trigger ? `- \`${id}\` — ${tag} · ${trigger}` : `- \`${id}\` — ${tag}`;
-  };
-  for (const id of CORE_SKILLS) {
-    rows.push(row(id, "navori", join(coreAssets, `skills/${id}.md`)));
-    listed.add(id);
-  }
-  for (const id of WORKFLOW_SKILLS) {
-    rows.push(row(id, "navori (workflow)", join(coreAssets, `skills/${id}.md`)));
-    listed.add(id);
-  }
-  if (config.preset && config.preset !== "custom") {
-    try {
-      const loaded = loadPreset(config.preset, repoRoot);
-      for (const e of loaded?.def.extras.skills ?? []) {
-        if (e.condition) continue; // conditional skills depend on Claude-side state
-        const name = basename(e.destRelPath).replace(/\.md$/, "");
-        if (listed.has(name)) continue;
-        rows.push(row(name, `preset (\`${config.preset}\`)`, join(loaded!.assetRoot, e.relPath)));
-        listed.add(name);
-      }
-    } catch {
-      // Preset issues surface in the Claude engine; the index degrades quietly.
-    }
-  }
-  for (const id of config.project?.libraries ?? []) {
-    if (listed.has(id) || !librarySkillById(id)) continue;
-    rows.push(row(id, "library (detected)", join(coreAssets, `lib-skills/${id}.md`)));
-    listed.add(id);
-  }
+  // Shared row builder (C4): same set as the Claude index, minus project-local
+  // skills (these engines have no `.claude/skills/`). Unlike the old prose-only
+  // copy it now lists met-conditional preset skills too (deterministic from
+  // config), instead of dropping every conditional one.
+  const rows = buildSkillRows(config, repoRoot, coreAssets);
   if (rows.length === 0) return null;
   return ["## Available skills", "", ...rows, ""].join("\n");
 }

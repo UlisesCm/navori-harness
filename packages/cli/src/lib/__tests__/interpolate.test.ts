@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { interpolate } from "../interpolate.ts";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import type { NavoriConfig } from "../config.ts";
 
 const CONFIG = {
   name: "test",
@@ -42,6 +42,12 @@ describe("interpolate — default mode", () => {
     expect(interpolate("m={{project.libraryMigrations}}", CONFIG)).toBe(
       "m=<not configured: project.libraryMigrations>",
     );
+  });
+
+  it("falls back for a plain object value instead of leaking a raw {{...}}", () => {
+    const out = interpolate("q={{qualityGate}}", CONFIG);
+    expect(out).toBe("q=<not configured: qualityGate>");
+    expect(out).not.toContain("{{");
   });
 
   it("uses <not configured> for missing paths", () => {

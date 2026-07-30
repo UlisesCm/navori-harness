@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import type { MonorepoRenderContext } from "../../lib/monorepo.ts";
 import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
@@ -10,7 +10,7 @@ import {
   type UpdateAvailable,
 } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
-import { librarySkillById, LIBRARY_SKILLS, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
+import { LIBRARY_SKILLS, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import {
   injectManagedSection,
@@ -24,18 +24,13 @@ import { isNavoriOwnedSettings } from "./settings-detection.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
 import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
 import { renderManagedFile } from "../shared/render-managed-file.ts";
-import { interpolate } from "./interpolate.ts";
+import { interpolate } from "../../lib/interpolate.ts";
 import { benchMark } from "../../lib/bench.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
 import { tc, resolveLang, type Lang } from "../../lib/i18n.ts";
-import {
-  CORE_AGENTS,
-  CORE_SKILLS,
-  WORKFLOW_SKILLS,
-  extraConditionMet,
-  isAgentEnabled,
-} from "../shared/harness-assets.ts";
+import { CORE_AGENTS, extraConditionMet, isAgentEnabled } from "../shared/harness-assets.ts";
 import { resolveHarnessPlan } from "../shared/harness-plan.ts";
+import { buildSkillRows } from "../shared/skills-index.ts";
 import {
   collectPlan,
   commitWrites,
@@ -44,7 +39,6 @@ import {
   type SkipReason,
 } from "../shared/execute-plan.ts";
 import { createClaudeAdapter } from "./adapter.ts";
-import { readSkillTrigger } from "../../lib/skill-meta.ts";
 
 /**
  * Claude keeps its detailed skip prose (with the `navori sync` hint and the
@@ -140,53 +134,7 @@ function buildSkillsIndexBody(
   repoRoot: string,
   coreAssets: string,
 ): string | null {
-  const rows: string[] = [];
-  // Track skill names already listed so the auto-detected library skills don't
-  // duplicate a core/preset skill that occupies the same destination.
-  const listed = new Set<string>();
-  // Each row carries a one-line trigger from the skill's `description` (H8) so
-  // engines without native autoload know WHEN to reach for it. The trigger is
-  // read from the navori-owned asset (deterministic across checkouts) — never
-  // from the user's on-disk copy, which would make the managed block drift.
-  const row = (id: string, tag: string, assetPath: string): string => {
-    const trigger = readSkillTrigger(assetPath);
-    return trigger ? `- \`${id}\` — ${tag} · ${trigger}` : `- \`${id}\` — ${tag}`;
-  };
-  for (const id of CORE_SKILLS) {
-    rows.push(row(id, "navori", join(coreAssets, `skills/${id}.md`)));
-    listed.add(id);
-  }
-  for (const id of WORKFLOW_SKILLS) {
-    rows.push(row(id, "navori (workflow)", join(coreAssets, `skills/${id}.md`)));
-    listed.add(id);
-  }
-  if (config.preset && config.preset !== "custom") {
-    try {
-      const loaded = loadPreset(config.preset, repoRoot);
-      for (const e of loaded?.def.extras.skills ?? []) {
-        if (!extraConditionMet(e, config)) continue;
-        const name = basename(e.destRelPath).replace(/\.md$/, "");
-        rows.push(row(name, `preset (\`${config.preset}\`)`, join(loaded!.assetRoot, e.relPath)));
-        listed.add(name);
-      }
-    } catch {
-      // Preset problems are surfaced elsewhere; the index degrades gracefully.
-    }
-  }
-  for (const id of config.project?.libraries ?? []) {
-    if (listed.has(id) || !librarySkillById(id)) continue;
-    rows.push(row(id, "library (detected)", join(coreAssets, `lib-skills/${id}.md`)));
-    listed.add(id);
-  }
-  for (const name of localSkills) {
-    // Deterministic from config: point at the skills root, not a concrete file —
-    // whether the skill is a flat `<id>.md` or a `<id>/SKILL.md` directory is an
-    // on-disk detail (the header explains both forms). Resolving it here (or
-    // reading its description for a trigger) would make the managed block depend
-    // on filesystem state and drift between checkouts. doctor is where the
-    // on-disk existence check belongs.
-    rows.push(`- \`${name}\` — project-local (\`.claude/skills/${name}\`)`);
-  }
+  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills);
   if (rows.length === 0) return null;
   // The project-local note only makes sense when the repo actually declares
   // local skills; otherwise it points at a category that isn't present.

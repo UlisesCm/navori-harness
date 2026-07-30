@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
 import type { LoadedPlugin, PluginHookEntry } from "../../lib/plugins.ts";
 import { getCoreRoot, readBundledCoreVersion } from "../../lib/bundled-assets.ts";
-import { interpolate } from "./interpolate.ts";
+import { interpolate } from "../../lib/interpolate.ts";
 import { deepMerge } from "./deep-merge.ts";
 
 /**
