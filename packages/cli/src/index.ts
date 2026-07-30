@@ -19,6 +19,7 @@ import { scanCommand } from "./commands/scan.ts";
 import { statusCommand } from "./commands/status.ts";
 import { benchCommand } from "./commands/bench.ts";
 import { registryCommand } from "./commands/registry.ts";
+import { globalCommand } from "./commands/global.ts";
 
 function readVersion(): string {
   // dist/index.js → ../package.json (both in dev and published layouts)
@@ -58,6 +59,7 @@ const main = defineCommand({
     backup: backupCommand,
     migrations: migrationsCommand,
     preset: presetCommand,
+    global: globalCommand,
   },
 });
 

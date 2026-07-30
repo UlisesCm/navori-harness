@@ -153,6 +153,18 @@ function readExistingSettings(dir: string): Record<string, unknown> {
   }
 }
 
+/** True iff `<dir>/settings.json` already registers navori's baseline hook. */
+export function settingsHasBaseline(dir = globalTargetDir()): boolean {
+  const hooks = readExistingSettings(dir).hooks;
+  if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) return false;
+  const sessionStart = (hooks as Record<string, unknown>).SessionStart;
+  if (!Array.isArray(sessionStart)) return false;
+  return sessionStart.some((bucket) => {
+    const inner = (bucket as { hooks?: unknown })?.hooks;
+    return Array.isArray(inner) && inner.some(isNavoriBaselineHook);
+  });
+}
+
 export interface GlobalRenderPlan {
   dir: string;
   hookPath: string;

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { safeHomedir } from "./home.ts";
@@ -86,4 +86,12 @@ export function writeGlobalConfig(config: GlobalConfig): string {
 /** A fresh default config, stamped with the current CLI version. */
 export function defaultGlobalConfig(version: string, language: "es" | "en" = "es"): GlobalConfig {
   return GlobalConfigSchema.parse({ version, language });
+}
+
+/** Remove `~/.navori/global.json` if present. Returns true when a file was deleted. */
+export function deleteGlobalConfig(): boolean {
+  const path = globalConfigPath();
+  if (!existsSync(path)) return false;
+  rmSync(path);
+  return true;
 }

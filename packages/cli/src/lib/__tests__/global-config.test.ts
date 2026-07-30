@@ -18,6 +18,7 @@ const {
   globalConfigExists,
   globalConfigPath,
   defaultGlobalConfig,
+  deleteGlobalConfig,
   DEFAULT_GLOBAL_BLOCKS,
 } = await import("../global-config.ts");
 
@@ -79,5 +80,12 @@ describe("global-config — read/write round-trip", () => {
   it("serializes with a trailing newline for stable diffs", () => {
     writeGlobalConfig(defaultGlobalConfig("0.5.0"));
     expect(readFileSync(globalConfigPath(), "utf-8").endsWith("}\n")).toBe(true);
+  });
+
+  it("deleteGlobalConfig removes the file and reports whether one was there", () => {
+    expect(deleteGlobalConfig()).toBe(false); // nothing to delete yet
+    writeGlobalConfig(defaultGlobalConfig("0.5.0"));
+    expect(deleteGlobalConfig()).toBe(true);
+    expect(globalConfigExists()).toBe(false);
   });
 });
