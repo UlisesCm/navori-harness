@@ -2,7 +2,7 @@
   "id": "engram",
   "name": "Engram persistent memory",
   "description": "Memory persistence across Claude Code sessions via MCP server",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "managed": [
     {
       "id": "engram-protocol",
@@ -15,9 +15,9 @@
     "checkBinary": "engram",
     "install": {
       "darwin": "brew install gentleman-programming/tap/engram",
-      "linux": "curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/engram/main/scripts/install.sh | bash"
+      "linux": "mkdir -p \"$HOME/.local/bin\" && arch=$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/) && url=$(curl -fsSL https://api.github.com/repos/Gentleman-Programming/engram/releases/latest | grep -o \"https://[^\\\"]*linux_${arch}\\.tar\\.gz\" | head -1) && if [ -z \"$url\" ]; then echo \"engram: no se pudo resolver el asset linux_${arch} del release (GitHub API rate-limited o asset ausente). Instala manualmente: https://github.com/Gentleman-Programming/engram/releases\" >&2; exit 1; fi && curl -fsSL \"$url\" | tar -xz -C \"$HOME/.local/bin\" engram"
     },
-    "postInstall": "claude plugin install engram"
+    "postInstall": "claude plugin marketplace add Gentleman-Programming/engram && claude plugin install engram"
   },
   "mcpServer": {
     "command": "engram",
