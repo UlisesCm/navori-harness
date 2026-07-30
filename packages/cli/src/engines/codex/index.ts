@@ -6,7 +6,7 @@ import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
-import { interpolate } from "../claude/interpolate.ts";
+import { interpolate } from "../../lib/interpolate.ts";
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { resolveHarnessPlan, type PlannedAgent } from "../shared/harness-plan.ts";
 import {

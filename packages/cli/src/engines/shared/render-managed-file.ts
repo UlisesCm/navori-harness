@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import type { NavoriConfig } from "../../lib/config.ts";
 import { injectManagedSection, type CommentStyle, type InjectResult } from "../../lib/marker.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
-import { interpolate } from "../claude/interpolate.ts";
+import { interpolate } from "../../lib/interpolate.ts";
 import { mergeFrontmatter } from "../claude/frontmatter-merge.ts";
 
 /**

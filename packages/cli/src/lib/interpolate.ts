@@ -1,9 +1,14 @@
-import type { NavoriConfig } from "../../lib/config.ts";
-import { placeholderFallback } from "../../lib/placeholders.ts";
+import type { NavoriConfig } from "./config.ts";
+import { placeholderFallback } from "./placeholders.ts";
 
 /**
- * Interpolate `{{path.to.value}}` placeholders against the config and an
- * optional `extraVars` map. Two modes:
+ * The single `{{path.to.value}}` interpolator for the whole render pipeline
+ * (CLAUDE.md managed blocks in `render-plan`, plus skills/agents/settings in the
+ * engine adapters). It lives in `lib/` because it's engine-agnostic — Claude,
+ * Codex and the prose spine all use it (C3: consolidated the former
+ * `interpolateTemplate` duplicate in `render-plan` into this one).
+ *
+ * Interpolates against the config and an optional `extraVars` map. Two modes:
  *
  *   default:                      unresolved placeholders fall back via
  *                                 `placeholderFallback` (prose for known-optional
