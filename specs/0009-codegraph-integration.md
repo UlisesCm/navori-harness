@@ -1,6 +1,6 @@
 # Spec 0009 — Integración de codegraph (plugin de contexto quirúrgico vía MCP)
 
-> Estado: **proposed** · 2026-07-29 · Deriva de `docs/audit-2026-07.md` §I2/N4 y de las
+> Estado: **F1+F2 implementados** (plugin-bundle + gitignore/doctor) · 2026-07-29 · F3 (prompt opt-in en init) y F4 (validación en repo real con el binario) quedan como follow-ups. Deriva de `docs/audit-2026-07.md` §I2/N4 y de las
 > Specs 0005 (eficiencia de búsqueda) y 0006 (reducción de contexto).
 >
 > Objetivo: integrar [codegraph](https://github.com/colbymchenry/codegraph) como un
