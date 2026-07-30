@@ -280,7 +280,8 @@ describe("CLI e2e — happy paths", () => {
     // Warning surfaces explicitly so the user knows about the placeholders
     expect(r.combined).toMatch(/quality gate|qualityGate/i);
     // Engine warning about the skipped hook is also propagated to the user
-    expect(r.combined).toContain("quality-gate hook skipped");
+    // (language-neutral token: the prose is localized, the config key is stable).
+    expect(r.combined).toContain("config.qualityGate.fast");
     // The hook file is NOT generated in that case
     expect(existsSync(join(repo, ".claude/hooks/quality-gate-pre-commit.sh"))).toBe(false);
   });

@@ -131,7 +131,7 @@ describe("renderClaudeEngine — config gates", () => {
   it("omits qg hook when qualityGate.fast is unset and surfaces a warning", () => {
     const r = renderClaudeEngine(cwd, CONFIG_NO_QG);
     expect(existsSync(join(cwd, ".claude/hooks/quality-gate-pre-commit.sh"))).toBe(false);
-    expect(r.warnings.some((w) => w.includes("quality-gate hook skipped"))).toBe(true);
+    expect(r.warnings.some((w) => w.includes("config.qualityGate.fast"))).toBe(true);
   });
 
   it("renders only agents enabled in config.harness", () => {

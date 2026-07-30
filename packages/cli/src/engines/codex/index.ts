@@ -4,6 +4,7 @@ import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { getCoreRoot } from "../../lib/bundled-assets.ts";
 import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
+import { tc, resolveLang } from "../../lib/i18n.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { interpolate } from "../claude/interpolate.ts";
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
@@ -37,6 +38,7 @@ export function renderCodexEngine(
   options: { dryRun?: boolean; repoRoot?: string } = {},
 ): CodexEngineResult {
   const config = effectiveConfig(inputConfig);
+  const lang = resolveLang(config.language);
   const dryRun = options.dryRun === true;
   const repoRoot = options.repoRoot ?? cwd;
   const isWorkspace = resolve(repoRoot) !== resolve(cwd);
@@ -44,14 +46,11 @@ export function renderCodexEngine(
   const pluginsResult = loadEnabledPlugins(config.plugins);
   const plugins = pluginsResult.loaded;
 
-  const warnings = pluginsResult.missing.map(
-    ({ id, reason }) => `Plugin '${id}' no pudo cargarse para Codex: ${reason}.`,
+  const warnings = pluginsResult.missing.map(({ id, reason }) =>
+    tc(lang).engine.pluginLoadFailedCodex(id, reason),
   );
   if (!isWorkspace) {
-    warnings.push(
-      "Requiere Codex CLI >= 0.145.0. Codex solo carga `.codex/` en repos confiables; " +
-        "revisa y autoriza los hooks nuevos con `/hooks`.",
-    );
+    warnings.push(tc(lang).engine.codexTrustHint);
   }
 
   const preset = loadActivePreset(config, repoRoot, warnings);
@@ -65,7 +64,7 @@ export function renderCodexEngine(
   const ctx: AdapterCtx = { cwd, config, repoRoot, isWorkspace, coreAssets, preset, plugins };
   const adapter = createCodexAdapter(codexConfig.body);
 
-  const result = executePlan(plan, adapter, ctx, { dryRun, prune: presetLoadedSafely });
+  const result = executePlan(plan, adapter, ctx, { dryRun, prune: presetLoadedSafely, lang });
 
   return {
     written: result.written,
@@ -242,11 +241,13 @@ function loadActivePreset(
   try {
     const preset = loadPreset(config.preset, repoRoot);
     if (!preset)
-      warnings.push(`Preset '${config.preset}' no encontrado; Codex usará solo el core.`);
+      warnings.push(tc(resolveLang(config.language)).engine.presetNotFoundCodex(config.preset));
     return preset;
   } catch (error) {
     if (error instanceof PresetError) {
-      warnings.push(`Preset '${config.preset}' inválido: ${error.message}`);
+      warnings.push(
+        tc(resolveLang(config.language)).engine.presetInvalid(config.preset, error.message),
+      );
       return null;
     }
     throw error;

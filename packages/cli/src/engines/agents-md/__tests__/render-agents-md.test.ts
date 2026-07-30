@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { renderAgentsMdEngine } from "../index.ts";
 import type { NavoriConfig } from "../../../lib/config.ts";
+import { tc } from "../../../lib/i18n.ts";
 
 function baseConfig(over: Partial<NavoriConfig> = {}): NavoriConfig {
   return {
@@ -137,7 +138,9 @@ describe("renderAgentsMdEngine", () => {
     writeFileSync(path, tampered, "utf-8");
 
     const r = renderAgentsMdEngine(cwd, baseConfig({ preset: "nextjs" }));
-    expect(r.skipped).toEqual([{ path: "AGENTS.md", reason: "managed block edited by hand" }]);
+    expect(r.skipped).toEqual([
+      { path: "AGENTS.md", reason: tc("es").engine.managedBlockEditedByHand },
+    ]);
     expect(readFileSync(path, "utf-8")).toContain("## EDITADO A MANO"); // untouched
   });
 });

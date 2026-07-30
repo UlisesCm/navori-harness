@@ -10,6 +10,7 @@ import type { LoadedPlugin } from "../../lib/plugins.ts";
 import type { loadPreset } from "../../lib/presets.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { isDowngrade } from "../../lib/semver.ts";
+import { tc, DEFAULT_LANG, type Lang } from "../../lib/i18n.ts";
 import { renderManagedFile } from "./render-managed-file.ts";
 import type { HarnessPlan, PlannedAgent, PlannedHook, PlannedSkill } from "./harness-plan.ts";
 
@@ -103,10 +104,10 @@ export function collectPlan(
   plan: HarnessPlan,
   adapter: EngineAdapter,
   ctx: AdapterCtx,
-  options: { prune?: boolean; skipReason?: SkipReason } = {},
+  options: { prune?: boolean; skipReason?: SkipReason; lang?: Lang } = {},
 ): { pending: PendingWrite[]; removals: PendingRemoval[]; skipped: ExecuteResult["skipped"] } {
   const prune = options.prune !== false;
-  const skipReason = options.skipReason ?? DEFAULT_SKIP_REASON;
+  const skipReason = options.skipReason ?? makeDefaultSkipReason(options.lang ?? DEFAULT_LANG);
   const pending: PendingWrite[] = [];
   const skipped: ExecuteResult["skipped"] = [];
 
@@ -138,7 +139,7 @@ export function executePlan(
   plan: HarnessPlan,
   adapter: EngineAdapter,
   ctx: AdapterCtx,
-  options: { dryRun?: boolean; prune?: boolean } = {},
+  options: { dryRun?: boolean; prune?: boolean; lang?: Lang } = {},
 ): ExecuteResult {
   const { pending, removals, skipped } = collectPlan(plan, adapter, ctx, options);
   const { written, backupPath } = commitWrites({
@@ -149,6 +150,7 @@ export function executePlan(
     dryRun: options.dryRun === true,
     writeLast: (p) => p.path.endsWith("/AGENTS.md"),
     engineLabel: adapter.label ?? adapter.id,
+    lang: options.lang,
   });
   return { written, skipped, backupPath };
 }
@@ -164,10 +166,12 @@ export type SkipReason = (
   existingVersion: string | undefined,
 ) => string;
 
-const DEFAULT_SKIP_REASON: SkipReason = (status) =>
-  status === "user-modified-skipped"
-    ? "managed block edited by hand"
-    : "escrito por una navori más nueva";
+const makeDefaultSkipReason =
+  (lang: Lang): SkipReason =>
+  (status, _destRelPath, existingVersion) =>
+    status === "user-modified-skipped"
+      ? tc(lang).engine.managedBlockEditedByHand
+      : tc(lang).engine.blockFromNewerNavori(existingVersion);
 
 function collectRequest(
   req: PlacementRequest,
@@ -275,6 +279,8 @@ export function commitWrites(input: {
    * (Codex's orphan prune).
    */
   removalsBestEffort?: boolean;
+  /** Output locale for the write-failure message. Defaults to `es`. */
+  lang?: Lang;
 }): { written: ExecuteResult["written"]; backupPath: string | null } {
   const { pending, removals, cwd } = input;
   const dryRun = input.dryRun === true;
@@ -319,12 +325,11 @@ export function commitWrites(input: {
         }
       }
     } catch (error) {
-      const hint = backupPath ? ` Backup pre-escritura disponible en: ${backupPath}` : "";
-      const who = input.engineLabel ? `El render ${input.engineLabel} falló` : "El render falló";
+      const strings = tc(input.lang ?? DEFAULT_LANG).engine;
+      const hint = backupPath ? strings.backupAvailableAt(backupPath) : "";
+      const detail = error instanceof Error ? error.message : String(error);
       throw new RenderWriteError(
-        `${who} escribiendo ${current}: ${
-          error instanceof Error ? error.message : String(error)
-        }.${hint}`,
+        `${strings.renderFailedWriting(input.engineLabel, current, detail)}.${hint}`,
         backupPath,
       );
     }

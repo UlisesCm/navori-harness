@@ -10,6 +10,7 @@ import { loadPreset } from "../../lib/presets.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import { readSkillTrigger } from "../../lib/skill-meta.ts";
+import { tc, resolveLang } from "../../lib/i18n.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { CORE_SKILLS, WORKFLOW_SKILLS } from "./harness-assets.ts";
 
@@ -155,23 +156,16 @@ export function buildHarnessProse(
  * about infra the user actually configured. Issue #71 item 13.
  */
 export function collectOmissionWarnings(config: NavoriConfig): string[] {
-  const warnings: string[] = [
-    "No replica la infraestructura específica de Claude Code: orquestación " +
-      "de subagentes (Agent tool), hooks (quality-gate/guard-destructive) y reglas de " +
-      "permisos. Configúralos en tu herramienta si las necesitas.",
-  ];
+  const strings = tc(resolveLang(config.language)).engine;
+  const warnings: string[] = [strings.proseNoClaudeInfra];
   const enabledPlugins = Object.entries(config.plugins ?? {})
     .filter(([, s]) => s.enabled === true)
     .map(([id]) => id);
   if (enabledPlugins.length > 0) {
-    warnings.push(
-      `Bloques de plugins omitidos por asumir infraestructura de Claude Code: ${enabledPlugins.join(", ")}.`,
-    );
+    warnings.push(strings.prosePluginBlocksOmitted(enabledPlugins.join(", ")));
   }
   if (config.models && Object.keys(config.models).length > 0) {
-    warnings.push(
-      "La asignación de modelo por agente (config.models) no aplica fuera de Claude Code; se omitió.",
-    );
+    warnings.push(strings.proseModelAssignmentOmitted);
   }
   return warnings;
 }
@@ -205,6 +199,7 @@ export interface ProseRenderSpec {
  */
 export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
   const config = effectiveConfig(spec.config);
+  const strings = tc(resolveLang(config.language)).engine;
   const cwd = spec.cwd;
   const repoRoot = spec.repoRoot ?? cwd;
   // Workspace render: repoRoot points elsewhere than cwd (same detection as
@@ -229,11 +224,11 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
   let backupPath: string | null = null;
 
   if (result.status === "user-modified-skipped") {
-    skipped.push({ path: spec.destRelPath, reason: "managed block edited by hand" });
+    skipped.push({ path: spec.destRelPath, reason: strings.managedBlockEditedByHand });
   } else if (result.status === "downgrade-skipped") {
     skipped.push({
       path: spec.destRelPath,
-      reason: `escrito por una navori más nueva (${result.details?.existingVersion ?? "?"}); no lo toqué. Actualiza tu CLI`,
+      reason: strings.blockFromNewerNavori(result.details?.existingVersion),
     });
   } else if (result.status === "unchanged") {
     // nothing to do
@@ -253,9 +248,10 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
       } catch (err) {
         // The result (and its backupPath) never reaches the caller on a throw —
         // put the recovery breadcrumb in the error itself (#77).
-        const hint = backupPath ? ` Backup pre-escritura disponible en: ${backupPath}` : "";
+        const hint = backupPath ? strings.backupAvailableAt(backupPath) : "";
+        const detail = err instanceof Error ? err.message : String(err);
         throw new RenderWriteError(
-          `El render falló escribiendo ${destPath}: ${err instanceof Error ? err.message : String(err)}.${hint}`,
+          `${strings.renderFailedWriting(undefined, destPath, detail)}.${hint}`,
           backupPath,
         );
       }

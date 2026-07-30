@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { renderCursorEngine } from "../index.ts";
 import type { NavoriConfig } from "../../../lib/config.ts";
+import { tc } from "../../../lib/i18n.ts";
 
 function baseConfig(over: Partial<NavoriConfig> = {}): NavoriConfig {
   return {
@@ -106,7 +107,7 @@ describe("renderCursorEngine", () => {
     writeFileSync(path, tampered, "utf-8");
 
     const r = renderCursorEngine(cwd, baseConfig({ preset: "nextjs" }));
-    expect(r.skipped).toEqual([{ path: MDC, reason: "managed block edited by hand" }]);
+    expect(r.skipped).toEqual([{ path: MDC, reason: tc("es").engine.managedBlockEditedByHand }]);
     expect(readFileSync(path, "utf-8")).toContain("## EDITADO A MANO");
   });
 });
