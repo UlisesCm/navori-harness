@@ -123,6 +123,7 @@ export const doctorCommand = defineCommand({
       resolvedPreset?.source === "local" && presetExists(config.preset) ? config.preset : null;
     const missingPresetFiles = scanMissingPresetFiles(cwd, config);
     const codexHealth = scanCodexHealth(cwd, config);
+    const codegraphHealth = scanCodegraphHealth(cwd, config);
     const engineInventory = buildEngineInventory(config, cwd);
     // Informational: a name like `temp-app` or `my-app` is almost always a
     // never-renamed scaffold (the package.json carried it through). Doesn't
@@ -166,6 +167,7 @@ export const doctorCommand = defineCommand({
       legacyAgents,
       excludedBlocks,
       codexHealth,
+      codegraphHealth,
       engineInventory,
     };
 
@@ -439,6 +441,25 @@ export const doctorCommand = defineCommand({
         );
       }
       if (cx.length > 0) p.note(cx.join("\n"), "Codex");
+    }
+
+    if (codegraphHealth) {
+      const cg: string[] = [];
+      // Committing the SQLite index is the worst of the git-hygiene failures
+      // (constant churn + binary merge conflicts); a merely-unignored dir is a
+      // lighter, preventive warning. They're mutually exclusive by construction.
+      if (codegraphHealth.tracked) {
+        cg.push(`  ${color.red(sym.fail)} ${td.codegraphTracked}`);
+      } else if (codegraphHealth.notIgnored) {
+        cg.push(`  ${color.yellow(sym.update)} ${td.codegraphNotIgnored}`);
+      }
+      if (codegraphHealth.indexMissing) {
+        cg.push(`  ${color.yellow(sym.update)} ${td.codegraphIndexMissing}`);
+      }
+      if (codegraphHealth.stale) {
+        cg.push(`  ${color.yellow(sym.update)} ${td.codegraphStale}`);
+      }
+      if (cg.length > 0) p.note(cg.join("\n"), "codegraph");
     }
 
     const hasIssues =
@@ -924,6 +945,98 @@ function isTrackedByGit(cwd: string, relPath: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** True when git ignores `relPath` (relative to `cwd`). Exit 0 ⇒ ignored. */
+function isIgnoredByGit(cwd: string, relPath: string): boolean {
+  try {
+    execFileSync("git", ["-C", cwd, "check-ignore", "-q", relPath], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false; // exit 1 (not ignored) or git error
+  }
+}
+
+/** True when git tracks at least one file under `relPath` (relative to `cwd`). */
+function gitTracksPath(cwd: string, relPath: string): boolean {
+  try {
+    const out = execFileSync("git", ["-C", cwd, "ls-files", "--", relPath], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return out.trim() !== "";
+  } catch {
+    return false;
+  }
+}
+
+/** The codegraph index directory (SQLite/FTS5 graph), relative to the repo root. */
+const CODEGRAPH_DIR = ".codegraph";
+
+export interface CodegraphHealth {
+  /** `.codegraph/` is not covered by .gitignore (git work tree only). */
+  notIgnored: boolean;
+  /** `.codegraph/` has files tracked by git — the binary index was committed. */
+  tracked: boolean;
+  /** codegraph binary is in PATH but the index (`.codegraph/`) was never built. */
+  indexMissing: boolean;
+  /** Best-effort: `codegraph status` reported the index as stale. */
+  stale: boolean;
+}
+
+/**
+ * Codegraph plugin health (Spec 0009 F2). Only meaningful when the `codegraph`
+ * plugin is enabled; returns null otherwise so the report omits the section.
+ *
+ * Scope is deliberately honest — two solid, deterministic checks plus one
+ * best-effort:
+ * (a) git hygiene (DETERMINISTIC): `.codegraph/` is a churning binary SQLite
+ *     index that must never be committed (Spec 0009 §5). We flag it when git
+ *     tracks it (already committed → merge conflicts) or when it isn't ignored
+ *     (preventive). Only meaningful inside a git work tree.
+ * (b) index built (DETERMINISTIC): the binary is in PATH but `.codegraph/`
+ *     doesn't exist yet — `codegraph init` never ran. A missing binary is NOT
+ *     reported here (scanMissingExternalTools already surfaces it with the
+ *     install + `codegraph init` hint).
+ * (c) freshness (BEST EFFORT): codegraph is beta and its `status` output wording
+ *     is not pinned, so we run it only when the binary AND the index exist, and
+ *     flag stale ONLY on an explicit stale signal. If the wording differs, or
+ *     `status` errors, freshness degrades to a no-op — never a false "fresh",
+ *     never a false "stale" on a normal status line.
+ */
+export function scanCodegraphHealth(cwd: string, config: NavoriConfig): CodegraphHealth | null {
+  if (config.plugins?.codegraph?.enabled !== true) return null;
+
+  const dirAbs = join(cwd, CODEGRAPH_DIR);
+  const dirExists = existsSync(dirAbs);
+  const inGit = isGitWorkTree(cwd);
+  const binary = hasBinary("codegraph");
+
+  // (a) git hygiene.
+  const tracked = inGit && gitTracksPath(cwd, CODEGRAPH_DIR);
+  const notIgnored = inGit && !tracked && !isIgnoredByGit(cwd, CODEGRAPH_DIR);
+
+  // (b) index built (only actionable once the binary exists).
+  const indexMissing = binary && !dirExists;
+
+  // (c) freshness (best effort — see the doc comment).
+  let stale = false;
+  if (binary && dirExists) {
+    try {
+      const out = execFileSync("codegraph", ["status"], {
+        cwd,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      stale = /\bstale\b|out[- ]?of[- ]?date|outdated/i.test(out);
+    } catch {
+      // status unsupported / errored — leave freshness undetermined.
+    }
+  }
+
+  return { notIgnored, tracked, indexMissing, stale };
 }
 
 export interface EngineInventory {
