@@ -56,8 +56,10 @@ describe("quality-gate-pre-commit.sh", () => {
     expect(raw.startsWith("#!/usr/bin/env bash\n")).toBe(true);
   });
 
-  it("references {{qualityGate.fast}} for interpolation", () => {
-    expect(raw).toContain("{{qualityGate.fast}}");
+  it("references qualityGate.fast via the shell-quote marker (#197)", () => {
+    // Shell-quoted at render time so an untrusted gate can't break the
+    // assignment and inject a command (see lib/shell-escape.ts).
+    expect(raw).toContain("{{shq:qualityGate.fast}}");
   });
 
   it("contains the shell-style user-section sentinel exactly once", () => {

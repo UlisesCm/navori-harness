@@ -62,6 +62,34 @@ describe("interpolate — default mode", () => {
   });
 });
 
+describe("interpolate — shell-quote marker (#197)", () => {
+  it("wraps a resolved value in single quotes", () => {
+    expect(interpolate("base={{shq:branchBase}}", CONFIG)).toBe("base='main'");
+  });
+
+  it("neutralizes an injected command in a hostile value", () => {
+    const hostile = {
+      ...CONFIG,
+      branchBase: "main'; touch /tmp/navori_probe; :'",
+    } as unknown as NavoriConfig;
+    const out = interpolate("base={{shq:branchBase}}", hostile);
+    // The whole payload lands inside one shell string; the `'` is escaped as
+    // '\'' so it can never close the quote and start a new command.
+    expect(out).toBe("base='main'\\''; touch /tmp/navori_probe; :'\\'''");
+    expect(out.startsWith("base='")).toBe(true);
+  });
+
+  it("still shell-quotes the fallback for an unresolved shq placeholder", () => {
+    const out = interpolate("gate={{shq:qualityGate.missing}}", CONFIG);
+    expect(out).toBe("gate='<not configured: qualityGate.missing>'");
+    expect(out).not.toContain("{{");
+  });
+
+  it("leaves plain (unmarked) placeholders unquoted", () => {
+    expect(interpolate("base={{branchBase}}", CONFIG)).toBe("base=main");
+  });
+});
+
 describe("interpolate — omitUnresolvedKeyLines (frontmatter mode)", () => {
   it("drops `key: {{x}}` lines when x is unresolved", () => {
     const input = `name: leader\nmodel: {{models.reviewer}}\ndescription: text\n`;

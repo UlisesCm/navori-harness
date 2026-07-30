@@ -29,7 +29,9 @@ add() { ctx="${ctx}${1}"$'\n'; }
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
-  base="{{branchBase}}"
+  # branchBase is shell-quoted at render time via the shq: marker (#197) so an
+  # untrusted branchBase can't inject a command here.
+  base={{shq:branchBase}}
   if [ "$branch" = "$base" ]; then
     add "Branch: ${branch}  ⚠️ on the base branch — create a working branch before committing."
   else

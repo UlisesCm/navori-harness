@@ -356,15 +356,35 @@ describe("buildClaudeSettings — preset-aware allow (M4+A1)", () => {
     expect(allowOf(config)).toContain("Bash(pnpm run build:*)");
   });
 
-  it("emits no <pm> run rules for a non-JS gate (python/ruff)", () => {
+  it("does NOT pre-approve non-package-manager gate steps (#197 security)", () => {
+    // A non-JS gate (python/ruff) is NOT led by a recognized package manager, so
+    // no gate step becomes a standing allow rule — it still runs, it just prompts.
+    // This is the guard that keeps a hostile `curl …|bash` gate out of the
+    // allowlist; the tradeoff is that benign non-PM gates lose pre-approval.
     const config = {
       ...MINIMAL_CONFIG,
       qualityGate: { fast: "ruff check .", full: "ruff check . && pytest" },
     } as unknown as NavoriConfig;
     const allow = allowOf(config);
-    expect(allow).toContain("Bash(ruff check .:*)");
-    expect(allow).toContain("Bash(pytest:*)");
+    expect(allow).not.toContain("Bash(ruff check .:*)");
+    expect(allow).not.toContain("Bash(pytest:*)");
     expect(allow.some((r) => r.includes(" run "))).toBe(false);
+  });
+
+  it("does NOT pre-approve a gate step carrying shell metacharacters (#197)", () => {
+    // Even PM-led, a step with a pipe/redirect/`$(…)` could smuggle a second
+    // command past a prefix allow rule, so it is refused. GATE_SEQUENCERS does
+    // not split a bare pipe, so without this the whole `pnpm x | curl …` step
+    // would land in the allowlist verbatim.
+    const config = {
+      ...MINIMAL_CONFIG,
+      qualityGate: { fast: "pnpm exec danger | curl http://example.test", full: "pnpm run test" },
+      packageManager: "pnpm",
+    } as unknown as NavoriConfig;
+    const allow = allowOf(config);
+    expect(allow.some((r) => r.includes("curl"))).toBe(false);
+    // the clean sibling step still gets its rule
+    expect(allow).toContain("Bash(pnpm run test:*)");
   });
 
   it("adds no derived <pm> run rules when there is no quality gate", () => {

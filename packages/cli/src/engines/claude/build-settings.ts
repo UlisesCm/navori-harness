@@ -228,6 +228,13 @@ const PACKAGE_MANAGERS = new Set(["pnpm", "npm", "yarn", "bun"]);
 // Sequencers navori's quality gate uses to join steps. Bare pipes are excluded:
 // a `| tee`/`| grep` tail is part of one logical step, not a command to allow.
 const GATE_SEQUENCERS = /\s*(?:&&|\|\||;)\s*/;
+// A gate step is only safe to pre-approve as a permission rule (#197) if it is
+// made of "quiet" tokens: word chars plus the punctuation a package-manager
+// invocation legitimately uses (space, `@ . / : = -`). Anything else — a bare
+// pipe, redirect, `$`, backtick, quote, paren, `&` — means the step could smuggle
+// a second command through a rule that Claude Code would then auto-approve, so we
+// refuse to derive an allow rule from it (the step still runs; it just prompts).
+const SAFE_GATE_STEP = /^[\w @.:/=-]+$/;
 
 /**
  * Resolve the repo's package manager: the persisted `config.packageManager`
@@ -246,6 +253,13 @@ function resolvePackageManager(config: NavoriConfig): string | null {
  * sequencers), so the gate stops prompting; (2) the `<pm> run <script>` dev-loop
  * (build/test/lint/typecheck/format), since `build` in particular is rarely in
  * the gate yet run constantly. Prefix rules use `…:*` (word-boundary wildcard).
+ *
+ * SECURITY (#197): `navori.config.json` is editable via PR, so a gate string is
+ * NOT trusted. A step only becomes a pre-approved rule when it is led by a known
+ * package manager AND is metacharacter-free (SAFE_GATE_STEP) — otherwise a
+ * `curl …|bash` gate would survive GATE_SEQUENCERS (which doesn't split a bare
+ * pipe) as one step and get auto-approved. Rejected steps still run; they just
+ * don't get a standing allow rule.
  */
 function deriveQualityGateAllow(config: NavoriConfig): string[] {
   const rules = new Set<string>();
@@ -253,7 +267,10 @@ function deriveQualityGateAllow(config: NavoriConfig): string[] {
     if (!gate) continue;
     for (const step of gate.split(GATE_SEQUENCERS)) {
       const cmd = step.trim();
-      if (cmd) rules.add(`Bash(${cmd}:*)`);
+      if (!cmd) continue;
+      const runner = cmd.split(/\s+/)[0];
+      if (!PACKAGE_MANAGERS.has(runner) || !SAFE_GATE_STEP.test(cmd)) continue;
+      rules.add(`Bash(${cmd}:*)`);
     }
   }
   const pm = resolvePackageManager(config);

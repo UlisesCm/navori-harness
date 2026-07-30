@@ -41,7 +41,10 @@ extract_cmd() {
 cmd=$(extract_cmd)
 [ -z "$cmd" ] && exit 0
 
-base="{{branchBase}}"
+# branchBase is shell-quoted at render time via the shq: marker (#197): a
+# hostile branchBase in navori.config.json lands here as an inert literal,
+# never executable.
+base={{shq:branchBase}}
 
 block() {
   echo "[navori] BLOQUEADO por guard-destructive: $1" >&2

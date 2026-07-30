@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { getCoreRoot } from "../bundled-assets.ts";
+import { shellSingleQuote } from "../shell-escape.ts";
 
 /**
  * Behavioral tests for the SessionStart context hook (#169 / N1). We install
@@ -27,9 +28,14 @@ function git(...args: string[]): void {
   if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
 }
 
-/** Install the hook with placeholders resolved (branchBase = "main"). */
+/** Install the hook with placeholders resolved (branchBase = "main"). The
+ * `{{shq:branchBase}}` marker is shell-quoted at render time (#197), so mirror
+ * that here with `shellSingleQuote`. */
 function installHook(): string {
-  const raw = readFileSync(HOOK_SRC, "utf-8").replace("{{branchBase}}", "main");
+  const raw = readFileSync(HOOK_SRC, "utf-8").replace(
+    "{{shq:branchBase}}",
+    shellSingleQuote("main"),
+  );
   const path = join(dir, "hook.sh");
   writeFileSync(path, raw);
   chmodSync(path, 0o755);
