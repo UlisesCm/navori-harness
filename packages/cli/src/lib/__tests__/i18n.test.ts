@@ -84,6 +84,19 @@ describe("i18n — command catalog (tc)", () => {
 
     expect(tc("es").doctor.nextStepsTitle).toBe("Próximos pasos");
     expect(tc("en").doctor.nextStepsTitle).toBe("Next steps");
+
+    // The commands migrated in #110/#144 differentiate per locale too.
+    expect(tc("es").update.upToDate).not.toBe(tc("en").update.upToDate);
+    expect(tc("es").add.nothingToSuggest).toContain("Nada que sugerir");
+    expect(tc("en").add.nothingToSuggest).toContain("Nothing to suggest");
+    expect(tc("es").status.nextStepsTitle).toBe("Próximos pasos");
+    expect(tc("en").status.nextStepsTitle).toBe("Next steps");
+    expect(tc("es").configure.branchBaseRenderHint).not.toBe(
+      tc("en").configure.branchBaseRenderHint,
+    );
+    expect(tc("es").workspace.noRepos).not.toBe(tc("en").workspace.noRepos);
+    expect(tc("es").scan.notMonorepo("/x")).toContain("no declara");
+    expect(tc("en").scan.notMonorepo("/x")).toContain("does not declare");
   });
 
   it("parameterized entries interpolate their args in both locales", () => {
@@ -100,7 +113,19 @@ describe("i18n — command catalog (tc)", () => {
     const keysOf = (o: Record<string, unknown>) => Object.keys(o).sort();
     const es = tc("es");
     const en = tc("en");
-    for (const section of ["common", "render", "sync", "doctor"] as const) {
+    for (const section of [
+      "common",
+      "render",
+      "sync",
+      "doctor",
+      "update",
+      "add",
+      "scan",
+      "configure",
+      "workspace",
+      "status",
+      "engine",
+    ] as const) {
       expect(keysOf(es[section] as unknown as Record<string, unknown>)).toEqual(
         keysOf(en[section] as unknown as Record<string, unknown>),
       );

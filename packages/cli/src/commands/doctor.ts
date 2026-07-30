@@ -405,13 +405,16 @@ export const doctorCommand = defineCommand({
       );
     }
 
-    const nextSteps = suggestNextSteps({
-      claudeMdExists: report.checks.claudeMdExists,
-      missingPlugins,
-      drifts,
-      orderReport,
-      legacyAgents,
-    });
+    const nextSteps = suggestNextSteps(
+      {
+        claudeMdExists: report.checks.claudeMdExists,
+        missingPlugins,
+        drifts,
+        orderReport,
+        legacyAgents,
+      },
+      lang,
+    );
     p.note(nextSteps.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), td.nextStepsTitle);
 
     if (codexHealth) {
