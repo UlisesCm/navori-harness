@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { getCoreRoot } from "../bundled-assets.ts";
+import { shellSingleQuote } from "../shell-escape.ts";
 
 /**
  * Behavioral tests for the quality-gate pre-commit hook (#88). We install the
@@ -27,7 +28,11 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 function installHook(gate: string): string {
-  const raw = readFileSync(HOOK_SRC, "utf-8").replace("{{qualityGate.fast}}", gate);
+  // `navori render` shell-quotes `{{shq:qualityGate.fast}}` (#197); mirror that.
+  const raw = readFileSync(HOOK_SRC, "utf-8").replace(
+    "{{shq:qualityGate.fast}}",
+    shellSingleQuote(gate),
+  );
   const path = join(dir, "hook.sh");
   writeFileSync(path, raw);
   chmodSync(path, 0o755);

@@ -176,7 +176,11 @@ if is_git_commit "$cmd"; then
   # Content-bind first: refuse to commit bytes that drifted from the approval
   # before spending the fast gate on them.
   check_content_receipt
-  gate="{{qualityGate.fast}}"
+  # qualityGate.fast is shell-quoted at render time via the shq: marker (#197).
+  # The gate string is still `eval`'d by run_gate below (running the gate is the
+  # feature), but quoting it here means a hostile qualityGate.fast survives as one
+  # literal token instead of injecting commands at variable-assignment time.
+  gate={{shq:qualityGate.fast}}
   gate_bin="${gate%% *}"
   if command -v "$gate_bin" >/dev/null 2>&1; then
     run_gate "$gate"

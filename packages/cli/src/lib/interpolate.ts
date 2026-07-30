@@ -1,5 +1,6 @@
 import type { NavoriConfig } from "./config.ts";
 import { placeholderFallback } from "./placeholders.ts";
+import { shellSingleQuote } from "./shell-escape.ts";
 
 /**
  * The single `{{path.to.value}}` interpolator for the whole render pipeline
@@ -17,13 +18,25 @@ import { placeholderFallback } from "./placeholders.ts";
  *                                 unresolved are dropped entirely. Used for
  *                                 frontmatter (so an absent `models.X`
  *                                 doesn't break YAML with a broken value).
+ *
+ * SHELL-QUOTE MARKER (#197): a placeholder written `{{shq:path}}` shell-quotes
+ * the resolved value via `shellSingleQuote` before substituting it, so config
+ * that flows into a generated `.sh` hook (`base={{shq:branchBase}}`) can't break
+ * out of its string context and inject a command. The marker is explicit at the
+ * template call site (greppable, auditable) and emits its own surrounding
+ * quotes, so the template must NOT add quotes of its own. Plain `{{path}}` is
+ * unchanged — safe for the HTML/YAML/JSON contexts that make up the rest of the
+ * pipeline, where single-quote wrapping would be wrong.
  */
 export interface InterpolateOptions {
   extraVars?: Record<string, string>;
   omitUnresolvedKeyLines?: boolean;
 }
 
-const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
+// Optional `shq:` prefix marks a value that must be shell-quoted before it is
+// substituted (see the SHELL-QUOTE MARKER note above). Group 1 = the marker (or
+// undefined), group 2 = the config path.
+const PLACEHOLDER_RE = /\{\{\s*(?:(shq):)?\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
 const KEY_LINE_RE = /^([a-zA-Z_][a-zA-Z0-9_]*):\s*\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}\s*$/;
 
 export function interpolate(
@@ -61,9 +74,13 @@ function interpolateRaw(
   config: NavoriConfig,
   extra: Record<string, string>,
 ): string {
-  return content.replace(PLACEHOLDER_RE, (_match, path: string) => {
+  return content.replace(PLACEHOLDER_RE, (_match, marker: string | undefined, path: string) => {
     const value = resolvePath(path, config, extra);
-    return value !== null ? value : placeholderFallback(path);
+    const resolved = value !== null ? value : placeholderFallback(path);
+    // `{{shq:path}}` — shell-quote so untrusted config can't escape its string
+    // context in a generated `.sh` file (#197). Quote the fallback too, so an
+    // unresolved `shq` placeholder still lands as an inert literal.
+    return marker === "shq" ? shellSingleQuote(resolved) : resolved;
   });
 }
 

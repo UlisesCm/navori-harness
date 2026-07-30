@@ -4,6 +4,7 @@ import { mkdtempSync, symlinkSync, readFileSync, writeFileSync, chmodSync } from
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { getCoreRoot } from "../bundled-assets.ts";
+import { shellSingleQuote } from "../shell-escape.ts";
 
 /**
  * Behavioral guard tests for core-assets/hooks/guard-destructive.sh.
@@ -43,12 +44,16 @@ function runGuardScript(scriptPath: string, command: string, env?: NodeJS.Proces
 }
 
 /**
- * The base-branch rules key off `{{branchBase}}`, which is a live placeholder in
- * the source asset. Render a temp copy with the placeholder substituted (as
- * `navori render` does) so force-push-to-base assertions have a concrete base.
+ * The base-branch rules key off `{{shq:branchBase}}`, a live placeholder in the
+ * source asset that `navori render` shell-quotes (#197). Render a temp copy with
+ * the placeholder substituted the same way so force-push-to-base assertions have
+ * a concrete base.
  */
 function renderGuard(base: string): string {
-  const raw = readFileSync(guardPath, "utf-8").replace(/\{\{branchBase\}\}/g, base);
+  const raw = readFileSync(guardPath, "utf-8").replace(
+    /\{\{shq:branchBase\}\}/g,
+    shellSingleQuote(base),
+  );
   const dir = mkdtempSync(join(tmpdir(), "navori-guard-render-"));
   const p = join(dir, "guard.sh");
   writeFileSync(p, raw);
