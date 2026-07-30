@@ -1,6 +1,9 @@
 # Spec 0010 — Harness global (base sólida por-máquina en `~/.claude`)
 
-> Estado: **propuesta / diseño — auditoría de contenido resuelta (§4)** · 2026-07-30 · Deriva del issue #150 (decisiones de
+> Estado: **F1 implementado** · 2026-07-30 · Baseline (operaciones-seguras + idioma-rol +
+> formato-respuesta) entregado por hook con gate; comandos `navori global
+> init/render/doctor/uninstall`; invariante de huella-cero con guard estructural. F2 (omisión
+> opt-in) y F3 (doctor cross-scope) pendientes. Deriva del issue #150 (decisiones de
 > producto parqueadas de #124, @RicardoMarin7). Alcance elegido con Ulises: **MVP lean —
 > solo identidad, aditivo**. La "voz de navori", el sistema de features/app-builder y el
 > review 4R del #124 quedan **fuera** (ver §9).
