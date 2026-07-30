@@ -739,3 +739,59 @@ describe("renderClaudeEngine — skills directory form + legacy migration (#166)
     expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
   });
 });
+
+// #168 [I3/N3] — cross-model review. When the repo renders the `codex` engine,
+// leader.md gains a managed advisory sub-block telling the Claude orchestrator it
+// can get a second opinion from Codex on the same diff. Gated ON THE ENGINE, not
+// a standalone toggle: no `codex` in engines → no `.codex/` → no block.
+describe("renderClaudeEngine — Codex cross-model review advisory (#168)", () => {
+  const CONFIG_WITH_CODEX = {
+    ...CONFIG_FULL,
+    engines: ["claude", "codex"],
+    prTarget: "develop",
+  } as unknown as NavoriConfig;
+
+  it("injects the cross-review sub-block in leader.md when codex is an engine", () => {
+    renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
+
+    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    expect(leader).toContain('navori:managed id="codex-cross-review"');
+    expect(leader).toContain("Cross-model review (Codex second opinion)");
+    // The short prompt reuses `.codex/` and read-only sandbox; `{{prTarget}}` resolved.
+    expect(leader).toContain("CODEX_HOME=$(pwd)/.codex codex exec --sandbox read-only");
+    expect(leader).toContain("origin/develop...HEAD");
+    // No `--model` pin on the exec command — Codex's default is intentional.
+    const cmdLine = leader
+      .split("\n")
+      .find((l) => l.startsWith("CODEX_HOME=$(pwd)/.codex codex exec"));
+    expect(cmdLine).toBeDefined();
+    expect(cmdLine).not.toContain("--model");
+  });
+
+  it("omits the block entirely when codex is NOT an engine", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL); // engines: ["claude"]
+
+    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    expect(leader).not.toContain("codex-cross-review");
+    expect(leader).not.toContain("Cross-model review");
+  });
+
+  it("strips the block when codex is later removed from engines", () => {
+    renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
+    expect(readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8")).toContain(
+      "codex-cross-review",
+    );
+
+    // Re-render without codex — the advisory must be cleaned up, not orphaned.
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8")).not.toContain(
+      "codex-cross-review",
+    );
+  });
+
+  it("is idempotent — a second render with codex does not rewrite leader.md", () => {
+    renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
+    const second = renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
+    expect(second.written.some((w) => w.path === ".claude/agents/leader.md")).toBe(false);
+  });
+});
