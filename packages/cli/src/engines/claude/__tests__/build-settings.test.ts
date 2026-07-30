@@ -146,6 +146,51 @@ describe("buildClaudeSettings — base shape", () => {
     expect(bucket?.matcher).toBe("startup|resume|compact");
     expect(bucket?.hooks[0].command).toContain("$CLAUDE_PROJECT_DIR");
   });
+
+  it("always registers the SubagentStop handoff-validator hook", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const ss = (
+      s.hooks as { SubagentStop?: Array<{ matcher?: string; hooks: Array<{ command: string }> }> }
+    ).SubagentStop;
+    const bucket = ss?.find((b) =>
+      b.hooks.some((h) => h.command.includes("subagent-stop-handoff.sh")),
+    );
+    expect(bucket).toBeDefined();
+    // No matcher — the validator runs for every subagent, agent-type agnostic.
+    expect(bucket?.matcher).toBeUndefined();
+    expect(bucket?.hooks[0].command).toContain("$CLAUDE_PROJECT_DIR");
+  });
+
+  it("always registers the PreCompact session-summary hook (manual|auto)", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const pc = (
+      s.hooks as { PreCompact?: Array<{ matcher?: string; hooks: Array<{ command: string }> }> }
+    ).PreCompact;
+    const bucket = pc?.find((b) =>
+      b.hooks.some((h) => h.command.includes("precompact-session-summary.sh")),
+    );
+    expect(bucket).toBeDefined();
+    expect(bucket?.matcher).toBe("manual|auto");
+  });
+
+  it("does NOT register the Stop hook unless config.hooks.verifyOnStop is set", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    expect((s.hooks as { Stop?: unknown }).Stop).toBeUndefined();
+  });
+
+  it("registers the Stop verify-before-done hook when config.hooks.verifyOnStop is true", () => {
+    const cfg = { ...MINIMAL_CONFIG, hooks: { verifyOnStop: true } } as unknown as NavoriConfig;
+    const stop = (
+      buildClaudeSettings(cfg, []).hooks as {
+        Stop?: Array<{ matcher?: string; hooks: Array<{ command: string }> }>;
+      }
+    ).Stop;
+    const bucket = stop?.find((b) =>
+      b.hooks.some((h) => h.command.includes("stop-verify-reminder.sh")),
+    );
+    expect(bucket).toBeDefined();
+    expect(bucket?.hooks[0].command).toContain("$CLAUDE_PROJECT_DIR");
+  });
 });
 
 describe("buildClaudeSettings — quality-gate hook", () => {

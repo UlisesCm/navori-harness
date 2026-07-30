@@ -116,12 +116,33 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/session-start-context.sh"),
       managedId: "session-start-context-base",
     },
+    // Lifecycle hooks (N1). SubagentStop + PreCompact are unconditional: both
+    // are advisory and near-silent, so there's no reason to gate them.
+    {
+      id: "subagent-stop-handoff",
+      assetPath: join(coreAssets, "hooks/subagent-stop-handoff.sh"),
+      managedId: "subagent-stop-handoff-base",
+    },
+    {
+      id: "precompact-session-summary",
+      assetPath: join(coreAssets, "hooks/precompact-session-summary.sh"),
+      managedId: "precompact-session-summary-base",
+    },
   ];
   if (config.qualityGate?.fast) {
     hooks.push({
       id: "quality-gate-pre-commit",
       assetPath: join(coreAssets, "hooks/quality-gate-pre-commit.sh"),
       managedId: "qg-pre-commit-base",
+    });
+  }
+  // Stop hook (verify-before-done reminder) is OPT-IN — noisy per-turn, so it
+  // ships only when the repo asks for it. Same gating shape as the QG hook.
+  if (config.hooks?.verifyOnStop) {
+    hooks.push({
+      id: "stop-verify-reminder",
+      assetPath: join(coreAssets, "hooks/stop-verify-reminder.sh"),
+      managedId: "stop-verify-reminder-base",
     });
   }
 

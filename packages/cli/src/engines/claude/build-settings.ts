@@ -28,6 +28,10 @@ import { deepMerge } from "./deep-merge.ts";
  *   2b. SessionStart(startup|resume|compact) hook — always registered. References
  *      `$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.sh`; injects the
  *      live harness context (branch/commits/current.md) so resume is deterministic.
+ *   2c. Lifecycle hooks (N1) — all advisory, never blocking. SubagentStop
+ *      (handoff validator) and PreCompact (session-summary reminder) always
+ *      registered; Stop (verify-before-done reminder) only when
+ *      `config.hooks.verifyOnStop` is set.
  *   3. For each enabled plugin: `settingsFragment` and `hooks[]` translated
  *      from the flat manifest shape into Claude Code's nested
  *      `hooks.<Event>[].{matcher, hooks[]}` shape.
@@ -39,6 +43,9 @@ import { deepMerge } from "./deep-merge.ts";
 const QG_HOOK_DEST = ".claude/hooks/quality-gate-pre-commit.sh";
 const GUARD_HOOK_DEST = ".claude/hooks/guard-destructive.sh";
 const SESSION_START_HOOK_DEST = ".claude/hooks/session-start-context.sh";
+const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
+const PRECOMPACT_HOOK_DEST = ".claude/hooks/precompact-session-summary.sh";
+const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
 const SETTINGS_BASE_REL = "core-assets/settings/settings-base.json";
 
 export function buildClaudeSettings(
@@ -125,6 +132,65 @@ export function buildClaudeSettings(
       ],
     },
   });
+
+  // Lifecycle hooks (N1) — all advisory (systemMessage / additionalContext),
+  // never `decision: block`. SubagentStop + PreCompact are always registered
+  // (no config dependency, like the guard/session-start above): SubagentStop
+  // flags empty/broken `impl_*`/`review_*` handoffs; PreCompact reminds the
+  // model to persist a session summary before compaction drops turn detail.
+  // Stop is opt-in (`config.hooks.verifyOnStop`) below. Claude-only: Codex
+  // lifecycle hooks are still experimental, so the assets render under
+  // .codex/hooks/ but aren't wired there yet (same as session-start).
+  settings = deepMerge(settings, {
+    hooks: {
+      SubagentStop: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${SUBAGENT_STOP_HOOK_DEST}"`,
+              timeout: 15,
+              statusMessage: "navori: handoff check",
+            },
+          ],
+        },
+      ],
+      PreCompact: [
+        {
+          matcher: "manual|auto",
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${PRECOMPACT_HOOK_DEST}"`,
+              timeout: 15,
+              statusMessage: "navori: pre-compact summary",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  // Stop verify-before-done reminder — OPT-IN (noisy per-turn on a dirty tree),
+  // gated on config exactly like the quality-gate hook. Advisory only.
+  if (config.hooks?.verifyOnStop) {
+    settings = deepMerge(settings, {
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: `bash "$CLAUDE_PROJECT_DIR/${STOP_HOOK_DEST}"`,
+                timeout: 15,
+                statusMessage: "navori: verify-before-done",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
 
   for (const plugin of plugins) {
     const fragment = plugin.manifest.settingsFragment;
