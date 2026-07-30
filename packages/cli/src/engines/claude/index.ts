@@ -27,6 +27,7 @@ import { renderManagedFile } from "../shared/render-managed-file.ts";
 import { interpolate } from "./interpolate.ts";
 import { benchMark } from "../../lib/bench.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
+import { tc, resolveLang, type Lang } from "../../lib/i18n.ts";
 import {
   CORE_AGENTS,
   CORE_SKILLS,
@@ -51,10 +52,12 @@ import { readSkillTrigger } from "../../lib/skill-meta.ts";
  * navori. Passed to `collectPlan` so the shared spine surfaces Claude's
  * messages, not the generic English defaults (Spec 0008 C.2).
  */
-const claudeSkipReason: SkipReason = (status, _destRelPath, existingVersion) =>
-  status === "user-modified-skipped"
-    ? "bloque managed editado por el usuario; resuelve con 'navori sync' o ajusta el destino a mano"
-    : `bloque escrito por una navori más nueva (${existingVersion ?? "?"}); no lo toqué. Actualiza tu CLI: npm i -g navori@latest`;
+const makeClaudeSkipReason =
+  (lang: Lang): SkipReason =>
+  (status, _destRelPath, existingVersion) =>
+    status === "user-modified-skipped"
+      ? tc(lang).engine.managedBlockEditedByHand
+      : tc(lang).engine.blockFromNewerNavori(existingVersion);
 
 /**
  * Claude engine adapter — entry point. Orchestrates the full render of a
@@ -420,6 +423,7 @@ export function renderClaudeEngine(
   // Fill in render-only derived defaults (e.g. prTarget ?? branchBase) so
   // templates interpolate against a complete config without persisting it.
   const config = effectiveConfig(inputConfig);
+  const lang = resolveLang(config.language);
   const dryRun = options.dryRun === true;
   const force = options.force === true;
   const repoRoot = options.repoRoot ?? cwd;
@@ -576,11 +580,7 @@ export function renderClaudeEngine(
   );
   claudeMdContent = reorder.output;
   if (reorder.blockedByInterleaving) {
-    warnings.push(
-      "CLAUDE.md: los bloques managed están fuera del orden canónico, pero hay texto " +
-        "tuyo intercalado entre bloques, así que no los reordené. Mueve ese texto arriba " +
-        "del primer bloque managed o abajo del último para que navori pueda ordenarlos.",
-    );
+    warnings.push(tc(lang).engine.managedBlocksOutOfOrder);
   }
 
   // 1e. Re-attach the user-authored zone, wrapped in explicit markers, after the
@@ -642,7 +642,8 @@ export function renderClaudeEngine(
   };
   const sharedPlan = collectPlan(harnessPlan, createClaudeAdapter(), adapterCtx, {
     prune: false,
-    skipReason: claudeSkipReason,
+    skipReason: makeClaudeSkipReason(lang),
+    lang,
   });
   for (const p of sharedPlan.pending) {
     pending.push({ path: p.path, content: p.content, status: p.status, chmodExec: p.chmodExec });
@@ -650,7 +651,7 @@ export function renderClaudeEngine(
   for (const s of sharedPlan.skipped) skipped.push(s);
   inspected += harnessPlan.agents.length + harnessPlan.skills.length + harnessPlan.hooks.length;
   if (!config.qualityGate?.fast) {
-    warnings.push("quality-gate hook skipped: config.qualityGate.fast no está set");
+    warnings.push(tc(lang).engine.qualityGateHookSkipped);
   }
 
   // 5. progress/ bootstrap (one-shot, never overwritten)
@@ -838,6 +839,7 @@ export function renderClaudeEngine(
     dryRun,
     writeLast: (p) => p.path === claudeMdPath,
     removalsBestEffort: true,
+    lang,
   });
   benchMark("write");
   return {
@@ -968,7 +970,7 @@ function planSettings(
     return {
       kind: "skip",
       path,
-      reason: `settings.json no se pudo parsear como JSON: ${(err as Error).message}. Corre 'navori render --force --apply' para regenerar.`,
+      reason: tc(resolveLang(config.language)).engine.settingsParseFailed((err as Error).message),
     };
   }
 
@@ -986,8 +988,7 @@ function planSettings(
       return {
         kind: "skip",
         path,
-        reason:
-          "settings.json no es un objeto JSON — no se puede fusionar. Corre 'navori render --force --apply' para regenerar.",
+        reason: tc(resolveLang(config.language)).engine.settingsNotObject,
       };
     }
     const merged = mergeCoexistSettings(parsed, newSettings);
@@ -1032,15 +1033,16 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
     return {
       kind: "skip",
       path: destPath,
-      reason:
-        "bloque managed editado por el usuario; resuelve con 'navori sync' o ajusta el destino a mano",
+      reason: tc(resolveLang(input.config.language)).engine.managedBlockEditedByHand,
     };
   }
   if (result.status === "downgrade-skipped") {
     return {
       kind: "skip",
       path: destPath,
-      reason: `bloque escrito por una navori más nueva (${result.details?.existingVersion ?? "?"}); no lo toqué. Actualiza tu CLI: npm i -g navori@latest`,
+      reason: tc(resolveLang(input.config.language)).engine.blockFromNewerNavori(
+        result.details?.existingVersion,
+      ),
     };
   }
   return { kind: "write", path: destPath, content: result.content, status: result.status };
@@ -1124,7 +1126,11 @@ function applySubBlockInject(input: {
     // is disabled in `config.harness`. Surface this so the user knows the
     // plugin contribution was dropped silently, not lost to a bug.
     input.warnings.push(
-      `skill '${input.skill.id}' (de @navori/plugin-${input.plugin.manifest.id}) no inyectado: target ${input.skill.injectInto} ausente (¿agente disabled en config.harness?)`,
+      tc(resolveLang(input.config.language)).engine.pluginSkillNotInjected(
+        input.skill.id,
+        input.plugin.manifest.id,
+        input.skill.injectInto ?? "?",
+      ),
     );
     return;
   }
@@ -1147,14 +1153,20 @@ function applySubBlockInject(input: {
   if (result.status === "user-modified-skipped") {
     input.skipped.push({
       path: relative(input.cwd, targetAbs),
-      reason: `sub-bloque '${input.skill.id}' (de @navori/plugin-${input.plugin.manifest.id}) editado por el usuario; resuelve con 'navori sync'`,
+      reason: tc(resolveLang(input.config.language)).engine.subBlockEditedByHand(
+        input.skill.id,
+        input.plugin.manifest.id,
+      ),
     });
     return;
   }
   if (result.status === "downgrade-skipped") {
     input.skipped.push({
       path: relative(input.cwd, targetAbs),
-      reason: `sub-bloque '${input.skill.id}' escrito por una navori más nueva (${result.details?.existingVersion ?? "?"}); no lo toqué. Actualiza tu CLI`,
+      reason: tc(resolveLang(input.config.language)).engine.subBlockFromNewerNavori(
+        input.skill.id,
+        result.details?.existingVersion,
+      ),
     });
     return;
   }

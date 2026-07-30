@@ -620,11 +620,48 @@ interface DoctorCmdStrings {
   outroOk: string;
 }
 
+/**
+ * Warnings and skip-reasons surfaced by the engine adapters (claude / codex /
+ * prose spine). Before C5 these were hardcoded in Spanish, so a `language:"en"`
+ * repo got an English CLAUDE.md but Spanish warnings. Routed through
+ * `tc(resolveLang(config.language)).engine.*` at every call site.
+ */
+interface EngineCmdStrings {
+  // Skip reasons (shared spine + adapter overrides)
+  managedBlockEditedByHand: string;
+  blockFromNewerNavori: (version: string | undefined) => string;
+  subBlockEditedByHand: (skillId: string, pluginId: string) => string;
+  subBlockFromNewerNavori: (skillId: string, version: string | undefined) => string;
+  // Write failures
+  renderFailedWriting: (
+    engineLabel: string | undefined,
+    destPath: string,
+    detail: string,
+  ) => string;
+  backupAvailableAt: (path: string) => string;
+  // Prose spine omissions (non-Claude engines)
+  proseNoClaudeInfra: string;
+  prosePluginBlocksOmitted: (list: string) => string;
+  proseModelAssignmentOmitted: string;
+  // Claude adapter
+  managedBlocksOutOfOrder: string;
+  qualityGateHookSkipped: string;
+  settingsParseFailed: (detail: string) => string;
+  settingsNotObject: string;
+  pluginSkillNotInjected: (skillId: string, pluginId: string, target: string) => string;
+  // Codex adapter
+  pluginLoadFailedCodex: (id: string, reason: string) => string;
+  codexTrustHint: string;
+  presetNotFoundCodex: (preset: string) => string;
+  presetInvalid: (preset: string, detail: string) => string;
+}
+
 interface CmdStrings {
   common: CommonCmdStrings;
   render: RenderCmdStrings;
   sync: SyncCmdStrings;
   doctor: DoctorCmdStrings;
+  engine: EngineCmdStrings;
 }
 
 const CMD_ES: CmdStrings = {
@@ -792,6 +829,44 @@ const CMD_ES: CmdStrings = {
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
   },
+  engine: {
+    managedBlockEditedByHand:
+      "bloque managed editado por el usuario; resuelve con 'navori sync' o ajusta el destino a mano",
+    blockFromNewerNavori: (v) =>
+      `bloque escrito por una navori más nueva (${v ?? "?"}); no lo toqué. Actualiza tu CLI: npm i -g navori@latest`,
+    subBlockEditedByHand: (id, pid) =>
+      `sub-bloque '${id}' (de @navori/plugin-${pid}) editado por el usuario; resuelve con 'navori sync'`,
+    subBlockFromNewerNavori: (id, v) =>
+      `sub-bloque '${id}' escrito por una navori más nueva (${v ?? "?"}); no lo toqué. Actualiza tu CLI`,
+    renderFailedWriting: (label, path, detail) =>
+      `${label ? `El render ${label} falló` : "El render falló"} escribiendo ${path}: ${detail}`,
+    backupAvailableAt: (path) => ` Backup pre-escritura disponible en: ${path}`,
+    proseNoClaudeInfra:
+      "No replica la infraestructura específica de Claude Code: orquestación de subagentes " +
+      "(Agent tool), hooks (quality-gate/guard-destructive) y reglas de permisos. Configúralos en " +
+      "tu herramienta si las necesitas.",
+    prosePluginBlocksOmitted: (list) =>
+      `Bloques de plugins omitidos por asumir infraestructura de Claude Code: ${list}.`,
+    proseModelAssignmentOmitted:
+      "La asignación de modelo por agente (config.models) no aplica fuera de Claude Code; se omitió.",
+    managedBlocksOutOfOrder:
+      "CLAUDE.md: los bloques managed están fuera del orden canónico, pero hay texto tuyo intercalado " +
+      "entre bloques, así que no los reordené. Mueve ese texto arriba del primer bloque managed o abajo " +
+      "del último para que navori pueda ordenarlos.",
+    qualityGateHookSkipped: "quality-gate hook omitido: config.qualityGate.fast no está definido",
+    settingsParseFailed: (detail) =>
+      `settings.json no se pudo parsear como JSON: ${detail}. Corre 'navori render --force --apply' para regenerar.`,
+    settingsNotObject:
+      "settings.json no es un objeto JSON — no se puede fusionar. Corre 'navori render --force --apply' para regenerar.",
+    pluginSkillNotInjected: (id, pid, target) =>
+      `skill '${id}' (de @navori/plugin-${pid}) no inyectado: target ${target} ausente (¿agente disabled en config.harness?)`,
+    pluginLoadFailedCodex: (id, reason) => `Plugin '${id}' no pudo cargarse para Codex: ${reason}.`,
+    codexTrustHint:
+      "Requiere Codex CLI >= 0.145.0. Codex solo carga `.codex/` en repos confiables; revisa y autoriza " +
+      "los hooks nuevos con `/hooks`.",
+    presetNotFoundCodex: (preset) => `Preset '${preset}' no encontrado; Codex usará solo el core.`,
+    presetInvalid: (preset, detail) => `Preset '${preset}' inválido: ${detail}`,
+  },
 };
 
 const CMD_EN: CmdStrings = {
@@ -956,6 +1031,45 @@ const CMD_EN: CmdStrings = {
     outroIssues: "Issues found",
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
+  },
+  engine: {
+    managedBlockEditedByHand:
+      "managed block edited by hand; resolve with 'navori sync' or adjust the destination manually",
+    blockFromNewerNavori: (v) =>
+      `block written by a newer navori (${v ?? "?"}); left untouched. Update your CLI: npm i -g navori@latest`,
+    subBlockEditedByHand: (id, pid) =>
+      `sub-block '${id}' (from @navori/plugin-${pid}) edited by hand; resolve with 'navori sync'`,
+    subBlockFromNewerNavori: (id, v) =>
+      `sub-block '${id}' written by a newer navori (${v ?? "?"}); left untouched. Update your CLI`,
+    renderFailedWriting: (label, path, detail) =>
+      `${label ? `The ${label} render failed` : "The render failed"} writing ${path}: ${detail}`,
+    backupAvailableAt: (path) => ` Backup available (pre-write) at: ${path}`,
+    proseNoClaudeInfra:
+      "Does not replicate Claude Code-specific infrastructure: subagent orchestration (Agent tool), " +
+      "hooks (quality-gate/guard-destructive) and permission rules. Configure them in your tool if you " +
+      "need them.",
+    prosePluginBlocksOmitted: (list) =>
+      `Plugin blocks omitted because they assume Claude Code infrastructure: ${list}.`,
+    proseModelAssignmentOmitted:
+      "Per-agent model assignment (config.models) doesn't apply outside Claude Code; omitted.",
+    managedBlocksOutOfOrder:
+      "CLAUDE.md: the managed blocks are out of canonical order, but there's text of yours interleaved " +
+      "between blocks, so I didn't reorder them. Move that text above the first managed block or below " +
+      "the last one so navori can order them.",
+    qualityGateHookSkipped: "quality-gate hook skipped: config.qualityGate.fast is not set",
+    settingsParseFailed: (detail) =>
+      `settings.json could not be parsed as JSON: ${detail}. Run 'navori render --force --apply' to regenerate.`,
+    settingsNotObject:
+      "settings.json is not a JSON object — can't merge. Run 'navori render --force --apply' to regenerate.",
+    pluginSkillNotInjected: (id, pid, target) =>
+      `skill '${id}' (from @navori/plugin-${pid}) not injected: target ${target} missing (agent disabled in config.harness?)`,
+    pluginLoadFailedCodex: (id, reason) =>
+      `Plugin '${id}' couldn't be loaded for Codex: ${reason}.`,
+    codexTrustHint:
+      "Requires Codex CLI >= 0.145.0. Codex only loads `.codex/` in trusted repos; review and authorize " +
+      "the new hooks with `/hooks`.",
+    presetNotFoundCodex: (preset) => `Preset '${preset}' not found; Codex will use the core only.`,
+    presetInvalid: (preset, detail) => `Preset '${preset}' invalid: ${detail}`,
   },
 };
 
