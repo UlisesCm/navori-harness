@@ -91,6 +91,8 @@ importers:
 
   packages/plugins/acli: {}
 
+  packages/plugins/codegraph: {}
+
   packages/plugins/engram: {}
 
   packages/plugins/gh: {}
