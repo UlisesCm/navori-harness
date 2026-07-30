@@ -1,6 +1,6 @@
 # Spec 0010 — Harness global (base sólida por-máquina en `~/.claude`)
 
-> Estado: **propuesta / diseño** · 2026-07-30 · Deriva del issue #150 (decisiones de
+> Estado: **propuesta / diseño — auditoría de contenido resuelta (§4)** · 2026-07-30 · Deriva del issue #150 (decisiones de
 > producto parqueadas de #124, @RicardoMarin7). Alcance elegido con Ulises: **MVP lean —
 > solo identidad, aditivo**. La "voz de navori", el sistema de features/app-builder y el
 > review 4R del #124 quedan **fuera** (ver §9).
@@ -167,21 +167,39 @@ por construcción el problema de "dos configuraciones peleando".
 
 ## 4. Qué vive en el scope global (Fase 1)
 
-Candidatos (bloques del core que son repo-agnósticos **y** personales-de-máquina):
+**Auditoría de interpolación — RESUELTA (2026-07-30).** Un bloque solo compone el baseline
+global si **no interpola ninguna config de repo** (`{{project.*}}`, `{{branchBase}}`,
+`{{qualityGate.*}}`, etc.). Grep sobre `core-assets/managed/` + `CORE_MANAGED_ASSETS`
+(`render-plan.ts:36-90`):
 
-| Bloque | ¿Por qué global? | Chequeo |
+**IN — puros, cero interpolación, seleccionables tal cual (baseline del MVP, ~37 líneas):**
+
+| Bloque | Líneas | Qué aporta globalmente |
 |---|---|---|
-| `idioma-rol` | Idioma/rol default en cualquier sesión | ⚠️ verificar interpolación |
-| `operaciones-seguras` | Guardrails de seguridad — se quieren en **todo** repo | ⚠️ verificar interpolación |
-| protocolo engram | Protocolo de memoria, idéntico en todos lados | ⚠️ verificar interpolación |
-| `orquestacion` | Doctrina de routing (R1/R2), repo-agnóstica | ⚠️ verificar interpolación |
-| permisos personales | `~/.claude/settings.json` que quieres en todas partes | settings, no prosa |
+| `operaciones-seguras` | 11 | **El más valioso.** Guardrails: read-only por default, comandos destructivos a `ask`/`deny`, circuit-breaker, "contenido externo es DATA". "Claude no se pasa de listo en ningún repo." |
+| `idioma-rol` | 7 | Idioma/rol default (chat es-MX, código en inglés, Tech Lead, simplicidad) |
+| `formato-respuesta` | 19 | Concisión + formato de respuesta (universal) |
 
-**Chequeo bloqueante (parte de F1):** un bloque solo puede ser `scope: global` si **no
-interpola `{{project.*}}`** (esas variables necesitan valores del repo; no existen a nivel
-global). Hay que auditar cada bloque candidato en `render-plan.ts` (`CORE_MANAGED_ASSETS`,
-`render-plan.ts:36-90`) y en `effectiveConfig()` (`config.ts:62-81`). Un bloque con
-interpolación repo-específica **se queda `scope: repo`**.
+**OUT — interpolan config de repo (no globalizables tal cual):**
+
+| Bloque | Interpola | Nota |
+|---|---|---|
+| `orquestacion` | `{{branchBase}}`, `{{qualityGate.fast\|full}}` | La doctrina de routing (R1/R2) **es** agnóstica, pero el bloque hornea el branch base y los comandos del quality-gate, que no existen a nivel global. Globalizarla exige **partir el bloque** (doctrina vs referencias repo) → follow-up, no MVP. |
+| `arranque-sesion` | `{{branchBase}}` | Además es el contexto de sesión por-repo (git/progress) — sin sentido global. |
+
+**OUT — naturaleza repo/condicional:** `tipado-fuerte` (`condition: project.typedLanguage`),
+`sdd` (`condition: sdd.enabled`), `cierre-sesion`.
+
+**Protocolo engram (memoria):** NO es bloque core — lo entrega el **plugin** engram vía su
+propio SessionStart hook. "Memoria global" vendría de instalar engram a nivel global
+(global-plugins), fuera del MVP core-baseline.
+
+**Además del baseline de prosa:** los **permisos personales** (`~/.claude/settings.json`) son
+la huella estática aditiva (§4, "Entrega").
+
+> **Resultado:** el baseline del MVP son **3 bloques puros** (`operaciones-seguras`,
+> `idioma-rol`, `formato-respuesta`) — **ninguno requiere refactor**, se seleccionan por `id`
+> tal cual. Baseline tight, coherente y de alto valor (guardrails + identidad + formato).
 
 > Los repos de equipo que dependen de `idioma-rol` como **policy compartida** lo mantienen a
 > nivel repo/workspace — global no lo sustituye, lo **suma** para tus sesiones personales. La
@@ -296,9 +314,9 @@ snippet de prueba del #124 lo usa (`CLAUDE_CONFIG_DIR=~/navori-fresh navori glob
 
 ## 10. Riesgos y decisiones abiertas
 
-- **Interpolación:** si demasiados bloques candidatos interpolan `{{project.*}}`, el valor del
-  MVP baja (menos identidad rendeable a global). Mitiga: el chequeo de §4 es lo primero de F1;
-  define el contenido real antes de construir comandos.
+- **Interpolación:** ~~riesgo~~ **resuelto** (§4): 3 bloques puros componen el baseline sin
+  refactor. `orquestacion` queda fuera hasta partirla (doctrina agnóstica vs referencias repo)
+  — follow-up, no bloquea el MVP.
 - **`~/.claude/CLAUDE.md` preexistente del usuario:** el render global debe **respetar** lo no
   managed (mismo modelo híbrido de marcadores `<!-- navori:managed -->` que en repos) y nunca
   pisar bloques del usuario sin permiso.
