@@ -46,7 +46,7 @@ Skipping any step = a lie, not verification.
 | `{{qualityGate.fast}}` green | Full command run this turn with exit 0 | "ran it before", "should be green", "lint passed yesterday" |
 | `{{qualityGate.full}}` green | Same — fresh exit 0 this turn | "the dev server runs", "build passed a while ago" |
 | Zero new errors vs baseline | `git stash` → re-run → compare counts → `git stash pop` | "lint said OK" without comparing baseline |
-| UI validated (golden path) | Repro step + observed behavior in the browser with a live dev server this turn | "looks fine in code", "should render correctly" |
+| UI validated in the browser (only if the user asked) | Observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed", "the diff covers the case" |
 | Filter / feature works | Real click + description of the result | "the handler is well written" |
 | Structural migration complete | Read AND write go to the same destination in the affected flow, validated in browser or test | "I changed the service, it should work" |
@@ -92,7 +92,7 @@ Skipping any step = a lie, not verification.
 ## Anti-patterns
 
 - ❌ Showing cached output from 5 messages ago and saying "it's already green" — fresh, not cached.
-- ❌ Inferring UI from the code — the UI needs a browser repro.
+- ❌ Claiming a *requested* visual check passed by reading code — it needs a real browser repro.
 - ❌ "Trust me, runs locally" — not a valid claim without evidence in the chat.
 - ❌ Making the claim BEFORE the command ("I'll run X and it should be green").
 - ❌ Marking a step of the atomic plan `[x]` without having run the verification that backs that step.

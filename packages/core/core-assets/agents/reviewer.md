@@ -41,7 +41,7 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 - Is anything from the scope missing? (If the ticket asked for A+B and it only did A → flag)
 - If the task is a bugfix: does the `Root cause:` documented in `impl_<feature>.md` match the fix?
 - **SDD traceability** (only if `{{sdd.specsDir}}/<feature>/tasks.md` exists): each `R<n>` in the batch is covered by ≥1 test that references it with `// Covers: R<n>`. An `R<n>` in the batch without a traceable test → `SPEC_MISS`.
-- Was the UI validated manually (per the implementer's report)? If NOT and the change touches screens → escalate to a human.
+- Screen changes are reviewed on the **diff + the repo's tests** — browser/visual validation is **not a default gate**. Only when the user explicitly requested a visual check in this task do you confirm it happened; if it was requested and skipped, flag it. Never escalate a screen change to a human just because no browser check ran.
 
 **Partial verdict:**
 
@@ -70,7 +70,7 @@ Apply `.claude/skills/review-diff.md` — the full checklist by dimensions (type
 
 Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed.
 
-If the implementer's report says "UI not validated" and the change touches screens, mark it for human verification — don't approve alone.
+Don't gate a screen change on browser validation by default. Only if the user explicitly requested a visual/browser check and it wasn't done do you mark it incomplete — otherwise the diff + the repo's tests are the gate.
 
 **Partial verdict:**
 
@@ -121,7 +121,7 @@ Write `.claude/progress/review_<feature>.md`:
 - Resolves the requested ticket / audit:         [x] / [ ]
 - Scope respected (no files outside):            [x] / [ ]
 - Bugfix: documented root cause matches fix:     [x] / [ ] / n/a
-- UI validated manually by implementer:          [x] / [ ] (escalate human)
+- UI browser-validated (only if the user requested it): [x] / [ ] / n/a
 
 **Spec gaps (if SPEC_MISS):**
 1. <file>:<line> — <what's missing vs what was asked>
@@ -168,7 +168,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ❌ Never approve with `{{qualityGate.full}}` red.
 - ❌ Never approve if the new code **adds new errors or warnings** vs baseline.
 - ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.
-- ❌ Never approve if the UI wasn't validated manually and the change touches screens.
+- ❌ Don't block or escalate a screen change to a human for lack of browser validation — the default gate is the diff + tests; require a visual check only when the user explicitly asked for one.
 - ✅ On APPROVED, write the content receipt (`.claude/progress/receipt.txt`) so the commit is bound to the reviewed bytes.
 - ❌ In SDD features (with `tasks.md`), never approve if some `R<n>` in the batch has no traceable test covering it.
 - ❌ You never edit the code. You only point out what fails and where.
