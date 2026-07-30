@@ -21,7 +21,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
      ```
      - [ ] Define interface in <path>
      - [ ] Implement logic in <path>
-     - [ ] Cover with test/manual UI
+     - [ ] Cover with a test
      - [ ] Run `{{qualityGate.fast}}`
      ```
 
@@ -34,7 +34,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
    ```
 
    If it fails: fix it and re-run. Don't return with red.
-5. **UI**: if you touched screens, spin up the dev server and validate the golden path in a browser. If you can't (no browser, broken env), declare it EXPLICITLY in `.claude/progress/impl_<feature>.md`.
+5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill). Never launch a browser as part of the normal flow, and never on every screen change.
 6. **No commits** without the `reviewer`'s approval. When you finish, write the report and return the reference.
 
 ## Hard rules (generic, always apply)
@@ -75,7 +75,7 @@ Before returning `done -> .claude/progress/impl_<feature>.md`, apply `.claude/sk
 | Claim you're going to make | Required output | Not sufficient |
 |---|---|---|
 | `{{qualityGate.fast}}` green | Full command run **this turn** with exit 0 | "ran it before", "should be green" |
-| UI validated on the golden path | Repro step + observation in the browser | "looks fine in the code" |
+| UI validated in the browser (only when the user asked for a visual check) | Repro step + observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in the code" |
 | Bug fixed (if applicable) | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
 | Zero new errors in typecheck/lint | Baseline `git stash` → re-run → compare counts | "lint said OK" with no baseline |
 
@@ -93,7 +93,7 @@ Write `.claude/progress/impl_<feature>.md`:
 - <path>
 
 **Quality gate:** ✅ {{qualityGate.fast}} green | ❌ <reason>
-**UI validated manually:** yes (golden path) | no (reason)
+**UI (browser) validated:** n/a — not requested | yes (on user request) | no (requested, couldn't — reason)
 
 ## Non-obvious decisions
 - ...

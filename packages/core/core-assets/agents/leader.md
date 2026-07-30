@@ -117,7 +117,7 @@ If the review returned `CHANGES_REQUESTED`, do NOT invoke `commit-pr-pilot`: lau
 {{qualityGate.full}}    # full gate — before closing the session / creating the PR
 ```
 
-If the repo has no test suite, the `implementer` must spin up the dev server and manually validate the golden path; if it can't, it says so explicitly. The `verify-before-done` skill enforces the "fresh evidence rule" over any "done" claim.
+If the repo has no test suite, the `implementer` still can't claim "done" without fresh evidence (a correct diff plus whatever checks exist) — but browser/visual validation stays **on-request only, never automatic**. The `verify-before-done` skill enforces the "fresh evidence rule" over any "done" claim.
 
 ## What you do NOT do
 
