@@ -125,6 +125,7 @@ describe("i18n — command catalog (tc)", () => {
       "workspace",
       "status",
       "engine",
+      "global",
     ] as const) {
       expect(keysOf(es[section] as unknown as Record<string, unknown>)).toEqual(
         keysOf(en[section] as unknown as Record<string, unknown>),

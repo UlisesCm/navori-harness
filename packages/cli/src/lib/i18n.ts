@@ -843,6 +843,30 @@ interface StatusCmdStrings {
   ok: string;
 }
 
+interface GlobalCmdStrings {
+  notInstalled: string;
+  initReinit: (dir: string) => string;
+  initDone: (dir: string) => string;
+  renderApplied: (dir: string) => string;
+  previewTitle: string;
+  previewHint: string;
+  wroteHook: (path: string) => string;
+  wroteSettings: (path: string) => string;
+  baselineBlocks: (ids: string) => string;
+  doctorTitle: (dir: string) => string;
+  hookPresent: string;
+  hookMissing: string;
+  settingsRegistered: string;
+  settingsNotRegistered: string;
+  versionOk: (v: string) => string;
+  versionDrift: (found: string, expected: string) => string;
+  hooksDisabledHint: string;
+  uninstallNothing: string;
+  uninstallDone: (dir: string) => string;
+  outroOk: string;
+  outroIssues: string;
+}
+
 interface CmdStrings {
   common: CommonCmdStrings;
   render: RenderCmdStrings;
@@ -855,6 +879,7 @@ interface CmdStrings {
   workspace: WorkspaceCmdStrings;
   status: StatusCmdStrings;
   engine: EngineCmdStrings;
+  global: GlobalCmdStrings;
 }
 
 const CMD_ES: CmdStrings = {
@@ -1280,6 +1305,31 @@ const CMD_ES: CmdStrings = {
     presetNotFoundCodex: (preset) => `Preset '${preset}' no encontrado; Codex usará solo el core.`,
     presetInvalid: (preset, detail) => `Preset '${preset}' inválido: ${detail}`,
   },
+  global: {
+    notInstalled: "El harness global no está instalado. Corre 'navori global init'.",
+    initReinit: (dir) => `Harness global ya inicializado en ${dir}; regenerando.`,
+    initDone: (dir) => `Harness global instalado en ${dir}.`,
+    renderApplied: (dir) => `Baseline global renderizado en ${dir}.`,
+    previewTitle: "Se escribiría",
+    previewHint: "Corre con --apply para escribir.",
+    wroteHook: (path) => `hook: ${path}`,
+    wroteSettings: (path) => `settings: ${path}`,
+    baselineBlocks: (ids) => `Bloques del baseline: ${ids}`,
+    doctorTitle: (dir) => `Harness global en ${dir}`,
+    hookPresent: "hook de baseline presente",
+    hookMissing: "hook de baseline ausente — corre 'navori global render --apply'",
+    settingsRegistered: "registrado en settings.json (SessionStart)",
+    settingsNotRegistered: "no registrado en settings.json — corre 'navori global render --apply'",
+    versionOk: (v) => `versión ${v}`,
+    versionDrift: (found, expected) =>
+      `versión ${found} < ${expected} del CLI — corre 'navori global render --apply'`,
+    hooksDisabledHint:
+      "recuerda: si deshabilitaste los hooks de Claude Code, el baseline no se inyecta",
+    uninstallNothing: "No hay harness global que desinstalar.",
+    uninstallDone: (dir) => `Harness global desinstalado de ${dir}.`,
+    outroOk: "OK",
+    outroIssues: "Revisa lo anterior",
+  },
 };
 
 const CMD_EN: CmdStrings = {
@@ -1699,6 +1749,30 @@ const CMD_EN: CmdStrings = {
       "the new hooks with `/hooks`.",
     presetNotFoundCodex: (preset) => `Preset '${preset}' not found; Codex will use the core only.`,
     presetInvalid: (preset, detail) => `Preset '${preset}' invalid: ${detail}`,
+  },
+  global: {
+    notInstalled: "The global harness isn't installed. Run 'navori global init'.",
+    initReinit: (dir) => `Global harness already initialized at ${dir}; regenerating.`,
+    initDone: (dir) => `Global harness installed at ${dir}.`,
+    renderApplied: (dir) => `Global baseline rendered to ${dir}.`,
+    previewTitle: "Would write",
+    previewHint: "Run with --apply to write.",
+    wroteHook: (path) => `hook: ${path}`,
+    wroteSettings: (path) => `settings: ${path}`,
+    baselineBlocks: (ids) => `Baseline blocks: ${ids}`,
+    doctorTitle: (dir) => `Global harness at ${dir}`,
+    hookPresent: "baseline hook present",
+    hookMissing: "baseline hook missing — run 'navori global render --apply'",
+    settingsRegistered: "registered in settings.json (SessionStart)",
+    settingsNotRegistered: "not registered in settings.json — run 'navori global render --apply'",
+    versionOk: (v) => `version ${v}`,
+    versionDrift: (found, expected) =>
+      `version ${found} < CLI ${expected} — run 'navori global render --apply'`,
+    hooksDisabledHint: "note: if you disabled Claude Code hooks, the baseline won't be injected",
+    uninstallNothing: "No global harness to uninstall.",
+    uninstallDone: (dir) => `Global harness uninstalled from ${dir}.`,
+    outroOk: "OK",
+    outroIssues: "Check the above",
   },
 };
 
