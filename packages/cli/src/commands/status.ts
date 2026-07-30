@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { collectMissingPlugins, scanManagedDrift, suggestNextSteps } from "../lib/health.ts";
 import { brand, dim as grey, color, sym, kv, accent } from "../lib/style.ts";
+import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 
 /**
  * `status` — spec 0003 §3.5.3. A quick "where did this repo land?" snapshot:
@@ -30,7 +31,7 @@ export const statusCommand = defineCommand({
         console.log(JSON.stringify({ ok: false, error: "config-missing", configPath }));
       } else {
         p.intro(brand("status"));
-        p.cancel(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
+        p.cancel(tc(DEFAULT_LANG).common.noConfig(configPath));
       }
       process.exit(1);
     }
@@ -57,7 +58,6 @@ export const statusCommand = defineCommand({
     const enabledPlugins = Object.entries(config.plugins ?? {})
       .filter(([, v]) => v.enabled === true)
       .map(([k]) => k);
-    const nextSteps = suggestNextSteps({ claudeMdExists, missingPlugins, drifts });
 
     if (args.json) {
       console.log(
@@ -72,7 +72,9 @@ export const statusCommand = defineCommand({
             claudeMdExists,
             drift: drifts.length,
             missingPlugins: missingPlugins.map((m) => m.id),
-            nextSteps,
+            // Machine-readable contract: the prose stays stable in English so a
+            // consumer never has to branch on config.language.
+            nextSteps: suggestNextSteps({ claudeMdExists, missingPlugins, drifts }, "en"),
           },
           null,
           2,
@@ -81,6 +83,10 @@ export const statusCommand = defineCommand({
       return;
     }
 
+    const lang = resolveLang(config.language);
+    const ts = tc(lang).status;
+    const nextSteps = suggestNextSteps({ claudeMdExists, missingPlugins, drifts }, lang);
+
     p.intro(brand("status"));
     p.note(
       kv([
@@ -88,13 +94,13 @@ export const statusCommand = defineCommand({
         ["version", config.version],
         ["preset", config.preset],
         ["engines", config.engines.join(", ")],
-        ["plugins", enabledPlugins.length > 0 ? enabledPlugins.join(", ") : grey("(none)")],
-        ["CLAUDE.md", claudeMdExists ? color.green("present") : color.red("missing")],
+        ["plugins", enabledPlugins.length > 0 ? enabledPlugins.join(", ") : grey(ts.none)],
+        ["CLAUDE.md", claudeMdExists ? color.green(ts.present) : color.red(ts.missing)],
         ["drift", drifts.length > 0 ? color.yellow(`${drifts.length}`) : color.green("0")],
       ]),
-      `Status · ${grey(cwd)}`,
+      ts.statusTitle(grey(cwd)),
     );
-    p.note(nextSteps.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), "Próximos pasos");
-    p.outro(missingPlugins.length > 0 ? color.red("Issues found") : color.green("OK"));
+    p.note(nextSteps.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), ts.nextStepsTitle);
+    p.outro(missingPlugins.length > 0 ? color.red(ts.issuesFound) : color.green(ts.ok));
   },
 });
