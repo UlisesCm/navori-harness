@@ -623,6 +623,11 @@ interface DoctorCmdStrings {
   outroIssues: string;
   outroDriftStrict: string;
   outroOk: string;
+  codexConfigMalformed: string;
+  codexHookNotExecutable: (hook: string) => string;
+  codexVersionWarning: (found: string, min: string) => string;
+  codexHookTrustHint: string;
+  codexGuardNotVersioned: (guards: string) => string;
 }
 
 /**
@@ -1016,6 +1021,14 @@ const CMD_ES: CmdStrings = {
     outroIssues: "Issues found",
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
+    codexConfigMalformed:
+      ".codex/config.toml: bloque managed desbalanceado (corre 'navori render --apply')",
+    codexHookNotExecutable: (hook) => `${hook} sin bit ejecutable — Codex no lo dispara (chmod +x)`,
+    codexVersionWarning: (found, min) => `codex ${found} < ${min} requerido`,
+    codexHookTrustHint:
+      "Codex solo dispara hooks en repos confiables: revísalos y autorízalos con '/hooks'",
+    codexGuardNotVersioned: (guards) =>
+      `${guards} sin versionar en git — en una sesión Codex abierta dentro de un git worktree el guard no corre; versiona '.codex/hooks/' (o '.codex/')`,
   },
   update: {
     detectedMigrationSuggestion: (legacy, preferred) =>
@@ -1431,6 +1444,15 @@ const CMD_EN: CmdStrings = {
     outroIssues: "Issues found",
     outroDriftStrict: "Drift detected (--strict)",
     outroOk: "OK",
+    codexConfigMalformed:
+      ".codex/config.toml: unbalanced managed block (run 'navori render --apply')",
+    codexHookNotExecutable: (hook) =>
+      `${hook} missing executable bit — Codex won't fire it (chmod +x)`,
+    codexVersionWarning: (found, min) => `codex ${found} < ${min} required`,
+    codexHookTrustHint:
+      "Codex only fires hooks in trusted repos: review them and authorize with '/hooks'",
+    codexGuardNotVersioned: (guards) =>
+      `${guards} not versioned in git — in a Codex session opened inside a git worktree the guard won't run; version '.codex/hooks/' (or '.codex/')`,
   },
   update: {
     detectedMigrationSuggestion: (legacy, preferred) =>
