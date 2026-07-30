@@ -36,6 +36,7 @@ export const WORKFLOW_SKILLS: ReadonlyArray<string> = [
   "ticket-intake",
   "pr-create",
   "spec-bootstrap",
+  "dominio",
 ];
 
 export function isAgentEnabled(
