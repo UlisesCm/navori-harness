@@ -65,9 +65,9 @@ y un compañero sin `navori global` clona y recibe un harness degradado).
 
 **El MVP se queda solo con el eje aditivo y seguro:**
 
-> El scope global es la capa que Claude Code carga **debajo** de toda sesión
-> (`~/.claude/CLAUDE.md` + `~/.claude/agents/`). Es **puramente aditiva**: los repos siguen
-> autocontenidos e intactos. Render de repo **no omite nada**.
+> El baseline global es una capa que se inyecta **debajo** de la sesión (vía el hook con gate,
+> §3.1). Es **puramente aditiva**: los repos siguen autocontenidos e intactos. Render de repo
+> **no omite nada** y **no cambia un solo byte**.
 
 Beneficio de fondo: **el falso-positivo de bloques `both` desaparece del MVP**, porque global
 carga contenido repo-agnóstico que los repos no re-emiten como policy propia — no hay dos
@@ -75,21 +75,48 @@ marcadores idénticos que un doctor cross-scope confunda con duplicado. El ahorr
 por-omisión y el doctor cross-scope quedan como **Fase 2/3 opcionales** (§8), con su tradeoff
 explícito.
 
-## 3. Modelo de scope
+### 2.4 Invariante: huella cero sin opt-in
 
-Se añade un atributo **`scope: "repo" | "global"`** a los assets managed del core (default
-`"repo"` → comportamiento actual intacto). Precedente directo en el código: `CoreManagedAsset`
-ya tiene `rootOnly` + la opción `omitRootOnly` (`render-plan.ts:20-34`, `260-273`) que omite
-bloques globales en renders de workspace-hijo "porque Claude Code ya los carga del padre". El
-scope generaliza ese patrón:
+**Requisito duro (Ulises): si no instalas el harness global, no se nota ni un cambio.** La
+versión del CLI que trae esta feature debe comportarse **byte-idéntico** a la anterior en
+**todos** los flujos existentes mientras `~/.navori/global.json` no exista:
 
-- `scope: "repo"` → se rendea en el repo (default; todo lo actual).
-- `scope: "global"` → forma parte del **baseline global**, entregado por un SessionStart hook
-  con gate (§3.1), **no** como bloque estático en `~/.claude/CLAUDE.md`. El render de repo lo
-  **ignora** (no lo emite ni lo audita como drift).
+- `navori render`, `doctor`, `status`, `sync`, `init`, `add` de repo → **output y archivos
+  idénticos**. Cero líneas nuevas, cero prompts nuevos, cero warnings de "global no instalado".
+- **Ningún** archivo se escribe en `~/.claude` salvo tras `navori global init` explícito.
+- El path de render del repo (`render-plan.ts`, engine adapters) **no se modifica** en F1
+  (ver §3). La feature global vive **solo** en código nuevo que nadie ejecuta sin opt-in.
 
-> **Nota:** NO se introduce `scope: "both"` en el MVP. `both` es justo el caso que dispara el
-> falso-positivo cross-scope; se difiere a la Fase 3 junto con el doctor cross-scope.
+Todo lo global está **gateado por la existencia de `~/.navori/global.json`**: sin ese archivo,
+los comandos `navori global *` son lo único que lo menciona, y solo si los invocas a mano. Esta
+invariante se blinda con un test de no-regresión: **el render de un repo produce bytes
+idénticos con y sin la feature global presente en el binario** (§8, F1).
+
+## 3. Modelo de composición del baseline global
+
+Para respetar la invariante de §2.4, **F1 no añade ningún atributo a los assets del core ni
+toca el path de render del repo.** El baseline global se compone por **selección de bloques
+existentes por `id`**:
+
+- `~/.navori/global.json` lleva `blocks.include: string[]` — los `id` de bloques del core que
+  forman el baseline (p. ej. `["idioma-rol", "operaciones-seguras", ...]`).
+- `navori global render` toma **esos mismos bloques del core** (los que ya existen en
+  `CORE_MANAGED_ASSETS`, `render-plan.ts:36-90`), valida que **ninguno interpole
+  `{{project.*}}`** (§4), y los emite dentro del hook con gate (§3.1).
+- El render de repo **ni se entera**: sigue emitiendo lo que emite hoy. Un bloque en
+  `blocks.include` se rendea en el repo **y** puede componer el baseline global — no son
+  mutuamente excluyentes en F1, y como el gate hace defer dentro de repos navori, **nunca hay
+  doble emisión** (repo sin navori → solo el hook; repo con navori → solo el repo).
+
+Esto mantiene la feature global como **código estrictamente nuevo y aditivo**: cero cambios al
+motor de render existente.
+
+> **Deferido a F2 — el atributo `scope` y la omisión.** La "omisión de bloques en el repo"
+> (para ahorro de tokens) sí requeriría un atributo `scope`/`omit` en los assets del core y
+> modificar el render del repo — precedente: `rootOnly`/`omitRootOnly` (`render-plan.ts:20-34`,
+> `260-273`). Eso es opt-in por-repo, cambia el output del repo, y por tanto **no** entra al
+> MVP: rompería la invariante de huella-cero. Se difiere a F2. `scope: "both"` y el doctor
+> cross-scope van con F3.
 
 ## 3.1 El gate: instalación explícita y aplicación condicional
 
@@ -198,7 +225,7 @@ Namespace nuevo que **comparte el core** de resolución/render (no duplica lógi
 | Comando | Qué hace |
 |---|---|
 | `navori global init` | **Opt-in explícito.** Crea `~/.navori/global.json` (interactivo o `--recommended`), detecta infra Claude preexistente en `~/.claude` (reusa `claude-infra.ts` parametrizado), instala el **hook con gate** `navori-global-baseline.sh` + mergea permisos en `~/.claude/settings.json`, y renderiza el baseline dentro del hook. Idempotente. |
-| `navori global render [--apply]` | Regenera el hook con gate (con los bloques `scope: global` seleccionados en `blocks.include`) + el fragmento de permisos, a `CLAUDE_CONFIG_DIR ?? ~/.claude`. `--apply` escribe; sin flag, dry-run/preview (igual que `render` de repo). |
+| `navori global render [--apply]` | Regenera el hook con gate (con los bloques del core seleccionados por `id` en `blocks.include`) + el fragmento de permisos, a `CLAUDE_CONFIG_DIR ?? ~/.claude`. `--apply` escribe; sin flag, dry-run/preview (igual que `render` de repo). |
 | `navori global doctor` | Audita el estado del harness global (hook presente, drift de versión/contenido vs el CLI, gate funcional). **Single-scope** en el MVP: solo mira `~/.claude`, no compara contra repos (eso es Fase 3). |
 | `navori global uninstall` | Desinstala **solo** global-navori: quita el hook `navori-global-baseline.sh` y el fragmento de settings de navori. Deja intacto cualquier otro hook/skill/plugin/agente global del usuario. |
 
@@ -231,14 +258,16 @@ snippet de prueba del #124 lo usa (`CLAUDE_CONFIG_DIR=~/navori-fresh navori glob
 
 ## 8. Fases
 
-- **F1 — MVP lean (esta entrega):** atributo `scope`; auditoría de interpolación de bloques
-  candidatos; `~/.navori/global.json` + schema; `resolveScopeContext`; **hook con gate**
-  `navori-global-baseline.sh` (detección de `navori.config.json` en cwd/ancestros) + merge de
-  permisos; `navori global init/render/doctor/uninstall`; baseline entregado dentro del hook a
-  `~/.claude`. Render de repo **sin cambios de comportamiento** (los bloques siguen siendo
-  `scope: repo` salvo los reasignados). Tests: el gate emite baseline en dir sin navori y
-  **defer** (nada) en repo con `navori.config.json`; no-regresión del render de repo; respeto
-  de `CLAUDE_CONFIG_DIR`; `uninstall` deja intacto lo no-navori.
+- **F1 — MVP lean (esta entrega):** `~/.navori/global.json` + schema; auditoría de
+  interpolación de los bloques candidatos (§4); composición del baseline por selección de `id`
+  (§3, **sin tocar el core ni el render de repo**); **hook con gate** `navori-global-baseline.sh`
+  (detección de `navori.config.json` en cwd/ancestros) + merge de permisos; `navori global
+  init/render/doctor/uninstall`; baseline entregado dentro del hook a `~/.claude`. Tests:
+  **(1) invariante de huella-cero — el render de un repo produce bytes idénticos con y sin la
+  feature global en el binario, y sin `~/.navori/global.json` ningún comando de repo cambia su
+  output**; (2) el gate emite baseline en dir sin navori y hace **defer** (nada) en repo con
+  `navori.config.json`; (3) respeto de `CLAUDE_CONFIG_DIR`; (4) `uninstall` deja intacto lo
+  no-navori.
 - **F2 — Omisión opcional (token savings), opt-in:** un repo puede declarar
   `useGlobalHarness: true` para **omitir** en su render los bloques que ya carga el global.
   Trae el **tradeoff de portabilidad** (repo deja de ser autocontenido) → opt-in explícito,
