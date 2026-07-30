@@ -45,6 +45,16 @@ const QualityGateSchema = z.object({
   full: z.string().min(1),
 });
 
+// Lifecycle-hook toggles (Claude Stop/SubagentStop/PreCompact). SubagentStop
+// (handoff validator) and PreCompact (session-summary reminder) are always
+// wired — they're advisory and near-silent. `verifyOnStop` gates the Stop hook
+// (verify-before-done reminder), which fires per-turn while the tree is dirty
+// and so can be noisy — it stays OFF unless a repo opts in. Same gating shape as
+// `qualityGate.fast` gating the quality-gate hook.
+const HooksSchema = z.object({
+  verifyOnStop: z.boolean().default(false),
+});
+
 const MonorepoWorkspaceSchema = z.object({
   name: z.string().min(1),
   path: safeRelPath,
@@ -243,6 +253,10 @@ export const NavoriConfigSchema = z
     prTarget: z.string().optional(),
     commits: tolerantEnum(COMMITS, "conventional-es"),
     qualityGate: QualityGateSchema.optional(),
+    /** Lifecycle-hook toggles. Only `verifyOnStop` is user-facing today (opt-in
+     * for the Stop verify-before-done reminder); the other lifecycle hooks are
+     * unconditional. See HooksSchema. */
+    hooks: HooksSchema.optional(),
     /** Package manager detected in the repo (pnpm/npm/yarn/bun). Persisted so
      * `render` derives the `<pm> run …` permission allowlist from config alone
      * (source of truth), not by re-scanning the filesystem. Configs written
