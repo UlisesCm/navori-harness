@@ -63,4 +63,3 @@ async function OrdersList({ userId }: { userId: string }) {
 - `{{qualityGate.fast}}` green; tested with `next start` (the cache differs from `next dev`).
 - Every external `fetch` declares a conscious policy (`no-store`/`force-cache`/`revalidate: N`) and uses an absolute URL; no DB query goes through your own `route.ts` (getters with `cache()`).
 - If you mutated data in a Server Action: `revalidateTag`/`revalidatePath` is called, otherwise the UI stays stale.
-</content>

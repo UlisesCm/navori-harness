@@ -44,7 +44,7 @@ To **audit existing code with no ticket** — a deep read-only pass over a modul
 
 ## How to launch in parallel (mechanics, not optional)
 
-Parallelism is an **analytical** tool, not just a speed one: the value is in how you split the problem —into genuinely independent pieces, with judgment— and in how you integrate what comes back. Launching agents for the sake of it doesn't help; decomposing well and synthesizing deeply does. Speed is the consequence, not the goal.
+Parallelism is an **analytical** tool, not just a speed one: the value is in splitting the problem into genuinely independent pieces and integrating what comes back — decompose well and synthesize deeply, don't launch agents for their own sake. Speed is the consequence, not the goal.
 
 The mechanics: when the table says "in parallel" (N `implementer`, 2–3 `researcher`/`explorer`), that's achieved by emitting ALL the `Agent` calls in the SAME turn — not one, wait for its `done -> file`, then the next. Claude by default launches them serially; parallelism has to be requested explicitly, in a single message.
 

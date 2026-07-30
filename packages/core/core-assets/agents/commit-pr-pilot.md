@@ -153,7 +153,6 @@ If the repo defines its own template (`.github/pull_request_template.md`), read 
 ## Anti-patterns
 
 - ❌ A title like `feat: changes` or `fix: bug` with no scope or concrete description.
-- ❌ A body with an empty "Screenshots" section when there are no captures.
 - ❌ Mixing several unrelated features in one PR. If `--stat` shows >25 files with no clear relation, flag it and ask for confirmation.
 - ❌ Skipping pre-flight to "go faster" — the recurring bug is creating PRs with failing tests.
 - ❌ Using `gh pr create --web` — you lose the controlled format.

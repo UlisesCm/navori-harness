@@ -52,7 +52,7 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 
 Does the code match the repo's conventions? Here you do review style/naming/types.
 
-Apply `.claude/skills/review-diff.md` — the full checklist by dimensions (types, data layer, errors, security, hardcode, naming, over-engineering, dead code) with severities. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. Summary of the minimum to validate against `CLAUDE.md` and the leader's "Project rules":
+Apply `.claude/skills/review-diff.md` — the full checklist by dimensions, with severities. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. Summary of the minimum to validate against `CLAUDE.md` and the leader's "Project rules":
 
 - **Conventions**: naming, path aliases, folder structure.
 - **Centralized types**: no inline `type`/`interface` where the convention says "outside".
