@@ -58,4 +58,3 @@ const { register, control, handleSubmit, formState: { errors, isSubmitting } } =
 - Zod + `zodResolver`, type via `z.infer`; `Controller` for controlled inputs, `register` for text; no mirror `useState`.
 - `defaultValues` set; no "uncontrolled to controlled" warnings. Submit with `handleSubmit` + `isSubmitting`.
 - `{{qualityGate.fast}}` green.
-</content>
