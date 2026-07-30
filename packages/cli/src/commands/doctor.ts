@@ -420,28 +420,22 @@ export const doctorCommand = defineCommand({
     if (codexHealth) {
       const cx: string[] = [];
       if (codexHealth.configMalformed) {
-        cx.push(
-          `  ${color.red(sym.fail)} .codex/config.toml: bloque managed desbalanceado (corre 'navori render --apply')`,
-        );
+        cx.push(`  ${color.red(sym.fail)} ${td.codexConfigMalformed}`);
       }
       for (const h of codexHealth.hooksNotExecutable) {
-        cx.push(
-          `  ${color.yellow(sym.update)} ${h} sin bit ejecutable — Codex no lo dispara (chmod +x)`,
-        );
+        cx.push(`  ${color.yellow(sym.update)} ${td.codexHookNotExecutable(h)}`);
       }
       if (codexHealth.versionWarning) {
         cx.push(
-          `  ${color.yellow(sym.update)} codex ${codexHealth.versionWarning.found} < ${codexHealth.versionWarning.min} requerido`,
+          `  ${color.yellow(sym.update)} ${td.codexVersionWarning(codexHealth.versionWarning.found, codexHealth.versionWarning.min)}`,
         );
       }
       if (codexHealth.hookTrustHint) {
-        cx.push(
-          `  ${color.cyan(sym.bullet)} Codex solo dispara hooks en repos confiables: revísalos y autorízalos con '/hooks'`,
-        );
+        cx.push(`  ${color.cyan(sym.bullet)} ${td.codexHookTrustHint}`);
       }
       if (codexHealth.guardNotVersioned.length > 0) {
         cx.push(
-          `  ${color.yellow(sym.update)} ${codexHealth.guardNotVersioned.join(", ")} sin versionar en git — en una sesión Codex abierta dentro de un git worktree el guard no corre; versiona '.codex/hooks/' (o '.codex/')`,
+          `  ${color.yellow(sym.update)} ${td.codexGuardNotVersioned(codexHealth.guardNotVersioned.join(", "))}`,
         );
       }
       if (cx.length > 0) p.note(cx.join("\n"), "Codex");

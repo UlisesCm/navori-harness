@@ -147,4 +147,19 @@ describe("i18n — command catalog (tc)", () => {
     expect(tc("es").doctor.excludedBlocksTitle(1)).toContain("Bloques core excluidos");
     expect(tc("en").doctor.excludedBlocksTitle(1)).toContain("Excluded core blocks");
   });
+
+  it("doctor Codex health strings render with their args in both locales (feature: codex)", () => {
+    for (const lang of SUPPORTED_LANGS) {
+      const d = tc(lang).doctor;
+      expect(d.codexConfigMalformed).toContain(".codex/config.toml");
+      expect(d.codexHookNotExecutable(".codex/hooks/guard.sh")).toContain(".codex/hooks/guard.sh");
+      expect(d.codexVersionWarning("0.140.0", "0.145.0")).toContain("0.140.0");
+      expect(d.codexVersionWarning("0.140.0", "0.145.0")).toContain("0.145.0");
+      expect(d.codexHookTrustHint).toContain("/hooks");
+      expect(d.codexGuardNotVersioned(".codex/hooks/")).toContain(".codex/hooks/");
+    }
+    // Locale actually differentiates the copy (not a shared fallback).
+    expect(tc("es").doctor.codexHookTrustHint).toContain("repos confiables");
+    expect(tc("en").doctor.codexHookTrustHint).toContain("trusted repos");
+  });
 });
