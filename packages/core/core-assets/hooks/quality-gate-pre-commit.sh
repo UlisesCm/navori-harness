@@ -59,7 +59,8 @@ run_gate() {
 # --- content receipt (RDD) --------------------------------------------------
 # Backstop that binds the commit to the exact bytes the reviewer approved. The
 # reviewer writes a receipt (`<blob-sha>  <path>` lines, one per approved file,
-# via `git hash-object`) when it marks APPROVED; the commit-pr-pilot recomputes
+# via `git hash-object`, plus `deleted  <path>` for a file it approved removing)
+# when it marks APPROVED; the commit-pr-pilot recomputes
 # it before committing and consumes it after. THIS is the mechanical net for a
 # direct `git commit` that skips the pilot: if an approved file's content
 # drifted since the review (rebase, human tweak, follow-up edit), block. It
@@ -99,6 +100,10 @@ check_content_receipt() {
     path=${line#*  }                                   # path = the rest (may contain spaces)
     [ -n "$blob" ] && [ "$blob" != "$path" ] || continue
     printf '%s\n' "$commit_set" | grep -qxF "$path" || continue   # not in this commit → ignore
+    if [ "$blob" = deleted ]; then                     # reviewer approved the removal
+      [ -e "$path" ] && drift="${drift}  - ${path} (reappeared)"$'\n'   # drift only if it came back
+      continue
+    fi
     now=$(git hash-object "$path" 2>/dev/null || true)
     if [ "$now" != "$blob" ]; then
       drift="${drift}  - ${path}"$'\n'

@@ -47,21 +47,31 @@ Open that specific file and confirm its verdict is `APPROVED` and that its scope
 
 An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
-**Content receipt (R2+): the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`, one `<blob-sha>  <path>` line per reviewed file). Before committing, the approval has to cover the diff in **both** directions — coverage (every shipping file was reviewed) and no drift (no reviewed file changed its bytes):
+**Content receipt (R2+): the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`, one `<blob-sha>  <path>` line per reviewed file, or `deleted  <path>` for a removed one). Before committing, the approval has to cover the diff in **both** directions — coverage (every shipping file was reviewed) and no drift (no reviewed file changed its bytes):
 
 ```bash
 # 1) COVERAGE: shipping files the receipt never listed → reviewer never saw them.
-#    Same diff set the reviewer captured (tracked vs target + untracked), so the
-#    sets line up 1:1 with no spurious mismatches.
+#    EXACT same diff set the reviewer captured — tracked-vs-target + untracked,
+#    minus the harness's own progress/ files (same grep the receipt applies) — so
+#    the sets line up 1:1 with no spurious mismatches. A git-persisted progress/
+#    update never counts as "uncovered"; deletions DO stay in the set (the receipt
+#    records them as `deleted <path>`) so a removed file can't ship unreviewed.
 comm -23 \
-  <({ git diff --name-only "origin/{{prTarget}}"; git ls-files --others --exclude-standard; } | sort -u) \
+  <({ git diff --name-only "origin/{{prTarget}}"; git ls-files --others --exclude-standard; } \
+       | sort -u | grep -vE '^(\.claude/progress/|progress/)') \
   <(grep -v '^#' .claude/progress/receipt.txt | sed 's/^[^ ]*  //' | sort -u)
 
-# 2) DRIFT: a reviewed file whose bytes changed since the review.
+# 2) DRIFT: a reviewed file whose bytes changed since the review. A `deleted`
+#    marker means the reviewer signed off on the removal → drift only if the file
+#    came back.
 while IFS= read -r line; do
   case "$line" in ''|'#'*) continue ;; esac
   blob=${line%%  *}; path=${line#*  }
-  [ "$(git hash-object "$path" 2>/dev/null)" = "$blob" ] || echo "DRIFT: $path"
+  if [ "$blob" = deleted ]; then
+    [ -e "$path" ] && echo "DRIFT: $path (reappeared since review)"
+  else
+    [ "$(git hash-object "$path" 2>/dev/null)" = "$blob" ] || echo "DRIFT: $path"
+  fi
 done < .claude/progress/receipt.txt
 ```
 

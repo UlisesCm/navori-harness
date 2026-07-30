@@ -255,4 +255,38 @@ describe("quality-gate hook — content receipt (RDD)", () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toContain("receipt mismatch");
   });
+
+  // A file the reviewer approved REMOVING is recorded as `deleted  <path>`
+  // (#202). A staged deletion must NOT drift — its expected state is "absent".
+  it("a `deleted`-marked file staged as a deletion → does NOT block", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "a.txt"), "gone soon\n");
+    git("add", "a.txt");
+    git("commit", "-qm", "seed"); // a.txt tracked
+    const rel = ".claude/progress/receipt.txt";
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
+    writeFileSync(join(dir, rel), "# navori-receipt v1 feature=demo\ndeleted  a.txt\n");
+    git("rm", "-q", "a.txt"); // stage the removal the reviewer signed off on
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+    expect(r.stderr).not.toContain("receipt mismatch");
+  });
+
+  // The other direction: the receipt says the file was removed, but it's back
+  // (staged with content) → that IS drift, block.
+  it("a `deleted`-marked file that reappeared (staged with content) → BLOCKS", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    const rel = ".claude/progress/receipt.txt";
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
+    writeFileSync(join(dir, rel), "# navori-receipt v1 feature=demo\ndeleted  a.txt\n");
+    writeFileSync(join(dir, "a.txt"), "resurrected\n"); // came back
+    git("add", "a.txt");
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("receipt mismatch");
+    expect(r.stderr).toContain("a.txt");
+  });
 });

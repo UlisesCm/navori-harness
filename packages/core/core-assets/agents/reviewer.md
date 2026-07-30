@@ -87,11 +87,17 @@ printf '# navori-receipt v1 feature=<feature>\n' > .claude/progress/receipt.txt
   | sort -u \
   | grep -vE '^(\.claude/progress/|progress/)' \
   | while IFS= read -r f; do
-      [ -f "$f" ] && printf '%s  %s\n' "$(git hash-object "$f")" "$f"
+      if [ -f "$f" ]; then
+        printf '%s  %s\n' "$(git hash-object "$f")" "$f"   # live file → blob sha
+      else
+        printf 'deleted  %s\n' "$f"                        # removed file → deletion marker
+      fi
     done >> .claude/progress/receipt.txt
 ```
 
 It captures the working-tree bytes under review (committed **and** uncommitted). The `grep -v` drops the harness's own ephemeral progress files (the receipt, `impl_*`, `review_*`) — they never get committed, so fingerprinting them would be self-referential noise. Skip the whole step for `CHANGES_REQUESTED` — a rejected diff has nothing to bind.
+
+A **removed** file has no bytes to hash, so it's recorded as `deleted  <path>` instead of a blob sha. Keeping the deletion **in** the receipt is what closes the RDD cycle: the `commit-pr-pilot` coverage check is path-based, so it still sees the path (a deletion can't ship unreviewed), and both its drift check and the pre-commit hook read the `deleted` marker as "must stay absent" — flagging drift only if the file reappears. The shipping set the pilot compares against is then byte-for-byte the set you signed here (same `grep -vE`, deletions included), so a git-persisted `progress/` update or a removed file never shows up as "uncovered" and livelocks the close.
 
 ### Confidence scoring per finding (Pass 2)
 
