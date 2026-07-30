@@ -1,16 +1,19 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
-import { getCoreRoot } from "../../lib/bundled-assets.ts";
+import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { interpolate } from "../../lib/interpolate.ts";
+import { stripFrontmatter } from "../../lib/frontmatter.ts";
+import { injectManagedSection } from "../../lib/marker.ts";
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { resolveHarnessPlan, type PlannedAgent } from "../shared/harness-plan.ts";
 import {
-  executePlan,
+  collectPlan,
+  commitWrites,
   type AdapterCtx,
   type EngineAdapter,
   type PlacementRequest,
@@ -23,6 +26,14 @@ const CODEX_MODEL_BY_CLAUDE_TIER = {
   sonnet: "gpt-5.6-terra",
   haiku: "gpt-5.6-luna",
 } as const;
+
+const NAVORI_VERSION = readCliVersion();
+
+// A plugin skill declared with `injectInto: .claude/skills/<id>/SKILL.md` (or the
+// flat legacy `.claude/skills/<id>.md`) extends an existing skill. Captures the
+// target skill id; skill→agent injectInto (`.claude/agents/<id>.md`) does NOT
+// match here — that path is handled inside buildAgentToml.
+const SKILL_INJECT_RE = /^\.claude\/skills\/([a-z0-9-]+)(?:\/SKILL)?\.md$/;
 
 export type CodexEngineResult = ProseEngineResult;
 
@@ -64,13 +75,67 @@ export function renderCodexEngine(
   const ctx: AdapterCtx = { cwd, config, repoRoot, isWorkspace, coreAssets, preset, plugins };
   const adapter = createCodexAdapter(codexConfig.body);
 
-  const result = executePlan(plan, adapter, ctx, { dryRun, prune: presetLoadedSafely, lang });
+  // Split collect/commit so plugin skills that extend another skill (injectInto
+  // a `.claude/skills/<id>/SKILL.md`, e.g. codegraph → structural-search) can be
+  // appended as a managed sub-block BEFORE the single write — mirroring the
+  // Claude adapter, but into Codex's `.agents/skills/<id>/SKILL.md` and adapted
+  // to Codex's vocabulary. (skill→agent injectInto is handled in buildAgentToml.)
+  const { pending, removals, skipped } = collectPlan(plan, adapter, ctx, {
+    prune: presetLoadedSafely,
+    lang,
+  });
+  for (const plugin of plugins) {
+    for (const skill of plugin.skillAssets) {
+      const m = skill.injectInto?.match(SKILL_INJECT_RE);
+      if (!m) continue;
+      const targetRel = `.agents/skills/${m[1]}/SKILL.md`;
+      const targetAbs = join(cwd, targetRel);
+      // The base skill may not be in `pending` if it's unchanged this render
+      // (e.g. `navori add codegraph` on an already-rendered repo). Fall back to
+      // the on-disk copy and add it back to the write set, like the Claude adapter.
+      const inPending = pending.find((p) => p.path === targetAbs);
+      const baseContent =
+        inPending?.content ?? (existsSync(targetAbs) ? readFileSync(targetAbs, "utf-8") : null);
+      if (baseContent === null) {
+        warnings.push(
+          tc(lang).engine.pluginSkillNotInjected(skill.id, plugin.manifest.id, targetRel),
+        );
+        continue;
+      }
+      const subBlock = adaptHarnessTextForCodex(
+        interpolate(stripFrontmatter(readFileSync(skill.absPath, "utf-8")), config),
+        config,
+      );
+      const injected = injectManagedSection(
+        baseContent,
+        skill.id,
+        subBlock,
+        { source: `@navori/plugin-${plugin.manifest.id}`, version: NAVORI_VERSION },
+        "html",
+      );
+      if (inPending) {
+        inPending.content = injected.output;
+      } else if (injected.status === "created" || injected.status === "updated") {
+        pending.push({ path: targetAbs, content: injected.output, status: injected.status });
+      }
+    }
+  }
+  const { written, backupPath } = commitWrites({
+    pending,
+    removals,
+    cwd,
+    backupTargets: adapter.backupTargets,
+    dryRun,
+    writeLast: (p) => p.path.endsWith("/AGENTS.md"),
+    engineLabel: adapter.label ?? adapter.id,
+    lang,
+  });
 
   return {
-    written: result.written,
-    skipped: result.skipped,
+    written,
+    skipped,
     warnings: isWorkspace ? [] : warnings,
-    backupPath: result.backupPath,
+    backupPath,
   };
 }
 

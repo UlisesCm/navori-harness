@@ -20,7 +20,7 @@
     "multi-agent"
   ],
   "features": {
-    "plugins": 5,
+    "plugins": 6,
     "presets": 12,
     "coreAgents": 8,
     "coreSkills": 9,

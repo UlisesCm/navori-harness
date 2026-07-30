@@ -1,0 +1,39 @@
+{
+  "id": "codegraph",
+  "name": "CodeGraph — surgical code context",
+  "description": "Pre-built AST code graph via MCP: symbols, call paths and blast-radius in one call, fewer grep/read loops",
+  "version": "0.0.1",
+  "managed": [
+    {
+      "id": "codegraph-protocol",
+      "file": "managed/codegraph-protocol.md",
+      "recommendedAgent": "leader"
+    }
+  ],
+  "externalTool": {
+    "name": "codegraph",
+    "checkBinary": "codegraph",
+    "install": {
+      "darwin": "curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh",
+      "linux": "curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh"
+    },
+    "postInstall": "codegraph install && codegraph init"
+  },
+  "mcpServer": {
+    "command": "codegraph",
+    "args": ["serve", "--mcp"]
+  },
+  "settingsFragment": {
+    "permissions": {
+      "allow": ["mcp__codegraph__*"]
+    }
+  },
+  "skills": [
+    {
+      "id": "codegraph-search-extension",
+      "file": "skills/codegraph-rung.md",
+      "injectInto": ".claude/skills/structural-search/SKILL.md"
+    }
+  ],
+  "invariants": ["codegraph_explore"]
+}

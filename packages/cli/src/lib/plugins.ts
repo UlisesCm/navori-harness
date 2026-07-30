@@ -158,6 +158,7 @@ export const KNOWN_PLUGINS: Record<string, string> = {
   gh: "@navori/plugin-gh",
   jscpd: "@navori/plugin-jscpd",
   semgrep: "@navori/plugin-semgrep",
+  codegraph: "@navori/plugin-codegraph",
 };
 
 export class PluginNotFoundError extends NavoriError {
