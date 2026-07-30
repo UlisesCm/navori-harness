@@ -131,6 +131,21 @@ describe("buildClaudeSettings — base shape", () => {
     );
     expect(qg).toBeUndefined();
   });
+
+  it("always registers the SessionStart context hook (startup|resume|compact)", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const ss = (
+      s.hooks as {
+        SessionStart?: Array<{ matcher?: string; hooks: Array<{ command: string }> }>;
+      }
+    ).SessionStart;
+    const bucket = ss?.find((b) =>
+      b.hooks.some((h) => h.command.includes("session-start-context.sh")),
+    );
+    expect(bucket).toBeDefined();
+    expect(bucket?.matcher).toBe("startup|resume|compact");
+    expect(bucket?.hooks[0].command).toContain("$CLAUDE_PROJECT_DIR");
+  });
 });
 
 describe("buildClaudeSettings — quality-gate hook", () => {

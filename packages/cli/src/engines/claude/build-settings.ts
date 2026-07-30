@@ -25,6 +25,9 @@ import { deepMerge } from "./deep-merge.ts";
  *      set. The hook entry references
  *      `$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh`
  *      (rendered separately by the file pipeline).
+ *   2b. SessionStart(startup|resume|compact) hook — always registered. References
+ *      `$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.sh`; injects the
+ *      live harness context (branch/commits/current.md) so resume is deterministic.
  *   3. For each enabled plugin: `settingsFragment` and `hooks[]` translated
  *      from the flat manifest shape into Claude Code's nested
  *      `hooks.<Event>[].{matcher, hooks[]}` shape.
@@ -35,6 +38,7 @@ import { deepMerge } from "./deep-merge.ts";
 
 const QG_HOOK_DEST = ".claude/hooks/quality-gate-pre-commit.sh";
 const GUARD_HOOK_DEST = ".claude/hooks/guard-destructive.sh";
+const SESSION_START_HOOK_DEST = ".claude/hooks/session-start-context.sh";
 const SETTINGS_BASE_REL = "core-assets/settings/settings-base.json";
 
 export function buildClaudeSettings(
@@ -98,6 +102,29 @@ export function buildClaudeSettings(
       },
     });
   }
+
+  // SessionStart context hook — always registered (no config dependency, like
+  // the guard). Injects the live harness context (branch, recent commits,
+  // progress/current.md) at session start/resume/post-compact so resuming is
+  // deterministic. Claude-only: Codex lifecycle hooks are still experimental,
+  // so the asset renders under .codex/hooks/ but is not wired there yet.
+  settings = deepMerge(settings, {
+    hooks: {
+      SessionStart: [
+        {
+          matcher: "startup|resume|compact",
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${SESSION_START_HOOK_DEST}"`,
+              timeout: 15,
+              statusMessage: "navori: session context",
+            },
+          ],
+        },
+      ],
+    },
+  });
 
   for (const plugin of plugins) {
     const fragment = plugin.manifest.settingsFragment;
