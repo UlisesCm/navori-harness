@@ -40,16 +40,24 @@ gh auth status                                        # gh authenticated
 
 If the harness is active, identify THIS feature's review: `.claude/progress/review_<feature>.md`, with `<feature>` the id you received in your brief. A broad glob (`review_*.md`) over all reviews is not valid — it's not enough that some review with `APPROVED` exists in the directory, it has to be this feature's.
 
-Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. If the review lists the files it reviewed, compare them against `git diff --name-only`: if there are touched files that do NOT appear in that list, the review doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on.
+Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. The verdict only counts if the review **covers the whole shipping diff**: the reviewer's content receipt (below) is the authoritative list of the files it actually reviewed, so every file in `git diff --name-only` must appear there. A touched file the review never saw → the `APPROVED` doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on. The coverage check is mechanical — see the receipt block.
 
 <!-- This file-coverage rule lives here only; `skills/pr-create.md` is a pointer to this agent (single owner of the PR flow). -->
 
 
 An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
-**Content receipt (R2+): the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`). Before committing, confirm no approved file drifted since the review (rebase, human tweak, follow-up edit):
+**Content receipt (R2+): the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`, one `<blob-sha>  <path>` line per reviewed file). Before committing, the approval has to cover the diff in **both** directions — coverage (every shipping file was reviewed) and no drift (no reviewed file changed its bytes):
 
 ```bash
+# 1) COVERAGE: shipping files the receipt never listed → reviewer never saw them.
+#    Same diff set the reviewer captured (tracked vs target + untracked), so the
+#    sets line up 1:1 with no spurious mismatches.
+comm -23 \
+  <({ git diff --name-only "origin/{{prTarget}}"; git ls-files --others --exclude-standard; } | sort -u) \
+  <(grep -v '^#' .claude/progress/receipt.txt | sed 's/^[^ ]*  //' | sort -u)
+
+# 2) DRIFT: a reviewed file whose bytes changed since the review.
 while IFS= read -r line; do
   case "$line" in ''|'#'*) continue ;; esac
   blob=${line%%  *}; path=${line#*  }
@@ -57,7 +65,7 @@ while IFS= read -r line; do
 done < .claude/progress/receipt.txt
 ```
 
-Any `DRIFT` line — or a missing `receipt.txt` for a reviewed (R2+) change — means the approval no longer covers the current diff. Abort, don't commit, and send it back to the `reviewer` to re-approve over the current bytes. (The pre-commit hook re-checks the staged set mechanically as a backstop; catching it here is earlier and clearer.)
+Any file printed by (1) is uncovered; any `DRIFT` line from (2) is stale — either one, or a missing `receipt.txt` for a reviewed (R2+) change, means the approval no longer covers the current diff. Abort, don't commit, and send it back to the `reviewer` to cover/re-approve over the current bytes. It's not enough to mention the gap and carry on. (The pre-commit hook re-checks the staged set for drift mechanically as a backstop; catching both here is earlier and clearer.)
 
 **R1 exception (trivial diff, no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `{{qualityGate.full}}` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
 
