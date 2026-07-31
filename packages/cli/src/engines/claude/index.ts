@@ -6,6 +6,7 @@ import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../.
 import {
   computeRenderPlan,
   canonicalManagedOrder,
+  classifyVersionDrift,
   type AssetPlanEntry,
   type UpdateAvailable,
 } from "../../lib/render-plan.ts";
@@ -212,26 +213,17 @@ const CODEX_CROSS_REVIEW_ID = "codex-cross-review";
  * (`AGENTS.md` + `.codex/agents/reviewer.toml`), so this only tells the Claude
  * orchestrator that a second opinion from a DIFFERENT provider is one command
  * away — and when to reach for it. `{{prTarget}}` resolves against the config.
+ *
+ * The prose lives in `core-assets/managed/codex-cross-review.md` (not inline in
+ * TS) so it goes through the same asset+interpolation pipeline as every other
+ * managed block (#229). Follow-up: the other computed blocks (`skills-index`,
+ * `agentes-disponibles`, `contexto-*`) are shared across engines and build their
+ * rows from config, so relocating THEIR prose + localizing it is a larger,
+ * cross-engine refactor tracked separately.
  */
 function buildCodexCrossReviewBody(config: NavoriConfig): string {
-  const body = [
-    "## Cross-model review (Codex second opinion)",
-    "",
-    "This repo renders the `codex` engine, so a second opinion from a **different provider** is one command away. After your `reviewer` approves a non-trivial diff — or on any change touching a critical area — you MAY have Codex review the SAME diff against this repo's own standards (already rendered in `AGENTS.md` + `.codex/agents/reviewer.toml`):",
-    "",
-    "```bash",
-    'CODEX_HOME=$(pwd)/.codex codex exec --sandbox read-only "revisa el diff origin/{{prTarget}}...HEAD según los estándares del repo"',
-    "```",
-    "",
-    "- **Read-only:** Codex inspects, never edits or commits, and needs no approvals.",
-    "- The verdict lands on **stdout**; progress noise goes to stderr.",
-    "- Auth via `CODEX_API_KEY` or a prior `codex login`. Don't pass `--model` — Codex's default is correct.",
-    "- **Advisory, not a gate:** a second lens on the diff. Weigh its findings against your `reviewer`'s and decide; it doesn't block the PR on its own.",
-    "",
-    "Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user asks for a cross-check — not on every trivial diff.",
-    "",
-  ].join("\n");
-  return interpolate(body, config);
+  const assetPath = resolve(getCoreRoot(), "core-assets/managed/codex-cross-review.md");
+  return interpolate(readFileSync(assetPath, "utf-8"), config);
 }
 
 /** Managed-block id for the project-context rules injected into CLAUDE.md. */
@@ -239,6 +231,21 @@ const CONTEXTO_PROYECTO_ID = "contexto-proyecto";
 
 /** Managed-block id for the monorepo map (workspace tree) injected into CLAUDE.md. */
 const CONTEXTO_MONOREPO_ID = "contexto-monorepo";
+
+/**
+ * Ids of the CLAUDE.md managed blocks THIS engine computes and injects AFTER the
+ * core/preset/plugin blocks (steps 1b–1c). This is the Claude adapter's canonical
+ * order contribution (#228): the engine-agnostic core no longer knows these ids —
+ * `canonicalManagedOrder` receives them from here, so the render's reorder pass
+ * places the computed blocks in this exact order. Exported so a follow-up can
+ * hand the same list to doctor's order check (`lib/health.ts`).
+ */
+export const CLAUDE_COMPUTED_BLOCK_IDS = [
+  SKILLS_INDEX_ID,
+  AGENTS_INDEX_ID,
+  CONTEXTO_MONOREPO_ID,
+  CONTEXTO_PROYECTO_ID,
+] as const;
 
 /**
  * The "## Monorepo" map block. At the ROOT it lists every workspace so the
@@ -565,7 +572,10 @@ export function renderClaudeEngine(
   // user wove prose between blocks (moving them would orphan it).
   const reorder = reorderManagedBlocks(
     claudeMdContent,
-    canonicalManagedOrder(config, repoRoot, isWorkspace),
+    canonicalManagedOrder(config, repoRoot, {
+      omitRootOnly: isWorkspace,
+      computedBlockIds: CLAUDE_COMPUTED_BLOCK_IDS,
+    }),
   );
   claudeMdContent = reorder.output;
   if (reorder.blockedByInterleaving) {
@@ -609,6 +619,33 @@ export function renderClaudeEngine(
       path: settingsResult.path,
       content: settingsResult.content,
       status: settingsResult.status,
+    });
+  }
+
+  // 2.5. .mcp.json — the project-scoped MCP registry Claude Code reads (#212).
+  // Before this, a plugin's `mcpServer` was only ever materialized for Codex
+  // (config.toml); on Claude the server relied 100% on `postInstall` side-
+  // effects, which don't run under `add --skip-install`. So `codegraph`'s
+  // `mcp__codegraph__*` permission pointed at a server that was never registered,
+  // and the protocol promised MCP tools that didn't exist. We now write the same
+  // servers Codex gets into `.mcp.json`, reconciling disabled plugins and
+  // preserving any servers the user added under their own keys.
+  const disabledPlugins = loadDisabledPlugins(config.plugins).loaded;
+  const mcpResult = planMcpRegistration(cwd, enabledPlugins, disabledPlugins, config, force);
+  // Count `.mcp.json` as an inspected destination only when there's one to
+  // manage — an enabled plugin declaring a server, or an existing file to
+  // reconcile. A repo with no MCP plugins and no `.mcp.json` has no destination
+  // here (unlike settings.json, which navori always owns), so it isn't counted.
+  const hasMcpDestination =
+    enabledPlugins.some((pl) => pl.manifest.mcpServer) || existsSync(join(cwd, ".mcp.json"));
+  if (hasMcpDestination) inspected += 1;
+  if (mcpResult.kind === "skip") {
+    skipped.push({ path: relative(cwd, mcpResult.path), reason: mcpResult.reason });
+  } else if (mcpResult.kind === "write") {
+    pending.push({
+      path: mcpResult.path,
+      content: mcpResult.content,
+      status: mcpResult.status,
     });
   }
 
@@ -723,6 +760,12 @@ export function renderClaudeEngine(
         pending,
         skipped,
         warnings,
+        // #215: register version drift so `navori update` reports a plugin
+        // sub-block whose version bumped, instead of silently correcting it on
+        // render. Reuses the CLAUDE.md plan's buckets so it flows out via the
+        // same `updatesAvailable`/`downgrades` the engine returns.
+        updatesAvailable: claudeMdPlan.updatesAvailable,
+        downgrades: claudeMdPlan.downgrades,
       });
     }
   }
@@ -742,7 +785,7 @@ export function renderClaudeEngine(
   // .claude/scripts/* were only ever touched on the enabled path — so they'd
   // orphan. Strip them here so disabling a plugin fully cleans up (#80).
   const removals: PendingRemoval[] = [];
-  for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
+  for (const plugin of disabledPlugins) {
     for (const skill of plugin.skillAssets) {
       if (!skill.injectInto) continue;
       inspected += 1;
@@ -832,7 +875,7 @@ export function renderClaudeEngine(
     pending: pending.map((p) => ({ ...p, relPath: relative(cwd, p.path) })),
     removals,
     cwd,
-    backupTargets: ["CLAUDE.md", ".claude", "navori.config.json"],
+    backupTargets: ["CLAUDE.md", ".claude", "navori.config.json", ".mcp.json"],
     backupExclude: [".claude/settings.local.json", ".claude/progress"],
     dryRun,
     writeLast: (p) => p.path === claudeMdPath,
@@ -1000,6 +1043,106 @@ function planSettings(
   return { kind: "write", path, content: newJson, status: "updated" };
 }
 
+type McpPlan =
+  | { kind: "noop" }
+  | { kind: "skip"; path: string; reason: string }
+  | { kind: "write"; path: string; content: string; status: RenderStatus };
+
+/**
+ * Plan `.mcp.json` — the project-scoped MCP server registry Claude Code reads at
+ * the repo root (#212). navori materializes one server per ENABLED plugin that
+ * declares `mcpServer`, keyed by the plugin id (== the server name, so a
+ * `mcp__<id>__*` permission rule resolves against a real server). stdio is the
+ * default, so no `type` field is emitted; `command`/`args`/`env` mirror what the
+ * Codex adapter already writes into `config.toml`, giving the two engines parity.
+ *
+ * Ownership is by KEY, not a `$navori` marker: navori only ever sets/removes the
+ * server entries whose key is a navori plugin id, so a user's own servers under
+ * other keys — and any other top-level `.mcp.json` fields — survive every render.
+ * A DISABLED plugin's entry is removed (reconciliation), mirroring how disabled
+ * plugins are cleaned up elsewhere. An unparseable / non-object existing file is
+ * left untouched (skip) unless `--force`, so navori never clobbers a file it
+ * can't safely merge into.
+ */
+function planMcpRegistration(
+  cwd: string,
+  enabledPlugins: LoadedPlugin[],
+  disabledPlugins: LoadedPlugin[],
+  config: NavoriConfig,
+  force: boolean,
+): McpPlan {
+  const path = join(cwd, ".mcp.json");
+
+  // Servers navori wants registered: enabled plugins declaring an mcpServer.
+  const desired = new Map<string, Record<string, unknown>>();
+  for (const plugin of enabledPlugins) {
+    const server = plugin.manifest.mcpServer;
+    if (!server) continue;
+    const entry: Record<string, unknown> = { command: server.command, args: server.args };
+    if (server.env && Object.keys(server.env).length > 0) entry.env = server.env;
+    desired.set(plugin.manifest.id, entry);
+  }
+
+  const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
+  let base: Record<string, unknown> = {};
+  let baseServers: Record<string, unknown> = {};
+  let hadServersKey = false;
+  if (existing !== null) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(existing);
+    } catch (err) {
+      if (!force) {
+        const detail = (err as Error).message;
+        const reason =
+          resolveLang(config.language) === "en"
+            ? `.mcp.json could not be parsed as JSON: ${detail}. Left untouched; fix it or run 'navori render --force --apply' to regenerate.`
+            : `.mcp.json no se pudo parsear como JSON: ${detail}. Se dejó intacto; corrígelo o corre 'navori render --force --apply' para regenerar.`;
+        return { kind: "skip", path, reason };
+      }
+      parsed = {};
+    }
+    if (isPlainObject(parsed)) {
+      base = parsed;
+      const ms = parsed.mcpServers;
+      if (isPlainObject(ms)) {
+        baseServers = { ...ms };
+        hadServersKey = true;
+      }
+    } else if (!force) {
+      const reason =
+        resolveLang(config.language) === "en"
+          ? ".mcp.json is not a JSON object — cannot merge. Left untouched; run 'navori render --force --apply' to regenerate."
+          : ".mcp.json no es un objeto JSON — no se puede fusionar. Se dejó intacto; corre 'navori render --force --apply' para regenerar.";
+      return { kind: "skip", path, reason };
+    }
+  }
+
+  // Merge: start from the user's servers, drop disabled navori plugins, then
+  // set/refresh the enabled ones. Only navori-plugin keys are ever touched.
+  const servers: Record<string, unknown> = { ...baseServers };
+  for (const plugin of disabledPlugins) {
+    if (plugin.manifest.mcpServer) delete servers[plugin.manifest.id];
+  }
+  for (const [id, entry] of desired) servers[id] = entry;
+
+  // No file yet and nothing to register → don't create an empty `.mcp.json`.
+  if (existing === null && Object.keys(servers).length === 0) return { kind: "noop" };
+
+  const merged: Record<string, unknown> = { ...base };
+  if (Object.keys(servers).length > 0 || hadServersKey) {
+    merged.mcpServers = servers;
+  }
+  const newJson = JSON.stringify(merged, null, 2) + "\n";
+  if (existing === newJson) return { kind: "noop" };
+  return {
+    kind: "write",
+    path,
+    content: newJson,
+    status: existing === null ? "created" : "updated",
+  };
+}
+
 interface ManagedFilePlanInput {
   cwd: string;
   /** Root `assetRelPath` resolves against (core-assets/ or a local preset folder). */
@@ -1112,6 +1255,8 @@ function applySubBlockInject(input: {
   pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>;
   skipped: SkippedFile[];
   warnings: string[];
+  updatesAvailable: UpdateAvailable[];
+  downgrades: UpdateAvailable[];
 }): void {
   const targetAbs = join(input.cwd, input.skill.injectInto!);
 
@@ -1139,15 +1284,30 @@ function applySubBlockInject(input: {
   const skillBody = stripFrontmatter(rawSkill);
   const interpolated = interpolate(skillBody, input.config);
 
+  const subBlockSource = `@navori/plugin-${input.plugin.manifest.id}`;
   const result = injectManagedSection(
     currentContent,
     input.skill.id,
     interpolated,
     {
-      source: `@navori/plugin-${input.plugin.manifest.id}`,
+      source: subBlockSource,
       version: NAVORI_VERSION,
     },
     "html",
+  );
+
+  // #215: bucket the sub-block's version drift the same way core/preset/plugin
+  // CLAUDE.md blocks do — an upgrade lands in `updatesAvailable` (so `navori
+  // update` lists it), a downgrade in `downgrades` (so the anti-retroceso nudge
+  // fires). Was blind before: sub-blocks were only ever seen through the write
+  // list, never the managed-update report.
+  classifyVersionDrift(
+    result,
+    input.skill.id,
+    subBlockSource,
+    NAVORI_VERSION,
+    input.updatesAvailable,
+    input.downgrades,
   );
 
   if (result.status === "user-modified-skipped") {
@@ -1280,6 +1440,13 @@ type PluginScriptPlan =
  * content. Plugin scripts are navori-owned entire files (no managed
  * markers / no user-section); any user edits are overwritten on the
  * next render that changes the rendered content.
+ *
+ * #215: unlike managed blocks/sub-blocks, a plugin script carries NO version
+ * marker, so there's no drift to classify via `classifyVersionDrift`. It simply
+ * auto-corrects on render — a content change yields a `write` that surfaces in
+ * the render/`update` WRITE list (`agg.writes`), just not the managed-version
+ * `updatesAvailable` report (which is version-marker-based by construction).
+ * That's the intended, documented behavior, not a gap.
  */
 /**
  * Presets whose repos are frontend UI codebases. Their JSX/TSX repeats by
