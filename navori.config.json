@@ -18,5 +18,8 @@
     "jscpd": { "enabled": true },
     "semgrep": { "enabled": true },
     "codegraph": { "enabled": true }
+  },
+  "project": {
+    "libraries": ["zod-validation", "vitest", "citty", "clack"]
   }
 }
