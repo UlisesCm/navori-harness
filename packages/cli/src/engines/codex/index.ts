@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import { loadDisabledPlugins, loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
@@ -36,6 +36,12 @@ const NAVORI_VERSION = readCliVersion();
 // match here — that path is handled inside buildAgentToml.
 const SKILL_INJECT_RE = /^\.claude\/skills\/([a-z0-9-]+)(?:\/SKILL)?\.md$/;
 
+// A plugin skill can also inject into an agent (`injectInto: .claude/agents/<id>.md`).
+// The leader is embodied by the main thread (appended to AGENTS.md); other rendered
+// agents are covered by buildAgentToml. A target that is NEITHER — a disabled or
+// otherwise non-rendered agent — would drop silently, so we warn (#277).
+const AGENT_INJECT_RE = /^\.claude\/agents\/([a-z0-9-]+)\.md$/;
+
 export type CodexEngineResult = ProseEngineResult;
 
 /**
@@ -69,10 +75,34 @@ export function renderCodexEngine(
   const presetLoadedSafely =
     !config.preset || config.preset === "custom" || config.preset === preset?.def.id;
 
-  const codexConfig = buildCodexConfigToml(config, plugins);
+  // Subpath from the repo root to this render's cwd ("" at the root, e.g.
+  // "apps/backend" in a workspace), normalized to POSIX for the bash hook command
+  // (#279). Lets config.toml point at the hook co-located with THIS workspace.
+  const wsSubpath = isWorkspace
+    ? relative(resolve(repoRoot), resolve(cwd)).split(sep).join("/")
+    : "";
+  const codexConfig = buildCodexConfigToml(config, plugins, wsSubpath);
   warnings.push(...codexConfig.warnings);
 
   const plan = resolveHarnessPlan(config, coreAssets, preset);
+
+  // Floor / safety net (#277): a plugin skill targeting an agent Codex neither
+  // renders as a `.toml` (buildAgentToml) nor embodies as the leader (appended to
+  // AGENTS.md) is dropped silently. Warn so a disabled/unknown agent target surfaces
+  // instead of vanishing — mirroring how the prose engines report their omissions.
+  const renderedAgentIds = new Set(plan.agents.map((a) => a.id));
+  for (const plugin of plugins) {
+    for (const skill of plugin.skillAssets) {
+      const m = skill.injectInto?.match(AGENT_INJECT_RE);
+      if (!m) continue;
+      const agentId = m[1];
+      if (agentId === "leader" || renderedAgentIds.has(agentId)) continue;
+      warnings.push(
+        tc(lang).engine.pluginSkillNotInjected(skill.id, plugin.manifest.id, skill.injectInto!),
+      );
+    }
+  }
+
   const ctx: AdapterCtx = { cwd, config, repoRoot, isWorkspace, coreAssets, preset, plugins };
   const adapter = createCodexAdapter(codexConfig.body);
 
@@ -271,7 +301,32 @@ function buildAgentsMdRequest(
   // Claude "when to reach for it" map.
   const agentCatalog =
     buildAgentsIndexBlock(resolveLang(ctx.config.language), agents, { withIntro: false }) ?? "";
-  const body = adaptHarnessTextForCodex(`${baseBody}\n${agentCatalog}`, ctx.config);
+  let body = adaptHarnessTextForCodex(`${baseBody}\n${agentCatalog}`, ctx.config);
+  // The main thread embodies the leader in Codex (no `.codex/agents/leader.toml`),
+  // so a plugin skill injecting into `.claude/agents/leader.md` (e.g. engram's
+  // leader-extension) has no agent .toml to land in — buildAgentToml only runs for
+  // rendered agents. Append it here as a managed sub-block of AGENTS.md, the leader's
+  // durable guide, mirroring buildAgentToml's per-agent injection but into prose.
+  // Same managed-marker treatment as the skill sub-block loop (`@navori/plugin-<id>`
+  // source) so re-render is idempotent and disabling the plugin drops it: AGENTS.md
+  // is fully regenerated each render, and a disabled plugin is absent from
+  // `ctx.plugins`, so the sub-block simply isn't re-emitted (#277).
+  for (const plugin of ctx.plugins) {
+    for (const skill of plugin.skillAssets) {
+      if (skill.injectInto !== ".claude/agents/leader.md") continue;
+      const subBlock = adaptHarnessTextForCodex(
+        interpolate(stripFrontmatter(readFileSync(skill.absPath, "utf-8")), ctx.config),
+        ctx.config,
+      );
+      body = injectManagedSection(
+        body,
+        skill.id,
+        subBlock,
+        { source: `@navori/plugin-${plugin.manifest.id}`, version: NAVORI_VERSION },
+        "html",
+      ).output;
+    }
+  }
   // Share the universal adapter's managed id so switching from `agents-md` to
   // full Codex upgrades one block in place instead of duplicating guidance.
   return {
