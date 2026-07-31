@@ -1,4 +1,4 @@
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
 import type { loadPreset } from "../../lib/presets.ts";
@@ -73,7 +73,7 @@ export function resolveHarnessPlan(
   for (const extra of preset?.def.extras.agents ?? []) {
     if (!extraConditionMet(extra, config)) continue;
     agents.push({
-      id: basename(extra.destRelPath).replace(/\.md$/, ""),
+      id: extra.id,
       assetPath: join(preset!.assetRoot, extra.relPath),
       managedId: extra.id,
     });
@@ -94,7 +94,7 @@ export function resolveHarnessPlan(
   const seen = new Set(skills.map(({ id }) => id));
   for (const extra of preset?.def.extras.skills ?? []) {
     if (!extraConditionMet(extra, config)) continue;
-    const id = basename(extra.destRelPath).replace(/\.md$/, "");
+    const id = extra.id;
     if (seen.has(id)) continue;
     seen.add(id);
     skills.push({ id, assetPath: join(preset!.assetRoot, extra.relPath), managedId: extra.id });

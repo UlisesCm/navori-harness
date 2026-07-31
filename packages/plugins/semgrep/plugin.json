@@ -15,8 +15,7 @@
     "checkBinary": "semgrep",
     "install": {
       "darwin": "brew install semgrep",
-      "linux": "command -v pipx >/dev/null 2>&1 && pipx install semgrep || pip3 install --user semgrep",
-      "win32": "(semgrep no publica binario nativo para Windows; usa WSL o Docker — https://semgrep.dev/docs/getting-started)"
+      "linux": "command -v pipx >/dev/null 2>&1 && pipx install semgrep || pip3 install --user semgrep"
     }
   },
   "scripts": [

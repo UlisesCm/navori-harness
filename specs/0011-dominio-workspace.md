@@ -1,6 +1,10 @@
 # Spec 0011 — Dominio: base de conocimiento del workspace
 
-> Estado: **propuesta / diseño** · 2026-07-30 · Alcance elegido con Ulises en sesión.
+> Estado: **F1 implementado** · 2026-07-30 · Comandos `navori dominio
+> init/list/show/reindex/doctor` + `inject` (machine, para el hook SessionStart)
+> shippeados (`commands/dominio.ts`, `lib/dominio.ts`). F2 (export/import
+> cross-máquina y `dominio export/import <repo>` para compartir vía git) pendiente.
+> Alcance elegido con Ulises en sesión.
 >
 > Objetivo: dar un **hogar persistente y explícito** a los hechos **durables y transversales
 > a un workspace** (arquitectura, reglas de negocio, migraciones, gotchas, glosario) — el tipo
@@ -373,7 +377,9 @@ Namespace nuevo, apoyado en la maquinaria de `workspace` (`commands/workspace.ts
 | `navori dominio init [--workspace <name>]` | F1 | Crea `~/.navori/workspaces/<name>/dominio/` + `DOMINIO.md` vacío. Idempotente. Resuelve el workspace del `cwd` si no se pasa `--workspace`. |
 | `navori dominio list` | F1 | Lista las entradas del Dominio del workspace activo (lee el índice). |
 | `navori dominio show <entry>` | F1 | Imprime una entrada. |
+| `navori dominio reindex` | F1 | Reconstruye `DOMINIO.md` (el índice) a partir de los archivos de entrada. |
 | `navori dominio doctor` | F1 | Valida: índice existe, cada entrada del índice tiene su archivo (y viceversa), frontmatter válido, coherencia con el `manifest.json`. |
+| `navori dominio inject` | F1 | **Comando de máquina** (lo llama el hook SessionStart): emite el índice del Dominio del workspace del `cwd` a stdout. Nunca lanza. |
 | `navori workspace export <name> [--out <bundle>]` | F2 | **Migración/backup.** Empaqueta el árbol completo del workspace (`workspace.json`+`tickets/`+`dominio/`) + `manifest.json` (§4.2.1). |
 | `navori workspace import <bundle>` | F2 | Recrea el workspace en esta máquina; **re-link** de `repos[]` a paths locales (§4.2.1). |
 | `navori dominio export <repo>` | F2 | **Compartir.** Materializa el Dominio a `<repo>/docs/dominio/` (markdown + `manifest.json`) para commitear (§4.2.2). |

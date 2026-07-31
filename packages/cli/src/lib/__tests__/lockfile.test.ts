@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, openSync, closeSync, utimesSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  openSync,
+  closeSync,
+  utimesSync,
+  readdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { withFileLock, LockTimeoutError } from "../lockfile.ts";
@@ -57,5 +65,20 @@ describe("withFileLock", () => {
     const result = withFileLock(lockPath, () => "recovered", { timeoutMs: 500, staleMs: 30_000 });
     expect(result).toBe("recovered");
     expect(existsSync(lockPath)).toBe(false);
+  });
+
+  it("leaves no temp sidecar behind after stealing a stale lock", () => {
+    // The steal is atomic: the stale lock is renamed to a unique `<lock>.*`
+    // sidecar before being deleted (closing the double-steal TOCTOU). None of
+    // those sidecars must survive the operation.
+    const fd = openSync(lockPath, "wx");
+    closeSync(fd);
+    const past = new Date(Date.now() - 120_000);
+    utimesSync(lockPath, past, past);
+
+    withFileLock(lockPath, () => "ok", { timeoutMs: 500, staleMs: 30_000 });
+
+    const leftovers = readdirSync(dir).filter((f) => f.startsWith("test.lock"));
+    expect(leftovers).toEqual([]);
   });
 });
