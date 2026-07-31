@@ -636,6 +636,8 @@ interface DoctorCmdStrings {
   missingInvariants: (n: number, lines: string) => string;
   missingInvariantRow: (source: string) => string;
   malformedMarkers: (n: number, lines: string) => string;
+  duplicateMarkers: (n: number, lines: string) => string;
+  duplicateMarkerRow: (count: number) => string;
   claudeHookScriptsMissing: (n: number, lines: string) => string;
   claudeHookScriptMissingRow: string;
   claudeHookScriptsNotExecutable: (n: number, lines: string) => string;
@@ -1236,6 +1238,11 @@ const CMD_ES: CmdStrings = {
       `Markers managed malformados (${n}) — a esta(s) línea(s) les falta el ` +
       `cierre '-->', así que navori ya no las reconoce; el próximo render appendearía un bloque ` +
       `duplicado y dejaría la línea rota. Restaura el '-->' (o borra la línea) a mano:\n${lines}`,
+    duplicateMarkers: (n, lines) =>
+      `Bloques managed duplicados (${n}) — un mismo id aparece más de una vez en el archivo; ` +
+      `navori solo ve la PRIMERA copia, así que la sobrante queda invisible a render/sync/doctor ` +
+      `con contenido posiblemente stale. Elimina la copia sobrante a mano:\n${lines}`,
+    duplicateMarkerRow: (count) => `— aparece ${count} veces`,
     claudeHookScriptsMissing: (n, lines) =>
       `Scripts de hooks ausentes (${n}) — un hook activo de .claude/settings.json referencia un archivo que no existe, ` +
       `así que el hook truena o no hace nada en cada Bash; corre 'navori render --apply' para regenerarlos:\n${lines}`,
@@ -1956,6 +1963,11 @@ const CMD_EN: CmdStrings = {
       `Malformed managed markers (${n}) — these line(s) are missing the ` +
       `closing '-->', so navori no longer recognizes them; the next render would append a ` +
       `duplicate block and leave the line broken. Restore the '-->' (or delete the line) by hand:\n${lines}`,
+    duplicateMarkers: (n, lines) =>
+      `Duplicate managed blocks (${n}) — the same id appears more than once in the file; ` +
+      `navori only sees the FIRST copy, so the extra one is invisible to render/sync/doctor ` +
+      `with possibly stale content. Remove the extra copy by hand:\n${lines}`,
+    duplicateMarkerRow: (count) => `— appears ${count} times`,
     claudeHookScriptsMissing: (n, lines) =>
       `Missing hook scripts (${n}) — an active hook in .claude/settings.json references a file that ` +
       `doesn't exist, so the hook breaks or no-ops on every Bash; run 'navori render --apply' to regenerate them:\n${lines}`,

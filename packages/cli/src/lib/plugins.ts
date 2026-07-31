@@ -216,9 +216,17 @@ export function loadPlugin(pluginId: string): LoadedPlugin {
     throw new PluginManifestError(`plugin.json not found at ${manifestPath}`);
   }
 
+  // Read the manifest OUTSIDE the JSON.parse try: a transient fs error
+  // (EMFILE/ENFILE/EAGAIN under heavy test parallelism) is NOT a broken manifest.
+  // Wrapping the read in the parse catch re-labeled a fd hiccup as "Invalid JSON",
+  // and collectMissingPlugins then counted the plugin as missing → doctor exit 2,
+  // making the e2e suite flaky under parallelism (#281). Let the raw fs error
+  // propagate so callers can classify it as transient.
+  const raw = readFileSync(manifestPath, "utf-8");
+
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    parsed = JSON.parse(raw);
   } catch (err) {
     throw new PluginManifestError(`Invalid JSON in ${manifestPath}: ${(err as Error).message}`);
   }

@@ -127,6 +127,11 @@ export const ENGINE_OUTPUTS: EngineOutputs[] = [
       { kind: "file", path: "CLAUDE.md", style: "html" },
       { kind: "flat", dir: ".claude/agents", ext: ".md", style: "html" },
       { kind: "recursive", dir: ".claude/skills", ext: ".md", style: "html" },
+      // Hooks under `.claude/hooks/*.sh` are marker-managed (shell style), so
+      // their content drift — including the security guard `guard-destructive.sh`
+      // — must be scanned like codex's `.codex/hooks`. Without this, doctor/status
+      // stayed green while a hook's managed body was tampered with (#275).
+      { kind: "recursive", dir: ".claude/hooks", ext: ".sh", style: "shell" },
     ],
     textDirs: [".claude"],
   },
@@ -157,6 +162,18 @@ export const ENGINE_OUTPUTS: EngineOutputs[] = [
     textDirs: [],
   },
 ];
+
+/**
+ * Engines that materialize plugin-contributed blocks (protocol blocks) into
+ * their output. The full Claude engine emits them, and Codex passes
+ * `includePluginBlocks: true` (codex/index.ts). The three prose-only engines
+ * (agents-md, cursor, copilot) deliberately DROP them (prose-harness.ts). Doctor
+ * uses this to skip validating a plugin's invariants when no configured engine
+ * would ever emit the block that carries them — otherwise a prose-only repo goes
+ * permanently red on an invariant that by design can't appear (#269). Must stay
+ * in sync with who passes `includePluginBlocks`.
+ */
+export const PLUGIN_BLOCK_ENGINES = new Set<string>(["claude", "codex"]);
 
 /** Repo-relative marker files that exist under `cwd`, deduped by path (AGENTS.md
  *  is claimed by both `codex` and `agents-md`) with their marker style.
@@ -189,6 +206,16 @@ export interface MissingPlugin {
   reason: string;
 }
 
+/** True for a TRANSIENT filesystem error — fd exhaustion / retryable IO — as
+ *  opposed to a real "unknown or corrupt plugin". Under heavy test parallelism a
+ *  manifest read can hit EMFILE/ENFILE/EAGAIN; misclassifying that as a missing
+ *  plugin flipped `doctor` red and made the e2e suite flaky (#281). Callers rethrow
+ *  these so a fd hiccup fails loud/retryable instead of being counted as missing. */
+function isTransientFsError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EMFILE" || code === "ENFILE" || code === "EAGAIN";
+}
+
 /** Plugins enabled in config that can't be loaded (unknown id / bad manifest). */
 export function collectMissingPlugins(config: NavoriConfig): MissingPlugin[] {
   const missing: MissingPlugin[] = [];
@@ -197,6 +224,9 @@ export function collectMissingPlugins(config: NavoriConfig): MissingPlugin[] {
     try {
       loadPlugin(id);
     } catch (err) {
+      // A transient fs error is not a missing plugin — rethrow so it isn't
+      // silently counted as absent and used to flip doctor's verdict (#281).
+      if (isTransientFsError(err)) throw err;
       if (err instanceof PluginNotFoundError) {
         missing.push({ id, reason: "unknown plugin id" });
       } else if (err instanceof PluginManifestError) {
@@ -266,8 +296,11 @@ function knownDriftSources(config: NavoriConfig): Set<string> {
     try {
       loadPlugin(id);
       known.add(`@navori/plugin-${id}`);
-    } catch {
-      // unknown / broken plugin — reported elsewhere via missingPlugins
+    } catch (err) {
+      // A transient fs error must not be swallowed as "unknown plugin" (#281);
+      // let it propagate. A genuine unknown/broken plugin is reported elsewhere
+      // via missingPlugins.
+      if (isTransientFsError(err)) throw err;
     }
   }
   return known;
@@ -412,12 +445,19 @@ export function scanManagedOrder(
   config: NavoriConfig,
   computedBlockIds?: readonly string[],
 ): OrderReport | null {
-  const root = orderReportAt(cwd, config, computedBlockIds);
+  const root = orderReportAt(cwd, config, cwd, { computedBlockIds });
   if (root) return root;
   for (const ws of config.monorepo?.workspaces ?? []) {
     const wsCwd = join(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
-    const report = orderReportAt(wsCwd, effectiveConfigForWorkspace(config, ws), computedBlockIds);
+    // repoRoot stays the monorepo root (not wsCwd) so LOCAL presets under
+    // `<root>/.navori/presets/` resolve, and `omitRootOnly: true` mirrors the
+    // render (claude/index.ts), so doctor's canonical order matches byte-for-byte
+    // instead of shunting an unresolved local-preset block to the tail (#266).
+    const report = orderReportAt(wsCwd, effectiveConfigForWorkspace(config, ws), cwd, {
+      computedBlockIds,
+      omitRootOnly: true,
+    });
     if (report) return { ...report, workspacePath: ws.path };
   }
   return null;
@@ -434,7 +474,8 @@ export function scanManagedOrder(
 function orderReportAt(
   cwd: string,
   config: NavoriConfig,
-  computedBlockIds?: readonly string[],
+  repoRoot: string,
+  options: { computedBlockIds?: readonly string[]; omitRootOnly?: boolean } = {},
 ): OrderReport | null {
   const claudeMdPath = join(cwd, "CLAUDE.md");
   if (!existsSync(claudeMdPath)) return null;
@@ -442,7 +483,15 @@ function orderReportAt(
   const current = listMarkers(claudeMdPath).map((m) => m.id);
   if (current.length < 2) return null;
 
-  const canonical = canonicalManagedOrder(config, cwd, { computedBlockIds });
+  // `repoRoot` is separate from `cwd`: `cwd` is where the CLAUDE.md lives, but
+  // LOCAL presets resolve against `<repoRoot>/.navori/presets/`. In a workspace
+  // those differ, so passing `cwd` as repoRoot left a local preset unresolved and
+  // its managed block dropped out of the canonical order → permanent false order
+  // drift (#266). Threading the true monorepo root keeps doctor in sync with render.
+  const canonical = canonicalManagedOrder(config, repoRoot, {
+    computedBlockIds: options.computedBlockIds,
+    omitRootOnly: options.omitRootOnly,
+  });
   // Reuse the engine's reorder logic as the source of truth for "in order?".
   const result = reorderManagedBlocks(content, canonical);
   if (!result.reordered && !result.blockedByInterleaving) return null;
@@ -526,6 +575,54 @@ function scanMalformedMarkersAt(scanCwd: string, pathPrefix: string): MalformedM
         break;
       }
     });
+  }
+  return out;
+}
+
+export interface DuplicateMarker {
+  /** File the duplicated managed id lives in, relative to cwd. */
+  filePath: string;
+  /** The managed-block id that appears more than once. */
+  id: string;
+  /** How many open markers with this id the file carries (>= 2). */
+  count: number;
+}
+
+/**
+ * Detect managed-block ids that appear MORE THAN ONCE in the same file. `findMarker`
+ * (`marker.ts`) matches the FIRST open marker for an id, so a duplicated block is
+ * 100% invisible to render/sync/doctor: the drift scan hashes the first body, the
+ * inject/remove path only ever touches the first, and the second copy — possibly
+ * stale/arbitrary content — survives forever with no diagnostic (#274). A duplicate
+ * id is born of a hand edit, a merge, or the degenerate append path of
+ * `scanMalformedMarkers` (#71). This is a NON-destructive report only: collapsing a
+ * duplicate is ambiguous (which body wins?), so doctor surfaces it and the user
+ * removes the extra copy. Mirrors `scanMalformedMarkers`: derives its file set from
+ * `collectMarkerFiles` (#226) and recurses monorepo workspaces (#235).
+ */
+export function scanDuplicateMarkers(cwd: string, config?: NavoriConfig): DuplicateMarker[] {
+  const out = scanDuplicateMarkersAt(cwd, "");
+  for (const ws of config?.monorepo?.workspaces ?? []) {
+    const wsCwd = join(cwd, ws.path);
+    if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
+    out.push(...scanDuplicateMarkersAt(wsCwd, ws.path));
+  }
+  return out;
+}
+
+/** Duplicated managed ids within a single directory. Reported paths are
+ *  optionally prefixed with `pathPrefix` (the workspace path). */
+function scanDuplicateMarkersAt(scanCwd: string, pathPrefix: string): DuplicateMarker[] {
+  const out: DuplicateMarker[] = [];
+  const rel = (p: string): string => (pathPrefix ? `${pathPrefix}/${p}` : p);
+  for (const { path } of collectMarkerFiles(scanCwd)) {
+    const counts = new Map<string, number>();
+    for (const m of listMarkers(join(scanCwd, path))) {
+      counts.set(m.id, (counts.get(m.id) ?? 0) + 1);
+    }
+    for (const [id, count] of counts) {
+      if (count > 1) out.push({ filePath: rel(path), id, count });
+    }
   }
   return out;
 }
