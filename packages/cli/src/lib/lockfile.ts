@@ -1,4 +1,4 @@
-import { openSync, closeSync, rmSync, statSync, writeSync } from "node:fs";
+import { openSync, closeSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 
 /**
  * Cross-process advisory file lock for the shared ~/.navori state.
@@ -58,11 +58,20 @@ export function withFileLock<T>(lockPath: string, fn: () => T, options: LockOpti
       // Lock is held. Steal it if the holder died and left it stale.
       try {
         if (Date.now() - statSync(lockPath).mtimeMs > staleMs) {
-          rmSync(lockPath, { force: true });
+          // Atomic steal: rename the stale lock to a unique name before deleting
+          // it. `renameSync` is atomic, so if two processes both see the same
+          // stale lock, exactly one wins the rename; the loser gets ENOENT (the
+          // source already moved) and falls through to retry. This closes the
+          // TOCTOU window where a plain `rmSync` could delete the FRESH lock a
+          // racer had just created, breaking mutual exclusion (#82).
+          const stolenPath = `${lockPath}.${process.pid}.${Date.now()}.stale`;
+          renameSync(lockPath, stolenPath);
+          rmSync(stolenPath, { force: true });
           continue; // retry immediately after stealing
         }
       } catch {
-        // Lock vanished between open and stat — the holder released it. Retry.
+        // Either the lock vanished between open and stat (holder released it),
+        // or another racer won the atomic steal first (ENOENT on rename). Retry.
         continue;
       }
       if (Date.now() - start > timeoutMs) throw new LockTimeoutError(lockPath, timeoutMs);
