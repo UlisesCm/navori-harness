@@ -48,7 +48,7 @@ export interface InterpolateOptions {
  */
 export function sanitizeProjectValue(value: string): string {
   return value
-    .replace(/[\r\n  ]+/g, " ")
+    .replace(/[\r\n\t ]+/g, " ")
     .replaceAll("<!--", "")
     .replaceAll("-->", "")
     .trim();
