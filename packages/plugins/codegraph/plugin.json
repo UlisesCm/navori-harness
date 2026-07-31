@@ -15,8 +15,7 @@
     "checkBinary": "codegraph",
     "install": {
       "darwin": "curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh",
-      "linux": "curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh",
-      "win32": "(codegraph no tiene instalador nativo para Windows; instálalo vía WSL — https://github.com/colbymchenry/codegraph)"
+      "linux": "curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh"
     },
     "postInstall": "codegraph install && codegraph init"
   },

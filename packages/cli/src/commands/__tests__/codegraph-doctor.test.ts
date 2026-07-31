@@ -73,6 +73,26 @@ describe("scanCodegraphHealth (Spec 0009 F2)", () => {
     expect(health?.tracked).toBe(false);
   });
 
+  it("passes when '.codegraph/' is gitignored but the index dir doesn't exist yet (#267)", () => {
+    const cwd = tempRepo();
+    gitInit(cwd);
+    writeFileSync(join(cwd, ".gitignore"), ".codegraph/\n");
+    // NO makeIndexDir(cwd): the dir was never built (binary not installed). With a
+    // trailing-slash pattern and the dir absent, probing the bare `.codegraph`
+    // path used to exit 1 (false "not ignored"); the synthetic child `.codegraph/x`
+    // resolves the directory pattern correctly.
+    const health = scanCodegraphHealth(cwd, config());
+    expect(health?.notIgnored).toBe(false); // was true before the fix (BUG)
+  });
+
+  it("still warns when '.codegraph/' is genuinely not ignored and absent (#267 control)", () => {
+    const cwd = tempRepo();
+    gitInit(cwd);
+    // No .gitignore rule at all, dir absent → the preventive warning must remain.
+    const health = scanCodegraphHealth(cwd, config());
+    expect(health?.notIgnored).toBe(true);
+  });
+
   it("flags '.codegraph/' when it is tracked by git (index was committed)", () => {
     const cwd = tempRepo();
     gitInit(cwd);

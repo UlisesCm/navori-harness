@@ -13,6 +13,7 @@ const hasBinary = vi.fn();
 vi.mock("../../lib/which.ts", () => ({ hasBinary: (n: string) => hasBinary(n) }));
 
 const { scanMissingExternalTools, scanMissingOptionalTools } = await import("../doctor.ts");
+const { loadPlugin } = await import("../../lib/plugins.ts");
 
 function config(plugins: Record<string, { enabled: boolean }>): NavoriConfig {
   return { plugins } as unknown as NavoriConfig;
@@ -52,6 +53,17 @@ describe("scanMissingExternalTools", () => {
       expect(typeof m.binary).toBe("string");
       expect(m.pluginId).toBe("jscpd");
     }
+  });
+});
+
+describe("codegraph externalTool.install platform selection (#270 item 2)", () => {
+  it("declares darwin+linux installers but NOT win32 (WSL prose removed)", () => {
+    const install = loadPlugin("codegraph").manifest.externalTool?.install ?? {};
+    expect(install.darwin).toBeTruthy();
+    expect(install.linux).toBeTruthy();
+    // win32 undefined → add.ts takes the clean `noInstallCommand` path instead of
+    // running the WSL prose as a shell command (which errored on native Windows).
+    expect(install.win32).toBeUndefined();
   });
 });
 

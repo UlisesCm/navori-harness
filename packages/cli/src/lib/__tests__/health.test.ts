@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,14 +8,17 @@ import {
   scanManagedDrift,
   scanManagedOrder,
   scanMalformedMarkers,
+  scanDuplicateMarkers,
   scanExcludedBlocks,
   listMarkers,
   type DriftReport,
 } from "../health.ts";
+import * as plugins from "../plugins.ts";
 import { NavoriConfigSchema } from "../schema.ts";
 import { computeManagedHash, injectManagedSection } from "../marker.ts";
 import { computeRenderPlan } from "../render-plan.ts";
-import { CLAUDE_COMPUTED_BLOCK_IDS } from "../../engines/claude/index.ts";
+import { effectiveConfigForWorkspace } from "../monorepo.ts";
+import { CLAUDE_COMPUTED_BLOCK_IDS, renderClaudeEngine } from "../../engines/claude/index.ts";
 
 const contentDrift: DriftReport = {
   filePath: ".claude/agents/leader.md",
@@ -493,16 +496,24 @@ describe("monorepo workspace scanning (#235)", () => {
 
   it("scanManagedOrder reports an out-of-order workspace CLAUDE.md tagged with its path", () => {
     // No root CLAUDE.md → root is clean → the scan falls through to the workspace.
+    // Use engine-COMPUTED blocks, not the root-only spine (idioma-rol/orquestacion):
+    // a workspace render omits root-only blocks, and #266 makes doctor's workspace
+    // scan mirror that (`omitRootOnly:true`), so a realistic workspace order-drift is
+    // a swap among the computed blocks (threaded via CLAUDE_COMPUTED_BLOCK_IDS).
     mkdirSync(join(cwd, "apps/api"), { recursive: true });
-    let doc = injectManagedSection("", "idioma-rol", "x").output;
-    doc = injectManagedSection(doc, "orquestacion", "y").output; // canonical: orquestacion first
+    let doc = injectManagedSection("", "agentes-disponibles", "x").output;
+    doc = injectManagedSection(doc, "skills-index", "y").output; // canonical: skills-index first
     writeFileSync(join(cwd, "apps/api/CLAUDE.md"), doc);
 
-    const r = scanManagedOrder(cwd, monorepoConfig([{ name: "api", path: "apps/api" }]));
+    const r = scanManagedOrder(
+      cwd,
+      monorepoConfig([{ name: "api", path: "apps/api" }]),
+      CLAUDE_COMPUTED_BLOCK_IDS,
+    );
     expect(r).not.toBeNull();
     expect(r!.workspacePath).toBe("apps/api");
-    expect(r!.current).toEqual(["idioma-rol", "orquestacion"]);
-    expect(r!.expected).toEqual(["orquestacion", "idioma-rol"]);
+    expect(r!.current).toEqual(["agentes-disponibles", "skills-index"]);
+    expect(r!.expected).toEqual(["skills-index", "agentes-disponibles"]);
   });
 
   it("scanMalformedMarkers scans workspace files when passed the config", () => {
@@ -517,6 +528,171 @@ describe("monorepo workspace scanning (#235)", () => {
     expect(found[0]).toMatchObject({ filePath: "apps/api/CLAUDE.md", line: 1 });
     // Without the config, the workspace is invisible (root-only, back-compat).
     expect(scanMalformedMarkers(cwd)).toHaveLength(0);
+  });
+
+  // #266: a LOCAL preset lives at the monorepo root (`.navori/presets/`), not in
+  // the workspace. Resolving it against the workspace dir dropped its managed block
+  // from doctor's canonical order and shunted it to the tail → a permanent false
+  // order-drift report that `render` could never clear.
+  it("scanManagedOrder does not false-positive on a LOCAL preset block in a workspace (#266)", () => {
+    const presetDir = join(cwd, ".navori/presets/mypreset");
+    mkdirSync(join(presetDir, "managed"), { recursive: true });
+    writeFileSync(
+      join(presetDir, "mypreset.json"),
+      JSON.stringify({
+        id: "mypreset",
+        displayName: "Local preset",
+        extends: "core",
+        extras: {
+          managed: [{ id: "stack-mypreset", relPath: "managed/stack.md" }],
+          agents: [],
+          skills: [],
+          hooks: [],
+        },
+      }),
+    );
+    writeFileSync(join(presetDir, "managed/stack.md"), "## Local stack\n\nStack notes.\n");
+
+    const config = NavoriConfigSchema.parse({
+      name: "demo",
+      engines: ["claude"],
+      preset: "mypreset",
+      monorepo: { enabled: true, workspaces: [{ name: "backend", path: "apps/backend" }] },
+    });
+    const ws = config.monorepo!.workspaces[0]!;
+
+    // Render the workspace CLAUDE.md the way `render` does: repoRoot = monorepo
+    // root, so the local preset resolves and `stack-mypreset` is emitted BEFORE
+    // the computed blocks — the byte-correct on-disk order.
+    const wsCwd = join(cwd, ws.path);
+    mkdirSync(wsCwd, { recursive: true });
+    renderClaudeEngine(wsCwd, effectiveConfigForWorkspace(config, ws), { repoRoot: cwd });
+
+    // Sanity: the rendered file really carries the local-preset block.
+    expect(listMarkers(join(wsCwd, "CLAUDE.md")).map((m) => m.id)).toContain("stack-mypreset");
+
+    // Doctor must agree with render — no drift. Before the fix this returned a
+    // non-null report (stack-mypreset expected at the tail).
+    expect(scanManagedOrder(cwd, config, CLAUDE_COMPUTED_BLOCK_IDS)).toBeNull();
+  });
+});
+
+describe("scanDuplicateMarkers (#274)", () => {
+  let cwd: string;
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "navori-dup-"));
+  });
+  afterEach(() => rmSync(cwd, { recursive: true, force: true }));
+
+  const dupBlock = (id: string, body: string): string =>
+    `<!-- navori:managed id="${id}" hash="${computeManagedHash(body)}" version="9.9.9" source="@navori/core" -->\n` +
+    `${body}\n<!-- /navori:managed id="${id}" -->\n`;
+
+  it("reports a managed id that appears twice in the same file", () => {
+    writeFileSync(
+      join(cwd, "CLAUDE.md"),
+      dupBlock("sdd", "first copy") + dupBlock("sdd", "STALE second copy"),
+    );
+    const found = scanDuplicateMarkers(cwd);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ filePath: "CLAUDE.md", id: "sdd", count: 2 });
+  });
+
+  it("returns [] for a healthy file with unique ids", () => {
+    const doc = injectManagedSection("", "idioma-rol", "x").output;
+    writeFileSync(join(cwd, "CLAUDE.md"), doc);
+    expect(scanDuplicateMarkers(cwd)).toHaveLength(0);
+  });
+
+  it("scans monorepo workspaces when passed the config", () => {
+    mkdirSync(join(cwd, "apps/api"), { recursive: true });
+    writeFileSync(join(cwd, "apps/api/CLAUDE.md"), dupBlock("sdd", "a") + dupBlock("sdd", "b"));
+    const config = NavoriConfigSchema.parse({
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      monorepo: { enabled: true, workspaces: [{ name: "api", path: "apps/api" }] },
+    });
+    const found = scanDuplicateMarkers(cwd, config);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ filePath: "apps/api/CLAUDE.md", id: "sdd", count: 2 });
+    // Without the config the workspace is invisible (root-only).
+    expect(scanDuplicateMarkers(cwd)).toHaveLength(0);
+  });
+});
+
+// #275: `.claude/hooks/*.sh` are marker-managed (shell style) but were absent
+// from ENGINE_OUTPUTS[claude], so doctor/status stayed blind to their content
+// drift — including the security guard `guard-destructive.sh`.
+describe("scanManagedDrift covers .claude/hooks/*.sh (#275)", () => {
+  let cwd: string;
+  const config = NavoriConfigSchema.parse({ name: "demo", engines: ["claude"], preset: "custom" });
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "navori-hooks-drift-"));
+    mkdirSync(join(cwd, ".claude/hooks"), { recursive: true });
+  });
+  afterEach(() => rmSync(cwd, { recursive: true, force: true }));
+
+  it("reports content drift when a hook's managed body is tampered with", () => {
+    // A shell marker whose body no longer hashes to its `hash=` (hand/malicious edit).
+    writeFileSync(
+      join(cwd, ".claude/hooks/guard-destructive.sh"),
+      `# navori:managed start id="guard-destructive-base" hash="deadbeef" version="9.9.9" source="@navori/core"\n` +
+        `echo TAMPERED_BY_ATTACKER\n# navori:managed end id="guard-destructive-base"\n`,
+    );
+    const drifts = scanManagedDrift(cwd, config);
+    expect(
+      drifts.some(
+        (d) => d.kind === "content" && d.filePath === ".claude/hooks/guard-destructive.sh",
+      ),
+    ).toBe(true);
+  });
+
+  it("no drift when the hook body matches its hash", () => {
+    const body = 'echo "safe"';
+    writeFileSync(
+      join(cwd, ".claude/hooks/guard-destructive.sh"),
+      `# navori:managed start id="guard-destructive-base" hash="${computeManagedHash(body)}" version="9.9.9" source="@navori/core"\n` +
+        `${body}\n# navori:managed end id="guard-destructive-base"\n`,
+    );
+    // Only version drift (9.9.9 ≠ CLI version) may appear; no content drift.
+    const drifts = scanManagedDrift(cwd, config);
+    expect(drifts.some((d) => d.kind === "content")).toBe(false);
+  });
+});
+
+// #281: a transient fs error (EMFILE/ENFILE/EAGAIN) from loadPlugin must NOT be
+// misclassified as a missing plugin — that flipped doctor's verdict and made the
+// e2e suite flaky under parallelism. A real unknown plugin still lists as missing.
+describe("collectMissingPlugins classifies transient fs errors (#281)", () => {
+  const cfg = () =>
+    NavoriConfigSchema.parse({
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      plugins: { engram: { enabled: true } },
+    });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("rethrows a transient EMFILE instead of counting the plugin as missing", () => {
+    const emfile = Object.assign(new Error("EMFILE: too many open files"), { code: "EMFILE" });
+    vi.spyOn(plugins, "loadPlugin").mockImplementation(() => {
+      throw emfile;
+    });
+    expect(() => collectMissingPlugins(cfg())).toThrow(/EMFILE/);
+  });
+
+  it("still lists a genuinely unknown plugin as missing", () => {
+    const missing = collectMissingPlugins(
+      NavoriConfigSchema.parse({
+        name: "demo",
+        engines: ["claude"],
+        preset: "custom",
+        plugins: { "ghost-plugin": { enabled: true } },
+      }),
+    );
+    expect(missing.map((m) => m.id)).toContain("ghost-plugin");
   });
 });
 

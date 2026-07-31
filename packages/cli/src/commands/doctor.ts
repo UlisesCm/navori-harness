@@ -26,7 +26,10 @@ import {
   scanExcludedBlocks,
   suggestNextSteps,
   ENGINE_OUTPUTS,
+  PLUGIN_BLOCK_ENGINES,
+  scanDuplicateMarkers,
   type MissingPlugin,
+  type DuplicateMarker,
 } from "../lib/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
@@ -108,6 +111,7 @@ export const doctorCommand = defineCommand({
       missingPreset,
       missingPresetFiles,
       codexHealth,
+      duplicateMarkers,
     } = verdict;
     const drifts = scanManagedDrift(cwd, config);
     const orderReport = scanManagedOrder(cwd, config, CLAUDE_COMPUTED_BLOCK_IDS);
@@ -158,6 +162,7 @@ export const doctorCommand = defineCommand({
       corruptedSettings,
       missingInvariants,
       malformedMarkers,
+      duplicateMarkers,
       missingExternalTools,
       missingOptionalTools,
       monorepoDrift,
@@ -333,6 +338,14 @@ export const doctorCommand = defineCommand({
       p.log.warn(td.malformedMarkers(malformedMarkers.length, lines.join("\n")));
     }
 
+    if (duplicateMarkers.length > 0) {
+      const lines = duplicateMarkers.map(
+        (m) =>
+          `  ${color.red(sym.fail)} ${accent(`${m.filePath}:${m.id}`)}  ${grey(td.duplicateMarkerRow(m.count))}`,
+      );
+      p.log.error(td.duplicateMarkers(duplicateMarkers.length, lines.join("\n")));
+    }
+
     if (claudeHookScripts) {
       // A missing referenced script (red) is more severe than one that merely
       // lost its +x bit (yellow); both are fixed by `navori render --apply`.
@@ -473,7 +486,10 @@ export const doctorCommand = defineCommand({
       // (constant churn + binary merge conflicts); a merely-unignored dir is a
       // lighter, preventive warning. They're mutually exclusive by construction.
       if (codegraphHealth.tracked) {
-        cg.push(`  ${color.red(sym.fail)} ${td.codegraphTracked}`);
+        // A yellow warning, not a red ✗: `tracked` never flips the verdict
+        // (codegraph advisories are warnings), so a fail symbol that never fails
+        // was contradictory UX. Aligned with the rest of this section (#270).
+        cg.push(`  ${color.yellow(sym.update)} ${td.codegraphTracked}`);
       } else if (codegraphHealth.notIgnored) {
         cg.push(`  ${color.yellow(sym.update)} ${td.codegraphNotIgnored}`);
       }
@@ -522,6 +538,9 @@ export interface HealthVerdict {
   missingPreset: string | null;
   missingPresetFiles: Array<{ id: string; path: string }>;
   codexHealth: CodexHealth | null;
+  /** Managed ids appearing more than once in a file — the extra copy is invisible
+   *  to render/sync/doctor and may hold stale content, so it flips `ok` (#274). */
+  duplicateMarkers: DuplicateMarker[];
 }
 
 /**
@@ -539,12 +558,14 @@ export function computeHealthVerdict(cwd: string, config: NavoriConfig): HealthV
     config.preset !== "custom" && resolvedPreset === null ? config.preset : null;
   const missingPresetFiles = scanMissingPresetFiles(cwd, config);
   const codexHealth = scanCodexHealth(cwd, config);
+  const duplicateMarkers = scanDuplicateMarkers(cwd, config);
   const ok =
     missingPlugins.length === 0 &&
     corruptedSettings.length === 0 &&
     missingInvariants.length === 0 &&
     missingPreset === null &&
     missingPresetFiles.length === 0 &&
+    duplicateMarkers.length === 0 &&
     codexHealth?.configMalformed !== true;
   return {
     ok,
@@ -555,6 +576,7 @@ export function computeHealthVerdict(cwd: string, config: NavoriConfig): HealthV
     missingPreset,
     missingPresetFiles,
     codexHealth,
+    duplicateMarkers,
   };
 }
 
@@ -866,6 +888,13 @@ function missingInvariantsAt(
   const sources: Array<{ source: string; invariants: string[] }> = [];
   const tag = (s: string): string => (pathPrefix ? `${pathPrefix} · ${s}` : s);
 
+  // Plugin blocks are only materialized by engines that emit them (claude, codex).
+  // For a prose-only engine set (agents-md/cursor/copilot) the block is dropped by
+  // design, so requiring its invariant would go permanently red with no remedy
+  // (#269). core/preset invariants survive the prose filter, so they always apply.
+  const engines = config.engines ?? ["claude"];
+  const materializesPluginBlocks = engines.some((e) => PLUGIN_BLOCK_ENGINES.has(e));
+
   try {
     const loaded = loadPreset(config.preset, scanCwd);
     if (loaded && loaded.def.invariants.length > 0) {
@@ -877,6 +906,7 @@ function missingInvariantsAt(
 
   for (const [id, settings] of Object.entries(config.plugins ?? {})) {
     if (settings.enabled !== true) continue;
+    if (!materializesPluginBlocks) continue; // prose-only: block isn't emitted (#269)
     try {
       const plugin = loadPlugin(id);
       if (plugin.manifest.invariants.length > 0) {
@@ -1031,6 +1061,7 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
     const raw = execFileSync("codex", ["--version"], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5000, // best-effort external probe must not hang doctor (#268)
     });
     const found = raw.match(/\d+\.\d+\.\d+/)?.[0];
     if (found && isDowngrade(found, MIN_CODEX_VERSION)) {
@@ -1154,7 +1185,13 @@ export function scanCodegraphHealth(cwd: string, config: NavoriConfig): Codegrap
 
   // (a) git hygiene.
   const tracked = inGit && gitTracksPath(cwd, CODEGRAPH_DIR);
-  const notIgnored = inGit && !tracked && !isIgnoredByGit(cwd, CODEGRAPH_DIR);
+  // Probe a synthetic child, not the bare dir: `git check-ignore` matches a
+  // directory pattern (`.codegraph/`) against the PATH STRING it's given, and
+  // `.codegraph` (no slash) fails to resolve the pattern when the dir doesn't
+  // exist on disk yet — a false "not ignored". `.codegraph/x` resolves correctly
+  // in all four states (pattern with/without slash × dir present/absent). Use a
+  // literal forward slash, not join(): git expects `/` on every platform (#267).
+  const notIgnored = inGit && !tracked && !isIgnoredByGit(cwd, `${CODEGRAPH_DIR}/x`);
 
   // (b) index built (only actionable once the binary exists).
   const indexMissing = binary && !dirExists;
@@ -1167,6 +1204,7 @@ export function scanCodegraphHealth(cwd: string, config: NavoriConfig): Codegrap
         cwd,
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "ignore"],
+        timeout: 5000, // codegraph is beta; a hung status must not hang doctor (#268)
       });
       stale = /\bstale\b|out[- ]?of[- ]?date|outdated/i.test(out);
     } catch {
