@@ -82,7 +82,15 @@ const MonorepoSchema = z.object({
 const SddSchema = z.object({
   enabled: z.boolean().default(true),
   specsDir: z.string().default("specs"),
+  /**
+   * @deprecated No-op (#236). Only defaulted in `effectiveConfig`; no template
+   * ever interpolates them, so setting them changes nothing in the render —
+   * configuration theater. Kept (not removed) because `effectiveConfig` still
+   * reads them; a clean removal must land together with that read. Do not add
+   * new consumers — wire the SDD scoping into a template or drop the fields.
+   */
   applyWhen: z.array(z.string()).default([]),
+  /** @deprecated No-op (#236). See `applyWhen`. */
   doesNotApplyTo: z.array(z.string()).default([]),
 });
 
@@ -154,10 +162,14 @@ const AGENT_ROLES_FOR_SCHEMA = [
 
 const AgentAssignmentsSchema = z.record(z.string(), z.enum(AGENT_ROLES_FOR_SCHEMA));
 
-const SkillsSchema = z.object({
-  auto: z.array(z.string()).default([]),
-  optIn: z.array(z.string()).default([]),
-});
+// `skills` ({ auto, optIn }) was removed (#236): no engine, template, doctor or
+// init ever read it — pure configuration theater. Dropping it from the schema
+// stops `init` writing it; the top-level `.passthrough()` preserves the key
+// harmlessly in any config that still carries it (nothing consumes it), so no
+// existing config breaks. `agentAssignments` and `sdd.applyWhen`/`doesNotApplyTo`
+// are the same class of dead field but are still read outside this file (doctor
+// historically, init, and `effectiveConfig`), so they stay marked @deprecated
+// until their remaining readers are retired.
 
 // Opt OUT of specific core managed blocks. A repo that already ships its OWN
 // orchestration / SDD protocol (e.g. a personal global Claude Code harness)
@@ -268,10 +280,14 @@ export const NavoriConfigSchema = z
     models: ModelsSchema.optional(),
     effort: EffortSchema.optional(),
     plugins: z.record(z.string(), PluginEntrySchema).optional(),
-    /** Override of which agent owns which skill/managed-block id. Plugins
-     * declare their own recommendedAgent; entries here override that. */
+    /**
+     * @deprecated No-op at render time (#236). Plugins declare their own
+     * recommendedAgent and entries here override it, but NO engine reads either —
+     * doctor no longer displays them as "effective" and the render is identical
+     * with or without them. Still written/edited by `init`; kept until that flow
+     * is retired. Do not add render-time consumers.
+     */
     agentAssignments: AgentAssignmentsSchema.optional(),
-    skills: SkillsSchema.optional(),
     blocks: BlocksSchema.optional(),
     progress: ProgressSchema.optional(),
     project: ProjectSchema.optional(),

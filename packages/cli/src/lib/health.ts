@@ -7,6 +7,7 @@ import { canonicalManagedOrder, EXCLUDABLE_BLOCK_IDS, CORE_BLOCK_IDS } from "./r
 import { detectClaudeInfra } from "./claude-infra.ts";
 import { detectLegacyAgents, type LegacyAgent } from "./legacy-agents.ts";
 import type { NavoriConfig } from "./config.ts";
+import { effectiveConfigForWorkspace } from "./monorepo.ts";
 import { tc, DEFAULT_LANG, type Lang } from "./i18n.ts";
 
 /**
@@ -39,27 +40,6 @@ export function listMarkers(filePath: string): MarkerInfo[] {
   return result;
 }
 
-/** Repo-relative `.md` paths directly under `cwd/<dir>` (non-recursive). */
-function collectMarkdownFlat(cwd: string, dir: string): string[] {
-  const absDir = join(cwd, dir);
-  if (!existsSync(absDir)) return [];
-  try {
-    return readdirSync(absDir)
-      .filter((f) => f.endsWith(".md"))
-      .map((f) => `${dir}/${f}`);
-  } catch {
-    return [];
-  }
-}
-
-/** Repo-relative `.md` paths under `cwd/<dir>`, recursing subdirectories so
- * directory-shaped skills (`<id>/SKILL.md` + sibling refs/assets, the form
- * `resolveLocalSkillPath` already supports) are included — a flat readdir left
- * their managed markers invisible to `doctor`. */
-function collectMarkdownRecursive(cwd: string, dir: string): string[] {
-  return collectFilesRecursive(cwd, dir, (name) => name.endsWith(".md"));
-}
-
 function collectFilesRecursive(
   cwd: string,
   dir: string,
@@ -89,6 +69,118 @@ function collectFilesRecursive(
   };
   if (existsSync(join(cwd, dir))) walk(dir, 0);
   return out;
+}
+
+/** Repo-relative `<ext>` paths directly under `cwd/<dir>` (non-recursive). */
+function collectFilesFlat(cwd: string, dir: string, ext: string): string[] {
+  const absDir = join(cwd, dir);
+  if (!existsSync(absDir)) return [];
+  try {
+    return readdirSync(absDir)
+      .filter((f) => f.endsWith(ext))
+      .map((f) => `${dir}/${f}`);
+  } catch {
+    return [];
+  }
+}
+
+/** Marker syntax a managed file uses: html comments (CLAUDE.md-style prose and
+ *  the Claude/Codex `.md` assets) or shell comments (Codex `.toml`/`.sh`). */
+type MarkerStyle = "html" | "shell";
+
+/** One managed-output source: a fixed file, a flat dir of `<ext>` files, or a
+ *  recursively-walked dir of `<ext>` files. */
+type MarkerSource =
+  | { kind: "file"; path: string; style: MarkerStyle }
+  | { kind: "flat"; dir: string; ext: string; style: MarkerStyle }
+  | { kind: "recursive"; dir: string; ext: string; style: MarkerStyle };
+
+interface EngineOutputs {
+  engine: string;
+  /** Marker-bearing sources (drift + malformed-marker scans). */
+  markers: MarkerSource[];
+  /** Extra whole-dir text roots concatenated for invariant matching. The root
+   *  prose files are read from `markers` (kind:"file"); these are the asset
+   *  trees under them. */
+  textDirs: string[];
+}
+
+/**
+ * SINGLE SOURCE OF TRUTH for where each engine writes managed output (#226).
+ * Before this, three scans — `scanManagedDrift`, `scanMalformedMarkers` and
+ * doctor's `readRenderedText` — each hardcoded their own, overlapping and
+ * drifting list, so an engine that moved (or added) an output left one scan
+ * blind: e.g. `scanMalformedMarkers` claimed "same scope as scanManagedDrift"
+ * yet omitted the Copilot / Cursor prose files. Every health scan now derives
+ * its file set from this one table.
+ *
+ * NOTE (deferred): the real owners of these paths are the engine adapters
+ * (engines/*). Having each adapter export its output manifest and building this
+ * table from them would drop the last copy — but that touches the adapter layer,
+ * so it stays a follow-up; this fix is contained to the health layer.
+ */
+export const ENGINE_OUTPUTS: EngineOutputs[] = [
+  {
+    engine: "claude",
+    markers: [
+      { kind: "file", path: "CLAUDE.md", style: "html" },
+      { kind: "flat", dir: ".claude/agents", ext: ".md", style: "html" },
+      { kind: "recursive", dir: ".claude/skills", ext: ".md", style: "html" },
+    ],
+    textDirs: [".claude"],
+  },
+  {
+    engine: "codex",
+    markers: [
+      { kind: "file", path: "AGENTS.md", style: "html" },
+      { kind: "recursive", dir: ".agents/skills", ext: ".md", style: "html" },
+      { kind: "file", path: ".codex/config.toml", style: "shell" },
+      { kind: "recursive", dir: ".codex/agents", ext: ".toml", style: "shell" },
+      { kind: "recursive", dir: ".codex/hooks", ext: ".sh", style: "shell" },
+    ],
+    textDirs: [".agents", ".codex"],
+  },
+  {
+    engine: "agents-md",
+    markers: [{ kind: "file", path: "AGENTS.md", style: "html" }],
+    textDirs: [],
+  },
+  {
+    engine: "cursor",
+    markers: [{ kind: "file", path: ".cursor/rules/navori.mdc", style: "html" }],
+    textDirs: [".cursor"],
+  },
+  {
+    engine: "copilot",
+    markers: [{ kind: "file", path: ".github/copilot-instructions.md", style: "html" }],
+    textDirs: [],
+  },
+];
+
+/** Repo-relative marker files that exist under `cwd`, deduped by path (AGENTS.md
+ *  is claimed by both `codex` and `agents-md`) with their marker style.
+ *  `styleFilter` narrows to one syntax — the malformed-marker scan is html-only,
+ *  since the `-->` terminator check is meaningless for shell markers. */
+export function collectMarkerFiles(
+  cwd: string,
+  styleFilter?: MarkerStyle,
+): Array<{ path: string; style: MarkerStyle }> {
+  const seen = new Map<string, MarkerStyle>();
+  for (const eo of ENGINE_OUTPUTS) {
+    for (const src of eo.markers) {
+      if (styleFilter && src.style !== styleFilter) continue;
+      const paths =
+        src.kind === "file"
+          ? existsSync(join(cwd, src.path))
+            ? [src.path]
+            : []
+          : src.kind === "flat"
+            ? collectFilesFlat(cwd, src.dir, src.ext)
+            : collectFilesRecursive(cwd, src.dir, (name) => name.endsWith(src.ext));
+      for (const p of paths) if (!seen.has(p)) seen.set(p, src.style);
+    }
+  }
+  return [...seen].map(([path, style]) => ({ path, style }));
 }
 
 export interface MissingPlugin {
@@ -140,49 +232,57 @@ export interface DriftReport {
  * Markers without `version=`/`hash=` or with unknown sources are skipped.
  */
 export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport[] {
-  const out: DriftReport[] = [];
   // Every managed marker — core, preset, plugin — now stamps the navori release
   // version (#79), so that's the single "expected" version to compare against.
   // We still gate on KNOWN sources (core + enabled plugins that load) so an
   // unknown/foreign marker isn't flagged as drift.
   const naviVersion = readCliVersion();
-  const knownSources = new Set<string>(["@navori/core"]);
+  const knownSources = knownDriftSources(config);
+
+  const out = scanManagedDriftAt(cwd, "", naviVersion, knownSources);
+  // Monorepo: render/sync manage the managed blocks in EVERY workspace, so the
+  // scan must too — otherwise a hand-edited block in `apps/backend/CLAUDE.md`
+  // makes `sync` report a conflict while `doctor --strict` exits green (#235).
+  // Reported paths are prefixed with the workspace path so the diagnostic points
+  // at the real file. Plugins aren't workspace-overridable, so `knownSources`
+  // (built from the inherited plugin list) is reused.
+  for (const ws of config.monorepo?.workspaces ?? []) {
+    const wsCwd = join(cwd, ws.path);
+    if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
+    out.push(...scanManagedDriftAt(wsCwd, ws.path, naviVersion, knownSources));
+  }
+  return out;
+}
+
+/** Core + enabled-plugin marker sources, the set a marker's `source=` must be in
+ *  to count as drift (a foreign/unknown marker is never flagged). */
+function knownDriftSources(config: NavoriConfig): Set<string> {
+  const known = new Set<string>(["@navori/core"]);
   for (const [id, settings] of Object.entries(config.plugins ?? {})) {
     if (settings.enabled !== true) continue;
     try {
       loadPlugin(id);
-      knownSources.add(`@navori/plugin-${id}`);
+      known.add(`@navori/plugin-${id}`);
     } catch {
       // unknown / broken plugin — reported elsewhere via missingPlugins
     }
   }
+  return known;
+}
 
-  // Scan CLAUDE.md too, not just .claude/. Its managed blocks (idioma-rol,
-  // formato-respuesta, plugin protocols, …) drift the same way; omitting it made
-  // `doctor`/`status` report drift:0 while `render`/`sync` saw the same
-  // hand-edited block as a conflict.
-  const files: string[] = [];
-  if (existsSync(join(cwd, "CLAUDE.md"))) files.push("CLAUDE.md");
-  // The non-Claude prose engines each carry one managed block with the same html
-  // markers + @navori/core source, so they drift exactly like CLAUDE.md. Omitting
-  // them made doctor blind to hand-edits on repos rendering those engines.
-  for (const rel of ["AGENTS.md", ".github/copilot-instructions.md", ".cursor/rules/navori.mdc"]) {
-    if (existsSync(join(cwd, rel))) files.push(rel);
-  }
-  // Agents stay flat; skills are walked RECURSIVELY so directory-shaped skills
-  // (`.claude/skills/<id>/SKILL.md` + sibling refs) are scanned too — the flat
-  // readdir missed them, leaving their managed markers invisible to doctor.
-  for (const file of collectMarkdownFlat(cwd, ".claude/agents")) files.push(file);
-  for (const file of collectMarkdownRecursive(cwd, ".claude/skills")) files.push(file);
-  for (const file of collectMarkdownRecursive(cwd, ".agents/skills")) files.push(file);
-  if (existsSync(join(cwd, ".codex/config.toml"))) files.push(".codex/config.toml");
-  for (const file of collectFilesRecursive(cwd, ".codex/agents", (name) => name.endsWith(".toml")))
-    files.push(file);
-  for (const file of collectFilesRecursive(cwd, ".codex/hooks", (name) => name.endsWith(".sh")))
-    files.push(file);
-
-  for (const rel of files) {
-    const abs = join(cwd, rel);
+/** Drift within a single directory. Reported paths are relative to `scanCwd`,
+ *  optionally prefixed with `pathPrefix` (the workspace path) so a monorepo
+ *  diagnostic still names the file relative to the repo root. */
+function scanManagedDriftAt(
+  scanCwd: string,
+  pathPrefix: string,
+  naviVersion: string,
+  knownSources: Set<string>,
+): DriftReport[] {
+  const out: DriftReport[] = [];
+  const rel = (p: string): string => (pathPrefix ? `${pathPrefix}/${p}` : p);
+  for (const { path, style } of collectMarkerFiles(scanCwd)) {
+    const abs = join(scanCwd, path);
     const fileContent = (() => {
       try {
         return readFileSync(abs, "utf-8");
@@ -198,7 +298,7 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
       if (m.version) {
         if (knownSources.has(m.source) && naviVersion !== m.version) {
           out.push({
-            filePath: rel,
+            filePath: rel(path),
             markerId: m.id,
             source: m.source,
             kind: "version",
@@ -209,13 +309,12 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
       }
 
       if (m.hash && fileContent !== null) {
-        const style = rel.endsWith(".toml") || rel.endsWith(".sh") ? "shell" : "html";
         const body = extractManagedContent(fileContent, m.id, style);
         if (body !== null) {
           const actual = computeManagedHash(body);
           if (actual !== m.hash) {
             out.push({
-              filePath: rel,
+              filePath: rel(path),
               markerId: m.id,
               source: m.source,
               kind: "content",
@@ -282,6 +381,9 @@ export interface OrderReport {
    * when it isn't already first. Spotlights the common legacy case where
    * `orquestacion` got appended last. null when the lead block is correct. */
   misplacedFirst: { id: string; currentPos: number; total: number } | null;
+  /** Repo-relative workspace path when the out-of-order CLAUDE.md belongs to a
+   * monorepo workspace rather than the root. undefined for the root file. */
+  workspacePath?: string;
 }
 
 /**
@@ -289,8 +391,27 @@ export interface OrderReport {
  * when there's nothing to flag (no CLAUDE.md, fewer than two blocks, or already
  * ordered). `render`/`sync` auto-fix the order; doctor surfaces it so a
  * hand-edited or legacy file is visible before the next render.
+ *
+ * Monorepo: the root CLAUDE.md is checked first; if it's clean, each workspace's
+ * CLAUDE.md is checked and the FIRST out-of-order one is returned (tagged with
+ * `workspacePath`). Order drift is informational and auto-fixed on the next
+ * render, so reporting one location — enough to prompt `render` — keeps the
+ * single-report contract `doctor`/`status` display expects (#235).
  */
 export function scanManagedOrder(cwd: string, config: NavoriConfig): OrderReport | null {
+  const root = orderReportAt(cwd, config);
+  if (root) return root;
+  for (const ws of config.monorepo?.workspaces ?? []) {
+    const wsCwd = join(cwd, ws.path);
+    if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
+    const report = orderReportAt(wsCwd, effectiveConfigForWorkspace(config, ws));
+    if (report) return { ...report, workspacePath: ws.path };
+  }
+  return null;
+}
+
+/** Order check for the CLAUDE.md directly under `cwd` (no workspace recursion). */
+function orderReportAt(cwd: string, config: NavoriConfig): OrderReport | null {
   const claudeMdPath = join(cwd, "CLAUDE.md");
   if (!existsSync(claudeMdPath)) return null;
   const content = readFileSync(claudeMdPath, "utf-8");
@@ -339,26 +460,34 @@ export interface MalformedMarker {
  * the line, so the next `injectManagedSection` appends a fresh block AND leaves
  * the broken line as permanent cruft. This is a NON-destructive report only —
  * doctor surfaces it so the user fixes the line before that happens. Issue #71
- * item 11. Same file scope as `scanManagedDrift` (all html-marker files).
+ * item 11. Shares the html-marker file set with `scanManagedDrift` via
+ * `collectMarkerFiles` (#226) — this closes the old gap where the "same scope"
+ * comment lied and Copilot/Cursor prose files went unscanned. Shell markers
+ * (Codex `.toml`/`.sh`) are excluded: the `-->` terminator check is html-only.
+ * `config` is optional — pass it to also scan monorepo workspace files (#235).
  */
-export function scanMalformedMarkers(cwd: string): MalformedMarker[] {
+export function scanMalformedMarkers(cwd: string, config?: NavoriConfig): MalformedMarker[] {
+  const out = scanMalformedMarkersAt(cwd, "");
+  for (const ws of config?.monorepo?.workspaces ?? []) {
+    const wsCwd = join(cwd, ws.path);
+    if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
+    out.push(...scanMalformedMarkersAt(wsCwd, ws.path));
+  }
+  return out;
+}
+
+/** Malformed html markers within a single directory. Reported paths are
+ *  optionally prefixed with `pathPrefix` (the workspace path). */
+function scanMalformedMarkersAt(scanCwd: string, pathPrefix: string): MalformedMarker[] {
   const out: MalformedMarker[] = [];
-  const files: string[] = [];
-  if (existsSync(join(cwd, "CLAUDE.md"))) files.push("CLAUDE.md");
-  if (existsSync(join(cwd, "AGENTS.md"))) files.push("AGENTS.md");
-  // Agents stay flat; skills are walked RECURSIVELY so directory-shaped skills
-  // (`.claude/skills/<id>/SKILL.md` + sibling refs) are scanned too — the flat
-  // readdir missed them, leaving their managed markers invisible to doctor.
-  for (const file of collectMarkdownFlat(cwd, ".claude/agents")) files.push(file);
-  for (const file of collectMarkdownRecursive(cwd, ".claude/skills")) files.push(file);
-  for (const file of collectMarkdownRecursive(cwd, ".agents/skills")) files.push(file);
+  const rel = (p: string): string => (pathPrefix ? `${pathPrefix}/${p}` : p);
   // Check close before open: the close prefix is a superset string, so testing
   // it first avoids misclassifying a close line as a broken open.
   const prefixes = ["<!-- /navori:managed", "<!-- navori:managed"];
-  for (const rel of files) {
+  for (const { path } of collectMarkerFiles(scanCwd, "html")) {
     let content: string;
     try {
-      content = readFileSync(join(cwd, rel), "utf-8");
+      content = readFileSync(join(scanCwd, path), "utf-8");
     } catch {
       continue;
     }
@@ -368,7 +497,7 @@ export function scanMalformedMarkers(cwd: string): MalformedMarker[] {
         if (idx === -1) continue;
         // A well-formed html marker terminates with `-->` on the same line.
         if (!lineText.slice(idx + prefix.length).includes("-->")) {
-          out.push({ filePath: rel, line: i + 1, snippet: lineText.trim().slice(0, 80) });
+          out.push({ filePath: rel(path), line: i + 1, snippet: lineText.trim().slice(0, 80) });
         }
         break;
       }

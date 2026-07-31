@@ -8,7 +8,8 @@ import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
 import { getCoreRoot } from "../lib/bundled-assets.ts";
 import { isDowngrade } from "../lib/semver.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
-import { loadPlugin } from "../lib/plugins.ts";
+import { loadPlugin, loadEnabledPlugins } from "../lib/plugins.ts";
+import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
 import { hasBinary } from "../lib/which.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
 import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
@@ -23,6 +24,7 @@ import {
   scanLegacyAgents,
   scanExcludedBlocks,
   suggestNextSteps,
+  ENGINE_OUTPUTS,
 } from "../lib/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
@@ -98,7 +100,7 @@ export const doctorCommand = defineCommand({
     const orderReport = scanManagedOrder(cwd, config);
     const corruptedSettings = scanCorruptedSettings(cwd);
     const missingInvariants = scanMissingInvariants(cwd, config);
-    const malformedMarkers = scanMalformedMarkers(cwd);
+    const malformedMarkers = scanMalformedMarkers(cwd, config);
     const missingExternalTools = scanMissingExternalTools(config);
     const missingOptionalTools = scanMissingOptionalTools();
     const monorepoDrift = scanMonorepoDrift(cwd, config);
@@ -253,16 +255,6 @@ export const doctorCommand = defineCommand({
       }
     }
 
-    // Skill → agent assignments report (effective: plugin recommendation + config overrides)
-    const assignments = collectAssignments(config);
-    if (assignments.length > 0) {
-      const lines = assignments.map((a) => {
-        const override = a.override ? `  ${grey(td.overridden)}` : "";
-        return `  ${color.cyan(sym.bullet)} ${accent(a.id)}  ${grey("→")}  ${a.agent}${override}`;
-      });
-      p.note(lines.join("\n"), td.assignmentsTitle(assignments.length));
-    }
-
     if (missingPlugins.length > 0) {
       const lines = missingPlugins.map(
         (m) => `  ${color.red(sym.fail)} ${m.id}  ${grey(`— ${m.reason}`)}`,
@@ -400,10 +392,16 @@ export const doctorCommand = defineCommand({
         : "";
       const current = orderReport.current.join(", ");
       const expected = orderReport.expected.join(", ");
+      // Name the workspace when the out-of-order file is a monorepo workspace's
+      // CLAUDE.md rather than the root, so the diagnostic points at the right file.
+      const where = orderReport.workspacePath
+        ? `${grey(`${orderReport.workspacePath}/CLAUDE.md`)}\n`
+        : "";
       p.log.warn(
-        orderReport.interleaved
-          ? td.orderInterleaved(current, expected, spotlight)
-          : td.orderReorderable(current, expected, spotlight),
+        where +
+          (orderReport.interleaved
+            ? td.orderInterleaved(current, expected, spotlight)
+            : td.orderReorderable(current, expected, spotlight)),
       );
     }
 
@@ -485,12 +483,6 @@ export const doctorCommand = defineCommand({
     if (strictFail) process.exit(1);
   },
 });
-
-interface AssignmentRow {
-  id: string;
-  agent: string;
-  override: boolean;
-}
 
 interface CorruptedSettingsReport {
   path: string;
@@ -701,12 +693,33 @@ function formatWorkspaceLinkWarning(issue: WorkspaceLinkIssue, lang = DEFAULT_LA
  * until the first `navori render --apply`.
  */
 function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvariant[] {
+  const missing = missingInvariantsAt(cwd, config, "");
+  // Monorepo: each workspace renders its own tree with its own (possibly
+  // overridden) preset, so a load-bearing rule dropped in a workspace was
+  // invisible when only the root was checked (#235). The source is tagged with
+  // the workspace path so the diagnostic is unambiguous.
+  for (const ws of config.monorepo?.workspaces ?? []) {
+    const wsCwd = resolve(cwd, ws.path);
+    if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
+    missing.push(...missingInvariantsAt(wsCwd, effectiveConfigForWorkspace(config, ws), ws.path));
+  }
+  return missing;
+}
+
+/** Missing invariants for the render under a single directory. `pathPrefix` (the
+ *  workspace path) tags the `source` so a monorepo report names the location. */
+function missingInvariantsAt(
+  scanCwd: string,
+  config: NavoriConfig,
+  pathPrefix: string,
+): MissingInvariant[] {
   const sources: Array<{ source: string; invariants: string[] }> = [];
+  const tag = (s: string): string => (pathPrefix ? `${pathPrefix} · ${s}` : s);
 
   try {
-    const loaded = loadPreset(config.preset, cwd);
+    const loaded = loadPreset(config.preset, scanCwd);
     if (loaded && loaded.def.invariants.length > 0) {
-      sources.push({ source: `preset:${loaded.def.id}`, invariants: loaded.def.invariants });
+      sources.push({ source: tag(`preset:${loaded.def.id}`), invariants: loaded.def.invariants });
     }
   } catch {
     // A malformed preset is surfaced by the render path; nothing to check here.
@@ -717,7 +730,7 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
     try {
       const plugin = loadPlugin(id);
       if (plugin.manifest.invariants.length > 0) {
-        sources.push({ source: `plugin:${id}`, invariants: plugin.manifest.invariants });
+        sources.push({ source: tag(`plugin:${id}`), invariants: plugin.manifest.invariants });
       }
     } catch {
       // Missing / broken plugin is reported via missingPlugins.
@@ -726,7 +739,7 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
 
   if (sources.length === 0) return [];
 
-  const output = readRenderedText(cwd, config);
+  const output = readRenderedText(scanCwd, config);
   if (output.trim() === "") return []; // nothing rendered yet
 
   const missing: MissingInvariant[] = [];
@@ -738,7 +751,13 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
   return missing;
 }
 
-/** Concatenate the rendered text owned by the configured engines only. */
+/**
+ * Concatenate the rendered text owned by the configured engines only. Derives
+ * the per-engine output paths from the shared `ENGINE_OUTPUTS` table (#226) so
+ * this scan can't drift from what `scanManagedDrift` inspects: the root prose
+ * files come from the engine's `kind:"file"` markers, the asset trees from its
+ * `textDirs`. `seen` dedups the AGENTS.md / `.codex` overlap.
+ */
 function readRenderedText(cwd: string, config: NavoriConfig): string {
   const parts: string[] = [];
   const seen = new Set<string>();
@@ -758,20 +777,12 @@ function readRenderedText(cwd: string, config: NavoriConfig): string {
   };
 
   for (const engine of config.engines ?? ["claude"]) {
-    if (engine === "claude") {
-      addFile(join(cwd, "CLAUDE.md"));
-      addDir(join(cwd, ".claude"));
-    } else if (engine === "codex") {
-      addFile(join(cwd, "AGENTS.md"));
-      addDir(join(cwd, ".agents"));
-      addDir(join(cwd, ".codex"));
-    } else if (engine === "agents-md") {
-      addFile(join(cwd, "AGENTS.md"));
-    } else if (engine === "cursor") {
-      addDir(join(cwd, ".cursor"));
-    } else if (engine === "copilot") {
-      addFile(join(cwd, ".github/copilot-instructions.md"));
+    const outputs = ENGINE_OUTPUTS.find((e) => e.engine === engine);
+    if (!outputs) continue;
+    for (const marker of outputs.markers) {
+      if (marker.kind === "file") addFile(join(cwd, marker.path));
     }
+    for (const dir of outputs.textDirs) addDir(join(cwd, dir));
   }
 
   return parts.join("\n");
@@ -796,29 +807,6 @@ function collectText(dir: string, parts: string[]): void {
       }
     }
   }
-}
-
-function collectAssignments(config: NavoriConfig): AssignmentRow[] {
-  const overrides = config.agentAssignments ?? {};
-  const out: AssignmentRow[] = [];
-  for (const [pluginId, settings] of Object.entries(config.plugins ?? {})) {
-    if (settings.enabled !== true) continue;
-    let plugin;
-    try {
-      plugin = loadPlugin(pluginId);
-    } catch {
-      continue;
-    }
-    for (const entry of plugin.manifest.managed) {
-      const overrideValue = overrides[entry.id];
-      if (overrideValue) {
-        out.push({ id: entry.id, agent: overrideValue, override: true });
-      } else if (entry.recommendedAgent) {
-        out.push({ id: entry.id, agent: entry.recommendedAgent, override: false });
-      }
-    }
-  }
-  return out;
 }
 
 const MIN_CODEX_VERSION = "0.145.0";
@@ -1042,14 +1030,42 @@ export function scanCodegraphHealth(cwd: string, config: NavoriConfig): Codegrap
 export interface EngineInventory {
   agents: string[];
   skills: string[];
+  /** Plugin-contributed scripts (`.claude/scripts/<dest>`). Empty from the core
+   *  plan alone — the core harness ships no standalone scripts. */
+  scripts: string[];
   hooks: string[];
+}
+
+/** Skills/scripts/hooks a plugin contributes, which `resolveHarnessPlan` omits
+ *  (it only knows core + preset assets). Both Claude and Codex materialize these,
+ *  so the parity inventory must include them (#233). Keyed by a stable label:
+ *  skill/script by id/dest, hook by `event:matcher`. */
+function pluginInventoryAssets(config: NavoriConfig): {
+  skills: string[];
+  scripts: string[];
+  hooks: string[];
+} {
+  const skills = new Set<string>();
+  const scripts = new Set<string>();
+  const hooks = new Set<string>();
+  for (const plugin of loadEnabledPlugins(config.plugins).loaded) {
+    for (const s of plugin.skillAssets) skills.add(s.id);
+    for (const sc of plugin.scriptAssets) scripts.add(sc.dest);
+    for (const h of plugin.manifest.hooks ?? []) hooks.add(`${h.event}:${h.matcher ?? "*"}`);
+  }
+  return { skills: [...skills], scripts: [...scripts], hooks: [...hooks] };
 }
 
 /**
  * Per-engine harness inventory (Spec 0007 M8) for `doctor --json`, so a repo's
  * CI can assert Claude↔Codex parity after `render --all`. Only the disk engines
- * (claude, codex) carry a distinct agents/skills/hooks set; prose engines are
- * omitted. Claude includes the leader; Codex embodies it in the main thread.
+ * (claude, codex) carry a distinct agents/skills/scripts/hooks set; prose engines
+ * are omitted. Claude includes the leader; Codex embodies it in the main thread.
+ *
+ * The result is the UNION across the repo root and every monorepo workspace: a
+ * workspace may override the preset (→ different extras), and render materializes
+ * a tree per workspace, so a root-only inventory validated a subset (#235). It
+ * also folds in each plugin's skills/scripts/hooks, which the core plan omits (#233).
  */
 export function buildEngineInventory(
   config: NavoriConfig,
@@ -1058,23 +1074,54 @@ export function buildEngineInventory(
   const diskEngines = config.engines.filter((e) => e === "claude" || e === "codex");
   if (diskEngines.length === 0) return {};
   const coreAssets = resolve(getCoreRoot(), "core-assets");
-  let preset: ReturnType<typeof loadPreset> = null;
-  if (config.preset && config.preset !== "custom") {
-    try {
-      preset = loadPreset(config.preset, cwd);
-    } catch {
-      preset = null; // a broken preset is surfaced elsewhere; inventory stays core-only
+
+  const acc: Record<
+    string,
+    { agents: Set<string>; skills: Set<string>; scripts: Set<string>; hooks: Set<string> }
+  > = {};
+  for (const engine of diskEngines) {
+    acc[engine] = { agents: new Set(), skills: new Set(), scripts: new Set(), hooks: new Set() };
+  }
+
+  const locations: Array<{ cwd: string; config: NavoriConfig }> = [{ cwd, config }];
+  for (const ws of config.monorepo?.workspaces ?? []) {
+    const wsCwd = resolve(cwd, ws.path);
+    if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
+    locations.push({ cwd: wsCwd, config: effectiveConfigForWorkspace(config, ws) });
+  }
+
+  for (const loc of locations) {
+    let preset: ReturnType<typeof loadPreset> = null;
+    if (loc.config.preset && loc.config.preset !== "custom") {
+      try {
+        preset = loadPreset(loc.config.preset, loc.cwd);
+      } catch {
+        preset = null; // a broken preset is surfaced elsewhere; inventory stays core-only
+      }
+    }
+    const pluginAssets = pluginInventoryAssets(loc.config);
+    for (const engine of diskEngines) {
+      const plan = resolveHarnessPlan(loc.config, coreAssets, preset, {
+        includeLeader: engine === "claude",
+      });
+      const bucket = acc[engine]!;
+      for (const a of plan.agents) bucket.agents.add(a.id);
+      for (const s of plan.skills) bucket.skills.add(s.id);
+      for (const h of plan.hooks) bucket.hooks.add(h.id);
+      for (const s of pluginAssets.skills) bucket.skills.add(s);
+      for (const s of pluginAssets.scripts) bucket.scripts.add(s);
+      for (const h of pluginAssets.hooks) bucket.hooks.add(h);
     }
   }
+
   const out: Record<string, EngineInventory> = {};
   for (const engine of diskEngines) {
-    const plan = resolveHarnessPlan(config, coreAssets, preset, {
-      includeLeader: engine === "claude",
-    });
+    const b = acc[engine]!;
     out[engine] = {
-      agents: plan.agents.map((a) => a.id).sort(),
-      skills: plan.skills.map((s) => s.id).sort(),
-      hooks: plan.hooks.map((h) => h.id).sort(),
+      agents: [...b.agents].sort(),
+      skills: [...b.skills].sort(),
+      scripts: [...b.scripts].sort(),
+      hooks: [...b.hooks].sort(),
     };
   }
   return out;
