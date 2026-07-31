@@ -82,6 +82,11 @@ describe("detectLibrarySkills", () => {
     expect(detectLibrarySkills(["@testing-library/user-event"])).toEqual(["testing-library"]);
   });
 
+  it("detects the CLI tooling skills navori itself ships (citty + clack)", () => {
+    expect(detectLibrarySkills(["citty"])).toEqual(["citty"]);
+    expect(detectLibrarySkills(["@clack/prompts"])).toEqual(["clack"]);
+  });
+
   it("materializes the real testing stacks of the target repos (mobile + medusa)", () => {
     // alertaciudadana_app (RN/Expo): jest + React Native Testing Library.
     expect(detectLibrarySkills(["jest", "jest-expo", "@testing-library/react-native"])).toEqual([

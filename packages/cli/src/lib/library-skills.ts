@@ -74,6 +74,10 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   },
   { id: "playwright", deps: ["@playwright/test", "playwright"], label: "Playwright E2E" },
   { id: "supertest", deps: ["supertest"], label: "SuperTest HTTP" },
+  // CLI tooling — presence-only, cross-preset like the rest: a repo that ships
+  // these UnJS/Bombshell libs is building a command-line tool and earns the guidance.
+  { id: "citty", deps: ["citty"], label: "citty CLI" },
+  { id: "clack", deps: ["@clack/prompts"], label: "Clack prompts" },
 ];
 
 /**
