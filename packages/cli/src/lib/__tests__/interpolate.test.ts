@@ -119,7 +119,9 @@ describe("interpolate — project.* sanitization (#198)", () => {
     const out = interpolate("Rule: {{project.architectureRule}}", hostile);
     expect(out).not.toContain("<!--");
     expect(out).not.toContain("-->");
-    expect(out).not.toContain("navori:managed id=");
+    // Delimiters gone → the leftover `navori:managed` text is inert (marker.ts
+    // only recognizes the full HTML-comment form), so the region can't be split.
+    expect(out).toBe('Rule: feature /navori:managed id="operaciones-seguras"');
   });
 
   it("collapses line breaks so a value can't inject extra instruction lines", () => {
