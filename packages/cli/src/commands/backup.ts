@@ -6,6 +6,7 @@ import { backupRoot, backupRepoLabel, backupIdRepoLabel } from "../lib/backup.ts
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
 import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
 import { readGlobalConfig } from "../lib/global-config.ts";
+import { intFlagOrExit } from "../lib/args.ts";
 
 /** Language for machine-global backup commands: global config, else default. */
 function globalLang(): Lang {
@@ -67,7 +68,7 @@ const listSubCommand = defineCommand({
   },
   run({ args }) {
     const backups = listBackups();
-    const limit = args.limit ? Number.parseInt(args.limit as string, 10) : 20;
+    const limit = intFlagOrExit(args.limit, "limit", 20);
     const truncated = backups.slice(0, limit);
 
     if (args.json) {

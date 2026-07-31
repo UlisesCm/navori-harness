@@ -175,7 +175,10 @@ export function pruneRegistry(): { removed: RegistryEntry[]; kept: RegistryEntry
  * populate the registry for repos that predate auto-registration.
  */
 export function scanForRepos(rootDir: string, opts: { maxDepth?: number } = {}): string[] {
-  const maxDepth = opts.maxDepth ?? DEFAULT_SCAN_DEPTH;
+  // `??` only catches null/undefined, so a NaN slipping through from an
+  // unvalidated caller would make `depth >= maxDepth` always false (unlimited
+  // walk). Guard with isFinite so a bad value falls back to the default (#283).
+  const maxDepth = Number.isFinite(opts.maxDepth) ? (opts.maxDepth as number) : DEFAULT_SCAN_DEPTH;
   const found: string[] = [];
 
   const walk = (dir: string, depth: number): void => {
