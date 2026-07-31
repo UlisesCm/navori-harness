@@ -583,6 +583,24 @@ describe("CLI e2e — happy paths", () => {
     );
   });
 
+  // #244: status --json's `ok` must agree with doctor over the same repo. A hard
+  // issue (corrupted settings.json) makes doctor exit 2 / ok:false — status must
+  // now too, instead of the old `ok: missingPlugins.length === 0` (which stayed
+  // true here) and its always-0 exit code.
+  it("status --json agrees with doctor on a hard issue (spec 0003 §3.5.3, #244)", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+    writeFileSync(join(repo, ".claude/settings.json"), "{ not valid json", "utf-8");
+
+    const doc = runCli(["doctor", "--json", "--cwd", repo]);
+    const st = runCli(["status", "--json", "--cwd", repo]);
+    expect(doc.status).toBe(2);
+    expect(st.status).toBe(2);
+    expect(JSON.parse(doc.stdout).ok).toBe(false);
+    expect(JSON.parse(st.stdout).ok).toBe(false);
+  });
+
   it("add --suggest recommends engram when not enabled (spec 0003 §3.5.2)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);

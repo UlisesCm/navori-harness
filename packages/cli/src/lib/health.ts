@@ -6,6 +6,7 @@ import { computeManagedHash, extractManagedContent, reorderManagedBlocks } from 
 import { canonicalManagedOrder, EXCLUDABLE_BLOCK_IDS, CORE_BLOCK_IDS } from "./render-plan.ts";
 import { detectClaudeInfra } from "./claude-infra.ts";
 import { detectLegacyAgents, type LegacyAgent } from "./legacy-agents.ts";
+import { isDowngrade } from "./semver.ts";
 import type { NavoriConfig } from "./config.ts";
 import { effectiveConfigForWorkspace } from "./monorepo.ts";
 import { tc, DEFAULT_LANG, type Lang } from "./i18n.ts";
@@ -213,10 +214,12 @@ export interface DriftReport {
   filePath: string;
   markerId: string;
   source: string;
-  /** "version" — the bundle moved ahead. "content" — the body of the
-   * managed block no longer matches its `hash=` attribute, i.e. the user
-   * edited inside the marker. */
-  kind: "version" | "content";
+  /** "version" — the bundle moved ahead (disk older than the CLI; render/sync
+   * brings it forward). "downgrade" — disk is NEWER than the CLI; render's
+   * anti-rollback preserves the block, so the fix is updating the CLI, not
+   * render (#242). "content" — the body of the managed block no longer matches
+   * its `hash=` attribute, i.e. the user edited inside the marker. */
+  kind: "version" | "downgrade" | "content";
   fromVersion?: string;
   toVersion?: string;
   expectedHash?: string;
@@ -297,11 +300,17 @@ function scanManagedDriftAt(
 
       if (m.version) {
         if (knownSources.has(m.source) && naviVersion !== m.version) {
+          // Direction matters (#242): when the on-disk block is NEWER than the
+          // running CLI, render's anti-rollback (marker.ts `downgrade-skipped`)
+          // preserves the block, so recommending render/sync is a fix that does
+          // nothing. Classify it as a downgrade so doctor tells the user to
+          // update the CLI instead.
+          const kind = isDowngrade(m.version, naviVersion) ? "downgrade" : "version";
           out.push({
             filePath: rel(path),
             markerId: m.id,
             source: m.source,
-            kind: "version",
+            kind,
             fromVersion: m.version,
             toVersion: naviVersion,
           });
@@ -550,6 +559,9 @@ export function suggestNextSteps(state: HealthState, lang: Lang = DEFAULT_LANG):
   }
   if (state.drifts.some((d) => d.kind === "version")) {
     steps.push(ts.nextVersionDrift);
+  }
+  if (state.drifts.some((d) => d.kind === "downgrade")) {
+    steps.push(ts.nextDowngradeDrift);
   }
   if (state.orderReport && !state.orderReport.interleaved) {
     steps.push(ts.nextReorder);

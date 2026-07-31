@@ -597,11 +597,17 @@ interface DoctorCmdStrings {
   drift: (n: number, hint: string, lines: string) => string;
   driftHintContent: string;
   driftHintVersion: string;
+  driftDowngradeRow: (source: string) => string;
+  driftHintDowngrade: string;
   corruptedSettings: (n: number, lines: string) => string;
   corruptedSettingsRow: (error: string) => string;
   missingInvariants: (n: number, lines: string) => string;
   missingInvariantRow: (source: string) => string;
   malformedMarkers: (n: number, lines: string) => string;
+  claudeHookScriptsMissing: (n: number, lines: string) => string;
+  claudeHookScriptMissingRow: string;
+  claudeHookScriptsNotExecutable: (n: number, lines: string) => string;
+  claudeHookScriptNotExecutableRow: string;
   legacyAgents: (n: number, lines: string) => string;
   legacyAgentRow: (canonical: string) => string;
   externalTools: (n: number, lines: string) => string;
@@ -833,6 +839,7 @@ interface StatusCmdStrings {
   nextMissingPlugins: (count: number) => string;
   nextContentDrift: string;
   nextVersionDrift: string;
+  nextDowngradeDrift: string;
   nextReorder: string;
   nextInterleaved: (lead: string) => string;
   nextInterleavedLead: (id: string, pos: number, total: number) => string;
@@ -1015,6 +1022,9 @@ const CMD_ES: CmdStrings = {
     driftHintContent:
       "corre 'navori sync' para resolver conflicts; 'navori render --apply' para actualizar versiones",
     driftHintVersion: "corre 'navori render --apply' o 'navori sync'",
+    driftDowngradeRow: (source) => `(${source}, disco adelantado)`,
+    driftHintDowngrade:
+      "el bloque en disco es más nuevo que tu CLI; render lo preserva (anti-retroceso), así que actualiza navori (p.ej. 'npm i -g navori@latest')",
     corruptedSettings: (n, lines) =>
       `Settings.json corrupto (${n}) — corre 'navori render --force --apply' para regenerar desde el bundle (el archivo actual se respalda):\n${lines}`,
     corruptedSettingsRow: (error) => `— JSON inválido: ${error}`,
@@ -1025,6 +1035,14 @@ const CMD_ES: CmdStrings = {
       `Markers managed malformados (${n}) — a esta(s) línea(s) les falta el ` +
       `cierre '-->', así que navori ya no las reconoce; el próximo render appendearía un bloque ` +
       `duplicado y dejaría la línea rota. Restaura el '-->' (o borra la línea) a mano:\n${lines}`,
+    claudeHookScriptsMissing: (n, lines) =>
+      `Scripts de hooks ausentes (${n}) — un hook activo de .claude/settings.json referencia un archivo que no existe, ` +
+      `así que el hook truena o no hace nada en cada Bash; corre 'navori render --apply' para regenerarlos:\n${lines}`,
+    claudeHookScriptMissingRow: "— referenciado por un hook activo pero no existe en disco",
+    claudeHookScriptsNotExecutable: (n, lines) =>
+      `Scripts de hooks sin permiso de ejecución (${n}) — Claude no dispara un hook cuyo script no es ejecutable; ` +
+      `corre 'navori render --apply' para restaurar el bit +x:\n${lines}`,
+    claudeHookScriptNotExecutableRow: "— sin bit de ejecución (+x)",
     legacyAgents: (n, lines) =>
       `Agentes legacy (${n}) — de un harness previo; navori ya provee sus ` +
       `equivalentes canónicos. No los toco (son tuyos), pero conviene archivarlos o borrarlos ` +
@@ -1283,6 +1301,8 @@ const CMD_ES: CmdStrings = {
       `Resuelve ${count} plugin(s) faltante(s): instálalos o quítalos del config.`,
     nextContentDrift: "Corre 'navori sync --interactive' para resolver bloques editados a mano.",
     nextVersionDrift: "Corre 'navori render --apply' para traer los bloques a la última versión.",
+    nextDowngradeDrift:
+      "Tu CLI navori está desactualizado (los bloques en disco son más nuevos): actualízalo con 'npm i -g navori@latest'. Render no los retrocede.",
     nextReorder:
       "Corre 'navori render --apply' para reordenar los bloques de CLAUDE.md al orden canónico.",
     nextInterleaved: (lead) =>
@@ -1495,6 +1515,9 @@ const CMD_EN: CmdStrings = {
     driftHintContent:
       "run 'navori sync' to resolve conflicts; 'navori render --apply' to update versions",
     driftHintVersion: "run 'navori render --apply' or 'navori sync'",
+    driftDowngradeRow: (source) => `(${source}, disk ahead)`,
+    driftHintDowngrade:
+      "the on-disk block is newer than your CLI; render preserves it (anti-rollback), so update navori instead (e.g. 'npm i -g navori@latest')",
     corruptedSettings: (n, lines) =>
       `Corrupted settings.json (${n}) — run 'navori render --force --apply' to regenerate from the bundle (the current file is backed up):\n${lines}`,
     corruptedSettingsRow: (error) => `— invalid JSON: ${error}`,
@@ -1505,6 +1528,14 @@ const CMD_EN: CmdStrings = {
       `Malformed managed markers (${n}) — these line(s) are missing the ` +
       `closing '-->', so navori no longer recognizes them; the next render would append a ` +
       `duplicate block and leave the line broken. Restore the '-->' (or delete the line) by hand:\n${lines}`,
+    claudeHookScriptsMissing: (n, lines) =>
+      `Missing hook scripts (${n}) — an active hook in .claude/settings.json references a file that ` +
+      `doesn't exist, so the hook breaks or no-ops on every Bash; run 'navori render --apply' to regenerate them:\n${lines}`,
+    claudeHookScriptMissingRow: "— referenced by an active hook but missing on disk",
+    claudeHookScriptsNotExecutable: (n, lines) =>
+      `Non-executable hook scripts (${n}) — Claude won't fire a hook whose script lacks the exec bit; ` +
+      `run 'navori render --apply' to restore the +x bit:\n${lines}`,
+    claudeHookScriptNotExecutableRow: "— missing the executable (+x) bit",
     legacyAgents: (n, lines) =>
       `Legacy agents (${n}) — from a previous harness; navori already provides their ` +
       `canonical equivalents. It doesn't touch them (they're yours), but archiving or deleting them ` +
@@ -1759,6 +1790,8 @@ const CMD_EN: CmdStrings = {
       `Resolve ${count} missing plugin(s): install them or remove them from the config.`,
     nextContentDrift: "Run 'navori sync --interactive' to resolve manually edited blocks.",
     nextVersionDrift: "Run 'navori render --apply' to update blocks to the latest version.",
+    nextDowngradeDrift:
+      "Your navori CLI is out of date (on-disk blocks are newer): update it with 'npm i -g navori@latest'. Render won't roll them back.",
     nextReorder: "Run 'navori render --apply' to reorder CLAUDE.md blocks into canonical order.",
     nextInterleaved: (lead) =>
       `Move your text between managed CLAUDE.md blocks above the first block or below the last${lead}; then run 'navori render --apply' to reorder them.`,

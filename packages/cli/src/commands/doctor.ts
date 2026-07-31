@@ -25,6 +25,7 @@ import {
   scanExcludedBlocks,
   suggestNextSteps,
   ENGINE_OUTPUTS,
+  type MissingPlugin,
 } from "../lib/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
@@ -95,16 +96,28 @@ export const doctorCommand = defineCommand({
     }
 
     const markers = listMarkers(claudeMdPath);
-    const missingPlugins = collectMissingPlugins(config);
+    // The health verdict — every `ok`-flipping check in one place, shared with
+    // `status` so the two commands can't disagree about the same repo (#244).
+    const verdict = computeHealthVerdict(cwd, config);
+    const {
+      missingPlugins,
+      corruptedSettings,
+      missingInvariants,
+      resolvedPreset,
+      missingPreset,
+      missingPresetFiles,
+      codexHealth,
+    } = verdict;
     const drifts = scanManagedDrift(cwd, config);
     const orderReport = scanManagedOrder(cwd, config);
-    const corruptedSettings = scanCorruptedSettings(cwd);
-    const missingInvariants = scanMissingInvariants(cwd, config);
     const malformedMarkers = scanMalformedMarkers(cwd, config);
     const missingExternalTools = scanMissingExternalTools(config);
     const missingOptionalTools = scanMissingOptionalTools();
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     const workspaceLink = scanWorkspaceLink(cwd, config);
+    // Referenced hook scripts (.claude/scripts|hooks) that are missing or lost
+    // their exec bit — the hook then breaks/no-ops silently on every Bash (#213).
+    const claudeHookScripts = scanClaudeHookScripts(cwd, config);
     // Legacy agent files (sdd-*/deep-auditor) superseded by a canonical navori
     // agent. Informational — navori never deletes the user's files, it just
     // surfaces the redundancy so the user can archive them.
@@ -113,18 +126,10 @@ export const doctorCommand = defineCommand({
     // surfaced so the exclusion never becomes silent config drift; unknown ids
     // (typos) warn but don't flip `ok` — they only no-op.
     const excludedBlocks = scanExcludedBlocks(config);
-    // A declared preset that resolves to neither a local (.navori/presets/) nor
-    // a bundled manifest renders the baseline AND warns — config points at
-    // something unresolvable, same class as a missing plugin.
-    const resolvedPreset = config.preset !== "custom" ? resolvePreset(config.preset, cwd) : null;
-    const missingPreset =
-      config.preset !== "custom" && resolvedPreset === null ? config.preset : null;
     // A local preset shadowing a bundled one of the same id: legal (it's how a
     // team overrides an official preset) but worth surfacing so it's not silent.
     const presetOverride =
       resolvedPreset?.source === "local" && presetExists(config.preset) ? config.preset : null;
-    const missingPresetFiles = scanMissingPresetFiles(cwd, config);
-    const codexHealth = scanCodexHealth(cwd, config);
     const codegraphHealth = scanCodegraphHealth(cwd, config);
     const engineInventory = buildEngineInventory(config, cwd);
     // Informational: a name like `temp-app` or `my-app` is almost always a
@@ -136,13 +141,7 @@ export const doctorCommand = defineCommand({
       // flip `ok` for it. Missing plugins, corrupted settings.json, missing
       // invariants and a phantom preset ARE errors: the next render will fail,
       // silently skip the file, or drop a load-bearing rule / preset extras.
-      ok:
-        missingPlugins.length === 0 &&
-        corruptedSettings.length === 0 &&
-        missingInvariants.length === 0 &&
-        missingPreset === null &&
-        missingPresetFiles.length === 0 &&
-        codexHealth?.configMalformed !== true,
+      ok: verdict.ok,
       configPath,
       config,
       checks: {
@@ -168,6 +167,7 @@ export const doctorCommand = defineCommand({
       placeholderName,
       legacyAgents,
       excludedBlocks,
+      claudeHookScripts,
       codexHealth,
       codegraphHealth,
       engineInventory,
@@ -177,15 +177,9 @@ export const doctorCommand = defineCommand({
       console.log(JSON.stringify(report, null, 2));
       // JSON consumers (CI pipelines) need the same exit-code semantics as
       // the text output so a piped check ($navori doctor --json --strict)
-      // fails the build the same way the human-readable run would.
-      if (
-        missingPlugins.length > 0 ||
-        corruptedSettings.length > 0 ||
-        missingInvariants.length > 0 ||
-        missingPreset !== null ||
-        missingPresetFiles.length > 0 ||
-        codexHealth?.configMalformed === true
-      ) {
+      // fails the build the same way the human-readable run would. `!verdict.ok`
+      // is exactly the hard-issue set (#244).
+      if (!verdict.ok) {
         process.exit(2);
       }
       if (Boolean(args.strict) && drifts.length > 0) process.exit(1);
@@ -299,11 +293,17 @@ export const doctorCommand = defineCommand({
         if (d.kind === "content") {
           return `  ${color.red(sym.conflict)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`hash ${d.expectedHash} ≠ ${d.actualHash}`)}  ${grey(td.driftContentRow(d.source))}`;
         }
-        return `  ${color.yellow(sym.update)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`${d.fromVersion} → ${d.toVersion}`)}  ${grey(td.driftVersionSuffix(d.source))}`;
+        const suffix = d.kind === "downgrade" ? td.driftDowngradeRow(d.source) : td.driftVersionSuffix(d.source);
+        return `  ${color.yellow(sym.update)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`${d.fromVersion} → ${d.toVersion}`)}  ${grey(suffix)}`;
       });
+      // One hint per block; escalate by severity of the fix that actually
+      // applies: content edits (sync) > downgrade (update the CLI) > version
+      // (render). A downgrade's fix is never render, so it must outrank it (#242).
       const hint = drifts.some((d) => d.kind === "content")
         ? td.driftHintContent
-        : td.driftHintVersion;
+        : drifts.some((d) => d.kind === "downgrade")
+          ? td.driftHintDowngrade
+          : td.driftHintVersion;
       p.log.warn(td.drift(drifts.length, hint, lines.join("\n")));
     }
 
@@ -329,6 +329,30 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${accent(`${m.filePath}:${m.line}`)}  ${grey(`— ${m.snippet}`)}`,
       );
       p.log.warn(td.malformedMarkers(malformedMarkers.length, lines.join("\n")));
+    }
+
+    if (claudeHookScripts) {
+      // A missing referenced script (red) is more severe than one that merely
+      // lost its +x bit (yellow); both are fixed by `navori render --apply`.
+      if (claudeHookScripts.missing.length > 0) {
+        const lines = claudeHookScripts.missing.map(
+          (path) =>
+            `  ${color.red(sym.fail)} ${accent(path)}  ${grey(td.claudeHookScriptMissingRow)}`,
+        );
+        p.log.warn(td.claudeHookScriptsMissing(claudeHookScripts.missing.length, lines.join("\n")));
+      }
+      if (claudeHookScripts.notExecutable.length > 0) {
+        const lines = claudeHookScripts.notExecutable.map(
+          (path) =>
+            `  ${color.yellow(sym.update)} ${accent(path)}  ${grey(td.claudeHookScriptNotExecutableRow)}`,
+        );
+        p.log.warn(
+          td.claudeHookScriptsNotExecutable(
+            claudeHookScripts.notExecutable.length,
+            lines.join("\n"),
+          ),
+        );
+      }
     }
 
     if (legacyAgents.length > 0) {
@@ -460,13 +484,7 @@ export const doctorCommand = defineCommand({
       if (cg.length > 0) p.note(cg.join("\n"), "codegraph");
     }
 
-    const hasIssues =
-      missingPlugins.length > 0 ||
-      corruptedSettings.length > 0 ||
-      missingInvariants.length > 0 ||
-      missingPreset !== null ||
-      missingPresetFiles.length > 0 ||
-      codexHealth?.configMalformed === true;
+    const hasIssues = !verdict.ok;
     const strictFail = Boolean(args.strict) && drifts.length > 0;
     p.outro(
       hasIssues
@@ -484,7 +502,61 @@ export const doctorCommand = defineCommand({
   },
 });
 
-interface CorruptedSettingsReport {
+export interface HealthVerdict {
+  /**
+   * The health gate shared by `doctor` and `status` (#244). True when none of
+   * the hard-failure conditions hold. This is THE single source of truth for
+   * "is this repo healthy?" so `status --json`'s `ok` can no longer diverge
+   * from what `doctor` reports about the same state.
+   */
+  ok: boolean;
+  missingPlugins: MissingPlugin[];
+  corruptedSettings: CorruptedSettingsReport[];
+  missingInvariants: MissingInvariant[];
+  /** The resolved active preset (or null), so callers can derive presetOverride
+   *  without resolving it a second time. */
+  resolvedPreset: ReturnType<typeof resolvePreset>;
+  /** A declared preset that resolves to nothing (phantom) — else null. */
+  missingPreset: string | null;
+  missingPresetFiles: Array<{ id: string; path: string }>;
+  codexHealth: CodexHealth | null;
+}
+
+/**
+ * Run every check that flips `ok` / drives exit code 2, in one place, so
+ * `doctor` and `status` render the SAME verdict over the SAME repo state (#244).
+ * Drift is deliberately excluded: it's informational ("update available"), gated
+ * only by `doctor --strict` (exit 1), and never flips `ok`.
+ */
+export function computeHealthVerdict(cwd: string, config: NavoriConfig): HealthVerdict {
+  const missingPlugins = collectMissingPlugins(config);
+  const corruptedSettings = scanCorruptedSettings(cwd);
+  const missingInvariants = scanMissingInvariants(cwd, config);
+  const resolvedPreset = config.preset !== "custom" ? resolvePreset(config.preset, cwd) : null;
+  const missingPreset =
+    config.preset !== "custom" && resolvedPreset === null ? config.preset : null;
+  const missingPresetFiles = scanMissingPresetFiles(cwd, config);
+  const codexHealth = scanCodexHealth(cwd, config);
+  const ok =
+    missingPlugins.length === 0 &&
+    corruptedSettings.length === 0 &&
+    missingInvariants.length === 0 &&
+    missingPreset === null &&
+    missingPresetFiles.length === 0 &&
+    codexHealth?.configMalformed !== true;
+  return {
+    ok,
+    missingPlugins,
+    corruptedSettings,
+    missingInvariants,
+    resolvedPreset,
+    missingPreset,
+    missingPresetFiles,
+    codexHealth,
+  };
+}
+
+export interface CorruptedSettingsReport {
   path: string;
   error: string;
 }
@@ -505,7 +577,83 @@ function scanCorruptedSettings(cwd: string): CorruptedSettingsReport[] {
   }
 }
 
-interface MissingInvariant {
+export interface ClaudeHookScriptsReport {
+  /** Referenced `.claude/scripts|hooks` files that don't exist on disk. */
+  missing: string[];
+  /** Referenced files present but lacking the executable (+x) bit. */
+  notExecutable: string[];
+}
+
+/**
+ * Validate that every `.claude/scripts/*` and `.claude/hooks/*` file referenced
+ * by an ACTIVE hook in `.claude/settings.json` exists and is executable — the
+ * Claude-side equivalent of Codex's `hooksNotExecutable` (#213). A plugin hook
+ * (semgrep/jscpd) points at `.claude/scripts/check-*.sh`; if that file is
+ * missing or lost its +x bit, Claude fires it on every Bash and it breaks or
+ * no-ops silently. Both failure modes are fixed by `navori render --apply`, so
+ * they're warnings (they don't flip `ok`), matching Codex's treatment.
+ *
+ * Returns null when Claude isn't a configured engine or there's no settings
+ * file (nothing rendered yet). Corrupted JSON is left to `scanCorruptedSettings`.
+ */
+export function scanClaudeHookScripts(
+  cwd: string,
+  config: NavoriConfig,
+): ClaudeHookScriptsReport | null {
+  if (!config.engines.includes("claude")) return null;
+  const settingsPath = join(cwd, ".claude/settings.json");
+  if (!existsSync(settingsPath)) return null;
+  let settings: unknown;
+  try {
+    settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+  } catch {
+    return null; // corrupted JSON is surfaced by scanCorruptedSettings
+  }
+
+  const refs = new Set<string>();
+  collectHookScriptRefs((settings as { hooks?: unknown }).hooks, refs);
+
+  const missing: string[] = [];
+  const notExecutable: string[] = [];
+  for (const rel of [...refs].sort()) {
+    const abs = join(cwd, rel);
+    if (!existsSync(abs)) {
+      missing.push(rel);
+      continue;
+    }
+    try {
+      if ((statSync(abs).mode & 0o111) === 0) notExecutable.push(rel);
+    } catch {
+      // Unreadable — skip rather than guess.
+    }
+  }
+  return { missing, notExecutable };
+}
+
+/** Repo-relative `.claude/scripts|hooks/*` paths named in any `command` string
+ *  under the hooks tree. Walks the nested Claude hook shape generically so it
+ *  catches core, quality-gate and plugin hooks alike. */
+function collectHookScriptRefs(hooks: unknown, out: Set<string>): void {
+  if (typeof hooks !== "object" || hooks === null) return;
+  const re = /\.claude\/(?:scripts|hooks)\/[^\s"']+/g;
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (typeof node !== "object" || node === null) return;
+    for (const [key, val] of Object.entries(node)) {
+      if (key === "command" && typeof val === "string") {
+        for (const m of val.matchAll(re)) out.add(m[0]);
+      } else {
+        walk(val);
+      }
+    }
+  };
+  walk(hooks);
+}
+
+export interface MissingInvariant {
   /** The load-bearing substring that should have been in the output. */
   invariant: string;
   /** Who declared it, e.g. "plugin:engram" or "preset:nextjs". */
