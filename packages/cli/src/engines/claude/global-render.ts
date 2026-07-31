@@ -1,18 +1,19 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { safeHomedir } from "./home.ts";
-import { CORE_MANAGED_ASSETS } from "./render-plan.ts";
-import { getCoreRoot } from "./bundled-assets.ts";
-import { deepMerge } from "../engines/claude/deep-merge.ts";
-import type { GlobalConfig } from "./global-config.ts";
+import { safeHomedir } from "../../lib/home.ts";
+import { CORE_MANAGED_ASSETS, resolveAssetPath } from "../../lib/render-plan.ts";
+import { deepMerge } from "./deep-merge.ts";
+import type { GlobalConfig } from "../../lib/global-config.ts";
 
 /**
  * Renders the OPTIONAL global harness (Spec 0010 F1) into Claude Code's global
- * config dir. This module is Claude-specific and lives entirely OUTSIDE the
- * repo render pipeline (render-plan / execute-plan / engine adapters), so it
- * cannot alter repo-scoped behaviour — the zero-footprint invariant (§2.4). It
- * only *reads* from the core (block bodies) and reuses `deepMerge` to preserve
- * whatever the user already has in `~/.claude/settings.json`.
+ * config dir. This module is Claude-specific — it targets `~/.claude` and reuses
+ * Claude's `deepMerge` — so it lives in `engines/claude/`, not the engine-agnostic
+ * `lib/` layer (#227). It stays entirely OUTSIDE the repo render pipeline
+ * (render-plan / execute-plan / engine adapters), so it cannot alter repo-scoped
+ * behaviour — the zero-footprint invariant (§2.4). It only *reads* from the core
+ * (block bodies via `lib/render-plan`) and merges to preserve whatever the user
+ * already has in `~/.claude/settings.json`.
  *
  * The baseline is delivered by a SessionStart hook with a gate, NOT a static
  * `~/.claude/CLAUDE.md` block: Claude Code loads that file unconditionally, so
@@ -55,7 +56,7 @@ export function composeBaseline(config: GlobalConfig): string {
     if (!asset) {
       throw new Error(`Global baseline references unknown core block '${id}'.`);
     }
-    const raw = readFileSync(resolve(getCoreRoot(), asset.relPath), "utf-8").trim();
+    const raw = readFileSync(resolveAssetPath(asset, config.language).path, "utf-8").trim();
     if (/\{\{/.test(raw)) {
       throw new Error(
         `Block '${id}' interpolates repo config ({{...}}), so it can't be part of ` +
@@ -68,8 +69,11 @@ export function composeBaseline(config: GlobalConfig): string {
     parts.push(raw);
   }
   const intro =
-    "The following is your machine-wide navori baseline (repo-agnostic doctrine). " +
-    "A project with its own navori harness supersedes it.";
+    config.language === "en"
+      ? "The following is your machine-wide navori baseline (repo-agnostic doctrine). " +
+        "A project with its own navori harness supersedes it."
+      : "Lo siguiente es tu baseline navori de máquina (doctrina agnóstica al repo). " +
+        "Un proyecto con su propio harness navori lo reemplaza.";
   return `${intro}\n\n${parts.join("\n\n")}\n`;
 }
 
@@ -139,6 +143,21 @@ export function hookSettingsFragment(hookAbsPath: string): Record<string, unknow
   };
 }
 
+/**
+ * The personal permissions navori merges additively into `~/.claude/settings.json`
+ * (Spec 0010 — `global.json.permissions`). Only non-empty buckets are emitted so
+ * an empty config leaves no `permissions` residue; `deepMerge` then concatenates
+ * and dedupes them against whatever the user already has (never clobbers).
+ */
+export function permissionsFragment(config: GlobalConfig): Record<string, unknown> {
+  const perms: Record<string, string[]> = {};
+  for (const kind of ["allow", "deny", "ask"] as const) {
+    const list = config.permissions[kind];
+    if (list.length > 0) perms[kind] = list;
+  }
+  return Object.keys(perms).length > 0 ? { permissions: perms } : {};
+}
+
 /** Read the existing global settings.json (empty object if absent/corrupt). */
 function readExistingSettings(dir: string): Record<string, unknown> {
   const path = join(dir, "settings.json");
@@ -165,6 +184,31 @@ export function settingsHasBaseline(dir = globalTargetDir()): boolean {
   });
 }
 
+/**
+ * True iff every permission configured in `global.json` is already present in
+ * `<dir>/settings.json`. Vacuously true when nothing is configured — `doctor`
+ * only surfaces this check when the user actually declared permissions.
+ */
+export function settingsHasPermissions(config: GlobalConfig, dir = globalTargetDir()): boolean {
+  const perms = readExistingSettings(dir).permissions;
+  const bag =
+    perms && typeof perms === "object" && !Array.isArray(perms)
+      ? (perms as Record<string, unknown>)
+      : {};
+  for (const kind of ["allow", "deny", "ask"] as const) {
+    const want = config.permissions[kind];
+    if (want.length === 0) continue;
+    const have = Array.isArray(bag[kind]) ? (bag[kind] as unknown[]) : [];
+    if (!want.every((w) => have.includes(w))) return false;
+  }
+  return true;
+}
+
+/** Total number of permission entries configured across allow/deny/ask. */
+export function configuredPermissionsCount(config: GlobalConfig): number {
+  return config.permissions.allow.length + config.permissions.deny.length + config.permissions.ask.length;
+}
+
 export interface GlobalRenderPlan {
   dir: string;
   hookPath: string;
@@ -175,14 +219,17 @@ export interface GlobalRenderPlan {
 
 /**
  * Compute (without writing) every file the global render would produce: the
- * gate hook and the merged settings.json. Merging over the user's existing
- * settings means navori never clobbers their other global hooks/permissions.
+ * gate hook and the merged settings.json. The merged fragment carries BOTH the
+ * SessionStart hook registration and the personal `permissions` from
+ * `global.json` (Spec 0010). Merging over the user's existing settings means
+ * navori never clobbers their other global hooks/permissions.
  */
 export function planGlobalRender(config: GlobalConfig, dir = globalTargetDir()): GlobalRenderPlan {
   const baseline = composeBaseline(config);
   const hookPath = globalHookPath(dir);
   const existing = readExistingSettings(dir);
-  const settings = deepMerge(existing, hookSettingsFragment(hookPath));
+  const fragment = deepMerge(hookSettingsFragment(hookPath), permissionsFragment(config));
+  const settings = deepMerge(existing, fragment);
   return {
     dir,
     hookPath,

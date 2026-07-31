@@ -11,14 +11,17 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultGlobalConfig } from "../global-config.ts";
+import { defaultGlobalConfig } from "../../../lib/global-config.ts";
 import {
   applyGlobalRender,
   composeBaseline,
+  configuredPermissionsCount,
   generateHookScript,
   globalHookPath,
   globalTargetDir,
+  permissionsFragment,
   planGlobalRender,
+  settingsHasPermissions,
   stripBaselineFromSettings,
   uninstallGlobalRender,
 } from "../global-render.ts";
@@ -53,12 +56,18 @@ describe("global-render — target dir", () => {
 });
 
 describe("global-render — composeBaseline", () => {
-  it("stitches the audited baseline blocks with an intro", () => {
+  it("stitches the audited baseline blocks with a (Spanish default) intro", () => {
     const body = composeBaseline(defaultGlobalConfig("0.5.0"));
-    expect(body).toContain("machine-wide navori baseline");
+    expect(body).toContain("baseline navori de máquina"); // localized intro (es default)
     expect(body).toContain("Operations on data and infrastructure"); // operaciones-seguras
     expect(body).toContain("Idioma y rol"); // idioma-rol
     expect(body).toContain("Concisión"); // formato-respuesta
+  });
+
+  it("localizes the intro to the config language (en)", () => {
+    const body = composeBaseline(defaultGlobalConfig("0.5.0", "en"));
+    expect(body).toContain("machine-wide navori baseline");
+    expect(body).not.toContain("baseline navori de máquina");
   });
 
   it("rejects an unknown block id", () => {
@@ -131,6 +140,41 @@ describe("global-render — settings merge (no clobber)", () => {
     expect(plan.settings.model).toBe("opusplan");
     expect((plan.settings.permissions as { allow: string[] }).allow).toContain("Bash(ls:*)");
     expect(plan.settings.hooks).toBeDefined();
+  });
+});
+
+describe("global-render — personal permissions merge (#237)", () => {
+  function cfgWithPerms() {
+    const cfg = defaultGlobalConfig("0.5.0");
+    cfg.permissions.allow = ["Bash(pnpm test:*)"];
+    cfg.permissions.deny = ["Bash(rm -rf:*)"];
+    return cfg;
+  }
+
+  it("emits no permissions fragment when none are configured", () => {
+    expect(permissionsFragment(defaultGlobalConfig("0.5.0"))).toEqual({});
+    expect(configuredPermissionsCount(defaultGlobalConfig("0.5.0"))).toBe(0);
+  });
+
+  it("merges configured permissions additively into settings.json", () => {
+    writeFileSync(
+      join(claudeDir, "settings.json"),
+      JSON.stringify({ permissions: { allow: ["Bash(ls:*)"] } }),
+    );
+    const cfg = cfgWithPerms();
+    const plan = planGlobalRender(cfg);
+    const perms = plan.settings.permissions as { allow: string[]; deny: string[] };
+    expect(perms.allow).toContain("Bash(ls:*)"); // user's existing kept
+    expect(perms.allow).toContain("Bash(pnpm test:*)"); // navori's added
+    expect(perms.deny).toContain("Bash(rm -rf:*)");
+    expect(plan.settings.hooks).toBeDefined(); // hook still registered too
+  });
+
+  it("settingsHasPermissions reflects whether the perms landed on disk", () => {
+    const cfg = cfgWithPerms();
+    expect(settingsHasPermissions(cfg)).toBe(false); // nothing written yet
+    applyGlobalRender(planGlobalRender(cfg));
+    expect(settingsHasPermissions(cfg)).toBe(true);
   });
 });
 

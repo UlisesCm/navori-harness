@@ -114,7 +114,7 @@ export const EXCLUDABLE_BLOCK_IDS: readonly string[] = ["orquestacion", "sdd"] a
 // share this version; the `source=` attr still distinguishes provenance. (#79)
 const NAVORI_VERSION = readCliVersion();
 
-function resolveAssetPath(
+export function resolveAssetPath(
   asset: CoreManagedAsset,
   language: AssetLanguage = "es",
 ): { path: string; fallback: boolean } {
