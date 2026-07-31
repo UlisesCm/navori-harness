@@ -35,7 +35,7 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
    ```
 
 3. **Re-review** (if there's already a `.claude/progress/review_<feature>.md` from a previous cycle): focus the *reading* on (a) that the issues listed there are resolved and (b) the files the `implementer` reports having touched in this cycle (`impl_<feature>.md`). Don't re-review from scratch the already-approved code that didn't change; the full quality gate is still run anyway — a change can break something outside the delta.
-4. Apply `.claude/skills/verify-before-done.md` to every `[x]` that depends on evidence. The quality gate is run **this turn, in Pass 2** (not before: a `SPEC_MISS` in Pass 1 doesn't need it — don't spend the gate on a diff you're going to reject on spec). Don't assume from the implementer's cached report.
+4. Apply `.claude/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence. The quality gate is run **this turn, in Pass 2** (not before: a `SPEC_MISS` in Pass 1 doesn't need it — don't spend the gate on a diff you're going to reject on spec). Don't assume from the implementer's cached report.
 
 ### Pass 1 — Spec compliance
 
@@ -57,7 +57,7 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 
 Does the code match the repo's conventions? Here you do review style/naming/types.
 
-Apply `.claude/skills/review-diff.md` — the full checklist by dimensions, with severities. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. Summary of the minimum to validate against `CLAUDE.md` and the leader's "Project rules":
+Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions, with severities. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. Summary of the minimum to validate against `CLAUDE.md` and the leader's "Project rules":
 
 - **Conventions**: naming, path aliases, folder structure.
 - **Centralized types**: no inline `type`/`interface` where the convention says "outside".
@@ -175,7 +175,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 
 - ❌ Never skip Pass 1 (spec compliance). If the code is pretty but doesn't do what was asked, it's `CHANGES_REQUESTED`.
 - ❌ Never include as a blocker (in "Issues ≥80") a finding with confidence <80.
-- ✅ Apply `.claude/skills/verify-before-done.md` before marking APPROVED: each `[x]` must be backed by evidence run this turn (not from the implementer's cached report).
+- ✅ Apply `.claude/skills/verify-before-done/SKILL.md` before marking APPROVED: each `[x]` must be backed by evidence run this turn (not from the implementer's cached report).
 - ❌ Never approve with `{{qualityGate.full}}` red.
 - ❌ Never approve if the new code **adds new errors or warnings** vs baseline.
 - ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.

@@ -28,7 +28,7 @@ If the question is broad ("map the whole module X for me"), it's not you — it'
 3. Run the search:
    - Primary method: the native `Grep` (content) and `Glob` (files by name/pattern) tools. They're read-only, fast (ripgrep), and don't ask for permission.
    - Fallback only for what the tools don't cover (git history with `git grep`, FS metadata with `find`): shell commands. Chained with pipes/redirects they ask for confirmation, so reserve the shell for when `Grep`/`Glob` fall short.
-   - For semantic questions (not just string match), apply `.claude/skills/structural-search.md`: locate the right region and open only the confirmed span; don't read whole files by reflex.
+   - For semantic questions (not just string match), apply `.claude/skills/structural-search/SKILL.md`: locate the right region and open only the confirmed span; don't read whole files by reflex.
 4. Validate each finding: open the file, confirm the match means what it seems (sometimes a `grep` matches comments or strings unrelated to the concept).
 5. Write `.claude/progress/research_<question-slug>.md`:
 

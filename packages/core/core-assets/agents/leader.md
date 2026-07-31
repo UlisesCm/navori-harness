@@ -93,10 +93,12 @@ Expected files:
 
 - `.claude/progress/audit_ticket_<TICKET-ID>.md` — deep analysis of one ticket (`ticket-audit`)
 - `.claude/progress/audit_deep_<scope>.md` — deep read-only audit of a module/area/repo with no ticket (`auditor`)
+- `.claude/progress/plan_<scope>.md` — the `auditor`'s prioritized plan that accompanies a deep audit
 - `.claude/progress/explore_<topic>.md` — broad map (`explorer`)
 - `.claude/progress/research_<question>.md` — scoped question (`researcher`)
 - `.claude/progress/impl_<feature>.md` — the `implementer`'s report (includes its `Status: DONE | BLOCKED`)
 - `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
+- `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `commit-pr-pilot`)
 
 **Path separation (don't mix):** `.claude/progress/` is ONLY for these ephemeral handoffs between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
 

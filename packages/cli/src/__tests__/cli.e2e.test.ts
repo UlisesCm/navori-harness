@@ -237,7 +237,7 @@ describe("CLI e2e — happy paths", () => {
 
     // The reviewer agent applies the skill in its quality pass.
     const reviewer = readFileSync(join(repo, ".claude/agents/reviewer.md"), "utf-8");
-    expect(reviewer).toContain("review-diff.md");
+    expect(reviewer).toContain("review-diff/SKILL.md");
   });
 
   it("project.* answers render an active contexto-proyecto block of rules", () => {

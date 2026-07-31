@@ -23,16 +23,16 @@ Each phase writes to `.claude/progress/`; the gate is blocking.
 | 4 · DESIGN (opt.) | your preset's scaffolding skill (backend: `new-endpoint`/`new-resource`; frontend: `new-feature`) | Only if there's a new pattern or lib: you present 2-3 approaches with tradeoffs and wait for OK. Otherwise, to 5. |
 | 5 · IMPLEMENT | ONE `implementer` agent | Reads CLAUDE.md → `audit_ticket_<ID>.md` → `explore_*.md` → applicable skill. Produces `impl_<feature>.md`. **Gate: `{{qualityGate.fast}}` green in the turn.** |
 | 6 · VERIFY | `verify-before-done` skill (run by the implementer) | `impl_<feature>.md` with "Verify run in this turn" at exit 0 + endpoint smoke. No evidence → to 5. |
-| 7 · REVIEW | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-stage; Stage 1 fails → `CHANGES_REQUESTED`, back to 5. `APPROVED` → continue. |
+| 7 · REVIEW | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 5. `APPROVED` → continue. |
 | 8 · PR + CLOSE | `commit-pr-pilot` agent | PR created and URL to the user; then `mem_save`, an entry in `history.md`, `current.md` to `idle` and `mem_session_summary`. |
 
 ## Hard rules
 
 - **Phase 2 is not skipped on a non-trivial task** "because you already understood the ticket". The audit is for the implementer (and for you in 3 days); delegate it to `ticket-audit`.
 - **The implementer starts by reading `audit_ticket_<ID>.md`** or you lose context already paid for with tokens.
-- **The reviewer doesn't approve without Stage 1;** the approval does NOT depend on the implementer.
+- **The reviewer doesn't approve without Pass 1;** the approval does NOT depend on the implementer.
 - **No PR without `APPROVED`** nor two tickets in parallel on the same `current.md`.
-- **Trivial** = ≤1 file, ≤5 lines, no logic.
+- **Trivial** = an R1 inline change (orchestration block).
 
 ## Before declaring done
 

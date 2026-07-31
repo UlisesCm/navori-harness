@@ -25,7 +25,7 @@ If the question is specific ("where is X?"), it's not you — it's `researcher`.
 
 1. Read `CLAUDE.md` to understand the repo's conventions.
 2. Define the scope: a folder, a logical module, a file pattern. The orchestrator should hand it to you precisely; if it arrives ambiguous, return `blocked` naming the options (folder X / module Y / pattern Z) so it re-sends it scoped — don't guess.
-3. Walk from the entry points (routes, module root exports, `index.ts`) toward the leaves. For each level, list files and their brief role. Apply `.claude/skills/structural-search.md` to locate shapes and entry points without reading whole files.
+3. Walk from the entry points (routes, module root exports, `index.ts`) toward the leaves. For each level, list files and their brief role. Apply `.claude/skills/structural-search/SKILL.md` to locate shapes and entry points without reading whole files.
 4. Identify reverse dependencies: which external modules consume this module? That indicates the "blast radius" of changing something here.
 5. Write `.claude/progress/explore_<area>.md`:
 
