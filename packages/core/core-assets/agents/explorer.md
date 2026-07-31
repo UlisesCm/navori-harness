@@ -1,7 +1,7 @@
 ---
 name: explorer
 description: Broad map of an area or module of the repo. Returns structure, dependencies, and entry points. Does not modify code.
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep, Bash, Write
 model: {{models.explorer}}
 effort: {{effort.explorer}}
 ---

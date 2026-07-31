@@ -3,10 +3,16 @@ import { resolveCondition } from "../../lib/marker.ts";
 import type { PresetExtraFile } from "../../lib/presets.ts";
 
 /**
- * `sandbox` is a property of the ROLE, not of any engine: a reviewer/auditor
- * inspects without mutating, so it renders read-only wherever a provider
- * supports sandboxing (today Codex's `sandbox_mode`). Absent → workspace-write.
- * Keeping it here means the next provider inherits it for free (Spec 0007 M4).
+ * `sandbox` is a property of the ROLE, not of any engine: it renders read-only
+ * wherever a provider supports sandboxing (today Codex's `sandbox_mode`); absent
+ * → workspace-write. Keeping it here means the next provider inherits it for free
+ * (Spec 0007 M4).
+ *
+ * A harness role that hands off through `.claude/progress/*.md` (+ the reviewer's
+ * `receipt.txt`) needs `workspace-write`: a read-only sandbox would silently break
+ * the RDD anti-broken-telephone signature (#204). reviewer, researcher, explorer and
+ * ticket-audit still never touch production code — that's enforced by their prose
+ * contract (and their tool set), not the sandbox.
  */
 export const CORE_AGENTS: ReadonlyArray<{
   id: string;
@@ -15,11 +21,11 @@ export const CORE_AGENTS: ReadonlyArray<{
 }> = [
   { id: "leader", harnessKey: "leader" },
   { id: "implementer", harnessKey: "implementer" },
-  { id: "reviewer", harnessKey: "reviewer", sandbox: "read-only" },
-  { id: "researcher", harnessKey: "researcher", sandbox: "read-only" },
-  { id: "ticket-audit", harnessKey: "ticketAudit", sandbox: "read-only" },
+  { id: "reviewer", harnessKey: "reviewer", sandbox: "workspace-write" },
+  { id: "researcher", harnessKey: "researcher", sandbox: "workspace-write" },
+  { id: "ticket-audit", harnessKey: "ticketAudit", sandbox: "workspace-write" },
   { id: "commit-pr-pilot", harnessKey: "commitPrPilot" },
-  { id: "explorer", harnessKey: "explorer", sandbox: "read-only" },
+  { id: "explorer", harnessKey: "explorer", sandbox: "workspace-write" },
   { id: "auditor", harnessKey: "auditor", sandbox: "read-only" },
 ];
 

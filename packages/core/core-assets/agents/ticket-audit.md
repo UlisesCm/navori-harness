@@ -1,7 +1,7 @@
 ---
 name: ticket-audit
 description: Deep analysis of a complex ticket before implementing. Produces audit_ticket_<ID>.md with root cause, affected areas, and a decomposition plan.
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep, Bash, Write
 model: {{models.ticketAudit}}
 effort: {{effort.ticketAudit}}
 ---
