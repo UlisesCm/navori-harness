@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://navori.dev/schema/prompts.v1.json",
+  "title": "navori init prompts",
+  "description": "Project-customization questions the `init` wizard asks; answers persist to config.project.<key> and render into the managed project-context block.",
+  "type": "object",
+  "properties": {
+    "prompts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-zA-Z0-9_.]*$"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "general",
+              "specific"
+            ]
+          },
+          "question": {
+            "type": "object",
+            "properties": {
+              "es": {
+                "type": "string",
+                "minLength": 1
+              },
+              "en": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "es",
+              "en"
+            ],
+            "additionalProperties": false
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "string",
+              "string-list",
+              "boolean",
+              "number",
+              "select"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "object",
+                  "properties": {
+                    "es": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "en": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "es",
+                    "en"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "value",
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "placeholder": {
+            "type": "string"
+          },
+          "optional": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "question",
+          "type",
+          "optional"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "prompts"
+  ],
+  "additionalProperties": false
+}

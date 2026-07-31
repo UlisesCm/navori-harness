@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://navori.dev/schema/navori.workspace.v1.json",
+  "title": "navori workspace manifest",
+  "description": "Machine-local workspace manifest (~/.navori/workspaces/<name>/workspace.json) linking related repos and cross-repo defaults.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "description": {
+      "type": "string"
+    },
+    "ticketsDir": {
+      "default": "tickets",
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_\\-./]*$"
+    },
+    "defaults": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "branchBase": {
+          "type": "string"
+        },
+        "prTarget": {
+          "type": "string"
+        },
+        "commits": {
+          "type": "string",
+          "enum": [
+            "conventional",
+            "conventional-es",
+            "free"
+          ]
+        },
+        "language": {
+          "type": "string",
+          "enum": [
+            "es",
+            "en"
+          ]
+        },
+        "engines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plugins": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "enabled"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "repos": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stack": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "branchBase": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "name",
+    "ticketsDir",
+    "defaults",
+    "repos"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,628 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://navori.dev/schema/navori.config.v1.json",
+  "title": "navori.config.json",
+  "description": "Source-of-truth config checked into a repo that uses navori. `navori render` reconstructs the harness from this file.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "version": {
+      "default": "1.0.0",
+      "type": "string"
+    },
+    "workspace": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "engines": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "claude",
+          "agents-md",
+          "cursor",
+          "copilot",
+          "codex"
+        ]
+      }
+    },
+    "preset": {
+      "type": "string",
+      "minLength": 1
+    },
+    "language": {
+      "default": "es",
+      "type": "string",
+      "enum": [
+        "es",
+        "en"
+      ]
+    },
+    "branchBase": {
+      "default": "main",
+      "type": "string"
+    },
+    "prTarget": {
+      "type": "string"
+    },
+    "commits": {
+      "default": "conventional-es",
+      "type": "string",
+      "enum": [
+        "conventional",
+        "conventional-es",
+        "free"
+      ]
+    },
+    "qualityGate": {
+      "type": "object",
+      "properties": {
+        "fast": {
+          "type": "string",
+          "minLength": 1
+        },
+        "full": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fast",
+        "full"
+      ],
+      "additionalProperties": false
+    },
+    "hooks": {
+      "type": "object",
+      "properties": {
+        "verifyOnStop": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "verifyOnStop"
+      ],
+      "additionalProperties": false
+    },
+    "packageManager": {
+      "type": "string",
+      "enum": [
+        "pnpm",
+        "npm",
+        "yarn",
+        "bun"
+      ]
+    },
+    "sdd": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "specsDir": {
+          "default": "specs",
+          "type": "string"
+        },
+        "applyWhen": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "doesNotApplyTo": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "enabled",
+        "specsDir",
+        "applyWhen",
+        "doesNotApplyTo"
+      ],
+      "additionalProperties": false
+    },
+    "harness": {
+      "type": "object",
+      "properties": {
+        "leader": {
+          "default": true,
+          "type": "boolean"
+        },
+        "implementer": {
+          "default": true,
+          "type": "boolean"
+        },
+        "reviewer": {
+          "default": true,
+          "type": "boolean"
+        },
+        "researcher": {
+          "default": true,
+          "type": "boolean"
+        },
+        "ticketAudit": {
+          "default": true,
+          "type": "boolean"
+        },
+        "commitPrPilot": {
+          "default": true,
+          "type": "boolean"
+        },
+        "explorer": {
+          "default": true,
+          "type": "boolean"
+        },
+        "auditor": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "leader",
+        "implementer",
+        "reviewer",
+        "researcher",
+        "ticketAudit",
+        "commitPrPilot",
+        "explorer",
+        "auditor"
+      ],
+      "additionalProperties": false
+    },
+    "models": {
+      "type": "object",
+      "properties": {
+        "leader": {
+          "type": "string",
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku"
+          ]
+        },
+        "implementer": {
+          "type": "string",
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku"
+          ]
+        },
+        "reviewer": {
+          "type": "string",
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku"
+          ]
+        },
+        "researcher": {
+          "type": "string",
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku"
+          ]
+        },
+        "ticketAudit": {
+          "type": "string",
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku"
+          ]
+        },
+        "commitPrPilot": {
+          "type": "string",
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku"
+          ]
+        },
+        "explorer": {
+          "type": "string",
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku"
+          ]
+        },
+        "auditor": {
+          "type": "string",
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku"
+          ]
+        },
+        "codexMap": {
+          "type": "object",
+          "properties": {
+            "opus": {
+              "type": "string"
+            },
+            "sonnet": {
+              "type": "string"
+            },
+            "haiku": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "effort": {
+      "type": "object",
+      "properties": {
+        "leader": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "implementer": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "reviewer": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "researcher": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "ticketAudit": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "commitPrPilot": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "explorer": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "auditor": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "plugins": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "agentAssignments": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "enum": [
+          "leader",
+          "implementer",
+          "reviewer",
+          "researcher",
+          "ticket-audit",
+          "commit-pr-pilot",
+          "explorer",
+          "auditor"
+        ]
+      }
+    },
+    "blocks": {
+      "type": "object",
+      "properties": {
+        "exclude": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "exclude"
+      ],
+      "additionalProperties": false
+    },
+    "progress": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "default": "progress",
+          "type": "string",
+          "minLength": 1
+        },
+        "currentFile": {
+          "default": "current.md",
+          "type": "string",
+          "minLength": 1
+        },
+        "historyFile": {
+          "default": "history.md",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "dir",
+        "currentFile",
+        "historyFile"
+      ],
+      "additionalProperties": false
+    },
+    "project": {
+      "type": "object",
+      "properties": {
+        "legacyPaths": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "criticalAreas": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "testRunner": {
+          "type": "string"
+        },
+        "posture": {
+          "type": "string"
+        },
+        "reviewRigor": {
+          "type": "string"
+        },
+        "architectureRule": {
+          "type": "string"
+        },
+        "testsForNewCode": {
+          "type": "string"
+        },
+        "localSkills": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "libraries": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "libraryMigrations": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "legacy": {
+                "type": "string"
+              },
+              "preferred": {
+                "type": "string"
+              },
+              "domain": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "legacy",
+              "preferred",
+              "domain"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "codeLanguage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "legacyPaths",
+        "criticalAreas",
+        "localSkills",
+        "libraries",
+        "libraryMigrations"
+      ],
+      "additionalProperties": {}
+    },
+    "monorepo": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "tool": {
+          "type": "string",
+          "enum": [
+            "pnpm",
+            "turbo",
+            "nx",
+            "rush",
+            "lerna",
+            "npm"
+          ]
+        },
+        "workspaces": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^<>\\r\\n]+$"
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "preset": {
+                "type": "string"
+              },
+              "qualityGate": {
+                "type": "object",
+                "properties": {
+                  "fast": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "full": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "fast",
+                  "full"
+                ],
+                "additionalProperties": false
+              },
+              "libraries": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "libraryMigrations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "legacy": {
+                      "type": "string"
+                    },
+                    "preferred": {
+                      "type": "string"
+                    },
+                    "domain": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "legacy",
+                    "preferred",
+                    "domain"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "name",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "enabled",
+        "workspaces"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "engines",
+    "preset",
+    "language",
+    "branchBase",
+    "commits"
+  ],
+  "additionalProperties": {}
+}
