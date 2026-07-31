@@ -71,14 +71,72 @@ describe("renderCodexEngine", () => {
     expect(implementer).not.toContain("CLAUDE.md");
     expect(implementer).not.toContain(".claude/progress");
     expect(existsSync(join(cwd, ".codex/agents/leader.toml"))).toBe(false);
-    // auditor stays read-only (it never edits code); the reviewer/researcher/
-    // explorer/ticket-audit roles are workspace-write so their RDD receipt/handoff
-    // writes aren't blocked (#204) — so they emit no `sandbox_mode` override.
-    expect(readFileSync(join(cwd, ".codex/agents/auditor.toml"), "utf-8")).toContain(
-      'sandbox_mode = "read-only"',
+    // #280: the auditor is workspace-write like the reviewer/researcher/explorer/
+    // ticket-audit roles — it writes its durable outputs (audit_deep/plan/SDD drafts)
+    // to disk, so a read-only sandbox would break its contract. "never edits code" is
+    // enforced by its prose contract + tool set, not the sandbox → no override emitted.
+    expect(readFileSync(join(cwd, ".codex/agents/auditor.toml"), "utf-8")).not.toContain(
+      "sandbox_mode",
     );
     expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).not.toContain(
       "sandbox_mode",
+    );
+  });
+
+  it("appends a leader-targeted plugin skill to AGENTS.md as a managed sub-block (#277)", () => {
+    // engram's `engram-leader-extension` injects into `.claude/agents/leader.md`.
+    // Codex embodies the leader in the main thread (no leader.toml), so without the
+    // append the skill vanished silently. It must land in AGENTS.md, marked as a
+    // managed sub-block owned by the plugin so re-render is idempotent.
+    const cwd = tempRepo();
+    const result = renderCodexEngine(cwd, config());
+    const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+
+    // A phrase unique to the leader extension (absent from the base engram protocol).
+    expect(agentsMd).toContain("decomposing work");
+    // Marked as a managed sub-block owned by the engram plugin.
+    expect(agentsMd).toContain('id="engram-leader-extension"');
+    expect(agentsMd).toContain('source="@navori/plugin-engram"');
+    // No warning: the append covers the leader target.
+    expect(result.warnings.some((w) => w.includes("engram-leader-extension"))).toBe(false);
+
+    // Re-render is byte-idempotent — the sub-block does not accrete.
+    const before = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+    const rerender = renderCodexEngine(cwd, config());
+    expect(rerender.written).toEqual([]);
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toBe(before);
+  });
+
+  it("points the workspace config.toml hook command at the workspace's own hooks (#279)", () => {
+    // In a monorepo the hooks are written per workspace (apps/backend/.codex/hooks),
+    // but `git rev-parse --show-toplevel` resolves to the repo root. The command must
+    // interpolate the workspace subpath so it targets the co-located hook, not the
+    // root's.
+    const repoRoot = tempRepo();
+    const wsCwd = join(repoRoot, "apps/backend");
+    mkdirSync(wsCwd, { recursive: true });
+    renderCodexEngine(
+      wsCwd,
+      config({ qualityGate: { fast: "pnpm -F backend test", full: "pnpm -F backend test" } }),
+      { repoRoot },
+    );
+
+    const toml = readFileSync(join(wsCwd, ".codex/config.toml"), "utf-8");
+    expect(toml).toContain(
+      "$(git rev-parse --show-toplevel)/apps/backend/.codex/hooks/guard-destructive.sh",
+    );
+    expect(toml).toContain(
+      "$(git rev-parse --show-toplevel)/apps/backend/.codex/hooks/quality-gate-pre-commit.sh",
+    );
+    // The bare toplevel path (root's hook) must not appear for these commands.
+    expect(toml).not.toContain("$(git rev-parse --show-toplevel)/.codex/hooks/");
+
+    // At the repo root the path stays bare (subpath is empty).
+    const rootRepo = tempRepo();
+    renderCodexEngine(rootRepo, config());
+    const rootToml = readFileSync(join(rootRepo, ".codex/config.toml"), "utf-8");
+    expect(rootToml).toContain(
+      "$(git rev-parse --show-toplevel)/.codex/hooks/guard-destructive.sh",
     );
   });
 

@@ -8,6 +8,7 @@ function tomlString(value: string): string {
 export function buildCodexConfigToml(
   config: NavoriConfig,
   plugins: readonly LoadedPlugin[],
+  wsSubpath = "",
 ): { body: string; warnings: string[] } {
   // Codex currently defaults both features on, but a full navori adapter must
   // stay deterministic when a user's global config disables either one.
@@ -20,6 +21,17 @@ export function buildCodexConfigToml(
     "multi_agent = true",
   ];
 
+  // The hooks are written relative to `cwd` (each workspace gets its own
+  // `.codex/hooks/`), but `git rev-parse --show-toplevel` always resolves to the
+  // repo root. In a monorepo workspace that mismatch pointed the command at the
+  // ROOT's hook, not the workspace's co-located one — running the wrong quality
+  // gate (or none). Interpolate the workspace subpath so the command targets the
+  // hook next to this config.toml. `wsSubpath` is "" at the root (unchanged) and
+  // e.g. "apps/backend" in a workspace. It's normalized to POSIX separators since
+  // this is a bash command. Correct under nested config discovery, inert under
+  // root-only discovery (the nested config.toml just isn't loaded) — #279.
+  const hookBase = `$(git rev-parse --show-toplevel)${wsSubpath ? `/${wsSubpath}` : ""}/.codex/hooks`;
+
   lines.push(
     "",
     "[[hooks.PreToolUse]]",
@@ -27,9 +39,7 @@ export function buildCodexConfigToml(
     "",
     "[[hooks.PreToolUse.hooks]]",
     'type = "command"',
-    `command = ${tomlString(
-      'bash "$(git rev-parse --show-toplevel)/.codex/hooks/guard-destructive.sh"',
-    )}`,
+    `command = ${tomlString(`bash "${hookBase}/guard-destructive.sh"`)}`,
     "timeout = 30",
     'statusMessage = "Checking destructive command policy"',
   );
@@ -42,9 +52,7 @@ export function buildCodexConfigToml(
       "",
       "[[hooks.PreToolUse.hooks]]",
       'type = "command"',
-      `command = ${tomlString(
-        'bash "$(git rev-parse --show-toplevel)/.codex/hooks/quality-gate-pre-commit.sh"',
-      )}`,
+      `command = ${tomlString(`bash "${hookBase}/quality-gate-pre-commit.sh"`)}`,
       "timeout = 600",
       'statusMessage = "Running pre-commit quality gate"',
     );

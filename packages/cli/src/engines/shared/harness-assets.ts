@@ -10,9 +10,12 @@ import type { PresetExtraFile } from "../../lib/presets.ts";
  *
  * A harness role that hands off through `.claude/progress/*.md` (+ the reviewer's
  * `receipt.txt`) needs `workspace-write`: a read-only sandbox would silently break
- * the RDD anti-broken-telephone signature (#204). reviewer, researcher, explorer and
- * ticket-audit still never touch production code — that's enforced by their prose
- * contract (and their tool set), not the sandbox.
+ * the RDD anti-broken-telephone signature (#204). reviewer, researcher, explorer,
+ * ticket-audit and auditor still never touch production code — that's enforced by
+ * their prose contract (and their tool set), not the sandbox. The auditor writes its
+ * durable outputs (`progress/audit_deep_*.md`, `plan_*.md`, SDD drafts) to disk, so a
+ * read-only sandbox would break its contract in Codex exactly like the sibling roles
+ * (#280).
  */
 export const CORE_AGENTS: ReadonlyArray<{
   id: string;
@@ -26,7 +29,7 @@ export const CORE_AGENTS: ReadonlyArray<{
   { id: "ticket-audit", harnessKey: "ticketAudit", sandbox: "workspace-write" },
   { id: "commit-pr-pilot", harnessKey: "commitPrPilot" },
   { id: "explorer", harnessKey: "explorer", sandbox: "workspace-write" },
-  { id: "auditor", harnessKey: "auditor", sandbox: "read-only" },
+  { id: "auditor", harnessKey: "auditor", sandbox: "workspace-write" },
 ];
 
 export const CORE_SKILLS: ReadonlyArray<string> = [
