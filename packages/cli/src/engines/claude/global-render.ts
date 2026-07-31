@@ -206,7 +206,9 @@ export function settingsHasPermissions(config: GlobalConfig, dir = globalTargetD
 
 /** Total number of permission entries configured across allow/deny/ask. */
 export function configuredPermissionsCount(config: GlobalConfig): number {
-  return config.permissions.allow.length + config.permissions.deny.length + config.permissions.ask.length;
+  return (
+    config.permissions.allow.length + config.permissions.deny.length + config.permissions.ask.length
+  );
 }
 
 export interface GlobalRenderPlan {
