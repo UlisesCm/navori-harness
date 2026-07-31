@@ -5,9 +5,12 @@ coverage/
 *.log
 .DS_Store
 
-# Local Claude state (not committed per workspace convention)
-.claude/
-CLAUDE.md
+# The Claude harness (.claude/ + CLAUDE.md) IS committed here — navori dogfoods
+# itself. The "never commit .claude/ or CLAUDE.md" rule is scoped to the Bonum
+# repos only; everywhere else the harness is version-controlled.
+# Only machine-local and transient bits stay out:
+.claude/settings.local.json
+.claude/worktrees/
 
 # Local Codex state (not committed per workspace convention)
 .codex/
@@ -16,8 +19,7 @@ AGENTS.md
 # navori-ai runtime state in dev/test repos
 .navori/
 
-# navori.config.json generated when dogfooding the CLI in the repo itself
-/navori.config.json
+# navori.config.json is the checked-in source of truth (even when dogfooding).
 
 # build artifacts
 **/*.tsbuildinfo
@@ -25,3 +27,6 @@ AGENTS.md
 # editor
 .vscode/
 .idea/
+
+# codegraph index (SQLite binario, no commitear)
+.codegraph/

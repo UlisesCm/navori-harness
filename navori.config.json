@@ -1,0 +1,22 @@
+{
+  "$schema": "https://navori.dev/schema/navori.config.v1.json",
+  "name": "navori-monorepo",
+  "version": "1.0.0",
+  "engines": [
+    "claude"
+  ],
+  "preset": "custom",
+  "branchBase": "main",
+  "commits": "conventional-es",
+  "qualityGate": {
+    "fast": "cd packages/cli && pnpm lint",
+    "full": "pnpm format:check && cd packages/cli && pnpm test && pnpm lint"
+  },
+  "plugins": {
+    "engram": { "enabled": true },
+    "gh": { "enabled": true },
+    "jscpd": { "enabled": true },
+    "semgrep": { "enabled": true },
+    "codegraph": { "enabled": true }
+  }
+}
