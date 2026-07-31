@@ -62,6 +62,40 @@ describe("interpolate — default mode", () => {
   });
 });
 
+describe("interpolate — JSX `{{...}}` examples stay literal (#272)", () => {
+  // A path of pure dots used to match `[a-zA-Z0-9_.]+`, so JSX examples like
+  // `style={{...}}` in the rn-performance/mantine/tamagui skills were corrupted
+  // to `<not configured: ...>`. Requiring the path to start with a letter fixes it.
+  it("leaves `item={{...}}` untouched", () => {
+    expect(interpolate("item={{...}}", CONFIG)).toBe("item={{...}}");
+  });
+
+  it("leaves `style={{...}}` untouched", () => {
+    expect(interpolate("style={{...}}", CONFIG)).toBe("style={{...}}");
+  });
+
+  it("leaves `style={{ ... }}` (spaced ellipsis) untouched", () => {
+    expect(interpolate("style={{ ... }}", CONFIG)).toBe("style={{ ... }}");
+  });
+
+  it("preserves the affected skill snippets verbatim", () => {
+    // rn-performance.md:15, mantine-ui-patterns.md:17, tamagui.md:44.
+    const rn = "`item={{...}}` or `style={{...}}` break `memo()`.";
+    const mantine = "Props over `style={{ ... }}`.";
+    const tamagui = "never `style={{...}}` with variables";
+    expect(interpolate(rn, CONFIG)).toBe(rn);
+    expect(interpolate(mantine, CONFIG)).toBe(mantine);
+    expect(interpolate(tamagui, CONFIG)).toBe(tamagui);
+  });
+
+  it("still interpolates real placeholders alongside a JSX example (regression)", () => {
+    expect(interpolate("Run {{qualityGate.fast}} — avoid style={{...}}", CONFIG)).toBe(
+      "Run pnpm typecheck — avoid style={{...}}",
+    );
+    expect(interpolate("base={{shq:branchBase}}", CONFIG)).toBe("base='main'");
+  });
+});
+
 describe("interpolate — shell-quote marker (#197)", () => {
   it("wraps a resolved value in single quotes", () => {
     expect(interpolate("base={{shq:branchBase}}", CONFIG)).toBe("base='main'");

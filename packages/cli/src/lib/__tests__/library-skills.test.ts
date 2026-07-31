@@ -69,6 +69,34 @@ describe("detectLibrarySkills", () => {
     expect(detectLibrarySkills(["react-hook-form"])).toEqual(["react-hook-form"]);
     expect(detectLibrarySkills(["mongoose"])).toEqual(["mongoose"]);
   });
+
+  it("detects testing-tool skills by their runner/assertion deps", () => {
+    expect(detectLibrarySkills(["vitest"])).toEqual(["vitest"]);
+    expect(detectLibrarySkills(["jest"])).toEqual(["jest"]);
+    expect(detectLibrarySkills(["jest-expo"])).toEqual(["jest"]);
+    expect(detectLibrarySkills(["@playwright/test"])).toEqual(["playwright"]);
+    expect(detectLibrarySkills(["playwright"])).toEqual(["playwright"]);
+    expect(detectLibrarySkills(["supertest"])).toEqual(["supertest"]);
+    expect(detectLibrarySkills(["@testing-library/react"])).toEqual(["testing-library"]);
+    expect(detectLibrarySkills(["@testing-library/react-native"])).toEqual(["testing-library"]);
+    expect(detectLibrarySkills(["@testing-library/user-event"])).toEqual(["testing-library"]);
+  });
+
+  it("materializes the real testing stacks of the target repos (mobile + medusa)", () => {
+    // alertaciudadana_app (RN/Expo): jest + React Native Testing Library.
+    expect(detectLibrarySkills(["jest", "jest-expo", "@testing-library/react-native"])).toEqual([
+      "jest",
+      "testing-library",
+    ]);
+    // moonar storefront: vitest + RTL + playwright e2e.
+    expect(detectLibrarySkills(["vitest", "@testing-library/react", "@playwright/test"])).toEqual([
+      "vitest",
+      "testing-library",
+      "playwright",
+    ]);
+    // alertaciudadana_backend (bun): vitest + supertest.
+    expect(detectLibrarySkills(["vitest", "supertest"])).toEqual(["vitest", "supertest"]);
+  });
 });
 
 describe("detectMigrations", () => {
