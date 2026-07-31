@@ -137,6 +137,39 @@ describe("quality-gate hook — declared runner present", () => {
   });
 });
 
+// #309: Claude Code fires the hook from the session's persistent cwd, which is
+// not always the repo root. The hook must cd to the root before running the
+// gate, or a relative gate (`cd packages/cli && pnpm lint`) fails with "No such
+// file or directory" from a subdir.
+describe("quality-gate hook — runs from the repo root (#309)", () => {
+  it("renders the cd-to-root guard before the gate", () => {
+    const hook = readFileSync(installHook("pnpm run typecheck"), "utf-8");
+    expect(hook).toContain(
+      'cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}" || exit 2',
+    );
+  });
+
+  it("resolves a root-relative gate even when invoked from a subdir", () => {
+    // git repo with a marker at the root; the gate reads it by a root-relative
+    // path. Invoked from a subdir with no CLAUDE_PROJECT_DIR, the hook must fall
+    // back to the git top-level and still find the file. `cat`/`git`/`sed` come
+    // from BASE_PATH, so no fake package manager is needed.
+    spawnSync("git", ["init", "-q"], { cwd: dir });
+    const sub = join(dir, "packages", "cli");
+    mkdirSync(sub, { recursive: true });
+    writeFileSync(join(dir, "root-marker.txt"), "ok\n");
+    const hook = installHook("cat root-marker.txt");
+    const r = spawnSync("bash", [hook], {
+      cwd: sub,
+      input: JSON.stringify({ tool_input: { command: "git commit -m x" } }),
+      encoding: "utf-8",
+      env: { PATH: BASE_PATH },
+    });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+  });
+});
+
 describe("quality-gate hook — declared runner missing (#88)", () => {
   it("remaps to the lockfile-detected package manager (pnpm gate in a bun repo)", () => {
     // Only bun is installed; the repo carries a bun lockfile. The pnpm-based
