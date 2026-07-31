@@ -69,8 +69,12 @@ function resolveSanitized(
 // Optional `shq:` prefix marks a value that must be shell-quoted before it is
 // substituted (see the SHELL-QUOTE MARKER note above). Group 1 = the marker (or
 // undefined), group 2 = the config path.
-const PLACEHOLDER_RE = /\{\{\s*(?:(shq):)?\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
-const KEY_LINE_RE = /^([a-zA-Z_][a-zA-Z0-9_]*):\s*\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}\s*$/;
+// The path must start with a letter: `[a-zA-Z0-9_.]+` alone also matched a token
+// of pure dots, so a JSX example like `style={{...}}` was consumed as a
+// placeholder and corrupted to `<not configured: ...>` (#272). Every real
+// config path starts with a letter, so this is a no-op for legitimate paths.
+const PLACEHOLDER_RE = /\{\{\s*(?:(shq):)?\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}/g;
+const KEY_LINE_RE = /^([a-zA-Z_][a-zA-Z0-9_]*):\s*\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}\s*$/;
 
 export function interpolate(
   content: string,
