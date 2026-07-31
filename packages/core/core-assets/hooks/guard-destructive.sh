@@ -80,13 +80,41 @@ fi
 
 # 2. Force-push to the base branch. force-with-lease is allowed (safe rebase
 #    flow on feature branches); bare --force/-f against the base branch is not.
-#    The leading boundary accepts ; & | so `true;git push --force main` (no
-#    space after the separator) is caught too. The `git(… -opt …)*` middle
-#    allows git global options before `push` (`git -C /repo push --force …`).
-if printf '%s' "$scan" | grep -qE '(^|[[:space:]]|[;&|])git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+push' \
-  && printf '%s' "$scan" | grep -qE '(--force([[:space:]]|$)|[[:space:]]-f([[:space:]]|$)|[[:space:]]\+)' \
-  && ! printf '%s' "$scan" | grep -qE 'force-with-lease' \
-  && printf '%s' "$scan" | grep -qE "(^|[[:space:]+/])${base}([[:space:]]|\$)"; then
+#    #307: every sub-check is scoped to the ACTUAL `git push` invocation(s),
+#    never the whole command string. Splitting on the shell separators (&& || ;
+#    | newline) and keeping only segments that START a `git … push` means a `+`
+#    in a commit message (`-m "format:check + test"`), a base-branch name in a
+#    sibling command (`gh pr create --base main`), or a heredoc/`--body` can no
+#    longer be misread as a force-push refspec or as the pushed ref — that
+#    false positive blocked legit compound commit+push+PR commands. The refspec
+#    `+` is matched only when glued to a ref (`+main`, never `+ test`), the way
+#    git actually spells a force-push refspec.
+push_seg=""
+_split="$scan"
+_split="${_split//&&/$'\n'}"
+_split="${_split//||/$'\n'}"
+_split="${_split//;/$'\n'}"
+_split="${_split//|/$'\n'}"
+while IFS= read -r _seg; do
+  _seg="${_seg#"${_seg%%[![:space:]]*}"}"                 # strip leading ws
+  while [[ "$_seg" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do     # strip VAR=val prefixes
+    case "$_seg" in
+      *[[:space:]]*)
+        _seg="${_seg#*[[:space:]]}"
+        _seg="${_seg#"${_seg%%[![:space:]]*}"}"
+        ;;
+      *) _seg=""; break ;;
+    esac
+  done
+  if printf '%s' "$_seg" | grep -qE '^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+push([[:space:]]|$)'; then
+    push_seg="${push_seg}${_seg}"$'\n'
+  fi
+done <<< "$_split"
+
+if [ -n "$push_seg" ] \
+  && printf '%s' "$push_seg" | grep -qE '(--force([[:space:]]|$)|[[:space:]]-f([[:space:]]|$)|[[:space:]]\+[^[:space:]])' \
+  && ! printf '%s' "$push_seg" | grep -qE 'force-with-lease' \
+  && printf '%s' "$push_seg" | grep -qE "(^|[[:space:]+/])${base}([[:space:]]|\$)"; then
   block "force-push to the base branch '${base}'"
 fi
 
