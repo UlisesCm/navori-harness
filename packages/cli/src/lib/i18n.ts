@@ -1616,18 +1616,19 @@ const CMD_ES: CmdStrings = {
       `El ticket '${id}' no existe en el workspace '${ws}'.\n` +
       `Créalo con: navori ticket new ${ws} ${id}\n`,
     contentTitle: "Contenido",
-    noReferences: "Referenciado en: (ningún repo del workspace referencia este ticket en su archivo de sesión)",
+    noReferences:
+      "Referenciado en: (ningún repo del workspace referencia este ticket en su archivo de sesión)",
     referencedLabel: "Referenciado en:",
     invalidId: (id) =>
       `Id de ticket inválido '${id}'. Usa letras, dígitos, guiones y guiones bajos (debe empezar con alfanumérico).`,
     titlePrompt: "Título del ticket",
     cancelled: "Cancelado",
     wrote: (path) => `Escribí ${path}`,
-    referenceHint: (id) => `Referéncialo desde el progress/current.md de un repo con:\n  ticket: ${id}`,
+    referenceHint: (id) =>
+      `Referéncialo desde el progress/current.md de un repo con:\n  ticket: ${id}`,
     archived: (path) => `Archivado → ${path}`,
     unarchived: (path) => `Desarchivado → ${path}`,
-    deleteConfirm: (id, ws) =>
-      `¿Borrar permanentemente el ticket '${id}' del workspace '${ws}'?`,
+    deleteConfirm: (id, ws) => `¿Borrar permanentemente el ticket '${id}' del workspace '${ws}'?`,
     deleted: "Borrado",
   },
   registry: {
@@ -1654,7 +1655,8 @@ const CMD_ES: CmdStrings = {
     engramAlwaysOn: "engram es always-on con navori; no se puede quitar.",
     notDeclared: (id) => `El plugin '${id}' no está en el config de este repo; nada que quitar.`,
     done: "Listo",
-    confirm: (id) => `¿Quitar '${id}'? Se desactiva y se limpian sus bloques, sub-bloques y scripts.`,
+    confirm: (id) =>
+      `¿Quitar '${id}'? Se desactiva y se limpian sus bloques, sub-bloques y scripts.`,
     renderCrashed:
       "La limpieza falló durante el render — el plugin quedó como enabled:false. Corre 'navori render --apply'.",
     renderFailedConfig: "El plugin quedó como enabled:false pero el render falló.",
@@ -2263,7 +2265,8 @@ const CMD_EN: CmdStrings = {
       `Ticket '${id}' not found in workspace '${ws}'.\n` +
       `Create it with: navori ticket new ${ws} ${id}\n`,
     contentTitle: "Content",
-    noReferences: "Referenced in: (no repo in the workspace references this ticket in its session file)",
+    noReferences:
+      "Referenced in: (no repo in the workspace references this ticket in its session file)",
     referencedLabel: "Referenced in:",
     invalidId: (id) =>
       `Invalid ticket id '${id}'. Use letters, digits, hyphens, underscores (must start alphanumeric).`,
@@ -2300,7 +2303,8 @@ const CMD_EN: CmdStrings = {
     engramAlwaysOn: "engram is always-on with navori; it can't be removed.",
     notDeclared: (id) => `Plugin '${id}' is not in this repo's config; nothing to remove.`,
     done: "Done",
-    confirm: (id) => `Remove '${id}'? It's disabled and its blocks, sub-blocks and scripts are cleaned up.`,
+    confirm: (id) =>
+      `Remove '${id}'? It's disabled and its blocks, sub-blocks and scripts are cleaned up.`,
     renderCrashed:
       "Cleanup failed during render — the plugin was left as enabled:false. Run 'navori render --apply'.",
     renderFailedConfig: "The plugin was left as enabled:false but the render failed.",

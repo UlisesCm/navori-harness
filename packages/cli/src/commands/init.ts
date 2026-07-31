@@ -12,11 +12,7 @@ import {
   type PackageManager,
 } from "../lib/detect.ts";
 import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
-import {
-  createMigrationBackup,
-  removeOriginals,
-  type MigrationResult,
-} from "../lib/migrate.ts";
+import { createMigrationBackup, removeOriginals, type MigrationResult } from "../lib/migrate.ts";
 import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
 import { registerRepoSafe } from "../lib/registry.ts";
 import { runRender } from "./render.ts";
@@ -1349,9 +1345,7 @@ async function buildMonorepoBlock(
 
   if (opts.autoYes) {
     block.workspaces = found.map((d) => buildWorkspaceEntry(d, opts.rootPreset, d.suggestedPreset));
-    p.log.info(
-      t(opts.lang).monorepoDetectedYes(found.length, found.map((w) => w.path).join(", ")),
-    );
+    p.log.info(t(opts.lang).monorepoDetectedYes(found.length, found.map((w) => w.path).join(", ")));
     return block;
   }
 

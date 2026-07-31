@@ -579,9 +579,7 @@ function extractUserProse(raw: string): string {
     .filter((line) => {
       const t = line.trim();
       return (
-        t !== USER_SECTION_START &&
-        t !== USER_SECTION_END &&
-        !USER_SECTION_PLACEHOLDERS.includes(t)
+        t !== USER_SECTION_START && t !== USER_SECTION_END && !USER_SECTION_PLACEHOLDERS.includes(t)
       );
     })
     .join("\n")
