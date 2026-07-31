@@ -3,6 +3,7 @@ import type { NavoriConfig } from "../../lib/config.ts";
 import { injectManagedSection, type CommentStyle, type InjectResult } from "../../lib/marker.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { interpolate } from "../../lib/interpolate.ts";
+import { expandHookIncludes } from "../../lib/hook-includes.ts";
 import { mergeFrontmatter } from "../claude/frontmatter-merge.ts";
 
 /**
@@ -47,7 +48,10 @@ export interface RenderManagedFileResult {
 
 export function renderManagedFile(input: RenderManagedFileInput): RenderManagedFileResult {
   const commentStyle = input.commentStyle ?? inferCommentStyle(input.assetPath);
-  const raw = readFileSync(input.assetPath, "utf-8");
+  // Inline any `# navori:include` shell partials before parsing/interpolating,
+  // so a hook's shared boilerplate is a single source of truth yet the rendered
+  // file stays fully standalone. No-op for assets without a directive.
+  const raw = expandHookIncludes(readFileSync(input.assetPath, "utf-8"));
   const asset = parseAsset(raw, commentStyle);
 
   const interpolatedFmObj = interpolateFrontmatter(

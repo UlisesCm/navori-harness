@@ -9,20 +9,8 @@
 # bottom — they keep `cmd` and the original exit codes in scope.
 set -euo pipefail
 
-# Extract .tool_input.command WITHOUT hard-depending on jq (not preinstalled on
-# macOS). Try jq, then node (Claude Code's own runtime), then a best-effort sed
-# unwrap. If nothing extracts a command $cmd stays empty and the gate skips.
-payload=$(cat)
-extract_cmd() {
-  if command -v jq >/dev/null 2>&1; then
-    printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null && return 0
-  fi
-  if command -v node >/dev/null 2>&1; then
-    printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{try{process.stdout.write(String(JSON.parse(s)?.tool_input?.command??""))}catch{}})' 2>/dev/null && return 0
-  fi
-  printf '%s' "$payload" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p'
-}
-cmd=$(extract_cmd)
+# Command extraction (payload → $cmd). Shared body, single source of truth.
+# navori:include extract-cmd
 
 # Detect the project's REAL package manager from lockfiles / package.json, so a
 # gate command hardcoded to one PM (e.g. `pnpm run ...`) can still run in a repo
@@ -119,65 +107,12 @@ check_content_receipt() {
   fi
 }
 
-# --- shared gate detection (keep IN SYNC across sibling hooks) --------------
-# Detect a `git commit` invocation anywhere in a (possibly
-# compound) command. Splits $1 on the shell separators && || ; | and newlines,
-# strips leading whitespace plus simple `VAR=value` env prefixes from each
-# segment, and returns 0 if ANY segment STARTS with `git commit` on
-# a word boundary. Replaces literal-prefix `case` matching, which silently
-# skipped the gate for `cd x && git commit`, `echo y; git commit`, or a leading
-# space (#88: NEVER skip the gate silently). Because it matches a segment START,
-# a quoted `echo "git commit"` does NOT trigger it. Known limitation: it cannot
-# see through `sh -c`, `eval`, or obfuscation — a seatbelt, not a sandbox.
-# The IDENTICAL function body lives in the sibling gate scripts (they render
-# standalone, so there is no shared lib to import):
-#   plugins/jscpd/scripts/check-jscpd.sh
-#   plugins/semgrep/scripts/check-semgrep.sh
-is_git_commit() {
-  local input="$1" segment
-  # FIX B: join `\<newline>` continuations into a space FIRST, so a command
-  # split across lines with a trailing backslash stays ONE logical segment
-  # (otherwise the subcommand/flag lands in a segment not starting with git).
-  input="${input//\\$'\n'/ }"
-  input="${input//&&/$'\n'}"
-  input="${input//||/$'\n'}"
-  input="${input//;/$'\n'}"
-  input="${input//|/$'\n'}"
-  # `<<<` feeds the already-expanded value as data — no re-evaluation — so a
-  # command that contains backticks/$() is inspected, never executed.
-  while IFS= read -r segment; do
-    segment="${segment#"${segment%%[![:space:]]*}"}"        # strip leading ws
-    # FIX C: peel wrappers so `(git …`, `\git`, `command git …` and
-    # `VAR=val git …` all reduce to a plain `git …` before matching.
-    while [[ "$segment" == \(* ]]; do                       # strip leading ( runs
-      segment="${segment#\(}"
-      segment="${segment#"${segment%%[![:space:]]*}"}"
-    done
-    segment="${segment#\\}"                                 # strip a leading backslash (\git)
-    while [[ "$segment" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do  # strip VAR=val prefixes
-      case "$segment" in
-        *[[:space:]]*)
-          segment="${segment#*[[:space:]]}"
-          segment="${segment#"${segment%%[![:space:]]*}"}"
-          ;;
-        *) segment=""; break ;;
-      esac
-    done
-    if [[ "$segment" == command\ * ]]; then                 # strip a leading `command ` word
-      segment="${segment#command }"
-      segment="${segment#"${segment%%[![:space:]]*}"}"
-    fi
-    # FIX C: allow git global options between `git` and the subcommand
-    # (`git -c k=v commit`, `git -C /repo push`). Trailing boundary keeps
-    # `git commitgraph` / `git config …` from matching as commit.
-    if printf '%s' "$segment" | grep -qE '^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'; then
-      return 0
-    fi
-  done <<< "$input"
-  return 1
-}
+# Gate to `git commit` only. $TRIGGER_RE is consumed by the shared detector
+# inlined below.
+TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
+# navori:include gate-trigger
 
-if is_git_commit "$cmd"; then
+if is_scan_trigger "$cmd"; then
   # Content-bind first: refuse to commit bytes that drifted from the approval
   # before spending the fast gate on them.
   check_content_receipt

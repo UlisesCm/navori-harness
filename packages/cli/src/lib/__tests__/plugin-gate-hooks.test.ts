@@ -12,24 +12,26 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { getPluginPath } from "../bundled-assets.ts";
 import { interpolate } from "../interpolate.ts";
+import { expandHookIncludes } from "../hook-includes.ts";
 import type { NavoriConfig } from "../config.ts";
 
 /**
- * Render a plugin script exactly as `navori render` does: `interpolate` with a
- * config (so the `{{shq:branchBase}}` / `{{shq:jscpdThreshold}}` markers get
- * shell-quoted, #249) plus the `jscpdThreshold` extraVar the engine injects.
+ * Render a plugin script exactly as `navori render` does: inline the shared
+ * `# navori:include` shell partials, then `interpolate` with a config (so the
+ * `{{shq:branchBase}}` / `{{shq:jscpdThreshold}}` markers get shell-quoted, #249)
+ * plus the `jscpdThreshold` extraVar the engine injects.
  */
 function renderScript(id: string, rel: string, branchBase = "main"): string {
-  const raw = readFileSync(resolve(getPluginPath(id), rel), "utf-8");
+  const raw = expandHookIncludes(readFileSync(resolve(getPluginPath(id), rel), "utf-8"));
   const config = { branchBase, preset: "custom" } as unknown as NavoriConfig;
   return interpolate(raw, config, { extraVars: { jscpdThreshold: "10" } });
 }
 
 /**
  * Gate-detection tests for the plugin PreToolUse(Bash) hooks
- * (jscpd/semgrep). Each embeds an IDENTICAL copy of
- * `is_git_commit_or_push` (there is no shared shell lib — the scripts render
- * standalone), so this suite pins the segment-based gate for every copy and
+ * (jscpd/semgrep). Both now inline the SAME shared `is_scan_trigger` from
+ * `core-assets/hooks/_partials/gate-trigger.sh` (single source of truth, #261),
+ * so this suite pins the segment-based gate as rendered for every copy and
  * guards against divergence.
  *
  * The gate runs BEFORE the tool check. We drive each script under a restricted
