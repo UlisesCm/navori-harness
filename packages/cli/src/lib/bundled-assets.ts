@@ -14,8 +14,27 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // Candidate 1: bundled (dist/assets/ next to the running JS file)
 const BUNDLED_ASSETS = resolve(HERE, "assets");
 
-// Candidate 2: dev mode — going up from src/lib to packages/
-const DEV_PACKAGES = resolve(HERE, "..", "..", "..");
+// Candidate 2: dev mode — the workspace `packages/` root. A fixed count of
+// `..` is wrong because HERE differs by origin: `src/lib/` (TS loader) sits two
+// levels under packages/cli, but a partially-built `dist/` is only one — so the
+// same "3 up" lands on `packages/` from src yet on `<repo>/` (→ missing
+// `<repo>/core`) from dist. Instead we walk up until we find a dir whose
+// `packages/core` exists, which is correct from either origin.
+function findDevPackages(): string {
+  let dir = HERE;
+  for (let i = 0; i < 8; i++) {
+    if (existsSync(resolve(dir, "packages", "core", "package.json"))) {
+      return resolve(dir, "packages");
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break; // reached the filesystem root
+    dir = parent;
+  }
+  // Fallback to the legacy 3-up guess so errors still point somewhere sane.
+  return resolve(HERE, "..", "..", "..");
+}
+
+const DEV_PACKAGES = findDevPackages();
 
 function isBundled(): boolean {
   return existsSync(resolve(BUNDLED_ASSETS, "core", "package.json"));
