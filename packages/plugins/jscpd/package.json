@@ -4,12 +4,10 @@
   "description": "Code duplication detection via jscpd",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
     "./package.json": "./package.json",
     "./plugin.json": "./plugin.json"
   },
   "files": [
-    "src",
     "managed",
     "plugin.json"
   ],

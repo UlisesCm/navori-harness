@@ -34,5 +34,6 @@
       "timeout": 180,
       "statusMessage": "navori/jscpd: dup check"
     }
-  ]
+  ],
+  "invariants": ["jscpd", "do not approve"]
 }

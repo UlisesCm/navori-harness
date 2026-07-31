@@ -17,6 +17,7 @@ const AGENT_ROLES = [
   "ticket-audit",
   "commit-pr-pilot",
   "explorer",
+  "auditor",
 ] as const;
 
 export type AgentRole = (typeof AGENT_ROLES)[number];
@@ -46,15 +47,25 @@ const McpServerSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 });
 
-// Spec 0002 — extensions for the Claude engine adapter.
-// All fields below are optional and additive: existing plugins keep
-// validating without changes.
+// Spec 0002 — engine-agnostic extension points (hooks, scripts, settings).
+// Like `mcpServer`, these describe intent in neutral terms; each engine
+// adapter maps the contract to its own wire format (the Claude adapter in
+// `engines/claude/build-settings.ts`; other engines map or ignore what they
+// don't support). All fields below are optional and additive: existing
+// plugins keep validating without changes.
 
+// Lifecycle points at which a hook can run, in neutral terms:
+//   PreToolUse  — before the agent runs a tool (e.g. before a Bash command).
+//   PostToolUse — after a tool completes.
+//   Stop        — when the agent's turn ends.
+// The values are the canonical contract names; each adapter maps them to its
+// native hook system (the Claude adapter uses them 1:1 as settings keys).
 const HOOK_EVENTS = ["PreToolUse", "PostToolUse", "Stop"] as const;
 
 const HookEntrySchema = z.object({
   event: z.enum(HOOK_EVENTS),
-  /** Claude Code matcher (regex against tool name). */
+  /** Regex matched against the tool name; the engine adapter maps it to its
+   *  native hook filter. Omit to match every tool. */
   matcher: z.string().optional(),
   command: z.string().min(1),
   timeout: z.number().int().positive().optional(),
@@ -64,7 +75,8 @@ const HookEntrySchema = z.object({
 const ScriptEntrySchema = z.object({
   /** Path relative to the plugin package root. */
   src: safeRelPath,
-  /** Path relative to `.claude/scripts/` in the target repo. */
+  /** Path relative to the engine's scripts directory (the Claude adapter
+   *  writes it under `.claude/scripts/` in the target repo). */
   dest: safeRelPath,
   /** chmod +x after copy. Defaults to true (shell scripts need it). */
   exec: z.boolean().default(true),
@@ -107,7 +119,9 @@ export const PluginManifestSchema = z.object({
   externalTool: ExternalToolSchema.optional(),
   /** Engine-agnostic stdio MCP launch contract used by non-Claude adapters. */
   mcpServer: McpServerSchema.optional(),
-  /** Deep-merged into `.claude/settings.json` at render time. */
+  /** Engine-agnostic settings fragment: the engine adapter deep-merges it into
+   *  its native config at render time (the Claude adapter into
+   *  `.claude/settings.json`). */
   settingsFragment: z.record(z.string(), z.unknown()).optional(),
   hooks: z.array(HookEntrySchema).optional(),
   scripts: z.array(ScriptEntrySchema).optional(),

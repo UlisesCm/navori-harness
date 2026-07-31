@@ -9,16 +9,16 @@
 # static ruleset keeps telemetry off AND runs deterministically — better for a
 # gate anyway (same rules on every machine).
 #
-# Triggered as a PreToolUse(Bash) hook (gated to git commit / push / gh pr create) and as a
-# Stop hook (runs unconditionally at session close).
+# Triggered as a PreToolUse(Bash) hook, gated to git commit / push / gh pr
+# create — the security scan runs right before code lands or is pushed.
 
 set -euo pipefail
 
-# PreToolUse(Bash) passes the command — gate to commit / push / gh pr create. The Stop hook
-# passes no command — run unconditionally at session close. Extract without
-# hard-depending on jq (not preinstalled on macOS): try jq, then node (Claude
-# Code's own runtime), then a best-effort sed unwrap. No command extracted →
-# empty $cmd → runs unconditionally.
+# PreToolUse(Bash) passes the command — gate to commit / push / gh pr create.
+# Extract without hard-depending on jq (not preinstalled on macOS): try jq, then
+# node (Claude Code's own runtime), then a best-effort sed unwrap. No command
+# extracted → empty $cmd → runs unconditionally (defensive: if extraction fails
+# we scan rather than silently skip a commit/push).
 payload=$(cat)
 extract_cmd() {
   if command -v jq >/dev/null 2>&1; then
@@ -88,7 +88,7 @@ is_scan_trigger() {
   return 1
 }
 
-# No command extracted (empty $cmd) → run unconditionally (Stop hook path). A
+# No command extracted (empty $cmd) → run unconditionally (defensive fallback). A
 # real command that is NOT a scanned op → skip. Anything else → scan.
 if [ -n "$cmd" ] && ! is_scan_trigger "$cmd"; then
   exit 0
