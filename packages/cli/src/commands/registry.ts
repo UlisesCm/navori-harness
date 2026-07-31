@@ -11,6 +11,7 @@ import {
   registryPath,
 } from "../lib/registry.ts";
 import { readConfig } from "../lib/config.ts";
+import { intFlagOrExit } from "../lib/args.ts";
 import { brand, dim, color, accent, sym } from "../lib/style.ts";
 import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
 import { readGlobalConfig } from "../lib/global-config.ts";
@@ -74,7 +75,7 @@ const scanSubCommand = defineCommand({
     // so `navori registry scan ~/a ~/b` scans both.
     const positionals = (rawArgs ?? []).filter((a) => !a.startsWith("-"));
     const dirs = [...new Set(positionals.length > 0 ? positionals : [String(args.dirs)])];
-    const maxDepth = args.depth ? Number(args.depth) : undefined;
+    const maxDepth = intFlagOrExit(args.depth, "depth");
 
     let added = 0;
     let unchanged = 0;
@@ -85,7 +86,7 @@ const scanSubCommand = defineCommand({
         rows.push(`  ${color.red(sym.fail)} ${dir} ${dim(tr.dirNotFound)}`);
         continue;
       }
-      const found = scanForRepos(root, maxDepth ? { maxDepth } : {});
+      const found = scanForRepos(root, maxDepth !== undefined ? { maxDepth } : {});
       for (const repoPath of found) {
         const result = registerRepo(repoPath, repoName(repoPath));
         if (result === "added") added += 1;

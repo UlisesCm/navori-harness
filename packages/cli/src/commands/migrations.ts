@@ -6,6 +6,7 @@ import { migrationsRoot } from "../lib/migrate.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
 import { tc, resolveLang } from "../lib/i18n.ts";
 import { readGlobalConfig } from "../lib/global-config.ts";
+import { intFlagOrExit } from "../lib/args.ts";
 
 /**
  * Language for machine-global commands (migrations/backup/registry) that aren't
@@ -86,7 +87,7 @@ const listSubCommand = defineCommand({
   },
   run({ args }) {
     const migrations = listMigrations();
-    const limit = args.limit ? Number.parseInt(args.limit as string, 10) : 20;
+    const limit = intFlagOrExit(args.limit, "limit", 20);
     const truncated = migrations.slice(0, limit);
 
     if (args.json) {
@@ -185,11 +186,14 @@ export const migrationsCommand = defineCommand({
     name: "migrations",
     description: "List and restore init replace-mode migrations",
   },
-  // Mirror list's args so `navori migrations --json/--limit` work via the
-  // default run below (citty needs them declared on the parent to parse them).
+  // Mirror only the BOOLEAN `--json` so `navori migrations --json` works via the
+  // default run below. Value flags (`--limit N`) cannot be mirrored here: citty
+  // resolves the subcommand from the first non-dash token BEFORE applying the
+  // parent's arg schema, so `migrations --limit 5` reads `5` as a subcommand name
+  // ("Unknown command 5"). Truncation lives on the `list` subcommand instead:
+  // `navori migrations list --limit N`. See #282.
   args: {
     json: { type: "boolean", description: "Output as JSON" },
-    limit: { type: "string", description: "Show only the N most recent (default: 20)" },
   },
   subCommands: {
     list: listSubCommand,

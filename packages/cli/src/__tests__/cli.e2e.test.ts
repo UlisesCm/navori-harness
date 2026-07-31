@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -1547,6 +1547,87 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     expect(r.status).toBe(0);
     expect(r.combined).not.toContain("No command specified");
   });
+
+  it("'migrations --json' (boolean parent mirror) still emits JSON (#282)", () => {
+    // The boolean flag mirror works because it consumes no value token, so no
+    // spurious positional is read as a subcommand.
+    const r = runCli(["migrations", "--json"]);
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed).toHaveProperty("migrations");
+    expect(parsed).toHaveProperty("totalAvailable");
+  });
+
+  it("'migrations list --limit 5' truncates without crashing (#282 supported form)", () => {
+    // `migrations --limit N` cannot work (citty reads N as a subcommand); the
+    // truncation flag lives on the `list` subcommand instead.
+    const r = runCli(["migrations", "list", "--limit", "5"]);
+    expect(r.status).toBe(0);
+  });
+});
+
+describe("CLI e2e — numeric flag validation (#283)", () => {
+  let dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+    dirs = [];
+  });
+
+  it("'migrations list --limit abc' errors instead of silently emptying the list", () => {
+    const r = runCli(["migrations", "list", "--limit", "abc"]);
+    expect(r.status).not.toBe(0);
+    expect(r.combined).toMatch(/non-negative integer/);
+  });
+
+  it("'backup list --limit abc' errors instead of silently emptying the list", () => {
+    const r = runCli(["backup", "list", "--limit", "abc"]);
+    expect(r.status).not.toBe(0);
+    expect(r.combined).toMatch(/non-negative integer/);
+  });
+
+  it("'registry scan <dir> --depth abc' errors instead of scanning unlimited", () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "navori-home-"));
+    dirs.push(fakeHome);
+    const root = makeTmpRepo();
+    dirs.push(root);
+
+    const r = runCli(["registry", "scan", root, "--depth", "abc"], { HOME: fakeHome });
+    expect(r.status).not.toBe(0);
+    expect(r.combined).toMatch(/non-negative integer/);
+  });
+
+  it("'registry scan --depth N' respects the cap for a valid N (#283 positive)", () => {
+    // Repo sits 3 levels below root: root/l1/l2/deepmarker/navori.config.json.
+    const root = mkdtempSync(join(tmpdir(), "navori-depth-"));
+    dirs.push(root);
+    const deep = join(root, "l1", "l2", "deepmarker");
+    mkdirSync(deep, { recursive: true });
+    writeFileSync(
+      join(deep, "navori.config.json"),
+      JSON.stringify({ name: "deep-repo", engines: ["claude"], preset: "custom" }),
+    );
+
+    // --depth 2 stops before reaching the repo → not registered.
+    const shallowHome = mkdtempSync(join(tmpdir(), "navori-home-"));
+    dirs.push(shallowHome);
+    expect(runCli(["registry", "scan", root, "--depth", "2"], { HOME: shallowHome }).status).toBe(
+      0,
+    );
+    expect(runCli(["registry", "ls"], { HOME: shallowHome }).combined).not.toContain("deepmarker");
+
+    // --depth 5 reaches it → registered.
+    const deepHome = mkdtempSync(join(tmpdir(), "navori-home-"));
+    dirs.push(deepHome);
+    expect(runCli(["registry", "scan", root, "--depth", "5"], { HOME: deepHome }).status).toBe(0);
+    expect(runCli(["registry", "ls"], { HOME: deepHome }).combined).toContain("deepmarker");
+  });
 });
 
 describe("CLI e2e — local presets (fase 2)", () => {
@@ -1726,6 +1807,24 @@ describe("CLI e2e — global registry + render --all", () => {
     // Re-run is idempotent: nothing left to change.
     const again = runCli(["render", "--all"], { HOME: fakeHome });
     expect(again.combined).toMatch(/0 would change/);
+  });
+
+  it("render --all --json emits a single parseable object, not clack text (#276, #282)", () => {
+    initInFakeHome("reg-json");
+
+    const r = runCli(["render", "--all", "--json"], { HOME: fakeHome });
+    expect(r.status).toBe(0);
+
+    // stdout must be pure JSON — parsing it must not throw and it must carry the
+    // machine-readable shape, with none of the human intro/outro decorations.
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.command).toBe("render");
+    expect(parsed.scope).toBe("all");
+    expect(parsed.mode).toBe("preview");
+    expect(Array.isArray(parsed.repos)).toBe(true);
+    expect(parsed.repos.length).toBeGreaterThanOrEqual(1);
+    expect(parsed.summary.pending).toBeGreaterThanOrEqual(1);
+    expect(r.stdout).not.toContain("render --all");
   });
 
   it("'registry prune' drops a repo whose directory is gone", () => {

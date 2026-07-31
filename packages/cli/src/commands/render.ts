@@ -423,6 +423,7 @@ export const renderCommand = defineCommand({
         force: Boolean(args.force),
         prune: Boolean(args.prune),
         verbose: Boolean(args.verbose),
+        json,
       });
       return;
     }
@@ -532,11 +533,7 @@ export const renderCommand = defineCommand({
     const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
     // In preview mode `written` means "would write" — the engine populates it
     // with pending changes without touching disk.
-    const anyPending =
-      result.written ||
-      result.workspaces.some((w) => w.written) ||
-      (result.extraEngines ?? []).some((e) => e.written.length > 0) ||
-      result.workspaces.some((w) => w.extraEngines.some((e) => e.written.length > 0));
+    const anyPending = resultHasPendingWrites(result);
     const summary = summarize(allEntries);
     if (preview) {
       if (anyPending) {
@@ -555,6 +552,24 @@ export const renderCommand = defineCommand({
 });
 
 /**
+ * True when a render result has ANY pending (or, when applying, written) change:
+ * the Claude CLAUDE.md at the root or a workspace, OR a non-Claude engine file
+ * (`AGENTS.md`, cursor/copilot/codex) at the root or a workspace. All three
+ * render summaries — single-repo, `buildRenderJson`, and the multi-repo
+ * `renderRepoRows` — must agree, so they share this one predicate. Leaving
+ * `extraEngines` out of any of them makes a repo whose only pending change is a
+ * non-Claude file read as "up-to-date" and drop out of the roll-up (#276).
+ */
+export function resultHasPendingWrites(result: ReturnType<typeof runRender>): boolean {
+  return (
+    result.written ||
+    result.workspaces.some((w) => w.written) ||
+    (result.extraEngines ?? []).some((e) => e.written.length > 0) ||
+    result.workspaces.some((w) => w.extraEngines.some((e) => e.written.length > 0))
+  );
+}
+
+/**
  * Machine-readable render result. Keys are stable English (never localized) so
  * CI/automation can parse the same shape regardless of `config.language`.
  * Status tokens come straight from the render plan (created/updated/…).
@@ -569,11 +584,7 @@ function buildRenderJson(result: ReturnType<typeof runRender>, preview: boolean)
     backupPath: ee.backupPath,
   });
   const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
-  const pending =
-    result.written ||
-    result.workspaces.some((w) => w.written) ||
-    (result.extraEngines ?? []).some((e) => e.written.length > 0) ||
-    result.workspaces.some((w) => w.extraEngines.some((e) => e.written.length > 0));
+  const pending = resultHasPendingWrites(result);
   const downgrades = result.downgrades
     .concat(...result.workspaces.map((w) => w.downgrades))
     .map((d) => ({ id: d.id, fromVersion: d.fromVersion, toVersion: d.toVersion }));
@@ -828,7 +839,7 @@ export function renderRepoRows(
       const combined = allEntries
         .map((e) => ({ status: e.status }))
         .concat(engineFiles.map((f) => ({ status: f.status })));
-      const anyPending = result.written || result.workspaces.some((w) => w.written);
+      const anyPending = resultHasPendingWrites(result);
       const conflicts = combined.filter((e) => e.status === "user-modified-skipped").length;
       const changed = allEntries
         .filter((e) => e.status !== "unchanged")
@@ -857,6 +868,24 @@ export function renderRepoRows(
     }
   }
   return rows;
+}
+
+/**
+ * Roll up per-repo render rows into batch counts. Shared by the human table
+ * (`reportRepoRenderRows`) and the `--json` path so the summary numbers can never
+ * diverge between the two output modes.
+ */
+export function rollupRenderRows(rows: RepoRenderRow[]): {
+  failed: number;
+  pending: number;
+  conflicts: number;
+  ok: number;
+} {
+  const failed = rows.filter((r) => r.status === "error" || r.status === "missing").length;
+  const pending = rows.filter((r) => r.status === "written" || r.status === "would-write").length;
+  const conflicts = rows.reduce((n, r) => n + r.conflicts, 0);
+  const ok = rows.length - failed;
+  return { failed, pending, conflicts, ok };
 }
 
 /**
@@ -897,10 +926,7 @@ export function reportRepoRenderRows(
   }
   if (lines.length > 0) p.log.message(lines.join("\n"));
 
-  const failed = rows.filter((r) => r.status === "error" || r.status === "missing").length;
-  const pending = rows.filter((r) => r.status === "written" || r.status === "would-write").length;
-  const conflicts = rows.reduce((n, r) => n + r.conflicts, 0);
-  const ok = rows.length - failed;
+  const { failed, pending, conflicts, ok } = rollupRenderRows(rows);
 
   // Name the repos with conflicts so the record says exactly where to look; the
   // managed block was hand-edited and render refused to overwrite it.
@@ -931,18 +957,39 @@ export function renderAllRepos(opts: {
   force: boolean;
   prune: boolean;
   verbose: boolean;
+  json: boolean;
 }): void {
-  p.intro(brand(`render ${accent("--all")}`));
+  // In --json mode all human output (intro/log/outro) is suppressed so stdout is
+  // a single parseable object — parity with single-repo `render --json` (#276).
+  if (!opts.json) p.intro(brand(`render ${accent("--all")}`));
 
   if (opts.prune) {
     const { removed } = pruneRegistry();
-    if (removed.length > 0) {
+    if (removed.length > 0 && !opts.json) {
       p.log.info(`Pruned ${removed.length} missing repo(s) from the registry.`);
     }
   }
 
   const repos = listRegistryRepos();
+  const mode = opts.preview ? "preview" : "apply";
   if (repos.length === 0) {
+    if (opts.json) {
+      console.log(
+        JSON.stringify(
+          {
+            command: "render",
+            scope: "all",
+            ok: true,
+            mode,
+            repos: [],
+            summary: { ok: 0, pending: 0, conflicts: 0, failed: 0 },
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
     p.log.info(
       "No repos registered. Bootstrap with 'navori registry scan <dir>' or run 'navori init' in a repo.",
     );
@@ -952,16 +999,45 @@ export function renderAllRepos(opts: {
 
   // Name the source and mode up front so the log is self-explanatory to whoever
   // reads it later: which registry, how many repos, preview vs. write.
-  p.log.info(
-    `${repos.length} repo(s) from ${dim(registryPath())} · ${
-      opts.preview ? color.yellow("preview (no files touched)") : color.green("apply (writing)")
-    }`,
-  );
+  if (!opts.json) {
+    p.log.info(
+      `${repos.length} repo(s) from ${dim(registryPath())} · ${
+        opts.preview ? color.yellow("preview (no files touched)") : color.green("apply (writing)")
+      }`,
+    );
+  }
 
   const rows = renderRepoRows(
     repos.map((r) => ({ name: r.name ?? r.path, path: r.path })),
     { preview: opts.preview, force: opts.force },
   );
+
+  if (opts.json) {
+    const { failed, pending, conflicts, ok } = rollupRenderRows(rows);
+    console.log(
+      JSON.stringify(
+        {
+          command: "render",
+          scope: "all",
+          ok: failed === 0,
+          mode,
+          repos: rows.map((r) => ({
+            name: r.name,
+            status: r.status,
+            detail: r.detail,
+            conflicts: r.conflicts,
+            changed: r.changed,
+          })),
+          summary: { ok, pending, conflicts, failed },
+        },
+        null,
+        2,
+      ),
+    );
+    if (failed > 0) process.exit(1);
+    return;
+  }
+
   const { failed, summary } = reportRepoRenderRows(rows, opts.preview, opts.verbose);
 
   if (failed > 0) {
