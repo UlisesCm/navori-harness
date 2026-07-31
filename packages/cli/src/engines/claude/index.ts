@@ -24,7 +24,7 @@ import { isNavoriOwnedSettings } from "./settings-detection.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
 import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
 import { renderManagedFile } from "../shared/render-managed-file.ts";
-import { interpolate } from "../../lib/interpolate.ts";
+import { interpolate, sanitizeProjectValue } from "../../lib/interpolate.ts";
 import { benchMark } from "../../lib/bench.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
 import { tc, resolveLang, type Lang } from "../../lib/i18n.ts";
@@ -324,8 +324,14 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
       | Array<{ legacy: string; preferred: string; domain: string }>
       | undefined) ?? [];
   for (const m of migrations) {
+    // project.* is untrusted config (checked-in, editable via PR) landing inside
+    // a trusted managed block — sanitize so it can't inject doctrine or forge a
+    // marker to corrupt the region (#198).
+    const domain = sanitizeProjectValue(m.domain);
+    const preferred = sanitizeProjectValue(m.preferred);
+    const legacy = sanitizeProjectValue(m.legacy);
     rows.push(
-      `- **${m.domain} (migration):** in new code use \`${m.preferred}\`. \`${m.legacy}\` is legacy — don't add it; if you touch a module that uses it, migrate that whole module (don't mix both in the same file). The reviewer flags HIGH any new use of \`${m.legacy}\`.`,
+      `- **${domain} (migration):** in new code use \`${preferred}\`. \`${legacy}\` is legacy — don't add it; if you touch a module that uses it, migrate that whole module (don't mix both in the same file). The reviewer flags HIGH any new use of \`${legacy}\`.`,
     );
   }
 
@@ -340,14 +346,16 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
     );
   }
 
-  const arch = (proj.architectureRule as string | undefined)?.trim();
+  const arch = sanitizeProjectValue((proj.architectureRule as string | undefined) ?? "");
   if (arch) {
     rows.push(
       `- **Architecture:** new code MUST follow \`${arch}\`. The reviewer flags deviations as HIGH.`,
     );
   }
 
-  const critical = (proj.criticalAreas as string[] | undefined) ?? [];
+  const critical = ((proj.criticalAreas as string[] | undefined) ?? [])
+    .map((c) => sanitizeProjectValue(c))
+    .filter((c) => c !== "");
   if (critical.length > 0) {
     rows.push(`- **Critical areas** (extra review, severity +1): ${critical.join(", ")}.`);
   }
