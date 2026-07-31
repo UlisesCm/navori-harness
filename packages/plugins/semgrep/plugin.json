@@ -15,7 +15,8 @@
     "checkBinary": "semgrep",
     "install": {
       "darwin": "brew install semgrep",
-      "linux": "pipx install semgrep"
+      "linux": "command -v pipx >/dev/null 2>&1 && pipx install semgrep || pip3 install --user semgrep",
+      "win32": "(semgrep no publica binario nativo para Windows; usa WSL o Docker — https://semgrep.dev/docs/getting-started)"
     }
   },
   "scripts": [
@@ -33,5 +34,6 @@
       "timeout": 180,
       "statusMessage": "navori/semgrep: security scan"
     }
-  ]
+  ],
+  "invariants": ["run semgrep over the diff"]
 }

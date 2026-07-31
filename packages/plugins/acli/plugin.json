@@ -15,7 +15,19 @@
     "checkBinary": "acli",
     "install": {
       "darwin": "brew install atlassian-labs/acli/acli",
-      "linux": "curl -fsSL https://acli-releases.atlassian.com/install.sh | bash"
+      "linux": "curl -fsSL https://acli-releases.atlassian.com/install.sh | bash",
+      "win32": "(descarga acli para Windows y agrégalo al PATH — https://developer.atlassian.com/cloud/acli/guides/install-acli/)"
     }
-  }
+  },
+  "settingsFragment": {
+    "permissions": {
+      "allow": [
+        "Bash(acli jira workitem view*)",
+        "Bash(acli jira workitem search*)",
+        "Bash(acli jira workitem comment list*)",
+        "Bash(acli jira workitem transition list*)"
+      ]
+    }
+  },
+  "invariants": ["acli jira workitem view"]
 }

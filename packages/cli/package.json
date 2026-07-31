@@ -41,6 +41,7 @@
     "@clack/prompts": "^0.10.0",
     "@navori/core": "workspace:*",
     "@navori/plugin-acli": "workspace:*",
+    "@navori/plugin-codegraph": "workspace:*",
     "@navori/plugin-engram": "workspace:*",
     "@navori/plugin-gh": "workspace:*",
     "@navori/plugin-jscpd": "workspace:*",

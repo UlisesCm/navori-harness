@@ -50,6 +50,9 @@ importers:
       '@navori/plugin-acli':
         specifier: workspace:*
         version: link:../plugins/acli
+      '@navori/plugin-codegraph':
+        specifier: workspace:*
+        version: link:../plugins/codegraph
       '@navori/plugin-engram':
         specifier: workspace:*
         version: link:../plugins/engram
