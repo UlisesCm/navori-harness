@@ -56,6 +56,24 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   { id: "zustand", deps: ["zustand"], label: "Zustand" },
   { id: "tamagui", deps: ["tamagui", "@tamagui/core"], label: "Tamagui" },
   { id: "bullmq", deps: ["bullmq"], label: "BullMQ jobs & queues" },
+  // Testing tooling — cross-preset and presence-only like every other skill:
+  // a declared+present runner/assertion lib earns its guidance regardless of preset.
+  { id: "vitest", deps: ["vitest"], label: "Vitest" },
+  { id: "jest", deps: ["jest", "jest-expo"], label: "Jest" },
+  {
+    id: "testing-library",
+    deps: [
+      "@testing-library/react",
+      "@testing-library/react-native",
+      "@testing-library/dom",
+      "@testing-library/vue",
+      "@testing-library/svelte",
+      "@testing-library/user-event",
+    ],
+    label: "Testing Library",
+  },
+  { id: "playwright", deps: ["@playwright/test", "playwright"], label: "Playwright E2E" },
+  { id: "supertest", deps: ["supertest"], label: "SuperTest HTTP" },
 ];
 
 /**

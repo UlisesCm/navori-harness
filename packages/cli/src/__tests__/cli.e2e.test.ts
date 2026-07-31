@@ -360,7 +360,7 @@ describe("CLI e2e — happy paths", () => {
       legacyPaths: [],
       criticalAreas: [],
       localSkills: [],
-      libraries: [],
+      libraries: ["vitest"],
       libraryMigrations: [],
       testRunner: "vitest",
       codeLanguage: "js",
