@@ -354,6 +354,115 @@ describe("scanMalformedMarkers (#71 item 11)", () => {
     writeFileSync(join(cwd, "CLAUDE.md"), doc);
     expect(scanMalformedMarkers(cwd)).toHaveLength(0);
   });
+
+  // #226: the Copilot / Cursor prose files carry the same html markers but were
+  // absent from the malformed-marker scan's file list (its "same scope as
+  // scanManagedDrift" comment lied). Now both scans share `collectMarkerFiles`.
+  it("flags a broken marker in .github/copilot-instructions.md (previously unscanned)", () => {
+    mkdirSync(join(cwd, ".github"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".github/copilot-instructions.md"),
+      `<!-- navori:managed id="navori-copilot" hash="abc" version="9.9.9" source="@navori/core"\n` +
+        `body\n<!-- /navori:managed id="navori-copilot" -->\n`,
+    );
+    const found = scanMalformedMarkers(cwd);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ filePath: ".github/copilot-instructions.md", line: 1 });
+  });
+
+  it("flags a broken marker in .cursor/rules/navori.mdc (previously unscanned)", () => {
+    mkdirSync(join(cwd, ".cursor/rules"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".cursor/rules/navori.mdc"),
+      `<!-- navori:managed id="navori-cursor" hash="abc" version="9.9.9" source="@navori/core"\n` +
+        `body\n<!-- /navori:managed id="navori-cursor" -->\n`,
+    );
+    const found = scanMalformedMarkers(cwd);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ filePath: ".cursor/rules/navori.mdc", line: 1 });
+  });
+
+  it("does NOT apply the html --> check to Codex shell markers", () => {
+    mkdirSync(join(cwd, ".codex"), { recursive: true });
+    // A perfectly-formed shell marker has no `-->`; it must not be flagged.
+    writeFileSync(
+      join(cwd, ".codex/config.toml"),
+      `# navori:managed start id="codex-config-base"\nsandbox_mode = "read-only"\n# navori:managed end id="codex-config-base"\n`,
+    );
+    expect(scanMalformedMarkers(cwd)).toHaveLength(0);
+  });
+});
+
+// #235: render/sync manage the managed blocks in EVERY monorepo workspace, so
+// the health scans must inspect them too — a root-only scan let a workspace drift
+// exit `doctor --strict` green while `sync` saw a conflict.
+describe("monorepo workspace scanning (#235)", () => {
+  let cwd: string;
+  const monorepoConfig = (workspaces: Array<{ name: string; path: string }>) =>
+    NavoriConfigSchema.parse({
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      monorepo: { enabled: true, workspaces },
+    });
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "navori-mono-health-"));
+  });
+  afterEach(() => rmSync(cwd, { recursive: true, force: true }));
+
+  it("scanManagedDrift detects content drift in a workspace CLAUDE.md, path-prefixed", () => {
+    mkdirSync(join(cwd, "apps/api"), { recursive: true });
+    writeFileSync(
+      join(cwd, "apps/api/CLAUDE.md"),
+      `<!-- navori:managed id="idioma-rol" hash="deadbeef" version="9.9.9" source="@navori/core" -->\n` +
+        `hand-edited in the workspace\n<!-- /navori:managed id="idioma-rol" -->\n`,
+    );
+    const drifts = scanManagedDrift(cwd, monorepoConfig([{ name: "api", path: "apps/api" }]));
+    expect(
+      drifts.some(
+        (d) =>
+          d.kind === "content" &&
+          d.markerId === "idioma-rol" &&
+          d.filePath === "apps/api/CLAUDE.md",
+      ),
+    ).toBe(true);
+  });
+
+  it("scanManagedDrift skips an orphaned (missing) workspace dir", () => {
+    // Declared in config but never created on disk — render skips it, so must we.
+    expect(
+      scanManagedDrift(cwd, monorepoConfig([{ name: "gone", path: "apps/gone" }])),
+    ).toHaveLength(0);
+  });
+
+  it("scanManagedOrder reports an out-of-order workspace CLAUDE.md tagged with its path", () => {
+    // No root CLAUDE.md → root is clean → the scan falls through to the workspace.
+    mkdirSync(join(cwd, "apps/api"), { recursive: true });
+    let doc = injectManagedSection("", "idioma-rol", "x").output;
+    doc = injectManagedSection(doc, "orquestacion", "y").output; // canonical: orquestacion first
+    writeFileSync(join(cwd, "apps/api/CLAUDE.md"), doc);
+
+    const r = scanManagedOrder(cwd, monorepoConfig([{ name: "api", path: "apps/api" }]));
+    expect(r).not.toBeNull();
+    expect(r!.workspacePath).toBe("apps/api");
+    expect(r!.current).toEqual(["idioma-rol", "orquestacion"]);
+    expect(r!.expected).toEqual(["orquestacion", "idioma-rol"]);
+  });
+
+  it("scanMalformedMarkers scans workspace files when passed the config", () => {
+    mkdirSync(join(cwd, "apps/api"), { recursive: true });
+    writeFileSync(
+      join(cwd, "apps/api/CLAUDE.md"),
+      `<!-- navori:managed id="idioma-rol" hash="abc" version="9.9.9" source="@navori/core"\n` +
+        `body\n<!-- /navori:managed id="idioma-rol" -->\n`,
+    );
+    const found = scanMalformedMarkers(cwd, monorepoConfig([{ name: "api", path: "apps/api" }]));
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ filePath: "apps/api/CLAUDE.md", line: 1 });
+    // Without the config, the workspace is invisible (root-only, back-compat).
+    expect(scanMalformedMarkers(cwd)).toHaveLength(0);
+  });
 });
 
 describe("scanExcludedBlocks (feature: blocks.exclude)", () => {

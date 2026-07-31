@@ -176,4 +176,15 @@ describe("NavoriConfigSchema — boundary (spec 0003 §3.4.2)", () => {
       NavoriConfigSchema.safeParse({ ...MINIMAL, progress: { archiveAfterDays: -1 } }).success,
     ).toBe(true);
   });
+
+  // Retired field (#236): `skills` ({ auto, optIn }) was dead config no engine
+  // read. Dropping it from the schema must NOT reject a legacy config that still
+  // carries it — the top-level `.passthrough()` preserves the inert key.
+  it("tolerates the retired `skills` field from legacy configs (#236)", () => {
+    const parsed = NavoriConfigSchema.safeParse({
+      ...MINIMAL,
+      skills: { auto: ["a"], optIn: ["b"] },
+    });
+    expect(parsed.success).toBe(true);
+  });
 });

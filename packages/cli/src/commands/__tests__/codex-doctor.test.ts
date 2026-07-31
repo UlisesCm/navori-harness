@@ -124,4 +124,70 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     const inv = buildEngineInventory(config({ engines: ["codex", "agents-md"] }), cwd);
     expect(Object.keys(inv)).toEqual(["codex"]);
   });
+
+  // #233: the parity inventory came only from resolveHarnessPlan, which knows
+  // core + preset assets but NOT what plugins contribute — so a CI asserting
+  // parity validated a subset of what render (which materializes plugin
+  // skills/scripts/hooks) produces.
+  it("exposes a scripts field, empty for a core-only (no-plugin) config", () => {
+    const cwd = tempRepo();
+    const inv = buildEngineInventory(config({ engines: ["claude"], plugins: {} }), cwd);
+    expect(inv.claude!.scripts).toEqual([]);
+  });
+
+  it("folds an enabled plugin's skill into the inventory (engram → leader extension)", () => {
+    const cwd = tempRepo();
+    // The `config()` helper enables engram, whose skill asset is engram-leader-extension.
+    const inv = buildEngineInventory(config({ engines: ["claude", "codex"] }), cwd);
+    expect(inv.claude!.skills).toContain("engram-leader-extension");
+    expect(inv.codex!.skills).toContain("engram-leader-extension");
+  });
+
+  it("folds a plugin's scripts and hooks into the inventory (jscpd)", () => {
+    const cwd = tempRepo();
+    const inv = buildEngineInventory(
+      config({ engines: ["claude"], plugins: { jscpd: { enabled: true } } }),
+      cwd,
+    );
+    expect(inv.claude!.scripts).toContain("check-jscpd.sh");
+    expect(inv.claude!.hooks).toContain("PreToolUse:Bash");
+  });
+
+  // #235: render materializes a tree per monorepo workspace, and a workspace may
+  // override the preset (→ different extras), so a root-only inventory validated
+  // a subset. The inventory is the UNION across root + workspaces.
+  it("unions in a workspace's preset extras (workspace preset: nestjs)", () => {
+    const cwd = tempRepo();
+    mkdirSync(join(cwd, "apps/api"), { recursive: true });
+    const inv = buildEngineInventory(
+      config({
+        engines: ["claude"],
+        preset: "custom",
+        monorepo: {
+          enabled: true,
+          workspaces: [{ name: "api", path: "apps/api", preset: "nestjs" }],
+        },
+      }),
+      cwd,
+    );
+    // nestjs preset ships these skills; they belong only to the workspace, yet
+    // the root inventory now surfaces them (union).
+    expect(inv.claude!.skills).toContain("nestjs-modules");
+  });
+
+  it("skips an orphaned (missing) workspace dir without crashing", () => {
+    const cwd = tempRepo();
+    const inv = buildEngineInventory(
+      config({
+        engines: ["claude"],
+        monorepo: {
+          enabled: true,
+          workspaces: [{ name: "gone", path: "apps/gone", preset: "nestjs" }],
+        },
+      }),
+      cwd,
+    );
+    // The workspace dir doesn't exist → its extras must NOT be counted.
+    expect(inv.claude!.skills).not.toContain("nestjs-modules");
+  });
 });
