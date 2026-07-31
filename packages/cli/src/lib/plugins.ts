@@ -175,6 +175,25 @@ export const KNOWN_PLUGINS: Record<string, string> = {
   codegraph: "@navori/plugin-codegraph",
 };
 
+/**
+ * Plugins that shipped with a past navori release and were later removed. Their
+ * manifest no longer exists, so a config that still declares one can't load it —
+ * without this registry `doctor` reports a permanent `unknown plugin id` nag and
+ * the managed blocks the plugin injected into CLAUDE.md become orphaned cruft no
+ * command can strip (the render's plugin loop can't reach its own strip branch
+ * for an id whose manifest is gone). Registering the id here lets `doctor` emit
+ * an actionable hint instead of "unknown", and lets `render` prune the listed
+ * managed blocks (the same way `REMOVED_LIB_SKILLS` prunes retired library
+ * skills). Append here whenever a plugin is retired from navori.
+ *
+ * `removedIn` is the PR/issue that removed it; `blockIds` are the managed-block
+ * ids the plugin injected into CLAUDE.md (its `managed[].id`), needed so the
+ * strip works even though the manifest that declared them is gone.
+ */
+export const RETIRED_PLUGINS: Record<string, { removedIn: string; blockIds: string[] }> = {
+  cognitive: { removedIn: "#130", blockIds: ["cognitive-protocol"] },
+};
+
 export class PluginNotFoundError extends NavoriError {
   readonly pluginId: string;
   constructor(pluginId: string) {

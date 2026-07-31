@@ -1,6 +1,11 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
+import {
+  loadPlugin,
+  PluginNotFoundError,
+  PluginManifestError,
+  RETIRED_PLUGINS,
+} from "./plugins.ts";
 import { readCliVersion } from "./bundled-assets.ts";
 import { computeManagedHash, extractManagedContent, reorderManagedBlocks } from "./marker.ts";
 import { canonicalManagedOrder, EXCLUDABLE_BLOCK_IDS, CORE_BLOCK_IDS } from "./render-plan.ts";
@@ -198,7 +203,16 @@ export function collectMissingPlugins(config: NavoriConfig): MissingPlugin[] {
       loadPlugin(id);
     } catch (err) {
       if (err instanceof PluginNotFoundError) {
-        missing.push({ id, reason: "unknown plugin id" });
+        // A RETIRED plugin (one navori shipped and later removed) is not a typo:
+        // give an actionable hint pointing at `navori remove` instead of the bare
+        // "unknown plugin id", which offers no way out.
+        const retired = RETIRED_PLUGINS[id];
+        missing.push({
+          id,
+          reason: retired
+            ? `retired from navori (${retired.removedIn}) — run 'navori remove ${id}'`
+            : "unknown plugin id",
+        });
       } else if (err instanceof PluginManifestError) {
         missing.push({ id, reason: err.message });
       } else {
