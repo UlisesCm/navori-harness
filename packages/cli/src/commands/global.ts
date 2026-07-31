@@ -15,13 +15,15 @@ import {
 } from "../lib/global-config.ts";
 import {
   applyGlobalRender,
+  configuredPermissionsCount,
   globalHookPath,
   globalTargetDir,
   planGlobalRender,
   settingsHasBaseline,
+  settingsHasPermissions,
   uninstallGlobalRender,
   type GlobalRenderPlan,
-} from "../lib/global-render.ts";
+} from "../engines/claude/global-render.ts";
 
 /** CLI version, read from the nearest package.json (dev + published layouts). */
 function readVersion(): string {
@@ -145,6 +147,16 @@ const doctorSubCommand = defineCommand({
     } else {
       lines.push(`  ${color.red(sym.fail)} ${g.settingsNotRegistered}`);
       issues = true;
+    }
+
+    const permsCount = configuredPermissionsCount(config);
+    if (permsCount > 0) {
+      if (settingsHasPermissions(config, dir)) {
+        lines.push(`  ${check(true)} ${g.permsMerged(permsCount)}`);
+      } else {
+        lines.push(`  ${color.red(sym.fail)} ${g.permsNotMerged}`);
+        issues = true;
+      }
     }
 
     const cliVersion = readVersion();

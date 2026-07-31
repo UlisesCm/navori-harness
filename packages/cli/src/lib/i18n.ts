@@ -862,6 +862,8 @@ interface GlobalCmdStrings {
   hookMissing: string;
   settingsRegistered: string;
   settingsNotRegistered: string;
+  permsMerged: (count: number) => string;
+  permsNotMerged: string;
   versionOk: (v: string) => string;
   versionDrift: (found: string, expected: string) => string;
   hooksDisabledHint: string;
@@ -1351,6 +1353,9 @@ const CMD_ES: CmdStrings = {
     hookMissing: "hook de baseline ausente — corre 'navori global render --apply'",
     settingsRegistered: "registrado en settings.json (SessionStart)",
     settingsNotRegistered: "no registrado en settings.json — corre 'navori global render --apply'",
+    permsMerged: (count) => `${count} permiso(s) personales presentes en settings.json`,
+    permsNotMerged:
+      "permisos configurados ausentes en settings.json — corre 'navori global render --apply'",
     versionOk: (v) => `versión ${v}`,
     versionDrift: (found, expected) =>
       `versión ${found} < ${expected} del CLI — corre 'navori global render --apply'`,
@@ -1824,6 +1829,9 @@ const CMD_EN: CmdStrings = {
     hookMissing: "baseline hook missing — run 'navori global render --apply'",
     settingsRegistered: "registered in settings.json (SessionStart)",
     settingsNotRegistered: "not registered in settings.json — run 'navori global render --apply'",
+    permsMerged: (count) => `${count} personal permission(s) present in settings.json`,
+    permsNotMerged:
+      "configured permissions missing from settings.json — run 'navori global render --apply'",
     versionOk: (v) => `version ${v}`,
     versionDrift: (found, expected) =>
       `version ${found} < CLI ${expected} — run 'navori global render --apply'`,
