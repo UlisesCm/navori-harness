@@ -228,6 +228,40 @@ describe("plugin gate commands — generated tool invocation", () => {
 });
 
 /**
+ * The managed protocol blocks are interpolated at render time (#273), so they
+ * must use `{{branchBase}}` — never the undefined `$BRANCH_BASE` shell var,
+ * which expands to an empty string and turns the scan into a silent no-op. The
+ * semgrep protocol must also match its own gate script's flags (#278).
+ */
+describe("plugin managed protocols — interpolated command doctrine", () => {
+  function protocolOf(id: string, rel: string, branchBase = "main"): string {
+    const raw = readFileSync(resolve(getPluginPath(id), rel), "utf-8");
+    return interpolate(raw, { branchBase, preset: "custom" } as unknown as NavoriConfig);
+  }
+
+  it("jscpd protocol interpolates the base branch, not $BRANCH_BASE (#273)", () => {
+    const p = protocolOf("jscpd", "managed/jscpd-protocol.md");
+    expect(p).not.toContain("$BRANCH_BASE");
+    expect(p).toContain("main...HEAD");
+  });
+
+  it("semgrep protocol interpolates the base branch, not $BRANCH_BASE (#273)", () => {
+    const p = protocolOf("semgrep", "managed/semgrep-protocol.md");
+    expect(p).not.toContain("$BRANCH_BASE");
+    expect(p).toContain("main...HEAD");
+  });
+
+  it("semgrep protocol matches its gate script's flags (#278)", () => {
+    const p = protocolOf("semgrep", "managed/semgrep-protocol.md");
+    expect(p).toContain("--config=p/default");
+    expect(p).toContain("--metrics=off");
+    // The old, telemetry-on, non-deterministic invocation is gone.
+    expect(p).not.toContain("--config=auto");
+    expect(p).not.toContain("--severity=ERROR");
+  });
+});
+
+/**
  * #249 — `branchBase` (and `jscpdThreshold`) flow from `navori.config.json`
  * (checked-in, editable via PR) into these hooks, which run on every
  * `git commit`/`push` via PreToolUse(Bash). A hostile value must be an inert
