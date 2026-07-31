@@ -36,7 +36,7 @@ function renderScript(id: string, rel: string, branchBase = "main"): string {
  *
  * The gate runs BEFORE the tool check. We drive each script under a restricted
  * PATH where the underlying tool (jscpd/semgrep) is absent, so a command
- * that PASSES the gate reaches the "no instalado" skip (observable on stderr),
+ * that PASSES the gate reaches the "not installed" skip (observable on stderr),
  * while a command that FAILS the gate exits 0 immediately with no output.
  */
 
@@ -56,7 +56,7 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
 
   beforeAll(() => {
     // Minimal PATH: enough to extract the command and run the gate, but WITHOUT
-    // jscpd/semgrep so the post-gate tool check reports "no instalado".
+    // jscpd/semgrep so the post-gate tool check reports "not installed".
     const bin = mkdtempSync(join(tmpdir(), "navori-plugin-gate-"));
     for (const tool of ["bash", "cat", "grep", "sed", "node", "dirname"]) {
       symlinkSync(resolveBin(tool), join(bin, tool));
@@ -90,17 +90,17 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
         scriptPath = installScript(id, rel);
       });
 
-      // Gate PASSES → reaches the tool check → "no instalado" on stderr.
+      // Gate PASSES → reaches the tool check → "not installed" on stderr.
       it("triggers on a plain `git commit`", () => {
         const r = runHook(scriptPath, "git commit -m x");
         expect(r.status).toBe(0);
-        expect(r.stderr).toContain("instalado");
+        expect(r.stderr).toContain("installed");
       });
 
       it("triggers on a compound `cd sub && git commit`", () => {
         const r = runHook(scriptPath, "cd sub && git commit -m x");
         expect(r.status).toBe(0);
-        expect(r.stderr).toContain("instalado");
+        expect(r.stderr).toContain("installed");
       });
 
       // Push gating: only semgrep (the security backstop) gates a push; the
@@ -108,28 +108,28 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
       it(`${id === "semgrep" ? "gates" : "skips"} \`echo done; git push\` (push)`, () => {
         const r = runHook(scriptPath, "echo done; git push");
         expect(r.status).toBe(0);
-        if (id === "semgrep") expect(r.stderr).toContain("instalado");
-        else expect(r.stderr).not.toContain("instalado");
+        if (id === "semgrep") expect(r.stderr).toContain("installed");
+        else expect(r.stderr).not.toContain("installed");
       });
 
       // Gate FAILS → early `exit 0` with no tool-check output.
       it("skips a non-git command (`ls -la`) before the tool check", () => {
         const r = runHook(scriptPath, "ls -la");
         expect(r.status).toBe(0);
-        expect(r.stderr).not.toContain("instalado");
+        expect(r.stderr).not.toContain("installed");
       });
 
       it('skips a quoted `echo "git commit"` (not a real invocation)', () => {
         const r = runHook(scriptPath, 'echo "git commit"');
         expect(r.status).toBe(0);
-        expect(r.stderr).not.toContain("instalado");
+        expect(r.stderr).not.toContain("installed");
       });
 
       // FIX H: an env-var prefix must not hide the commit from the gate.
       it("triggers past an env-var prefix `FOO=bar git commit`", () => {
         const r = runHook(scriptPath, "FOO=bar git commit -m x");
         expect(r.status).toBe(0);
-        expect(r.stderr).toContain("instalado");
+        expect(r.stderr).toContain("installed");
       });
 
       // FIX H: no command extracted (Stop-hook / empty payload) → run
@@ -137,21 +137,21 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
       it("runs unconditionally on an empty command (Stop-hook path)", () => {
         const r = runHook(scriptPath, "");
         expect(r.status).toBe(0);
-        expect(r.stderr).toContain("instalado");
+        expect(r.stderr).toContain("installed");
       });
 
       // FIX C: git global options between `git` and the subcommand.
       it("triggers on `git -c k=v commit` (interleaved global option)", () => {
         const r = runHook(scriptPath, "git -c k=v commit -m x");
         expect(r.status).toBe(0);
-        expect(r.stderr).toContain("instalado");
+        expect(r.stderr).toContain("installed");
       });
 
       it(`${id === "semgrep" ? "gates" : "skips"} \`git -C /repo push\` (global -C push)`, () => {
         const r = runHook(scriptPath, "git -C /repo push");
         expect(r.status).toBe(0);
-        if (id === "semgrep") expect(r.stderr).toContain("instalado");
-        else expect(r.stderr).not.toContain("instalado");
+        if (id === "semgrep") expect(r.stderr).toContain("installed");
+        else expect(r.stderr).not.toContain("installed");
       });
 
       // gh pr create pushes to the remote → semgrep (backstop) gates it, even
@@ -159,47 +159,47 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
       it(`${id === "semgrep" ? "gates" : "skips"} \`gh pr create\` (remote push)`, () => {
         const r = runHook(scriptPath, "gh pr create --title x --body y");
         expect(r.status).toBe(0);
-        if (id === "semgrep") expect(r.stderr).toContain("instalado");
-        else expect(r.stderr).not.toContain("instalado");
+        if (id === "semgrep") expect(r.stderr).toContain("installed");
+        else expect(r.stderr).not.toContain("installed");
       });
 
       // FIX C: simple wrappers reduce to a plain `git …`.
       it("triggers on `command git commit`", () => {
         const r = runHook(scriptPath, "command git commit -m x");
         expect(r.status).toBe(0);
-        expect(r.stderr).toContain("instalado");
+        expect(r.stderr).toContain("installed");
       });
 
       it("triggers on `\\git commit` (leading backslash)", () => {
         const r = runHook(scriptPath, "\\git commit -m x");
         expect(r.status).toBe(0);
-        expect(r.stderr).toContain("instalado");
+        expect(r.stderr).toContain("installed");
       });
 
       it("triggers on `(git commit …)` (subshell parens)", () => {
         const r = runHook(scriptPath, "(git commit -m x)");
         expect(r.status).toBe(0);
-        expect(r.stderr).toContain("instalado");
+        expect(r.stderr).toContain("installed");
       });
 
       // FIX B: a multi-line continuation still gates.
       it("triggers on a multi-line `cd x && \\\\<NL> git commit`", () => {
         const r = runHook(scriptPath, "cd x && \\\n git commit -m x");
         expect(r.status).toBe(0);
-        expect(r.stderr).toContain("instalado");
+        expect(r.stderr).toContain("installed");
       });
 
       // FIX C negatives: a non-commit subcommand must NOT be gated.
       it("skips `git config user.name x` (not commit/push)", () => {
         const r = runHook(scriptPath, "git config user.name x");
         expect(r.status).toBe(0);
-        expect(r.stderr).not.toContain("instalado");
+        expect(r.stderr).not.toContain("installed");
       });
 
       it("skips `git commitgraph` (not the commit subcommand)", () => {
         const r = runHook(scriptPath, "git commitgraph write");
         expect(r.status).toBe(0);
-        expect(r.stderr).not.toContain("instalado");
+        expect(r.stderr).not.toContain("installed");
       });
     });
   }

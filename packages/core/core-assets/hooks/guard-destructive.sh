@@ -33,9 +33,9 @@ set -euo pipefail
 base={{shq:branchBase}}
 
 block() {
-  echo "[navori] BLOQUEADO por guard-destructive: $1" >&2
-  echo "[navori] comando: $cmd" >&2
-  echo "[navori] si es intencional, corre el comando tú mismo fuera del agente." >&2
+  echo "[navori] BLOCKED by guard-destructive: $1" >&2
+  echo "[navori] command: $cmd" >&2
+  echo "[navori] if intentional, run the command yourself outside the agent." >&2
   exit 2
 }
 
@@ -75,7 +75,7 @@ git_cp='(^|[[:space:]]|[;&|])git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:spa
 #    (`git commit -qn`/`-nq`) without a hyphen-word in a message tripping it.
 if printf '%s' "$scan"       | grep -qE "${git_cp}([[:space:]]|.)*--no-verify" \
   || printf '%s' "$scan_flags" | grep -qE "${git_cp}([[:space:]]|.)*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*([[:space:]]|\$)"; then
-  block "git commit/push con --no-verify (saltarse los hooks/gates)"
+  block "git commit/push with --no-verify (skipping hooks/gates)"
 fi
 
 # 2. Force-push to the base branch. force-with-lease is allowed (safe rebase
@@ -87,13 +87,13 @@ if printf '%s' "$scan" | grep -qE '(^|[[:space:]]|[;&|])git([[:space:]]+-[a-zA-Z
   && printf '%s' "$scan" | grep -qE '(--force([[:space:]]|$)|[[:space:]]-f([[:space:]]|$)|[[:space:]]\+)' \
   && ! printf '%s' "$scan" | grep -qE 'force-with-lease' \
   && printf '%s' "$scan" | grep -qE "(^|[[:space:]+/])${base}([[:space:]]|\$)"; then
-  block "force-push a la rama base '${base}'"
+  block "force-push to the base branch '${base}'"
 fi
 
 # 3. rm -rf with variable indirection or absolute/home roots that static deny
 #    globs miss (e.g. PATH=/; rm -rf $PATH).
 if printf '%s' "$cmd" | grep -qE '(^|[[:space:]])rm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*[[:space:]]+|-[a-zA-Z]*f[a-zA-Z]*[[:space:]]+)*-?[a-zA-Z]*[rf][a-zA-Z]*[[:space:]]+("?\$|/[[:space:]]*$|~[[:space:]]*$)'; then
-  block "rm recursivo sobre variable / raíz / home"
+  block "recursive rm over a variable / root / home"
 fi
 
 # 4. Fork bomb.
@@ -103,13 +103,13 @@ fi
 
 # 5. Writing to a raw block device (wipes a disk/partition).
 if printf '%s' "$cmd" | grep -qE '(of=/dev/(sd|nvme|disk|hd)|>[[:space:]]*/dev/(sd|nvme|disk|hd))'; then
-  block "escritura directa a un dispositivo de bloque"
+  block "direct write to a block device"
 fi
 
 # navori:user-section
-# user: agrega guards adicionales acá. `$cmd` ya tiene el comando completo
-# (incluye comandos compuestos) y `block "<motivo>"` aborta con exit 2.
-# Ejemplo:
+# user: add extra guards here. `$cmd` already holds the full command (compound
+# commands included) and `block "<reason>"` aborts with exit 2.
+# Example:
 #
 #   if printf '%s' "$cmd" | grep -qE 'drop[[:space:]]+(table|database)'; then
 #     block "DROP TABLE/DATABASE"

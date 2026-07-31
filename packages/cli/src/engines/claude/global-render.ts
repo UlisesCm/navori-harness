@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { dirname, join, resolve } from "node:path";
 import { safeHomedir } from "../../lib/home.ts";
 import { CORE_MANAGED_ASSETS, resolveAssetPath } from "../../lib/render-plan.ts";
+import { resolveLang, tc } from "../../lib/i18n.ts";
 import { deepMerge } from "./deep-merge.ts";
 import type { GlobalConfig } from "../../lib/global-config.ts";
 
@@ -68,12 +69,7 @@ export function composeBaseline(config: GlobalConfig): string {
     }
     parts.push(raw);
   }
-  const intro =
-    config.language === "en"
-      ? "The following is your machine-wide navori baseline (repo-agnostic doctrine). " +
-        "A project with its own navori harness supersedes it."
-      : "Lo siguiente es tu baseline navori de máquina (doctrina agnóstica al repo). " +
-        "Un proyecto con su propio harness navori lo reemplaza.";
+  const intro = tc(resolveLang(config.language)).engine.globalBaselineIntro;
   return `${intro}\n\n${parts.join("\n\n")}\n`;
 }
 

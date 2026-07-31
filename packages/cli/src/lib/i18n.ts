@@ -700,6 +700,8 @@ interface EngineCmdStrings {
   qualityGateHookSkipped: string;
   settingsParseFailed: (detail: string) => string;
   settingsNotObject: string;
+  mcpJsonParseFailed: (detail: string) => string;
+  mcpJsonNotObject: string;
   pluginSkillNotInjected: (skillId: string, pluginId: string, target: string) => string;
   // Codex adapter
   pluginLoadFailedCodex: (id: string, reason: string) => string;
@@ -708,6 +710,8 @@ interface EngineCmdStrings {
   presetInvalid: (preset: string, detail: string) => string;
   // Prose-engine dispatch (render.ts)
   agentsMdRedundantWithCodex: string;
+  // Global baseline (Spec 0010)
+  globalBaselineIntro: string;
 }
 
 /**
@@ -1550,6 +1554,10 @@ const CMD_ES: CmdStrings = {
       `settings.json no se pudo parsear como JSON: ${detail}. Corre 'navori render --force --apply' para regenerar.`,
     settingsNotObject:
       "settings.json no es un objeto JSON — no se puede fusionar. Corre 'navori render --force --apply' para regenerar.",
+    mcpJsonParseFailed: (detail) =>
+      `.mcp.json no se pudo parsear como JSON: ${detail}. Se dejó intacto; corrígelo o corre 'navori render --force --apply' para regenerar.`,
+    mcpJsonNotObject:
+      ".mcp.json no es un objeto JSON — no se puede fusionar. Se dejó intacto; corre 'navori render --force --apply' para regenerar.",
     pluginSkillNotInjected: (id, pid, target) =>
       `skill '${id}' (de @navori/plugin-${pid}) no inyectado: target ${target} ausente (¿agente disabled en config.harness?)`,
     pluginLoadFailedCodex: (id, reason) => `Plugin '${id}' no pudo cargarse para Codex: ${reason}.`,
@@ -1560,6 +1568,9 @@ const CMD_ES: CmdStrings = {
     presetInvalid: (preset, detail) => `Preset '${preset}' inválido: ${detail}`,
     agentsMdRedundantWithCodex:
       "El engine 'agents-md' es redundante junto a 'codex'; Codex será el único dueño de AGENTS.md.",
+    globalBaselineIntro:
+      "Lo siguiente es tu baseline navori de máquina (doctrina agnóstica al repo). " +
+      "Un proyecto con su propio harness navori lo reemplaza.",
   },
   blocks: {
     skillsIndex: {
@@ -2265,6 +2276,10 @@ const CMD_EN: CmdStrings = {
       `settings.json could not be parsed as JSON: ${detail}. Run 'navori render --force --apply' to regenerate.`,
     settingsNotObject:
       "settings.json is not a JSON object — can't merge. Run 'navori render --force --apply' to regenerate.",
+    mcpJsonParseFailed: (detail) =>
+      `.mcp.json could not be parsed as JSON: ${detail}. Left untouched; fix it or run 'navori render --force --apply' to regenerate.`,
+    mcpJsonNotObject:
+      ".mcp.json is not a JSON object — cannot merge. Left untouched; run 'navori render --force --apply' to regenerate.",
     pluginSkillNotInjected: (id, pid, target) =>
       `skill '${id}' (from @navori/plugin-${pid}) not injected: target ${target} missing (agent disabled in config.harness?)`,
     pluginLoadFailedCodex: (id, reason) =>
@@ -2276,6 +2291,9 @@ const CMD_EN: CmdStrings = {
     presetInvalid: (preset, detail) => `Preset '${preset}' invalid: ${detail}`,
     agentsMdRedundantWithCodex:
       "The 'agents-md' engine is redundant alongside 'codex'; Codex will be the sole owner of AGENTS.md.",
+    globalBaselineIntro:
+      "The following is your machine-wide navori baseline (repo-agnostic doctrine). " +
+      "A project with its own navori harness supersedes it.",
   },
   blocks: {
     skillsIndex: {

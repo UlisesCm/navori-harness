@@ -30,7 +30,7 @@ if [ -n "$cmd" ] && ! is_scan_trigger "$cmd"; then
 fi
 
 if ! command -v semgrep >/dev/null 2>&1; then
-  echo "⊘ semgrep no instalado localmente — skip (install: brew install semgrep)" >&2
+  echo "⊘ semgrep not installed locally — skip (install: brew install semgrep)" >&2
   exit 0
 fi
 
@@ -45,7 +45,7 @@ fi
 base={{shq:branchBase}}
 
 if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
-  echo "⊘ branch '$base' no existe localmente — skip semgrep" >&2
+  echo "⊘ branch '$base' does not exist locally — skip semgrep" >&2
   exit 0
 fi
 
