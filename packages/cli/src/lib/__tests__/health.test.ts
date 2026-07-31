@@ -30,6 +30,14 @@ const versionDrift: DriftReport = {
   fromVersion: "0.0.1",
   toVersion: "0.0.2",
 };
+const downgradeDrift: DriftReport = {
+  filePath: ".claude/agents/leader.md",
+  markerId: "leader-base",
+  source: "@navori/core",
+  kind: "downgrade",
+  fromVersion: "9.9.9",
+  toVersion: "0.0.2",
+};
 
 describe("suggestNextSteps (spec 0003 §3.5.3)", () => {
   it("suggests render --apply when CLAUDE.md is missing", () => {
@@ -53,6 +61,19 @@ describe("suggestNextSteps (spec 0003 §3.5.3)", () => {
       drifts: [versionDrift],
     });
     expect(steps.some((s) => s.includes("render --apply"))).toBe(true);
+  });
+
+  // #242: a downgrade (disk newer than the CLI) is NOT fixed by render — the
+  // anti-rollback preserves the block — so the advice must be "update the CLI".
+  it("tells the user to update the CLI on downgrade drift, not render", () => {
+    const steps = suggestNextSteps({
+      claudeMdExists: true,
+      missingPlugins: [],
+      drifts: [downgradeDrift],
+    });
+    expect(steps.some((s) => /navori@latest|desactualizado/i.test(s))).toBe(true);
+    // The render/sync version-drift advice must NOT appear for a pure downgrade.
+    expect(steps.some((s) => s.includes("última versión"))).toBe(false);
   });
 
   it("flags missing plugins", () => {
@@ -174,6 +195,20 @@ describe("listMarkers + scanManagedDrift", () => {
     const drifts = scanManagedDrift(cwd, config);
     expect(drifts.some((d) => d.kind === "version" && d.markerId === "leader-base")).toBe(true);
     expect(drifts.some((d) => d.kind === "content")).toBe(false);
+  });
+
+  // #242: when the on-disk version is NEWER than the running CLI, the mismatch
+  // is a downgrade (render's anti-rollback preserves the block), classified
+  // apart from a plain version drift so doctor advises updating the CLI.
+  it("classifies a marker newer than the CLI as a downgrade, not version drift", () => {
+    const body = "stable body";
+    // 999.0.0 is guaranteed newer than any real CLI version.
+    writeAgent(body, `hash="${computeManagedHash(body)}" version="999.0.0" source="@navori/core"`);
+    const drifts = scanManagedDrift(cwd, config);
+    const d = drifts.find((x) => x.markerId === "leader-base");
+    expect(d?.kind).toBe("downgrade");
+    expect(d?.fromVersion).toBe("999.0.0");
+    expect(drifts.some((x) => x.kind === "version")).toBe(false);
   });
 
   it("no drift for a marker without version/hash attrs", () => {

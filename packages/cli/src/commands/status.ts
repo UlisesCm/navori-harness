@@ -3,7 +3,8 @@ import * as p from "@clack/prompts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
-import { collectMissingPlugins, scanManagedDrift, suggestNextSteps } from "../lib/health.ts";
+import { scanManagedDrift, suggestNextSteps } from "../lib/health.ts";
+import { computeHealthVerdict } from "./doctor.ts";
 import { brand, dim as grey, color, sym, kv, accent } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 
@@ -53,7 +54,11 @@ export const statusCommand = defineCommand({
     }
 
     const claudeMdExists = existsSync(`${cwd}/CLAUDE.md`);
-    const missingPlugins = collectMissingPlugins(config);
+    // The health verdict is the SAME one `doctor` computes, so `status`'s `ok`
+    // (and exit code) can no longer contradict `doctor` on the same repo (#244).
+    // `status` stays the lightweight snapshot; `doctor` remains the verbose audit.
+    const verdict = computeHealthVerdict(cwd, config);
+    const missingPlugins = verdict.missingPlugins;
     const drifts = scanManagedDrift(cwd, config);
     const enabledPlugins = Object.entries(config.plugins ?? {})
       .filter(([, v]) => v.enabled === true)
@@ -63,7 +68,7 @@ export const statusCommand = defineCommand({
       console.log(
         JSON.stringify(
           {
-            ok: missingPlugins.length === 0,
+            ok: verdict.ok,
             name: config.name,
             version: config.version,
             preset: config.preset,
@@ -80,6 +85,9 @@ export const statusCommand = defineCommand({
           2,
         ),
       );
+      // Mirror doctor's hard-issue exit code so a pipeline gets a consistent
+      // signal from either command (#244). Drift alone never fails status.
+      if (!verdict.ok) process.exit(2);
       return;
     }
 
@@ -101,6 +109,9 @@ export const statusCommand = defineCommand({
       ts.statusTitle(grey(cwd)),
     );
     p.note(nextSteps.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), ts.nextStepsTitle);
-    p.outro(missingPlugins.length > 0 ? color.red(ts.issuesFound) : color.green(ts.ok));
+    p.outro(verdict.ok ? color.green(ts.ok) : color.red(ts.issuesFound));
+    // Consistent gate with doctor (#244): a repo doctor would fail with exit 2
+    // must not report success from status.
+    if (!verdict.ok) process.exit(2);
   },
 });
