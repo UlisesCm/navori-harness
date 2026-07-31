@@ -8,19 +8,18 @@ type: reference
 
 ## When to use this skill
 
-When the code under test is **React Native / Expo** (the mobile app) or the **Medusa backend** — those two run on Jest, not Vitest. Reach for the right preset/runner: `jest-expo` for RN/Expo, `medusaIntegrationTestRunner`/`moduleIntegrationTestRunner` from `@medusajs/test-utils` for Medusa modules and API routes. Everything else in the stack uses Vitest; do not introduce Jest into a Vitest project.
+When the code under test is **React Native / Expo** (the mobile app) or the **Medusa backend** — those two run on Jest, not Vitest. Reach for the right preset/runner: `jest-expo` for RN/Expo, `medusaIntegrationTestRunner`/`moduleIntegrationTestRunner` from `@medusajs/test-utils` for Medusa. Everything else in the stack uses Vitest; do not introduce Jest into a Vitest project.
 
 ## The pattern
 
 Preset-driven config, `jest.mock` at the top, RN queries via `@testing-library/react-native`.
 
-```ts
-// jest.config.js (mobile)
+```js
+// jest.config.js (Expo) — the preset alone is often enough
 module.exports = {
   preset: 'jest-expo',
-  setupFilesAfterEnv: ['@testing-library/jest-native/extend-expect'],
   transformIgnorePatterns: [
-    'node_modules/(?!(jest-)?react-native|@react-native|expo(nent)?|@expo|@react-navigation)',
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native)',
   ],
 };
 ```
@@ -38,21 +37,36 @@ it('shows an error on empty submit', () => {
 });
 ```
 
+Medusa boots a real framework + test DB:
+
+```ts
+import { medusaIntegrationTestRunner } from '@medusajs/test-utils';
+
+medusaIntegrationTestRunner({
+  testSuite: ({ api, getContainer }) => {
+    it('lists posts', async () => {
+      const res = await api.get('/store/posts');
+      expect(res.status).toBe(200);
+    });
+  },
+});
+```
+
 ## Gotchas that bite
 
-- **`SyntaxError: Unexpected token 'export'` from node_modules** is the RN classic: an untranspiled ESM package. Fix it by whitelisting the offender in `transformIgnorePatterns` (`node_modules/(?!(package)/)`), never by transforming all of `node_modules`.
-- **`jest.mock` is hoisted above imports** just like `vi.mock`. The factory cannot close over later variables — declare mock fns inside the factory, or use `jest.mock('m'); const m = jest.mocked(require('m'))`.
-- **Wrong runner for the repo.** Medusa backend tests need `medusaIntegrationTestRunner` (it boots the framework + a test DB); a plain `it` calling the service directly fails on the missing DI container.
-- **Missing native matchers.** Without `@testing-library/jest-native` (or RN 0.71+'s built-in matchers), `toBeOnTheScreen`/`toBeVisible`/`toHaveTextContent` don't exist and reads decay into brittle `.props` pokes.
-- **State leaks between tests.** Set `clearMocks: true` (call history) and, when a mock's implementation must not carry over, `resetMocks: true`. Don't hand-clear in every file.
-- **Fake timers + Expo/animations.** RN animations and `setTimeout`-driven UI need `jest.useFakeTimers()` plus `act(() => jest.advanceTimersByTime(ms))`, or updates never flush.
+- **`SyntaxError: Unexpected token 'export'` from node_modules** is the RN classic: an untranspiled ESM package. Whitelist the offender in `transformIgnorePatterns` (`node_modules/(?!(pkg)/)`), never transform all of `node_modules`; pnpm/Bun prepend `.pnpm`/`.bun`.
+- **`jest.mock` is hoisted above imports** like `vi.mock`. The factory can't close over later variables — declare mock fns inside it, or `jest.mock('m'); const m = jest.mocked(require('m'))`.
+- **jest-native is deprecated.** RNTL v12.4+ ships built-in matchers (`toBeOnTheScreen`/`toBeVisible`/`toHaveTextContent`) — no `@testing-library/jest-native`, no `extend-expect`. Older RNTL: add `@testing-library/jest-native/extend-expect` to `setupFilesAfterEnv`.
+- **Wrong runner for Medusa.** A plain `it` calling the service fails on the missing DI container. Single-module tests use `moduleIntegrationTestRunner<Service>({ moduleName, moduleModels, resolve, testSuite })`. Both need `testEnvironment: 'node'`, an `@swc/jest` transform, and `--runInBand --forceExit`.
+- **State leaks between tests.** Set `clearMocks: true` (call history); add `resetMocks: true` only when a mock's implementation must not carry over.
+- **Fake timers + animations.** RN animations and `setTimeout` UI need `jest.useFakeTimers()` + `act(() => jest.advanceTimersByTime(ms))`, or updates never flush.
 
 ## Hard rules
 
-1. Use the preset for the target: `jest-expo` for RN/Expo, `@medusajs/test-utils` runners for Medusa.
+1. Use the preset/runner for the target: `jest-expo` for RN/Expo, `@medusajs/test-utils` runners for Medusa.
 2. Fix RN "unexpected token" via a targeted `transformIgnorePatterns` whitelist — never blanket-transform `node_modules`.
 3. `jest.mock` at top level; keep factories self-contained (hoisting).
-4. Query RN trees with `@testing-library/react-native` + jest-native matchers, not by inspecting `.props`.
+4. Query RN trees with `@testing-library/react-native` matchers, not `.props`.
 5. `clearMocks: true` in config; add `resetMocks` only when implementations must not persist.
 
 ## Quick table
@@ -60,14 +74,14 @@ it('shows an error on empty submit', () => {
 | Target | Preset / runner |
 |---|---|
 | React Native / Expo | `preset: 'jest-expo'` |
-| Medusa API + module | `medusaIntegrationTestRunner` |
+| Medusa API + full app | `medusaIntegrationTestRunner` |
 | Medusa single module | `moduleIntegrationTestRunner` |
-| RN matchers | `@testing-library/jest-native` |
+| RN matchers | built-in (RNTL ≥ 12.4) |
 | ESM in node_modules | whitelist in `transformIgnorePatterns` |
 
 ## Before declaring done
 
-- Correct preset/runner for the target (RN vs Medusa); no blanket node_modules transform.
-- Mocks hoisted safely and cleared between tests; native matchers loaded.
-- Medusa integration tests actually boot the test runner, not the bare service.
+- Correct preset/runner (RN vs Medusa); no blanket node_modules transform.
+- Mocks hoisted safely and cleared between tests; RN matchers available.
+- Medusa tests boot the runner (`testEnvironment: 'node'`), not the bare service.
 - `{{qualityGate.fast}}` green.

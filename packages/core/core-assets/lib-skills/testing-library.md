@@ -38,14 +38,14 @@ it('submits the email', async () => {
 - **`fireEvent` skips real user behavior.** `user-event` fires the full event sequence (focus, keydown, input) and is async — `await user.click(...)`. Prefer it; keep `fireEvent` only for events user-event can't model (e.g. `scroll`).
 - **`act` warnings mean an un-awaited update.** Almost always a missing `await` on a `user.*` call or a `findBy`. Add the `await`; don't wrap things in manual `act`.
 - **jest-dom matchers must be imported.** `toBeInTheDocument`/`toBeVisible`/`toHaveValue` come from `@testing-library/jest-dom` (loaded in setup). Without it you fall back to weak truthiness checks.
-- **React Native has no DOM roles.** `@testing-library/react-native` queries by `getByText`, `getByTestId`, and `*ByLabelText` (accessibilityLabel) — there is no DOM `getByRole('button')`; its matchers come from jest-native (`toBeOnTheScreen`).
+- **React Native shares the same queries now.** `@testing-library/react-native` (v12.4+) supports `getByRole` (matches the `role`/`accessibilityRole` prop) with the same priority — role first, then `getByLabelText`/`getByText`, `getByTestId` last. Its matchers (`toBeOnTheScreen`, `toBeDisabled`) are built in; do not install `@testing-library/jest-native` (deprecated).
 
 ## Hard rules
 
 1. Query by role/label/text first; `getByTestId` only when no accessible name exists.
 2. `getBy` for presence, `queryBy` for absence, `findBy` (awaited) for async.
 3. Prefer `user-event` (awaited) over `fireEvent`.
-4. Load jest-dom (web) / jest-native (RN) matchers in setup.
+4. Load jest-dom matchers in setup (web); React Native's are built in.
 5. Test observable behavior and output, never component internals or state.
 
 ## Quick table
@@ -56,11 +56,11 @@ it('submits the email', async () => {
 | Form field | `getByLabelText(/email/i)` |
 | Assert absence | `queryByText('x')` + `.not.toBeInTheDocument()` |
 | Async appearance | `await findByText('Loaded')` |
-| React Native | `getByText` / `getByTestId` / label |
+| React Native | `getByRole` (v12.4+); built-in matchers |
 
 ## Before declaring done
 
 - Queries follow priority (role/label before testid); absence uses `queryBy`, async uses `findBy`.
 - Interactions go through awaited `user-event`; no stray `act` warnings.
-- Correct matcher package loaded for the platform (jest-dom vs jest-native).
+- jest-dom loaded (web); React Native's matchers are built in.
 - `{{qualityGate.fast}}` green.
