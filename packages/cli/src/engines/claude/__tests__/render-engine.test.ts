@@ -290,6 +290,40 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     expect(existsSync(join(cwd, ".claude/scripts/check-semgrep.sh"))).toBe(false);
   });
 
+  it("expands the shared `# navori:include` hook partials — no directive survives, body is inlined (#261)", () => {
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { jscpd: { enabled: true }, semgrep: { enabled: true } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+
+    const gateScripts = {
+      "check-jscpd.sh": join(cwd, ".claude/scripts/check-jscpd.sh"),
+      "check-semgrep.sh": join(cwd, ".claude/scripts/check-semgrep.sh"),
+      "quality-gate-pre-commit.sh": join(cwd, ".claude/hooks/quality-gate-pre-commit.sh"),
+    };
+    for (const [, path] of Object.entries(gateScripts)) {
+      const body = readFileSync(path, "utf-8");
+      // The directive is a build-time marker — it must never reach the repo.
+      expect(body).not.toContain("navori:include");
+      // The shared partial bodies were inlined, keeping the script standalone.
+      expect(body).toContain("extract_cmd() {");
+      expect(body).toContain("is_scan_trigger() {");
+    }
+    // guard-destructive shares only the command extractor, not the gate fn.
+    const guard = readFileSync(join(cwd, ".claude/hooks/guard-destructive.sh"), "utf-8");
+    expect(guard).not.toContain("navori:include");
+    expect(guard).toContain("extract_cmd() {");
+
+    // The one real per-script difference survives: semgrep also gates push / PR
+    // creation; jscpd and the quality gate gate commit only.
+    expect(readFileSync(gateScripts["check-semgrep.sh"], "utf-8")).toContain("(commit|push)");
+    expect(readFileSync(gateScripts["check-jscpd.sh"], "utf-8")).not.toContain("(commit|push)");
+    expect(readFileSync(gateScripts["quality-gate-pre-commit.sh"], "utf-8")).not.toContain(
+      "(commit|push)",
+    );
+  });
+
   it("is idempotent: second render of the same plugin script reports unchanged", () => {
     const cfg = {
       ...CONFIG_FULL,

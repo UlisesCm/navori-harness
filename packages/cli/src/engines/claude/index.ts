@@ -26,6 +26,7 @@ import { buildClaudeSettings } from "./build-settings.ts";
 import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
 import { renderManagedFile } from "../shared/render-managed-file.ts";
 import { interpolate, sanitizeProjectValue } from "../../lib/interpolate.ts";
+import { expandHookIncludes } from "../../lib/hook-includes.ts";
 import { benchMark } from "../../lib/bench.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
 import { tc, resolveLang, type Lang } from "../../lib/i18n.ts";
@@ -1473,7 +1474,9 @@ function planPluginScript(
   config: NavoriConfig,
 ): PluginScriptPlan {
   const destPath = join(cwd, ".claude/scripts", script.dest);
-  const raw = readFileSync(script.src, "utf-8");
+  // Inline `# navori:include` shell partials before interpolating so the shared
+  // gate boilerplate has one source of truth yet the rendered script is standalone.
+  const raw = expandHookIncludes(readFileSync(script.src, "utf-8"));
   const interpolated = interpolate(raw, config, {
     extraVars: { jscpdThreshold: String(jscpdThresholdForPreset(config.preset)) },
   });

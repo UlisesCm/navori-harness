@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { getCoreRoot } from "../bundled-assets.ts";
 import { shellSingleQuote } from "../shell-escape.ts";
+import { expandHookIncludes } from "../hook-includes.ts";
 
 /**
  * Behavioral guard tests for core-assets/hooks/guard-destructive.sh.
@@ -18,7 +19,17 @@ import { shellSingleQuote } from "../shell-escape.ts";
  */
 
 const runsBash = process.platform !== "win32";
-const guardPath = resolve(getCoreRoot(), "core-assets/hooks/guard-destructive.sh");
+// The hook ships with `# navori:include` directives that `navori render` inlines.
+// Expand them once here so the tests drive exactly what a rendered hook runs
+// (the `{{shq:branchBase}}` placeholder is left for `renderGuard` to substitute).
+const guardSource = resolve(getCoreRoot(), "core-assets/hooks/guard-destructive.sh");
+const guardPath = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "navori-guard-src-"));
+  const p = join(dir, "guard-destructive.sh");
+  writeFileSync(p, expandHookIncludes(readFileSync(guardSource, "utf-8")));
+  chmodSync(p, 0o755);
+  return p;
+})();
 
 function resolveBin(name: string): string {
   return execFileSync("bash", ["-c", `command -v ${name}`], { encoding: "utf-8" }).trim();
