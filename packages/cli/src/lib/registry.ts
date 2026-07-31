@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { safeHomedir } from "./home.ts";
 import { canonicalPath } from "./workspace.ts";
+import { withFileLock } from "./lockfile.ts";
 
 /**
  * Global machine-local registry of every repo that has navori installed
@@ -57,6 +58,18 @@ export function registryPath(): string {
   return join(navoriRoot(), "registry.json");
 }
 
+/**
+ * Advisory lock guarding the registry's read-modify-write cycle. Two processes
+ * touching registry.json concurrently (e.g. `workspace render` in one terminal
+ * while `init` runs in another) would otherwise clobber each other's entry
+ * (#82/#243). Ensures the navori root exists so `openSync(..,"wx")` can create
+ * the lock file even on a fresh machine.
+ */
+function registryLockPath(): string {
+  mkdirSync(navoriRoot(), { recursive: true });
+  return join(navoriRoot(), ".registry.lock");
+}
+
 /** Read the registry, tolerating a missing or corrupt file (returns empty). */
 export function readRegistry(): Registry {
   const path = registryPath();
@@ -88,19 +101,23 @@ export type RegisterResult = "added" | "updated" | "unchanged";
  */
 export function registerRepo(repoPath: string, name?: string): RegisterResult {
   const path = canonicalPath(repoPath);
-  const registry = readRegistry();
-  const existing = registry.repos.find((r) => r.path === path);
-  if (existing) {
-    if (name && existing.name !== name) {
-      existing.name = name;
-      writeRegistry(registry);
-      return "updated";
+  // Lock the whole read-modify-write so a concurrent register/unregister/prune
+  // can't drop this entry (#243).
+  return withFileLock(registryLockPath(), () => {
+    const registry = readRegistry();
+    const existing = registry.repos.find((r) => r.path === path);
+    if (existing) {
+      if (name && existing.name !== name) {
+        existing.name = name;
+        writeRegistry(registry);
+        return "updated";
+      }
+      return "unchanged";
     }
-    return "unchanged";
-  }
-  registry.repos.push({ path, ...(name ? { name } : {}) });
-  writeRegistry(registry);
-  return "added";
+    registry.repos.push({ path, ...(name ? { name } : {}) });
+    writeRegistry(registry);
+    return "added";
+  });
 }
 
 /**
@@ -119,11 +136,13 @@ export function registerRepoSafe(repoPath: string, name?: string): RegisterResul
 /** Remove a repo from the registry by path. Returns true if an entry was dropped. */
 export function unregisterRepo(repoPath: string): boolean {
   const path = canonicalPath(repoPath);
-  const registry = readRegistry();
-  const next = registry.repos.filter((r) => r.path !== path);
-  if (next.length === registry.repos.length) return false;
-  writeRegistry({ repos: next });
-  return true;
+  return withFileLock(registryLockPath(), () => {
+    const registry = readRegistry();
+    const next = registry.repos.filter((r) => r.path !== path);
+    if (next.length === registry.repos.length) return false;
+    writeRegistry({ repos: next });
+    return true;
+  });
 }
 
 export function listRegistryRepos(): RegistryEntry[] {
@@ -135,15 +154,17 @@ export function listRegistryRepos(): RegistryEntry[] {
  * deleted, or de-initialized). Returns what was removed and what was kept.
  */
 export function pruneRegistry(): { removed: RegistryEntry[]; kept: RegistryEntry[] } {
-  const registry = readRegistry();
-  const kept: RegistryEntry[] = [];
-  const removed: RegistryEntry[] = [];
-  for (const entry of registry.repos) {
-    if (existsSync(join(entry.path, "navori.config.json"))) kept.push(entry);
-    else removed.push(entry);
-  }
-  if (removed.length > 0) writeRegistry({ repos: kept });
-  return { removed, kept };
+  return withFileLock(registryLockPath(), () => {
+    const registry = readRegistry();
+    const kept: RegistryEntry[] = [];
+    const removed: RegistryEntry[] = [];
+    for (const entry of registry.repos) {
+      if (existsSync(join(entry.path, "navori.config.json"))) kept.push(entry);
+      else removed.push(entry);
+    }
+    if (removed.length > 0) writeRegistry({ repos: kept });
+    return { removed, kept };
+  });
 }
 
 /**

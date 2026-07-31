@@ -145,11 +145,13 @@ describe("reindex — the index is derived from entries", () => {
 describe("validateDominio — all warnings, never throws", () => {
   it("flags unknown enum, dangling supersedes and stale index", () => {
     makeWorkspace("bonum");
-    ensureDominio("bonum"); // writes an index...
+    // Pass "en" so the findings come back in English (the index is written and
+    // compared in the same locale, so staleness still reflects the added entries).
+    ensureDominio("bonum", "en"); // writes an index...
     writeEntry("bonum", "e1", { title: "E1", type: "nope" }, "x"); // ...now stale + unknown type
     writeEntry("bonum", "e2", { title: "E2", status: "superseded", supersedes: "[ghost]" }, "y");
 
-    const findings = validateDominio("bonum");
+    const findings = validateDominio("bonum", "en");
     const msgs = findings.map((f) => f.message).join(" | ");
     expect(msgs).toMatch(/unknown type 'nope'/);
     expect(msgs).toMatch(/supersedes unknown entry 'ghost'/);

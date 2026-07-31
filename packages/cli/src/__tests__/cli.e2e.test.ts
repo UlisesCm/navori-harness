@@ -1732,7 +1732,8 @@ describe("CLI e2e — global registry + render --all", () => {
     const repo = initInFakeHome("reg-gone");
     rmSync(repo, { recursive: true, force: true });
     const prune = runCli(["registry", "prune"], { HOME: fakeHome });
-    expect(prune.combined).toMatch(/Pruned/);
+    // prunedVerb is localized ("Pruned" en / "Limpié" es) — assert either.
+    expect(prune.combined).toMatch(/Pruned|Limpié/);
     const ls = runCli(["registry", "ls"], { HOME: fakeHome });
     expect(ls.combined).not.toContain("reg-gone");
   });

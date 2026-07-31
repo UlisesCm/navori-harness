@@ -4,6 +4,16 @@ import { existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node
 import { join, relative, resolve, dirname } from "node:path";
 import { migrationsRoot } from "../lib/migrate.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
+import { tc, resolveLang } from "../lib/i18n.ts";
+import { readGlobalConfig } from "../lib/global-config.ts";
+
+/**
+ * Language for machine-global commands (migrations/backup/registry) that aren't
+ * scoped to a single repo: read it off the global harness config, else default.
+ */
+function globalLang() {
+  return resolveLang(readGlobalConfig()?.language);
+}
 
 interface MigrationEntry {
   timestamp: string;
@@ -86,17 +96,16 @@ const listSubCommand = defineCommand({
       return;
     }
 
+    const tr = tc(globalLang()).migrations;
     p.intro(brand("migrations list"));
     if (migrations.length === 0) {
-      p.log.info(
-        "No migrations found. They are created when 'init' adopts navori in replace mode (the interactive wizard) on a repo with existing Claude infrastructure.",
-      );
-      p.outro(dim("Done"));
+      p.log.info(tr.listEmpty);
+      p.outro(dim(tr.done));
       return;
     }
 
     const lines: string[] = [];
-    lines.push(dim(`${migrations.length} migration(s) total. Showing ${truncated.length}:`));
+    lines.push(dim(tr.total(migrations.length, truncated.length)));
     for (const m of truncated) {
       const date = new Date(m.mtimeMs);
       lines.push(
@@ -107,10 +116,10 @@ const listSubCommand = defineCommand({
       }
     }
     if (migrations.length > truncated.length) {
-      lines.push(dim(`  ... ${migrations.length - truncated.length} more (use --limit to show)`));
+      lines.push(dim(tr.more(migrations.length - truncated.length)));
     }
     p.log.message(lines.join("\n"));
-    p.outro(dim("Done"));
+    p.outro(dim(tr.done));
   },
 });
 
@@ -131,30 +140,32 @@ const restoreSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const migrationDir = join(migrationsRoot(), ts, repoName);
 
+    const lang = globalLang();
+    const tr = tc(lang).migrations;
     p.intro(brand(`migrations restore ${accent(`${ts}/${repoName}`)}`));
 
     if (!existsSync(migrationDir)) {
-      p.cancel(`Migration not found: ${migrationDir}`);
+      p.cancel(tr.notFound(migrationDir));
       process.exit(1);
     }
 
     const files = collectFiles(migrationDir, migrationDir);
     if (files.length === 0) {
-      p.cancel(`Migration is empty: ${migrationDir}`);
+      p.cancel(tr.empty(migrationDir));
       process.exit(1);
     }
 
-    p.log.message(`Will restore ${files.length} file(s) from ${migrationDir} into ${cwd}:`);
+    p.log.message(tr.willRestore(files.length, migrationDir, cwd));
     for (const f of files.slice(0, 10)) p.log.message(`  · ${f}`);
-    if (files.length > 10) p.log.message(`  ... ${files.length - 10} more`);
+    if (files.length > 10) p.log.message(tr.moreFiles(files.length - 10));
 
     if (!args.yes) {
       const ok = await p.confirm({
-        message: "Existing files will be OVERWRITTEN by the migration's snapshot. Proceed?",
+        message: tr.overwriteConfirm,
         initialValue: false,
       });
       if (p.isCancel(ok) || !ok) {
-        p.cancel("Aborted");
+        p.cancel(tc(lang).common.aborted);
         return;
       }
     }
@@ -165,7 +176,7 @@ const restoreSubCommand = defineCommand({
       mkdirSync(dirname(dest), { recursive: true });
       copyFileSync(src, dest);
     }
-    p.outro(`Restored ${files.length} file(s)`);
+    p.outro(tr.restored(files.length));
   },
 });
 

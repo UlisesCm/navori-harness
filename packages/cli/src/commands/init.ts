@@ -12,7 +12,7 @@ import {
   type PackageManager,
 } from "../lib/detect.ts";
 import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
-import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
+import { createMigrationBackup, removeOriginals, type MigrationResult } from "../lib/migrate.ts";
 import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
 import { registerRepoSafe } from "../lib/registry.ts";
 import { runRender } from "./render.ts";
@@ -38,6 +38,18 @@ import {
 import { scanMissingExternalTools } from "./doctor.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
+
+/**
+ * Outcome of the adoption decision. In replace mode the backup is created but
+ * its originals are NOT removed yet — `pendingRemoval` carries the snapshot so
+ * the caller can delete the originals only AFTER `writeConfig` succeeds. This
+ * closes the window where cancelling a later wizard prompt left the repo with no
+ * `.claude/`, `CLAUDE.md`, `specs/` nor config (#240).
+ */
+export interface AdoptionResult {
+  mode: AdoptionMode;
+  pendingRemoval: MigrationResult | null;
+}
 
 const ENGINE_OPTIONS = [
   { value: "claude", label: "Claude Code (.claude/)" },
@@ -174,11 +186,12 @@ export const initCommand = defineCommand({
     const detected = detectProject(cwd);
 
     // Handle existing Claude infrastructure first — before showing stack detection
-    const mode = await chooseAdoptionMode(cwd, detected.claudeInfra, detected.name, {
+    const adoption = await chooseAdoptionMode(cwd, detected.claudeInfra, detected.name, {
       yes: autoYes,
       lang,
     });
-    if (mode === null) return cancel(lang);
+    if (adoption === null) return cancel(lang);
+    const { mode, pendingRemoval } = adoption;
 
     // Load workspace defaults (cascade: detection → workspace defaults → user overrides)
     let workspaceConfig: WorkspaceConfig | null = null;
@@ -326,7 +339,7 @@ export const initCommand = defineCommand({
       registerRepoSafe(cwd, detected.name);
 
       if (isRecommended && !detected.qualityGate && fallbackQg) {
-        p.log.info(`Quality gate fallback aplicado: ${fallbackQg.fast}`);
+        p.log.info(tr.qualityGateFallbackApplied(fallbackQg.fast));
       }
 
       // --full enables plugins even when their external binary is absent. doctor
@@ -718,6 +731,13 @@ export const initCommand = defineCommand({
     });
 
     p.log.success(tr.wroteConfig(configPath));
+    // Replace mode: only now that the config is safely written do we delete the
+    // originals (backed up earlier). Deferring past every wizard prompt means a
+    // mid-wizard cancel leaves the repo untouched instead of empty (#240).
+    if (pendingRemoval) {
+      removeOriginals(cwd, pendingRemoval.movedPaths);
+      p.log.info(tr.removedOriginals(cwd));
+    }
     // Self-register in the global registry (best-effort) so `render --all`
     // rolls future harness bumps into this repo.
     registerRepoSafe(cwd, name);
@@ -760,8 +780,8 @@ export async function chooseAdoptionMode(
   infra: ClaudeInfraInventory,
   projectName: string | null,
   args: { yes?: boolean; lang: Lang },
-): Promise<AdoptionMode | null> {
-  if (!infra.present) return "fresh";
+): Promise<AdoptionResult | null> {
+  if (!infra.present) return { mode: "fresh", pendingRemoval: null };
 
   const tr = t(args.lang);
 
@@ -773,7 +793,7 @@ export async function chooseAdoptionMode(
     // progress/ dir, which counts as infra even after .claude/CLAUDE.md are gone).
     p.log.warn(tr.existingInfraYesMode);
     p.note(formatInfraSummary(infra, args.lang), tr.filesFoundTitle);
-    return "coexist";
+    return { mode: "coexist", pendingRemoval: null };
   }
 
   p.log.warn(tr.existingInfraDetected);
@@ -796,14 +816,14 @@ export async function chooseAdoptionMode(
     });
     if (p.isCancel(confirm) || !confirm) return null;
 
+    // Back up now, but DEFER removeOriginals to the caller (post-writeConfig) so
+    // a cancel at any later prompt can't leave the repo empty (#240).
     const backup = createMigrationBackup(cwd, projectName ?? "unknown");
     p.log.success(tr.backedUp(backup.movedPaths.length, backup.path));
-    removeOriginals(cwd, backup.movedPaths);
-    p.log.info(tr.removedOriginals(cwd));
-    return "replace";
+    return { mode: "replace", pendingRemoval: backup };
   }
 
-  return "coexist";
+  return { mode: "coexist", pendingRemoval: null };
 }
 
 export async function pickPlugins(lang: Lang): Promise<string[] | null> {
@@ -1318,18 +1338,14 @@ async function buildMonorepoBlock(
   const found = scanMonorepoWorkspaces(cwd);
   if (found.length === 0) {
     if (!opts.autoYes) {
-      p.log.info(
-        "Monorepo detectado pero no se encontraron workspaces en pnpm-workspace.yaml/package.json#workspaces.",
-      );
+      p.log.info(t(opts.lang).monorepoNoWorkspaces);
     }
     return block;
   }
 
   if (opts.autoYes) {
     block.workspaces = found.map((d) => buildWorkspaceEntry(d, opts.rootPreset, d.suggestedPreset));
-    p.log.info(
-      `Detectados ${found.length} workspace(s) en monorepo: ${found.map((w) => w.path).join(", ")}`,
-    );
+    p.log.info(t(opts.lang).monorepoDetectedYes(found.length, found.map((w) => w.path).join(", ")));
     return block;
   }
 
@@ -1339,16 +1355,16 @@ async function buildMonorepoBlock(
       return `  · ${w.path}${fw} ${dim("→")} ${w.suggestedPreset}`;
     })
     .join("\n");
-  p.log.message(`${dim("Workspaces detectados en el monorepo:")}\n${overview}`);
+  p.log.message(`${dim(t(opts.lang).monorepoDetectedTitle)}\n${overview}`);
 
   const addAll = await p.confirm({
-    message: `¿Agregar ${found.length} workspace(s) a monorepo.workspaces[]?`,
+    message: t(opts.lang).monorepoAddPrompt(found.length),
     initialValue: true,
   });
   if (p.isCancel(addAll) || !addAll) return block;
 
   const useSuggested = await p.confirm({
-    message: "¿Usar el preset sugerido en cada workspace?",
+    message: t(opts.lang).monorepoUseSuggested,
     initialValue: true,
   });
   if (p.isCancel(useSuggested)) return block;
@@ -1357,7 +1373,7 @@ async function buildMonorepoBlock(
     let preset = d.suggestedPreset;
     if (!useSuggested) {
       const value = await p.text({
-        message: `Preset para ${d.path}`,
+        message: t(opts.lang).monorepoPresetFor(d.path),
         placeholder: preset,
         defaultValue: preset,
       });

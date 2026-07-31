@@ -468,14 +468,17 @@ export const updateCommand = defineCommand({
     } catch (err) {
       // A mid-write render crash used to bubble a raw citty stack, leaving the
       // config updated and the tree partial. Surface a clean message with the
-      // backup breadcrumb the engine's RenderWriteError carries (#79).
+      // backup breadcrumb the engine's RenderWriteError carries (#79). Signal
+      // the failure to CI/scripts with a non-zero exit (#239).
       p.log.error(err instanceof Error ? err.message : String(err));
       p.outro(tu.renderAfterConfigFailed);
+      process.exitCode = 1;
       return;
     }
     if (!result.ok) {
       p.log.error(result.reason ?? tu.renderFailed);
       p.outro(tu.doneRenderFailed);
+      process.exitCode = 1;
       return;
     }
     // Keep the global registry current (best-effort) so `render --all` sees this

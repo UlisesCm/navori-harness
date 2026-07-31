@@ -3,6 +3,7 @@ import { z } from "zod";
 import { writeFileAtomic } from "./atomic.ts";
 import { NavoriError } from "./errors.ts";
 import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "./schema.ts";
+import { tc, resolveLang } from "./i18n.ts";
 
 const SCHEMA_URL = "https://navori.dev/schema/navori.config.v1.json";
 
@@ -108,7 +109,7 @@ export function readConfig(path: string): NavoriConfig {
     throw new ConfigError(`Validation failed for ${path}`, result.error.issues);
   }
   warnDroppedEnums(parsed, result.data);
-  warnRemovedProgressKeys(parsed);
+  warnRemovedProgressKeys(parsed, result.data.language);
   return result.data;
 }
 
@@ -134,7 +135,7 @@ function warnDroppedEnums(raw: unknown, parsed: NavoriConfig): void {
   }
   if (dropped.length > 0) {
     process.stderr.write(
-      `navori: valores de config desconocidos ignorados (¿config de un navori más nuevo? actualiza el CLI): ${dropped.join(", ")}\n`,
+      `${tc(resolveLang(parsed.language)).common.unknownConfigValues(dropped.join(", "))}\n`,
     );
   }
 }
@@ -145,7 +146,7 @@ function warnDroppedEnums(raw: unknown, parsed: NavoriConfig): void {
  * carry them keep validating (z.object strips unknown keys), but warn softly
  * so users know they can delete the dead keys.
  */
-function warnRemovedProgressKeys(raw: unknown): void {
+function warnRemovedProgressKeys(raw: unknown, language: unknown): void {
   if (!raw || typeof raw !== "object") return;
   const progress = (raw as Record<string, unknown>).progress;
   if (!progress || typeof progress !== "object") return;
@@ -154,7 +155,7 @@ function warnRemovedProgressKeys(raw: unknown): void {
   );
   if (removed.length > 0) {
     process.stderr.write(
-      `navori: claves obsoletas ignoradas en "progress" (puedes borrarlas del navori.config.json): ${removed.join(", ")}\n`,
+      `${tc(resolveLang(language)).common.deadProgressKeys(removed.join(", "))}\n`,
     );
   }
 }

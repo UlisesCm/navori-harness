@@ -12,6 +12,13 @@ import {
 } from "../lib/registry.ts";
 import { readConfig } from "../lib/config.ts";
 import { brand, dim, color, accent, sym } from "../lib/style.ts";
+import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
+import { readGlobalConfig } from "../lib/global-config.ts";
+
+/** Language for the machine-global registry commands: global config, else default. */
+function globalLang(): Lang {
+  return resolveLang(readGlobalConfig()?.language);
+}
 
 /** Best-effort read of a repo's config.name for display / caching. */
 function repoName(repoPath: string): string | undefined {
@@ -30,24 +37,24 @@ const lsSubCommand = defineCommand({
     description: "List every repo in the global registry",
   },
   run() {
+    const tr = tc(globalLang()).registry;
     p.intro(brand("registry ls"));
     const repos = listRegistryRepos();
     if (repos.length === 0) {
-      p.log.info("No repos registered. Bootstrap with 'navori registry scan <dir>'.");
+      p.log.info(tr.lsEmpty);
       p.outro(dim(registryPath()));
       return;
     }
     const lines = repos.map((r) => {
       const present = existsSync(join(r.path, "navori.config.json"));
       const marker = present ? color.green(sym.ok) : color.red(sym.fail);
-      const name = r.name ?? "(unknown)";
-      const tag = present ? "" : dim("  missing");
+      const name = r.name ?? tr.unknownName;
+      const tag = present ? "" : dim(tr.missingTag);
       return `  ${marker} ${accent(name)}${tag}\n      ${dim(r.path)}`;
     });
     p.log.message(lines.join("\n"));
     const missing = repos.filter((r) => !existsSync(join(r.path, "navori.config.json"))).length;
-    const summary = `${repos.length} repo(s)${missing > 0 ? ` · ${missing} missing (run 'registry prune')` : ""}`;
-    p.outro(dim(summary));
+    p.outro(dim(tr.lsSummary(repos.length, missing)));
   },
 });
 
@@ -61,6 +68,7 @@ const scanSubCommand = defineCommand({
     depth: { type: "string", description: "Max directory depth to descend (default 4)" },
   },
   run({ args, rawArgs }) {
+    const tr = tc(globalLang()).registry;
     p.intro(brand("registry scan"));
     // citty gives a single positional in `args.dirs`; grab the rest from rawArgs
     // so `navori registry scan ~/a ~/b` scans both.
@@ -74,7 +82,7 @@ const scanSubCommand = defineCommand({
     for (const dir of dirs) {
       const root = resolve(dir);
       if (!existsSync(root)) {
-        rows.push(`  ${color.red(sym.fail)} ${dir} ${dim("(not found)")}`);
+        rows.push(`  ${color.red(sym.fail)} ${dir} ${dim(tr.dirNotFound)}`);
         continue;
       }
       const found = scanForRepos(root, maxDepth ? { maxDepth } : {});
@@ -82,12 +90,12 @@ const scanSubCommand = defineCommand({
         const result = registerRepo(repoPath, repoName(repoPath));
         if (result === "added") added += 1;
         else unchanged += 1;
-        const badge = result === "added" ? color.green("+ added") : dim("· known");
+        const badge = result === "added" ? color.green(tr.addedBadge) : dim(tr.knownBadge);
         rows.push(`  ${badge}  ${accent(repoName(repoPath) ?? repoPath)}  ${dim(repoPath)}`);
       }
     }
     if (rows.length > 0) p.log.message(rows.join("\n"));
-    p.outro(`${color.green("Done")} ${dim(`${added} added · ${unchanged} already registered`)}`);
+    p.outro(`${color.green(tr.doneWord)} ${dim(tr.scanSummary(added, unchanged))}`);
   },
 });
 
@@ -100,14 +108,16 @@ const addSubCommand = defineCommand({
     path: { type: "positional", description: "Path to the repo root", required: true },
   },
   run({ args }) {
+    const tr = tc(globalLang()).registry;
     p.intro(brand("registry add"));
     const repoPath = resolve(String(args.path));
     if (!existsSync(join(repoPath, "navori.config.json"))) {
-      p.cancel(`Not a navori repo (no navori.config.json): ${repoPath}`);
+      p.cancel(tr.notNavoriRepo(repoPath));
       process.exit(1);
     }
     const result = registerRepo(repoPath, repoName(repoPath));
-    const verb = result === "added" ? color.green("Registered") : dim("Already registered");
+    const verb =
+      result === "added" ? color.green(tr.registeredVerb) : dim(tr.alreadyRegisteredVerb);
     p.outro(`${verb} ${accent(repoName(repoPath) ?? repoPath)} ${dim(repoPath)}`);
   },
 });
@@ -121,11 +131,12 @@ const removeSubCommand = defineCommand({
     path: { type: "positional", description: "Path to the repo root", required: true },
   },
   run({ args }) {
+    const tr = tc(globalLang()).registry;
     p.intro(brand("registry remove"));
     const repoPath = resolve(String(args.path));
     const removed = unregisterRepo(repoPath);
-    if (removed) p.outro(`${color.green("Removed")} ${dim(repoPath)}`);
-    else p.outro(dim(`Not in registry: ${repoPath}`));
+    if (removed) p.outro(`${color.green(tr.removedVerb)} ${dim(repoPath)}`);
+    else p.outro(dim(tr.notInRegistry(repoPath)));
   },
 });
 
@@ -135,15 +146,16 @@ const pruneSubCommand = defineCommand({
     description: "Drop registry entries whose repo no longer exists",
   },
   run() {
+    const tr = tc(globalLang()).registry;
     p.intro(brand("registry prune"));
     const { removed, kept } = pruneRegistry();
     if (removed.length === 0) {
-      p.outro(dim(`Nothing to prune · ${kept.length} repo(s) registered`));
+      p.outro(dim(tr.nothingToPrune(kept.length)));
       return;
     }
     const lines = removed.map((r) => `  ${color.red(sym.fail)} ${dim(r.path)}`);
     p.log.message(lines.join("\n"));
-    p.outro(`${color.green("Pruned")} ${dim(`${removed.length} removed · ${kept.length} kept`)}`);
+    p.outro(`${color.green(tr.prunedVerb)} ${dim(tr.pruneSummary(removed.length, kept.length))}`);
   },
 });
 

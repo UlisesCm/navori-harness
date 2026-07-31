@@ -153,6 +153,15 @@ interface Strings {
   featuresCount: (n: number) => string;
   wsNoDefaults: string;
   noneEnabled: string;
+
+  // Quality-gate fallback + monorepo scan prompts (init wizard)
+  qualityGateFallbackApplied: (command: string) => string;
+  monorepoNoWorkspaces: string;
+  monorepoDetectedYes: (n: number, list: string) => string;
+  monorepoDetectedTitle: string;
+  monorepoAddPrompt: (n: number) => string;
+  monorepoUseSuggested: string;
+  monorepoPresetFor: (path: string) => string;
 }
 
 const ES: Strings = {
@@ -315,6 +324,15 @@ const ES: Strings = {
   featuresCount: (n) => `${n} feature(s)`,
   wsNoDefaults: "(el workspace no tiene defaults configurados)",
   noneEnabled: "(ninguno activado)",
+
+  qualityGateFallbackApplied: (command) => `Quality gate fallback aplicado: ${command}`,
+  monorepoNoWorkspaces:
+    "Monorepo detectado pero no se encontraron workspaces en pnpm-workspace.yaml/package.json#workspaces.",
+  monorepoDetectedYes: (n, list) => `Detectados ${n} workspace(s) en monorepo: ${list}`,
+  monorepoDetectedTitle: "Workspaces detectados en el monorepo:",
+  monorepoAddPrompt: (n) => `¿Agregar ${n} workspace(s) a monorepo.workspaces[]?`,
+  monorepoUseSuggested: "¿Usar el preset sugerido en cada workspace?",
+  monorepoPresetFor: (path) => `Preset para ${path}`,
 };
 
 const EN: Strings = {
@@ -476,6 +494,15 @@ const EN: Strings = {
   featuresCount: (n) => `${n} feature(s)`,
   wsNoDefaults: "(workspace has no defaults configured)",
   noneEnabled: "(none enabled)",
+
+  qualityGateFallbackApplied: (command) => `Quality gate fallback applied: ${command}`,
+  monorepoNoWorkspaces:
+    "Monorepo detected but no workspaces found in pnpm-workspace.yaml/package.json#workspaces.",
+  monorepoDetectedYes: (n, list) => `Detected ${n} workspace(s) in monorepo: ${list}`,
+  monorepoDetectedTitle: "Workspaces detected in the monorepo:",
+  monorepoAddPrompt: (n) => `Add ${n} workspace(s) to monorepo.workspaces[]?`,
+  monorepoUseSuggested: "Use the suggested preset for every workspace?",
+  monorepoPresetFor: (path) => `Preset for ${path}`,
 };
 
 const DICTS: Record<Lang, Strings> = { es: ES, en: EN };
@@ -520,6 +547,11 @@ interface CommonCmdStrings {
   noConfig: (configPath: string) => string;
   backupLabel: string;
   aborted: string;
+  // lib/config.ts soft warnings (stderr) — localized off config.language.
+  unknownConfigValues: (list: string) => string;
+  deadProgressKeys: (list: string) => string;
+  // lib/marker.ts user-zone placeholder (emitted into a fresh CLAUDE.md).
+  userSectionPlaceholder: string;
 }
 
 interface RenderCmdStrings {
@@ -674,6 +706,8 @@ interface EngineCmdStrings {
   codexTrustHint: string;
   presetNotFoundCodex: (preset: string) => string;
   presetInvalid: (preset: string, detail: string) => string;
+  // Prose-engine dispatch (render.ts)
+  agentsMdRedundantWithCodex: string;
 }
 
 interface UpdateCmdStrings {
@@ -896,6 +930,111 @@ interface DominioCmdStrings {
   outroIssues: (count: number) => string;
   injectHeader: (ws: string) => string;
   injectHint: string;
+  // DOMINIO.md artifact (buildIndex) + validateDominio findings (localized so an
+  // es/en repo gets a consistent index and warnings).
+  indexTitle: (ws: string) => string;
+  indexGenerated: string;
+  indexEmpty: string;
+  findingUnknownType: (type: string) => string;
+  findingUnknownStatus: (status: string) => string;
+  findingMissingTitle: string;
+  findingSupersedesUnknown: (target: string) => string;
+  findingSupersededNoTarget: string;
+  findingIndexMissing: string;
+  findingIndexStale: string;
+}
+
+interface MigrationsCmdStrings {
+  listEmpty: string;
+  total: (total: number, shown: number) => string;
+  more: (n: number) => string;
+  done: string;
+  notFound: (dir: string) => string;
+  empty: (dir: string) => string;
+  willRestore: (n: number, from: string, to: string) => string;
+  moreFiles: (n: number) => string;
+  overwriteConfirm: string;
+  restored: (n: number) => string;
+}
+
+interface BackupCmdStrings {
+  listEmpty: string;
+  total: (total: number, shown: number) => string;
+  more: (n: number) => string;
+  done: string;
+  ageJustNow: string;
+  ageMinutes: (n: number) => string;
+  ageHours: (n: number) => string;
+  ageDays: (n: number) => string;
+  notFound: (dir: string) => string;
+  empty: (dir: string) => string;
+  repoMismatch: (backupRepo: string, dest: string) => string;
+  willRestore: (n: number, from: string, to: string) => string;
+  overwriteConfirm: string;
+  restored: (n: number) => string;
+}
+
+interface TicketCmdStrings {
+  listEmpty: (ws: string) => string;
+  archiveBadge: string;
+  count: (n: number) => string;
+  done: string;
+  notFound: (id: string, ws: string) => string;
+  contentTitle: string;
+  noReferences: string;
+  referencedLabel: string;
+  invalidId: (id: string) => string;
+  titlePrompt: string;
+  cancelled: string;
+  wrote: (path: string) => string;
+  referenceHint: (id: string) => string;
+  archived: (path: string) => string;
+  unarchived: (path: string) => string;
+  deleteConfirm: (id: string, ws: string) => string;
+  deleted: string;
+}
+
+interface RegistryCmdStrings {
+  lsEmpty: string;
+  unknownName: string;
+  missingTag: string;
+  lsSummary: (total: number, missing: number) => string;
+  dirNotFound: string;
+  addedBadge: string;
+  knownBadge: string;
+  doneWord: string;
+  scanSummary: (added: number, unchanged: number) => string;
+  notNavoriRepo: (path: string) => string;
+  registeredVerb: string;
+  alreadyRegisteredVerb: string;
+  removedVerb: string;
+  notInRegistry: (path: string) => string;
+  nothingToPrune: (kept: number) => string;
+  prunedVerb: string;
+  pruneSummary: (removed: number, kept: number) => string;
+}
+
+interface RemoveCmdStrings {
+  engramAlwaysOn: string;
+  notDeclared: (id: string) => string;
+  done: string;
+  confirm: (id: string) => string;
+  renderCrashed: string;
+  renderFailedConfig: string;
+  removed: (id: string) => string;
+}
+
+interface PresetCmdStrings {
+  reservedId: string;
+  invalidId: (id: string) => string;
+  alreadyExists: (id: string) => string;
+  created: (id: string) => string;
+  configSet: (id: string) => string;
+  doneEdit: (renderCmd: string) => string;
+  noConfig: (cwd: string, id: string, initCmd: string) => string;
+  doneScaffold: string;
+  stackTemplate: (id: string) => string;
+  skillTemplate: (skillId: string) => string;
 }
 
 interface CmdStrings {
@@ -912,6 +1051,12 @@ interface CmdStrings {
   engine: EngineCmdStrings;
   global: GlobalCmdStrings;
   dominio: DominioCmdStrings;
+  migrations: MigrationsCmdStrings;
+  backup: BackupCmdStrings;
+  ticket: TicketCmdStrings;
+  registry: RegistryCmdStrings;
+  remove: RemoveCmdStrings;
+  preset: PresetCmdStrings;
 }
 
 const CMD_ES: CmdStrings = {
@@ -920,6 +1065,13 @@ const CMD_ES: CmdStrings = {
     noConfig: (path) => `No hay navori.config.json en ${path}. Corre 'navori init' primero.`,
     backupLabel: "Backup:",
     aborted: "Abortado",
+    unknownConfigValues: (list) =>
+      `navori: valores de config desconocidos ignorados (¿config de un navori más nuevo? actualiza el CLI): ${list}`,
+    deadProgressKeys: (list) =>
+      `navori: claves obsoletas ignoradas en "progress" (puedes borrarlas del navori.config.json): ${list}`,
+    userSectionPlaceholder:
+      "<!-- Escribe aquí el dominio y las convenciones específicas de tu repo. " +
+      "navori preserva intacto todo lo que esté entre estos marcadores en cada render. -->",
   },
   render: {
     renderFailed: "El render falló",
@@ -1357,6 +1509,8 @@ const CMD_ES: CmdStrings = {
       "los hooks nuevos con `/hooks`.",
     presetNotFoundCodex: (preset) => `Preset '${preset}' no encontrado; Codex usará solo el core.`,
     presetInvalid: (preset, detail) => `Preset '${preset}' inválido: ${detail}`,
+    agentsMdRedundantWithCodex:
+      "El engine 'agents-md' es redundante junto a 'codex'; Codex será el único dueño de AGENTS.md.",
   },
   global: {
     notInstalled: "El harness global no está instalado. Corre 'navori global init'.",
@@ -1406,6 +1560,160 @@ const CMD_ES: CmdStrings = {
       `## Dominio del workspace '${ws}' — conocimiento canónico transversal a los repos`,
     injectHint:
       "Consulta estas entradas antes de asumir modelo de datos o reglas de negocio; abre el archivo completo cuando necesites el detalle.",
+    indexTitle: (ws) => `# Dominio — workspace: ${ws}`,
+    indexGenerated:
+      "> Generado por `navori dominio reindex` — no editar a mano (edita las entradas `<id>.md`).",
+    indexEmpty:
+      "_(sin entradas todavía — el harness las agrega al descubrir hechos durables y transversales)_",
+    findingUnknownType: (type) => `tipo desconocido '${type}' (se usó 'gotcha' como fallback)`,
+    findingUnknownStatus: (status) =>
+      `estado desconocido '${status}' (se usó 'canonical' como fallback)`,
+    findingMissingTitle: "falta 'title' en el frontmatter",
+    findingSupersedesUnknown: (target) => `supersedes apunta a una entrada inexistente '${target}'`,
+    findingSupersededNoTarget: "estado 'superseded' pero sin objetivo en 'supersedes'",
+    findingIndexMissing: "falta el índice — corre `navori dominio reindex`",
+    findingIndexStale: "índice desactualizado — corre `navori dominio reindex`",
+  },
+  migrations: {
+    listEmpty:
+      "No hay migraciones. Se crean cuando 'init' adopta navori en modo replace (el wizard interactivo) en un repo con infraestructura Claude previa.",
+    total: (total, shown) => `${total} migración(es) en total. Mostrando ${shown}:`,
+    more: (n) => `  ... ${n} más (usa --limit para mostrarlas)`,
+    done: "Listo",
+    notFound: (dir) => `Migración no encontrada: ${dir}`,
+    empty: (dir) => `La migración está vacía: ${dir}`,
+    willRestore: (n, from, to) => `Se restaurarán ${n} archivo(s) de ${from} en ${to}:`,
+    moreFiles: (n) => `  ... ${n} más`,
+    overwriteConfirm:
+      "Los archivos existentes se SOBRESCRIBIRÁN con el snapshot de la migración. ¿Continuar?",
+    restored: (n) => `Restauré ${n} archivo(s)`,
+  },
+  backup: {
+    listEmpty:
+      "No hay backups. Se crean automáticamente antes de cada 'sync' o 'render' que modifica archivos.",
+    total: (total, shown) => `${total} backup(s) en total. Mostrando ${shown}:`,
+    more: (n) => `  ... ${n} más (usa --limit para mostrarlos)`,
+    done: "Listo",
+    ageJustNow: "(recién)",
+    ageMinutes: (n) => `(hace ${n} min)`,
+    ageHours: (n) => `(hace ${n} h)`,
+    ageDays: (n) => `(hace ${n} d)`,
+    notFound: (dir) => `Backup no encontrado: ${dir}`,
+    empty: (dir) => `El backup está vacío: ${dir}`,
+    repoMismatch: (backupRepo, dest) =>
+      `Este backup es del repo '${backupRepo}' pero el destino es '${dest}'. ` +
+      `Verifica que sea el correcto antes de continuar.`,
+    willRestore: (n, from, to) => `Se restaurarán ${n} archivo(s) de ${from} en ${to}:`,
+    overwriteConfirm: "Los archivos existentes se sobrescribirán. ¿Continuar?",
+    restored: (n) => `Restauré ${n} archivo(s)`,
+  },
+  ticket: {
+    listEmpty: (ws) => `No hay tickets. Crea uno con 'navori ticket new ${ws} <id>'.`,
+    archiveBadge: " [archive]",
+    count: (n) => `${n} ticket${n === 1 ? "" : "s"}`,
+    done: "Listo",
+    notFound: (id, ws) =>
+      `El ticket '${id}' no existe en el workspace '${ws}'.\n` +
+      `Créalo con: navori ticket new ${ws} ${id}\n`,
+    contentTitle: "Contenido",
+    noReferences:
+      "Referenciado en: (ningún repo del workspace referencia este ticket en su archivo de sesión)",
+    referencedLabel: "Referenciado en:",
+    invalidId: (id) =>
+      `Id de ticket inválido '${id}'. Usa letras, dígitos, guiones y guiones bajos (debe empezar con alfanumérico).`,
+    titlePrompt: "Título del ticket",
+    cancelled: "Cancelado",
+    wrote: (path) => `Escribí ${path}`,
+    referenceHint: (id) =>
+      `Referéncialo desde el progress/current.md de un repo con:\n  ticket: ${id}`,
+    archived: (path) => `Archivado → ${path}`,
+    unarchived: (path) => `Desarchivado → ${path}`,
+    deleteConfirm: (id, ws) => `¿Borrar permanentemente el ticket '${id}' del workspace '${ws}'?`,
+    deleted: "Borrado",
+  },
+  registry: {
+    lsEmpty: "No hay repos registrados. Arranca con 'navori registry scan <dir>'.",
+    unknownName: "(desconocido)",
+    missingTag: "  faltante",
+    lsSummary: (total, missing) =>
+      `${total} repo(s)${missing > 0 ? ` · ${missing} faltante(s) (corre 'registry prune')` : ""}`,
+    dirNotFound: "(no encontrado)",
+    addedBadge: "+ agregado",
+    knownBadge: "· conocido",
+    doneWord: "Listo",
+    scanSummary: (added, unchanged) => `${added} agregado(s) · ${unchanged} ya registrado(s)`,
+    notNavoriRepo: (path) => `No es un repo navori (sin navori.config.json): ${path}`,
+    registeredVerb: "Registré",
+    alreadyRegisteredVerb: "Ya estaba registrado",
+    removedVerb: "Quité",
+    notInRegistry: (path) => `No está en el registry: ${path}`,
+    nothingToPrune: (kept) => `Nada que limpiar · ${kept} repo(s) registrado(s)`,
+    prunedVerb: "Limpié",
+    pruneSummary: (removed, kept) => `${removed} quitado(s) · ${kept} conservado(s)`,
+  },
+  remove: {
+    engramAlwaysOn: "engram es always-on con navori; no se puede quitar.",
+    notDeclared: (id) => `El plugin '${id}' no está en el config de este repo; nada que quitar.`,
+    done: "Listo",
+    confirm: (id) =>
+      `¿Quitar '${id}'? Se desactiva y se limpian sus bloques, sub-bloques y scripts.`,
+    renderCrashed:
+      "La limpieza falló durante el render — el plugin quedó como enabled:false. Corre 'navori render --apply'.",
+    renderFailedConfig: "El plugin quedó como enabled:false pero el render falló.",
+    removed: (id) => `'${id}' quitado y limpiado.`,
+  },
+  preset: {
+    reservedId: "'custom' es un id reservado (es el baseline sin extras). Elige otro nombre.",
+    invalidId: (id) =>
+      `Id inválido '${id}': usa kebab-case — minúsculas, números y guiones, empezando con alfanumérico.`,
+    alreadyExists: (id) =>
+      `Ya existe .navori/presets/${id}/ — bórralo o usa otro id si quieres regenerarlo.`,
+    created: (id) => `Creado .navori/presets/${id}/`,
+    configSet: (id) => `navori.config.json → preset: ${id}`,
+    doneEdit: (renderCmd) => `Listo. Edita la plantilla y corre ${renderCmd} para materializarla.`,
+    noConfig: (cwd, id, initCmd) =>
+      `No hay navori.config.json en ${cwd}. Corre ${initCmd} y elige el preset '${id}' para activarlo.`,
+    doneScaffold: "Preset local scaffoldeado. Inicializa navori para activarlo.",
+    stackTemplate: (id) =>
+      [
+        `## Stack — ${id}`,
+        "",
+        "> Plantilla generada por `navori preset init`. Edítala: describe el stack,",
+        "> las capas por las que fluye una petición/feature, y las reglas de oro que",
+        "> el código nuevo debe seguir. Este bloque se inyecta en CLAUDE.md.",
+        "",
+        "### Qué es",
+        "",
+        "Describe en 1-2 líneas qué hace este proyecto y sobre qué stack corre.",
+        "",
+        "### Reglas",
+        "",
+        "- Regla de oro 1 (p.ej. validación siempre en el boundary).",
+        "- Regla de oro 2 (p.ej. nada de `console.log`; usa el logger).",
+        "",
+        "Aplica las skills de este preset según la capa que toques.",
+        "",
+      ].join("\n"),
+    skillTemplate: (skillId) =>
+      [
+        "---",
+        `name: ${skillId}`,
+        "description: Skill de ejemplo del preset. Reemplaza esta descripción por cuándo aplicarla (el frontmatter es lo que los agentes leen para descubrirla).",
+        "type: reference",
+        "---",
+        "",
+        `# ${skillId}`,
+        "",
+        "## Cuándo usar este skill",
+        "",
+        "Describe el disparador concreto (qué archivos/capa, qué tarea).",
+        "",
+        "## Patrón",
+        "",
+        "Documenta el patrón con un ejemplo mínimo. Borra este skill o renómbralo",
+        "cuando agregues los reales en `skills/` y los declares en el manifest.",
+        "",
+      ].join("\n"),
   },
 };
 
@@ -1415,6 +1723,13 @@ const CMD_EN: CmdStrings = {
     noConfig: (path) => `No navori.config.json at ${path}. Run 'navori init' first.`,
     backupLabel: "Backup:",
     aborted: "Aborted",
+    unknownConfigValues: (list) =>
+      `navori: unknown config values ignored (config from a newer navori? update the CLI): ${list}`,
+    deadProgressKeys: (list) =>
+      `navori: obsolete keys ignored in "progress" (you can delete them from navori.config.json): ${list}`,
+    userSectionPlaceholder:
+      "<!-- Write your repo's domain and specific conventions here. " +
+      "navori preserves everything between these markers verbatim on every render. -->",
   },
   render: {
     renderFailed: "Render failed",
@@ -1846,6 +2161,8 @@ const CMD_EN: CmdStrings = {
       "the new hooks with `/hooks`.",
     presetNotFoundCodex: (preset) => `Preset '${preset}' not found; Codex will use the core only.`,
     presetInvalid: (preset, detail) => `Preset '${preset}' invalid: ${detail}`,
+    agentsMdRedundantWithCodex:
+      "The 'agents-md' engine is redundant alongside 'codex'; Codex will be the sole owner of AGENTS.md.",
   },
   global: {
     notInstalled: "The global harness isn't installed. Run 'navori global init'.",
@@ -1894,6 +2211,157 @@ const CMD_EN: CmdStrings = {
     injectHeader: (ws) => `## Workspace Dominio for '${ws}' — canonical cross-repo knowledge`,
     injectHint:
       "Consult these entries before assuming a data model or business rule; open the full file when you need the detail.",
+    indexTitle: (ws) => `# Dominio — workspace: ${ws}`,
+    indexGenerated:
+      "> Generated by `navori dominio reindex` — do not edit by hand (edit the `<id>.md` entries).",
+    indexEmpty:
+      "_(no entries yet — the harness adds them as it discovers durable, cross-cutting facts)_",
+    findingUnknownType: (type) => `unknown type '${type}' (fell back to 'gotcha')`,
+    findingUnknownStatus: (status) => `unknown status '${status}' (fell back to 'canonical')`,
+    findingMissingTitle: "missing 'title' in frontmatter",
+    findingSupersedesUnknown: (target) => `supersedes unknown entry '${target}'`,
+    findingSupersededNoTarget: "status 'superseded' but no 'supersedes' target",
+    findingIndexMissing: "index missing — run `navori dominio reindex`",
+    findingIndexStale: "index out of date — run `navori dominio reindex`",
+  },
+  migrations: {
+    listEmpty:
+      "No migrations found. They are created when 'init' adopts navori in replace mode (the interactive wizard) on a repo with existing Claude infrastructure.",
+    total: (total, shown) => `${total} migration(s) total. Showing ${shown}:`,
+    more: (n) => `  ... ${n} more (use --limit to show)`,
+    done: "Done",
+    notFound: (dir) => `Migration not found: ${dir}`,
+    empty: (dir) => `Migration is empty: ${dir}`,
+    willRestore: (n, from, to) => `Will restore ${n} file(s) from ${from} into ${to}:`,
+    moreFiles: (n) => `  ... ${n} more`,
+    overwriteConfirm: "Existing files will be OVERWRITTEN by the migration's snapshot. Proceed?",
+    restored: (n) => `Restored ${n} file(s)`,
+  },
+  backup: {
+    listEmpty:
+      "No backups found. They are created automatically before each 'sync' or 'render' that modifies files.",
+    total: (total, shown) => `${total} backup(s) total. Showing ${shown}:`,
+    more: (n) => `  ... ${n} more (use --limit to show)`,
+    done: "Done",
+    ageJustNow: "(just now)",
+    ageMinutes: (n) => `(${n} min ago)`,
+    ageHours: (n) => `(${n} h ago)`,
+    ageDays: (n) => `(${n} d ago)`,
+    notFound: (dir) => `Backup not found: ${dir}`,
+    empty: (dir) => `Backup is empty: ${dir}`,
+    repoMismatch: (backupRepo, dest) =>
+      `This backup is from repo '${backupRepo}' but the destination is '${dest}'. ` +
+      `Make sure it's the right one before continuing.`,
+    willRestore: (n, from, to) => `Will restore ${n} file(s) from ${from} into ${to}:`,
+    overwriteConfirm: "Existing files will be overwritten. Proceed?",
+    restored: (n) => `Restored ${n} file(s)`,
+  },
+  ticket: {
+    listEmpty: (ws) => `No tickets. Create one with 'navori ticket new ${ws} <id>'.`,
+    archiveBadge: " [archive]",
+    count: (n) => `${n} ticket${n === 1 ? "" : "s"}`,
+    done: "Done",
+    notFound: (id, ws) =>
+      `Ticket '${id}' not found in workspace '${ws}'.\n` +
+      `Create it with: navori ticket new ${ws} ${id}\n`,
+    contentTitle: "Content",
+    noReferences:
+      "Referenced in: (no repo in the workspace references this ticket in its session file)",
+    referencedLabel: "Referenced in:",
+    invalidId: (id) =>
+      `Invalid ticket id '${id}'. Use letters, digits, hyphens, underscores (must start alphanumeric).`,
+    titlePrompt: "Ticket title",
+    cancelled: "Cancelled",
+    wrote: (path) => `Wrote ${path}`,
+    referenceHint: (id) => `Reference it from a repo's progress/current.md with:\n  ticket: ${id}`,
+    archived: (path) => `Archived → ${path}`,
+    unarchived: (path) => `Unarchived → ${path}`,
+    deleteConfirm: (id, ws) => `Permanently delete ticket '${id}' from workspace '${ws}'?`,
+    deleted: "Deleted",
+  },
+  registry: {
+    lsEmpty: "No repos registered. Bootstrap with 'navori registry scan <dir>'.",
+    unknownName: "(unknown)",
+    missingTag: "  missing",
+    lsSummary: (total, missing) =>
+      `${total} repo(s)${missing > 0 ? ` · ${missing} missing (run 'registry prune')` : ""}`,
+    dirNotFound: "(not found)",
+    addedBadge: "+ added",
+    knownBadge: "· known",
+    doneWord: "Done",
+    scanSummary: (added, unchanged) => `${added} added · ${unchanged} already registered`,
+    notNavoriRepo: (path) => `Not a navori repo (no navori.config.json): ${path}`,
+    registeredVerb: "Registered",
+    alreadyRegisteredVerb: "Already registered",
+    removedVerb: "Removed",
+    notInRegistry: (path) => `Not in registry: ${path}`,
+    nothingToPrune: (kept) => `Nothing to prune · ${kept} repo(s) registered`,
+    prunedVerb: "Pruned",
+    pruneSummary: (removed, kept) => `${removed} removed · ${kept} kept`,
+  },
+  remove: {
+    engramAlwaysOn: "engram is always-on with navori; it can't be removed.",
+    notDeclared: (id) => `Plugin '${id}' is not in this repo's config; nothing to remove.`,
+    done: "Done",
+    confirm: (id) =>
+      `Remove '${id}'? It's disabled and its blocks, sub-blocks and scripts are cleaned up.`,
+    renderCrashed:
+      "Cleanup failed during render — the plugin was left as enabled:false. Run 'navori render --apply'.",
+    renderFailedConfig: "The plugin was left as enabled:false but the render failed.",
+    removed: (id) => `'${id}' removed and cleaned up.`,
+  },
+  preset: {
+    reservedId: "'custom' is a reserved id (it's the baseline with no extras). Pick another name.",
+    invalidId: (id) =>
+      `Invalid id '${id}': use kebab-case — lowercase, digits and hyphens, starting alphanumeric.`,
+    alreadyExists: (id) =>
+      `.navori/presets/${id}/ already exists — delete it or use another id to regenerate it.`,
+    created: (id) => `Created .navori/presets/${id}/`,
+    configSet: (id) => `navori.config.json → preset: ${id}`,
+    doneEdit: (renderCmd) => `Done. Edit the template and run ${renderCmd} to materialize it.`,
+    noConfig: (cwd, id, initCmd) =>
+      `No navori.config.json at ${cwd}. Run ${initCmd} and pick preset '${id}' to activate it.`,
+    doneScaffold: "Local preset scaffolded. Initialize navori to activate it.",
+    stackTemplate: (id) =>
+      [
+        `## Stack — ${id}`,
+        "",
+        "> Template generated by `navori preset init`. Edit it: describe the stack,",
+        "> the layers a request/feature flows through, and the golden rules new code",
+        "> must follow. This block is injected into CLAUDE.md.",
+        "",
+        "### What it is",
+        "",
+        "Describe in 1-2 lines what this project does and what stack it runs on.",
+        "",
+        "### Rules",
+        "",
+        "- Golden rule 1 (e.g. always validate at the boundary).",
+        "- Golden rule 2 (e.g. no `console.log`; use the logger).",
+        "",
+        "Apply this preset's skills according to the layer you touch.",
+        "",
+      ].join("\n"),
+    skillTemplate: (skillId) =>
+      [
+        "---",
+        `name: ${skillId}`,
+        "description: Example preset skill. Replace this description with when to apply it (the frontmatter is what agents read to discover it).",
+        "type: reference",
+        "---",
+        "",
+        `# ${skillId}`,
+        "",
+        "## When to use this skill",
+        "",
+        "Describe the concrete trigger (which files/layer, which task).",
+        "",
+        "## Pattern",
+        "",
+        "Document the pattern with a minimal example. Delete this skill or rename it",
+        "when you add the real ones under `skills/` and declare them in the manifest.",
+        "",
+      ].join("\n"),
   },
 };
 

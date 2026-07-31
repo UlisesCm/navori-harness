@@ -6,6 +6,7 @@ import { writeConfig } from "../lib/config.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import { runRender } from "./render.ts";
 import { brand, accent, dim } from "../lib/style.ts";
+import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 
 /** engram ships with navori and can't be removed (always-on invariant, #68). */
 const ENGRAM_ID = "engram";
@@ -39,29 +40,32 @@ export const removeCommand = defineCommand({
     p.intro(brand(`remove ${accent(id)}`));
 
     if (!existsSync(configPath)) {
-      p.cancel(`No navori.config.json at ${configPath}. Run 'navori init' first.`);
+      // No config yet → no language to read; fall back to the default locale.
+      p.cancel(tc(DEFAULT_LANG).common.noConfig(configPath));
       process.exit(1);
     }
     if (id === ENGRAM_ID) {
-      p.cancel("engram es always-on con navori; no se puede quitar.");
+      p.cancel(tc(DEFAULT_LANG).remove.engramAlwaysOn);
       process.exit(1);
     }
 
     const config = readConfigOrExit(configPath);
+    const lang = resolveLang(config.language);
+    const tr = tc(lang).remove;
     const declared = config.plugins?.[id];
     if (!declared) {
-      p.log.info(`Plugin '${id}' no está en el config de este repo; nada que quitar.`);
-      p.outro(dim("Done"));
+      p.log.info(tr.notDeclared(id));
+      p.outro(dim(tr.done));
       return;
     }
 
     if (!args.yes) {
       const ok = await p.confirm({
-        message: `Quitar '${id}'? Se desactiva y se limpian sus bloques, sub-bloques y scripts.`,
+        message: tr.confirm(id),
         initialValue: true,
       });
       if (p.isCancel(ok) || !ok) {
-        p.cancel("Aborted");
+        p.cancel(tc(lang).common.aborted);
         return;
       }
     }
@@ -80,14 +84,16 @@ export const removeCommand = defineCommand({
       result = runRender(cwd, false);
     } catch (err) {
       p.log.error(err instanceof Error ? err.message : String(err));
-      p.outro(
-        "La limpieza falló durante el render — el plugin quedó como enabled:false. Corre 'navori render --apply'.",
-      );
+      p.outro(tr.renderCrashed);
+      // Config was rewritten (enabled:false) but the tree is partial — signal
+      // the failure to CI/scripts instead of exiting 0 (#239 alignment).
+      process.exitCode = 1;
       return;
     }
     if (!result.ok) {
-      p.log.error(result.reason ?? "Render failed");
-      p.outro("El plugin quedó como enabled:false pero el render falló.");
+      p.log.error(result.reason ?? tc(lang).render.renderFailed);
+      p.outro(tr.renderFailedConfig);
+      process.exitCode = 1;
       return;
     }
 
@@ -99,7 +105,7 @@ export const removeCommand = defineCommand({
     raw2.plugins = plugins2;
     writeConfig(configPath, raw2 as Parameters<typeof writeConfig>[1]);
 
-    p.log.success(`'${id}' quitado y limpiado.`);
-    p.outro(dim("Done"));
+    p.log.success(tr.removed(id));
+    p.outro(dim(tr.done));
   },
 });

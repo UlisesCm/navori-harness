@@ -5,54 +5,23 @@ import { join, resolve } from "node:path";
 import { writeFileAtomic } from "../lib/atomic.ts";
 import { readConfig, writeConfig } from "../lib/config.ts";
 import { brand, accent, dim } from "../lib/style.ts";
+import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 
 /** Mirrors PresetDefinitionSchema.id — kebab-case, alphanumeric start. */
 const PRESET_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-/** Placeholder stack context the user fills in; rendered as a managed block. */
-function stackTemplate(id: string): string {
-  return [
-    `## Stack — ${id}`,
-    "",
-    "> Plantilla generada por `navori preset init`. Edítala: describe el stack,",
-    "> las capas por las que fluye una petición/feature, y las reglas de oro que",
-    "> el código nuevo debe seguir. Este bloque se inyecta en CLAUDE.md.",
-    "",
-    "### Qué es",
-    "",
-    "Describe en 1-2 líneas qué hace este proyecto y sobre qué stack corre.",
-    "",
-    "### Reglas",
-    "",
-    "- Regla de oro 1 (p.ej. validación siempre en el boundary).",
-    "- Regla de oro 2 (p.ej. nada de `console.log`; usa el logger).",
-    "",
-    "Aplica las skills de este preset según la capa que toques.",
-    "",
-  ].join("\n");
-}
-
-/** Example skill so the user sees the shape; navori renders it to .claude/skills/. */
-function skillTemplate(skillId: string): string {
-  return [
-    "---",
-    `name: ${skillId}`,
-    `description: Skill de ejemplo del preset. Reemplaza esta descripción por cuándo aplicarla (el frontmatter es lo que los agentes leen para descubrirla).`,
-    "type: reference",
-    "---",
-    "",
-    `# ${skillId}`,
-    "",
-    "## Cuándo usar este skill",
-    "",
-    "Describe el disparador concreto (qué archivos/capa, qué tarea).",
-    "",
-    "## Patrón",
-    "",
-    "Documenta el patrón con un ejemplo mínimo. Borra este skill o renómbralo",
-    "cuando agregues los reales en `skills/` y los declares en el manifest.",
-    "",
-  ].join("\n");
+/**
+ * Locale for preset scaffolding output + templates: the repo's config.language
+ * when a config already exists, else the default. Tolerant of a malformed config
+ * (a broken file shouldn't hard-fail `preset init`).
+ */
+function repoLang(configPath: string): Lang {
+  if (!existsSync(configPath)) return DEFAULT_LANG;
+  try {
+    return resolveLang(readConfig(configPath).language);
+  } catch {
+    return DEFAULT_LANG;
+  }
 }
 
 const initSubCommand = defineCommand({
@@ -67,23 +36,23 @@ const initSubCommand = defineCommand({
   run({ args }) {
     const id = String(args.id);
     const cwd = resolve(args.cwd ?? process.cwd());
+    const configPath = join(cwd, "navori.config.json");
+    const tr = tc(repoLang(configPath)).preset;
 
     p.intro(brand(`preset init ${accent(id)}`));
 
     if (id === "custom") {
-      p.cancel("'custom' es un id reservado (es el baseline sin extras). Elige otro nombre.");
+      p.cancel(tr.reservedId);
       process.exit(1);
     }
     if (!PRESET_ID_RE.test(id)) {
-      p.cancel(
-        `Id inválido '${id}': usa kebab-case — minúsculas, números y guiones, empezando con alfanumérico.`,
-      );
+      p.cancel(tr.invalidId(id));
       process.exit(1);
     }
 
     const presetDir = resolve(cwd, ".navori/presets", id);
     if (existsSync(presetDir)) {
-      p.cancel(`Ya existe .navori/presets/${id}/ — bórralo o usa otro id si quieres regenerarlo.`);
+      p.cancel(tr.alreadyExists(id));
       process.exit(1);
     }
 
@@ -112,10 +81,10 @@ const initSubCommand = defineCommand({
     mkdirSync(join(presetDir, "managed"), { recursive: true });
     mkdirSync(join(presetDir, "skills"), { recursive: true });
     writeFileAtomic(join(presetDir, `${id}.json`), JSON.stringify(manifest, null, 2) + "\n");
-    writeFileAtomic(join(presetDir, "managed", "stack.md"), stackTemplate(id));
-    writeFileAtomic(join(presetDir, "skills", `${skillId}.md`), skillTemplate(skillId));
+    writeFileAtomic(join(presetDir, "managed", "stack.md"), tr.stackTemplate(id));
+    writeFileAtomic(join(presetDir, "skills", `${skillId}.md`), tr.skillTemplate(skillId));
 
-    p.log.success(`Creado .navori/presets/${id}/`);
+    p.log.success(tr.created(id));
     p.log.message(
       [
         `  ${dim("·")} ${id}.json`,
@@ -124,19 +93,14 @@ const initSubCommand = defineCommand({
       ].join("\n"),
     );
 
-    const configPath = join(cwd, "navori.config.json");
     if (existsSync(configPath)) {
       const config = readConfig(configPath);
       writeConfig(configPath, { ...config, preset: id });
-      p.log.success(`navori.config.json → preset: ${accent(id)}`);
-      p.outro(
-        `Listo. Edita la plantilla y corre ${accent("navori render --apply")} para materializarla.`,
-      );
+      p.log.success(tr.configSet(accent(id)));
+      p.outro(tr.doneEdit(accent("navori render --apply")));
     } else {
-      p.log.warn(
-        `No hay navori.config.json en ${cwd}. Corre ${accent("navori init")} y elige el preset '${id}' para activarlo.`,
-      );
-      p.outro("Preset local scaffoldeado. Inicializa navori para activarlo.");
+      p.log.warn(tr.noConfig(cwd, id, accent("navori init")));
+      p.outro(tr.doneScaffold);
     }
   },
 });
