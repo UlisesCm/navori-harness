@@ -97,7 +97,11 @@ describe("scanClaudeHookScripts (#213)", () => {
             },
           ],
           SessionStart: [
-            { hooks: [{ type: "command", command: 'bash "$CLAUDE_PROJECT_DIR/.claude/scripts/ctx.sh"' }] },
+            {
+              hooks: [
+                { type: "command", command: 'bash "$CLAUDE_PROJECT_DIR/.claude/scripts/ctx.sh"' },
+              ],
+            },
           ],
         },
       }),

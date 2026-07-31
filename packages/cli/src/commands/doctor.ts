@@ -293,7 +293,8 @@ export const doctorCommand = defineCommand({
         if (d.kind === "content") {
           return `  ${color.red(sym.conflict)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`hash ${d.expectedHash} ≠ ${d.actualHash}`)}  ${grey(td.driftContentRow(d.source))}`;
         }
-        const suffix = d.kind === "downgrade" ? td.driftDowngradeRow(d.source) : td.driftVersionSuffix(d.source);
+        const suffix =
+          d.kind === "downgrade" ? td.driftDowngradeRow(d.source) : td.driftVersionSuffix(d.source);
         return `  ${color.yellow(sym.update)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`${d.fromVersion} → ${d.toVersion}`)}  ${grey(suffix)}`;
       });
       // One hint per block; escalate by severity of the fix that actually
