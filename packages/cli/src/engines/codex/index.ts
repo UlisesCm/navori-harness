@@ -2,13 +2,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
-import { loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
+import { loadDisabledPlugins, loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { interpolate } from "../../lib/interpolate.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
-import { injectManagedSection } from "../../lib/marker.ts";
+import { injectManagedSection, removeManagedSection } from "../../lib/marker.ts";
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { resolveHarnessPlan, type PlannedAgent } from "../shared/harness-plan.ts";
 import {
@@ -116,10 +116,43 @@ export function renderCodexEngine(
       if (inPending) {
         inPending.content = injected.output;
       } else if (injected.status === "created" || injected.status === "updated") {
-        pending.push({ path: targetAbs, content: injected.output, status: injected.status });
+        pending.push({
+          path: targetAbs,
+          relPath: targetRel,
+          content: injected.output,
+          status: injected.status,
+        });
       }
     }
   }
+
+  // Reconcile DISABLED plugins — mirror of the Claude engine's §8.5 (#80), here
+  // for Codex (#211). A plugin turned off via `navori remove` (phase 1 renders
+  // with `enabled: false` BEFORE phase 2 drops the config key) still has its
+  // injectInto sub-block sitting in `.agents/skills/<id>/SKILL.md`: that file was
+  // only ever touched on the enabled path above, so without this it would orphan
+  // permanently — no future render could see the plugin to clean it. Strip the
+  // sub-block by id while the disabled entry still declares the plugin.
+  for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
+    for (const skill of plugin.skillAssets) {
+      const m = skill.injectInto?.match(SKILL_INJECT_RE);
+      if (!m) continue;
+      const targetRel = `.agents/skills/${m[1]}/SKILL.md`;
+      const targetAbs = join(cwd, targetRel);
+      const inPending = pending.find((p) => p.path === targetAbs);
+      const currentContent =
+        inPending?.content ?? (existsSync(targetAbs) ? readFileSync(targetAbs, "utf-8") : null);
+      if (currentContent === null) continue; // target file gone — nothing to strip
+      const stripped = removeManagedSection(currentContent, skill.id, "html");
+      if (stripped === currentContent) continue; // sub-block not present
+      if (inPending) {
+        inPending.content = stripped;
+      } else {
+        pending.push({ path: targetAbs, relPath: targetRel, content: stripped, status: "updated" });
+      }
+    }
+  }
+
   const { written, backupPath } = commitWrites({
     pending,
     removals,

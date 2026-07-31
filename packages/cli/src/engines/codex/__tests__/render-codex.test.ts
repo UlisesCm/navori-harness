@@ -33,8 +33,18 @@ describe("renderCodexEngine", () => {
     expect(agentsMd).toContain("orchestrat");
     expect(agentsMd).toContain("## Available agents");
     expect(agentsMd).toContain("`spawn_agent`");
-    expect(agentsMd).not.toContain("CLAUDE.md");
+    // #209: the commit-hygiene line stays literal — AGENTS.md is Codex's durable
+    // checked-in guide, so "Never commit … AGENTS.md" would be wrong. Every OTHER
+    // `CLAUDE.md` reference is still retargeted away.
+    expect(agentsMd).toContain("Never commit `.claude/` or `CLAUDE.md`");
+    expect(agentsMd.replaceAll("Never commit `.claude/` or `CLAUDE.md`", "")).not.toContain(
+      "CLAUDE.md",
+    );
     expect(agentsMd).not.toContain(".claude/agents");
+    // #208: ephemeral inter-agent handoffs live in the engine dir, kept apart from
+    // the git-persisted session-state dir (`progress/current.md`).
+    expect(agentsMd).toContain(".codex/progress/");
+    expect(agentsMd).not.toContain(".claude/progress");
     expect(existsSync(join(cwd, ".agents/skills/verify-before-done/SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, ".agents/skills/structural-search/SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, ".codex/agents/implementer.toml"))).toBe(true);

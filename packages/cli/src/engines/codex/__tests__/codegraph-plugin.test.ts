@@ -60,4 +60,32 @@ describe("codegraph plugin — Codex render (skill→skill injectInto parity)", 
     expect(skill).toContain('id="codegraph-search-extension"');
     expect(skill).toContain("Rung -1");
   });
+
+  // #211: disabling codegraph (what `navori remove` does in phase 1, BEFORE it
+  // drops the config key) must strip the injected sub-block from the Codex skill.
+  // Without the disabled-plugin reconciliation the sub-block orphans forever.
+  it("strips the injected sub-block when the plugin is disabled", () => {
+    const cwd = tempRepo();
+    const skillPath = join(cwd, ".agents/skills/structural-search/SKILL.md");
+
+    renderCodexEngine(cwd, config(["codex"]));
+    expect(readFileSync(skillPath, "utf-8")).toContain('id="codegraph-search-extension"');
+
+    // Mirror `navori remove` phase 1: the entry stays declared as disabled.
+    const disabled = NavoriConfigSchema.parse({
+      name: "cg-demo",
+      engines: ["codex"],
+      preset: "custom",
+      branchBase: "main",
+      qualityGate: { fast: "pnpm tsc", full: "pnpm test" },
+      plugins: { codegraph: { enabled: false } },
+    });
+    renderCodexEngine(cwd, disabled);
+
+    const skill = readFileSync(skillPath, "utf-8");
+    expect(skill).not.toContain('id="codegraph-search-extension"');
+    expect(skill).not.toContain("Rung -1");
+    // The host skill itself survives — only the plugin's sub-block is removed.
+    expect(skill).toContain("structural");
+  });
 });
