@@ -195,6 +195,48 @@ describe("injectManagedSection", () => {
     expect(closeCount).toBe(1);
   });
 
+  // #265 — a VALID block plus one stray extra close (the typical hand-edit) must
+  // survive: `slice(-0)` used to mark every open for removal when orphanOpens
+  // was 0, destroying the good block and appending a duplicate.
+  it("keeps a valid block when a stray extra close sits below it (#265)", () => {
+    const valid = injectManagedSection("", "foo", "important user-preserved content\n").output;
+    // The user, editing by hand, left an extra unmatched close further down.
+    const corrupted = `${valid}\nsome prose\n\n<!-- /navori:managed id="foo" -->\n`;
+    const result = injectManagedSection(corrupted, "foo", "important user-preserved content\n");
+    // The good block is untouched (content + hash still match) — never re-created.
+    expect(result.status).toBe("unchanged");
+    // Exactly one open and one close survive — no duplicate appended.
+    const openCount = (result.output.match(/<!-- navori:managed id="foo"/g) ?? []).length;
+    const closeCount = (result.output.match(/<!-- \/navori:managed id="foo" -->/g) ?? []).length;
+    expect(openCount).toBe(1);
+    expect(closeCount).toBe(1);
+    // The user content stays INSIDE the managed region, not stranded as prose.
+    expect(extractManagedContent(result.output, "foo")).toBe("important user-preserved content");
+    // Prose below the block is preserved.
+    expect(result.output).toContain("some prose");
+  });
+
+  // #265 secondary — an orphan close BETWEEN two valid pairs must be the one
+  // removed, not the last close (which belongs to the second pair). The old
+  // "strip closes from the end" logic corrupted the trailing block instead.
+  it("removes the middle orphan close, not a valid trailing one (#265)", () => {
+    const blockA =
+      '<!-- navori:managed id="dup" hash="aaaaaaaa" -->\nbody one\n<!-- /navori:managed id="dup" -->';
+    const blockB =
+      '<!-- navori:managed id="dup" hash="bbbbbbbb" -->\nbody two\n<!-- /navori:managed id="dup" -->';
+    const orphanClose = '<!-- /navori:managed id="dup" -->';
+    const corrupted = `${blockA}\n\n${orphanClose}\n\n${blockB}\n`;
+    const result = injectManagedSection(corrupted, "dup", "body one\n");
+    // Both valid pairs survive: two opens, two closes (the middle orphan gone).
+    const openCount = (result.output.match(/<!-- navori:managed id="dup"/g) ?? []).length;
+    const closeCount = (result.output.match(/<!-- \/navori:managed id="dup" -->/g) ?? []).length;
+    expect(openCount).toBe(2);
+    expect(closeCount).toBe(2);
+    // The trailing block's body was not corrupted by removing its close.
+    expect(result.output).toContain("body two");
+    expect(result.output).toContain("body one");
+  });
+
   it("treats CRLF line endings as equivalent to LF (no phantom conflicts)", () => {
     // First write with LF (the canonical form the CLI uses)
     const first = injectManagedSection("", "x", "## Title\n\n- Item one\n- Item two\n");
@@ -617,6 +659,52 @@ describe("splitUserSection / emitUserSection", () => {
       `Los bloques abren con \`${USER_SECTION_START}\` en su propia línea.\n\n${USER_SECTION_END}\n`;
     const r = splitUserSection(doc);
     expect(r.userBody).toContain(`\`${USER_SECTION_START}\` en su propia línea`);
+  });
+
+  // #285 case 1 — a managed block QUOTED inside a fenced code block in the user
+  // zone must not become the anchor; otherwise splitUserSection swept the real
+  // user zone into `managed` and emit injected a second user-start.
+  it("does not anchor on a managed block quoted inside a fence (#285)", () => {
+    const doc =
+      `${managedDoc(["a"])}\n\n${USER_SECTION_START}\n\n` +
+      "Real notes.\n\n" +
+      "```md\n" +
+      '<!-- navori:managed id="example-doc" hash="h" -->\nexample body\n<!-- /navori:managed id="example-doc" -->\n' +
+      "```\n\n" +
+      `End of our real notes.\n\n${USER_SECTION_END}\n`;
+    const r = splitUserSection(doc);
+    // The real block 'a' anchors the split — the fenced example is not managed.
+    expect(r.managed).toContain('id="a"');
+    expect(r.managed).not.toContain("example body");
+    // The fenced example + surrounding prose land in the user body verbatim.
+    expect(r.userBody).toContain("Real notes.");
+    expect(r.userBody).toContain("example body");
+    expect(r.userBody).toContain("End of our real notes.");
+    // Emit is idempotent: exactly one user-start, and re-splitting recovers it.
+    const emitted = emitUserSection(r.managed, r.userBody);
+    const startCount = (emitted.match(/<!-- navori:user-start -->/g) ?? []).length;
+    expect(startCount).toBe(1);
+    expect(splitUserSection(emitted).userBody).toBe(r.userBody);
+  });
+
+  // #285 case 2 — user-zone marker lines quoted on their OWN line inside a fence
+  // must be kept verbatim; only the real structural markers outside the fence
+  // are stripped. Line-exact filtering used to drop them, losing documentation.
+  it("preserves marker lines quoted inside a fenced code block (#285)", () => {
+    const doc =
+      `${managedDoc(["a"])}\n\n${USER_SECTION_START}\n\n` +
+      "Los marcadores se ven así:\n\n" +
+      "```md\n" +
+      `${USER_SECTION_START}\n${USER_SECTION_END}\n` +
+      "```\n\n" +
+      `${USER_SECTION_END}\n`;
+    const r = splitUserSection(doc);
+    // Both fenced marker lines survive, wrapped in their fence.
+    expect(r.userBody).toContain(`\`\`\`md\n${USER_SECTION_START}\n${USER_SECTION_END}\n\`\`\``);
+    // The REAL structural markers (outside the fence) are gone: only the fenced
+    // user-start line remains.
+    const fencedStarts = r.userBody!.split("\n").filter((l) => l.trim() === USER_SECTION_START);
+    expect(fencedStarts).toHaveLength(1);
   });
 
   it("emitUserSection wraps the body after the managed region", () => {

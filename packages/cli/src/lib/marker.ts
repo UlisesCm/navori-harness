@@ -189,14 +189,14 @@ export interface InjectResult {
  */
 function stripOrphanMarkers(existing: string, id: string, syntax: MarkerSyntax): string {
   const close = closeMarker(id, syntax);
-  // Find every open and close marker for this id
+  // Find every open (with its full length) and close marker for this id.
   const openRegex = new RegExp(
     `${escapeRegex(syntax.openPrefix)}\\s+id="${escapeRegex(id)}"${syntax.attrsAndTerminatorPattern}`,
     "g",
   );
-  const opens: number[] = [];
+  const opens: { index: number; length: number }[] = [];
   for (const m of existing.matchAll(openRegex)) {
-    if (m.index !== undefined) opens.push(m.index);
+    if (m.index !== undefined) opens.push({ index: m.index, length: m[0].length });
   }
   const closes: number[] = [];
   let from = 0;
@@ -207,51 +207,45 @@ function stripOrphanMarkers(existing: string, id: string, syntax: MarkerSyntax):
     from = idx + close.length;
   }
 
-  // The "good" pairs are the first N open/close pairs in document order that
-  // are actually matching (open before close). The rest are orphans.
-  let cleaned = existing;
-  let pairedOpens = 0;
-  let pairedCloses = 0;
+  // Pair opens to closes in document order: each open takes the first close that
+  // comes after it. Whatever stays unpaired — either half — is an orphan.
+  // Tracking the SPECIFIC unpaired indices (not just counting them) matters:
+  //   - an orphan close in the middle (`open close close-orphan open close`) must
+  //     be the one removed, not the last close, which is a valid pair;
+  //   - an orphan count of exactly 0 for one half must never be treated as
+  //     "strip everything" — the `slice(-0)` trap that destroyed a valid block
+  //     when a stray extra close sat below it (#265).
+  const openPaired = new Array<boolean>(opens.length).fill(false);
+  const closePaired = new Array<boolean>(closes.length).fill(false);
   let oi = 0;
   let ci = 0;
   while (oi < opens.length && ci < closes.length) {
-    if (closes[ci]! > opens[oi]!) {
-      pairedOpens++;
-      pairedCloses++;
+    if (closes[ci]! > opens[oi]!.index) {
+      openPaired[oi] = true;
+      closePaired[ci] = true;
       oi++;
       ci++;
     } else {
-      // close before any open — definitely orphan
+      // close before the current open — definitely an orphan close
       ci++;
     }
   }
 
-  const orphanOpens = opens.length - pairedOpens;
-  const orphanCloses = closes.length - pairedCloses;
-  if (orphanOpens === 0 && orphanCloses === 0) return existing;
-
-  // Strip excess closes from the end, then excess opens from the end.
-  // Working backwards keeps earlier indices valid.
-  const allCloses = [...closes].reverse();
-  for (let i = 0; i < orphanCloses; i++) {
-    const idx = allCloses[i]!;
-    cleaned = cleaned.slice(0, idx) + cleaned.slice(idx + close.length);
+  // Collect every orphan span (index + length) and remove them in a single pass
+  // over the ORIGINAL string, highest index first so earlier offsets stay valid.
+  const orphanSpans: { index: number; length: number }[] = [];
+  for (let i = 0; i < opens.length; i++) {
+    if (!openPaired[i]) orphanSpans.push(opens[i]!);
   }
-  // Recompute opens against the cleaned string because closes removal may
-  // have shifted them. The number of opens hasn't changed (we didn't touch
-  // any), but their indices may differ if removed close was before them.
-  // For simplicity: re-find opens in the cleaned string.
-  const openMatchesAfter = [...cleaned.matchAll(openRegex)]
-    .map((m) => m.index ?? -1)
-    .filter((i) => i >= 0);
-  const opensToStrip = openMatchesAfter.slice(-orphanOpens);
-  for (let i = opensToStrip.length - 1; i >= 0; i--) {
-    const idx = opensToStrip[i]!;
-    // Find the full open marker length
-    openRegex.lastIndex = 0;
-    const matchHere = openRegex.exec(cleaned.slice(idx));
-    const len = matchHere?.[0]?.length ?? 0;
-    if (len > 0) cleaned = cleaned.slice(0, idx) + cleaned.slice(idx + len);
+  for (let i = 0; i < closes.length; i++) {
+    if (!closePaired[i]) orphanSpans.push({ index: closes[i]!, length: close.length });
+  }
+  if (orphanSpans.length === 0) return existing;
+
+  orphanSpans.sort((a, b) => b.index - a.index);
+  let cleaned = existing;
+  for (const span of orphanSpans) {
+    cleaned = cleaned.slice(0, span.index) + cleaned.slice(span.index + span.length);
   }
 
   // Collapse triple newlines that may result from marker removal
@@ -427,22 +421,55 @@ interface LocatedBlock {
   closeEnd: number;
 }
 
-/** Enumerate every managed block (any id) in document order, with its bounds. */
+/** Matches a ```` ``` ```` / `~~~` code-fence delimiter line (Markdown fence). */
+const FENCE_LINE_RE = /^\s*(```|~~~)/;
+
+/**
+ * Enumerate every managed block (any id) in document order, with its bounds.
+ *
+ * Code-fence aware: a marker QUOTED inside a ```fenced``` block in the user's
+ * prose (a repo whose docs describe navori's own marker system) is NOT a real
+ * managed block, so it never becomes the anchor `splitUserSection` slices on
+ * (which used to sweep the real user zone into `managed` and inject a duplicate
+ * `user-start`, #285). Fence state is tracked at the PROSE level only: a managed
+ * block's own content is opaque — we jump straight past its close — so a fence
+ * INSIDE managed content (e.g. a skill documenting shell) can never desync the
+ * scan and drop a later real block.
+ */
 function locateManagedBlocks(content: string, syntax: MarkerSyntax): LocatedBlock[] {
   // Match any open marker. The close prefix carries an extra "/" so it never
   // matches here — we only capture opens, then find each one's close.
   const openRegex = new RegExp(
     `${escapeRegex(syntax.openPrefix)}\\s+id="([^"]+)"${syntax.attrsAndTerminatorPattern}`,
-    "g",
   );
   const blocks: LocatedBlock[] = [];
-  for (const m of content.matchAll(openRegex)) {
-    if (m.index === undefined) continue;
+  const lines = content.split("\n");
+  let offset = 0;
+  let inFence = false;
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li]!;
+    const lineStart = offset;
+    offset += line.length + 1; // +1 for the "\n" split removed
+    if (FENCE_LINE_RE.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue; // quoted prose — never a real marker
+    const m = openRegex.exec(line);
+    if (!m || m.index === undefined) continue;
     const id = m[1]!;
+    const openStart = lineStart + m.index;
     const close = closeMarker(id, syntax);
-    const closeStart = content.indexOf(close, m.index + m[0].length);
+    const closeStart = content.indexOf(close, openStart + m[0].length);
     if (closeStart < 0) continue; // orphan open — leave to stripOrphanMarkers
-    blocks.push({ id, openStart: m.index, closeEnd: closeStart + close.length });
+    const closeEnd = closeStart + close.length;
+    blocks.push({ id, openStart, closeEnd });
+    // Managed content is opaque: skip every line through the close marker so its
+    // inner fences never toggle prose-level fence state.
+    while (offset <= closeEnd && li < lines.length - 1) {
+      li++;
+      offset += lines[li]!.length + 1;
+    }
   }
   return blocks;
 }
@@ -566,17 +593,27 @@ export interface UserSectionSplit {
 
 /**
  * Strip the structural user-zone tokens from a raw trailing region and return
- * the real prose. Only LINES that are exactly a marker / placeholder are removed
- * (line-oriented, not substring) so a user who quotes a marker token inside
- * their own prose — very plausible in a repo whose docs describe the marker
- * system — keeps it verbatim. The legacy positional hint (a whole HTML comment)
- * is dropped so it isn't duplicated once the zone is wrapped in real markers.
+ * the real prose. Removal is line-oriented AND code-fence aware:
+ *   - Only LINES that are exactly a marker / placeholder are removed, so a user
+ *     who quotes a marker token as a SUBSTRING inside their own prose keeps it.
+ *   - Lines INSIDE a ```fenced``` code block are kept verbatim even when the
+ *     whole line is a marker — natural in a repo whose docs describe navori's
+ *     own marker system. Without this, a fenced `<!-- navori:user-start -->`
+ *     on its own line was silently dropped (#285).
+ * The legacy positional hint (a whole HTML comment) is dropped so it isn't
+ * duplicated once the zone is wrapped in real markers.
  */
 function extractUserProse(raw: string): string {
   const withoutLegacy = normalize(raw).replace(LEGACY_USER_HINT_RE, "");
+  let inFence = false;
   return withoutLegacy
     .split("\n")
     .filter((line) => {
+      if (FENCE_LINE_RE.test(line)) {
+        inFence = !inFence;
+        return true; // keep the fence delimiter itself
+      }
+      if (inFence) return true; // fenced content survives verbatim
       const t = line.trim();
       return (
         t !== USER_SECTION_START && t !== USER_SECTION_END && !USER_SECTION_PLACEHOLDERS.includes(t)
