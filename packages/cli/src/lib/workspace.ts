@@ -14,6 +14,7 @@ import { writeFileAtomic } from "./atomic.ts";
 import { safeHomedir } from "./home.ts";
 import { withFileLock } from "./lockfile.ts";
 import { NavoriError } from "./errors.ts";
+import { safeRelPath } from "./zod-helpers.ts";
 
 function workspacesRootLazy(): string {
   return join(safeHomedir(), ".navori", "workspaces");
@@ -269,6 +270,13 @@ export function resolveWorkspaceUri(
   if (!match) return null;
   const [, workspaceName = "", relPath = ""] = match;
   if (!workspaceName || !relPath) return null;
+  // `name` and `relPath` come from an external URI. Reject `..`/absolute
+  // components (via `safeRelPath`) so the join can never escape the workspaces
+  // root — a latent path-traversal trap for the first caller that passes
+  // attacker-controlled input (#200).
+  if (!safeRelPath.safeParse(workspaceName).success || !safeRelPath.safeParse(relPath).success) {
+    return null;
+  }
   const dir = workspaceDirectory(workspaceName);
   return { workspaceName, absPath: join(dir, relPath) };
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { WorkspaceConfigSchema } from "../workspace.ts";
+import { WorkspaceConfigSchema, resolveWorkspaceUri } from "../workspace.ts";
 
 describe("WorkspaceConfigSchema — ticketsDir security", () => {
   it("accepts a plain relative dir name", () => {
@@ -57,5 +57,26 @@ describe("WorkspaceConfigSchema — ticketsDir security", () => {
       ticketsDir: "tickets;rm -rf",
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("resolveWorkspaceUri — path traversal (#200)", () => {
+  it("resolves a plain relative path inside the workspace", () => {
+    const r = resolveWorkspaceUri("workspace://bonum/tickets/X.md");
+    expect(r).not.toBeNull();
+    expect(r?.workspaceName).toBe("bonum");
+    expect(r?.absPath.endsWith("/bonum/tickets/X.md")).toBe(true);
+  });
+
+  it("rejects a `..` traversal in the relative path", () => {
+    expect(resolveWorkspaceUri("workspace://bonum/../../etc/passwd")).toBeNull();
+  });
+
+  it("rejects a `..` traversal in the workspace name", () => {
+    expect(resolveWorkspaceUri("workspace://../evil/file.md")).toBeNull();
+  });
+
+  it("returns null for a non-workspace scheme", () => {
+    expect(resolveWorkspaceUri("file:///etc/passwd")).toBeNull();
   });
 });

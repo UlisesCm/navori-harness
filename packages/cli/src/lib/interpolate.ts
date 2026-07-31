@@ -33,6 +33,39 @@ export interface InterpolateOptions {
   omitUnresolvedKeyLines?: boolean;
 }
 
+/**
+ * Sanitize an untrusted `project.*` config value before it lands VERBATIM
+ * inside a managed CLAUDE.md block, which the agents read as trusted navori
+ * doctrine (#198). `navori.config.json` is checked-in and editable via PR, so a
+ * hostile contributor who only edits config could otherwise (a) inject prompt
+ * instructions across a line break, or (b) embed an HTML-comment marker token
+ * (`<!-- navori:managed … -->`) to truncate/corrupt the managed region and
+ * neutralize a security block. We defuse both:
+ *   - collapse every line break to a single space — these fields are one-line
+ *     rule fragments, so a newline can only be a smuggled bullet / instruction;
+ *   - drop HTML-comment delimiters so no managed/user-zone marker can be forged
+ *     inside the value (the bare `navori:managed` text is inert without them —
+ *     marker.ts only recognizes the full HTML-comment form).
+ */
+export function sanitizeProjectValue(value: string): string {
+  return value
+    .replaceAll("<!--", "")
+    .replaceAll("-->", "")
+    .replace(/[\r\n\t ]+/g, " ")
+    .trim();
+}
+
+/** Resolve a path and sanitize it when it is an untrusted `project.*` field. */
+function resolveSanitized(
+  path: string,
+  config: NavoriConfig,
+  extra: Record<string, string>,
+): string | null {
+  const value = resolvePath(path, config, extra);
+  if (value === null) return null;
+  return path.startsWith("project.") ? sanitizeProjectValue(value) : value;
+}
+
 // Optional `shq:` prefix marks a value that must be shell-quoted before it is
 // substituted (see the SHELL-QUOTE MARKER note above). Group 1 = the marker (or
 // undefined), group 2 = the config path.
@@ -62,7 +95,7 @@ function maybeInterpolateLine(
 ): string | null {
   const m = line.match(KEY_LINE_RE);
   if (m) {
-    const resolved = resolvePath(m[2], config, extra);
+    const resolved = resolveSanitized(m[2], config, extra);
     if (resolved === null) return null;
     return `${m[1]}: ${resolved}`;
   }
@@ -75,7 +108,7 @@ function interpolateRaw(
   extra: Record<string, string>,
 ): string {
   return content.replace(PLACEHOLDER_RE, (_match, marker: string | undefined, path: string) => {
-    const value = resolvePath(path, config, extra);
+    const value = resolveSanitized(path, config, extra);
     const resolved = value !== null ? value : placeholderFallback(path);
     // `{{shq:path}}` — shell-quote so untrusted config can't escape its string
     // context in a generated `.sh` file (#197). Quote the fallback too, so an

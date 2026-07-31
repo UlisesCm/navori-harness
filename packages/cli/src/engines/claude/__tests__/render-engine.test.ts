@@ -241,11 +241,14 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     const scriptPath = join(cwd, ".claude/scripts/check-jscpd.sh");
     expect(existsSync(scriptPath)).toBe(true);
     const script = readFileSync(scriptPath, "utf-8");
-    // {{branchBase}} → "main" interpolated
-    expect(script).toContain("git rev-parse --verify main");
+    // {{shq:branchBase}} → base='main' (shell-quoted, #197/#249)
+    expect(script).toContain("base='main'");
+    expect(script).toContain('git rev-parse --verify "$base"');
     expect(script).not.toContain("{{branchBase}}");
-    // {{jscpdThreshold}} → 5 for a non-frontend preset ("custom")
-    expect(script).toContain("--threshold 5");
+    expect(script).not.toContain("{{shq:branchBase}}");
+    // {{shq:jscpdThreshold}} → threshold='5' for a non-frontend preset ("custom")
+    expect(script).toContain("threshold='5'");
+    expect(script).toContain('--threshold "$threshold"');
     expect(script).not.toContain("{{jscpdThreshold}}");
 
     const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
@@ -267,7 +270,7 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     renderClaudeEngine(cwd, cfg);
 
     const script = readFileSync(join(cwd, ".claude/scripts/check-jscpd.sh"), "utf-8");
-    expect(script).toContain("--threshold 10");
+    expect(script).toContain("threshold='10'");
   });
 
   it("renders both jscpd and semgrep scripts when both plugins enabled", () => {

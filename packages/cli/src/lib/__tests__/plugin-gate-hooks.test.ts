@@ -1,9 +1,29 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, symlinkSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import {
+  mkdtempSync,
+  symlinkSync,
+  readFileSync,
+  writeFileSync,
+  chmodSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { getPluginPath } from "../bundled-assets.ts";
+import { interpolate } from "../interpolate.ts";
+import type { NavoriConfig } from "../config.ts";
+
+/**
+ * Render a plugin script exactly as `navori render` does: `interpolate` with a
+ * config (so the `{{shq:branchBase}}` / `{{shq:jscpdThreshold}}` markers get
+ * shell-quoted, #249) plus the `jscpdThreshold` extraVar the engine injects.
+ */
+function renderScript(id: string, rel: string, branchBase = "main"): string {
+  const raw = readFileSync(resolve(getPluginPath(id), rel), "utf-8");
+  const config = { branchBase, preset: "custom" } as unknown as NavoriConfig;
+  return interpolate(raw, config, { extraVars: { jscpdThreshold: "10" } });
+}
 
 /**
  * Gate-detection tests for the plugin PreToolUse(Bash) hooks
@@ -44,13 +64,9 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
 
   /** Render a plugin script into a temp file with placeholders substituted. */
   function installScript(id: string, rel: string): string {
-    const raw = readFileSync(resolve(getPluginPath(id), rel), "utf-8").replace(
-      /\{\{branchBase\}\}/g,
-      "main",
-    );
     const dir = mkdtempSync(join(tmpdir(), `navori-${id}-`));
     const p = join(dir, "hook.sh");
-    writeFileSync(p, raw);
+    writeFileSync(p, renderScript(id, rel));
     chmodSync(p, 0o755);
     return p;
   }
@@ -207,4 +223,50 @@ describe("plugin gate commands — generated tool invocation", () => {
     // The scan invokes the resolved binary, not a bare `jscpd`.
     expect(s).toContain('"$JSCPD_BIN"');
   });
+});
+
+/**
+ * #249 — `branchBase` (and `jscpdThreshold`) flow from `navori.config.json`
+ * (checked-in, editable via PR) into these hooks, which run on every
+ * `git commit`/`push` via PreToolUse(Bash). A hostile value must be an inert
+ * literal, never an injected command. We drive the FULLY-RENDERED script in a
+ * real git repo with the tool faked-present (so execution reaches the
+ * branchBase-consuming lines) and assert the payload never fires.
+ */
+describe.runIf(runsBash)("plugin gate hooks — untrusted branchBase stays inert (#249)", () => {
+  for (const { id, rel } of PLUGINS) {
+    it(`neutralizes a command-substitution payload in branchBase (${id})`, () => {
+      const work = mkdtempSync(join(tmpdir(), `navori-inj-${id}-`));
+      execFileSync("git", ["init", "-q"], { cwd: work });
+
+      // Minimal PATH plus a fake tool binary so the early "installed?" check
+      // passes and we reach the lines that consume `$base` (real semgrep/jscpd
+      // may be absent in CI — irrelevant, we only need the payload to NOT run).
+      const bin = mkdtempSync(join(tmpdir(), `navori-inj-bin-${id}-`));
+      for (const tool of ["bash", "cat", "grep", "sed", "node", "dirname", "git", "mktemp", "rm"]) {
+        symlinkSync(resolveBin(tool), join(bin, tool));
+      }
+      writeFileSync(join(bin, id), "#!/usr/bin/env bash\nexit 0\n");
+      chmodSync(join(bin, id), 0o755);
+
+      // With the bug, `git rev-parse --verify main$(touch pwned)` executes the
+      // substitution and creates the sentinel. The shq: marker keeps it literal.
+      const sentinel = join(work, "pwned");
+      const hostile = `main$(touch ${sentinel})`;
+      const script = join(work, "hook.sh");
+      writeFileSync(script, renderScript(id, rel, hostile));
+      chmodSync(script, 0o755);
+
+      const r = spawnSync("bash", [script], {
+        input: JSON.stringify({ tool_input: { command: "git commit -m x" } }),
+        encoding: "utf-8",
+        cwd: work,
+        env: { PATH: bin },
+      });
+
+      expect(existsSync(sentinel)).toBe(false);
+      // The unknown ref just skips the scan — a clean exit, no crash.
+      expect(r.status).toBe(0);
+    });
+  }
 });
