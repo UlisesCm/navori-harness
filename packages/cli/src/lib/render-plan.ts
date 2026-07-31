@@ -7,7 +7,12 @@ import {
   type InjectResult,
 } from "./marker.ts";
 import { compareSemver } from "./semver.ts";
-import { loadPlugin, PluginNotFoundError, PluginManifestError } from "./plugins.ts";
+import {
+  loadPlugin,
+  PluginNotFoundError,
+  PluginManifestError,
+  RETIRED_PLUGINS,
+} from "./plugins.ts";
 import { getCoreRoot, readCliVersion } from "./bundled-assets.ts";
 import { loadPreset, PresetError } from "./presets.ts";
 import { interpolate } from "./interpolate.ts";
@@ -423,6 +428,27 @@ export function computeRenderPlan(
       plugin = loadPlugin(declaredId);
     } catch (err) {
       if (err instanceof PluginNotFoundError) {
+        // A RETIRED plugin's manifest is gone, so the disabled-plugin strip
+        // branch below (which needs a loaded manifest) can never reach the
+        // managed blocks it left in CLAUDE.md — they'd linger as unremovable
+        // orphans (#271). Prune them here from the known block ids instead, the
+        // same way `REMOVED_LIB_SKILLS` prunes retired library skills, and don't
+        // report the id as a plain "unknown plugin" (doctor gives the hint).
+        const retired = RETIRED_PLUGINS[declaredId];
+        if (retired) {
+          for (const blockId of retired.blockIds) {
+            if (skipIds.has(blockId)) continue;
+            const before = working;
+            working = removeManagedSection(working, blockId);
+            entries.push({
+              asset: { id: blockId, relPath: `@navori/plugin-${declaredId}` },
+              source: declaredId,
+              status: before === working ? "unchanged" : "removed-condition-false",
+              newContent: null,
+            });
+          }
+          continue;
+        }
         missing.push({ id: declaredId, reason: "unknown plugin id" });
       } else if (err instanceof PluginManifestError) {
         missing.push({ id: declaredId, reason: err.message });
