@@ -37,6 +37,8 @@ import {
   type AdapterCtx,
   type PendingRemoval,
   type SkipReason,
+  type SkipStatus,
+  type SkippedFile,
 } from "../shared/execute-plan.ts";
 import { createClaudeAdapter } from "./adapter.ts";
 
@@ -77,7 +79,7 @@ export interface ClaudeEngineResult {
   /** Files written this render (relative to cwd). */
   written: Array<{ path: string; status: RenderStatus }>;
   /** Files navori refused to touch with a human-readable reason. */
-  skipped: Array<{ path: string; reason: string }>;
+  skipped: SkippedFile[];
   /** Informational notes for the CLI to surface. */
   warnings: string[];
   /** Backup dir (or null if nothing changed and no backup was taken). */
@@ -420,7 +422,7 @@ export function renderClaudeEngine(
   const isWorkspace = options.repoRoot != null && resolve(options.repoRoot) !== resolve(cwd);
   // Root the bundled core assets resolve against (vs a local preset's folder).
   const coreAssets = resolve(getCoreRoot(), "core-assets");
-  const skipped: Array<{ path: string; reason: string }> = [];
+  const skipped: SkippedFile[] = [];
   const warnings: string[] = [];
   const pending: Array<{
     path: string;
@@ -1010,7 +1012,7 @@ interface ManagedFilePlanInput {
 
 type ManagedFilePlan =
   | { kind: "noop" }
-  | { kind: "skip"; path: string; reason: string }
+  | { kind: "skip"; path: string; reason: string; status: SkipStatus }
   | { kind: "write"; path: string; content: string; status: RenderStatus };
 
 function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
@@ -1030,6 +1032,7 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
       kind: "skip",
       path: destPath,
       reason: tc(resolveLang(input.config.language)).engine.managedBlockEditedByHand,
+      status: "user-modified-skipped",
     };
   }
   if (result.status === "downgrade-skipped") {
@@ -1039,6 +1042,7 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
       reason: tc(resolveLang(input.config.language)).engine.blockFromNewerNavori(
         result.details?.existingVersion,
       ),
+      status: "downgrade-skipped",
     };
   }
   return { kind: "write", path: destPath, content: result.content, status: result.status };
@@ -1048,12 +1052,12 @@ function applyManagedFilePlan(
   plan: ManagedFilePlan,
   cwd: string,
   pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>,
-  skipped: Array<{ path: string; reason: string }>,
+  skipped: SkippedFile[],
   chmodExec = false,
 ): void {
   if (plan.kind === "noop") return;
   if (plan.kind === "skip") {
-    skipped.push({ path: relative(cwd, plan.path), reason: plan.reason });
+    skipped.push({ path: relative(cwd, plan.path), reason: plan.reason, status: plan.status });
     return;
   }
   pending.push({ path: plan.path, content: plan.content, status: plan.status, chmodExec });
@@ -1106,7 +1110,7 @@ function applySubBlockInject(input: {
   skill: LoadedPlugin["skillAssets"][number];
   config: NavoriConfig;
   pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>;
-  skipped: Array<{ path: string; reason: string }>;
+  skipped: SkippedFile[];
   warnings: string[];
 }): void {
   const targetAbs = join(input.cwd, input.skill.injectInto!);
@@ -1153,6 +1157,7 @@ function applySubBlockInject(input: {
         input.skill.id,
         input.plugin.manifest.id,
       ),
+      status: "user-modified-skipped",
     });
     return;
   }
@@ -1163,6 +1168,7 @@ function applySubBlockInject(input: {
         input.skill.id,
         result.details?.existingVersion,
       ),
+      status: "downgrade-skipped",
     });
     return;
   }

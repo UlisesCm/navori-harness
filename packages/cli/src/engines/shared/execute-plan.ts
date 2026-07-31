@@ -76,8 +76,29 @@ export interface EngineAdapter {
 
 export interface ExecuteResult {
   written: Array<{ path: string; status: RenderStatus | "removed-condition-false" }>;
-  skipped: Array<{ path: string; reason: string }>;
+  skipped: SkippedFile[];
   backupPath: string | null;
+}
+
+/**
+ * Machine-readable skip status. Consumers (e.g. `navori sync` conflict
+ * detection) branch on this stable code instead of parsing the localized
+ * `reason` prose (#241). `user-modified-skipped` = the user hand-edited a
+ * managed block and navori refuses to clobber it (a sync conflict);
+ * `downgrade-skipped` = the block was written by a newer navori than this CLI.
+ */
+export type SkipStatus = "user-modified-skipped" | "downgrade-skipped";
+
+/**
+ * A managed file/block navori chose not to write. `reason` is localized prose
+ * for humans; `status` is the stable code machines branch on. `status` is
+ * optional because some skips (e.g. a settings.json that failed to parse) are
+ * not managed-block skips and carry no such status.
+ */
+export interface SkippedFile {
+  path: string;
+  reason: string;
+  status?: SkipStatus;
 }
 
 export interface PendingWrite {
@@ -161,7 +182,7 @@ export function executePlan(
  * takes one via options; Codex uses this default.
  */
 export type SkipReason = (
-  status: "user-modified-skipped" | "downgrade-skipped",
+  status: SkipStatus,
   destRelPath: string,
   existingVersion: string | undefined,
 ) => string;
@@ -219,6 +240,7 @@ function collectRequest(
     skipped.push({
       path: req.destRelPath,
       reason: skipReason(status, req.destRelPath, existingVersion),
+      status,
     });
     return;
   }

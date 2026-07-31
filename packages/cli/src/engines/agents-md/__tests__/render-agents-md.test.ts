@@ -139,7 +139,11 @@ describe("renderAgentsMdEngine", () => {
 
     const r = renderAgentsMdEngine(cwd, baseConfig({ preset: "nextjs" }));
     expect(r.skipped).toEqual([
-      { path: "AGENTS.md", reason: tc("es").engine.managedBlockEditedByHand },
+      {
+        path: "AGENTS.md",
+        reason: tc("es").engine.managedBlockEditedByHand,
+        status: "user-modified-skipped",
+      },
     ]);
     expect(readFileSync(path, "utf-8")).toContain("## EDITADO A MANO"); // untouched
   });
