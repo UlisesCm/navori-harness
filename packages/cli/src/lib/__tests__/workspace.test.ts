@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { WorkspaceConfigSchema, resolveWorkspaceUri } from "../workspace.ts";
+import {
+  WorkspaceConfigSchema,
+  WorkspaceError,
+  loadWorkspace,
+  resolveWorkspaceUri,
+  workspaceDirectory,
+} from "../workspace.ts";
 
 describe("WorkspaceConfigSchema — ticketsDir security", () => {
   it("accepts a plain relative dir name", () => {
@@ -78,5 +84,27 @@ describe("resolveWorkspaceUri — path traversal (#200)", () => {
 
   it("returns null for a non-workspace scheme", () => {
     expect(resolveWorkspaceUri("file:///etc/passwd")).toBeNull();
+  });
+});
+
+describe("workspaceDirectory / loadWorkspace — path traversal guard (#263)", () => {
+  it("returns a path for a valid kebab-case name", () => {
+    const dir = workspaceDirectory("bonum");
+    expect(dir.endsWith("/workspaces/bonum")).toBe(true);
+  });
+
+  it("throws WorkspaceError for a `..` traversal name (never joins outside the root)", () => {
+    expect(() => workspaceDirectory("../x")).toThrow(WorkspaceError);
+    expect(() => workspaceDirectory("../../../outside/leg")).toThrow(WorkspaceError);
+  });
+
+  it("throws WorkspaceError for a name with a path separator", () => {
+    expect(() => workspaceDirectory("a/b")).toThrow(WorkspaceError);
+  });
+
+  it("loadWorkspace refuses a traversal name before touching disk", () => {
+    // The legacy-layout migration (mkdir/copy/rm) runs first inside loadWorkspace;
+    // the guard must fire before any of that escapes ~/.navori/workspaces/.
+    expect(() => loadWorkspace("../../../outside/leg")).toThrow(WorkspaceError);
   });
 });

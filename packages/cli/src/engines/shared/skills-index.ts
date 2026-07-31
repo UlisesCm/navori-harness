@@ -1,5 +1,6 @@
 import { basename, join } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
+import { sanitizeProjectValue } from "../../lib/interpolate.ts";
 import { loadPreset } from "../../lib/presets.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
 import { readSkillTrigger } from "../../lib/skill-meta.ts";
@@ -52,7 +53,10 @@ export function buildSkillRows(
         if (!extraConditionMet(e, config)) continue;
         const name = basename(e.destRelPath).replace(/\.md$/, "");
         if (listed.has(name)) continue;
-        rows.push(row(name, `preset (\`${config.preset}\`)`, join(loaded!.assetRoot, e.relPath)));
+        // `config.preset` is untrusted config interpolated into this managed row;
+        // sanitize so it can't forge a marker / smuggle a newline (#264).
+        const preset = sanitizeProjectValue(config.preset);
+        rows.push(row(name, `preset (\`${preset}\`)`, join(loaded!.assetRoot, e.relPath)));
         listed.add(name);
       }
     } catch {
@@ -71,7 +75,11 @@ export function buildSkillRows(
     // trigger) would make the managed block depend on filesystem state and drift
     // between checkouts; doctor is where the on-disk existence check belongs.
     if (listed.has(name)) continue;
-    rows.push(`- \`${name}\` — project-local (\`.claude/skills/${name}\`)`);
+    // `localSkills` is untrusted config (`z.array(z.string())`, no regex) landing
+    // verbatim in a managed block — sanitize so a hostile id can't forge a marker
+    // or smuggle a newline into the skills index (#264).
+    const safeName = sanitizeProjectValue(name);
+    rows.push(`- \`${safeName}\` — project-local (\`.claude/skills/${safeName}\`)`);
     listed.add(name);
   }
   return rows;

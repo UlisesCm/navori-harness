@@ -232,23 +232,34 @@ function buildContextoMonorepoBody(
   const t = tc(lang).blocks.monorepo;
   if (isWorkspace) {
     if (!mono) return null;
-    const tool = mono.tool ?? "pnpm";
+    // Every workspace field below is untrusted config (checked-in, editable via
+    // PR) landing VERBATIM inside a trusted managed block — sanitize each so it
+    // can't inject doctrine across a newline or forge an HTML-comment marker that
+    // truncates a neighboring security block (#264). Same defense as
+    // buildContextoProyectoBody (#198). `tool` is enum-constrained but harmless
+    // to sanitize; sanitizing it keeps every interpolated value uniform.
+    const tool = sanitizeProjectValue(mono.tool ?? "pnpm");
+    const currentName = sanitizeProjectValue(mono.currentName);
+    const currentPath = sanitizeProjectValue(mono.currentPath);
     const lines: string[] = [
-      t.workspaceHeading(mono.currentName),
+      t.workspaceHeading(currentName),
       "",
-      t.workspaceIntro(mono.currentName, mono.currentPath, tool),
+      t.workspaceIntro(currentName, currentPath, tool),
       "",
     ];
     if (mono.siblings.length > 0) {
       lines.push(t.siblingsLead);
       for (const s of mono.siblings) {
-        lines.push(`- \`${s.name}\` — \`${s.path}\`${s.preset ? ` (${s.preset})` : ""}`);
+        const name = sanitizeProjectValue(s.name);
+        const path = sanitizeProjectValue(s.path);
+        const preset = s.preset ? sanitizeProjectValue(s.preset) : "";
+        lines.push(`- \`${name}\` — \`${path}\`${preset ? ` (${preset})` : ""}`);
       }
     } else {
       lines.push(t.onlyWorkspace);
     }
     lines.push("");
-    lines.push(t.scopedTaskHint(mono.currentName));
+    lines.push(t.scopedTaskHint(currentName));
     lines.push("");
     return lines.join("\n");
   }
@@ -256,10 +267,15 @@ function buildContextoMonorepoBody(
   // Root render: read the workspace list straight off the config.
   const workspaces = config.monorepo?.workspaces ?? [];
   if (workspaces.length === 0) return null;
-  const tool = config.monorepo?.tool ?? "pnpm";
+  // Sanitize `tool` (untrusted config) before it reaches the managed block
+  // (#264); each workspace's name/path/preset is sanitized in the loop below.
+  const tool = sanitizeProjectValue(config.monorepo?.tool ?? "pnpm");
   const lines: string[] = [t.rootHeading, "", t.rootIntro(tool), "", t.workspacesLead];
   for (const w of workspaces) {
-    lines.push(`- \`${w.name}\` — \`${w.path}\`${w.preset ? ` (${w.preset})` : ""}`);
+    const name = sanitizeProjectValue(w.name);
+    const path = sanitizeProjectValue(w.path);
+    const preset = w.preset ? sanitizeProjectValue(w.preset) : "";
+    lines.push(`- \`${name}\` — \`${path}\`${preset ? ` (${preset})` : ""}`);
   }
   lines.push("");
   return lines.join("\n");
