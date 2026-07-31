@@ -588,7 +588,7 @@ export function renderClaudeEngine(
   // (fresh CLAUDE.md ships the zone + a placeholder so the contract is visible);
   // a managed repo with no domain and no markers stays untouched (no spurious diff).
   if (userBody !== null || hadUserSection || claudeMdExisting.length === 0) {
-    claudeMdContent = emitUserSection(claudeMdContent, userBody);
+    claudeMdContent = emitUserSection(claudeMdContent, userBody, lang);
   } else if (claudeMdContent.length > 0 && !claudeMdContent.endsWith("\n")) {
     // Carving the user zone off left `managed` without the file's trailing
     // newline; with nothing re-emitted, restore it so a no-op render doesn't

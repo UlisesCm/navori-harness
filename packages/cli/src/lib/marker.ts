@@ -625,9 +625,8 @@ export function splitUserSection(
  * regardless of block reordering/insertion. Called at the very end of a render.
  * When `userBody` is null, emits the zone with a placeholder hint (used on a
  * fresh CLAUDE.md so the contract is visible from day one). `lang` localizes
- * that placeholder; it defaults to es so the existing call site keeps compiling
- * until the claude adapter threads `resolveLang(config.language)` (follow-up in
- * engines/claude/index.ts — a different stream's lane).
+ * that placeholder; the claude adapter threads `resolveLang(config.language)`,
+ * and it defaults to es so any other call site keeps compiling.
  */
 export function emitUserSection(
   managed: string,

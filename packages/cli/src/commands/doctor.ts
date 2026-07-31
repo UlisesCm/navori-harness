@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { join, resolve, relative } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
+import { CLAUDE_COMPUTED_BLOCK_IDS } from "../engines/claude/index.ts";
 import { getCoreRoot } from "../lib/bundled-assets.ts";
 import { isDowngrade } from "../lib/semver.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
@@ -109,7 +110,7 @@ export const doctorCommand = defineCommand({
       codexHealth,
     } = verdict;
     const drifts = scanManagedDrift(cwd, config);
-    const orderReport = scanManagedOrder(cwd, config);
+    const orderReport = scanManagedOrder(cwd, config, CLAUDE_COMPUTED_BLOCK_IDS);
     const malformedMarkers = scanMalformedMarkers(cwd, config);
     const missingExternalTools = scanMissingExternalTools(config);
     const missingOptionalTools = scanMissingOptionalTools();
