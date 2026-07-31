@@ -35,7 +35,7 @@ const CorePromptSchema = z.object({
   optional: z.boolean().default(false),
 });
 
-const CorePromptsFileSchema = z.object({
+export const CorePromptsFileSchema = z.object({
   prompts: z.array(CorePromptSchema),
 });
 

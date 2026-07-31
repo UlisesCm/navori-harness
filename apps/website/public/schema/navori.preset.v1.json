@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://navori.dev/schema/navori.preset.v1.json",
+  "title": "navori preset definition",
+  "description": "Stack-specific preset manifest declaring the EXTRA managed assets (managed blocks, agents, skills, hooks) a preset contributes on top of the core baseline.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "extends": {
+      "default": "core",
+      "type": "string",
+      "const": "core"
+    },
+    "extras": {
+      "default": {
+        "managed": [],
+        "agents": [],
+        "skills": [],
+        "hooks": []
+      },
+      "type": "object",
+      "properties": {
+        "managed": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "relPath": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "id",
+              "relPath"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "agents": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "relPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "destRelPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "condition": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "relPath",
+              "destRelPath"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "skills": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "relPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "destRelPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "condition": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "relPath",
+              "destRelPath"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "hooks": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "relPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "destRelPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "condition": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "relPath",
+              "destRelPath"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "managed",
+        "agents",
+        "skills",
+        "hooks"
+      ],
+      "additionalProperties": false
+    },
+    "invariants": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": [
+    "id",
+    "displayName",
+    "extends",
+    "extras",
+    "invariants"
+  ],
+  "additionalProperties": false
+}

@@ -34,6 +34,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "oxlint src",
+    "gen:schemas": "node scripts/gen-schemas.mjs",
     "check:size": "node scripts/check-bundle-size.mjs",
     "prepack": "pnpm build"
   },
