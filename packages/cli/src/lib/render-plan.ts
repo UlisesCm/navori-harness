@@ -21,7 +21,20 @@ export interface CoreManagedAsset {
   id: string;
   relPath: string;
   condition?: string;
-  availableLanguages?: readonly AssetLanguage[];
+  /**
+   * Language the BASE `.md` at `relPath` is authored in. Defaults to `"es"`.
+   * The harness "spine" blocks (orchestration, SDD, session protocol, safe
+   * operations, strong typing) are authored in English — the canonical language
+   * for agent doctrine, same as code — so they declare `"en"`; the identity
+   * blocks (`idioma-rol`, `formato-respuesta`) are Spanish. `resolveAssetPath`
+   * reads this so a repo whose `language` matches the base is served the base
+   * with NO spurious "fell back to Spanish" report, and only a genuine
+   * Spanish-base block served to an `en` repo (no translation on disk) counts as
+   * a fallback — the exact case the warning wording describes (#229). Replaces
+   * the former `availableLanguages`, which was never read and mislabeled the
+   * English spine as `["es"]`.
+   */
+  baseLanguage?: AssetLanguage;
   /**
    * Global blocks that a monorepo WORKSPACE inherits from the root CLAUDE.md
    * (Claude Code loads the parent when working in a subdir). Rendering them
@@ -37,43 +50,43 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
   {
     id: "orquestacion",
     relPath: "core-assets/managed/orquestacion.md",
-    availableLanguages: ["es"],
+    baseLanguage: "en",
     rootOnly: true,
   },
   {
     id: "idioma-rol",
     relPath: "core-assets/managed/idioma-rol.md",
-    availableLanguages: ["es"],
+    baseLanguage: "es",
     rootOnly: true,
   },
   {
     id: "formato-respuesta",
     relPath: "core-assets/managed/formato-respuesta.md",
-    availableLanguages: ["es"],
+    baseLanguage: "es",
     rootOnly: true,
   },
   {
     id: "tipado-fuerte",
     relPath: "core-assets/managed/tipado-fuerte.md",
-    availableLanguages: ["es"],
+    baseLanguage: "en",
     condition: "project.typedLanguage",
   },
   {
     id: "operaciones-seguras",
     relPath: "core-assets/managed/operaciones-seguras.md",
-    availableLanguages: ["es"],
+    baseLanguage: "en",
     rootOnly: true,
   },
   {
     id: "arranque-sesion",
     relPath: "core-assets/managed/arranque-sesion.md",
-    availableLanguages: ["es"],
+    baseLanguage: "en",
     rootOnly: true,
   },
   {
     id: "cierre-sesion",
     relPath: "core-assets/managed/cierre-sesion.md",
-    availableLanguages: ["es"],
+    baseLanguage: "en",
     rootOnly: true,
   },
   // SDD protocol block. Conditional on `sdd.enabled`, which effectiveConfig
@@ -83,7 +96,7 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
   {
     id: "sdd",
     relPath: "core-assets/managed/sdd.md",
-    availableLanguages: ["es"],
+    baseLanguage: "en",
     rootOnly: true,
     condition: "sdd.enabled",
   },
@@ -119,16 +132,28 @@ export function resolveAssetPath(
   language: AssetLanguage = "es",
 ): { path: string; fallback: boolean } {
   const root = getCoreRoot();
-  if (language === "es") {
+  const base = asset.baseLanguage ?? "es";
+  // Requested language IS the base's language → serve the base file verbatim.
+  // No fallback: a `language:"en"` repo asking for an English-authored spine
+  // block gets it directly, and is never (wrongly) told it "fell back to es".
+  if (language === base) {
     return { path: resolve(root, asset.relPath), fallback: false };
   }
+  // A different language was asked for → look for a sibling translation under
+  // `core-assets/managed/<lang>/`. When one exists, serve it (no fallback).
   const langPath = asset.relPath.replace(
     /^core-assets\/managed\//,
     `core-assets/managed/${language}/`,
   );
   const abs = resolve(root, langPath);
   if (existsSync(abs)) return { path: abs, fallback: false };
-  return { path: resolve(root, asset.relPath), fallback: true };
+  // No translation on disk → serve the base. Flag a fallback ONLY when the base
+  // is Spanish (so the served content really is Spanish while the repo asked for
+  // English) — that is exactly what the `langFallback` warning describes. An
+  // English-canonical block served to an `es` repo is a known, deliberate state
+  // (the spine is authored in English, localizing it is future work), so it does
+  // NOT masquerade as a "fell back to Spanish" report (#229).
+  return { path: resolve(root, asset.relPath), fallback: base === "es" };
 }
 
 export type AssetStatus = InjectResult["status"] | "removed-condition-false";
@@ -157,7 +182,7 @@ export interface UpdateAvailable {
  * ships. Before #79 any drift landed in `updatesAvailable` with `toVersion`
  * possibly OLDER than `fromVersion`, which read as a nonsensical "update".
  */
-function classifyVersionDrift(
+export function classifyVersionDrift(
   result: InjectResult,
   id: string,
   source: string,
@@ -471,36 +496,35 @@ export function computeRenderPlan(
 }
 
 /**
- * Ids of the CLAUDE.md managed blocks the claude engine computes and injects
- * AFTER the core/preset/plugin blocks (see engines/claude/index.ts steps 1b–1c).
- * Kept here so the canonical block order is defined in ONE place, shared by the
- * render's reorder pass and doctor's order check.
- */
-const CLAUDE_COMPUTED_BLOCK_IDS = [
-  "skills-index",
-  "agentes-disponibles",
-  "contexto-monorepo",
-  "contexto-proyecto",
-] as const;
-
-/**
  * The canonical order of managed-block ids in CLAUDE.md: core assets (in
- * CORE_MANAGED_ASSETS order) → preset extras → plugin blocks → the computed
- * blocks the claude engine appends. Derived by planning against an EMPTY file
- * so the result is pure emission order, independent of the current file's
- * layout. Ids whose block is conditionally absent (condition false / plugin
- * disabled) are dropped — harmless, since an absent id never matches a block.
+ * CORE_MANAGED_ASSETS order) → preset extras → plugin blocks → whatever
+ * `computedBlockIds` the ENGINE contributes on top. Derived by planning against
+ * an EMPTY file so the result is pure emission order, independent of the current
+ * file's layout. Ids whose block is conditionally absent (condition false /
+ * plugin disabled) are dropped — harmless, since an absent id never matches a
+ * block.
+ *
+ * `computedBlockIds` is an ADAPTER contribution (#228): the core is
+ * engine-agnostic, so it no longer hardcodes the Claude engine's computed block
+ * ids (`skills-index`, `agentes-disponibles`, `contexto-*`). The Claude engine
+ * owns that list and passes it here; callers that don't (e.g. doctor's order
+ * check over a `.claude/CLAUDE.md`) get the core/preset/plugin order, and the
+ * engine's computed blocks — always emitted last — sort to the tail on their
+ * own via `reorderManagedBlocks` (ids absent from the canonical list keep their
+ * relative document order after the known ones). Follow-up: thread the engine's
+ * computed ids through `lib/health.ts` so doctor can also validate the order
+ * AMONG the computed blocks, not just their tail position.
  */
 export function canonicalManagedOrder(
   config: NavoriConfig,
   repoRoot: string,
-  omitRootOnly = false,
+  options: { omitRootOnly?: boolean; computedBlockIds?: readonly string[] } = {},
 ): string[] {
-  const plan = computeRenderPlan("", config, repoRoot, { omitRootOnly });
+  const plan = computeRenderPlan("", config, repoRoot, { omitRootOnly: options.omitRootOnly });
   const ids = plan.entries
     .filter((entry) => entry.newContent !== null)
     .map((entry) => entry.asset.id);
-  return [...ids, ...CLAUDE_COMPUTED_BLOCK_IDS];
+  return [...ids, ...(options.computedBlockIds ?? [])];
 }
 
 /**
