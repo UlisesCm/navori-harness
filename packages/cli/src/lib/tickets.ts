@@ -1,3 +1,28 @@
+/**
+ * Tickets-as-files — the cross-repo unit of work inside a workspace.
+ *
+ * STORAGE DECISION (#234). Tickets live machine-local, under
+ * `~/.navori/workspaces/<name>/tickets/`, NOT versioned in any repo — unlike the
+ * SDD specs and `progress/`, which are committed to each repo and travel with
+ * it (the "filesystem-as-state-machine, anti-telephone-game" doctrine).
+ *
+ * Why they DON'T go in the repo, despite that doctrine:
+ *  - A ticket spans MANY repos in a workspace (that's its whole point:
+ *    coordinating a change across bonum-webapp + bonum-nexus + …). It has no
+ *    single home repo to be committed to; duplicating it into each would fork
+ *    the source of truth. It sits alongside the workspace itself — which is also
+ *    machine-local (see the workspace registry, lib/registry.ts).
+ *  - SDD specs describe ONE repo's intended change and belong in that repo's
+ *    history. A ticket is coordination metadata (title, cross-repo references),
+ *    a layer above the per-repo specs, not a substitute for them.
+ *
+ * Accepted trade-off: a teammate who clones a member repo inherits a dangling
+ * `ticket:` reference in `progress/current.md` — the ticket body isn't on their
+ * machine. `doctor`'s `scanWorkspaceLink` (#76) surfaces that as a warning and
+ * tells them to `navori workspace link`. If shared, travelling ticket state is
+ * needed later, the intended path is a workspace-level sync (git-backed
+ * `~/.navori/workspaces/<name>/`), NOT versioning tickets into each repo.
+ */
 import {
   existsSync,
   readFileSync,

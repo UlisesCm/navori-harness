@@ -100,9 +100,7 @@ export function renderNonClaudeEngines(
         engine: eng,
         written: [],
         skipped: [],
-        warnings: [
-          "El engine 'agents-md' es redundante junto a 'codex'; Codex será el único dueño de AGENTS.md.",
-        ],
+        warnings: [tc(lang).engine.agentsMdRedundantWithCodex],
         backupPath: null,
       });
       continue;

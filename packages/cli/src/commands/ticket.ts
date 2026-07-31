@@ -13,6 +13,16 @@ import {
 } from "../lib/tickets.ts";
 import { loadWorkspace } from "../lib/workspace.ts";
 import { brand, dim, accent, color, sym, kv } from "../lib/style.ts";
+import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
+
+/** Locale for ticket output: the workspace's default language, else the fallback. */
+function wsLang(name: string): Lang {
+  try {
+    return resolveLang(loadWorkspace(name)?.defaults.language);
+  } catch {
+    return resolveLang(undefined);
+  }
+}
 
 function handleTicketError(err: unknown): never {
   if (err instanceof TicketError) {
@@ -44,18 +54,19 @@ const listSubCommand = defineCommand({
       console.log(JSON.stringify(filtered, null, 2));
       return;
     }
+    const tr = tc(wsLang(args.workspace as string)).ticket;
     p.intro(brand(`ticket list ${accent(args.workspace as string)}`));
     if (filtered.length === 0) {
-      p.log.info(`No tickets. Create one with 'navori ticket new ${args.workspace} <id>'.`);
-      p.outro(dim("Done"));
+      p.log.info(tr.listEmpty(args.workspace as string));
+      p.outro(dim(tr.done));
       return;
     }
     const lines = filtered.map((t) => {
-      const badge = t.state === "archive" ? color.magenta(" [archive]") : "";
+      const badge = t.state === "archive" ? color.magenta(tr.archiveBadge) : "";
       return `  ${color.cyan(sym.bullet)} ${accent(t.id)}${badge}  ${t.title}`;
     });
     p.log.message(lines.join("\n"));
-    p.outro(dim(`${filtered.length} ticket${filtered.length === 1 ? "" : "s"}`));
+    p.outro(dim(tr.count(filtered.length)));
   },
 });
 
@@ -76,11 +87,9 @@ const showSubCommand = defineCommand({
     } catch (err) {
       handleTicketError(err);
     }
+    const tr = tc(wsLang(args.workspace as string)).ticket;
     if (!ticket) {
-      process.stderr.write(
-        `Ticket '${args.id}' not found in workspace '${args.workspace}'.\n` +
-          `Create it with: navori ticket new ${args.workspace} ${args.id}\n`,
-      );
+      process.stderr.write(tr.notFound(args.id as string, args.workspace as string));
       process.exit(1);
     }
 
@@ -102,22 +111,18 @@ const showSubCommand = defineCommand({
         ["path", ticket.path],
       ]),
     );
-    p.note(readFileSync(ticket.path, "utf-8"), "Content");
+    p.note(readFileSync(ticket.path, "utf-8"), tr.contentTitle);
 
     if (referencing.length === 0) {
-      p.log.message(
-        dim(
-          "Referenced in: (ningún repo del workspace referencia este ticket en su archivo de sesión)",
-        ),
-      );
+      p.log.message(dim(tr.noReferences));
     } else {
       const refLines = referencing.flatMap((ref) => [
         `  ${color.cyan(sym.bullet)} ${ref.path}`,
         ...ref.matches.map((match) => `      ${dim(">")} ${dim(match)}`),
       ]);
-      p.log.message(`Referenced in:\n${refLines.join("\n")}`);
+      p.log.message(`${tr.referencedLabel}\n${refLines.join("\n")}`);
     }
-    p.outro(dim("Done"));
+    p.outro(dim(tr.done));
   },
 });
 
@@ -132,27 +137,26 @@ const newSubCommand = defineCommand({
     title: { type: "string", description: "Ticket title (default: id)" },
   },
   async run({ args }) {
+    const tr = tc(wsLang(args.workspace as string)).ticket;
     p.intro(brand(`ticket new ${accent(args.id as string)}`));
 
     // Validate the id BEFORE prompting for a title, otherwise the user
     // writes the title only to discover the id is rejected.
     const id = args.id as string;
     if (!/^[A-Za-z0-9][A-Za-z0-9-_]*$/.test(id)) {
-      p.cancel(
-        `Invalid ticket id '${id}'. Use letters, digits, hyphens, underscores (must start alphanumeric).`,
-      );
+      p.cancel(tr.invalidId(id));
       process.exit(1);
     }
 
     let title = args.title;
     if (!title) {
       const value = await p.text({
-        message: "Ticket title",
+        message: tr.titlePrompt,
         placeholder: id,
         defaultValue: id,
       });
       if (p.isCancel(value)) {
-        p.cancel("Cancelled");
+        p.cancel(tr.cancelled);
         process.exit(0);
       }
       title = value as string;
@@ -168,8 +172,8 @@ const newSubCommand = defineCommand({
       }
       throw err;
     }
-    p.log.success(`Wrote ${ticket.path}`);
-    p.outro(`Reference it from a repo's progress/current.md with:\n  ticket: ${args.id}`);
+    p.log.success(tr.wrote(ticket.path));
+    p.outro(tr.referenceHint(args.id as string));
   },
 });
 
@@ -184,10 +188,11 @@ const archiveSubCommand = defineCommand({
   },
   run({ args }) {
     try {
+      const tr = tc(wsLang(args.workspace as string)).ticket;
       const result = archiveTicket(args.workspace as string, args.id as string);
       p.intro(brand(`ticket archive ${accent(args.id as string)}`));
-      p.log.success(`Archived → ${dim(result.path)}`);
-      p.outro(dim("Done"));
+      p.log.success(tr.archived(dim(result.path)));
+      p.outro(dim(tr.done));
     } catch (err) {
       if (err instanceof TicketError) {
         console.error(err.message);
@@ -209,10 +214,11 @@ const unarchiveSubCommand = defineCommand({
   },
   run({ args }) {
     try {
+      const tr = tc(wsLang(args.workspace as string)).ticket;
       const result = unarchiveTicket(args.workspace as string, args.id as string);
       p.intro(brand(`ticket unarchive ${accent(args.id as string)}`));
-      p.log.success(`Unarchived → ${dim(result.path)}`);
-      p.outro(dim("Done"));
+      p.log.success(tr.unarchived(dim(result.path)));
+      p.outro(dim(tr.done));
     } catch (err) {
       if (err instanceof TicketError) {
         console.error(err.message);
@@ -234,20 +240,22 @@ const deleteSubCommand = defineCommand({
     yes: { type: "boolean", description: "Skip confirmation" },
   },
   async run({ args }) {
+    const lang = wsLang(args.workspace as string);
+    const tr = tc(lang).ticket;
     p.intro(brand(`ticket delete ${accent(args.id as string)}`));
     if (!args.yes) {
       const ok = await p.confirm({
-        message: `Permanently delete ticket '${args.id}' from workspace '${args.workspace}'?`,
+        message: tr.deleteConfirm(args.id as string, args.workspace as string),
         initialValue: false,
       });
       if (p.isCancel(ok) || !ok) {
-        p.cancel("Aborted");
+        p.cancel(tc(lang).common.aborted);
         return;
       }
     }
     try {
       deleteTicket(args.workspace as string, args.id as string);
-      p.outro("Deleted");
+      p.outro(tr.deleted);
     } catch (err) {
       if (err instanceof TicketError) {
         p.cancel(err.message);

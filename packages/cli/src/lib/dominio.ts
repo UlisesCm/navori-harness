@@ -8,8 +8,9 @@
  * entries — entries are the source of truth (§5.4), so concurrent writers touch
  * distinct files and the index is regenerated with `reindex`.
  *
- * This module is i18n-free on purpose (like tickets.ts): the command layer owns
- * user-facing strings and the injected context header.
+ * The generated artifact (`DOMINIO.md`) and the `validateDominio` findings are
+ * localized off the workspace language so an es/en workspace gets a consistent
+ * index and warnings (#245); callers pass the resolved `Lang` (default es).
  */
 import { existsSync, readFileSync, readdirSync, statSync, mkdirSync } from "node:fs";
 import { join, sep } from "node:path";
@@ -17,6 +18,7 @@ import { writeFileAtomic } from "./atomic.ts";
 import { workspaceDirectory, listWorkspaces, loadWorkspace, canonicalPath } from "./workspace.ts";
 import { splitFrontmatter, parseFrontmatterFields, getFrontmatterField } from "./frontmatter.ts";
 import { NavoriError } from "./errors.ts";
+import { tc, DEFAULT_LANG, type Lang } from "./i18n.ts";
 
 const DOMINIO_DIRNAME = "dominio";
 const INDEX_NAME = "DOMINIO.md";
@@ -208,17 +210,15 @@ function statusSuffix(entry: DominioEntry): string {
 }
 
 /** Build the derived index markdown (`DOMINIO.md`) from the entries. */
-export function buildIndex(workspaceName: string, entries: DominioEntry[]): string {
-  const lines = [
-    `# Dominio — workspace: ${workspaceName}`,
-    "",
-    "> Generado por `navori dominio reindex` — no editar a mano (edita las entradas `<id>.md`).",
-    "",
-  ];
+export function buildIndex(
+  workspaceName: string,
+  entries: DominioEntry[],
+  lang: Lang = DEFAULT_LANG,
+): string {
+  const d = tc(lang).dominio;
+  const lines = [d.indexTitle(workspaceName), "", d.indexGenerated, ""];
   if (entries.length === 0) {
-    lines.push(
-      "_(sin entradas todavía — el harness las agrega al descubrir hechos durables y transversales)_",
-    );
+    lines.push(d.indexEmpty);
   } else {
     for (const e of entries) {
       const summary = e.summary ? ` — ${e.summary}` : "";
@@ -229,7 +229,10 @@ export function buildIndex(workspaceName: string, entries: DominioEntry[]): stri
 }
 
 /** Ensure the Dominio dir + an index file exist for a workspace. */
-export function ensureDominio(workspaceName: string): {
+export function ensureDominio(
+  workspaceName: string,
+  lang: Lang = DEFAULT_LANG,
+): {
   dir: string;
   indexPath: string;
   created: boolean;
@@ -242,13 +245,16 @@ export function ensureDominio(workspaceName: string): {
   const created = !existsSync(indexPath);
   mkdirSync(dir, { recursive: true });
   if (created) {
-    writeFileAtomic(indexPath, buildIndex(workspaceName, listEntries(workspaceName)));
+    writeFileAtomic(indexPath, buildIndex(workspaceName, listEntries(workspaceName), lang));
   }
   return { dir, indexPath, created };
 }
 
 /** Rebuild the index from the entries. Returns the entry count and index path. */
-export function reindex(workspaceName: string): { count: number; indexPath: string } {
+export function reindex(
+  workspaceName: string,
+  lang: Lang = DEFAULT_LANG,
+): { count: number; indexPath: string } {
   if (!loadWorkspace(workspaceName)) {
     throw new DominioError(`Workspace '${workspaceName}' not found`);
   }
@@ -256,7 +262,7 @@ export function reindex(workspaceName: string): { count: number; indexPath: stri
   const dir = dominioDir(workspaceName);
   mkdirSync(dir, { recursive: true });
   const indexPath = dominioIndexPath(workspaceName);
-  writeFileAtomic(indexPath, buildIndex(workspaceName, entries));
+  writeFileAtomic(indexPath, buildIndex(workspaceName, entries, lang));
   return { count: entries.length, indexPath };
 }
 
@@ -293,7 +299,11 @@ export function resolveWorkspacesForCwd(cwd: string): string[] {
  * duplicate ids, dangling `supersedes` targets, index staleness, and a
  * `canonical` entry that a `superseded` one still claims to replace.
  */
-export function validateDominio(workspaceName: string): DominioFinding[] {
+export function validateDominio(
+  workspaceName: string,
+  lang: Lang = DEFAULT_LANG,
+): DominioFinding[] {
+  const d = tc(lang).dominio;
   const findings: DominioFinding[] = [];
   const dir = dominioDir(workspaceName);
   if (!existsSync(dir)) return findings;
@@ -305,34 +315,33 @@ export function validateDominio(workspaceName: string): DominioFinding[] {
     // Re-read raw enum to catch unknown values coerced away by readEntry.
     const fm = parseFrontmatterFields(splitFrontmatter(safeRead(e.path)).frontmatter);
     if (fm.type && !(DOMINIO_TYPES as readonly string[]).includes(fm.type)) {
-      findings.push({ id: e.id, message: `unknown type '${fm.type}' (fell back to 'gotcha')` });
+      findings.push({ id: e.id, message: d.findingUnknownType(fm.type) });
     }
     if (fm.status && !(DOMINIO_STATUSES as readonly string[]).includes(fm.status)) {
-      findings.push({
-        id: e.id,
-        message: `unknown status '${fm.status}' (fell back to 'canonical')`,
-      });
+      findings.push({ id: e.id, message: d.findingUnknownStatus(fm.status) });
     }
     if (!fm.title) {
-      findings.push({ id: e.id, message: "missing 'title' in frontmatter" });
+      findings.push({ id: e.id, message: d.findingMissingTitle });
     }
     for (const target of e.supersedes) {
       if (!ids.has(target)) {
-        findings.push({ id: e.id, message: `supersedes unknown entry '${target}'` });
+        findings.push({ id: e.id, message: d.findingSupersedesUnknown(target) });
       }
     }
     if (e.status === "superseded" && e.supersedes.length === 0) {
-      findings.push({ id: e.id, message: "status 'superseded' but no 'supersedes' target" });
+      findings.push({ id: e.id, message: d.findingSupersededNoTarget });
     }
   }
 
-  // Index staleness: the on-disk index must equal reindex(entries).
+  // Index staleness: the on-disk index must equal reindex(entries). Compare
+  // against the same locale the index is written in so a language switch is the
+  // only thing that flips staleness, not a hardcoded catalog mismatch.
   const indexPath = dominioIndexPath(workspaceName);
-  const expected = buildIndex(workspaceName, entries);
+  const expected = buildIndex(workspaceName, entries, lang);
   if (!existsSync(indexPath)) {
-    findings.push({ id: INDEX_NAME, message: "index missing — run `navori dominio reindex`" });
+    findings.push({ id: INDEX_NAME, message: d.findingIndexMissing });
   } else if (safeRead(indexPath) !== expected) {
-    findings.push({ id: INDEX_NAME, message: "index out of date — run `navori dominio reindex`" });
+    findings.push({ id: INDEX_NAME, message: d.findingIndexStale });
   }
 
   return findings;

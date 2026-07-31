@@ -161,13 +161,13 @@ describe("init — chooseAdoptionMode (interactive adoption, #7)", () => {
 
   it("no existing infra → 'fresh', asks nothing", async () => {
     const r = await chooseAdoptionMode("/x", makeInfra(false), "app", { lang: "es" });
-    expect(r).toBe("fresh");
+    expect(r).toEqual({ mode: "fresh", pendingRemoval: null });
     expect(p.select).not.toHaveBeenCalled();
   });
 
   it("--yes with existing infra → 'coexist' (never replaces silently)", async () => {
     const r = await chooseAdoptionMode("/x", makeInfra(true), "app", { yes: true, lang: "es" });
-    expect(r).toBe("coexist");
+    expect(r).toEqual({ mode: "coexist", pendingRemoval: null });
     expect(p.select).not.toHaveBeenCalled();
     // --yes still surfaces WHAT it detected, so coexist isn't a black box.
     expect(p.note).toHaveBeenCalledWith(expect.stringContaining("CLAUDE.md"), expect.anything());
@@ -176,14 +176,14 @@ describe("init — chooseAdoptionMode (interactive adoption, #7)", () => {
   it("--yes lists a leftover progress/ dir as the infra that triggered coexist", async () => {
     const infra = { ...makeInfra(false), present: true, progressFiles: 2 };
     const r = await chooseAdoptionMode("/x", infra, "app", { yes: true, lang: "es" });
-    expect(r).toBe("coexist");
+    expect(r).toEqual({ mode: "coexist", pendingRemoval: null });
     expect(p.note).toHaveBeenCalledWith(expect.stringContaining("progress/"), expect.anything());
   });
 
   it("selecting 'coexist' → 'coexist'", async () => {
     queueAnswers("coexist");
     const r = await chooseAdoptionMode("/x", makeInfra(true), "app", { lang: "es" });
-    expect(r).toBe("coexist");
+    expect(r).toEqual({ mode: "coexist", pendingRemoval: null });
   });
 
   it("'replace' but confirm=false → null, touches nothing", async () => {
@@ -200,14 +200,18 @@ describe("init — chooseAdoptionMode (interactive adoption, #7)", () => {
     expect(r).toBeNull();
   });
 
-  it("'replace' + confirm=true → 'replace', backs up and removes the originals", async () => {
+  it("'replace' + confirm=true → backs up but DEFERS removal to the caller (#240)", async () => {
     queueAnswers("replace", true);
 
     const r = await chooseAdoptionMode("/repo", makeInfra(true), "dash", { lang: "es" });
 
-    expect(r).toBe("replace");
+    expect(r).toEqual({
+      mode: "replace",
+      pendingRemoval: expect.objectContaining({ movedPaths: ["CLAUDE.md", ".claude"] }),
+    });
     expect(createMigrationBackup).toHaveBeenCalledWith("/repo", "dash");
-    expect(removeOriginals).toHaveBeenCalledWith("/repo", ["CLAUDE.md", ".claude"]);
+    // The originals are removed by the init flow only after writeConfig, never here.
+    expect(removeOriginals).not.toHaveBeenCalled();
   });
 });
 

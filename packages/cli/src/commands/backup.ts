@@ -4,6 +4,13 @@ import { existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node
 import { join, relative, resolve, dirname } from "node:path";
 import { backupRoot, backupRepoLabel, backupIdRepoLabel } from "../lib/backup.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
+import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
+import { readGlobalConfig } from "../lib/global-config.ts";
+
+/** Language for machine-global backup commands: global config, else default. */
+function globalLang(): Lang {
+  return resolveLang(readGlobalConfig()?.language);
+}
 
 interface BackupEntry {
   timestamp: string;
@@ -68,20 +75,19 @@ const listSubCommand = defineCommand({
       return;
     }
 
+    const tr = tc(globalLang()).backup;
     p.intro(brand("backup list"));
     if (backups.length === 0) {
-      p.log.info(
-        "No backups found. They are created automatically before each 'sync' or 'render' that modifies files.",
-      );
-      p.outro(dim("Done"));
+      p.log.info(tr.listEmpty);
+      p.outro(dim(tr.done));
       return;
     }
 
     const lines: string[] = [];
-    lines.push(dim(`${backups.length} backup(s) total. Showing ${truncated.length}:`));
+    lines.push(dim(tr.total(backups.length, truncated.length)));
     for (const b of truncated) {
       const date = new Date(b.mtimeMs);
-      const ago = dim(humanAge(b.mtimeMs));
+      const ago = dim(humanAge(b.mtimeMs, tr));
       lines.push(
         `  ${color.cyan(sym.bullet)} ${accent(b.timestamp)}  ${dim(date.toISOString())}  ${ago}`,
       );
@@ -90,10 +96,10 @@ const listSubCommand = defineCommand({
       }
     }
     if (backups.length > truncated.length) {
-      lines.push(dim(`  ... ${backups.length - truncated.length} more (use --limit to show)`));
+      lines.push(dim(tr.more(backups.length - truncated.length)));
     }
     p.log.message(lines.join("\n"));
-    p.outro(dim("Done"));
+    p.outro(dim(tr.done));
   },
 });
 
@@ -116,16 +122,18 @@ const restoreSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const backupDir = join(backupRoot(), ts);
 
+    const lang = globalLang();
+    const tr = tc(lang).backup;
     p.intro(brand(`backup restore ${accent(ts)}`));
 
     if (!existsSync(backupDir)) {
-      p.cancel(`Backup not found: ${backupDir}`);
+      p.cancel(tr.notFound(backupDir));
       process.exit(1);
     }
 
     const files = collectFiles(backupDir, backupDir);
     if (files.length === 0) {
-      p.cancel(`Backup is empty: ${backupDir}`);
+      p.cancel(tr.empty(backupDir));
       process.exit(1);
     }
 
@@ -135,22 +143,19 @@ const restoreSubCommand = defineCommand({
     // have renamed the dir, or be restoring intentionally elsewhere).
     const backupRepo = backupIdRepoLabel(ts);
     if (backupRepo && backupRepo !== backupRepoLabel(cwd)) {
-      p.log.warn(
-        `Este backup es del repo '${backupRepo}' pero el destino es '${backupRepoLabel(cwd)}'. ` +
-          `Verifica que sea el correcto antes de continuar.`,
-      );
+      p.log.warn(tr.repoMismatch(backupRepo, backupRepoLabel(cwd)));
     }
 
-    p.log.message(`Will restore ${files.length} file(s) from ${backupDir} into ${cwd}:`);
+    p.log.message(tr.willRestore(files.length, backupDir, cwd));
     for (const f of files) p.log.message(`  · ${f}`);
 
     if (!args.yes) {
       const ok = await p.confirm({
-        message: "Existing files will be overwritten. Proceed?",
+        message: tr.overwriteConfirm,
         initialValue: false,
       });
       if (p.isCancel(ok) || !ok) {
-        p.cancel("Aborted");
+        p.cancel(tc(lang).common.aborted);
         return;
       }
     }
@@ -161,19 +166,19 @@ const restoreSubCommand = defineCommand({
       mkdirSync(dirname(dest), { recursive: true });
       copyFileSync(src, dest);
     }
-    p.outro(`Restored ${files.length} file(s)`);
+    p.outro(tr.restored(files.length));
   },
 });
 
-function humanAge(mtimeMs: number): string {
+function humanAge(mtimeMs: number, tr: ReturnType<typeof tc>["backup"]): string {
   const diffMs = Date.now() - mtimeMs;
   const minutes = Math.floor(diffMs / 60000);
-  if (minutes < 1) return "(just now)";
-  if (minutes < 60) return `(${minutes} min ago)`;
+  if (minutes < 1) return tr.ageJustNow;
+  if (minutes < 60) return tr.ageMinutes(minutes);
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `(${hours} h ago)`;
+  if (hours < 24) return tr.ageHours(hours);
   const days = Math.floor(hours / 24);
-  return `(${days} d ago)`;
+  return tr.ageDays(days);
 }
 
 export const backupCommand = defineCommand({

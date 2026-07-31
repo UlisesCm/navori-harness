@@ -47,8 +47,9 @@ const initSubCommand = defineCommand({
     p.intro(brand("dominio init"));
     const d = tc(resolveLang(undefined)).dominio;
     const ws = resolveTarget(args.workspace, d);
-    const dl = tc(workspaceLang(ws)).dominio;
-    const res = ensureDominio(ws);
+    const lang = workspaceLang(ws);
+    const dl = tc(lang).dominio;
+    const res = ensureDominio(ws, lang);
     p.outro(color.green(res.created ? dl.initDone(res.dir) : dl.initExists(res.dir)));
   },
 });
@@ -110,8 +111,9 @@ const reindexSubCommand = defineCommand({
     p.intro(brand("dominio reindex"));
     const d = tc(resolveLang(undefined)).dominio;
     const ws = resolveTarget(args.workspace, d);
-    const dl = tc(workspaceLang(ws)).dominio;
-    const res = reindex(ws);
+    const lang = workspaceLang(ws);
+    const dl = tc(lang).dominio;
+    const res = reindex(ws, lang);
     p.outro(color.green(dl.reindexDone(res.count, res.indexPath)));
   },
 });
@@ -123,8 +125,9 @@ const doctorSubCommand = defineCommand({
     p.intro(brand("dominio doctor"));
     const d = tc(resolveLang(undefined)).dominio;
     const ws = resolveTarget(args.workspace, d);
-    const dl = tc(workspaceLang(ws)).dominio;
-    const findings = validateDominio(ws);
+    const lang = workspaceLang(ws);
+    const dl = tc(lang).dominio;
+    const findings = validateDominio(ws, lang);
     if (findings.length === 0) {
       p.note(`  ${check(true)} ${dl.doctorClean}`, dl.doctorTitle(ws));
       p.outro(color.green(dl.outroOk));

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { isDowngrade } from "./semver.ts";
+import { tc, SUPPORTED_LANGS, DEFAULT_LANG, type Lang } from "./i18n.ts";
 
 /**
  * Managed-section markers. Two syntaxes are supported:
@@ -539,9 +540,17 @@ export const USER_SECTION_END = "<!-- navori:user-end -->";
  * migration so it isn't duplicated once we wrap the zone in real markers. */
 const LEGACY_USER_HINT_RE = /<!--\s*Zona de proyecto \(no-managed\)[\s\S]*?-->/g;
 
-const USER_SECTION_PLACEHOLDER =
-  "<!-- Escribe aquí el dominio y las convenciones específicas de tu repo. " +
-  "navori preserva intacto todo lo que esté entre estos marcadores en cada render. -->";
+/** The placeholder for a locale — emitted into a fresh CLAUDE.md's user zone. */
+function userSectionPlaceholder(lang: Lang): string {
+  return tc(lang).common.userSectionPlaceholder;
+}
+
+/**
+ * All localized placeholders. `extractUserProse` filters ALL of them (not just
+ * the active locale) so a repo whose language flipped after its CLAUDE.md was
+ * written doesn't preserve the stale placeholder as if it were real user prose.
+ */
+const USER_SECTION_PLACEHOLDERS: readonly string[] = SUPPORTED_LANGS.map(userSectionPlaceholder);
 
 export interface UserSectionSplit {
   /** Document with the user zone removed — safe to run managed inject/reorder on. */
@@ -569,7 +578,11 @@ function extractUserProse(raw: string): string {
     .split("\n")
     .filter((line) => {
       const t = line.trim();
-      return t !== USER_SECTION_START && t !== USER_SECTION_END && t !== USER_SECTION_PLACEHOLDER;
+      return (
+        t !== USER_SECTION_START &&
+        t !== USER_SECTION_END &&
+        !USER_SECTION_PLACEHOLDERS.includes(t)
+      );
     })
     .join("\n")
     .trim();
@@ -613,12 +626,19 @@ export function splitUserSection(
  * managed block, wrapped in explicit markers so the next render preserves it
  * regardless of block reordering/insertion. Called at the very end of a render.
  * When `userBody` is null, emits the zone with a placeholder hint (used on a
- * fresh CLAUDE.md so the contract is visible from day one).
+ * fresh CLAUDE.md so the contract is visible from day one). `lang` localizes
+ * that placeholder; it defaults to es so the existing call site keeps compiling
+ * until the claude adapter threads `resolveLang(config.language)` (follow-up in
+ * engines/claude/index.ts — a different stream's lane).
  */
-export function emitUserSection(managed: string, userBody: string | null): string {
+export function emitUserSection(
+  managed: string,
+  userBody: string | null,
+  lang: Lang = DEFAULT_LANG,
+): string {
   const base = managed.replace(/\s+$/, "");
   const inner =
-    userBody === null || userBody.trim() === "" ? USER_SECTION_PLACEHOLDER : userBody.trim();
+    userBody === null || userBody.trim() === "" ? userSectionPlaceholder(lang) : userBody.trim();
   return `${base}\n\n${USER_SECTION_START}\n\n${inner}\n\n${USER_SECTION_END}\n`;
 }
 
