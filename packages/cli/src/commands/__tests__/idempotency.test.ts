@@ -169,7 +169,7 @@ describe("render idempotency (spec 0003 §3.1.2)", () => {
 
     const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
     expect(agentsMd.match(/<!-- navori:managed id="navori-agents"/g)).toHaveLength(1);
-    expect(agentsMd).toContain("## Available agents");
+    expect(agentsMd).toContain("## Agentes disponibles"); // es is the default language
   });
 
   it("upgrade with trailing user prose: a NEW managed block lands before the prose and stays stable (#77)", () => {

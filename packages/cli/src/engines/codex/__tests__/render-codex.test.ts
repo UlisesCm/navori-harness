@@ -31,7 +31,7 @@ describe("renderCodexEngine", () => {
     expect(result.written.length).toBeGreaterThan(10);
     const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
     expect(agentsMd).toContain("orchestrat");
-    expect(agentsMd).toContain("## Available agents");
+    expect(agentsMd).toContain("## Agentes disponibles"); // es is the default language (#289)
     expect(agentsMd).toContain("`spawn_agent`");
     // #209: the commit-hygiene line stays literal — AGENTS.md is Codex's durable
     // checked-in guide, so "Never commit … AGENTS.md" would be wrong. Every OTHER
@@ -80,6 +80,20 @@ describe("renderCodexEngine", () => {
     expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).not.toContain(
       "sandbox_mode",
     );
+  });
+
+  it("localizes the '## Available agents' heading via config.language (#289)", () => {
+    // Codex shares the Claude engine's localized heading; the descriptions stay
+    // Codex's own (each agent's frontmatter), only the heading is now i18n.
+    const esRepo = tempRepo();
+    renderCodexEngine(esRepo, config());
+    expect(readFileSync(join(esRepo, "AGENTS.md"), "utf-8")).toContain("## Agentes disponibles");
+
+    const enRepo = tempRepo();
+    renderCodexEngine(enRepo, config({ language: "en" }));
+    const enMd = readFileSync(join(enRepo, "AGENTS.md"), "utf-8");
+    expect(enMd).toContain("## Available agents");
+    expect(enMd).not.toContain("## Agentes disponibles");
   });
 
   it("models.codexMap overrides the built-in tier→model map, tier by tier (M3)", () => {

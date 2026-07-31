@@ -266,7 +266,7 @@ describe("CLI e2e — happy paths", () => {
 
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
     expect(claudeMd).toContain('navori:managed id="contexto-proyecto"');
-    expect(claudeMd).toContain("in production"); // posture rule
+    expect(claudeMd).toContain("en producción"); // posture rule (es, the default language)
     expect(claudeMd).toContain("axios -> service -> adapter -> component"); // architecture rule
     expect(claudeMd).toContain("65-79"); // strict rigor rule
     expect(claudeMd).not.toContain("{{"); // no raw placeholders

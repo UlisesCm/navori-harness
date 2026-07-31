@@ -499,6 +499,61 @@ describe("renderClaudeEngine — language-aware baseline (tipado-fuerte)", () =>
   });
 });
 
+describe("renderClaudeEngine — computed blocks respect config.language (#289)", () => {
+  const claudeMd = () => readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+
+  // A config that materializes all four computed blocks at once: skills index
+  // and agents index are always on; the monorepo map needs workspaces; the
+  // project-context block needs at least one project.* rule.
+  const richConfig = (language: "es" | "en"): NavoriConfig =>
+    ({
+      ...CONFIG_FULL,
+      language,
+      monorepo: {
+        enabled: true,
+        tool: "pnpm",
+        workspaces: [{ name: "api", path: "apps/api", preset: "custom" }],
+      },
+      project: { posture: "production", reviewRigor: "strict", testsForNewCode: "always" },
+    }) as unknown as NavoriConfig;
+
+  it("renders the four computed blocks in Spanish when language is es", () => {
+    renderClaudeEngine(cwd, richConfig("es"));
+    const md = claudeMd();
+    expect(md).toContain("## Skills disponibles");
+    expect(md).toContain("Skills que los agentes pueden aplicar");
+    expect(md).toContain("## Agentes disponibles");
+    expect(md).toContain("Subagentes que puedes lanzar");
+    expect(md).toContain("Escribe código y tests para UNA tarea bien acotada.");
+    expect(md).toContain("## Monorepo — root");
+    expect(md).toContain("El código real vive en los workspaces");
+    expect(md).toContain("## Contexto del proyecto");
+    expect(md).toContain("Reglas activas derivadas de tu config");
+    expect(md).toContain("en producción");
+    expect(md).toContain("65-79");
+    // No English leftover from the pre-#289 hardcoded prose.
+    expect(md).not.toContain("## Available agents");
+    expect(md).not.toContain("Active rules derived from your config");
+  });
+
+  it("renders the four computed blocks in English when language is en", () => {
+    renderClaudeEngine(cwd, richConfig("en"));
+    const md = claudeMd();
+    expect(md).toContain("## Available skills");
+    expect(md).toContain("Skills the agents can apply");
+    expect(md).toContain("## Available agents");
+    expect(md).toContain("Subagents you can spawn via the `Agent` tool");
+    expect(md).toContain("Writes code and tests for ONE well-scoped task.");
+    expect(md).toContain("## Monorepo — root");
+    expect(md).toContain("The real code lives in the workspaces");
+    expect(md).toContain("## Project context");
+    expect(md).toContain("Active rules derived from your config");
+    expect(md).toContain("in production");
+    expect(md).not.toContain("## Agentes disponibles");
+    expect(md).not.toContain("Reglas activas derivadas de tu config");
+  });
+});
+
 describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
   const claudeMd = () => readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
 
