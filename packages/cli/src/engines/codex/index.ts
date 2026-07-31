@@ -10,6 +10,7 @@ import { interpolate } from "../../lib/interpolate.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
 import { injectManagedSection, removeManagedSection } from "../../lib/marker.ts";
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
+import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import { resolveHarnessPlan, type PlannedAgent } from "../shared/harness-plan.ts";
 import {
   collectPlan,
@@ -263,15 +264,13 @@ function buildAgentsMdRequest(
     includeOrchestration: true,
     includePluginBlocks: true,
   });
+  // Same localized "## Available agents" prose as the Claude engine (#289), but
+  // without the orchestrator intro — AGENTS.md IS the catalog Codex reads, so it
+  // appends the list bare, matching its prior output. The descriptions here come
+  // from each agent's own frontmatter (collected in placeAgent), not from the
+  // Claude "when to reach for it" map.
   const agentCatalog =
-    agents.length === 0
-      ? ""
-      : [
-          "## Available agents",
-          "",
-          ...agents.map(({ id, description }) => `- \`${id}\` — ${description}`),
-          "",
-        ].join("\n");
+    buildAgentsIndexBlock(resolveLang(ctx.config.language), agents, { withIntro: false }) ?? "";
   const body = adaptHarnessTextForCodex(`${baseBody}\n${agentCatalog}`, ctx.config);
   // Share the universal adapter's managed id so switching from `agents-md` to
   // full Codex upgrades one block in place instead of duplicating guidance.

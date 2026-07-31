@@ -33,6 +33,7 @@ import { tc, resolveLang, type Lang } from "../../lib/i18n.ts";
 import { CORE_AGENTS, extraConditionMet, isAgentEnabled } from "../shared/harness-assets.ts";
 import { resolveHarnessPlan } from "../shared/harness-plan.ts";
 import { buildSkillRows } from "../shared/skills-index.ts";
+import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import {
   collectPlan,
   commitWrites,
@@ -137,72 +138,40 @@ function buildSkillsIndexBody(
   localSkills: readonly string[],
   repoRoot: string,
   coreAssets: string,
+  lang: Lang,
 ): string | null {
   const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills);
   if (rows.length === 0) return null;
+  const t = tc(lang).blocks.skillsIndex;
   // The project-local note only makes sense when the repo actually declares
   // local skills; otherwise it points at a category that isn't present.
-  const localNote =
-    localSkills.length > 0
-      ? [
-          "The `project-local` ones are yours — navori indexes them but never touches their content.",
-        ]
-      : [];
-  return [
-    "## Available skills",
-    "",
-    "Skills the agents can apply; navori's own live in `.claude/skills/<id>/SKILL.md` (a skill you added yourself may be a flat `<id>.md` instead). The `·` note says when to reach for each.",
-    ...localNote,
-    "",
-    ...rows,
-    "",
-  ].join("\n");
+  const localNote = localSkills.length > 0 ? [t.localNote] : [];
+  return [t.heading, "", t.intro, ...localNote, "", ...rows, ""].join("\n");
 }
 
 /** Managed-block id for the agents index injected into CLAUDE.md. */
 const AGENTS_INDEX_ID = "agentes-disponibles";
 
-/** When to reach for each leaf agent, keyed by CORE_AGENTS id. The leader is
- * absent on purpose: the main agent embeds that role, it does not delegate to
- * it (see the "## Role: orchestrator" block). */
-const AGENT_WHEN: Record<string, string> = {
-  implementer: "Writes code and tests for ONE well-scoped task.",
-  reviewer: "Validates a diff against spec and quality (APPROVED / CHANGES_REQUESTED).",
-  researcher:
-    "Answers a concrete question about the repo (does Y happen? what consumes X?) with cited evidence.",
-  explorer: "Maps a broad area or module: structure, entry points, dependencies.",
-  "ticket-audit":
-    "Deeply analyzes a complex ticket (critical bug, migration, multi-layer feature) before decomposing.",
-  "commit-pr-pilot": "Writes Conventional commits and opens the PR after the reviewer's approval.",
-  auditor:
-    "Deep read-only audit (security, performance, SOLID, edge cases); writes a report + prioritized plan to disk.",
-};
-
 /**
  * Build the agents index — the catalog the orchestrator (main agent) reads to
  * know which subagents exist and when to spawn each. Lists only the enabled
  * leaf agents (config.harness[key] !== false); the leader is excluded because
- * the main agent embeds that role rather than delegating to it. Returns null
- * when nothing is enabled so the block is stripped instead of rendered empty.
+ * the main agent embeds that role rather than delegating to it. The prose
+ * (heading, intro, per-agent "when to reach for it") is localized and shared
+ * with Codex via `buildAgentsIndexBlock` (#289). Returns null when nothing is
+ * enabled so the block is stripped instead of rendered empty.
  */
-function buildAgentsIndexBody(config: NavoriConfig): string | null {
-  const rows: string[] = [];
+function buildAgentsIndexBody(config: NavoriConfig, lang: Lang): string | null {
+  const when = tc(lang).blocks.agentsIndex.when;
+  const agents: Array<{ id: string; description: string }> = [];
   for (const agent of CORE_AGENTS) {
     if (agent.id === "leader") continue;
     if (!isAgentEnabled(config, agent.harnessKey)) continue;
-    const when = AGENT_WHEN[agent.id];
-    if (!when) continue;
-    rows.push(`- \`${agent.id}\` — ${when}`);
+    const description = when[agent.id];
+    if (!description) continue;
+    agents.push({ id: agent.id, description });
   }
-  if (rows.length === 0) return null;
-  return [
-    "## Available agents",
-    "",
-    'Subagents you can spawn via the `Agent` tool (you are the orchestrator; see "## Role: orchestrator"). Research and review are read-only → parallelize them freely.',
-    "",
-    ...rows,
-    "",
-  ].join("\n");
+  return buildAgentsIndexBlock(lang, agents, { withIntro: true });
 }
 
 /** Managed sub-block id for the Codex cross-model review advisory in leader.md. */
@@ -258,30 +227,28 @@ function buildContextoMonorepoBody(
   config: NavoriConfig,
   mono: MonorepoRenderContext | undefined,
   isWorkspace: boolean,
+  lang: Lang,
 ): string | null {
+  const t = tc(lang).blocks.monorepo;
   if (isWorkspace) {
     if (!mono) return null;
     const tool = mono.tool ?? "pnpm";
     const lines: string[] = [
-      `## Monorepo — workspace \`${mono.currentName}\``,
+      t.workspaceHeading(mono.currentName),
       "",
-      `You are the **\`${mono.currentName}\`** workspace (\`${mono.currentPath}\`) of a \`${tool}\` monorepo. You have your own harness (this \`CLAUDE.md\` + \`.claude/\`); the root config and cross-cutting files (\`turbo.json\`, \`pnpm-workspace.yaml\`, base tsconfig/eslint) live at the repo root.`,
+      t.workspaceIntro(mono.currentName, mono.currentPath, tool),
       "",
     ];
     if (mono.siblings.length > 0) {
-      lines.push(
-        "Sibling workspaces — don't edit them from here; work on a sibling happens from its own harness:",
-      );
+      lines.push(t.siblingsLead);
       for (const s of mono.siblings) {
         lines.push(`- \`${s.name}\` — \`${s.path}\`${s.preset ? ` (${s.preset})` : ""}`);
       }
     } else {
-      lines.push("For now it's the only declared workspace.");
+      lines.push(t.onlyWorkspace);
     }
     lines.push("");
-    lines.push(
-      `Run scoped tasks with \`--filter=${mono.currentName}\`. Don't import a sibling's code by relative path; consume it as a package (\`workspace:*\`).`,
-    );
+    lines.push(t.scopedTaskHint(mono.currentName));
     lines.push("");
     return lines.join("\n");
   }
@@ -290,13 +257,7 @@ function buildContextoMonorepoBody(
   const workspaces = config.monorepo?.workspaces ?? [];
   if (workspaces.length === 0) return null;
   const tool = config.monorepo?.tool ?? "pnpm";
-  const lines: string[] = [
-    "## Monorepo — root",
-    "",
-    `This repo is a \`${tool}\` monorepo. The real code lives in the workspaces, each with its own harness (\`CLAUDE.md\` + \`.claude/\`). When orchestrating, **route each task to the owning workspace** and work from its \`CLAUDE.md\`, not from here.`,
-    "",
-    "Workspaces:",
-  ];
+  const lines: string[] = [t.rootHeading, "", t.rootIntro(tool), "", t.workspacesLead];
   for (const w of workspaces) {
     lines.push(`- \`${w.name}\` — \`${w.path}\`${w.preset ? ` (${w.preset})` : ""}`);
   }
@@ -310,23 +271,18 @@ function buildContextoMonorepoBody(
  * agents follow — not user-section hints. Returns null when nothing is set so
  * the block is stripped rather than rendered empty.
  */
-function buildContextoProyectoBody(config: NavoriConfig): string | null {
+function buildContextoProyectoBody(config: NavoriConfig, lang: Lang): string | null {
   const proj = config.project ?? {};
+  const t = tc(lang).blocks.projectContext;
   const rows: string[] = [];
 
   const posture = proj.posture as string | undefined;
   if (posture === "greenfield") {
-    rows.push(
-      "- **Stage:** greenfield — favor speed and less ceremony, but the quality gate must still pass.",
-    );
+    rows.push(t.stageGreenfield);
   } else if (posture === "production") {
-    rows.push(
-      "- **Stage:** in production — favor NOT breaking regressions. High-blast-radius changes need human validation before merging.",
-    );
+    rows.push(t.stageProduction);
   } else if (posture === "migration") {
-    rows.push(
-      "- **Stage:** legacy migration — watch legacy↔new compatibility. The reviewer flags CRITICAL when a change reads from one side and writes to the other.",
-    );
+    rows.push(t.stageMigration);
   }
 
   const migrations =
@@ -340,57 +296,40 @@ function buildContextoProyectoBody(config: NavoriConfig): string | null {
     const domain = sanitizeProjectValue(m.domain);
     const preferred = sanitizeProjectValue(m.preferred);
     const legacy = sanitizeProjectValue(m.legacy);
-    rows.push(
-      `- **${domain} (migration):** in new code use \`${preferred}\`. \`${legacy}\` is legacy — don't add it; if you touch a module that uses it, migrate that whole module (don't mix both in the same file). The reviewer flags HIGH any new use of \`${legacy}\`.`,
-    );
+    rows.push(t.migrationRow(domain, preferred, legacy));
   }
 
   const rigor = proj.reviewRigor as string | undefined;
   if (rigor === "strict") {
-    rows.push(
-      "- **Review rigor:** strict — the reviewer blocks APPROVED on confidence 65-79 issues too, not only ≥80.",
-    );
+    rows.push(t.rigorStrict);
   } else if (rigor === "pragmatic") {
-    rows.push(
-      "- **Review rigor:** pragmatic — the reviewer blocks only ≥80 issues; the rest stays as an informative note.",
-    );
+    rows.push(t.rigorPragmatic);
   }
 
   const arch = sanitizeProjectValue((proj.architectureRule as string | undefined) ?? "");
   if (arch) {
-    rows.push(
-      `- **Architecture:** new code MUST follow \`${arch}\`. The reviewer flags deviations as HIGH.`,
-    );
+    rows.push(t.architecture(arch));
   }
 
   const critical = ((proj.criticalAreas as string[] | undefined) ?? [])
     .map((c) => sanitizeProjectValue(c))
     .filter((c) => c !== "");
   if (critical.length > 0) {
-    rows.push(`- **Critical areas** (extra review, severity +1): ${critical.join(", ")}.`);
+    rows.push(t.criticalAreas(critical.join(", ")));
   }
 
   const tests = proj.testsForNewCode as string | undefined;
   if (tests === "always") {
-    rows.push(
-      "- **Tests:** new code MUST ship with tests. The reviewer blocks APPROVED if they're missing.",
-    );
+    rows.push(t.testsAlways);
   } else if (tests === "when-applicable") {
-    rows.push("- **Tests:** require tests for non-trivial logic; optional for simple code.");
+    rows.push(t.testsWhenApplicable);
   } else if (tests === "none") {
-    rows.push("- **Tests:** the repo doesn't require tests for new code.");
+    rows.push(t.testsNone);
   }
 
   if (rows.length === 0) return null;
 
-  return [
-    "## Project context",
-    "",
-    "Active rules derived from your config (`project.*`). They apply to all agents.",
-    "",
-    ...rows,
-    "",
-  ].join("\n");
+  return [t.heading, "", t.intro, "", ...rows, ""].join("\n");
 }
 
 export function renderClaudeEngine(
@@ -472,7 +411,7 @@ export function renderClaudeEngine(
   // when the body comes back empty.
   const localSkills = config.project?.localSkills ?? [];
   let claudeMdContent = claudeMdPlan.next;
-  const skillsIndexBody = buildSkillsIndexBody(config, localSkills, repoRoot, coreAssets);
+  const skillsIndexBody = buildSkillsIndexBody(config, localSkills, repoRoot, coreAssets, lang);
   if (skillsIndexBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -496,7 +435,7 @@ export function renderClaudeEngine(
   // 1b-bis. Agents index — the catalog of leaf subagents the orchestrator (main
   // agent) can spawn, referenced by the "## Rol: orquestador" block. Claude-only
   // (subagents are a Claude Code capability); the agents-md engine drops it.
-  const agentsIndexBody = buildAgentsIndexBody(config);
+  const agentsIndexBody = buildAgentsIndexBody(config, lang);
   if (agentsIndexBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -520,7 +459,7 @@ export function renderClaudeEngine(
   // 1c. Project context — the init questionnaire answers turned into active
   // rules (posture, rigor, architecture, critical areas, tests). Stripped when
   // nothing is set. Replaces the old user-section comment hints.
-  const contextoBody = buildContextoProyectoBody(config);
+  const contextoBody = buildContextoProyectoBody(config, lang);
   if (contextoBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -544,7 +483,12 @@ export function renderClaudeEngine(
   // 1c-bis. Monorepo map. At the root it lists the workspaces so the
   // orchestrator routes work to the owning app; inside a workspace it names the
   // current app + its siblings. Stripped for a non-monorepo repo.
-  const monorepoBody = buildContextoMonorepoBody(config, options.monorepoContext, isWorkspace);
+  const monorepoBody = buildContextoMonorepoBody(
+    config,
+    options.monorepoContext,
+    isWorkspace,
+    lang,
+  );
   if (monorepoBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,

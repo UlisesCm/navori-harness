@@ -710,6 +710,54 @@ interface EngineCmdStrings {
   agentsMdRedundantWithCodex: string;
 }
 
+/**
+ * Static prose for the four computed CLAUDE.md blocks (skills index, agents
+ * index, monorepo map, project context). Before #289 this prose was hardcoded
+ * in English inside the Claude engine builders (and duplicated for the Codex
+ * "## Available agents" heading), so a `language:"es"` repo got Spanish rule
+ * blocks but English computed blocks. The dynamic rows are still assembled in
+ * TS from config; only the fixed sentences/headings live here so both engines
+ * pull the same localized text via `tc(resolveLang(config.language)).blocks.*`.
+ */
+interface BlocksCmdStrings {
+  skillsIndex: {
+    heading: string;
+    intro: string;
+    localNote: string;
+  };
+  agentsIndex: {
+    heading: string;
+    intro: string;
+    /** "When to reach for each agent", keyed by CORE_AGENTS id (leader excluded). */
+    when: Record<string, string>;
+  };
+  monorepo: {
+    workspaceHeading: (name: string) => string;
+    workspaceIntro: (name: string, path: string, tool: string) => string;
+    siblingsLead: string;
+    onlyWorkspace: string;
+    scopedTaskHint: (name: string) => string;
+    rootHeading: string;
+    rootIntro: (tool: string) => string;
+    workspacesLead: string;
+  };
+  projectContext: {
+    heading: string;
+    intro: string;
+    stageGreenfield: string;
+    stageProduction: string;
+    stageMigration: string;
+    migrationRow: (domain: string, preferred: string, legacy: string) => string;
+    rigorStrict: string;
+    rigorPragmatic: string;
+    architecture: (rule: string) => string;
+    criticalAreas: (list: string) => string;
+    testsAlways: string;
+    testsWhenApplicable: string;
+    testsNone: string;
+  };
+}
+
 interface UpdateCmdStrings {
   detectedMigrationSuggestion: (legacy: string, preferred: string) => string;
   manualMigrationOverride: (detail: string) => string;
@@ -1049,6 +1097,7 @@ interface CmdStrings {
   workspace: WorkspaceCmdStrings;
   status: StatusCmdStrings;
   engine: EngineCmdStrings;
+  blocks: BlocksCmdStrings;
   global: GlobalCmdStrings;
   dominio: DominioCmdStrings;
   migrations: MigrationsCmdStrings;
@@ -1511,6 +1560,70 @@ const CMD_ES: CmdStrings = {
     presetInvalid: (preset, detail) => `Preset '${preset}' inválido: ${detail}`,
     agentsMdRedundantWithCodex:
       "El engine 'agents-md' es redundante junto a 'codex'; Codex será el único dueño de AGENTS.md.",
+  },
+  blocks: {
+    skillsIndex: {
+      heading: "## Skills disponibles",
+      intro:
+        "Skills que los agentes pueden aplicar; las propias de navori viven en `.claude/skills/<id>/SKILL.md` (una skill que hayas agregado tú puede ser un `<id>.md` plano). La nota tras el `·` dice cuándo usar cada una.",
+      localNote: "Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido.",
+    },
+    agentsIndex: {
+      heading: "## Agentes disponibles",
+      intro:
+        'Subagentes que puedes lanzar con la herramienta `Agent` (tú eres el orquestador; ve "## Role: orchestrator"). La investigación y la revisión son de solo lectura → paraleliza sin miedo.',
+      when: {
+        implementer: "Escribe código y tests para UNA tarea bien acotada.",
+        reviewer: "Valida un diff contra la spec y la calidad (APPROVED / CHANGES_REQUESTED).",
+        researcher:
+          "Responde una pregunta concreta sobre el repo (¿pasa Y? ¿qué consume X?) con evidencia citada.",
+        explorer: "Mapea un área o módulo amplio: estructura, puntos de entrada, dependencias.",
+        "ticket-audit":
+          "Analiza a fondo un ticket complejo (bug crítico, migración, feature multicapa) antes de descomponerlo.",
+        "commit-pr-pilot":
+          "Escribe commits Conventional y abre el PR tras la aprobación del reviewer.",
+        auditor:
+          "Auditoría profunda de solo lectura (seguridad, rendimiento, SOLID, casos borde); escribe un reporte + plan priorizado en disco.",
+      },
+    },
+    monorepo: {
+      workspaceHeading: (name) => `## Monorepo — workspace \`${name}\``,
+      workspaceIntro: (name, path, tool) =>
+        `Eres el workspace **\`${name}\`** (\`${path}\`) de un monorepo \`${tool}\`. Tienes tu propio harness (este \`CLAUDE.md\` + \`.claude/\`); la config raíz y los archivos transversales (\`turbo.json\`, \`pnpm-workspace.yaml\`, tsconfig/eslint base) viven en la raíz del repo.`,
+      siblingsLead:
+        "Workspaces hermanos — no los edites desde aquí; el trabajo en un hermano se hace desde su propio harness:",
+      onlyWorkspace: "Por ahora es el único workspace declarado.",
+      scopedTaskHint: (name) =>
+        `Corre tareas acotadas con \`--filter=${name}\`. No importes el código de un hermano por ruta relativa; consúmelo como paquete (\`workspace:*\`).`,
+      rootHeading: "## Monorepo — root",
+      rootIntro: (tool) =>
+        `Este repo es un monorepo \`${tool}\`. El código real vive en los workspaces, cada uno con su propio harness (\`CLAUDE.md\` + \`.claude/\`). Al orquestar, **enruta cada tarea al workspace dueño** y trabaja desde su \`CLAUDE.md\`, no desde aquí.`,
+      workspacesLead: "Workspaces:",
+    },
+    projectContext: {
+      heading: "## Contexto del proyecto",
+      intro: "Reglas activas derivadas de tu config (`project.*`). Aplican a todos los agentes.",
+      stageGreenfield:
+        "- **Etapa:** greenfield — favorece velocidad y menos ceremonia, pero el quality gate igual debe pasar.",
+      stageProduction:
+        "- **Etapa:** en producción — favorece NO romper con regresiones. Los cambios de alto radio de impacto necesitan validación humana antes de mergear.",
+      stageMigration:
+        "- **Etapa:** migración legacy — cuida la compatibilidad legacy↔nuevo. El reviewer marca CRITICAL cuando un cambio lee de un lado y escribe en el otro.",
+      migrationRow: (domain, preferred, legacy) =>
+        `- **${domain} (migración):** en código nuevo usa \`${preferred}\`. \`${legacy}\` es legacy — no lo agregues; si tocas un módulo que lo usa, migra ese módulo completo (no mezcles ambos en el mismo archivo). El reviewer marca HIGH cualquier uso nuevo de \`${legacy}\`.`,
+      rigorStrict:
+        "- **Rigor de revisión:** estricto — el reviewer bloquea APPROVED también con issues de confianza 65-79, no solo ≥80.",
+      rigorPragmatic:
+        "- **Rigor de revisión:** pragmático — el reviewer bloquea solo issues ≥80; el resto queda como nota informativa.",
+      architecture: (rule) =>
+        `- **Arquitectura:** el código nuevo DEBE seguir \`${rule}\`. El reviewer marca las desviaciones como HIGH.`,
+      criticalAreas: (list) => `- **Áreas críticas** (revisión extra, severidad +1): ${list}.`,
+      testsAlways:
+        "- **Tests:** el código nuevo DEBE incluir tests. El reviewer bloquea APPROVED si faltan.",
+      testsWhenApplicable:
+        "- **Tests:** exige tests para lógica no trivial; opcionales para código simple.",
+      testsNone: "- **Tests:** el repo no exige tests para código nuevo.",
+    },
   },
   global: {
     notInstalled: "El harness global no está instalado. Corre 'navori global init'.",
@@ -2163,6 +2276,71 @@ const CMD_EN: CmdStrings = {
     presetInvalid: (preset, detail) => `Preset '${preset}' invalid: ${detail}`,
     agentsMdRedundantWithCodex:
       "The 'agents-md' engine is redundant alongside 'codex'; Codex will be the sole owner of AGENTS.md.",
+  },
+  blocks: {
+    skillsIndex: {
+      heading: "## Available skills",
+      intro:
+        "Skills the agents can apply; navori's own live in `.claude/skills/<id>/SKILL.md` (a skill you added yourself may be a flat `<id>.md` instead). The `·` note says when to reach for each.",
+      localNote:
+        "The `project-local` ones are yours — navori indexes them but never touches their content.",
+    },
+    agentsIndex: {
+      heading: "## Available agents",
+      intro:
+        'Subagents you can spawn via the `Agent` tool (you are the orchestrator; see "## Role: orchestrator"). Research and review are read-only → parallelize them freely.',
+      when: {
+        implementer: "Writes code and tests for ONE well-scoped task.",
+        reviewer: "Validates a diff against spec and quality (APPROVED / CHANGES_REQUESTED).",
+        researcher:
+          "Answers a concrete question about the repo (does Y happen? what consumes X?) with cited evidence.",
+        explorer: "Maps a broad area or module: structure, entry points, dependencies.",
+        "ticket-audit":
+          "Deeply analyzes a complex ticket (critical bug, migration, multi-layer feature) before decomposing.",
+        "commit-pr-pilot":
+          "Writes Conventional commits and opens the PR after the reviewer's approval.",
+        auditor:
+          "Deep read-only audit (security, performance, SOLID, edge cases); writes a report + prioritized plan to disk.",
+      },
+    },
+    monorepo: {
+      workspaceHeading: (name) => `## Monorepo — workspace \`${name}\``,
+      workspaceIntro: (name, path, tool) =>
+        `You are the **\`${name}\`** workspace (\`${path}\`) of a \`${tool}\` monorepo. You have your own harness (this \`CLAUDE.md\` + \`.claude/\`); the root config and cross-cutting files (\`turbo.json\`, \`pnpm-workspace.yaml\`, base tsconfig/eslint) live at the repo root.`,
+      siblingsLead:
+        "Sibling workspaces — don't edit them from here; work on a sibling happens from its own harness:",
+      onlyWorkspace: "For now it's the only declared workspace.",
+      scopedTaskHint: (name) =>
+        `Run scoped tasks with \`--filter=${name}\`. Don't import a sibling's code by relative path; consume it as a package (\`workspace:*\`).`,
+      rootHeading: "## Monorepo — root",
+      rootIntro: (tool) =>
+        `This repo is a \`${tool}\` monorepo. The real code lives in the workspaces, each with its own harness (\`CLAUDE.md\` + \`.claude/\`). When orchestrating, **route each task to the owning workspace** and work from its \`CLAUDE.md\`, not from here.`,
+      workspacesLead: "Workspaces:",
+    },
+    projectContext: {
+      heading: "## Project context",
+      intro: "Active rules derived from your config (`project.*`). They apply to all agents.",
+      stageGreenfield:
+        "- **Stage:** greenfield — favor speed and less ceremony, but the quality gate must still pass.",
+      stageProduction:
+        "- **Stage:** in production — favor NOT breaking regressions. High-blast-radius changes need human validation before merging.",
+      stageMigration:
+        "- **Stage:** legacy migration — watch legacy↔new compatibility. The reviewer flags CRITICAL when a change reads from one side and writes to the other.",
+      migrationRow: (domain, preferred, legacy) =>
+        `- **${domain} (migration):** in new code use \`${preferred}\`. \`${legacy}\` is legacy — don't add it; if you touch a module that uses it, migrate that whole module (don't mix both in the same file). The reviewer flags HIGH any new use of \`${legacy}\`.`,
+      rigorStrict:
+        "- **Review rigor:** strict — the reviewer blocks APPROVED on confidence 65-79 issues too, not only ≥80.",
+      rigorPragmatic:
+        "- **Review rigor:** pragmatic — the reviewer blocks only ≥80 issues; the rest stays as an informative note.",
+      architecture: (rule) =>
+        `- **Architecture:** new code MUST follow \`${rule}\`. The reviewer flags deviations as HIGH.`,
+      criticalAreas: (list) => `- **Critical areas** (extra review, severity +1): ${list}.`,
+      testsAlways:
+        "- **Tests:** new code MUST ship with tests. The reviewer blocks APPROVED if they're missing.",
+      testsWhenApplicable:
+        "- **Tests:** require tests for non-trivial logic; optional for simple code.",
+      testsNone: "- **Tests:** the repo doesn't require tests for new code.",
+    },
   },
   global: {
     notInstalled: "The global harness isn't installed. Run 'navori global init'.",
