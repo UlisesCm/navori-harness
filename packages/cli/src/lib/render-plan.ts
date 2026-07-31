@@ -511,9 +511,9 @@ export function computeRenderPlan(
  * check over a `.claude/CLAUDE.md`) get the core/preset/plugin order, and the
  * engine's computed blocks — always emitted last — sort to the tail on their
  * own via `reorderManagedBlocks` (ids absent from the canonical list keep their
- * relative document order after the known ones). Follow-up: thread the engine's
- * computed ids through `lib/health.ts` so doctor can also validate the order
- * AMONG the computed blocks, not just their tail position.
+ * relative document order after the known ones). `doctor` DOES pass the engine's
+ * computed ids (via `scanManagedOrder`), so its order check also validates the
+ * order AMONG the computed blocks, not just their tail position (#228).
  */
 export function canonicalManagedOrder(
   config: NavoriConfig,

@@ -407,27 +407,42 @@ export interface OrderReport {
  * render, so reporting one location — enough to prompt `render` — keeps the
  * single-report contract `doctor`/`status` display expects (#235).
  */
-export function scanManagedOrder(cwd: string, config: NavoriConfig): OrderReport | null {
-  const root = orderReportAt(cwd, config);
+export function scanManagedOrder(
+  cwd: string,
+  config: NavoriConfig,
+  computedBlockIds?: readonly string[],
+): OrderReport | null {
+  const root = orderReportAt(cwd, config, computedBlockIds);
   if (root) return root;
   for (const ws of config.monorepo?.workspaces ?? []) {
     const wsCwd = join(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
-    const report = orderReportAt(wsCwd, effectiveConfigForWorkspace(config, ws));
+    const report = orderReportAt(wsCwd, effectiveConfigForWorkspace(config, ws), computedBlockIds);
     if (report) return { ...report, workspacePath: ws.path };
   }
   return null;
 }
 
-/** Order check for the CLAUDE.md directly under `cwd` (no workspace recursion). */
-function orderReportAt(cwd: string, config: NavoriConfig): OrderReport | null {
+/**
+ * Order check for the CLAUDE.md directly under `cwd` (no workspace recursion).
+ * `computedBlockIds` are the engine's computed-block ids (the Claude adapter's
+ * `CLAUDE_COMPUTED_BLOCK_IDS`, threaded from `doctor`); passing them lets the
+ * check validate the order AMONG the computed blocks, not just their tail
+ * position (#228 follow-up). Omitted callers still get the core/preset/plugin
+ * order — the computed blocks sort to the tail on their own.
+ */
+function orderReportAt(
+  cwd: string,
+  config: NavoriConfig,
+  computedBlockIds?: readonly string[],
+): OrderReport | null {
   const claudeMdPath = join(cwd, "CLAUDE.md");
   if (!existsSync(claudeMdPath)) return null;
   const content = readFileSync(claudeMdPath, "utf-8");
   const current = listMarkers(claudeMdPath).map((m) => m.id);
   if (current.length < 2) return null;
 
-  const canonical = canonicalManagedOrder(config, cwd);
+  const canonical = canonicalManagedOrder(config, cwd, { computedBlockIds });
   // Reuse the engine's reorder logic as the source of truth for "in order?".
   const result = reorderManagedBlocks(content, canonical);
   if (!result.reordered && !result.blockedByInterleaving) return null;

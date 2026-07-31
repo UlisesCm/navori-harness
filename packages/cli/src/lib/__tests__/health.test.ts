@@ -15,6 +15,7 @@ import {
 import { NavoriConfigSchema } from "../schema.ts";
 import { computeManagedHash, injectManagedSection } from "../marker.ts";
 import { computeRenderPlan } from "../render-plan.ts";
+import { CLAUDE_COMPUTED_BLOCK_IDS } from "../../engines/claude/index.ts";
 
 const contentDrift: DriftReport = {
   filePath: ".claude/agents/leader.md",
@@ -350,6 +351,25 @@ describe("scanManagedOrder", () => {
     expect(r).not.toBeNull();
     expect(r!.interleaved).toBe(true);
     expect(r!.misplacedFirst).toEqual({ id: "orquestacion", currentPos: 2, total: 2 });
+  });
+
+  it("detects a swap AMONG computed blocks only when the engine's ids are threaded (#228 follow-up)", () => {
+    // Two engine-computed blocks in the wrong relative order (canonical:
+    // skills-index before agentes-disponibles).
+    let doc = injectManagedSection("", "agentes-disponibles", "x").output;
+    doc = injectManagedSection(doc, "skills-index", "y").output;
+    writeFileSync(join(cwd, "CLAUDE.md"), doc);
+
+    // Without the ids, both computed blocks are absent from the canonical list,
+    // so they keep their document order — the swap goes unnoticed.
+    expect(scanManagedOrder(cwd, config)).toBeNull();
+
+    // With the ids threaded (as doctor does), the swap is flagged.
+    const r = scanManagedOrder(cwd, config, CLAUDE_COMPUTED_BLOCK_IDS);
+    expect(r).not.toBeNull();
+    expect(r!.current).toEqual(["agentes-disponibles", "skills-index"]);
+    expect(r!.expected).toEqual(["skills-index", "agentes-disponibles"]);
+    expect(r!.misplacedFirst).toEqual({ id: "skills-index", currentPos: 2, total: 2 });
   });
 });
 
