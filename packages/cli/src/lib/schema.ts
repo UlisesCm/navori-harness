@@ -56,7 +56,18 @@ const HooksSchema = z.object({
 });
 
 const MonorepoWorkspaceSchema = z.object({
-  name: z.string().min(1),
+  // Defense in depth for #264: this name is interpolated into the managed
+  // `contexto-monorepo` block. The emission-side `sanitizeProjectValue` is the
+  // complete fix, but we also refuse the marker-forgery characters here so a
+  // hostile config is rejected loudly at readConfig. We do NOT enforce
+  // kebab-case: `scan` populates this from the package.json name, which is
+  // legitimately a scoped package (`@scope/pkg`) — a kebab regex would break
+  // real monorepos. Blocking `<`, `>` and line breaks is enough to stop a forged
+  // HTML-comment marker or a smuggled multi-line instruction.
+  name: z
+    .string()
+    .min(1)
+    .regex(/^[^<>\r\n]+$/, "workspace name must not contain '<', '>' or line breaks"),
   path: safeRelPath,
   preset: z.string().optional(),
   qualityGate: QualityGateSchema.optional(),
@@ -252,7 +263,17 @@ export const NavoriConfigSchema = z
     $schema: z.string().optional(),
     name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "name must be kebab-case"),
     version: z.string().default("1.0.0"),
-    workspace: z.string().optional(),
+    // `workspace` names an entry in the machine-local registry (~/.navori/
+    // workspaces/<name>/). Registry names are kebab-case by construction
+    // (WorkspaceConfigSchema.name), so mirror that here. Without the regex a
+    // hostile checked-in config could set `workspace: "../../../evil"` and make
+    // `doctor`/`status` `path.join` escape the registry root — a read+write path
+    // traversal fired automatically on the first scan (#263). Reject it loudly
+    // at readConfig, exactly like the sibling `name` field above.
+    workspace: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]*$/, "workspace must be kebab-case")
+      .optional(),
     engines: tolerantEnumArray(ENGINES, "claude"),
     preset: z.string().min(1),
     language: tolerantEnum(LANGUAGES, "es"),

@@ -21,6 +21,11 @@ function workspacesRootLazy(): string {
 }
 const MANIFEST_NAME = "workspace.json";
 
+/** Kebab-case, same shape enforced on every registry name (RepoEntrySchema /
+ * WorkspaceConfigSchema). A workspace name is a single path segment joined onto
+ * the registry root, so `..`/`/` must never appear or the join escapes it. */
+const WORKSPACE_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+
 const RepoEntrySchema = z.object({
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "repo name must be kebab-case"),
   path: z.string().min(1),
@@ -77,6 +82,15 @@ export function workspacesRoot(): string {
 }
 
 export function workspaceDirectory(name: string): string {
+  // Every registry path (workspacePath, legacyWorkspacePath, the migration
+  // mkdir/copy/rm) funnels through here, so this is the single chokepoint that
+  // closes the whole path-traversal class (#263): a name with `..`/`/` would let
+  // `join` escape ~/.navori/workspaces/. Registry names are kebab-case by
+  // construction, so reject anything else loudly instead of touching disk
+  // outside the root — same spirit as resolveWorkspaceUri's safeRelPath guard.
+  if (!WORKSPACE_NAME_RE.test(name)) {
+    throw new WorkspaceError(`Invalid workspace name: ${name}`);
+  }
   return join(workspacesRootLazy(), name);
 }
 
@@ -118,7 +132,10 @@ export function listWorkspaces(): string[] {
   for (const entry of readdirSync(workspacesRootLazy())) {
     if (entry.endsWith(".json")) {
       const name = entry.replace(/\.json$/, "");
-      migrateLegacyLayoutIfNeeded(name);
+      // A stray non-kebab .json at the root can't be a real workspace (migration
+      // would throw on it via workspaceDirectory now that it's guarded) — skip
+      // it so `list` stays resilient instead of crashing on a stray file (#263).
+      if (WORKSPACE_NAME_RE.test(name)) migrateLegacyLayoutIfNeeded(name);
     }
   }
   const names: string[] = [];
