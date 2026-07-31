@@ -11,6 +11,7 @@ import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
 import { renderCodexEngine } from "../engines/codex/index.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
+import type { SkippedFile } from "../engines/shared/execute-plan.ts";
 import {
   renderStatusSymbol,
   renderStatusLabel,
@@ -54,7 +55,7 @@ export interface WorkspaceRenderResult {
 export interface EngineRenderSummary {
   engine: string;
   written: Array<{ path: string; status: RenderStatus }>;
-  skipped: Array<{ path: string; reason: string }>;
+  skipped: SkippedFile[];
   warnings: string[];
   backupPath: string | null;
 }

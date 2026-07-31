@@ -120,6 +120,7 @@ export const syncCommand = defineCommand({
       process.exit(1);
     }
     const targets = targetsResult.targets;
+    const orphanedWorkspaces = targetsResult.orphanedWorkspaces;
 
     // Dry-run pass: get the full plan for every target without writing anything.
     const plans = targets.map((target) => renderSyncTarget(target, true));
@@ -154,6 +155,7 @@ export const syncCommand = defineCommand({
             pending: pendingCount,
             written: writtenTotal,
             backups,
+            orphanedWorkspaces,
           }),
           null,
           2,
@@ -164,6 +166,17 @@ export const syncCommand = defineCommand({
     }
 
     reportPlans(plans, lang);
+
+    // #230: declared-but-deleted workspaces are reported, never resurrected.
+    // Surface before the up-to-date short-circuit so the user always sees them.
+    if (orphanedWorkspaces.length > 0) {
+      p.log.warn(
+        tc(lang).render.orphanedWorkspaces(
+          orphanedWorkspaces.length,
+          orphanedWorkspaces.map((w) => `  ${color.yellow(sym.update)} ${w}`).join("\n"),
+        ),
+      );
+    }
 
     if (!hasOtherChanges && conflicts.length === 0) {
       p.outro(ts.upToDate);
@@ -282,7 +295,14 @@ export interface TargetPlan {
 }
 
 export type SyncTargetsResult =
-  | { ok: true; targets: SyncTarget[] }
+  | {
+      ok: true;
+      targets: SyncTarget[];
+      /** Declared workspaces whose directory no longer exists on disk (#230).
+       * They are NOT synced (never resurrected); the caller surfaces them so the
+       * user prunes config, mirroring `render`/`doctor`. */
+      orphanedWorkspaces: string[];
+    }
   /** `reason` is the LOCALIZED human message; `reasonCode` is a stable
    * kebab-case code for `--json` consumers (never localized). */
   | { ok: false; reason: string; reasonCode: string };
@@ -312,8 +332,13 @@ export function resolveSyncTargets(
         reasonCode: "workspace-not-found",
       };
     }
+    // An explicit `--workspace <name>` targets that one on purpose; mirror
+    // `render`, which does NOT guard existsSync in the filtered path (if you
+    // ask for it by name, you get it). The #230 orphan guard applies only to
+    // the implicit all-workspaces loop below.
     return {
       ok: true,
+      orphanedWorkspaces: [],
       targets: [
         {
           label: `workspace:${match.name}`,
@@ -327,16 +352,28 @@ export function resolveSyncTargets(
   }
 
   const targets: SyncTarget[] = [{ label: "root", cwd, repoRoot: cwd, config }];
+  const orphanedWorkspaces: string[] = [];
   for (const ws of declared) {
+    const wsCwd = resolve(cwd, ws.path);
+    // #230: a workspace deleted from disk (or dropped from the workspace glob)
+    // but still declared in config must NOT be resurrected — renderSyncTarget
+    // would mkdir it and write a full `.claude/` tree into a dir that should not
+    // exist. Skip + surface it so the user prunes config. This mirrors the guard
+    // in `render` (render.ts) and doctor's "in config, missing on disk" row;
+    // without it, `sync --apply` contradicts both by recreating the tree.
+    if (!existsSync(wsCwd)) {
+      orphanedWorkspaces.push(ws.path);
+      continue;
+    }
     targets.push({
       label: `workspace:${ws.name}`,
-      cwd: resolve(cwd, ws.path),
+      cwd: wsCwd,
       repoRoot: cwd,
       config: effectiveConfigForWorkspace(config, ws),
       monorepoContext: buildMonorepoContext(config, ws),
     });
   }
-  return { ok: true, targets };
+  return { ok: true, targets, orphanedWorkspaces };
 }
 
 export interface Conflict {
@@ -458,6 +495,8 @@ function buildSyncJson(
     pending: number;
     written: number;
     backups: Array<{ label: string; path: string }>;
+    /** Declared workspaces absent on disk — reported, never synced (#230). */
+    orphanedWorkspaces: string[];
   },
 ) {
   return {
@@ -474,7 +513,11 @@ function buildSyncJson(
       written: (claude?.written ?? [])
         .filter((w) => w.path !== "CLAUDE.md")
         .map((w) => ({ path: w.path, status: w.status })),
-      skipped: (claude?.skipped ?? []).map((s) => ({ path: s.path, reason: s.reason })),
+      skipped: (claude?.skipped ?? []).map((s) => ({
+        path: s.path,
+        reason: s.reason,
+        status: s.status,
+      })),
       updatesAvailable: (claude?.updatesAvailable ?? []).map((u) => ({
         id: u.id,
         fromVersion: u.fromVersion,
@@ -483,11 +526,16 @@ function buildSyncJson(
       engines: engines.map((engine) => ({
         engine: engine.engine,
         written: engine.written.map((w) => ({ path: w.path, status: w.status })),
-        skipped: engine.skipped.map((s) => ({ path: s.path, reason: s.reason })),
+        skipped: engine.skipped.map((s) => ({
+          path: s.path,
+          reason: s.reason,
+          status: s.status,
+        })),
         warnings: engine.warnings,
       })),
     })),
     conflicts: conflicts.map((c) => ({ path: c.path, reason: c.reason })),
+    orphanedWorkspaces: meta.orphanedWorkspaces,
     pending: meta.pending,
     written: meta.written,
     backups: meta.backups,
@@ -502,7 +550,7 @@ function collectAllConflicts(plans: TargetPlan[]): Conflict[] {
   return out;
 }
 
-function collectTargetConflicts({ target, claude, engines }: TargetPlan): Conflict[] {
+export function collectTargetConflicts({ target, claude, engines }: TargetPlan): Conflict[] {
   const out: Conflict[] = [];
   const prefix = target.label === "root" ? "" : `[${target.label}] `;
   for (const e of claude?.claudeMdEntries ?? []) {
@@ -513,14 +561,18 @@ function collectTargetConflicts({ target, claude, engines }: TargetPlan): Confli
       });
     }
   }
+  // #241: a whole-file conflict is a managed file the user hand-edited, flagged
+  // by the stable `user-modified-skipped` status — NOT by regexing localized
+  // skip prose (which broke on any rewording or new locale). `downgrade-skipped`
+  // (block from a newer navori) is intentionally not a conflict.
   for (const s of claude?.skipped ?? []) {
-    if (/editad|edit/i.test(s.reason)) {
+    if (s.status === "user-modified-skipped") {
       out.push({ path: `${prefix}${s.path}`, reason: s.reason });
     }
   }
   for (const engine of engines) {
     for (const skipped of engine.skipped) {
-      if (/editad|edit/i.test(skipped.reason)) {
+      if (skipped.status === "user-modified-skipped") {
         out.push({
           path: `${prefix}[${engine.engine}] ${skipped.path}`,
           reason: skipped.reason,

@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { resolveSyncTargets } from "../sync.ts";
 import type { NavoriConfig } from "../../lib/config.ts";
 
@@ -32,9 +35,22 @@ const SINGLE_APP_CONFIG = {
 } as unknown as NavoriConfig;
 
 describe("resolveSyncTargets", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "navori-sync-resolve-"));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
   describe("no filter", () => {
     it("returns root + every declared workspace, in declaration order", () => {
-      const r = resolveSyncTargets("/repo", ROOT_CONFIG, null);
+      mkdirSync(join(root, "apps/backend"), { recursive: true });
+      mkdirSync(join(root, "apps/storefront"), { recursive: true });
+
+      const r = resolveSyncTargets(root, ROOT_CONFIG, null);
       if (!r.ok) throw new Error(r.reason);
 
       expect(r.targets).toHaveLength(3);
@@ -43,43 +59,78 @@ describe("resolveSyncTargets", () => {
         "workspace:backend",
         "workspace:storefront",
       ]);
+      expect(r.orphanedWorkspaces).toEqual([]);
     });
 
     it("root target has the unmodified config (monorepo block preserved)", () => {
-      const r = resolveSyncTargets("/repo", ROOT_CONFIG, null);
+      mkdirSync(join(root, "apps/backend"), { recursive: true });
+      mkdirSync(join(root, "apps/storefront"), { recursive: true });
+
+      const r = resolveSyncTargets(root, ROOT_CONFIG, null);
       if (!r.ok) throw new Error(r.reason);
       expect(r.targets[0]!.config.monorepo).toBeDefined();
       expect(r.targets[0]!.config.preset).toBe("monorepo-turbopnpm");
     });
 
     it("workspace targets carry the effective config (preset overridden, monorepo stripped)", () => {
-      const r = resolveSyncTargets("/repo", ROOT_CONFIG, null);
+      mkdirSync(join(root, "apps/backend"), { recursive: true });
+      mkdirSync(join(root, "apps/storefront"), { recursive: true });
+
+      const r = resolveSyncTargets(root, ROOT_CONFIG, null);
       if (!r.ok) throw new Error(r.reason);
       const backend = r.targets.find((t) => t.label === "workspace:backend")!;
       expect(backend.config.preset).toBe("medusa");
       expect(backend.config.monorepo).toBeUndefined();
-      expect(backend.cwd).toBe("/repo/apps/backend");
+      expect(backend.cwd).toBe(join(root, "apps/backend"));
     });
 
     it("single-app config returns only root", () => {
-      const r = resolveSyncTargets("/repo", SINGLE_APP_CONFIG, null);
+      const r = resolveSyncTargets(root, SINGLE_APP_CONFIG, null);
       if (!r.ok) throw new Error(r.reason);
       expect(r.targets).toHaveLength(1);
       expect(r.targets[0]!.label).toBe("root");
+      expect(r.orphanedWorkspaces).toEqual([]);
+    });
+
+    // #230: a workspace declared in config but deleted from disk must NOT be
+    // resurrected. It is dropped from targets and reported as orphaned, mirroring
+    // `render` (which skips it) and `doctor` ("in config, missing on disk").
+    it("skips a declared workspace missing on disk and reports it as orphaned", () => {
+      // Only backend exists; storefront was deleted.
+      mkdirSync(join(root, "apps/backend"), { recursive: true });
+
+      const r = resolveSyncTargets(root, ROOT_CONFIG, null);
+      if (!r.ok) throw new Error(r.reason);
+
+      expect(r.targets.map((t) => t.label)).toEqual(["root", "workspace:backend"]);
+      expect(r.orphanedWorkspaces).toEqual(["apps/storefront"]);
+    });
+
+    it("reports every declared workspace as orphaned when none exist on disk", () => {
+      const r = resolveSyncTargets(root, ROOT_CONFIG, null);
+      if (!r.ok) throw new Error(r.reason);
+
+      // Root is always a target; no workspace dir exists, so both are orphaned.
+      expect(r.targets.map((t) => t.label)).toEqual(["root"]);
+      expect(r.orphanedWorkspaces).toEqual(["apps/backend", "apps/storefront"]);
     });
   });
 
   describe("with --workspace filter", () => {
+    // The explicit filter targets a workspace on purpose, so — like `render` —
+    // it does NOT apply the existsSync orphan guard (a missing dir here is the
+    // user's explicit request; render would create it too).
     it("returns only the matched workspace, skipping root", () => {
-      const r = resolveSyncTargets("/repo", ROOT_CONFIG, "backend");
+      const r = resolveSyncTargets(root, ROOT_CONFIG, "backend");
       if (!r.ok) throw new Error(r.reason);
       expect(r.targets).toHaveLength(1);
       expect(r.targets[0]!.label).toBe("workspace:backend");
       expect(r.targets[0]!.config.preset).toBe("medusa");
+      expect(r.orphanedWorkspaces).toEqual([]);
     });
 
     it("returns ok:false with helpful reason when workspace name doesn't match", () => {
-      const r = resolveSyncTargets("/repo", ROOT_CONFIG, "ghost");
+      const r = resolveSyncTargets(root, ROOT_CONFIG, "ghost");
       expect(r.ok).toBe(false);
       if (r.ok) throw new Error("expected error");
       expect(r.reason).toContain("ghost");
@@ -90,7 +141,7 @@ describe("resolveSyncTargets", () => {
     });
 
     it("returns ok:false when config has no monorepo declared", () => {
-      const r = resolveSyncTargets("/repo", SINGLE_APP_CONFIG, "backend");
+      const r = resolveSyncTargets(root, SINGLE_APP_CONFIG, "backend");
       expect(r.ok).toBe(false);
       if (r.ok) throw new Error("expected error");
       expect(r.reason).toMatch(/requires a monorepo|requiere un monorepo/); // localized by config.language (es)
@@ -101,7 +152,7 @@ describe("resolveSyncTargets", () => {
         ...SINGLE_APP_CONFIG,
         monorepo: { enabled: true, tool: "pnpm", workspaces: [] },
       } as unknown as NavoriConfig;
-      const r = resolveSyncTargets("/repo", config, "backend");
+      const r = resolveSyncTargets(root, config, "backend");
       expect(r.ok).toBe(false);
       if (r.ok) throw new Error("expected error");
       expect(r.reason).toMatch(/requires a monorepo|requiere un monorepo/); // localized by config.language (es)
@@ -122,7 +173,7 @@ describe("resolveSyncTargets", () => {
           ],
         },
       } as unknown as NavoriConfig;
-      const r = resolveSyncTargets("/repo", config, "backend");
+      const r = resolveSyncTargets(root, config, "backend");
       if (!r.ok) throw new Error(r.reason);
       expect(r.targets[0]!.config.qualityGate).toEqual({
         fast: "pnpm -F backend lint",

@@ -107,7 +107,13 @@ describe("renderCursorEngine", () => {
     writeFileSync(path, tampered, "utf-8");
 
     const r = renderCursorEngine(cwd, baseConfig({ preset: "nextjs" }));
-    expect(r.skipped).toEqual([{ path: MDC, reason: tc("es").engine.managedBlockEditedByHand }]);
+    expect(r.skipped).toEqual([
+      {
+        path: MDC,
+        reason: tc("es").engine.managedBlockEditedByHand,
+        status: "user-modified-skipped",
+      },
+    ]);
     expect(readFileSync(path, "utf-8")).toContain("## EDITADO A MANO");
   });
 });

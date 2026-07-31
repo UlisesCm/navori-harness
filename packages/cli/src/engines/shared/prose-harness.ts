@@ -10,6 +10,7 @@ import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 import { buildSkillRows } from "./skills-index.ts";
+import type { SkippedFile } from "./execute-plan.ts";
 
 /**
  * Shared engine for the non-Claude "prose" targets: AGENTS.md (universal),
@@ -35,7 +36,7 @@ import { buildSkillRows } from "./skills-index.ts";
 
 export interface ProseEngineResult {
   written: Array<{ path: string; status: RenderStatus }>;
-  skipped: Array<{ path: string; reason: string }>;
+  skipped: SkippedFile[];
   warnings: string[];
   backupPath: string | null;
 }
@@ -189,11 +190,16 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
   let backupPath: string | null = null;
 
   if (result.status === "user-modified-skipped") {
-    skipped.push({ path: spec.destRelPath, reason: strings.managedBlockEditedByHand });
+    skipped.push({
+      path: spec.destRelPath,
+      reason: strings.managedBlockEditedByHand,
+      status: "user-modified-skipped",
+    });
   } else if (result.status === "downgrade-skipped") {
     skipped.push({
       path: spec.destRelPath,
       reason: strings.blockFromNewerNavori(result.details?.existingVersion),
+      status: "downgrade-skipped",
     });
   } else if (result.status === "unchanged") {
     // nothing to do
