@@ -113,7 +113,7 @@ check_content_receipt() {
   if [ -n "$drift" ]; then
     echo "[navori] APPROVED content changed since review (receipt mismatch). Commit BLOCKED." >&2
     printf '%s' "$drift" >&2
-    echo "[navori] Re-run the reviewer over the current diff, or override with 'git commit --no-verify'." >&2
+    echo "[navori] Re-run the reviewer over the current diff. To bypass, run the commit yourself outside the agent." >&2
     echo "[navori] To clear a stale receipt: rm $receipt" >&2
     exit 2
   fi
@@ -201,7 +201,7 @@ if is_git_commit "$cmd"; then
       run_gate "$detected_pm ${gate#* }"
     else
       echo "[navori] quality-gate NO ejecutado: '$gate_bin' no está en PATH y no hay un package manager alternativo detectado que pueda correrlo." >&2
-      echo "[navori] Commit BLOQUEADO para no saltarnos el gate en silencio. Instala '$gate_bin' o usa 'git commit --no-verify' si de verdad quieres saltártelo." >&2
+      echo "[navori] Commit BLOQUEADO para no saltarnos el gate en silencio. Instala '$gate_bin', o si de verdad quieres saltártelo corre el commit tú mismo fuera del agente." >&2
       exit 2
     fi
   fi
