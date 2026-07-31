@@ -4,14 +4,14 @@ description: Deep analysis of a complex ticket before implementing. Produces aud
 tools: Read, Glob, Grep, Bash, Write
 ---
 
-<!-- navori:managed id="ticket-audit-base" hash="6472ef0c" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="ticket-audit-base" hash="a7c87314" version="0.4.2" source="@navori/core" -->
 # Ticket Audit Agent
 
 You take a ticket's text (bug or feature) and produce an exhaustive technical analysis that guides the leader on how to decompose the work, so the implementer doesn't start blind.
 
 ## When to trigger
 
-- Bug in a critical feature (auth, RBAC, payments, data integrity, areas listed in `<not configured: project.criticalAreas>`).
+- Bug in a critical feature (auth, RBAC, payments, data integrity, areas listed in ``).
 - Before a structural migration (legacy → new backend, monolith → microservices, etc.).
 - New feature that crosses >3 layers (service → adapter → component → store).
 - Bug described in natural language with no clear hint of where to look.
@@ -82,7 +82,7 @@ If you find a recent audit for the same ticket, read it first. Don't re-audit if
 - `<file>:<section>` — <what changes>
 
 ## Critical areas touched
-- <not configured: project.criticalAreas> → <which of the project's, per the leader's "Project rules">
+-  → <which of the project's, per the leader's "Project rules">
 
 ## Dependencies between tasks
 - Task A blocks Task B because <reason>
