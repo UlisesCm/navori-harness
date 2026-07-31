@@ -1039,10 +1039,7 @@ function planMcpRegistration(
     } catch (err) {
       if (!force) {
         const detail = (err as Error).message;
-        const reason =
-          resolveLang(config.language) === "en"
-            ? `.mcp.json could not be parsed as JSON: ${detail}. Left untouched; fix it or run 'navori render --force --apply' to regenerate.`
-            : `.mcp.json no se pudo parsear como JSON: ${detail}. Se dejó intacto; corrígelo o corre 'navori render --force --apply' para regenerar.`;
+        const reason = tc(resolveLang(config.language)).engine.mcpJsonParseFailed(detail);
         return { kind: "skip", path, reason };
       }
       parsed = {};
@@ -1055,10 +1052,7 @@ function planMcpRegistration(
         hadServersKey = true;
       }
     } else if (!force) {
-      const reason =
-        resolveLang(config.language) === "en"
-          ? ".mcp.json is not a JSON object — cannot merge. Left untouched; run 'navori render --force --apply' to regenerate."
-          : ".mcp.json no es un objeto JSON — no se puede fusionar. Se dejó intacto; corre 'navori render --force --apply' para regenerar.";
+      const reason = tc(resolveLang(config.language)).engine.mcpJsonNotObject;
       return { kind: "skip", path, reason };
     }
   }

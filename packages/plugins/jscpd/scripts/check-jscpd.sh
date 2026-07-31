@@ -34,7 +34,7 @@ elif command -v jscpd >/dev/null 2>&1; then
   JSCPD_BIN="jscpd"
 fi
 if [ -z "$JSCPD_BIN" ]; then
-  echo "⊘ jscpd no disponible (ni pinneado en el repo ni instalado global) — skip (install: pnpm add -D jscpd)" >&2
+  echo "⊘ jscpd not available (neither pinned in the repo nor installed globally) — skip (install: pnpm add -D jscpd)" >&2
   exit 0
 fi
 
@@ -50,7 +50,7 @@ base={{shq:branchBase}}
 threshold={{shq:jscpdThreshold}}
 
 if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
-  echo "⊘ branch '$base' no existe localmente — skip jscpd" >&2
+  echo "⊘ branch '$base' does not exist locally — skip jscpd" >&2
   exit 0
 fi
 

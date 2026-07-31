@@ -416,12 +416,12 @@ export const updateCommand = defineCommand({
       p.log.warn(tu.conflicts(agg.conflicts.length));
     }
 
-    // Anti-retroceso (#79): shown even with --yes — a silent downgrade is the
-    // exact failure this guards against.
-    const downgradeWarn = formatDowngradeWarning(agg.downgrades);
-    if (downgradeWarn) p.log.warn(downgradeWarn);
-
     if (args["dry-run"]) {
+      // Anti-retroceso (#79): in --dry-run nothing is written, so the preview
+      // warning is the only chance to surface a silent downgrade. On apply we
+      // warn once after writing (see below) to avoid duplicating it (#284).
+      const downgradeWarn = formatDowngradeWarning(agg.downgrades, lang);
+      if (downgradeWarn) p.log.warn(downgradeWarn);
       if (diffs.some((d) => d.field === "project.libraries")) {
         p.log.message(dim(tu.libraryPreviewNote));
       }
@@ -488,7 +488,9 @@ export const updateCommand = defineCommand({
     if (applied.conflicts.length > 0) {
       p.log.warn(tu.conflictsKept(applied.conflicts.length));
     }
-    const applyDowngradeWarn = formatDowngradeWarning(applied.downgrades);
+    // Anti-retroceso (#79): shown even with --yes — a silent downgrade is the
+    // exact failure this guards against. Localized to the repo's language (#284).
+    const applyDowngradeWarn = formatDowngradeWarning(applied.downgrades, lang);
     if (applyDowngradeWarn) p.log.warn(applyDowngradeWarn);
     if (applied.writes.length > 0) {
       p.log.success(tu.rerendered(applied.writes.length));

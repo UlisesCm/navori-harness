@@ -132,19 +132,19 @@ if is_scan_trigger "$cmd"; then
     # `exit 0` that handed a contributor zero quality gate without a word.
     detected_pm="$(detect_pm)"
     if is_pm "$gate_bin" && [ -n "$detected_pm" ] && [ "$detected_pm" != "$gate_bin" ] && command -v "$detected_pm" >/dev/null 2>&1; then
-      echo "[navori] '$gate_bin' no está en PATH; uso el package manager detectado por lockfile: '$detected_pm'." >&2
+      echo "[navori] '$gate_bin' is not on PATH; using the lockfile-detected package manager: '$detected_pm'." >&2
       run_gate "$detected_pm ${gate#* }"
     else
-      echo "[navori] quality-gate NO ejecutado: '$gate_bin' no está en PATH y no hay un package manager alternativo detectado que pueda correrlo." >&2
-      echo "[navori] Commit BLOQUEADO para no saltarnos el gate en silencio. Instala '$gate_bin', o si de verdad quieres saltártelo corre el commit tú mismo fuera del agente." >&2
+      echo "[navori] quality-gate NOT run: '$gate_bin' is not on PATH and no alternative package manager was detected that could run it." >&2
+      echo "[navori] Commit BLOCKED to avoid skipping the gate silently. Install '$gate_bin', or if you really want to skip it run the commit yourself outside the agent." >&2
       exit 2
     fi
   fi
 fi
 
 # navori:user-section
-# user: agrega checks adicionales acá. `$cmd` ya está parseado del input
-# de la tool. Ejemplo:
+# user: add extra checks here. `$cmd` is already parsed from the tool input.
+# Example:
 #
 #   case "$cmd" in
 #     'git push'*)

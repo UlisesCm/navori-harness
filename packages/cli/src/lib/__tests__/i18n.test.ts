@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { formatDowngradeWarning } from "../../commands/render.ts";
+import type { UpdateAvailable } from "../render-plan.ts";
 import { t, tc, resolveLang, DEFAULT_LANG, SUPPORTED_LANGS } from "../i18n.ts";
 
 describe("i18n", () => {
@@ -149,6 +151,23 @@ describe("i18n — command catalog (tc)", () => {
     expect(tc("en").doctor.excludedBlocksTitle(1)).toContain("Excluded core blocks");
   });
 
+  it("engine .mcp.json skip reasons and global baseline intro differ per locale (#284)", () => {
+    // Sub-item 4: these strings used to be inline `=== "en" ? … : …` ternaries
+    // in the Claude engine; they now live in the catalog so both locales stay in
+    // sync with the rest of the i18n surface.
+    for (const lang of SUPPORTED_LANGS) {
+      const e = tc(lang).engine;
+      expect(e.mcpJsonParseFailed("boom")).toContain(".mcp.json");
+      expect(e.mcpJsonParseFailed("boom")).toContain("boom");
+      expect(e.mcpJsonNotObject).toContain(".mcp.json");
+      expect(e.globalBaselineIntro.length).toBeGreaterThan(0);
+    }
+    expect(tc("es").engine.mcpJsonNotObject).toContain("no es un objeto JSON");
+    expect(tc("en").engine.mcpJsonNotObject).toContain("is not a JSON object");
+    expect(tc("es").engine.globalBaselineIntro).toContain("baseline navori de máquina");
+    expect(tc("en").engine.globalBaselineIntro).toContain("machine-wide navori baseline");
+  });
+
   it("doctor Codex health strings render with their args in both locales (feature: codex)", () => {
     for (const lang of SUPPORTED_LANGS) {
       const d = tc(lang).doctor;
@@ -162,5 +181,30 @@ describe("i18n — command catalog (tc)", () => {
     // Locale actually differentiates the copy (not a shared fallback).
     expect(tc("es").doctor.codexHookTrustHint).toContain("repos confiables");
     expect(tc("en").doctor.codexHookTrustHint).toContain("trusted repos");
+  });
+});
+
+describe("formatDowngradeWarning — localization (#284)", () => {
+  const downgrades: UpdateAvailable[] = [
+    { id: "formato-respuesta", source: "core", fromVersion: "9.9.9", toVersion: "1.0.0" },
+  ];
+
+  it("returns null when there is nothing to warn about", () => {
+    expect(formatDowngradeWarning([])).toBeNull();
+    expect(formatDowngradeWarning([], "en")).toBeNull();
+  });
+
+  it("localizes to the repo language (was hardcoded to DEFAULT_LANG in update)", () => {
+    const en = formatDowngradeWarning(downgrades, "en");
+    const es = formatDowngradeWarning(downgrades, "es");
+    expect(en).toContain("Your CLI is behind the repo");
+    expect(es).toContain("Tu CLI está detrás del repo");
+    expect(en).not.toContain("Tu CLI está detrás del repo");
+  });
+
+  it("defaults to Spanish (DEFAULT_LANG) when no lang is passed", () => {
+    // Guards the update.ts regression the other way: the default must stay es so
+    // an es repo that omits the arg is unaffected.
+    expect(formatDowngradeWarning(downgrades)).toContain("Tu CLI está detrás del repo");
   });
 });

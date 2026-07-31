@@ -145,7 +145,7 @@ describe("quality-gate hook — declared runner missing (#88)", () => {
     writeFileSync(join(dir, "bun.lock"), "");
     const r = runHook(installHook("pnpm run typecheck"), "git commit -m test");
     expect(r.status).toBe(0);
-    expect(r.stderr).toContain("uso el package manager detectado por lockfile: 'bun'");
+    expect(r.stderr).toContain("using the lockfile-detected package manager: 'bun'");
     expect(r.stdout).toContain("RAN bun run typecheck");
   });
 
@@ -162,7 +162,7 @@ describe("quality-gate hook — declared runner missing (#88)", () => {
     // `exit 0`. It must now block loudly.
     const r = runHook(installHook("pnpm run typecheck"), "git commit -m test");
     expect(r.status).toBe(2);
-    expect(r.stderr).toContain("BLOQUEADO");
+    expect(r.stderr).toContain("BLOCKED");
     expect(r.stderr).not.toContain("running quality-gate fast");
   });
 });
