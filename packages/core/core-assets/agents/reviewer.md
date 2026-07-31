@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Strict reviewer. Approves or rejects the implementer's work against CLAUDE.md. Does not edit code.
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep, Bash, Write
 model: {{models.reviewer}}
 effort: {{effort.reviewer}}
 ---
@@ -26,7 +26,12 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
    git status --short
    git fetch origin {{prTarget}} --quiet
    git diff --stat
-   git diff origin/{{prTarget}}...HEAD
+   # two-dot: the FULL working tree vs the target (committed AND uncommitted),
+   # the exact set the receipt fingerprints below. Three-dot (`...HEAD`) would show
+   # only committed changes, but in the harness the diff is still uncommitted — so
+   # the review command would read empty while the receipt signs the working tree.
+   git diff "origin/{{prTarget}}"
+   git ls-files --others --exclude-standard   # untracked files (new, not yet staged)
    ```
 
 3. **Re-review** (if there's already a `.claude/progress/review_<feature>.md` from a previous cycle): focus the *reading* on (a) that the issues listed there are resolved and (b) the files the `implementer` reports having touched in this cycle (`impl_<feature>.md`). Don't re-review from scratch the already-approved code that didn't change; the full quality gate is still run anyway — a change can break something outside the delta.

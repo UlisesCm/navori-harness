@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: Read-only investigation of a scoped question. Reads the repo, writes findings to a file. Does not modify code.
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep, Bash, Write
 model: {{models.researcher}}
 effort: {{effort.researcher}}
 ---

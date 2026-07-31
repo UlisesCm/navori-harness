@@ -61,8 +61,14 @@ describe("renderCodexEngine", () => {
     expect(implementer).not.toContain("CLAUDE.md");
     expect(implementer).not.toContain(".claude/progress");
     expect(existsSync(join(cwd, ".codex/agents/leader.toml"))).toBe(false);
-    expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).toContain(
+    // auditor stays read-only (it never edits code); the reviewer/researcher/
+    // explorer/ticket-audit roles are workspace-write so their RDD receipt/handoff
+    // writes aren't blocked (#204) — so they emit no `sandbox_mode` override.
+    expect(readFileSync(join(cwd, ".codex/agents/auditor.toml"), "utf-8")).toContain(
       'sandbox_mode = "read-only"',
+    );
+    expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).not.toContain(
+      "sandbox_mode",
     );
   });
 

@@ -47,7 +47,7 @@ shopt -s nullglob
 for f in "$dir"/impl_*.md; do
   if is_blank "$f"; then
     note "$(basename "$f") vacío"
-  elif ! grep -qi '^status:' "$f" 2>/dev/null; then
+  elif ! grep -qiE '^\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
     note "$(basename "$f") sin línea 'Status:'"
   fi
 done
