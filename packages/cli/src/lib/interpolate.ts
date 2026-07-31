@@ -43,14 +43,15 @@ export interface InterpolateOptions {
  * neutralize a security block. We defuse both:
  *   - collapse every line break to a single space — these fields are one-line
  *     rule fragments, so a newline can only be a smuggled bullet / instruction;
- *   - drop HTML-comment delimiters so no managed/user-zone marker can be forged
- *     inside the value (the bare `navori:managed` text is inert without them).
+ *   - drop HTML-comment delimiters AND the `navori:managed` keyword so no
+ *     managed/user-zone marker can be forged inside the value.
  */
 export function sanitizeProjectValue(value: string): string {
   return value
-    .replace(/[\r\n\t ]+/g, " ")
     .replaceAll("<!--", "")
     .replaceAll("-->", "")
+    .replace(/navori:managed/gi, "")
+    .replace(/[\r\n\t ]+/g, " ")
     .trim();
 }
 
