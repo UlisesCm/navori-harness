@@ -4,7 +4,7 @@ description: Use when you discover — or need — a durable fact that spans mul
 type: reference
 ---
 
-<!-- navori:managed id="dominio" hash="a2c1ab5c" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="dominio" hash="a2c1ab5c" version="0.5.0" source="@navori/core" -->
 # dominio — the workspace knowledge base
 
 Canonical, cross-repo facts for a workspace live as markdown under

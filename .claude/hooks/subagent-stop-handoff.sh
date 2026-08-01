@@ -1,4 +1,4 @@
-# navori:managed start id="subagent-stop-handoff-base" hash="3b7346ed" version="0.4.2" source="@navori/core"
+# navori:managed start id="subagent-stop-handoff-base" hash="3b7346ed" version="0.5.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SubagentStop lifecycle hook — handoff validator.

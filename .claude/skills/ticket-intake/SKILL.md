@@ -4,7 +4,7 @@ description: Use when a ticket arrives (ID, URL or pasted text) and the task isn
 type: reference
 ---
 
-<!-- navori:managed id="ticket-intake" hash="c887d97e" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="ticket-intake" hash="c887d97e" version="0.5.0" source="@navori/core" -->
 # ticket-intake — 8-phase pipeline
 
 ## When to use this skill
