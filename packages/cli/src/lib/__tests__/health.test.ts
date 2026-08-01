@@ -10,6 +10,7 @@ import {
   scanMalformedMarkers,
   scanDuplicateMarkers,
   scanExcludedBlocks,
+  scanOrphanedEngineOutputs,
   listMarkers,
   type DriftReport,
 } from "../health.ts";
@@ -250,14 +251,21 @@ describe("listMarkers + scanManagedDrift", () => {
 
   // Wave 3 (#71 item 12): AGENTS.md (agents-md engine) was outside the scan
   // scope, so doctor was blind to hand-edits of its managed block — the same
-  // gap already closed for CLAUDE.md above.
+  // gap already closed for CLAUDE.md above. #312: only scanned when agents-md is
+  // a configured engine (a leftover AGENTS.md under engines:["claude"] is an
+  // orphan, not drift), so this asserts with agents-md enabled.
   it("detects content drift in the managed block inside AGENTS.md", () => {
+    const agentsConfig = NavoriConfigSchema.parse({
+      name: "demo",
+      engines: ["claude", "agents-md"],
+      preset: "custom",
+    });
     writeFileSync(
       join(cwd, "AGENTS.md"),
       `<!-- navori:managed id="navori-agents" hash="deadbeef" version="9.9.9" source="@navori/core" -->\n` +
         `hand-edited agents block\n<!-- /navori:managed id="navori-agents" -->\n`,
     );
-    const drifts = scanManagedDrift(cwd, config);
+    const drifts = scanManagedDrift(cwd, agentsConfig);
     expect(
       drifts.some(
         (d) => d.kind === "content" && d.markerId === "navori-agents" && d.filePath === "AGENTS.md",
@@ -266,13 +274,18 @@ describe("listMarkers + scanManagedDrift", () => {
   });
 
   it("detects shell-marker drift in Codex config", () => {
+    const codexConfig = NavoriConfigSchema.parse({
+      name: "demo",
+      engines: ["claude", "codex"],
+      preset: "custom",
+    });
     mkdirSync(join(cwd, ".codex"), { recursive: true });
     writeFileSync(
       join(cwd, ".codex/config.toml"),
       `# navori:managed start id="codex-config-base" hash="deadbeef" version="9.9.9" source="@navori/core"\n` +
         `sandbox_mode = "danger-full-access"\n# navori:managed end id="codex-config-base"\n`,
     );
-    const drifts = scanManagedDrift(cwd, config);
+    const drifts = scanManagedDrift(cwd, codexConfig);
     expect(
       drifts.some(
         (d) =>
@@ -705,6 +718,79 @@ describe("collectMissingPlugins classifies transient fs errors (#281)", () => {
       }),
     );
     expect(missing.map((m) => m.id)).toContain("ghost-plugin");
+  });
+});
+
+// #312: when config.engines narrows, a disabled engine's leftover outputs
+// (AGENTS.md, .codex/, .cursor/…) linger. They must NOT be reported as
+// actionable drift — render never revisits them — but surfaced as orphans that
+// `render --prune` removes.
+describe("orphaned engine outputs (#312)", () => {
+  let cwd: string;
+  const claudeOnly = NavoriConfigSchema.parse({
+    name: "demo",
+    engines: ["claude"],
+    preset: "custom",
+  });
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "navori-orphan-"));
+  });
+  afterEach(() => rmSync(cwd, { recursive: true, force: true }));
+
+  // A hand-edited (or version-stale) AGENTS.md owned by no configured engine is
+  // an orphan, so the actionable drift scan stays silent about it.
+  it("scanManagedDrift ignores an orphaned AGENTS.md under engines:['claude']", () => {
+    writeFileSync(
+      join(cwd, "AGENTS.md"),
+      `<!-- navori:managed id="navori-agents" hash="deadbeef" version="9.9.9" source="@navori/core" -->\n` +
+        `stale orphaned block\n<!-- /navori:managed id="navori-agents" -->\n`,
+    );
+    expect(scanManagedDrift(cwd, claudeOnly)).toHaveLength(0);
+  });
+
+  it("scanOrphanedEngineOutputs lists AGENTS.md as an orphan of a disabled engine", () => {
+    writeFileSync(join(cwd, "AGENTS.md"), "any content\n");
+    const orphans = scanOrphanedEngineOutputs(cwd, claudeOnly);
+    const paths = orphans.flatMap((o) => o.paths);
+    expect(paths).toContain("AGENTS.md");
+  });
+
+  it("collapses .codex file outputs to the .codex/ directory", () => {
+    mkdirSync(join(cwd, ".codex/agents"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/config.toml"), "x\n");
+    mkdirSync(join(cwd, ".agents/skills"), { recursive: true });
+    const orphans = scanOrphanedEngineOutputs(cwd, claudeOnly);
+    const codex = orphans.find((o) => o.engine === "codex");
+    expect(codex?.paths).toContain(".codex");
+    expect(codex?.paths).toContain(".agents");
+    // The nested config.toml folds into the parent dir — not listed separately.
+    expect(codex?.paths).not.toContain(".codex/config.toml");
+  });
+
+  // The AGENTS.md overlap guard: it's owned by BOTH codex and agents-md, so it's
+  // only an orphan when NEITHER is configured. With codex still enabled it stays.
+  it("does NOT flag AGENTS.md when a still-enabled engine (codex) also owns it", () => {
+    writeFileSync(join(cwd, "AGENTS.md"), "shared content\n");
+    const codexEnabled = NavoriConfigSchema.parse({
+      name: "demo",
+      engines: ["codex"],
+      preset: "custom",
+    });
+    const orphans = scanOrphanedEngineOutputs(cwd, codexEnabled);
+    expect(orphans.flatMap((o) => o.paths)).not.toContain("AGENTS.md");
+  });
+
+  it("flags AGENTS.md once when both codex and agents-md are disabled", () => {
+    writeFileSync(join(cwd, "AGENTS.md"), "content\n");
+    const orphans = scanOrphanedEngineOutputs(cwd, claudeOnly);
+    const agentsMdPaths = orphans.flatMap((o) => o.paths).filter((p) => p === "AGENTS.md");
+    expect(agentsMdPaths).toHaveLength(1);
+  });
+
+  it("returns nothing when no disabled engine has outputs on disk", () => {
+    writeFileSync(join(cwd, "CLAUDE.md"), "content\n");
+    expect(scanOrphanedEngineOutputs(cwd, claudeOnly)).toHaveLength(0);
   });
 });
 

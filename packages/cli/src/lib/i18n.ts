@@ -568,6 +568,8 @@ interface RenderCmdStrings {
   noChanges: string;
   adapterMissing: (engine: string) => string;
   orphanedWorkspaces: (count: number, list: string) => string;
+  orphanedEngineOutputs: (count: number, list: string) => string;
+  prunedEngineOutputs: (count: number, list: string) => string;
   downgradeWarning: (args: { count: number; newest: string; ids: string }) => string;
   previewWord: string;
   previewHint: string;
@@ -614,6 +616,9 @@ interface DoctorCmdStrings {
   missingPreset: (preset: string) => string;
   presetOverride: (preset: string) => string;
   placeholderName: (name: string) => string;
+  nameMismatch: (configName: string, dirName: string) => string;
+  orphanedEngineOutputsTitle: (n: number) => string;
+  orphanedEngineOutputRow: (engine: string) => string;
   missingPresetFiles: (preset: string, n: number, lines: string) => string;
   missingPresetFileRow: (path: string) => string;
   missingLocalSkills: (n: number, lines: string) => string;
@@ -1147,6 +1152,11 @@ const CMD_ES: CmdStrings = {
     orphanedWorkspaces: (count, list) =>
       `Workspaces declarados en config pero ausentes en disco (${count}) — ` +
       `no se renderizaron (evita resucitar dirs borrados). Corre 'navori scan' o quita del config:\n${list}`,
+    orphanedEngineOutputs: (count, list) =>
+      `Outputs huérfanos de engines desactivados (${count}) — quedaron de un engine que ya ` +
+      `no está en config.engines; render no los toca. Corre 'navori render --prune --apply' para borrarlos:\n${list}`,
+    prunedEngineOutputs: (count, list) =>
+      `Borré outputs huérfanos de engines desactivados (${count}) — respaldados antes de borrar:\n${list}`,
     downgradeWarning: ({ count, newest, ids }) =>
       `Tu CLI está detrás del repo: ${count} bloque(s) los escribió una navori más nueva ` +
       `(hasta ${newest}). Los preservé sin tocar para no degradarlos. ` +
@@ -1206,6 +1216,14 @@ const CMD_ES: CmdStrings = {
     placeholderName: (name) =>
       `El name '${name}' parece un placeholder de scaffold (probablemente heredado del ` +
       `package.json sin renombrar). Edita "name" en navori.config.json si no es el nombre real del repo.`,
+    nameMismatch: (configName, dirName) =>
+      `El name '${configName}' en navori.config.json no coincide con el directorio del repo ` +
+      `('${dirName}') — probablemente un harness copiado de otro repo sin actualizar el nombre. ` +
+      `Edita "name" si no es intencional.`,
+    orphanedEngineOutputsTitle: (n) =>
+      `Outputs huérfanos de engines desactivados · ${n} (corre 'navori render --prune --apply' para borrarlos)`,
+    orphanedEngineOutputRow: (engine) =>
+      `— del engine '${engine}' (no está en engines); seguro de borrar`,
     missingPresetFiles: (preset, n, lines) =>
       `Extras del preset '${preset}' sin archivo (${n}) — el render ` +
       `fallará al leerlos; créalos o quítalos del manifest:\n${lines}`,
@@ -1880,6 +1898,11 @@ const CMD_EN: CmdStrings = {
     orphanedWorkspaces: (count, list) =>
       `Workspaces declared in config but missing on disk (${count}) — ` +
       `not rendered (avoids resurrecting deleted dirs). Run 'navori scan' or remove them from config:\n${list}`,
+    orphanedEngineOutputs: (count, list) =>
+      `Orphaned outputs from disabled engines (${count}) — left over from an engine no longer ` +
+      `in config.engines; render never touches them. Run 'navori render --prune --apply' to delete them:\n${list}`,
+    prunedEngineOutputs: (count, list) =>
+      `Deleted orphaned outputs from disabled engines (${count}) — backed up before deletion:\n${list}`,
     downgradeWarning: ({ count, newest, ids }) =>
       `Your CLI is behind the repo: ${count} block(s) were written by a newer navori ` +
       `(up to ${newest}). They were preserved untouched to avoid downgrading them. ` +
@@ -1938,6 +1961,14 @@ const CMD_EN: CmdStrings = {
     placeholderName: (name) =>
       `The name '${name}' looks like a scaffold placeholder (probably carried over from an ` +
       `un-renamed package.json). Edit "name" in navori.config.json if it isn't the repo's real name.`,
+    nameMismatch: (configName, dirName) =>
+      `The name '${configName}' in navori.config.json doesn't match the repo directory ` +
+      `('${dirName}') — likely a harness copied from another repo without updating the name. ` +
+      `Edit "name" if it isn't intentional.`,
+    orphanedEngineOutputsTitle: (n) =>
+      `Orphaned outputs from disabled engines · ${n} (run 'navori render --prune --apply' to delete them)`,
+    orphanedEngineOutputRow: (engine) =>
+      `— from disabled engine '${engine}' (not in engines); safe to delete`,
     missingPresetFiles: (preset, n, lines) =>
       `Extras of preset '${preset}' with no file (${n}) — render ` +
       `will fail reading them; create or remove them from the manifest:\n${lines}`,

@@ -2,7 +2,7 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, resolve, relative } from "node:path";
+import { basename, join, resolve, relative } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
 import { CLAUDE_COMPUTED_BLOCK_IDS } from "../engines/claude/index.ts";
@@ -24,6 +24,7 @@ import {
   scanMalformedMarkers,
   scanLegacyAgents,
   scanExcludedBlocks,
+  scanOrphanedEngineOutputs,
   suggestNextSteps,
   ENGINE_OUTPUTS,
   PLUGIN_BLOCK_ENGINES,
@@ -141,6 +142,19 @@ export const doctorCommand = defineCommand({
     // never-renamed scaffold (the package.json carried it through). Doesn't
     // break the render, so it's a warning, not an `ok`-flipping error.
     const placeholderName = isPlaceholderName(config.name) ? config.name : null;
+    // Informational: config.name doesn't match the repo's directory — usually a
+    // harness copied from another repo whose name was never updated. Skipped
+    // when the name is already a placeholder (warned above) so the hints don't
+    // double up. Never flips `ok`. #315.
+    const nameMismatch = scanNameMismatch(cwd, config);
+    // Outputs left behind by an engine no longer in config.engines[] (e.g. a
+    // stale AGENTS.md/.codex after narrowing to claude). Informational — never
+    // flips `ok`; `render --prune` removes them. #312.
+    const orphanedEngineOutputs = scanOrphanedEngineOutputs(cwd, config);
+    // AGENTS.md is only a first-class filesystem check when an engine that emits
+    // it is configured; otherwise a leftover file is surfaced as an orphan below
+    // instead of a bare ✓, which contradicted the drift/orphan report (#312).
+    const agentsMdEngineActive = config.engines.some((e) => e === "agents-md" || e === "codex");
     const report = {
       // Drift is informational ("update available"), not an error — don't
       // flip `ok` for it. Missing plugins, corrupted settings.json, missing
@@ -171,6 +185,8 @@ export const doctorCommand = defineCommand({
       presetOverride,
       missingPresetFiles,
       placeholderName,
+      nameMismatch,
+      orphanedEngineOutputs,
       legacyAgents,
       excludedBlocks,
       claudeHookScripts,
@@ -212,12 +228,25 @@ export const doctorCommand = defineCommand({
     p.note(
       [
         `  ${check(report.checks.claudeMdExists)} CLAUDE.md`,
-        `  ${check(report.checks.agentsMdExists)} AGENTS.md`,
+        // Only a first-class row when an engine that emits it is configured;
+        // otherwise a leftover AGENTS.md is reported as an orphan, not a ✓ (#312).
+        ...(agentsMdEngineActive ? [`  ${check(report.checks.agentsMdExists)} AGENTS.md`] : []),
         `  ${check(report.checks.claudeDirExists)} .claude/`,
         `  ${check(report.checks.progressDirExists)} ${config.progress?.dir ?? "progress"}/`,
       ].join("\n"),
       td.fsChecksTitle,
     );
+
+    if (orphanedEngineOutputs.length > 0) {
+      const total = orphanedEngineOutputs.reduce((n, o) => n + o.paths.length, 0);
+      const lines = orphanedEngineOutputs.flatMap((o) =>
+        o.paths.map(
+          (path) =>
+            `  ${color.cyan(sym.bullet)} ${accent(path)}  ${grey(td.orphanedEngineOutputRow(o.engine))}`,
+        ),
+      );
+      p.note(lines.join("\n"), td.orphanedEngineOutputsTitle(total));
+    }
 
     if (markers.length > 0) {
       const lines = markers.map((m) => {
@@ -272,6 +301,10 @@ export const doctorCommand = defineCommand({
 
     if (placeholderName) {
       p.log.warn(td.placeholderName(placeholderName));
+    }
+
+    if (nameMismatch) {
+      p.log.warn(td.nameMismatch(nameMismatch.configName, nameMismatch.dirName));
     }
 
     if (missingPresetFiles.length > 0) {
@@ -578,6 +611,27 @@ export function computeHealthVerdict(cwd: string, config: NavoriConfig): HealthV
     codexHealth,
     duplicateMarkers,
   };
+}
+
+export interface NameMismatch {
+  /** `config.name` as declared in navori.config.json. */
+  configName: string;
+  /** The repo directory basename it doesn't match. */
+  dirName: string;
+}
+
+/**
+ * `config.name` doesn't match the repo's directory basename — the twin of the
+ * placeholder-name check (#315). Usually a harness copied from another repo
+ * whose `name` was never updated. Informational (never flips `ok`). Skipped when
+ * the name is already a known placeholder — that's warned separately, so the two
+ * hints don't double up on the same config.
+ */
+export function scanNameMismatch(cwd: string, config: NavoriConfig): NameMismatch | null {
+  if (isPlaceholderName(config.name)) return null;
+  const dirName = basename(cwd);
+  if (dirName === config.name) return null;
+  return { configName: config.name, dirName };
 }
 
 export interface CorruptedSettingsReport {

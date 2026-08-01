@@ -1,8 +1,10 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import type { NavoriConfig } from "../lib/config.ts";
+import { scanOrphanedEngineOutputs, type OrphanedEngineOutput } from "../lib/health.ts";
+import { createBackup, purgeOldBackups } from "../lib/backup.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render-plan.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
@@ -132,6 +134,13 @@ export interface RunRenderOptions {
    * declared or no workspace by that name exists. Spec 0001 fase 4.
    */
   workspaceFilter?: string | null;
+  /**
+   * Delete outputs owned only by engines no longer in `config.engines[]`
+   * (orphaned `AGENTS.md`, `.codex/`, …) after rendering the enabled engines.
+   * Only deletes when combined with a non-preview (apply) run; in preview it's a
+   * no-op (the orphans are still reported, never touched). #312.
+   */
+  prune?: boolean;
 }
 
 /**
@@ -174,12 +183,17 @@ export function runRender(
   orphanedWorkspaces?: string[];
   /** Non-Claude engines (agents-md, plus warnings for cursor/copilot). */
   extraEngines?: EngineRenderSummary[];
+  /** Outputs owned only by engines no longer in config.engines[] (#312). */
+  orphanedEngineOutputs?: OrphanedEngineOutput[];
+  /** Orphaned-output paths deleted this run (only with --prune + --apply). */
+  prunedEngineOutputs?: string[];
 } {
   // Back-compat: callers passing (cwd, dryRun, force) keep working.
   const opts: RunRenderOptions =
     typeof dryRunOrOptions === "boolean" ? { dryRun: dryRunOrOptions, force } : dryRunOrOptions;
   const dryRun = Boolean(opts.dryRun);
   const forceFlag = Boolean(opts.force);
+  const pruneFlag = Boolean(opts.prune);
   const workspaceFilter = opts.workspaceFilter ?? null;
 
   const configPath = `${cwd}/navori.config.json`;
@@ -349,6 +363,22 @@ export function runRender(
 
   const extraEngines = renderNonClaudeEngines(cwd, config, engines, dryRun, { lang });
 
+  // #312: outputs owned only by engines no longer in config.engines[] (a stale
+  // AGENTS.md/.codex after narrowing to claude) linger because render never
+  // revisits a disabled engine. Report them always; with --prune on an apply
+  // run, back them up and delete them.
+  const orphanedEngineOutputs = scanOrphanedEngineOutputs(cwd, config);
+  let prunedEngineOutputs: string[] | undefined;
+  if (pruneFlag && !dryRun && orphanedEngineOutputs.length > 0) {
+    const paths = orphanedEngineOutputs.flatMap((o) => o.paths);
+    // Back up before deleting so a mistaken prune is recoverable (same safety
+    // net the prose engine uses for overwrites).
+    const handle = createBackup(cwd, paths);
+    if (handle.files.length > 0) purgeOldBackups();
+    for (const rel of paths) rmSync(resolve(cwd, rel), { recursive: true, force: true });
+    prunedEngineOutputs = paths;
+  }
+
   return {
     ok: true,
     language: lang,
@@ -363,6 +393,8 @@ export function runRender(
     workspaces,
     orphanedWorkspaces,
     extraEngines,
+    orphanedEngineOutputs,
+    prunedEngineOutputs,
   };
 }
 
@@ -405,7 +437,8 @@ export const renderCommand = defineCommand({
     prune: {
       type: "boolean",
       description:
-        "With --all: drop registry entries whose repo no longer exists before rendering.",
+        "With --all: drop registry entries whose repo no longer exists before rendering. " +
+        "In a single repo (with --apply): delete outputs left by engines no longer in config.engines (orphaned AGENTS.md/.codex/…), backing them up first.",
     },
     verbose: {
       type: "boolean",
@@ -452,6 +485,7 @@ export const renderCommand = defineCommand({
       dryRun: preview,
       force: Boolean(args.force),
       workspaceFilter,
+      prune: Boolean(args.prune),
     });
     const tr = tc(result.language).render;
 
@@ -525,6 +559,25 @@ export const renderCommand = defineCommand({
     }
 
     reportExtraEngines(result.extraEngines ?? [], result.language);
+
+    // #312: orphaned outputs from disabled engines. If pruned this run, confirm
+    // what was deleted; otherwise warn (and point at --prune) without touching.
+    if (result.prunedEngineOutputs && result.prunedEngineOutputs.length > 0) {
+      p.log.info(
+        tr.prunedEngineOutputs(
+          result.prunedEngineOutputs.length,
+          result.prunedEngineOutputs.map((path) => `  ${color.green(sym.ok)} ${path}`).join("\n"),
+        ),
+      );
+    } else if (result.orphanedEngineOutputs && result.orphanedEngineOutputs.length > 0) {
+      const lines = result.orphanedEngineOutputs
+        .flatMap((o) =>
+          o.paths.map((path) => `  ${color.yellow(sym.update)} ${path} ${dim(`(${o.engine})`)}`),
+        )
+        .join("\n");
+      const count = result.orphanedEngineOutputs.reduce((n, o) => n + o.paths.length, 0);
+      p.log.warn(tr.orphanedEngineOutputs(count, lines));
+    }
 
     const allDowngrades = result.downgrades.concat(...result.workspaces.map((w) => w.downgrades));
     const downgradeWarn = formatDowngradeWarning(allDowngrades, result.language);
@@ -611,6 +664,8 @@ function buildRenderJson(result: ReturnType<typeof runRender>, preview: boolean)
     })),
     extraEngines: (result.extraEngines ?? []).map(engineJson),
     orphanedWorkspaces: result.orphanedWorkspaces ?? [],
+    orphanedEngineOutputs: result.orphanedEngineOutputs ?? [],
+    prunedEngineOutputs: result.prunedEngineOutputs ?? [],
     downgrades,
     summary: countStatuses(allEntries),
     pending,
