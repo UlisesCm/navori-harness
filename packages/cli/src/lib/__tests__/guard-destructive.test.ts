@@ -176,6 +176,44 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
     it("does NOT block `git config user.name x` (exit 0)", () => {
       expect(runGuard("git config user.name x")).toBe(0);
     });
+
+    // #307: the force-push rule is scoped to the actual `git push` segment, so a
+    // ` + ` in a commit message plus a base-branch name in a sibling `gh pr
+    // create --base main` no longer forge a false "force-push to base".
+    it("does NOT block a compound commit+push+PR whose message contains ` + ` (exit 0, #307)", () => {
+      const rendered = renderGuard("main");
+      expect(
+        runGuardScript(
+          rendered,
+          'git commit -m "wip (full: format:check + test + lint)" && ' +
+            "git push -u origin feat/mi-rama && gh pr create --base main --body x",
+        ),
+      ).toBe(0);
+    });
+
+    it("does NOT block `git push -u origin feat/x` with a ` + ` earlier in the line (exit 0, #307)", () => {
+      const rendered = renderGuard("main");
+      expect(runGuardScript(rendered, 'echo "a + b" && git push -u origin feat/x')).toBe(0);
+    });
+
+    // Real force-pushes to the base branch must STILL be blocked.
+    it("blocks `git push --force main` (exit 2, #307)", () => {
+      const rendered = renderGuard("main");
+      expect(runGuardScript(rendered, "git push --force main")).toBe(2);
+    });
+
+    it("blocks a force-push refspec `git push origin +main` (exit 2, #307)", () => {
+      const rendered = renderGuard("main");
+      expect(runGuardScript(rendered, "git push origin +main")).toBe(2);
+    });
+
+    // The `+` refspec is only a force-push when glued to the ref (`+main`); a
+    // stray `+main` in a message plus a real push to a feature branch must not
+    // block, but a genuine `+main` refspec in the push still does.
+    it("blocks a real `+main` refspec even next to a benign ` + ` message (exit 2, #307)", () => {
+      const rendered = renderGuard("main");
+      expect(runGuardScript(rendered, 'git commit -m "a + b" && git push origin +main')).toBe(2);
+    });
   });
 
   describe("with NO JSON parser on PATH (sed fallback)", () => {
