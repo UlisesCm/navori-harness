@@ -1,8 +1,13 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import type { MonorepoRenderContext } from "../../lib/monorepo.ts";
-import { loadEnabledPlugins, loadDisabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
+import {
+  loadEnabledPlugins,
+  loadDisabledPlugins,
+  RETIRED_PLUGINS,
+  type LoadedPlugin,
+} from "../../lib/plugins.ts";
 import {
   computeRenderPlan,
   canonicalManagedOrder,
@@ -758,6 +763,33 @@ export function renderClaudeEngine(
         inspected += 1;
         removals.push({ path: destPath });
       }
+    }
+  }
+
+  // 8.5-bis. Purge physical assets of RETIRED plugins (#314). A retired plugin's
+  // manifest is gone, so it can never load → it never reaches the disabled-plugin
+  // loop above, and its scripts (`.claude/scripts/*`) orphan on disk as inert
+  // cruft no command strips. This sweep is config-INDEPENDENT on purpose: `navori
+  // remove` deletes the plugin's config key, so gating on "still declared" would
+  // never fire — it must clean the leftover for any retired id whose assets remain
+  // on disk. Marker-free by design: these paths are navori-owned build outputs
+  // (copied verbatim from the plugin package), not user content. commitWrites
+  // backs them up before deleting and skips deletion entirely under dryRun.
+  for (const retired of Object.values(RETIRED_PLUGINS)) {
+    for (const asset of retired.assets) {
+      const assetPath = join(cwd, asset);
+      if (!existsSync(assetPath)) continue;
+      inspected += 1;
+      let recursive = false;
+      try {
+        recursive = statSync(assetPath).isDirectory();
+      } catch {
+        // Unreadable stat — leave `recursive` false. If it was actually a dir,
+        // the non-recursive rmSync throws EISDIR, which the best-effort removal
+        // path swallows: the dir is left in place rather than half-deleted. Safe
+        // degradation for the edge case of an unreadable path.
+      }
+      removals.push({ path: assetPath, recursive });
     }
   }
 
