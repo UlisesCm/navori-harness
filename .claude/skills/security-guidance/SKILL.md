@@ -5,7 +5,7 @@ type: reference
 maxWords: 1200
 ---
 
-<!-- navori:managed id="security-guidance-base" hash="77f8ed93" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="security-guidance-base" hash="77f8ed93" version="0.5.0" source="@navori/core" -->
 # Security guidance — the business security layer
 
 Feeds the `/security-review` flow. The generic web vuln patterns (XSS, SSRF, hardcoded secrets, insecure deserialization, injection) are already covered by semgrep and the built-in reviewer. What goes here is what the model **can't infer from code alone**: the authorization and trust invariants that depend on the domain.

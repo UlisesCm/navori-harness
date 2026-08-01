@@ -5,7 +5,7 @@ type: behavior
 maxWords: 1200
 ---
 
-<!-- navori:managed id="review-diff-base" hash="378a959a" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="review-diff-base" hash="378a959a" version="0.5.0" source="@navori/core" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.

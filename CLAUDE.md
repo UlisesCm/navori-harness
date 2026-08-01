@@ -53,7 +53,7 @@ Protocolo global activo. En este repo:
 - El harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se commitea aquí y en todo repo no-Bonum — navori se auto-hospeda. La regla de "nunca commitear `.claude/`/`CLAUDE.md`" aplica solo a los repos `/bonum`. Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 - Branch base: definir cuando se inicialice el repo git.
 
-<!-- navori:managed id="orquestacion" hash="6e7d9957" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="6e7d9957" version="0.5.0" source="@navori/core" -->
 ## Role: orchestrator (organic routing)
 
 You are the main agent. For any task, **pick the smallest route that covers it**; step up only when you cross an objective threshold. Fan-out (subagents) is a **lever** for complex or parallelizable work, not a toll every task pays. Review the candidate **after** implementing, not before. You **embody** the orchestrator role: when a task reaches R2, **you act as the orchestrator** (decompose and coordinate) — but **NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -107,7 +107,7 @@ Instruct subagents to **write to `.claude/progress/<file>.md`**; you receive onl
 **Second opinion (post-`APPROVED`).** On a non-trivial diff — or any change touching a critical area — if this repo also renders the `codex` engine, a review from a **different provider** is one command away: see the **Cross-model review** sub-block in `.claude/agents/leader.md`.
 <!-- /navori:managed id="orquestacion" -->
 
-<!-- navori:managed id="idioma-rol" hash="ea35d81e" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="idioma-rol" hash="ea35d81e" version="0.5.0" source="@navori/core" -->
 ## Idioma y rol
 
 - Código y comentarios (JSDoc/docstrings): inglés. Chat: español MX.
@@ -117,7 +117,7 @@ Instruct subagents to **write to `.claude/progress/<file>.md`**; you receive onl
 - Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones, coloquialismos) en artefactos — eso es exclusivo del chat.
 <!-- /navori:managed id="idioma-rol" -->
 
-<!-- navori:managed id="formato-respuesta" hash="2065a812" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="formato-respuesta" hash="2065a812" version="0.5.0" source="@navori/core" -->
 ## Concisión (aplica a todo: chat y subagentes)
 
 - Lidera con el resultado: la primera línea responde "qué pasó / qué encontré", no el preámbulo.
@@ -139,7 +139,7 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 **Commits**: Conventional (`feat(scope): ...`), atómicos, en el idioma que define `commits` en la config.
 <!-- /navori:managed id="formato-respuesta" -->
 
-<!-- navori:managed id="tipado-fuerte" hash="775c6205" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="tipado-fuerte" hash="775c6205" version="0.5.0" source="@navori/core" -->
 ## Strong typing
 
 `any` is forbidden. Use `unknown` + narrowing. Type explicitly: parameters, returns, callbacks, events, props, hooks, and service responses.
@@ -147,7 +147,7 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 Exception: `// any justified: <reason>` — last resort, not a shortcut. If there's no clear reason, it's not justified.
 <!-- /navori:managed id="tipado-fuerte" -->
 
-<!-- navori:managed id="operaciones-seguras" hash="d770ec13" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="operaciones-seguras" hash="d770ec13" version="0.5.0" source="@navori/core" -->
 ## Operations on data and infrastructure
 
 Read-only by default. Before mutating data, schema, or infrastructure (DB, storage, deploys, cloud resources), read and propose; don't mutate without the user's explicit opt-in for THIS task.
@@ -161,7 +161,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, stora
 - **Sensitive data**: don't dump secrets, PII, or full dumps to logs, chat, or repo files.
 <!-- /navori:managed id="operaciones-seguras" -->
 
-<!-- navori:managed id="arranque-sesion" hash="5a9055af" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="arranque-sesion" hash="5a9055af" version="0.5.0" source="@navori/core" -->
 ## Session startup
 
 On Claude, a `SessionStart` hook injects the live context — branch, recent commits, and the previous session's `progress/current.md` — at the top of the session; read it to resume. Otherwise, read `progress/current.md` yourself. Then, before touching code:
@@ -172,7 +172,7 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 4. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
 <!-- /navori:managed id="arranque-sesion" -->
 
-<!-- navori:managed id="cierre-sesion" hash="6e941252" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="cierre-sesion" hash="6e941252" version="0.5.0" source="@navori/core" -->
 ## Session closeout
 
 Before closing the session:
@@ -184,7 +184,7 @@ Before closing the session:
 5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, atomic, in the language defined by the config's `commits`. Never commit `.claude/` or `CLAUDE.md`.
 <!-- /navori:managed id="cierre-sesion" -->
 
-<!-- navori:managed id="sdd" hash="d5355f0b" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="sdd" hash="d5355f0b" version="0.5.0" source="@navori/core" -->
 ## Spec Driven Development (SDD)
 
 Start from a spec (not from code) for real scope: a complete new feature, changes to auth/security/permissions, adapters or models with sensitive data, or scope > ~2 days. UI bugfixes, a new field in a form, isolated refactors, or copy tweaks go straight in.
@@ -196,7 +196,7 @@ Start from a spec (not from code) for real scope: a complete new feature, change
 Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`leader`→`implementer`→`reviewer`) — with the `spec-bootstrap` skill.
 <!-- /navori:managed id="sdd" -->
 
-<!-- navori:managed id="engram-protocol" hash="fb34fccc" version="0.4.2" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-protocol" hash="fb34fccc" version="0.5.0" source="@navori/plugin-engram" -->
 ## Engram
 
 - **Session start (first step, mandatory):** call `mem_context` at the start of EVERY session to recover decisions and prior work — don't wait for the user to ask. On hosts that do NOT load memory with a startup hook (e.g. Codex), this explicit call IS the memory startup; don't skip it.
@@ -208,7 +208,7 @@ Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the a
 - **Curation at close:** after the summary, review what was created in the session. Consolidate duplicates under their `topic_key`, promote what's durable, and delete only volatile observations or ones already covered by the summary. Never aggressive deletion, never delete a durable decision.
 <!-- /navori:managed id="engram-protocol" -->
 
-<!-- navori:managed id="gh-protocol" hash="b2d02c0b" version="0.4.2" source="@navori/plugin-gh" -->
+<!-- navori:managed id="gh-protocol" hash="b2d02c0b" version="0.5.0" source="@navori/plugin-gh" -->
 ## GitHub CLI (gh)
 
 To interact with GitHub (issues, PRs, repos) use **gh**:
@@ -223,7 +223,7 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 `gh auth status` shows whether you're authenticated. If it fails, run `gh auth login`.
 <!-- /navori:managed id="gh-protocol" -->
 
-<!-- navori:managed id="jscpd-protocol" hash="546ab3c4" version="0.4.2" source="@navori/plugin-jscpd" -->
+<!-- navori:managed id="jscpd-protocol" hash="546ab3c4" version="0.5.0" source="@navori/plugin-jscpd" -->
 ## Code duplication (jscpd)
 
 Before approving a change, run jscpd over the diff vs the base branch.
@@ -236,7 +236,7 @@ Before approving a change, run jscpd over the diff vs the base branch.
 - Silent skip if `jscpd` is not in `PATH` (don't block if the dev doesn't have the tool installed).
 <!-- /navori:managed id="jscpd-protocol" -->
 
-<!-- navori:managed id="semgrep-protocol" hash="d9c11ae1" version="0.4.2" source="@navori/plugin-semgrep" -->
+<!-- navori:managed id="semgrep-protocol" hash="d9c11ae1" version="0.5.0" source="@navori/plugin-semgrep" -->
 ## Local security gate (semgrep)
 
 Before closing a relevant change (auth, RBAC, secrets, input validation), run semgrep over the diff.
@@ -254,7 +254,7 @@ Before closing a relevant change (auth, RBAC, secrets, input validation), run se
 - Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
 <!-- /navori:managed id="semgrep-protocol" -->
 
-<!-- navori:managed id="codegraph-protocol" hash="17d7f4b9" version="0.4.2" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-protocol" hash="17d7f4b9" version="0.5.0" source="@navori/plugin-codegraph" -->
 ## CodeGraph (surgical code context)
 
 This repo has a pre-built AST code graph exposed over MCP (`codegraph`). Use it to locate code and reason about impact in **one call** instead of a grep/read crawl.
@@ -274,7 +274,7 @@ This repo has a pre-built AST code graph exposed over MCP (`codegraph`). Use it 
 If `codegraph` isn't installed or the index is stale, fall back to `structural-search` as usual — the graph is an accelerator, not a dependency.
 <!-- /navori:managed id="codegraph-protocol" -->
 
-<!-- navori:managed id="skills-index" hash="93011157" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="skills-index" hash="93011157" version="0.5.0" source="@navori/core" -->
 ## Skills disponibles
 
 Skills que los agentes pueden aplicar; las propias de navori viven en `.claude/skills/<id>/SKILL.md` (una skill que hayas agregado tú puede ser un `<id>.md` plano). La nota tras el `·` dice cuándo usar cada una.
@@ -295,7 +295,7 @@ Skills que los agentes pueden aplicar; las propias de navori viven en `.claude/s
 - `clack` — library (detected) · Use when building interactive CLI prompts with @clack/prompts
 <!-- /navori:managed id="skills-index" -->
 
-<!-- navori:managed id="agentes-disponibles" hash="0ec0b7dc" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="agentes-disponibles" hash="0ec0b7dc" version="0.5.0" source="@navori/core" -->
 ## Agentes disponibles
 
 Subagentes que puedes lanzar con la herramienta `Agent` (tú eres el orquestador; ve "## Role: orchestrator"). La investigación y la revisión son de solo lectura → paraleliza sin miedo.

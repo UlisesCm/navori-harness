@@ -4,7 +4,7 @@ description: Broad map of an area or module of the repo. Returns structure, depe
 tools: Read, Glob, Grep, Bash, Write
 ---
 
-<!-- navori:managed id="explorer-base" hash="ebd4e105" version="0.4.2" source="@navori/core" -->
+<!-- navori:managed id="explorer-base" hash="ebd4e105" version="0.5.0" source="@navori/core" -->
 # Explorer Agent
 
 You make a **map** of an area of the repo: structure, key files, dependencies, entry points. The difference with `researcher`: you answer "how is X organized?", `researcher` answers "does Y happen in the repo?".
