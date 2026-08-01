@@ -183,13 +183,21 @@ export const PLUGIN_BLOCK_ENGINES = new Set<string>(["claude", "codex"]);
 /** Repo-relative marker files that exist under `cwd`, deduped by path (AGENTS.md
  *  is claimed by both `codex` and `agents-md`) with their marker style.
  *  `styleFilter` narrows to one syntax — the malformed-marker scan is html-only,
- *  since the `-->` terminator check is meaningless for shell markers. */
+ *  since the `-->` terminator check is meaningless for shell markers. `engines`
+ *  restricts the scan to the outputs of the configured engines only; a marker in
+ *  a disabled engine's output (e.g. a leftover `AGENTS.md` after `agents-md` was
+ *  dropped from `engines[]`) is then NOT reported as actionable drift — render
+ *  never revisits it, so the fix is `render --prune`, surfaced separately as an
+ *  orphaned output (#312). Omitting `engines` scans every table entry (the
+ *  back-compat default for callers that don't pass a config). */
 export function collectMarkerFiles(
   cwd: string,
   styleFilter?: MarkerStyle,
+  engines?: readonly string[],
 ): Array<{ path: string; style: MarkerStyle }> {
   const seen = new Map<string, MarkerStyle>();
   for (const eo of ENGINE_OUTPUTS) {
+    if (engines && !engines.includes(eo.engine)) continue;
     for (const src of eo.markers) {
       if (styleFilter && src.style !== styleFilter) continue;
       const paths =
@@ -204,6 +212,71 @@ export function collectMarkerFiles(
     }
   }
   return [...seen].map(([path, style]) => ({ path, style }));
+}
+
+/**
+ * Repo-relative top-level paths (files or directories) an engine owns, derived
+ * from `ENGINE_OUTPUTS`. Nested entries collapse to their outermost owning path
+ * (`.codex/config.toml` folds into `.codex`) so a prune deletes one directory
+ * instead of each file, and the report stays terse. Independent of what's on
+ * disk — it's the static ownership map used by both the orphan scan and prune.
+ */
+function engineOwnedPaths(engine: string): string[] {
+  const eo = ENGINE_OUTPUTS.find((e) => e.engine === engine);
+  if (!eo) return [];
+  const raw = new Set<string>();
+  for (const src of eo.markers) raw.add(src.kind === "file" ? src.path : src.dir);
+  for (const dir of eo.textDirs) raw.add(dir);
+  // Collapse nested paths to their outermost ancestor within the set.
+  const sorted = [...raw].sort();
+  const out: string[] = [];
+  for (const p of sorted) {
+    if (out.some((base) => p === base || p.startsWith(`${base}/`))) continue;
+    out.push(p);
+  }
+  return out;
+}
+
+export interface OrphanedEngineOutput {
+  /** The disabled engine that produced these paths. */
+  engine: string;
+  /** Repo-relative paths existing on disk, owned ONLY by the disabled engine. */
+  paths: string[];
+}
+
+/**
+ * On-disk outputs owned ONLY by engines that are NO LONGER in `config.engines`.
+ * When `engines[]` narrows (e.g. `codex`/`agents-md` dropped, leaving `claude`),
+ * render never revisits the disabled engine's files (`AGENTS.md`, `.codex/`,
+ * `.cursor/`…), so they linger and doctor used to flag them as irresolvable
+ * drift. This lists them per still-orphaned engine so doctor can surface a
+ * safe-to-delete note and `render --prune` can remove them (#312).
+ *
+ * AGENTS.md overlap: it's emitted by BOTH `codex` and `agents-md` (same managed
+ * id). It's orphaned only when NEITHER is configured — a still-enabled engine
+ * that also produces a path keeps it. Each path is reported once even if two
+ * disabled engines claim it.
+ */
+export function scanOrphanedEngineOutputs(
+  cwd: string,
+  config: NavoriConfig,
+): OrphanedEngineOutput[] {
+  const enabled = new Set(config.engines ?? ["claude"]);
+  const ownedByEnabled = new Set<string>();
+  for (const engine of enabled) {
+    for (const p of engineOwnedPaths(engine)) ownedByEnabled.add(p);
+  }
+  const out: OrphanedEngineOutput[] = [];
+  const seen = new Set<string>();
+  for (const eo of ENGINE_OUTPUTS) {
+    if (enabled.has(eo.engine)) continue;
+    const paths = engineOwnedPaths(eo.engine).filter(
+      (p) => !ownedByEnabled.has(p) && !seen.has(p) && existsSync(join(cwd, p)),
+    );
+    for (const p of paths) seen.add(p);
+    if (paths.length > 0) out.push({ engine: eo.engine, paths });
+  }
+  return out;
 }
 
 export interface MissingPlugin {
@@ -285,8 +358,12 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   // unknown/foreign marker isn't flagged as drift.
   const naviVersion = readCliVersion();
   const knownSources = knownDriftSources(config);
+  // Only scan the outputs of the configured engines — a leftover output from a
+  // disabled engine is an orphan (surfaced by scanOrphanedEngineOutputs), not
+  // actionable version/content drift the user can fix with render/sync (#312).
+  const engines = config.engines ?? ["claude"];
 
-  const out = scanManagedDriftAt(cwd, "", naviVersion, knownSources);
+  const out = scanManagedDriftAt(cwd, "", naviVersion, knownSources, engines);
   // Monorepo: render/sync manage the managed blocks in EVERY workspace, so the
   // scan must too — otherwise a hand-edited block in `apps/backend/CLAUDE.md`
   // makes `sync` report a conflict while `doctor --strict` exits green (#235).
@@ -296,7 +373,7 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   for (const ws of config.monorepo?.workspaces ?? []) {
     const wsCwd = join(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
-    out.push(...scanManagedDriftAt(wsCwd, ws.path, naviVersion, knownSources));
+    out.push(...scanManagedDriftAt(wsCwd, ws.path, naviVersion, knownSources, engines));
   }
   return out;
 }
@@ -328,10 +405,11 @@ function scanManagedDriftAt(
   pathPrefix: string,
   naviVersion: string,
   knownSources: Set<string>,
+  engines: readonly string[],
 ): DriftReport[] {
   const out: DriftReport[] = [];
   const rel = (p: string): string => (pathPrefix ? `${pathPrefix}/${p}` : p);
-  for (const { path, style } of collectMarkerFiles(scanCwd)) {
+  for (const { path, style } of collectMarkerFiles(scanCwd, undefined, engines)) {
     const abs = join(scanCwd, path);
     const fileContent = (() => {
       try {
@@ -554,24 +632,32 @@ export interface MalformedMarker {
  * `config` is optional — pass it to also scan monorepo workspace files (#235).
  */
 export function scanMalformedMarkers(cwd: string, config?: NavoriConfig): MalformedMarker[] {
-  const out = scanMalformedMarkersAt(cwd, "");
+  // When a config is passed, restrict to its engines' outputs (a disabled
+  // engine's leftover file is an orphan, not a broken marker to fix, #312).
+  // Without a config, scan every engine's outputs (back-compat default).
+  const engines = config?.engines;
+  const out = scanMalformedMarkersAt(cwd, "", engines);
   for (const ws of config?.monorepo?.workspaces ?? []) {
     const wsCwd = join(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
-    out.push(...scanMalformedMarkersAt(wsCwd, ws.path));
+    out.push(...scanMalformedMarkersAt(wsCwd, ws.path, engines));
   }
   return out;
 }
 
 /** Malformed html markers within a single directory. Reported paths are
  *  optionally prefixed with `pathPrefix` (the workspace path). */
-function scanMalformedMarkersAt(scanCwd: string, pathPrefix: string): MalformedMarker[] {
+function scanMalformedMarkersAt(
+  scanCwd: string,
+  pathPrefix: string,
+  engines?: readonly string[],
+): MalformedMarker[] {
   const out: MalformedMarker[] = [];
   const rel = (p: string): string => (pathPrefix ? `${pathPrefix}/${p}` : p);
   // Check close before open: the close prefix is a superset string, so testing
   // it first avoids misclassifying a close line as a broken open.
   const prefixes = ["<!-- /navori:managed", "<!-- navori:managed"];
-  for (const { path } of collectMarkerFiles(scanCwd, "html")) {
+  for (const { path } of collectMarkerFiles(scanCwd, "html", engines)) {
     let content: string;
     try {
       content = readFileSync(join(scanCwd, path), "utf-8");
@@ -615,21 +701,29 @@ export interface DuplicateMarker {
  * `collectMarkerFiles` (#226) and recurses monorepo workspaces (#235).
  */
 export function scanDuplicateMarkers(cwd: string, config?: NavoriConfig): DuplicateMarker[] {
-  const out = scanDuplicateMarkersAt(cwd, "");
+  // Same engine gating as the sibling scans (#312): a disabled engine's leftover
+  // file with a duplicated id is an orphan (remove it whole), not an actionable
+  // duplicate. Without a config, scan every engine's outputs (back-compat).
+  const engines = config?.engines;
+  const out = scanDuplicateMarkersAt(cwd, "", engines);
   for (const ws of config?.monorepo?.workspaces ?? []) {
     const wsCwd = join(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
-    out.push(...scanDuplicateMarkersAt(wsCwd, ws.path));
+    out.push(...scanDuplicateMarkersAt(wsCwd, ws.path, engines));
   }
   return out;
 }
 
 /** Duplicated managed ids within a single directory. Reported paths are
  *  optionally prefixed with `pathPrefix` (the workspace path). */
-function scanDuplicateMarkersAt(scanCwd: string, pathPrefix: string): DuplicateMarker[] {
+function scanDuplicateMarkersAt(
+  scanCwd: string,
+  pathPrefix: string,
+  engines?: readonly string[],
+): DuplicateMarker[] {
   const out: DuplicateMarker[] = [];
   const rel = (p: string): string => (pathPrefix ? `${pathPrefix}/${p}` : p);
-  for (const { path } of collectMarkerFiles(scanCwd)) {
+  for (const { path } of collectMarkerFiles(scanCwd, undefined, engines)) {
     const counts = new Map<string, number>();
     for (const m of listMarkers(join(scanCwd, path))) {
       counts.set(m.id, (counts.get(m.id) ?? 0) + 1);
