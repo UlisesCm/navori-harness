@@ -327,6 +327,57 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     expect(existsSync(join(cwd, ".claude/scripts/check-semgrep.sh"))).toBe(false);
   });
 
+  // #314 — a plugin retired from navori (its manifest gone) leaves its physical
+  // scripts orphaned: it can't load, so the disabled-plugin strip loop never sees
+  // it, and `navori remove` already deleted its config key. The render must purge
+  // the leftover from disk via the RETIRED_PLUGINS asset registry.
+  const seedCognitiveLeftovers = (root: string): { file: string; toolDir: string } => {
+    const scripts = join(root, ".claude/scripts");
+    const toolDir = join(scripts, "cognitive-tool");
+    mkdirSync(toolDir, { recursive: true });
+    const file = join(scripts, "check-cognitive.sh");
+    writeFileSync(file, "#!/usr/bin/env bash\necho cognitive\n");
+    writeFileSync(join(toolDir, "package.json"), "{}\n");
+    writeFileSync(join(toolDir, "eslint.config.mjs"), "export default [];\n");
+    return { file, toolDir };
+  };
+
+  it("purges a retired plugin's leftover scripts even when it is absent from config (#314)", () => {
+    const { file, toolDir } = seedCognitiveLeftovers(cwd);
+    // CONFIG_FULL has no `cognitive` key — mirrors the post-`navori remove` state.
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    expect(existsSync(file)).toBe(false);
+    expect(existsSync(toolDir)).toBe(false);
+  });
+
+  it("does NOT delete retired-plugin leftovers under dryRun (#314)", () => {
+    const { file, toolDir } = seedCognitiveLeftovers(cwd);
+    renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
+    expect(existsSync(file)).toBe(true);
+    expect(existsSync(toolDir)).toBe(true);
+  });
+
+  it("purges retired leftovers without touching active plugin scripts or user files (#314)", () => {
+    seedCognitiveLeftovers(cwd);
+    // A user's own script under .claude/scripts — must survive the retired sweep.
+    const userScript = join(cwd, ".claude/scripts/my-own.sh");
+    writeFileSync(userScript, "#!/usr/bin/env bash\necho mine\n");
+
+    const cfg = {
+      ...CONFIG_FULL,
+      plugins: { jscpd: { enabled: true } },
+    } as unknown as NavoriConfig;
+    renderClaudeEngine(cwd, cfg);
+
+    // Retired assets gone…
+    expect(existsSync(join(cwd, ".claude/scripts/check-cognitive.sh"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/scripts/cognitive-tool"))).toBe(false);
+    // …active plugin script rendered…
+    expect(existsSync(join(cwd, ".claude/scripts/check-jscpd.sh"))).toBe(true);
+    // …and the user's unrelated file untouched.
+    expect(existsSync(userScript)).toBe(true);
+  });
+
   it("expands the shared `# navori:include` hook partials — no directive survives, body is inlined (#261)", () => {
     const cfg = {
       ...CONFIG_FULL,

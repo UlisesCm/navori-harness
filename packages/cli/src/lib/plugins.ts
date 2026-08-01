@@ -189,9 +189,24 @@ export const KNOWN_PLUGINS: Record<string, string> = {
  * `removedIn` is the PR/issue that removed it; `blockIds` are the managed-block
  * ids the plugin injected into CLAUDE.md (its `managed[].id`), needed so the
  * strip works even though the manifest that declared them is gone.
+ *
+ * `assets` are the physical files/dirs the plugin materialized OUTSIDE CLAUDE.md
+ * (its `scripts[].dest` under `.claude/scripts/`, and any tool sub-dir), as paths
+ * relative to the repo root. The render prunes any that still exist on disk (#314):
+ * a retired plugin never reaches the disabled-plugin strip loop (its manifest is
+ * gone, so it can't load), so without this list its scripts orphan forever as inert
+ * cruft. A path pointing at a directory is removed recursively. Keep these EXACT —
+ * they're matched literally against disk, so a typo means a silent no-op purge.
  */
-export const RETIRED_PLUGINS: Record<string, { removedIn: string; blockIds: string[] }> = {
-  cognitive: { removedIn: "#130", blockIds: ["cognitive-protocol"] },
+export const RETIRED_PLUGINS: Record<
+  string,
+  { removedIn: string; blockIds: string[]; assets: string[] }
+> = {
+  cognitive: {
+    removedIn: "#130",
+    blockIds: ["cognitive-protocol"],
+    assets: [".claude/scripts/check-cognitive.sh", ".claude/scripts/cognitive-tool"],
+  },
 };
 
 export class PluginNotFoundError extends NavoriError {
