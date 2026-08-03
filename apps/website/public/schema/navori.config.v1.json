@@ -50,6 +50,15 @@
       "default": "main",
       "type": "string"
     },
+    "gitignoreHarness": {
+      "default": "off",
+      "type": "string",
+      "enum": [
+        "off",
+        "local",
+        "full"
+      ]
+    },
     "prTarget": {
       "type": "string"
     },
@@ -622,6 +631,7 @@
     "preset",
     "language",
     "branchBase",
+    "gitignoreHarness",
     "commits"
   ],
   "additionalProperties": {}

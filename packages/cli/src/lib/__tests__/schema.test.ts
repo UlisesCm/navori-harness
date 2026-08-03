@@ -75,6 +75,25 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
     const c = NavoriConfigSchema.parse({ ...MINIMAL, blocks: {} });
     expect(c.blocks).toEqual({ exclude: [] });
   });
+
+  // Covers: R1, R8
+  it("defaults gitignoreHarness to 'off' when omitted (back-compat: never touches .gitignore)", () => {
+    const c = NavoriConfigSchema.parse({ ...MINIMAL });
+    expect(c.gitignoreHarness).toBe("off");
+  });
+
+  // Covers: R1
+  it("accepts the three valid gitignoreHarness modes", () => {
+    for (const mode of ["off", "local", "full"] as const) {
+      const c = NavoriConfigSchema.parse({ ...MINIMAL, gitignoreHarness: mode });
+      expect(c.gitignoreHarness).toBe(mode);
+    }
+  });
+
+  // Covers: R1
+  it("rejects an invalid gitignoreHarness value", () => {
+    expect(() => NavoriConfigSchema.parse({ ...MINIMAL, gitignoreHarness: "yes" })).toThrow();
+  });
 });
 
 describe("NavoriConfigSchema — blocks.exclude (feature: opt out of core blocks)", () => {

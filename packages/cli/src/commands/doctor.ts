@@ -14,6 +14,7 @@ import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
 import { hasBinary } from "../lib/which.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
 import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
+import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
 import {
@@ -137,6 +138,9 @@ export const doctorCommand = defineCommand({
     const presetOverride =
       resolvedPreset?.source === "local" && presetExists(config.preset) ? config.preset : null;
     const codegraphHealth = scanCodegraphHealth(cwd, config);
+    // Harness `.gitignore` block drift (#313). Null in mode "off" — doctor must
+    // not evaluate `.gitignore` at all then (R8/R10).
+    const gitignoreHealth = scanGitignoreHarness(cwd, config);
     const engineInventory = buildEngineInventory(config, cwd);
     // Informational: a name like `temp-app` or `my-app` is almost always a
     // never-renamed scaffold (the package.json carried it through). Doesn't
@@ -192,6 +196,7 @@ export const doctorCommand = defineCommand({
       claudeHookScripts,
       codexHealth,
       codegraphHealth,
+      gitignoreHealth,
       engineInventory,
     };
 
@@ -533,6 +538,13 @@ export const doctorCommand = defineCommand({
         cg.push(`  ${color.yellow(sym.update)} ${td.codegraphStale}`);
       }
       if (cg.length > 0) p.note(cg.join("\n"), "codegraph");
+    }
+
+    // #313: harness `.gitignore` drift. Advisory (yellow), like codegraph — never
+    // flips the verdict; `render --apply` reconciles it. Absent in mode "off".
+    if (gitignoreHealth && (gitignoreHealth.missing || gitignoreHealth.drift)) {
+      const gi = gitignoreHealth.missing ? td.gitignoreMissing : td.gitignoreDrift;
+      p.note(`  ${color.yellow(sym.update)} ${gi}`, td.gitignoreTitle);
     }
 
     const hasIssues = !verdict.ok;
