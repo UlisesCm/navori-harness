@@ -278,6 +278,19 @@ export const NavoriConfigSchema = z
     preset: z.string().min(1),
     language: tolerantEnum(LANGUAGES, "es"),
     branchBase: z.string().default("main"),
+    /**
+     * Policy for the navori-managed block in the repo's root `.gitignore`.
+     * Three modes:
+     * - `"off"` (default): navori never creates, reads, or reconciles `.gitignore`
+     *   (exact back-compat; hand-written `.gitignore` files stay untouched).
+     * - `"local"`: manage only the machine-local / runtime entries (Cubo A) that
+     *   must never be committed (`.claude/settings.local.json`, `.claude/worktrees/`,
+     *   `.claude/progress/`, `.codegraph/`, `.navori/`).
+     * - `"full"`: Cubo A plus the versionable harness outputs (Cubo B) derived from
+     *   `engines` (e.g. `.claude/`, `CLAUDE.md`, `.codex/`, `AGENTS.md`). For repos
+     *   that ignore the whole harness.
+     */
+    gitignoreHarness: z.enum(["off", "local", "full"]).default("off"),
     /** Target branch for PRs (`gh pr create --base`). When omitted, PRs target
      * branchBase. Decouples the fork point / protected branch (branchBase) from
      * the PR target — e.g. branch off `main` but open PRs against `develop`.

@@ -221,7 +221,7 @@ export function collectMarkerFiles(
  * instead of each file, and the report stays terse. Independent of what's on
  * disk — it's the static ownership map used by both the orphan scan and prune.
  */
-function engineOwnedPaths(engine: string): string[] {
+export function engineOwnedPaths(engine: string): string[] {
   const eo = ENGINE_OUTPUTS.find((e) => e.engine === engine);
   if (!eo) return [];
   const raw = new Set<string>();

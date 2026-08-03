@@ -15,6 +15,10 @@ import { renderCodexEngine } from "../engines/codex/index.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
 import type { SkippedFile } from "../engines/shared/execute-plan.ts";
 import {
+  renderGitignore,
+  type GitignoreRenderResult,
+} from "../engines/shared/gitignore-harness.ts";
+import {
   renderStatusSymbol,
   renderStatusLabel,
   dim,
@@ -187,6 +191,9 @@ export function runRender(
   orphanedEngineOutputs?: OrphanedEngineOutput[];
   /** Orphaned-output paths deleted this run (only with --prune + --apply). */
   prunedEngineOutputs?: string[];
+  /** Harness `.gitignore` block reconciliation (#313). Absent when
+   *  `gitignoreHarness` is `"off"` — navori doesn't touch `.gitignore` then. */
+  gitignore?: GitignoreRenderResult | null;
 } {
   // Back-compat: callers passing (cwd, dryRun, force) keep working.
   const opts: RunRenderOptions =
@@ -363,6 +370,10 @@ export function runRender(
 
   const extraEngines = renderNonClaudeEngines(cwd, config, engines, dryRun, { lang });
 
+  // #313: reconcile the harness `.gitignore` once at the repo root (it's a
+  // repo-level file, not per-engine). Returns null in mode "off" (untouched).
+  const gitignore = renderGitignore(cwd, config, { dryRun, force: forceFlag, lang });
+
   // #312: outputs owned only by engines no longer in config.engines[] (a stale
   // AGENTS.md/.codex after narrowing to claude) linger because render never
   // revisits a disabled engine. Report them always; with --prune on an apply
@@ -395,6 +406,7 @@ export function runRender(
     extraEngines,
     orphanedEngineOutputs,
     prunedEngineOutputs,
+    gitignore,
   };
 }
 
@@ -560,6 +572,8 @@ export const renderCommand = defineCommand({
 
     reportExtraEngines(result.extraEngines ?? [], result.language);
 
+    if (result.gitignore) reportGitignore(result.gitignore, result.language);
+
     // #312: orphaned outputs from disabled engines. If pruned this run, confirm
     // what was deleted; otherwise warn (and point at --prune) without touching.
     if (result.prunedEngineOutputs && result.prunedEngineOutputs.length > 0) {
@@ -618,7 +632,9 @@ export function resultHasPendingWrites(result: ReturnType<typeof runRender>): bo
     result.written ||
     result.workspaces.some((w) => w.written) ||
     (result.extraEngines ?? []).some((e) => e.written.length > 0) ||
-    result.workspaces.some((w) => w.extraEngines.some((e) => e.written.length > 0))
+    result.workspaces.some((w) => w.extraEngines.some((e) => e.written.length > 0)) ||
+    result.gitignore?.status === "created" ||
+    result.gitignore?.status === "updated"
   );
 }
 
@@ -666,6 +682,9 @@ function buildRenderJson(result: ReturnType<typeof runRender>, preview: boolean)
     orphanedWorkspaces: result.orphanedWorkspaces ?? [],
     orphanedEngineOutputs: result.orphanedEngineOutputs ?? [],
     prunedEngineOutputs: result.prunedEngineOutputs ?? [],
+    gitignore: result.gitignore
+      ? { path: result.gitignore.path, status: result.gitignore.status }
+      : null,
     downgrades,
     summary: countStatuses(allEntries),
     pending,
@@ -740,6 +759,28 @@ function reportClaudeMd(
   if (preview) lines.push(`  ${dim(changed ? tr.wouldWrite : tr.noChangePreview)}`);
   else if (changed) lines.push(`  ${dim(tr.written)}`);
   else lines.push(`  ${dim(tr.noChanges)}`);
+  p.log.message(lines.join("\n"));
+}
+
+/**
+ * Report the harness `.gitignore` reconciliation (#313). One line with the same
+ * status symbol/label the rest of the render uses; a hand-edited block surfaces
+ * as a skip with its reason. Absent (null) when `gitignoreHarness` is `"off"`.
+ * The outro conveys preview vs. apply, so no per-line "would write" here.
+ */
+function reportGitignore(gitignore: GitignoreRenderResult, lang: Lang): void {
+  const tr = tc(lang).render;
+  const lines: string[] = [tr.gitignoreTitle];
+  if (gitignore.status === "user-modified-skipped" || gitignore.status === "downgrade-skipped") {
+    lines.push(
+      `  ${color.yellow("!")} ${gitignore.path}  ${dim("(")}${color.yellow("skipped")}${dim(")")}`,
+    );
+    if (gitignore.skippedReason) lines.push(`      ${dim(gitignore.skippedReason)}`);
+  } else {
+    lines.push(
+      `  ${renderStatusSymbol(gitignore.status)} ${gitignore.path}  ${dim("(")}${renderStatusLabel(gitignore.status)}${dim(")")}`,
+    );
+  }
   p.log.message(lines.join("\n"));
 }
 
