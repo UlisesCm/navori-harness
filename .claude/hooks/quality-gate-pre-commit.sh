@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="318aac1b" version="0.5.0" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="5bd8db28" version="0.5.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -192,6 +192,15 @@ is_scan_trigger() {
 }
 
 if is_scan_trigger "$cmd"; then
+  # Pin the cwd to the repo root before anything below runs. Claude Code fires
+  # PreToolUse hooks from the session's persistent cwd, which is NOT always the
+  # repo root — but the gate command, the lockfile-based PM detection and the
+  # receipt paths all assume the root. A relative gate (`cd packages/cli &&
+  # pnpm lint`) otherwise fails with "No such file or directory" from a subdir.
+  # Prefer $CLAUDE_PROJECT_DIR; fall back to the git top-level. When neither
+  # resolves (not a git repo, no env), the substitution is empty and `cd ""`
+  # is a no-op, so behavior outside a repo is unchanged. #309
+  cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}" || exit 2
   # Content-bind first: refuse to commit bytes that drifted from the approval
   # before spending the fast gate on them.
   check_content_receipt
