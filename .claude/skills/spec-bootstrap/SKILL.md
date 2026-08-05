@@ -4,7 +4,7 @@ description: Use when starting a real-scope feature before writing code — scaf
 type: reference
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="c4e8ab36" version="0.5.0" source="@navori/core" -->
+<!-- navori:managed id="spec-bootstrap" hash="c4e8ab36" version="0.5.1" source="@navori/core" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## When to use this skill

@@ -4,7 +4,7 @@ description: Read-only investigation of a scoped question. Reads the repo, write
 tools: Read, Glob, Grep, Bash, Write
 ---
 
-<!-- navori:managed id="researcher-base" hash="b0724dbf" version="0.5.0" source="@navori/core" -->
+<!-- navori:managed id="researcher-base" hash="b0724dbf" version="0.5.1" source="@navori/core" -->
 # Researcher Agent
 
 You answer **one scoped question** about the repo, with cited evidence. You don't modify project files.

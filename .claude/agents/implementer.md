@@ -4,7 +4,7 @@ description: Worker. Implements ONE scoped task, respects CLAUDE.md conventions,
 tools: Read, Write, Edit, Glob, Grep, Bash
 ---
 
-<!-- navori:managed id="implementer-base" hash="48e2d71c" version="0.5.0" source="@navori/core" -->
+<!-- navori:managed id="implementer-base" hash="48e2d71c" version="0.5.1" source="@navori/core" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
