@@ -17,6 +17,7 @@ import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
+import { scanWorkspaceDrift } from "../lib/workspace-drift.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -141,6 +142,12 @@ export const doctorCommand = defineCommand({
     // Harness `.gitignore` block drift (#313). Null in mode "off" — doctor must
     // not evaluate `.gitignore` at all then (R8/R10).
     const gitignoreHealth = scanGitignoreHarness(cwd, config);
+    // The other half of #313: what MUST be versioned isn't ignored (specs/) and
+    // what's ephemeral is (.claude/progress|worktrees). Null outside git. #325.
+    const gitHygiene = scanGitHygiene(cwd, config);
+    // Config drift against the workspace — its declared defaults and, above all,
+    // the mode of its sibling repos. Informational, never auto-applied. #326.
+    const workspaceDrift = scanWorkspaceDrift(cwd, config);
     const engineInventory = buildEngineInventory(config, cwd);
     // Informational: a name like `temp-app` or `my-app` is almost always a
     // never-renamed scaffold (the package.json carried it through). Doesn't
@@ -197,6 +204,8 @@ export const doctorCommand = defineCommand({
       codexHealth,
       codegraphHealth,
       gitignoreHealth,
+      gitHygiene,
+      workspaceDrift,
       engineInventory,
     };
 
@@ -545,6 +554,41 @@ export const doctorCommand = defineCommand({
     if (gitignoreHealth && (gitignoreHealth.missing || gitignoreHealth.drift)) {
       const gi = gitignoreHealth.missing ? td.gitignoreMissing : td.gitignoreDrift;
       p.note(`  ${color.yellow(sym.update)} ${gi}`, td.gitignoreTitle);
+    }
+
+    // #325: git hygiene. Advisory like the block above — the fix is the user's
+    // `.gitignore` (or their SDD toggle), never something navori applies alone.
+    if (gitHygiene) {
+      const gh: string[] = [];
+      if (gitHygiene.specsIgnored) {
+        gh.push(
+          `  ${color.yellow(sym.update)} ${td.gitHygieneSpecsIgnored(gitHygiene.specsIgnored)}`,
+        );
+      }
+      for (const path of gitHygiene.ephemeralNotIgnored) {
+        gh.push(`  ${color.yellow(sym.update)} ${td.gitHygieneEphemeralNotIgnored(path)}`);
+      }
+      if (gh.length > 0) p.note(gh.join("\n"), td.gitHygieneTitle);
+    }
+
+    // #326: config drift against the workspace. Purely informational — the
+    // checked-in config stays the source of truth and adoption is an explicit act.
+    if (workspaceDrift) {
+      const wd = [
+        ...workspaceDrift.vsDefaults.map(
+          (d) =>
+            `  ${color.yellow(sym.update)} ${td.workspaceDriftDefaultRow(accent(d.key), d.local, d.expected)}`,
+        ),
+        ...workspaceDrift.vsSiblings.map(
+          (d) =>
+            `  ${color.yellow(sym.update)} ${td.workspaceDriftSiblingRow(accent(d.key), d.local, d.expected, d.agree, d.total)}`,
+        ),
+        `  ${color.cyan(sym.bullet)} ${grey(td.workspaceDriftHint)}`,
+      ];
+      p.note(
+        wd.join("\n"),
+        td.workspaceDriftTitle(workspaceDrift.workspace, workspaceDrift.siblingsRead),
+      );
     }
 
     const hasIssues = !verdict.ok;
@@ -1205,6 +1249,74 @@ function gitTracksPath(cwd: string, relPath: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Ephemeral agent artifacts that must never reach a commit: subagent handoffs,
+ * agent worktrees, and machine-local settings. A SUBSET of `CUBO_A_ENTRIES`
+ * (the `.gitignore` block's cubo A) on purpose — `.codegraph/` has its own,
+ * richer check in `scanCodegraphHealth`, and `.navori/` legitimately holds
+ * versioned local presets, so neither belongs in a "should be ignored" list.
+ *
+ * NOTE: the ephemeral progress dir is `.claude/progress/`, never the root
+ * `progress/` — that one is git-persisted by design (session state travels).
+ */
+const EPHEMERAL_AGENT_PATHS: readonly string[] = [
+  ".claude/progress/",
+  ".claude/worktrees/",
+  ".claude/settings.local.json",
+];
+
+export interface GitHygieneReport {
+  /** The specs dir, when it's gitignored while the SDD block is active. */
+  specsIgnored: string | null;
+  /** Ephemeral agent paths present on disk that git does NOT ignore. */
+  ephemeralNotIgnored: string[];
+}
+
+/**
+ * Git hygiene of the harness's own directories (#325) — the other half of
+ * `gitignoreHarness` (#313): that one MANAGES the harness entries, this one
+ * RECONCILES that what must be versioned isn't ignored and what's ephemeral is.
+ *
+ * (a) `specs/` ignored while the `sdd` block is active. The block orders agents
+ *     to write the feature board in exactly that directory, so ignoring it turns
+ *     SDD off in silence: specs vanish on a branch switch and the `R<n>`↔test
+ *     trace never reaches the PR. Nothing reported this before.
+ * (b) an ephemeral agent dir that ISN'T ignored, the symmetric failure: subagent
+ *     handoffs and worktrees show up as `??` in `git status` on their way into
+ *     someone's commit.
+ *
+ * Only paths that exist on disk are reported for (b) — an absent dir carries no
+ * risk yet, and warning about it would be noise on a fresh repo. Returns null
+ * outside a git work tree, where `check-ignore` has nothing to answer against.
+ */
+export function scanGitHygiene(cwd: string, config: NavoriConfig): GitHygieneReport | null {
+  if (!isGitWorkTree(cwd)) return null;
+
+  // `sdd` renders when its condition holds AND the repo didn't opt out of the
+  // block. `config` here is the raw parsed config (doctor doesn't run it through
+  // effectiveConfig), so mirror that default: absent `sdd` means enabled.
+  const sddActive =
+    config.sdd?.enabled !== false && !(config.blocks?.exclude ?? []).includes("sdd");
+  const specsDir = config.sdd?.specsDir ?? "specs";
+  // Probe a synthetic child so a directory pattern (`specs/`) matches even when
+  // the dir doesn't exist on disk yet — same reason as the codegraph probe (#267).
+  const specsIgnored =
+    sddActive && isIgnoredByGit(cwd, `${trimSlash(specsDir)}/x`) ? specsDir : null;
+
+  const ephemeralNotIgnored = EPHEMERAL_AGENT_PATHS.filter((rel) => {
+    if (!existsSync(join(cwd, rel))) return false;
+    const probe = rel.endsWith("/") ? `${rel}x` : rel;
+    return !isIgnoredByGit(cwd, probe);
+  });
+
+  return { specsIgnored, ephemeralNotIgnored };
+}
+
+/** Drop a trailing slash so a configured `specsDir` works with or without one. */
+function trimSlash(path: string): string {
+  return path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
 /** The codegraph index directory (SQLite/FTS5 graph), relative to the repo root. */
