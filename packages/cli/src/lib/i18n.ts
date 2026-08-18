@@ -688,6 +688,26 @@ interface DoctorCmdStrings {
   gitignoreMissing: string;
   /** The managed block exists but its body drifted from the config. */
   gitignoreDrift: string;
+  /** Note title for the git-hygiene section (#325). */
+  gitHygieneTitle: string;
+  /** The specs dir is ignored while the `sdd` block is active. */
+  gitHygieneSpecsIgnored: (dir: string) => string;
+  /** An ephemeral agent path git doesn't ignore. */
+  gitHygieneEphemeralNotIgnored: (path: string) => string;
+  /** Note title for the workspace config-drift section (#326). */
+  workspaceDriftTitle: (workspace: string, siblings: number) => string;
+  /** A key diverging from the workspace manifest's declared default. */
+  workspaceDriftDefaultRow: (key: string, local: string, expected: string) => string;
+  /** A key diverging from what most sibling repos declare. */
+  workspaceDriftSiblingRow: (
+    key: string,
+    local: string,
+    expected: string,
+    agree: number,
+    total: number,
+  ) => string;
+  /** How to adopt the divergence (never auto-applied). */
+  workspaceDriftHint: string;
 }
 
 /**
@@ -1355,6 +1375,19 @@ const CMD_ES: CmdStrings = {
       "falta el bloque managed del '.gitignore' (gitignoreHarness ≠ off) — corre 'navori render --apply'",
     gitignoreDrift:
       "el bloque managed del '.gitignore' difiere de la config actual — corre 'navori render --apply'",
+    gitHygieneTitle: "Higiene de git",
+    gitHygieneSpecsIgnored: (dir) =>
+      `'${dir}/' está en .gitignore pero el bloque 'sdd' está activo — las specs se pierden al cambiar de rama y la traza R<n>↔test nunca llega al PR; quítalo del .gitignore o desactiva el SDD ("sdd": { "enabled": false })`,
+    gitHygieneEphemeralNotIgnored: (path) =>
+      `'${path}' no está ignorado — son artefactos efímeros de agentes; agrégalo al .gitignore (o usa gitignoreHarness)`,
+    workspaceDriftTitle: (workspace, siblings) =>
+      `Drift respecto al workspace '${workspace}'${siblings > 0 ? ` (${siblings} repos hermanos)` : ""}:`,
+    workspaceDriftDefaultRow: (key, local, expected) =>
+      `${key}: ${local} (el workspace declara ${expected})`,
+    workspaceDriftSiblingRow: (key, local, expected, agree, total) =>
+      `${key}: ${local} (${agree}/${total} repos usan ${expected})`,
+    workspaceDriftHint:
+      "Informativo: navori nunca lo aplica solo. Adóptalo con 'navori configure', o promuévelo al workspace con 'navori workspace set-default'.",
   },
   update: {
     detectedMigrationSuggestion: (legacy, preferred) =>
@@ -2109,6 +2142,19 @@ const CMD_EN: CmdStrings = {
       "'.gitignore' managed block is missing (gitignoreHarness ≠ off) — run 'navori render --apply'",
     gitignoreDrift:
       "'.gitignore' managed block differs from the current config — run 'navori render --apply'",
+    gitHygieneTitle: "Git hygiene",
+    gitHygieneSpecsIgnored: (dir) =>
+      `'${dir}/' is in .gitignore but the 'sdd' block is active — specs are lost on a branch switch and the R<n>↔test trace never reaches the PR; remove it from .gitignore or turn SDD off ("sdd": { "enabled": false })`,
+    gitHygieneEphemeralNotIgnored: (path) =>
+      `'${path}' is not ignored — these are ephemeral agent artifacts; add it to .gitignore (or use gitignoreHarness)`,
+    workspaceDriftTitle: (workspace, siblings) =>
+      `Drift from workspace '${workspace}'${siblings > 0 ? ` (${siblings} sibling repos)` : ""}:`,
+    workspaceDriftDefaultRow: (key, local, expected) =>
+      `${key}: ${local} (the workspace declares ${expected})`,
+    workspaceDriftSiblingRow: (key, local, expected, agree, total) =>
+      `${key}: ${local} (${agree}/${total} repos use ${expected})`,
+    workspaceDriftHint:
+      "Informational: navori never applies it for you. Adopt it with 'navori configure', or promote it to the workspace with 'navori workspace set-default'.",
   },
   update: {
     detectedMigrationSuggestion: (legacy, preferred) =>
