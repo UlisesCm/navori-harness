@@ -95,17 +95,84 @@ commit atómico — sin `implementer` ni `reviewer`.
 sola ni cobra peaje en lo trivial. Compárese con los 70 tool uses del Escenario A,
 donde sí había decisión que tomar.
 
-## Escenario E — perfeccionismo del reviewer
+## Escenarios E y F (2026-08-18) — resultados invertidos
 
-**Setup:** diseño válido con un concern menor sembrado (un edge case opcional
-sin cubrir).
-- [ ] **Esperado:** veredicto `CONCERNS`, registrado, y la implementación arranca.
-  **FAIL** si emite `BLOCKED` (es el modo de fallo de BMAD #2079).
+**Ambos escenarios midieron algo distinto de lo que pretendían.** Se registra tal
+cual: un eval que se re-interpreta para que dé el resultado buscado no vale nada.
 
-## Escenario F — blocker real
+### E — "concern menor no bloquea" → salió **BLOCKED**
 
-**Setup:** ticket con dos interpretaciones que llevan a arquitecturas
-incompatibles (¿el estado se comparte entre dos apps o se duplica?).
-- [ ] **Esperado:** `BLOCKED` con los cuatro campos (hecho bloqueante · por qué no
-  se puede proceder · dueño · información mínima) y pregunta dirigida al usuario.
-  **FAIL** si adivina e implementa.
+**Setup:** ticket real de backlog — *"doctor debería avisar cuando un repo lleva
+mucho tiempo sin re-renderizar; guardar la fecha del último render y avisar a los
+60 días"*. La intención era sembrar una decisión clara con un edge case menor.
+
+**Observado:** `BLOCKED`, y correctamente argumentado. Descubrió que la mitad del
+problema **ya tiene señal exacta y en vivo** (`scanManagedDrift` compara la versión
+del marcador contra la del CLI, `health.ts:354-379`), y que el remedio propuesto es
+un proxy débil que además no cierra el gap de descubribilidad que el ticket
+describe. Identificó un fork de producto real: A (fecha literal por repo) · B
+(`doctor --all`, reusando el patrón probado de `render --all`) · C (B ahora, A
+después) — y B **no cubre** "nadie tocó este repo aunque esté en 0 drift", que es
+otra lectura legítima del título.
+
+Los cuatro campos de BLOCKED están, y se auto-chequea contra el perfeccionismo:
+*"This isn't manufactured caution on a MEDIO ticket: it's a real fork that static
+code reading can't resolve on its own."*
+
+**Veredicto del eval: el escenario estaba mal diseñado, no la capa.** El ticket
+nombraba un *mecanismo* ("guardar la fecha") en vez de un *comportamiento*, que es
+justo la ambigüedad que la capa debe detectar. Lo que sí quedó probado: `BLOCKED`
+se emite con carga de la prueba completa.
+
+**Hallazgo colateral verificado → [issue #340](https://github.com/UlisesCm/navori-harness/issues/340):**
+`render --all` aborta el batch entero ante un config corrupto, porque
+`readConfigOrExit` hace `process.exit(1)` dentro de un `try/catch` que no puede
+atraparlo. Afecta el rollout a los 21 repos del registry.
+
+### F — "blocker real" → salió **READY**
+
+**Setup:** ticket real — *"un repo debería poder pertenecer a varios workspaces;
+cambiar `workspace` a una lista"*. La intención era forzar un fork arquitectónico
+(precedencia al mergear defaults de N workspaces).
+
+**Observado:** `READY`, porque "What already exists" encontró que la
+multi-pertenencia **ya existe** en la capa de registry (`dominio.ts:274-294`,
+`resolveWorkspacesForCwd`, con el comentario explícito *"a repo can belong to more
+than one workspace"*). No había fork arquitectónico que resolver: solo faltaba
+pluralizar el campo del config y propagarlo a 5 consumidores.
+
+El fork que yo esperaba (precedencia de merge) **no se barrió**: lo nombró *"the
+actual design decision the ticket glosses over"*, lo especificó como algoritmo
+explícito (escalares first-wins, `engines` unión, plugins first-wins por id) y lo
+declaró decisión de producto visible — *"list your workspaces in priority order"*,
+documentada en el schema y el help. Es la tercera vía de la regla de ambigüedad:
+asunción conservadora **registrada**, no una pregunta innecesaria al usuario.
+
+**El challenge encontró dos BLOCKER en el propio artefacto**: la especificación de
+precedencia era autocontradictoria (el orden de spread quedaba invertido respecto
+a la regla enunciada) y la lógica de `workspace link` no se había rediseñado para
+una lista. Ambos corregidos con evidencia, ninguno escalado al usuario — porque
+eran defectos del diseño, no decisiones de producto. Esa distinción es exactamente
+la que evita el loop de BMAD #2079.
+
+**Veredicto del eval: el escenario no era bifurcado**, porque el repo ya tenía la
+mitad de la respuesta. Lo que sí quedó probado: `what already exists` cambia el
+veredicto cuando la evidencia lo justifica, en lugar de fabricar arquitectura.
+
+---
+
+## Cobertura de veredictos
+
+Aunque los escenarios no midieron lo planeado, los tres veredictos quedaron
+ejercitados sobre casos reales:
+
+| Veredicto | Dónde | Señal |
+|---|---|---|
+| `CONCERNS` | Escenario A (BTBS-162) | riesgos registrados, implementación arranca |
+| `BLOCKED` | Escenario E | fork de producto, 4 campos, auto-chequeo anti-perfeccionismo |
+| `READY` | Escenario F | la evidencia disolvió el fork esperado |
+| *(sin artefacto)* | Escenario D | trivial → R1 inline, 2 tool uses |
+
+**Costo observado:** A 158k tokens · E 176k · F 148k · D 47k. Las tres pasadas de
+diseño rondan 150-175k; la trivial, 47k con 2 tool uses. El gradiente es el
+esperado — se paga donde hay una decisión que tomar.
