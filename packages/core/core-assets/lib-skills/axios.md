@@ -60,3 +60,13 @@ export const getSession = (id: string) =>
 - Typed responses returning `.data`; errors handled with `isAxiosError` and a single shape.
 - Competing requests are cancelled on cleanup.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## The repo's HTTP client (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - Where the instance lives, its baseURL(s) and timeouts — one line per API.
+     - The cancellation pattern actually used, and WHAT A CANCELLED CALL RETURNS (if it resolves instead of throwing, say so — treating it as an error shows a false failure on every unmount).
+     - The shape of the normalized error and how components read it.
+     - Endpoints with special rules: 401 refresh, retries, endpoints that must not retry.
+-->

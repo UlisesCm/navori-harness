@@ -60,3 +60,13 @@ If your framework already centralizes async errors (`asyncHandler` in Express, e
 - Caught errors re-throw when the flow needs it.
 - No secrets or full `JSON.stringify(req)` logged.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's logging (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The configured transports and where each one lands (file, stdout, an aggregator).
+     - Level per environment and what changes in production.
+     - Fields every log must carry (requestId, userId, service) so it is traceable.
+     - What NEVER gets logged: tokens, passwords, PII, full request bodies.
+-->

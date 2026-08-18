@@ -79,3 +79,13 @@ p.outro("Done");
 - Every spinner is stopped; `intro`/`outro` bracket the flow.
 - `select`/`multiselect` consume `value`, not label.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's prompts (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The interactive flows that exist and their steps.
+     - What every prompt defaults to when the user just presses enter.
+     - How a cancel is handled (isCancel) and what gets rolled back.
+     - Which flows have a non-interactive equivalent for CI.
+-->

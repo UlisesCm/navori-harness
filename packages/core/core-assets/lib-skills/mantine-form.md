@@ -56,3 +56,13 @@ const form = useForm({
 - Validation centralized in a Zod schema with `zodResolver`; types via `z.infer`.
 - `initialValues` set; no uncontrolled→controlled warnings. Submit with `form.onSubmit`.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's forms (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - Where the validation schemas live and whether they are shared with the backend.
+     - The repo's own field components and how they bind to `getInputProps`.
+     - How a server error is mapped back onto a field.
+     - The submit convention: loading state, disabling, what happens after success.
+-->

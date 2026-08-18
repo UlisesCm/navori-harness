@@ -64,3 +64,13 @@ test('user can log in', async ({ page }) => {
 - `test`/`expect` imported from `@playwright/test`; tests run isolated in parallel; external calls mocked.
 - Locators are user-facing (role/label first); trace + screenshot on failure; browsers matrixed via `projects`.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's E2E suite (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The base environment: URL, how the app is started, required seed data.
+     - How authentication is solved (storageState, fixtures) so specs don't log in one by one.
+     - The selector convention (data-testid or roles) and which one wins.
+     - Which specs block CI and which are informational.
+-->

@@ -9,11 +9,18 @@ import {
   hasTrigger,
   SKILL_TYPE_CAPS,
 } from "../skill-meta.ts";
+import { parseAsset } from "../../engines/claude/parse-asset.ts";
 
 /**
  * Spec 0003 §3.2.1 — every bundled SKILL.md must declare a recognized `type`
  * and stay within its word cap (or carry an explicit `maxWords` override).
  * Guards against a skill silently ballooning and spending tokens on every load.
+ *
+ * The cap is measured over the MANAGED body only — the zone navori owns and
+ * regenerates. Everything past the `<!-- navori:user-section -->` sentinel is
+ * the repo's own domain (#323): a scaffold navori writes once and the team then
+ * fills with knowledge navori can't derive. Charging that to navori's budget
+ * would mean a skill gets less room the more useful the repo makes it.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -59,14 +66,17 @@ describe("skill output discipline (spec 0003 §3.2.1)", () => {
   it.each(files.map((f) => [f.split("/").slice(-1)[0]!, f] as const))(
     "%s declares a valid type and respects its word cap",
     (_name, file) => {
-      const { meta, body } = parseSkillFrontmatter(readFileSync(file, "utf-8"));
+      const raw = readFileSync(file, "utf-8");
+      const { meta } = parseSkillFrontmatter(raw);
       expect(
         meta.type,
         `${file} must declare a valid 'type' (${Object.keys(SKILL_TYPE_CAPS).join("|")})`,
       ).not.toBeNull();
 
       const cap = skillWordCap(meta)!;
-      const words = countWords(body);
+      // Same split the render applies, so the cap measures exactly what navori
+      // materializes as managed — the user-section scaffold isn't navori's spend.
+      const words = countWords(parseAsset(raw, "html").managedBody);
       expect(
         words <= cap,
         `${file}: ${words} words exceeds cap ${cap} (type=${meta.type}${

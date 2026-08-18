@@ -65,3 +65,13 @@ An `id` from `req.params`/`req.body` is a **string**. `findById` casts it automa
 - No filter built from raw `req.query`/`req.body`; ObjectId compared with `.equals()`.
 - Deletes respect soft delete; related writes go in a transaction.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's data model (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The models that exist and the relations between them.
+     - Indexes that must not be dropped, and the queries that depend on them.
+     - The lean/populate convention: where a hydrated doc is required and where it isn't.
+     - Operations that MUST run in a transaction.
+-->

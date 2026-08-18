@@ -31,7 +31,13 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
     label: "React Router",
   },
   { id: "axios", deps: ["axios"], label: "Axios HTTP" },
-  { id: "socketio", deps: ["socket.io", "socket.io-client"], label: "Socket.IO realtime" },
+  // Socket.IO is two different libraries wearing one name: the server teaches
+  // namespaces/rooms/handshake auth, the client teaches subscribing inside an
+  // effect and cleaning up. A single skill keyed on both deps handed a React SPA
+  // a whole server guide it could not apply, and nothing about its actual bugs
+  // (#324). One id per side, each with its own dep.
+  { id: "socketio-server", deps: ["socket.io"], label: "Socket.IO server" },
+  { id: "socketio-client", deps: ["socket.io-client"], label: "Socket.IO client" },
   { id: "redux-toolkit", deps: ["@reduxjs/toolkit", "redux"], label: "Redux Toolkit" },
   {
     id: "tanstack-query",
@@ -45,6 +51,7 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
     label: "Mantine Form",
   },
   { id: "mongoose", deps: ["mongoose", "@nestjs/mongoose"], label: "Mongoose ODM" },
+  { id: "drizzle-orm", deps: ["drizzle-orm", "drizzle-kit"], label: "Drizzle ORM" },
   { id: "zod-validation", deps: ["zod"], label: "Zod validation" },
   { id: "winston-logging", deps: ["winston"], label: "Winston logging" },
   {
@@ -55,6 +62,12 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   { id: "apollo-client", deps: ["@apollo/client"], label: "Apollo Client" },
   { id: "zustand", deps: ["zustand"], label: "Zustand" },
   { id: "tamagui", deps: ["tamagui", "@tamagui/core"], label: "Tamagui" },
+  {
+    id: "react-navigation",
+    deps: ["@react-navigation/native"],
+    label: "React Navigation",
+  },
+  { id: "i18next", deps: ["i18next", "react-i18next"], label: "i18next" },
   { id: "bullmq", deps: ["bullmq"], label: "BullMQ jobs & queues" },
   // Testing tooling — cross-preset and presence-only like every other skill:
   // a declared+present runner/assertion lib earns its guidance regardless of preset.
@@ -69,10 +82,14 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
       "@testing-library/vue",
       "@testing-library/svelte",
       "@testing-library/user-event",
+      // The Cypress binding is Testing Library too — a repo that queries by role
+      // inside a spec wants these conventions, whichever runner drives them (#327).
+      "@testing-library/cypress",
     ],
     label: "Testing Library",
   },
   { id: "playwright", deps: ["@playwright/test", "playwright"], label: "Playwright E2E" },
+  { id: "cypress", deps: ["cypress"], label: "Cypress" },
   { id: "supertest", deps: ["supertest"], label: "SuperTest HTTP" },
   // CLI tooling — presence-only, cross-preset like the rest: a repo that ships
   // these UnJS/Bombshell libs is building a command-line tool and earns the guidance.
@@ -88,7 +105,14 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
  * carry navori's own marker — a user's hand-written skill of the same name is
  * left untouched. Append here whenever a library skill is retired.
  */
-export const REMOVED_LIB_SKILLS: ReadonlyArray<string> = ["formik", "joi-validation"];
+export const REMOVED_LIB_SKILLS: ReadonlyArray<string> = [
+  "formik",
+  "joi-validation",
+  // Split into `socketio-server` / `socketio-client` (#324). A repo rendered
+  // before the split carries `socketio` in `project.libraries`; `navori update`
+  // re-detects the right side and this entry prunes the stale managed file.
+  "socketio",
+];
 
 const BY_ID: ReadonlyMap<string, LibrarySkill> = new Map(LIBRARY_SKILLS.map((s) => [s.id, s]));
 

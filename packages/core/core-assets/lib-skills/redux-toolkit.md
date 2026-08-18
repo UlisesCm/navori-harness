@@ -59,3 +59,13 @@ export const useAppSelector = useSelector.withTypes<RootState>();       // not t
 - Derived selectors are memoized; components select the minimum.
 - No API data duplicated in the store if there's already a query layer.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's store (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The slices that already exist and what each owns — so nobody creates a fourth one for the same data.
+     - The adapter convention: an adapter returns a PLAIN OBJECT, not an action — dispatching one silently does nothing.
+     - Which slices are a critical area (auth, permissions, billing) and what that demands of a change.
+     - Custom middleware and what it intercepts.
+-->

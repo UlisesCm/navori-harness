@@ -67,3 +67,13 @@ describe('POST /users', () => {
 - Every chain awaited/returned; status via `.expect`, body via the runner's `expect`.
 - Body assertions target fields, not snapshots.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's HTTP tests (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - How the app is booted for tests (real server vs. in-memory instance).
+     - DB seed/teardown between tests and what must not leak across them.
+     - How an authenticated request is built (token, header, helper).
+     - External services that are stubbed and which ones are hit for real.
+-->

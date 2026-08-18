@@ -1,6 +1,6 @@
 ---
 name: jest
-description: Use when testing React Native/Expo apps or the Medusa backend — jest-expo preset, transformIgnorePatterns, jest.mock hoisting, medusaIntegrationTestRunner.
+description: Use when writing or fixing tests with Jest — config and transforms, jest.mock hoisting, clearMocks, fake timers, and the jest-expo preset for React Native.
 type: reference
 ---
 
@@ -8,80 +8,67 @@ type: reference
 
 ## When to use this skill
 
-When the code under test is **React Native / Expo** (the mobile app) or the **Medusa backend** — those two run on Jest, not Vitest. Reach for the right preset/runner: `jest-expo` for RN/Expo, `medusaIntegrationTestRunner`/`moduleIntegrationTestRunner` from `@medusajs/test-utils` for Medusa. Everything else in the stack uses Vitest; do not introduce Jest into a Vitest project.
+When adding or fixing a Jest test, or when the suite fails for reasons that have nothing to do with the assertion: an untransformed module, a mock that didn't apply, state leaking between tests. If the repo also ships Vitest, don't cross them: each runner keeps its own projects.
 
 ## The pattern
 
-Preset-driven config, `jest.mock` at the top, RN queries via `@testing-library/react-native`.
+Config driven by preset/environment, mocks at the top level, queries through Testing Library:
 
 ```js
-// jest.config.js (Expo) — the preset alone is often enough
+// jest.config.js
 module.exports = {
-  preset: 'jest-expo',
-  transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native)',
-  ],
+  testEnvironment: 'node',        // 'jsdom' for anything touching the DOM
+  clearMocks: true,               // call history reset between tests
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
 };
 ```
 
 ```tsx
-import { render, screen, fireEvent } from '@testing-library/react-native';
-import { LoginScreen } from './LoginScreen';
-
-jest.mock('./auth-api', () => ({ login: jest.fn() }));
+jest.mock('./auth-api', () => ({ login: jest.fn() }));  // hoisted above the imports
 
 it('shows an error on empty submit', () => {
-  render(<LoginScreen />);
-  fireEvent.press(screen.getByText('Sign in'));
-  expect(screen.getByText('Email is required')).toBeOnTheScreen();
-});
-```
-
-Medusa boots a real framework + test DB:
-
-```ts
-import { medusaIntegrationTestRunner } from '@medusajs/test-utils';
-
-medusaIntegrationTestRunner({
-  testSuite: ({ api, getContainer }) => {
-    it('lists posts', async () => {
-      const res = await api.get('/store/posts');
-      expect(res.status).toBe(200);
-    });
-  },
+  render(<LoginForm />);
+  fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+  expect(screen.getByText(/email is required/i)).toBeInTheDocument();
 });
 ```
 
 ## Gotchas that bite
 
-- **`SyntaxError: Unexpected token 'export'` from node_modules** is the RN classic: an untranspiled ESM package. Whitelist the offender in `transformIgnorePatterns` (`node_modules/(?!(pkg)/)`), never transform all of `node_modules`; pnpm/Bun prepend `.pnpm`/`.bun`.
-- **`jest.mock` is hoisted above imports** like `vi.mock`. The factory can't close over later variables — declare mock fns inside it, or `jest.mock('m'); const m = jest.mocked(require('m'))`.
-- **jest-native is deprecated.** RNTL v12.4+ ships built-in matchers (`toBeOnTheScreen`/`toBeVisible`/`toHaveTextContent`) — no `@testing-library/jest-native`, no `extend-expect`. Older RNTL: add `@testing-library/jest-native/extend-expect` to `setupFilesAfterEnv`.
-- **Wrong runner for Medusa.** A plain `it` calling the service fails on the missing DI container. Single-module tests use `moduleIntegrationTestRunner<Service>({ moduleName, moduleModels, resolve, testSuite })`. Both need `testEnvironment: 'node'`, an `@swc/jest` transform, and `--runInBand --forceExit`.
-- **State leaks between tests.** Set `clearMocks: true` (call history); add `resetMocks: true` only when a mock's implementation must not carry over.
-- **Fake timers + animations.** RN animations and `setTimeout` UI need `jest.useFakeTimers()` + `act(() => jest.advanceTimersByTime(ms))`, or updates never flush.
+- **`jest.mock` is hoisted above the imports.** Its factory cannot close over a variable declared later — `ReferenceError: Cannot access '…' before initialization`. Declare the mock functions inside the factory, or resolve them afterwards with `jest.mocked()`.
+- **`SyntaxError: Unexpected token 'export'` from node_modules** is an untranspiled ESM package. Whitelist the offender in `transformIgnorePatterns` (`node_modules/(?!(pkg)/)`); never blanket-transform `node_modules` — the suite slows to a crawl. With pnpm/Bun the path includes `.pnpm`/`.bun`.
+- **State leaks between tests.** `clearMocks: true` resets call history; `resetMocks` also drops implementations (only when they must not persist) and `restoreMocks` undoes the spies. Choosing wrong makes tests pass only in a given order.
+- **Wrong `testEnvironment`.** `node` has no `document`; `jsdom` has no real network or timers. Set it per project (or with a `@jest-environment` docblock), not globally when the repo has both kinds.
+- **Fake timers without flushing.** `jest.useFakeTimers()` freezes time, but the pending updates need `act(() => jest.advanceTimersByTime(ms))` to reach the component. Without it, nothing changes and the test asserts the initial state.
+- **`--watch` hides the real failure.** Running the full suite (`--ci`) surfaces the ordering and shared-state problems that watch mode masks.
+
+### React Native / Expo
+
+- `preset: 'jest-expo'` handles the transform and the RN mocks; a hand-rolled config almost always breaks on the first native module.
+- `@testing-library/jest-native` is deprecated: RNTL ≥ 12.4 ships the matchers (`toBeOnTheScreen`, `toBeVisible`) built in. Don't add `extend-expect` on a modern version.
+- RN animations need fake timers plus `act` to flush.
 
 ## Hard rules
 
-1. Use the preset/runner for the target: `jest-expo` for RN/Expo, `@medusajs/test-utils` runners for Medusa.
-2. Fix RN "unexpected token" via a targeted `transformIgnorePatterns` whitelist — never blanket-transform `node_modules`.
-3. `jest.mock` at top level; keep factories self-contained (hoisting).
-4. Query RN trees with `@testing-library/react-native` matchers, not `.props`.
-5. `clearMocks: true` in config; add `resetMocks` only when implementations must not persist.
-
-## Quick table
-
-| Target | Preset / runner |
-|---|---|
-| React Native / Expo | `preset: 'jest-expo'` |
-| Medusa API + full app | `medusaIntegrationTestRunner` |
-| Medusa single module | `moduleIntegrationTestRunner` |
-| RN matchers | built-in (RNTL ≥ 12.4) |
-| ESM in node_modules | whitelist in `transformIgnorePatterns` |
+1. `jest.mock` at top level, with self-contained factories (hoisting).
+2. A targeted `transformIgnorePatterns` whitelist — never blanket-transform `node_modules`.
+3. `clearMocks: true`; `resetMocks`/`restoreMocks` only where they're needed.
+4. `testEnvironment` matching what the test touches.
+5. Query through Testing Library, not by inspecting props or internals.
 
 ## Before declaring done
 
-- Correct preset/runner (RN vs Medusa); no blanket node_modules transform.
-- Mocks hoisted safely and cleared between tests; RN matchers available.
-- Medusa tests boot the runner (`testEnvironment: 'node'`), not the bare service.
+- The suite passes with `--ci` (full run), not just in watch mode.
+- No test depends on another's order or state.
+- Mocks apply (no "hoisting" ReferenceError) and are cleared.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's tests (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - Where tests live and the naming convention.
+     - Setup files and what they preload (providers, matchers, polyfills).
+     - What is mocked by convention (network, clock, native modules) and what is never mocked.
+     - Coverage the repo requires and which areas are exempt.
+-->

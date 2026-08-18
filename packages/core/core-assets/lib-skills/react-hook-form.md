@@ -58,3 +58,13 @@ const { register, control, handleSubmit, formState: { errors, isSubmitting } } =
 - Zod + `zodResolver`, type via `z.infer`; `Controller` for controlled inputs, `register` for text; no mirror `useState`.
 - `defaultValues` set; no "uncontrolled to controlled" warnings. Submit with `handleSubmit` + `isSubmitting`.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's forms (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The resolver in use and where the schemas live.
+     - The field components forms are built from (and their controlled/uncontrolled contract).
+     - How a server error is mapped back onto a field.
+     - The submit convention: loading state, disabling, what happens after success.
+-->

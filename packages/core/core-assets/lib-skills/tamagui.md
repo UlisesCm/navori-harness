@@ -59,3 +59,13 @@ Prefer variants over `bg={isError ? '$red10' : '$green10'}`: runtime values brea
 - Conditional style logic in `variants`, not inline (compiler-friendly).
 - A single import package; `declare module` registered.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's design system (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The real tokens: colors, spacing, typography, and which ones are off-limits.
+     - The repo's own components and when to use them instead of a primitive.
+     - Breakpoints and the platform differences that matter (web vs. native).
+     - The theming convention (light/dark, per-brand themes).
+-->

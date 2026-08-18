@@ -82,3 +82,13 @@ Respond `2xx` fast; the heavy work goes to a queue.
 - Every charge carries an `idempotencyKey`; the payment is confirmed by webhook (signature + idempotent), not by the redirect.
 - If there are taxes: active tax registration verified.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's billing (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The real products/prices and which one each plan maps to.
+     - The webhooks handled and what each one changes in the DB.
+     - How the test environment is separated from production (keys, fixtures).
+     - Which operations must be idempotent and how the key is built.
+-->

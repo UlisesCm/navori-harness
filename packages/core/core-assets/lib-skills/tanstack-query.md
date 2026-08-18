@@ -57,3 +57,13 @@ const mutation = useMutation({
 - No query data duplicated in useState/Redux.
 - Dependent queries use `enabled`.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's query layer (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The query-key convention (the factory, if there is one) — the single thing that makes invalidation predictable.
+     - Per-domain staleTime/gcTime: what is near-static and what must never be cached.
+     - Which mutations invalidate which keys.
+     - The repo's own wrapper hooks, if components don't call useQuery directly.
+-->

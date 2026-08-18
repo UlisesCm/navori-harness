@@ -601,7 +601,7 @@ describe("detectProject — library skill detection", () => {
   it("flags every library skill whose dep is present, cross-preset (express + socket.io)", () => {
     const dir = withDeps({ express: "^4", mongoose: "^8", "socket.io": "^4" });
     try {
-      expect(detectProject(dir).libraries).toEqual(["socketio", "mongoose"]);
+      expect(detectProject(dir).libraries).toEqual(["socketio-server", "mongoose"]);
     } finally {
       rmSync(dir, { recursive: true });
     }

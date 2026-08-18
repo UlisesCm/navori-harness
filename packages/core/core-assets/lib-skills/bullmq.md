@@ -54,3 +54,13 @@ const worker = new Worker("emails", async (job) => {
 - `removeOnComplete`/`removeOnFail` bounded; the `connection` uses `maxRetriesPerRequest: null`.
 - The producer doesn't block the request waiting for the job.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's queues (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The queues that exist, what each processes and its expected volume.
+     - Retry/backoff policy per queue and what happens when a job exhausts it.
+     - Where the workers run and how they are deployed (they are NOT the API).
+     - Which jobs must be idempotent because they can be delivered twice.
+-->

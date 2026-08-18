@@ -60,3 +60,13 @@ const [createReport] = useCreateReportMutation({
 - Cache normalized by `keyFields`; mutations update/invalidate the cache.
 - `fetchPolicy` chosen by data type; `loading`/`error` handled.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's GraphQL layer (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The endpoint and the link chain (auth, retry, error).
+     - typePolicies / cache normalization that isn't the default, and why.
+     - Shared fragments and where they live.
+     - Which queries run against the network on purpose (fetchPolicy) and which don't.
+-->

@@ -64,3 +64,13 @@ it('submits the email', async () => {
 - Interactions go through awaited `user-event`; no stray `act` warnings.
 - jest-dom loaded (web); React Native's matchers are built in.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's testing conventions (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The custom `render` (which providers it wraps) and where it lives.
+     - The preferred queries and the accessible names components actually expose.
+     - Shared helpers: fixtures, factories, login utilities.
+     - Components that need special handling (portals, animations, virtualized lists).
+-->

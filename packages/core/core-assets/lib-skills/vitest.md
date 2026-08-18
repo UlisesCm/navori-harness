@@ -65,3 +65,13 @@ describe('getUser', () => {
 - Mocks reset between tests; environment matches the code under test (DOM vs node).
 - No sprawling snapshots; assertions target real values.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's tests (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - Where tests live and the naming convention.
+     - Setup files and what they preload (providers, matchers, polyfills).
+     - What is mocked by convention (network, clock, storage) and what is never mocked.
+     - Coverage the repo requires and which areas are exempt.
+-->
