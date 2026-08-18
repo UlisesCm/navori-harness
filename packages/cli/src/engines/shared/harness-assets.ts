@@ -43,6 +43,7 @@ export const CORE_SKILLS: ReadonlyArray<string> = [
 
 export const WORKFLOW_SKILLS: ReadonlyArray<string> = [
   "ticket-intake",
+  "solution-design",
   "pr-create",
   "spec-bootstrap",
   "dominio",
