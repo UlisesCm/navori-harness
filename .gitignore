@@ -11,6 +11,11 @@ coverage/
 # Only machine-local and transient bits stay out:
 .claude/settings.local.json
 .claude/worktrees/
+# Ephemeral subagent handoffs (audits, research, solutions, reviews). navori's
+# own CUBO_A lists this as never-commit; the file was missing the entry, so a
+# session's artifacts leaked into git. Session STATE lives in progress/ (root),
+# which IS versioned on purpose.
+.claude/progress/
 
 # Local Codex state (not committed per workspace convention)
 .codex/
