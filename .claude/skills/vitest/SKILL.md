@@ -4,7 +4,7 @@ description: Use when writing or fixing unit/integration tests with Vitest — d
 type: reference
 ---
 
-<!-- navori:managed id="vitest" hash="50cf8044" version="0.5.0" source="@navori/core" -->
+<!-- navori:managed id="vitest" hash="50cf8044" version="0.5.1" source="@navori/core" -->
 # Vitest — conventions
 
 ## When to use this skill

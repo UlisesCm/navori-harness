@@ -2,9 +2,10 @@
 name: spec-bootstrap
 description: Use when starting a real-scope feature before writing code — scaffolds a complete SDD spec (requirements/design/tasks) with EARS and R<n>↔test traceability.
 type: reference
+maxWords: 600
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="c4e8ab36" version="0.5.0" source="@navori/core" -->
+<!-- navori:managed id="spec-bootstrap" hash="3b514e24" version="0.5.1" source="@navori/core" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## When to use this skill
@@ -16,8 +17,10 @@ Produces `specs/<feature>/{requirements.md, design.md, tasks.md}` ready for the 
 ## Order
 
 1. **requirements.md first.** No clear requirements, no design. Derive from the ticket/request; each requirement is EARS with id `R<n>`.
-2. **design.md** — how to meet those `R<n>`: affected components, contracts, decisions and trade-offs. Reference the `R<n>` each decision satisfies.
+2. **design.md** — how to meet those `R<n>`: affected components, contracts, decisions and trade-offs. Reference the `R<n>` each decision satisfies. Design BEFORE decomposing: an architecture decision (a contract, who owns a piece of state, a migration path) moves the natural task boundaries, so tasks written first get rewritten.
 3. **tasks.md** — batches of 1-3 tasks; each task lists the `R<n>` it covers and its test(s).
+
+The reasoning that fills `design.md` is the `solution-design` skill — same dimensions, and it's also the lighter home for an R2-architectural change that doesn't earn a full spec.
 
 ## Templates
 
@@ -34,7 +37,8 @@ Produces `specs/<feature>/{requirements.md, design.md, tasks.md}` ready for the 
 - **R3** — IF <undesired condition> THEN the system SHALL <containment action>.
 ```
 
-`design.md`:
+`design.md` — the first three sections always; the rest ONLY when the feature
+actually raises them (an empty section is noise, not rigor):
 ```md
 # <Feature> — Design
 
@@ -46,6 +50,12 @@ Produces `specs/<feature>/{requirements.md, design.md, tasks.md}` ready for the 
 
 ## Decisions
 - <non-obvious decision> — <reason>.
+
+## Contracts            ← if it touches an API/DTO/schema/event
+## Failure modes        ← if it has partial failure, retries, concurrency
+## Migration            ← if data or an existing contract changes shape
+## Testing strategy     ← each test answers a risk named above, not a coverage quota
+## NOT in scope         ← deferred work + why, so nobody "improves things along the way"
 ```
 
 `tasks.md`:
@@ -58,7 +68,7 @@ Produces `specs/<feature>/{requirements.md, design.md, tasks.md}` ready for the 
 
 ## Hard rules
 
-- **Zero unresolved placeholders.** Don't leave `<...>` in the final spec; if you don't know a value, it's a question for the user, not a hole.
+- **Zero unresolved placeholders.** Don't leave `<...>` in the final spec; if you don't know a value, it's a question for the user, not a hole. Same rule inside a task: "TBD", "implement later", "add appropriate error handling" or "similar to T<n>" describe nothing — name the observable behavior and the evidence expected. That is NOT a licence to dictate the code line by line; the implementer keeps its judgment.
 - **Every `R<n>` ends in ≥1 task and ≥1 test.** A requirement with no task or test isn't traceable → it doesn't enter the spec.
 - **Tracking lives in `tasks.md`, not in `TaskCreate`.** See the SDD block.
 - **Self-review before closing the scaffolding:** is each `R<n>` a single testable action? does each task point to real `R<n>`? does the design cover all the `R<n>`? If something fails, fix it before handing the spec to the `leader`.
