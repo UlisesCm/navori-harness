@@ -32,8 +32,15 @@ export const benchCommand = defineCommand({
 
     const runs = Math.max(1, Math.floor(Number(args.runs) || 20));
 
-    // Warm-up so module/asset caches don't skew the first sample.
-    runRender(cwd, { dryRun: true });
+    // Warm-up so module/asset caches don't skew the first sample. Also the
+    // guard: since #340, `runRender` reports a broken config as `ok:false`
+    // instead of exiting, so without this bench would time the error fast-path
+    // and report a meaningless benchmark.
+    const warmup = runRender(cwd, { dryRun: true });
+    if (!warmup.ok) {
+      p.cancel(warmup.reason ?? "render failed");
+      process.exit(1);
+    }
 
     const samples: number[] = [];
     for (let i = 0; i < runs; i++) {

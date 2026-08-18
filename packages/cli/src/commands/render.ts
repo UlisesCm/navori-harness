@@ -2,10 +2,9 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import type { NavoriConfig } from "../lib/config.ts";
+import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { scanOrphanedEngineOutputs, type OrphanedEngineOutput } from "../lib/health.ts";
 import { createBackup, purgeOldBackups } from "../lib/backup.ts";
-import { readConfigOrExit } from "../lib/cli-config.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render-plan.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
@@ -223,7 +222,35 @@ export function runRender(
     };
   }
 
-  const config = readConfigOrExit(configPath);
+  // A broken config is a per-repo failure, not a process-level one: `render
+  // --all` and `workspace render` loop over repos and expect `ok:false` back so
+  // one corrupt repo can't abort the batch. Exiting here (the old
+  // `readConfigOrExit`) killed the whole run — `process.exit` doesn't throw, so
+  // the caller's try/catch never saw it (#340). Same shape as `config-missing`
+  // above; single-repo `render` still exits 1 via its own `!result.ok` branch.
+  let config: NavoriConfig;
+  try {
+    config = readConfig(configPath);
+  } catch (err) {
+    if (!(err instanceof ConfigError)) throw err;
+    const detail = (err.issues ?? [])
+      .map((issue) => `\n  - ${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("");
+    return {
+      ok: false,
+      reason: `${err.message}${detail}`,
+      reasonCode: "config-invalid",
+      language: DEFAULT_LANG,
+      filePath: claudeMdPath,
+      entries: [],
+      written: false,
+      languageFallbacks: [],
+      updatesAvailable: [],
+      downgrades: [],
+      backupPath: null,
+      workspaces: [],
+    };
+  }
   const lang = resolveLang(config.language);
   benchMark("loadConfig");
 
@@ -910,7 +937,11 @@ export function renderRepoRows(
         rows.push({
           name: repo.name,
           status: "error",
-          detail: result.reason ?? "render failed",
+          // One row per repo: a schema failure's `reason` carries the per-field
+          // detail on its own lines (#340), which would spill down the table and
+          // break its alignment. Flattened here only — the single-repo path
+          // keeps the multi-line message, where it reads better.
+          detail: (result.reason ?? "render failed").replace(/\n\s*/g, "; "),
           conflicts: 0,
           changed: [],
         });
