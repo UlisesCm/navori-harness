@@ -45,14 +45,38 @@ Nadie le pidió decidir *qué hay que construir*. Sin esa pregunta, un ticket co
 diagnóstico correcto y solución equivocada produce una implementación impecable
 de la solución equivocada — y el trabajo bien hecho lo disimula.
 
-### GREEN — con la capa
+### GREEN — con la capa (2026-08-18) · **PASS**
 
-- [ ] Pendiente (T4.1). **Criterio PASS:** el artefacto contiene "What already
-  exists" con el patrón existente evaluado como candidato real; los costos de la
-  propuesta aparecen comparados contra esa alternativa; y los dos hallazgos que
-  refutan alcance salen como veredicto (`split` / ítem que no aplica), no como
-  preguntas abiertas. Gane la librería o gane extender lo existente, ambos son
-  PASS **si están argumentados**. **FAIL** = heredar la propuesta sin comparar.
+Misma variable aislada: mismo ticket, mismo repo, mismo modelo (sonnet). Lo único
+que cambia es que este agente leyó `solution-design`.
+Artefactos: `.claude/progress/solution_BTBS-162.md` (415 líneas) +
+`solution_review_BTBS-162.md` (challenge, 132 líneas).
+
+**Veredicto emitido:** `CONCERNS` — correcto: hubo hallazgos serios y aun así la
+implementación puede arrancar. No degeneró en BLOCKED (el modo de fallo BMAD).
+
+| Fallo RED | ¿Superado? | Evidencia en el GREEN |
+|---|---|---|
+| **F1** premisa no cuestionada | **Sí** | "What already exists" descubrió que **`@reduxjs/toolkit@^1.8.1` ya está instalado y ships RTK Query** — *"a caching layer is available with zero new dependency, already wired to the existing store"*. El baseline nunca lo mencionó: su paso 0 era instalar otra librería. Además encontró un **ADR previo en el repo** (`useSessionHydration.ts:29-31`: *"no new thunk, no RTK Query"*) — una decisión del equipo sobre este mismo tema que el ticket ignora |
+| **F2** costos sin balanza | **Sí** | Formuló el approach A (caché a mano, cero dependencia) y lo descartó con argumento — "reinventa invalidación/staleTime/retry por cada uno de los 4 endpoints… no escala sin repetir el patrón 4 veces". Y rechazó la forma literal del ticket porque migrar los ~11 lectores del store sería "una migración de ownership no pedida" |
+| **F3** hallazgos como notas | **Sí** | Los hallazgos **cambiaron el alcance**: se cae `getMyCoacheesById` (dead code confirmado) y **entra** un puente para `refreshUser()`, que es lo que de verdad arregla el síntoma que el ticket cita. En el baseline ambos eran "preguntas abiertas" |
+
+**El challenge hizo trabajo real, no trámite.** El researcher en contexto fresco
+encontró un BLOCKER: el diseñador había invertido cuál de dos archivos homónimos
+compila el bundler. Lo verificó leyendo `DEFAULT_EXTENSIONS` del Vite instalado y
+grepeando el `dist/` real, y el diseño se corrigió antes de existir una línea de
+código. Aplicó además otros 3 concerns (inventario de lectores subcontado 6→11;
+un failure mode escrito para 1 call site cuando había 6; una lectura movida de
+hook idiomático a puente por compartir contexto).
+
+**Decisión de fondo resultante:** patrón puente/fachada — la caché va *por dentro*
+de la capa que ya existe, preservando firma y el `dispatch` al store, con cero
+cambios en 13 call sites y ~11 consumidores. Exactamente
+`existing pattern > small extension > new abstraction`.
+
+**Costo:** 158k tokens (GREEN) vs 104k (RED) — **+52%** para una tarea catalogada
+`[ALTO]` que toca 25+ call sites en 15+ archivos. El sobrecosto se paga una vez en
+diseño y evita reescribir una migración de ownership no pedida.
 
 ---
 
