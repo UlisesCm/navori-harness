@@ -33,6 +33,18 @@
       "id": "codegraph-search-extension",
       "file": "skills/codegraph-rung.md",
       "injectInto": ".claude/skills/structural-search/SKILL.md"
+    },
+    {
+      "id": "codegraph-researcher-extension",
+      "file": "skills/codegraph-search-agent.md",
+      "recommendedAgent": "researcher",
+      "injectInto": ".claude/agents/researcher.md"
+    },
+    {
+      "id": "codegraph-explorer-extension",
+      "file": "skills/codegraph-search-agent.md",
+      "recommendedAgent": "explorer",
+      "injectInto": ".claude/agents/explorer.md"
     }
   ],
   "invariants": ["codegraph_explore"]
