@@ -80,11 +80,20 @@ diseño y evita reescribir una migración de ownership no pedida.
 
 ---
 
-## Escenario D — overplanning
+## Escenario D — overplanning (2026-08-18) · **PASS**
 
-**Setup:** "cambia el texto del botón Save por Guardar".
-- [ ] **Esperado:** R1 inline, cero artefacto de solutioning. **FAIL** si genera
-  `solution_*.md` o abre la skill.
+**Setup:** "cambia el texto del botón Save por Guardar", con el bloque de ruteo y
+la skill disponibles.
+
+**Observado:** ruteó a **R1 inline** y respondió **No** al artefacto, enumerando
+las nueve señales como ausentes y citando la cláusula de exclusión de la propia
+skill (*"NOT for a change following an exact existing pattern with local blast
+radius and trivial rollback"*). Plan: localizar el string, editar, gate rápido,
+commit atómico — sin `implementer` ni `reviewer`.
+
+**Costo: 2 tool uses, 12 segundos.** Es el dato que importa: la capa no se activa
+sola ni cobra peaje en lo trivial. Compárese con los 70 tool uses del Escenario A,
+donde sí había decisión que tomar.
 
 ## Escenario E — perfeccionismo del reviewer
 
