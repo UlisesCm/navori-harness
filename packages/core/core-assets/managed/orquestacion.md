@@ -13,6 +13,8 @@ You are the main agent. For any task, **pick the smallest route that covers it**
 
 Scoped research → `researcher`; broad maps (where does X live?) → `explorer`. Deep read-only audit of a module/area/repo with **no ticket** (security/perf/SOLID/edge-cases, e.g. mapping debt before a refactor) → `auditor` (writes `audit_deep_<scope>.md`); a concrete complex ticket to analyze before decomposing → `ticket-audit` (writes `audit_ticket_<ID>.md`). With a prior ticket audit, hand the `implementer` the path to `.claude/progress/audit_ticket_<ID>.md`.
 
+**R2-architectural — design before you decompose.** A task inside R2 that shows ANY of these earns a solution pass first: new shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a `{{project.criticalAreas}}` area · hard-to-reverse decision · ≥2 genuinely viable approaches. File count is a hint, never the definition — an exact existing pattern with a local change and a trivial rollback stays plain R2. The pass is: `solution-design` skill → ONE fresh-context challenge (a `researcher`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks.
+
 ### Thresholds that make you STEP UP a route
 
 - **4-file rule:** if you need to read 4+ files to understand the flow → delegate the exploration (R2 / R2-fan).
