@@ -1,10 +1,10 @@
 ---
-name: socketio
-description: Use when touching realtime, gateways, or socket handlers — Socket.IO patterns in a Node service: namespaces, rooms, auth at the handshake, typed events, cleanup.
+name: socketio-server
+description: Use when touching realtime on the SERVER — gateways or socket handlers in a Node service: namespaces, rooms, auth at the handshake, typed events, cleanup.
 type: reference
 ---
 
-# Socket.IO — service conventions
+# Socket.IO server — service conventions
 
 ## When to use this skill
 
@@ -57,3 +57,13 @@ io.of('/sessions').use(authSocket).on('connection', (socket) => {
 - No global `io.emit` except system signals; the rest goes by room.
 - Auth resolved in the namespace middleware, not inside the handlers.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's realtime layer (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The namespaces and rooms in use, and who joins each.
+     - What the handshake auth validates and what lands in `socket.data`.
+     - The event catalog: name, payload, who emits and who listens.
+     - Events that must be persisted before being emitted (and their order).
+-->

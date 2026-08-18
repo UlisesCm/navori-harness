@@ -59,3 +59,13 @@ function SessionDetail() {
 - Params validated; URL state (filters, tab) lives in search params.
 - Protected routes redirect with `<Navigate replace>`; no flash of the private view.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's routing (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The real route map: which paths exist and which layout each hangs from.
+     - How a protected route is written (guard / role check) and where the redirect lands.
+     - The lazy-loading convention and which routes are eager on purpose.
+     - Params and their types: what travels in the URL vs. in state.
+-->

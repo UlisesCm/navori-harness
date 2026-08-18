@@ -72,3 +72,13 @@ runMain(main);
 - Built-in `--help`/`--version` still work (no shadowing alias).
 - No side effects at import time; `cleanup` is idempotent.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's CLI (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The commands that exist and their hierarchy.
+     - The shared-flag convention (--cwd, --json, --dry-run) and what each means.
+     - Exit codes and what each one signals to a CI pipeline.
+     - The output format: what goes to stdout (pipeable) vs. stderr.
+-->

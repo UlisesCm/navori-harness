@@ -16,8 +16,30 @@ const coreAssets = resolve(here, "..", "..", "..", "..", "core", "core-assets");
 
 describe("detectLibrarySkills", () => {
   it("returns the skill id when its dependency is present", () => {
-    expect(detectLibrarySkills(["socket.io"])).toEqual(["socketio"]);
+    expect(detectLibrarySkills(["socket.io"])).toEqual(["socketio-server"]);
     expect(detectLibrarySkills(["react-hook-form"])).toEqual(["react-hook-form"]);
+  });
+
+  // #324: `socket.io` and `socket.io-client` are different libraries. A single
+  // skill keyed on both handed a React SPA a server guide about namespaces and
+  // handshake auth, and nothing about the client bugs (listeners that leak per
+  // render, module singletons, missing cleanup).
+  it("maps each side of Socket.IO to its own skill", () => {
+    expect(detectLibrarySkills(["socket.io-client"])).toEqual(["socketio-client"]);
+    expect(detectLibrarySkills(["socket.io", "socket.io-client"])).toEqual([
+      "socketio-server",
+      "socketio-client",
+    ]);
+  });
+
+  it("detects the library skills added for the mobile / SQL stacks (#322, #327)", () => {
+    expect(detectLibrarySkills(["drizzle-orm"])).toEqual(["drizzle-orm"]);
+    expect(detectLibrarySkills(["drizzle-kit"])).toEqual(["drizzle-orm"]);
+    expect(detectLibrarySkills(["@react-navigation/native"])).toEqual(["react-navigation"]);
+    expect(detectLibrarySkills(["react-i18next"])).toEqual(["i18next"]);
+    expect(detectLibrarySkills(["cypress"])).toEqual(["cypress"]);
+    // The Cypress binding of Testing Library earns those conventions too.
+    expect(detectLibrarySkills(["@testing-library/cypress"])).toEqual(["testing-library"]);
   });
 
   it("matches any of a skill's alias deps", () => {
@@ -53,7 +75,7 @@ describe("detectLibrarySkills", () => {
 
   it("returns ids in registry order regardless of dep order", () => {
     expect(detectLibrarySkills(["react-hook-form", "socket.io"])).toEqual([
-      "socketio",
+      "socketio-server",
       "react-hook-form",
     ]);
   });

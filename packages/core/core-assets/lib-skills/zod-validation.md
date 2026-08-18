@@ -64,3 +64,13 @@ In the route: `router.post('/', validate(createResourceSchema, 'body'), ...)`. I
 - The endpoint uses `validate(schema, target)`; no inline validation in the controller.
 - ObjectId fields with the `objectId` helper; query fields with `z.coerce`.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's schemas (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - Where the schemas live and how they are named.
+     - Schemas shared between layers (or with the frontend) and who owns them.
+     - The validation middleware in use and which routes bypass it (and why).
+     - How a ZodError is turned into the API's error response.
+-->

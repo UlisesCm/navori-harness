@@ -68,3 +68,13 @@ Context is for **stable** injection (theme, config, i18n). For shared state that
 - Actions and async state (with loading/error) live in the store.
 - Stores split by domain; no global mega-store.
 - `{{qualityGate.fast}}` green.
+
+<!-- navori:user-section -->
+## This repo's stores (your domain)
+
+<!-- user: add here what only applies to THIS repo. Suggestions:
+     - The stores that exist and what each owns.
+     - What is persisted, where, and what must NEVER be persisted.
+     - The selector convention that keeps components from re-rendering on every change.
+     - What does NOT belong in the store (server state, derived state).
+-->
