@@ -144,8 +144,11 @@ function buildSkillsIndexBody(
   repoRoot: string,
   coreAssets: string,
   lang: Lang,
+  /** Where this CLAUDE.md is written — the `.claude/skills/` it indexes sit
+   * next to it, which on a workspace render is NOT `repoRoot`. */
+  cwd: string,
 ): string | null {
-  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills);
+  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills, cwd);
   if (rows.length === 0) return null;
   const t = tc(lang).blocks.skillsIndex;
   // The project-local note only makes sense when the repo actually declares
@@ -432,7 +435,14 @@ export function renderClaudeEngine(
   // when the body comes back empty.
   const localSkills = config.project?.localSkills ?? [];
   let claudeMdContent = claudeMdPlan.next;
-  const skillsIndexBody = buildSkillsIndexBody(config, localSkills, repoRoot, coreAssets, lang);
+  const skillsIndexBody = buildSkillsIndexBody(
+    config,
+    localSkills,
+    repoRoot,
+    coreAssets,
+    lang,
+    cwd,
+  );
   if (skillsIndexBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,

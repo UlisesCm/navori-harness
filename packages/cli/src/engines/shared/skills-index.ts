@@ -3,7 +3,7 @@ import type { NavoriConfig } from "../../lib/config.ts";
 import { sanitizeProjectValue } from "../../lib/interpolate.ts";
 import { loadPreset } from "../../lib/presets.ts";
 import { librarySkillById } from "../../lib/library-skills.ts";
-import { readSkillTrigger } from "../../lib/skill-meta.ts";
+import { readSkillTrigger, resolveLocalSkillPath } from "../../lib/skill-meta.ts";
 import { CORE_SKILLS, WORKFLOW_SKILLS, extraConditionMet } from "./harness-assets.ts";
 
 /**
@@ -20,8 +20,11 @@ import { CORE_SKILLS, WORKFLOW_SKILLS, extraConditionMet } from "./harness-asset
  *   - project-local skills (only when the caller passes them — prose engines
  *     have no `.claude/skills/` so they pass none).
  *
- * Each row's trigger comes from the navori-owned asset (deterministic across
- * checkouts), never the user's on-disk copy, so the managed block never drifts.
+ * A managed row's trigger comes from the navori-owned asset (deterministic
+ * across checkouts), never the user's on-disk copy, so the managed block never
+ * drifts. Project-local rows are the one exception (#327): navori doesn't own
+ * those files, so their trigger is read from `localSkillsRoot` and degrades to
+ * the bare path when the skill isn't on disk.
  * Returns the rows only; each engine wraps them with its own header (Claude
  * references `.claude/skills/<id>/SKILL.md`, the prose engines don't).
  */
@@ -30,6 +33,10 @@ export function buildSkillRows(
   repoRoot: string,
   coreAssets: string,
   localSkills: readonly string[] = [],
+  /** Directory holding `.claude/skills/` for the project-local rows. Differs
+   * from `repoRoot` on a monorepo WORKSPACE render, where the CLAUDE.md (and
+   * its skills) live in the workspace dir while presets resolve from the root. */
+  localSkillsRoot: string = repoRoot,
 ): string[] {
   const rows: string[] = [];
   const listed = new Set<string>();
@@ -69,17 +76,26 @@ export function buildSkillRows(
     listed.add(id);
   }
   for (const name of localSkills) {
-    // Deterministic from config: point at the skills root, not a concrete file —
-    // whether the skill is a flat `<id>.md` or a `<id>/SKILL.md` directory is an
-    // on-disk detail (the header explains both). Resolving it here (or reading a
-    // trigger) would make the managed block depend on filesystem state and drift
-    // between checkouts; doctor is where the on-disk existence check belongs.
     if (listed.has(name)) continue;
     // `localSkills` is untrusted config (`z.array(z.string())`, no regex) landing
     // verbatim in a managed block — sanitize so a hostile id can't forge a marker
     // or smuggle a newline into the skills index (#264).
     const safeName = sanitizeProjectValue(name);
-    rows.push(`- \`${safeName}\` — project-local (\`.claude/skills/${safeName}\`)`);
+    // Project-local skills carry the knowledge navori can't derive, so the index
+    // must say WHEN to reach for them — a name plus a path forces opening the
+    // file to find out, which is what the index exists to avoid (#327). Their
+    // `description` is read from disk (navori owns neither the file nor its
+    // frontmatter) and sanitized like any untrusted value; when the skill isn't
+    // on disk — or declares no description — the row degrades to the path, which
+    // is also what a checkout without `.claude/skills/` renders.
+    const rel = resolveLocalSkillPath(localSkillsRoot, name);
+    const trigger = rel ? readSkillTrigger(join(localSkillsRoot, rel)) : null;
+    const safeTrigger = trigger ? sanitizeProjectValue(trigger) : "";
+    rows.push(
+      safeTrigger !== ""
+        ? `- \`${safeName}\` — project-local · ${safeTrigger}`
+        : `- \`${safeName}\` — project-local (\`.claude/skills/${safeName}\`)`,
+    );
     listed.add(name);
   }
   return rows;
