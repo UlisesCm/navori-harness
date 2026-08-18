@@ -105,6 +105,17 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     rootOnly: true,
     condition: "sdd.enabled",
   },
+  // Ticket-intake principle: the ticket's problem is the contract, its proposed
+  // solution is a suggestion, and "doesn't proceed" is a legitimate verdict.
+  // Always-on by design — it must hold even when the agent never opens the
+  // `ticket-intake` skill. Appended last on purpose: inserting mid-array would
+  // reorder every already-rendered repo's CLAUDE.md on the next render.
+  {
+    id: "intake-tickets",
+    relPath: "core-assets/managed/intake-tickets.md",
+    baseLanguage: "en",
+    rootOnly: true,
+  },
 ] as const;
 
 /** Ids of every hardcoded core managed block. Used to tell a real (but not

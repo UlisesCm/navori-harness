@@ -2,6 +2,7 @@
 name: ticket-intake
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 8-phase pipeline to process it with objective gates.
 type: reference
+maxWords: 600
 ---
 
 # ticket-intake — 8-phase pipeline
@@ -18,7 +19,7 @@ Each phase writes to `.claude/progress/`; the gate is blocking.
 |---|---|---|
 | 0 · Triage | you: `mem_search`, `cat current.md`, `git status/log` | Trivial → resolve it **inline (R1)**, without `implementer`. If `current.md` is not idle and holds ANOTHER ticket, ask; never two in parallel. |
 | 1 · Context (opt.) | you: the tracker CLI (`acli` / `jira` / `gh issue view`) | If there's only pasted text, jump to 2 with it. |
-| 2 · AUDIT | `ticket-audit` agent | `audit_ticket_<ID>.md`: root cause/approach, files, alternatives, questions, tasks. **Gate: the user approves it.** |
+| 2 · AUDIT | `ticket-audit` agent | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: the user approves the VERDICT.** Non-`proceed` ends the pipeline here, with evidence — a successful outcome, not a failure. |
 | 3 · EXPLORE (opt.) | 2-3 `explorer` agents in a single message | One `explore_<dim>.md` per dimension (handler, schema, side-effects, caller, memory). **Gate: you validate the audit's approach is still alive.** |
 | 4 · DESIGN (opt.) | your preset's scaffolding skill (backend: `new-endpoint`/`new-resource`; frontend: `new-feature`) | Only if there's a new pattern or lib: you present 2-3 approaches with tradeoffs and wait for OK. Otherwise, to 5. |
 | 5 · IMPLEMENT | ONE `implementer` agent | Reads CLAUDE.md → `audit_ticket_<ID>.md` → `explore_*.md` → applicable skill. Produces `impl_<feature>.md`. **Gate: `{{qualityGate.fast}}` green in the turn.** |
@@ -29,6 +30,7 @@ Each phase writes to `.claude/progress/`; the gate is blocking.
 ## Hard rules
 
 - **Phase 2 is not skipped on a non-trivial task** "because you already understood the ticket". The audit is for the implementer (and for you in 3 days); delegate it to `ticket-audit`.
+- **The ticket's proposed solution is a suggestion, not the spec** — the audit evaluates it against the verified problem. Calling a task trivial without a measured size is how a "simple" ticket becomes a big, wrong change.
 - **The implementer starts by reading `audit_ticket_<ID>.md`** or you lose context already paid for with tokens.
 - **The reviewer doesn't approve without Pass 1;** the approval does NOT depend on the implementer.
 - **No PR without `APPROVED`** nor two tickets in parallel on the same `current.md`.
