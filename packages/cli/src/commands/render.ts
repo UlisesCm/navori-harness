@@ -893,6 +893,12 @@ export interface RepoRenderRow {
   /** The individual entries that are not `unchanged` (created/updated/conflict/
    * removed), for the `--verbose` per-file listing. Empty for missing/error. */
   changed: Array<{ id: string; status: string }>;
+  /** Engine advisories (root + every workspace, every engine), deduped. The
+   * single-repo render prints these, but the batch used to drop them — and the
+   * batch is exactly where they bite: a fleet rollout with a `project.libraries`
+   * id gone from the registry (the socketio split, audit v0.5.1 A1) lost its
+   * skill in 15 repos with zero signal. Empty for missing/error rows. */
+  warnings: string[];
 }
 
 /** Compact per-repo counts for the multi-repo render table. */
@@ -928,6 +934,7 @@ export function renderRepoRows(
         detail: repo.path,
         conflicts: 0,
         changed: [],
+        warnings: [],
       });
       continue;
     }
@@ -944,6 +951,7 @@ export function renderRepoRows(
           detail: (result.reason ?? "render failed").replace(/\n\s*/g, "; "),
           conflicts: 0,
           changed: [],
+          warnings: [],
         });
         continue;
       }
@@ -954,8 +962,16 @@ export function renderRepoRows(
       // "unchanged" next to a "would-write" status. Folded into the summary and the
       // --verbose list so the detail always explains the status.
       const engineFiles: Array<{ id: string; status: string }> = [];
-      const collectEngine = (eng?: { written: Array<{ path: string; status: string }> }): void => {
+      // Warnings ride the same walk as the files. Deduped (Set) because a
+      // monorepo re-emits repo-level advisories once per workspace render — the
+      // batch row needs each message once, not once per workspace.
+      const engineWarnings = new Set<string>();
+      const collectEngine = (eng?: {
+        written: Array<{ path: string; status: string }>;
+        warnings: string[];
+      }): void => {
         for (const w of eng?.written ?? []) engineFiles.push({ id: w.path, status: w.status });
+        for (const w of eng?.warnings ?? []) engineWarnings.add(w);
       };
       collectEngine(result.engineResult);
       for (const ee of result.extraEngines ?? []) collectEngine(ee);
@@ -983,6 +999,7 @@ export function renderRepoRows(
         detail: summarizeRenderEntries(combined),
         conflicts,
         changed,
+        warnings: [...engineWarnings],
       });
     } catch (err) {
       rows.push({
@@ -991,6 +1008,7 @@ export function renderRepoRows(
         detail: (err as Error).message,
         conflicts: 0,
         changed: [],
+        warnings: [],
       });
     }
   }
@@ -1006,27 +1024,37 @@ export function rollupRenderRows(rows: RepoRenderRow[]): {
   failed: number;
   pending: number;
   conflicts: number;
+  warnings: number;
   ok: number;
 } {
   const failed = rows.filter((r) => r.status === "error" || r.status === "missing").length;
   const pending = rows.filter((r) => r.status === "written" || r.status === "would-write").length;
   const conflicts = rows.reduce((n, r) => n + r.conflicts, 0);
+  const warnings = rows.reduce((n, r) => n + r.warnings.length, 0);
   const ok = rows.length - failed;
-  return { failed, pending, conflicts, ok };
+  return { failed, pending, conflicts, warnings, ok };
 }
 
 /**
  * Print the multi-repo render table and return the roll-up counts. The table is
  * meant to read as a record of what happened for *anyone* running it — one line
- * per repo (marker · name · status · what changed), a conflict warning naming
- * the affected repos, and a roll-up that always shows the conflict/failed
- * columns so a "0" is an explicit all-clear, not a silent omission.
+ * per repo (marker · name · status · what changed), conflict and engine-warning
+ * blocks naming the affected repos, and a roll-up that always shows the
+ * conflict/warning/failed columns so a "0" is an explicit all-clear, not a
+ * silent omission.
  */
 export function reportRepoRenderRows(
   rows: RepoRenderRow[],
   preview: boolean,
   verbose = false,
-): { failed: number; pending: number; ok: number; conflicts: number; summary: string } {
+): {
+  failed: number;
+  pending: number;
+  ok: number;
+  conflicts: number;
+  warnings: number;
+  summary: string;
+} {
   const marker: Record<RepoRenderStatus, string> = {
     written: color.green(sym.ok),
     "would-write": color.yellow(sym.bullet),
@@ -1053,7 +1081,7 @@ export function reportRepoRenderRows(
   }
   if (lines.length > 0) p.log.message(lines.join("\n"));
 
-  const { failed, pending, conflicts, ok } = rollupRenderRows(rows);
+  const { failed, pending, conflicts, warnings, ok } = rollupRenderRows(rows);
 
   // Name the repos with conflicts so the record says exactly where to look; the
   // managed block was hand-edited and render refused to overwrite it.
@@ -1068,10 +1096,26 @@ export function reportRepoRenderRows(
     );
   }
 
+  // Engine warnings, grouped by message with the affected repos named — the
+  // same "say where to look" contract as the conflict block. Grouped because a
+  // registry-wide advisory (e.g. a `project.libraries` id removed in this CLI
+  // version) fires identically in every repo of a rollout: one line naming all
+  // 15 repos is a signal; 15 near-identical lines are noise the operator skims
+  // past. Each message already carries its own remedy (e.g. 'navori update').
+  if (warnings > 0) {
+    const byMessage = new Map<string, string[]>();
+    for (const r of rows) {
+      for (const w of r.warnings) byMessage.set(w, [...(byMessage.get(w) ?? []), r.name]);
+    }
+    for (const [message, names] of byMessage) {
+      p.log.warn(`${message}\n${dim(`in: ${names.join(", ")}`)}`);
+    }
+  }
+
   const summary =
     `${ok}/${rows.length} ok · ${pending} ${preview ? "would change" : "changed"} · ` +
-    `${conflicts} conflict · ${failed} failed`;
-  return { failed, pending, ok, conflicts, summary };
+    `${conflicts} conflict · ${warnings} warning · ${failed} failed`;
+  return { failed, pending, ok, conflicts, warnings, summary };
 }
 
 /**
@@ -1109,7 +1153,7 @@ export function renderAllRepos(opts: {
             ok: true,
             mode,
             repos: [],
-            summary: { ok: 0, pending: 0, conflicts: 0, failed: 0 },
+            summary: { ok: 0, pending: 0, conflicts: 0, warnings: 0, failed: 0 },
           },
           null,
           2,
@@ -1140,7 +1184,7 @@ export function renderAllRepos(opts: {
   );
 
   if (opts.json) {
-    const { failed, pending, conflicts, ok } = rollupRenderRows(rows);
+    const { failed, pending, conflicts, warnings, ok } = rollupRenderRows(rows);
     console.log(
       JSON.stringify(
         {
@@ -1154,8 +1198,9 @@ export function renderAllRepos(opts: {
             detail: r.detail,
             conflicts: r.conflicts,
             changed: r.changed,
+            warnings: r.warnings,
           })),
-          summary: { ok, pending, conflicts, failed },
+          summary: { ok, pending, conflicts, warnings, failed },
         },
         null,
         2,

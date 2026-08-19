@@ -16,7 +16,7 @@ import {
   type UpdateAvailable,
 } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
-import { LIBRARY_SKILLS, REMOVED_LIB_SKILLS } from "../../lib/library-skills.ts";
+import { LIBRARY_SKILLS, REMOVED_LIB_SKILLS, unknownLibraries } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import {
   injectManagedSection,
@@ -634,6 +634,17 @@ export function renderClaudeEngine(
   // commitWrites. `includeLeader` because Claude DOES emit leader.md.
   const preset = loadActivePreset(config, repoRoot, warnings);
   const harnessPlan = resolveHarnessPlan(config, coreAssets, preset, { includeLeader: true });
+  // A `project.libraries` id this registry doesn't know is silently skipped by
+  // the plan AND its managed skill is pruned from disk below (§8.6) — a repo
+  // upgraded without `navori update` would lose its guidance with zero signal
+  // (audit v0.5.1 A1, the socketio split). Warn loudly instead.
+  for (const lib of unknownLibraries(config.project?.libraries)) {
+    warnings.push(
+      lib.removed
+        ? tc(lang).engine.libraryRemovedFromRegistry(lib.id, lib.successors)
+        : tc(lang).engine.libraryUnknownInRegistry(lib.id),
+    );
+  }
   const adapterCtx: AdapterCtx = {
     cwd,
     config,

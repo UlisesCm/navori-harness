@@ -6,10 +6,13 @@ import { fileURLToPath } from "node:url";
 import {
   LIBRARY_SKILLS,
   MIGRATION_PAIRS,
+  REMOVED_LIB_SKILLS,
+  REMOVED_LIB_SKILL_SUCCESSORS,
   detectLibrarySkills,
   librarySkillById,
   detectMigrations,
   migrationDepNames,
+  unknownLibraries,
 } from "../library-skills.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -319,6 +322,52 @@ describe("librarySkillById", () => {
 
   it("returns null for an unknown id", () => {
     expect(librarySkillById("does-not-exist")).toBeNull();
+  });
+});
+
+// Audit v0.5.1 A1: an id in `project.libraries` the registry doesn't know is
+// silently skipped by the render plan AND its managed skill is pruned from
+// disk. This helper feeds the warning render/doctor must emit so an upgrade
+// without `navori update` (the socketio split) never loses guidance silently.
+describe("unknownLibraries", () => {
+  it("returns [] when every id is known (and for an empty/absent selection)", () => {
+    expect(unknownLibraries(["mongoose", "vitest"])).toEqual([]);
+    expect(unknownLibraries([])).toEqual([]);
+    expect(unknownLibraries(undefined)).toEqual([]);
+  });
+
+  it("flags a KNOWN retired id with its successors (the socketio split, #324)", () => {
+    expect(unknownLibraries(["socketio"])).toEqual([
+      { id: "socketio", removed: true, successors: ["socketio-server", "socketio-client"] },
+    ]);
+  });
+
+  it("flags a retired id with no successor (formik) without inventing one", () => {
+    expect(unknownLibraries(["formik"])).toEqual([{ id: "formik", removed: true, successors: [] }]);
+  });
+
+  it("flags a plain unknown id as not-removed", () => {
+    expect(unknownLibraries(["not-a-lib"])).toEqual([
+      { id: "not-a-lib", removed: false, successors: [] },
+    ]);
+  });
+
+  it("mixes known, retired and unknown ids, keeping only the problematic ones", () => {
+    expect(unknownLibraries(["mongoose", "socketio", "bogus"]).map((l) => l.id)).toEqual([
+      "socketio",
+      "bogus",
+    ]);
+  });
+});
+
+describe("REMOVED_LIB_SKILL_SUCCESSORS integrity", () => {
+  it("every key is a retired id and every successor exists in the live registry", () => {
+    for (const [id, successors] of Object.entries(REMOVED_LIB_SKILL_SUCCESSORS)) {
+      expect(REMOVED_LIB_SKILLS, `'${id}' must be in REMOVED_LIB_SKILLS`).toContain(id);
+      for (const successor of successors) {
+        expect(librarySkillById(successor), `successor '${successor}' of '${id}'`).not.toBeNull();
+      }
+    }
   });
 });
 
