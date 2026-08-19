@@ -41,3 +41,53 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
     Corregido a mano; queda pendiente evaluar activar `gitignoreHarness: "local"`
     en este repo para que la regla la gestione el render.
 - Commit / PR: #328, #329, #330, #332, #339 (mergeados) · issues #331, #340 abiertos.
+
+## 2026-08-18 23:30 claude — los 8 issues abiertos, resueltos; 6 defectos del harness descubiertos al usarlo
+
+- Objetivo: auditar a profundidad los 8 issues abiertos (#331, #333-#338, #340) para
+  decidir cuáles aplican y cómo, y resolverlos. Ulises encuadró los issues como
+  PROPUESTAS, no como especificaciones: el análisis decide si proceden.
+- Método: 5 auditorías en paralelo agrupadas por naturaleza, veredicto por issue
+  (`proceed` / `proceed-differently` / `split` / `doesn't apply` / `blocked`), y
+  síntesis no delegada. **Ninguno de los 8 procedía tal como estaba escrito**: uno
+  pasó limpio (#334), cinco se reformularon y de dos hubo que cortar la parte
+  principal.
+- Cambios (6 PRs mergeados, todos con CI verde):
+  - **#343 → #340** — `render --all` ya no muere ante un config corrupto. El fix va
+    una capa adentro (`runRender` devuelve `{ok:false, reasonCode:"config-invalid"}`),
+    no un try/catch por loop: cubre los dos call sites con un solo cambio.
+  - **#346** — cierre de la sesión previa + `.claude/progress/` al `.gitignore`. Estaba
+    atascado en una branch sin PR, y por eso cada branch nueva volvía a filtrar los
+    efímeros.
+  - **#347 → #331** — campo `paths` en `LibrarySkill` + `detectLibrarySkills(deps, cwd?)`
+    con `cwd` OPCIONAL (las 46 llamadas de tests quedaron intactas) + skill `maestro`.
+  - **#349 → #344 + #348** — los dos bugs del harness (abajo).
+  - **#351 → #334 + #335** — cinco reglas nuevas en `review-diff` (1129/1200 palabras),
+    el invariante de guards en `security-guidance`, regla condicional en `implementer`,
+    `no-duplicate-imports` en los dos presets, y un test de invariantes de contenido.
+  - **#353 → #337 + #338** — skill `babysit-prs` (486/500, sin override) + lectura única
+    de checks en el `commit-pr-pilot`.
+  - **#321 cerrado** por obsoleto: contra `main` actual borraba 4437 líneas, incluida
+    `specs/0012-solutioning/` entera.
+- Quality gate: ✅ 1546 tests · lint · format · `doctor ok` · CI verde en los 6 PRs.
+- Notas:
+  - **Seis defectos nuevos, todos encontrados USANDO el harness, no auditándolo.**
+    #344 (variable `path` es especial en zsh → `DRIFT` falso en todos los archivos,
+    con un bucle sin salida: re-revisar nunca lo arregla), #348 (el backup no excluía
+    `.claude/worktrees/` → 131 GB, disco al 97%, `render` fallando con `ENOSPC` dentro
+    del propio paso de backup), #352 (el mismo backstop es ciego bajo Codex), y
+    #341/#342/#345/#350 con análisis y recomendación ya comentados en cada uno.
+  - **La capa de solutioning se estrenó en un caso real y funcionó como debía**: el
+    diseño de #337/#338 salió BLOCKED con 4 BLOCKERs, dos de ellos errores propios —
+    una defensa contra inyección que se creyó estructural y no lo era, y una mitigación
+    de timeout imposible con la forma real del hook. El recorte que decidió Ulises
+    eliminó cuatro clases de riesgo en vez de gestionarlas.
+  - **Dato que cambia diseños futuros**: ningún patrón de permiso acotado de Bash sirve
+    para restringir argumentos. `Bash(gh api --method GET *)` es sobre-inclusivo
+    (pflag toma el último `--method`) y sub-inclusivo (`-X GET` no matchea). La única
+    frontera real es un `PreToolUse` hook.
+  - Al arreglar #348 aparecieron TRES copias de la lista de "efímeros que nunca se
+    versionan" (gitignore CUBO_A, `backupExclude`, `EPHEMERAL_AGENT_PATHS` de doctor).
+    Dos conocían `worktrees/` y la del backup no. Unificadas en `EPHEMERAL_HARNESS_PATHS`.
+- Commit / PR: #343, #346, #347, #349, #351, #353 mergeados · #321 cerrado ·
+  #352 en revisión · abiertos #333, #336, #341, #342, #345, #350.
