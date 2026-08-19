@@ -88,6 +88,8 @@ Rule: if removing the abstraction leaves the code **just as correct** and shorte
 
 **Don't confuse it with incompleteness.** Removing the handling of a real edge case, a validation or an error path is NOT simplifying — it's a bug, and it goes to §1-§4 (not here). This dimension attacks *excess structure*, never *missing coverage*. What the YAGNI ladder protects (trust boundaries, errors that prevent data loss, security, accessibility) is never over-engineering.
 
+**Don't confuse it with complexity.** High cognitive complexity is *missing* structure, not excess: branches and nesting piled into one body that was never split. Extracting to lower it removes nothing correct, so the rule above still holds. A complex function wrapped by a single-caller helper yields two findings, not a conflict: drop the wrapper, split the body.
+
 ## 8. Dead code and debug
 
 - `console.log` / debug print without a guard in code that gets merged → MEDIUM (in new code: HIGH).

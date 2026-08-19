@@ -74,7 +74,9 @@ const MonorepoWorkspaceSchema = z.object({
   /** Library-skill ids detected in THIS workspace's own deps. Scopes library
    * skills per workspace so an app only gets the skills for the libs it ships —
    * without this the root's aggregated list would spray every skill into every
-   * workspace (e.g. a Stripe skill in a backend that never imports Stripe). */
+   * workspace (e.g. a Stripe skill in a backend that never imports Stripe).
+   * DERIVED like the root `project.libraries` (#345): `refreshWorkspaceScopes`
+   * re-scans each workspace on `update` and rewrites this array. */
   libraries: z.array(z.string()).optional(),
   /** Active dependency migrations detected in THIS workspace's own deps. Scoped
    * per workspace for the same reason as `libraries` — a mid-migration rule
@@ -234,7 +236,18 @@ const ProjectSchema = z
     /** Library-skill ids detected in the repo's deps (socketio, mongoose, …).
      * Cross-preset: a skill is materialized whenever its dependency is present,
      * independent of the active preset. Supersedes the old zod/joiValidation
-     * flags. See lib/library-skills.ts. */
+     * flags. See lib/library-skills.ts.
+     *
+     * DERIVED — owned by detection, not by the user (#345). `init` and `update`
+     * both overwrite this array with what they detect, so a hand-added id does
+     * NOT survive `navori update`: it reads as drift and is replaced (pinned by
+     * "project.libraries — a DERIVED field" in commands/__tests__/update.test.ts).
+     * The asymmetry with the sibling `libraryMigrations` — which DOES preserve
+     * manual edits — is deliberate: that one protects a value override on a key
+     * detection keeps producing (#90), while this is a flat set of ids with no
+     * value to correct. If a tool ships no detectable signal, extend the
+     * detection mechanism (the way `paths` extended `deps` in #331) instead of
+     * hand-editing this array. */
     libraries: z.array(z.string()).default([]),
     /** Active dependency migrations (legacy + successor both present in deps).
      * Each renders a "prefer the new, freeze the legacy" rule in the project-
