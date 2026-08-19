@@ -91,3 +91,42 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
     Dos conocían `worktrees/` y la del backup no. Unificadas en `EPHEMERAL_HARNESS_PATHS`.
 - Commit / PR: #343, #346, #347, #349, #351, #353 mergeados · #321 cerrado ·
   #352 en revisión · abiertos #333, #336, #341, #342, #345, #350.
+
+## 2026-08-19 13:00 claude — cierre de los 6 issues restantes + créditos públicos
+
+Continuación de la entrada anterior. El tablero quedó en **cero issues y cero PRs abiertos**.
+
+- Objetivo: "quiero cerrar todo". Dos de los seis restantes se cerraron sin código —sus
+  partes principales no aplicaban— y cuatro con fix.
+- Cambios (3 PRs mergeados):
+  - **#357 → #342 + #354 + #341** — el subsistema del content receipt, en un solo PR porque
+    los tres tocan los mismos assets. El receipt ahora firma con `-w` y el pilot **emite el
+    comando de diff** al reportar drift (sin eso el blob se escribía y nadie lo usaba); el
+    hook verifica **todos** los receipts presentes en vez del primero (un stale en `.claude/`
+    eclipsaba al vigente en `.codex/` y el drift pasaba); y la Regla A quedó reescrita para
+    prometer lo que la maquinaria sí permite, con el **delta re-sign** formalizado como modo
+    de primera clase del `reviewer`.
+  - **#358 → #345 + #350** — `project.libraries` documentado como campo **derivado** (no era
+    un bug: la asimetría con `libraryMigrations` es deliberada) con el test que faltaba para
+    fijar la semántica; y la segunda frontera escrita en §7 de `review-diff`, que resuelve el
+    caso mixto nombrando la acción por hallazgo.
+  - **#359** — créditos públicos a los 11 proyectos de referencia.
+  - **#333 y #336 cerrados** con la evidencia de por qué sus partes principales no proceden.
+- Quality gate: ✅ 1558 tests · lint · format · build del sitio (22 páginas) · CI verde en los 3 PRs.
+- Notas:
+  - **`docs/inspiration.md` restaurado**: se había borrado del repo; se recuperó del historial
+    y se actualizó con una verificación de los 11 proyectos hecha hoy. Los 11 enlaces vivos,
+    ninguno archivado. Ajustes obligados: **codegraph retiró sus propias métricas** (control
+    contaminado) y publica una contraparte que el doc omitía —~80% más contexto residual en
+    sesión multi-turno, que toca las specs 0005/0006—; **caveman** cambió de licencia
+    (BSL-1.1), congeló dos repos, pasó de Node a Go, y su "46% menos tokens" ya no existe en
+    la fuente.
+  - **Dos correcciones de inventario que llevaban un mes publicadas**: la web acreditaba
+    `eslint-plugin-sonarjs`, que navori dejó de usar en #130, y **no** acreditaba `codegraph`,
+    que sí integra como plugin. El README listaba `cognitive` (retirado) y omitía `codegraph`.
+  - **El delta re-sign se estrenó dos veces el mismo día que se formalizó**, en los dos casos
+    por un hallazgo del reviewer que valía aplicar sin re-revisar un diff ya aprobado.
+  - **Disco recuperado**: Ulises borró `~/.navori/backups` a mano. De 131 GB / 6873 backups a
+    32 MB / 310, todos post-fix y ninguno con `worktrees/`. El más pesado pasó de 15 GB a
+    368 KB. `registry.json` y `workspaces/` intactos.
+- Commit / PR: #357, #358, #359 mergeados · #333 y #336 cerrados con justificación.
