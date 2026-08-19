@@ -20,8 +20,12 @@
  * rendered `.gitignore` block, whose body is hashed for drift detection, so
  * reordering would flag every already-onboarded repo as drifted.
  *
- * NOTE: the ephemeral progress dir is `.claude/progress/`, never the root
- * `progress/` — that one is git-persisted by design (session state travels).
+ * NOTE: the ephemeral progress dir is `.claude/progress/` (and its Codex mirror
+ * `.codex/progress/`, which is what `engines/codex/compat.ts` rewrites it into),
+ * never the root `progress/` — that one is git-persisted by design (session
+ * state travels). `.codex/progress/` was missing until #354, so under
+ * `gitignoreHarness: "local"` the Codex receipt and every subagent handoff were
+ * versionable — the exact omission #348 created this constant to prevent.
  *
  * Deliberately NOT here: `.codegraph/` and `.navori/`. Both belong in the
  * `.gitignore` cubo A but not in this set — `.codegraph/` has its own richer
@@ -32,4 +36,7 @@ export const EPHEMERAL_HARNESS_PATHS: readonly string[] = [
   ".claude/settings.local.json",
   ".claude/worktrees/",
   ".claude/progress/",
+  // Appended, never inserted: the order above is the one already hashed into
+  // every onboarded repo's `.gitignore` block (see the note on order).
+  ".codex/progress/",
 ];

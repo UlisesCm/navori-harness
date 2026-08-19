@@ -296,6 +296,65 @@ describe("quality-gate hook — content receipt (RDD)", () => {
     expect(r.stderr).toContain("receipt mismatch");
   });
 
+  // #354: the probe used to take the FIRST receipt it found and `break`, so a
+  // stale `.claude/progress/receipt.txt` left by an abandoned cycle eclipsed the
+  // live `.codex/progress/` one and the drift shipped (exit 0). The check is now
+  // the union of every receipt present, so probe order can't decide the verdict.
+  it("a stale receipt does NOT eclipse the live one — the drift still blocks (#354)", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    // Left over from a previous cycle: fingerprints an unrelated file, so on its
+    // own it has nothing to say about this commit.
+    writeFileSync(join(dir, "old.txt"), "from an abandoned cycle\n");
+    writeReceipt(["old.txt"], ".claude/progress/receipt.txt");
+    // The live cycle approved a.txt and signed at the Codex location…
+    writeFileSync(join(dir, "a.txt"), "approved\n");
+    git("add", "a.txt");
+    writeReceipt(["a.txt"], ".codex/progress/receipt.txt");
+    // …and a.txt was tampered with afterwards.
+    writeFileSync(join(dir, "a.txt"), "tampered\n");
+    git("add", "a.txt");
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("receipt mismatch");
+    expect(r.stderr).toContain("a.txt");
+    expect(r.stderr).not.toContain("running quality-gate fast");
+  });
+
+  // Symmetric: the acceptance criterion is order-independence, so the same must
+  // hold when the live receipt is the one probed FIRST.
+  it("blocks just the same with the live receipt first and the stale one second", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "old.txt"), "from an abandoned cycle\n");
+    writeReceipt(["old.txt"], ".codex/progress/receipt.txt");
+    writeFileSync(join(dir, "a.txt"), "approved\n");
+    git("add", "a.txt");
+    writeReceipt(["a.txt"], ".claude/progress/receipt.txt");
+    writeFileSync(join(dir, "a.txt"), "tampered\n");
+    git("add", "a.txt");
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("receipt mismatch");
+  });
+
+  // The union check must not degrade into "more than one receipt → block": two
+  // receipts that both match the staged bytes are a legitimate (if untidy) state
+  // and the commit goes through.
+  it("two receipts that both match → the gate runs, no block", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "a.txt"), "approved\n");
+    writeFileSync(join(dir, "b.txt"), "also approved\n");
+    git("add", "a.txt", "b.txt");
+    writeReceipt(["a.txt"], ".claude/progress/receipt.txt");
+    writeReceipt(["b.txt"], ".codex/progress/receipt.txt");
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain("receipt mismatch");
+    expect(r.stderr).toContain("running quality-gate fast");
+  });
+
   // Defensive fallback for any pre-#208 layout. Kept last in the probe order.
   it("still enforces a receipt at the bare progress/ fallback", () => {
     initRepo();

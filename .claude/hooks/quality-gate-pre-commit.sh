@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="e6971292" version="0.5.1" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="be743eb4" version="0.5.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -68,7 +68,7 @@ run_gate() {
 # --- content receipt (RDD) --------------------------------------------------
 # Backstop that binds the commit to the exact bytes the reviewer approved. The
 # reviewer writes a receipt (`<blob-sha>  <path>` lines, one per approved file,
-# via `git hash-object`, plus `deleted  <path>` for a file it approved removing)
+# via `git hash-object -w`, plus `deleted  <path>` for a file it approved removing)
 # when it marks APPROVED; the commit-pr-pilot recomputes
 # it before committing and consumes it after. THIS is the mechanical net for a
 # direct `git commit` that skips the pilot: if an approved file's content
@@ -88,13 +88,21 @@ check_content_receipt() {
   # never retargeted per engine (`placeHook` copies it verbatim), so it must
   # probe every engine's path itself or the backstop silently does nothing
   # there — it did exactly that under Codex until #352. Bare `progress/` is
-  # kept last as a defensive fallback for any pre-#208 layout.
-  local receipt=""
-  local candidate
-  for candidate in .claude/progress/receipt.txt .codex/progress/receipt.txt progress/receipt.txt; do
-    if [ -f "$candidate" ]; then receipt="$candidate"; break; fi
+  # probed as well, a defensive fallback for any pre-#208 layout.
+  #
+  # EVERY existing receipt is checked, not just the first one found (#354):
+  # taking the first and breaking let a stale `.claude/progress/receipt.txt`
+  # (abandoned cycle, interrupted session, branch switch mid-review) eclipse the
+  # live `.codex/progress/` one, and the drift shipped. The check is the UNION
+  # of all of them, so it fails closed regardless of probe order. Cost: if two
+  # receipts disagree about the same staged file, the stale one blocks too —
+  # deliberate, and the message below names every receipt read so the operator
+  # can delete the one that doesn't belong to this cycle.
+  local receipts="" receipt
+  for receipt in .claude/progress/receipt.txt .codex/progress/receipt.txt progress/receipt.txt; do
+    if [ -f "$receipt" ]; then receipts="${receipts}${receipts:+ }${receipt}"; fi
   done
-  [ -n "$receipt" ] || return 0
+  [ -n "$receipts" ] || return 0
 
   # Scope the check to the STAGED set — exactly what this commit will include —
   # so an armed-but-stale receipt never blocks an unrelated commit, and an
@@ -112,36 +120,43 @@ check_content_receipt() {
   # (#344). This hook runs under bash, but the name is a trap for anyone porting
   # it. Same for fpath / cdpath / manpath / module_path.
   local drift="" unverified="" blob file now
-  while IFS= read -r line; do
-    case "$line" in ''|'#'*) continue ;; esac          # skip header/blank
-    blob=${line%%  *}                                  # blob = up to the 2-space sep
-    file=${line#*  }                                   # file = the rest (may contain spaces)
-    [ -n "$blob" ] && [ "$blob" != "$file" ] || continue
-    printf '%s\n' "$commit_set" | grep -qxF "$file" || continue   # not in this commit → ignore
-    if [ "$blob" = deleted ]; then                     # reviewer approved the removal
-      [ -e "$file" ] && drift="${drift}  - ${file} (reappeared)"$'\n'   # drift only if it came back
-      continue
-    fi
-    # Three distinct outcomes, not two: the approved content is gone (drift), it
-    # hashes differently (drift), or hashing FAILED (missing git, unreadable
-    # file, wrong cwd) — an environment failure that must not be reported as an
-    # accusation of drift. Both still block; only the message differs (#344).
-    if [ ! -e "$file" ]; then
-      drift="${drift}  - ${file} (missing)"$'\n'
-    elif now=$(git hash-object "$file" 2>/dev/null); then
-      if [ "$now" != "$blob" ]; then
-        drift="${drift}  - ${file}"$'\n'
+  # $receipts unquoted on purpose: it only ever holds the hardcoded candidate
+  # paths above (no spaces, no globs), and word-splitting is what turns it back
+  # into the list to walk.
+  # shellcheck disable=SC2086
+  for receipt in $receipts; do
+    while IFS= read -r line; do
+      case "$line" in ''|'#'*) continue ;; esac          # skip header/blank
+      blob=${line%%  *}                                  # blob = up to the 2-space sep
+      file=${line#*  }                                   # file = the rest (may contain spaces)
+      [ -n "$blob" ] && [ "$blob" != "$file" ] || continue
+      printf '%s\n' "$commit_set" | grep -qxF "$file" || continue   # not in this commit → ignore
+      if [ "$blob" = deleted ]; then                     # reviewer approved the removal
+        [ -e "$file" ] && drift="${drift}  - ${file} (reappeared)"$'\n'   # drift only if it came back
+        continue
       fi
-    else
-      unverified="${unverified}  - ${file}"$'\n'
-    fi
-  done < "$receipt"
+      # Three distinct outcomes, not two: the approved content is gone (drift),
+      # it hashes differently (drift), or hashing FAILED (missing git,
+      # unreadable file, wrong cwd) — an environment failure that must not be
+      # reported as an accusation of drift. Both still block; only the message
+      # differs (#344).
+      if [ ! -e "$file" ]; then
+        drift="${drift}  - ${file} (missing)"$'\n'
+      elif now=$(git hash-object "$file" 2>/dev/null); then
+        if [ "$now" != "$blob" ]; then
+          drift="${drift}  - ${file}"$'\n'
+        fi
+      else
+        unverified="${unverified}  - ${file}"$'\n'
+      fi
+    done < "$receipt"
+  done
 
   if [ -n "$drift" ]; then
     echo "[navori] APPROVED content changed since review (receipt mismatch). Commit BLOCKED." >&2
     printf '%s' "$drift" >&2
     echo "[navori] Re-run the reviewer over the current diff. To bypass, run the commit yourself outside the agent." >&2
-    echo "[navori] To clear a stale receipt: rm $receipt" >&2
+    echo "[navori] Receipts checked: $receipts — if one is stale (an abandoned cycle), rm that file and retry." >&2
     exit 2
   fi
 

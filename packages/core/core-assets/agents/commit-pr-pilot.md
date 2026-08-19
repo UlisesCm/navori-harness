@@ -85,7 +85,16 @@ while IFS= read -r line; do
 done < .claude/progress/receipt.txt
 ```
 
-Any file printed by (1) is uncovered; any `DRIFT` line from (2) is stale — either one, or a missing `receipt.txt` for a reviewed (R2+) change, means the approval no longer covers the current diff. Abort, don't commit, and send it back to the `reviewer` to cover/re-approve over the current bytes. It's not enough to mention the gap and carry on. An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wrong cwd, unreadable file) — fix the environment and re-run the check; sending it to the `reviewer` can never resolve it. (The pre-commit hook re-checks the staged set for drift mechanically as a backstop; catching both here is earlier and clearer.)
+Any file printed by (1) is uncovered; any `DRIFT` line from (2) is stale — either one, or a missing `receipt.txt` for a reviewed (R2+) change, means the approval no longer covers the current diff. Abort and don't commit. It's not enough to mention the gap and carry on.
+
+**Report the drift with its diff, not just its name.** The reviewer signs with `git hash-object -w`, so the approved bytes are in the object store: for each drifted file, run `git diff <blob-sha> <file>` (the sha is the receipt's own line; `git cat-file -p <blob-sha>` prints the approved content in full) and hand that over. A `DRIFT` reported as a bare filename forces whoever picks it up to reconstruct the change from prose.
+
+Then route by cause, in the same message:
+
+- **Drift explained by an edit made after the review** (a minor finding applied by the orchestrator, a follow-up tweak) → back to the `reviewer` in **delta re-sign** mode: it judges only that delta and rewrites the receipt, no full re-review.
+- **Drift you cannot explain** (rebase, merge, another session, a stray `git checkout`), or an **uncovered** file from (1) → full re-review over the current bytes. Unexplained means unbounded: there's no delta to scope the reading to.
+
+An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wrong cwd, unreadable file) — fix the environment and re-run the check; sending it to the `reviewer` can never resolve it. (The pre-commit hook re-checks the staged set for drift mechanically as a backstop; catching both here is earlier and clearer.)
 
 **R1 exception (trivial diff, no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `{{qualityGate.full}}` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
 

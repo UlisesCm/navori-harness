@@ -89,6 +89,7 @@
       "Bash(git rev-parse*)",
       "Bash(git ls-files*)",
       "Bash(git cat-file*)",
+      "Bash(git hash-object:*)",
       "Bash(git shortlog*)",
       "Bash(git tag -l*)",
       "Bash(git tag --list*)",
