@@ -34,7 +34,7 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
    git ls-files --others --exclude-standard   # untracked files (new, not yet staged)
    ```
 
-3. **Re-review** (if there's already a `.claude/progress/review_<feature>.md` from a previous cycle): focus the *reading* on (a) that the issues listed there are resolved and (b) the files the `implementer` reports having touched in this cycle (`impl_<feature>.md`). Don't re-review from scratch the already-approved code that didn't change; the full quality gate is still run anyway — a change can break something outside the delta.
+3. **Re-review** (if there's already a `.claude/progress/review_<feature>.md` from a previous cycle): focus the *reading* on (a) that the issues listed there are resolved and (b) the files the `implementer` reports having touched in this cycle (`impl_<feature>.md`). Don't re-review from scratch the already-approved code that didn't change; the full quality gate is still run anyway — a change can break something outside the delta. If the previous verdict was already `APPROVED` and the diff only moved because of an edit made after it, that's the **delta re-sign** mode below, not this one.
 4. Apply `.claude/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence. The quality gate is run **this turn, in Pass 2** (not before: a `SPEC_MISS` in Pass 1 doesn't need it — don't spend the gate on a diff you're going to reject on spec). Don't assume from the implementer's cached report.
 
 ### Pass 1 — Spec compliance
@@ -84,7 +84,9 @@ Don't gate a screen change on browser validation by default. Only if the user ex
 
 ### Content receipt (write ONLY on APPROVED)
 
-Your APPROVED verdict is bound to the exact bytes you reviewed. Before handing off, fingerprint every reviewed file with `git hash-object` and write a receipt. The `commit-pr-pilot` and the pre-commit hook recompute it and refuse to commit if any approved file drifted since now (rebase, human tweak, follow-up edit) — so a stale approval can't ship content you never saw.
+Your APPROVED verdict is bound to the exact bytes you reviewed. Before handing off, fingerprint every reviewed file with `git hash-object -w` and write a receipt. The `commit-pr-pilot` and the pre-commit hook recompute it and refuse to commit if any approved file drifted since now (rebase, human tweak, follow-up edit) — so a stale approval can't ship content you never saw.
+
+The `-w` is load-bearing: it stores each blob in the object store, so a drift can be **inspected** (`git diff <blob-sha> <file>`, `git cat-file -p <blob-sha>`), not merely detected. Without it the sha names content nobody can recover, and the delta re-sign below has no diff to measure — worst of all for a file that is new in this diff, whose bytes exist nowhere else.
 
 ```bash
 printf '# navori-receipt v1 feature=<feature>\n' > .claude/progress/receipt.txt
@@ -93,7 +95,7 @@ printf '# navori-receipt v1 feature=<feature>\n' > .claude/progress/receipt.txt
   | grep -vE '^(\.claude/progress/|progress/)' \
   | while IFS= read -r f; do
       if [ -f "$f" ]; then
-        printf '%s  %s\n' "$(git hash-object "$f")" "$f"   # live file → blob sha
+        printf '%s  %s\n' "$(git hash-object -w "$f")" "$f"   # live file → blob sha (stored)
       else
         printf 'deleted  %s\n' "$f"                        # removed file → deletion marker
       fi
@@ -103,6 +105,17 @@ printf '# navori-receipt v1 feature=<feature>\n' > .claude/progress/receipt.txt
 It captures the working-tree bytes under review (committed **and** uncommitted). The `grep -v` drops the harness's own ephemeral progress files (the receipt, `impl_*`, `review_*`) — they never get committed, so fingerprinting them would be self-referential noise. Skip the whole step for `CHANGES_REQUESTED` — a rejected diff has nothing to bind.
 
 A **removed** file has no bytes to hash, so it's recorded as `deleted  <path>` instead of a blob sha. Keeping the deletion **in** the receipt is what closes the RDD cycle: the `commit-pr-pilot` coverage check is path-based, so it still sees the path (a deletion can't ship unreviewed), and both its drift check and the pre-commit hook read the `deleted` marker as "must stay absent" — flagging drift only if the file reappears. The shipping set the pilot compares against is then byte-for-byte the set you signed here (same `grep -vE`, deletions included), so a git-persisted `progress/` update or a removed file never shows up as "uncovered" and livelocks the close.
+
+### Delta re-sign (post-APPROVED)
+
+A second mode, distinct from the re-review of item 3: you already signed this diff, and afterwards someone edited it (typically the orchestrator applying a minor finding of yours), so the `commit-pr-pilot` or the pre-commit hook now reports `DRIFT`. You judge only the **delta**, not the whole diff again:
+
+1. **The previous `APPROVED` stands.** What didn't change isn't re-opened; you're extending a verdict, not replacing it.
+2. **Measure the delta, never eyeball it.** Per drifted file, the receipt line gives the approved sha: `git diff <blob-sha> <file>` is the exact change since the signature (`git cat-file -p <blob-sha>` for the full approved content). "It looks small" is not evidence.
+3. **Re-run `{{qualityGate.full}}` anyway**, over the live bytes. The previous green expired the moment the bytes changed, and that evidence is what the pilot reuses.
+4. **Rewrite the receipt** over the final bytes (same recipe above). A delta re-sign that doesn't re-sign leaves the pilot blocked on the same drift.
+5. **Append** to the existing `.claude/progress/review_<feature>.md` — your own heading, observations continuing the original numbering — never overwrite it. The chain of what was approved when has to stay readable.
+6. **Limit (anti-rubber-stamp):** this mode only covers a delta that stays inside the change that was suggested. If it alters logic beyond that hunk, touches shared machinery, or lands in `{{project.criticalAreas}}`, it is NOT a delta re-sign — do the full review. Same if the drift has no known author (a rebase, another session, a stray checkout): with no explanation there's no delta to bound.
 
 ### Confidence scoring per finding (Pass 2)
 

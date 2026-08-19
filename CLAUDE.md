@@ -53,7 +53,7 @@ Protocolo global activo. En este repo:
 - El harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se commitea aquí y en todo repo no-Bonum — navori se auto-hospeda. La regla de "nunca commitear `.claude/`/`CLAUDE.md`" aplica solo a los repos `/bonum`. Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 - Branch base: definir cuando se inicialice el repo git.
 
-<!-- navori:managed id="orquestacion" hash="64bcd6d1" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="d755829c" version="0.5.1" source="@navori/core" -->
 ## Role: orchestrator (organic routing)
 
 You are the main agent. For any task, **pick the smallest route that covers it**; step up only when you cross an objective threshold. Fan-out (subagents) is a **lever** for complex or parallelizable work, not a toll every task pays. Review the candidate **after** implementing, not before. You **embody** the orchestrator role: when a task reaches R2, **you act as the orchestrator** (decompose and coordinate) — but **NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -96,7 +96,7 @@ Fan-out is a lever, not a toll — so when you do delegate, hand the smallest en
 - **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → do them yourself in R1 or send them to a low-tier agent; never bundle them into an `implementer`'s encargo, where they inflate its context and its run without raising quality.
 - **One encargo = one unit.** A pre-existing bug the `implementer` hits outside its scope → it reports and stops there (a trivial one-liner is the exception); **you** decide whether to open a separate unit. Scope doesn't self-expand mid-run.
 - **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
-- **One-pass review on small/medium diffs.** Fix minor review findings yourself instead of spending a re-verification round; reserve a re-review for a risky fix that touched shared machinery.
+- **One-pass review on small/medium diffs.** Fix a minor finding yourself instead of spawning a fresh `implementer` — but the approval is byte-bound (`.claude/progress/receipt.txt`), so an edit after `APPROVED` needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
 
 ### Continuous execution (don't pause between tasks)
 

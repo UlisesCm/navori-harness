@@ -94,15 +94,18 @@ describe("runRender — harness .gitignore (#313)", () => {
     config({ engines: ["claude", "codex"], gitignoreHarness: "full" });
     writeFileSync(join(cwd, ".gitignore"), "coverage/\n");
     runRender(cwd, { dryRun: false });
-    expect(gitignoreBlock(cwd)).toContain(".codex/");
+    // Line-exact: Cubo A always carries `.codex/progress/` (#354), so a
+    // substring match on `.codex/` would hold with or without the codex engine
+    // and this test would stop proving anything.
+    expect(gitignoreBlock(cwd)?.split("\n")).toContain(".codex/");
 
     // Drop codex → its paths leave the block, user line stays.
     config({ engines: ["claude"], gitignoreHarness: "full" });
     const reconciled = runRender(cwd, { dryRun: false });
     expect(reconciled.gitignore?.status).toBe("updated");
-    const block = gitignoreBlock(cwd);
-    expect(block).not.toContain(".codex/");
-    expect(block).toContain(".claude/");
+    const lines = gitignoreBlock(cwd)?.split("\n") ?? [];
+    expect(lines).not.toContain(".codex/");
+    expect(lines).toContain(".claude/");
     expect(readFileSync(join(cwd, ".gitignore"), "utf-8")).toContain("coverage/");
   });
 

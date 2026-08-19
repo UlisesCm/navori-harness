@@ -24,8 +24,19 @@ describe("buildGitignoreBody", () => {
     expect(lines).toEqual([...CUBO_A_ENTRIES]);
     expect(body).not.toContain(".claude/\n");
     expect(body).not.toContain("CLAUDE.md");
-    expect(body).not.toContain(".codex/");
     expect(body).not.toContain("AGENTS.md");
+    // Line-exact, not substring: Cubo A legitimately carries `.codex/progress/`
+    // (#354), so what must stay out is the whole-engine-dir entry `.codex/`.
+    expect(lines).not.toContain(".codex/");
+    expect(lines).not.toContain(".claude/");
+  });
+
+  // Covers: R3 — the Codex mirror of the ephemeral progress dir. Under Codex the
+  // reviewer writes `.codex/progress/receipt.txt` and every subagent handoff, so
+  // `local` mode has to ignore it or that state becomes versionable (#354).
+  it("mode 'local' ignores the Codex ephemeral progress dir too", () => {
+    const body = buildGitignoreBody({ gitignoreHarness: "local", engines: ["codex"] });
+    expect(body?.split("\n")).toContain(".codex/progress/");
   });
 
   // Covers: R4
