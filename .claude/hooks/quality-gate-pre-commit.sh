@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="b0775558" version="0.5.1" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="e6971292" version="0.5.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -82,12 +82,16 @@ check_content_receipt() {
   command -v git >/dev/null 2>&1 || return 0
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
 
-  # The reviewer writes to `.claude/progress/` (Claude) or `progress/` (Codex,
-  # rewritten by compat). Check both so the backstop works on either engine
-  # without depending on whether the hook body itself was retargeted.
+  # The reviewer writes to `.claude/progress/` (Claude) or `.codex/progress/`
+  # (Codex — that's what compat rewrites `.claude/progress/` into, NOT bare
+  # `progress/`, which holds git-persisted session state). This hook body is
+  # never retargeted per engine (`placeHook` copies it verbatim), so it must
+  # probe every engine's path itself or the backstop silently does nothing
+  # there — it did exactly that under Codex until #352. Bare `progress/` is
+  # kept last as a defensive fallback for any pre-#208 layout.
   local receipt=""
   local candidate
-  for candidate in .claude/progress/receipt.txt progress/receipt.txt; do
+  for candidate in .claude/progress/receipt.txt .codex/progress/receipt.txt progress/receipt.txt; do
     if [ -f "$candidate" ]; then receipt="$candidate"; break; fi
   done
   [ -n "$receipt" ] || return 0

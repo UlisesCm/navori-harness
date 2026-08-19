@@ -278,7 +278,26 @@ describe("quality-gate hook — content receipt (RDD)", () => {
     expect(r.stderr).not.toContain("receipt mismatch");
   });
 
-  it("also enforces a receipt at the Codex location (progress/receipt.txt)", () => {
+  // The REAL Codex location: `compat.ts` rewrites `.claude/progress/` into
+  // `.codex/progress/`, never into bare `progress/` (#208 — that root dir holds
+  // git-persisted session state). The hook body is copied verbatim per engine,
+  // so it has to probe this path itself; until #352 it didn't, and the backstop
+  // silently passed every commit under Codex.
+  it("enforces a receipt at the Codex location (.codex/progress/receipt.txt)", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "a.txt"), "approved\n");
+    git("add", "a.txt");
+    writeReceipt(["a.txt"], ".codex/progress/receipt.txt");
+    writeFileSync(join(dir, "a.txt"), "tampered\n");
+    git("add", "a.txt");
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("receipt mismatch");
+  });
+
+  // Defensive fallback for any pre-#208 layout. Kept last in the probe order.
+  it("still enforces a receipt at the bare progress/ fallback", () => {
     initRepo();
     fakeBin("pnpm", 0);
     writeFileSync(join(dir, "a.txt"), "approved\n");
