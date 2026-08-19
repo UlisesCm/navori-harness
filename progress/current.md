@@ -1,60 +1,66 @@
 # Sesión actual
 
-**Estado:** idle. Todo lo trabajado el 2026-08-18 está mergeado en `main`
-(`0c01763`). No hay nada en vuelo ni branches abiertas.
+**Estado:** idle. Todo lo trabajado está mergeado en `main` (`2ac67db`). Sin PRs
+abiertos ni branches en vuelo.
 
-## Qué se cerró hoy
+## Qué se cerró
 
-**Mañana — los 6 issues abiertos** (#322 a #327), en 3 PRs mergeados:
+**Los 8 issues con los que abrió la sesión** (#331, #333-#338, #340): 6 cerrados con PR
+mergeado, y #333/#336 con lo viable implementado — sus partes principales quedaron
+argumentadas como "no aplica" y comentadas, esperando decisión de cierre.
 
-- **#328** — el índice de skills lee la `description` de las project-local.
-- **#329** — doctor: higiene de git (`specs/` ignorado con SDD activo, efímeros sin
-  ignorar) + drift de config contra el workspace y contra la moda de los hermanos.
-- **#330** — 27 lib-skills con user-section, `cypress`, split de `socketio`,
-  `drizzle-orm`/`react-navigation`/`i18next`, `jest` reescrita sin el leak de Medusa.
+7 PRs mergeados: **#343** (#340) · **#346** (higiene) · **#347** (#331) · **#349**
+(#344, #348) · **#351** (#334, #335) · **#353** (#337, #338) · **#355** (#352).
+**#321** cerrado por obsoleto.
 
-**Tarde — la capa de solutioning** (spec 0012), en 2 PRs mergeados:
+## Pendiente de decisión tuya (6 issues, todos con análisis y recomendación)
 
-- **#332** (fase 0) — `ticket-audit` emite veredicto (`proceed` /
-  `proceed-differently` / `split` / `doesn't apply` / `blocked`), separa el problema
-  del ticket de su solución propuesta, y mide el tamaño con el comando que lo prueba.
-- **#339** — skill `solution-design` + routing R2-architectural (117 palabras
-  always-on) + challenge en contexto fresco vía `researcher` + cableado completo.
+1. **[#333](https://github.com/UlisesCm/navori-harness/issues/333)** y
+   **[#336](https://github.com/UlisesCm/navori-harness/issues/336)** — lo viable ya entró
+   en #351. Falta decidir si se cierran: sus partes principales **no aplican** (navori no
+   escribe `package.json`, y un `.semgrep.yml` sería inerte porque `check-semgrep.sh` pasa
+   un único `--config`). Comentados con la evidencia.
+2. **[#354](https://github.com/UlisesCm/navori-harness/issues/354)** (`priority:medium`,
+   destapado por el reviewer de #352) — el hook lee **solo el primer receipt** que
+   encuentra, así que uno stale en `.claude/` eclipsa al vigente en `.codex/` y el drift
+   pasa. Reproducido. En ese issue quedaron anotados otros tres sitios con la misma causa
+   (`placeHook` no retargetea): `subagent-stop-handoff.sh:35`, cuatro skills del core que
+   contradicen a los agentes sobre la ruta de efímeros bajo Codex, y
+   `EPHEMERAL_HARNESS_PATHS` sin `.codex/progress/` — la misma omisión que causó #348, en
+   la constante que #348 creó para evitarla.
+3. **[#342](https://github.com/UlisesCm/navori-harness/issues/342)** (`-w` en el receipt) →
+   hacer **antes** que #341: el delta re-sign necesita poder diffear contra lo firmado.
+   ~7 líneas, y solo sirve si además el aborto emite `git diff <blob> <file>`.
+4. **[#341](https://github.com/UlisesCm/navori-harness/issues/341)** → opción 4 (delta
+   re-sign formalizado) **+ reescribir la Regla A**: su promesa actual es falsa mientras
+   exista el byte-gate. El ahorro real es no gastar un `implementer`, no saltarse al reviewer.
+5. **[#345](https://github.com/UlisesCm/navori-harness/issues/345)** y
+   **[#350](https://github.com/UlisesCm/navori-harness/issues/350)** — `priority:low`.
+   #345 resultó no ser bug (reetiquetado): la recomendación es documentar
+   `project.libraries` como campo derivado, no construir el merge.
 
-## Pendientes (ninguno bloqueante)
+## Deuda operativa
 
-1. **[#340](https://github.com/UlisesCm/navori-harness/issues/340)** — `render --all`
-   aborta el batch entero ante un config corrupto (`readConfigOrExit` hace
-   `process.exit` dentro de un `try/catch` que no puede atraparlo). **Conviene
-   arreglarlo ANTES del rollout**: es justo la operación que rompe.
-2. **Release + rollout** a los repos registrados (per-repo, NUNCA `--all`).
-   Nota heredada: los repos con `socket.io-client` necesitan `navori update` además
-   de `render` para migrar `socketio` → `socketio-client`.
-3. **[#331](https://github.com/UlisesCm/navori-harness/issues/331)** — `maestro` /
-   detección por señales de filesystem (cambia el contrato de `detectLibrarySkills`).
-4. **Evaluar `gitignoreHarness: "local"` en este repo.** Hoy está en `off` y el
-   `.gitignore` se mantiene a mano; faltaba `.claude/progress/` pese a estar en el
-   CUBO_A de navori, y 8 artefactos efímeros se colaron al índice (ya corregido).
-   Activar la feature haría que el render gestione esas entradas — evaluar si
-   duplica las que ya están escritas a mano.
-5. **Heredado de ayer (repo externo bonum-webapp)**: publicar el comentario del
-   PR #639 (borrador en `progress/pr639-comment-draft.md`), cerrar #640 y #559, y
-   el rebind de SonarCloud (requiere admin).
-
-## Para la próxima sesión que use la capa nueva
-
-El ajuste de "un fork de producto no es automáticamente un blocker" se aplicó
-sobre **una sola observación** (el eval E). Si al procesar tickets reales notas que
-la capa deja pasar forks que sí merecían pararse, el umbral se subió de más y hay
-que revisar esa regla en `solution-design`.
+- **`~/.navori/backups` sigue en 131 GB** (6873 backups). El fix de #348 detiene el
+  crecimiento — el backup del render pasó de 4.2 GB a 360K — pero lo acumulado hay que
+  borrarlo a mano: `rm -rf ~/.navori/backups` (la capa de permisos del harness lo bloquea
+  desde el agente, tiene que correrlo Ulises). navori recrea el directorio solo.
+- **Release + rollout** a los repos registrados, per-repo (NUNCA `--all`). Hay mucho
+  acumulado desde 0.5.1: #340, #331, #344, #348, #334, #335, #337, #338.
+  Nota heredada: los repos con `socket.io-client` necesitan `navori update` además de
+  `render` para migrar `socketio` → `socketio-client`.
+- **Heredado de sesiones previas** (repo externo bonum-webapp): publicar el comentario del
+  PR #639, cerrar #640 y #559, y el rebind de SonarCloud (requiere admin).
 
 ## Notas
 
-- La ruta de los repos Bonum en el `~/.claude/CLAUDE.md` global sigue
-  desactualizada: dice `/Users/ulisescm/Documents/dev/bonum/`, la real es
-  `/Users/ulisescm/Documents/Dev - Docs/bonum/`.
+- Follow-ups anotados y no abiertos como issue: `adapter.ts:31` tiene un `backupTargets`
+  muerto con `.claude` sin `backupExclude` — copia viva de la forma que arregló #348;
+  `summarizeTrigger` corta la descripción en el primer `" — "`, por eso `dominio` aparece
+  truncada como *"Use when you discover"* en el índice always-on de cada sesión; y
+  `statusCheckRollup` es una unión de tipos — `StatusContext` (Vercel, CircleCI, Jenkins)
+  trae `targetUrl` y no tiene run id, así que el paso 3 de `babysit-prs` asume Actions.
+- La ruta de los repos Bonum en el `~/.claude/CLAUDE.md` global sigue desactualizada: dice
+  `/Users/ulisescm/Documents/dev/bonum/`, la real es `/Users/ulisescm/Documents/Dev - Docs/bonum/`.
 - `~/.navori/registry.json` conserva una entrada de prueba apuntando a
   `.../scratchpad/inherit-test`.
-- Gotchas útiles: el CLI de `dist/` bundlea los assets de plugins en build (probar
-  un cambio de `plugin.json` exige `pnpm build` antes), y `render --apply` puede
-  quedarse esperando input interactivo — con `--json` no.
