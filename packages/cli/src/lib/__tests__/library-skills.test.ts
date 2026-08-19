@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { resolve, dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
   LIBRARY_SKILLS,
@@ -123,6 +124,64 @@ describe("detectLibrarySkills", () => {
     ]);
     // alertaciudadana_backend (bun): vitest + supertest.
     expect(detectLibrarySkills(["vitest", "supertest"])).toEqual(["vitest", "supertest"]);
+  });
+});
+
+// #331 — tools that install no npm package (Maestro is a standalone binary)
+// can never be detected from deps. A skill may declare `paths`: repo-relative
+// signals checked against the `cwd` handed to the detector, in OR with `deps`.
+describe("detectLibrarySkills — filesystem signals (paths)", () => {
+  const withDirs = (...dirs: string[]): string => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-libskills-"));
+    for (const d of dirs) mkdirSync(join(dir, d), { recursive: true });
+    return dir;
+  };
+
+  it("activates a skill when its path signal exists in cwd", () => {
+    const dir = withDirs(".maestro");
+    try {
+      expect(detectLibrarySkills([], dir)).toEqual(["maestro"]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("does NOT activate it when the path is absent", () => {
+    const dir = withDirs("src");
+    try {
+      expect(detectLibrarySkills([], dir)).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  // The whole point of `cwd` being optional: a dep-only caller keeps a pure
+  // function over `deps`, with no filesystem branch to evaluate.
+  it("does NOT activate it without a cwd — the fs branch is simply not evaluated", () => {
+    expect(detectLibrarySkills([])).toEqual([]);
+    expect(detectLibrarySkills(["zod"])).toEqual(["zod-validation"]);
+  });
+
+  it("ORs with deps — dep matches and path matches accumulate, in registry order", () => {
+    const dir = withDirs(".maestro");
+    try {
+      expect(detectLibrarySkills(["cypress", "zod"], dir)).toEqual([
+        "zod-validation",
+        "cypress",
+        "maestro",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("leaves dep-only skills unaffected by a cwd that holds no signal", () => {
+    const dir = withDirs("src");
+    try {
+      expect(detectLibrarySkills(["mongoose"], dir)).toEqual(["mongoose"]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 });
 

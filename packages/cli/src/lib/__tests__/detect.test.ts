@@ -625,6 +625,30 @@ describe("detectProject — library skill detection", () => {
     }
   });
 
+  // #331 — `detectProject` threads its own `cwd` into the detector, so a skill
+  // whose signal is a directory rather than a dep (Maestro ships no npm package)
+  // is detected end to end. In a monorepo the signal is scoped to the workspace
+  // being scanned, like every other lib.
+  it("detects a filesystem-signal skill from a directory, with no dep at all (#331)", () => {
+    const dir = withDeps({ "react-native": "^0.74" });
+    try {
+      mkdirSync(join(dir, ".maestro"), { recursive: true });
+      writeFileSync(join(dir, ".maestro", "login.yaml"), "appId: com.example.app\n");
+      expect(detectProject(dir).libraries).toContain("maestro");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("does not flag the filesystem-signal skill when the directory is absent", () => {
+    const dir = withDeps({ "react-native": "^0.74" });
+    try {
+      expect(detectProject(dir).libraries).not.toContain("maestro");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   // End-to-end adoption/dominance gating: a repo whose source actually imports
   // the tracked deps, so `detectProject` scans the tree and weighs by use (#86).
   const withDepsAndSources = (deps: Record<string, string>, sources: Record<string, string>) => {

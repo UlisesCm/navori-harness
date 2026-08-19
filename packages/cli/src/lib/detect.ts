@@ -130,7 +130,11 @@ export function detectProject(cwd: string): DetectedProject {
   // with none pays no scan cost and migration detection stays name-only.
   const migrationPresent = migrationDepNames().filter((d) => libraryDeps.has(d));
   const counts = migrationPresent.length > 0 ? countDepImports(cwd, migrationPresent) : undefined;
-  const libraries = detectLibrarySkills([...libraryDeps]);
+  // `cwd` also lets skills match on a filesystem signal instead of a dep, for
+  // tools that install no npm package (`.maestro/`, #331). Same scoping as the
+  // deps above: the path is resolved against THIS package's directory, so in a
+  // monorepo each workspace sees only its own signals.
+  const libraries = detectLibrarySkills([...libraryDeps], cwd);
   const migrations = detectMigrations([...libraryDeps], counts);
   // The turbo+pnpm preset teaches pnpm-only workflows; only suggest it when the
   // repo actually uses pnpm. `pnpm-workspace.yaml` is a definitive pnpm signal
