@@ -5,7 +5,7 @@ type: reference
 maxWords: 1200
 ---
 
-<!-- navori:managed id="security-guidance-base" hash="77f8ed93" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="security-guidance-base" hash="ede59789" version="0.5.1" source="@navori/core" -->
 # Security guidance — the business security layer
 
 Feeds the `/security-review` flow. The generic web vuln patterns (XSS, SSRF, hardcoded secrets, insecure deserialization, injection) are already covered by semgrep and the built-in reviewer. What goes here is what the model **can't infer from code alone**: the authorization and trust invariants that depend on the domain.
@@ -18,6 +18,7 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 - Client guards (conditional render, in-component checks, a `useAuth()`) **are never enough on their own** — they are UX, not enforcement. A protected view that only trusts the client is CRITICAL.
 - Navigation / UI config (menus, an `allowedRoles` in the nav array) filters the UI, it does **not** control access. Adding an entry there without the corresponding server-side guard is a finding.
 - The guard must **fail closed**: no session or backend down → deny / redirect, never "let it through just in case". Don't add a path that cuts on error toward the permissive side.
+- **A guard is worth exactly what its least-covered entry point is worth.** The unit protected is the *resource*, not the handler you happened to open: introducing or changing a guard means enumerating every way that resource is mutated — sibling routes, bulk or admin variants, background jobs, queue consumers, maintenance scripts — and accounting for each one, covered or excluded with the reason written down. An unlisted entry point is not "pending", it's unprotected. A sibling endpoint reachable by the same actor and missing the guard is the very bug the guard was added to fix, still alive and now harder to see, because the diff reads as if the hole were closed.
 
 ## 2. Object access (IDOR)
 

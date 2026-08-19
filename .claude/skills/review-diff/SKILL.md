@@ -5,7 +5,7 @@ type: behavior
 maxWords: 1200
 ---
 
-<!-- navori:managed id="review-diff-base" hash="378a959a" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="review-diff-base" hash="081f2e9f" version="0.5.1" source="@navori/core" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
@@ -44,6 +44,7 @@ If it doesn't reach MEDIUM, don't report it. No "nitpick" or "consider also". (M
 - Explicit defaults for nullables the consumer uses directly (`?? …`) → HIGH if missing.
 - Functions that should be pure (transformers/adapters) with side-effects (I/O, global state) → CRITICAL.
 - Value from an external source (unknown status/enum) assigned raw to a closed type → HIGH.
+- New or modified state transition A→B that doesn't state whether B→A exists, and which event triggers it → HIGH. If there's no way back by design, the report says so.
 
 ## 3. Error handling
 
@@ -51,12 +52,15 @@ If it doesn't reach MEDIUM, don't report it. No "nitpick" or "consider also". (M
 - Operation that can fail (network, parse, IO) without handling, with the failure visible to the user → HIGH.
 - Loading/spinner that never turns off on the error path → HIGH.
 - Resource opened without cleanup on the error path (connection, lock, stream, listener, subscription, timer): the happy path releases it but a `catch`/early-return leaks it → HIGH.
+- Scheduled job, queue consumer or event listener whose entry point doesn't catch and report → HIGH: one unhandled throw kills the worker or silently stops the cycle.
 
 ## 4. Security and authorization
 
 - Secrets/tokens/credentials in code (not in config/env) → CRITICAL.
 - Authorization decision only on the client, without backend validation → HIGH.
 - Sensitive data in client storage beyond what's necessary → HIGH.
+- New or modified guard/policy (authorization, licence, rate limit) covering only some of the entry points that mutate the same resource → CRITICAL. Enumerate every one with evidence (`structural-search`) and mark it covered, or justify each exclusion one by one.
+- Data-mutating script that falls back to a default host or credentials when its env var is missing → CRITICAL: it runs clean against the wrong target. It must refuse to start.
 
 ## 5. No hardcode
 
@@ -79,6 +83,7 @@ Mirror of the `implementer`'s YAGNI ladder: hunt for the code of **excess**.
 - Parametrization, config flags or options nobody uses yet ("just in case") → MEDIUM.
 - Indirection or pattern (factory, wrapper, event layer) that doesn't eliminate real duplication nor cover a present requirement → MEDIUM.
 - A deliberate shortcut without its mark (ceiling + upgrade trigger) → MEDIUM: silent debt is worse than declared debt.
+- A function whose cognitive complexity exceeds the repo's threshold (piled-up nesting, branches, flags) → HIGH. Extract before it lands, not after the scanner complains.
 
 Rule: if removing the abstraction leaves the code **just as correct** and shorter, removing it is the finding.
 
