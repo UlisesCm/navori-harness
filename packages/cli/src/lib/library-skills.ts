@@ -11,6 +11,9 @@
  * preset that already ships a skill always wins.
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 export interface LibrarySkill {
   /** Skill id — also the asset filename (`lib-skills/<id>.md`) and dest basename. */
   id: string;
@@ -18,6 +21,28 @@ export interface LibrarySkill {
   deps: ReadonlyArray<string>;
   /** Human label for the skills index ("— library (detected)"). */
   label: string;
+  /**
+   * Repo-relative paths whose presence ALSO activates this skill — an OR with
+   * `deps`, for tools that ship no npm dependency at all. Maestro is the case
+   * that motivated it (#331): a standalone binary whose only trace in a repo is
+   * the `.maestro/` flow directory, so a deps-only registry could never detect
+   * it. Any single existing path is enough.
+   *
+   * Resolved against the `cwd` passed to `detectLibrarySkills` — the same
+   * directory whose manifest supplied `deps`. In a monorepo that is the
+   * WORKSPACE being scanned, not the git root: every workspace runs its own
+   * `detectProject(abs)` (lib/scan.ts), so a `paths` signal is seen only by the
+   * workspace that owns it. That is exactly right for tools whose config sits
+   * beside the app it drives (`apps/mobile/.maestro/`).
+   *
+   * KNOWN LIMIT — signals that are inherently git-root-only (`.github/workflows/`,
+   * and anything else that exists exactly once at the repo root) do NOT fit this
+   * field cleanly: scanning a nested workspace resolves them against that
+   * workspace and never finds them, and detecting them at the monorepo root
+   * collides with the rule that root libs stay root-level (#80). Reusing `paths`
+   * for Docker / Terraform / GitHub Actions needs that resolved first.
+   */
+  paths?: ReadonlyArray<string>;
 }
 
 /**
@@ -90,6 +115,10 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   },
   { id: "playwright", deps: ["@playwright/test", "playwright"], label: "Playwright E2E" },
   { id: "cypress", deps: ["cypress"], label: "Cypress" },
+  // Maestro installs no npm package — it's a standalone binary, and the only
+  // trace a repo leaves is its `.maestro/` flow directory. Hence `deps: []` plus
+  // a filesystem signal; it's the reason `paths` exists (#331).
+  { id: "maestro", deps: [], label: "Maestro E2E", paths: [".maestro"] },
   { id: "supertest", deps: ["supertest"], label: "SuperTest HTTP" },
   // CLI tooling — presence-only, cross-preset like the rest: a repo that ships
   // these UnJS/Bombshell libs is building a command-line tool and earns the guidance.
@@ -154,16 +183,27 @@ export function migrationDepNames(): string[] {
 /**
  * Detect which library skills apply for the repo's dependency names. Additive
  * and order-stable (registry order): returns the id of every skill whose `deps`
- * intersect `deps`. No exclusivity — a repo can match many at once.
+ * intersect `deps` OR — when `cwd` is given — whose `paths` signal exists on
+ * disk (#331). No exclusivity — a repo can match many at once.
+ *
+ * `cwd` is OPTIONAL on purpose: without it the filesystem branch is not
+ * evaluated and detection stays a pure function of `deps`, which keeps every
+ * dep-only caller and test working unchanged. Callers that know the directory
+ * the deps came from should pass it — it is the only way a tool with no npm
+ * dependency (Maestro) is ever detected.
  *
  * Presence-only by design: a declared+present tracked dep ALWAYS earns its
  * skill, regardless of how many files import it. Usage counts weigh migrations
  * (which side is the de-facto standard), not whether a lib is worth teaching —
  * a two-file mongoose backend still wants the mongoose skill (issue #92).
  */
-export function detectLibrarySkills(deps: ReadonlyArray<string>): string[] {
+export function detectLibrarySkills(deps: ReadonlyArray<string>, cwd?: string): string[] {
   const present = new Set(deps);
-  return LIBRARY_SKILLS.filter((s) => s.deps.some((d) => present.has(d))).map((s) => s.id);
+  const hasPathSignal = (skill: LibrarySkill): boolean =>
+    cwd !== undefined && (skill.paths?.some((p) => existsSync(join(cwd, p))) ?? false);
+  return LIBRARY_SKILLS.filter((s) => s.deps.some((d) => present.has(d)) || hasPathSignal(s)).map(
+    (s) => s.id,
+  );
 }
 
 /** Look up a library skill by id, or null when the id is unknown. */
