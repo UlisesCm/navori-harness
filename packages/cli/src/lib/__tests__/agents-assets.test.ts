@@ -115,3 +115,22 @@ describe("core agent assets — interpolation placeholders", () => {
     expect(anyRefs).toBe(true);
   });
 });
+
+/**
+ * #344: agents run their shell snippets through the user's shell — zsh on any
+ * stock macOS. zsh ties `path`, `fpath`, `cdpath`, `manpath` and `module_path`
+ * to array/scalar pairs (`typeset -T PATH path`), so assigning to one of them
+ * silently destroys $PATH (or the function search path) and every later command
+ * dies with "command not found". The pilot's drift loop shipped exactly that bug
+ * and reported false DRIFT on every reviewed file.
+ */
+describe("core agent assets — no assignment to a zsh-special variable (#344)", () => {
+  const ZSH_TIED_ASSIGNMENT = /(^|[;&|(\s])(path|fpath|cdpath|manpath|module_path)=/m;
+
+  for (const id of AGENT_IDS) {
+    it(`${id} never assigns to path/fpath/cdpath/manpath/module_path`, () => {
+      const offender = ZSH_TIED_ASSIGNMENT.exec(readAgent(id));
+      expect(offender?.[2], `use an unambiguous name (file, rel, target) instead`).toBeUndefined();
+    });
+  }
+});

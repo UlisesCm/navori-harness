@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="5bd8db28" version="0.5.1" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="b0775558" version="0.5.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -102,20 +102,34 @@ check_content_receipt() {
   local commit_set
   commit_set=$(git -c core.quotepath=false diff --cached --name-only 2>/dev/null | sort -u)
 
-  local drift="" blob path now
+  # The loop variable is `file`, NEVER `path`: in zsh `path` is tied to $PATH
+  # (typeset -T PATH path), so assigning to it wipes the PATH and every command
+  # below dies with "command not found" — which reads as drift on every file
+  # (#344). This hook runs under bash, but the name is a trap for anyone porting
+  # it. Same for fpath / cdpath / manpath / module_path.
+  local drift="" unverified="" blob file now
   while IFS= read -r line; do
     case "$line" in ''|'#'*) continue ;; esac          # skip header/blank
     blob=${line%%  *}                                  # blob = up to the 2-space sep
-    path=${line#*  }                                   # path = the rest (may contain spaces)
-    [ -n "$blob" ] && [ "$blob" != "$path" ] || continue
-    printf '%s\n' "$commit_set" | grep -qxF "$path" || continue   # not in this commit → ignore
+    file=${line#*  }                                   # file = the rest (may contain spaces)
+    [ -n "$blob" ] && [ "$blob" != "$file" ] || continue
+    printf '%s\n' "$commit_set" | grep -qxF "$file" || continue   # not in this commit → ignore
     if [ "$blob" = deleted ]; then                     # reviewer approved the removal
-      [ -e "$path" ] && drift="${drift}  - ${path} (reappeared)"$'\n'   # drift only if it came back
+      [ -e "$file" ] && drift="${drift}  - ${file} (reappeared)"$'\n'   # drift only if it came back
       continue
     fi
-    now=$(git hash-object "$path" 2>/dev/null || true)
-    if [ "$now" != "$blob" ]; then
-      drift="${drift}  - ${path}"$'\n'
+    # Three distinct outcomes, not two: the approved content is gone (drift), it
+    # hashes differently (drift), or hashing FAILED (missing git, unreadable
+    # file, wrong cwd) — an environment failure that must not be reported as an
+    # accusation of drift. Both still block; only the message differs (#344).
+    if [ ! -e "$file" ]; then
+      drift="${drift}  - ${file} (missing)"$'\n'
+    elif now=$(git hash-object "$file" 2>/dev/null); then
+      if [ "$now" != "$blob" ]; then
+        drift="${drift}  - ${file}"$'\n'
+      fi
+    else
+      unverified="${unverified}  - ${file}"$'\n'
     fi
   done < "$receipt"
 
@@ -124,6 +138,13 @@ check_content_receipt() {
     printf '%s' "$drift" >&2
     echo "[navori] Re-run the reviewer over the current diff. To bypass, run the commit yourself outside the agent." >&2
     echo "[navori] To clear a stale receipt: rm $receipt" >&2
+    exit 2
+  fi
+
+  if [ -n "$unverified" ]; then
+    echo "[navori] could NOT verify the approved content of these files (git hash-object failed). Commit BLOCKED." >&2
+    printf '%s' "$unverified" >&2
+    echo "[navori] This is a verification failure, NOT drift: check that git runs from the repo root and the files are readable. Re-running the reviewer will not fix it." >&2
     exit 2
   fi
 }

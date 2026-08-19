@@ -81,9 +81,11 @@ describe("scanGitHygiene (#325)", () => {
     const cwd = tempRepo();
     makeDir(cwd, ".claude/progress");
     makeDir(cwd, ".claude/worktrees");
+    // Order follows the shared EPHEMERAL_HARNESS_PATHS list (#348), which keeps
+    // the `.gitignore` cubo A order: settings.local.json, worktrees, progress.
     expect(scanGitHygiene(cwd, config())?.ephemeralNotIgnored).toEqual([
-      ".claude/progress/",
       ".claude/worktrees/",
+      ".claude/progress/",
     ]);
   });
 

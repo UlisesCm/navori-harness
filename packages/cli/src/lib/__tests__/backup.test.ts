@@ -90,6 +90,25 @@ describe("createBackup — directory inputs (E3)", () => {
     rmSync(handle.path, { recursive: true });
   });
 
+  // #348: `.claude/worktrees/` is a full repo clone per worktree. Backing it up
+  // made every `render --apply` weigh gigabytes until the disk filled and the
+  // backup itself failed with ENOSPC. The engine's `backupExclude` must keep the
+  // whole subtree out, however deep the tree goes.
+  it("keeps `.claude/worktrees` out of a `.claude` backup, at any depth", () => {
+    mkdirSync(join(repo, ".claude/worktrees/feat-x/src"), { recursive: true });
+    mkdirSync(join(repo, ".claude/agents"), { recursive: true });
+    writeFileSync(join(repo, ".claude/worktrees/feat-x/src/big.ts"), "huge clone");
+    writeFileSync(join(repo, ".claude/worktrees/feat-x/CLAUDE.md"), "clone root");
+    writeFileSync(join(repo, ".claude/agents/leader.md"), "leader");
+
+    const handle = createBackup(repo, [".claude"], {
+      exclude: [".claude/settings.local.json", ".claude/worktrees/", ".claude/progress/"],
+    });
+    expect(handle.files).toEqual([".claude/agents/leader.md"]);
+    expect(existsSync(join(handle.path, ".claude/worktrees"))).toBe(false);
+    rmSync(handle.path, { recursive: true });
+  });
+
   it("mixes files and directories in one call", () => {
     writeFileSync(join(repo, "CLAUDE.md"), "claude");
     mkdirSync(join(repo, ".claude"), { recursive: true });
