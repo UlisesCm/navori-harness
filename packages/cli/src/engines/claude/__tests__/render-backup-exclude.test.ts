@@ -16,6 +16,7 @@ const home = vi.hoisted(() => ({ dir: "" }));
 vi.mock("../../../lib/home.ts", () => ({ safeHomedir: () => home.dir }));
 
 const { renderClaudeEngine } = await import("../index.ts");
+const { renderCodexEngine } = await import("../../codex/index.ts");
 
 const CONFIG = {
   name: "demo",
@@ -65,5 +66,35 @@ describe("renderClaudeEngine — backup excludes never-versioned state (#348)", 
     expect(existsSync(join(backup, ".claude/settings.local.json"))).toBe(false);
     // …while the versioned harness itself is still snapshotted.
     expect(existsSync(join(backup, ".claude/agents/leader.md"))).toBe(true);
+  });
+});
+
+// Audit v0.5.1 A2: the Codex engine called commitWrites WITHOUT backupExclude,
+// so every `render --apply` snapshotted `.codex/progress/` (receipts + subagent
+// handoffs) — and a `navori backup restore` could resurrect a stale receipt that
+// blocks the next commit. The exclusion now lives in commitWrites itself, so it
+// must hold for EVERY engine, not just Claude.
+describe("renderCodexEngine — backup excludes never-versioned state (audit A2)", () => {
+  it("backs up `.codex` without the ephemeral progress dir", () => {
+    renderCodexEngine(cwd, { ...CONFIG, engines: ["codex"] } as unknown as NavoriConfig);
+
+    // Machine-local Codex state the harness never versions (receipt + handoffs).
+    mkdirSync(join(cwd, ".codex/progress"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/progress/receipt.txt"), "stale receipt");
+    writeFileSync(join(cwd, ".codex/progress/impl_x.md"), "handoff");
+
+    // A config change so the second render rewrites existing files → backup.
+    const second = renderCodexEngine(cwd, {
+      ...CONFIG,
+      engines: ["codex"],
+      qualityGate: { fast: "pnpm check", full: "pnpm test" },
+    } as unknown as NavoriConfig);
+
+    expect(second.backupPath).not.toBeNull();
+    const backup = second.backupPath as string;
+    expect(existsSync(join(backup, ".codex/progress"))).toBe(false);
+    // …while the versioned Codex harness itself is still snapshotted.
+    expect(existsSync(join(backup, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(backup, ".codex/config.toml"))).toBe(true);
   });
 });
