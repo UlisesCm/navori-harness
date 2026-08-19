@@ -87,7 +87,7 @@ navori-harness/
 ├─ packages/
 │  ├─ cli/            # el CLI `navori` (publicado a npm)
 │  ├─ core/           # @navori/core — managed assets (agentes, skills, presets, hooks), bundleados al CLI
-│  └─ plugins/        # engram · acli · gh · jscpd · semgrep · cognitive
+│  └─ plugins/        # engram · acli · gh · jscpd · semgrep · codegraph
 ├─ apps/
 │  └─ website/        # landing + docs (Astro, deploy a GitHub Pages)
 └─ pnpm-workspace.yaml
@@ -117,6 +117,26 @@ node dist/index.js init --cwd /ruta/a/un/repo
 ## Releases
 
 Releases manuales: bump de `packages/cli/package.json` → commit `chore(release): navori vX.Y.Z` → tag `vX.Y.Z` → `npm publish` desde `packages/cli`. El website lee la versión del `package.json` del CLI y se redespliega vía GitHub Actions.
+
+## Créditos e inspiración
+
+navori no nació en el vacío. Estos son los proyectos de los que tomó ideas — el mérito de cada uno es de quien lo construyó:
+
+| Proyecto | Qué aportó como referencia |
+|---|---|
+| [gentle-ai](https://github.com/Gentleman-Programming/gentle-ai) | El proyecto más cercano a navori: configurador de ecosistema con SDD, memoria persistente y routing orgánico por complejidad de tarea |
+| [gstack](https://github.com/garrytan/gstack) | Skills encadenadas por rol que se alimentan entre sí; auto-detección de host con un config por host; cross-model review |
+| [harness-sdd](https://github.com/betta-tech/harness-sdd) | Notación EARS, trazabilidad obligatoria requisito↔test y el filesystem como máquina de estados de la spec |
+| [ejemplo-harness-subagentes](https://github.com/betta-tech/ejemplo-harness-subagentes) | El patrón Leader/Implementer/Reviewer y el anti-teléfono-descompuesto: estado en disco, por chat solo referencias |
+| [superpowers](https://github.com/obra/superpowers) | Subagent-driven development: agente fresco por tarea y specs "para un junior entusiasta" |
+| [ponytail](https://github.com/DietrichGebert/ponytail) | La escalera de decisión anti-over-engineering — "flojo en la solución, nunca en la lectura" |
+| [codegraph](https://github.com/colbymchenry/codegraph) | Contexto quirúrgico vía grafo pre-indexado en vez de loops de grep/read |
+| [graphify](https://github.com/Graphify-Labs/graphify) | Knowledge graph determinista (código + docs) commiteado al repo, como los managed assets |
+| [caveman](https://github.com/JuliusBrussee/caveman) | Eficiencia de tokens como skill transversal: disciplina de brevedad sin perder exactitud técnica |
+| [Goose](https://goose-docs.ai/) | Recipes portables en YAML para compartir workflows en equipo y CI/CD |
+| [Pi](https://pi.dev/) | "Primitivas, no features": skills on-demand y extensibilidad sobre workflows horneados |
+
+→ Notas por proyecto, con datos verificados y sus matices, en [`docs/inspiration.md`](./docs/inspiration.md).
 
 ## Licencia
 

@@ -274,12 +274,6 @@ const creditsBuiltOn = [
     href: "https://github.com/kucherenko/jscpd",
   },
   {
-    name: "eslint-plugin-sonarjs",
-    by: "SonarSource",
-    role: "Guardas de complejidad cognitiva.",
-    href: "https://github.com/SonarSource/eslint-plugin-sonarjs",
-  },
-  {
     name: "GitHub CLI",
     by: "GitHub",
     role: "Issues y PRs desde la terminal.",
@@ -290,6 +284,12 @@ const creditsBuiltOn = [
     by: "Atlassian",
     role: "Tickets de Jira como fuente de trabajo.",
     href: "https://developer.atlassian.com/cloud/acli/",
+  },
+  {
+    name: "codegraph",
+    by: "colbymchenry",
+    role: "Grafo de código sobre MCP: localizar y medir impacto sin leer archivos.",
+    href: "https://github.com/colbymchenry/codegraph",
   },
 ];
 
@@ -308,6 +308,78 @@ const creditsIdeas = [
     name: "Spec-Driven Development",
     role: "Versionar skills, reglas y convenciones como parte del repo.",
     href: null,
+  },
+];
+
+// Proyectos de los que navori tomó ideas. Distinto de creditsIdeas (estándares
+// y patrones) y de creditsBuiltOn (herramientas que navori integra o ejecuta).
+// Detalle y matices verificados por proyecto: docs/inspiration.md.
+const creditsInspiration = [
+  {
+    name: "gentle-ai",
+    by: "Gentleman-Programming",
+    role: "Configurador de ecosistema con SDD, memoria persistente y routing orgánico por complejidad de tarea.",
+    href: "https://github.com/Gentleman-Programming/gentle-ai",
+  },
+  {
+    name: "gstack",
+    by: "garrytan",
+    role: "Skills encadenadas por rol; auto-detección de host con un config por host; cross-model review.",
+    href: "https://github.com/garrytan/gstack",
+  },
+  {
+    name: "harness-sdd",
+    by: "betta-tech",
+    role: "Notación EARS, trazabilidad requisito↔test y el filesystem como máquina de estados de la spec.",
+    href: "https://github.com/betta-tech/harness-sdd",
+  },
+  {
+    name: "ejemplo-harness-subagentes",
+    by: "betta-tech",
+    role: "El patrón Leader/Implementer/Reviewer y el estado en disco: por chat solo pasan referencias.",
+    href: "https://github.com/betta-tech/ejemplo-harness-subagentes",
+  },
+  {
+    name: "superpowers",
+    by: "obra",
+    role: "Subagent-driven development: agente fresco por tarea y specs que un junior puede seguir.",
+    href: "https://github.com/obra/superpowers",
+  },
+  {
+    name: "ponytail",
+    by: "DietrichGebert",
+    role: "La escalera de decisión anti-over-engineering: flojo en la solución, nunca en la lectura.",
+    href: "https://github.com/DietrichGebert/ponytail",
+  },
+  {
+    name: "codegraph",
+    by: "colbymchenry",
+    role: "Contexto quirúrgico vía grafo pre-indexado en vez de loops de grep/read.",
+    href: "https://github.com/colbymchenry/codegraph",
+  },
+  {
+    name: "graphify",
+    by: "Graphify-Labs",
+    role: "Knowledge graph determinista de código y docs, commiteado al repo como los managed assets.",
+    href: "https://github.com/Graphify-Labs/graphify",
+  },
+  {
+    name: "caveman",
+    by: "JuliusBrussee",
+    role: "Eficiencia de tokens como skill transversal: brevedad sin perder exactitud técnica.",
+    href: "https://github.com/JuliusBrussee/caveman",
+  },
+  {
+    name: "Goose",
+    by: "Agentic AI Foundation",
+    role: "Recipes portables en YAML para compartir workflows en equipo y CI/CD.",
+    href: "https://goose-docs.ai/",
+  },
+  {
+    name: "Pi",
+    by: "Earendil",
+    role: "Primitivas, no features: skills on-demand y extensibilidad sobre workflows horneados.",
+    href: "https://pi.dev/",
   },
 ];
 
@@ -1156,6 +1228,53 @@ $ navori workspace render acme
               </li>
             );
           })
+        }
+      </ul>
+
+      {/* Inspiración */}
+      <h3
+        class="mt-10 text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400"
+      >
+        Proyectos que lo inspiraron
+      </h3>
+      <p class="mt-3 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
+        De estos proyectos navori tomó ideas; a codegraph además lo integra
+        como plugin. Las notas por proyecto viven en <code
+          class="font-mono text-[13px]"
+          >docs/inspiration.md</code
+        >.
+      </p>
+      <ul class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {
+          creditsInspiration.map((c) => (
+            <li>
+              <a
+                href={c.href}
+                target="_blank"
+                rel="noreferrer"
+                class="group block h-full rounded-lg border p-4 transition-all hover:-translate-y-0.5"
+                style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
+              >
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-mono text-sm font-medium group-hover:text-sky-700 dark:group-hover:text-sky-300">
+                    {c.name}
+                  </span>
+                  <span
+                    class="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0"
+                    aria-hidden="true"
+                  >
+                    ↗
+                  </span>
+                </div>
+                <p class="mt-0.5 text-[11px] uppercase tracking-wider text-violet-700/70 dark:text-violet-300/70">
+                  {c.by}
+                </p>
+                <p class="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-400">
+                  {c.role}
+                </p>
+              </a>
+            </li>
+          ))
         }
       </ul>
 
