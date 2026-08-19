@@ -309,6 +309,61 @@ describe("quality-gate hook — content receipt (RDD)", () => {
     expect(r.stderr).not.toContain("receipt mismatch");
   });
 
+  // #344: the loop must not report drift for content that did NOT change — the
+  // failure mode that made the pilot loop forever. Several files at once, since
+  // the zsh bug poisoned the whole receipt from the first line on.
+  it("every receipt file unchanged → no drift, the gate just runs", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "a.txt"), "alpha\n");
+    writeFileSync(join(dir, "b.txt"), "beta\n");
+    git("add", "a.txt", "b.txt");
+    writeReceipt(["a.txt", "b.txt"]);
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain("receipt mismatch");
+    expect(r.stderr).not.toContain("could NOT verify");
+    expect(r.stderr).toContain("running quality-gate fast");
+  });
+
+  // An approved file staged as a DELETION (the receipt recorded content, not a
+  // `deleted` marker) is real drift — its approved bytes are gone. It must keep
+  // blocking as drift, not degrade into the "could not verify" branch.
+  it("an approved file staged as a deletion → BLOCKS as drift (missing)", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "a.txt"), "approved\n");
+    git("add", "a.txt");
+    git("commit", "-qm", "seed");
+    writeReceipt(["a.txt"]);
+    git("rm", "-q", "a.txt"); // removal the reviewer never approved
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("receipt mismatch");
+    expect(r.stderr).toContain("a.txt (missing)");
+  });
+
+  // #344: a `git hash-object` that fails for environment reasons (unreadable
+  // file, missing binary, wrong cwd) is a VERIFICATION failure. It still blocks,
+  // but it must not be dressed up as an accusation of drift — re-running the
+  // reviewer can never clear it. Skipped as root, where chmod 000 is no barrier.
+  const notRoot = (process.getuid?.() ?? 1) !== 0;
+  it.skipIf(!notRoot)("an unhashable (unreadable) file → verification error, not drift", () => {
+    initRepo();
+    fakeBin("pnpm", 0);
+    writeFileSync(join(dir, "a.txt"), "approved\n");
+    git("add", "a.txt");
+    writeReceipt(["a.txt"]);
+    chmodSync(join(dir, "a.txt"), 0o000); // exists, but git cannot read it
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
+    chmodSync(join(dir, "a.txt"), 0o644); // restore so afterEach can clean up
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("could NOT verify");
+    expect(r.stderr).toContain("a.txt");
+    expect(r.stderr).not.toContain("receipt mismatch");
+    expect(r.stderr).not.toContain("running quality-gate fast");
+  });
+
   // The other direction: the receipt says the file was removed, but it's back
   // (staged with content) → that IS drift, block.
   it("a `deleted`-marked file that reappeared (staged with content) → BLOCKS", () => {

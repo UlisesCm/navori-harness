@@ -4,7 +4,7 @@ description: Drafts commit messages and opens PRs with a title + body following 
 tools: Read, Glob, Grep, Bash
 ---
 
-<!-- navori:managed id="commit-pr-pilot-base" hash="e296fe33" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="commit-pr-pilot-base" hash="ae8a4cc1" version="0.5.1" source="@navori/core" -->
 # Commit & PR Pilot Agent
 
 You own the **end of the cycle**: well-structured Conventional commits and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -63,18 +63,28 @@ comm -23 \
 # 2) DRIFT: a reviewed file whose bytes changed since the review. A `deleted`
 #    marker means the reviewer signed off on the removal → drift only if the file
 #    came back.
+#    NEVER name the loop variable `path`: in zsh it is tied to $PATH
+#    (typeset -T PATH path), so assigning to it WIPES the PATH and every command
+#    below dies with "command not found" — which used to surface as DRIFT on
+#    every file (#344). Same trap with fpath / cdpath / manpath / module_path.
+#    And a failed `git hash-object` is an ERROR (missing binary, wrong cwd,
+#    unreadable file), never evidence of drift — the two verdicts are separate.
 while IFS= read -r line; do
   case "$line" in ''|'#'*) continue ;; esac
-  blob=${line%%  *}; path=${line#*  }
+  blob=${line%%  *}; file=${line#*  }
   if [ "$blob" = deleted ]; then
-    [ -e "$path" ] && echo "DRIFT: $path (reappeared since review)"
-  else
-    [ "$(git hash-object "$path" 2>/dev/null)" = "$blob" ] || echo "DRIFT: $path"
+    [ -e "$file" ] && echo "DRIFT: $file (reappeared since review)"
+  elif [ ! -e "$file" ]; then
+    echo "DRIFT: $file (missing since review)"
+  elif ! now=$(git hash-object "$file"); then
+    echo "ERROR: could not verify $file"
+  elif [ "$now" != "$blob" ]; then
+    echo "DRIFT: $file"
   fi
 done < .claude/progress/receipt.txt
 ```
 
-Any file printed by (1) is uncovered; any `DRIFT` line from (2) is stale — either one, or a missing `receipt.txt` for a reviewed (R2+) change, means the approval no longer covers the current diff. Abort, don't commit, and send it back to the `reviewer` to cover/re-approve over the current bytes. It's not enough to mention the gap and carry on. (The pre-commit hook re-checks the staged set for drift mechanically as a backstop; catching both here is earlier and clearer.)
+Any file printed by (1) is uncovered; any `DRIFT` line from (2) is stale — either one, or a missing `receipt.txt` for a reviewed (R2+) change, means the approval no longer covers the current diff. Abort, don't commit, and send it back to the `reviewer` to cover/re-approve over the current bytes. It's not enough to mention the gap and carry on. An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wrong cwd, unreadable file) — fix the environment and re-run the check; sending it to the `reviewer` can never resolve it. (The pre-commit hook re-checks the staged set for drift mechanically as a backstop; catching both here is earlier and clearer.)
 
 **R1 exception (trivial diff, no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
 

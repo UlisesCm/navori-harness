@@ -14,6 +14,7 @@ import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
 import { hasBinary } from "../lib/which.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
 import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
+import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
@@ -1253,19 +1254,14 @@ function gitTracksPath(cwd: string, relPath: string): boolean {
 
 /**
  * Ephemeral agent artifacts that must never reach a commit: subagent handoffs,
- * agent worktrees, and machine-local settings. A SUBSET of `CUBO_A_ENTRIES`
- * (the `.gitignore` block's cubo A) on purpose — `.codegraph/` has its own,
- * richer check in `scanCodegraphHealth`, and `.navori/` legitimately holds
- * versioned local presets, so neither belongs in a "should be ignored" list.
- *
- * NOTE: the ephemeral progress dir is `.claude/progress/`, never the root
- * `progress/` — that one is git-persisted by design (session state travels).
+ * agent worktrees, and machine-local settings. Shared with the `.gitignore`
+ * cubo A and the render backup's exclusion list (#348) so the three can't drift
+ * apart again. It is a SUBSET of `CUBO_A_ENTRIES` on purpose — `.codegraph/`
+ * has its own, richer check in `scanCodegraphHealth`, and `.navori/`
+ * legitimately holds versioned local presets, so neither belongs in a "should
+ * be ignored" list.
  */
-const EPHEMERAL_AGENT_PATHS: readonly string[] = [
-  ".claude/progress/",
-  ".claude/worktrees/",
-  ".claude/settings.local.json",
-];
+const EPHEMERAL_AGENT_PATHS = EPHEMERAL_HARNESS_PATHS;
 
 export interface GitHygieneReport {
   /** The specs dir, when it's gitignored while the SDD block is active. */

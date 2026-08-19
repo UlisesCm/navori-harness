@@ -2,10 +2,10 @@
 name: solution-design
 description: Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, concurrency, critical area, hard-to-reverse decision) — decide WHAT to build and challenge it before decomposing into tasks.
 type: reference
-maxWords: 900
+maxWords: 1050
 ---
 
-<!-- navori:managed id="solution-design" hash="2424fb4d" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="solution-design" hash="06a32858" version="0.5.1" source="@navori/core" -->
 # solution-design — decide what to build, then try to break it
 
 ## When to use this skill
@@ -84,6 +84,15 @@ it; do not re-argue it in later phases.
 A `BLOCKED` must state four things: the blocking fact · why you cannot proceed
 without guessing · who resolves it · the minimum information needed. **If you
 cannot state all four, it is a CONCERN, not a blocker.**
+
+**A product fork is not automatically a blocker.** Tickets arrive written fast and
+half of them are ambiguous; if every ambiguity stops the work, this layer becomes
+the bottleneck it exists to remove. When you find a real fork, ask two questions:
+is one option defensible on the evidence you have, and is it cheap to reverse? If
+both, it is `CONCERNS` — take that option, write the recommendation and the
+discarded one explicitly ("going with B; if you meant A, say so"), and let the
+work start. `BLOCKED` is for when NO option is defensible without the missing
+fact, or when picking wrong is expensive to undo.
 
 Never blockers: naming preference, a hypothetical future abstraction, a minor
 optimization, an optional edge case, stylistic architecture taste.

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { readCliVersion } from "../../lib/bundled-assets.ts";
+import { EPHEMERAL_HARNESS_PATHS } from "./ephemeral-paths.ts";
 import { ENGINE_OUTPUTS, engineOwnedPaths } from "../../lib/health.ts";
 import { tc, type Lang } from "../../lib/i18n.ts";
 import {
@@ -29,16 +30,20 @@ const GITIGNORE_COMMENT_STYLE = "shell" as const;
  * Cubo A — machine-local / runtime entries that must NEVER be committed. These
  * are included whenever `gitignoreHarness` is not `"off"` (both `"local"` and
  * `"full"`). They are runtime state, not a harness output, so they can't be
- * derived from `ENGINE_OUTPUTS` and live here as a constant.
+ * derived from `ENGINE_OUTPUTS`.
+ *
+ * The ephemeral `.claude/` state comes from `EPHEMERAL_HARNESS_PATHS` (shared
+ * with the render backup and doctor's git-hygiene scan — #348). The two extras
+ * are gitignore-only: `.codegraph/` is a rebuildable local index and `.navori/`
+ * holds machine-local presets; neither is "ephemeral agent state", so neither
+ * belongs in the shared set.
  *
  * IMPORTANT: the ignored progress dir is `.claude/progress/`, never the root
  * `progress/`. The root `progress/` (current.md, history.md) is git-persisted by
  * design and must stay tracked.
  */
 export const CUBO_A_ENTRIES: readonly string[] = [
-  ".claude/settings.local.json",
-  ".claude/worktrees/",
-  ".claude/progress/",
+  ...EPHEMERAL_HARNESS_PATHS,
   ".codegraph/",
   ".navori/",
 ];

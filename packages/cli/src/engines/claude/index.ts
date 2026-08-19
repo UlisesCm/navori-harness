@@ -35,6 +35,7 @@ import { expandHookIncludes } from "../../lib/hook-includes.ts";
 import { benchMark } from "../../lib/bench.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
 import { tc, resolveLang, type Lang } from "../../lib/i18n.ts";
+import { EPHEMERAL_HARNESS_PATHS } from "../shared/ephemeral-paths.ts";
 import { CORE_AGENTS, extraConditionMet, isAgentEnabled } from "../shared/harness-assets.ts";
 import { resolveHarnessPlan } from "../shared/harness-plan.ts";
 import { buildSkillRows } from "../shared/skills-index.ts";
@@ -879,7 +880,11 @@ export function renderClaudeEngine(
     removals,
     cwd,
     backupTargets: ["CLAUDE.md", ".claude", "navori.config.json", ".mcp.json"],
-    backupExclude: [".claude/settings.local.json", ".claude/progress"],
+    // #348: never snapshot state the harness never versions. `.claude/worktrees/`
+    // is a full repo clone per worktree, so copying it made every apply weigh
+    // gigabytes (131 GB of backups on a real machine, until ENOSPC broke render
+    // itself). Trailing slashes are normalized away by `createBackup`.
+    backupExclude: [...EPHEMERAL_HARNESS_PATHS],
     dryRun,
     writeLast: (p) => p.path === claudeMdPath,
     removalsBestEffort: true,
