@@ -429,16 +429,17 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
     // Inspected counts every managed asset processed:
     //   1 CLAUDE.md + 1 settings.json + 1 .mcp.json (engram declares an mcpServer,
-    //   #212) + 8 agents + 6 core skills + 5 workflow skills (ticket-intake,
-    //   solution-design, pr-create, spec-bootstrap, dominio) + 1 guard hook +
-    //   1 session-start hook + 2 lifecycle hooks (subagent-stop, precompact) +
-    //   1 qg hook + 2 progress files + 1 engram-leader-extension sub-block = 30.
+    //   #212) + 8 agents + 6 core skills + 6 workflow skills (ticket-intake,
+    //   solution-design, pr-create, spec-bootstrap, dominio, babysit-prs) +
+    //   1 guard hook + 1 session-start hook + 2 lifecycle hooks (subagent-stop,
+    //   precompact) + 1 qg hook + 2 progress files +
+    //   1 engram-leader-extension sub-block = 31.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(30);
+    expect(first.inspected).toBe(31);
     // Written counts files actually emitted. engram-leader-extension is a
-    // sub-block injected into leader.md, not a separate file, so written = 29
-    // (the 28 files + the new .mcp.json).
-    expect(first.written.length).toBe(29);
+    // sub-block injected into leader.md, not a separate file, so written = 30
+    // (the 29 files + the new .mcp.json).
+    expect(first.written.length).toBe(30);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -538,7 +539,7 @@ describe("renderClaudeEngine — dry-run", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
     // Dry-run still reports the would-write set, including structural-search and
     // the .mcp.json engram registration (#212).
-    expect(r.written).toHaveLength(29);
+    expect(r.written).toHaveLength(30);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

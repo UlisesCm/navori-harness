@@ -47,6 +47,7 @@ export const WORKFLOW_SKILLS: ReadonlyArray<string> = [
   "pr-create",
   "spec-bootstrap",
   "dominio",
+  "babysit-prs",
 ];
 
 export function isAgentEnabled(

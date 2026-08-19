@@ -149,6 +149,8 @@ Never open the PR with the gate red.
 
 5. **Output to the user**: only the PR URL + 1 line with the title. Nothing else.
 
+6. **Checks — read them ONCE, never wait**: `gh pr checks <N> --json name,bucket,state,link,workflow`. `bucket: pending` (the normal case right after creating the PR) → say so in **one extra line** and stop, no retry. `bucket: fail` → name the check in that line and point to `babysit-prs` for the diagnosis. Informative only: you never hold or revert a PR over a red check.
+
 ## Body template (generic default)
 
 ```markdown
@@ -175,6 +177,7 @@ If the repo defines its own template (`.github/pull_request_template.md`), read 
 - ❌ Never commit `.claude/` or `CLAUDE.md` (gitignored by convention).
 - ❌ Never skip hooks (`--no-verify`) unless the user explicitly asks.
 - ❌ Never ask for a merge / approve the PR yourself. Your job ends with the URL.
+- ❌ Never `gh pr checks --watch`: it takes no timeout and would hang the turn before the URL reaches the user.
 - ✅ Commit and PR message in the language defined by the config's `commits` (`conventional-es` = Spanish MX, `conventional` = English).
 - ✅ If you introduce a new pattern or non-obvious decision that wasn't already in `impl_<feature>.md`, leave a note in the PR body ("Decisions" section).
 

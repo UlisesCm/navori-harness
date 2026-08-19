@@ -289,7 +289,7 @@ This repo has a pre-built AST code graph exposed over MCP (`codegraph`). Use it 
 If `codegraph` isn't installed or the index is stale, fall back to `structural-search` as usual — the graph is an accelerator, not a dependency.
 <!-- /navori:managed id="codegraph-protocol" -->
 
-<!-- navori:managed id="skills-index" hash="23031269" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="skills-index" hash="0aaf5b30" version="0.5.1" source="@navori/core" -->
 ## Skills disponibles
 
 Skills que los agentes pueden aplicar; las propias de navori viven en `.claude/skills/<id>/SKILL.md` (una skill que hayas agregado tú puede ser un `<id>.md` plano). La nota tras el `·` dice cuándo usar cada una.
@@ -305,6 +305,7 @@ Skills que los agentes pueden aplicar; las propias de navori viven en `.claude/s
 - `pr-create` — navori (workflow) · Use when closing a cycle's PR (e.g
 - `spec-bootstrap` — navori (workflow) · Use when starting a real-scope feature before writing code
 - `dominio` — navori (workflow) · Use when you discover
+- `babysit-prs` — navori (workflow) · Use when you resume a session with open PRs of yours, or when a check went red after a push
 - `zod-validation` — library (detected) · Use when creating schemas or touching input validation of body/query/params
 - `vitest` — library (detected) · Use when writing or fixing unit/integration tests with Vitest
 - `citty` — library (detected) · Use when adding or editing a CLI command with citty
