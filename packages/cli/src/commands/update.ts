@@ -167,7 +167,9 @@ export function refreshWorkspaceScopes(raw: Record<string, unknown>, cwd: string
   return changed;
 }
 
-function diffConfig(
+/** Config drift between the on-disk config and a fresh detection. Exported for
+ * tests (like `mergeLibraryMigrations` / `refreshWorkspaceScopes`). */
+export function diffConfig(
   current: NavoriConfig,
   detected: ReturnType<typeof detectProject>,
 ): ConfigDiff[] {
@@ -262,7 +264,9 @@ function diffConfig(
   return out;
 }
 
-function applyDiffs(
+/** Write the accepted diffs into the raw config object (mutates `raw`).
+ * Exported for tests, same as `diffConfig`. */
+export function applyDiffs(
   raw: Record<string, unknown>,
   detected: ReturnType<typeof detectProject>,
   diffs: ConfigDiff[],
@@ -281,6 +285,9 @@ function applyDiffs(
       for (const e of detected.existingEngines) currentEngines.add(e);
       raw.engines = [...currentEngines];
     } else if (d.field === "project.libraries") {
+      // Full replacement, NOT a merge (#345): this field is derived from
+      // detection, so a hand-added id is drift. See the schema JSDoc for why the
+      // asymmetry with `libraryMigrations` below is deliberate.
       raw.project = withProject(raw.project, { libraries: detected.libraries });
     } else if (d.field === "project.libraryMigrations") {
       // Apply the reconciled merge (adopt new, preserve overrides), not raw

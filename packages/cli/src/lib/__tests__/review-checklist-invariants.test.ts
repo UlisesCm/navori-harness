@@ -84,10 +84,18 @@ describe("review-diff — the checklist keeps its concrete triggers", () => {
 
   it("§7 flags cognitive complexity over the repo's threshold (#333)", () => {
     const excess = section(read("skills/review-diff.md"), "7. Over-engineering");
-    const item = excess.split("\n").find((l) => /cognitive complexity/i.test(l)) ?? "";
+    // Scoped to the checklist bullets: the boundary prose below also says
+    // "cognitive complexity", and the trigger is the item, not the paragraph.
+    const item =
+      excess.split("\n").find((l) => l.startsWith("- ") && /cognitive complexity/i.test(l)) ?? "";
     expect(item, "the cognitive-complexity trigger is gone").not.toBe("");
     expect(item).toMatch(/threshold/i);
     expect(item).toMatch(/HIGH/);
+
+    // §7 hunts excess, so the item needs its written boundary or a reviewer can
+    // emit "extract it" and "remove it" on the same function (#350).
+    expect(excess, "the complexity boundary is gone from §7").toMatch(/missing\W+structure/i);
+    expect(excess).toMatch(/conflict/i);
   });
 });
 

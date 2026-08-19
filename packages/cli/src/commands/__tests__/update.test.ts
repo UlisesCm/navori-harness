@@ -2,11 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeConfig } from "../../lib/config.ts";
+import { readConfig, writeConfig } from "../../lib/config.ts";
+import { detectProject } from "../../lib/detect.ts";
 import { runRender } from "../render.ts";
 import {
   aggregateRender,
+  applyDiffs,
   deadProgressKeys,
+  diffConfig,
   refreshWorkspaceScopes,
   mergeLibraryMigrations,
 } from "../update.ts";
@@ -132,6 +135,52 @@ describe("mergeLibraryMigrations (#90)", () => {
     expect(legacies(merged)).toEqual(["axios", "moment"]);
     expect(merged.find((m) => m.legacy === "axios")).toEqual(mig("axios", "got"));
     expect(changedOverrides).toEqual([mig("axios", "got")]);
+  });
+});
+
+/**
+ * #345 — `project.libraries` is DERIVED: detection owns it, the user doesn't.
+ * The contrast with the suite above is the point — `libraryMigrations` preserves
+ * a manual edit, this field replaces it — so the chosen semantics is pinned here
+ * and a future change to it has to be deliberate instead of accidental.
+ */
+describe("project.libraries — a DERIVED field, replaced not merged (#345)", () => {
+  function seedRepo(libraries: string[]): string {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "demo", dependencies: { mongoose: "^8" } }),
+    );
+    const configPath = join(cwd, "navori.config.json");
+    writeConfig(configPath, {
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      project: { libraries },
+    });
+    return configPath;
+  }
+
+  it("reports the drift and drops a hand-added id detection does not reproduce", () => {
+    const configPath = seedRepo(["mongoose", "hand-added-skill"]);
+    const detected = detectProject(cwd);
+    expect(detected.libraries).toEqual(["mongoose"]);
+
+    const diffs = diffConfig(readConfig(configPath), detected);
+    const libDiff = diffs.find((d) => d.field === "project.libraries");
+    // The user does SEE the removal (it's in the drift list) — it just doesn't survive.
+    expect(libDiff, "no project.libraries diff was emitted").toBeDefined();
+    expect(libDiff!.before).toContain("hand-added-skill");
+    expect(libDiff!.after).not.toContain("hand-added-skill");
+
+    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    applyDiffs(raw, detected, diffs);
+    expect((raw.project as { libraries: string[] }).libraries).toEqual(["mongoose"]);
+  });
+
+  it("emits no drift when the config already matches detection (sync, not rewrite)", () => {
+    const configPath = seedRepo(["mongoose"]);
+    const diffs = diffConfig(readConfig(configPath), detectProject(cwd));
+    expect(diffs.find((d) => d.field === "project.libraries")).toBeUndefined();
   });
 });
 

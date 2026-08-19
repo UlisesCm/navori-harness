@@ -5,7 +5,7 @@ type: behavior
 maxWords: 1200
 ---
 
-<!-- navori:managed id="review-diff-base" hash="081f2e9f" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="review-diff-base" hash="50a57832" version="0.5.1" source="@navori/core" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
@@ -88,6 +88,8 @@ Mirror of the `implementer`'s YAGNI ladder: hunt for the code of **excess**.
 Rule: if removing the abstraction leaves the code **just as correct** and shorter, removing it is the finding.
 
 **Don't confuse it with incompleteness.** Removing the handling of a real edge case, a validation or an error path is NOT simplifying — it's a bug, and it goes to §1-§4 (not here). This dimension attacks *excess structure*, never *missing coverage*. What the YAGNI ladder protects (trust boundaries, errors that prevent data loss, security, accessibility) is never over-engineering.
+
+**Don't confuse it with complexity.** High cognitive complexity is *missing* structure, not excess: branches and nesting piled into one body that was never split. Extracting to lower it removes nothing correct, so the rule above still holds. A complex function wrapped by a single-caller helper yields two findings, not a conflict: drop the wrapper, split the body.
 
 ## 8. Dead code and debug
 
