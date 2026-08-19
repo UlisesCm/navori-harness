@@ -3,6 +3,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import { loadDisabledPlugins, loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
+import { unknownLibraries } from "../../lib/library-skills.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
@@ -85,6 +86,15 @@ export function renderCodexEngine(
   warnings.push(...codexConfig.warnings);
 
   const plan = resolveHarnessPlan(config, coreAssets, preset);
+  // Mirror of the Claude engine's unknown-library warning (audit v0.5.1 A1):
+  // an id the plan skipped silently would lose its guidance without signal.
+  for (const lib of unknownLibraries(config.project?.libraries)) {
+    warnings.push(
+      lib.removed
+        ? tc(lang).engine.libraryRemovedFromRegistry(lib.id, lib.successors)
+        : tc(lang).engine.libraryUnknownInRegistry(lib.id),
+    );
+  }
 
   // Floor / safety net (#277): a plugin skill targeting an agent Codex neither
   // renders as a `.toml` (buildAgentToml) nor embodies as the leader (appended to

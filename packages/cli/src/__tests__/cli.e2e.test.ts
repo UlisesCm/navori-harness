@@ -1825,6 +1825,10 @@ describe("CLI e2e — global registry + render --all", () => {
     expect(Array.isArray(parsed.repos)).toBe(true);
     expect(parsed.repos.length).toBeGreaterThanOrEqual(1);
     expect(parsed.summary.pending).toBeGreaterThanOrEqual(1);
+    // Warning parity with the human table (audit A1): every row exposes its
+    // engine warnings and the summary always carries the count, even when 0.
+    expect(Array.isArray(parsed.repos[0].warnings)).toBe(true);
+    expect(typeof parsed.summary.warnings).toBe("number");
     expect(r.stdout).not.toContain("render --all");
   });
 

@@ -13,7 +13,9 @@
  * track in git, and must be gitignored. Add a new ephemeral here and all three
  * consumers get it:
  * - `gitignore-harness.ts` — cubo A of the managed `.gitignore` block.
- * - `engines/claude/index.ts` — `backupExclude` for the pre-render backup.
+ * - `engines/shared/execute-plan.ts` — `commitWrites` always excludes these
+ *   from the pre-render backup, for EVERY engine (the per-engine opt-in let
+ *   Codex snapshot `.codex/progress/` receipts — audit v0.5.1 A2).
  * - `commands/doctor.ts` — the git-hygiene "should be ignored" scan.
  *
  * Order is load-bearing: it is the order these entries have always had in the

@@ -628,6 +628,9 @@ interface DoctorCmdStrings {
   missingPresetFileRow: (path: string) => string;
   missingLocalSkills: (n: number, lines: string) => string;
   missingLocalSkillRow: (id: string) => string;
+  unknownLibraries: (n: number, lines: string) => string;
+  unknownLibraryRemovedRow: (successors: string) => string;
+  unknownLibraryUnknownRow: string;
   excludedBlocksTitle: (n: number) => string;
   excludedBlockRow: (id: string) => string;
   nonExcludableBlocks: (n: number, lines: string) => string;
@@ -733,6 +736,9 @@ interface EngineCmdStrings {
   proseNoClaudeInfra: string;
   prosePluginBlocksOmitted: (list: string) => string;
   proseModelAssignmentOmitted: string;
+  // Shared plan (Claude + Codex): project.libraries ids the registry doesn't know (audit A1)
+  libraryRemovedFromRegistry: (id: string, successors: readonly string[]) => string;
+  libraryUnknownInRegistry: (id: string) => string;
   // Claude adapter
   managedBlocksOutOfOrder: string;
   qualityGateHookSkipped: string;
@@ -1266,6 +1272,12 @@ const CMD_ES: CmdStrings = {
     missingLocalSkills: (n, lines) =>
       `Skills project-local declarados sin archivo (${n}) — crea el .md (o <id>/SKILL.md) o quita el id de project.localSkills:\n${lines}`,
     missingLocalSkillRow: (id) => `— falta .claude/skills/${id}.md o ${id}/SKILL.md`,
+    unknownLibraries: (n, lines) =>
+      `Ids en project.libraries que el registro no conoce (${n}) — su guía no se renderiza ` +
+      `y el render borra su skill de disco. Corre 'navori update' para re-detectar:\n${lines}`,
+    unknownLibraryRemovedRow: (successors) =>
+      successors ? `— retirada del registro; sucesoras: ${successors}` : "— retirada del registro",
+    unknownLibraryUnknownRow: "— desconocida para esta versión del CLI",
     excludedBlocksTitle: (n) => `Bloques core excluidos · ${n} (blocks.exclude)`,
     excludedBlockRow: (_id) => `— no se renderiza; si existía, se quita en el próximo render`,
     nonExcludableBlocks: (n, lines) =>
@@ -1623,6 +1635,12 @@ const CMD_ES: CmdStrings = {
       `Bloques de plugins omitidos por asumir infraestructura de Claude Code: ${list}.`,
     proseModelAssignmentOmitted:
       "La asignación de modelo por agente (config.models) no aplica fuera de Claude Code; se omitió.",
+    libraryRemovedFromRegistry: (id, successors) =>
+      successors.length > 0
+        ? `project.libraries: '${id}' fue retirada del registro (ahora: ${successors.join(", ")}) y su skill se elimina de disco. Corre 'navori update' para re-detectar las sucesoras.`
+        : `project.libraries: '${id}' fue retirada del registro y su skill se elimina de disco. Corre 'navori update' para limpiar la selección.`,
+    libraryUnknownInRegistry: (id) =>
+      `project.libraries: '${id}' no existe en el registro de esta versión del CLI; se omite. Corre 'navori update' para re-detectar librerías.`,
     managedBlocksOutOfOrder:
       "CLAUDE.md: los bloques managed están fuera del orden canónico, pero hay texto tuyo intercalado " +
       "entre bloques, así que no los reordené. Mueve ese texto arriba del primer bloque managed o abajo " +
@@ -2033,6 +2051,14 @@ const CMD_EN: CmdStrings = {
     missingLocalSkills: (n, lines) =>
       `Project-local skills declared with no file (${n}) — create the .md (or <id>/SKILL.md) or remove the id from project.localSkills:\n${lines}`,
     missingLocalSkillRow: (id) => `— missing .claude/skills/${id}.md or ${id}/SKILL.md`,
+    unknownLibraries: (n, lines) =>
+      `Ids in project.libraries the registry doesn't know (${n}) — their guidance is not ` +
+      `rendered and render deletes their skill from disk. Run 'navori update' to re-detect:\n${lines}`,
+    unknownLibraryRemovedRow: (successors) =>
+      successors
+        ? `— retired from the registry; successors: ${successors}`
+        : "— retired from the registry",
+    unknownLibraryUnknownRow: "— unknown to this CLI version",
     excludedBlocksTitle: (n) => `Excluded core blocks · ${n} (blocks.exclude)`,
     excludedBlockRow: (_id) => `— not rendered; removed on next render if it was present`,
     nonExcludableBlocks: (n, lines) =>
@@ -2385,6 +2411,12 @@ const CMD_EN: CmdStrings = {
       `Plugin blocks omitted because they assume Claude Code infrastructure: ${list}.`,
     proseModelAssignmentOmitted:
       "Per-agent model assignment (config.models) doesn't apply outside Claude Code; omitted.",
+    libraryRemovedFromRegistry: (id, successors) =>
+      successors.length > 0
+        ? `project.libraries: '${id}' was retired from the registry (now: ${successors.join(", ")}) and its skill is removed from disk. Run 'navori update' to re-detect the successors.`
+        : `project.libraries: '${id}' was retired from the registry and its skill is removed from disk. Run 'navori update' to clean the selection.`,
+    libraryUnknownInRegistry: (id) =>
+      `project.libraries: '${id}' is unknown to this CLI version's registry; skipped. Run 'navori update' to re-detect libraries.`,
     managedBlocksOutOfOrder:
       "CLAUDE.md: the managed blocks are out of canonical order, but there's text of yours interleaved " +
       "between blocks, so I didn't reorder them. Move that text above the first managed block or below " +

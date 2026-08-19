@@ -143,7 +143,44 @@ export const REMOVED_LIB_SKILLS: ReadonlyArray<string> = [
   "socketio",
 ];
 
+/**
+ * Successor skills for retired ids whose guidance moved instead of dying —
+ * lets the "unknown library" warning name what replaced the old id, so the
+ * user knows `navori update` will re-detect real coverage (not just drop it).
+ * Keyed by a REMOVED_LIB_SKILLS entry; ids with no successor simply aren't here.
+ */
+export const REMOVED_LIB_SKILL_SUCCESSORS: Readonly<Record<string, readonly string[]>> = {
+  socketio: ["socketio-server", "socketio-client"],
+};
+
 const BY_ID: ReadonlyMap<string, LibrarySkill> = new Map(LIBRARY_SKILLS.map((s) => [s.id, s]));
+
+/** One `project.libraries` id this CLI's registry doesn't know. */
+export interface UnknownLibrary {
+  id: string;
+  /** True when the id is a KNOWN retired skill (REMOVED_LIB_SKILLS) — its
+   * guidance was deliberately removed or split, vs. a plain unknown id. */
+  removed: boolean;
+  /** Skills that replaced a retired id (empty when none / not retired). */
+  successors: readonly string[];
+}
+
+/**
+ * Ids in `project.libraries` that this CLI's registry does not ship. The render
+ * plan silently skips them (`resolveHarnessPlan`) and the engines then prune
+ * their managed skill from disk — which is exactly why callers (render engines,
+ * doctor) must WARN: a repo upgraded without `navori update` would otherwise
+ * lose its guidance with zero signal (audit v0.5.1 finding A1).
+ */
+export function unknownLibraries(libraries: readonly string[] | undefined): UnknownLibrary[] {
+  const out: UnknownLibrary[] = [];
+  for (const id of libraries ?? []) {
+    if (BY_ID.has(id)) continue;
+    const removed = REMOVED_LIB_SKILLS.includes(id);
+    out.push({ id, removed, successors: REMOVED_LIB_SKILL_SUCCESSORS[id] ?? [] });
+  }
+  return out;
+}
 
 /**
  * Absolute floor of source files that must IMPORT the PREFERRED side of a

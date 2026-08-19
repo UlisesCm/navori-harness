@@ -14,6 +14,7 @@ import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
 import { hasBinary } from "../lib/which.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
 import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
+import { unknownLibraries } from "../lib/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
@@ -340,6 +341,22 @@ export const doctorCommand = defineCommand({
         (n) => `  ${color.red(sym.fail)} ${accent(n)}  ${grey(td.missingLocalSkillRow(n))}`,
       );
       p.log.warn(td.missingLocalSkills(missingLocalSkills.length, lines.join("\n")));
+    }
+
+    // `project.libraries` ids this CLI's registry doesn't know: render skips
+    // them silently and prunes their managed skill from disk, so a repo upgraded
+    // without `navori update` loses its guidance with zero signal (audit A1 —
+    // the socketio → socketio-server/-client split). Warn with the successor
+    // skills when the id is a known retired one.
+    const staleLibraries = unknownLibraries(config.project?.libraries);
+    if (staleLibraries.length > 0) {
+      const lines = staleLibraries.map((lib) => {
+        const row = lib.removed
+          ? td.unknownLibraryRemovedRow(lib.successors.join(", "))
+          : td.unknownLibraryUnknownRow;
+        return `  ${color.yellow(sym.update)} ${accent(lib.id)}  ${grey(row)}`;
+      });
+      p.log.warn(td.unknownLibraries(staleLibraries.length, lines.join("\n")));
     }
 
     if (drifts.length > 0) {

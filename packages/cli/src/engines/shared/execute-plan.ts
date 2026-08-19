@@ -12,6 +12,7 @@ import type { RenderStatus } from "../../lib/style.ts";
 import { isDowngrade } from "../../lib/semver.ts";
 import { tc, DEFAULT_LANG, type Lang } from "../../lib/i18n.ts";
 import { renderManagedFile } from "./render-managed-file.ts";
+import { EPHEMERAL_HARNESS_PATHS } from "./ephemeral-paths.ts";
 import type { HarnessPlan, PlannedAgent, PlannedHook, PlannedSkill } from "./harness-plan.ts";
 
 /**
@@ -310,11 +311,15 @@ export function commitWrites(input: {
 
   if ((pending.length > 0 || removals.length > 0) && !dryRun) {
     if (pending.some((item) => existsSync(item.path)) || removals.length > 0) {
-      const handle = createBackup(
-        cwd,
-        input.backupTargets,
-        input.backupExclude ? { exclude: input.backupExclude } : undefined,
-      );
+      // #348 / audit A2: paths the harness never versions have nothing worth
+      // restoring — and restoring them can do harm (`.claude/worktrees/` made
+      // every apply weigh gigabytes; a stale Codex receipt resurrected from
+      // `.codex/progress/` by `navori backup restore` blocks the next commit).
+      // Excluded HERE, the single choke point every engine's backup flows
+      // through, so no caller can forget it — the Codex engine did exactly that.
+      // `backupExclude` stays for engine-specific extras; ephemerals are always in.
+      const exclude = [...new Set([...EPHEMERAL_HARNESS_PATHS, ...(input.backupExclude ?? [])])];
+      const handle = createBackup(cwd, input.backupTargets, { exclude });
       if (handle.files.length > 0) {
         backupPath = handle.path;
         purgeOldBackups();
