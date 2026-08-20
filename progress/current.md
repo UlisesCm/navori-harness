@@ -1,60 +1,73 @@
 # Sesión actual
 
-**Estado:** idle. 6 issues abiertos, todos diferidos a propósito. Cero PRs abiertos.
-`main` al día con los 8 PRs de la sesión.
+**Estado:** idle. `main` limpio y al día. 11 issues abiertos, **todos con su alcance
+ya decidido** — ninguno espera una decisión.
 
-## Qué se cerró (2026-08-20)
+## El siguiente paso es el release 0.6.0
 
-**11 issues, 8 PRs.** Todo lo que bloqueaba el release 0.6.0.
+`packages/cli/package.json` dice `0.6.0`, pero el último tag es `v0.5.1` y npm sirve
+`0.5.1`. Falta: tag → `gh workflow run deploy-website.yml` → `npm publish` (manual,
+OTP de Ulises). El render de auto-hospedaje ya se hizo (#388), así que el repo no va
+una versión atrás del paquete que publica.
 
-- **#363** (security, high) — el guard hacía match sobre el comando COMPLETO en dos de
-  sus tres reglas: `cd /tmp && rm -rf ~/` pasaba, y `git commit -m x && git log -n 3`
-  se bloqueaba como `--no-verify`. Ahora el split en segmentos es uno solo y lo
-  comparten las tres reglas.
-- **#364** (high) — bajo Codex las skills se emitían verbatim: los agents leían
-  `.codex/progress/` y las skills escribían en `.claude/progress/`. `transform` en
-  `PlacementRequest` + cinco reescrituras nuevas en el compat.
-- **#365 + #367** — el backstop del receipt se RETIRA (opción c). Ver la nota abajo.
-- **#366** — 8 de las 28 lib-skills afirmaban cosas de un workspace concreto.
-- **#368 + #369** — dos chequeos nuevos de `doctor`: el gate declarado es ejecutable,
-  y qué skills instaladas tienen su user-section sin llenar (aquí detecta 6).
-- **#371** — 10 bullets de drift de documentación + 3 hallazgos extra; ninguno falso.
-- **#372, #373, #374** — los tres defectos menores del CLI.
+**Qué avisar en el rollout** (per-repo, NUNCA `--all`):
 
-## Siguiente paso natural
-
-**Release 0.6.0 + rollout** per-repo (NUNCA `--all`). Sigue vigente lo anotado la
-sesión pasada sobre los dos bloques managed que cambiaron de hash y la migración
-`socketio` → `socketio-client`, **más** lo de esta sesión:
-
-1. **Falta el render de auto-hospedaje completo a 0.6.0.** Los PRs solo regeneraron
-   los archivos cuyo contenido cambió, para no arrastrar el bump de marcador de otros
-   ~29 (mismo criterio que #362). Un `render --apply` limpio en `main` es parte del
-   release, no de un fix.
-2. **Los assets managed cambiaron bastante** (guard, hook del gate, reviewer, pilot,
-   8 lib-skills): los repos onboardeados verán drift gestionado en su próximo render.
-3. **El guard es más estricto con el TEXTO del comando**: un mensaje de commit por
+1. Los assets managed cambiaron bastante —guard, hook del gate, reviewer, pilot, 8
+   lib-skills—, así que los repos onboardeados verán drift gestionado en su próximo
+   render. Es esperado.
+2. **El guard es más estricto con el TEXTO del comando**: un mensaje de commit por
    heredoc que mencione un borrado recursivo de HOME se bloquea. La salida es
-   `git commit -F <archivo>`. Vale la pena avisarlo en el rollout.
+   `git commit -F <archivo>`.
+3. Heredado: los repos con `socket.io-client` necesitan `navori update` además de
+   `render` para migrar `socketio` → `socketio-client`.
 
-## Diferido por decisión (no son deuda olvidada)
+## Los 11 issues abiertos, por tanda
 
-`#370` y `#375`-`#379` — la tanda de optimización del harness (adelgazar el always-on,
-prosa→mecanismo, fan-out en la fase 2 del intake, ceremonia proporcional al riesgo).
-Van **después** del release: son un rediseño del contexto always-on que se propaga a
-~15 repos, y mezclarlo con un release que ya arrastra un fix de seguridad hace el
-drift imposible de auditar del lado del consumidor.
+**Post-release, con la decisión ya tomada** (cada uno tiene el alcance acordado como
+comentario en el issue — no re-litigar):
+
+- **#375** prosa→mecanismo: los 4 casos restantes, derivando de `project.criticalAreas`
+  y `qualityGate`.
+- **#379** solo la mitad B (tabla señal→mecanismo). **La mitad A se rechazó**: el
+  fan-out es always-on precisamente porque es lo que hace que se use.
+- **#378** R1 exprés con la exención atada al **diff** (R1 + una tarea + no toca áreas
+  críticas), no al juicio del agente. `mem_save` e `history.md` se quedan si hubo commit.
+- **#377** fan-out en fase 2 del intake con criterio enumerado (2+ repos, o cruza
+  frontend/backend, o módulos sin dependencia).
+- **#370** modo asíncrono **solo para cerrar** (`blocked`, `already-solved`,
+  `cant-reproduce`, `works-as-intended`, `needs-splitting`). El gate humano se conserva
+  para `proceed`.
+
+**Testing más real** (abiertos esta sesión, ordenados por costo/beneficio):
+
+- **#391** `priority:high` — correr los hooks bajo **zsh** además de bash. Reincidencia
+  comprobada: #344 y el camino 3 de #365 fueron word-splitting que zsh no hace.
+- **#392** `priority:high` — que ningún asset renderizado cite una ruta inexistente.
+  Cuatro hallazgos de esa clase: #352, #364 A, #364 B, #389.
+- **#394** `priority:medium` — golden snapshot por engine (con las tres mitigaciones
+  de ruido escritas en el issue; sin ellas, no vale la pena).
+- **#395** `priority:low` — repos fixture (o generadores declarativos, la alternativa
+  barata que propone el propio issue).
+- **#396** `priority:low` — benchmark de comportamiento del agente. **No es gate de
+  CI**: es no determinista, y un check no determinista en el gate enseña a ignorar el
+  gate (el error que cometió el backstop del receipt).
+
+**Infraestructura:**
+
+- **#393** `priority:high` — el crecimiento en disco no tiene tope ni vigilancia: la
+  purga de backups mira solo los 30 días (nunca el tamaño) y solo corre cuando algo
+  crea un backup; los worktrees de agente no tienen dueño.
 
 ## Notas
 
-- **#365 se resolvió por remoción, no por parche.** El backstop del receipt tenía 5
-  caminos fail-open, generó 5 de los últimos ~25 issues, no hay una sola captura
-  documentada de algo que atrapara, y su modo de fallo de #344 bloqueó el cierre de
-  todos los PRs. El receipt sigue vivo como handoff reviewer→pilot; lo que se fue es
-  la segunda copia de la verificación, en shell, en un hook que nunca se retargetea.
-- **`.claude/worktrees/` acumula 4.2 GB** en ~14 worktrees de sesiones viejas, todos
-  de branches ya mergeadas. `git worktree remove` es destructivo, así que queda para
-  que Ulises lo confirme.
+- **`.claude/worktrees/` de este repo: 4.2 GB → 0**, 15 worktrees eliminados tras
+  verificar `dirty=0` y que su contenido estaba en `main`. **`git merge-base
+  --is-ancestor` no sirve para esa verificación**: con squash-merge da `NO-MERGED` en
+  branches que sí shippearon. Lo que sirvió fue cruzar cada branch contra su PR.
+  Las 15 branches locales siguen existiendo (refs, no pesan).
+- `~/.navori/backups`: 122 MB en 1,192 entradas. Sano en tamaño, pero el conteo crece
+  rápido (un backup por `render --apply`) y nada lo acota salvo los 30 días → #393.
 - Heredado: la ruta de los repos Bonum en el `~/.claude/CLAUDE.md` global sigue
-  desactualizada, `~/.navori/registry.json` conserva una entrada de prueba, y siguen
-  pendientes los PRs del repo externo bonum-webapp (#639, #640, #559).
+  desactualizada, `~/.navori/registry.json` conserva una entrada de prueba apuntando
+  al scratchpad, y siguen pendientes los PRs del repo externo bonum-webapp (#639,
+  #640, #559) más el rebind de SonarCloud.

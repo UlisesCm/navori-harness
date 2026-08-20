@@ -10,6 +10,36 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-08-20 17:40 — claude — cierre: render 0.6.0, #389, las 6 decisiones y 6 issues nuevos
+
+- Cambios:
+  - `chore/self-host-render-0.6.0` (#388) — render completo del espejo: 45 líneas de
+    marcador en 24 archivos, cero contenido. `name` → `navori-harness` (decía
+    `navori-monorepo` y doctor lo leía como harness copiado).
+  - `fix/389-hooks-rutas-codex` (#390) — `subagent-stop-handoff.sh` sondea también
+    `.codex/progress` y escanea TODOS los dirs existentes (array, no word-splitting);
+    `session-start-context.sh` igual para `current.md`; el ejemplo de la user-section
+    del hook del gate ya no apunta a un script de plugin.
+- Quality gate: ✅ 1641 tests · lint · format · CI verde en los 2 PRs.
+- Notas:
+  - **La decisión de #389 estaba escrita en el repo**: los hooks no se adaptan en
+    render, **sondean en runtime**. Lo decía el backstop del receipt antes de que
+    #365 lo retirara. Un `transform` reescribiría rutas a ciegas dentro de un
+    script, donde eso rompe semántica — no es prosa.
+  - **Las 6 decisiones de la tanda de optimización quedaron tomadas** (cuestionario
+    1x1) y registradas como comentario en cada issue. Dos cambiaron el issue en vez
+    de aceptarlo: #378 (la condición "sin hallazgo durable" la juzga el propio
+    agente → se ata al diff) y #379-A (se rechaza con evidencia de esta sesión).
+    #376 se cerró: su premisa era falsa, medido.
+  - **6 issues nuevos**: #391-#392 (testing barato con reincidencia comprobada),
+    #393 (disco), #394-#396 (testing caro, con sus trade-offs escritos).
+  - **`.claude/worktrees/`: 4.2 GB → 0.** 15 worktrees, `dirty=0` en todos, los 15
+    con contenido ya en `main`. Ojo con el método: `git merge-base --is-ancestor`
+    daba `NO-MERGED` en los 15 —falso negativo del squash-merge— y la verificación
+    que sirvió fue cruzar cada branch contra su PR. Las 15 branches locales siguen
+    existiendo (son refs, no pesan).
+- Commit / PR: #388, #390.
+
 ## 2026-08-20 13:15 — claude — 11 issues cerrados, 8 PRs mergeados (todo lo previo al release)
 
 - Cambios:
