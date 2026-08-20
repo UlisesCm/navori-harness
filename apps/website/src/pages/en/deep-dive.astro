@@ -42,6 +42,14 @@ const agents = [
       "For a bug in a critical feature or a structural migration, it dissects the ticket: root cause, which areas are affected, and how to split the work. It produces an audit doc that guides the whole implementation, so the implementer doesn't start blind.",
   },
   {
+    role: "Auditor",
+    tag: "read-only",
+    model: "sonnet",
+    body: "The one that audits a module in depth with no ticket involved: what's wrong and how bad it is.",
+    detail:
+      "When you want to know what debt an area carries before refactoring it, it walks the code looking for bugs, security holes, performance problems, architecture violations, and uncovered edge cases. It never edits production code: it delivers a report with a prioritized plan on disk. Security and performance are mandatory axes of its review.",
+  },
+  {
     role: "Implementer",
     tag: "writes",
     model: "sonnet",
@@ -85,7 +93,7 @@ const modelTiers = [
   {
     model: "sonnet",
     use: "Write code",
-    who: "researcher · implementer",
+    who: "researcher · implementer · auditor",
     note: "Balance of quality and cost.",
   },
   {
