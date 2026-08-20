@@ -1,6 +1,7 @@
 # Spec 0012 — Capa de Solutioning · Plan de implementación
 
-> **Estado:** plan aprobado en diseño, pendiente de ejecutar.
+> **Estado:** ✅ **EJECUTADO 2026-08-18** — las 5 fases corrieron y mergearon en `main`
+> (`0c01763`, PR #339). Se conserva como registro de la ejecución, no como pendiente.
 > **Fecha:** 2026-08-18 · **Branch de trabajo:** `feat/0012-solutioning-plan` (base `main`)
 > **Prerequisito ya cumplido:** PR #332 (fase 0: veredicto de ticket en `ticket-audit` +
 > bloque `intake-tickets`) está mergeado en `main` (`2417d78`).

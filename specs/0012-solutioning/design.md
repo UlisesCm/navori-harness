@@ -1,6 +1,6 @@
 # Spec 0012 — Capa de Solutioning · Design
 
-**Estado:** en revisión (GATE H1) · **Fecha:** 2026-08-18
+**Estado:** ✅ **EJECUTADA 2026-08-18** (`0c01763`, PR #339) · **Fecha:** 2026-08-18
 **Requirements:** [`requirements.md`](./requirements.md) · **Runbook:** [`plan.md`](./plan.md)
 
 ## Decisión de arquitectura

@@ -1,6 +1,6 @@
 # Spec 0004 — Codex engine adapter: paridad exacta Claude ↔ Codex
 
-**Status:** proposed
+**Status:** ✅ **EJECUTADA 2026-07-24** (`620c791` — `feat(codex): agrega adapter nativo completo`) — `renderCodexEngine` cableado en `commands/render.ts` y cubierto por `engines/codex/__tests__/`. Correcciones posteriores de paridad en `#289`, `#290` y `#299`.
 **Date:** 2026-07-24
 **Driver:** Ulises Ciprés
 **Depends on:** [Spec 0002](./0002-claude-engine-adapter.md) — reutiliza sus helpers (`renderManagedFile`, `injectManagedSection`, `loadPreset`, `librarySkillById`).
