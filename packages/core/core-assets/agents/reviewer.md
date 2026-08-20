@@ -89,6 +89,7 @@ Your APPROVED verdict is bound to the exact bytes you reviewed. Before handing o
 The `-w` is load-bearing: it stores each blob in the object store, so a drift can be **inspected** (`git diff <blob-sha> <file>`, `git cat-file -p <blob-sha>`), not merely detected. Without it the sha names content nobody can recover, and the delta re-sign below has no diff to measure — worst of all for a file that is new in this diff, whose bytes exist nowhere else.
 
 ```bash
+mkdir -p .claude/progress   # nothing in a fresh clone creates it; without this the redirect below dies
 printf '# navori-receipt v1 feature=<feature>\n' > .claude/progress/receipt.txt
 # quotepath=false on both listings: git C-quotes a non-ASCII path by default
 # ("caf\303\251.ts"), and a path signed quoted never matches the pilot's

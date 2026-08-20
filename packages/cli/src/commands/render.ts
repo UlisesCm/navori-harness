@@ -13,6 +13,7 @@ import { renderCopilotEngine } from "../engines/copilot/index.ts";
 import { renderCodexEngine } from "../engines/codex/index.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
 import type { SkippedFile } from "../engines/shared/execute-plan.ts";
+import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import {
   renderGitignore,
   type GitignoreRenderResult,
@@ -410,8 +411,12 @@ export function runRender(
   if (pruneFlag && !dryRun && orphanedEngineOutputs.length > 0) {
     const paths = orphanedEngineOutputs.flatMap((o) => o.paths);
     // Back up before deleting so a mistaken prune is recoverable (same safety
-    // net the prose engine uses for overwrites).
-    const handle = createBackup(cwd, paths);
+    // net the prose engine uses for overwrites). The excludes are NOT optional:
+    // an orphaned engine dir is exactly where the ephemerals live (`.codex/
+    // progress/` under a dropped Codex engine), and copying them is what filled
+    // a disk with 131 GB of backups in #348. `commitWrites` already does this
+    // for the render backup; this second entry point had been missed (#373).
+    const handle = createBackup(cwd, paths, { exclude: [...EPHEMERAL_HARNESS_PATHS] });
     if (handle.files.length > 0) purgeOldBackups();
     for (const rel of paths) rmSync(resolve(cwd, rel), { recursive: true, force: true });
     prunedEngineOutputs = paths;

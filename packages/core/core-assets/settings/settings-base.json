@@ -36,6 +36,7 @@
       "Glob",
       "Grep",
       "Bash(ls:*)",
+      "Bash(mkdir -p:*)",
       "Bash(pwd:*)",
       "Bash(cat:*)",
       "Bash(head:*)",

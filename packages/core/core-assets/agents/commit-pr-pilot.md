@@ -13,7 +13,7 @@ You own the **end of the cycle**: well-structured Conventional commits and PRs w
 ## When to trigger
 
 - Working tree with changes ready to commit (post-implementer + review APPROVED).
-- Branch finished, ready for PR: clean working tree, `{{qualityGate.full}}` green, harness approved.
+- Branch finished, ready for PR: commits on the branch, harness approved, and fresh `{{qualityGate.full}}` evidence over the shipping diff (see Gate below).
 - Explicit user request: "create the PR", "commit this", "send the PR", "/pr".
 
 ## When NOT to trigger
@@ -100,7 +100,9 @@ Then route by cause, in the same message:
 
 An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wrong cwd, unreadable file) — fix the environment and re-run the check; sending it to the `reviewer` can never resolve it. **This check is the only one that runs** — no hook re-verifies the receipt behind you (#365), so skipping it skips it for everyone.
 
-**R1 exception (trivial diff, no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `{{qualityGate.full}}` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
+<!-- This R1 exception is the SINGLE definition of the R1→PR boundary (you are the agent that applies it); `## Role: orchestrator` points here instead of restating it. -->
+
+**R1 exception (no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `{{qualityGate.full}}` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
 
 ### Gate: `{{qualityGate.full}}` green before the PR
 

@@ -4,7 +4,7 @@ description: Drafts commit messages and opens PRs with a title + body following 
 tools: Read, Glob, Grep, Bash
 ---
 
-<!-- navori:managed id="commit-pr-pilot-base" hash="b95b1a16" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="commit-pr-pilot-base" hash="50adad4d" version="0.5.1" source="@navori/core" -->
 # Commit & PR Pilot Agent
 
 You own the **end of the cycle**: well-structured Conventional commits and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -12,7 +12,7 @@ You own the **end of the cycle**: well-structured Conventional commits and PRs w
 ## When to trigger
 
 - Working tree with changes ready to commit (post-implementer + review APPROVED).
-- Branch finished, ready for PR: clean working tree, `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green, harness approved.
+- Branch finished, ready for PR: commits on the branch, harness approved, and fresh `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` evidence over the shipping diff (see Gate below).
 - Explicit user request: "create the PR", "commit this", "send the PR", "/pr".
 
 ## When NOT to trigger
@@ -55,12 +55,8 @@ An absent file, ambiguous (more than one candidate), or with a verdict/scope tha
 #    the sets line up 1:1 with no spurious mismatches. A git-persisted progress/
 #    update never counts as "uncovered"; deletions DO stay in the set (the receipt
 #    records them as `deleted <path>`) so a removed file can't ship unreviewed.
-#    quotepath=false on both listings, exactly as the reviewer signed them: git
-#    C-quotes a non-ASCII path by default and a quoted path never matches the
-#    receipt's line, so the file would look uncovered (or slip by unverified).
 comm -23 \
-  <({ git -c core.quotepath=false diff --name-only "origin/main"; \
-      git -c core.quotepath=false ls-files --others --exclude-standard; } \
+  <({ git diff --name-only "origin/main"; git ls-files --others --exclude-standard; } \
        | sort -u | grep -vE '^(\.claude/progress/|progress/)') \
   <(grep -v '^#' .claude/progress/receipt.txt | sed 's/^[^ ]*  //' | sort -u)
 
@@ -97,15 +93,17 @@ Then route by cause, in the same message:
 - **Drift explained by an edit made after the review** (a minor finding applied by the orchestrator, a follow-up tweak) → back to the `reviewer` in **delta re-sign** mode: it judges only that delta and rewrites the receipt, no full re-review.
 - **Drift you cannot explain** (rebase, merge, another session, a stray `git checkout`), or an **uncovered** file from (1) → full re-review over the current bytes. Unexplained means unbounded: there's no delta to scope the reading to.
 
-An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wrong cwd, unreadable file) — fix the environment and re-run the check; sending it to the `reviewer` can never resolve it. **This check is the only one that runs** — no hook re-verifies the receipt behind you (#365), so skipping it skips it for everyone.
+An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wrong cwd, unreadable file) — fix the environment and re-run the check; sending it to the `reviewer` can never resolve it. (The pre-commit hook re-checks the staged set for drift mechanically as a backstop; catching both here is earlier and clearer.)
 
-**R1 exception (trivial diff, no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
+<!-- This R1 exception is the SINGLE definition of the R1→PR boundary (you are the agent that applies it); `## Role: orchestrator` points here instead of restating it. -->
+
+**R1 exception (no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
 
 ### Gate: `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green before the PR
 
 The PR gate is `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` (lint + tests) — **not** just `cd packages/cli && pnpm lint` (typecheck). A PR must not ship with lint errors or red tests, so `full` must be green over the diff that ships. Two paths:
 
-- **R2+ (reviewed):** the `reviewer` already ran `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which is what the content receipt check above is for — YOU run it; no hook repeats it. The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `cd packages/cli && pnpm lint` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
+- **R2+ (reviewed):** the `reviewer` already ran `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which the content receipt above enforces. The `git commit`/`push` `PreToolUse` hooks still run **mechanically** as a backstop: `quality-gate-pre-commit` re-checks the content receipt over the staged set and re-runs `cd packages/cli && pnpm lint` (blocks if either fails), plus jscpd/semgrep (duplication/security).
 - **R1 (no reviewer):** there's no review evidence to trust — YOU run `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green in pre-flight before `gh pr create`.
 - ▶️ **Re-run `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` by hand** whenever the diff changed since the review (rebase/merge/follow-up edit) or there's no fresh evidence over the diff being committed — stale evidence doesn't count.
 

@@ -28,7 +28,16 @@ import type { AdapterCtx, EngineAdapter, PlacementRequest } from "../shared/exec
 export function createClaudeAdapter(): EngineAdapter {
   return {
     id: "claude",
-    backupTargets: ["CLAUDE.md", ".claude", "navori.config.json"],
+    // Kept in sync with the LIVE list in `index.ts` (the one the engine's own
+    // `commitWrites` call passes) — `.mcp.json` included. Nothing reads this
+    // copy today: the Claude engine only takes `collectPlan` from the spine,
+    // and `collectPlan` never looks at backup targets. It is here because the
+    // `EngineAdapter` contract requires it, and a WRONG value sitting in a
+    // dead field is a landmine for whoever finishes the migration to
+    // `executePlan` — it would silently drop `.mcp.json` from the backup.
+    // Excludes are not this list's business: `commitWrites` always unions
+    // `EPHEMERAL_HARNESS_PATHS` in, for every engine (#361). (#373)
+    backupTargets: ["CLAUDE.md", ".claude", "navori.config.json", ".mcp.json"],
 
     placeAgent(agent): PlacementRequest {
       return {

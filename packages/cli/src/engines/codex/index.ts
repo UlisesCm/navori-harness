@@ -239,9 +239,14 @@ function createCodexAdapter(configTomlBody: string): EngineAdapter {
       };
     },
 
-    placeSkill(skill): PlacementRequest {
+    placeSkill(skill, ctx): PlacementRequest {
       return {
         assetPath: skill.assetPath,
+        // #364: skills ship as raw assets, so without this the body kept
+        // pointing at `.claude/progress/` while the adapted agents read and
+        // write `.codex/progress/` — the 8-phase pipeline scattered its
+        // artifacts across two directories and the gates found nothing.
+        transform: (text) => adaptHarnessTextForCodex(text, ctx.config),
         destRelPath: `.agents/skills/${skill.id}/SKILL.md`,
         managedId: skill.managedId,
         commentStyle: "html",
