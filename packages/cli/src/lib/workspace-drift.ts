@@ -33,6 +33,9 @@ const MIN_SIBLINGS = 2;
 /** Marker for a key the config leaves undeclared, in both facts and reports. */
 const UNDECLARED = "—";
 
+/** A plugin this repo explicitly turned OFF — a decision, not a gap (#374). */
+const DISABLED = "disabled";
+
 export interface WorkspaceDriftItem {
   /** Config key, e.g. `branchBase` or `plugins.semgrep`. */
   key: string;
@@ -77,8 +80,15 @@ function configFacts(config: NavoriConfig): Map<string, string> {
   facts.set("engines", [...config.engines].sort().join(","));
   facts.set("models", config.models ? "declared" : UNDECLARED);
   facts.set("effort", config.effort ? "declared" : UNDECLARED);
+  // An explicit `false` is a DECISION, and it gets its own value — not the
+  // absence of one. Conflating the two (#374) made a deliberate opt-out
+  // indistinguishable from a repo that was never configured, so the sibling
+  // tally reported "5/6 enable it" against a settled call, on every doctor run,
+  // forever. Permanent noise over a closed decision is what teaches people to
+  // stop reading warnings.
   for (const [id, entry] of Object.entries(config.plugins ?? {})) {
     if (entry.enabled === true) facts.set(`plugins.${id}`, "enabled");
+    else if (entry.enabled === false) facts.set(`plugins.${id}`, DISABLED);
   }
   return facts;
 }
@@ -157,6 +167,14 @@ function driftVsSiblings(
     if (expected === UNDECLARED || agree * 2 <= siblings.length) continue;
     const local = facts.get(key) ?? UNDECLARED;
     if (local === expected) continue;
+    // An explicit opt-out is never sibling drift (#374), in either direction:
+    // this repo already answered the question, and "most siblings turned it
+    // off" is not a reason to turn it off here — the check stays as
+    // one-directional as it always was ("the others enable it, you don't").
+    // (The workspace manifest is a different matter: a declared default IS a
+    // policy, so `driftVsDefaults` still reports the contradiction — now
+    // labeled `disabled` instead of the misleading "undeclared".)
+    if (local === DISABLED || expected === DISABLED) continue;
     out.push({ key, local, expected, agree, total: siblings.length });
   }
   return out;

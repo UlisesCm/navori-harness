@@ -113,6 +113,38 @@ export function hasTrigger(description: string | null): boolean {
  * token floor. */
 const TRIGGER_MAX = 120;
 
+/** Shortest first clause a dash cut may produce. Below this the "trigger" is a
+ * label, not a condition — see `summarizeTrigger`. */
+const TRIGGER_MIN_CLAUSE = 25;
+
+/** Longest span a pair of dashes may enclose and still read as an aside rather
+ * than a real clause break. */
+const ASIDE_MAX = 40;
+
+/**
+ * Remove a parenthetical delimited by a PAIR of dashes, keeping the sentence
+ * that wraps it. In `dominio`'s description the dashes are parentheses, not a
+ * clause break — "Use when you discover — or need — a durable fact…" — so
+ * cutting at the first one rendered the index row as the useless "Use when you
+ * discover" (#372). Only a SHORT enclosed span is treated as an aside; a long
+ * one is a real clause and the cut in `summarizeTrigger` still applies.
+ */
+function dropDashAsides(text: string): string {
+  const sep = / [—–] /g;
+  const at: number[] = [];
+  for (const m of text.matchAll(sep)) at.push(m.index);
+  let out = "";
+  let from = 0;
+  for (let i = 0; i + 1 < at.length; i += 2) {
+    const open = at[i];
+    const close = at[i + 1];
+    if (close - open - 3 > ASIDE_MAX) continue;
+    out += text.slice(from, open) + " ";
+    from = close + 3;
+  }
+  return (out + text.slice(from)).replace(/\s+/g, " ").trim();
+}
+
 /**
  * Condense a skill `description` to a single-line activation trigger for the
  * skills index (issue #166 H8). Engines without native autoload
@@ -123,12 +155,21 @@ const TRIGGER_MAX = 120;
  */
 export function summarizeTrigger(description: string | null): string | null {
   if (!description) return null;
-  const flat = description.replace(/\s+/g, " ").trim();
+  const flat = dropDashAsides(description.replace(/\s+/g, " ").trim());
   if (flat === "") return null;
   let cut = flat.length;
-  for (const sep of [". ", " — ", " – ", "; "]) {
+  for (const sep of [". ", "; "]) {
     const at = flat.indexOf(sep);
     if (at > 0 && at < cut) cut = at;
+  }
+  // A dash cut is accepted only when what precedes it is a usable trigger on
+  // its own. `dominio` reads "Use when you discover — or need — a durable
+  // fact…": the pair is spliced out above, but a lone dash after a 3-word lead
+  // ("Debugging — use when tsc explodes") would still cut down to a label
+  // nobody can route on, so the clause has to earn the cut (#372).
+  for (const sep of [" — ", " – "]) {
+    const at = flat.indexOf(sep);
+    if (at >= TRIGGER_MIN_CLAUSE && at < cut) cut = at;
   }
   let out = flat
     .slice(0, cut)
