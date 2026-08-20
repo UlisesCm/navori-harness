@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -81,6 +88,40 @@ describe("renderCodexEngine", () => {
     expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).not.toContain(
       "sandbox_mode",
     );
+  });
+
+  /**
+   * Anti-drift gate (#364). Four findings in a row had the same shape: a feature
+   * is wired for Claude and the Codex path arrives late, so an asset ships with
+   * a `.claude/…` path the Codex agents cannot reach. Asserting file by file
+   * only pins the assets someone remembered; this sweeps every PROSE surface the
+   * adapter owns, so a NEW asset that skips it fails here instead of in a repo.
+   *
+   * Hooks are deliberately out of scope: `placeHook` does not retarget paths
+   * either, but a shell script is not prose and fixing it is its own unit.
+   */
+  it("emits no unreachable `.claude/` path in any adapted prose surface (#364)", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+
+    const surfaces = [
+      join(cwd, "AGENTS.md"),
+      ...readdirSync(join(cwd, ".codex/agents")).map((f) => join(cwd, ".codex/agents", f)),
+      ...readdirSync(join(cwd, ".agents/skills")).map((d) =>
+        join(cwd, ".agents/skills", d, "SKILL.md"),
+      ),
+    ];
+    expect(surfaces.length).toBeGreaterThan(10);
+
+    for (const file of surfaces) {
+      // #209: the commit-hygiene line keeps `.claude/` on purpose — it names the
+      // directory NOT to commit, which is a real directory under both engines.
+      const body = readFileSync(file, "utf-8").replaceAll(
+        "Never commit `.claude/` or `CLAUDE.md`",
+        "",
+      );
+      expect({ file, hit: body.includes(".claude/") }).toEqual({ file, hit: false });
+    }
   });
 
   it("appends a leader-targeted plugin skill to AGENTS.md as a managed sub-block (#277)", () => {
