@@ -3,7 +3,7 @@
 # SubagentStop lifecycle hook — handoff validator.
 # Fires when a subagent finishes. The harness contract is that an implementer
 # closes with `impl_<feature>.md` and a reviewer with `review_<feature>.md`
-# under `.claude/progress/` — those files ARE the handoff the leader (and the
+# under the engine's progress dir — those files ARE the handoff the leader (and the
 # commit-pr-pilot) read. A subagent that returns having left an empty or
 # structurally-broken handoff silently corrupts that chain. This hook catches
 # the obvious failure modes deterministically.
@@ -27,15 +27,25 @@ set -euo pipefail
 
 cat >/dev/null 2>&1 || true   # drain the SubagentStop JSON on stdin (unused)
 
-# Resolve the progress dir. Default is `.claude/progress/`; `progress/` is the
-# fallback for repos that relocate it. (These are literal, not interpolated:
-# progress.dir isn't exposed to the render interpolator and the default covers
-# the overwhelming common case — same choice as session-start-context.sh.)
-dir=""
-for d in ".claude/progress" "progress"; do
-  if [ -d "$d" ]; then dir="$d"; break; fi
+# Resolve the progress dirs. `placeHook` copies this body VERBATIM for every
+# engine — it is never retargeted the way prose assets are (#389) — so the hook
+# has to know every engine's path itself or it silently no-ops there: under
+# Codex the handoff lives in `.codex/progress/` (what `compat.ts` rewrites
+# `.claude/progress/` into), and this loop used to stop at two names it would
+# never find. Bare `progress/` stays as the fallback for a repo that relocates
+# it. (Literals, not interpolated: `progress.dir` isn't exposed to the render
+# interpolator — same choice as session-start-context.sh.)
+#
+# EVERY existing dir is scanned, not the first one found: a repo that renders
+# both engines has both, and picking one by probe order would make the hook
+# blind to whichever engine happens to come second. An ARRAY, never an unquoted
+# string: word-splitting a `$dirs` string is a no-op under zsh, which is how the
+# receipt backstop silently stopped scanning (#344).
+dirs=()
+for d in ".claude/progress" ".codex/progress" "progress"; do
+  [ -d "$d" ] && dirs+=("$d")
 done
-[ -n "$dir" ] || exit 0
+[ ${#dirs[@]} -gt 0 ] || exit 0
 
 # Is a file empty or whitespace-only?
 is_blank() { ! grep -q '[^[:space:]]' "$1" 2>/dev/null; }
@@ -44,25 +54,29 @@ problems=""
 note() { problems="${problems}${problems:+; }$1"; }
 
 shopt -s nullglob
-for f in "$dir"/impl_*.md; do
-  if is_blank "$f"; then
-    note "$(basename "$f") vacío"
-  elif ! grep -qiE '^\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
-    note "$(basename "$f") sin línea 'Status:'"
-  fi
-done
-for f in "$dir"/review_*.md; do
-  if is_blank "$f"; then
-    note "$(basename "$f") vacío"
-  elif ! grep -qE 'APPROVED|CHANGES_REQUESTED' "$f" 2>/dev/null; then
-    note "$(basename "$f") sin veredicto (APPROVED/CHANGES_REQUESTED)"
-  fi
+# Reports are named by their PATH, not their basename: with more than one
+# progress dir in play, `impl_x.md` alone wouldn't say which one to open.
+for dir in "${dirs[@]}"; do
+  for f in "$dir"/impl_*.md; do
+    if is_blank "$f"; then
+      note "$f vacío"
+    elif ! grep -qiE '^\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
+      note "$f sin línea 'Status:'"
+    fi
+  done
+  for f in "$dir"/review_*.md; do
+    if is_blank "$f"; then
+      note "$f vacío"
+    elif ! grep -qE 'APPROVED|CHANGES_REQUESTED' "$f" 2>/dev/null; then
+      note "$f sin veredicto (APPROVED/CHANGES_REQUESTED)"
+    fi
+  done
 done
 shopt -u nullglob
 
 [ -n "$problems" ] || exit 0
 
-msg="navori: handoff(s) de subagente incompletos en ${dir}/ — ${problems}. Revisa que el reporte quedó bien escrito antes de consolidarlo."
+msg="navori: handoff(s) de subagente incompletos — ${problems}. Revisa que el reporte quedó bien escrito antes de consolidarlo."
 
 if command -v node >/dev/null 2>&1; then
   MSG="$msg" node -e 'process.stdout.write(JSON.stringify({systemMessage:process.env.MSG}))'

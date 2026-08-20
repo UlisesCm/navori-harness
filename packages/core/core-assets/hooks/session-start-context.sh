@@ -44,12 +44,15 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
 fi
 
-# Previous-session state. The default lives at `progress/current.md`; the
-# Claude progress dir is the fallback. (These are literal, not interpolated:
-# `progress.dir`/`progress.currentFile` aren't exposed to the render's
-# interpolator, and the default covers the overwhelming common case.)
+# Previous-session state. The default lives at `progress/current.md` — the
+# git-persisted one, the same for every engine — and each engine's progress dir
+# is a fallback for a repo that kept it there. Codex is listed too because this
+# body is copied VERBATIM per engine and never retargeted (#389). (These are
+# literal, not interpolated: `progress.dir`/`progress.currentFile` aren't
+# exposed to the render's interpolator, and the default covers the overwhelming
+# common case.)
 current=""
-for f in "progress/current.md" ".claude/progress/current.md"; do
+for f in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do
   if [ -f "$f" ]; then current="$f"; break; fi
 done
 if [ -n "$current" ]; then
