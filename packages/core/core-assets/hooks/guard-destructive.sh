@@ -9,6 +9,9 @@
 # this is the strongest line of defense — it overrides even an `allow` match.
 #
 # KNOWN, ACCEPTED LIMITATION: matching is regex-based over the command string.
+# A compound command is split into one segment per line first, so each rule only
+# ever matches WITHIN a segment (see "SEGMENTS" below) — that is what keeps a
+# `git commit` in one segment from being paired with a flag in another.
 # Multi-line continuations, git global options (`git -C … commit`), and simple
 # wrappers (`command`/`\git`/parens) ARE normalized before matching now, and a
 # quoted skip-flag (`git commit "--no-verify"`) is still caught. Still unhandled:
@@ -39,9 +42,9 @@ block() {
   exit 2
 }
 
-# Normalized copies used ONLY by the hook-skip (1) and force-push (2) rules
-# below. `$cmd` stays intact for the messages and the other rules. The transforms
-# only add boundaries / drop noise, so they always push toward MORE blocking:
+# Normalized copy used ONLY by the rules below. `$cmd` stays intact for the
+# messages. The transforms only add boundaries / drop noise, so they always push
+# toward MORE blocking:
 #   FIX B — join `\<newline>` continuations into a space and flatten any other
 #           newline to `;` (a boundary the rules already handle) so a multi-line
 #           `git commit \<NL> --no-verify` is matched as one logical command.
@@ -50,9 +53,6 @@ block() {
 #           `\git …` and `(git …)` read as a plain `git …`.
 # `scan` keeps quoted spans intact, so a quoted skip-flag (`git commit
 # "--no-verify"`) is still caught — stripping the quotes there was a real bypass.
-# `scan_flags` additionally drops quoted spans and is used ONLY by the
-# combined-short-flag check, so a hyphen-word inside a commit message
-# (`-m "add -notify option"`) can't trip it.
 scan="$cmd"
 scan="${scan//\\$'\n'/ }"     # FIX B: join line continuations
 scan="${scan//$'\n'/;}"       # FIX B: flatten remaining newlines to a boundary
@@ -60,36 +60,22 @@ scan=$(printf '%s' "$scan" | sed -E \
   -e "s/(^|[;&|]|[[:space:]])command[[:space:]]+/\1/g" \
   -e "s/\\\\([A-Za-z])/ \1/g" \
   -e "s/\(/ /g")
-scan_flags=$(printf '%s' "$scan" | sed -E -e "s/'[^']*'//g" -e "s/\"[^\"]*\"//g")
 
-# Git commit/push detector shared by rule 1. The leading boundary accepts ; & |
-# so `true;git commit …` (no space after the separator) is caught; the
-# `git(… -opt …)*` middle allows git global options between `git` and the
-# subcommand (`git -c k=v commit …`).
-git_cp='(^|[[:space:]]|[;&|])git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+(commit|push)'
-
-# 1. Skipping quality gates / hooks — defeats the whole point of the harness.
-#    Two checks: the literal `--no-verify` over `scan` (quotes kept, so a quoted
-#    flag is still caught), and `-[a-zA-Z]*n[a-zA-Z]*` over `scan_flags` (quotes
-#    dropped) to catch `-n` folded into a combined short-flag token
-#    (`git commit -qn`/`-nq`) without a hyphen-word in a message tripping it.
-if printf '%s' "$scan"       | grep -qE "${git_cp}([[:space:]]|.)*--no-verify" \
-  || printf '%s' "$scan_flags" | grep -qE "${git_cp}([[:space:]]|.)*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*([[:space:]]|\$)"; then
-  block "git commit/push with --no-verify (skipping hooks/gates)"
-fi
-
-# 2. Force-push to the base branch. force-with-lease is allowed (safe rebase
-#    flow on feature branches); bare --force/-f against the base branch is not.
-#    #307: every sub-check is scoped to the ACTUAL `git push` invocation(s),
-#    never the whole command string. Splitting on the shell separators (&& || ;
-#    | newline) and keeping only segments that START a `git … push` means a `+`
-#    in a commit message (`-m "format:check + test"`), a base-branch name in a
-#    sibling command (`gh pr create --base main`), or a heredoc/`--body` can no
-#    longer be misread as a force-push refspec or as the pushed ref — that
-#    false positive blocked legit compound commit+push+PR commands. The refspec
-#    `+` is matched only when glued to a ref (`+main`, never `+ test`), the way
-#    git actually spells a force-push refspec.
-push_seg=""
+# SEGMENTS — one segment per LINE, shared by rules 1, 2 and 3.
+#
+# This is the backbone of the whole file: `grep` and `sed` match LINE BY LINE, so
+# once a compound command is split one-segment-per-line, every rule below is
+# scoped to a single segment for free — a pattern can no longer pair a `git
+# commit` in one segment with a flag in another, and `$` means "end of this
+# segment", not "end of the whole command line".
+# #307 first did this for the force-push rule with a private copy of the split;
+# rules 1 (#A2) and 3 (#A1) had the cross-segment bug it cured, so the split now
+# happens ONCE, here, and all three rules read `$segments`.
+#
+# Each segment is peeled so it STARTS with its command word: leading whitespace
+# and `VAR=value` env prefixes go away (`FOO=1 git push …` → `git push …`); the
+# `(`, `\` and `command ` wrappers were already neutralized by FIX C above.
+segments=""
 _split="$scan"
 _split="${_split//&&/$'\n'}"
 _split="${_split//||/$'\n'}"
@@ -106,10 +92,49 @@ while IFS= read -r _seg; do
       *) _seg=""; break ;;
     esac
   done
-  if printf '%s' "$_seg" | grep -qE '^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+push([[:space:]]|$)'; then
-    push_seg="${push_seg}${_seg}"$'\n'
-  fi
+  segments="${segments}${_seg}"$'\n'
 done <<< "$_split"
+
+# Same list with quoted spans dropped, used ONLY by the combined-short-flag
+# check, so a hyphen-word inside a commit message (`-m "add -notify option"`)
+# can't trip it.
+segments_unquoted=$(printf '%s' "$segments" | sed -E -e "s/'[^']*'//g" -e "s/\"[^\"]*\"//g")
+
+# Git commit/push detector shared by rule 1. The leading boundary accepts ; & |
+# so `true;git commit …` (no space after the separator) is caught; the
+# `git(… -opt …)*` middle allows git global options between `git` and the
+# subcommand (`git -c k=v commit …`).
+git_cp='(^|[[:space:]]|[;&|])git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+(commit|push)'
+
+# 1. Skipping quality gates / hooks — defeats the whole point of the harness.
+#    Two checks: the literal `--no-verify` over `segments` (quotes kept, so a
+#    quoted flag is still caught), and `-[a-zA-Z]*n[a-zA-Z]*` over
+#    `segments_unquoted` to catch `-n` folded into a combined short-flag token
+#    (`git commit -qn`/`-nq`) without a hyphen-word in a message tripping it.
+#    Both run over the SEGMENT list, so the `.*` between the git invocation and
+#    the flag can never leave the segment that holds the commit/push. Matching
+#    the whole command string instead is what made `git commit -m x && git log
+#    -n 3` (or `&& grep -rn TODO src/`) block as a bogus "--no-verify": any short
+#    flag carrying an `n` ANYWHERE later in the line was read as the commit's.
+if printf '%s' "$segments"            | grep -qE "${git_cp}.*--no-verify" \
+  || printf '%s' "$segments_unquoted" | grep -qE "${git_cp}.*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*([[:space:]]|\$)"; then
+  block "git commit/push with --no-verify (skipping hooks/gates)"
+fi
+
+# 2. Force-push to the base branch. force-with-lease is allowed (safe rebase
+#    flow on feature branches); bare --force/-f against the base branch is not.
+#    #307: every sub-check is scoped to the ACTUAL `git push` invocation(s),
+#    never the whole command string. Keeping only the segments that START a
+#    `git … push` means a `+`
+#    in a commit message (`-m "format:check + test"`), a base-branch name in a
+#    sibling command (`gh pr create --base main`), or a heredoc/`--body` can no
+#    longer be misread as a force-push refspec or as the pushed ref — that
+#    false positive blocked legit compound commit+push+PR commands. The refspec
+#    `+` is matched only when glued to a ref (`+main`, never `+ test`), the way
+#    git actually spells a force-push refspec.
+push_seg=$(printf '%s' "$segments" \
+  | grep -E '^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+push([[:space:]]|$)' \
+  || true)
 
 if [ -n "$push_seg" ] \
   && printf '%s' "$push_seg" | grep -qE '(--force([[:space:]]|$)|[[:space:]]-f([[:space:]]|$)|[[:space:]]\+[^[:space:]])' \
@@ -118,9 +143,42 @@ if [ -n "$push_seg" ] \
   block "force-push to the base branch '${base}'"
 fi
 
-# 3. rm -rf with variable indirection or absolute/home roots that static deny
-#    globs miss (e.g. PATH=/; rm -rf $PATH).
-if printf '%s' "$cmd" | grep -qE '(^|[[:space:]])rm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*[[:space:]]+|-[a-zA-Z]*f[a-zA-Z]*[[:space:]]+)*-?[a-zA-Z]*[rf][a-zA-Z]*[[:space:]]+("?\$|/[[:space:]]*$|~[[:space:]]*$)'; then
+# 3. rm -rf with variable indirection or absolute home/system roots that static
+#    deny globs miss. The deny rules in settings.json (`Bash(rm -rf ~/*)`,
+#    `Bash(rm -rf /*)`) only match a command that STARTS that way, so anything
+#    compound (`cd /tmp && rm -rf ~/`) walks past them — exactly the class this
+#    guard exists to cover. Matching per SEGMENT is what makes that work: `$`
+#    below means "end of this segment", so the target no longer has to sit at
+#    the end of the whole command line.
+#
+#    COVERED (blocked):
+#      rm -rf $VAR / "$VAR"        variable indirection (`PATH=/; rm -rf $PATH`)
+#      rm -rf /   ·  rm -rf /*     the filesystem root
+#      rm -rf ~   ·  ~/  ·  ~/Documents        HOME and its immediate children
+#      rm -rf /Users/me  ·  /Users/me/Desktop  the same, spelled absolutely
+#      rm -rf /usr  ·  /etc  ·  /var/folders   a system root or an immediate child
+#      rm -rf /tmp  ·  /private/tmp            the scratch root itself, bare
+#    NOT COVERED (deliberate, so everyday cleanup keeps working):
+#      relative paths — `rm -rf node_modules`, `rm -rf ./dist`
+#      anything INSIDE the scratch root — `rm -rf /tmp/navori-test-123`: a temp
+#        dir is scratch by definition and agents create and delete them all day;
+#        only wiping `/tmp` wholesale is the accident worth catching.
+#      DEEP absolute paths — `rm -rf /Users/me/dev/app/node_modules`, `/tmp/x/y`:
+#        past the first level under a root, a path is assumed to be project or
+#        scratch data. Wiping HOME or a system dir is the accident worth
+#        catching; a deep path is a targeted delete, and blocking every one of
+#        them would fire daily (agents are told to use absolute paths) and only
+#        teach the operator to route around the guard.
+#      `sh -c`, `eval`, base64/printf obfuscation — seatbelt, not a sandbox.
+rm_run='(^|[[:space:]])rm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*[[:space:]]+|-[a-zA-Z]*f[a-zA-Z]*[[:space:]]+)*-?[a-zA-Z]*[rf][a-zA-Z]*[[:space:]]+'
+rm_quote="[\"']?"                     # optional opening quote around the target
+rm_var='\$'                           # `$VAR`, `${VAR}` — any variable
+rm_home='~(/[^[:space:]/]*)?|/(Users|home)(/[^[:space:]/]+(/[^[:space:]/]*)?)?'
+rm_root='/\*?|/(Applications|Library|System|Volumes|bin|boot|dev|etc|lib|lib64|mnt|opt|root|sbin|srv|sys|usr|var)(/[^[:space:]/]*)?'
+rm_tmp='/private(/tmp)?|/tmp'         # scratch root: the root itself, never a child
+rm_end='/?([[:space:]]|$)'            # optional trailing slash, then end of segment
+if printf '%s' "$segments" \
+  | grep -qE "${rm_run}${rm_quote}(${rm_var}|(${rm_home}|${rm_root}|${rm_tmp})${rm_end})"; then
   block "recursive rm over a variable / root / home"
 fi
 
