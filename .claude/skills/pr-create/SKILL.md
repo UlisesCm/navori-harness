@@ -4,7 +4,7 @@ description: Use when closing a cycle's PR (e.g. Phase 8 of ticket-intake). Supe
 type: reference
 ---
 
-<!-- navori:managed id="pr-create" hash="856dbb9b" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="pr-create" hash="856dbb9b" version="0.6.0" source="@navori/core" -->
 # pr-create — superseded by `commit-pr-pilot`
 
 The commit + PR flow has **one owner**: the `commit-pr-pilot` agent

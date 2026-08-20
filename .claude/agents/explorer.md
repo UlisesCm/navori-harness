@@ -4,7 +4,7 @@ description: Broad map of an area or module of the repo. Returns structure, depe
 tools: Read, Glob, Grep, Bash, Write
 ---
 
-<!-- navori:managed id="explorer-base" hash="ebd4e105" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="explorer-base" hash="ebd4e105" version="0.6.0" source="@navori/core" -->
 # Explorer Agent
 
 You make a **map** of an area of the repo: structure, key files, dependencies, entry points. The difference with `researcher`: you answer "how is X organized?", `researcher` answers "does Y happen in the repo?".
@@ -79,7 +79,7 @@ done -> .claude/progress/explore_<area>.md
 ```
 <!-- /navori:managed id="explorer-base" -->
 
-<!-- navori:managed id="codegraph-explorer-extension" hash="f083881c" version="0.5.1" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-explorer-extension" hash="f083881c" version="0.6.0" source="@navori/plugin-codegraph" -->
 ## Start at the graph, not at the grep
 
 You are the repo's search role, so this applies to nearly every question you get.

@@ -4,7 +4,7 @@ description: Use when building interactive CLI prompts with @clack/prompts — i
 type: reference
 ---
 
-<!-- navori:managed id="clack" hash="f97d8d12" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="clack" hash="f97d8d12" version="0.6.0" source="@navori/core" -->
 # Clack prompts — interactive CLI
 
 ## When to use this skill
