@@ -93,10 +93,11 @@ describe("stop-verify-reminder hook", () => {
 
 describe("subagent-stop-handoff hook", () => {
   const run = () => runHook("subagent-stop-handoff.sh", { hook_event_name: "SubagentStop" });
-  const writeProgress = (name: string, body: string) => {
-    mkdirSync(join(dir, ".claude", "progress"), { recursive: true });
-    writeFileSync(join(dir, ".claude", "progress", name), body);
+  const writeProgressIn = (engineDir: string, name: string, body: string) => {
+    mkdirSync(join(dir, engineDir, "progress"), { recursive: true });
+    writeFileSync(join(dir, engineDir, "progress", name), body);
   };
+  const writeProgress = (name: string, body: string) => writeProgressIn(".claude", name, body);
 
   it("stays silent when there is no progress dir", () => {
     const r = run();
@@ -131,6 +132,29 @@ describe("subagent-stop-handoff hook", () => {
     const r = run();
     expect(systemMessage(r.stdout)).toContain("review_x.md");
     expect(JSON.parse(r.stdout)).not.toHaveProperty("decision");
+  });
+
+  // #389: `placeHook` copies this body verbatim for every engine, so the hook
+  // has to know each engine's progress dir itself. It knew two names Codex
+  // never uses, which made it a silent no-op there — the same shape as #352.
+  it("reads the Codex progress dir too", () => {
+    writeProgressIn(".codex", "impl_x.md", "# impl\nno terminal marker\n");
+    expect(systemMessage(run().stdout)).toContain(".codex/progress/impl_x.md");
+  });
+
+  // Both dirs exist in a repo that renders both engines. Stopping at the first
+  // one found would leave whichever engine came second unwatched.
+  it("scans EVERY progress dir, not just the first one it finds", () => {
+    writeProgressIn(".claude", "impl_a.md", "   \n");
+    writeProgressIn(".codex", "review_b.md", "# review\nno verdict here\n");
+    const msg = systemMessage(run().stdout);
+    expect(msg).toContain(".claude/progress/impl_a.md");
+    expect(msg).toContain(".codex/progress/review_b.md");
+  });
+
+  it("names the report by its path, so the message says which dir to open", () => {
+    writeProgressIn(".codex", "impl_x.md", "   \n");
+    expect(systemMessage(run().stdout)).toContain(".codex/progress/impl_x.md");
   });
 });
 

@@ -99,6 +99,10 @@ fi
 #
 #   case "$cmd" in
 #     'git push'*)
-#       bash .claude/scripts/check-jscpd.sh || exit 2
+#       bash scripts/check-licenses.sh || exit 2
 #       ;;
 #   esac
+#
+# Use a path your own repo owns. The example used to point at a plugin script
+# under `.claude/scripts/`, which only exists when that plugin is installed AND
+# the engine is Claude — copied verbatim it fails under Codex (#389).
