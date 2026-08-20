@@ -1,62 +1,60 @@
 # Sesión actual
 
-**Estado:** idle. Cero issues abiertos, cero PRs abiertos. `main` al día.
+**Estado:** idle. 6 issues abiertos, todos diferidos a propósito. Cero PRs abiertos.
+`main` al día con los 8 PRs de la sesión.
 
-## Qué se cerró
+## Qué se cerró (2026-08-20)
 
-**14 issues** y **12 PRs mergeados** entre el 2026-08-18 y el 19.
+**11 issues, 8 PRs.** Todo lo que bloqueaba el release 0.6.0.
 
-- **Los 8 con los que abrió la sesión** (#331, #333-#338, #340). Ninguno procedía tal como
-  estaba escrito: uno pasó limpio, cinco se reformularon y de dos hubo que cortar la parte
-  principal —#333 (navori no escribe `package.json`; el plugin que lo hacía se removió en
-  #130) y #336 (un `.semgrep.yml` habría sido inerte)—, cerrados con la evidencia.
-- **Los 6 defectos del harness que aparecieron al usarlo**: #344 (`path` es variable especial
-  de zsh → `DRIFT` falso irresoluble), #348 (131 GB de backups), #352 y #354 (el backstop
-  ciego bajo Codex y el receipt que eclipsaba a otro), #341 y #342 (la contradicción de la
-  Regla A y el receipt no inspeccionable), #345 y #350.
-- **Créditos públicos** a los 11 proyectos de referencia: `docs/inspiration.md` restaurado y
-  verificado, sección nueva en el README, y bloque en la landing (es/en).
-
-Detalle por sesión en `history.md`.
+- **#363** (security, high) — el guard hacía match sobre el comando COMPLETO en dos de
+  sus tres reglas: `cd /tmp && rm -rf ~/` pasaba, y `git commit -m x && git log -n 3`
+  se bloqueaba como `--no-verify`. Ahora el split en segmentos es uno solo y lo
+  comparten las tres reglas.
+- **#364** (high) — bajo Codex las skills se emitían verbatim: los agents leían
+  `.codex/progress/` y las skills escribían en `.claude/progress/`. `transform` en
+  `PlacementRequest` + cinco reescrituras nuevas en el compat.
+- **#365 + #367** — el backstop del receipt se RETIRA (opción c). Ver la nota abajo.
+- **#366** — 8 de las 28 lib-skills afirmaban cosas de un workspace concreto.
+- **#368 + #369** — dos chequeos nuevos de `doctor`: el gate declarado es ejecutable,
+  y qué skills instaladas tienen su user-section sin llenar (aquí detecta 6).
+- **#371** — 10 bullets de drift de documentación + 3 hallazgos extra; ninguno falso.
+- **#372, #373, #374** — los tres defectos menores del CLI.
 
 ## Siguiente paso natural
 
-**Release + rollout** a los repos registrados, **per-repo (NUNCA `--all`)**. Arrastra todo lo
-anterior desde 0.5.1. Tres cosas que conviene tener presentes al hacerlo:
+**Release 0.6.0 + rollout** per-repo (NUNCA `--all`). Sigue vigente lo anotado la
+sesión pasada sobre los dos bloques managed que cambiaron de hash y la migración
+`socketio` → `socketio-client`, **más** lo de esta sesión:
 
-1. **Dos bloques managed cambiaron de hash** → los repos onboardeados verán drift gestionado
-   en su próximo `render`/`sync`. Es esperado, no una regresión:
-   - `orquestacion` en `CLAUDE.md`: `64bcd6d1` → `d755829c` (la Regla A reescrita, +28 palabras).
-   - `gitignore-harness` en `.gitignore`: `755bdad2` → `f831335d` (una línea añadida,
-     `.codex/progress/`; verificado que no es reordenamiento). Solo afecta a repos con
-     `gitignoreHarness` ≠ `"off"`.
-2. **`doctor` empezará a reportar `.codex/progress/`** (`EPHEMERAL_AGENT_PATHS` es alias de la
-   misma constante): warning nuevo en repos con Codex y `gitignoreHarness: "local"` hasta que
-   re-rendericen.
-3. **Heredado**: los repos con `socket.io-client` necesitan `navori update` además de `render`
-   para migrar `socketio` → `socketio-client`.
+1. **Falta el render de auto-hospedaje completo a 0.6.0.** Los PRs solo regeneraron
+   los archivos cuyo contenido cambió, para no arrastrar el bump de marcador de otros
+   ~29 (mismo criterio que #362). Un `render --apply` limpio en `main` es parte del
+   release, no de un fix.
+2. **Los assets managed cambiaron bastante** (guard, hook del gate, reviewer, pilot,
+   8 lib-skills): los repos onboardeados verán drift gestionado en su próximo render.
+3. **El guard es más estricto con el TEXTO del comando**: un mensaje de commit por
+   heredoc que mencione un borrado recursivo de HOME se bloquea. La salida es
+   `git commit -F <archivo>`. Vale la pena avisarlo en el rollout.
 
-## Follow-ups anotados (ninguno abierto como issue)
+## Diferido por decisión (no son deuda olvidada)
 
-- `apps/website/src/content/commands.ts:62,267` omite `codegraph` de los plugins instalables —
-  el mismo error de inventario que se corrigió en el README, en otro archivo.
-- `engines/claude/adapter.ts:31` tiene un `backupTargets` muerto con `.claude` y sin
-  `backupExclude`: copia viva de la forma que arregló #348, esperando a que alguien la reviva.
-- `summarizeTrigger` corta la `description` en el primer `" — "`, por eso `dominio` aparece
-  truncada como *"Use when you discover"* en el índice always-on de cada sesión.
-- `statusCheckRollup` es una unión de tipos: `StatusContext` (Vercel, CircleCI, Jenkins) trae
-  `targetUrl` y no tiene run id, así que el paso 3 de `babysit-prs` asume GitHub Actions.
-- `subagent-stop-handoff.sh:35` y cuatro skills del core asumen rutas de Claude bajo Codex
-  (misma causa que #352: `placeHook` no retargetea).
+`#370` y `#375`-`#379` — la tanda de optimización del harness (adelgazar el always-on,
+prosa→mecanismo, fan-out en la fase 2 del intake, ceremonia proporcional al riesgo).
+Van **después** del release: son un rediseño del contexto always-on que se propaga a
+~15 repos, y mezclarlo con un release que ya arrastra un fix de seguridad hace el
+drift imposible de auditar del lado del consumidor.
 
 ## Notas
 
-- **Disco recuperado**: `~/.navori/backups` pasó de 131 GB / 6873 backups a 32 MB / 310, todos
-  posteriores al fix de #348 y ninguno con `worktrees/`. El más pesado, de 15 GB a 368 KB.
-  `registry.json` y `workspaces/` quedaron intactos.
-- La ruta de los repos Bonum en el `~/.claude/CLAUDE.md` global sigue desactualizada: dice
-  `/Users/ulisescm/Documents/dev/bonum/`, la real es `/Users/ulisescm/Documents/Dev - Docs/bonum/`.
-- `~/.navori/registry.json` conserva una entrada de prueba apuntando a
-  `.../scratchpad/inherit-test`.
-- **Heredado de sesiones previas** (repo externo bonum-webapp): publicar el comentario del
-  PR #639, cerrar #640 y #559, y el rebind de SonarCloud (requiere admin).
+- **#365 se resolvió por remoción, no por parche.** El backstop del receipt tenía 5
+  caminos fail-open, generó 5 de los últimos ~25 issues, no hay una sola captura
+  documentada de algo que atrapara, y su modo de fallo de #344 bloqueó el cierre de
+  todos los PRs. El receipt sigue vivo como handoff reviewer→pilot; lo que se fue es
+  la segunda copia de la verificación, en shell, en un hook que nunca se retargetea.
+- **`.claude/worktrees/` acumula 4.2 GB** en ~14 worktrees de sesiones viejas, todos
+  de branches ya mergeadas. `git worktree remove` es destructivo, así que queda para
+  que Ulises lo confirme.
+- Heredado: la ruta de los repos Bonum en el `~/.claude/CLAUDE.md` global sigue
+  desactualizada, `~/.navori/registry.json` conserva una entrada de prueba, y siguen
+  pendientes los PRs del repo externo bonum-webapp (#639, #640, #559).
