@@ -662,6 +662,14 @@ interface DoctorCmdStrings {
   externalToolFallbackHow: string;
   optionalTools: (n: number, lines: string) => string;
   optionalToolRow: (binaries: string, how: string) => string;
+  /** #368 — the declared quality gate can't run on this machine. */
+  gateNotRunnable: (n: number, lines: string) => string;
+  gateMissingBinaryRow: (binary: string) => string;
+  gateMissingScriptRow: (script: string) => string;
+  gateMissingDepsRow: (dir: string) => string;
+  /** #369 — an installed skill whose user-section is still the template. */
+  emptyUserSections: (n: number, lines: string) => string;
+  emptyUserSectionRow: (path: string) => string;
   monorepoEmptyDeclared: string;
   monorepoAddedRow: string;
   monorepoOrphanRow: string;
@@ -1335,6 +1343,18 @@ const CMD_ES: CmdStrings = {
       `pero pierde precisión en estos flujos:\n${lines}`,
     optionalToolRow: (binaries, how) =>
       `— falta ${binaries} en PATH; ${how}. Mientras tanto, structural-search cae a Grep`,
+    gateNotRunnable: (n, lines) =>
+      `Quality gate declarado pero no ejecutable (${n}) — el gate es lo que sostiene ` +
+      `el cierre de cada tarea; si no corre, las fases que dependen de él quedan sin red:\n${lines}`,
+    gateMissingBinaryRow: (binary) => `— falta '${binary}' en PATH`,
+    gateMissingScriptRow: (script) =>
+      `— el script '${script}' no existe en el package.json de ese directorio`,
+    gateMissingDepsRow: (dir) =>
+      `— sin node_modules en '${dir}'; instala dependencias antes de apoyarte en el gate`,
+    emptyUserSections: (n, lines) =>
+      `Skills instaladas con su user-section sin llenar (${n}) — cuestan una lectura ` +
+      `y solo cubren la capa universal; lo específico de tu stack va en esa sección:\n${lines}`,
+    emptyUserSectionRow: (path) => `— plantilla sin tocar en ${path}`,
     monorepoEmptyDeclared:
       "monorepo declarado pero workspaces[] vacío — corre 'navori scan' para poblarlo",
     monorepoAddedRow: "— en disco, falta en config (corre 'navori scan')",
@@ -2116,6 +2136,18 @@ const CMD_EN: CmdStrings = {
       `but loses precision in these flows:\n${lines}`,
     optionalToolRow: (binaries, how) =>
       `— missing ${binaries} in PATH; ${how}. Until then, structural-search falls back to Grep`,
+    gateNotRunnable: (n, lines) =>
+      `Quality gate declared but not runnable (${n}) — the gate is what closes every ` +
+      `task; if it can't run, the phases that lean on it have no net:\n${lines}`,
+    gateMissingBinaryRow: (binary) => `— missing '${binary}' in PATH`,
+    gateMissingScriptRow: (script) =>
+      `— script '${script}' is not in that directory's package.json`,
+    gateMissingDepsRow: (dir) =>
+      `— no node_modules in '${dir}'; install dependencies before relying on the gate`,
+    emptyUserSections: (n, lines) =>
+      `Installed skills with an unfilled user-section (${n}) — they cost a read and ` +
+      `only cover the universal layer; your stack's rules belong in that section:\n${lines}`,
+    emptyUserSectionRow: (path) => `— untouched template in ${path}`,
     monorepoEmptyDeclared:
       "monorepo declared but workspaces[] empty — run 'navori scan' to populate it",
     monorepoAddedRow: "— on disk, missing in config (run 'navori scan')",
