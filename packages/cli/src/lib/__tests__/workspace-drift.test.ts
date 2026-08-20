@@ -110,6 +110,37 @@ describe("scanWorkspaceDrift (#326)", () => {
     ]);
   });
 
+  // #374: `enabled: false` is an answer. Reporting it against the siblings'
+  // mode turned a settled decision into a warning on every doctor run, forever.
+  it("does not flag a plugin this repo EXPLICITLY disabled, however many siblings enable it", () => {
+    const withPlugins = { plugins: { semgrep: { enabled: true } } };
+    workspace([sibling("a", withPlugins), sibling("b", withPlugins), sibling("c", withPlugins)]);
+    const report = scanWorkspaceDrift(
+      repoDir,
+      config({ plugins: { semgrep: { enabled: false } } }),
+    );
+    expect(report).toBeNull();
+  });
+
+  it("still flags the plugin when this repo never declared it at all", () => {
+    const withPlugins = { plugins: { semgrep: { enabled: true } } };
+    workspace([sibling("a", withPlugins), sibling("b", withPlugins), sibling("c", withPlugins)]);
+    const report = scanWorkspaceDrift(repoDir, config());
+    expect(report?.vsSiblings).toEqual([
+      { key: "plugins.semgrep", local: "—", expected: "enabled", agree: 3, total: 3 },
+    ]);
+  });
+
+  it("stays one-directional: siblings that mostly DISABLED a plugin never push this repo to drop it", () => {
+    workspace([
+      sibling("a", { plugins: { semgrep: { enabled: false } } }),
+      sibling("b", { plugins: { semgrep: { enabled: false } } }),
+      sibling("c", { plugins: { semgrep: { enabled: true } } }),
+    ]);
+    const report = scanWorkspaceDrift(repoDir, config({ plugins: { semgrep: { enabled: true } } }));
+    expect(report).toBeNull();
+  });
+
   it("needs a STRICT majority — an even split is not a policy", () => {
     workspace([
       sibling("a", { plugins: { semgrep: { enabled: true } } }),
