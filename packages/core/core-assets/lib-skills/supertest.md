@@ -1,6 +1,6 @@
 ---
 name: supertest
-description: Use when integration-testing HTTP APIs — supertest against an Express/Medusa app without binding a port, status/body/header assertions, auth headers.
+description: Use when integration-testing HTTP APIs — supertest against a Node HTTP app (Express, Nest, Fastify…) without binding a port, status/body/header assertions, auth headers.
 type: reference
 ---
 

@@ -8,7 +8,7 @@ type: reference
 
 ## When to use this skill
 
-When adding or touching realtime: a namespace, an event, connection authentication, or a broadcast to a room. Socket.IO over Express's HTTP server. Base rule: the socket handler is a transport layer, not a business one — it delegates to the same service/controller the HTTP routes use.
+When adding or touching realtime: a namespace, an event, connection authentication, or a broadcast to a room. Socket.IO rides the Node HTTP server (Express, Nest, Fastify or plain `http`). Base rule: the socket handler is a transport layer, not a business one — it delegates to the same service/controller the HTTP routes use.
 
 ## The pattern
 

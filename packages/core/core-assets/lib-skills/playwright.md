@@ -8,7 +8,7 @@ type: reference
 
 ## When to use this skill
 
-When writing end-to-end browser tests that drive a real page (storefront, dashboard, Medusa e2e). Playwright is E2E only — it complements, never replaces, the Vitest/Jest unit suite. Two official pillars: **test user-visible behavior** (what the page renders, not CSS classes) and **web-first, auto-waiting assertions** — `await expect(locator).toBeVisible()` retries until the condition holds or times out, so you never sleep.
+When writing end-to-end browser tests that drive a real page in a real browser. Playwright is E2E only — it complements, never replaces, the Vitest/Jest unit suite. Two official pillars: **test user-visible behavior** (what the page renders, not CSS classes) and **web-first, auto-waiting assertions** — `await expect(locator).toBeVisible()` retries until the condition holds or times out, so you never sleep.
 
 ## The pattern
 
