@@ -16,7 +16,7 @@ One instance per API (baseURL + interceptors), typed functions on top; never `ax
 
 ```ts
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_APP_NEXUS_URL,
+  baseURL: import.meta.env.VITE_API_URL,
   timeout: 15_000,
 });
 

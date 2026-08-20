@@ -4,12 +4,12 @@ description: Use when writing or fixing unit/integration tests with Vitest — d
 type: reference
 ---
 
-<!-- navori:managed id="vitest" hash="50cf8044" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="vitest" hash="2279bc63" version="0.6.0" source="@navori/core" -->
 # Vitest — conventions
 
 ## When to use this skill
 
-When authoring or debugging Vitest unit/integration tests: asserting behavior, mocking with `vi`, choosing an environment, or fixing flaky async/timer tests. Vitest is the default runner except React Native and the Medusa backend (those use Jest). It shares Jest's `expect` surface, but the mock API lives on `vi`, and `vi.mock` is hoisted above imports.
+When authoring or debugging Vitest unit/integration tests: asserting behavior, mocking with `vi`, choosing an environment, or fixing flaky async/timer tests. It shares Jest's `expect` surface, but the mock API lives on `vi`, and `vi.mock` is hoisted above imports. If the repo also ships Jest, don't cross them: each runner keeps its own config.
 
 ## The pattern
 

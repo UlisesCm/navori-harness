@@ -6,7 +6,7 @@ type: reference
 
 # Winston Logging — repo patterns
 
-The repo's `Logger` (winston, typically in `infrastructure/`) fully replaces `console`. It writes to console and file in dev, console only in prod.
+A single winston `Logger` module fully replaces `console` across the codebase. A typical setup writes to console and file in dev, console only in prod.
 
 ## When to use this skill
 
@@ -15,7 +15,7 @@ When adding logs to a controller, job, or service, choosing the right level, aud
 ## The pattern
 
 ```ts
-import Logger from '../../infrastructure/core/Logger';
+import Logger from '../../logger';
 
 try {
   const created = await Resource.create(dto);

@@ -1,6 +1,6 @@
 ---
 name: zod-validation
-description: Use when creating schemas or touching input validation of body/query/params — input validation with Zod in Express: per-resource schemas, generic validate middleware, inferred DTOs.
+description: Use when creating schemas or touching input validation of body/query/params — input validation with Zod at the API boundary: per-resource schemas, generic validate middleware, inferred DTOs.
 type: reference
 ---
 
@@ -14,7 +14,7 @@ When creating a schema, adding validation to an endpoint, inferring a DTO, or to
 
 ## The pattern
 
-The middleware lives in `helpers/validate.ts`: it parses `req[target]` against the schema, and on failure throws `BadRequestError(\`${path}: ${first.message}\`)` with the first issue. On success, it reassigns `req[target] = parsed`. Schema and DTO:
+A single shared middleware (Express shown here) parses `req[target]` against the schema, and on failure throws `BadRequestError(\`${path}: ${first.message}\`)` with the first issue. On success, it reassigns `req[target] = parsed`. Schema and DTO:
 
 ```ts
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid ObjectId');
@@ -44,7 +44,7 @@ In the route: `router.post('/', validate(createResourceSchema, 'body'), ...)`. I
 3. DTO always with `z.infer` — don't maintain two parallel types.
 4. No `z.any()`: it equals `any`, forbidden in new code.
 5. A single validator per endpoint — don't mix Joi + Zod (when migrating Joi→Zod, migrate the whole endpoint).
-6. ObjectId with the `objectId` helper; query/params with `z.coerce`.
+6. Mongo ObjectId with the `objectId` helper; query/params with `z.coerce`.
 
 ## Quick table
 

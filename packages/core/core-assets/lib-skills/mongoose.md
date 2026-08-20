@@ -1,6 +1,6 @@
 ---
 name: mongoose
-description: Use when touching domain/models or Mongoose ops in controllers — Mongoose patterns in a TS service: safe queries, populate, paginate, soft delete, ObjectId, avoiding N+1.
+description: Use when touching a Mongoose model or running Mongoose ops in a service/controller — Mongoose patterns in TS: safe queries, populate, paginate, soft delete, ObjectId, avoiding N+1.
 type: reference
 ---
 
@@ -8,7 +8,7 @@ type: reference
 
 ## When to use this skill
 
-When the task touches `domain/models` or runs Mongoose operations in the controllers. No repository wrappers: controllers touch the Models directly, so null-guards, ObjectId casts, and `.lean()` live in each method.
+When the task touches a Mongoose model or runs Mongoose operations in a service or controller. With no repository layer in between, null-guards, ObjectId casts, and `.lean()` live in each method.
 
 In **NestJS** (`@nestjs/mongoose`) the Model is injected: `@InjectModel(Resource.name) private model: Model<ResourceDocument>`; the rest of the patterns apply the same.
 
