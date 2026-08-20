@@ -200,261 +200,48 @@ describe("quality-gate hook — declared runner missing (#88)", () => {
   });
 });
 
-// The content receipt (RDD, #167) binds the commit to the exact bytes the
-// reviewer approved: a `<blob-sha>  <path>` line per approved file. The hook
-// recomputes it over the STAGED set and blocks if an approved file drifted.
-describe("quality-gate hook — content receipt (RDD)", () => {
+// The content receipt (RDD, #167) binds a commit to the exact bytes the reviewer
+// approved. The hook used to re-verify it over the staged set; #365 removed that
+// backstop (five fail-open paths, zero documented catches) and left the receipt
+// as a handoff the `commit-pr-pilot` verifies agent-side. These two tests pin the
+// removal: a receipt is now inert here, in both directions.
+describe("quality-gate hook — the content receipt is NOT a hook concern (#365)", () => {
   function git(...args: string[]): void {
     const r = spawnSync("git", args, { cwd: dir, encoding: "utf-8" });
     if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
-  }
-  function hashObject(rel: string): string {
-    return spawnSync("git", ["hash-object", rel], { cwd: dir, encoding: "utf-8" }).stdout.trim();
   }
   function initRepo(): void {
     git("init", "-q");
     git("config", "user.email", "t@t.co");
     git("config", "user.name", "t");
   }
-  /** Write a receipt fingerprinting `paths` (default Claude location). */
-  function writeReceipt(paths: string[], rel = ".claude/progress/receipt.txt"): void {
-    const lines = ["# navori-receipt v1 feature=demo"];
-    for (const p of paths) lines.push(`${hashObject(p)}  ${p}`);
-    const full = join(dir, rel);
+  function writeReceipt(body: string): void {
+    const full = join(dir, ".claude/progress/receipt.txt");
     mkdirSync(dirname(full), { recursive: true });
-    writeFileSync(full, `${lines.join("\n")}\n`);
+    writeFileSync(full, `# navori-receipt v1 feature=demo\n${body}`);
   }
 
-  it("no receipt present → the gate still runs unchanged in a git repo", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    writeFileSync(join(dir, "a.txt"), "hello\n");
-    git("add", "a.txt");
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    expect(r.status).toBe(0);
-    expect(r.stderr).toContain("running quality-gate fast");
-  });
-
-  it("receipt matches the staged content → the gate runs (exit 0)", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    writeFileSync(join(dir, "a.txt"), "hello\n");
-    git("add", "a.txt");
-    writeReceipt(["a.txt"]);
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    expect(r.status).toBe(0);
-    expect(r.stderr).toContain("running quality-gate fast");
-    expect(r.stderr).not.toContain("receipt mismatch");
-  });
-
-  it("a staged file drifted from the approval → BLOCKS (exit 2) before the gate", () => {
+  it("a staged file that drifted from the approval no longer blocks — the gate just runs", () => {
     initRepo();
     fakeBin("pnpm", 0);
     writeFileSync(join(dir, "a.txt"), "approved\n");
     git("add", "a.txt");
-    writeReceipt(["a.txt"]);
-    writeFileSync(join(dir, "a.txt"), "tampered\n"); // drift, restaged below
-    git("add", "a.txt");
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    expect(r.status).toBe(2);
-    expect(r.stderr).toContain("receipt mismatch");
-    expect(r.stderr).toContain("a.txt");
-    expect(r.stderr).not.toContain("running quality-gate fast");
-  });
-
-  it("drift in an UNSTAGED file (not part of this commit) → does NOT block", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    writeFileSync(join(dir, "a.txt"), "approved\n");
-    git("add", "a.txt");
-    git("commit", "-qm", "seed"); // a.txt now tracked
-    writeReceipt(["a.txt"]);
-    writeFileSync(join(dir, "a.txt"), "drifted-but-unstaged\n"); // NOT staged
-    writeFileSync(join(dir, "b.txt"), "new\n");
-    git("add", "b.txt"); // only b.txt is in this commit
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    expect(r.status).toBe(0);
-    expect(r.stderr).toContain("running quality-gate fast");
-    expect(r.stderr).not.toContain("receipt mismatch");
-  });
-
-  // The REAL Codex location: `compat.ts` rewrites `.claude/progress/` into
-  // `.codex/progress/`, never into bare `progress/` (#208 — that root dir holds
-  // git-persisted session state). The hook body is copied verbatim per engine,
-  // so it has to probe this path itself; until #352 it didn't, and the backstop
-  // silently passed every commit under Codex.
-  it("enforces a receipt at the Codex location (.codex/progress/receipt.txt)", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    writeFileSync(join(dir, "a.txt"), "approved\n");
-    git("add", "a.txt");
-    writeReceipt(["a.txt"], ".codex/progress/receipt.txt");
-    writeFileSync(join(dir, "a.txt"), "tampered\n");
-    git("add", "a.txt");
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    expect(r.status).toBe(2);
-    expect(r.stderr).toContain("receipt mismatch");
-  });
-
-  // #354: the probe used to take the FIRST receipt it found and `break`, so a
-  // stale `.claude/progress/receipt.txt` left by an abandoned cycle eclipsed the
-  // live `.codex/progress/` one and the drift shipped (exit 0). The check is now
-  // the union of every receipt present, so probe order can't decide the verdict.
-  it("a stale receipt does NOT eclipse the live one — the drift still blocks (#354)", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    // Left over from a previous cycle: fingerprints an unrelated file, so on its
-    // own it has nothing to say about this commit.
-    writeFileSync(join(dir, "old.txt"), "from an abandoned cycle\n");
-    writeReceipt(["old.txt"], ".claude/progress/receipt.txt");
-    // The live cycle approved a.txt and signed at the Codex location…
-    writeFileSync(join(dir, "a.txt"), "approved\n");
-    git("add", "a.txt");
-    writeReceipt(["a.txt"], ".codex/progress/receipt.txt");
-    // …and a.txt was tampered with afterwards.
-    writeFileSync(join(dir, "a.txt"), "tampered\n");
-    git("add", "a.txt");
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    expect(r.status).toBe(2);
-    expect(r.stderr).toContain("receipt mismatch");
-    expect(r.stderr).toContain("a.txt");
-    expect(r.stderr).not.toContain("running quality-gate fast");
-  });
-
-  // Symmetric: the acceptance criterion is order-independence, so the same must
-  // hold when the live receipt is the one probed FIRST.
-  it("blocks just the same with the live receipt first and the stale one second", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    writeFileSync(join(dir, "old.txt"), "from an abandoned cycle\n");
-    writeReceipt(["old.txt"], ".codex/progress/receipt.txt");
-    writeFileSync(join(dir, "a.txt"), "approved\n");
-    git("add", "a.txt");
-    writeReceipt(["a.txt"], ".claude/progress/receipt.txt");
-    writeFileSync(join(dir, "a.txt"), "tampered\n");
-    git("add", "a.txt");
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    expect(r.status).toBe(2);
-    expect(r.stderr).toContain("receipt mismatch");
-  });
-
-  // The union check must not degrade into "more than one receipt → block": two
-  // receipts that both match the staged bytes are a legitimate (if untidy) state
-  // and the commit goes through.
-  it("two receipts that both match → the gate runs, no block", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    writeFileSync(join(dir, "a.txt"), "approved\n");
-    writeFileSync(join(dir, "b.txt"), "also approved\n");
-    git("add", "a.txt", "b.txt");
-    writeReceipt(["a.txt"], ".claude/progress/receipt.txt");
-    writeReceipt(["b.txt"], ".codex/progress/receipt.txt");
+    // A sha that matches nothing: maximal drift, the case the backstop existed for.
+    writeReceipt("0000000000000000000000000000000000000000  a.txt\n");
     const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
     expect(r.status).toBe(0);
     expect(r.stderr).not.toContain("receipt mismatch");
     expect(r.stderr).toContain("running quality-gate fast");
   });
 
-  // Defensive fallback for any pre-#208 layout. Kept last in the probe order.
-  it("still enforces a receipt at the bare progress/ fallback", () => {
+  it("a red gate still blocks with a receipt present — removing the backstop kept the gate", () => {
     initRepo();
-    fakeBin("pnpm", 0);
+    fakeBin("pnpm", 1);
     writeFileSync(join(dir, "a.txt"), "approved\n");
     git("add", "a.txt");
-    writeReceipt(["a.txt"], "progress/receipt.txt");
-    writeFileSync(join(dir, "a.txt"), "tampered\n");
-    git("add", "a.txt");
+    writeReceipt("0000000000000000000000000000000000000000  a.txt\n");
     const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
     expect(r.status).toBe(2);
-    expect(r.stderr).toContain("receipt mismatch");
-  });
-
-  // A file the reviewer approved REMOVING is recorded as `deleted  <path>`
-  // (#202). A staged deletion must NOT drift — its expected state is "absent".
-  it("a `deleted`-marked file staged as a deletion → does NOT block", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    writeFileSync(join(dir, "a.txt"), "gone soon\n");
-    git("add", "a.txt");
-    git("commit", "-qm", "seed"); // a.txt tracked
-    const rel = ".claude/progress/receipt.txt";
-    mkdirSync(dirname(join(dir, rel)), { recursive: true });
-    writeFileSync(join(dir, rel), "# navori-receipt v1 feature=demo\ndeleted  a.txt\n");
-    git("rm", "-q", "a.txt"); // stage the removal the reviewer signed off on
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    expect(r.status).toBe(0);
-    expect(r.stderr).toContain("running quality-gate fast");
-    expect(r.stderr).not.toContain("receipt mismatch");
-  });
-
-  // #344: the loop must not report drift for content that did NOT change — the
-  // failure mode that made the pilot loop forever. Several files at once, since
-  // the zsh bug poisoned the whole receipt from the first line on.
-  it("every receipt file unchanged → no drift, the gate just runs", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    writeFileSync(join(dir, "a.txt"), "alpha\n");
-    writeFileSync(join(dir, "b.txt"), "beta\n");
-    git("add", "a.txt", "b.txt");
-    writeReceipt(["a.txt", "b.txt"]);
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    expect(r.status).toBe(0);
-    expect(r.stderr).not.toContain("receipt mismatch");
-    expect(r.stderr).not.toContain("could NOT verify");
-    expect(r.stderr).toContain("running quality-gate fast");
-  });
-
-  // An approved file staged as a DELETION (the receipt recorded content, not a
-  // `deleted` marker) is real drift — its approved bytes are gone. It must keep
-  // blocking as drift, not degrade into the "could not verify" branch.
-  it("an approved file staged as a deletion → BLOCKS as drift (missing)", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    writeFileSync(join(dir, "a.txt"), "approved\n");
-    git("add", "a.txt");
-    git("commit", "-qm", "seed");
-    writeReceipt(["a.txt"]);
-    git("rm", "-q", "a.txt"); // removal the reviewer never approved
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    expect(r.status).toBe(2);
-    expect(r.stderr).toContain("receipt mismatch");
-    expect(r.stderr).toContain("a.txt (missing)");
-  });
-
-  // #344: a `git hash-object` that fails for environment reasons (unreadable
-  // file, missing binary, wrong cwd) is a VERIFICATION failure. It still blocks,
-  // but it must not be dressed up as an accusation of drift — re-running the
-  // reviewer can never clear it. Skipped as root, where chmod 000 is no barrier.
-  const notRoot = (process.getuid?.() ?? 1) !== 0;
-  it.skipIf(!notRoot)("an unhashable (unreadable) file → verification error, not drift", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    writeFileSync(join(dir, "a.txt"), "approved\n");
-    git("add", "a.txt");
-    writeReceipt(["a.txt"]);
-    chmodSync(join(dir, "a.txt"), 0o000); // exists, but git cannot read it
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    chmodSync(join(dir, "a.txt"), 0o644); // restore so afterEach can clean up
-    expect(r.status).toBe(2);
-    expect(r.stderr).toContain("could NOT verify");
-    expect(r.stderr).toContain("a.txt");
-    expect(r.stderr).not.toContain("receipt mismatch");
-    expect(r.stderr).not.toContain("running quality-gate fast");
-  });
-
-  // The other direction: the receipt says the file was removed, but it's back
-  // (staged with content) → that IS drift, block.
-  it("a `deleted`-marked file that reappeared (staged with content) → BLOCKS", () => {
-    initRepo();
-    fakeBin("pnpm", 0);
-    const rel = ".claude/progress/receipt.txt";
-    mkdirSync(dirname(join(dir, rel)), { recursive: true });
-    writeFileSync(join(dir, rel), "# navori-receipt v1 feature=demo\ndeleted  a.txt\n");
-    writeFileSync(join(dir, "a.txt"), "resurrected\n"); // came back
-    git("add", "a.txt");
-    const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
-    expect(r.status).toBe(2);
-    expect(r.stderr).toContain("receipt mismatch");
-    expect(r.stderr).toContain("a.txt");
+    expect(r.stderr).toContain("quality-gate fast failed");
   });
 });
