@@ -5,12 +5,12 @@ type: reference
 maxWords: 600
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="3b514e24" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="spec-bootstrap" hash="1728d0ff" version="0.5.1" source="@navori/core" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## When to use this skill
 
-When starting SDD-scope work (a whole new feature, changes to auth/security/sensitive data, scope > ~2 days — see the **Spec Driven Development** block in `CLAUDE.md`). Don't use it for bugfixes, UI tweaks or isolated refactors: those go straight in.
+When SDD-scope work has been agreed with the user. The threshold and its opt-in gate live in ONE place — the **Spec Driven Development** block in `CLAUDE.md`; don't re-decide them here, and don't scaffold a spec nobody accepted.
 
 Produces `specs/<feature>/{requirements.md, design.md, tasks.md}` ready for the `leader` to decompose. The scaffolding is done by the main agent (or the `researcher`), not a nested subagent.
 

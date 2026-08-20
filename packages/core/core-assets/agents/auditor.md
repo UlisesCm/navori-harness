@@ -25,6 +25,7 @@ You are a senior auditor. Your job is to **find real problems** in the code and 
 ## Pre-flight
 
 ```bash
+mkdir -p .claude/progress                         # absent in a fresh clone; its absence just means "no previous audit"
 ls .claude/progress/audit_deep_*.md 2>/dev/null   # is there a recent deep audit of the same scope? (deep namespace only — not ticket-audit's audit_ticket_*)
 git branch --show-current && git rev-parse --short HEAD
 ```

@@ -107,7 +107,7 @@ Expected files:
 When `.claude/progress/review_<feature>.md` contains `APPROVED`:
 
 1. Invoke `commit-pr-pilot` to draft the title + body following the repo's format and open the PR.
-2. Pre-flight on you before invoking: you're not on `{{branchBase}}`, `{{qualityGate.fast}}` green this turn, `gh auth status` ok. (Do NOT require a clean working tree — the pilot's trigger IS an uncommitted diff ready to commit, and the pilot, not you, owns that commit.)
+2. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `{{branchBase}}`, `gh auth status` ok. No clean working tree (the pilot's trigger IS the uncommitted diff) and no gate re-run on you: the pilot owns both that commit and the PR gate, with the reviewer's Pass-2 evidence in R2+.
 3. Return to the user only the PR URL + title.
 
 If the review returned `CHANGES_REQUESTED`, do NOT invoke `commit-pr-pilot`: launch another `implementer` with the list of changes and restart the cycle.
