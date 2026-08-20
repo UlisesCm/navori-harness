@@ -30,6 +30,9 @@ Your first job is NOT to plan the implementation — it is to establish **what t
 
 ```bash
 # 1. Is there a recent audit for this ticket? (ticket namespace only — not the auditor's audit_deep_*)
+#    A fresh clone has no .claude/progress/: create it, and read "no output" as
+#    "no previous audit" — an absent directory is never a pre-flight failure.
+mkdir -p .claude/progress
 ls .claude/progress/audit_ticket_*.md 2>/dev/null
 
 # 2. Identify the ticket ID. If there's no ID in the text, generate one:
