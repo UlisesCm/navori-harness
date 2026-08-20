@@ -38,6 +38,16 @@ export interface PlacementRequest {
   chmodExec?: boolean;
   /** Written around the managed block only the FIRST time the file is created. */
   firstRenderSeed?: { header?: string; trailer?: string };
+  /**
+   * Engine-specific rewrite of the asset text (paths, tool vocabulary) applied
+   * before the asset is parsed, so frontmatter, managed body and user template
+   * are all adapted in one pass. An engine that serializes its own `body`
+   * adapts it itself and leaves this unset. #364: without it, a `placeSkill`
+   * that returns an `assetPath` ships the Claude-oriented asset verbatim, and
+   * the Codex agents end up reading `.codex/progress/` while the skills tell
+   * them to write to `.claude/progress/`.
+   */
+  transform?: (text: string) => string;
 }
 
 export interface OrphanScan {
@@ -216,6 +226,7 @@ function collectRequest(
       meta: CORE_META,
       config: ctx.config,
       commentStyle: req.commentStyle,
+      transform: req.transform,
     });
     content = result.content;
     status = result.status;

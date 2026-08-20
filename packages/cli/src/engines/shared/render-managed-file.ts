@@ -12,7 +12,8 @@ import { mergeFrontmatter } from "../claude/frontmatter-merge.ts";
  * the final content for the caller to write atomically (or skip in dry-run).
  *
  * Flow:
- *   1. Load + parse asset (frontmatter / managedBody / userTemplate).
+ *   1. Load asset, expand includes, apply the engine `transform` (if any),
+ *      then parse it (frontmatter / managedBody / userTemplate).
  *   2. Interpolate frontmatter with `omitUnresolvedKeyLines` so missing
  *      `{{models.X}}` drops the line instead of breaking YAML.
  *   3. Interpolate managedBody and userTemplate in default mode (unresolved
@@ -38,6 +39,12 @@ export interface RenderManagedFileInput {
   extraVars?: Record<string, string>;
   /** Override comment style. Defaults: `.sh` → shell, anything else → html. */
   commentStyle?: CommentStyle;
+  /**
+   * Engine-specific rewrite applied to the whole asset text right after the
+   * includes are expanded and BEFORE it is parsed — so frontmatter, managed
+   * body and user template come out adapted from a single pass (#364).
+   */
+  transform?: (text: string) => string;
 }
 
 export interface RenderManagedFileResult {
@@ -51,7 +58,8 @@ export function renderManagedFile(input: RenderManagedFileInput): RenderManagedF
   // Inline any `# navori:include` shell partials before parsing/interpolating,
   // so a hook's shared boilerplate is a single source of truth yet the rendered
   // file stays fully standalone. No-op for assets without a directive.
-  const raw = expandHookIncludes(readFileSync(input.assetPath, "utf-8"));
+  const expanded = expandHookIncludes(readFileSync(input.assetPath, "utf-8"));
+  const raw = input.transform ? input.transform(expanded) : expanded;
   const asset = parseAsset(raw, commentStyle);
 
   const interpolatedFmObj = interpolateFrontmatter(
