@@ -20,6 +20,8 @@ import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace-drift.ts";
+import { scanQualityGateReadiness } from "../lib/gate-readiness.ts";
+import { scanEmptyUserSections } from "../lib/skill-user-section.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -125,6 +127,16 @@ export const doctorCommand = defineCommand({
     const missingOptionalTools = scanMissingOptionalTools();
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     const workspaceLink = scanWorkspaceLink(cwd, config);
+    // #368: the gate the whole pipeline leans on, checked statically — a gate
+    // that can't run makes three phases of the intake unreachable, and today
+    // nothing notices until an implementer hits it mid-task.
+    const gateReadiness = scanQualityGateReadiness(cwd, config);
+    // #369: an installed skill whose repo-specific half is still the template
+    // costs a read and buys a false sense of coverage.
+    const emptyUserSections = scanEmptyUserSections(cwd, [
+      ".claude/skills",
+      ...(config.engines.includes("codex") ? [".agents/skills"] : []),
+    ]);
     // Referenced hook scripts (.claude/scripts|hooks) that are missing or lost
     // their exec bit — the hook then breaks/no-ops silently on every Bash (#213).
     const claudeHookScripts = scanClaudeHookScripts(cwd, config);
@@ -464,6 +476,27 @@ export const doctorCommand = defineCommand({
           )}`,
       );
       p.log.warn(td.optionalTools(missingOptionalTools.length, lines.join("\n")));
+    }
+
+    if (gateReadiness.length > 0) {
+      const lines = gateReadiness.map((issue) => {
+        const why =
+          issue.reason === "missing-binary"
+            ? td.gateMissingBinaryRow(issue.detail)
+            : issue.reason === "missing-deps"
+              ? td.gateMissingDepsRow(issue.detail)
+              : td.gateMissingScriptRow(issue.detail);
+        return `  ${color.yellow(sym.update)} ${accent(`qualityGate.${issue.gate}`)}  ${grey(why)}`;
+      });
+      p.log.warn(td.gateNotRunnable(gateReadiness.length, lines.join("\n")));
+    }
+
+    if (emptyUserSections.length > 0) {
+      const lines = emptyUserSections.map(
+        (skill) =>
+          `  ${color.yellow(sym.update)} ${accent(skill.id)}  ${grey(td.emptyUserSectionRow(skill.path))}`,
+      );
+      p.log.warn(td.emptyUserSections(emptyUserSections.length, lines.join("\n")));
     }
 
     if (monorepoDrift) {
