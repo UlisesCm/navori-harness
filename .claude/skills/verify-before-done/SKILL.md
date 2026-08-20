@@ -5,7 +5,7 @@ type: behavior
 maxWords: 1000
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="c4d525de" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="22fef7c0" version="0.5.1" source="@navori/core" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -51,7 +51,7 @@ Skipping any step = a lie, not verification.
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed", "the diff covers the case" |
 | Filter / feature works | Real click + description of the result | "the handler is well written" |
 | Structural migration complete | Read AND write go to the same destination in the affected flow, validated in browser or test | "I changed the service, it should work" |
-| PR creatable | Pre-flight green (clean status, not on `main`, gh auth ok, quality gate green) THIS TURN | "the branch has commits, we can create it" |
+| PR creatable | Pre-flight THIS TURN: not on `main`, `gh auth status` ok, and fresh gate evidence over the shipping diff (R2+: the reviewer's Pass-2 run, bound by a receipt with no drift; R1: your own run). No clean working tree required — the uncommitted diff IS the trigger | "the branch has commits, we can create it" |
 | Tests pass | Suite run fresh with exit 0 this turn + test count | "we didn't touch tests", "they should still be green" |
 | Type-check clean | `tsc --noEmit` (or the runtime's equivalent) exit 0 this turn | "TS didn't complain when I saved it" |
 

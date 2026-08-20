@@ -4,7 +4,7 @@ description: Strict reviewer. Approves or rejects the implementer's work against
 tools: Read, Glob, Grep, Bash, Write
 ---
 
-<!-- navori:managed id="reviewer-base" hash="9a930ec9" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="reviewer-base" hash="9fd7579f" version="0.5.1" source="@navori/core" -->
 # Reviewer Agent
 
 You are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.
@@ -88,6 +88,7 @@ Your APPROVED verdict is bound to the exact bytes you reviewed. Before handing o
 The `-w` is load-bearing: it stores each blob in the object store, so a drift can be **inspected** (`git diff <blob-sha> <file>`, `git cat-file -p <blob-sha>`), not merely detected. Without it the sha names content nobody can recover, and the delta re-sign below has no diff to measure — worst of all for a file that is new in this diff, whose bytes exist nowhere else.
 
 ```bash
+mkdir -p .claude/progress   # nothing in a fresh clone creates it; without this the redirect below dies
 printf '# navori-receipt v1 feature=<feature>\n' > .claude/progress/receipt.txt
 { git diff --name-only "origin/main"; git ls-files --others --exclude-standard; } \
   | sort -u \

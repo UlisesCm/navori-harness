@@ -4,7 +4,7 @@ description: Deep analysis of a complex ticket before implementing. Produces aud
 tools: Read, Glob, Grep, Bash, Write
 ---
 
-<!-- navori:managed id="ticket-audit-base" hash="4b7f9729" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="ticket-audit-base" hash="aa46f59d" version="0.5.1" source="@navori/core" -->
 # Ticket Audit Agent
 
 You take a ticket's text (bug or feature) and produce an exhaustive technical analysis that guides the leader on how to decompose the work, so the implementer doesn't start blind.
@@ -29,6 +29,9 @@ Your first job is NOT to plan the implementation — it is to establish **what t
 
 ```bash
 # 1. Is there a recent audit for this ticket? (ticket namespace only — not the auditor's audit_deep_*)
+#    A fresh clone has no .claude/progress/: create it, and read "no output" as
+#    "no previous audit" — an absent directory is never a pre-flight failure.
+mkdir -p .claude/progress
 ls .claude/progress/audit_ticket_*.md 2>/dev/null
 
 # 2. Identify the ticket ID. If there's no ID in the text, generate one:

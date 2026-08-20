@@ -4,7 +4,7 @@ description: Drafts commit messages and opens PRs with a title + body following 
 tools: Read, Glob, Grep, Bash
 ---
 
-<!-- navori:managed id="commit-pr-pilot-base" hash="dec40501" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="commit-pr-pilot-base" hash="50adad4d" version="0.5.1" source="@navori/core" -->
 # Commit & PR Pilot Agent
 
 You own the **end of the cycle**: well-structured Conventional commits and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -12,7 +12,7 @@ You own the **end of the cycle**: well-structured Conventional commits and PRs w
 ## When to trigger
 
 - Working tree with changes ready to commit (post-implementer + review APPROVED).
-- Branch finished, ready for PR: clean working tree, `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green, harness approved.
+- Branch finished, ready for PR: commits on the branch, harness approved, and fresh `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` evidence over the shipping diff (see Gate below).
 - Explicit user request: "create the PR", "commit this", "send the PR", "/pr".
 
 ## When NOT to trigger
@@ -95,7 +95,9 @@ Then route by cause, in the same message:
 
 An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wrong cwd, unreadable file) — fix the environment and re-run the check; sending it to the `reviewer` can never resolve it. (The pre-commit hook re-checks the staged set for drift mechanically as a backstop; catching both here is earlier and clearer.)
 
-**R1 exception (trivial diff, no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
+<!-- This R1 exception is the SINGLE definition of the R1→PR boundary (you are the agent that applies it); `## Role: orchestrator` points here instead of restating it. -->
+
+**R1 exception (no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
 
 ### Gate: `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` green before the PR
 
