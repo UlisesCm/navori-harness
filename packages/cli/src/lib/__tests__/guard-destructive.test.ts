@@ -216,6 +216,79 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
     });
   });
 
+  /**
+   * Runtime truth table: one row per command, one expected verdict.
+   *
+   * The tests above grew case by case; this table is the flat inventory of what
+   * the guard blocks and what it lets through, which is the artifact a reviewer
+   * actually needs to reason about a security hook. Every row that carries an
+   * issue tag is a repro from the shell audit (`audit_hooks_shell.md`) — the
+   * four regressions it caught are the reason the rules are now scoped to a
+   * single command SEGMENT instead of the whole command string.
+   */
+  const VERDICTS: ReadonlyArray<{ cmd: string; blocked: boolean; why: string }> = [
+    // A2 — a short flag carrying an `n` in a LATER segment used to be read as
+    // the commit's `-n`, blocking two of the most common compound commands
+    // there are. That false positive fires daily and teaches the operator to
+    // route around the guard, which is worse than the bug.
+    { cmd: 'git commit -m "fix: x" && git log --oneline -n 3', blocked: false, why: "A2" },
+    { cmd: 'git commit -m "fix: x" && grep -rn TODO src/', blocked: false, why: "A2" },
+    { cmd: 'git commit -m "x" && git log -n 1 | head -5', blocked: false, why: "A2" },
+    { cmd: 'git commit -m "a && b -n c"', blocked: false, why: "A2, flag inside a message" },
+    // A1 — the rm targets were anchored to the end of the WHOLE command, so any
+    // compound command walked past both the guard and the static deny globs
+    // (which only match a command that starts with `rm`).
+    { cmd: "cd /tmp && rm -rf ~/", blocked: true, why: "A1" },
+    { cmd: "cd /tmp && rm -rf /Users/ulisescm/Documents", blocked: true, why: "A1" },
+    { cmd: "cd x && rm -rf ~ && echo ok", blocked: true, why: "A1, `~` no longer at end" },
+    { cmd: "rm -rf ~/Documents", blocked: true, why: "A1, immediate child of HOME" },
+    { cmd: "rm -rf /usr", blocked: true, why: "A1, system root" },
+    { cmd: "rm -rf /etc/ssh", blocked: true, why: "A1, immediate child of a system root" },
+    { cmd: "rm -rf /*", blocked: true, why: "A1, root with a glob" },
+    // Everyday cleanup must keep working — the guard targets HOME and the
+    // system roots, not any absolute path (see the rule-3 comment in the hook).
+    { cmd: "rm -rf ./node_modules", blocked: false, why: "relative path" },
+    { cmd: "rm -rf dist", blocked: false, why: "relative path" },
+    { cmd: "cd /tmp && rm -rf build coverage", blocked: false, why: "relative paths" },
+    { cmd: "rm -rf /Users/ulisescm/dev/app/node_modules", blocked: false, why: "deep path" },
+    { cmd: "rm -rf /tmp/navori-test-123", blocked: false, why: "scratch dir" },
+    { cmd: "rm -rf /tmp", blocked: true, why: "A1, the scratch root itself" },
+    { cmd: "rm -rf /private/tmp", blocked: true, why: "A1, the same root on macOS" },
+    // Pre-existing coverage that the segment scoping must not weaken.
+    { cmd: "rm -rf /", blocked: true, why: "filesystem root" },
+    { cmd: "rm -rf ~", blocked: true, why: "HOME" },
+    { cmd: "rm -rf $PATH", blocked: true, why: "variable indirection" },
+    { cmd: 'rm -rf "$BUILD_DIR"', blocked: true, why: "quoted variable" },
+    { cmd: "PATH=/; rm -rf $PATH", blocked: true, why: "variable indirection, compound" },
+    { cmd: 'git commit "--no-verify"', blocked: true, why: "quoted skip-flag" },
+    { cmd: "git commit -qn -m x", blocked: true, why: "combined short flag" },
+    { cmd: "sudo git commit --no-verify", blocked: true, why: "wrapper before git" },
+    { cmd: 'git commit -m "add -notify option"', blocked: false, why: "hyphen-word in message" },
+    { cmd: "git push --force-with-lease origin feature", blocked: false, why: "safe rebase flow" },
+    { cmd: "ls -la", blocked: false, why: "benign" },
+  ];
+
+  describe("verdict table (segment scoping, #A1/#A2 regressions)", () => {
+    it.each(VERDICTS)("$why: `$cmd` → $blocked", ({ cmd, blocked }) => {
+      expect(runGuard(cmd)).toBe(blocked ? 2 : 0);
+    });
+
+    // Base-branch rules need `{{shq:branchBase}}` substituted, so they run
+    // against a rendered copy instead of the raw asset.
+    const BASE_VERDICTS: ReadonlyArray<{ cmd: string; blocked: boolean; why: string }> = [
+      { cmd: "git push --force main", blocked: true, why: "force-push to base" },
+      { cmd: "git push origin +main", blocked: true, why: "force refspec to base" },
+      { cmd: "true;git push --force main", blocked: true, why: "tight `;` boundary" },
+      { cmd: "FOO=1 git push --force main", blocked: true, why: "VAR=val prefix" },
+      { cmd: "git push --force feature", blocked: false, why: "not the base branch" },
+      { cmd: 'echo "a + b" && git push -u origin feat/x', blocked: false, why: "#307" },
+    ];
+
+    it.each(BASE_VERDICTS)("$why: `$cmd` → $blocked", ({ cmd, blocked }) => {
+      expect(runGuardScript(renderGuard("main"), cmd)).toBe(blocked ? 2 : 0);
+    });
+  });
+
   describe("with NO JSON parser on PATH (sed fallback)", () => {
     // A minimal PATH with only the coreutils the guard needs — deliberately
     // without jq or node — proves the guard still inspects the command instead
