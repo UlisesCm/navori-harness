@@ -10,6 +10,34 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-08-20 13:15 — claude — 11 issues cerrados, 8 PRs mergeados (todo lo previo al release)
+
+- Cambios:
+  - `guard-destructive.sh` — split en segmentos compartido por las 3 reglas: cierra
+    el bypass del `rm -rf` compuesto y el falso positivo de `-n` cruzando `&&`.
+    Tabla de veredictos de 31 filas que EJECUTA el hook (antes ninguna lo corría).
+  - `engines/codex/` — `transform` en `PlacementRequest`: las skills pasan por el
+    adaptador. Compat cubre la forma directorio, el prefijo suelto, los agents
+    distintos de leader, `.claude/progress` sin barra y la mención pelada. Test de
+    cableado que barre toda superficie de prosa buscando `.claude/`.
+  - `quality-gate-pre-commit.sh` — fuera `check_content_receipt` (−103 líneas).
+  - `commands/doctor.ts` + `lib/gate-readiness.ts` + `lib/skill-user-section.ts` —
+    dos chequeos nuevos (gate ejecutable, user-section sin llenar).
+  - `lib/skill-meta.ts`, `lib/workspace-drift.ts`, `engines/claude/adapter.ts`,
+    `commands/render.ts` — los cuatro defectos menores.
+  - 8 `lib-skills` sin fuga de workspace; specs, website, READMEs y DIRECTION al día.
+- Quality gate: ✅ 1638 tests · lint · format · CI verde en los 8 PRs.
+- Notas:
+  - **#365 se decidió por remoción, no por parche** (opción c de las tres del issue):
+    5 caminos fail-open, cero capturas documentadas y un modo de fallo que bloqueó
+    todos los PRs. El receipt sobrevive como handoff reviewer→pilot.
+  - El guard nuevo bloquea un mensaje de commit por heredoc que mencione un borrado
+    recursivo de HOME. La salida es `git commit -F <archivo>`.
+  - `#370` y `#375`-`#379` (la tanda de optimización) quedan para DESPUÉS del
+    release 0.6.0, por decisión de Ulises: no mezclar un rediseño del contexto
+    always-on con un release que ya arrastra un fix de seguridad.
+- Commit / PR: #380, #381, #382, #383, #384, #385, #386 (+ #362 que ya estaba abierto).
+
 ## 2026-08-18 13:30 — claude — 6 issues cerrados + capa de solutioning (spec 0012)
 
 - Cambios:
