@@ -65,6 +65,7 @@ Y genera:
 |---|---|
 | `init` | Bootstrap del repo con detección automática + wizard (o `--recommended` sin preguntas, o `--full` para la instalación máxima) |
 | `add <plugin>` | Activa un plugin y opcionalmente instala la tool externa |
+| `remove <plugin>` | Desactiva un plugin y limpia sus bloques managed, sub-bloques y scripts |
 | `configure <section>` | Ajusta una sección del config sin re-correr el wizard |
 | `update` | Re-detecta el repo, refresca config y corre sync en un paso |
 | `render` | Genera los archivos nativos de cada engine configurado (preview por default; `--apply` escribe). `--all` renderea todos los repos del registro global; `--prune` limpia los que ya no existen |
@@ -77,6 +78,8 @@ Y genera:
 | `bench` | Corre `render` en dry-run N veces y reporta latencias (detecta regresiones locales) |
 | `workspace <sub>` | Gestiona workspaces cross-repo (`init`, `ls`, `show`, `rm`) |
 | `ticket <sub>` | Gestiona tickets-as-files en un workspace (`new`, `list`, `show`, `archive`, `delete`) |
+| `dominio <sub>` | Base de conocimiento durable del workspace (`init`, `list`, `show`, `reindex`, `doctor`, `inject`) |
+| `global <sub>` | Harness base por máquina en `~/.claude` (`init`, `render`, `doctor`, `uninstall`) — opt-in explícito y aditivo |
 | `backup <sub>` | Lista y restaura backups de `~/.navori/backups/` |
 | `migrations <sub>` | Lista y restaura migraciones de `~/.navori/migrations/` |
 
@@ -99,6 +102,7 @@ Un preset aporta skills y reglas específicas del stack además del core. El `in
 | `bun-keystone` | Keystone 6 + Prisma (backend, Bun) |
 | `background-worker` | Worker de fondo (jobs + colas: agenda / bullmq / amqplib) |
 | `medusa` | Medusa.js v2 (backend) |
+| `monorepo-turbopnpm` | Monorepo con Turborepo + pnpm workspaces |
 
 Los presets **neutros** (`vite-react-ts`, `express`) traen las skills genéricas del stack sin atarte a una lib; los especializados (`…-mantine`, `…-mongoose`) agregan las skills de esa capa encima.
 
@@ -120,6 +124,7 @@ La resolución es **local → bundled**: si tienes un preset local con el mismo 
 | Plugin | Para qué | External tool |
 |---|---|---|
 | `engram` | Memoria persistente entre sesiones | `engram` binary |
+| `codegraph` | Grafo AST del repo vía MCP: símbolos, call paths y blast-radius en una llamada | `codegraph` |
 | `acli` | Leer tickets de Jira desde la terminal | `acli` |
 | `gh` | GitHub Issues, PRs y workflow runs | `gh` |
 | `jscpd` | Detección de duplicación en el diff | `jscpd` (opt-in) |

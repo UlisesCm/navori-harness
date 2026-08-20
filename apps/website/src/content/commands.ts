@@ -59,7 +59,10 @@ const es: Record<string, CommandDoc> = {
     summary: "Registra un plugin en navori.config.json, o sugiere qué agregar según tu stack.",
     usage: "navori add <plugin> | navori add --suggest",
     flags: [
-      { flag: "<plugin>", desc: "Plugin a registrar: engram, semgrep, jscpd, acli, gh." },
+      {
+        flag: "<plugin>",
+        desc: "Plugin a registrar: engram, codegraph, semgrep, jscpd, acli, gh.",
+      },
       { flag: "--suggest", desc: "Detecta el stack y sugiere preset + plugins (no instala nada)." },
       { flag: "--yes", desc: "Sin prompts; instala la herramienta externa si hace falta." },
       { flag: "--skip-install", desc: "Registra el plugin sin instalar su herramienta externa." },
@@ -264,7 +267,10 @@ const en: Record<string, CommandDoc> = {
     summary: "Register a plugin in navori.config.json, or suggest what to add based on your stack.",
     usage: "navori add <plugin> | navori add --suggest",
     flags: [
-      { flag: "<plugin>", desc: "Plugin to register: engram, semgrep, jscpd, acli, gh." },
+      {
+        flag: "<plugin>",
+        desc: "Plugin to register: engram, codegraph, semgrep, jscpd, acli, gh.",
+      },
       {
         flag: "--suggest",
         desc: "Detect the stack and suggest a preset + plugins (installs nothing).",

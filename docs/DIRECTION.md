@@ -9,8 +9,9 @@
 ## Qué es navori
 
 navori es un paquete npm (CLI, binario `navori`) que replica un **harness multi-agente + SDD**
-en cualquier repo, de forma reproducible y con soporte **multi-engine** (Claude Code hoy;
-Codex, AGENTS.md universal, Cursor, Copilot en el core engine-agnostic). Reconstruye
+en cualquier repo, de forma reproducible y con soporte **multi-engine**: hoy renderean Claude
+Code, Codex nativo (Spec 0004, ejecutada), AGENTS.md universal, Cursor y Copilot sobre el
+mismo spine engine-agnostic. Reconstruye
 `CLAUDE.md` + `.claude/` + `progress/` de forma **idempotente** desde una única fuente de
 verdad (`navori.config.json`), sin pisar el trabajo manual del usuario. Estado actual: MVP
 funcional en producción interna (rollout a 15 repos Bonum), monorepo pnpm con `@navori/cli` +
@@ -139,7 +140,7 @@ una spec** en `specs/` y consíguela aprobada; recién entonces se implementa.
 - `specs/` — decisiones de arquitectura formales (0001 render por workspace, 0002 engine
   Claude, 0003 v0.2 calidad/tokens, 0004 engine Codex, 0005 lectura eficiente, 0006 reducción
   de contexto, 0007/0008 render-plan unificado, 0009 codegraph, 0010 harness global, 0011
-  Dominio).
+  Dominio, 0012 capa de solutioning, `gitignore-harness` gestión del `.gitignore`).
 - `docs/audit-2026-07.md` — auditoría del harness generado y del CLI.
 - `CLAUDE.md` (raíz) — instrucciones vivas del repo (secciones "Qué es este proyecto",
   "Decisiones ya tomadas", "Quality gate").

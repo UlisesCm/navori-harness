@@ -42,6 +42,14 @@ const agents = [
       "Ante un bug en una feature crítica o una migración estructural, diseca el ticket: causa raíz, qué áreas se afectan y cómo partir el trabajo. Produce un documento de auditoría que orienta toda la implementación posterior, para que el implementer no arranque a ciegas.",
   },
   {
+    role: "Auditor",
+    tag: "read-only",
+    model: "sonnet",
+    body: "El que audita a fondo un módulo sin ticket de por medio: qué está mal y qué tan grave es.",
+    detail:
+      "Cuando quieres saber qué deuda arrastra un área antes de refactorizarla, recorre el código buscando bugs, huecos de seguridad, problemas de rendimiento, violaciones de arquitectura y casos borde sin cubrir. Nunca edita código de producción: entrega un reporte con un plan priorizado en disco. Seguridad y rendimiento son ejes obligatorios de su revisión.",
+  },
+  {
     role: "Implementer",
     tag: "escribe",
     model: "sonnet",
@@ -86,7 +94,7 @@ const modelTiers = [
   {
     model: "sonnet",
     use: "Escribir código",
-    who: "researcher · implementer",
+    who: "researcher · implementer · auditor",
     note: "Equilibrio entre calidad y costo.",
   },
   {

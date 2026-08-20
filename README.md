@@ -73,9 +73,10 @@ ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un
 | `render` | Genera los archivos nativos de cada engine configurado (preview por default; `--apply` escribe). `--all` renderea **todos** los repos del registro global de una — el rollout tras un bump de navori en un comando |
 | `registry` | Registro global de tus repos con navori (`ls` / `scan <dir>` / `add` / `remove` / `prune`). `init` y `update` te dan de alta solos; `scan` puebla lo que ya existía |
 | `sync` | Refresca todos los engines configurados con conflict resolution + backups |
-| `add` / `configure` | Activa un plugin / ajusta una sección del config sin re-init |
+| `add` / `remove` / `configure` | Activa un plugin / lo desactiva limpiando sus bloques y scripts / ajusta una sección del config sin re-init |
 | `doctor` / `status` | Audita config + drift (`--strict` para CI) / snapshot rápido |
-| `workspace` / `ticket` | Config y tickets cross-repo |
+| `workspace` / `ticket` / `dominio` | Config y tickets cross-repo, y la base de conocimiento durable del workspace |
+| `global` | Harness base de la máquina en `~/.claude` (`init` / `render` / `doctor` / `uninstall`), opt-in explícito y aditivo |
 | `preset` / `scan` / `backup` / `migrations` / `bench` | Presets locales, monorepos, restore, benchmark |
 
 → Tabla completa, presets y plugins en [`packages/cli/README.md`](./packages/cli/README.md).

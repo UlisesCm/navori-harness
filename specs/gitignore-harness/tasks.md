@@ -1,11 +1,15 @@
 # Gestión del `.gitignore` del harness — Tasks
 
+**Estado:** ✅ board cerrado — T1 (`lib/schema.ts`, campo `gitignoreHarness`) y T2
+(`engines/shared/gitignore-harness.ts` con `CUBO_A_ENTRIES` y `buildGitignoreBody`, cubierto
+por `engines/shared/__tests__/gitignore-harness.test.ts`) están en `main` igual que T3-T7.
+
 Batches de 1-3. Cada task declara los `R<n>` que cubre y su(s) test(s) con `// Covers: R<n>`.
 
 ## Batch 1 — schema + derivación del cuerpo
 
-- [ ] **T1** (R1, R8, R11-schema) — Agregar `gitignoreHarness: z.enum(["off","local","full"]).default("off")` a nivel raíz de `NavoriConfigSchema` en `lib/schema.ts` con JSDoc; regenerar los JSON Schema (`pnpm gen:schemas`). · test: `lib/__tests__/schema.test.ts` — default `off`, acepta los 3 valores, rechaza uno inválido `// Covers: R1, R8`; y que `schema-publish.test.ts` pase tras `gen:schemas` `// Covers: R11`.
-- [ ] **T2** (R3, R4, R8) — Crear `engines/shared/gitignore-harness.ts` con `CUBO_A_ENTRIES` y `buildGitignoreBody(config)`: `null` en `off`, solo Cubo A en `local`, Cubo A + Cubo B (de `ENGINE_OUTPUTS` filtrado por `config.engines`, colapsado con `engineOwnedPaths()`) en `full`. · test: `engines/shared/__tests__/gitignore-harness.test.ts` — `off`→null; `local`→exactamente Cubo A; `full` con `engines:["claude"]` incluye `.claude/`+`CLAUDE.md` pero NO `.codex/`/`AGENTS.md`; `full` con codex sí los incluye; nunca aparece `progress/` a secas `// Covers: R3, R4, R8`.
+- [x] **T1** (R1, R8, R11-schema) — Agregar `gitignoreHarness: z.enum(["off","local","full"]).default("off")` a nivel raíz de `NavoriConfigSchema` en `lib/schema.ts` con JSDoc; regenerar los JSON Schema (`pnpm gen:schemas`). · test: `lib/__tests__/schema.test.ts` — default `off`, acepta los 3 valores, rechaza uno inválido `// Covers: R1, R8`; y que `schema-publish.test.ts` pase tras `gen:schemas` `// Covers: R11`.
+- [x] **T2** (R3, R4, R8) — Crear `engines/shared/gitignore-harness.ts` con `CUBO_A_ENTRIES` y `buildGitignoreBody(config)`: `null` en `off`, solo Cubo A en `local`, Cubo A + Cubo B (de `ENGINE_OUTPUTS` filtrado por `config.engines`, colapsado con `engineOwnedPaths()`) en `full`. · test: `engines/shared/__tests__/gitignore-harness.test.ts` — `off`→null; `local`→exactamente Cubo A; `full` con `engines:["claude"]` incluye `.claude/`+`CLAUDE.md` pero NO `.codex/`/`AGENTS.md`; `full` con codex sí los incluye; nunca aparece `progress/` a secas `// Covers: R3, R4, R8`.
 
 ## Batch 2 — escritura y reconciliación en render
 

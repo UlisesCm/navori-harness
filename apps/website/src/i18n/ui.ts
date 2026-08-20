@@ -76,7 +76,7 @@ export const ui = {
     "commands.init.desc":
       "Detecta el stack, hace unas preguntas y deja el repo listo en un minuto.",
     "commands.add.desc":
-      "Registra plugins (engram, semgrep, jscpd, acli, gh) o sugiere según tu stack.",
+      "Registra plugins (engram, codegraph, semgrep, jscpd, acli, gh) o sugiere según tu stack.",
     "commands.render.desc":
       "Reconstruye todos los engines configurados. Preview por default; --apply escribe.",
     "commands.sync.desc":
@@ -196,7 +196,7 @@ export const ui = {
     "commands.init.desc":
       "Detects the stack, asks a few questions, and leaves the repo ready in a minute.",
     "commands.add.desc":
-      "Registers plugins (engram, semgrep, jscpd, acli, gh) or suggests based on your stack.",
+      "Registers plugins (engram, codegraph, semgrep, jscpd, acli, gh) or suggests based on your stack.",
     "commands.render.desc": "Rebuilds every configured engine. Preview by default; --apply writes.",
     "commands.sync.desc":
       "Updates every configured engine. With --interactive you resolve CLAUDE.md conflicts block by block.",
