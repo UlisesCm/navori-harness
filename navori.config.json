@@ -1,6 +1,6 @@
 {
   "$schema": "https://navori.dev/schema/navori.config.v1.json",
-  "name": "navori-monorepo",
+  "name": "navori-harness",
   "version": "1.0.0",
   "engines": [
     "claude"

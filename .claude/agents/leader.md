@@ -4,7 +4,7 @@ description: Do NOT invoke as a subagent. Orchestration playbook that the main a
 tools: Read, Glob, Grep, Bash, Agent
 ---
 
-<!-- navori:managed id="leader-base" hash="5f31db2e" version="0.5.1" source="@navori/core" -->
+<!-- navori:managed id="leader-base" hash="5f31db2e" version="0.6.0" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live inline in the "## Role: orchestrator" block of `CLAUDE.md`, which auto-loads. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: leader)`.
@@ -136,7 +136,7 @@ If the task is:
 - A single trivial line in a known file → may not be worth the overhead.
 <!-- /navori:managed id="leader-base" -->
 
-<!-- navori:managed id="engram-leader-extension" hash="ae03e502" version="0.5.1" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-leader-extension" hash="ae03e502" version="0.6.0" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
 Before decomposing work: **search for context** with `mem_search` using keywords from the ticket. If you find a previous audit of the same area or a related architectural decision, read it before dispatching the `implementer`. Don't re-discover what's already saved.
