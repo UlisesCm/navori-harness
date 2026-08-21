@@ -10,6 +10,36 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-08-20 21:30 — claude — release 0.6.0 cerrado + 6 issues en dos tandas paralelas
+
+- Release: tag `v0.6.0` creado y pusheado sobre `5866441` (npm ya servía 0.6.0, publicado
+  por Ulises; el website se había desplegado post-bump). El tag fue lightweight sobre HEAD,
+  no sobre un commit `chore(release)` como en v0.5.1.
+- Mergeados (squash, todos con CI verde): #411 (#393 disco), #412 (#392 rutas citadas),
+  #413 (#391 zsh), #410 (tablero previo), #414 (#398 closeout), #415 (#400
+  verify-before-done), #416 (#399 CLAUDE.md condicional, 2 commits).
+- Quality gate: ✅ CI `quality` verde en los 6 PRs; cada ciclo con Pass-2 del reviewer y
+  receipt sin drift.
+- Notas:
+  - **#391 destapó dos fail-open REALES**, no solo cobertura: bajo zsh `${var//pat/$'\n'}`
+    no expande el reemplazo, así que los comandos compuestos nunca se segmentaban y el
+    guard dejaba pasar un borrado recursivo encadenado; y `shopt` no existe en zsh, así
+    que el validador de handoff moría con exit 127. Tercera incidencia de la clase.
+  - **#399 no quedó completo a la primera.** Tras aprobarse, se detectó que
+    `skills/ticket-intake.md:25` seguía ordenando leer CLAUDE.md. La causa era doble: el
+    guard iteraba solo `agents/` **y** su regex exigía backticks. Se reemplazó por un
+    barrido de todo `core-assets/**/*.md` que distingue mandato de referencia; cerrado con
+    delta re-sign (subsunción verificada por mutación; aritmética 1667 − 9 + 2 = 1660).
+  - **#404 (en vuelo) destapó pérdida de datos real**: la suite borra backups reales >30
+    días del `~/.navori` del usuario vía la pasada por edad de `purgeOldBackups` — desde
+    antes de #411, que solo agregó el segundo modo (tamaño).
+  - Gotcha: reescribir el body de un PR puede tirar la línea `Closes #N` y romper el
+    auto-cierre del issue (pasó con #399).
+  - Worktrees: se limpiaron los 6 ya mergeados (`.claude/worktrees` bajó de ~4 GB a 575 MB,
+    lo que queda son los 2 en vuelo).
+- Commit / PR: #410–#416 · issues cerrados #391, #392, #393, #398, #399, #400 · issue
+  nuevo #417.
+
 ## 2026-08-20 17:40 — claude — cierre: render 0.6.0, #389, las 6 decisiones y 6 issues nuevos
 
 - Cambios:
