@@ -1,14 +1,14 @@
 # Sesión actual
 
-**Estado:** idle. `main` limpio y al día. 11 issues abiertos, **todos con su alcance
-ya decidido** — ninguno espera una decisión.
+**Estado:** idle. `main` limpio y al día. **23 issues abiertos**: los 11 previos (alcance
+decidido, post-release) + los 12 de la auditoría de cableado+reprocesos del 2026-08-20
+(#398–#409, cada uno con problema/justificación/solución/test anti-regresión en el cuerpo).
 
-## El siguiente paso es el release 0.6.0
+## El siguiente paso sigue siendo el release 0.6.0
 
 `packages/cli/package.json` dice `0.6.0`, pero el último tag es `v0.5.1` y npm sirve
 `0.5.1`. Falta: tag → `gh workflow run deploy-website.yml` → `npm publish` (manual,
-OTP de Ulises). El render de auto-hospedaje ya se hizo (#388), así que el repo no va
-una versión atrás del paquete que publica.
+OTP de Ulises). El render de auto-hospedaje ya se hizo (#388).
 
 **Qué avisar en el rollout** (per-repo, NUNCA `--all`):
 
@@ -21,52 +21,42 @@ una versión atrás del paquete que publica.
 3. Heredado: los repos con `socket.io-client` necesitan `navori update` además de
    `render` para migrar `socketio` → `socketio-client`.
 
-## Los 11 issues abiertos, por tanda
+## Los 12 issues nuevos de la auditoría (2026-08-20), por tanda
 
-**Post-release, con la decisión ya tomada** (cada uno tiene el alcance acordado como
-comentario en el issue — no re-litigar):
+**Reprocesos del pipeline** (los de más ahorro; #398/#399/#400 son prosa de riesgo ~0
+y caben en una sola tanda):
 
-- **#375** prosa→mecanismo: los 4 casos restantes, derivando de `project.criticalAreas`
-  y `qualityGate`.
-- **#379** solo la mitad B (tabla señal→mecanismo). **La mitad A se rechazó**: el
-  fan-out es always-on precisamente porque es lo que hace que se use.
-- **#378** R1 exprés con la exención atada al **diff** (R1 + una tarea + no toca áreas
-  críticas), no al juicio del agente. `mem_save` e `history.md` se quedan si hubo commit.
-- **#377** fan-out en fase 2 del intake con criterio enumerado (2+ repos, o cruza
-  frontend/backend, o módulos sin dependencia).
-- **#370** modo asíncrono **solo para cerrar** (`blocked`, `already-solved`,
-  `cant-reproduce`, `works-as-intended`, `needs-splitting`). El gate humano se conserva
-  para `proceed`.
+- **#398** `priority:high` — el closeout re-corre el full gate ya verde (~42s/sesión).
+- **#399** `priority:high` — 7 agentes ordenan "Read CLAUDE.md" que el host ya inyectó.
+- **#402** `priority:high` — semgrep escanea el mismo diff hasta 6×/ciclo (~20–24s);
+  caché por hash de diff.
+- **#400** `priority:medium` — verify-before-done contradice el criterio load-bearing.
+- **#401** `priority:medium` — ceremonia de memoria duplicada (mem_context + cierre 3×).
 
-**Testing más real** (abiertos esta sesión, ordenados por costo/beneficio):
+**Permisos:** **#403** `priority:medium` — derivar el allowlist del `qualityGate` del
+config + filtros puros.
 
-- **#391** `priority:high` — correr los hooks bajo **zsh** además de bash. Reincidencia
-  comprobada: #344 y el camino 3 de #365 fueron word-splitting que zsh no hace.
-- **#392** `priority:high` — que ningún asset renderizado cite una ruta inexistente.
-  Cuatro hallazgos de esa clase: #352, #364 A, #364 B, #389.
-- **#394** `priority:medium` — golden snapshot por engine (con las tres mitigaciones
-  de ruido escritas en el issue; sin ellas, no vale la pena).
-- **#395** `priority:low` — repos fixture (o generadores declarativos, la alternativa
-  barata que propone el propio issue).
-- **#396** `priority:low` — benchmark de comportamiento del agente. **No es gate de
-  CI**: es no determinista, y un check no determinista en el gate enseña a ignorar el
-  gate (el error que cometió el backstop del receipt).
+**CLI:** **#404** `priority:high` — la suite de tests escribe/purga backups en el
+`~/.navori` REAL (⚠️ **va antes que la purga por tamaño de #393**, comentado allá);
+**#405** `priority:medium` — backup proporcional al diff; **#406** `priority:low` —
+`core/src/index.ts` muerto/drifteado.
 
-**Infraestructura:**
+**Cableado:** **#407** `priority:low` — ruta semgrep inexistente (5ª instancia #392,
+comentado allá); **#408** `priority:medium` — bloque fantasma «?» en doctor
+(`health.ts:35`); **#409** `priority:low` — `solution_*` fuera del contrato de handoffs.
 
-- **#393** `priority:high` — el crecimiento en disco no tiene tope ni vigilancia: la
-  purga de backups mira solo los 30 días (nunca el tamaño) y solo corre cuando algo
-  crea un backup; los worktrees de agente no tienen dueño.
+## Los 11 issues previos (sin cambios, decisión tomada)
+
+Post-release: #375, #379 (solo mitad B), #378 (R1 exprés), #377, #370.
+Testing real: #391 `high` (zsh), #392 `high` (rutas — ahora con la instancia 5 de #407),
+#394, #395, #396. Infra: #393 `high` (disco — redefinido en parte por #404/#405).
 
 ## Notas
 
-- **`.claude/worktrees/` de este repo: 4.2 GB → 0**, 15 worktrees eliminados tras
-  verificar `dirty=0` y que su contenido estaba en `main`. **`git merge-base
-  --is-ancestor` no sirve para esa verificación**: con squash-merge da `NO-MERGED` en
-  branches que sí shippearon. Lo que sirvió fue cruzar cada branch contra su PR.
-  Las 15 branches locales siguen existiendo (refs, no pesan).
-- `~/.navori/backups`: 122 MB en 1,192 entradas. Sano en tamaño, pero el conteo crece
-  rápido (un backup por `render --apply`) y nada lo acota salvo los 30 días → #393.
+- Reportes de la auditoría en `.claude/progress/`: `audit_wiring.md`,
+  `audit_reprocesos.md`, `research_hooks_costo.md`, `research_cli_reprocesos.md`.
+- La auditoría confirmó qué NO recortar: Pass-2 del reviewer, hook pre-commit fast,
+  receipt+delta re-sign, challenge de solution-design, cadena de hooks por Bash.
 - Heredado: la ruta de los repos Bonum en el `~/.claude/CLAUDE.md` global sigue
   desactualizada, `~/.navori/registry.json` conserva una entrada de prueba apuntando
   al scratchpad, y siguen pendientes los PRs del repo externo bonum-webapp (#639,

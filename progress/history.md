@@ -188,3 +188,37 @@ Continuación de la entrada anterior. El tablero quedó en **cero issues y cero 
     32 MB / 310, todos post-fix y ninguno con `worktrees/`. El más pesado pasó de 15 GB a
     368 KB. `registry.json` y `workspaces/` intactos.
 - Commit / PR: #357, #358, #359 mergeados · #333 y #336 cerrados con justificación.
+
+## 2026-08-20 19:11 claude — Auditoría de cableado+reprocesos → 12 issues (#398–#409)
+
+- Encargo de Ulises: auditar que todo esté cableado correctamente, detectar reprocesos
+  sin justificación y acelerar el ciclo prompt→solución **sin perder calidad**.
+- Método: 4 agentes de solo lectura en paralelo (cableado del harness, reprocesos del
+  pipeline, costo medido de hooks/permisos, cableado+reprocesos del CLI), instruidos para
+  reutilizar los reportes del 19-ago y la lista de issues abiertos en vez de re-derivar.
+  Reportes en `.claude/progress/`: `audit_wiring.md`, `audit_reprocesos.md`,
+  `research_hooks_costo.md`, `research_cli_reprocesos.md`. Claims load-bearing
+  verificados a mano contra el código antes de sintetizar.
+- Veredicto: **cableado estructural sano, 0 críticos** (hooks↔settings, agentes, skills,
+  render sin drift, doctor OK; los fixes de 0e1e53b y la paridad Codex se sostienen).
+  El costo real está en reprocesos del protocolo y fricción de permisos.
+- Hallazgos → 12 issues, cada uno con problema/justificación/solución/test anti-regresión:
+  - Reprocesos: #398 gate full duplicado en el closeout (~42s), #399 "Read CLAUDE.md" ya
+    inyectado (~8K tokens/spawn), #400 verify-before-done vs criterio load-bearing,
+    #401 ceremonia de memoria duplicada (mem_context + triple redacción), #402 semgrep
+    escanea el mismo diff hasta 6× (~20–24s/ciclo).
+  - Permisos: #403 derivar el allowlist del `qualityGate` del config + filtros puros
+    (772 entradas en settings.local, 619 one-shot).
+  - CLI: #404 la suite de tests escribe/purga backups en el `~/.navori` REAL (99% de los
+    125 MB), #405 backup full-tree en el restamp de release, #406 `core/src/index.ts`
+    muerto y drifteado.
+  - Cableado: #407 ruta `scripts/check-semgrep.sh` inexistente (5ª instancia clase #392),
+    #408 bloque managed fantasma «?» en doctor (regex laxa `health.ts:35`), #409
+    `solution_*` fuera del contrato de handoffs.
+- Cross-links: comentario en #392 (el test de clase debe cubrir assets de plugins; #407 es
+  la instancia 5) y en #393 (**#404 va antes que la purga por tamaño** — si no, correr
+  tests borraría backups legítimos).
+- Qué NO recortar (confirmado con evidencia): Pass-2 del reviewer, hook pre-commit fast,
+  receipt+delta re-sign, challenge de solution-design, cadena de 4 hooks por Bash
+  (40–50 ms en paralelo).
+- Quality gate: ✅ corrido al cierre sobre main limpio (sin edits de código en la sesión).
