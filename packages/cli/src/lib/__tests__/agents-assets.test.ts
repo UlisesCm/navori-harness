@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { getCoreRoot } from "../bundled-assets.ts";
 
@@ -14,6 +14,9 @@ import { getCoreRoot } from "../bundled-assets.ts";
  *   - Non-empty content on both sides of the sentinel.
  *
  * If you add a new agent role, add it to AGENT_IDS below.
+ *
+ * The "no unconditional CLAUDE.md read" guard (#399) is NOT here: it sweeps
+ * every managed asset, so it lives in `claude-md-read-mandate.test.ts`.
  */
 
 const AGENT_IDS = [
@@ -124,40 +127,6 @@ describe("core agent assets — interpolation placeholders", () => {
  * dies with "command not found". The pilot's drift loop shipped exactly that bug
  * and reported false DRIFT on every reviewed file.
  */
-/**
- * #399: hosts like Claude Code inject the project CLAUDE.md into every
- * subagent's system prompt, so an unconditional "Read `CLAUDE.md`" protocol
- * step duplicates ~8K tokens per spawn. The step must stay conditional: read
- * from disk ONLY when the host did not inject it (e.g. an engine without
- * automatic injection). This iterates the agents directory (not a fixed list)
- * so future agents are covered too.
- */
-describe("core agent assets — no unconditional CLAUDE.md read mandate (#399)", () => {
-  const agentsDir = resolve(getCoreRoot(), "core-assets", "agents");
-  const agentFiles = readdirSync(agentsDir).filter((name) => name.endsWith(".md"));
-  const READ_MANDATE = /read.*`CLAUDE\.md`/i;
-  const INJECTION_CONDITION = /already in your context|only if your host/i;
-
-  it("finds agent assets to check", () => {
-    expect(agentFiles.length).toBeGreaterThanOrEqual(7);
-  });
-
-  for (const file of agentFiles) {
-    it(`${file}: any "Read CLAUDE.md" step is conditional on host injection`, () => {
-      const raw = readFileSync(resolve(agentsDir, file), "utf-8");
-      for (const paragraph of raw.split(/\n{2,}/)) {
-        const mandate = paragraph.split("\n").find((line) => READ_MANDATE.test(line));
-        if (mandate === undefined) continue;
-        expect(
-          INJECTION_CONDITION.test(paragraph),
-          `unconditional CLAUDE.md read in ${file}: "${mandate.trim()}" — ` +
-            `the same paragraph must scope it to hosts without automatic injection`,
-        ).toBe(true);
-      }
-    });
-  }
-});
-
 describe("core agent assets — no assignment to a zsh-special variable (#344)", () => {
   const ZSH_TIED_ASSIGNMENT = /(^|[;&|(\s])(path|fpath|cdpath|manpath|module_path)=/m;
 
