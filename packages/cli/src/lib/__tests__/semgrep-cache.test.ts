@@ -122,7 +122,7 @@ function runHook(repo: Repo, shell: HookShell, command: string): HookRun {
   });
   return {
     status: r.status,
-    scanned: r.stderr.includes("modificados vs"),
+    scanned: r.stderr.includes("changed file(s) vs"),
     cacheHit: r.stderr.includes("diff unchanged since last green scan"),
   };
 }
