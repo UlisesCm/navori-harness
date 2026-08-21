@@ -4,11 +4,9 @@
   "description": "Universal harness primitives — managed core assets",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
     "./assets/*": "./core-assets/*"
   },
   "files": [
-    "src",
     "core-assets"
   ],
   "engines": {
