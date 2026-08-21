@@ -9,7 +9,7 @@ import {
   readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { getPluginPath } from "../bundled-assets.ts";
 import { interpolate } from "../interpolate.ts";
 import { expandHookIncludes } from "../hook-includes.ts";
@@ -49,7 +49,29 @@ interface Repo {
   /** One line per stub-semgrep invocation. */
   log: string;
   hook: string;
+  /** The main worktree's marker (see `markerPath`). */
   marker: string;
+}
+
+/** `git rev-parse --absolute-git-dir` from `cwd` — the exact path the hook
+ * resolves. Also the canonical (symlink-free) form, unlike `join(dir, ".git")`:
+ * on macOS `mkdtemp` hands back `/var/…` while git reports `/private/var/…`. */
+function gitDir(cwd: string): string {
+  return execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+    cwd,
+    encoding: "utf-8",
+  }).trim();
+}
+
+/**
+ * The marker path the hook computes, resolved the SAME way the script does:
+ * `$(git rev-parse --absolute-git-dir)/navori-semgrep-ok`. Per-worktree on
+ * purpose — a linked worktree's `.git` is a FILE pointing at
+ * `<repo>/.git/worktrees/<name>`, so it gets its own marker instead of
+ * inheriting the main worktree's green over different content (#425).
+ */
+function markerPath(cwd: string): string {
+  return join(gitDir(cwd), "navori-semgrep-ok");
 }
 
 /**
@@ -102,7 +124,7 @@ function setupRepo(scanExit: number, mutateDuringScan = false): Repo {
   writeFileSync(hook, renderHook());
   chmodSync(hook, 0o755);
 
-  return { dir, binDir, log, hook, marker: join(dir, ".git", "navori-semgrep-ok") };
+  return { dir, binDir, log, hook, marker: markerPath(dir) };
 }
 
 interface HookRun {
@@ -113,16 +135,18 @@ interface HookRun {
   cacheHit: boolean;
 }
 
-function runHook(repo: Repo, shell: HookShell, command: string): HookRun {
+/** Runs the hook from `cwd` (the main worktree by default — `#425` drives it
+ * from a linked worktree with the same script and the same stub PATH). */
+function runHook(repo: Repo, shell: HookShell, command: string, cwd = repo.dir): HookRun {
   const r = spawnSync(shell, [repo.hook], {
-    cwd: repo.dir,
+    cwd,
     input: JSON.stringify({ tool_input: { command } }),
     encoding: "utf-8",
     env: { PATH: `${repo.binDir}:${BASE_PATH}` },
   });
   return {
     status: r.status,
-    scanned: r.stderr.includes("modificados vs"),
+    scanned: r.stderr.includes("changed file(s) vs"),
     cacheHit: r.stderr.includes("diff unchanged since last green scan"),
   };
 }
@@ -253,5 +277,49 @@ describe.runIf(runsBash)("semgrep gate — content cache (#402)", () => {
     expect(out.scans).toBe(3);
     expect(out.expired).toMatchObject({ scanned: true, cacheHit: false });
     expect(out.future).toMatchObject({ scanned: true, cacheHit: false });
+  });
+
+  // The marker lives in the PER-WORKTREE git dir (#425). Byte-identical content
+  // on purpose: the fingerprint covers the scanned paths, their bytes, the hook
+  // and the binary — all identical across the two worktrees here — so the
+  // marker's location is the ONLY thing left standing between the linked
+  // worktree and an inherited green. A shared git dir (`--git-common-dir`)
+  // would hand it a cache hit over content semgrep never read there.
+  it("does NOT share the marker across worktrees (per-worktree git dir)", () => {
+    const out = acrossShells((shell) => {
+      const repo = setupRepo(0);
+      const main = runHook(repo, shell, "git commit -m x");
+      const mainMarkerBefore = readFileSync(repo.marker, "utf-8");
+
+      // Outside the repo's working tree so the linked checkout cannot show up
+      // in the main worktree's own diff.
+      const wt = join(mkdtempSync(join(tmpdir(), "navori-semgrep-wt-")), "wt");
+      execFileSync("git", ["-C", repo.dir, "worktree", "add", "-q", "-b", "wt", wt, "main"], {
+        stdio: "pipe",
+      });
+      writeFileSync(join(wt, "a.ts"), readFileSync(join(repo.dir, "a.ts"), "utf-8"));
+
+      const linked = runHook(repo, shell, "git commit -m x", wt);
+      return {
+        main,
+        linked,
+        scans: scanCount(repo),
+        // Relative, never absolute: `acrossShells` deep-equals the bash and zsh
+        // results, and each run gets its own mkdtemp path.
+        linkedMarkerRel: relative(gitDir(repo.dir), markerPath(wt)),
+        linkedMarkerWritten: existsSync(markerPath(wt)),
+        mainMarkerIntact: readFileSync(repo.marker, "utf-8") === mainMarkerBefore,
+      };
+    });
+
+    expect(out.main).toMatchObject({ scanned: true, cacheHit: false });
+    // The linked worktree scans on its own account — no inherited green.
+    expect(out.linked).toMatchObject({ status: 0, scanned: true, cacheHit: false });
+    expect(out.scans).toBe(2);
+    // Its marker lands under <repo>/.git/worktrees/<name>/, and the main
+    // worktree's marker is untouched by that run.
+    expect(out.linkedMarkerRel).toBe(join("worktrees", "wt", "navori-semgrep-ok"));
+    expect(out.linkedMarkerWritten).toBe(true);
+    expect(out.mainMarkerIntact).toBe(true);
   });
 });
