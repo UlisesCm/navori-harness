@@ -2,9 +2,25 @@ import { mkdirSync, copyFileSync, existsSync, readdirSync, rmSync, statSync } fr
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { safeHomedir } from "./home.ts";
 
-// Lazy so importing this module doesn't throw if HOME isn't set yet — the
-// throw happens only when someone actually tries to use a backup operation.
+/** Env var that redirects the whole backup store (writes AND purge). */
+const BACKUP_ROOT_ENV = "NAVORI_BACKUP_ROOT";
+
+/**
+ * Where backups live: `$NAVORI_BACKUP_ROOT` when set, else `~/.navori/backups`.
+ *
+ * The override exists because the home-derived path is a machine-global side
+ * effect that a sandboxed run must be able to redirect: without it every
+ * in-process test that renders for real writes into the developer's own
+ * `~/.navori/backups` — and `purgeOldBackups()` then DELETES from it (#404).
+ *
+ * Lazy so importing this module doesn't throw if HOME isn't set yet — the
+ * throw happens only when someone actually tries to use a backup operation.
+ */
 function backupRootLazy(): string {
+  const override = process.env[BACKUP_ROOT_ENV]?.trim();
+  // resolve(): a relative override would otherwise hang off the process CWD,
+  // silently moving the store when the caller chdirs — see safeHomedir().
+  if (override) return resolve(override);
   return join(safeHomedir(), ".navori", "backups");
 }
 const DEFAULT_RETENTION_DAYS = 30;

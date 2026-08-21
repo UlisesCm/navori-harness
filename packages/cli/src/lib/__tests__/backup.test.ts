@@ -9,25 +9,32 @@ import {
   utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 // Isolate ~/.navori to a throwaway home so backups never touch the real home
 // dir and can't race other test files that also write to ~/.navori/backups.
 const home = vi.hoisted(() => ({ dir: "" }));
 vi.mock("../home.ts", () => ({ safeHomedir: () => home.dir }));
 
-const { createBackup, backupRepoLabel, backupIdRepoLabel, purgeOldBackups } = await import(
-  "../backup.ts"
-);
+const { createBackup, backupRoot, backupRepoLabel, backupIdRepoLabel, purgeOldBackups } =
+  await import("../backup.ts");
+
+/** The suite-wide isolation root installed by `vitest.setup.ts` (#404). These
+ * specs re-point the override at their own fake home — they assert on purge
+ * behaviour over their own fixtures — and restore it afterwards. */
+const suiteBackupRoot = process.env.NAVORI_BACKUP_ROOT;
 
 let repo: string;
 
 beforeEach(() => {
   home.dir = mkdtempSync(join(tmpdir(), "backup-home-"));
   repo = mkdtempSync(join(tmpdir(), "backup-test-"));
+  process.env.NAVORI_BACKUP_ROOT = join(home.dir, ".navori", "backups");
 });
 
 afterEach(() => {
+  if (suiteBackupRoot === undefined) delete process.env.NAVORI_BACKUP_ROOT;
+  else process.env.NAVORI_BACKUP_ROOT = suiteBackupRoot;
   rmSync(repo, { recursive: true, force: true });
   rmSync(home.dir, { recursive: true, force: true });
 });
@@ -226,5 +233,65 @@ describe("purgeOldBackups — retention + size cap (#393)", () => {
     const pruned = purgeOldBackups({ maxTotalBytes: 500 });
     expect(pruned.sort()).toEqual([expired, heavyOld].sort());
     expect(existsSync(light)).toBe(true);
+  });
+});
+
+// #404: without an override, every in-process test that renders for real wrote
+// into the developer's own ~/.navori/backups — and purgeOldBackups() deleted
+// from it. Both the write path and the purge path must honour the env var.
+describe("backup root override — NAVORI_BACKUP_ROOT (#404)", () => {
+  let override: string;
+  /** Where backups would land without the override. */
+  let homeRoot: string;
+
+  beforeEach(() => {
+    override = mkdtempSync(join(tmpdir(), "backup-override-"));
+    homeRoot = join(home.dir, ".navori", "backups");
+    process.env.NAVORI_BACKUP_ROOT = override;
+  });
+
+  afterEach(() => {
+    rmSync(override, { recursive: true, force: true });
+  });
+
+  it("writes backups under the override, never under ~/.navori/backups", () => {
+    writeFileSync(join(repo, "CLAUDE.md"), "x");
+    const handle = createBackup(repo, ["CLAUDE.md"]);
+
+    expect(backupRoot()).toBe(override);
+    expect(handle.path.startsWith(override + "/")).toBe(true);
+    expect(readFileSync(join(handle.path, "CLAUDE.md"), "utf-8")).toBe("x");
+    expect(existsSync(homeRoot)).toBe(false);
+  });
+
+  it("purges only the override root, leaving the real store untouched", () => {
+    // An "existing user backup" in the home-derived store, old enough that the
+    // age pass would delete it if the purge ever looked there.
+    const untouchable = join(homeRoot, "user-repo-2020-01-01T00-00-00-000-p1-0");
+    mkdirSync(untouchable, { recursive: true });
+    writeFileSync(join(untouchable, "CLAUDE.md"), "precious");
+    const longAgo = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
+    utimesSync(untouchable, longAgo, longAgo);
+
+    writeFileSync(join(repo, "CLAUDE.md"), "x");
+    const expired = createBackup(repo, ["CLAUDE.md"]).path;
+    utimesSync(expired, longAgo, longAgo);
+
+    expect(purgeOldBackups()).toEqual([expired]);
+    expect(existsSync(expired)).toBe(false);
+    expect(existsSync(untouchable)).toBe(true);
+  });
+
+  it("falls back to ~/.navori/backups when the override is unset or blank", () => {
+    delete process.env.NAVORI_BACKUP_ROOT;
+    expect(backupRoot()).toBe(homeRoot);
+
+    process.env.NAVORI_BACKUP_ROOT = "   ";
+    expect(backupRoot()).toBe(homeRoot);
+  });
+
+  it("resolves a relative override so it can't drift with the process CWD", () => {
+    process.env.NAVORI_BACKUP_ROOT = "relative-backups";
+    expect(backupRoot()).toBe(resolve(process.cwd(), "relative-backups"));
   });
 });

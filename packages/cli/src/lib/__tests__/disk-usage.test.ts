@@ -10,14 +10,22 @@ vi.mock("../home.ts", () => ({ safeHomedir: () => home.dir }));
 
 const { scanDiskUsage, humanBytes } = await import("../disk-usage.ts");
 
+/** The suite-wide isolation root installed by `vitest.setup.ts` (#404). The
+ * scan resolves the store through `backupRoot()`, so the override has to follow
+ * the fake home for these specs to measure their own fixtures. */
+const suiteBackupRoot = process.env.NAVORI_BACKUP_ROOT;
+
 let repo: string;
 
 beforeEach(() => {
   home.dir = mkdtempSync(join(tmpdir(), "disk-usage-home-"));
   repo = mkdtempSync(join(tmpdir(), "disk-usage-repo-"));
+  process.env.NAVORI_BACKUP_ROOT = join(home.dir, ".navori", "backups");
 });
 
 afterEach(() => {
+  if (suiteBackupRoot === undefined) delete process.env.NAVORI_BACKUP_ROOT;
+  else process.env.NAVORI_BACKUP_ROOT = suiteBackupRoot;
   rmSync(repo, { recursive: true, force: true });
   rmSync(home.dir, { recursive: true, force: true });
 });
