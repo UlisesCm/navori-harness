@@ -16,12 +16,15 @@ que ya arreglamos en el core.
 Un solo `navori render` recoge los seis cambios. **No hay ningún check de CI que detecte
 ese drift** — candidato a issue (ver abajo).
 
-## Los 2 ciclos en vuelo (worktrees con trabajo sin commitear)
+## Los 2 ciclos de la última tanda
 
-- **#404** — aísla el store de backups de la suite. Worktree
-  `.claude/worktrees/agent-a3f069e9fece3f819`, 7 archivos. Implementación DONE, review
-  lanzada. Al retomar: leer `.claude/progress/review_issue404.md` en ese worktree y, si
-  está `APPROVED`, cerrar con el pilot.
+- **#404** — aísla el store de backups de la suite. **`APPROVED` y PR abierto:
+  [#419](https://github.com/UlisesCm/navori-harness/pull/419)** (`649574a`, branch
+  `fix/404-isolate-test-backups`). El trabajo ya está commiteado y pusheado, así que su
+  worktree (`agent-a3f069e9fece3f819`) **ya se puede borrar**. Solo falta mergear.
+  El reviewer verificó el criterio end-to-end sobre el home real (1864 entradas antes y
+  después, listado idéntico) y el pilot re-corrió el gate tras el rebase (1679 tests
+  verdes, guard sin disparar).
 - **#402** — caché por contenido del gate de semgrep. Worktree
   `.claude/worktrees/agent-ada56c21ece4b93d7`, 2 archivos. **`CHANGES_REQUESTED`** — ver
   `.claude/progress/review_issue402.md`. Un solo blocker, con fix identificado de ~4
@@ -54,7 +57,8 @@ no hay divergencia bash/zsh, el aislamiento por worktree es real, la degradació
 en todos los casos construidos (sin `date`, sin `ls`, `.git` de solo lectura, marcador
 corrupto e incluso un directorio en lugar del marcador), y los tests muerden.
 
-⚠️ **No borres esos dos worktrees**: contienen el único ejemplar del trabajo.
+⚠️ **No borres el worktree de #402** (`agent-ada56c21ece4b93d7`): contiene el único
+ejemplar de ese trabajo, todavía sin commitear.
 
 ## Hallazgo grave de #404 (verificado en `main`, afecta datos reales)
 
@@ -115,9 +119,12 @@ doctor), #409 (`solution_*` fuera del contrato de handoffs).
    tal cual (dispara solo en commit, así que ahorra menos).
 4. **Otros directorios machine-global sin override**, misma clase que #404:
    `registry.ts` (`~/.navori/registry.json`), `workspace.ts`, `migrate.ts`,
-   `global-config.ts`. Hoy los cubren mocks de `safeHomedir`, pero sin guard.
-   `interactive-flows.test.ts:47` dice explícitamente que `migrate.ts` mueve archivos al
-   `~/.navori/migrations` real.
+   `global-config.ts`. Hoy los cubren mocks de `safeHomedir`, pero sin guard que atrape
+   al test que se olvide del mock.
+   **Corrección**: el implementer de #404 reportó además que `interactive-flows.test.ts`
+   tocaba el `~/.navori/migrations` real — el reviewer lo verificó y es **falso** (ese
+   archivo mockea `migrate.ts` en sus líneas 49-56, y el directorio tiene una sola entrada
+   real de junio). No abrir issue por eso.
 
 ## Gotcha de proceso aprendido hoy
 
