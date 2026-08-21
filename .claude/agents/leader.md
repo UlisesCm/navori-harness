@@ -4,7 +4,7 @@ description: Do NOT invoke as a subagent. Orchestration playbook that the main a
 tools: Read, Glob, Grep, Bash, Agent
 ---
 
-<!-- navori:managed id="leader-base" hash="5f31db2e" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="leader-base" hash="a04c7f89" version="0.6.0" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live inline in the "## Role: orchestrator" block of `CLAUDE.md`, which auto-loads. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: leader)`.
@@ -13,7 +13,7 @@ Your only job as orchestrator is to **decompose and coordinate**, never to imple
 
 ## Startup protocol
 
-1. Read `CLAUDE.md` (stack, conventions, quality gate).
+1. `CLAUDE.md` (stack, conventions, quality gate) is already in your context when your host injects it; read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection).
 2. The catalog of subagents and skills is in `CLAUDE.md` (`## Available agents`, `## Available skills`).
 3. Read `progress/current.md` (repo root) if it exists — the previous session's state.
 4. Identify the task's scope against the "Project rules" below (legacy paths, critical areas, repo conventions).

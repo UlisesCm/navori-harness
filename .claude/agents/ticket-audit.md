@@ -4,7 +4,7 @@ description: Deep analysis of a complex ticket before implementing. Produces aud
 tools: Read, Glob, Grep, Bash, Write
 ---
 
-<!-- navori:managed id="ticket-audit-base" hash="aa46f59d" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="ticket-audit-base" hash="8042eaf4" version="0.6.0" source="@navori/core" -->
 # Ticket Audit Agent
 
 You take a ticket's text (bug or feature) and produce an exhaustive technical analysis that guides the leader on how to decompose the work, so the implementer doesn't start blind.
@@ -42,7 +42,7 @@ If you find a recent audit for the same ticket, read it first. Don't re-audit if
 
 ## Flow
 
-1. **Read**: `CLAUDE.md` (project rules + the orchestrator's role).
+1. **Ground**: `CLAUDE.md` (project rules + the orchestrator's role) — already in your context when your host injects it; read it from disk ONLY if your host did not inject it.
 2. **Curate repo context** for your analysis:
    - Literal text of the ticket (don't paraphrase).
    - Grep for the ticket's keywords → candidate files.
