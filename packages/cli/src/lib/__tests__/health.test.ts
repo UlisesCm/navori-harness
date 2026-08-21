@@ -199,6 +199,105 @@ describe("listMarkers + scanManagedDrift", () => {
     expect(listMarkers(join(cwd, "nope.md"))).toEqual([]);
   });
 
+  // #408 — the two sides of "recognize exactly the real markers and nothing
+  // else". Counting one marker too FEW is the worse failure (an invisible block
+  // never syncs and drifts silently), so every shape `marker.ts` emits is
+  // asserted one by one, not just the phantom it stopped counting.
+  describe("listMarkers marker recognition (#408)", () => {
+    const parse = (line: string): ReturnType<typeof listMarkers> => {
+      const file = join(cwd, "sample.md");
+      writeFileSync(file, `prologue\n${line}\nepilogue\n`);
+      return listMarkers(file);
+    };
+
+    it.each([
+      {
+        why: "html open, full attrs",
+        line: '<!-- navori:managed id="leader-base" hash="abc123" version="0.6.0" source="@navori/core" -->',
+        id: "leader-base",
+      },
+      {
+        why: "html open, no version/source (bare meta)",
+        line: '<!-- navori:managed id="idioma-rol" hash="abc123" -->',
+        id: "idioma-rol",
+      },
+      {
+        why: "html open of a collapsed empty block (open+close on one line)",
+        line: '<!-- navori:managed id="skills-index" hash="abc123" --><!-- /navori:managed id="skills-index" -->',
+        id: "skills-index",
+      },
+      {
+        why: "shell open (hooks/*.sh), terminated by the line break",
+        line: '# navori:managed start id="qg-pre-commit-base" hash="abc123" version="0.6.0" source="@navori/core"',
+        id: "qg-pre-commit-base",
+      },
+      {
+        why: "indented html open",
+        line: '  <!-- navori:managed id="engram-protocol" hash="abc123" -->',
+        id: "engram-protocol",
+      },
+    ])("counts the $why", ({ line, id }) => {
+      expect(parse(line).map((m) => m.id)).toEqual([id]);
+    });
+
+    it.each([
+      { why: "html close", line: '<!-- /navori:managed id="leader-base" -->' },
+      { why: "shell close", line: '# navori:managed end id="qg-pre-commit-base"' },
+      {
+        why: "prose mention of the bare token",
+        line: "- **Modelo híbrido en `sync`**: marcadores `<!-- navori:managed -->` se sincronizan.",
+      },
+      {
+        why: "prose mention of the shell syntax",
+        line: "usar markers shell `# navori:managed start ...` / `# navori:managed end`",
+      },
+      // An open marker with no `id=` is invisible to marker.ts's parser too
+      // (findMarker keys on the id), so render re-injects a fresh block instead
+      // of adopting it — counting it as a block of "unknown source" only added
+      // a row nobody can act on. Malformed markers are reported by
+      // `scanMalformedMarkers`, not by this counter.
+      { why: "id-less open marker", line: '<!-- navori:managed hash="abc123" version="0.6.0" -->' },
+    ])("does NOT count the $why", ({ line }) => {
+      expect(parse(line)).toEqual([]);
+    });
+
+    // The exact repro from the issue: this repo's own CLAUDE.md documents the
+    // merge model in its user section, and doctor/status reported 17 blocks
+    // (16 real + a phantom `?  ←  (fuente desconocida)`).
+    it("counts only the real blocks in a CLAUDE.md that documents the marker in prose", () => {
+      const claudeMd = join(cwd, "CLAUDE.md");
+      writeFileSync(
+        claudeMd,
+        [
+          "# CLAUDE.md — demo",
+          "",
+          "## Decisiones ya tomadas",
+          "- **Modelo híbrido en `sync`**: marcadores `<!-- navori:managed -->` se sincronizan,",
+          "  el resto es del usuario.",
+          "",
+          '<!-- navori:managed id="orquestacion" hash="aaa11111" version="0.6.0" source="@navori/core" -->',
+          "orchestration doctrine",
+          '<!-- /navori:managed id="orquestacion" -->',
+          "",
+          '<!-- navori:managed id="idioma-rol" hash="bbb22222" version="0.6.0" source="@navori/core" -->',
+          "language doctrine",
+          '<!-- /navori:managed id="idioma-rol" -->',
+          "",
+        ].join("\n"),
+      );
+      const markers = listMarkers(claudeMd);
+      expect(markers.map((m) => m.id)).toEqual(["orquestacion", "idioma-rol"]);
+      expect(markers.some((m) => m.id === "?")).toBe(false);
+      // Metadata of a real block survives the tightened pattern.
+      expect(markers[0]).toEqual({
+        id: "orquestacion",
+        hash: "aaa11111",
+        version: "0.6.0",
+        source: "@navori/core",
+      });
+    });
+  });
+
   it("detects content drift when the body no longer matches its hash", () => {
     writeAgent("hand-edited body", 'hash="deadbeef" version="9.9.9" source="@navori/core"');
     const drifts = scanManagedDrift(cwd, config);

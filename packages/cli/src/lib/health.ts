@@ -32,16 +32,28 @@ export interface MarkerInfo {
 export function listMarkers(filePath: string): MarkerInfo[] {
   if (!existsSync(filePath)) return [];
   const content = readFileSync(filePath, "utf-8");
-  const re = /(?:<!--|#) navori:managed [^\n>]*(?:-->)?/g;
+  // OPEN markers only, both syntaxes, in the exact shape marker.ts's parser
+  // requires: the open prefix (`<!-- navori:managed` / `# navori:managed start`)
+  // followed ON THE SAME LINE by `id="…"`, the first attribute `openMarker`
+  // always writes. The tail (up to `>` or the line break) carries the remaining
+  // attributes, read off `match[0]` below.
+  //
+  // Demanding the id is what separates a marker from a MENTION (#408): the old
+  // pattern matched any literal occurrence of the token, so a doc that explains
+  // navori's own merge model in prose ("marcadores `<!-- navori:managed -->` se
+  // sincronizan…") was counted as a phantom block with id "?", inflating
+  // doctor/status's count in exactly the repos that document navori.
+  //
+  // Close markers can't match: the html close carries a `/` before the name and
+  // the shell close says `end`, not `start`.
+  const re = /(?:<!-- navori:managed|# navori:managed start)[ \t]+id="([^"\n]+)"[^\n>]*/g;
   const result: MarkerInfo[] = [];
   for (const match of content.matchAll(re)) {
     const tag = match[0];
-    if (tag.startsWith("<!-- /navori:managed") || tag.startsWith("# navori:managed end")) continue;
-    const id = tag.match(/id="([^"]+)"/)?.[1] ?? "?";
     const hash = tag.match(/hash="([^"]+)"/)?.[1] ?? null;
     const version = tag.match(/version="([^"]+)"/)?.[1] ?? null;
     const source = tag.match(/source="([^"]+)"/)?.[1] ?? null;
-    result.push({ id, hash, version, source });
+    result.push({ id: match[1]!, hash, version, source });
   }
   return result;
 }
