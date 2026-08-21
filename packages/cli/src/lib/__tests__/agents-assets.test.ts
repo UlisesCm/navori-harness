@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { getCoreRoot } from "../bundled-assets.ts";
 
 /**
- * Sanity checks for the 7 agent assets shipped with @navori/core.
+ * Sanity checks for the agent assets shipped with @navori/core.
  * These don't validate semantic content (that's a human review concern);
  * they validate the shape contract the engine adapter (E1) will rely on:
  *
@@ -13,21 +13,27 @@ import { getCoreRoot } from "../bundled-assets.ts";
  *     from user-section template.
  *   - Non-empty content on both sides of the sentinel.
  *
- * If you add a new agent role, add it to AGENT_IDS below.
+ * A new agent role needs no edit here: the list is READ FROM THE DIRECTORY.
+ * It used to be hand-maintained behind a prose instruction, and that
+ * instruction failed exactly as prose does — `auditor` shipped and stayed
+ * outside the shape contract until #417 caught it. Deriving the list is the
+ * same move `claude-md-read-mandate.test.ts` (#399) already made.
  *
  * The "no unconditional CLAUDE.md read" guard (#399) is NOT here: it sweeps
  * every managed asset, so it lives in `claude-md-read-mandate.test.ts`.
  */
 
-const AGENT_IDS = [
-  "leader",
-  "implementer",
-  "reviewer",
-  "researcher",
-  "ticket-audit",
-  "commit-pr-pilot",
-  "explorer",
-] as const;
+const AGENTS_DIR = resolve(getCoreRoot(), "core-assets", "agents");
+
+/** Every agent asset on disk, so a new role joins the contract by existing. */
+function listAgentIds(): string[] {
+  return readdirSync(AGENTS_DIR)
+    .filter((name) => name.endsWith(".md"))
+    .map((name) => name.slice(0, -".md".length))
+    .sort();
+}
+
+const AGENT_IDS = listAgentIds();
 
 const SENTINEL = "<!-- navori:user-section -->";
 
@@ -54,6 +60,17 @@ function parseAsset(raw: string): ParsedAsset {
 }
 
 describe("core agent assets — shape contract", () => {
+  /**
+   * A derived list can go vacuous in silence: a bad `getCoreRoot()` or a build
+   * that stops copying `core-assets/agents/` would leave zero ids and every
+   * case below would simply not run, reporting green. The floor is the roster
+   * as of #417 (8 agents) — raise it when the roster grows, never lower it.
+   */
+  it("derives the agent roster from the directory, and it is not empty", () => {
+    expect(AGENT_IDS.length, `no agent assets found under ${AGENTS_DIR}`).toBeGreaterThanOrEqual(8);
+    expect(AGENT_IDS).toContain("auditor");
+  });
+
   for (const id of AGENT_IDS) {
     describe(id, () => {
       const raw = readAgent(id);
