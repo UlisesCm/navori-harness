@@ -5,6 +5,7 @@ import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { getCoreRoot } from "../bundled-assets.ts";
 import { shellSingleQuote } from "../shell-escape.ts";
+import { acrossShells } from "./helpers/shells.ts";
 
 /**
  * Behavioral tests for the SessionStart context hook (#169 / N1). We install
@@ -43,19 +44,23 @@ function installHook(): string {
 }
 
 /** Run the hook with a SessionStart payload; return {status, ctx} where ctx is
- *  the parsed additionalContext ("" when the hook emits nothing). */
+ *  the parsed additionalContext ("" when the hook emits nothing). Runs under
+ *  every available shell (bash AND zsh, #391); the outputs must agree. */
 function runHook(source = "startup"): { status: number; stdout: string; ctx: string } {
-  // Ensure `bash`/`git` (/usr/bin, /bin) and `node` (this runtime's dir, used
+  // Ensure the shell/`git` (/usr/bin, /bin) and `node` (this runtime's dir, used
   // to build the JSON) resolve. Vitest's inherited PATH can be too thin to find
   // them, so build it explicitly — node's own dir first, then the standard bins.
   const nodeDir = dirname(process.execPath);
-  const r = spawnSync("bash", [join(dir, "hook.sh")], {
-    cwd: dir,
-    input: JSON.stringify({ hook_event_name: "SessionStart", source }),
-    encoding: "utf-8",
-    env: { ...process.env, PATH: `${nodeDir}:/usr/bin:/bin:${process.env.PATH ?? ""}` },
+  const r = acrossShells((shell) => {
+    const s = spawnSync(shell, [join(dir, "hook.sh")], {
+      cwd: dir,
+      input: JSON.stringify({ hook_event_name: "SessionStart", source }),
+      encoding: "utf-8",
+      env: { ...process.env, PATH: `${nodeDir}:/usr/bin:/bin:${process.env.PATH ?? ""}` },
+    });
+    return { status: s.status ?? -1, stdout: s.stdout ?? "" };
   });
-  const stdout = r.stdout ?? "";
+  const stdout = r.stdout;
   let ctx = "";
   if (stdout.trim()) {
     const parsed = JSON.parse(stdout) as {
@@ -64,7 +69,7 @@ function runHook(source = "startup"): { status: number; stdout: string; ctx: str
     expect(parsed.hookSpecificOutput?.hookEventName).toBe("SessionStart");
     ctx = parsed.hookSpecificOutput?.additionalContext ?? "";
   }
-  return { status: r.status ?? -1, stdout, ctx };
+  return { status: r.status, stdout, ctx };
 }
 
 describe("session-start context hook", () => {

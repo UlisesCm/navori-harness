@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { getCoreRoot } from "../bundled-assets.ts";
 import { shellSingleQuote } from "../shell-escape.ts";
 import { expandHookIncludes } from "../hook-includes.ts";
+import { acrossShells } from "./helpers/shells.ts";
 
 /**
  * Behavioral tests for the quality-gate pre-commit hook (#88). We install the
@@ -48,12 +49,16 @@ function fakeBin(name: string, code = 0): void {
   chmodSync(p, 0o755);
 }
 
+/** Runs under every available shell (bash AND zsh, #391); the outcomes must agree. */
 function runHook(hookPath: string, command: string) {
-  return spawnSync("bash", [hookPath], {
-    cwd: dir,
-    input: JSON.stringify({ tool_input: { command } }),
-    encoding: "utf-8",
-    env: { PATH: `${binDir}:${BASE_PATH}` },
+  return acrossShells((shell) => {
+    const r = spawnSync(shell, [hookPath], {
+      cwd: dir,
+      input: JSON.stringify({ tool_input: { command } }),
+      encoding: "utf-8",
+      env: { PATH: `${binDir}:${BASE_PATH}` },
+    });
+    return { status: r.status, stdout: r.stdout, stderr: r.stderr };
   });
 }
 
@@ -159,11 +164,14 @@ describe("quality-gate hook — runs from the repo root (#309)", () => {
     mkdirSync(sub, { recursive: true });
     writeFileSync(join(dir, "root-marker.txt"), "ok\n");
     const hook = installHook("cat root-marker.txt");
-    const r = spawnSync("bash", [hook], {
-      cwd: sub,
-      input: JSON.stringify({ tool_input: { command: "git commit -m x" } }),
-      encoding: "utf-8",
-      env: { PATH: BASE_PATH },
+    const r = acrossShells((shell) => {
+      const s = spawnSync(shell, [hook], {
+        cwd: sub,
+        input: JSON.stringify({ tool_input: { command: "git commit -m x" } }),
+        encoding: "utf-8",
+        env: { PATH: BASE_PATH },
+      });
+      return { status: s.status, stderr: s.stderr };
     });
     expect(r.status).toBe(0);
     expect(r.stderr).toContain("running quality-gate fast");

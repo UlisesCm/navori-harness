@@ -53,7 +53,11 @@ is_blank() { ! grep -q '[^[:space:]]' "$1" 2>/dev/null; }
 problems=""
 note() { problems="${problems}${problems:+; }$1"; }
 
-shopt -s nullglob
+# nullglob, so an absent report class yields zero iterations instead of a
+# literal pattern (bash) or a hard "no matches found" abort (zsh, which also
+# has no `shopt` — under `set -e` that unknown command killed the whole hook
+# there, #391). Each shell spells the option its own way.
+if [ -n "${ZSH_VERSION:-}" ]; then setopt NULL_GLOB; else shopt -s nullglob; fi
 # Reports are named by their PATH, not their basename: with more than one
 # progress dir in play, `impl_x.md` alone wouldn't say which one to open.
 for dir in "${dirs[@]}"; do
@@ -72,7 +76,6 @@ for dir in "${dirs[@]}"; do
     fi
   done
 done
-shopt -u nullglob
 
 [ -n "$problems" ] || exit 0
 

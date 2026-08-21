@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { getCoreRoot } from "../bundled-assets.ts";
+import { acrossShells } from "./helpers/shells.ts";
 
 /**
  * Behavioral tests for the Stop / SubagentStop / PreCompact lifecycle hooks
@@ -34,20 +35,23 @@ function seedRepo(): void {
   git("commit", "-qm", "chore: seed");
 }
 
-/** Install a hook script (plain copy) and run it with `payload` on stdin. */
+/** Install a hook script (plain copy) and run it with `payload` on stdin.
+ * Runs under every available shell (bash AND zsh, #391); the outputs must agree. */
 function runHook(script: string, payload: unknown): { status: number; stdout: string } {
   const raw = readFileSync(join(HOOKS_DIR, script), "utf-8");
   const path = join(dir, script);
   writeFileSync(path, raw);
   chmodSync(path, 0o755);
   const nodeDir = dirname(process.execPath);
-  const r = spawnSync("bash", [path], {
-    cwd: dir,
-    input: JSON.stringify(payload),
-    encoding: "utf-8",
-    env: { ...process.env, PATH: `${nodeDir}:/usr/bin:/bin:${process.env.PATH ?? ""}` },
+  return acrossShells((shell) => {
+    const r = spawnSync(shell, [path], {
+      cwd: dir,
+      input: JSON.stringify(payload),
+      encoding: "utf-8",
+      env: { ...process.env, PATH: `${nodeDir}:/usr/bin:/bin:${process.env.PATH ?? ""}` },
+    });
+    return { status: r.status ?? -1, stdout: r.stdout ?? "" };
   });
-  return { status: r.status ?? -1, stdout: r.stdout ?? "" };
 }
 
 function systemMessage(stdout: string): string | undefined {
