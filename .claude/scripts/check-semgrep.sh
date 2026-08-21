@@ -10,7 +10,9 @@
 # gate anyway (same rules on every machine).
 #
 # Triggered as a PreToolUse(Bash) hook, gated to git commit / push / gh pr
-# create — the security scan runs right before code lands or is pushed.
+# create — the security scan runs right before code lands or is pushed. Because
+# the same content passes that gate up to three times per cycle, a green scan is
+# memoized by content fingerprint (see the cache block below, #402).
 
 set -euo pipefail
 
@@ -132,6 +134,12 @@ if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
   exit 0
 fi
 
+# This script's own bytes feed the cache fingerprint below, so pin its path
+# BEFORE the `cd` (a relative `$0` would stop resolving afterwards). Read at top
+# level on purpose: inside a function zsh rebinds `$0` to the function name.
+script_path="$0"
+case "$script_path" in /*) ;; *) script_path="$PWD/$script_path" ;; esac
+
 # Run from the repo root so changed paths stay relative — robust to spaces in
 # the repo's absolute path. NUL-delimited read handles spaces in filenames too.
 # The `-- '*.ts' '*.tsx'` pathspec filters by extension without a pipe.
@@ -147,10 +155,119 @@ if [ ${#files[@]} -eq 0 ]; then
   exit 0
 fi
 
+# --- Content cache (#402) ----------------------------------------------------
+# The gate fires on commit AND push AND `gh pr create`, so one cycle used to
+# rescan byte-identical content up to three times at ~4s each. The marker
+# records the fingerprint of the last GREEN scan; an exact match skips the
+# rescan. The fingerprint covers every input that can flip the verdict:
+#
+#   1. the scanned paths, in the order the scan receives them;
+#   2. the exact bytes of each scanned file — `git hash-object --no-filters`
+#      hashes the WORKING-TREE content semgrep reads (`--no-filters` skips
+#      gitattributes clean/eol conversion, so the hash is the raw bytes);
+#   3. `.semgrepignore`, which semgrep applies to its targets;
+#   4. the semgrep binary's identity — path plus `ls -l` (size, mtime and, for
+#      the usual symlinked install, the versioned target), so an upgrade in
+#      place invalidates instead of inheriting the old ruleset's verdict;
+#   5. this script's own bytes — the scan arguments (`--config=p/default`,
+#      `--error`) are constants HERE, so a re-render that tightens the ruleset
+#      must not inherit a marker earned under the looser one.
+#
+# Untracked files are absent from both the fingerprint and the scan: the file
+# list comes from `git diff`, so an untracked file is never scanned and can
+# never be masked by a hit. Anything the cache cannot establish (no git dir, no
+# `date`, a failing hash) leaves $cache_key empty → full scan. The marker is
+# published only if the fingerprint still matches AFTER the scan, so it can
+# never attest to bytes semgrep did not read. The cache may turn a green into a
+# skip, NEVER an unscanned change into a green.
+#
+# Marker lifetime, in seconds. The fingerprint pins the scanned bytes and the
+# semgrep binary, but NOT the registry rules behind `p/default`, which semgrep
+# refetches on its own schedule. The TTL bounds how long a stale ruleset can be
+# masked; one hour still covers a full commit → push → PR cycle (minutes). A
+# fixed assignment, not `${CACHE_TTL:-3600}`: a gate must not let the
+# environment it runs in extend how long its own verdict stays valid.
+CACHE_TTL=3600
+
+git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null || true)
+now=$(date +%s 2>/dev/null || true)
+case "$now" in ''|*[!0-9]*) now="" ;; esac
+
+# A function because the recipe runs TWICE: once before the scan to look the
+# marker up, once after it to prove nothing moved underneath (see the write
+# below). Writes the fingerprint to stdout; fails if any ingredient is missing.
+#
+# `|| exit 1` on each hash: the caller tests this function's status with `||`,
+# which suppresses errexit inside it, so a failing hash would otherwise just
+# drop its line and yield a fingerprint over an incomplete recipe. The braces
+# are a pipeline element, hence their own subshell — the exit is local to it and
+# collapses the whole key to empty (→ full scan).
+semgrep_fingerprint() {
+  {
+    printf '%s\n' "$semgrep_bin"
+    ls -ldn "$semgrep_bin" 2>/dev/null || true
+    git hash-object --no-filters -- "$script_path" || exit 1
+    if [ -f .semgrepignore ]; then
+      git hash-object --no-filters -- .semgrepignore || exit 1
+    fi
+    printf '%s\n' "${files[@]}"
+    git hash-object --no-filters -- "${files[@]}" || exit 1
+  } | git hash-object --stdin
+}
+
+cache_key=""
+marker=""
+if [ -n "$git_dir" ] && [ -d "$git_dir" ] && [ -n "$now" ]; then
+  semgrep_bin=$(command -v semgrep)
+  cache_key=$(semgrep_fingerprint) || cache_key=""
+  # Per-worktree git dir on purpose: a worktree's `.git` is a FILE, and two
+  # worktrees hold different content, so they must not share a marker.
+  marker="$git_dir/navori-semgrep-ok"
+fi
+
+if [ -n "$cache_key" ] && [ -f "$marker" ]; then
+  cached_key=""
+  cached_ts=""
+  # A truncated or hand-edited marker can only ever MISS: the comparison is on
+  # the whole key, and a non-numeric timestamp collapses to 0 (never fresh).
+  read -r cached_key cached_ts < "$marker" || true
+  case "$cached_ts" in ''|*[!0-9]*) cached_ts=0 ;; esac
+  age=$(( now - cached_ts ))
+  # A marker from the future (clock skew, restored backup) is not trusted.
+  if [ "$cached_key" = "$cache_key" ] && [ "$cached_ts" -gt 0 ] && [ "$age" -ge 0 ] &&
+    [ "$age" -lt "$CACHE_TTL" ]; then
+    echo "✓ semgrep: diff unchanged since last green scan — skip" >&2
+    exit 0
+  fi
+fi
+
 echo "▶ semgrep: ${#files[@]} archivo(s) modificados vs $base" >&2
 
+scan_status=0
 semgrep scan \
   --config=p/default \
   --error \
   --metrics=off \
-  "${files[@]}"
+  "${files[@]}" || scan_status=$?
+
+# Only a GREEN scan writes the marker: a red one (or a crashed/interrupted run)
+# leaves nothing behind, so the retry rescans the same content.
+#
+# And only a scan whose input never moved: $cache_key was taken BEFORE the scan,
+# so a writer racing that window (format-on-save, a watch build, a second agent
+# in the same worktree) would have semgrep read content B while the marker
+# claims content A — leaving A green without ever being scanned, for a whole
+# TTL. Re-taking the fingerprint over the now-warm files costs milliseconds and
+# keeps the marker describing exactly the bytes semgrep read.
+if [ "$scan_status" -eq 0 ] && [ -n "$cache_key" ]; then
+  post_key=$(semgrep_fingerprint) || post_key=""
+  if [ "$post_key" = "$cache_key" ]; then
+    # stderr silenced on the OUTER group: redirections apply left to right, so
+    # `> "$marker" 2>/dev/null` would report its own failure (read-only .git, a
+    # marker path that is a directory) on the still-unredirected stderr — which
+    # a PreToolUse hook shows to the user. Failing to cache is not an error.
+    { printf '%s %s\n' "$cache_key" "$now" > "$marker"; } 2>/dev/null || true
+  fi
+fi
+
+exit "$scan_status"
