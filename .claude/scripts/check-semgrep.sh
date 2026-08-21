@@ -58,15 +58,20 @@ TRIGGER_RE='(^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:s
 # does NOT trigger it. Known limitation: it cannot see through `sh -c`, `eval`,
 # or obfuscation — a seatbelt, not a sandbox.
 is_scan_trigger() {
-  local input="$1" segment
+  # Pre-expanded newline: zsh does NOT expand $'\n' in the REPLACEMENT of
+  # ${var//pat/repl} (it inserts the literal characters), so an inline $'\n'
+  # left compound commands unsplit there and the gate silently skipped
+  # `cd x && git commit` (#391). A plain variable expands identically in
+  # bash and zsh. ($'\n' in PATTERN position expands fine in both.)
+  local input="$1" segment nl=$'\n'
   # FIX B: join `\<newline>` continuations into a space FIRST, so a command
   # split across lines with a trailing backslash stays ONE logical segment
   # (otherwise the subcommand/flag lands in a segment not starting with git).
   input="${input//\\$'\n'/ }"
-  input="${input//&&/$'\n'}"
-  input="${input//||/$'\n'}"
-  input="${input//;/$'\n'}"
-  input="${input//|/$'\n'}"
+  input="${input//&&/$nl}"
+  input="${input//||/$nl}"
+  input="${input//;/$nl}"
+  input="${input//|/$nl}"
   # `<<<` feeds the already-expanded value as data — no re-evaluation — so a
   # command that contains backticks/$() is inspected, never executed.
   while IFS= read -r segment; do

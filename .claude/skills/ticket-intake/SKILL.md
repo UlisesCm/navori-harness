@@ -5,7 +5,7 @@ type: reference
 maxWords: 600
 ---
 
-<!-- navori:managed id="ticket-intake" hash="269af0eb" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="ticket-intake" hash="0105774d" version="0.6.0" source="@navori/core" -->
 # ticket-intake — 8-phase pipeline
 
 ## When to use this skill
@@ -23,7 +23,7 @@ Each phase writes to `.claude/progress/`; the gate is blocking.
 | 2 · AUDIT | `ticket-audit` agent | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: the user approves the VERDICT.** Non-`proceed` ends the pipeline here, with evidence — a successful outcome, not a failure. |
 | 3 · EXPLORE (opt.) | 2-3 `explorer` agents in a single message | One `explore_<dim>.md` per dimension (handler, schema, side-effects, caller, memory). **Gate: you validate the audit's approach is still alive.** |
 | 4 · SOLUTION (opt.) | `solution-design` skill + ONE `researcher` as fresh-context challenge | Fires when the phase-2 verdict is `proceed-differently`, or the task shows an architectural signal (see R2-architectural in the orchestration block). Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 5. |
-| 5 · IMPLEMENT | ONE `implementer` agent | Reads CLAUDE.md → `audit_ticket_<ID>.md` → `solution_<scope>.md` (if phase 4 ran) → `explore_*.md` → applicable skill. Produces `impl_<feature>.md`. **Gate: `cd packages/cli && pnpm lint` green in the turn.** |
+| 5 · IMPLEMENT | ONE `implementer` agent | Reads `audit_ticket_<ID>.md` → `solution_<scope>.md` (if phase 4 ran) → `explore_*.md` → applicable skill. Produces `impl_<feature>.md`. **Gate: `cd packages/cli && pnpm lint` green in the turn.** |
 | 6 · VERIFY | `verify-before-done` skill (run by the implementer) | `impl_<feature>.md` with "Verify run in this turn" at exit 0 + endpoint smoke. No evidence → to 5. |
 | 7 · REVIEW | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 5. `APPROVED` → continue. |
 | 8 · PR + CLOSE | `commit-pr-pilot` agent | PR created and URL to the user; then `mem_save`, an entry in `history.md`, `current.md` to `idle` and `mem_session_summary`. |

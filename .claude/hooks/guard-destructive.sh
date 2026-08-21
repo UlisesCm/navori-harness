@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="e38db5ab" version="0.6.0" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="b86fe82e" version="0.6.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -97,11 +97,16 @@ scan=$(printf '%s' "$scan" | sed -E \
 # and `VAR=value` env prefixes go away (`FOO=1 git push …` → `git push …`); the
 # `(`, `\` and `command ` wrappers were already neutralized by FIX C above.
 segments=""
+# Pre-expanded newline: zsh does NOT expand $'\n' in the REPLACEMENT of
+# ${var//pat/repl} (it inserts the literal characters), so an inline $'\n'
+# left compound commands unsplit there and the rules below fail-open (#391).
+# A plain variable expands identically in bash and zsh.
+_nl=$'\n'
 _split="$scan"
-_split="${_split//&&/$'\n'}"
-_split="${_split//||/$'\n'}"
-_split="${_split//;/$'\n'}"
-_split="${_split//|/$'\n'}"
+_split="${_split//&&/$_nl}"
+_split="${_split//||/$_nl}"
+_split="${_split//;/$_nl}"
+_split="${_split//|/$_nl}"
 while IFS= read -r _seg; do
   _seg="${_seg#"${_seg%%[![:space:]]*}"}"                 # strip leading ws
   while [[ "$_seg" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do     # strip VAR=val prefixes

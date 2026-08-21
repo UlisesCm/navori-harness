@@ -174,12 +174,12 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 4. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
 <!-- /navori:managed id="arranque-sesion" -->
 
-<!-- navori:managed id="cierre-sesion" hash="0a254eff" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="cierre-sesion" hash="3137c32f" version="0.6.0" source="@navori/core" -->
 ## Session closeout
 
 Before closing the session:
 
-1. **Quality gate**: pnpm format:check && cd packages/cli && pnpm test && pnpm lint — confirm it passes (or document debt in `progress/current.md`).
+1. **Quality gate**: pnpm format:check && cd packages/cli && pnpm test && pnpm lint — confirm it passes, **or cite this cycle's green run** (reviewer's Pass-2 in R2, pilot's pre-flight in R1) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
 2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.

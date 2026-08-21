@@ -5,7 +5,7 @@ type: behavior
 maxWords: 1000
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="22fef7c0" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="3af462d0" version="0.6.0" source="@navori/core" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -62,7 +62,7 @@ Skipping any step = a lie, not verification.
 - You're about to mark a review `APPROVED` without having read the full diff.
 - You're tired and want to close it out.
 - "Just this once" — NO. Zero exceptions.
-- You trust a subagent's report without verifying the diff yourself.
+- You trust a subagent's report without verifying its **load-bearing claims** (the cited `file:line`s your decision rests on, plus the diff it touched).
 
 ## Rationalization prevention
 
@@ -97,7 +97,7 @@ Skipping any step = a lie, not verification.
 - ❌ "Trust me, runs locally" — not a valid claim without evidence in the chat.
 - ❌ Making the claim BEFORE the command ("I'll run X and it should be green").
 - ❌ Marking a step of the atomic plan `[x]` without having run the verification that backs that step.
-- ❌ Accepting a subagent's report without opening the diff and validating at least the critical files.
+- ❌ Accepting a subagent's report without verifying its load-bearing claims — the scope is defined ONCE in the orchestrator's "Synthesis without broken telephone" block: cited `file:line`s plus the diff it touched, never a full re-read of a diff the reviewer already validated.
 
 ## Closing
 
