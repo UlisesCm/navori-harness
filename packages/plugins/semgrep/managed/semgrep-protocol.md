@@ -10,6 +10,6 @@ Before closing a relevant change (auth, RBAC, secrets, input validation), run se
   ```
   semgrep scan --config=p/default --error --metrics=off
   ```
-- `p/default` (not `auto`) on purpose: deterministic and telemetry-off — mirrors `scripts/check-semgrep.sh`.
+- `p/default` (not `auto`) on purpose: deterministic and telemetry-off — mirrors the plugin's check script.
 - Custom rules: see `.semgrep.yml` at the repo root if it exists.
 - Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
