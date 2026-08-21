@@ -12,7 +12,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 
 ## Protocol
 
-1. **Read** `CLAUDE.md`. Identify the repo's conventions and the "Project rules" (the orchestrator's section in `CLAUDE.md`). Then read whatever prior artifact your scope names — `.claude/progress/audit_ticket_<ID>.md`, `solution_<scope>.md`, `explore_*.md`: that context was already paid for in tokens, and a solution artifact means the approach is DECIDED. You implement it; you don't redesign it. If you believe the design is wrong, say so in your report and stop — don't quietly build something else.
+1. **Ground yourself in** `CLAUDE.md` — it is already in your context when your host injects it; identify the repo's conventions and the "Project rules" (the orchestrator's section) from there, and read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection). Then read whatever prior artifact your scope names — `.claude/progress/audit_ticket_<ID>.md`, `solution_<scope>.md`, `explore_*.md`: that context was already paid for in tokens, and a solution artifact means the approach is DECIDED. You implement it; you don't redesign it. If you believe the design is wrong, say so in your report and stop — don't quietly build something else.
 2. **Note** in `.claude/progress/impl_<feature>.md` (your working file; on close it becomes the report):
    - `Task: <brief description>`
    - `Root cause: <file:line + why>` (only if the task is a bugfix; you can't touch code without this).

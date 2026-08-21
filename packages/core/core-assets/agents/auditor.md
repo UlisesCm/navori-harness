@@ -35,7 +35,7 @@ If there's a recent audit of the same scope and the code hasn't changed, read it
 ## Protocol
 
 ### 1. Startup
-Read `CLAUDE.md` (project rules + the orchestrator block) and the `user-section` below. Set the scope: **targeted** (1 file/feature/module) or **full** (all of `src/`).
+`CLAUDE.md` (project rules + the orchestrator block) is already in your context when your host injects it — read it from disk ONLY if your host did not inject it. Read the `user-section` below. Set the scope: **targeted** (1 file/feature/module) or **full** (all of `src/`).
 
 ### 2. Context gathering
 Explore **yourself** — you are a subagent and cannot launch others (`Agent` does not nest). For broad scope: `Glob` the structure, `Grep` the risk patterns, and read in full only the candidate files. Don't read generated/lock artifacts or library `ui`.

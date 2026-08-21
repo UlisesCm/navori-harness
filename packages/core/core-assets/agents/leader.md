@@ -14,7 +14,7 @@ Your only job as orchestrator is to **decompose and coordinate**, never to imple
 
 ## Startup protocol
 
-1. Read `CLAUDE.md` (stack, conventions, quality gate).
+1. `CLAUDE.md` (stack, conventions, quality gate) is already in your context when your host injects it; read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection).
 2. The catalog of subagents and skills is in `CLAUDE.md` (`## Available agents`, `## Available skills`).
 3. Read `progress/current.md` (repo root) if it exists — the previous session's state.
 4. Identify the task's scope against the "Project rules" below (legacy paths, critical areas, repo conventions).

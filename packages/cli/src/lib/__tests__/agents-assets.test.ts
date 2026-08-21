@@ -14,6 +14,9 @@ import { getCoreRoot } from "../bundled-assets.ts";
  *   - Non-empty content on both sides of the sentinel.
  *
  * If you add a new agent role, add it to AGENT_IDS below.
+ *
+ * The "no unconditional CLAUDE.md read" guard (#399) is NOT here: it sweeps
+ * every managed asset, so it lives in `claude-md-read-mandate.test.ts`.
  */
 
 const AGENT_IDS = [
