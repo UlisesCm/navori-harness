@@ -22,6 +22,7 @@ import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace-drift.ts";
 import { scanQualityGateReadiness } from "../lib/gate-readiness.ts";
 import { scanEmptyUserSections } from "../lib/skill-user-section.ts";
+import { scanDiskUsage, humanBytes } from "../lib/disk-usage.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -137,6 +138,11 @@ export const doctorCommand = defineCommand({
       ".claude/skills",
       ...(config.engines.includes("codex") ? [".agents/skills"] : []),
     ]);
+    // #393: the two directories that grow with no owner — ~/.navori/backups
+    // (bounded only by prune-on-write) and .claude/worktrees (bounded by
+    // nobody). Two `du`s so growth is visible before the disk fills; doctor
+    // reports and suggests the cleanup command, it never deletes.
+    const diskUsage = scanDiskUsage(cwd);
     // Referenced hook scripts (.claude/scripts|hooks) that are missing or lost
     // their exec bit — the hook then breaks/no-ops silently on every Bash (#213).
     const claudeHookScripts = scanClaudeHookScripts(cwd, config);
@@ -497,6 +503,17 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${accent(skill.id)}  ${grey(td.emptyUserSectionRow(skill.path))}`,
       );
       p.log.warn(td.emptyUserSections(emptyUserSections.length, lines.join("\n")));
+    }
+
+    if (diskUsage.length > 0) {
+      const lines = diskUsage.map((issue) => {
+        const row =
+          issue.target === "backups"
+            ? td.diskBackupsRow(humanBytes(issue.bytes))
+            : td.diskWorktreesRow(humanBytes(issue.bytes));
+        return `  ${color.yellow(sym.update)} ${accent(issue.path)}  ${grey(row)}`;
+      });
+      p.log.warn(td.diskUsage(diskUsage.length, lines.join("\n")));
     }
 
     if (monorepoDrift) {

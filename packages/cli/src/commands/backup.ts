@@ -2,7 +2,7 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node:fs";
 import { join, relative, resolve, dirname } from "node:path";
-import { backupRoot, backupRepoLabel, backupIdRepoLabel } from "../lib/backup.ts";
+import { backupRoot, backupRepoLabel, backupIdRepoLabel, purgeOldBackups } from "../lib/backup.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
 import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
 import { readGlobalConfig } from "../lib/global-config.ts";
@@ -171,6 +171,37 @@ const restoreSubCommand = defineCommand({
   },
 });
 
+// #393: the explicit pruning path. Renders prune on write, so a repo that
+// stops rendering keeps its backups forever; this command applies the same two
+// criteria on demand — retention by age first, then oldest-first until the
+// total size is under the cap.
+const pruneSubCommand = defineCommand({
+  meta: {
+    name: "prune",
+    description: "Delete backups past retention, then oldest-first down to the size cap",
+  },
+  args: {
+    days: { type: "string", description: "Retention in days (default: 30)" },
+    "max-mb": { type: "string", description: "Total size cap in MB (default: 2048)" },
+  },
+  run({ args }) {
+    const days = intFlagOrExit(args.days, "days");
+    const maxMb = intFlagOrExit(args["max-mb"], "max-mb");
+    const tr = tc(globalLang()).backup;
+    p.intro(brand("backup prune"));
+    const pruned = purgeOldBackups({
+      retentionDays: days,
+      maxTotalBytes: maxMb === undefined ? undefined : maxMb * 1024 * 1024,
+    });
+    if (pruned.length === 0) {
+      p.outro(dim(tr.pruneNothing));
+      return;
+    }
+    for (const dir of pruned) p.log.message(`  ${color.cyan(sym.bullet)} ${dim(dir)}`);
+    p.outro(tr.pruned(pruned.length));
+  },
+});
+
 function humanAge(mtimeMs: number, tr: ReturnType<typeof tc>["backup"]): string {
   const diffMs = Date.now() - mtimeMs;
   const minutes = Math.floor(diffMs / 60000);
@@ -190,5 +221,6 @@ export const backupCommand = defineCommand({
   subCommands: {
     list: listSubCommand,
     restore: restoreSubCommand,
+    prune: pruneSubCommand,
   },
 });

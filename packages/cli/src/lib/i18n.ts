@@ -670,6 +670,10 @@ interface DoctorCmdStrings {
   /** #369 — an installed skill whose user-section is still the template. */
   emptyUserSections: (n: number, lines: string) => string;
   emptyUserSectionRow: (path: string) => string;
+  /** #393 — a growth directory (backups / agent worktrees) over its threshold. */
+  diskUsage: (n: number, lines: string) => string;
+  diskBackupsRow: (size: string) => string;
+  diskWorktreesRow: (size: string) => string;
   monorepoEmptyDeclared: string;
   monorepoAddedRow: string;
   monorepoOrphanRow: string;
@@ -1076,6 +1080,9 @@ interface BackupCmdStrings {
   willRestore: (n: number, from: string, to: string) => string;
   overwriteConfirm: string;
   restored: (n: number) => string;
+  /** #393 — explicit prune: age first, then oldest-first down to the size cap. */
+  pruneNothing: string;
+  pruned: (n: number) => string;
 }
 
 interface TicketCmdStrings {
@@ -1355,6 +1362,14 @@ const CMD_ES: CmdStrings = {
       `Skills instaladas con su user-section sin llenar (${n}) — cuestan una lectura ` +
       `y solo cubren la capa universal; lo específico de tu stack va en esa sección:\n${lines}`,
     emptyUserSectionRow: (path) => `— plantilla sin tocar en ${path}`,
+    diskUsage: (n, lines) =>
+      `Uso de disco por encima del umbral (${n}) — nada acota estos directorios ` +
+      `en automático; límpialos tú:\n${lines}`,
+    diskBackupsRow: (size) => `— ${size} en backups; corre 'navori backup prune' para podarlos`,
+    diskWorktreesRow: (size) =>
+      `— ${size} en worktrees de agente; revisa 'git worktree list' y quita los que ` +
+      `sobren con 'git worktree remove <ruta>' (pueden tener trabajo sin commitear; ` +
+      `navori nunca los borra solo)`,
     monorepoEmptyDeclared:
       "monorepo declarado pero workspaces[] vacío — corre 'navori scan' para poblarlo",
     monorepoAddedRow: "— en disco, falta en config (corre 'navori scan')",
@@ -1846,6 +1861,8 @@ const CMD_ES: CmdStrings = {
     willRestore: (n, from, to) => `Se restaurarán ${n} archivo(s) de ${from} en ${to}:`,
     overwriteConfirm: "Los archivos existentes se sobrescribirán. ¿Continuar?",
     restored: (n) => `Restauré ${n} archivo(s)`,
+    pruneNothing: "Nada que podar — los backups están dentro de la retención y del tope de tamaño",
+    pruned: (n) => `Limpié ${n} backup(s)`,
   },
   ticket: {
     listEmpty: (ws) => `No hay tickets. Crea uno con 'navori ticket new ${ws} <id>'.`,
@@ -2148,6 +2165,14 @@ const CMD_EN: CmdStrings = {
       `Installed skills with an unfilled user-section (${n}) — they cost a read and ` +
       `only cover the universal layer; your stack's rules belong in that section:\n${lines}`,
     emptyUserSectionRow: (path) => `— untouched template in ${path}`,
+    diskUsage: (n, lines) =>
+      `Disk usage over threshold (${n}) — nothing bounds these directories ` +
+      `automatically; clean them yourself:\n${lines}`,
+    diskBackupsRow: (size) => `— ${size} in backups; run 'navori backup prune' to trim them`,
+    diskWorktreesRow: (size) =>
+      `— ${size} in agent worktrees; review 'git worktree list' and drop stale ones ` +
+      `with 'git worktree remove <path>' (they may hold uncommitted work; ` +
+      `navori never deletes them itself)`,
     monorepoEmptyDeclared:
       "monorepo declared but workspaces[] empty — run 'navori scan' to populate it",
     monorepoAddedRow: "— on disk, missing in config (run 'navori scan')",
@@ -2633,6 +2658,8 @@ const CMD_EN: CmdStrings = {
     willRestore: (n, from, to) => `Will restore ${n} file(s) from ${from} into ${to}:`,
     overwriteConfirm: "Existing files will be overwritten. Proceed?",
     restored: (n) => `Restored ${n} file(s)`,
+    pruneNothing: "Nothing to prune — backups are within retention and the size cap",
+    pruned: (n) => `Pruned ${n} backup(s)`,
   },
   ticket: {
     listEmpty: (ws) => `No tickets. Create one with 'navori ticket new ${ws} <id>'.`,
