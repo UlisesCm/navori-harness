@@ -23,8 +23,36 @@ ese drift** — candidato a issue (ver abajo).
   lanzada. Al retomar: leer `.claude/progress/review_issue404.md` en ese worktree y, si
   está `APPROVED`, cerrar con el pilot.
 - **#402** — caché por contenido del gate de semgrep. Worktree
-  `.claude/worktrees/agent-ada56c21ece4b93d7`, 2 archivos. Implementación DONE, review
-  lanzada. Mismo procedimiento: `.claude/progress/review_issue402.md`.
+  `.claude/worktrees/agent-ada56c21ece4b93d7`, 2 archivos. **`CHANGES_REQUESTED`** — ver
+  `.claude/progress/review_issue402.md`. Un solo blocker, con fix identificado de ~4
+  líneas (detalle abajo). Al retomar: implementer fresco acotado al hallazgo, luego delta
+  re-sign. **Además necesita rebase**: la branch está 3 commits detrás de `origin/main`,
+  lo que hace que jscpd y semgrep aborten sobre rutas inexistentes al comparar contra
+  `origin/main`.
+
+### El blocker de #402: TOCTOU en el marcador del caché
+
+`check-semgrep.sh:104-114` + `:147-149` — la huella se calcula **antes** del scan y se
+escribe **después** sin re-verificar. Si un archivo escaneado cambia durante los ~4s del
+scan, semgrep valida el contenido B mientras el marcador registra la huella del contenido
+A: **A queda con marcador verde sin haber sido escaneado nunca**, y el artefacto dura una
+hora. El reviewer lo reprodujo. Disparadores mundanos: format-on-save, watch build, otro
+agente en el mismo worktree.
+
+Es exactamente el modo de fallo que el propio script declara imposible en sus líneas 87-88.
+**Fix**: re-hashear después del scan y escribir el marcador solo si la clave sigue
+coincidiendo (los archivos están calientes, cuesta milisegundos). Vale la pena emparejarlo
+con dos observaciones no bloqueantes del mismo review: los bytes del propio script no están
+en la huella (un `render` que endurezca el ruleset deja marcadores viejos válidos por una
+hora), y `> "$marker" 2>/dev/null` filtra el error de redirección a stderr porque las
+redirecciones se aplican de izquierda a derecha.
+
+Lo demás del review vino limpio y **verificado por el reviewer, no tomado del reporte**: la
+huella cubre exactamente lo escaneado (una sola enumeración de archivos alimenta hash y
+scan), los exit codes siguen idénticos (incluidos 130/137 por señal), el rojo nunca cachea,
+no hay divergencia bash/zsh, el aislamiento por worktree es real, la degradación es segura
+en todos los casos construidos (sin `date`, sin `ls`, `.git` de solo lectura, marcador
+corrupto e incluso un directorio en lugar del marcador), y los tests muerden.
 
 ⚠️ **No borres esos dos worktrees**: contienen el único ejemplar del trabajo.
 
