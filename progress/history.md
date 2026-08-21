@@ -10,6 +10,41 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-08-21 11:30 — claude — cierra los 2 ciclos en vuelo, re-renderiza el espejo y abre 5 issues
+
+- Mergeados (squash, CI verde los tres): #419 (#404, aislamiento del store de backups),
+  #418 (tablero), #420 (re-render del espejo del harness, 15 archivos), #426 (#402, caché
+  del scan de semgrep por huella de contenido). Issues cerrados: #404 y #402.
+- Cambios: `.claude/` + `CLAUDE.md` completos vía `navori render --apply` (dos pasadas: una
+  por los 6 PRs de ayer, otra por el script cacheado de #402);
+  `packages/plugins/semgrep/scripts/check-semgrep.sh`;
+  `packages/cli/src/lib/__tests__/semgrep-cache.test.ts` (nuevo, 7 casos).
+- Quality gate: ✅ verde en cada ciclo. Baseline pasó de `1679` a `1686` tests.
+- Notas:
+  - **El render dejó de ser cosmético.** Los scripts renderizados de ESTE repo seguían en la
+    versión previa a #391/#413 — sin el `nl=$'\n'` pre-expandido —, así que los hooks locales
+    corrían con el fail-open de zsh que ya estaba arreglado en el core. Ningún check de CI lo
+    detecta: es el issue #421.
+  - **El fix de #404 quedó verificado sobre datos reales**: la corrida de 1679 tests del día
+    creó **cero** backups fixture en `~/.navori/backups`; la única entrada nueva fue la
+    legítima del `render --apply`. Antes cada suite goteaba decenas.
+  - **#402 necesitó dos rondas.** La primera traía un TOCTOU real: la huella se tomaba antes
+    del scan y se escribía después sin re-verificar, así que un writer que ganara esa ventana
+    (format-on-save, watch build, otro agente en el mismo worktree) dejaba contenido nunca
+    escaneado con marcador verde por una hora. El reviewer lo reprodujo. Se cierra
+    re-tomando la huella después del scan (~16 ms contra ~3.3 s) y publicando solo si
+    coincide.
+  - **Dos trampas de shell que descubrió la ronda de fix**: en zsh `$0` dentro de una función
+    es el NOMBRE de la función, así que leerlo ahí habría apagado el caché en silencio bajo
+    zsh; y el `||` del llamador suprime errexit dentro de la función, así que cada
+    `git hash-object` necesita `|| exit 1` o una huella incompleta pasaría por buena.
+  - Limpieza de `~/.navori/backups` (1865 entradas, 193 MB, solo 9 reales) **pendiente de
+    decisión de Ulises** — el filtro seguro es por prefijo, no por edad.
+- Issues abiertos en la sesión: #421 (CI no detecta el drift del espejo), #424 (los otros 5
+  directorios bajo `~/.navori` sin guard de suite), #422 (strings de runtime en español),
+  #423 (jscpd sin caché — medir antes), #425 (falta test del marcador por worktree).
+- PRs: #419, #418, #420, #426.
+
 ## 2026-08-20 21:30 — claude — release 0.6.0 cerrado + 6 issues en dos tandas paralelas
 
 - Release: tag `v0.6.0` creado y pusheado sobre `5866441` (npm ya servía 0.6.0, publicado
