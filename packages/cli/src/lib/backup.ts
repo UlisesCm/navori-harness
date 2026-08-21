@@ -8,6 +8,10 @@ function backupRootLazy(): string {
   return join(safeHomedir(), ".navori", "backups");
 }
 const DEFAULT_RETENTION_DAYS = 30;
+/** Generous cap on the TOTAL size of ~/.navori/backups (#393). Age alone does
+ * not bound the footprint — a busy month of rollouts can pile up gigabytes that
+ * all survive the 30-day window — so size is the second criterion. */
+const DEFAULT_MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 /**
  * ISO-like timestamp safe for paths: `YYYY-MM-DDTHH-mm-ss-SSS-p<pid>`.
@@ -122,15 +126,29 @@ function isExcluded(rel: string, exclude: string[]): boolean {
   return false;
 }
 
+export interface PurgeOptions {
+  /** Delete backups older than this many days (default: 30). First criterion. */
+  retentionDays?: number;
+  /** After the age pass, delete oldest-first until the total size of what
+   * remains is at or under this many bytes (default: 2 GiB). Second criterion
+   * (#393): age alone lets a busy repo grow without bound. */
+  maxTotalBytes?: number;
+}
+
 /**
- * Remove backups older than `retentionDays`. Returns the list of pruned dirs.
+ * Remove backups older than `retentionDays`, then — if what survives still
+ * exceeds `maxTotalBytes` in total — keep deleting from oldest to newest until
+ * the total is under the cap (#393). Returns the list of pruned dirs.
  * Silent if BACKUP_ROOT does not exist yet.
  */
-export function purgeOldBackups(retentionDays = DEFAULT_RETENTION_DAYS): string[] {
+export function purgeOldBackups(options: PurgeOptions = {}): string[] {
+  const retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS;
+  const maxTotalBytes = options.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES;
   const root = backupRootLazy();
   if (!existsSync(root)) return [];
   const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
   const pruned: string[] = [];
+  const survivors: Array<{ path: string; mtimeMs: number }> = [];
   for (const entry of readdirSync(root)) {
     const full = join(root, entry);
     // A concurrent navori process (the 16-repo rollout overlaps) may create or
@@ -142,12 +160,47 @@ export function purgeOldBackups(retentionDays = DEFAULT_RETENTION_DAYS): string[
       if (stat.mtimeMs < cutoff) {
         rmSync(full, { recursive: true, force: true });
         pruned.push(full);
+      } else {
+        survivors.push({ path: full, mtimeMs: stat.mtimeMs });
       }
     } catch {
       // entry disappeared mid-scan, or is momentarily unreadable — ignore
     }
   }
+
+  // Size pass: oldest-first until under the cap. Sizes are computed lazily —
+  // when the total never crosses the cap this pass costs one walk, no deletes.
+  const sized = survivors
+    .sort((a, b) => a.mtimeMs - b.mtimeMs)
+    .map((s) => ({ ...s, bytes: dirSizeBytes(s.path) }));
+  let total = sized.reduce((sum, s) => sum + s.bytes, 0);
+  for (const backup of sized) {
+    if (total <= maxTotalBytes) break;
+    try {
+      rmSync(backup.path, { recursive: true, force: true });
+      pruned.push(backup.path);
+    } catch {
+      // same race as above — a concurrent process beat us to it
+    }
+    total -= backup.bytes;
+  }
   return pruned;
+}
+
+/** Total size in bytes of the regular files under `dir` (0 on any race). */
+function dirSizeBytes(dir: string): number {
+  let total = 0;
+  try {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      const stat = statSync(full);
+      if (stat.isDirectory()) total += dirSizeBytes(full);
+      else if (stat.isFile()) total += stat.size;
+    }
+  } catch {
+    // entry disappeared mid-scan — its bytes no longer count
+  }
+  return total;
 }
 
 export function backupRoot(): string {
