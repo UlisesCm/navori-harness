@@ -121,20 +121,27 @@ const NEVER_COMMIT_PHRASE = "Never commit `.claude/` or `CLAUDE.md`";
 /**
  * Harness-path citations inside a text artifact. Rooted at the directories the
  * engines own (or the harness contract names); bare-word roots (`progress`,
- * `specs`) additionally require a path-like shape — a trailing slash or a
- * `.md`/`.txt` leaf — so English prose such as "progress/success lines"
- * (debug-error skill) is not mistaken for a citation.
+ * `specs`, `scripts`) additionally require a path-like shape — a trailing slash
+ * or a `.md`/`.txt`/`.sh` leaf — so English prose such as "progress/success
+ * lines" (debug-error skill) is not mistaken for a citation.
+ *
+ * `scripts` is a root because a plugin author writes prose from the PLUGIN's
+ * frame, where the check script lives at `scripts/check-*.sh`, while the repo
+ * that reads it only ever has `.claude/scripts/check-*.sh` (#407). Without this
+ * root the sweep could not see that class at all: every other citation it knows
+ * starts with a dot. The dot-rooted alternatives still win when both apply,
+ * and the lookbehind keeps `.claude/scripts/…` from matching as a bare root.
  */
 function extractCitations(content: string): string[] {
   const re =
-    /(?:\.claude|\.codex|\.agents|\.cursor|\.github|(?<![\w./-])progress|(?<![\w./-])specs)\/[\w<>*./-]*/g;
+    /(?:\.claude|\.codex|\.agents|\.cursor|\.github|(?<![\w./-])progress|(?<![\w./-])specs|(?<![\w./-])scripts)\/[\w<>*./-]*/g;
   const citations: string[] = [];
   for (const raw of content.match(re) ?? []) {
     // Trailing sentence punctuation is not part of the path.
     const cite = raw.replace(/\.+$/, "");
     if (
-      (cite.startsWith("progress/") || cite.startsWith("specs/")) &&
-      !(cite.endsWith("/") || cite.endsWith(".md") || cite.endsWith(".txt"))
+      (cite.startsWith("progress/") || cite.startsWith("specs/") || cite.startsWith("scripts/")) &&
+      !(cite.endsWith("/") || cite.endsWith(".md") || cite.endsWith(".txt") || cite.endsWith(".sh"))
     ) {
       continue;
     }
@@ -252,7 +259,18 @@ function makeConfig(engines: NavoriConfig["engines"]): NavoriConfig {
     preset: "custom",
     branchBase: "main",
     qualityGate: { fast: "pnpm test", full: "pnpm test" },
-    plugins: { engram: { enabled: true } },
+    // EVERY plugin on: a plugin's managed block is prose written from the
+    // PLUGIN author's frame and rendered into a repo that has a different
+    // layout, which is precisely the drift this sweep exists to catch (#407
+    // was a semgrep-block citation, invisible here while only engram shipped).
+    plugins: {
+      acli: { enabled: true },
+      codegraph: { enabled: true },
+      engram: { enabled: true },
+      gh: { enabled: true },
+      jscpd: { enabled: true },
+      semgrep: { enabled: true },
+    },
     project: { libraries: ["zod-validation"] },
   });
 }
