@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { expandHookIncludes, hookPartialsDir } from "../hook-includes.ts";
+import { acrossShells } from "./helpers/shells.ts";
 
 describe("expandHookIncludes", () => {
   it("returns content untouched when there is no directive", () => {
@@ -43,10 +44,13 @@ describe("gate-trigger partial (behavioral)", () => {
   const SEMGREP_RE =
     "(^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+(commit|push)([[:space:]]|$))|(^gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$))";
 
+  /** Runs under every available shell (bash AND zsh, #391); the verdicts must agree. */
   function gate(triggerRe: string, cmd: string): boolean {
     const script = `TRIGGER_RE='${triggerRe}'\n${gateBody}\nif is_scan_trigger "$1"; then echo T; else echo F; fi`;
-    const out = execFileSync("bash", ["-c", script, "bash", cmd], { encoding: "utf-8" }).trim();
-    return out === "T";
+    return acrossShells((shell) => {
+      const out = execFileSync(shell, ["-c", script, shell, cmd], { encoding: "utf-8" }).trim();
+      return out === "T";
+    });
   }
 
   it("commit gate: fires on git commit incl. compound / wrapped forms, not on lookalikes", () => {

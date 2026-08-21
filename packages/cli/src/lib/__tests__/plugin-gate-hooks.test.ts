@@ -14,6 +14,7 @@ import { getPluginPath } from "../bundled-assets.ts";
 import { interpolate } from "../interpolate.ts";
 import { expandHookIncludes } from "../hook-includes.ts";
 import type { NavoriConfig } from "../config.ts";
+import { acrossShells } from "./helpers/shells.ts";
 
 /**
  * Render a plugin script exactly as `navori render` does: inline the shared
@@ -73,14 +74,19 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
     return p;
   }
 
-  /** Run a plugin hook with `command` on stdin; returns { status, stderr }. */
+  /** Run a plugin hook with `command` on stdin; returns { status, stderr }.
+   * Runs under every available shell (bash AND zsh, #391); the outcomes must
+   * agree. The shell is invoked by absolute path so the restricted PATH stays
+   * minimal. */
   function runHook(scriptPath: string, command: string) {
-    const r = spawnSync("bash", [scriptPath], {
-      input: JSON.stringify({ tool_input: { command } }),
-      encoding: "utf-8",
-      env: restrictedEnv,
+    return acrossShells((shell) => {
+      const r = spawnSync(resolveBin(shell), [scriptPath], {
+        input: JSON.stringify({ tool_input: { command } }),
+        encoding: "utf-8",
+        env: restrictedEnv,
+      });
+      return { status: r.status, stderr: r.stderr };
     });
-    return { status: r.status, stderr: r.stderr };
   }
 
   for (const { id, rel } of PLUGINS) {
@@ -293,16 +299,20 @@ describe.runIf(runsBash)("plugin gate hooks — untrusted branchBase stays inert
       writeFileSync(script, renderScript(id, rel, hostile));
       chmodSync(script, 0o755);
 
-      const r = spawnSync("bash", [script], {
-        input: JSON.stringify({ tool_input: { command: "git commit -m x" } }),
-        encoding: "utf-8",
-        cwd: work,
-        env: { PATH: bin },
-      });
+      // Both shells must leave the payload inert (#391): run under bash AND zsh.
+      const status = acrossShells(
+        (shell) =>
+          spawnSync(resolveBin(shell), [script], {
+            input: JSON.stringify({ tool_input: { command: "git commit -m x" } }),
+            encoding: "utf-8",
+            cwd: work,
+            env: { PATH: bin },
+          }).status,
+      );
 
       expect(existsSync(sentinel)).toBe(false);
       // The unknown ref just skips the scan — a clean exit, no crash.
-      expect(r.status).toBe(0);
+      expect(status).toBe(0);
     });
   }
 });

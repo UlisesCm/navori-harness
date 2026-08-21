@@ -6,6 +6,7 @@ import { resolve, join } from "node:path";
 import { getCoreRoot } from "../bundled-assets.ts";
 import { shellSingleQuote } from "../shell-escape.ts";
 import { expandHookIncludes } from "../hook-includes.ts";
+import { acrossShells } from "./helpers/shells.ts";
 
 /**
  * Behavioral guard tests for core-assets/hooks/guard-destructive.sh.
@@ -40,18 +41,21 @@ function runGuard(command: string, env?: NodeJS.ProcessEnv): number {
   return runGuardScript(guardPath, command, env);
 }
 
+/** Runs under every available shell (bash AND zsh, #391); the verdicts must agree. */
 function runGuardScript(scriptPath: string, command: string, env?: NodeJS.ProcessEnv): number {
   const payload = JSON.stringify({ tool_input: { command } });
-  try {
-    execFileSync(resolveBin("bash"), [scriptPath], {
-      input: payload,
-      env: env ?? process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    return 0;
-  } catch (err) {
-    return (err as { status?: number }).status ?? -1;
-  }
+  return acrossShells((shell) => {
+    try {
+      execFileSync(resolveBin(shell), [scriptPath], {
+        input: payload,
+        env: env ?? process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      return 0;
+    } catch (err) {
+      return (err as { status?: number }).status ?? -1;
+    }
+  });
 }
 
 /**

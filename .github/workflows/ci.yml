@@ -46,6 +46,13 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      # The hook suites run under bash AND zsh (#391) — the hooks execute with
+      # whatever shell the host wires in — and ubuntu-latest ships without zsh.
+      # The tests skip the zsh rows cleanly when the binary is missing, so this
+      # step is what makes the zsh half actually run in CI.
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
       # On PRs: run the full suite fast (no coverage instrumentation) for quick
       # feedback — every test still runs, only the coverage GATE is deferred.
       - name: Test (PR)

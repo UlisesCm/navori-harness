@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { shellSingleQuote } from "../shell-escape.ts";
+import { acrossShells } from "./helpers/shells.ts";
 
 describe("shellSingleQuote", () => {
   it("wraps a plain value in single quotes", () => {
@@ -32,7 +33,10 @@ describe("shellSingleQuote", () => {
     ];
     for (const payload of payloads) {
       const script = `v=${shellSingleQuote(payload)}\nprintf '%s' "$v"`;
-      const out = execFileSync("bash", ["-c", script], { encoding: "utf-8" });
+      // The quoting must hold under every shell a host may run (#391).
+      const out = acrossShells((shell) =>
+        execFileSync(shell, ["-c", script], { encoding: "utf-8" }),
+      );
       expect(out).toBe(payload);
     }
   });
