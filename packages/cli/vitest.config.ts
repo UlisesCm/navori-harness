@@ -7,6 +7,9 @@ export default defineConfig({
     // Build the CLI once before the suite: the e2e specs spawn dist/index.js,
     // so a stale/missing dist would fail them for environmental reasons.
     globalSetup: ["./vitest.globalSetup.ts"],
+    // Per-spec-file backup store, so no test writes to (or purges from) the
+    // developer's real ~/.navori/backups (#404).
+    setupFiles: ["./vitest.setup.ts"],
     testTimeout: 15_000, // e2e specs spawn the CLI several times
     // Cap worker forks: the e2e specs each `spawnSync(dist/index.js)`, so at full
     // core count ~200 child processes run at once and exhaust file descriptors
