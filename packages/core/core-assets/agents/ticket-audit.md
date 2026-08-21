@@ -43,7 +43,7 @@ If you find a recent audit for the same ticket, read it first. Don't re-audit if
 
 ## Flow
 
-1. **Read**: `CLAUDE.md` (project rules + the orchestrator's role).
+1. **Ground**: `CLAUDE.md` (project rules + the orchestrator's role) — already in your context when your host injects it; read it from disk ONLY if your host did not inject it.
 2. **Curate repo context** for your analysis:
    - Literal text of the ticket (don't paraphrase).
    - Grep for the ticket's keywords → candidate files.
