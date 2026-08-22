@@ -109,6 +109,10 @@ pnpm test                     # suite de vitest (quality gate)
 pnpm build                    # bundlea CLI + assets
 pnpm check:size               # guard de tamaño del bundle
 
+cd ../..
+pnpm check:render             # el espejo .claude/ + CLAUDE.md de este repo está al día
+
+cd packages/cli
 # probar el binario local sin publicar:
 node dist/index.js init --cwd /ruta/a/un/repo
 ```
@@ -117,7 +121,23 @@ node dist/index.js init --cwd /ruta/a/un/repo
 
 ## Releases
 
-Releases manuales: bump de `packages/cli/package.json` → commit `chore(release): navori vX.Y.Z` → tag `vX.Y.Z` → `npm publish` desde `packages/cli`. El website lee la versión del `package.json` del CLI y se redespliega vía GitHub Actions.
+Releases manuales, **en este orden**:
+
+1. Bump de la versión en `packages/cli/package.json`.
+2. **Re-render obligatorio del espejo** (no es opcional ni un detalle):
+   ```bash
+   pnpm --filter navori build && node packages/cli/dist/index.js render --apply
+   ```
+   El marcador de cada bloque managed estampa la versión del CLI, así que el bump del paso 1
+   desfasa el espejo renderizado de este repo **entero**: medido en 0.6.0 → 0.6.1, **30 archivos**
+   entre `.claude/` y `CLAUDE.md`. Saltarte este paso deja el tag puesto sobre un árbol
+   inconsistente y pone en rojo el primer CI de `main` posterior al release (`pnpm check:render`,
+   #421) — y como el release va directo a `main`, no hay PR donde verlo antes.
+3. Commit `chore(release): navori vX.Y.Z` — incluye el bump **y** el re-render del paso 2.
+4. Tag `vX.Y.Z` (después del re-render, nunca antes).
+5. `npm publish` desde `packages/cli`.
+
+El website lee la versión del `package.json` del CLI y se redespliega vía GitHub Actions.
 
 ## Créditos e inspiración
 

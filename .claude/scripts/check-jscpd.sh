@@ -148,11 +148,11 @@ while IFS= read -r -d '' f; do
 done < <(git diff --name-only -z --diff-filter=ACMRT "$base" -- '*.ts' '*.tsx' 2>/dev/null)
 
 if [ ${#files[@]} -eq 0 ]; then
-  echo "✓ jscpd: sin cambios vs $base" >&2
+  echo "✓ jscpd: no changes vs $base" >&2
   exit 0
 fi
 
-echo "▶ jscpd: ${#files[@]} archivo(s) modificados vs $base" >&2
+echo "▶ jscpd: ${#files[@]} changed file(s) vs $base" >&2
 
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT

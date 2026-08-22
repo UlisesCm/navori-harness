@@ -40,6 +40,17 @@ jobs:
       - name: Bundle size guard
         run: pnpm --filter navori check:size
 
+      # #421: this repo dogfoods navori — `.claude/` + `CLAUDE.md` are the OUTPUT
+      # of `navori render` over @navori/core. A PR that touches a managed asset
+      # WITHOUT re-rendering the mirror leaves the harness (hooks included) running
+      # the previous version, which is how #420 shipped a day of stale hook scripts.
+      # `check:render` rebuilds before rendering ON PURPOSE (dist/assets/core is a
+      # build-time copy of packages/core; rendering with a stale dist compares
+      # against the OLD core and passes in silence) — don't "optimize" the rebuild
+      # away just because the Build step above already ran.
+      - name: Harness mirror up to date
+        run: pnpm check:render
+
       - name: Lint
         run: pnpm --filter navori lint
 

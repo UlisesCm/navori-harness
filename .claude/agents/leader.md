@@ -4,7 +4,7 @@ description: Do NOT invoke as a subagent. Orchestration playbook that the main a
 tools: Read, Glob, Grep, Bash, Agent
 ---
 
-<!-- navori:managed id="leader-base" hash="a04c7f89" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="leader-base" hash="81905108" version="0.6.0" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live inline in the "## Role: orchestrator" block of `CLAUDE.md`, which auto-loads. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: leader)`.
@@ -95,6 +95,7 @@ Expected files:
 - `.claude/progress/plan_<scope>.md` — the `auditor`'s prioritized plan that accompanies a deep audit
 - `.claude/progress/explore_<topic>.md` — broad map (`explorer`)
 - `.claude/progress/research_<question>.md` — scoped question (`researcher`)
+- `.claude/progress/solution_<scope>.md` — the design pass's decision record (`solution-design` skill), plus `solution_review_<scope>.md` for its fresh-context challenge (`researcher`)
 - `.claude/progress/impl_<feature>.md` — the `implementer`'s report (includes its `Status: DONE | BLOCKED`)
 - `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
 - `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `commit-pr-pilot`)
