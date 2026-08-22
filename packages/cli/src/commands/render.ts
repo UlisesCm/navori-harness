@@ -684,6 +684,15 @@ function buildRenderJson(result: ReturnType<typeof runRender>, preview: boolean)
     warnings: ee.warnings,
     backupPath: ee.backupPath,
   });
+  // Claude's per-FILE plan (`.claude/**` + CLAUDE.md), same shape the non-Claude
+  // engines already expose. `changed` only says "something would be written";
+  // without these lists a CI consumer can't name WHICH files are stale — the
+  // whole point of #421, where 15 rendered files (hooks included) drifted.
+  // In preview mode `written` means "would write".
+  const claudeFilesJson = (engineResult: ClaudeEngineResult | undefined) => ({
+    written: (engineResult?.written ?? []).map((w) => ({ path: w.path, status: w.status })),
+    skipped: (engineResult?.skipped ?? []).map((s) => ({ path: s.path, reason: s.reason })),
+  });
   const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
   const pending = resultHasPendingWrites(result);
   const downgrades = result.downgrades
@@ -697,6 +706,7 @@ function buildRenderJson(result: ReturnType<typeof runRender>, preview: boolean)
       filePath: result.filePath,
       changed: result.written,
       entries: result.entries.map(entryJson),
+      ...claudeFilesJson(result.engineResult),
       languageFallbacks: result.languageFallbacks,
       backupPath: result.backupPath ?? null,
     },
@@ -706,6 +716,7 @@ function buildRenderJson(result: ReturnType<typeof runRender>, preview: boolean)
       filePath: w.filePath,
       changed: w.written,
       entries: w.entries.map(entryJson),
+      ...claudeFilesJson(w.engineResult),
       languageFallbacks: w.languageFallbacks,
       backupPath: w.backupPath ?? null,
       extraEngines: w.extraEngines.map(engineJson),

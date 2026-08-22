@@ -13,6 +13,7 @@
     "gen:schemas": "pnpm --filter navori gen:schemas",
     "format": "biome format --write packages/cli/src apps/website/src",
     "format:check": "biome format packages/cli/src apps/website/src",
+    "check:render": "pnpm --filter navori build && node scripts/check-render.mjs",
     "check": "pnpm --filter navori build && pnpm --filter navori check:size && pnpm lint && pnpm format:check && pnpm --filter navori test"
   },
   "devDependencies": {

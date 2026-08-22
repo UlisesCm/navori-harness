@@ -125,6 +125,9 @@ una spec** en `specs/` y consíguela aprobada; recién entonces se implementa.
    - `cd packages/cli && pnpm lint` — oxlint.
    - **Desde la raíz del monorepo**: `pnpm format:check` — biome (el paso que más se olvida; NO
      está bajo `packages/cli`). Si falla, arréglalo con `pnpm format` antes de commitear.
+   - **Desde la raíz**: `pnpm check:render` si tocaste assets del core o de un plugin, el
+     `navori.config.json`, o la versión del CLI — este repo se auto-hospeda y el espejo
+     renderizado debe ir en el mismo PR (#421). Los disparadores exactos, en `CONTRIBUTING.md`.
    - CI corre además `pnpm --filter navori build` y `check:size` (guard de bundle size).
    - Cambios **doc-only** (.md): basta `pnpm lint` + `pnpm format:check`; no necesitas la suite.
 4. **Commits**: Conventional, español MX, atómicos.
