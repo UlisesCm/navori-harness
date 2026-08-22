@@ -53,7 +53,7 @@ Protocolo global activo. En este repo:
 - El harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se commitea aquí y en todo repo no-Bonum — navori se auto-hospeda. La regla de "nunca commitear `.claude/`/`CLAUDE.md`" aplica solo a los repos `/bonum`. Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 - Branch base: definir cuando se inicialice el repo git.
 
-<!-- navori:managed id="orquestacion" hash="46bd6899" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="409fe5f2" version="0.6.0" source="@navori/core" -->
 ## Role: orchestrator (organic routing)
 
 You are the main agent. For any task, **pick the smallest route that covers it**; step up only when you cross an objective threshold. Fan-out (subagents) is a **lever** for complex or parallelizable work, not a toll every task pays. Review the candidate **after** implementing, not before. You **embody** the orchestrator role: when a task reaches R2, **you act as the orchestrator** (decompose and coordinate) — but **NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -104,7 +104,7 @@ Once the plan/scope is approved (R2+), execute ALL sub-tasks without confirming 
 
 ### Synthesis without broken telephone
 
-Instruct subagents to **write to `.claude/progress/<file>.md`**; you receive only `done -> file`. That folder is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `impl_*`, `review_*`, `receipt.txt`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, git-persisted) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. **After** its `done -> file` lands (not while it runs — that duplicates work in flight), re-verify only the **load-bearing claims**, the ones your decision rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report. To close the cycle, invoke `commit-pr-pilot` — when `review_<feature>.md` says `APPROVED` (R2+), or directly for a genuine R1 diff that never went through a `reviewer`. The pilot gates the PR on `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` (green over the shipping diff — the reviewer's Pass-2 evidence in R2+, or the pilot's own run in R1). Pre-flight: not on `main`, `gh auth status` ok (no clean-working-tree check — the pilot's trigger IS the uncommitted diff, and the pilot owns that commit). If `CHANGES_REQUESTED`, launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
+Instruct subagents to **write to `.claude/progress/<file>.md`**; you receive only `done -> file`. That folder is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, git-persisted) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. **After** its `done -> file` lands (not while it runs — that duplicates work in flight), re-verify only the **load-bearing claims**, the ones your decision rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report. To close the cycle, invoke `commit-pr-pilot` — when `review_<feature>.md` says `APPROVED` (R2+), or directly for a genuine R1 diff that never went through a `reviewer`. The pilot gates the PR on `pnpm format:check && cd packages/cli && pnpm test && pnpm lint` (green over the shipping diff — the reviewer's Pass-2 evidence in R2+, or the pilot's own run in R1). Pre-flight: not on `main`, `gh auth status` ok (no clean-working-tree check — the pilot's trigger IS the uncommitted diff, and the pilot owns that commit). If `CHANGES_REQUESTED`, launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
 
 **Second opinion (post-`APPROVED`).** On a non-trivial diff — or any change touching a critical area — if this repo also renders the `codex` engine, a review from a **different provider** is one command away: see the **Cross-model review** sub-block in `.claude/agents/leader.md`.
 <!-- /navori:managed id="orquestacion" -->
@@ -251,7 +251,7 @@ Before approving a change, run jscpd over the diff vs the base branch.
 - Silent skip if `jscpd` is not in `PATH` (don't block if the dev doesn't have the tool installed).
 <!-- /navori:managed id="jscpd-protocol" -->
 
-<!-- navori:managed id="semgrep-protocol" hash="d9c11ae1" version="0.6.0" source="@navori/plugin-semgrep" -->
+<!-- navori:managed id="semgrep-protocol" hash="b6113a2f" version="0.6.0" source="@navori/plugin-semgrep" -->
 ## Local security gate (semgrep)
 
 Before closing a relevant change (auth, RBAC, secrets, input validation), run semgrep over the diff.
@@ -264,7 +264,7 @@ Before closing a relevant change (auth, RBAC, secrets, input validation), run se
   ```
   semgrep scan --config=p/default --error --metrics=off
   ```
-- `p/default` (not `auto`) on purpose: deterministic and telemetry-off — mirrors `scripts/check-semgrep.sh`.
+- `p/default` (not `auto`) on purpose: deterministic and telemetry-off — mirrors the plugin's check script.
 - Custom rules: see `.semgrep.yml` at the repo root if it exists.
 - Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
 <!-- /navori:managed id="semgrep-protocol" -->

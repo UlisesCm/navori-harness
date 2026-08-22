@@ -151,7 +151,7 @@ while IFS= read -r -d '' f; do
 done < <(git diff --name-only -z --diff-filter=ACMRT "$base" -- '*.ts' '*.tsx' 2>/dev/null)
 
 if [ ${#files[@]} -eq 0 ]; then
-  echo "✓ semgrep: sin cambios vs $base" >&2
+  echo "✓ semgrep: no changes vs $base" >&2
   exit 0
 fi
 
@@ -241,7 +241,7 @@ if [ -n "$cache_key" ] && [ -f "$marker" ]; then
   fi
 fi
 
-echo "▶ semgrep: ${#files[@]} archivo(s) modificados vs $base" >&2
+echo "▶ semgrep: ${#files[@]} changed file(s) vs $base" >&2
 
 scan_status=0
 semgrep scan \
