@@ -35,14 +35,20 @@ export function formatInfraSummary(infra: ClaudeInfraInventory, lang: Lang = "es
 export function formatDetectionSummary(d: DetectedProject, lang: Lang = "es"): string {
   const tr = t(lang);
   const rows: Array<[string, string]> = [];
+  // `DetectedProject` types each value and its `sources` entry independently,
+  // so TS can't see that detectProject derives both from the same guard (a
+  // non-null value always carries a non-null source). Rather than assert it
+  // here, drop the provenance suffix when the source is missing: the value
+  // still prints, just without "(from X)".
+  const from = (source: string | null): string => (source ? `  ${grey(tr.from(source))}` : "");
   rows.push([
     "name",
-    d.name ? `${color.cyan(d.name)}  ${grey(tr.from(d.sources.name))}` : grey(tr.notDetectedAsk),
+    d.name ? `${color.cyan(d.name)}${from(d.sources.name)}` : grey(tr.notDetectedAsk),
   ]);
   rows.push([
     "branchBase",
     d.branchBase
-      ? `${d.branchBase}  ${grey(tr.from(d.sources.branchBase))}`
+      ? `${d.branchBase}${from(d.sources.branchBase)}`
       : `main  ${grey(tr.defaultNoGit)}`,
   ]);
   rows.push([
@@ -61,10 +67,7 @@ export function formatDetectionSummary(d: DetectedProject, lang: Lang = "es"): s
   if (d.stack.state) rows.push(["state", d.stack.state]);
   if (d.stack.test) rows.push(["test", d.stack.test]);
   if (d.packageManager) {
-    rows.push([
-      "packageManager",
-      `${d.packageManager}  ${grey(tr.from(d.sources.packageManager))}`,
-    ]);
+    rows.push(["packageManager", `${d.packageManager}${from(d.sources.packageManager)}`]);
   }
   if (d.monorepo) {
     rows.push(["monorepo", `${d.monorepo.tool}  ${grey(tr.from(d.monorepo.source))}`]);

@@ -535,7 +535,9 @@ export const initCommand = defineCommand({
           preset,
           language,
           branchBase,
-          qualityGate,
+          // `null` (nothing detected) and `undefined` (field absent) mean the
+          // same "no gate" to the preview, which renders it only when set.
+          qualityGate: qualityGate ?? undefined,
           plugins: pluginsToEnable,
           agentAssignments,
         },

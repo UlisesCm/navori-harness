@@ -76,6 +76,53 @@ function collectFiles(root: string, dir: string): string[] {
   return out;
 }
 
+/**
+ * Body of `migrations list`, shared with the parent command's default run.
+ * Takes plain options instead of citty's `ParsedArgs` because the parent
+ * declares only `--json` (see `migrationsCommand`), so its args can never
+ * satisfy this subcommand's arg shape. `limit` stays `unknown` because both
+ * callers get it straight off the CLI (the parent through citty's catch-all
+ * index signature, which types undeclared flags as string|boolean|string[]);
+ * `intFlagOrExit` is the validator, and undefined means "use the default".
+ */
+function runMigrationsList(opts: { json: boolean; limit?: unknown }): void {
+  const migrations = listMigrations();
+  const limit = intFlagOrExit(opts.limit, "limit", 20);
+  const truncated = migrations.slice(0, limit);
+
+  if (opts.json) {
+    console.log(
+      JSON.stringify({ migrations: truncated, totalAvailable: migrations.length }, null, 2),
+    );
+    return;
+  }
+
+  const tr = tc(globalLang()).migrations;
+  p.intro(brand("migrations list"));
+  if (migrations.length === 0) {
+    p.log.info(tr.listEmpty);
+    p.outro(dim(tr.done));
+    return;
+  }
+
+  const lines: string[] = [];
+  lines.push(dim(tr.total(migrations.length, truncated.length)));
+  for (const m of truncated) {
+    const date = new Date(m.mtimeMs);
+    lines.push(
+      `  ${color.cyan(sym.bullet)} ${accent(m.timestamp)}  ${dim(`repo='${m.repoName}'`)}  ${dim(date.toISOString())}`,
+    );
+    for (const f of m.files) {
+      lines.push(`      ${dim(sym.bullet)} ${dim(f)}`);
+    }
+  }
+  if (migrations.length > truncated.length) {
+    lines.push(dim(tr.more(migrations.length - truncated.length)));
+  }
+  p.log.message(lines.join("\n"));
+  p.outro(dim(tr.done));
+}
+
 const listSubCommand = defineCommand({
   meta: {
     name: "list",
@@ -86,41 +133,7 @@ const listSubCommand = defineCommand({
     limit: { type: "string", description: "Show only the N most recent (default: 20)" },
   },
   run({ args }) {
-    const migrations = listMigrations();
-    const limit = intFlagOrExit(args.limit, "limit", 20);
-    const truncated = migrations.slice(0, limit);
-
-    if (args.json) {
-      console.log(
-        JSON.stringify({ migrations: truncated, totalAvailable: migrations.length }, null, 2),
-      );
-      return;
-    }
-
-    const tr = tc(globalLang()).migrations;
-    p.intro(brand("migrations list"));
-    if (migrations.length === 0) {
-      p.log.info(tr.listEmpty);
-      p.outro(dim(tr.done));
-      return;
-    }
-
-    const lines: string[] = [];
-    lines.push(dim(tr.total(migrations.length, truncated.length)));
-    for (const m of truncated) {
-      const date = new Date(m.mtimeMs);
-      lines.push(
-        `  ${color.cyan(sym.bullet)} ${accent(m.timestamp)}  ${dim(`repo='${m.repoName}'`)}  ${dim(date.toISOString())}`,
-      );
-      for (const f of m.files) {
-        lines.push(`      ${dim(sym.bullet)} ${dim(f)}`);
-      }
-    }
-    if (migrations.length > truncated.length) {
-      lines.push(dim(tr.more(migrations.length - truncated.length)));
-    }
-    p.log.message(lines.join("\n"));
-    p.outro(dim(tr.done));
+    runMigrationsList({ json: args.json, limit: args.limit });
   },
 });
 
@@ -200,8 +213,10 @@ export const migrationsCommand = defineCommand({
     restore: restoreSubCommand,
   },
   // Without a subcommand citty errors with a bare "No command specified."
-  // Default to `list` so `navori migrations` just works.
+  // Default to `list` so `navori migrations` just works. `args.limit` is not in
+  // this command's schema, but citty's parser still collects undeclared flags,
+  // so forward it: dropping it would make the value silently ignored here.
   run({ args }) {
-    return listSubCommand.run?.({ args, cmd: listSubCommand, rawArgs: [] });
+    runMigrationsList({ json: args.json, limit: args.limit });
   },
 });

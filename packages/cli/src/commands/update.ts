@@ -490,7 +490,7 @@ export const updateCommand = defineCommand({
     }
     // Keep the global registry current (best-effort) so `render --all` sees this
     // repo even if it predates auto-registration.
-    registerRepoSafe(cwd, detected.name);
+    registerRepoSafe(cwd, detected.name ?? undefined);
     const applied = aggregateRender(result);
     if (applied.conflicts.length > 0) {
       p.log.warn(tu.conflictsKept(applied.conflicts.length));

@@ -908,7 +908,7 @@ export interface RepoRenderRow {
   conflicts: number;
   /** The individual entries that are not `unchanged` (created/updated/conflict/
    * removed), for the `--verbose` per-file listing. Empty for missing/error. */
-  changed: Array<{ id: string; status: string }>;
+  changed: Array<{ id: string; status: RenderStatus }>;
   /** Engine advisories (root + every workspace, every engine), deduped. The
    * single-repo render prints these, but the batch used to drop them — and the
    * batch is exactly where they bite: a fleet rollout with a `project.libraries`
@@ -977,13 +977,13 @@ export function renderRepoRows(
       // pending change is a hook/agent/skill/settings file would otherwise read as
       // "unchanged" next to a "would-write" status. Folded into the summary and the
       // --verbose list so the detail always explains the status.
-      const engineFiles: Array<{ id: string; status: string }> = [];
+      const engineFiles: Array<{ id: string; status: RenderStatus }> = [];
       // Warnings ride the same walk as the files. Deduped (Set) because a
       // monorepo re-emits repo-level advisories once per workspace render — the
       // batch row needs each message once, not once per workspace.
       const engineWarnings = new Set<string>();
       const collectEngine = (eng?: {
-        written: Array<{ path: string; status: string }>;
+        written: Array<{ path: string; status: RenderStatus }>;
         warnings: string[];
       }): void => {
         for (const w of eng?.written ?? []) engineFiles.push({ id: w.path, status: w.status });
