@@ -56,7 +56,16 @@
       "Bash(df:*)",
       "Bash(realpath:*)",
       "Bash(dirname:*)",
-      "Bash(basename:*)"
+      "Bash(basename:*)",
+      "Bash(tr:*)",
+      "Bash(comm:*)",
+      "Bash(column:*)",
+      "Bash(echo:*)",
+      "Bash(printf:*)",
+      "Bash(command -v:*)",
+      "Bash(shasum:*)",
+      "Bash(md5:*)",
+      "Bash(bash -n:*)"
     ],
     "ask": [
       "Bash(rm -rf *)",
