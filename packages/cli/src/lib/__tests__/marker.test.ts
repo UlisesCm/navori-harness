@@ -733,3 +733,169 @@ describe("splitUserSection / emitUserSection", () => {
     expect(emitUserSection(s2.managed, s2.userBody)).toBe(emitted);
   });
 });
+
+// #452 — the WRITE path (findMarker + stripOrphanMarkers) must ignore markers
+// quoted inside a ```fence```, exactly like the read path (#285 locateManagedBlocks,
+// #432 listMarkers). A doc that pastes a managed block verbatim as documentation
+// used to steer render onto the QUOTED copy: it read the example's body and, when
+// the copy's hash matched its own body (the normal case — the block is pasted with
+// its `hash=` attribute), it OVERWROTE the documented example and left the real
+// block duplicated.
+describe("write path is code-fence aware (#452)", () => {
+  const FENCE = "```";
+  /** A standalone managed block, exactly as navori writes it (hash included). */
+  const block = (id: string, body: string): string =>
+    injectManagedSection("", id, body).output.trimEnd();
+  const openCount = (doc: string, id: string): number =>
+    (doc.match(new RegExp(`<!-- navori:managed id="${id}"`, "g")) ?? []).length;
+
+  // Branch 2 of the issue — the copy's hash is CONSISTENT with its own body
+  // (a doc pastes the block verbatim, hash and all). This was the corruption
+  // case: injectManagedSection returned `updated` having written over the
+  // documented example.
+  it("reads and writes the real block, not the verbatim copy quoted in a fence", () => {
+    const quoted = block("idioma-rol", "EJEMPLO CITADO\n");
+    const real = block("idioma-rol", "CONTENIDO REAL\n");
+    const doc = `# Doc\n\nAsí se ve un bloque managed:\n\n${FENCE}md\n${quoted}\n${FENCE}\n\n${real}\n`;
+
+    // Read: the quoted copy comes FIRST in the document and used to win.
+    expect(extractManagedContent(doc, "idioma-rol")).toBe("CONTENIDO REAL");
+
+    // Write: lands on the real block; the documented example survives verbatim.
+    const r = injectManagedSection(doc, "idioma-rol", "CONTENIDO NUEVO\n");
+    expect(r.status).toBe("updated");
+    expect(r.output).toContain("CONTENIDO NUEVO");
+    expect(r.output).not.toContain("CONTENIDO REAL");
+    expect(r.output).toContain(`${FENCE}md\n${quoted}\n${FENCE}`);
+    // No duplicate: still one quoted open + one real open.
+    expect(openCount(r.output, "idioma-rol")).toBe(2);
+  });
+
+  // Branch 1 of the issue — the copy's hash does NOT match its own body (an
+  // edited example). It used to return `user-modified-skipped`: render wrote
+  // nothing at all, because the hash it compared belonged to the quoted copy.
+  it("is not blocked by a quoted copy whose hash no longer matches its body", () => {
+    const quoted = block("idioma-rol", "EJEMPLO CITADO\n").replace(
+      "EJEMPLO CITADO",
+      "EJEMPLO EDITADO A MANO",
+    );
+    const real = block("idioma-rol", "CONTENIDO REAL\n");
+    const doc = `# Doc\n\n${FENCE}md\n${quoted}\n${FENCE}\n\n${real}\n`;
+
+    expect(extractManagedContent(doc, "idioma-rol")).toBe("CONTENIDO REAL");
+    const r = injectManagedSection(doc, "idioma-rol", "CONTENIDO NUEVO\n");
+    expect(r.status).toBe("updated");
+    expect(r.output).toContain("EJEMPLO EDITADO A MANO");
+    expect(openCount(r.output, "idioma-rol")).toBe(2);
+  });
+
+  // Mutation direction 1 — a REAL block outside every fence is still found,
+  // written and removed exactly as before. This is the grave failure mode of a
+  // fence-aware parser: losing sight of a real block makes render treat it as
+  // absent and append a duplicate.
+  it("still finds, updates and removes a real block that sits outside fences", () => {
+    const doc = `# Doc\n\n${FENCE}sh\nnavori render --apply\n${FENCE}\n\n${block("a", "cuerpo a\n")}\n`;
+    expect(extractManagedContent(doc, "a")).toBe("cuerpo a");
+
+    const updated = injectManagedSection(doc, "a", "cuerpo nuevo\n");
+    expect(updated.status).toBe("updated");
+    expect(openCount(updated.output, "a")).toBe(1);
+    expect(injectManagedSection(updated.output, "a", "cuerpo nuevo\n").status).toBe("unchanged");
+
+    const removed = removeManagedSection(doc, "a");
+    expect(removed).not.toContain('id="a"');
+    expect(removed).toContain("navori render --apply");
+  });
+
+  // Mutation direction 2 — a copy that lives ONLY inside a fence is not a block:
+  // it is never read, never removed, and injecting creates a real block beside it.
+  it("treats a block quoted only inside a fence as documentation, not as a block", () => {
+    const quoted = block("a", "cuerpo citado\n");
+    const doc = `# Doc\n\n${FENCE}md\n${quoted}\n${FENCE}\n\nProsa final.\n`;
+
+    expect(extractManagedContent(doc, "a")).toBeNull();
+    expect(removeManagedSection(doc, "a")).toBe(doc);
+
+    const r = injectManagedSection(doc, "a", "cuerpo real\n");
+    expect(r.status).toBe("created");
+    expect(r.output).toContain(`${FENCE}md\n${quoted}\n${FENCE}`);
+    expect(r.output).toContain("cuerpo real");
+    expect(injectManagedSection(r.output, "a", "cuerpo real\n").status).toBe("unchanged");
+  });
+
+  // Mutation direction 3 — an UNBALANCED fence inside a managed body must not
+  // leave the scanner "inside a fence" and swallow every later block. Managed
+  // bodies are opaque in `proseLines`, so the stray delimiter never toggles it.
+  it("keeps later blocks visible past an unbalanced fence inside a managed body", () => {
+    let doc = injectManagedSection("", "a", `Un fence sin cerrar:\n\n${FENCE}\n`).output;
+    doc = injectManagedSection(doc, "b", "cuerpo b\n").output;
+
+    expect(extractManagedContent(doc, "b")).toBe("cuerpo b");
+    const r = injectManagedSection(doc, "b", "cuerpo b v2\n");
+    expect(r.status).toBe("updated");
+    expect(openCount(r.output, "b")).toBe(1);
+    expect(r.output).toContain("cuerpo b v2");
+    // Block 'a' — the one carrying the stray delimiter — is untouched.
+    expect(extractManagedContent(r.output, "a")).toBe(`Un fence sin cerrar:\n\n${FENCE}`);
+  });
+
+  // Mutation direction 4 — `stripOrphanMarkers` shares the scan. A HALF block
+  // quoted in a fence (an open with no close, natural when a doc shows just the
+  // opening line) used to pair with the REAL block's close, marking the real
+  // open as an orphan and deleting it — corrupting the block render was about
+  // to write.
+  it("never strips a real open because a fence quotes a half marker", () => {
+    const real = block("a", "cuerpo real\n");
+    const doc = `# Doc\n\nLa apertura se ve así:\n\n${FENCE}md\n<!-- navori:managed id="a" hash="deadbeef" -->\n${FENCE}\n\n${real}\n`;
+
+    const r = injectManagedSection(doc, "a", "cuerpo real\n");
+    expect(r.status).toBe("unchanged");
+    expect(r.output).toBe(doc);
+    expect(extractManagedContent(r.output, "a")).toBe("cuerpo real");
+    // The quoted half-marker survives in the user's documentation.
+    expect(r.output).toContain(
+      `${FENCE}md\n<!-- navori:managed id="a" hash="deadbeef" -->\n${FENCE}`,
+    );
+  });
+
+  it("never strips an orphan close quoted in a fence", () => {
+    const doc = `# Doc\n\n${FENCE}md\n<!-- /navori:managed id="a" -->\n${FENCE}\n\nProsa.\n`;
+    const r = injectManagedSection(doc, "a", "cuerpo\n");
+    expect(r.status).toBe("created");
+    expect(r.output).toContain(`${FENCE}md\n<!-- /navori:managed id="a" -->\n${FENCE}`);
+    expect(injectManagedSection(r.output, "a", "cuerpo\n").status).toBe("unchanged");
+  });
+
+  // Real orphans OUTSIDE fences are still cleaned — the fence-awareness must not
+  // turn stripOrphanMarkers into a no-op.
+  it("still strips a real orphan open that sits outside a fence", () => {
+    const doc = `<!-- navori:managed id="a" hash="deadbeef" -->\n\nprosa suelta\n`;
+    const r = injectManagedSection(doc, "a", "cuerpo\n");
+    expect(r.status).toBe("created");
+    expect(openCount(r.output, "a")).toBe(1);
+    expect(r.output).toContain("cuerpo");
+  });
+
+  // The collapsed empty-block shape puts open and close on ONE line, so the
+  // close IS a prose line: it must still count as paired, never as an orphan.
+  it("does not treat the close of a collapsed empty block as an orphan", () => {
+    const empty = injectManagedSection("", "a", "").output;
+    expect(empty).toContain('<!-- navori:managed id="a"');
+    const r = injectManagedSection(empty, "a", "");
+    expect(r.status).toBe("unchanged");
+    expect(r.output).toBe(empty);
+  });
+
+  it("applies the same fence rule to shell markers", () => {
+    const quoted = injectManagedSection("", "guard", "echo citado\n", {}, "shell").output.trimEnd();
+    const real = injectManagedSection("", "guard", "echo real\n", {}, "shell").output.trimEnd();
+    const doc = `#!/usr/bin/env bash\n# Ejemplo:\n${FENCE}sh\n${quoted}\n${FENCE}\n\n${real}\n`;
+
+    expect(extractManagedContent(doc, "guard", "shell")).toBe("echo real");
+    const r = injectManagedSection(doc, "guard", "echo nuevo\n", {}, "shell");
+    expect(r.status).toBe("updated");
+    expect(r.output).toContain("echo citado");
+    expect(r.output).toContain("echo nuevo");
+    expect(r.output).not.toContain("echo real");
+  });
+});

@@ -124,34 +124,53 @@ function extractAttr(open: string, name: string): string | null {
   return m?.[1] ?? null;
 }
 
-function findMarker(existing: string, id: string, syntax: MarkerSyntax): MarkerMatch | null {
-  // Match the entire open marker (attributes in any order)
+/**
+ * Locate the managed block with the given id — THE parser of the WRITE path
+ * (`injectManagedSection`, `removeManagedSection`, `extractManagedContent`).
+ *
+ * Code-fence aware via `proseLines`, the same mechanism `locateManagedBlocks`
+ * and doctor's `listMarkers` walk. Scanning the raw text instead made render
+ * read (and then WRITE) the copy a doc quotes verbatim inside a ```fence```
+ * ahead of the real block with that id: when the quoted copy carried a hash
+ * consistent with its own body — the normal case, since a doc pastes the block
+ * with its `hash=` attribute — the write landed on the documented example and
+ * left the real block duplicated (#452). #285 and #432 closed the same
+ * discrepancy on the READ path; this is the write half.
+ */
+function findMarker(existing: string, id: string, style: CommentStyle): MarkerMatch | null {
+  const syntax = syntaxFor(style);
+  // Matches the entire open marker (attributes in any order). Line-scoped by
+  // construction — exec'd against ONE prose line, like `openRegexFor`.
   const openRegex = new RegExp(
     `${escapeRegex(syntax.openPrefix)}\\s+id="${escapeRegex(id)}"${syntax.attrsAndTerminatorPattern}`,
   );
-  const openMatch = openRegex.exec(existing);
-  if (!openMatch) return null;
-
   const close = closeMarker(id, syntax);
-  const closeStart = existing.indexOf(close, openMatch.index + openMatch[0].length);
-  if (closeStart < 0) return null;
 
-  const openEnd = openMatch.index + openMatch[0].length;
-  const contentRaw = existing.slice(openEnd, closeStart);
-  // Normalize first (CRLF → LF + trim trailing whitespace), then strip the
-  // leading newline that the writer always inserts after the open marker.
-  const content = normalize(contentRaw).replace(/^\n/, "");
+  for (const line of proseLines(existing, [style])) {
+    const openMatch = openRegex.exec(line.text);
+    if (!openMatch || openMatch.index === undefined) continue;
+    const openStart = line.offset + openMatch.index;
+    const openEnd = openStart + openMatch[0].length;
+    const closeStart = existing.indexOf(close, openEnd);
+    if (closeStart < 0) continue; // orphan open — left to stripOrphanMarkers
 
-  return {
-    openStart: openMatch.index,
-    openEnd,
-    closeStart,
-    closeEnd: closeStart + close.length,
-    existingHash: extractAttr(openMatch[0], "hash"),
-    existingVersion: extractAttr(openMatch[0], "version"),
-    existingSource: extractAttr(openMatch[0], "source"),
-    content,
-  };
+    const contentRaw = existing.slice(openEnd, closeStart);
+    // Normalize first (CRLF → LF + trim trailing whitespace), then strip the
+    // leading newline that the writer always inserts after the open marker.
+    const content = normalize(contentRaw).replace(/^\n/, "");
+
+    return {
+      openStart,
+      openEnd,
+      closeStart,
+      closeEnd: closeStart + close.length,
+      existingHash: extractAttr(openMatch[0], "hash"),
+      existingVersion: extractAttr(openMatch[0], "version"),
+      existingSource: extractAttr(openMatch[0], "source"),
+      content,
+    };
+  }
+  return null;
 }
 
 function escapeRegex(s: string): string {
@@ -185,61 +204,55 @@ export interface InjectResult {
  * half of a managed block. Left in place they would cause injectManagedSection
  * to append a new block AND leave the orphan, corrupting the document.
  *
+ * Code-fence aware via `proseLines` — the same mechanism `findMarker` walks, so
+ * a marker QUOTED inside a ```fence``` is documentation and is never stripped
+ * out of the user's prose (#452).
+ *
  * Returns the cleaned string.
  */
-function stripOrphanMarkers(existing: string, id: string, syntax: MarkerSyntax): string {
+function stripOrphanMarkers(existing: string, id: string, style: CommentStyle): string {
+  const syntax = syntaxFor(style);
   const close = closeMarker(id, syntax);
-  // Find every open (with its full length) and close marker for this id.
   const openRegex = new RegExp(
     `${escapeRegex(syntax.openPrefix)}\\s+id="${escapeRegex(id)}"${syntax.attrsAndTerminatorPattern}`,
     "g",
   );
-  const opens: { index: number; length: number }[] = [];
-  for (const m of existing.matchAll(openRegex)) {
-    if (m.index !== undefined) opens.push({ index: m.index, length: m[0].length });
-  }
-  const closes: number[] = [];
-  let from = 0;
-  for (;;) {
-    const idx = existing.indexOf(close, from);
-    if (idx < 0) break;
-    closes.push(idx);
-    from = idx + close.length;
+  const lines = proseLines(existing, [style]);
+
+  // Pair each PROSE-LEVEL open with the first close that follows it — exactly
+  // the pairing `findMarker` performs, so the two can never disagree on which
+  // halves are orphans. Closes that belong to a pair need no lookup here:
+  // `proseLines` walks past a block's body, so a paired close is not a prose
+  // line at all (except in the collapsed empty-block shape, where open and
+  // close share one line — hence the explicit `pairedCloses` set).
+  const orphanSpans: { index: number; length: number }[] = [];
+  const pairedCloses = new Set<number>();
+  for (const line of lines) {
+    for (const m of line.text.matchAll(openRegex)) {
+      if (m.index === undefined) continue;
+      const index = line.offset + m.index;
+      const closeStart = existing.indexOf(close, index + m[0].length);
+      if (closeStart < 0) orphanSpans.push({ index, length: m[0].length });
+      else pairedCloses.add(closeStart);
+    }
   }
 
-  // Pair opens to closes in document order: each open takes the first close that
-  // comes after it. Whatever stays unpaired — either half — is an orphan.
-  // Tracking the SPECIFIC unpaired indices (not just counting them) matters:
+  // Any remaining prose-level close is an orphan. Tracking the SPECIFIC
+  // unpaired indices (not just counting them) matters:
   //   - an orphan close in the middle (`open close close-orphan open close`) must
   //     be the one removed, not the last close, which is a valid pair;
   //   - an orphan count of exactly 0 for one half must never be treated as
   //     "strip everything" — the `slice(-0)` trap that destroyed a valid block
   //     when a stray extra close sat below it (#265).
-  const openPaired = new Array<boolean>(opens.length).fill(false);
-  const closePaired = new Array<boolean>(closes.length).fill(false);
-  let oi = 0;
-  let ci = 0;
-  while (oi < opens.length && ci < closes.length) {
-    if (closes[ci]! > opens[oi]!.index) {
-      openPaired[oi] = true;
-      closePaired[ci] = true;
-      oi++;
-      ci++;
-    } else {
-      // close before the current open — definitely an orphan close
-      ci++;
+  for (const line of lines) {
+    for (let at = line.text.indexOf(close); at >= 0; at = line.text.indexOf(close, at + 1)) {
+      const index = line.offset + at;
+      if (!pairedCloses.has(index)) orphanSpans.push({ index, length: close.length });
     }
   }
 
-  // Collect every orphan span (index + length) and remove them in a single pass
-  // over the ORIGINAL string, highest index first so earlier offsets stay valid.
-  const orphanSpans: { index: number; length: number }[] = [];
-  for (let i = 0; i < opens.length; i++) {
-    if (!openPaired[i]) orphanSpans.push(opens[i]!);
-  }
-  for (let i = 0; i < closes.length; i++) {
-    if (!closePaired[i]) orphanSpans.push({ index: closes[i]!, length: close.length });
-  }
+  // Remove every orphan span in a single pass over the ORIGINAL string, highest
+  // index first so earlier offsets stay valid.
   if (orphanSpans.length === 0) return existing;
 
   orphanSpans.sort((a, b) => b.index - a.index);
@@ -283,10 +296,10 @@ export function injectManagedSection(
   // Clean any orphan markers for this id first so a half-deleted block
   // (open without close, or vice versa) doesn't cause us to append a
   // duplicate.
-  existing = stripOrphanMarkers(existing, id, syntax);
+  existing = stripOrphanMarkers(existing, id, commentStyle);
 
   const newHash = hashContent(newContent);
-  const match = findMarker(existing, id, syntax);
+  const match = findMarker(existing, id, commentStyle);
   const canonicalContent = normalize(newContent);
 
   if (!match) {
@@ -392,8 +405,7 @@ export function removeManagedSection(
   id: string,
   commentStyle: CommentStyle = "html",
 ): string {
-  const syntax = syntaxFor(commentStyle);
-  const match = findMarker(existing, id, syntax);
+  const match = findMarker(existing, id, commentStyle);
   if (!match) return existing;
   // Drop the block + the trailing newline if present (avoid double-blank lines)
   let endCut = match.closeEnd;
@@ -410,8 +422,7 @@ export function extractManagedContent(
   id: string,
   commentStyle: CommentStyle = "html",
 ): string | null {
-  const syntax = syntaxFor(commentStyle);
-  const match = findMarker(existing, id, syntax);
+  const match = findMarker(existing, id, commentStyle);
   return match ? match.content : null;
 }
 
