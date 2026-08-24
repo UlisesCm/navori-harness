@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { assert, describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,7 +66,9 @@ describe("renderRepoRows carries engine warnings (audit A1, batch)", () => {
     });
 
     expect(rows).toHaveLength(1);
-    const warning = rows[0].warnings.find((w) => w.includes("'socketio'"));
+    const [row] = rows;
+    assert.isDefined(row);
+    const warning = row.warnings.find((w) => w.includes("'socketio'"));
     expect(warning).toBeDefined();
     expect(warning).toContain("navori update");
     expect(rollupRenderRows(rows).warnings).toBeGreaterThanOrEqual(1);
@@ -82,7 +84,10 @@ describe("renderRepoRows carries engine warnings (audit A1, batch)", () => {
       force: false,
     });
 
-    const hits = rows[0].warnings.filter((w) => w.includes("'socketio'"));
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    assert.isDefined(row);
+    const hits = row.warnings.filter((w) => w.includes("'socketio'"));
     expect(hits).toHaveLength(1);
   });
 
@@ -94,7 +99,12 @@ describe("renderRepoRows carries engine warnings (audit A1, batch)", () => {
       force: false,
     });
 
-    expect(rows[0].warnings).toEqual([]);
+    // The length assertion catches a DUPLICATED row: the roll-up still reports
+    // 0 warnings, so without this line the case stays green.
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    assert.isDefined(row);
+    expect(row.warnings).toEqual([]);
     expect(rollupRenderRows(rows).warnings).toBe(0);
   });
 });

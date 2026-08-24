@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/schema.ts";
 import { scanCodexHealth, buildEngineInventory } from "../doctor.ts";
 
@@ -111,12 +111,15 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     const cwd = tempRepo();
     const inv = buildEngineInventory(config({ engines: ["claude", "codex"] }), cwd);
     expect(Object.keys(inv).sort()).toEqual(["claude", "codex"]);
-    expect(inv.claude.agents).toContain("leader");
-    expect(inv.codex.agents).not.toContain("leader");
+    const { claude, codex } = inv;
+    assert.isDefined(claude);
+    assert.isDefined(codex);
+    expect(claude.agents).toContain("leader");
+    expect(codex.agents).not.toContain("leader");
     // Same skills + hooks set for both (parity).
-    expect(inv.codex.skills).toEqual(inv.claude.skills);
-    expect(inv.codex.hooks).toEqual(inv.claude.hooks);
-    expect(inv.claude.hooks).toContain("guard-destructive");
+    expect(codex.skills).toEqual(claude.skills);
+    expect(codex.hooks).toEqual(claude.hooks);
+    expect(claude.hooks).toContain("guard-destructive");
   });
 
   it("omits prose engines", () => {
@@ -131,26 +134,30 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
   // skills/scripts/hooks) produces.
   it("exposes a scripts field, empty for a core-only (no-plugin) config", () => {
     const cwd = tempRepo();
-    const inv = buildEngineInventory(config({ engines: ["claude"], plugins: {} }), cwd);
-    expect(inv.claude!.scripts).toEqual([]);
+    const { claude } = buildEngineInventory(config({ engines: ["claude"], plugins: {} }), cwd);
+    assert.isDefined(claude);
+    expect(claude.scripts).toEqual([]);
   });
 
   it("folds an enabled plugin's skill into the inventory (engram → leader extension)", () => {
     const cwd = tempRepo();
     // The `config()` helper enables engram, whose skill asset is engram-leader-extension.
-    const inv = buildEngineInventory(config({ engines: ["claude", "codex"] }), cwd);
-    expect(inv.claude!.skills).toContain("engram-leader-extension");
-    expect(inv.codex!.skills).toContain("engram-leader-extension");
+    const { claude, codex } = buildEngineInventory(config({ engines: ["claude", "codex"] }), cwd);
+    assert.isDefined(claude);
+    assert.isDefined(codex);
+    expect(claude.skills).toContain("engram-leader-extension");
+    expect(codex.skills).toContain("engram-leader-extension");
   });
 
   it("folds a plugin's scripts and hooks into the inventory (jscpd)", () => {
     const cwd = tempRepo();
-    const inv = buildEngineInventory(
+    const { claude } = buildEngineInventory(
       config({ engines: ["claude"], plugins: { jscpd: { enabled: true } } }),
       cwd,
     );
-    expect(inv.claude!.scripts).toContain("check-jscpd.sh");
-    expect(inv.claude!.hooks).toContain("PreToolUse:Bash");
+    assert.isDefined(claude);
+    expect(claude.scripts).toContain("check-jscpd.sh");
+    expect(claude.hooks).toContain("PreToolUse:Bash");
   });
 
   // #235: render materializes a tree per monorepo workspace, and a workspace may
@@ -159,7 +166,7 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
   it("unions in a workspace's preset extras (workspace preset: nestjs)", () => {
     const cwd = tempRepo();
     mkdirSync(join(cwd, "apps/api"), { recursive: true });
-    const inv = buildEngineInventory(
+    const { claude } = buildEngineInventory(
       config({
         engines: ["claude"],
         preset: "custom",
@@ -170,14 +177,15 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
       }),
       cwd,
     );
+    assert.isDefined(claude);
     // nestjs preset ships these skills; they belong only to the workspace, yet
     // the root inventory now surfaces them (union).
-    expect(inv.claude!.skills).toContain("nestjs-modules");
+    expect(claude.skills).toContain("nestjs-modules");
   });
 
   it("skips an orphaned (missing) workspace dir without crashing", () => {
     const cwd = tempRepo();
-    const inv = buildEngineInventory(
+    const { claude } = buildEngineInventory(
       config({
         engines: ["claude"],
         monorepo: {
@@ -187,7 +195,8 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
       }),
       cwd,
     );
+    assert.isDefined(claude);
     // The workspace dir doesn't exist → its extras must NOT be counted.
-    expect(inv.claude!.skills).not.toContain("nestjs-modules");
+    expect(claude.skills).not.toContain("nestjs-modules");
   });
 });

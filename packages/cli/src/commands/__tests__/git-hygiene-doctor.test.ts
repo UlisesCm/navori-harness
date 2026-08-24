@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig } from "../../lib/schema.ts";
+import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "../../lib/schema.ts";
 import { scanGitHygiene } from "../doctor.ts";
 
 /**
@@ -28,7 +28,10 @@ function makeDir(cwd: string, rel: string): void {
   writeFileSync(join(cwd, rel, "note.md"), "x\n");
 }
 
-function config(overrides: Partial<NavoriConfig> = {}): NavoriConfig {
+// Overrides are typed against the schema's INPUT (not `NavoriConfig`, its parse
+// output): they are merged before `.parse()`, so a nested block whose fields all
+// carry `.default()` — `sdd`, say — may legitimately be given partially.
+function config(overrides: Partial<NavoriConfigInput> = {}): NavoriConfig {
   return NavoriConfigSchema.parse({
     name: "gh",
     engines: ["claude"],

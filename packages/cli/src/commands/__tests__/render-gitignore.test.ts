@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { NavoriConfigInput } from "../../lib/schema.ts";
 
 /**
  * #313: `render` reconciles a managed `.gitignore` block driven by
@@ -36,7 +37,15 @@ afterEach(() => {
   rmSync(home.dir, { recursive: true, force: true });
 });
 
-function config(input: Record<string, unknown>): void {
+/**
+ * Writes a `navori.config.json` fixture. `name`/`preset` are supplied here, so
+ * the caller only owes the remaining required field (`engines`) plus whatever
+ * it wants to override — typed against the schema's INPUT, which catches a
+ * wrong VALUE on a known field (the old `Record<string, unknown>` accepted
+ * anything). It does not catch a misspelled key: `NavoriConfigSchema` ends in
+ * `.passthrough()`, so the input type carries an index signature.
+ */
+function config(input: Partial<NavoriConfigInput> & Pick<NavoriConfigInput, "engines">): void {
   writeConfig(join(cwd, "navori.config.json"), {
     name: "demo",
     preset: "custom",
