@@ -15,7 +15,10 @@ export type HookShell = "bash" | "zsh";
 
 const hasZsh = spawnSync("zsh", ["-c", "exit 0"]).status === 0;
 
-export const HOOK_SHELLS: readonly HookShell[] = hasZsh ? ["bash", "zsh"] : ["bash"];
+/** Non-empty by construction: `bash` is always the first entry (see above). */
+export const HOOK_SHELLS: readonly [HookShell, ...HookShell[]] = hasZsh
+  ? ["bash", "zsh"]
+  : ["bash"];
 
 /**
  * Run `run` once per available shell and assert every shell agrees on the
@@ -25,12 +28,17 @@ export const HOOK_SHELLS: readonly HookShell[] = hasZsh ? ["bash", "zsh"] : ["ba
  * bash, stays whole under zsh) breaks the suite instead of shipping.
  */
 export function acrossShells<T>(run: (shell: HookShell) => T): T {
-  const [first, ...rest] = HOOK_SHELLS.map((shell) => ({ shell, result: run(shell) }));
-  for (const { shell, result } of rest) {
+  // Destructuring the tuple (not the mapped array) is what keeps `first`
+  // non-nullable: `map` widens a tuple back to a plain array. Every shell still
+  // runs BEFORE the first assertion, so a divergence never hides a later shell.
+  const [first, ...rest] = HOOK_SHELLS;
+  const expected = run(first);
+  const others = rest.map((shell) => ({ shell, result: run(shell) }));
+  for (const { shell, result } of others) {
     expect(
       result,
-      `${shell} diverges from ${first.shell} — the hook is not shell-portable (#391)`,
-    ).toEqual(first.result);
+      `${shell} diverges from ${first} — the hook is not shell-portable (#391)`,
+    ).toEqual(expected);
   }
-  return first.result;
+  return expected;
 }

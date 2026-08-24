@@ -28,9 +28,28 @@ function makeDetected(overrides: Partial<DetectedProject> = {}): DetectedProject
       deps: [],
     },
     libraries: [],
+    migrations: [],
     suggestedPreset: "custom",
+    suggestedPresetGap: null,
     qualityGate: null,
-    claudeInfra: { present: false, files: [] } as DetectedProject["claudeInfra"],
+    // A repo with nothing Claude-related yet. Spelled out field by field: the
+    // cast this replaced ({ present, files }) described a shape the inventory
+    // never had, so the fixture claimed a contract `detectClaudeInfra` doesn't
+    // produce.
+    claudeInfra: {
+      present: false,
+      agentFiles: [],
+      skillFiles: [],
+      hasSettings: false,
+      hasLocalSettings: false,
+      hasClaudeMd: false,
+      hasAgentsMd: false,
+      hasCheckpointsMd: false,
+      hasFeatureList: false,
+      progressFiles: 0,
+      specsDirs: 0,
+      hasNavoriConfig: false,
+    },
     sources: { name: null, branchBase: null, packageManager: null },
     ...overrides,
   };

@@ -67,7 +67,10 @@ const read = (rel: string): string => readFileSync(resolve(CORE_ASSETS, rel), "u
 function extractNamespaces(text: string): string[] {
   const found: string[] = [];
   for (const re of [PATH_FORM, BARE_FORM, LITERAL_FORM]) {
-    for (const m of text.matchAll(re)) found.push(m[1]);
+    // Group 1 is mandatory in all three forms — a match always carries it.
+    for (const [, ns] of text.matchAll(re)) {
+      if (ns !== undefined) found.push(ns);
+    }
   }
   return found;
 }
@@ -95,17 +98,18 @@ function producedNamespaces(): Map<string, Set<string>> {
  * this test vacuous.
  */
 function declaredInOrquestacion(): Set<string> {
-  const m = read(ORQUESTACION).match(/ONLY for ephemeral agent handoffs \(([^)]+)\)/);
-  if (!m) {
+  const list = read(ORQUESTACION).match(/ONLY for ephemeral agent handoffs \(([^)]+)\)/)?.[1];
+  if (list === undefined) {
     throw new Error(
       `could not find the handoff list in ${ORQUESTACION} (anchor: "ONLY for ephemeral agent handoffs (...)"). ` +
         "If the wording changed, update this test's anchor — do not delete the list.",
     );
   }
   const out = new Set<string>();
-  for (const [, token] of m[1].matchAll(/`([^`]+)`/g)) {
-    const glob = token.match(/^([a-z][a-z0-9_]*)_\*$/);
-    if (glob) out.add(glob[1]);
+  for (const [, token] of list.matchAll(/`([^`]+)`/g)) {
+    if (token === undefined) continue; // group 1 is mandatory; unreachable
+    const glob = token.match(/^([a-z][a-z0-9_]*)_\*$/)?.[1];
+    if (glob !== undefined) out.add(glob);
     else if (/^[a-z][a-z0-9_]*\.(?:md|txt)$/.test(token)) out.add(token);
   }
   return out;
