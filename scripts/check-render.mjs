@@ -164,6 +164,15 @@ if (blocked.length > 0) {
     `  files render refuses to overwrite (${blocked.length}) — 'render --apply' will NOT fix these:`,
   );
   for (const [path, reason] of blocked) lines.push(`    ${path} — ${reason}`);
+  // Naming the likeliest cause matters more than naming the remedy: in a repo
+  // with parallel asset PRs, the usual way into this state is resolving a git
+  // conflict by hand inside a managed block, which breaks its hash (#435).
+  lines.push(
+    ``,
+    `  did you resolve a merge conflict by hand inside a managed block? that`,
+    `  breaks its hash and render stops touching it. take the base version and`,
+    `  re-render instead; an already-edited block needs 'navori sync'.`,
+  );
 }
 
 console.error(lines.join("\n"));
