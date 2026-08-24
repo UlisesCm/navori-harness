@@ -310,3 +310,62 @@ describe("adaptHarnessTextForCodex — the commit-hygiene shield (#209)", () => 
     expect(out).not.toContain("navori:never-commit");
   });
 });
+
+describe("adaptHarnessTextForCodex — only mirrored dirs get retargeted (#428)", () => {
+  // The blanket `.claude/` → `.codex/` catch-all this replaced invented paths no
+  // render ever emits: only the Claude engine copies plugin scripts, so a prose
+  // citation of `.claude/scripts/check-semgrep.sh` became a plausible-looking
+  // `.codex/scripts/check-semgrep.sh` that cannot exist in any repo.
+  it("leaves a plugin-script citation spelled `.claude/`, never `.codex/scripts/`", () => {
+    const out = adaptHarnessTextForCodex(
+      "Mirrors `.claude/scripts/check-semgrep.sh`, copied by the Claude engine.",
+      config(),
+    );
+
+    expect(out).not.toContain(".codex/scripts/");
+    expect(out).toContain(".claude/scripts/check-semgrep.sh");
+  });
+
+  it("does not resolve a segment that names an Object.prototype member", () => {
+    // The lookup key is the first segment of an arbitrary citation. Held in an
+    // object literal, `.claude/constructor` and `.claude/__proto__` resolved
+    // through the prototype chain and substituted a Function's source text (or
+    // `[object Object]`) into the rendered prose. A Map has no such chain.
+    const out = adaptHarnessTextForCodex(
+      "See `.claude/constructor` and `.claude/__proto__` and `.claude/toString`.",
+      config(),
+    );
+
+    expect(out).toBe("See `.claude/constructor` and `.claude/__proto__` and `.claude/toString`.");
+  });
+
+  it("leaves any other unmirrored path alone instead of inventing a Codex twin", () => {
+    // Codex's project config is `.codex/config.toml`, so `.codex/settings.json`
+    // would be exactly the same class of invented path as `.codex/scripts/`.
+    const out = adaptHarnessTextForCodex("Permissions live in `.claude/settings.json`.", config());
+
+    expect(out).toBe("Permissions live in `.claude/settings.json`.");
+  });
+
+  it("still retargets every directory Codex does mirror", () => {
+    const out = adaptHarnessTextForCodex(
+      [
+        "Run `.claude/hooks/guard-destructive.sh`.",
+        "Agents live in `.claude/agents/` and skills in `.claude/skills`.",
+        "Handoffs go to `.claude/progress/impl_x.md`.",
+        "Run doctor if `.claude/` looks inconsistent.",
+      ].join("\n"),
+      config(),
+    );
+
+    expect(out).toContain(".codex/hooks/guard-destructive.sh");
+    expect(out).toContain(".codex/agents/");
+    // Codex reads skills from `.agents/skills`, NOT from its engine dir — the
+    // bare (slash-less) spelling used to fall through to `.codex/skills`.
+    expect(out).toContain(".agents/skills");
+    expect(out).not.toContain(".codex/skills");
+    expect(out).toContain(".codex/progress/impl_x.md");
+    expect(out).toContain("if `.codex/` looks inconsistent");
+    expect(out).not.toContain(".claude/");
+  });
+});
