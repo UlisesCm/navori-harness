@@ -322,3 +322,49 @@ Continuación de la entrada anterior. El tablero quedó en **cero issues y cero 
   1734, Δ+16 reconciliado) · oxlint · `check:render` al día · CI `quality` verde en #441.
 - Commit / PR: **#441 mergeado** (2 commits, 26 archivos), **#438 mergeado**. #375 y #435
   cerrados.
+
+## 2026-08-24 16:18 claude — 15 issues cerrados: dos rutas de corrupción, un gate que no corría, y una regla nueva para el tablero
+
+- Encargo: "sigue con lo pendiente" → derivó en la jornada más larga del repo. Cerró **15**
+  issues (#435, #375, #439, #440, #428, #447, #403, #405, #432, #423, #445, #443, #452, #454)
+  con **14 PRs mergeados**, todos con CI verde.
+- **Dos rutas de corrupción de archivos de usuario, ambas reproducidas end-to-end:**
+  - **#452** — `findMarker` no era fence-aware en la **ruta de escritura**. Un doble
+    `render --apply` sobre `main` **destruyó el ejemplo documentado** (`grep` de la línea → 0) y
+    dejó el bloque duplicado, en silencio y permanente. Segundo vector: `stripOrphanMarkers`
+    emparejaba una apertura CITADA con el cierre REAL y borraba la apertura real de la salida
+    devuelta — vivo en el engine Codex (`codex/index.ts:158` propaga `output` sin importar el
+    status), descartado sin escribir en la ruta Claude. Evidencia anti-sobre-apriete: paridad
+    **49/49** sobre los bloques reales del repo (SHA del cuerpo, longitud, status de inject y
+    span de removal), reproducida por el reviewer.
+  - **#375** — un placeholder que resolvía a vacío dejaba prosa rota (``a `` area``) en TODO repo
+    sin el campo declarado. `.default([])` → `join(", ")` → `""`, y `""` no es `null`.
+- **#454 — el gate que no corría.** Los hooks de semgrep/jscpd/pre-commit **pasaban en verde sin
+  escanear** desde un worktree de agente: `settings.json` los invoca con cwd = repo principal y el
+  script hacía `cd "$(git rev-parse --show-toplevel)"`. Todos los commits del flujo multi-agente
+  quedaban sin gatear por los dos escáneres que CI no corre. La primera ronda del fix introdujo un
+  **bypass peor que `main`** (el candidato del comando pisaba el `.cwd` correcto y podía escanear un
+  árbol vacío); el reviewer lo cazó con 5 repros y se cerró con una restricción de mismo
+  repositorio por **igualdad exacta** de `--git-common-dir` (un prefijo habría aceptado el
+  submódulo, que reporta `<main>/.git/modules/<name>`).
+- **Los bytes NUL de `compat.ts`**: `file(1)` lo daba como `data`, grep ocultaba sus líneas y
+  `git log -p` imprimía `Binary files … differ` — **ningún cambio a ese archivo mostró diff legible
+  jamás**. Es lo que había frenado a #428 en dos investigaciones distintas.
+- **Cambio de proceso, a señalamiento de Ulises.** El tablero llevaba 3 días clavado en 16. Se
+  midió: no crecía, estaba en un punto fijo (cada ciclo cerraba ~3 y abría ~3). Regla nueva: un
+  hallazgo se vuelve issue solo si necesita decisión ajena, no cabe en el ciclo, o se va a olvidar
+  y duele; si no, se arregla en el diff y se cuenta en el cuerpo del PR. **#447** quedó como caso
+  testigo de lo que NO debió abrirse — y su análisis además era incorrecto: decía "no explotable"
+  mirando solo `resolvePath` cuando la fuga estaba en `placeholderFallback`; lo destapó el test al
+  fallar. **#423 se cerró sin código**, con la medición que probó que el caché saldría 1.3 s peor.
+- **Cuestionario 1x1 con Ulises** → 5 decisiones registradas como issues (#458–#462): limpiar los
+  209 errores de tipos ANTES de activar `typecheck`; acotar el `guard-destructive` a lo que se
+  ejecuta; y los tres hallazgos anotados en PRs pasan a ticket.
+- **Rollout 0.6.0: sigue CONGELADO, ahora con criterio de salida** — tablero en cero + versión
+  estable. Se le ofreció descongelar el mismo día en que entraron los fixes grandes y eligió
+  esperar.
+- Quality gate: ✅ en los 14 PRs. Suite **1804 → 1852 tests**. `check:render` al día al cierre.
+- Método: R2-fan con hasta 5 agentes en paralelo sobre worktrees aislados y exclusiones cruzadas
+  de archivos. Los reviewers fueron el eslabón que más valor agregó: cazaron el bypass de #454,
+  el sobreventa de #452, un test cuyo nombre afirmaba lo contrario de su aserción (#439), y una
+  verificación de tipos que el gate estructuralmente no puede hacer (#445).
