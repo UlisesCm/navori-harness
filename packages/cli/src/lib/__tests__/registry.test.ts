@@ -74,7 +74,7 @@ describe("registerRepo", () => {
     const repo = makeRepo(scratch, "alpha");
     registerRepo(repo, "alpha");
     expect(registerRepo(repo, "alpha-renamed")).toBe("updated");
-    expect(listRegistryRepos()[0].name).toBe("alpha-renamed");
+    expect(listRegistryRepos()[0]?.name).toBe("alpha-renamed");
   });
 
   it("persists sorted by path for stable diffs", () => {

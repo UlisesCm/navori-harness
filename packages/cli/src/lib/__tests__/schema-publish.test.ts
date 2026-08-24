@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // The generator is the single source of truth for both the published files and
 // this test — importing it guarantees we compare disk against the exact same
-// derivation `pnpm gen:schemas` writes.
+// derivation `pnpm gen:schemas` writes. It is plain JS, so its types come from
+// inference (`allowJs` in packages/cli/tsconfig.json) instead of a hand-written
+// declaration that would be a second thing to keep in sync.
 import { SCHEMA_SPECS, schemaPath, serializeSchema } from "../../../scripts/gen-schemas.mjs";
 
 /**

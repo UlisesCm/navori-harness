@@ -163,7 +163,13 @@ describe("scanWorkspaceDrift (#326)", () => {
   });
 
   it("flags models/effort as declared-vs-undeclared, not by their contents", () => {
-    const declared = { models: { implementer: "sonnet" }, effort: { implementer: "high" } };
+    // Annotated, not inferred: an inline literal is contextually typed by
+    // `sibling`, but a shared const widens "sonnet"/"high" to `string` and stops
+    // matching the enums.
+    const declared: Partial<NavoriConfig> = {
+      models: { implementer: "sonnet" },
+      effort: { implementer: "high" },
+    };
     workspace([
       sibling("a", declared),
       // A different tier per repo is a local call — only the absence is drift.

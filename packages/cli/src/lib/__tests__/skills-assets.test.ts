@@ -26,14 +26,16 @@ function readSkill(id: string): string {
 }
 
 function parseAsset(raw: string): ParsedAsset {
-  const m = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!m) throw new Error("frontmatter not found");
+  // Both groups are mandatory in each pattern: either the match yields all of
+  // them or there is no match at all, so an absent group IS a failed parse.
+  const [, fmBlock, body] = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/) ?? [];
+  if (fmBlock === undefined || body === undefined) throw new Error("frontmatter not found");
   const fm: Record<string, string> = {};
-  for (const line of m[1].split("\n")) {
-    const kv = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
-    if (kv) fm[kv[1]] = kv[2].trim();
+  for (const line of fmBlock.split("\n")) {
+    const [, key, value] = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/) ?? [];
+    if (key !== undefined && value !== undefined) fm[key] = value.trim();
   }
-  return { frontmatter: fm, body: m[2] };
+  return { frontmatter: fm, body };
 }
 
 describe("core skill assets — shape contract", () => {

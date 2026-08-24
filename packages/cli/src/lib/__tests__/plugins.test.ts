@@ -95,7 +95,7 @@ describe("PluginManifestSchema — scripts", () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.scripts?.[0].exec).toBe(true);
+      expect(result.data.scripts?.[0]?.exec).toBe(true);
     }
   });
 
@@ -185,7 +185,7 @@ describe("PluginManifestSchema — prompts", () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.prompts?.[0].optional).toBe(false);
+      expect(result.data.prompts?.[0]?.optional).toBe(false);
     }
   });
 

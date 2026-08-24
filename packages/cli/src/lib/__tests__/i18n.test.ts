@@ -13,10 +13,8 @@ describe("i18n", () => {
   });
 
   it("es and en have the exact same key set (parity)", () => {
-    const es = t("es") as Record<string, unknown>;
-    const en = t("en") as Record<string, unknown>;
-    const esKeys = Object.keys(es).sort();
-    const enKeys = Object.keys(en).sort();
+    const esKeys = Object.keys(t("es")).sort();
+    const enKeys = Object.keys(t("en")).sort();
     expect(enKeys).toEqual(esKeys);
   });
 

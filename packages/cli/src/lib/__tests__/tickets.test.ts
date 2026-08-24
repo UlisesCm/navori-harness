@@ -64,8 +64,8 @@ describe("findReferencingRepos", () => {
 
     const refs = findReferencingRepos([repo], "TICK-1");
     expect(refs).toHaveLength(1);
-    expect(refs[0].path).toBe(repo);
-    expect(refs[0].matches).toEqual(["ticket: TICK-1"]);
+    expect(refs[0]?.path).toBe(repo);
+    expect(refs[0]?.matches).toEqual(["ticket: TICK-1"]);
   });
 
   it("honors progress.dir / progress.currentFile from navori.config.json", () => {
@@ -86,7 +86,7 @@ describe("findReferencingRepos", () => {
 
     const refs = findReferencingRepos([repo], "TICK-2");
     expect(refs).toHaveLength(1);
-    expect(refs[0].matches).toEqual(["workspace://ws/tickets/TICK-2"]);
+    expect(refs[0]?.matches).toEqual(["workspace://ws/tickets/TICK-2"]);
   });
 
   it("falls back to the default path when the config is unreadable", () => {
@@ -96,7 +96,7 @@ describe("findReferencingRepos", () => {
 
     const refs = findReferencingRepos([repo], "TICK-3");
     expect(refs).toHaveLength(1);
-    expect(refs[0].matches).toEqual(["ticket: TICK-3"]);
+    expect(refs[0]?.matches).toEqual(["ticket: TICK-3"]);
   });
 
   it("falls back to the default path when the config fails validation", () => {

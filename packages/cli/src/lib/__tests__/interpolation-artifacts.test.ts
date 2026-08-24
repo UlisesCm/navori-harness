@@ -185,7 +185,7 @@ describe("scanInterpolationArtifacts (#440)", () => {
 
     const found = scanInterpolationArtifacts(cwd, config());
     expect(found).toHaveLength(1);
-    expect(found[0].token).toBe(token);
+    expect(found[0]?.token).toBe(token);
   });
 
   it("reports every occurrence on its own line, deduped per line", () => {
