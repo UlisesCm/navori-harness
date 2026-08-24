@@ -151,6 +151,59 @@ describe("interpolate — shell-quote marker (#197)", () => {
   });
 });
 
+describe("interpolate — escape marker (#439)", () => {
+  // An asset that must SHOW `{{...}}` as text had no way to say so: `{{count}}`
+  // (i18next's own interpolation syntax) has exactly the shape of a config path,
+  // so the skill teaching i18next rendered `<not configured: count>`.
+  it("emits the braces verbatim instead of resolving", () => {
+    expect(interpolate("{{raw:count}} sessions left", CONFIG)).toBe("{{count}} sessions left");
+  });
+
+  it("escapes a token that WOULD have resolved, without consulting the config", () => {
+    // `qualityGate.fast` resolves to a real value — `raw:` must still win.
+    expect(interpolate("{{raw:qualityGate.fast}}", CONFIG)).toBe("{{qualityGate.fast}}");
+  });
+
+  it("preserves the affected i18next skill snippets verbatim (lib-skills/i18next.md:29,30,38)", () => {
+    expect(interpolate('"remaining_one": "{{raw:count}} session left"', CONFIG)).toBe(
+      '"remaining_one": "{{count}} session left"',
+    );
+    expect(
+      interpolate("One key for the whole sentence with `{{raw:interpolation}}`.", CONFIG),
+    ).toBe("One key for the whole sentence with `{{interpolation}}`.");
+  });
+
+  it("still interpolates real placeholders on the same line", () => {
+    expect(interpolate("Run {{qualityGate.fast}} — keys use {{raw:count}}", CONFIG)).toBe(
+      "Run pnpm typecheck — keys use {{count}}",
+    );
+  });
+
+  it("does not interfere with the shq: marker (#197)", () => {
+    expect(interpolate("base={{shq:branchBase}} tpl={{raw:branchBase}}", CONFIG)).toBe(
+      "base='main' tpl={{branchBase}}",
+    );
+  });
+
+  it("emits a plain placeholder, so the escape is NOT idempotent under a second pass", () => {
+    // The emitted `{{branchBase}}` is an unmarked placeholder again, so running
+    // the interpolator over its own output resolves it. That is safe only
+    // because nothing re-interpolates a rendered artifact today (every
+    // `interpolate` call site reads a source asset). This test documents the
+    // ceiling rather than a safety property: if a second pass is ever added,
+    // the escape must emit a token that cannot be re-matched, and the tripwire
+    // is the acceptance sweep in `empty-placeholder-render.test.ts`, not this
+    // assertion — composing `interpolate` with itself always yields "main".
+    expect(interpolate(interpolate("{{raw:branchBase}}", CONFIG), CONFIG)).toBe("main");
+  });
+
+  it("escapes inside a `key:` line in frontmatter mode instead of dropping it", () => {
+    expect(interpolate("plural: {{raw:count}}", CONFIG, { omitUnresolvedKeyLines: true })).toBe(
+      "plural: {{count}}",
+    );
+  });
+});
+
 describe("interpolate — omitUnresolvedKeyLines (frontmatter mode)", () => {
   it("drops `key: {{x}}` lines when x is unresolved", () => {
     const input = `name: leader\nmodel: {{models.reviewer}}\ndescription: text\n`;

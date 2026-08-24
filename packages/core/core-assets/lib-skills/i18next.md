@@ -26,8 +26,8 @@ const { t } = useTranslation("sessions");
 {
   "detail": {
     "title": "Session detail",
-    "remaining_one": "{{count}} session left",
-    "remaining_other": "{{count}} sessions left"
+    "remaining_one": "{{raw:count}} session left",
+    "remaining_other": "{{raw:count}} sessions left"
   }
 }
 ```
@@ -35,7 +35,7 @@ const { t } = useTranslation("sessions");
 ## Gotchas that bite
 
 - **A key added to one locale only.** i18next falls back and shows the other language — or the raw key — with no error. Every key lands in EVERY locale in the same commit, even if the translation is provisional.
-- **Concatenating translated fragments produces unusable sentences.** `t("hello") + " " + name` breaks in any language with a different word order. One key for the whole sentence with `{{interpolation}}`.
+- **Concatenating translated fragments produces unusable sentences.** `t("hello") + " " + name` breaks in any language with a different word order. One key for the whole sentence with `{{raw:interpolation}}`.
 - **Plurals go through `count`, not an `if`.** The `_one`/`_other` suffixes are resolved by i18next per locale (some have more than two forms). A hand-rolled ternary is wrong outside English.
 - **`useTranslation` doesn't work outside a component.** In a util/service/thunk, use the `i18n.t` instance — but beware: a module evaluated at import time captures the language BEFORE it's initialized. Translate at call time, never at module scope.
 - **A key is not a sentence.** `t("The user has no sessions")` as the key works until the copy changes and every locale silently loses its entry. Structured keys (`sessions.empty.title`).

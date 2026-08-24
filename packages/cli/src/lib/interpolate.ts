@@ -27,6 +27,18 @@ import { shellSingleQuote } from "./shell-escape.ts";
  * quotes, so the template must NOT add quotes of its own. Plain `{{path}}` is
  * unchanged — safe for the HTML/YAML/JSON contexts that make up the rest of the
  * pipeline, where single-quote wrapping would be wrong.
+ *
+ * ESCAPE MARKER (#439): a placeholder written `{{raw:token}}` is NOT resolved —
+ * it emits `{{token}}` verbatim. It exists for assets that must SHOW `{{...}}`
+ * as text: the i18next lib-skill documents a library whose own interpolation
+ * syntax is `{{count}}`, which has exactly the shape of a config path, so the
+ * skill that teaches i18next rendered `<not configured: count>` and taught a
+ * syntax that doesn't exist. JSX examples (`style={{...}}`, `{{ marginTop: 16 }}`)
+ * need no marker — they don't start with a letter, so `PLACEHOLDER_RE` already
+ * lets them through. Like `shq:`, the marker is explicit in the asset and
+ * greppable; intent is DECLARED, never guessed from the token's spelling (an
+ * allowlist of "known literal" tokens breaks silently on the next library whose
+ * syntax collides).
  */
 export interface InterpolateOptions {
   extraVars?: Record<string, string>;
@@ -68,14 +80,14 @@ function resolveSanitized(
   return nonBlank(path.startsWith("project.") ? sanitizeProjectValue(value) : value);
 }
 
-// Optional `shq:` prefix marks a value that must be shell-quoted before it is
-// substituted (see the SHELL-QUOTE MARKER note above). Group 1 = the marker (or
-// undefined), group 2 = the config path.
+// Optional marker prefix: `shq:` shell-quotes the resolved value (#197), `raw:`
+// suppresses resolution and emits the braces verbatim (#439). See the notes
+// above. Group 1 = the marker (or undefined), group 2 = the config path.
 // The path must start with a letter: `[a-zA-Z0-9_.]+` alone also matched a token
 // of pure dots, so a JSX example like `style={{...}}` was consumed as a
 // placeholder and corrupted to `<not configured: ...>` (#272). Every real
 // config path starts with a letter, so this is a no-op for legitimate paths.
-const PLACEHOLDER_RE = /\{\{\s*(?:(shq):)?\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}/g;
+const PLACEHOLDER_RE = /\{\{\s*(?:(shq|raw):)?\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}/g;
 const KEY_LINE_RE = /^([a-zA-Z_][a-zA-Z0-9_]*):\s*\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}\s*$/;
 
 export function interpolate(
@@ -114,6 +126,9 @@ function interpolateRaw(
   extra: Record<string, string>,
 ): string {
   return content.replace(PLACEHOLDER_RE, (_match, marker: string | undefined, path: string) => {
+    // `{{raw:token}}` — the asset wants the braces as TEXT (#439). Emit them and
+    // resolve nothing; this is the one marker that never touches the config.
+    if (marker === "raw") return `{{${path}}}`;
     const value = resolveSanitized(path, config, extra);
     const resolved = value !== null ? value : placeholderFallback(path);
     // `{{shq:path}}` — shell-quote so untrusted config can't escape its string
