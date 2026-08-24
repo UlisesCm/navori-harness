@@ -22,6 +22,7 @@ import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace-drift.ts";
 import { scanQualityGateReadiness } from "../lib/gate-readiness.ts";
 import { scanEmptyUserSections } from "../lib/skill-user-section.ts";
+import { scanInterpolationArtifacts } from "../lib/interpolation-artifacts.ts";
 import { scanDiskUsage, humanBytes } from "../lib/disk-usage.ts";
 import {
   listMarkers,
@@ -41,6 +42,14 @@ import {
 } from "../lib/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
+
+/**
+ * Rows printed for the interpolation-artifact warning (#440) before it collapses
+ * into "… and N more". A repo with no `qualityGate` publishes the soft fallback
+ * 28 times (measured on a bare `init --recommended`; see lib/recommended.ts),
+ * and a 28-line warning is exactly the kind of wall people learn to scroll past.
+ */
+const MAX_ARTIFACT_ROWS = 10;
 
 export const doctorCommand = defineCommand({
   meta: {
@@ -138,6 +147,11 @@ export const doctorCommand = defineCommand({
       ".claude/skills",
       ...(config.engines.includes("codex") ? [".agents/skills"] : []),
     ]);
+    // #440: interpolation artifacts published in the rendered tree. `render`
+    // rewrites the managed zone only, so a token the USER zone inherited from an
+    // interpolator bug is frozen there — fixing the interpolator never reaches an
+    // already-onboarded repo. Warning-level: it never flips `ok`.
+    const interpolationArtifacts = scanInterpolationArtifacts(cwd, config);
     // #393: the two directories that grow with no owner — ~/.navori/backups
     // (bounded only by prune-on-write) and .claude/worktrees (bounded by
     // nobody). Two `du`s so growth is visible before the disk fills; doctor
@@ -503,6 +517,27 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${accent(skill.id)}  ${grey(td.emptyUserSectionRow(skill.path))}`,
       );
       p.log.warn(td.emptyUserSections(emptyUserSections.length, lines.join("\n")));
+    }
+
+    if (interpolationArtifacts.length > 0) {
+      // Unresolved placeholders first: a repo with no `qualityGate` publishes
+      // the soft fallback 28 times, and in file order those rows would push the
+      // rare, hand-fixable token past the cap — hiding the finding that needs a
+      // human. Same reason within the cap: the scarce signal goes on top.
+      const bySeverity = [...interpolationArtifacts].sort(
+        (a, b) =>
+          Number(a.reason === "unconfigured-gate") - Number(b.reason === "unconfigured-gate"),
+      );
+      const lines = bySeverity.slice(0, MAX_ARTIFACT_ROWS).map((artifact) => {
+        const why =
+          artifact.reason === "unconfigured-gate"
+            ? td.interpolationArtifactGateRow
+            : td.interpolationArtifactUnresolvedRow(artifact.token);
+        return `  ${color.yellow(sym.update)} ${accent(`${artifact.path}:${artifact.line}`)}  ${grey(why)}`;
+      });
+      const hidden = interpolationArtifacts.length - lines.length;
+      if (hidden > 0) lines.push(grey(td.interpolationArtifactsMore(hidden)));
+      p.log.warn(td.interpolationArtifacts(interpolationArtifacts.length, lines.join("\n")));
     }
 
     if (diskUsage.length > 0) {

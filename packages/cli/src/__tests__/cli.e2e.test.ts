@@ -655,6 +655,47 @@ describe("CLI e2e — happy paths", () => {
     expect(r.combined).toMatch(/managed block edited/);
   });
 
+  // #440: an interpolation token frozen in a rendered file's USER zone. `render`
+  // rewrites the managed zone only and never revisits that half, so a repo
+  // onboarded before an interpolator fix keeps the broken text through every
+  // re-render — doctor is the only thing that can see it.
+  it("doctor flags an interpolation token frozen in a user zone (#440)", () => {
+    // A package.json with the usual scripts so `init` detects a real
+    // qualityGate: without one the render legitimately publishes the soft
+    // fallback ~28 times, which is a different finding of the same check.
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "frozen-token-demo",
+        scripts: { typecheck: "tsc --noEmit", lint: "eslint .", test: "vitest run" },
+      }),
+    });
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // A freshly rendered repo is clean: a check that cries wolf gets ignored.
+    expect(runCli(["doctor", "--cwd", repo]).combined).not.toContain("Restos de interpolación");
+
+    // Simulate the #375 leftovers: the token sits AFTER the managed block, in
+    // the half `render` is contractually forbidden to touch.
+    const agent = join(repo, ".claude/agents/implementer.md");
+    const token = "<not configured: project.criticalAreas>";
+    const patched = `${readFileSync(agent, "utf-8")}\n- Critical areas: ${token}\n`;
+    writeFileSync(agent, patched, "utf-8");
+    const line = patched.split("\n").findIndex((l) => l.includes(token)) + 1;
+    expect(line).toBeGreaterThan(0);
+
+    // Re-rendering does NOT fix it — that's the whole point of the check.
+    runCli(["render", "--apply", "--cwd", repo]);
+    expect(readFileSync(agent, "utf-8")).toContain(token);
+
+    const r = runCli(["doctor", "--cwd", repo]);
+    expect(r.status).toBe(0); // a warning, not a broken doctor
+    expect(r.combined).toContain(`.claude/agents/implementer.md:${line}`);
+    expect(r.combined).toContain(token);
+    // The advice must name the manual fix and the cost of the shortcut.
+    expect(r.combined).toContain("zona de usuario");
+  });
+
   it("doctor reports managed blocks with source + version", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);

@@ -670,6 +670,11 @@ interface DoctorCmdStrings {
   /** #369 — an installed skill whose user-section is still the template. */
   emptyUserSections: (n: number, lines: string) => string;
   emptyUserSectionRow: (path: string) => string;
+  /** #440 — interpolation artifacts frozen into the rendered tree. */
+  interpolationArtifacts: (n: number, lines: string) => string;
+  interpolationArtifactUnresolvedRow: (token: string) => string;
+  interpolationArtifactGateRow: string;
+  interpolationArtifactsMore: (n: number) => string;
   /** #393 — a growth directory (backups / agent worktrees) over its threshold. */
   diskUsage: (n: number, lines: string) => string;
   diskBackupsRow: (size: string) => string;
@@ -1362,6 +1367,18 @@ const CMD_ES: CmdStrings = {
       `Skills instaladas con su user-section sin llenar (${n}) — cuestan una lectura ` +
       `y solo cubren la capa universal; lo específico de tu stack va en esa sección:\n${lines}`,
     emptyUserSectionRow: (path) => `— plantilla sin tocar en ${path}`,
+    interpolationArtifacts: (n, lines) =>
+      `Restos de interpolación en el árbol renderizado (${n}) — 'render' reescribe ` +
+      `solo la zona managed, así que lo que cayó en la zona de usuario se queda ahí ` +
+      `aunque arregles el interpolador. Edita esas líneas a mano; borrar el archivo ` +
+      `también lo regenera limpio, pero pierdes todo lo que hayas escrito en su zona ` +
+      `de usuario:\n${lines}`,
+    interpolationArtifactUnresolvedRow: (token) =>
+      `— '${token}' publicado en la prosa; declara ese campo en navori.config.json`,
+    interpolationArtifactGateRow:
+      "— prosa de 'quality gate sin configurar'; corre 'navori configure quality-gate' " +
+      "y vuelve a renderizar",
+    interpolationArtifactsMore: (n) => `  … y ${n} más`,
     diskUsage: (n, lines) =>
       `Uso de disco por encima del umbral (${n}) — nada acota estos directorios ` +
       `en automático; límpialos tú:\n${lines}`,
@@ -2165,6 +2182,17 @@ const CMD_EN: CmdStrings = {
       `Installed skills with an unfilled user-section (${n}) — they cost a read and ` +
       `only cover the universal layer; your stack's rules belong in that section:\n${lines}`,
     emptyUserSectionRow: (path) => `— untouched template in ${path}`,
+    interpolationArtifacts: (n, lines) =>
+      `Interpolation leftovers in the rendered tree (${n}) — 'render' only rewrites ` +
+      `the managed zone, so whatever landed in the user zone stays there even after ` +
+      `the interpolator is fixed. Edit those lines by hand; deleting the file also ` +
+      `regenerates it clean, but you lose everything you wrote in its user zone:\n${lines}`,
+    interpolationArtifactUnresolvedRow: (token) =>
+      `— '${token}' published in the prose; declare that field in navori.config.json`,
+    interpolationArtifactGateRow:
+      "— 'quality gate not configured' prose; run 'navori configure quality-gate' " +
+      "and render again",
+    interpolationArtifactsMore: (n) => `  … and ${n} more`,
     diskUsage: (n, lines) =>
       `Disk usage over threshold (${n}) — nothing bounds these directories ` +
       `automatically; clean them yourself:\n${lines}`,
