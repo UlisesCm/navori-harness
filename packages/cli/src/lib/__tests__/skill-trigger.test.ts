@@ -40,6 +40,26 @@ describe("summarizeTrigger", () => {
     );
   });
 
+  // Separators pair positionally (0-1, 2-3, …), so a description with FOUR of
+  // them carries two asides, not one aside plus noise. The suite's other cases
+  // all stop at two separators, which leaves the multi-pair path — the invariant
+  // the pairing loop encodes — resting on nothing (#461).
+  it("drops BOTH asides when four separators enclose two of them", () => {
+    expect(
+      summarizeTrigger("Use when you discover — or need — a durable fact — or a rule — to reuse"),
+    ).toBe("Use when you discover a durable fact to reuse");
+  });
+
+  // The odd separator out opens nothing: with five, the first four pair up and
+  // the fifth stays a plain clause break for `summarizeTrigger` to cut at.
+  it("leaves a trailing odd separator as a clause break", () => {
+    expect(
+      summarizeTrigger(
+        "Use when you discover — or need — a durable fact — or a rule — to reuse — see the docs",
+      ),
+    ).toBe("Use when you discover a durable fact to reuse");
+  });
+
   it("treats a LONG span between two dashes as a real clause, not an aside", () => {
     expect(
       summarizeTrigger(

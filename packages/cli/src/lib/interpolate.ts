@@ -112,11 +112,13 @@ function maybeInterpolateLine(
   config: NavoriConfig,
   extra: Record<string, string>,
 ): string | null {
-  const m = line.match(KEY_LINE_RE);
-  if (m) {
-    const resolved = resolveSanitized(m[2], config, extra);
+  // Both groups are mandatory in KEY_LINE_RE, so either the line is a key line
+  // and both are present, or there was no match at all.
+  const [, key, path] = line.match(KEY_LINE_RE) ?? [];
+  if (key !== undefined && path !== undefined) {
+    const resolved = resolveSanitized(path, config, extra);
     if (resolved === null) return null;
-    return `${m[1]}: ${resolved}`;
+    return `${key}: ${resolved}`;
   }
   return interpolateRaw(line, config, extra);
 }
@@ -148,7 +150,10 @@ function resolvePath(
   extra: Record<string, string>,
 ): string | null {
   if (Object.prototype.hasOwnProperty.call(extra, path)) {
-    return nonBlank(extra[path]);
+    const value = extra[path];
+    // An own key holding `undefined` (only reachable from an untyped caller)
+    // serializes to nothing, so it counts as UNRESOLVED like a blank one.
+    return value === undefined ? null : nonBlank(value);
   }
   const segments = path.split(".");
   let cursor: unknown = config;

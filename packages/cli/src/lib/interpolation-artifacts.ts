@@ -138,9 +138,7 @@ export function scanInterpolationArtifacts(
     } catch {
       continue; // unreadable — doctor never fails over a read
     }
-    const lines = content.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const text = lines[i];
+    for (const [i, text] of content.split("\n").entries()) {
       if (hard !== null) {
         for (const match of text.matchAll(hard)) {
           push({ path, line: i + 1, token: match[0], reason: "unresolved-placeholder" });
