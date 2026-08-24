@@ -16,6 +16,9 @@ set -euo pipefail
 TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
 # navori:include gate-trigger
 
+# Resolution of the working tree the commit acts on (#454). Shared body.
+# navori:include resolve-worktree
+
 # No command extracted (empty $cmd) → run unconditionally. A real command that
 # is NOT a git commit → skip. Anything else → fall through and scan.
 if [ -n "$cmd" ] && ! is_scan_trigger "$cmd"; then
@@ -26,10 +29,13 @@ fi
 # one. A global jscpd can be a DIFFERENT major (e.g. 4.x vs the repo's 5.x) whose
 # tokenizer reports different duplication than `pnpm run dup`, so the commit gate
 # would measure something other than what the repo declares. Local-first fixes it.
+# Availability is settled BEFORE the tree is resolved: a missing tool is the
+# cheapest reason to stop, and it must not be masked by a tree that fails to
+# resolve.
 JSCPD_BIN=""
-_repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [ -n "$_repo_root" ] && [ -x "$_repo_root/node_modules/.bin/jscpd" ]; then
-  JSCPD_BIN="$_repo_root/node_modules/.bin/jscpd"
+hook_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$hook_root" ] && [ -x "$hook_root/node_modules/.bin/jscpd" ]; then
+  JSCPD_BIN="$hook_root/node_modules/.bin/jscpd"
 elif command -v jscpd >/dev/null 2>&1; then
   JSCPD_BIN="jscpd"
 fi
@@ -38,8 +44,23 @@ if [ -z "$JSCPD_BIN" ]; then
   exit 0
 fi
 
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
+# Run from the tree the commit acts on — NOT from the hook process's cwd, which
+# is the main repo even when the diff lives in an agent worktree (#454). Also
+# keeps changed paths relative, so a repo path with spaces stays robust; the
+# NUL-delimited read handles spaces in filenames, and the
+# `-- '*.ts' '*.tsx'` pathspec filters by extension without a pipe.
+tree=$(navori_worktree)
+if [ -z "$tree" ]; then
+  echo "⊘ jscpd: no git working tree resolved for this command — skip" >&2
   exit 0
+fi
+cd "$tree"
+
+# Now that the tree is known, its OWN pinned binary wins: same rationale as
+# above — measure what the scanned repo declares, not what the repo the hook
+# process happens to sit in does.
+if [ -x "$tree/node_modules/.bin/jscpd" ]; then
+  JSCPD_BIN="$tree/node_modules/.bin/jscpd"
 fi
 
 # branchBase / jscpdThreshold are shell-quoted at render time via the shq:
@@ -50,26 +71,24 @@ base={{shq:branchBase}}
 threshold={{shq:jscpdThreshold}}
 
 if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
-  echo "⊘ branch '$base' does not exist locally — skip jscpd" >&2
+  echo "⊘ branch '$base' does not exist in $tree — skip jscpd" >&2
   exit 0
 fi
-
-# Run from the repo root so changed paths stay relative — robust to spaces in
-# the repo's absolute path. NUL-delimited read handles spaces in filenames too.
-# The `-- '*.ts' '*.tsx'` pathspec filters by extension without a pipe.
-cd "$(git rev-parse --show-toplevel)"
 
 files=()
 while IFS= read -r -d '' f; do
   files+=("$f")
 done < <(git diff --name-only -z --diff-filter=ACMRT "$base" -- '*.ts' '*.tsx' 2>/dev/null)
 
+# An empty scan is NOT a silent green (#454): say which tree and which base
+# produced it, so "there was nothing to scan" reads differently from "I scanned
+# and found nothing".
 if [ ${#files[@]} -eq 0 ]; then
-  echo "✓ jscpd: no changes vs $base" >&2
+  echo "⊘ jscpd: 0 files to scan — no *.ts/*.tsx differ from $base in $tree" >&2
   exit 0
 fi
 
-echo "▶ jscpd: ${#files[@]} changed file(s) vs $base" >&2
+echo "▶ jscpd: ${#files[@]} changed file(s) vs $base in $tree" >&2
 
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
