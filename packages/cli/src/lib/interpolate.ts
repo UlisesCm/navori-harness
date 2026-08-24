@@ -150,6 +150,15 @@ function resolvePath(
   let cursor: unknown = config;
   for (const seg of segments) {
     if (cursor === null || cursor === undefined || typeof cursor !== "object") return null;
+    // Own properties only. The segment comes from an asset, so an inherited
+    // member must not resolve: `{{constructor}}` would otherwise walk into
+    // `Object.prototype`. Nothing leaks today — every reachable member is a
+    // function, and the type gate below drops those — but that makes the
+    // guarantee incidental, resting on a rule stated far from here (and on
+    // `PLACEHOLDER_RE` requiring a leading letter, which is what keeps
+    // `__proto__` out). Widening either would quietly reopen the walk, so the
+    // rule is stated where it applies (#447).
+    if (!Object.hasOwn(cursor, seg)) return null;
     cursor = (cursor as Record<string, unknown>)[seg];
   }
   if (cursor === undefined || cursor === null) return null;
