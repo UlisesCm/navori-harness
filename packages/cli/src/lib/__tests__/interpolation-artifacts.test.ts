@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_LANG } from "../i18n.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../schema.ts";
 import { placeholderFallback } from "../placeholders.ts";
 import { scanInterpolationArtifacts } from "../interpolation-artifacts.ts";
@@ -122,7 +123,7 @@ describe("scanInterpolationArtifacts (#440)", () => {
   });
 
   it("reports the qualityGate soft fallback: published prose that means 'not configured'", () => {
-    const token = placeholderFallback("qualityGate.full");
+    const token = placeholderFallback("qualityGate.full", DEFAULT_LANG);
     const lines = write(".claude/agents/commit-pr-pilot.md", agentFile([`- Gate: ${token}`]));
 
     expect(scanInterpolationArtifacts(cwd, config())).toEqual([
@@ -135,14 +136,39 @@ describe("scanInterpolationArtifacts (#440)", () => {
     ]);
   });
 
+  // #445 — the token was written by a PAST render, so it carries that render's
+  // locale, not the config's current one. A repo that switched `language` (or
+  // that was rendered by a navori older than #445) must not go unreported.
+  it.each([
+    { rendered: "es", configured: "en" },
+    { rendered: "en", configured: "es" },
+    { rendered: "en", configured: "en" },
+    { rendered: "es", configured: "es" },
+  ] as const)(
+    "reports the qualityGate fallback written in $rendered while the config says $configured",
+    ({ rendered, configured }) => {
+      const token = placeholderFallback("qualityGate.fast", rendered);
+      const lines = write(".claude/agents/implementer.md", agentFile([`- Gate: ${token}`]));
+
+      expect(scanInterpolationArtifacts(cwd, config({ language: configured }))).toEqual([
+        {
+          path: ".claude/agents/implementer.md",
+          line: lineOf(lines, token),
+          token,
+          reason: "unconfigured-gate",
+        },
+      ]);
+    },
+  );
+
   // `project.criticalAreas` / `project.legacyPaths` resolve to a generic default
   // ("the sensible baseline every repo has"), not a diagnostic — flagging that
   // prose would make the check fire on every repo that didn't declare the field.
   it("does not flag the generic soft defaults", () => {
     write(".claude/agents/leader.md", [
       ...agentFile([
-        `- Critical areas: ${placeholderFallback("project.criticalAreas")}`,
-        `- Legacy paths: ${placeholderFallback("project.legacyPaths")}`,
+        `- Critical areas: ${placeholderFallback("project.criticalAreas", DEFAULT_LANG)}`,
+        `- Legacy paths: ${placeholderFallback("project.legacyPaths", DEFAULT_LANG)}`,
       ]),
     ]);
 
@@ -153,7 +179,7 @@ describe("scanInterpolationArtifacts (#440)", () => {
   // change to the fallback's wording keeps being detected instead of silently
   // slipping past a hardcoded copy.
   it("derives what it looks for from placeholderFallback, whatever the path", () => {
-    const token = placeholderFallback("some.brand.new.field");
+    const token = placeholderFallback("some.brand.new.field", DEFAULT_LANG);
     expect(token).not.toBe("");
     write(".claude/agents/researcher.md", agentFile([`- Field: ${token}`]));
 

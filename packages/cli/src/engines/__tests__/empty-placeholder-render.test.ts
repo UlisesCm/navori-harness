@@ -2,6 +2,8 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import type { Lang } from "../../lib/i18n.ts";
+import { placeholderFallback } from "../../lib/placeholders.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/schema.ts";
 import { renderClaudeEngine } from "../claude/index.ts";
 import { renderCodexEngine } from "../codex/index.ts";
@@ -70,7 +72,11 @@ const PROJECT_SHAPES: ReadonlyArray<{ id: string; project?: Record<string, unkno
 
 const tempDirs: string[] = [];
 
-function render(engineIdx: number, project: Record<string, unknown> | undefined): string {
+function render(
+  engineIdx: number,
+  project: Record<string, unknown> | undefined,
+  language?: Lang,
+): string {
   const engine = ENGINES[engineIdx];
   const cwd = mkdtempSync(join(tmpdir(), `navori-empty-ph-${engine.id}-`));
   tempDirs.push(cwd);
@@ -80,10 +86,18 @@ function render(engineIdx: number, project: Record<string, unknown> | undefined)
       name: "empty-placeholder-demo",
       engines: engine.engines,
       preset: "custom",
+      ...(language === undefined ? {} : { language }),
       ...(project === undefined ? {} : { project }),
     }),
   );
   return cwd;
+}
+
+/** Every swept surface's content, so a test can assert over the whole tree. */
+function sweptContents(cwd: string): string[] {
+  const surfaces = listFiles(cwd).filter((f) => SWEPT_EXTENSIONS.test(f));
+  expect(surfaces.length).toBeGreaterThan(0);
+  return surfaces.map((f) => readFileSync(join(cwd, f), "utf-8"));
 }
 
 afterAll(() => {
@@ -129,4 +143,57 @@ describe("a minimal config renders no empty / unconfigured placeholder (#375)", 
     expect(claudeMd).toContain("a critical area (`src/auth, src/billing`)");
     expect(claudeMd).not.toContain("a critical area (`auth, permissions");
   });
+});
+
+/**
+ * #445 — the same sweep, aimed at the OTHER way the fallback can be wrong: not
+ * absent or empty, but in the wrong language.
+ *
+ * `{{qualityGate.fast|full}}` appears ~82 times across the core assets, and the
+ * soft fallback was a Spanish literal with no access to the config, so every
+ * `language:"en"` repo without an inferable gate published Spanish prose in all
+ * of them. Worse, the sites that land in a user zone freeze there forever (#440),
+ * so configuring the gate later never cleans them up.
+ */
+describe("the qualityGate fallback is published in the repo's language (#445)", () => {
+  const OTHER: Record<Lang, Lang> = { es: "en", en: "es" };
+
+  for (const [engineIdx, engine] of ENGINES.entries()) {
+    for (const lang of ["en", "es"] as const) {
+      it(`${engine.id} — language:"${lang}" publishes only the ${lang} diagnostic`, () => {
+        // No `qualityGate` in this config, so every one of those sites falls back.
+        const contents = sweptContents(render(engineIdx, {}, lang));
+        const own = placeholderFallback("qualityGate.fast", lang);
+        const foreign = placeholderFallback("qualityGate.fast", OTHER[lang]);
+
+        expect(contents.filter((c) => c.includes(foreign))).toEqual([]);
+        // Assert the diagnostic IS there in the repo's language: without this the
+        // test would also pass if the fallback stopped being emitted at all.
+        expect(contents.some((c) => c.includes(own))).toBe(true);
+      });
+    }
+
+    it(`${engine.id} — a configured gate publishes no diagnostic in any language`, () => {
+      const cwd = mkdtempSync(join(tmpdir(), `navori-gate-lang-${engine.id}-`));
+      tempDirs.push(cwd);
+      ENGINES[engineIdx].render(
+        cwd,
+        NavoriConfigSchema.parse({
+          name: "empty-placeholder-demo",
+          engines: ENGINES[engineIdx].engines,
+          preset: "custom",
+          language: "en",
+          qualityGate: { fast: "pnpm lint", full: "pnpm test && pnpm lint" },
+        }),
+      );
+
+      const contents = sweptContents(cwd);
+      for (const lang of ["en", "es"] as const) {
+        expect(
+          contents.some((c) => c.includes(placeholderFallback("qualityGate.fast", lang))),
+        ).toBe(false);
+      }
+      expect(contents.some((c) => c.includes("pnpm test && pnpm lint"))).toBe(true);
+    });
+  }
 });

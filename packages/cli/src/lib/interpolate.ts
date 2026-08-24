@@ -1,4 +1,5 @@
 import type { NavoriConfig } from "./config.ts";
+import { resolveLang } from "./i18n.ts";
 import { placeholderFallback } from "./placeholders.ts";
 import { shellSingleQuote } from "./shell-escape.ts";
 
@@ -130,7 +131,10 @@ function interpolateRaw(
     // resolve nothing; this is the one marker that never touches the config.
     if (marker === "raw") return `{{${path}}}`;
     const value = resolveSanitized(path, config, extra);
-    const resolved = value !== null ? value : placeholderFallback(path);
+    // The fallback is prose the reader of the rendered file sees, so it follows
+    // the repo's language like the rest of the published copy (#445).
+    const resolved =
+      value !== null ? value : placeholderFallback(path, resolveLang(config.language));
     // `{{shq:path}}` — shell-quote so untrusted config can't escape its string
     // context in a generated `.sh` file (#197). Quote the fallback too, so an
     // unresolved `shq` placeholder still lands as an inert literal.
