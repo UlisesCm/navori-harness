@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { assert, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,11 +58,15 @@ describe("batch render survives a corrupt config (#340)", () => {
     const rows = renderRepoRows(repos, { preview: true, force: false });
 
     expect(rows).toHaveLength(3);
-    expect(rows[1].status).toBe("error");
+    const [rowA, rowB, rowC] = rows;
+    assert.isDefined(rowA);
+    assert.isDefined(rowB);
+    assert.isDefined(rowC);
+    expect(rowB.status).toBe("error");
     // The message must name the problem, not dump a raw stack trace.
-    expect(rows[1].detail).toMatch(/invalid json/i);
-    expect(rows[0].status).not.toBe("error");
-    expect(rows[2].status).not.toBe("error");
+    expect(rowB.detail).toMatch(/invalid json/i);
+    expect(rowA.status).not.toBe("error");
+    expect(rowC.status).not.toBe("error");
     expect(rollupRenderRows(rows).failed).toBe(1);
   });
 
@@ -76,12 +80,15 @@ describe("batch render survives a corrupt config (#340)", () => {
 
     const rows = renderRepoRows(repos, { preview: true, force: false });
 
-    expect(rows[1].status).toBe("error");
-    expect(rows[1].detail).toMatch(/validation failed/i);
+    expect(rows).toHaveLength(3);
+    const rowB = rows[1];
+    assert.isDefined(rowB);
+    expect(rowB.status).toBe("error");
+    expect(rowB.detail).toMatch(/validation failed/i);
     // The per-field detail survives into the row, as `doctor` already reports it.
-    expect(rows[1].detail).toContain("engines");
+    expect(rowB.detail).toContain("engines");
     // …but on a single line, or it spills down the multi-repo table.
-    expect(rows[1].detail).not.toContain("\n");
+    expect(rowB.detail).not.toContain("\n");
     expect(rollupRenderRows(rows).ok).toBe(2);
   });
 

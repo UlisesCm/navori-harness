@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { assert, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, existsSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,9 +48,11 @@ describe("renderRepoRows roll-up includes non-Claude engines (#276)", () => {
     });
 
     expect(rows).toHaveLength(1);
+    const [row] = rows;
+    assert.isDefined(row);
     // Was "up-to-date" before the fix.
-    expect(rows[0].status).toBe("would-write");
-    expect(rows[0].detail).toContain("created");
+    expect(row.status).toBe("would-write");
+    expect(row.detail).toContain("created");
 
     // And the roll-up counts it as pending.
     expect(rollupRenderRows(rows).pending).toBe(1);
@@ -65,7 +67,12 @@ describe("renderRepoRows roll-up includes non-Claude engines (#276)", () => {
       force: false,
     });
 
-    expect(rows[0].status).toBe("up-to-date");
+    // The length assertion catches a DUPLICATED row: the roll-up still reports
+    // 0 pending, so without this line the case stays green.
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    assert.isDefined(row);
+    expect(row.status).toBe("up-to-date");
     expect(rollupRenderRows(rows).pending).toBe(0);
   });
 });

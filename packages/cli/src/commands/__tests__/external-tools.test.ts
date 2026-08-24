@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { assert, describe, it, expect, vi, beforeEach } from "vitest";
 import type { NavoriConfig } from "../../lib/config.ts";
 
 /**
@@ -26,10 +26,12 @@ describe("scanMissingExternalTools", () => {
     hasBinary.mockReturnValue(false);
     const missing = scanMissingExternalTools(config({ engram: { enabled: true } }));
     expect(missing).toHaveLength(1);
-    expect(missing[0].pluginId).toBe("engram");
-    expect(missing[0].binary).toBe("engram");
+    const [tool] = missing;
+    assert.isDefined(tool);
+    expect(tool.pluginId).toBe("engram");
+    expect(tool.binary).toBe("engram");
     // engram declares a per-platform install + a postInstall; at least one is surfaced.
-    expect(missing[0].install ?? missing[0].postInstall).toBeTruthy();
+    expect(tool.install ?? tool.postInstall).toBeTruthy();
   });
 
   it("stays silent when the binary is present", () => {
