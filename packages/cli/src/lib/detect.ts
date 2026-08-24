@@ -13,7 +13,11 @@ import { countDepImports } from "./dep-usage.ts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
-export type MonorepoTool = "pnpm" | "turbo" | "nx" | "rush" | "lerna";
+/** `npm` covers the `workspaces` field in package.json (npm/yarn/bun classic
+ *  workspaces), which `detectMonorepo` returns and `pickPresetCandidate` maps to
+ *  `monorepo-npm`. It is also one of the values `MonorepoSchema.tool` accepts,
+ *  so the union has to list it or the detected value is unwritable. */
+export type MonorepoTool = "pnpm" | "turbo" | "nx" | "rush" | "lerna" | "npm";
 
 export interface MonorepoInfo {
   tool: MonorepoTool;

@@ -65,7 +65,7 @@ function segments(command: string): string[] {
 /** Drop `VAR=value` prefixes so the first token is the command word. */
 function commandWords(segment: string): string[] {
   const words = segment.split(/\s+/);
-  while (words.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift();
+  while (words[0] !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift();
   return words;
 }
 
@@ -80,8 +80,8 @@ function scriptOf(words: string[]): string | null {
   const args = words.slice(1);
   if (args.some((w) => w.startsWith("-"))) return null;
   const rest = args[0] === "run" || args[0] === "run-script" ? args.slice(1) : args;
-  if (rest.length !== 1) return null;
-  const script = rest[0];
+  const script = rest.length === 1 ? rest[0] : undefined;
+  if (script === undefined) return null;
   // `npm test` / `pnpm install` are pm subcommands; only `test` maps to a
   // script, and the rest carry no script contract worth checking.
   return script === "install" || script === "i" || script === "exec" ? null : script;

@@ -131,13 +131,22 @@ const ASIDE_MAX = 40;
  */
 function dropDashAsides(text: string): string {
   const sep = / [—–] /g;
-  const at: number[] = [];
-  for (const m of text.matchAll(sep)) at.push(m.index);
+  // Separators pair up positionally (0-1, 2-3, …): each aside is opened by one
+  // dash and closed by the next. A trailing odd separator opens nothing — it's a
+  // plain clause break, left for `summarizeTrigger` to cut.
+  const pairs: Array<[open: number, close: number]> = [];
+  let pending: number | null = null;
+  for (const m of text.matchAll(sep)) {
+    if (pending === null) {
+      pending = m.index;
+    } else {
+      pairs.push([pending, m.index]);
+      pending = null;
+    }
+  }
   let out = "";
   let from = 0;
-  for (let i = 0; i + 1 < at.length; i += 2) {
-    const open = at[i];
-    const close = at[i + 1];
+  for (const [open, close] of pairs) {
     if (close - open - 3 > ASIDE_MAX) continue;
     out += text.slice(from, open) + " ";
     from = close + 3;

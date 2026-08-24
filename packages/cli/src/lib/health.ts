@@ -126,8 +126,13 @@ type MarkerSource =
   | { kind: "flat"; dir: string; ext: string; style: MarkerStyle }
   | { kind: "recursive"; dir: string; ext: string; style: MarkerStyle };
 
+/** The engine names the config schema recognizes, derived from the parsed
+ *  config so the table below stays in lockstep with the schema's enum: a name
+ *  that `engines[]` can never hold is a typo, not an entry. */
+type EngineName = NonNullable<NavoriConfig["engines"]>[number];
+
 interface EngineOutputs {
-  engine: string;
+  engine: EngineName;
   /** Marker-bearing sources (drift + malformed-marker scans). */
   markers: MarkerSource[];
   /** Extra whole-dir text roots concatenated for invariant matching. The root
