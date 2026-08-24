@@ -59,6 +59,13 @@ const ENGINES: ReadonlyArray<{ id: string; engines: NavoriConfig["engines"]; ren
 const PROJECT_SHAPES: ReadonlyArray<{ id: string; project?: Record<string, unknown> }> = [
   { id: "no project section" },
   { id: "empty project section (the #375 repro: zod fills criticalAreas with [])", project: {} },
+  // #439: a detected library pulls in its lib-skill, and a skill that documents a
+  // library whose own syntax IS `{{token}}` (i18next) used to have its examples
+  // eaten by the interpolator — `{{count}}` rendered as `<not configured: count>`.
+  {
+    id: "a detected library whose skill writes literal {{...}} (#439)",
+    project: { libraries: ["i18next"] },
+  },
 ];
 
 const tempDirs: string[] = [];
