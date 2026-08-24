@@ -649,6 +649,8 @@ interface DoctorCmdStrings {
   missingInvariants: (n: number, lines: string) => string;
   missingInvariantRow: (source: string) => string;
   malformedMarkers: (n: number, lines: string) => string;
+  malformedMarkerRowUnterminated: string;
+  malformedMarkerRowMissingId: string;
   duplicateMarkers: (n: number, lines: string) => string;
   duplicateMarkerRow: (count: number) => string;
   claudeHookScriptsMissing: (n: number, lines: string) => string;
@@ -1324,9 +1326,11 @@ const CMD_ES: CmdStrings = {
       `Invariantes ausentes en el output (${n}) — una regla load-bearing desapareció; corre 'navori render --apply' o revisa el template:\n${lines}`,
     missingInvariantRow: (source) => `— declarado por ${source}`,
     malformedMarkers: (n, lines) =>
-      `Markers managed malformados (${n}) — a esta(s) línea(s) les falta el ` +
-      `cierre '-->', así que navori ya no las reconoce; el próximo render appendearía un bloque ` +
-      `duplicado y dejaría la línea rota. Restaura el '-->' (o borra la línea) a mano:\n${lines}`,
+      `Markers managed malformados (${n}) — navori ya no reconoce esta(s) línea(s) como ` +
+      `marcador; el próximo render appendearía un bloque duplicado y dejaría la línea rota. ` +
+      `Arréglalas a mano (o bórralas):\n${lines}`,
+    malformedMarkerRowUnterminated: `— falta el cierre '-->'`,
+    malformedMarkerRowMissingId: `— falta el atributo id="…"`,
     duplicateMarkers: (n, lines) =>
       `Bloques managed duplicados (${n}) — un mismo id aparece más de una vez en el archivo; ` +
       `navori solo ve la PRIMERA copia, así que la sobrante queda invisible a render/sync/doctor ` +
@@ -2139,9 +2143,11 @@ const CMD_EN: CmdStrings = {
       `Invariants missing from the output (${n}) — a load-bearing rule disappeared; run 'navori render --apply' or check the template:\n${lines}`,
     missingInvariantRow: (source) => `— declared by ${source}`,
     malformedMarkers: (n, lines) =>
-      `Malformed managed markers (${n}) — these line(s) are missing the ` +
-      `closing '-->', so navori no longer recognizes them; the next render would append a ` +
-      `duplicate block and leave the line broken. Restore the '-->' (or delete the line) by hand:\n${lines}`,
+      `Malformed managed markers (${n}) — navori no longer recognizes these line(s) as a ` +
+      `marker; the next render would append a duplicate block and leave the line broken. ` +
+      `Fix them (or delete them) by hand:\n${lines}`,
+    malformedMarkerRowUnterminated: `— missing the closing '-->'`,
+    malformedMarkerRowMissingId: `— missing the id="…" attribute`,
     duplicateMarkers: (n, lines) =>
       `Duplicate managed blocks (${n}) — the same id appears more than once in the file; ` +
       `navori only sees the FIRST copy, so the extra one is invisible to render/sync/doctor ` +

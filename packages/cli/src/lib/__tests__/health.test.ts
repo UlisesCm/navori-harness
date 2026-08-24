@@ -298,6 +298,59 @@ describe("listMarkers + scanManagedDrift", () => {
     });
   });
 
+  // #432 — `render` (marker.ts `locateManagedBlocks`) has ignored markers quoted
+  // inside a code fence since #285; `listMarkers` didn't, so doctor could count a
+  // block render never touches. Both now walk the SAME `proseLines` mechanism.
+  // Every case is asserted by MUTATION in both directions: the dangerous failure
+  // is tightening too far and going blind to a legitimate marker.
+  describe("listMarkers fence awareness (#432)", () => {
+    const OPEN = '<!-- navori:managed id="leader-base" hash="abc123" version="0.6.0" -->';
+    const CLOSE = '<!-- /navori:managed id="leader-base" -->';
+    const write = (lines: string[]): string => {
+      const file = join(cwd, "sample.md");
+      writeFileSync(file, `${lines.join("\n")}\n`);
+      return file;
+    };
+
+    it("does NOT count a complete marker quoted inside a fenced block", () => {
+      const file = write(["docs:", "```markdown", OPEN, "body", CLOSE, "```", "end"]);
+      expect(listMarkers(file)).toEqual([]);
+    });
+
+    it("DOES count that same marker outside the fence (the other direction)", () => {
+      const file = write(["docs:", OPEN, "body", CLOSE, "end"]);
+      expect(listMarkers(file).map((m) => m.id)).toEqual(["leader-base"]);
+    });
+
+    it("counts the real block and skips only its fenced twin in the same file", () => {
+      const file = write(["```", OPEN, CLOSE, "```", "", OPEN, "body", CLOSE]);
+      expect(listMarkers(file).map((m) => m.id)).toEqual(["leader-base"]);
+    });
+
+    it("ignores a fenced shell marker but keeps the real one", () => {
+      const SHELL = '# navori:managed start id="qg-pre-commit-base" hash="abc123"';
+      expect(listMarkers(write(["```sh", SHELL, "```"]))).toEqual([]);
+      expect(listMarkers(write([SHELL])).map((m) => m.id)).toEqual(["qg-pre-commit-base"]);
+    });
+
+    // The over-tightening trap: a managed BODY is opaque, so an unbalanced fence
+    // inside it (a skill documenting shell, a nested ``` example) must NOT leave
+    // the scan stuck "inside a fence" and swallow every later real block.
+    it("never loses a later block behind an unbalanced fence inside managed content", () => {
+      const file = write([
+        OPEN,
+        "```",
+        "an example whose closing fence was written as ~~~~ by hand",
+        CLOSE,
+        "",
+        '<!-- navori:managed id="idioma-rol" hash="def456" -->',
+        "language doctrine",
+        '<!-- /navori:managed id="idioma-rol" -->',
+      ]);
+      expect(listMarkers(file).map((m) => m.id)).toEqual(["leader-base", "idioma-rol"]);
+    });
+  });
+
   it("detects content drift when the body no longer matches its hash", () => {
     writeAgent("hand-edited body", 'hash="deadbeef" version="9.9.9" source="@navori/core"');
     const drifts = scanManagedDrift(cwd, config);
@@ -562,6 +615,78 @@ describe("scanMalformedMarkers (#71 item 11)", () => {
     const found = scanMalformedMarkers(cwd);
     expect(found).toHaveLength(1);
     expect(found[0]).toMatchObject({ filePath: ".cursor/rules/navori.mdc", line: 1 });
+  });
+
+  // #432 — an open marker that terminates fine but carries NO `id="…"` fell
+  // between the two scans: `listMarkers` requires the id (#408) and this one only
+  // looked for the terminator, so render re-injected a block on top of it and
+  // nothing told the user. The pairs below pin both directions: the broken shape
+  // is reported, and the shapes that merely LOOK like it are not.
+  describe("open marker without id (#432)", () => {
+    const write = (lines: string[]): void =>
+      writeFileSync(join(cwd, "CLAUDE.md"), `${lines.join("\n")}\n`);
+
+    it("flags a well-terminated open marker with no id", () => {
+      write(['<!-- navori:managed hash="abc" -->', "body"]);
+      expect(scanMalformedMarkers(cwd)).toEqual([
+        {
+          filePath: "CLAUDE.md",
+          line: 1,
+          snippet: '<!-- navori:managed hash="abc" -->',
+          reason: "missing-id",
+        },
+      ]);
+    });
+
+    it("flags the bare token on its own line", () => {
+      write(["<!-- navori:managed -->"]);
+      expect(scanMalformedMarkers(cwd)).toMatchObject([{ line: 1, reason: "missing-id" }]);
+    });
+
+    it("does NOT flag a prose MENTION of the bare token (#408's phantom)", () => {
+      // Verbatim from this repo's own CLAUDE.md — the line that made doctor
+      // report a 17th block before #408. Flagging it here would just move that
+      // false positive into another report.
+      write([
+        "- **Modelo híbrido en `sync`**: marcadores `<!-- navori:managed -->` se sincronizan,",
+        "  el resto es del usuario.",
+      ]);
+      expect(scanMalformedMarkers(cwd)).toEqual([]);
+    });
+
+    it("does NOT flag an id-less open QUOTED inside a fence", () => {
+      write(["docs:", "```", '<!-- navori:managed hash="abc" -->', "```"]);
+      expect(scanMalformedMarkers(cwd)).toEqual([]);
+    });
+
+    it("flags it indented, and with CRLF line endings", () => {
+      // The anchor matches against `lineText.trim()`, so the leading whitespace
+      // of a marker nested in a list — and the `\r` a CRLF checkout leaves on
+      // every line — are what that `.trim()` absorbs. Without it both shapes go
+      // silently unreportable, which is the same no-man's-land this issue
+      // closes, so the boundary gets its own test instead of riding on the
+      // unindented case.
+      write(["- docs:", '  <!-- navori:managed hash="abc" -->']);
+      expect(scanMalformedMarkers(cwd)).toMatchObject([{ line: 2, reason: "missing-id" }]);
+
+      writeFileSync(join(cwd, "CLAUDE.md"), '<!-- navori:managed hash="abc" -->\r\nbody\r\n');
+      expect(scanMalformedMarkers(cwd)).toMatchObject([{ line: 1, reason: "missing-id" }]);
+    });
+
+    it("does NOT flag a well-formed open, including a collapsed empty block", () => {
+      write([
+        '<!-- navori:managed id="a" hash="abc" --><!-- /navori:managed id="a" -->',
+        '<!-- navori:managed id="b" hash="abc" -->',
+        "body",
+        '<!-- /navori:managed id="b" -->',
+      ]);
+      expect(scanMalformedMarkers(cwd)).toEqual([]);
+    });
+
+    it("keeps classifying the missing terminator as its own reason", () => {
+      write(['<!-- navori:managed id="a" hash="abc"', "body", '<!-- /navori:managed id="a" -->']);
+      expect(scanMalformedMarkers(cwd)).toMatchObject([{ line: 1, reason: "unterminated" }]);
+    });
   });
 
   it("does NOT apply the html --> check to Codex shell markers", () => {

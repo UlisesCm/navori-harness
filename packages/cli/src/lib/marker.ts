@@ -304,7 +304,7 @@ export function injectManagedSection(
     // blocks, blocking reorderManagedBlocks forever (#77). When the last block
     // already sits at the end of the file this produces the same bytes as the
     // plain append below.
-    const siblings = locateManagedBlocks(existing, syntax);
+    const siblings = locateManagedBlocks(existing, commentStyle);
     if (siblings.length > 0) {
       const last = siblings[siblings.length - 1]!;
       const head = existing.slice(0, last.closeEnd);
@@ -424,52 +424,105 @@ interface LocatedBlock {
 /** Matches a ```` ``` ```` / `~~~` code-fence delimiter line (Markdown fence). */
 const FENCE_LINE_RE = /^\s*(```|~~~)/;
 
-/**
- * Enumerate every managed block (any id) in document order, with its bounds.
- *
- * Code-fence aware: a marker QUOTED inside a ```fenced``` block in the user's
- * prose (a repo whose docs describe navori's own marker system) is NOT a real
- * managed block, so it never becomes the anchor `splitUserSection` slices on
- * (which used to sweep the real user zone into `managed` and inject a duplicate
- * `user-start`, #285). Fence state is tracked at the PROSE level only: a managed
- * block's own content is opaque — we jump straight past its close — so a fence
- * INSIDE managed content (e.g. a skill documenting shell) can never desync the
- * scan and drop a later real block.
- */
-function locateManagedBlocks(content: string, syntax: MarkerSyntax): LocatedBlock[] {
-  // Match any open marker. The close prefix carries an extra "/" so it never
-  // matches here — we only capture opens, then find each one's close.
-  const openRegex = new RegExp(
+/** Open-marker regex for a syntax: the prefix, the mandatory `id="…"` and the
+ *  rest of the marker up to its terminator. Line-scoped by construction — every
+ *  caller execs it against ONE line. */
+function openRegexFor(syntax: MarkerSyntax): RegExp {
+  return new RegExp(
     `${escapeRegex(syntax.openPrefix)}\\s+id="([^"]+)"${syntax.attrsAndTerminatorPattern}`,
   );
-  const blocks: LocatedBlock[] = [];
+}
+
+/** A line that lives at PROSE level: outside every markdown code fence and
+ *  outside every managed block's (opaque) body. */
+export interface ProseLine {
+  /** Line text, without its trailing newline. */
+  text: string;
+  /** 0-based line number in the original document. */
+  index: number;
+  /** Character offset of the line's first char within the document. */
+  offset: number;
+}
+
+/**
+ * THE fence mechanism — the single place navori decides whether a line can carry
+ * a real managed marker. Every marker scan (here and in `health.ts`) walks this
+ * so `doctor` and `render` can never disagree on what a marker is (#285, #432).
+ *
+ * A line is prose-level when it is neither a fence delimiter, nor inside a
+ * ```fenced``` block (a repo whose docs QUOTE navori's own marker syntax is
+ * documenting it, not declaring a block), nor inside a managed block's body.
+ * Managed content is opaque on purpose: we jump straight past a block's close,
+ * so a fence INSIDE managed content (e.g. a skill documenting shell) can never
+ * desync the scan and drop a later real block.
+ *
+ * @param styles marker syntaxes whose blocks count as opaque bodies. Pass the
+ *   one style the caller parses; the default covers both.
+ */
+export function proseLines(
+  content: string,
+  styles: readonly CommentStyle[] = ["html", "shell"],
+): ProseLine[] {
+  // The close prefix carries an extra "/" (html) or says "end" (shell), so an
+  // open regex never matches a close.
+  const opens = styles.map((style) => {
+    const syntax = syntaxFor(style);
+    return { syntax, re: openRegexFor(syntax) };
+  });
+  const out: ProseLine[] = [];
   const lines = content.split("\n");
   let offset = 0;
   let inFence = false;
   for (let li = 0; li < lines.length; li++) {
-    const line = lines[li]!;
+    const text = lines[li]!;
     const lineStart = offset;
-    offset += line.length + 1; // +1 for the "\n" split removed
-    if (FENCE_LINE_RE.test(line)) {
+    offset += text.length + 1; // +1 for the "\n" split removed
+    if (FENCE_LINE_RE.test(text)) {
       inFence = !inFence;
       continue;
     }
     if (inFence) continue; // quoted prose — never a real marker
-    const m = openRegex.exec(line);
-    if (!m || m.index === undefined) continue;
-    const id = m[1]!;
-    const openStart = lineStart + m.index;
-    const close = closeMarker(id, syntax);
-    const closeStart = content.indexOf(close, openStart + m[0].length);
-    if (closeStart < 0) continue; // orphan open — leave to stripOrphanMarkers
-    const closeEnd = closeStart + close.length;
-    blocks.push({ id, openStart, closeEnd });
-    // Managed content is opaque: skip every line through the close marker so its
-    // inner fences never toggle prose-level fence state.
-    while (offset <= closeEnd && li < lines.length - 1) {
+    out.push({ text, index: li, offset: lineStart });
+    // If this line opens a managed block, skip every line through its close.
+    let bodyEnd = -1;
+    for (const { syntax, re } of opens) {
+      const m = re.exec(text);
+      if (!m || m.index === undefined) continue;
+      const close = closeMarker(m[1]!, syntax);
+      const closeStart = content.indexOf(close, lineStart + m.index + m[0].length);
+      // No close: an orphan open, not a body — nothing to skip (the line itself
+      // was already emitted, so the caller still sees the marker).
+      if (closeStart >= 0) bodyEnd = Math.max(bodyEnd, closeStart + close.length);
+    }
+    while (offset <= bodyEnd && li < lines.length - 1) {
       li++;
       offset += lines[li]!.length + 1;
     }
+  }
+  return out;
+}
+
+/**
+ * Enumerate every managed block (any id) in document order, with its bounds.
+ *
+ * Code-fence aware via `proseLines`: a marker QUOTED inside a ```fenced``` block
+ * in the user's prose is NOT a real managed block, so it never becomes the anchor
+ * `splitUserSection` slices on (which used to sweep the real user zone into
+ * `managed` and inject a duplicate `user-start`, #285).
+ */
+function locateManagedBlocks(content: string, style: CommentStyle): LocatedBlock[] {
+  const syntax = syntaxFor(style);
+  const openRegex = openRegexFor(syntax);
+  const blocks: LocatedBlock[] = [];
+  for (const line of proseLines(content, [style])) {
+    const m = openRegex.exec(line.text);
+    if (!m || m.index === undefined) continue;
+    const id = m[1]!;
+    const openStart = line.offset + m.index;
+    const close = closeMarker(id, syntax);
+    const closeStart = content.indexOf(close, openStart + m[0].length);
+    if (closeStart < 0) continue; // orphan open — leave to stripOrphanMarkers
+    blocks.push({ id, openStart, closeEnd: closeStart + close.length });
   }
   return blocks;
 }
@@ -510,8 +563,7 @@ export function reorderManagedBlocks(
   canonicalOrder: readonly string[],
   commentStyle: CommentStyle = "html",
 ): ReorderResult {
-  const syntax = syntaxFor(commentStyle);
-  const blocks = locateManagedBlocks(content, syntax);
+  const blocks = locateManagedBlocks(content, commentStyle);
   if (blocks.length < 2) {
     return { output: content, reordered: false, blockedByInterleaving: false };
   }
@@ -643,8 +695,7 @@ export function splitUserSection(
   content: string,
   commentStyle: CommentStyle = "html",
 ): UserSectionSplit {
-  const syntax = syntaxFor(commentStyle);
-  const blocks = locateManagedBlocks(content, syntax);
+  const blocks = locateManagedBlocks(content, commentStyle);
   if (blocks.length === 0) {
     return { managed: content, userBody: null, hadMarkers: content.includes(USER_SECTION_START) };
   }
