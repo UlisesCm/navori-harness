@@ -1,3 +1,5 @@
+import { type Lang, tc } from "./i18n.ts";
+
 /**
  * Fallback text for an unresolved `{{path}}` placeholder, shared by both
  * interpolators (lib/render-plan for CLAUDE.md managed blocks, and
@@ -8,7 +10,10 @@
  * `<not configured: qualityGate.fast>` reads like a command to run and a raw
  * `<not configured: project.criticalAreas>` reads like a broken template.
  * Everything else keeps the `<not configured: path>` hint — still useful for
- * spotting a typo'd placeholder in a template.
+ * spotting a typo'd placeholder in a template. That hard fallback names a config
+ * path, so it stays language-neutral; the soft ones are prose a human reads
+ * inline and take `lang` (#445 — the `qualityGate.*` diagnostic was hardcoded in
+ * Spanish and published into ~82 asset sites of every `language:"en"` repo).
  *
  * Every path here is one that resolves to nothing in a default config —
  * `qualityGate` is optional, and `project.criticalAreas`/`project.legacyPaths`
@@ -23,15 +28,28 @@
 // so `{{constructor}}` in any asset rendered `function Object() { [native code] }`
 // into the prose. A Map has no prototype chain to walk, and `.get` is honestly
 // typed. (#447 — same class as the `.claude/constructor` leak fixed in #428.)
-const SOFT_FALLBACKS: ReadonlyMap<string, string> = new Map([
-  ["qualityGate.fast", "(quality gate sin configurar — corre 'navori configure quality-gate')"],
-  ["qualityGate.full", "(quality gate sin configurar — corre 'navori configure quality-gate')"],
+//
+// Values are resolvers, not strings, so a locale-dependent entry reads its copy
+// from the catalog at call time instead of freezing one locale at module load.
+const SOFT_FALLBACKS: ReadonlyMap<string, (lang: Lang) => string> = new Map([
+  ["qualityGate.fast", (lang: Lang) => tc(lang).common.qualityGateNotConfigured],
+  ["qualityGate.full", (lang: Lang) => tc(lang).common.qualityGateNotConfigured],
   // Generic defaults, not a diagnostic: these read as the sensible baseline
-  // list every repo has whether or not it declared one.
-  ["project.criticalAreas", "auth, permissions, payments, data integrity"],
-  ["project.legacyPaths", "legacy/, vendor/"],
+  // list every repo has whether or not it declared one. Identifiers a config
+  // would otherwise supply verbatim, so they are the same in every locale.
+  ["project.criticalAreas", () => "auth, permissions, payments, data integrity"],
+  ["project.legacyPaths", () => "legacy/, vendor/"],
 ]);
 
-export function placeholderFallback(path: string): string {
-  return SOFT_FALLBACKS.get(path) ?? `<not configured: ${path}>`;
+/**
+ * @param path - The config path the template referenced, verbatim from the asset.
+ * @param lang - Locale for the prose fallbacks, normally
+ * `resolveLang(config.language)`. Required on purpose: a default would let a
+ * future call site publish the wrong language into a rendered file with nothing
+ * failing — which is the bug #445 fixed. The one call site with no config to
+ * read (doctor's artifact scan, which probes for the fallback's SHAPE) passes
+ * `DEFAULT_LANG` explicitly, so the choice is visible where it is made.
+ */
+export function placeholderFallback(path: string, lang: Lang): string {
+  return SOFT_FALLBACKS.get(path)?.(lang) ?? `<not configured: ${path}>`;
 }

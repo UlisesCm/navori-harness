@@ -552,6 +552,10 @@ interface CommonCmdStrings {
   deadProgressKeys: (list: string) => string;
   // lib/marker.ts user-zone placeholder (emitted into a fresh CLAUDE.md).
   userSectionPlaceholder: string;
+  // lib/placeholders.ts soft fallback for `{{qualityGate.fast|full}}` — published
+  // INLINE in the rendered prose of ~82 asset sites when no gate is configured,
+  // so it follows the repo's language like every other user-facing string (#445).
+  qualityGateNotConfigured: string;
 }
 
 interface RenderCmdStrings {
@@ -1191,6 +1195,8 @@ const CMD_ES: CmdStrings = {
     userSectionPlaceholder:
       "<!-- Escribe aquí el dominio y las convenciones específicas de tu repo. " +
       "navori preserva intacto todo lo que esté entre estos marcadores en cada render. -->",
+    qualityGateNotConfigured:
+      "(quality gate sin configurar — corre 'navori configure quality-gate')",
   },
   render: {
     renderFailed: "El render falló",
@@ -2008,6 +2014,7 @@ const CMD_EN: CmdStrings = {
     userSectionPlaceholder:
       "<!-- Write your repo's domain and specific conventions here. " +
       "navori preserves everything between these markers verbatim on every render. -->",
+    qualityGateNotConfigured: "(quality gate not configured — run 'navori configure quality-gate')",
   },
   render: {
     renderFailed: "Render failed",

@@ -23,6 +23,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { NavoriConfig } from "./config.ts";
 import { collectMarkerFiles } from "./health.ts";
+import { DEFAULT_LANG, SUPPORTED_LANGS } from "./i18n.ts";
 import { placeholderFallback } from "./placeholders.ts";
 
 export type ArtifactReason =
@@ -54,7 +55,7 @@ const PROBE_PATH = "navoriDoctorProbePath";
  * `placeholders.ts` draws that line itself: `project.criticalAreas` /
  * `project.legacyPaths` render "the sensible baseline list every repo has"
  * (legitimate published prose), while the `qualityGate.*` ones read
- * "corre 'navori configure quality-gate'" — in a published file that means the
+ * "run 'navori configure quality-gate'" — in a published file that means the
  * same thing the hard fallback does: the config was never filled in.
  */
 const DIAGNOSTIC_SOFT_PATHS = ["qualityGate.fast", "qualityGate.full"] as const;
@@ -70,7 +71,7 @@ function escapeRegExp(literal: string): string {
  * no suffix to anchor on — matching a bare path would flag half the prose.
  */
 function hardFallbackMatcher(): RegExp | null {
-  const sample = placeholderFallback(PROBE_PATH);
+  const sample = placeholderFallback(PROBE_PATH, DEFAULT_LANG);
   const at = sample.indexOf(PROBE_PATH);
   if (at <= 0) return null;
   const prefix = sample.slice(0, at);
@@ -83,14 +84,22 @@ function hardFallbackMatcher(): RegExp | null {
  * The distinct soft-fallback strings worth reporting. One that no longer has a
  * soft entry renders the hard shape instead, which `hard` already matches — so
  * it's dropped here rather than reported twice.
+ *
+ * EVERY supported locale is probed, not `config.language` (#445). What we look
+ * for was written in the PAST — a frozen user zone keeps the wording of the
+ * render that created it — so a repo that started in `es` and later switched to
+ * `en` still carries the Spanish token, and scanning only the current locale
+ * would go blind on exactly the repos this check exists for.
  */
 function diagnosticSoftTokens(hard: RegExp | null): string[] {
   const probe = hard === null ? null : new RegExp(hard.source);
   const tokens = new Set<string>();
-  for (const path of DIAGNOSTIC_SOFT_PATHS) {
-    const text = placeholderFallback(path);
-    if (probe?.test(text)) continue;
-    tokens.add(text);
+  for (const lang of SUPPORTED_LANGS) {
+    for (const path of DIAGNOSTIC_SOFT_PATHS) {
+      const text = placeholderFallback(path, lang);
+      if (probe?.test(text)) continue;
+      tokens.add(text);
+    }
   }
   return [...tokens];
 }
