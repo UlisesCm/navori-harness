@@ -16,6 +16,26 @@ import { deepMerge } from "./deep-merge.ts";
  *      Ships permissions.allow (read-only git + file inspection + the native
  *      Read/Glob/Grep tools, so trivial reads don't prompt), .ask
  *      (destructive-but-legit) and .deny (catastrophic, no-legit-use) rules.
+ *      Its allow list closes with the PURE-FILTER class — `tr`/`comm`/`column`/
+ *      `echo`/`printf`/`command -v`/`shasum`/`md5`/`bash -n` — siblings of the
+ *      `wc`/`cut`/`grep`/`jq` already there (#403). The membership test is
+ *      strict: the command writes to STDOUT ONLY, so no argv can make it write
+ *      a file or exec. That is why the class stops where it does:
+ *        - `awk` stays OUT: it has `system()`, i.e. arbitrary exec. It reads
+ *          like a filter and is not one.
+ *        - `sort` (`-o <file>`) and `uniq` (2nd positional = output file) write
+ *          an arbitrary file through argv; they were REMOVED from this list by
+ *          a security review (e49e9a2) and must not come back.
+ *        - `sed` stays out in every form. A prefix rule cannot exclude an inner
+ *          flag, so `Bash(sed -n:*)` would also pre-approve `sed -n -i …`,
+ *          an in-place write to any file.
+ *        - `bash -n` is in because `-n` is noexec (parse-only, and it still
+ *          applies to `-c`); it is emphatically NOT `bash -c`.
+ *      The hard boundary the class must never cross: `bash -c`, `node -e`,
+ *      `python3 -c`, `perl`, `curl`/network are never allowlisted anywhere in
+ *      the managed fragment. Allowing them is equivalent to turning the
+ *      permission system off, so that prompt is the correct friction. Tests pin
+ *      every one of these decisions.
  *   1b. Defensive guard PreToolUse(Bash) hook — always registered, references
  *      `$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh`. The absolute
  *      `$CLAUDE_PROJECT_DIR` anchor (not a cwd-relative path) is what lets the
@@ -235,42 +255,86 @@ const GATE_SEQUENCERS = /\s*(?:&&|\|\||;)\s*/;
 // a second command through a rule that Claude Code would then auto-approve, so we
 // refuse to derive an allow rule from it (the step still runs; it just prompts).
 const SAFE_GATE_STEP = /^[\w @.:/=-]+$/;
+// A gate step that only changes directory: `cd` plus exactly ONE operand. Paired
+// with SAFE_GATE_STEP (which forbids `$`, backticks, quotes, `~`), so the operand
+// is a literal path — `cd $(curl …)` never reaches here.
+const CD_STEP = /^cd\s+\S+$/;
 
 /**
  * Resolve the repo's package manager: the persisted `config.packageManager`
  * (written by init/update — the source of truth), falling back to the runner
- * token of `qualityGate.fast` for configs written before the field existed.
+ * token of a `qualityGate.fast` step for configs written before the field
+ * existed. The fallback scans every step, not just the first (#403): a gate that
+ * opens with `cd packages/cli && pnpm lint` used to resolve the runner as `cd`
+ * and give up, so a monorepo — exactly the shape that needs the dev-loop rules —
+ * got none.
  */
 function resolvePackageManager(config: NavoriConfig): string | null {
   if (config.packageManager) return config.packageManager;
-  const first = config.qualityGate?.fast?.trim().split(/\s+/)[0];
-  return first && PACKAGE_MANAGERS.has(first) ? first : null;
+  for (const step of config.qualityGate?.fast?.split(GATE_SEQUENCERS) ?? []) {
+    const runner = step.trim().split(/\s+/)[0];
+    if (PACKAGE_MANAGERS.has(runner)) return runner;
+  }
+  return null;
+}
+
+/**
+ * The allow rule a single gate step earns, or `null` when the step is not safe
+ * to pre-approve. Two shapes qualify:
+ *
+ *   - `<pm> …`   → prefix rule `Bash(<step>:*)`, so flags/paths may follow.
+ *   - `cd <dir>` → EXACT rule `Bash(cd <dir>)`, no wildcard: `cd` takes one
+ *     operand, so `:*` would only widen the match for nothing.
+ */
+function gateStepRule(step: string): string | null {
+  if (!SAFE_GATE_STEP.test(step)) return null;
+  if (PACKAGE_MANAGERS.has(step.split(/\s+/)[0])) return `Bash(${step}:*)`;
+  return CD_STEP.test(step) ? `Bash(${step})` : null;
 }
 
 /**
  * Permission allow-rules derived from the repo's own quality gate + package
- * manager. Two sources: (1) the exact commands the gate runs (split on shell
- * sequencers), so the gate stops prompting; (2) the `<pm> run <script>` dev-loop
- * (build/test/lint/typecheck/format), since `build` in particular is rarely in
- * the gate yet run constantly. Prefix rules use `…:*` (word-boundary wildcard).
+ * manager. Three sources:
  *
- * SECURITY (#197): `navori.config.json` is editable via PR, so a gate string is
- * NOT trusted. A step only becomes a pre-approved rule when it is led by a known
- * package manager AND is metacharacter-free (SAFE_GATE_STEP) — otherwise a
- * `curl …|bash` gate would survive GATE_SEQUENCERS (which doesn't split a bare
- * pipe) as one step and get auto-approved. Rejected steps still run; they just
- * don't get a standing allow rule.
+ *   1. Every step of the gate (split on shell sequencers) — see `gateStepRule`.
+ *      Claude Code splits a compound command and checks each sub-command
+ *      separately, which is exactly why the gate kept prompting (#403): the rule
+ *      for `pnpm test` was there, but `cd packages/cli` matched nothing, so
+ *      `cd packages/cli && pnpm test` prompted on every run. The measured cost of
+ *      that friction was the agent learning to wrap commands in `bash -c '…'` to
+ *      dodge it — opaque to the guard hook, i.e. strictly worse than allowing the
+ *      direct form.
+ *   2. The gate string itself as an EXACT rule (no `:*`), covering the compound
+ *      as typed — but only when EVERY step earned a rule of its own, so a gate
+ *      with one hostile step contributes nothing at all.
+ *   3. The `<pm> run <script>` dev-loop (build/test/lint/typecheck/format), since
+ *      `build` in particular is rarely in the gate yet run constantly.
+ *
+ * SECURITY (#197, #403): `navori.config.json` is editable via PR, so a gate
+ * string is NOT trusted — it is a value to validate, never a template to expand.
+ * A step becomes a rule only when it is metacharacter-free (SAFE_GATE_STEP) AND
+ * matches a known-inert shape; otherwise a `curl …|bash` gate would survive
+ * GATE_SEQUENCERS (which doesn't split a bare pipe) as one step and get
+ * auto-approved. Rejected steps still run; they just don't get a standing rule.
+ * Note the asymmetry that keeps this closed: the only wildcard rule comes from a
+ * package-manager step, and every rule emitted for a shape we did not fully
+ * constrain is exact-match.
  */
 function deriveQualityGateAllow(config: NavoriConfig): string[] {
   const rules = new Set<string>();
   for (const gate of [config.qualityGate?.fast, config.qualityGate?.full]) {
-    if (!gate) continue;
-    for (const step of gate.split(GATE_SEQUENCERS)) {
-      const cmd = step.trim();
-      if (!cmd) continue;
-      const runner = cmd.split(/\s+/)[0];
-      if (!PACKAGE_MANAGERS.has(runner) || !SAFE_GATE_STEP.test(cmd)) continue;
-      rules.add(`Bash(${cmd}:*)`);
+    if (!gate?.trim()) continue;
+    const steps = gate.split(GATE_SEQUENCERS).map((s) => s.trim());
+    const stepRules = steps.map((step) => (step ? gateStepRule(step) : null));
+    for (const rule of stepRules) {
+      if (rule) rules.add(rule);
+    }
+    // The compound as the user actually types it. Reconstructed from nothing —
+    // it is the raw gate, trimmed — so it stays byte-identical to what CLAUDE.md
+    // tells the agent to run; safe because every step that composes it passed
+    // validation and the rule carries no wildcard.
+    if (steps.length > 1 && stepRules.every((rule) => rule !== null)) {
+      rules.add(`Bash(${gate.trim()})`);
     }
   }
   const pm = resolvePackageManager(config);
