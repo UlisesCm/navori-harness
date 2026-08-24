@@ -17,10 +17,7 @@ export function mergeFrontmatter(
   assetFm: Record<string, string>,
   destFm: Record<string, string>,
 ): MergeFrontmatterResult {
-  const merged: Record<string, string> = { ...destFm };
-  for (const key of Object.keys(assetFm)) {
-    merged[key] = assetFm[key];
-  }
+  const merged: Record<string, string> = { ...destFm, ...assetFm };
   return {
     merged,
     serialized: serialize(merged, assetFm),

@@ -103,12 +103,12 @@ export function renderCodexEngine(
   const renderedAgentIds = new Set(plan.agents.map((a) => a.id));
   for (const plugin of plugins) {
     for (const skill of plugin.skillAssets) {
-      const m = skill.injectInto?.match(AGENT_INJECT_RE);
-      if (!m) continue;
-      const agentId = m[1];
-      if (agentId === "leader" || renderedAgentIds.has(agentId)) continue;
+      const injectInto = skill.injectInto;
+      if (injectInto === undefined) continue;
+      const agentId = injectInto.match(AGENT_INJECT_RE)?.[1];
+      if (agentId === undefined || agentId === "leader" || renderedAgentIds.has(agentId)) continue;
       warnings.push(
-        tc(lang).engine.pluginSkillNotInjected(skill.id, plugin.manifest.id, skill.injectInto!),
+        tc(lang).engine.pluginSkillNotInjected(skill.id, plugin.manifest.id, injectInto),
       );
     }
   }

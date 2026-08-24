@@ -272,7 +272,9 @@ const CD_STEP = /^cd\s+\S+$/;
 function resolvePackageManager(config: NavoriConfig): string | null {
   if (config.packageManager) return config.packageManager;
   for (const step of config.qualityGate?.fast?.split(GATE_SEQUENCERS) ?? []) {
-    const runner = step.trim().split(/\s+/)[0];
+    // `split` always yields at least one element; `?? ""` is unreachable and
+    // is never a package manager anyway.
+    const runner = step.trim().split(/\s+/)[0] ?? "";
     if (PACKAGE_MANAGERS.has(runner)) return runner;
   }
   return null;
@@ -288,7 +290,7 @@ function resolvePackageManager(config: NavoriConfig): string | null {
  */
 function gateStepRule(step: string): string | null {
   if (!SAFE_GATE_STEP.test(step)) return null;
-  if (PACKAGE_MANAGERS.has(step.split(/\s+/)[0])) return `Bash(${step}:*)`;
+  if (PACKAGE_MANAGERS.has(step.split(/\s+/)[0] ?? "")) return `Bash(${step}:*)`;
   return CD_STEP.test(step) ? `Bash(${step})` : null;
 }
 

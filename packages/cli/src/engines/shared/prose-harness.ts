@@ -198,7 +198,7 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
   } else if (result.status === "downgrade-skipped") {
     skipped.push({
       path: spec.destRelPath,
-      reason: strings.blockFromNewerNavori(result.details?.existingVersion),
+      reason: strings.blockFromNewerNavori(result.details?.existingVersion ?? undefined),
       status: "downgrade-skipped",
     });
   } else if (result.status === "unchanged") {

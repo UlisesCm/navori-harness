@@ -228,7 +228,9 @@ function collectRequest(
     });
     content = result.content;
     status = result.status;
-    existingVersion = result.details?.existingVersion;
+    // marker.ts reports "no version attribute" as null; the skip-reason
+    // formatters take undefined for the same "unknown version" case.
+    existingVersion = result.details?.existingVersion ?? undefined;
   } else {
     const exists = existsSync(path);
     const existing = exists ? readFileSync(path, "utf-8") : (req.firstRenderSeed?.header ?? "");
@@ -242,7 +244,7 @@ function collectRequest(
     content = result.output;
     if (!exists && req.firstRenderSeed?.trailer) content += req.firstRenderSeed.trailer;
     status = result.status;
-    existingVersion = result.details?.existingVersion;
+    existingVersion = result.details?.existingVersion ?? undefined;
   }
 
   if (status === "unchanged") return;
