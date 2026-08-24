@@ -428,10 +428,13 @@ export const doctorCommand = defineCommand({
     }
 
     if (malformedMarkers.length > 0) {
-      const lines = malformedMarkers.map(
-        (m) =>
-          `  ${color.yellow(sym.update)} ${accent(`${m.filePath}:${m.line}`)}  ${grey(`— ${m.snippet}`)}`,
-      );
+      const lines = malformedMarkers.map((m) => {
+        const why =
+          m.reason === "missing-id"
+            ? td.malformedMarkerRowMissingId
+            : td.malformedMarkerRowUnterminated;
+        return `  ${color.yellow(sym.update)} ${accent(`${m.filePath}:${m.line}`)}  ${grey(`${why} · ${m.snippet}`)}`;
+      });
       p.log.warn(td.malformedMarkers(malformedMarkers.length, lines.join("\n")));
     }
 

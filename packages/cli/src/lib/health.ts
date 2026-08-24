@@ -7,7 +7,12 @@ import {
   RETIRED_PLUGINS,
 } from "./plugins.ts";
 import { readCliVersion } from "./bundled-assets.ts";
-import { computeManagedHash, extractManagedContent, reorderManagedBlocks } from "./marker.ts";
+import {
+  computeManagedHash,
+  extractManagedContent,
+  proseLines,
+  reorderManagedBlocks,
+} from "./marker.ts";
 import { canonicalManagedOrder, EXCLUDABLE_BLOCK_IDS, CORE_BLOCK_IDS } from "./render-plan.ts";
 import { detectClaudeInfra } from "./claude-infra.ts";
 import { detectLegacyAgents, type LegacyAgent } from "./legacy-agents.ts";
@@ -46,14 +51,22 @@ export function listMarkers(filePath: string): MarkerInfo[] {
   //
   // Close markers can't match: the html close carries a `/` before the name and
   // the shell close says `end`, not `start`.
+  //
+  // Scanned PROSE LINE by PROSE LINE (`marker.ts`'s `proseLines`, the same
+  // mechanism `locateManagedBlocks` walks) instead of over the raw text: a
+  // marker quoted inside a ```fenced``` block is documentation, and counting it
+  // made doctor see blocks render never touches — #285's discrepancy, which
+  // #408 fixed for MENTIONS but left open for fenced quotes (#432).
   const re = /(?:<!-- navori:managed|# navori:managed start)[ \t]+id="([^"\n]+)"[^\n>]*/g;
   const result: MarkerInfo[] = [];
-  for (const match of content.matchAll(re)) {
-    const tag = match[0];
-    const hash = tag.match(/hash="([^"]+)"/)?.[1] ?? null;
-    const version = tag.match(/version="([^"]+)"/)?.[1] ?? null;
-    const source = tag.match(/source="([^"]+)"/)?.[1] ?? null;
-    result.push({ id: match[1]!, hash, version, source });
+  for (const { text } of proseLines(content)) {
+    for (const match of text.matchAll(re)) {
+      const tag = match[0];
+      const hash = tag.match(/hash="([^"]+)"/)?.[1] ?? null;
+      const version = tag.match(/version="([^"]+)"/)?.[1] ?? null;
+      const source = tag.match(/source="([^"]+)"/)?.[1] ?? null;
+      result.push({ id: match[1]!, hash, version, source });
+    }
   }
   return result;
 }
@@ -622,6 +635,10 @@ function orderReportAt(
   return { current, expected, interleaved: result.blockedByInterleaving, misplacedFirst };
 }
 
+/** Why a marker line doesn't parse: it lost its `-->` terminator, or it
+ *  terminates fine but carries no `id="…"`. */
+export type MalformedMarkerReason = "unterminated" | "missing-id";
+
 export interface MalformedMarker {
   /** File the malformed line lives in, relative to cwd. */
   filePath: string;
@@ -629,18 +646,27 @@ export interface MalformedMarker {
   line: number;
   /** The trimmed line text (truncated) for the diagnostic. */
   snippet: string;
+  /** What makes the line unparseable — drives the hint doctor prints. */
+  reason: MalformedMarkerReason;
 }
 
 /**
- * Detect managed-marker lines that lost their `-->` terminator (usually a hand
- * edit that deleted just the closing chars). `findMarker` then stops matching
- * the line, so the next `injectManagedSection` appends a fresh block AND leaves
- * the broken line as permanent cruft. This is a NON-destructive report only —
- * doctor surfaces it so the user fixes the line before that happens. Issue #71
- * item 11. Shares the html-marker file set with `scanManagedDrift` via
- * `collectMarkerFiles` (#226) — this closes the old gap where the "same scope"
- * comment lied and Copilot/Cursor prose files went unscanned. Shell markers
- * (Codex `.toml`/`.sh`) are excluded: the `-->` terminator check is html-only.
+ * Detect managed-marker lines that navori's parser can no longer read, so the
+ * next `injectManagedSection` appends a fresh block AND leaves the broken line
+ * as permanent cruft. Two shapes, both born of a hand edit:
+ *   - `unterminated`: the line lost its `-->` (issue #71 item 11).
+ *   - `missing-id`: the line terminates fine but has no `id="…"`, the attribute
+ *     `findMarker` keys on. It fell between the two scans — `listMarkers`
+ *     requires the id (#408) and this one only looked for the terminator — so
+ *     render silently re-injected a block on top of it and NOTHING told the
+ *     user (#432).
+ *
+ * This is a NON-destructive report only — doctor surfaces it so the user fixes
+ * the line before that happens. Shares the html-marker file set with
+ * `scanManagedDrift` via `collectMarkerFiles` (#226) — this closes the old gap
+ * where the "same scope" comment lied and Copilot/Cursor prose files went
+ * unscanned. Shell markers (Codex `.toml`/`.sh`) are excluded: the `-->`
+ * terminator check is html-only.
  * `config` is optional — pass it to also scan monorepo workspace files (#235).
  */
 export function scanMalformedMarkers(cwd: string, config?: NavoriConfig): MalformedMarker[] {
@@ -656,6 +682,17 @@ export function scanMalformedMarkers(cwd: string, config?: NavoriConfig): Malfor
   }
   return out;
 }
+
+/** An html OPEN marker that terminates correctly, captured up to its first
+ *  `-->` so a collapsed empty block (`open --><!-- close -->`) is judged on its
+ *  open half alone. Anchored at the line start (after `trim()`) on purpose: a
+ *  PROSE MENTION of the bare token mid-sentence — "marcadores
+ *  `<!-- navori:managed -->` se sincronizan" — is documentation, not a broken
+ *  marker, and flagging it would just move #408's phantom into this report.
+ *  The `(?![\w-])` guard keeps a hypothetical `navori:managed-foo` token out. */
+const HTML_OPEN_TERMINATED_RE = /^<!-- navori:managed(?![\w-])[^>]*?-->/;
+/** The `id="…"` attribute `findMarker` keys on. */
+const MARKER_ID_ATTR_RE = /\bid="[^"]*"/;
 
 /** Malformed html markers within a single directory. Reported paths are
  *  optionally prefixed with `pathPrefix` (the workspace path). */
@@ -676,15 +713,27 @@ function scanMalformedMarkersAt(
     } catch {
       continue;
     }
+    // The id-less case is judged at PROSE level only (the same fence + opaque-body
+    // rule render's parser uses, `marker.ts`), so a fenced EXAMPLE of a broken
+    // marker in a doc isn't reported as one. The terminator case keeps scanning
+    // EVERY line: it predates this and narrowing it would blind a report that
+    // works today.
+    const prose = new Set(proseLines(content, ["html"]).map((l) => l.index));
     content.split("\n").forEach((lineText, i) => {
+      const snippet = lineText.trim().slice(0, 80);
       for (const prefix of prefixes) {
         const idx = lineText.indexOf(prefix);
         if (idx === -1) continue;
         // A well-formed html marker terminates with `-->` on the same line.
         if (!lineText.slice(idx + prefix.length).includes("-->")) {
-          out.push({ filePath: rel(path), line: i + 1, snippet: lineText.trim().slice(0, 80) });
+          out.push({ filePath: rel(path), line: i + 1, snippet, reason: "unterminated" });
         }
         break;
+      }
+      if (!prose.has(i)) return;
+      const open = HTML_OPEN_TERMINATED_RE.exec(lineText.trim());
+      if (open && !MARKER_ID_ATTR_RE.test(open[0])) {
+        out.push({ filePath: rel(path), line: i + 1, snippet, reason: "missing-id" });
       }
     });
   }
