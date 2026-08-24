@@ -63,8 +63,8 @@ type GitignoreConfig = {
  * Harness outputs an engine generates that are NOT part of `ENGINE_OUTPUTS`
  * (which only tracks marker-managed / prose files for drift scanning). These are
  * regenerable-from-config files that a `full` (Bonum) `.gitignore` must still
- * ignore. `.mcp.json` is written by the Claude engine (it's in its
- * `backupTargets`) but is generated JSON, not a marker file, so it never entered
+ * ignore. `.mcp.json` is written by the Claude engine but is generated JSON, not
+ * a marker file, so it never entered
  * `ENGINE_OUTPUTS`. `navori.config.json` is intentionally absent everywhere: it
  * is the checked-in source of truth and stays versioned even in `full` mode.
  */

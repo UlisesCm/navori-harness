@@ -93,8 +93,12 @@ describe("renderCodexEngine — backup excludes never-versioned state (audit A2)
     expect(second.backupPath).not.toBeNull();
     const backup = second.backupPath as string;
     expect(existsSync(join(backup, ".codex/progress"))).toBe(false);
-    // …while the versioned Codex harness itself is still snapshotted.
+    // …while the versioned harness file this render rewrites IS snapshotted.
     expect(existsSync(join(backup, "AGENTS.md"))).toBe(true);
-    expect(existsSync(join(backup, ".codex/config.toml"))).toBe(true);
+    // `.codex/config.toml` is versioned harness too, but the quality-gate change
+    // does not rewrite it — and since #405 the backup is proportional to the
+    // diff, so an untouched file is no longer copied. Nothing is at risk: the
+    // render never writes it this run.
+    expect(existsSync(join(backup, ".codex/config.toml"))).toBe(false);
   });
 });

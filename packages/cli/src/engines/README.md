@@ -22,8 +22,8 @@ resolveHarnessPlan ──▶ EngineAdapter (place*) ──▶ collectPlan ──
   mismo inventario.
 - **Capa 2 — el adapter del engine (`<engine>/adapter.ts` o inline)**: lo ÚNICO
   que define un proveedor. Mapea cada asset planeado a un `PlacementRequest`
-  (destino + serialización) y declara sus `extraFiles`, `orphanScans`,
-  `backupTargets`. ~80 LOC de tabla declarativa.
+  (destino + serialización) y declara sus `extraFiles` y `orphanScans`. ~80 LOC
+  de tabla declarativa.
 - **Capa 3 — `shared/execute-plan.ts`**: `collectPlan` (planea sin escribir) +
   `commitWrites` (backup → escritura atómica → chmod → poda → reporte). Se comparte
   una sola vez: un fix de poda/anti-retroceso/backup llega a todos los engines.
@@ -39,9 +39,12 @@ interface EngineAdapter {
   placeHook(h: PlannedHook, ctx): PlacementRequest | null;
   extraFiles(ctx): PlacementRequest[];               // settings.json / config.toml / AGENTS.md
   orphanScans(plan, ctx): OrphanScan[];              // poda de huérfanos managed
-  backupTargets: string[];
 }
 ```
+
+El adapter NO declara qué respaldar: `commitWrites` deriva el backup de lo que
+va a escribir o borrar (#405), así que ningún engine puede declararlo de menos
+(un `.mcp.json` olvidado) ni de más (todo `.claude/` por un cambio de 1 byte).
 
 Un `PlacementRequest` es o bien un asset (`assetPath`, renderizado por
 `renderManagedFile`) o un `body` ya serializado por el adapter (`config.toml`,
@@ -56,8 +59,9 @@ Un `PlacementRequest` es o bien un asset (`assetPath`, renderizado por
   `claude/index.ts` como referencia (pipeline CLAUDE.md + reconciliación de 3
   vías Claude-only sobre el spine).
 - `commitWrites` parametriza lo que legítimamente varía: `writeLast` (qué archivo
-  se escribe al final), `backupTargets`/`backupExclude`, `engineLabel`,
-  `removalsBestEffort`, y `skipReason` (prosa de skip localizada) en `collectPlan`.
+  se escribe al final), `backupExclude` (excludes extra del engine; los efímeros
+  entran siempre), `engineLabel`, `removalsBestEffort`, y `skipReason` (prosa de
+  skip localizada) en `collectPlan`.
 
 ## Checklist de spike para el proveedor #3 (los 4 unknowns de la Fase 0)
 

@@ -198,7 +198,6 @@ export function renderCodexEngine(
     pending,
     removals,
     cwd,
-    backupTargets: adapter.backupTargets,
     dryRun,
     writeLast: (p) => p.path.endsWith("/AGENTS.md"),
     engineLabel: adapter.label ?? adapter.id,
@@ -224,7 +223,6 @@ function createCodexAdapter(configTomlBody: string): EngineAdapter {
   return {
     id: "codex",
     label: "Codex",
-    backupTargets: ["AGENTS.md", ".codex", ".agents", "navori.config.json"],
 
     placeAgent(agent, ctx): PlacementRequest {
       const { body, description } = buildAgentToml(agent, ctx.config, ctx.plugins);
