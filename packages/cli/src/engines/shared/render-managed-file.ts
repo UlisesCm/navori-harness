@@ -114,10 +114,24 @@ function interpolateFrontmatter(
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
   const interp = interpolate(serialized, config, { extraVars, omitUnresolvedKeyLines: true });
+  return parseKeyValueLines(interp);
+}
+
+const KEY_VALUE_LINE = /^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/;
+
+/**
+ * Parse `key: value` lines into a map; lines that don't match are dropped.
+ * Shared by the asset-frontmatter and destination-frontmatter passes, which
+ * parse the same shape.
+ */
+function parseKeyValueLines(text: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const line of interp.split("\n")) {
-    const kv = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
-    if (kv) out[kv[1]] = kv[2].trim();
+  for (const line of text.split("\n")) {
+    // Both groups are mandatory in the pattern, so the guard only ever fires
+    // on a non-matching line — it just also satisfies the index-access type.
+    const [, key, value] = KEY_VALUE_LINE.exec(line) ?? [];
+    if (key === undefined || value === undefined) continue;
+    out[key] = value.trim();
   }
   return out;
 }
@@ -145,18 +159,12 @@ function rerender(
   meta: { source: string; version: string },
   commentStyle: CommentStyle,
 ): RenderManagedFileResult {
-  const fmMatch = existing.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  const destFm: Record<string, string> = {};
-  let restOfDest: string;
-  if (fmMatch) {
-    for (const line of fmMatch[1].split("\n")) {
-      const kv = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
-      if (kv) destFm[kv[1]] = kv[2].trim();
-    }
-    restOfDest = fmMatch[2];
-  } else {
-    restOfDest = existing;
-  }
+  // Both groups are mandatory: when the file has frontmatter, `fmBlock` and
+  // `afterFm` are both strings (`afterFm` may legitimately be ""), and when it
+  // doesn't, both are undefined and the whole file is the body.
+  const [, fmBlock, afterFm] = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(existing) ?? [];
+  const destFm = fmBlock === undefined ? {} : parseKeyValueLines(fmBlock);
+  const restOfDest = afterFm ?? existing;
 
   const fmHeader =
     Object.keys(assetFm).length > 0 ? mergeFrontmatter(assetFm, destFm).serialized + "\n" : "";

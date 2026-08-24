@@ -26,8 +26,13 @@ export interface PlannedAgent {
    * its own `<id>-codex-base` namespace to avoid collisions.
    */
   managedId: string;
-  /** Key into config.models / config.effort for per-role assignment. */
-  modelKey?: keyof NonNullable<NavoriConfig["models"]>;
+  /**
+   * Key into config.models / config.effort for per-role assignment. Typed off
+   * `harness` — the agent-role key set, which is exactly what `harnessKey`
+   * feeds it. `keyof models` would also admit `codexMap`, a tier→model map
+   * that is not a role and cannot index `config.effort`.
+   */
+  modelKey?: keyof NonNullable<NavoriConfig["harness"]>;
   /** Role sandbox from the catalog; providers that sandbox honor it (Codex). */
   sandbox?: "read-only" | "workspace-write";
 }

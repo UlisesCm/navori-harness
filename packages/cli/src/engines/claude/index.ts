@@ -296,11 +296,13 @@ function buildContextoMonorepoBody(
  * the block is stripped rather than rendered empty.
  */
 function buildContextoProyectoBody(config: NavoriConfig, lang: Lang): string | null {
-  const proj = config.project ?? {};
+  // Read straight off the schema type: an `?? {}` fallback would widen `proj`
+  // to a union with `{}` and lose every declared key.
+  const proj = config.project;
   const t = tc(lang).blocks.projectContext;
   const rows: string[] = [];
 
-  const posture = proj.posture as string | undefined;
+  const posture = proj?.posture;
   if (posture === "greenfield") {
     rows.push(t.stageGreenfield);
   } else if (posture === "production") {
@@ -309,10 +311,7 @@ function buildContextoProyectoBody(config: NavoriConfig, lang: Lang): string | n
     rows.push(t.stageMigration);
   }
 
-  const migrations =
-    (proj.libraryMigrations as
-      | Array<{ legacy: string; preferred: string; domain: string }>
-      | undefined) ?? [];
+  const migrations = proj?.libraryMigrations ?? [];
   for (const m of migrations) {
     // project.* is untrusted config (checked-in, editable via PR) landing inside
     // a trusted managed block — sanitize so it can't inject doctrine or forge a
@@ -323,26 +322,26 @@ function buildContextoProyectoBody(config: NavoriConfig, lang: Lang): string | n
     rows.push(t.migrationRow(domain, preferred, legacy));
   }
 
-  const rigor = proj.reviewRigor as string | undefined;
+  const rigor = proj?.reviewRigor;
   if (rigor === "strict") {
     rows.push(t.rigorStrict);
   } else if (rigor === "pragmatic") {
     rows.push(t.rigorPragmatic);
   }
 
-  const arch = sanitizeProjectValue((proj.architectureRule as string | undefined) ?? "");
+  const arch = sanitizeProjectValue(proj?.architectureRule ?? "");
   if (arch) {
     rows.push(t.architecture(arch));
   }
 
-  const critical = ((proj.criticalAreas as string[] | undefined) ?? [])
+  const critical = (proj?.criticalAreas ?? [])
     .map((c) => sanitizeProjectValue(c))
     .filter((c) => c !== "");
   if (critical.length > 0) {
     rows.push(t.criticalAreas(critical.join(", ")));
   }
 
-  const tests = proj.testsForNewCode as string | undefined;
+  const tests = proj?.testsForNewCode;
   if (tests === "always") {
     rows.push(t.testsAlways);
   } else if (tests === "when-applicable") {
@@ -1192,7 +1191,7 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
       kind: "skip",
       path: destPath,
       reason: tc(resolveLang(input.config.language)).engine.blockFromNewerNavori(
-        result.details?.existingVersion,
+        result.details?.existingVersion ?? undefined,
       ),
       status: "downgrade-skipped",
     };
@@ -1335,7 +1334,7 @@ function applySubBlockInject(input: {
       path: relative(input.cwd, targetAbs),
       reason: tc(resolveLang(input.config.language)).engine.subBlockFromNewerNavori(
         input.skill.id,
-        result.details?.existingVersion,
+        result.details?.existingVersion ?? undefined,
       ),
       status: "downgrade-skipped",
     });

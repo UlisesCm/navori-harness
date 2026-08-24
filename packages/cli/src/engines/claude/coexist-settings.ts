@@ -147,10 +147,11 @@ function stripTrackedHooks(obj: Json, commands: string[]): void {
     const kept: unknown[] = [];
     for (const entry of entries) {
       if (isPlainObject(entry) && Array.isArray(entry.hooks)) {
-        entry.hooks = entry.hooks.filter(
+        const remaining: unknown[] = entry.hooks.filter(
           (h) => !(isPlainObject(h) && typeof h.command === "string" && set.has(h.command)),
         );
-        if (entry.hooks.length > 0) kept.push(entry);
+        entry.hooks = remaining;
+        if (remaining.length > 0) kept.push(entry);
       } else {
         kept.push(entry);
       }
