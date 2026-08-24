@@ -107,6 +107,6 @@ When applying this skill, the output to the user includes:
      - Caches the dev forgets to invalidate (CDN, redis, browser SW, build cache).
      - Known race conditions in specific modules.
      - Areas where "the obvious thing" is historically not the root cause.
-     - Half-done migrations (legacy/{{project.legacyPaths}} → new backend) that create inconsistent states.
+     - Half-done migrations (e.g. `{{project.legacyPaths}}` → new backend) that create inconsistent states.
      - Standardized repro commands for frequent bugs (e.g. `pnpm dev:e2e:auth-flow`).
 -->

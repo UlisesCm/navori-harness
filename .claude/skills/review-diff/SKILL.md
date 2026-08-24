@@ -5,7 +5,7 @@ type: behavior
 maxWords: 1200
 ---
 
-<!-- navori:managed id="review-diff-base" hash="50a57832" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="review-diff-base" hash="cfa82722" version="0.6.0" source="@navori/core" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
@@ -109,7 +109,7 @@ Rule: if removing the abstraction leaves the code **just as correct** and shorte
 
 ## Critical areas
 
-Pay extra attention if the diff touches the critical areas your repo declares (in `navori.config.json` / CLAUDE.md). A finding in those zones goes up one severity level.
+Pay extra attention if the diff touches `auth, permissions, payments, data integrity`. A finding in those zones goes up one severity level.
 
 ## Output
 
@@ -131,5 +131,5 @@ Pay extra attention if the diff touches the critical areas your repo declares (i
      - Conventions of your data layer (mandatory headers, specific clients, mixing legacy/new backends).
      - Forms/validation rules of your stack.
      - Repo anti-patterns that are auto-CRITICAL.
-     - Critical areas with their own rules: <not configured: project.criticalAreas>.
+     - Critical areas with their own rules: auth, permissions, payments, data integrity.
 -->

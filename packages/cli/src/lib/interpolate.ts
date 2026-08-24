@@ -63,7 +63,9 @@ function resolveSanitized(
 ): string | null {
   const value = resolvePath(path, config, extra);
   if (value === null) return null;
-  return path.startsWith("project.") ? sanitizeProjectValue(value) : value;
+  // Sanitization can itself empty a value (a `project.*` field of pure
+  // whitespace/newlines collapses to ""), so re-apply the blank rule after it.
+  return nonBlank(path.startsWith("project.") ? sanitizeProjectValue(value) : value);
 }
 
 // Optional `shq:` prefix marks a value that must be shell-quoted before it is
@@ -127,7 +129,7 @@ function resolvePath(
   extra: Record<string, string>,
 ): string | null {
   if (Object.prototype.hasOwnProperty.call(extra, path)) {
-    return extra[path];
+    return nonBlank(extra[path]);
   }
   const segments = path.split(".");
   let cursor: unknown = config;
@@ -137,7 +139,7 @@ function resolvePath(
   }
   if (cursor === undefined || cursor === null) return null;
   if (typeof cursor === "string" || typeof cursor === "number" || typeof cursor === "boolean") {
-    return String(cursor);
+    return nonBlank(String(cursor));
   }
   // Arrays of primitives (legacyPaths, criticalAreas, libraries) serialize to a
   // comma-joined list so template placeholders like `{{project.legacyPaths}}`
@@ -146,9 +148,30 @@ function resolvePath(
   // form — return null so the placeholder fallback fires rather than emitting
   // "[object Object]".
   if (Array.isArray(cursor)) {
-    return cursor.every(isPrimitive) ? cursor.join(", ") : null;
+    if (!cursor.every(isPrimitive)) return null;
+    // Blank entries carry no content but do carry a separator: `["", "auth"]`
+    // would render ", auth" and `[""]` a lone comma. Drop them first, so the
+    // blank rule below sees an all-blank array as the empty value it is.
+    const items = cursor.map(String).filter((item) => item.trim() !== "");
+    return nonBlank(items.join(", "));
   }
   return null;
+}
+
+/**
+ * A value that serializes to nothing counts as UNRESOLVED (#375). Emitting ""
+ * does not leave a neutral gap: it silently deletes the value from the prose
+ * wrapped around it, and the surrounding words keep asserting a value is there.
+ * `project.criticalAreas` defaults to `[]`, so every repo that declares no
+ * critical areas rendered "· a `` area ·" in the R2-architectural signal list.
+ * Returning `null` hands the placeholder to `placeholderFallback`, which has a
+ * readable default for the known-optional paths.
+ *
+ * Covers the empty array, an array whose join is blank (`[""]`) and a
+ * blank/whitespace-only string — all indistinguishable in the rendered output.
+ */
+function nonBlank(value: string): string | null {
+  return value.trim() === "" ? null : value;
 }
 
 /** True for values that serialize cleanly inline (string/number/boolean). */

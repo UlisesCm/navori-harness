@@ -110,15 +110,6 @@ const CODEX_RUNTIME_EXCEPTIONS: readonly PathException[] = [
 ];
 
 /**
- * #209: the commit-hygiene line keeps `.claude/` + `CLAUDE.md` literal in every
- * engine — it names what must never be committed, which is meaningful advice
- * even in a repo where the Claude engine is not rendered. Stripped before the
- * sweep instead of excusing bare `.claude/` globally (that would blind the
- * sweep to real unreachable citations).
- */
-const NEVER_COMMIT_PHRASE = "Never commit `.claude/` or `CLAUDE.md`";
-
-/**
  * Harness-path citations inside a text artifact. Rooted at the directories the
  * engines own (or the harness contract names); bare-word roots (`progress`,
  * `specs`, `scripts`) additionally require a path-like shape — a trailing slash
@@ -297,7 +288,7 @@ describe("every path cited by a rendered artifact exists in its render (#392)", 
 
       const misses: Array<{ file: string; citation: string }> = [];
       for (const file of surfaces) {
-        const body = readFileSync(join(cwd, file), "utf-8").replaceAll(NEVER_COMMIT_PHRASE, "");
+        const body = readFileSync(join(cwd, file), "utf-8");
         for (const citation of extractCitations(body)) {
           if (!citationResolves(cwd, citation, engineCase.exceptions)) {
             misses.push({ file, citation });

@@ -127,7 +127,7 @@ Never return the diff in chat. The leader reads it from disk if it needs it.
      - Exact layer flow (e.g. `axios → services → adapters → components`).
      - Forced / forbidden libs (forms, tables, state).
      - Naming convention paths (`<NAME>_LABELS`, etc).
-     - Legacy paths where these rules do NOT apply: <not configured: project.legacyPaths>
+     - Legacy paths where these rules do NOT apply: legacy/, vendor/
      - Extra quality-gate commands or pre-commit hooks to run.
      - Any stack-specific pattern the implementer must respect.
 -->

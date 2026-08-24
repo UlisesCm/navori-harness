@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
 import { renderCodexEngine } from "../index.ts";
+import { adaptHarnessTextForCodex } from "../compat.ts";
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-codex-"));
@@ -40,13 +41,10 @@ describe("renderCodexEngine", () => {
     expect(agentsMd).toContain("orchestrat");
     expect(agentsMd).toContain("## Agentes disponibles"); // es is the default language (#289)
     expect(agentsMd).toContain("`spawn_agent`");
-    // #209: the commit-hygiene line stays literal — AGENTS.md is Codex's durable
-    // checked-in guide, so "Never commit … AGENTS.md" would be wrong. Every OTHER
-    // `CLAUDE.md` reference is still retargeted away.
-    expect(agentsMd).toContain("Never commit `.claude/` or `CLAUDE.md`");
-    expect(agentsMd.replaceAll("Never commit `.claude/` or `CLAUDE.md`", "")).not.toContain(
-      "CLAUDE.md",
-    );
+    // #209 + #375: the commit-hygiene line USED to be the one literal `CLAUDE.md`
+    // mention Codex kept (it named what not to commit). `gitignoreHarness` owns
+    // that rule now and the line is gone, so the retarget must be total.
+    expect(agentsMd).not.toContain("CLAUDE.md");
     expect(agentsMd).not.toContain(".claude/agents");
     // #208: ephemeral inter-agent handoffs live in the engine dir, kept apart from
     // the git-persisted session-state dir (`progress/current.md`).
@@ -114,12 +112,9 @@ describe("renderCodexEngine", () => {
     expect(surfaces.length).toBeGreaterThan(10);
 
     for (const file of surfaces) {
-      // #209: the commit-hygiene line keeps `.claude/` on purpose — it names the
-      // directory NOT to commit, which is a real directory under both engines.
-      const body = readFileSync(file, "utf-8").replaceAll(
-        "Never commit `.claude/` or `CLAUDE.md`",
-        "",
-      );
+      // No exception left: #375 removed the commit-hygiene line that used to be
+      // the only surface allowed to name `.claude/` under Codex.
+      const body = readFileSync(file, "utf-8");
       expect({ file, hit: body.includes(".claude/") }).toEqual({ file, hit: false });
     }
   });
@@ -282,5 +277,36 @@ describe("renderCodexEngine", () => {
     expect(existsSync(newerReviewer)).toBe(true);
     expect(existsSync(userAgent)).toBe(true);
     expect(existsSync(join(userSkillDir, "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("adaptHarnessTextForCodex — the commit-hygiene shield (#209)", () => {
+  // #375 deleted the phrase from the core assets, so nothing navori ships hits
+  // this path any more — but the adapter also rewrites USER-ZONE prose, and a
+  // user who wrote the line by hand must not be told to stop committing their
+  // own AGENTS.md. These cases are now the only thing pinning the sentinel:
+  // they also prove it still round-trips after #375 rewrote its raw NUL
+  // delimiters as escape sequences (same runtime value, grep-able source).
+  it("keeps a user-written line literal while retargeting everything around it", () => {
+    const input = [
+      "- Never commit `.claude/` or `CLAUDE.md` in this repo.",
+      "- Apply `.claude/skills/review-diff/SKILL.md` and write `.claude/progress/review.md`.",
+    ].join("\n");
+
+    const out = adaptHarnessTextForCodex(input, config());
+
+    expect(out).toContain("Never commit `.claude/` or `CLAUDE.md`");
+    expect(out).toContain(".agents/skills/review-diff/SKILL.md");
+    expect(out).toContain(".codex/progress/review.md");
+    // The sentinel is an internal marker: it must be fully restored, never
+    // emitted. A leaked U+0000 would make the OUTPUT binary to git/grep too.
+    expect(out).not.toContain("\u0000");
+  });
+
+  it("emits no sentinel residue for text that never had the phrase", () => {
+    const out = adaptHarnessTextForCodex("Read `CLAUDE.md` before touching `.claude/`.", config());
+    expect(out).toBe("Read `AGENTS.md` before touching `.codex/`.");
+    expect(out).not.toContain("\u0000");
+    expect(out).not.toContain("navori:never-commit");
   });
 });

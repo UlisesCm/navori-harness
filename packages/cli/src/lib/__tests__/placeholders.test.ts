@@ -14,4 +14,17 @@ describe("placeholderFallback (F12)", () => {
   it("keeps the raw hint for unknown paths (spots a typo'd placeholder)", () => {
     expect(placeholderFallback("some.unknown.path")).toBe("<not configured: some.unknown.path>");
   });
+
+  it("renders a generic list for the array-defaulted project paths (#375)", () => {
+    // These default to `[]`, so they are unresolved in every config that didn't
+    // fill them in, and they are cited INLINE mid-sentence — the fallback has to
+    // read as a value, not as a diagnostic.
+    for (const path of ["project.criticalAreas", "project.legacyPaths"]) {
+      expect(placeholderFallback(path)).not.toMatch(/^</);
+      expect(placeholderFallback(path)).not.toContain("not configured");
+    }
+    expect(placeholderFallback("project.criticalAreas")).toBe(
+      "auth, permissions, payments, data integrity",
+    );
+  });
 });

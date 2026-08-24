@@ -14,7 +14,7 @@ Your first job is NOT to plan the implementation — it is to establish **what t
 
 ## When to trigger
 
-- Bug in a critical feature (auth, RBAC, payments, data integrity, areas listed in `{{project.criticalAreas}}`).
+- Bug in a critical feature (`{{project.criticalAreas}}`).
 - Before a structural migration (legacy → new backend, monolith → microservices, etc.).
 - New feature that crosses >3 layers (service → adapter → component → store).
 - Bug described in natural language with no clear hint of where to look.
