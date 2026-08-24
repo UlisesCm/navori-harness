@@ -144,7 +144,7 @@ describe("buildClaudeSettings — base shape", () => {
     );
     expect(bucket).toBeDefined();
     expect(bucket?.matcher).toBe("startup|resume|compact");
-    expect(bucket?.hooks[0].command).toContain("$CLAUDE_PROJECT_DIR");
+    expect(bucket?.hooks[0]?.command).toContain("$CLAUDE_PROJECT_DIR");
   });
 
   it("always registers the SubagentStop handoff-validator hook", () => {
@@ -158,7 +158,7 @@ describe("buildClaudeSettings — base shape", () => {
     expect(bucket).toBeDefined();
     // No matcher — the validator runs for every subagent, agent-type agnostic.
     expect(bucket?.matcher).toBeUndefined();
-    expect(bucket?.hooks[0].command).toContain("$CLAUDE_PROJECT_DIR");
+    expect(bucket?.hooks[0]?.command).toContain("$CLAUDE_PROJECT_DIR");
   });
 
   it("always registers the PreCompact session-summary hook (manual|auto)", () => {
@@ -189,7 +189,7 @@ describe("buildClaudeSettings — base shape", () => {
       b.hooks.some((h) => h.command.includes("stop-verify-reminder.sh")),
     );
     expect(bucket).toBeDefined();
-    expect(bucket?.hooks[0].command).toContain("$CLAUDE_PROJECT_DIR");
+    expect(bucket?.hooks[0]?.command).toContain("$CLAUDE_PROJECT_DIR");
   });
 });
 
@@ -219,7 +219,8 @@ describe("buildClaudeSettings — hook matcher coalescing (no double PreToolUse[
     const pre = preOf(buildClaudeSettings(withQG(), []));
     const bashBuckets = pre.filter((b) => b.matcher === "Bash");
     expect(bashBuckets).toHaveLength(1);
-    const cmds = bashBuckets[0].hooks.map((h) => h.command);
+    // Flattened over the (asserted single) bucket: no index, same commands.
+    const cmds = bashBuckets.flatMap((b) => b.hooks.map((h) => h.command));
     expect(cmds.some((c) => c.includes("guard-destructive.sh"))).toBe(true);
     expect(cmds.some((c) => c.includes("quality-gate-pre-commit.sh"))).toBe(true);
   });
@@ -232,7 +233,7 @@ describe("buildClaudeSettings — hook matcher coalescing (no double PreToolUse[
     const pre = preOf(buildClaudeSettings(withQG(), [plugin]));
     const bashBuckets = pre.filter((b) => b.matcher === "Bash");
     expect(bashBuckets).toHaveLength(1);
-    expect(bashBuckets[0].hooks).toHaveLength(3); // guard + qg + plugin
+    expect(bashBuckets.flatMap((b) => b.hooks)).toHaveLength(3); // guard + qg + plugin
   });
 
   it("keeps distinct matchers in separate buckets", () => {
@@ -278,8 +279,13 @@ describe("buildClaudeSettings — plugin merging", () => {
     // Bash bucket (coalesced), so assert on membership, not position.
     const bashBucket = hooks.PreToolUse?.find((b) => b.matcher === "Bash");
     expect(bashBucket?.hooks.some((h) => h.command === "bash check.sh")).toBe(true);
-    expect(hooks.PostToolUse?.[0].matcher).toBeUndefined();
-    expect(hooks.PostToolUse?.[0].hooks[0].command).toBe("echo done");
+    // Assert the PostToolUse bucket EXISTS before asserting it carries no
+    // matcher: `postBucket?.matcher` is `undefined` when the bucket is missing
+    // too, so without this line a translation that emitted nothing would pass.
+    const postBucket = hooks.PostToolUse?.[0];
+    expect(postBucket).toBeDefined();
+    expect(postBucket?.matcher).toBeUndefined();
+    expect(postBucket?.hooks[0]?.command).toBe("echo done");
   });
 
   it("groups multiple plugin hooks on the same event+matcher under one bucket", () => {
@@ -298,7 +304,7 @@ describe("buildClaudeSettings — plugin merging", () => {
     // with the always-on guard via coalescing) — one bucket, both commands.
     const bashBuckets = pre.filter((b) => b.matcher === "Bash");
     expect(bashBuckets).toHaveLength(1);
-    const cmds = bashBuckets[0].hooks.map((h) => h.command);
+    const cmds = bashBuckets.flatMap((b) => b.hooks.map((h) => h.command));
     expect(cmds).toContain("a");
     expect(cmds).toContain("b");
   });

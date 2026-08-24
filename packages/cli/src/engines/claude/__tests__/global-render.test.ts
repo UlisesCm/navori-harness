@@ -125,8 +125,10 @@ describe("global-render — hook script + gate (executed with bash)", () => {
 describe("global-render — settings merge (no clobber)", () => {
   it("registers the hook pointing at the absolute path", () => {
     const plan = planGlobalRender(defaultGlobalConfig("0.5.0"));
-    const ss = (plan.settings.hooks as Record<string, unknown[]>).SessionStart;
-    const cmd = (ss[0] as { hooks: { command: string }[] }).hooks[0].command;
+    const ss = (plan.settings.hooks as { SessionStart?: Array<{ hooks: { command: string }[] }> })
+      .SessionStart;
+    expect(ss).toBeDefined();
+    const cmd = ss?.[0]?.hooks[0]?.command;
     expect(cmd).toBe(`bash "${plan.hookPath}"`);
     expect(plan.hookPath).toBe(join(claudeDir, "hooks/navori-global-baseline.sh"));
   });
@@ -214,8 +216,9 @@ describe("global-render — apply + uninstall round-trip", () => {
       },
     };
     const stripped = stripBaselineFromSettings(settings) as typeof settings;
-    const kept = stripped.hooks.SessionStart[0].hooks;
+    // `?? []` cannot hide a dropped bucket: the length assertion below fails on it.
+    const kept = stripped.hooks.SessionStart[0]?.hooks ?? [];
     expect(kept).toHaveLength(1);
-    expect(kept[0].command).toBe("bash /other/tool.sh");
+    expect(kept[0]?.command).toBe("bash /other/tool.sh");
   });
 });

@@ -9,7 +9,11 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
+import {
+  NavoriConfigSchema,
+  type NavoriConfig,
+  type NavoriConfigInput,
+} from "../../../lib/schema.ts";
 import { renderCodexEngine } from "../index.ts";
 import { adaptHarnessTextForCodex } from "../compat.ts";
 
@@ -32,7 +36,9 @@ function proseSurfaces(cwd: string): string[] {
   ];
 }
 
-function config(overrides: Partial<NavoriConfig> = {}): NavoriConfig {
+/** Overrides are merged BEFORE `parse`, so they are schema INPUT (every field
+ * with a default is optional there) — not the fully-defaulted `NavoriConfig`. */
+function config(overrides: Partial<NavoriConfigInput> = {}): NavoriConfig {
   return NavoriConfigSchema.parse({
     name: "codex-demo",
     engines: ["codex"],

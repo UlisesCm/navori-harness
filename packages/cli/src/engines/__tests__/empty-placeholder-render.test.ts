@@ -52,10 +52,20 @@ const EMPTY_CODE_SPAN = /(?<!`)``(?!`)/;
 
 type Renderer = (cwd: string, config: NavoriConfig) => void;
 
-const ENGINES: ReadonlyArray<{ id: string; engines: NavoriConfig["engines"]; render: Renderer }> = [
-  { id: "claude", engines: ["claude"], render: (cwd, c) => void renderClaudeEngine(cwd, c) },
-  { id: "codex", engines: ["codex"], render: (cwd, c) => void renderCodexEngine(cwd, c) },
-];
+type EngineCase = { id: string; engines: NavoriConfig["engines"]; render: Renderer };
+
+const CLAUDE: EngineCase = {
+  id: "claude",
+  engines: ["claude"],
+  render: (cwd, c) => void renderClaudeEngine(cwd, c),
+};
+const CODEX: EngineCase = {
+  id: "codex",
+  engines: ["codex"],
+  render: (cwd, c) => void renderCodexEngine(cwd, c),
+};
+
+const ENGINES: readonly EngineCase[] = [CLAUDE, CODEX];
 
 /** Minimal configs: no `qualityGate`, no plugins, nothing optional filled in. */
 const PROJECT_SHAPES: ReadonlyArray<{ id: string; project?: Record<string, unknown> }> = [
@@ -73,11 +83,10 @@ const PROJECT_SHAPES: ReadonlyArray<{ id: string; project?: Record<string, unkno
 const tempDirs: string[] = [];
 
 function render(
-  engineIdx: number,
+  engine: EngineCase,
   project: Record<string, unknown> | undefined,
   language?: Lang,
 ): string {
-  const engine = ENGINES[engineIdx];
   const cwd = mkdtempSync(join(tmpdir(), `navori-empty-ph-${engine.id}-`));
   tempDirs.push(cwd);
   engine.render(
@@ -105,10 +114,10 @@ afterAll(() => {
 });
 
 describe("a minimal config renders no empty / unconfigured placeholder (#375)", () => {
-  for (const [engineIdx, engine] of ENGINES.entries()) {
+  for (const engine of ENGINES) {
     for (const shape of PROJECT_SHAPES) {
       it(`${engine.id} — ${shape.id}: no artifact leaks a <not configured: …> token`, () => {
-        const cwd = render(engineIdx, shape.project);
+        const cwd = render(engine, shape.project);
         const surfaces = listFiles(cwd).filter((f) => SWEPT_EXTENSIONS.test(f));
         expect(surfaces.length).toBeGreaterThan(0);
 
@@ -119,7 +128,7 @@ describe("a minimal config renders no empty / unconfigured placeholder (#375)", 
       });
 
       it(`${engine.id} — ${shape.id}: no artifact leaves an empty value in the prose`, () => {
-        const cwd = render(engineIdx, shape.project);
+        const cwd = render(engine, shape.project);
         const hits: Array<{ file: string; line: string }> = [];
         for (const file of listFiles(cwd).filter((f) => SWEPT_EXTENSIONS.test(f))) {
           for (const line of readFileSync(join(cwd, file), "utf-8").split("\n")) {
@@ -133,12 +142,12 @@ describe("a minimal config renders no empty / unconfigured placeholder (#375)", 
 
   it("substitutes the critical-areas fallback in the R2-architectural signal list", () => {
     // The exact sentence the bug rendered as "· a `` area ·" (CLAUDE.md:72 here).
-    const claudeMd = readFileSync(join(render(0, {}), "CLAUDE.md"), "utf-8");
+    const claudeMd = readFileSync(join(render(CLAUDE, {}), "CLAUDE.md"), "utf-8");
     expect(claudeMd).toContain("a critical area (`auth, permissions, payments, data integrity`)");
   });
 
   it("still prefers the configured value over the fallback", () => {
-    const cwd = render(0, { criticalAreas: ["src/auth", "src/billing"] });
+    const cwd = render(CLAUDE, { criticalAreas: ["src/auth", "src/billing"] });
     const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
     expect(claudeMd).toContain("a critical area (`src/auth, src/billing`)");
     expect(claudeMd).not.toContain("a critical area (`auth, permissions");
@@ -158,11 +167,11 @@ describe("a minimal config renders no empty / unconfigured placeholder (#375)", 
 describe("the qualityGate fallback is published in the repo's language (#445)", () => {
   const OTHER: Record<Lang, Lang> = { es: "en", en: "es" };
 
-  for (const [engineIdx, engine] of ENGINES.entries()) {
+  for (const engine of ENGINES) {
     for (const lang of ["en", "es"] as const) {
       it(`${engine.id} — language:"${lang}" publishes only the ${lang} diagnostic`, () => {
         // No `qualityGate` in this config, so every one of those sites falls back.
-        const contents = sweptContents(render(engineIdx, {}, lang));
+        const contents = sweptContents(render(engine, {}, lang));
         const own = placeholderFallback("qualityGate.fast", lang);
         const foreign = placeholderFallback("qualityGate.fast", OTHER[lang]);
 
@@ -176,11 +185,11 @@ describe("the qualityGate fallback is published in the repo's language (#445)", 
     it(`${engine.id} — a configured gate publishes no diagnostic in any language`, () => {
       const cwd = mkdtempSync(join(tmpdir(), `navori-gate-lang-${engine.id}-`));
       tempDirs.push(cwd);
-      ENGINES[engineIdx].render(
+      engine.render(
         cwd,
         NavoriConfigSchema.parse({
           name: "empty-placeholder-demo",
-          engines: ENGINES[engineIdx].engines,
+          engines: engine.engines,
           preset: "custom",
           language: "en",
           qualityGate: { fast: "pnpm lint", full: "pnpm test && pnpm lint" },

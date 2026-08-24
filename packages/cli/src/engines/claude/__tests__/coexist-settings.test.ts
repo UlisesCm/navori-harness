@@ -7,8 +7,17 @@ import { mergeCoexistSettings } from "../coexist-settings.ts";
  * taking ownership, idempotently, preserving every user key.
  */
 
+type HookEntry = { type: string; command: string; timeout: number; statusMessage: string };
+/** The fixture ships exactly one PreToolUse group, so a tuple — not an array —
+ * describes it: tests can reach `PreToolUse[0]` without an index guard. */
+type NavoriSettingsFixture = {
+  $navori: { managed: boolean; version: string };
+  hooks: { PreToolUse: [{ matcher: string; hooks: HookEntry[] }] };
+  permissions: { allow: string[]; ask: string[]; deny: string[] };
+};
+
 /** A representative buildClaudeSettings() result (defensive bits only shown). */
-function navoriSettings(): Record<string, unknown> {
+function navoriSettings(): NavoriSettingsFixture {
   return {
     $navori: { managed: true, version: "0.2.7" },
     hooks: {
@@ -58,8 +67,9 @@ describe("mergeCoexistSettings", () => {
     const bash = (
       merged.hooks as { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string }> }> }
     ).PreToolUse[0];
-    expect(bash.matcher).toBe("Bash");
-    expect(bash.hooks.map((h) => h.command)).toEqual([
+    expect(bash).toBeDefined();
+    expect(bash?.matcher).toBe("Bash");
+    expect(bash?.hooks.map((h) => h.command)).toEqual([
       'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh"',
       'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh"',
     ]);
@@ -109,7 +119,7 @@ describe("mergeCoexistSettings", () => {
     ).PreToolUse;
     // single Bash group, user hook first, navori hooks appended
     expect(groups).toHaveLength(1);
-    expect(groups[0].hooks.map((h) => h.command)).toEqual([
+    expect(groups[0]?.hooks.map((h) => h.command)).toEqual([
       "bash .claude/hooks/my-own.sh",
       'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh"',
       'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh"',
@@ -135,13 +145,13 @@ describe("mergeCoexistSettings", () => {
 
     // Now navori no longer wants the quality-gate hook nor one deny rule.
     const shrunk = navoriSettings();
-    (shrunk.hooks as { PreToolUse: Array<{ hooks: unknown[] }> }).PreToolUse[0].hooks.pop();
-    (shrunk.permissions as { deny: string[] }).deny = ["Bash(rm -rf /)"];
+    shrunk.hooks.PreToolUse[0].hooks.pop();
+    shrunk.permissions.deny = ["Bash(rm -rf /)"];
 
     const merged = mergeCoexistSettings(withGate, shrunk);
     const cmds = (
       merged.hooks as { PreToolUse: Array<{ hooks: Array<{ command: string }> }> }
-    ).PreToolUse[0].hooks.map((h) => h.command);
+    ).PreToolUse[0]?.hooks.map((h) => h.command);
     expect(cmds).toEqual(['bash "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh"']);
     expect((merged.permissions as { deny: string[] }).deny).toEqual(["Bash(rm -rf /)"]);
     // user key survived the whole dance

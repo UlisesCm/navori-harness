@@ -7,8 +7,11 @@ describe("deepMerge", () => {
   });
 
   it("merges nested objects recursively", () => {
-    const base = { a: { x: 1, y: 2 } };
-    const ovr = { a: { y: 99, z: 3 } };
+    // The override legitimately adds a key the base lacks (`z`), so both sides
+    // are typed by the UNION shape: `Partial<T>` alone would reject `z` as excess.
+    type Nested = { a: { x?: number; y?: number; z?: number } };
+    const base: Nested = { a: { x: 1, y: 2 } };
+    const ovr: Nested = { a: { y: 99, z: 3 } };
     expect(deepMerge(base, ovr)).toEqual({ a: { x: 1, y: 99, z: 3 } });
   });
 
@@ -40,8 +43,9 @@ describe("deepMerge", () => {
   });
 
   it("does not mutate the inputs", () => {
-    const base = { a: { x: 1 }, list: [1, 2] };
-    const ovr = { a: { y: 2 }, list: [3] };
+    type Nested = { a: { x?: number; y?: number }; list: number[] };
+    const base: Nested = { a: { x: 1 }, list: [1, 2] };
+    const ovr: Nested = { a: { y: 2 }, list: [3] };
     deepMerge(base, ovr);
     expect(base).toEqual({ a: { x: 1 }, list: [1, 2] });
     expect(ovr).toEqual({ a: { y: 2 }, list: [3] });
