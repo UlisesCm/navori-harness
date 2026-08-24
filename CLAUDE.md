@@ -53,7 +53,7 @@ Protocolo global activo. En este repo:
 - El harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se commitea aquí y en todo repo no-Bonum — navori se auto-hospeda. La regla de "nunca commitear `.claude/`/`CLAUDE.md`" aplica solo a los repos `/bonum`. Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 - Branch base: definir cuando se inicialice el repo git.
 
-<!-- navori:managed id="orquestacion" hash="409fe5f2" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="8c8e2adf" version="0.6.0" source="@navori/core" -->
 ## Role: orchestrator (organic routing)
 
 You are the main agent. For any task, **pick the smallest route that covers it**; step up only when you cross an objective threshold. Fan-out (subagents) is a **lever** for complex or parallelizable work, not a toll every task pays. Review the candidate **after** implementing, not before. You **embody** the orchestrator role: when a task reaches R2, **you act as the orchestrator** (decompose and coordinate) — but **NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -69,7 +69,7 @@ You are the main agent. For any task, **pick the smallest route that covers it**
 
 Scoped research → `researcher`; broad maps (where does X live?) → `explorer`. Deep read-only audit of a module/area/repo with **no ticket** (security/perf/SOLID/edge-cases, e.g. mapping debt before a refactor) → `auditor` (writes `audit_deep_<scope>.md`); a concrete complex ticket to analyze before decomposing → `ticket-audit` (writes `audit_ticket_<ID>.md`). With a prior ticket audit, hand the `implementer` the path to `.claude/progress/audit_ticket_<ID>.md`.
 
-**R2-architectural — design before you decompose.** A task inside R2 that shows ANY of these earns a solution pass first: new shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a `` area · hard-to-reverse decision · ≥2 genuinely viable approaches. File count is a hint, never the definition — an exact existing pattern with a local change and a trivial rollback stays plain R2. The pass is: `solution-design` skill → ONE fresh-context challenge (a `researcher`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks.
+**R2-architectural — design before you decompose.** A task inside R2 that shows ANY of these earns a solution pass first: new shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area (`auth, permissions, payments, data integrity`) · hard-to-reverse decision · ≥2 genuinely viable approaches. File count is a hint, never the definition — an exact existing pattern with a local change and a trivial rollback stays plain R2. The pass is: `solution-design` skill → ONE fresh-context challenge (a `researcher`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks.
 
 ### Thresholds that make you STEP UP a route
 
@@ -163,18 +163,16 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, stora
 - **Sensitive data**: don't dump secrets, PII, or full dumps to logs, chat, or repo files.
 <!-- /navori:managed id="operaciones-seguras" -->
 
-<!-- navori:managed id="arranque-sesion" hash="5a9055af" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="arranque-sesion" hash="1b168988" version="0.6.0" source="@navori/core" -->
 ## Session startup
 
 On Claude, a `SessionStart` hook injects the live context — branch, recent commits, and the previous session's `progress/current.md` — at the top of the session; read it to resume. Otherwise, read `progress/current.md` yourself. Then, before touching code:
 
-1. **Healthy config**: run `navori doctor` if `navori.config.json` / `.claude/` look inconsistent.
-2. **Gates ready**: the declared quality gates actually run (binaries on PATH). A gate that doesn't execute is silent debt — install it or note it in `progress/current.md`.
-3. **Working branch**: confirm you're not on the base branch (`main`).
-4. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
+1. **Healthy config**: run `navori doctor` if `navori.config.json` / `.claude/` look inconsistent, or to confirm the declared quality gates can actually run.
+2. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
 <!-- /navori:managed id="arranque-sesion" -->
 
-<!-- navori:managed id="cierre-sesion" hash="3137c32f" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="cierre-sesion" hash="7b15bb77" version="0.6.0" source="@navori/core" -->
 ## Session closeout
 
 Before closing the session:
@@ -183,7 +181,7 @@ Before closing the session:
 2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
-5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, atomic, in the language defined by the config's `commits`. Never commit `.claude/` or `CLAUDE.md`.
+5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, atomic, in the language defined by the config's `commits`.
 <!-- /navori:managed id="cierre-sesion" -->
 
 <!-- navori:managed id="sdd" hash="ea9d8726" version="0.6.0" source="@navori/core" -->

@@ -33,8 +33,35 @@ describe("interpolate — default mode", () => {
     expect(interpolate("legacy: {{project.legacyPaths}}", CONFIG)).toBe("legacy: src/legacy");
   });
 
-  it("renders an empty array as an empty string (#89)", () => {
-    expect(interpolate("x={{project.emptyList}}", CONFIG)).toBe("x=");
+  it("treats an empty array as unresolved instead of emitting nothing (#375)", () => {
+    // Emitting "" deleted the value from the sentence around it while the prose
+    // kept asserting one was there ("a `` area"). Unresolved → the fallback.
+    expect(interpolate("x={{project.emptyList}}", CONFIG)).toBe(
+      "x=<not configured: project.emptyList>",
+    );
+  });
+
+  it("treats a blank string and a blank join as unresolved too (#375)", () => {
+    const blank = {
+      ...CONFIG,
+      project: { architectureRule: "   ", blankList: ["", "  "] },
+    } as unknown as NavoriConfig;
+    expect(interpolate("r={{project.architectureRule}}", blank)).toBe(
+      "r=<not configured: project.architectureRule>",
+    );
+    expect(interpolate("l={{project.blankList}}", blank)).toBe(
+      "l=<not configured: project.blankList>",
+    );
+  });
+
+  it("routes an empty known-optional path to its soft fallback, not to <not configured> (#375)", () => {
+    // The pairing that makes the rule safe: `project.criticalAreas` defaults to
+    // `[]` in every config with a `project` section, and it is cited inline in
+    // 11 assets — a raw token there would read as a broken template.
+    const empty = { ...CONFIG, project: { criticalAreas: [] } } as unknown as NavoriConfig;
+    expect(interpolate("a `{{project.criticalAreas}}` area", empty)).toBe(
+      "a `auth, permissions, payments, data integrity` area",
+    );
   });
 
   it("falls back for arrays of objects instead of emitting [object Object] (#89)", () => {

@@ -135,7 +135,7 @@ The leader (or the human) reads the report and the plan from disk and executes f
 <!-- user: add here what's specific to your stack. Suggestions:
      - Stack security checklist (e.g. server-side RBAC, CORS, shared auth contracts).
      - Stack performance checklist (e.g. ORM N+1, table memoization, RSC vs client).
-     - Critical areas that almost always need an audit: <not configured: project.criticalAreas>.
+     - Critical areas that almost always need an audit: auth, permissions, payments, data integrity.
      - Table of known FALSE POSITIVES: pattern | false positive? | why (avoids re-reporting design decisions).
      - Regions NOT to audit: generated, lock, library components.
 -->

@@ -189,7 +189,6 @@ If the repo defines its own template (`.github/pull_request_template.md`), read 
 ## Hard rules
 
 - ❌ Never push with `--force` to `{{branchBase}}` or another protected branch.
-- ❌ Never commit `.claude/` or `CLAUDE.md` (gitignored by convention).
 - ❌ Never skip hooks (`--no-verify`) unless the user explicitly asks.
 - ❌ Never ask for a merge / approve the PR yourself. Your job ends with the URL.
 - ❌ Never `gh pr checks --watch`: it takes no timeout and would hang the turn before the URL reaches the user.

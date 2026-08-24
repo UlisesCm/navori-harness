@@ -114,7 +114,7 @@ When applying it, the output to the user must include:
 
 <!-- user: add here claims specific to your repo and their required evidence. Suggestions:
      - DB migrations: command to validate the state (e.g. your ORM's migration status).
-     - Critical areas: <not configured: project.criticalAreas> → specific checks per area.
+     - Critical areas: auth, permissions, payments, data integrity → specific checks per area.
      - Repo scripts that count as "valid evidence" (e.g. `pnpm e2e:smoke`).
      - Commands forbidden as evidence (e.g. "the Vercel preview" if it's not a real repro).
      - Recurring bug patterns of the repo where inference has historically failed.

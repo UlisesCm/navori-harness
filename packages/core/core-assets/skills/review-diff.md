@@ -108,7 +108,7 @@ Rule: if removing the abstraction leaves the code **just as correct** and shorte
 
 ## Critical areas
 
-Pay extra attention if the diff touches the critical areas your repo declares (in `navori.config.json` / CLAUDE.md). A finding in those zones goes up one severity level.
+Pay extra attention if the diff touches `{{project.criticalAreas}}`. A finding in those zones goes up one severity level.
 
 ## Output
 

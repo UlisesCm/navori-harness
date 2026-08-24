@@ -4,7 +4,7 @@ description: Drafts commit messages and opens PRs with a title + body following 
 tools: Read, Glob, Grep, Bash
 ---
 
-<!-- navori:managed id="commit-pr-pilot-base" hash="0a0197fd" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="commit-pr-pilot-base" hash="0bc8c9f9" version="0.6.0" source="@navori/core" -->
 # Commit & PR Pilot Agent
 
 You own the **end of the cycle**: well-structured Conventional commits and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -188,7 +188,6 @@ If the repo defines its own template (`.github/pull_request_template.md`), read 
 ## Hard rules
 
 - ❌ Never push with `--force` to `main` or another protected branch.
-- ❌ Never commit `.claude/` or `CLAUDE.md` (gitignored by convention).
 - ❌ Never skip hooks (`--no-verify`) unless the user explicitly asks.
 - ❌ Never ask for a merge / approve the PR yourself. Your job ends with the URL.
 - ❌ Never `gh pr checks --watch`: it takes no timeout and would hang the turn before the URL reaches the user.

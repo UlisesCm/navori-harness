@@ -158,8 +158,8 @@ After the summary, curate the session: consolidate duplicates, fix contradicted 
 ## Project rules
 
 <!-- user: add here what's specific to your repo. Suggestions:
-     - Critical areas that need extra review: <not configured: project.criticalAreas>
-     - Legacy folders with different rules: <not configured: project.legacyPaths>
+     - Critical areas that need extra review: auth, permissions, payments, data integrity
+     - Legacy folders with different rules: legacy/, vendor/
      - Repo naming / structure conventions.
      - Migrations in progress (e.g. legacy → new backend).
      - Stack: framework, UI lib, forms lib, state, test runner.
