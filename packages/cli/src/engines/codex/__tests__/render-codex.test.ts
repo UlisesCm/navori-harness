@@ -17,6 +17,21 @@ function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-codex-"));
 }
 
+/**
+ * Every PROSE surface a Codex render pushes through `adaptHarnessTextForCodex`:
+ * `AGENTS.md`, one TOML per agent, one `SKILL.md` per skill. Hooks are shell
+ * scripts, not prose, and the adapter never sees them.
+ */
+function proseSurfaces(cwd: string): string[] {
+  return [
+    join(cwd, "AGENTS.md"),
+    ...readdirSync(join(cwd, ".codex/agents")).map((f) => join(cwd, ".codex/agents", f)),
+    ...readdirSync(join(cwd, ".agents/skills")).map((d) =>
+      join(cwd, ".agents/skills", d, "SKILL.md"),
+    ),
+  ];
+}
+
 function config(overrides: Partial<NavoriConfig> = {}): NavoriConfig {
   return NavoriConfigSchema.parse({
     name: "codex-demo",
@@ -102,13 +117,7 @@ describe("renderCodexEngine", () => {
     const cwd = tempRepo();
     renderCodexEngine(cwd, config());
 
-    const surfaces = [
-      join(cwd, "AGENTS.md"),
-      ...readdirSync(join(cwd, ".codex/agents")).map((f) => join(cwd, ".codex/agents", f)),
-      ...readdirSync(join(cwd, ".agents/skills")).map((d) =>
-        join(cwd, ".agents/skills", d, "SKILL.md"),
-      ),
-    ];
+    const surfaces = proseSurfaces(cwd);
     expect(surfaces.length).toBeGreaterThan(10);
 
     for (const file of surfaces) {
@@ -367,5 +376,76 @@ describe("adaptHarnessTextForCodex — only mirrored dirs get retargeted (#428)"
     expect(out).toContain(".codex/progress/impl_x.md");
     expect(out).toContain("if `.codex/` looks inconsistent");
     expect(out).not.toContain(".claude/");
+  });
+});
+
+describe("adaptHarnessTextForCodex — the vocabulary rules (#443)", () => {
+  /**
+   * End-to-end evidence that the two rewritten rules land on the orchestration
+   * block. `vocabulary-alive.test.ts` owns the general "no rule may go dead"
+   * guard; this pins the two sentences #443 reported, in the artifact a Codex
+   * repo actually reads.
+   */
+  it("names Codex's tool and Codex itself in the rendered orchestration prose", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ language: "en" }));
+    const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+
+    expect(agentsMd).toContain("do not invoke `spawn_agent(leader)`");
+    expect(agentsMd).not.toContain("Agent(subagent_type: leader)");
+    // The harness of a Codex repo must not explain Claude's behaviour as if it
+    // were its own; the instruction the clause qualifies is unchanged.
+    expect(agentsMd).toContain("Codex serializes by default");
+    expect(agentsMd).not.toContain("Claude serializes by default");
+  });
+
+  /**
+   * The complement: the adapter must not author prose. `Agent(subagent_type:
+   * leader)` → `un subagente \`leader\`` translated the phrase around the term,
+   * so every Codex render carried that Spanish fragment inside an otherwise
+   * English `AGENTS.md`, and `language: "en"` could not turn it off because the
+   * rule never consulted the config. Which language a block is served in belongs
+   * to the asset layer (`resolveAssetPath` + `baseLanguage`), not here.
+   *
+   * Pinned as the EXACT fragment the old rule emitted, not a looser "no Spanish"
+   * sweep: an `es` render legitimately carries Spanish (`idioma-rol` and
+   * `formato-respuesta` are Spanish-authored blocks), so a broad match would go
+   * red on an unrelated asset edit. Both languages are checked because the
+   * injection was invisible to `language` in the first place.
+   */
+  it("authors none of the Spanish it used to inject, at any language", () => {
+    for (const language of ["es", "en"] as const) {
+      const cwd = tempRepo();
+      renderCodexEngine(cwd, config({ language }));
+      for (const file of proseSurfaces(cwd)) {
+        const hit = readFileSync(file, "utf-8").includes("un subagente `leader`");
+        expect({ file, language, hit }).toEqual({ file, language, hit: false });
+      }
+    }
+  });
+
+  it("rewrites the leader citation's TERM and leaves the sentence around it", () => {
+    const out = adaptHarnessTextForCodex(
+      "**NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference.",
+      config({ language: "en" }),
+    );
+
+    expect(out).toBe(
+      "**NEVER delegate it**: do not invoke `spawn_agent(leader)`. `AGENTS.md` is a depth reference.",
+    );
+  });
+
+  /**
+   * Pins the deliberate NON-rule documented in `compat.ts`. The dead `"En Claude
+   * Code" → "En Codex"` rule was aimed at this sentence, and reviving it as
+   * `"On Claude" → "On Codex"` would claim a session-start hook Codex does not
+   * register (`build-config-toml.ts` emits only `[[hooks.PreToolUse]]`) and
+   * swallow the "Otherwise" branch, which is the instruction Codex must follow.
+   */
+  it("leaves the engine-conditional session-start sentence verbatim", () => {
+    const input =
+      "On Claude, a `SessionStart` hook injects the live context at the top of the session; read it to resume. Otherwise, read `progress/current.md` yourself.";
+
+    expect(adaptHarnessTextForCodex(input, config({ language: "en" }))).toBe(input);
   });
 });
