@@ -22,20 +22,32 @@ set -euo pipefail
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
 # by hand (that is the drift #225/#261 removed).
 #
-# PreToolUse(Bash) passes the tool input on stdin. Extract .tool_input.command
+# PreToolUse(Bash) passes the tool input on stdin. Read one field out of it
 # WITHOUT hard-depending on jq (NOT preinstalled on macOS): try jq, then node
-# (Claude Code's own runtime), then a best-effort sed unwrap. No command
-# extracted → empty $cmd, and each caller decides what that means (the gate
-# scripts scan defensively; guard-destructive waves the command through).
+# (Claude Code's own runtime), then a best-effort sed unwrap on the leaf key.
+# Nothing extracted → empty output, and each caller decides what that means (the
+# gate scripts scan defensively; guard-destructive waves the command through).
+#
+# $1 is a dotted path written HERE, never user input — the payload is the data.
+# Generic on purpose: `.cwd` feeds the worktree resolver of #454 through the
+# SAME hardened cascade instead of a second copy of it.
+#
+# $2 overrides the sed fallback's capture. `.*` (greedy, to the last quote on the
+# line) is right for `command`, whose value can itself contain escaped quotes and
+# which Claude Code sends LAST. Every other field takes the default `[^"]*` run,
+# so a value with more JSON after it is not swallowed whole.
 payload=$(cat)
-extract_cmd() {
+payload_field() {
   if command -v jq >/dev/null 2>&1; then
-    printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null && return 0
+    printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
   fi
   if command -v node >/dev/null 2>&1; then
-    printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{try{process.stdout.write(String(JSON.parse(s)?.tool_input?.command??""))}catch{}})' 2>/dev/null && return 0
+    printf '%s' "$payload" | node -e 'let s="";const p=process.argv[1].split(".");process.stdin.on("data",c=>s+=c).on("end",()=>{try{let v=JSON.parse(s);for(const k of p)v=v?.[k];process.stdout.write(String(v??""))}catch{}})' "$1" 2>/dev/null && return 0
   fi
-  printf '%s' "$payload" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p'
+  printf '%s' "$payload" | sed -n "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"\(${2:-[^\"]*}\)\".*/\1/p"
+}
+extract_cmd() {
+  payload_field tool_input.command '.*'
 }
 cmd=$(extract_cmd)
 
@@ -108,6 +120,158 @@ is_scan_trigger() {
   return 1
 }
 
+# Resolution of the working tree the commit acts on (#454). Shared body.
+# Shared worktree resolver — inlined into each gate hook at render time (see the
+# include directive in the source scripts + lib/hook-includes.ts). Requires the
+# `extract-cmd` partial to have run first ($payload and $cmd in scope).
+#
+# WHY (#454): settings.json invokes these hooks as
+# `bash "$CLAUDE_PROJECT_DIR/.claude/scripts/check-semgrep.sh"`, so the hook
+# PROCESS starts in the MAIN repo even when the commit happens inside an agent
+# worktree under `.claude/worktrees/`. The old `cd "$(git rev-parse
+# --show-toplevel)"` therefore resolved the main repo — whose tree is clean — so
+# `git diff --name-only main` returned 0 files and the gate exited 0. Not a false
+# negative from the scanner: the scanner never ran. A `cd` to an arbitrary tree
+# is exactly the bug, so nothing below ever guesses: every candidate must prove
+# it is a git working tree, or the next one is tried — and the one the COMMAND
+# names must additionally prove it is part of the repository being protected
+# (see the same-repository constraint in `navori_worktree`).
+#
+# `navori_worktree` prints the absolute root of the working tree the gated git
+# command will act on, or nothing when none resolves. It is a FUNCTION, not a
+# top-level assignment, because `quality-gate-pre-commit` inlines this partial on
+# a path that runs on EVERY Bash tool call: callers pay the git/jq probes only
+# after their own trigger matched.
+
+# First shell token of $1: a leading single/double-quoted string (so a path with
+# spaces survives) or an unquoted run of non-space characters.
+navori_first_token() {
+  local s="$1"
+  case "$s" in
+    \"*) s="${s#\"}"; printf '%s' "${s%%\"*}" ;;
+    \'*) s="${s#\'}"; printf '%s' "${s%%\'*}" ;;
+    *) printf '%s' "${s%%[[:space:]]*}" ;;
+  esac
+}
+
+# Directory named by the command itself, if any. Two shapes, both real in this
+# harness: `git -C <dir> commit …` (git names its own tree) and
+# `cd <dir> && git commit …` (how an agent commits into its worktree from a
+# session anchored elsewhere). Prints the raw token; the caller resolves it.
+#
+# TODO(scope): only the FIRST segment is inspected for `cd`. A `cd` buried
+# mid-chain (`pnpm build && cd sub && git commit`) falls through to the payload
+# cwd, which is right whenever that `cd` stays inside the same repo. Walk the
+# segments if a real command shows up where it does not.
+navori_cmd_dir() {
+  local text="$1" rest="" head=""
+  case "$text" in
+    *"git -C "*)
+      rest="${text#*git -C }"
+      ;;
+    *)
+      head="${text%%&&*}"
+      head="${head#"${head%%[![:space:]]*}"}"
+      case "$head" in
+        "cd "*) rest="${head#cd }" ;;
+      esac
+      ;;
+  esac
+  [ -n "$rest" ] || return 1
+  rest="${rest#"${rest%%[![:space:]]*}"}"
+  # A token that needs the shell to expand it ($VAR, `sub`, ~, globs) is NOT
+  # resolved here: guessing wrong points the scan at the wrong tree, which is
+  # the very failure this partial exists to kill. Ignoring it just falls through
+  # to the next candidate.
+  case "$rest" in
+    ""|*'$'*|*'`'*|*'*'*|*'?'*|"~"*) return 1 ;;
+  esac
+  navori_first_token "$rest"
+}
+
+# Absolute, symlink-resolved path of a working tree's SHARED git dir, or nothing
+# when $1 is not inside a git working tree. `--git-common-dir` names the `.git`
+# of the MAIN checkout, so every linked worktree of one repository — and every
+# subdirectory of it — reports the SAME value, while a different repository
+# reports its own and a submodule reports `<main>/.git/modules/<name>`. That
+# makes it an identity test for "same repository", which `--show-toplevel` (one
+# per working tree) and `--git-dir` (one per worktree) are not.
+navori_repo_id() {
+  local dir="$1" common=""
+  common=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null) || return 1
+  [ -n "$common" ] || return 1
+  # `git -C <dir>` chdirs to <dir> first, so a relative answer (`.git`,
+  # `../../.git`) is relative to <dir>. `pwd -P` canonicalises both sides the
+  # same way, which also settles macOS's /var vs /private/var symlink.
+  (cd "$dir" && cd "$common" && pwd -P) 2>/dev/null
+}
+
+# First argument that resolves to a git working tree; prints its root.
+navori_first_tree() {
+  local candidate toplevel
+  for candidate in "$@"; do
+    [ -n "$candidate" ] || continue
+    [ -d "$candidate" ] || continue
+    toplevel=$(git -C "$candidate" rev-parse --show-toplevel 2>/dev/null) || continue
+    [ -n "$toplevel" ] || continue
+    printf '%s' "$toplevel"
+    return 0
+  done
+  return 1
+}
+
+# Resolution, most specific first:
+#   1. the directory the command names (`git -C` / a leading `cd`), ONLY when it
+#      belongs to the same repository as the anchor (see the constraint below);
+#   2. the payload's `.cwd` — Claude Code sends the CURRENT working directory of
+#      the tool call, a documented field distinct from $CLAUDE_PROJECT_DIR (the
+#      project root). In an agent worktree these differ; that gap IS #454;
+#   3. the hook process's own cwd — the pre-#454 behaviour, still correct for a
+#      plain terminal or git-hook invocation.
+navori_worktree() {
+  local payload_cwd anchor named anchor_repo="" named_repo=""
+  payload_cwd=$(payload_field cwd)
+  # A relative `cd sub` resolves against the shell's cwd, which is the payload's
+  # when Claude Code sends one and the hook process's otherwise.
+  anchor="$payload_cwd"
+  [ -d "$anchor" ] || anchor="$PWD"
+  named=$(navori_cmd_dir "$cmd" || true)
+  case "$named" in
+    "") ;;
+    /*) ;;
+    *) named="$anchor/$named" ;;
+  esac
+  # SAME-REPOSITORY CONSTRAINT — DO NOT REMOVE (#454, review finding).
+  # Candidate 1 is the only one the COMMAND controls, and it is tried first, so
+  # accepting any git tree it happens to name lets that command OVERRIDE the
+  # trustworthy candidates below it: `git -C <other-repo> log && git commit`,
+  # `cd <other> && cd <wt> && git commit`, `cd <sub> && cd .. && git commit`, or
+  # merely the bytes `git -C <path>` inside a commit MESSAGE, all aimed the scan
+  # at a foreign tree with nothing to scan — exit 0 with the scanner never run,
+  # which is the very failure #454 is about (and, for a commit in the main repo,
+  # strictly worse than not resolving worktrees at all).
+  # So a directory the command names is accepted only when it is part of the
+  # repository the hook is protecting, i.e. the anchor's. Linked worktrees share
+  # the main checkout's git dir, so every legitimate agent worktree passes; a
+  # different repository and a submodule (its own git dir under
+  # `<main>/.git/modules/`) do not, and fall through to the payload cwd — the
+  # stricter direction. An unresolvable anchor drops candidate 1 for the same
+  # reason: nothing to check it against.
+  # Ceiling: two linked worktrees of the SAME repository are indistinguishable
+  # this way, so naming a sibling worktree still beats the payload cwd. Both are
+  # trees of the repo being protected, so the scan stays inside it. Walk the
+  # segments to the one that actually carries the `git commit` if a real command
+  # shows up where that is not enough.
+  if [ -n "$named" ]; then
+    anchor_repo=$(navori_repo_id "$anchor" || true)
+    named_repo=$(navori_repo_id "$named" || true)
+    if [ -z "$anchor_repo" ] || [ "$named_repo" != "$anchor_repo" ]; then
+      named=""
+    fi
+  fi
+  navori_first_tree "$named" "$payload_cwd" "$PWD" || true
+}
+
 # No command extracted (empty $cmd) → run unconditionally (defensive fallback). A
 # real command that is NOT a scanned op → skip. Anything else → scan.
 if [ -n "$cmd" ] && ! is_scan_trigger "$cmd"; then
@@ -119,9 +283,23 @@ if ! command -v semgrep >/dev/null 2>&1; then
   exit 0
 fi
 
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
+# This script's own bytes feed the cache fingerprint below, so pin its path
+# BEFORE the `cd` (a relative `$0` would stop resolving afterwards). Read at top
+# level on purpose: inside a function zsh rebinds `$0` to the function name.
+script_path="$0"
+case "$script_path" in /*) ;; *) script_path="$PWD/$script_path" ;; esac
+
+# Run from the tree the commit acts on — NOT from the hook process's cwd, which
+# is the main repo even when the diff lives in an agent worktree (#454). Also
+# keeps changed paths relative, so a repo path with spaces stays robust; the
+# NUL-delimited read handles spaces in filenames, and the
+# `-- '*.ts' '*.tsx'` pathspec filters by extension without a pipe.
+tree=$(navori_worktree)
+if [ -z "$tree" ]; then
+  echo "⊘ semgrep: no git working tree resolved for this command — skip" >&2
   exit 0
 fi
+cd "$tree"
 
 # branchBase is shell-quoted at render time via the shq: marker (#197/#249): a
 # hostile branchBase in navori.config.json lands here as an inert literal, so it
@@ -129,29 +307,26 @@ fi
 # every git commit/push via PreToolUse(Bash)).
 base='main'
 
-if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
-  echo "⊘ branch '$base' does not exist locally — skip semgrep" >&2
+# Resolved to a SHA, not left as a ref: it is BOTH the scan's baseline and part
+# of the cache fingerprint below, so it has to name one immutable commit.
+base_sha=$(git rev-parse --verify --quiet "$base^{commit}" 2>/dev/null || true)
+if [ -z "$base_sha" ]; then
+  echo "⊘ branch '$base' does not exist in $tree — skip semgrep" >&2
   exit 0
 fi
-
-# This script's own bytes feed the cache fingerprint below, so pin its path
-# BEFORE the `cd` (a relative `$0` would stop resolving afterwards). Read at top
-# level on purpose: inside a function zsh rebinds `$0` to the function name.
-script_path="$0"
-case "$script_path" in /*) ;; *) script_path="$PWD/$script_path" ;; esac
-
-# Run from the repo root so changed paths stay relative — robust to spaces in
-# the repo's absolute path. NUL-delimited read handles spaces in filenames too.
-# The `-- '*.ts' '*.tsx'` pathspec filters by extension without a pipe.
-cd "$(git rev-parse --show-toplevel)"
+base_short=$(git rev-parse --short "$base_sha" 2>/dev/null || printf '%s' "$base_sha")
 
 files=()
 while IFS= read -r -d '' f; do
   files+=("$f")
-done < <(git diff --name-only -z --diff-filter=ACMRT "$base" -- '*.ts' '*.tsx' 2>/dev/null)
+done < <(git diff --name-only -z --diff-filter=ACMRT "$base_sha" -- '*.ts' '*.tsx' 2>/dev/null)
 
+# An empty scan is NOT a silent green (#454): say which tree and which base
+# produced it, so "there was nothing to scan" reads differently from "I scanned
+# and found nothing". The two used to be indistinguishable, which is how a gate
+# that never ran passed for a whole day.
 if [ ${#files[@]} -eq 0 ]; then
-  echo "✓ semgrep: no changes vs $base" >&2
+  echo "⊘ semgrep: 0 files to scan — no *.ts/*.tsx differ from $base ($base_short) in $tree" >&2
   exit 0
 fi
 
@@ -171,7 +346,10 @@ fi
 #      place invalidates instead of inheriting the old ruleset's verdict;
 #   5. this script's own bytes — the scan arguments (`--config=p/default`,
 #      `--error`) are constants HERE, so a re-render that tightens the ruleset
-#      must not inherit a marker earned under the looser one.
+#      must not inherit a marker earned under the looser one;
+#   6. the baseline commit the scan compares against (#454). The verdict is
+#      "findings NOT already at $base_sha", so the same bytes legitimately flip
+#      from green to red (or back) when the base branch moves.
 #
 # Untracked files are absent from both the fingerprint and the scan: the file
 # list comes from `git diff`, so an untracked file is never scanned and can
@@ -205,6 +383,7 @@ case "$now" in ''|*[!0-9]*) now="" ;; esac
 semgrep_fingerprint() {
   {
     printf '%s\n' "$semgrep_bin"
+    printf '%s\n' "$base_sha"
     ls -ldn "$semgrep_bin" 2>/dev/null || true
     git hash-object --no-filters -- "$script_path" || exit 1
     if [ -f .semgrepignore ]; then
@@ -241,14 +420,36 @@ if [ -n "$cache_key" ] && [ -f "$marker" ]; then
   fi
 fi
 
-echo "▶ semgrep: ${#files[@]} changed file(s) vs $base" >&2
+echo "▶ semgrep: ${#files[@]} changed file(s) vs $base ($base_short) in $tree" >&2
+
+# `--baseline-commit` makes the gate fail on findings this branch INTRODUCES,
+# not on debt it inherited (#454). Without it, fixing the worktree resolution
+# above would have turned a decorative gate into one that blocks any commit
+# touching a file with pre-existing hits — e.g. the 7 findings already in `main`
+# under packages/cli/src/lib/marker.ts. semgrep runs the baseline scan in a git
+# worktree it creates from that commit, so it needs neither a clean tree nor an
+# ancestor relationship (verified on 1.174.0 with unstaged/staged/untracked
+# changes, from a linked worktree, and with a diverged base). The cost is a
+# second scan pass; the content cache above absorbs the repeats within a cycle.
+echo "  baseline: findings already at $base ($base_short) are not blocking" >&2
 
 scan_status=0
 semgrep scan \
   --config=p/default \
   --error \
   --metrics=off \
+  --baseline-commit "$base_sha" \
   "${files[@]}" || scan_status=$?
+
+# `--error` maps findings to exit 1; anything above that is semgrep itself
+# failing (invalid ruleset, unusable baseline, crash). It still blocks the
+# commit — same as before this hook grew a baseline — but say WHY, so a broken
+# scanner is never read as a security verdict.
+if [ "$scan_status" -gt 1 ]; then
+  echo "✗ semgrep: scan FAILED with exit $scan_status (not a findings verdict) — nothing was validated" >&2
+elif [ "$scan_status" -eq 0 ]; then
+  echo "✓ semgrep: ${#files[@]} file(s) scanned vs $base ($base_short) — no new findings" >&2
+fi
 
 # Only a GREEN scan writes the marker: a red one (or a crashed/interrupted run)
 # leaves nothing behind, so the retry rescans the same content.

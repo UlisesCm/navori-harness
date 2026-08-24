@@ -25,6 +25,9 @@ set -euo pipefail
 TRIGGER_RE='(^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+(commit|push)([[:space:]]|$))|(^gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$))'
 # navori:include gate-trigger
 
+# Resolution of the working tree the commit acts on (#454). Shared body.
+# navori:include resolve-worktree
+
 # No command extracted (empty $cmd) → run unconditionally (defensive fallback). A
 # real command that is NOT a scanned op → skip. Anything else → scan.
 if [ -n "$cmd" ] && ! is_scan_trigger "$cmd"; then
@@ -36,9 +39,23 @@ if ! command -v semgrep >/dev/null 2>&1; then
   exit 0
 fi
 
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
+# This script's own bytes feed the cache fingerprint below, so pin its path
+# BEFORE the `cd` (a relative `$0` would stop resolving afterwards). Read at top
+# level on purpose: inside a function zsh rebinds `$0` to the function name.
+script_path="$0"
+case "$script_path" in /*) ;; *) script_path="$PWD/$script_path" ;; esac
+
+# Run from the tree the commit acts on — NOT from the hook process's cwd, which
+# is the main repo even when the diff lives in an agent worktree (#454). Also
+# keeps changed paths relative, so a repo path with spaces stays robust; the
+# NUL-delimited read handles spaces in filenames, and the
+# `-- '*.ts' '*.tsx'` pathspec filters by extension without a pipe.
+tree=$(navori_worktree)
+if [ -z "$tree" ]; then
+  echo "⊘ semgrep: no git working tree resolved for this command — skip" >&2
   exit 0
 fi
+cd "$tree"
 
 # branchBase is shell-quoted at render time via the shq: marker (#197/#249): a
 # hostile branchBase in navori.config.json lands here as an inert literal, so it
@@ -46,29 +63,26 @@ fi
 # every git commit/push via PreToolUse(Bash)).
 base={{shq:branchBase}}
 
-if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
-  echo "⊘ branch '$base' does not exist locally — skip semgrep" >&2
+# Resolved to a SHA, not left as a ref: it is BOTH the scan's baseline and part
+# of the cache fingerprint below, so it has to name one immutable commit.
+base_sha=$(git rev-parse --verify --quiet "$base^{commit}" 2>/dev/null || true)
+if [ -z "$base_sha" ]; then
+  echo "⊘ branch '$base' does not exist in $tree — skip semgrep" >&2
   exit 0
 fi
-
-# This script's own bytes feed the cache fingerprint below, so pin its path
-# BEFORE the `cd` (a relative `$0` would stop resolving afterwards). Read at top
-# level on purpose: inside a function zsh rebinds `$0` to the function name.
-script_path="$0"
-case "$script_path" in /*) ;; *) script_path="$PWD/$script_path" ;; esac
-
-# Run from the repo root so changed paths stay relative — robust to spaces in
-# the repo's absolute path. NUL-delimited read handles spaces in filenames too.
-# The `-- '*.ts' '*.tsx'` pathspec filters by extension without a pipe.
-cd "$(git rev-parse --show-toplevel)"
+base_short=$(git rev-parse --short "$base_sha" 2>/dev/null || printf '%s' "$base_sha")
 
 files=()
 while IFS= read -r -d '' f; do
   files+=("$f")
-done < <(git diff --name-only -z --diff-filter=ACMRT "$base" -- '*.ts' '*.tsx' 2>/dev/null)
+done < <(git diff --name-only -z --diff-filter=ACMRT "$base_sha" -- '*.ts' '*.tsx' 2>/dev/null)
 
+# An empty scan is NOT a silent green (#454): say which tree and which base
+# produced it, so "there was nothing to scan" reads differently from "I scanned
+# and found nothing". The two used to be indistinguishable, which is how a gate
+# that never ran passed for a whole day.
 if [ ${#files[@]} -eq 0 ]; then
-  echo "✓ semgrep: no changes vs $base" >&2
+  echo "⊘ semgrep: 0 files to scan — no *.ts/*.tsx differ from $base ($base_short) in $tree" >&2
   exit 0
 fi
 
@@ -88,7 +102,10 @@ fi
 #      place invalidates instead of inheriting the old ruleset's verdict;
 #   5. this script's own bytes — the scan arguments (`--config=p/default`,
 #      `--error`) are constants HERE, so a re-render that tightens the ruleset
-#      must not inherit a marker earned under the looser one.
+#      must not inherit a marker earned under the looser one;
+#   6. the baseline commit the scan compares against (#454). The verdict is
+#      "findings NOT already at $base_sha", so the same bytes legitimately flip
+#      from green to red (or back) when the base branch moves.
 #
 # Untracked files are absent from both the fingerprint and the scan: the file
 # list comes from `git diff`, so an untracked file is never scanned and can
@@ -122,6 +139,7 @@ case "$now" in ''|*[!0-9]*) now="" ;; esac
 semgrep_fingerprint() {
   {
     printf '%s\n' "$semgrep_bin"
+    printf '%s\n' "$base_sha"
     ls -ldn "$semgrep_bin" 2>/dev/null || true
     git hash-object --no-filters -- "$script_path" || exit 1
     if [ -f .semgrepignore ]; then
@@ -158,14 +176,36 @@ if [ -n "$cache_key" ] && [ -f "$marker" ]; then
   fi
 fi
 
-echo "▶ semgrep: ${#files[@]} changed file(s) vs $base" >&2
+echo "▶ semgrep: ${#files[@]} changed file(s) vs $base ($base_short) in $tree" >&2
+
+# `--baseline-commit` makes the gate fail on findings this branch INTRODUCES,
+# not on debt it inherited (#454). Without it, fixing the worktree resolution
+# above would have turned a decorative gate into one that blocks any commit
+# touching a file with pre-existing hits — e.g. the 7 findings already in `main`
+# under packages/cli/src/lib/marker.ts. semgrep runs the baseline scan in a git
+# worktree it creates from that commit, so it needs neither a clean tree nor an
+# ancestor relationship (verified on 1.174.0 with unstaged/staged/untracked
+# changes, from a linked worktree, and with a diverged base). The cost is a
+# second scan pass; the content cache above absorbs the repeats within a cycle.
+echo "  baseline: findings already at $base ($base_short) are not blocking" >&2
 
 scan_status=0
 semgrep scan \
   --config=p/default \
   --error \
   --metrics=off \
+  --baseline-commit "$base_sha" \
   "${files[@]}" || scan_status=$?
+
+# `--error` maps findings to exit 1; anything above that is semgrep itself
+# failing (invalid ruleset, unusable baseline, crash). It still blocks the
+# commit — same as before this hook grew a baseline — but say WHY, so a broken
+# scanner is never read as a security verdict.
+if [ "$scan_status" -gt 1 ]; then
+  echo "✗ semgrep: scan FAILED with exit $scan_status (not a findings verdict) — nothing was validated" >&2
+elif [ "$scan_status" -eq 0 ]; then
+  echo "✓ semgrep: ${#files[@]} file(s) scanned vs $base ($base_short) — no new findings" >&2
+fi
 
 # Only a GREEN scan writes the marker: a red one (or a crashed/interrupted run)
 # leaves nothing behind, so the retry rescans the same content.

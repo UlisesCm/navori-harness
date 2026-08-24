@@ -57,16 +57,23 @@ run_gate() {
 TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
 # navori:include gate-trigger
 
+# Resolution of the working tree the commit acts on (#454). Shared body; defines
+# `navori_worktree` but resolves nothing until it is called, so a Bash call that
+# is not a commit still pays nothing for it.
+# navori:include resolve-worktree
+
 if is_scan_trigger "$cmd"; then
-  # Pin the cwd to the repo root before anything below runs. Claude Code fires
-  # PreToolUse hooks from the session's persistent cwd, which is NOT always the
-  # repo root — but the gate command and the lockfile-based PM detection both
-  # assume the root. A relative gate (`cd packages/cli &&
-  # pnpm lint`) otherwise fails with "No such file or directory" from a subdir.
-  # Prefer $CLAUDE_PROJECT_DIR; fall back to the git top-level. When neither
-  # resolves (not a git repo, no env), the substitution is empty and `cd ""`
-  # is a no-op, so behavior outside a repo is unchanged. #309
-  cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}" || exit 2
+  # Pin the cwd to the root of the tree BEING COMMITTED before anything below
+  # runs. Claude Code fires PreToolUse hooks from a cwd that is neither always
+  # the repo root (#309: a relative gate like `cd packages/cli && pnpm lint`
+  # fails from a subdir) nor always the right repo (#454: it is the MAIN repo
+  # even when the commit happens in an agent worktree, so the gate validated a
+  # tree that did not hold the diff).
+  # $CLAUDE_PROJECT_DIR stays as a fallback for the no-git case; when nothing
+  # resolves the substitution is empty and `cd ""` is a no-op, so behavior
+  # outside a repo is unchanged.
+  gate_root=$(navori_worktree)
+  cd "${gate_root:-${CLAUDE_PROJECT_DIR:-}}" || exit 2
   # qualityGate.fast is shell-quoted at render time via the shq: marker (#197).
   # The gate string is still `eval`'d by run_gate below (running the gate is the
   # feature), but quoting it here means a hostile qualityGate.fast survives as one
