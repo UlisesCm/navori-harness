@@ -287,3 +287,38 @@ Continuación de la entrada anterior. El tablero quedó en **cero issues y cero 
   receipt+delta re-sign, challenge de solution-design, cadena de 4 hooks por Bash
   (40–50 ms en paralelo).
 - Quality gate: ✅ corrido al cierre sobre main limpio (sin edits de código en la sesión).
+
+## 2026-08-24 00:45 claude — #375 prosa→mecanismo + el placeholder vacío que rompía la prosa (#441)
+
+- Encargo: "sigue con lo pendiente". Se abrió mergeando **#438** (docs de #435, verde) y se
+  siguió con **#375**, el único `priority:high` del tablero.
+- **Dos de los cinco casos ya estaban hechos** y se cerraron con evidencia en vez de código:
+  el caso 2 (quality gate en 4 lugares) ya derivaba de `{{qualityGate.*}}` sin un hardcode, y
+  el caso 5 ("gates ready") ya lo cubría `scanQualityGateReadiness` (`doctor.ts:134`).
+- **Hallazgo principal, mayor que el issue**: un placeholder que resolvía a vacío dejaba prosa
+  rota. `project.criticalAreas` es `.default([])`, el interpolador serializa arrays con
+  `join(", ")` → `""`, y `""` no es `null`, así que el `placeholderFallback` nunca disparaba.
+  `CLAUDE.md:72` renderizaba ``a `` area`` en TODO repo sin el campo declarado. Fix en dos
+  mitades (regla de valor vacío en `resolvePath` + soft fallbacks), ambas load-bearing:
+  revirtiendo una a la vez → 3 failed / 5 failed / 11 passed.
+- **Addendum destapado a mitad de camino**: `engines/codex/compat.ts` tenía dos bytes NUL
+  crudos en el literal del sentinel. `file(1)` lo daba como `data`, grep lo trataba como
+  binario ocultando sus líneas, y `git log -p` imprimía `Binary files … differ` — **ningún
+  cambio a ese archivo mostró diff legible jamás**, ni en la CLI ni en la vista de PR. Eso es
+  lo que había impedido localizar la reescritura que busca #428 (está en `compat.ts:48`).
+  Fix: escapes en vez de bytes crudos, runtime idéntico, shield #209 intacto a propósito.
+- **Mecanismos nuevos, no prosa**: `empty-placeholder-render.test.ts` (renderiza claude+codex
+  con config mínima y falla si se filtra `<not configured:` o un span de código vacío) y
+  `no-nul-bytes.test.ts` (barre `packages/**`). Los dos verificados fallando sin su fix.
+- Ruta: R2 — 1 `implementer` → 1 `reviewer` (APPROVED) → 2 hallazgos informativos aplicados
+  por el orquestador → **delta re-sign** (drift medido contra el receipt: 3 archivos, cero sin
+  firmar) → `commit-pr-pilot`. El reviewer validó la corrección a mano de las zonas de usuario
+  renderizando el repo desde cero en un tmpdir: **byte-idénticas** al render fresco.
+- Issues abiertos: **#439** (los `{{}}` literales que devora el interpolador — la lib-skill de
+  i18next desinforma sobre su propia sintaxis) y **#440** (chequeo de `doctor` para tokens
+  congelados en zona de usuario, porque `rerender` no re-interpola esa zona). Comentario con
+  la evidencia de la reescritura dejado en **#428**, que queda desbloqueado.
+- Quality gate: ✅ `format:check` 227 archivos · **1750 tests** / 127 files (baseline `main`
+  1734, Δ+16 reconciliado) · oxlint · `check:render` al día · CI `quality` verde en #441.
+- Commit / PR: **#441 mergeado** (2 commits, 26 archivos), **#438 mergeado**. #375 y #435
+  cerrados.
