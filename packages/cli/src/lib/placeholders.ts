@@ -17,15 +17,21 @@
  * asset for a config field that is optional or array-defaulted means adding it
  * here too, and checking the sentence still reads with the fallback in place.
  */
-const SOFT_FALLBACKS: Record<string, string> = {
-  "qualityGate.fast": "(quality gate sin configurar — corre 'navori configure quality-gate')",
-  "qualityGate.full": "(quality gate sin configurar — corre 'navori configure quality-gate')",
+// A Map, not an object literal: `path` comes from an asset, and indexing an
+// object resolves inherited members — `SOFT_FALLBACKS["constructor"]` returned
+// `Object.prototype.constructor`, a truthy value the `??` below could not catch,
+// so `{{constructor}}` in any asset rendered `function Object() { [native code] }`
+// into the prose. A Map has no prototype chain to walk, and `.get` is honestly
+// typed. (#447 — same class as the `.claude/constructor` leak fixed in #428.)
+const SOFT_FALLBACKS: ReadonlyMap<string, string> = new Map([
+  ["qualityGate.fast", "(quality gate sin configurar — corre 'navori configure quality-gate')"],
+  ["qualityGate.full", "(quality gate sin configurar — corre 'navori configure quality-gate')"],
   // Generic defaults, not a diagnostic: these read as the sensible baseline
   // list every repo has whether or not it declared one.
-  "project.criticalAreas": "auth, permissions, payments, data integrity",
-  "project.legacyPaths": "legacy/, vendor/",
-};
+  ["project.criticalAreas", "auth, permissions, payments, data integrity"],
+  ["project.legacyPaths", "legacy/, vendor/"],
+]);
 
 export function placeholderFallback(path: string): string {
-  return SOFT_FALLBACKS[path] ?? `<not configured: ${path}>`;
+  return SOFT_FALLBACKS.get(path) ?? `<not configured: ${path}>`;
 }

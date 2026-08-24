@@ -253,4 +253,19 @@ describe("interpolate — project.* sanitization (#198)", () => {
     const cfg = { ...CONFIG, name: "docs <!-- navori:managed -->" } as unknown as NavoriConfig;
     expect(interpolate("{{name}}", cfg)).toBe("docs <!-- navori:managed -->");
   });
+
+  it("never resolves an inherited member of the config object (#447)", () => {
+    // The walk indexes with a segment that comes from an asset, so it must stop
+    // at own properties. Every reachable prototype member is a function, which
+    // the type gate would drop anyway — this pins the guarantee at the walk
+    // instead of leaving it to depend on that gate and on PLACEHOLDER_RE's
+    // leading-letter rule (which is what keeps `__proto__` out).
+    for (const inherited of ["constructor", "toString", "valueOf", "hasOwnProperty"]) {
+      const out = interpolate(`x={{${inherited}}}`, CONFIG);
+      expect(out).toBe(`x=<not configured: ${inherited}>`);
+      expect(out).not.toContain("native code");
+    }
+    // A nested walk through an inherited member stops too.
+    expect(interpolate("{{constructor.name}}", CONFIG)).toBe("<not configured: constructor.name>");
+  });
 });
