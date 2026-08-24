@@ -140,6 +140,10 @@ describe("check-render — harness mirror drift guard (#421)", () => {
     // Edit INSIDE the managed block without fixing the hash → render skips it
     // (never clobbers a hand-edit), so it would be invisible to a pending-only
     // check even though the mirror no longer matches the core.
+    //
+    // Not a synthetic case: with parallel asset PRs, two branches conflict in
+    // the same rendered files, and resolving that conflict by hand is exactly
+    // how a real block ends up hand-edited (#435). Keep this case.
     const edited = readFileSync(hook, "utf-8").replace("set -euo pipefail", "set -eu");
     writeFileSync(hook, edited, "utf-8");
 

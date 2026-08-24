@@ -41,6 +41,20 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
    los plugins hecha en build, y renderizar con un `dist` viejo compara contra los assets
    anteriores y pasa en silencio.
 
+   Dos reglas que solo se descubren cuando ya te mordieron (#435):
+
+   - **El re-render caduca cuando la base se mueve.** Tras cualquier rebase o merge de `main`,
+     vuelve a correr `render --apply`: tu espejo se generó contra los assets de antes, y si
+     entre medias entró otro PR de assets, el tuyo ya está viejo. Pasó tres veces seguidas
+     mientras se construía #421.
+   - **Nunca resuelvas a mano un conflicto dentro de un bloque managed.** Toma la versión de la
+     base y regenera con `render --apply`. El motivo importa: cada bloque lleva el `hash` de su
+     propio contenido, así que editarlo a mano lo marca como *modificado por el usuario* y
+     `render --apply` **deja de pisarlo** — pasa a `user-modified-skipped`, la clase de drift
+     que ya solo arregla `navori sync`. Es la trampa fácil: ante un conflicto de git el reflejo
+     es editar, y aquí ese reflejo convierte un problema de un comando en uno que exige entender
+     el modelo de marcadores.
+
 CI corre además `pnpm --filter navori build` y `check:size` (guard de bundle size). Cambios
 **doc-only** (.md): basta `pnpm lint` + `pnpm format:check`; no necesitas la suite completa.
 
