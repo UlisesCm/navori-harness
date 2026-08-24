@@ -82,7 +82,6 @@ export interface EngineAdapter {
   /** Files that do not derive 1:1 from an asset (settings.json / config.toml / AGENTS.md). */
   extraFiles(ctx: AdapterCtx): PlacementRequest[];
   orphanScans(plan: HarnessPlan, ctx: AdapterCtx): OrphanScan[];
-  backupTargets: string[];
 }
 
 export interface ExecuteResult {
@@ -178,7 +177,6 @@ export function executePlan(
     pending,
     removals,
     cwd: ctx.cwd,
-    backupTargets: adapter.backupTargets,
     dryRun: options.dryRun === true,
     writeLast: (p) => p.path.endsWith("/AGENTS.md"),
     engineLabel: adapter.label ?? adapter.id,
@@ -290,16 +288,19 @@ function collectOrphans(scans: readonly OrphanScan[], cwd: string): PendingRemov
 /**
  * Capa 3, mitad 2: back up, write atomically, chmod, prune — once. Shared by
  * every engine (Spec 0008 C.1). Parametrized where engines legitimately
- * differ: which roots to back up (+ excludes), which file to write LAST (its
- * human-facing entry point — AGENTS.md for Codex, CLAUDE.md for Claude), and
- * the engine label for the write-error message. Builds `written` from the
- * post-sort pending + removals so a dry-run reports the same set it would write.
+ * differ: extra backup excludes, which file to write LAST (its human-facing
+ * entry point — AGENTS.md for Codex, CLAUDE.md for Claude), and the engine
+ * label for the write-error message. Builds `written` from the post-sort
+ * pending + removals so a dry-run reports the same set it would write.
+ *
+ * The backup is PROPORTIONAL to the change (#405): what gets snapshotted is
+ * derived from `pending`/`removals`, not from a per-engine list of roots — so
+ * no engine can under- or over-declare it.
  */
 export function commitWrites(input: {
   pending: PendingWrite[];
   removals: PendingRemoval[];
   cwd: string;
-  backupTargets: string[];
   backupExclude?: string[];
   dryRun?: boolean;
   /** Predicate: matching files sort to the END of the write loop. */
@@ -321,16 +322,36 @@ export function commitWrites(input: {
   let backupPath: string | null = null;
 
   if ((pending.length > 0 || removals.length > 0) && !dryRun) {
-    if (pending.some((item) => existsSync(item.path)) || removals.length > 0) {
+    // #405: back up exactly what this render is about to destroy — the pending
+    // writes that ALREADY exist plus every removal — instead of the engine's
+    // whole tree (`CLAUDE.md` + all of `.claude/` + …). Nothing recoverable is
+    // lost: these are the only paths the write/remove loops below can touch, so
+    // the snapshot still covers 100% of what is at risk. The old full-tree copy
+    // charged ~370 KB per repo for a one-byte edit — and since a release restamp
+    // marks every managed asset "updated", a rollout paid it in every repo.
+    const targets = [
+      ...new Set(
+        [...pending.filter((item) => existsSync(item.path)), ...removals].map((item) =>
+          relative(cwd, item.path),
+        ),
+      ),
+    ];
+    // `targets` is empty when every pending write creates a new file and there
+    // is nothing to remove: a first render destroys nothing, so it gets no
+    // (empty) snapshot — same guard the explicit `pending.some(existsSync)`
+    // check used to provide.
+    if (targets.length > 0) {
       // #348 / audit A2: paths the harness never versions have nothing worth
       // restoring — and restoring them can do harm (`.claude/worktrees/` made
       // every apply weigh gigabytes; a stale Codex receipt resurrected from
       // `.codex/progress/` by `navori backup restore` blocks the next commit).
       // Excluded HERE, the single choke point every engine's backup flows
       // through, so no caller can forget it — the Codex engine did exactly that.
+      // Still load-bearing under a proportional backup: a repo that configures
+      // `progress.dir` INTO an ephemeral path would otherwise snapshot it.
       // `backupExclude` stays for engine-specific extras; ephemerals are always in.
       const exclude = [...new Set([...EPHEMERAL_HARNESS_PATHS, ...(input.backupExclude ?? [])])];
-      const handle = createBackup(cwd, input.backupTargets, { exclude });
+      const handle = createBackup(cwd, targets, { exclude });
       if (handle.files.length > 0) {
         backupPath = handle.path;
         purgeOldBackups();

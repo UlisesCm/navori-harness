@@ -880,16 +880,15 @@ export function renderClaudeEngine(
   // 9. Backup + atomic writes — shared spine (Spec 0008 C.3). The CLAUDE.md-only
   // pending (built above), the shared-plan pending (§3–6.6) and the
   // reconciliation removals all flow through ONE commitWrites: a single backup
-  // (CLAUDE.md + .claude minus per-user/live state + navori.config.json),
-  // CLAUDE.md written LAST so a crash leaves the file the user reads intact, and
-  // one write-error surface. `removalsBestEffort` keeps disabled-plugin script
+  // (#405: exactly the files this render overwrites or deletes), CLAUDE.md
+  // written LAST so a crash leaves the file the user reads intact, and one
+  // write-error surface. `removalsBestEffort` keeps disabled-plugin script
   // cleanup non-fatal. Claude assembles its extended report on top.
   benchMark("plan");
   const { written, backupPath } = commitWrites({
     pending: pending.map((p) => ({ ...p, relPath: relative(cwd, p.path) })),
     removals,
     cwd,
-    backupTargets: ["CLAUDE.md", ".claude", "navori.config.json", ".mcp.json"],
     // #348: EPHEMERAL_HARNESS_PATHS (worktrees, progress, local settings) are
     // excluded from the backup by commitWrites itself, for every engine.
     dryRun,
@@ -1017,9 +1016,10 @@ function planSettings(
   try {
     parsed = JSON.parse(readFileSync(path, "utf-8"));
   } catch (err) {
-    // Issue #4: with --force, regenerate even on parse error. The pre-render
-    // backup (createBackup over .claude/) still snapshots the corrupt file
-    // so the user can recover by hand if needed.
+    // Issue #4: with --force, regenerate even on parse error. The corrupt file
+    // is about to be overwritten, so the pre-render backup still snapshots it
+    // (#405: the backup covers every pending write that already exists) and the
+    // user can recover by hand if needed.
     if (force) {
       return { kind: "write", path, content: newJson, status: "updated" };
     }
