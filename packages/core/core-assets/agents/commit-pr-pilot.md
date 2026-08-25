@@ -186,6 +186,19 @@ Never open the PR with the gate red.
 
 If the repo defines its own template (`.github/pull_request_template.md`), read it and match its structure instead of the default.
 
+### Always-on delta — a number in the body, never a gate
+
+Whatever template you follow: when the shipping diff changes the **always-on layer** — the harness context every session pays for up front, i.e. the rendered `CLAUDE.md` — the body states its byte delta, measured against the same base as the PR diff:
+
+```bash
+git show origin/{{prTarget}}:CLAUDE.md 2>/dev/null | wc -c   # before (0 if the file is new)
+wc -c CLAUDE.md                                  # after
+```
+
+- **It is a number, never a gate.** Nothing blocks on it and no automatic limit judges it: a non-deterministic check wired into the gate only teaches everyone to ignore the gate. A ceiling, if the repo wants one, belongs in an explicit deterministic cap of its own — not in this line and not in the PR flow.
+- **Growth is not a veto.** State the delta AND its counterpart: what those bytes buy — payload they remove from every session, a duplicated block they retire, a failure mode they close. Bytes added up front to save a multiple of them per session is a good trade; the point is that the trade is on the record, not that the number stays small. A delta reported without its counterpart is half the measurement.
+- Silent when the diff leaves that file alone. A "Δ 0" bullet is noise, not rigor.
+
 ## Hard rules
 
 - ❌ Never push with `--force` to `{{branchBase}}` or another protected branch.
