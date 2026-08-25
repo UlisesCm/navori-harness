@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
-import { writeFileAtomic } from "../../lib/atomic.ts";
 import { readCliVersion } from "../../lib/bundled-assets.ts";
+import { commitWrites } from "./execute-plan.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "./ephemeral-paths.ts";
 import { ENGINE_OUTPUTS, engineOwnedPaths } from "../../lib/health.ts";
 import { tc, type Lang } from "../../lib/i18n.ts";
@@ -124,6 +124,13 @@ export interface GitignoreRenderResult {
   path: string;
   status: RenderStatus;
   skippedReason?: string;
+  /**
+   * Snapshot taken before overwriting the file, or `null` when this render had
+   * nothing to destroy (created it, or previewed). Surfaced so the user can
+   * find the pre-write `.gitignore` — the only file navori edits that it did
+   * NOT author (#458).
+   */
+  backupPath?: string | null;
 }
 
 function coreMeta(): MarkerMeta {
@@ -138,8 +145,10 @@ function coreMeta(): MarkerMeta {
  *   creates `.gitignore` (R8: exact status quo).
  * - Otherwise reads the existing file (or seeds a localized header when it does
  *   not exist yet, R6), injects the block preserving every line outside it (R2,
- *   R5), and — unless `dryRun` (R9) — writes it back atomically. A hand-edited
- *   block is preserved as `user-modified-skipped` unless `force` is set (R7).
+ *   R5), and — unless `dryRun` (R9) — backs up the previous file and writes it
+ *   back atomically through `commitWrites`, the render's single backup choke
+ *   point (#458). A hand-edited block is preserved as `user-modified-skipped`
+ *   unless `force` is set (R7).
  *
  * The `.gitignore` is a repo-level file, so this is called ONCE per render (not
  * per engine); the body already encodes every configured engine's outputs.
@@ -181,7 +190,29 @@ export function renderGitignore(
   }
 
   if (options.dryRun !== true && (result.status === "created" || result.status === "updated")) {
-    writeFileAtomic(filePath, result.output);
+    // #458: the write goes through `commitWrites` — the render's single backup
+    // choke point — instead of writing here. `.gitignore` is the one file navori
+    // edits that it did NOT author: the managed block is injected into a file
+    // the user already owns, so a bad injection destroys THEIR rules, and until
+    // now no snapshot covered it. Routing it (rather than calling `createBackup`
+    // from here) keeps ONE place that decides what a render backs up: the
+    // snapshot stays proportional (only an already-existing file enters
+    // `targets`, so a first render still snapshots nothing), and a write failure
+    // carries the same recovery breadcrumb every other engine's does.
+    const { backupPath } = commitWrites({
+      pending: [
+        {
+          path: filePath,
+          relPath: GITIGNORE_FILE,
+          content: result.output,
+          status: result.status,
+        },
+      ],
+      removals: [],
+      cwd,
+      lang: options.lang,
+    });
+    return { path: GITIGNORE_FILE, status: result.status, backupPath };
   }
 
   return { path: GITIGNORE_FILE, status: result.status };

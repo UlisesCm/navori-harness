@@ -46,6 +46,24 @@ El adapter NO declara qué respaldar: `commitWrites` deriva el backup de lo que
 va a escribir o borrar (#405), así que ningún engine puede declararlo de menos
 (un `.mcp.json` olvidado) ni de más (todo `.claude/` por un cambio de 1 byte).
 
+Esa regla no es solo para los engines: **toda escritura del render pasa por el
+choke point**, incluidas las que no pertenecen a ningún engine. `.gitignore`
+(repo-level, `shared/gitignore-harness.ts`) escribía directo y era la última que
+esquivaba el respaldo — justo el archivo que navori NO crea, sino que edita
+inyectando un bloque en uno que ya era del usuario (#458). Si agregas una
+escritura nueva, enrútala por `commitWrites`; el guard de
+`shared/__tests__/render-writes-backed-up.test.ts` falla si no lo haces.
+
+Ese guard tiene dos límites declarados, para que la regla de arriba no se lea
+como una garantía más ancha de lo que la máquina sostiene: barre
+`src/engines/**` y `commands/render.ts`, así que una escritura nueva en
+`src/lib/**` llamada desde el render se le escapa (hoy los cuatro sitios de
+escritura del render viven dentro del barrido); y decide **por módulo**, así que
+un archivo que ya llama a `commitWrites`/`createBackup` en cualquier parte pasa
+aunque agregue una escritura cruda al lado. La mitad conductual del mismo test
+cubre lo que su fixture ejercita. Subir la granularidad a nivel de sentencia
+pide ast-grep.
+
 Un `PlacementRequest` es o bien un asset (`assetPath`, renderizado por
 `renderManagedFile`) o un `body` ya serializado por el adapter (`config.toml`,
 `.toml` de agente). `firstRenderSeed` siembra header/trailer solo la primera vez.
