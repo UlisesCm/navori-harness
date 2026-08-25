@@ -1,7 +1,26 @@
 # Sesión actual
 
-**Estado:** `main` @ `b399f3c`, limpio, espejo al día, **0 PRs abiertos**, **13 issues**.
-Hoy se cerraron **15** issues. No hay trabajo a medias ni worktrees vivos con cambios.
+**Estado:** `main` @ `e09e693`, limpio, **0 PRs abiertos**, **13 issues**. Sesión 2026-08-24
+(noche): solo investigación + plan, **cero código tocado** — no hay gate que citar.
+
+## SIGUIENTE PASO EXPLÍCITO: ejecutar el plan del modo audit
+
+Ulises pidió el feature "modo audit" (reporte post-hoc de sesiones para auditar uso real del
+harness: tiempos, tokens, huecos). La investigación (4 researchers paralelos) y el **plan
+detallado aprobado en dirección** están listos; Ulises decidió **dejarlo en plan por hoy**.
+
+- **Plan completo:** `.claude/progress/plan_audit_mode.md` (ruta R2: fixture → implementer A
+  parser → implementer B señales+comando → reviewer → PR).
+- **Investigación:** `.claude/progress/research_{transcript_anatomy,existing_tools,native_capabilities,navori_integration}.md`.
+- **Decisiones de Ulises fijadas:** reportes en `~/.navori/audits/` (fuera del repo), costo en
+  TOKENS solamente (sin USD), capturar prompt inicial, ruta directa sin spec SDD, v1 = solo el
+  comando `navori audit` (sin hooks ni cambios a assets renderizados — invariante: no romper el
+  harness). Caso de uso: usar el harness unos días en un proyecto real y auditar después.
+- **Hallazgo clave (verificado):** los transcripts JSONL ya contienen ~95% del reporte; cada
+  subagente tiene jsonl propio + `meta.json` con `agentType`/`toolUseId`. Gotcha: dedupe por
+  `message.id` o los tokens se inflan 2x. Memoria engram: `navori-audit-mode-research`.
+- Al retomar: arrancar por el paso 0 del plan (fixture sanitizado + branch desde `main`).
+- Empalme: este feature probablemente cierra o alimenta **#396** (benchmark).
 
 ## LO PRIMERO QUE HAY QUE SABER: el rollout 0.6.0 sigue CONGELADO
 
