@@ -194,6 +194,36 @@ const restoreSubCommand = defineCommand({
   },
 });
 
+/**
+ * Whether citty already dispatched a subcommand for this invocation.
+ *
+ * citty runs the parent's `run` even AFTER dispatching a subcommand: the
+ * `if (typeof cmd.run === "function")` sits OUTSIDE the dispatch branch
+ * (citty 0.1.6 `dist/index.mjs:315`, unchanged in 0.2.2). With a parent `run`
+ * acting as the default (see `migrationsCommand`), that printed the list twice
+ * on `migrations list` and dumped it on top of `migrations restore` (#466).
+ *
+ * Reads `rawArgs` on purpose — not `args._` — because this mirrors citty's own
+ * resolution rule (the first token that doesn't start with `-` is the
+ * subcommand name). The parent's parsed `args._` can lose that token to an
+ * undeclared value flag (`migrations --foo list` parses `list` as `--foo`'s
+ * value), which would miss the dispatch and print twice again.
+ *
+ * This is a deliberate exception to the `citty` skill's "never read `rawArgs`
+ * by hand": that rule is about reading INPUTS, and nothing here is read as one
+ * — the predicate replicates citty's dispatch decision, which is the only thing
+ * that can answer "did a subcommand already run?".
+ *
+ * BUMPING CITTY INVALIDATES THIS. 0.2.x replaces the naive scan with
+ * `findSubCommandIndex` (0.2.2 `dist/index.mjs:268-279`), which returns -1 on
+ * `--`: there `migrations -- list` stops dispatching while this predicate still
+ * says it did, silencing the parent's run. On 0.1.6 `--` DOES dispatch (checked),
+ * so the mirror is faithful today and only today.
+ */
+function ranSubCommand(rawArgs: string[]): boolean {
+  return rawArgs.some((arg) => !arg.startsWith("-"));
+}
+
 export const migrationsCommand = defineCommand({
   meta: {
     name: "migrations",
@@ -215,8 +245,11 @@ export const migrationsCommand = defineCommand({
   // Without a subcommand citty errors with a bare "No command specified."
   // Default to `list` so `navori migrations` just works. `args.limit` is not in
   // this command's schema, but citty's parser still collects undeclared flags,
-  // so forward it: dropping it would make the value silently ignored here.
-  run({ args }) {
+  // so forward it (reachable as `navori migrations --limit=N`, the `=` form:
+  // the space form makes `N` a positional and citty reads it as a subcommand):
+  // dropping it would make the value silently ignored here.
+  run({ args, rawArgs }) {
+    if (ranSubCommand(rawArgs)) return;
     runMigrationsList({ json: args.json, limit: args.limit });
   },
 });

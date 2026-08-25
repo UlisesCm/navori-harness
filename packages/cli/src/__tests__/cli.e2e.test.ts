@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -1605,6 +1613,105 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     // truncation flag lives on the `list` subcommand instead.
     const r = runCli(["migrations", "list", "--limit", "5"]);
     expect(r.status).toBe(0);
+  });
+});
+
+/**
+ * Seeds a throwaway HOME with two migrations under `~/.navori/migrations/` so
+ * the list output is non-trivial (a real repo tree would be empty here) and
+ * deterministic: `repo-new` is always the most recent.
+ */
+function seedMigrationsHome(): string {
+  const home = mkdtempSync(join(tmpdir(), "navori-migrations-home-"));
+  const root = join(home, ".navori", "migrations");
+
+  const older = join(root, "2026-01-01T00-00-00", "repo-old");
+  mkdirSync(older, { recursive: true });
+  writeFileSync(join(older, "CLAUDE.md"), "previous CLAUDE.md", "utf-8");
+
+  const newer = join(root, "2026-01-02T00-00-00", "repo-new");
+  mkdirSync(join(newer, ".claude", "agents"), { recursive: true });
+  writeFileSync(join(newer, ".claude", "agents", "leader.md"), "previous leader", "utf-8");
+  writeFileSync(join(newer, "navori.config.json"), "{}", "utf-8");
+
+  // `migrations list` sorts by the repo dir's mtime: pin both so "most recent"
+  // never depends on how fast the two dirs happened to be created.
+  utimesSync(older, new Date("2026-01-01T00:00:00Z"), new Date("2026-01-01T00:00:00Z"));
+  utimesSync(newer, new Date("2026-01-02T00:00:00Z"), new Date("2026-01-02T00:00:00Z"));
+
+  return home;
+}
+
+describe("CLI e2e — migrations parent/subcommand dispatch (#466)", () => {
+  let dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+    dirs = [];
+  });
+
+  it("'migrations list' prints its output exactly once", () => {
+    // citty runs the parent's `run` even after dispatching a subcommand, so the
+    // parent's default-to-list used to print the whole list a second time.
+    const home = seedMigrationsHome();
+    dirs.push(home);
+
+    const r = runCli(["migrations", "list", "--json"], { HOME: home });
+    expect(r.status).toBe(0);
+    expect(r.stdout.match(/"totalAvailable"/g) ?? []).toHaveLength(1);
+    expect(JSON.parse(r.stdout).migrations).toHaveLength(2);
+  });
+
+  it("'migrations restore' does not dump the list on top of the restore", () => {
+    const home = seedMigrationsHome();
+    dirs.push(home);
+    const target = makeTmpRepo();
+    dirs.push(target);
+
+    const r = runCli(
+      ["migrations", "restore", "2026-01-02T00-00-00", "repo-new", "--cwd", target, "--yes"],
+      { HOME: home },
+    );
+    expect(r.status).toBe(0);
+    expect(existsSync(join(target, "navori.config.json"))).toBe(true);
+    expect(existsSync(join(target, ".claude/agents/leader.md"))).toBe(true);
+    // Markers that only the list prints: its intro and the per-entry repo tag.
+    expect(r.combined).not.toContain("migrations list");
+    expect(r.combined).not.toContain("repo='");
+  });
+
+  it("'migrations' with no subcommand still lists once (the parent run is the default)", () => {
+    const home = seedMigrationsHome();
+    dirs.push(home);
+
+    const r = runCli(["migrations", "--json"], { HOME: home });
+    expect(r.status).toBe(0);
+    expect(r.stdout.match(/"totalAvailable"/g) ?? []).toHaveLength(1);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.totalAvailable).toBe(2);
+    expect(parsed.migrations).toHaveLength(2);
+  });
+
+  it("'migrations --limit=N' truncates: the parent forwards its undeclared limit", () => {
+    // Only the `=` form reaches the parent's run — `--limit N` makes `N` a
+    // positional and citty reads it as a subcommand name (#282). `limit` is not
+    // in the parent's arg schema; citty's catch-all still parses it, and the
+    // parent forwards it. Dropping that forward would silently ignore the flag.
+    const home = seedMigrationsHome();
+    dirs.push(home);
+
+    const r = runCli(["migrations", "--json", "--limit=1"], { HOME: home });
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.totalAvailable).toBe(2);
+    expect(parsed.migrations).toHaveLength(1);
+    expect(parsed.migrations[0].repoName).toBe("repo-new");
   });
 });
 
