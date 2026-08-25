@@ -726,7 +726,11 @@ function buildRenderJson(result: ReturnType<typeof runRender>, preview: boolean)
     orphanedEngineOutputs: result.orphanedEngineOutputs ?? [],
     prunedEngineOutputs: result.prunedEngineOutputs ?? [],
     gitignore: result.gitignore
-      ? { path: result.gitignore.path, status: result.gitignore.status }
+      ? {
+          path: result.gitignore.path,
+          status: result.gitignore.status,
+          backupPath: result.gitignore.backupPath ?? null,
+        }
       : null,
     downgrades,
     summary: countStatuses(allEntries),
@@ -823,6 +827,11 @@ function reportGitignore(gitignore: GitignoreRenderResult, lang: Lang): void {
     lines.push(
       `  ${renderStatusSymbol(gitignore.status)} ${gitignore.path}  ${dim("(")}${renderStatusLabel(gitignore.status)}${dim(")")}`,
     );
+  }
+  // #458: `.gitignore` is the one file navori edits without having authored it,
+  // so the pre-write snapshot is the user's way back to their own rules.
+  if (gitignore.backupPath) {
+    lines.push(`  ${dim(tc(lang).common.backupLabel)} ${gitignore.backupPath}`);
   }
   p.log.message(lines.join("\n"));
 }
