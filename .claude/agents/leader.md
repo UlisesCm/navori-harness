@@ -137,7 +137,7 @@ If the task is:
 - A single trivial line in a known file → may not be worth the overhead.
 <!-- /navori:managed id="leader-base" -->
 
-<!-- navori:managed id="engram-leader-extension" hash="9608be80" version="0.6.0" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-leader-extension" hash="ebb4c5cf" version="0.6.0" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
 Before decomposing work: **search for context** with `mem_search` using keywords from the ticket. If you find a previous audit of the same area or a related architectural decision, read it before dispatching the `implementer`. Don't re-discover what's already saved.
@@ -152,7 +152,7 @@ Before closing the session: a mandatory `mem_session_summary` — exempt only un
 - `next_steps` — what's left (with concrete paths).
 - `relevant_files` — paths a future agent should read first.
 
-After the summary, curate the session: consolidate duplicates, fix contradicted memories and delete only clearly volatile or redundant content. Never aggressively prune durable decisions. Under **R1 lean close** the curation is exempt too; `mem_save` never is.
+In the same turn as the summary, curate the session: consolidate duplicates, fix contradicted memories and delete only clearly volatile or redundant content. Never aggressively prune durable decisions. Under **R1 lean close** the curation is exempt too; `mem_save` never is.
 <!-- /navori:managed id="engram-leader-extension" -->
 
 ## Project rules

@@ -187,13 +187,13 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 2. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
 <!-- /navori:managed id="arranque-sesion" -->
 
-<!-- navori:managed id="cierre-sesion" hash="ec8cfadf" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="cierre-sesion" hash="ac22bdf1" version="0.6.0" source="@navori/core" -->
 ## Session closeout
 
 Before closing the session:
 
 1. **Quality gate**: pnpm format:check && cd packages/cli && pnpm test && pnpm lint && pnpm typecheck — confirm it passes, **or cite this cycle's green run** (reviewer's Pass-2 in R2, pilot's pre-flight in R1) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
-2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
+2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
 5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, atomic, in the language defined by the config's `commits`.
@@ -226,16 +226,16 @@ A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a 
 The `ticket-intake` skill runs this as a pipeline; the `ticket-audit` agent produces the verdict with evidence.
 <!-- /navori:managed id="intake-tickets" -->
 
-<!-- navori:managed id="engram-protocol" hash="7bdaaa26" version="0.6.0" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-protocol" hash="604ad644" version="0.6.0" source="@navori/plugin-engram" -->
 ## Engram
 
-- **Session start (first step, mandatory):** call `mem_context` at the start of EVERY session to recover decisions and prior work — don't wait for the user to ask. On hosts that do NOT load memory with a startup hook (e.g. Codex), this explicit call IS the memory startup; don't skip it.
+- **Session start (only where no hook did it):** if a startup hook already injected the memory context (on Claude the engram plugin ships its own `SessionStart`), work with what's injected — calling `mem_context` only re-fetches it. On hosts with no startup hook (e.g. Codex), that explicit call IS the memory startup and it's the mandatory first step; don't skip it.
 - **Pre-flight:** `mem_search` with the task's keywords before searching code — it gives a region and a hypothesis; confirm signature, line, and call sites with Grep/structural-search before acting.
 - **Save only what's durable:** decisions, architecture, conventions, root causes, and module pointers. Never persist lines, current signatures, call-site lists, or temporary state.
 - `mem_save` proactively with a stable `topic_key` per topic. Reuse the same key to evolve an observation via upsert, not to create repeated snapshots.
 - **Write-back:** if the code contradicts a memory, fix it with `mem_update`/`mem_save` right away. Treat `needs_review` as stale context.
-- `mem_session_summary` is mandatory before "done": Goal · Discoveries · Accomplished · Next Steps · Relevant Files.
-- **Curation at close:** after the summary, review what was created in the session. Consolidate duplicates under their `topic_key`, promote what's durable, and delete only volatile observations or ones already covered by the summary. Never aggressive deletion, never delete a durable decision.
+- `mem_session_summary` is mandatory before "done": Goal · Discoveries · Accomplished · Next Steps · Relevant Files. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
+- **Curation at close:** in the SAME turn as the summary, never a separate pass, review what the session created. Consolidate duplicates under their `topic_key`, promote what's durable, and delete only volatile observations or ones already covered by the summary. Never aggressive deletion, never delete a durable decision.
 - **R1 lean close** (the closeout block's three conditions): the summary and the curation step are exempt. `mem_save` is not — that one is what lets you reconstruct in six months why a commit exists.
 <!-- /navori:managed id="engram-protocol" -->
 
