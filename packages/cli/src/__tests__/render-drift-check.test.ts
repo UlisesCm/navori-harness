@@ -120,6 +120,12 @@ describe("check-render — harness mirror drift guard (#421)", () => {
     // only says "failed" reproduces the problem it exists to solve.
     expect(check.combined).toContain(".claude/hooks/guard-destructive.sh");
     expect(check.combined).toContain("render --apply");
+    // …and the command it names must carry the BUILD half. Naming the bare
+    // binary is what taught the build-less chain in the first place: the CLI
+    // reads dist/assets/core, a build-time copy, so without a rebuild the fix
+    // compares against the old assets and silently does nothing (or reverts).
+    expect(check.combined).toContain("pnpm --filter navori build && node");
+    expect(check.combined).toContain("pnpm render:apply");
     // The guard previews: it must never write while auditing.
     expect(readFileSync(hook, "utf-8")).toBe(beforeCheck);
   });
@@ -176,5 +182,49 @@ describe("check-render — harness mirror drift guard (#421)", () => {
     expect(parsed.root.written.map((w: { path: string }) => w.path)).toContain(
       ".claude/hooks/guard-destructive.sh",
     );
+  });
+});
+
+/**
+ * The re-render command this repo DOCUMENTS must be the one that works.
+ *
+ * `render` reads `packages/cli/dist/assets/core`, a build-time copy, so the bare
+ * `node packages/cli/dist/index.js render --apply` compares against whatever the
+ * last build captured: it answers `unchanged` over a mirror that is genuinely
+ * stale and, in the reverse direction, rewrites the mirror BACKWARDS. Measured
+ * on `main` @ 416d39e: 4 files would have been reverted, dropping the
+ * `### Always-on delta` section of #480 and the engram block of #401.
+ *
+ * `pnpm check:render` already chains the build (`package.json`); the fix is that
+ * the WRITE side gets the same treatment as a named script, so it can't be
+ * copy-pasted half.
+ */
+describe("the documented re-render command always carries its build (#421 follow-up)", () => {
+  const REPO_ROOT = resolve(__dirname, "..", "..", "..", "..");
+  const readRoot = (file: string): string => readFileSync(join(REPO_ROOT, file), "utf-8");
+
+  it("exposes `render:apply` as a script, symmetric to `check:render`", () => {
+    const pkg = JSON.parse(readRoot("package.json")) as { scripts?: Record<string, string> };
+    const renderApply = pkg.scripts?.["render:apply"];
+
+    expect(renderApply, "root package.json must define a `render:apply` script").toBeDefined();
+    expect(renderApply).toContain("pnpm --filter navori build");
+    expect(renderApply).toContain("render --apply");
+    // The build must come FIRST; the whole defect is rendering before building.
+    expect((renderApply as string).indexOf("build")).toBeLessThan(
+      (renderApply as string).indexOf("render --apply"),
+    );
+    expect(pkg.scripts?.["check:render"]).toContain("pnpm --filter navori build");
+  });
+
+  it("never documents the build-less binary invocation", () => {
+    // The exact string that taught the broken chain (was CONTRIBUTING.md:26).
+    const BUILDLESS = "node packages/cli/dist/index.js render --apply";
+    for (const file of ["CONTRIBUTING.md", "README.md"]) {
+      const offenders = readRoot(file)
+        .split("\n")
+        .filter((line) => line.includes(BUILDLESS) && !line.includes("pnpm --filter navori build"));
+      expect(offenders, `${file} teaches a render --apply with no build`).toEqual([]);
+    }
   });
 });
