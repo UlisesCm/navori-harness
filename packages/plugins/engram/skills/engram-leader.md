@@ -18,4 +18,4 @@ Before closing the session: a mandatory `mem_session_summary` — exempt only un
 - `next_steps` — what's left (with concrete paths).
 - `relevant_files` — paths a future agent should read first.
 
-After the summary, curate the session: consolidate duplicates, fix contradicted memories and delete only clearly volatile or redundant content. Never aggressively prune durable decisions. Under **R1 lean close** the curation is exempt too; `mem_save` never is.
+In the same turn as the summary, curate the session: consolidate duplicates, fix contradicted memories and delete only clearly volatile or redundant content. Never aggressively prune durable decisions. Under **R1 lean close** the curation is exempt too; `mem_save` never is.
