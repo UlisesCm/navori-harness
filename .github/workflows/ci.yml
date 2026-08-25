@@ -22,6 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `check:assets` compares the assets against the newest RELEASE TAG.
+          # actions/checkout fetches no tags by default, which would make that
+          # check skip itself in silence — the blind spot #421 is about.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -50,6 +55,13 @@ jobs:
       # away just because the Build step above already ran.
       - name: Harness mirror up to date
         run: pnpm check:render
+
+      # #490 — an asset that orders `navori <cmd>` resolves the PUBLISHED binary,
+      # so a PR landing a subcommand plus an asset calling it ships an asset that
+      # is broken until the next release (that is how `audit` shipped in #485).
+      # Reports, never blocks: failing here would force publishing before merging.
+      - name: Assets cite released subcommands
+        run: pnpm check:assets
 
       - name: Lint
         run: pnpm --filter navori lint
