@@ -1,103 +1,59 @@
 # Sesión actual
 
-**Estado:** **PR #485 abierto** (`feat/audit-mode-impl` → `main`), rebasado sobre `e931b2e`, gate
-completo en verde. Sesión 2026-08-25: diseño del modo audit cerrado en cuestionario 1x1 +
-implementación completa.
+**Estado:** **PR #486 abierto** (`feat/audit-cableado-mcp-worktree` → `main`), 5 commits atómicos,
+gate completo verde. Sesión 2026-08-25: primer uso real del modo audit, que destapó su propio
+bloqueador y tres hallazgos más.
 
-## SIGUIENTE PASO: revisar y mergear el PR #485
+## SIGUIENTE PASO
 
-- https://github.com/UlisesCm/navori-harness/pull/485 — esperar CI y mergear.
-- **Después del merge, el fix del cableado MCP** (decisión 8): los subagentes reciben los bloques de
-  CodeGraph y Engram que no pueden ejecutar. ~107k tokens/sesión. Se dejó para después a propósito,
-  como caso de validación del reporte.
-- **`main` local quedó con el commit del feature encima** (por el enredo de concurrencia de abajo).
-  Apuntarlo a `origin/main` cuando la otra sesión no esté trabajando; el trabajo ya está a salvo en
-  `feat/audit-mode-impl` y en el PR.
+1. **Mergear #486** — https://github.com/UlisesCm/navori-harness/pull/486
+2. **Publicar 0.7.0.** Es el paso que de verdad destraba el modo audit: hasta entonces NO funciona
+   en ningún repo consumidor, solo con el binario local de este. Requiere OTP de Ulises.
+3. **El tablero está en CERO issues abiertos** — la condición (a) del descongelamiento del rollout
+   ya se cumplió. Falta (b) versión estable, que es exactamente el punto 2.
 
-## Contexto del feature (por si hay que retomarlo)
+## Lo que entró en #486
 
-- **Plan detallado (fuente de verdad):** `.claude/progress/plan_audit_mode.md` — reescrito hoy con
-  el diseño final; supersede el plan post-hoc del 24-ago. Ahí están las 8 decisiones de Ulises y
-  los hechos verificados contra doc oficial.
-- **Memoria engram:** topic_key `navori-audit-mode-diseno-final` (decisiones + mediciones).
-- El código WIP está commiteado en esta branch. Lo que falta se lista abajo.
+1. **`audit-mode-trigger.sh` ordenaba un comando inexistente.** El hook resuelve el `navori` del
+   PATH (el PUBLICADO), y `audit` entró en #485 *después* del tag `v0.6.1`. Citty imprime el help y
+   **sale con código 0** → falso positivo silencioso: el agente reporta una grabación que nunca
+   arrancó. Ahora introspecciona la línea `USAGE` antes de ordenar nada.
+2. **Cableado MCP, capa 3.** Un plugin podía inyectar prosa en un agente pero no la capacidad:
+   `tools:` es una allowlist que cubre MCP, y `researcher`/`explorer` cargaban CodeGraph sin poder
+   llamarlo. `engines/claude/agent-mcp-tools.ts` deriva `mcp__<pluginId>__*` al frontmatter.
+3. **`codegraph-protocol` de 589 → 197 tok** (~392 menos por arranque de subagente; ~34k en una
+   sesión de 88). Era ~85% duplicado de la skill `codegraph-rung`.
+4. **Reclamo de worktrees.** El pilot detecta y reporta; el orquestador pregunta y remueve.
 
-### Las 8 decisiones (salieron de cuestionario 1x1, no re-litigar)
+## Limpieza hecha esta sesión (fuera del PR)
 
-1. Alcance **completo e independiente** (tokens + adherencia). Se evaluó y descartó apoyarse en
-   **AgentSight** (CLI Rust MIT/Apache, `brew install agentsight`, parsea los mismos transcripts).
-2. **Solo sesiones MARCADAS** con audit-mode; sin auditoría retroactiva. Dentro de una sesión
-   marcada se toma la sesión completa, no solo desde el gatillo.
-3. **Confirmación humana explícita en ambos extremos.** El hook NO activa: inyecta
-   `additionalContext` y el agente pregunta ("¿continuar?").
-4. **Distribución global** (`packages/core`), **activación por sesión**.
-5. **Log append-only inmutable**, uno por sesión. `.json`/`.md` son derivados regenerables.
-6. **Si no cuesta tokens, se omite** (fuera: latencia de hooks, gates corriendo, routing).
-7. Hooks SOLO en `UserPromptSubmit` + `SessionEnd`. Fail-open absoluto, test bash+zsh.
-8. **Primero el audit, después** el fix del cableado MCP — ese bug es el caso de validación.
+**27 worktrees / 7.6 GB borrados.** El repo pasó de ~8 GB a **347 MB**. Los 27 verificados uno por
+uno: 0 archivos sin commitear, PR `MERGED`, y commit squash presente en `origin/main`.
 
-### Hecho y verificado (commiteado en esta branch)
+**Quedan 60 branches locales con PR ya mergeado** (de 127 totales). No pesan en disco pero ensucian;
+mismo método si se limpian: cruzar contra PRs mergeados, nunca por nombre.
 
-- `packages/cli/src/lib/audit/{paths,model,parse,harness,signals,discovery,report}.ts`
-- `packages/cli/src/commands/audit.ts` + registro en `index.ts` (1 import + 1 entrada)
-- `packages/core/core-assets/hooks/audit-mode-{trigger,close}.sh` + registro en
-  `harness-plan.ts` y `build-settings.ts`
-- Tests: 40 unit (parse/signals/discovery) + 30 de hooks en **bash y zsh** = 70 nuevos, verdes.
-- **Validado contra la sesión real `ec30221a`** (88 subagentes): 0 parseErrors en 4427 líneas,
-  y **destapó solo el bug de codegraph como HIGH (~107k tokens)** — la prueba de calibración
-  que Ulises pidió.
+## Gotchas nuevos, verificados hoy
 
-### Lo que FALTA para cerrar
+- **`git merge-base --is-ancestor` NO sirve para saber si una branch se mergeó en este repo**: los
+  PRs van con squash, así que responde "no mergeado" para el 100% de las branches, incluidas las que
+  shipearon hace días. Lo que decide: `git log origin/main --grep="(#<PR>)"`.
+- **`git diff --stat origin/main <branch>` tampoco sirve**: mide que la branch está ATRASADA (main
+  avanzó), no que le falte entregar. Daba 80–170 líneas en branches perfectamente mergeadas.
+- **`invariants[]` de un plugin NO son nombres de tools** — son load-bearing substrings que deben
+  sobrevivir al render (`doctor.ts:1091`). Derivar tools de ahí admite basura y se queda corto.
+- **`tools:` acepta patrones a nivel servidor** (`mcp__<server>__*`), confirmado en la doc oficial.
+- **Dentro de un pipe del Bash tool, `basename`/`wc`/`tr` pueden salir `command not found`** mientras
+  `git`/`grep`/`awk` sí resuelven. Un loop de shell que dependa de ellos produce una tabla INVENTADA
+  sin fallar ruidosamente. Para auditorías, `python3`.
+- **Las skills tienen cap de palabras** (spec 0003 §3.2.1; `type: behavior` = 200). Mover contenido
+  de CLAUDE.md a una skill lo dispara: hay que condensar, no subir el cap.
 
-1. **Test de integración del comando** (end-to-end contra el fixture, con `NAVORI_AUDITS_ROOT`).
-2. **Suite completa en verde** — quedó 1 fallo por resolver (ver abajo) y falta correr
-   `pnpm format:check` + `pnpm lint`.
-3. Decidir si el copy de los hooks (hoy español hardcodeado) debe pasar por el i18n del render.
+## Idioma: regla afinada por Ulises hoy
 
-## ⚠️ Sesión concurrente: qué pasó y qué quedó pendiente de limpiar
-
-Otra sesión trabajó en este mismo repo durante toda la sesión: mergeó el release **0.6.1 (#483)** y
-el **#484**, y su `navori render` corrió sobre el repo raíz (dejó backup
-`~/.navori/backups/navori-harness-2026-08-25T13-12-25-213-p54354-0`). Consecuencias vividas:
-
-- `CLAUDE.md` y `.claude/{agents,skills,hooks}` aparecieron modificados con **solo** el bump
-  `version="0.6.0"` → `"0.6.1"`. Resultó ser contenido **ya idéntico a `origin/main`** — no eran
-  cambios pendientes, era que la branch partía de un main anterior.
-- Disparó el guard de aislamiento (#424) como **falso positivo**, que su propio mensaje contempla.
-- **`HEAD` del repo raíz volvió a `main` a media sesión**, así que el commit del feature cayó sobre
-  `main` local. Se preservó creando `feat/audit-mode-impl` (operación no destructiva) y se rebasó
-  dos veces sobre el `origin/main` móvil.
-
-**Pendiente:** `main` local sigue con ese commit encima. Apuntarlo a `origin/main` cuando nadie más
-esté trabajando en el repo.
-
-**Lección de proceso:** con dos sesiones sobre el mismo working tree, `git rev-parse --abbrev-ref
-HEAD` antes de commitear deja de ser paranoia. El `git push -u` no falla ruidosamente cuando la
-branch local ya no es la que crees.
-
-## Ajuste colateral que sí entró: bundle guard 800 → 900KB
-
-`check:size` iba a explotar con cualquier feature nuevo: medido **792KB sin audit, 816KB con él**.
-El comentario del guard promete headroom para cazar una dep pesada, y ese headroom ya estaba
-gastado por crecimiento de primera parte. `audit` agrega ~24KB y **cero dependencias**. El nuevo
-límite deja ~84KB de margen. La medición quedó documentada en el propio script.
-
-## Gotcha nuevo, verificado hoy (bash vs zsh)
-
-Con `HOME` fuera del entorno, **zsh lo repuebla desde la entrada de passwd y bash no**. El mismo
-hook, por tanto, bail-out silencioso en bash y sigue adelante en zsh. Ambos cumplen el contrato
-(exit 0, cero escrituras), pero un test que exija "sin output" en ambos shells falla. Está
-documentado en `audit-hooks.test.ts`.
-
-## LO PRIMERO QUE HAY QUE SABER: el rollout 0.6.0 sigue CONGELADO
-
-**Criterio de salida dictado por Ulises (2026-08-24):** no se descongela hasta **(a) resolver
-TODOS los issues abiertos** y **(b) garantizar una versión estable**. No lo propongas ni lo
-arranques. Cuando toque: **per-repo, NUNCA `--all`**.
-
-**Límite que hay que decirle ANTES del rollout:** por el hueco de #440, un `render` **no actualiza
-las zonas de usuario ya escritas** — se congelan con la redacción que las creó. Los tokens viejos
-necesitan el chequeo de `doctor` (#440) y corrección **a mano**.
+**Código y prompts en inglés; la interacción con el usuario en español.** Por eso los 4 mensajes del
+hook pasaron a inglés (son prompts para el agente) pero los patrones de detección siguen en español
+(son el input que teclea el usuario) y el i18n del reporte del CLI quedó intacto.
 
 ## Regla de trabajo vigente
 
@@ -105,31 +61,11 @@ necesitan el chequeo de `doctor` (#440) y corrección **a mano**.
 > cabe en el ciclo que lo encontró, o (c) se va a olvidar y duele. Si el fix cabe en el diff
 > abierto y no requiere decisión: **se arregla ahí y se cuenta en el cuerpo del PR**, sin ticket.
 
-## Issues abiertos (13)
+## Límite que hay que decir ANTES del rollout
 
-**Decisiones de Ulises del 2026-08-24, dirección ya fijada:**
-
-- **#461** `high` — 209 errores de tipos. Limpiar los 209 PRIMERO, después agregar `typecheck`
-  al gate. (Ojo: `pnpm typecheck` ya existe y pasa limpio hoy.)
-- **#462** — el `guard-destructive` bloquea prosa que *cita* comandos destructivos. Acotarlo a lo
-  que se EJECUTA, no al texto que se escribe.
-- **#458** — `.gitignore` es la única escritura del render que esquiva el punto de respaldo.
-- **#459** — el cierre de marcador sigue con `indexOf` crudo.
-- **#460** `low` — `MARKER_ID_ATTR_RE` más laxo que el parser.
-
-**Tanda de optimización:** #377, #378, #379, #370.
-**Testing:** #394 (golden snapshot por engine), #395 (repos fixture), #396 (benchmark — este
-feature probablemente lo alimenta o lo cierra).
-**Auditoría de reprocesos:** #401.
-
-## Gotchas de proceso vigentes
-
-- **Un fuente con un byte NUL es invisible para grep y opaco para `git diff`.**
-- **La base se mueve durante un ciclo largo.** El receipt se ancla a `git diff HEAD`, NO a
-  `origin/main`. El pilot rebasa y **re-corre el gate**.
-- **Editar el body de un PR puede romper el auto-cierre del issue** (`Closes #<n>`).
-- **`${PIPESTATUS[0]}` no existe en zsh** (es `$pipestatus[1]`).
-- **Al aplicar un fix con script, no reuses la variable del path.**
+Por el hueco de #440, un `render` **no actualiza las zonas de usuario ya escritas** — se congelan
+con la redacción que las creó. Los tokens viejos necesitan el chequeo de `doctor` y corrección
+**a mano**. Cuando toque: **per-repo, NUNCA `--all`**.
 
 ## Notas heredadas
 

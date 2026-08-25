@@ -215,9 +215,38 @@ wc -c CLAUDE.md                                  # after
 - ❌ Skipping pre-flight to "go faster" — the recurring bug is creating PRs with failing tests.
 - ❌ Using `gh pr create --web` — you lose the controlled format.
 
+## Worktree left behind (report it, never remove it)
+
+Once the PR is open the worktree you ran in has done its job, and nobody
+reclaims it: agent worktrees accumulate a full checkout each (they have reached
+tens of GB in a single repo). But removing it is NOT yours to do — you are
+standing inside it, and the call belongs to the human, so **report and stop
+there**.
+
+After the PR URL, check whether this run happened in a worktree and whether its
+work is safely on the remote:
+
+```bash
+# A linked worktree has its own git dir; the main checkout has them equal.
+[ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] && echo "main-checkout" || echo "worktree"
+git status --porcelain                       # must be empty
+git status -sb | head -1                     # must NOT say [ahead N]
+```
+
+Then close your report with exactly one of:
+
+- `worktree: none` — this ran in the main checkout, nothing to clean up.
+- `worktree: <abs-path> — safe to remove (clean, pushed)` — the branch is on the
+  remote and nothing is uncommitted, so the PR holds every byte of the work.
+- `worktree: <abs-path> — NOT safe (uncommitted changes | not pushed)` — say
+  which of the two, so the leader can decide instead of guessing.
+
+Never run `git worktree remove` yourself, and never treat "the PR is open" as
+proof the work is safe: what makes it recoverable is the branch being pushed.
+
 ## Communication with the leader
 
-- If all OK: one line with the PR URL and the title.
+- If all OK: one line with the PR URL and the title, plus the `worktree:` line.
 - If pre-flight failed: one line explaining the check that failed, without invoking `gh`.
 
 

@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: Read-only investigation of a scoped question. Reads the repo, writes findings to a file. Does not modify code.
-tools: Read, Glob, Grep, Bash, Write
+tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
 ---
 
 <!-- navori:managed id="researcher-base" hash="dddd01f9" version="0.6.1" source="@navori/core" -->

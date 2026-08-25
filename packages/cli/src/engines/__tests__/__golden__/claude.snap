@@ -368,9 +368,38 @@ wc -c CLAUDE.md                                  # after
 - ❌ Skipping pre-flight to "go faster" — the recurring bug is creating PRs with failing tests.
 - ❌ Using `gh pr create --web` — you lose the controlled format.
 
+## Worktree left behind (report it, never remove it)
+
+Once the PR is open the worktree you ran in has done its job, and nobody
+reclaims it: agent worktrees accumulate a full checkout each (they have reached
+tens of GB in a single repo). But removing it is NOT yours to do — you are
+standing inside it, and the call belongs to the human, so **report and stop
+there**.
+
+After the PR URL, check whether this run happened in a worktree and whether its
+work is safely on the remote:
+
+```bash
+# A linked worktree has its own git dir; the main checkout has them equal.
+[ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] && echo "main-checkout" || echo "worktree"
+git status --porcelain                       # must be empty
+git status -sb | head -1                     # must NOT say [ahead N]
+```
+
+Then close your report with exactly one of:
+
+- `worktree: none` — this ran in the main checkout, nothing to clean up.
+- `worktree: <abs-path> — safe to remove (clean, pushed)` — the branch is on the
+  remote and nothing is uncommitted, so the PR holds every byte of the work.
+- `worktree: <abs-path> — NOT safe (uncommitted changes | not pushed)` — say
+  which of the two, so the leader can decide instead of guessing.
+
+Never run `git worktree remove` yourself, and never treat "the PR is open" as
+proof the work is safe: what makes it recoverable is the branch being pushed.
+
 ## Communication with the leader
 
-- If all OK: one line with the PR URL and the title.
+- If all OK: one line with the PR URL and the title, plus the `worktree:` line.
 - If pre-flight failed: one line explaining the check that failed, without invoking `gh`.
 <!-- /navori:managed id="commit-pr-pilot-base" -->
 
@@ -390,7 +419,7 @@ wc -c CLAUDE.md                                  # after
 ---
 name: explorer
 description: Broad map of an area or module of the repo. Returns structure, dependencies, and entry points. Does not modify code.
-tools: Read, Glob, Grep, Bash, Write
+tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
 ---
 
 <!-- navori:managed id="explorer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -639,7 +668,7 @@ Never return the diff in chat. The leader reads it from disk if it needs it.
 ---
 name: leader
 description: Do NOT invoke as a subagent. Orchestration playbook that the main agent EMBODIES (see "## Role: orchestrator" in CLAUDE.md). Delegating it to a subagent serializes the work and kills parallelism.
-tools: Read, Glob, Grep, Bash, Agent
+tools: Read, Glob, Grep, Bash, Agent, mcp__engram__*
 ---
 
 <!-- navori:managed id="leader-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -827,7 +856,7 @@ Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user 
 ---
 name: researcher
 description: Read-only investigation of a scoped question. Reads the repo, writes findings to a file. Does not modify code.
-tools: Read, Glob, Grep, Bash, Write
+tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
 ---
 
 <!-- navori:managed id="researcher-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -1387,11 +1416,46 @@ set +e
 
 emit_and_exit() { printf '%s\n' "$1"; exit 0; }
 
+# Is `audit` actually available in the CLI on PATH?
+#
+# The hook orders the agent to run `navori audit --start`, and that resolves the
+# PUBLISHED binary, never a working tree's build. When the installed version
+# predates the subcommand, citty prints the help and exits 0 — so an agent that
+# checks the exit code reads a silent no-op as success and reports a recording
+# that never started. Match the subcommand inside the CLI's own USAGE line
+# instead of trusting the status.
+#
+# Returns 1 when the subcommand is absent AND when the check itself cannot run
+# (no binary on PATH, no USAGE line). Both collapse into "could not confirm",
+# which is what the caller's message must say: claiming "your version is old"
+# would be wrong for a machine with no navori installed at all.
+audit_subcommand_available() {
+  command -v navori >/dev/null 2>&1 || return 1
+  usage=$(navori --help 2>/dev/null | grep -m1 '^USAGE' 2>/dev/null) || return 1
+  [ -n "$usage" ] || return 1
+  # Normalize separators so the token matches at any position: `USAGE navori
+  # init|add|audit` -> `|USAGE|navori|init|add|audit|`.
+  tokens=$(printf '%s' "$usage" | tr ' ' '|' 2>/dev/null) || return 1
+  case "|$tokens|" in
+    *"|audit|"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
-prompt=$(printf '%s' "$payload" | jq -r '.user_prompt // ""' 2>/dev/null) || exit 0
+# The typed text, under whichever key the host uses.
+#
+# Reading only `.user_prompt` recorded EMPTY prompts against a real session:
+# the hook fired, matched, and appended `{"event":"prompt","prompt":""}` — the
+# field simply wasn't there. An audit whose whole job is attribution cannot
+# silently log blanks, and `jq`'s `//` makes tolerating both names free.
+#
+# Order matters: the more specific `user_prompt` wins when both are present, so
+# a host that ships both never gets the wrong one.
+prompt=$(printf '%s' "$payload" | jq -r '.user_prompt // .prompt // ""' 2>/dev/null) || exit 0
 session_id=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
 cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null) || exit 0
 [ -n "$session_id" ] || exit 0
@@ -1430,13 +1494,21 @@ if [ -f "$log_file" ]; then
     '{ts:$ts,event:$ev,prompt:$p}' 2>/dev/null)" >> "$log_file" 2>/dev/null
 
   if [ "$matched" = "1" ] && [ "$off_intent" = "1" ]; then
-    emit_and_exit "[navori audit-mode] El usuario pidió apagar audit-mode. ANTES de hacerlo, pregúntale explícitamente: \"Se apagará audit mode, ¿continuar?\". Solo si confirma, ejecuta: navori audit --stop $session_id (eso cierra el log y genera el reporte). Si dice que no, deja el modo activo y sigue con la tarea."
+    if audit_subcommand_available; then
+      emit_and_exit "[navori audit-mode] The user asked to turn audit-mode OFF. Before doing anything, ask them explicitly: \"audit mode will be turned off, continue?\". Only if they confirm, run: navori audit --stop $session_id (that seals the log and generates the report). Then check the output: it must name the report it wrote. If it prints the command list (USAGE) instead, the installed CLI has no such subcommand — tell the user and do NOT assume the session was closed. If they decline, leave the mode active and carry on with the task."
+    else
+      emit_and_exit "[navori audit-mode] The user asked to turn audit-mode OFF, but the available 'navori' could not be confirmed to ship the 'audit' subcommand: it may not be installed at all, or it may predate that command. Do NOT run 'navori audit --stop' blindly: if the binary exists but is old, it prints its help and exits 0, which looks like success without being one. Tell the user what happened and that the session log stays intact on disk, so the report can still be generated once the CLI is up to date. Then carry on with the task."
+    fi
   fi
   exit 0
 fi
 
 if [ "$matched" = "1" ] && [ "$off_intent" = "0" ]; then
-  emit_and_exit "[navori audit-mode] Se detectó la invocación de audit-mode en el prompt. ANTES de activar nada, pregúntale explícitamente al usuario: \"Se detectó la invocación de audit mode, ¿continuar?\". Solo si confirma, ejecuta: navori audit --start $session_id (eso crea el log de la sesión). Si dice que no, no ejecutes nada y sigue con la tarea normal."
+  if audit_subcommand_available; then
+    emit_and_exit "[navori audit-mode] An audit-mode invocation was detected in the prompt. Before activating anything, ask the user explicitly: \"an audit mode invocation was detected, continue?\". Only if they confirm, run: navori audit --start $session_id (that creates the session log). Then check the output: it must name the log file it created. If it prints the command list (USAGE) instead, the installed CLI has no such subcommand — tell the user and do NOT assume the mode is active. If they decline, run nothing and carry on with the task."
+  else
+    emit_and_exit "[navori audit-mode] An audit-mode invocation was detected, but the available 'navori' could not be confirmed to ship the 'audit' subcommand: it may not be installed at all, or it may predate that command. Do NOT run 'navori audit --start' blindly: if the binary exists but is old, it prints its help and exits 0, which looks like success without being one. Tell the user that nothing was activated, and why. Then carry on with the task."
+  fi
 fi
 
 exit 0
@@ -4347,15 +4419,18 @@ If neither binary exists, fall back to Grep and targeted reading: **don't block 
 
 Before the grep/ast-grep ladder above, if the `codegraph` MCP tool is available, ask the pre-built AST graph where the code lives:
 
-- **Locate a symbol / definition:** `codegraph_explore` with the symbol name or a natural-language question ("where is the auth token refreshed?"). One call returns the source span + call paths, instead of a `grep` sweep.
-- **Trace impact:** ask what calls a function or what a change touches, to size the blast-radius before reading files.
+- **Locate a symbol:** `codegraph_explore` with the name or a plain question ("where is the auth token refreshed?"). One call returns the source span and call paths.
+- **Trace impact:** ask what calls a function, to size the blast-radius before reading files.
 
-The graph **forms the hypothesis** (which files/symbols matter). The rungs above still **verify** it — never edit off the graph alone:
+The graph **forms the hypothesis**; the rungs above still **verify** it. Never edit off the graph alone:
 
-- On a stale index or ambiguous name, codegraph can return the wrong symbol while claiming it's exact. Confirm the concrete span with `Grep`/`Read` before writing, especially in critical areas.
-- Treat its blast-radius / "tests found" as a hint, not a coverage gate — the repo's real tests decide.
+- On a stale index or an ambiguous name it can return the **wrong** symbol while claiming it's exact. Confirm the span with `Grep`/`Read` before writing, especially in critical areas.
+- Its blast-radius and "tests found" are hints, not a coverage gate — the repo's real tests decide.
+- Not installed, or the index looks stale? Skip this rung: an accelerator, never a dependency.
 
-If `codegraph` isn't installed or the index looks stale, skip this rung and start at the grep/ast-grep ladder as usual.
+**Monorepo:** the `projectPath` argument opens a sub-project **without the file watcher**, so that index goes stale faster. Run `codegraph init` per sub-repo, `codegraph sync` before critical work.
+
+**Never commit the index:** `.codegraph/` is local SQLite that churns on every sync — it belongs in `.gitignore`.
 <!-- /navori:managed id="codegraph-search-extension" -->
 
 ## The project's structural patterns
@@ -4785,6 +4860,8 @@ Once the plan/scope is approved (R2+), execute ALL sub-tasks without confirming 
 Instruct subagents to **write to `.claude/progress/<file>.md`**; you receive only `done -> file`. That folder is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, git-persisted) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. **After** its `done -> file` lands (not while it runs — that duplicates work in flight), re-verify only the **load-bearing claims**, the ones your decision rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report. To close the cycle, invoke `commit-pr-pilot` — when `review_<feature>.md` says `APPROVED` (R2+), or directly for a genuine R1 diff that never went through a `reviewer`. The pilot gates the PR on `pnpm test && pnpm lint` (green over the shipping diff — the reviewer's Pass-2 evidence in R2+, or the pilot's own run in R1). Pre-flight: not on `main`, `gh auth status` ok (no clean-working-tree check — the pilot's trigger IS the uncommitted diff, and the pilot owns that commit). If `CHANGES_REQUESTED`, launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
 
 **Second opinion (post-`APPROVED`).** On a non-trivial diff — or any change touching a critical area — if this repo also renders the `codex` engine, a review from a **different provider** is one command away: see the **Cross-model review** sub-block in `.claude/agents/leader.md`.
+
+**Reclaim the worktree (ask, never assume).** The pilot ends its report with a `worktree:` line, because it runs inside the worktree and cannot remove it — you can. Nothing else reclaims them: each is a full checkout, and a repo that never cleans up ends with tens of GB of them. When that line says `safe to remove`, ask the user once, plainly ("the PR is open and the branch is pushed — remove the worktree at `<path>`?"), and act on the answer. Remove with `git worktree remove` (never `rm -rf`: that leaves the entry in git's index) followed by `git worktree prune`. When it says `NOT safe`, do NOT ask — report which of the two reasons it gave and leave it alone; a worktree holding uncommitted or unpushed work is the only copy of it. And never take a merged PR as proof on its own: **squash merge leaves no ancestry**, so `git merge-base --is-ancestor` answers "not merged" for branches that shipped days ago — what proves the work landed is the squash commit in the base branch (`git log <base> --grep="(#<PR>)"`).
 <!-- /navori:managed id="orquestacion" -->
 
 <!-- navori:managed id="idioma-rol" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -4905,21 +4982,11 @@ The Atlassian/Rovo MCP remains the fallback if `acli` fails or is unavailable.
 <!-- navori:managed id="codegraph-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-codegraph" -->
 ## CodeGraph (surgical code context)
 
-This repo has a pre-built AST code graph exposed over MCP (`codegraph`). Use it to locate code and reason about impact in **one call** instead of a grep/read crawl.
+This repo has a pre-built AST code graph exposed over MCP (`codegraph`). To locate code or size a change's blast-radius, call `codegraph_explore` **before** a grep/read crawl: one call returns the source span, call paths and impact.
 
-**Query the graph first.** For "where does `X` live? what calls `Y`? what breaks if I change `Z`?", call `codegraph_explore` (a natural-language query or a bag of symbols) **before** grep/read. One call returns the source span, call paths and blast-radius.
+It forms the hypothesis; it does not settle it. codegraph is beta and can return the wrong symbol while claiming it's exact, so **confirm the span with `Grep`/`Read` before writing** — and never treat its "tests found" as a coverage gate.
 
-**It's Rung -1 of `structural-search`, not a replacement.** The graph *forms* the hypothesis (which files/symbols matter); the grep/ast-grep ladder in `structural-search` still *verifies* it. Query the graph, then confirm the concrete span before opening files.
-
-**⚠️ Do NOT blindly trust "verbatim — do not Read".** codegraph is beta with known correctness gaps: on a stale index or ambiguous names it can return the **wrong** symbol while claiming it's exact, and `callers`/`callees`/`impact` may answer for a different fuzzy match without warning. For any change you're about to write — especially in a critical area — **verify the real span with `Read`/`Grep`** first. The graph is a fast hypothesis, never the final word.
-
-**Don't use blast-radius as a coverage gate.** codegraph's "impact / tests found" is unreliable (false "no tests found"). The repo's real test suite still decides coverage.
-
-**Monorepo:** `codegraph_explore` takes a `projectPath`, but that mode opens the sub-project **without the file watcher** → higher stale risk. Run `codegraph init` (and `codegraph sync` before critical work) per sub-repo.
-
-**Don't commit the index.** It lives in a local `.codegraph/` SQLite directory that churns on every sync — add `.codegraph/` to `.gitignore`. `codegraph init` (run in the plugin's post-install) builds it and the native file watcher keeps it fresh; the repo shares the *instruction* to use codegraph (this block), not the index.
-
-If `codegraph` isn't installed or the index is stale, fall back to `structural-search` as usual — the graph is an accelerator, not a dependency.
+How to use it in practice — the full ladder, the monorepo caveat and the index rules — is Rung -1 of the `structural-search` skill, loaded when you actually go looking for code.
 <!-- /navori:managed id="codegraph-protocol" -->
 
 <!-- navori:managed id="engram-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->

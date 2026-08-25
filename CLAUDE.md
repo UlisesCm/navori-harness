@@ -53,7 +53,7 @@ Protocolo global activo. En este repo:
 - El harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se commitea aquí y en todo repo no-Bonum — navori se auto-hospeda. La regla de "nunca commitear `.claude/`/`CLAUDE.md`" aplica solo a los repos `/bonum`. Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 - Branch base: definir cuando se inicialice el repo git.
 
-<!-- navori:managed id="orquestacion" hash="02946c90" version="0.6.1" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="7034ff3b" version="0.6.1" source="@navori/core" -->
 ## Role: orchestrator (organic routing)
 
 You are the main agent. For any task, **pick the smallest route that covers it**; step up only when you cross an objective threshold. Fan-out (subagents) is a **lever** for complex or parallelizable work, not a toll every task pays. Review the candidate **after** implementing, not before. You **embody** the orchestrator role: when a task reaches R2, **you act as the orchestrator** (decompose and coordinate) — but **NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -122,6 +122,8 @@ Once the plan/scope is approved (R2+), execute ALL sub-tasks without confirming 
 Instruct subagents to **write to `.claude/progress/<file>.md`**; you receive only `done -> file`. That folder is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, git-persisted) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. **After** its `done -> file` lands (not while it runs — that duplicates work in flight), re-verify only the **load-bearing claims**, the ones your decision rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report. To close the cycle, invoke `commit-pr-pilot` — when `review_<feature>.md` says `APPROVED` (R2+), or directly for a genuine R1 diff that never went through a `reviewer`. The pilot gates the PR on `pnpm format:check && cd packages/cli && pnpm test && pnpm lint && pnpm typecheck` (green over the shipping diff — the reviewer's Pass-2 evidence in R2+, or the pilot's own run in R1). Pre-flight: not on `main`, `gh auth status` ok (no clean-working-tree check — the pilot's trigger IS the uncommitted diff, and the pilot owns that commit). If `CHANGES_REQUESTED`, launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
 
 **Second opinion (post-`APPROVED`).** On a non-trivial diff — or any change touching a critical area — if this repo also renders the `codex` engine, a review from a **different provider** is one command away: see the **Cross-model review** sub-block in `.claude/agents/leader.md`.
+
+**Reclaim the worktree (ask, never assume).** The pilot ends its report with a `worktree:` line, because it runs inside the worktree and cannot remove it — you can. Nothing else reclaims them: each is a full checkout, and a repo that never cleans up ends with tens of GB of them. When that line says `safe to remove`, ask the user once, plainly ("the PR is open and the branch is pushed — remove the worktree at `<path>`?"), and act on the answer. Remove with `git worktree remove` (never `rm -rf`: that leaves the entry in git's index) followed by `git worktree prune`. When it says `NOT safe`, do NOT ask — report which of the two reasons it gave and leave it alone; a worktree holding uncommitted or unpushed work is the only copy of it. And never take a merged PR as proof on its own: **squash merge leaves no ancestry**, so `git merge-base --is-ancestor` answers "not merged" for branches that shipped days ago — what proves the work landed is the squash commit in the base branch (`git log <base> --grep="(#<PR>)"`).
 <!-- /navori:managed id="orquestacion" -->
 
 <!-- navori:managed id="idioma-rol" hash="ea35d81e" version="0.6.1" source="@navori/core" -->
@@ -285,24 +287,14 @@ Before closing a relevant change (auth, RBAC, secrets, input validation), run se
 - Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
 <!-- /navori:managed id="semgrep-protocol" -->
 
-<!-- navori:managed id="codegraph-protocol" hash="17d7f4b9" version="0.6.1" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-protocol" hash="b89c7cc3" version="0.6.1" source="@navori/plugin-codegraph" -->
 ## CodeGraph (surgical code context)
 
-This repo has a pre-built AST code graph exposed over MCP (`codegraph`). Use it to locate code and reason about impact in **one call** instead of a grep/read crawl.
+This repo has a pre-built AST code graph exposed over MCP (`codegraph`). To locate code or size a change's blast-radius, call `codegraph_explore` **before** a grep/read crawl: one call returns the source span, call paths and impact.
 
-**Query the graph first.** For "where does `X` live? what calls `Y`? what breaks if I change `Z`?", call `codegraph_explore` (a natural-language query or a bag of symbols) **before** grep/read. One call returns the source span, call paths and blast-radius.
+It forms the hypothesis; it does not settle it. codegraph is beta and can return the wrong symbol while claiming it's exact, so **confirm the span with `Grep`/`Read` before writing** — and never treat its "tests found" as a coverage gate.
 
-**It's Rung -1 of `structural-search`, not a replacement.** The graph *forms* the hypothesis (which files/symbols matter); the grep/ast-grep ladder in `structural-search` still *verifies* it. Query the graph, then confirm the concrete span before opening files.
-
-**⚠️ Do NOT blindly trust "verbatim — do not Read".** codegraph is beta with known correctness gaps: on a stale index or ambiguous names it can return the **wrong** symbol while claiming it's exact, and `callers`/`callees`/`impact` may answer for a different fuzzy match without warning. For any change you're about to write — especially in a critical area — **verify the real span with `Read`/`Grep`** first. The graph is a fast hypothesis, never the final word.
-
-**Don't use blast-radius as a coverage gate.** codegraph's "impact / tests found" is unreliable (false "no tests found"). The repo's real test suite still decides coverage.
-
-**Monorepo:** `codegraph_explore` takes a `projectPath`, but that mode opens the sub-project **without the file watcher** → higher stale risk. Run `codegraph init` (and `codegraph sync` before critical work) per sub-repo.
-
-**Don't commit the index.** It lives in a local `.codegraph/` SQLite directory that churns on every sync — add `.codegraph/` to `.gitignore`. `codegraph init` (run in the plugin's post-install) builds it and the native file watcher keeps it fresh; the repo shares the *instruction* to use codegraph (this block), not the index.
-
-If `codegraph` isn't installed or the index is stale, fall back to `structural-search` as usual — the graph is an accelerator, not a dependency.
+How to use it in practice — the full ladder, the monorepo caveat and the index rules — is Rung -1 of the `structural-search` skill, loaded when you actually go looking for code.
 <!-- /navori:managed id="codegraph-protocol" -->
 
 <!-- navori:managed id="skills-index" hash="23baaece" version="0.6.1" source="@navori/core" -->

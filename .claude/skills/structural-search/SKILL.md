@@ -65,20 +65,23 @@ If neither binary exists, fall back to Grep and targeted reading: **don't block 
 - Don't set up LSP/Serena; this harness ends at Rung 2.
 <!-- /navori:managed id="structural-search-base" -->
 
-<!-- navori:managed id="codegraph-search-extension" hash="00ecc1ce" version="0.6.1" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-search-extension" hash="20abea60" version="0.6.1" source="@navori/plugin-codegraph" -->
 ## Rung -1 — query the code graph first (codegraph)
 
 Before the grep/ast-grep ladder above, if the `codegraph` MCP tool is available, ask the pre-built AST graph where the code lives:
 
-- **Locate a symbol / definition:** `codegraph_explore` with the symbol name or a natural-language question ("where is the auth token refreshed?"). One call returns the source span + call paths, instead of a `grep` sweep.
-- **Trace impact:** ask what calls a function or what a change touches, to size the blast-radius before reading files.
+- **Locate a symbol:** `codegraph_explore` with the name or a plain question ("where is the auth token refreshed?"). One call returns the source span and call paths.
+- **Trace impact:** ask what calls a function, to size the blast-radius before reading files.
 
-The graph **forms the hypothesis** (which files/symbols matter). The rungs above still **verify** it — never edit off the graph alone:
+The graph **forms the hypothesis**; the rungs above still **verify** it. Never edit off the graph alone:
 
-- On a stale index or ambiguous name, codegraph can return the wrong symbol while claiming it's exact. Confirm the concrete span with `Grep`/`Read` before writing, especially in critical areas.
-- Treat its blast-radius / "tests found" as a hint, not a coverage gate — the repo's real tests decide.
+- On a stale index or an ambiguous name it can return the **wrong** symbol while claiming it's exact. Confirm the span with `Grep`/`Read` before writing, especially in critical areas.
+- Its blast-radius and "tests found" are hints, not a coverage gate — the repo's real tests decide.
+- Not installed, or the index looks stale? Skip this rung: an accelerator, never a dependency.
 
-If `codegraph` isn't installed or the index looks stale, skip this rung and start at the grep/ast-grep ladder as usual.
+**Monorepo:** the `projectPath` argument opens a sub-project **without the file watcher**, so that index goes stale faster. Run `codegraph init` per sub-repo, `codegraph sync` before critical work.
+
+**Never commit the index:** `.codegraph/` is local SQLite that churns on every sync — it belongs in `.gitignore`.
 <!-- /navori:managed id="codegraph-search-extension" -->
 
 ## The project's structural patterns

@@ -49,6 +49,7 @@ import {
   type SkippedFile,
 } from "../shared/execute-plan.ts";
 import { createClaudeAdapter } from "./adapter.ts";
+import { withAgentMcpTools } from "./agent-mcp-tools.ts";
 
 /**
  * Claude keeps its detailed skip prose (with the `navori sync` hint and the
@@ -1340,15 +1341,31 @@ function applySubBlockInject(input: {
     });
     return;
   }
-  if (result.status === "unchanged") return;
+  // Layer 3 of the MCP wiring: the prose just injected is worthless to an agent
+  // whose `tools:` allowlist omits the server's tools. Grant them here so the
+  // instruction and the capability always ship together.
+  const finalContent = withAgentMcpTools(result.output, input.plugin, input.skill.injectInto!);
+
+  // An up-to-date sub-block does NOT imply an up-to-date frontmatter: a repo
+  // rendered before this fix has the prose and lacks the tools, and returning
+  // early on `unchanged` would leave it that way forever.
+  if (result.status === "unchanged") {
+    if (finalContent === currentContent) return;
+    if (pendingEntry) {
+      pendingEntry.content = finalContent;
+      return;
+    }
+    input.pending.push({ path: targetAbs, content: finalContent, status: "updated" });
+    return;
+  }
 
   if (pendingEntry) {
-    pendingEntry.content = result.output;
+    pendingEntry.content = finalContent;
     return;
   }
   input.pending.push({
     path: targetAbs,
-    content: result.output,
+    content: finalContent,
     status: result.status,
   });
 }

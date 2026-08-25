@@ -1,7 +1,7 @@
 ---
 name: explorer
 description: Broad map of an area or module of the repo. Returns structure, dependencies, and entry points. Does not modify code.
-tools: Read, Glob, Grep, Bash, Write
+tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
 ---
 
 <!-- navori:managed id="explorer-base" hash="3ec32bc4" version="0.6.1" source="@navori/core" -->
