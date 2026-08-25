@@ -1,7 +1,7 @@
 ---
 name: leader
 description: Do NOT invoke as a subagent. Orchestration playbook that the main agent EMBODIES (see "## Role: orchestrator" in CLAUDE.md). Delegating it to a subagent serializes the work and kills parallelism.
-tools: Read, Glob, Grep, Bash, Agent
+tools: Read, Glob, Grep, Bash, Agent, mcp__engram__*
 ---
 
 <!-- navori:managed id="leader-base" hash="a21ebe50" version="0.6.1" source="@navori/core" -->
