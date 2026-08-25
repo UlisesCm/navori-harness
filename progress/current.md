@@ -1,11 +1,20 @@
 # Sesión actual
 
-**Estado:** branch `feat/audit-mode` (desde `main` @ `416d39e`). Sesión 2026-08-25: diseño cerrado
-del modo audit + implementación WIP commiteada, **PAUSADA por decisión de Ulises** ("guarda
-únicamente hasta el plan detallado y déjalo pendiente"). **NO hay PR y no debe abrirse** hasta que
-Ulises retome.
+**Estado:** **PR #485 abierto** (`feat/audit-mode-impl` → `main`), rebasado sobre `e931b2e`, gate
+completo en verde. Sesión 2026-08-25: diseño del modo audit cerrado en cuestionario 1x1 +
+implementación completa.
 
-## SIGUIENTE PASO: retomar el modo audit desde el WIP
+## SIGUIENTE PASO: revisar y mergear el PR #485
+
+- https://github.com/UlisesCm/navori-harness/pull/485 — esperar CI y mergear.
+- **Después del merge, el fix del cableado MCP** (decisión 8): los subagentes reciben los bloques de
+  CodeGraph y Engram que no pueden ejecutar. ~107k tokens/sesión. Se dejó para después a propósito,
+  como caso de validación del reporte.
+- **`main` local quedó con el commit del feature encima** (por el enredo de concurrencia de abajo).
+  Apuntarlo a `origin/main` cuando la otra sesión no esté trabajando; el trabajo ya está a salvo en
+  `feat/audit-mode-impl` y en el PR.
+
+## Contexto del feature (por si hay que retomarlo)
 
 - **Plan detallado (fuente de verdad):** `.claude/progress/plan_audit_mode.md` — reescrito hoy con
   el diseño final; supersede el plan post-hoc del 24-ago. Ahí están las 8 decisiones de Ulises y
@@ -45,18 +54,26 @@ Ulises retome.
    `pnpm format:check` + `pnpm lint`.
 3. Decidir si el copy de los hooks (hoy español hardcodeado) debe pasar por el i18n del render.
 
-## ⚠️ Hallazgo que NO es del feature: render concurrente sobre el repo raíz
+## ⚠️ Sesión concurrente: qué pasó y qué quedó pendiente de limpiar
 
-Durante la sesión, `CLAUDE.md` y todo `.claude/{agents,skills,hooks}` aparecieron modificados con
-**solo el bump `version="0.6.0"` → `"0.6.1"`** en los marcadores managed (el `hash` no cambió).
+Otra sesión trabajó en este mismo repo durante toda la sesión: mergeó el release **0.6.1 (#483)** y
+el **#484**, y su `navori render` corrió sobre el repo raíz (dejó backup
+`~/.navori/backups/navori-harness-2026-08-25T13-12-25-213-p54354-0`). Consecuencias vividas:
 
-Causa: hay una **sesión concurrente** en el worktree `wt-release-061` (branch `chore/release-0.6.1`)
-y el `navori` **global es 0.6.1**; un render real corrió sobre el repo raíz a las 13:12 y dejó su
-backup (`~/.navori/backups/navori-harness-2026-08-25T13-12-25-213-p54354-0`). Eso disparó el guard
-de aislamiento de la suite (#424) — que contempla justo este falso positivo en su mensaje.
+- `CLAUDE.md` y `.claude/{agents,skills,hooks}` aparecieron modificados con **solo** el bump
+  `version="0.6.0"` → `"0.6.1"`. Resultó ser contenido **ya idéntico a `origin/main`** — no eran
+  cambios pendientes, era que la branch partía de un main anterior.
+- Disparó el guard de aislamiento (#424) como **falso positivo**, que su propio mensaje contempla.
+- **`HEAD` del repo raíz volvió a `main` a media sesión**, así que el commit del feature cayó sobre
+  `main` local. Se preservó creando `feat/audit-mode-impl` (operación no destructiva) y se rebasó
+  dos veces sobre el `origin/main` móvil.
 
-**Esos archivos NO se incluyeron en el commit de esta branch.** Antes de retomar, confirmar con la
-otra sesión si ese render es intencional (release 0.6.1) o hay que revertirlo.
+**Pendiente:** `main` local sigue con ese commit encima. Apuntarlo a `origin/main` cuando nadie más
+esté trabajando en el repo.
+
+**Lección de proceso:** con dos sesiones sobre el mismo working tree, `git rev-parse --abbrev-ref
+HEAD` antes de commitear deja de ser paranoia. El `git push -u` no falla ruidosamente cuando la
+branch local ya no es la que crees.
 
 ## Ajuste colateral que sí entró: bundle guard 800 → 900KB
 
