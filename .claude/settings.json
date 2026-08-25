@@ -49,6 +49,30 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/audit-mode-trigger.sh\"",
+            "timeout": 10,
+            "statusMessage": "navori: audit-mode"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/audit-mode-close.sh\"",
+            "timeout": 10,
+            "statusMessage": "navori: audit-mode close"
+          }
+        ]
+      }
+    ],
     "SubagentStop": [
       {
         "hooks": [
