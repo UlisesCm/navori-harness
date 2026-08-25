@@ -10,6 +10,28 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-08-25 21:33 — claude — Primer uso real del modo audit: destapó su propio bloqueador y 4 hallazgos más
+
+- **Cambios:** `audit-mode-trigger.sh` (introspección del subcomando + clave del prompt + copy a inglés),
+  `engines/claude/agent-mcp-tools.ts` (nuevo) + `index.ts`, `codegraph-protocol.md` → puntero,
+  `codegraph-rung.md` condensada, `commit-pr-pilot.md` + `orquestacion.md` (reclamo de worktrees),
+  suites de hooks y del módulo nuevo, golden snapshots por engine, espejo renderizado.
+- **Quality gate:** ✅ `pnpm format:check` · 2107 tests · `pnpm lint` · `pnpm typecheck` · `pnpm check:render`.
+- **Notas:**
+  - El modo audit quedó inoperante tras #485: el hook ordena `navori audit --start`, que resuelve el
+    binario PUBLICADO, y `audit` entró después del tag `v0.6.1`. Citty imprime el help y **sale 0**,
+    así que fallaba en silencio pareciendo éxito.
+  - El log registraba **prompts vacíos** (`.user_prompt` no viene en el payload; el `// ""` lo volvía
+    un vacío plausible). Los 70 tests de hooks no lo vieron porque sus payloads sintéticos cargaban
+    la misma suposición equivocada que el hook. Lo encontró el dogfood.
+  - **Cableado MCP:** son 3 capas (servidor en `.mcp.json`, permiso en settings, tool en `tools:`) y
+    el esquema de plugins era dueño de 2. `tools:` es una allowlist que cubre MCP y acepta patrones
+    a nivel servidor (verificado en doc oficial) → se deriva `mcp__<pluginId>__*`.
+  - Derivar de `invariants` era **incorrecto** (son substrings load-bearing, no tools) y se corrigió
+    a mitad de camino.
+  - Limpieza fuera del PR: **27 worktrees / 7.6 GB** borrados; el repo pasó de ~8 GB a 347 MB.
+- **Commit / PR:** `5c3658a` — https://github.com/UlisesCm/navori-harness/pull/486
+
 ## 2026-08-24 23:59 — claude — investigación + plan del "modo audit" (sin código)
 
 - Cambios: solo artefactos de handoff — 4 reportes de investigación y el plan en

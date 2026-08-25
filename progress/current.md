@@ -1,59 +1,59 @@
 # Sesión actual
 
-**Estado:** **PR #486 abierto** (`feat/audit-cableado-mcp-worktree` → `main`), 5 commits atómicos,
-gate completo verde. Sesión 2026-08-25: primer uso real del modo audit, que destapó su propio
-bloqueador y tres hallazgos más.
+**Estado:** `idle`. PR #486 **mergeado** (`5c3658a`), branch borrada, `main` al día y espejo
+verificado con `check:render`. Tablero en **CERO issues abiertos**.
 
-## SIGUIENTE PASO
+## SIGUIENTE PASO: publicar 0.7.0
 
-1. **Mergear #486** — https://github.com/UlisesCm/navori-harness/pull/486
-2. **Publicar 0.7.0.** Es el paso que de verdad destraba el modo audit: hasta entonces NO funciona
-   en ningún repo consumidor, solo con el binario local de este. Requiere OTP de Ulises.
-3. **El tablero está en CERO issues abiertos** — la condición (a) del descongelamiento del rollout
-   ya se cumplió. Falta (b) versión estable, que es exactamente el punto 2.
+Es el único paso que destraba el modo audit fuera de este repo: hoy **solo funciona con el binario
+local**. El `navori` publicado es 0.6.1 y no trae el subcomando `audit` (entró en #485, después del
+tag). Requiere OTP de Ulises, así que es manual.
 
-## Lo que entró en #486
+Con eso se cumple también la condición (b) del descongelamiento del rollout — la (a), cero issues
+abiertos, **ya se cumplió**.
 
-1. **`audit-mode-trigger.sh` ordenaba un comando inexistente.** El hook resuelve el `navori` del
-   PATH (el PUBLICADO), y `audit` entró en #485 *después* del tag `v0.6.1`. Citty imprime el help y
-   **sale con código 0** → falso positivo silencioso: el agente reporta una grabación que nunca
-   arrancó. Ahora introspecciona la línea `USAGE` antes de ordenar nada.
-2. **Cableado MCP, capa 3.** Un plugin podía inyectar prosa en un agente pero no la capacidad:
-   `tools:` es una allowlist que cubre MCP, y `researcher`/`explorer` cargaban CodeGraph sin poder
-   llamarlo. `engines/claude/agent-mcp-tools.ts` deriva `mcp__<pluginId>__*` al frontmatter.
-3. **`codegraph-protocol` de 589 → 197 tok** (~392 menos por arranque de subagente; ~34k en una
-   sesión de 88). Era ~85% duplicado de la skill `codegraph-rung`.
-4. **Reclamo de worktrees.** El pilot detecta y reporta; el orquestador pregunta y remueve.
+Proceso (memoria `navori-release-process`): bump CLI → commit `chore(release)` directo a main → tag
+→ `gh workflow run deploy-website.yml` → `npm publish`.
 
-## Limpieza hecha esta sesión (fuera del PR)
+## Pendientes menores, sin issue abierto
 
-**27 worktrees / 7.6 GB borrados.** El repo pasó de ~8 GB a **347 MB**. Los 27 verificados uno por
-uno: 0 archivos sin commitear, PR `MERGED`, y commit squash presente en `origin/main`.
+- **El reporte de audit se firma `generado por navori@0.0.0`** en vez de la versión real. Cosmético,
+  detectado al leer el primer reporte real. Cabe en el próximo ciclo que toque `lib/audit/report.ts`.
+- **Sin causa confirmada:** de ~6 mensajes enviados tras activar audit-mode, solo 1 llegó al log. Los
+  mensajes entregados *mid-turn* podrían no disparar `UserPromptSubmit` como un prompt normal.
+  **Verificar antes de tocar nada** — no parchear sobre la hipótesis.
+- **60 branches locales con PR ya mergeado** (de 127). No pesan en disco pero ensucian. Si se
+  limpian: cruzar contra PRs mergeados, nunca por nombre.
 
-**Quedan 60 branches locales con PR ya mergeado** (de 127 totales). No pesan en disco pero ensucian;
-mismo método si se limpian: cruzar contra PRs mergeados, nunca por nombre.
+## Primer reporte de audit real (sesión 4b14e371)
 
-## Gotchas nuevos, verificados hoy
+428k tok facturables en 1h47m: arranque 63k (15%) · razonamiento 141k (33%) · contexto de trabajo
+223k (52%). `cache_read` acumulado 29.3M. Marcó 17/17 skills y 8/8 agentes sin usar — consecuencia
+directa de que esta sesión corrió sin subagentes, no de un defecto del harness.
 
-- **`git merge-base --is-ancestor` NO sirve para saber si una branch se mergeó en este repo**: los
-  PRs van con squash, así que responde "no mergeado" para el 100% de las branches, incluidas las que
-  shipearon hace días. Lo que decide: `git log origin/main --grep="(#<PR>)"`.
-- **`git diff --stat origin/main <branch>` tampoco sirve**: mide que la branch está ATRASADA (main
-  avanzó), no que le falte entregar. Daba 80–170 líneas en branches perfectamente mergeadas.
+## Gotchas vigentes, verificados esta sesión
+
+- **`git merge-base --is-ancestor` NO sirve para saber si una branch se mergeó aquí**: los PRs van
+  con squash y responde "no mergeado" para el 100%, incluidas las que shipearon hace días. Lo que
+  decide: `git log origin/main --grep="(#<PR>)"`. `git diff --stat origin/main <branch>` tampoco
+  sirve: mide que la branch está ATRASADA, no que le falte entregar.
 - **`invariants[]` de un plugin NO son nombres de tools** — son load-bearing substrings que deben
-  sobrevivir al render (`doctor.ts:1091`). Derivar tools de ahí admite basura y se queda corto.
-- **`tools:` acepta patrones a nivel servidor** (`mcp__<server>__*`), confirmado en la doc oficial.
-- **Dentro de un pipe del Bash tool, `basename`/`wc`/`tr` pueden salir `command not found`** mientras
-  `git`/`grep`/`awk` sí resuelven. Un loop de shell que dependa de ellos produce una tabla INVENTADA
-  sin fallar ruidosamente. Para auditorías, `python3`.
+  sobrevivir al render (`doctor.ts:1091`).
+- **`tools:` acepta patrones a nivel servidor** (`mcp__<server>__*`), confirmado en doc oficial. La
+  doc de `UserPromptSubmit`, en cambio, corta con "[Content truncated]" y `/hooks-reference` da 404.
+- **Un test con payload sintético no puede desmentir la suposición sobre el formato de la entrada
+  real** — si el test y el código comparten el error, ambos pasan. Solo el dogfood lo destapa.
 - **Las skills tienen cap de palabras** (spec 0003 §3.2.1; `type: behavior` = 200). Mover contenido
-  de CLAUDE.md a una skill lo dispara: hay que condensar, no subir el cap.
+  de CLAUDE.md a una skill lo dispara: condensar, no subir el cap.
+- **Dentro de un pipe del Bash tool, `basename`/`wc`/`tr` pueden salir `command not found`** mientras
+  `git`/`grep`/`awk` sí resuelven, produciendo tablas INVENTADAS sin fallar. Para auditorías,
+  `python3`.
 
-## Idioma: regla afinada por Ulises hoy
+## Idioma: regla afinada por Ulises
 
-**Código y prompts en inglés; la interacción con el usuario en español.** Por eso los 4 mensajes del
-hook pasaron a inglés (son prompts para el agente) pero los patrones de detección siguen en español
-(son el input que teclea el usuario) y el i18n del reporte del CLI quedó intacto.
+**Código y prompts en inglés; la interacción con el usuario en español.** Por eso los mensajes del
+hook pasaron a inglés (son prompts para el agente), los patrones de detección siguen en español (son
+input del usuario) y el i18n del reporte quedó intacto.
 
 ## Regla de trabajo vigente
 
@@ -63,13 +63,13 @@ hook pasaron a inglés (son prompts para el agente) pero los patrones de detecci
 
 ## Límite que hay que decir ANTES del rollout
 
-Por el hueco de #440, un `render` **no actualiza las zonas de usuario ya escritas** — se congelan
-con la redacción que las creó. Los tokens viejos necesitan el chequeo de `doctor` y corrección
-**a mano**. Cuando toque: **per-repo, NUNCA `--all`**.
+Por el hueco de #440, un `render` **no actualiza las zonas de usuario ya escritas** — se congelan con
+la redacción que las creó. Los tokens viejos necesitan el chequeo de `doctor` y corrección **a mano**.
+Cuando toque: **per-repo, NUNCA `--all`**.
 
 ## Notas heredadas
 
-- `~/.navori/backups` acumula fixtures de test históricos. **El filtro seguro es por prefijo, no
-  por edad.**
+- `~/.navori/backups` acumula fixtures de test históricos. **El filtro seguro es por prefijo, no por
+  edad.**
 - La ruta de los repos Bonum del `~/.claude/CLAUDE.md` global está desactualizada, y siguen
   pendientes los PRs del repo externo bonum-webapp (#639, #640, #559) más el rebind de SonarCloud.
