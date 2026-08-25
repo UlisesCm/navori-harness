@@ -29,6 +29,7 @@ import {
   type RenderStatus,
 } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
+import { describeCoreProvenance, type CoreProvenance } from "../lib/bundled-assets.ts";
 import { effectiveConfigForWorkspace, buildMonorepoContext } from "../lib/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
 import { listRegistryRepos, pruneRegistry, registryPath } from "../lib/registry.ts";
@@ -553,13 +554,22 @@ export const renderCommand = defineCommand({
       process.exit(1);
     }
 
+    // Which core did this render actually read? `render` and `pnpm check:render`
+    // can silently disagree because they read DIFFERENT copies of the same asset
+    // (build copy vs live sources); publishing the provenance is what lets a
+    // user tell the two apart instead of chasing a phantom "unchanged".
+    const provenance = describeCoreProvenance();
+
     // --json: structured result, no human output. Keys are stable English and
     // bypass i18n on purpose — this is machine-readable output for CI.
     if (json) {
-      console.log(JSON.stringify(buildRenderJson(result, preview), null, 2));
+      console.log(JSON.stringify(buildRenderJson(result, preview, provenance), null, 2));
       benchReport();
       return;
     }
+
+    p.log.message(dim(tr.coreSource(provenance.root, provenance.bundled)));
+    if (provenance.staleSource) p.log.warn(tr.staleCoreBundle(provenance.staleSource));
 
     const hasWorkspaces = result.workspaces.length > 0;
     if (hasWorkspaces && result.engineResult) {
@@ -633,17 +643,22 @@ export const renderCommand = defineCommand({
     // In preview mode `written` means "would write" — the engine populates it
     // with pending changes without touching disk.
     const anyPending = resultHasPendingWrites(result);
+    // A `skipped` file is neither a pending write nor "up to date": render
+    // REFUSED to write it. The per-file line says so, but the outro is the line
+    // everyone reads, and it used to claim "Al día" over a mirror that render
+    // knowingly left stale.
+    const skipped = countSkippedFiles(result);
+    const skippedTail = skipped > 0 ? ` ${dim("·")} ${color.yellow(tr.skippedOutro(skipped))}` : "";
     const summary = summarize(allEntries);
-    if (preview) {
-      if (anyPending) {
-        p.outro(`${color.yellow(tr.previewWord)} ${summary} ${dim(`· ${tr.previewHint}`)}`);
-      } else {
-        p.outro(`${dim(tr.upToDate)} ${summary} ${dim(`· ${tr.upToDateHint}`)}`);
-      }
-    } else if (anyPending) {
-      p.outro(`${color.green(tr.doneWord)} ${summary}`);
+    if (anyPending) {
+      const word = preview ? color.yellow(tr.previewWord) : color.green(tr.doneWord);
+      const hint = preview ? ` ${dim(`· ${tr.previewHint}`)}` : "";
+      p.outro(`${word} ${summary}${hint}${skippedTail}`);
+    } else if (skipped > 0) {
+      p.outro(`${color.yellow(tr.skippedWord)} ${summary}${skippedTail}`);
     } else {
-      p.outro(`${dim(tr.upToDate)} ${summary}`);
+      const hint = preview ? ` ${dim(`· ${tr.upToDateHint}`)}` : "";
+      p.outro(`${dim(tr.upToDate)} ${summary}${hint}`);
     }
 
     benchReport();
@@ -658,6 +673,11 @@ export const renderCommand = defineCommand({
  * `renderRepoRows` — must agree, so they share this one predicate. Leaving
  * `extraEngines` out of any of them makes a repo whose only pending change is a
  * non-Claude file read as "up-to-date" and drop out of the roll-up (#276).
+ *
+ * It deliberately ignores `skipped` — a refusal to overwrite is NOT a pending
+ * write, and `--json`'s `pending` key means exactly that. The outro asks
+ * `countSkippedFiles` separately so "nothing pending" can't be reported as
+ * "up to date" while render is knowingly leaving files stale.
  */
 export function resultHasPendingWrites(result: ReturnType<typeof runRender>): boolean {
   return (
@@ -671,11 +691,43 @@ export function resultHasPendingWrites(result: ReturnType<typeof runRender>): bo
 }
 
 /**
+ * How many FILES render refused to write this run (hand-edited managed block, or
+ * a block written by a newer navori). Same partition `scripts/check-render.mjs`
+ * calls `blocked`: file-level skips only — CLAUDE.md block-level
+ * `user-modified-skipped` entries are already surfaced by `summarize()` as a red
+ * "N conflict", and the guard buckets them apart as `staleBlocks`.
+ */
+export function countSkippedFiles(result: ReturnType<typeof runRender>): number {
+  const claudeSkips = (engine: ClaudeEngineResult | undefined): number =>
+    engine?.skipped.length ?? 0;
+  const extraSkips = (engines: EngineRenderSummary[] | undefined): number =>
+    (engines ?? []).reduce((n, e) => n + e.skipped.length, 0);
+  return (
+    claudeSkips(result.engineResult) +
+    extraSkips(result.extraEngines) +
+    result.workspaces.reduce(
+      (n, w) => n + claudeSkips(w.engineResult) + extraSkips(w.extraEngines),
+      0,
+    ) +
+    (result.gitignore?.status.endsWith("-skipped") ? 1 : 0)
+  );
+}
+
+/**
  * Machine-readable render result. Keys are stable English (never localized) so
  * CI/automation can parse the same shape regardless of `config.language`.
  * Status tokens come straight from the render plan (created/updated/…).
+ *
+ * `coreRoot` / `bundled` / `staleCore` are the render's PROVENANCE: which copy
+ * of the core produced this answer, and whether that copy is behind its sources.
+ * Without them a `--json` consumer can't distinguish "the mirror is fine" from
+ * "the CLI was reading a stale build copy" — the two look identical.
  */
-function buildRenderJson(result: ReturnType<typeof runRender>, preview: boolean) {
+function buildRenderJson(
+  result: ReturnType<typeof runRender>,
+  preview: boolean,
+  provenance: CoreProvenance,
+) {
   const entryJson = (e: AssetPlanEntry) => ({ id: e.asset.id, status: e.status });
   const engineJson = (ee: EngineRenderSummary) => ({
     engine: ee.engine,
@@ -702,6 +754,9 @@ function buildRenderJson(result: ReturnType<typeof runRender>, preview: boolean)
     command: "render",
     ok: true,
     mode: preview ? "preview" : "apply",
+    coreRoot: provenance.root,
+    bundled: provenance.bundled,
+    staleCore: provenance.staleSource,
     root: {
       filePath: result.filePath,
       changed: result.written,

@@ -153,6 +153,12 @@ if (stale.length > 0) {
     `  re-render the mirror from the repo root:`,
     `    pnpm --filter navori build && node ${CLI_REL} render --apply${cwdArg}`,
     ``,
+    `  in THIS monorepo that whole chain is one script: pnpm render:apply${cwdArg}`,
+    ``,
+    `  the build half is NOT optional: ${CLI_REL} reads dist/assets/core, a build-time`,
+    `  COPY of packages/core — skip it and render compares against the OLD assets,`,
+    `  reports 'unchanged' and an --apply can even revert the mirror.`,
+    ``,
     `  use the LOCAL binary: a globally installed 'navori' renders the PUBLISHED`,
     `  core, not this working tree's packages/core.`,
   );
