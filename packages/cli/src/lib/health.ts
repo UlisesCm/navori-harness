@@ -641,7 +641,7 @@ function orderReportAt(
 }
 
 /** Why a marker line doesn't parse: it lost its `-->` terminator, or it
- *  terminates fine but carries no `id="…"`. */
+ *  terminates fine but carries no `id="…"` where the parser demands it. */
 export type MalformedMarkerReason = "unterminated" | "missing-id";
 
 export interface MalformedMarker {
@@ -660,11 +660,13 @@ export interface MalformedMarker {
  * next `injectManagedSection` appends a fresh block AND leaves the broken line
  * as permanent cruft. Two shapes, both born of a hand edit:
  *   - `unterminated`: the line lost its `-->` (issue #71 item 11).
- *   - `missing-id`: the line terminates fine but has no `id="…"`, the attribute
+ *   - `missing-id`: the line terminates fine but has no `id="…"` where the
+ *     parser demands it — first attribute after the prefix, the shape
  *     `findMarker` keys on. It fell between the two scans — `listMarkers`
  *     requires the id (#408) and this one only looked for the terminator — so
  *     render silently re-injected a block on top of it and NOTHING told the
- *     user (#432).
+ *     user (#432). An id present but OUT OF POSITION (or not the `id` attribute
+ *     at all) is the same no-man's-land and reports the same reason (#460).
  *
  * This is a NON-destructive report only — doctor surfaces it so the user fixes
  * the line before that happens. Shares the html-marker file set with
@@ -696,8 +698,21 @@ export function scanMalformedMarkers(cwd: string, config?: NavoriConfig): Malfor
  *  marker, and flagging it would just move #408's phantom into this report.
  *  The `(?![\w-])` guard keeps a hypothetical `navori:managed-foo` token out. */
 const HTML_OPEN_TERMINATED_RE = /^<!-- navori:managed(?![\w-])[^>]*?-->/;
-/** The `id="…"` attribute `findMarker` keys on. */
-const MARKER_ID_ATTR_RE = /\bid="[^"]*"/;
+/**
+ * The `id="…"` attribute `findMarker` keys on, IN THE POSITION the parser
+ * demands: `openPrefix` + whitespace + `id="…"`, mirroring `openRegexFor`
+ * (`marker.ts`) attribute for attribute.
+ *
+ * The previous `/\bid="[^"]*"/` accepted an id ANYWHERE in the tag, so it was
+ * laxer than the parser it stands in for and left two shapes in no-man's-land
+ * (#460) — `<!-- navori:managed hash="x" id="a" -->` (id present, not first) and
+ * `<!-- navori:managed data-id="a" -->` (not the id attribute at all). Neither
+ * is read by render, neither is counted by `listMarkers`, and neither was
+ * reported here: render re-injected a block on top and nothing told the user.
+ * The non-empty `[^"\n]+` is the parser's too (`id="([^"]+)"`), so `id=""` —
+ * invisible to render for the same reason — is reported instead of passing.
+ */
+const MARKER_LEADING_ID_RE = /^<!-- navori:managed\s+id="[^"\n]+"/;
 
 /** Malformed html markers within a single directory. Reported paths are
  *  optionally prefixed with `pathPrefix` (the workspace path). */
@@ -737,7 +752,7 @@ function scanMalformedMarkersAt(
       }
       if (!prose.has(i)) return;
       const open = HTML_OPEN_TERMINATED_RE.exec(lineText.trim());
-      if (open && !MARKER_ID_ATTR_RE.test(open[0])) {
+      if (open && !MARKER_LEADING_ID_RE.test(open[0])) {
         out.push({ filePath: rel(path), line: i + 1, snippet, reason: "missing-id" });
       }
     });

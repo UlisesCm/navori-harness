@@ -1336,7 +1336,7 @@ const CMD_ES: CmdStrings = {
       `marcador; el próximo render appendearía un bloque duplicado y dejaría la línea rota. ` +
       `Arréglalas a mano (o bórralas):\n${lines}`,
     malformedMarkerRowUnterminated: `— falta el cierre '-->'`,
-    malformedMarkerRowMissingId: `— falta el atributo id="…"`,
+    malformedMarkerRowMissingId: `— sin id="…" justo tras el nombre del marcador`,
     duplicateMarkers: (n, lines) =>
       `Bloques managed duplicados (${n}) — un mismo id aparece más de una vez en el archivo; ` +
       `navori solo ve la PRIMERA copia, así que la sobrante queda invisible a render/sync/doctor ` +
@@ -2154,7 +2154,7 @@ const CMD_EN: CmdStrings = {
       `marker; the next render would append a duplicate block and leave the line broken. ` +
       `Fix them (or delete them) by hand:\n${lines}`,
     malformedMarkerRowUnterminated: `— missing the closing '-->'`,
-    malformedMarkerRowMissingId: `— missing the id="…" attribute`,
+    malformedMarkerRowMissingId: `— no id="…" right after the marker name`,
     duplicateMarkers: (n, lines) =>
       `Duplicate managed blocks (${n}) — the same id appears more than once in the file; ` +
       `navori only sees the FIRST copy, so the extra one is invisible to render/sync/doctor ` +

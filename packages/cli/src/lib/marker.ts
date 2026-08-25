@@ -136,6 +136,10 @@ function extractAttr(open: string, name: string): string | null {
  * with its `hash=` attribute — the write landed on the documented example and
  * left the real block duplicated (#452). #285 and #432 closed the same
  * discrepancy on the READ path; this is the write half.
+ *
+ * The CLOSE is resolved by `closeStartAfter`, fence-aware for the same reason
+ * (#459): with a raw `indexOf` a close quoted inside a fence in the BODY cut the
+ * real block short.
  */
 function findMarker(existing: string, id: string, style: CommentStyle): MarkerMatch | null {
   const syntax = syntaxFor(style);
@@ -151,7 +155,7 @@ function findMarker(existing: string, id: string, style: CommentStyle): MarkerMa
     if (!openMatch || openMatch.index === undefined) continue;
     const openStart = line.offset + openMatch.index;
     const openEnd = openStart + openMatch[0].length;
-    const closeStart = existing.indexOf(close, openEnd);
+    const closeStart = closeStartAfter(existing, close, openEnd);
     if (closeStart < 0) continue; // orphan open — left to stripOrphanMarkers
 
     const contentRaw = existing.slice(openEnd, closeStart);
@@ -231,7 +235,7 @@ function stripOrphanMarkers(existing: string, id: string, style: CommentStyle): 
     for (const m of line.text.matchAll(openRegex)) {
       if (m.index === undefined) continue;
       const index = line.offset + m.index;
-      const closeStart = existing.indexOf(close, index + m[0].length);
+      const closeStart = closeStartAfter(existing, close, index + m[0].length);
       if (closeStart < 0) orphanSpans.push({ index, length: m[0].length });
       else pairedCloses.add(closeStart);
     }
@@ -435,6 +439,47 @@ interface LocatedBlock {
 /** Matches a ```` ``` ```` / `~~~` code-fence delimiter line (Markdown fence). */
 const FENCE_LINE_RE = /^\s*(```|~~~)/;
 
+/**
+ * Resolve where the CLOSE marker of a block opened at `from` starts — THE close
+ * half of the fence rule `proseLines` applies to the open, and the single place
+ * navori decides which `<!-- /navori:managed … -->` actually terminates a block.
+ *
+ * A raw `indexOf` paired an open with the first LITERAL close, so a close QUOTED
+ * inside a ```fence``` in the body truncated the real block: the write path then
+ * operated on a span that ends mid-body, and `proseLines` resumed INSIDE the
+ * block — swallowing every later block behind the body's own fences (#459). The
+ * open stopped being fooled by a fence in #452; this is its close.
+ *
+ * Fence state starts fresh at the open marker's own line, which is correct
+ * because `proseLines` only ever emits a line that is already outside every
+ * fence — and it keeps the scan proportional to the body instead of the file.
+ *
+ * @returns the close's offset, or -1 when the open has no close at all (an
+ *   orphan, left to `stripOrphanMarkers`).
+ */
+function closeStartAfter(content: string, close: string, from: number): number {
+  let lineStart = content.lastIndexOf("\n", from) + 1;
+  let inFence = false;
+  while (lineStart <= content.length) {
+    let nl = content.indexOf("\n", lineStart);
+    if (nl < 0) nl = content.length;
+    const text = content.slice(lineStart, nl);
+    if (FENCE_LINE_RE.test(text)) inFence = !inFence;
+    else if (!inFence) {
+      // `from` only constrains the open marker's own line (the collapsed empty
+      // block puts open and close on one line); every later line starts at 0.
+      const at = text.indexOf(close, from > lineStart ? from - lineStart : 0);
+      if (at >= 0) return lineStart + at;
+    }
+    lineStart = nl + 1;
+  }
+  // No close at fence level. Fall back to the raw scan so a body carrying an
+  // UNBALANCED fence — which makes its own close look "fenced" — still pairs
+  // with it. Reporting an orphan here would be far worse than the bug: an open
+  // with no close is what `stripOrphanMarkers` DELETES from the user's file.
+  return content.indexOf(close, from);
+}
+
 /** Open-marker regex for a syntax: the prefix, the mandatory `id="…"` and the
  *  rest of the marker up to its terminator. Line-scoped by construction — every
  *  caller execs it against ONE line. */
@@ -500,7 +545,7 @@ export function proseLines(
       const m = re.exec(text);
       if (!m || m.index === undefined) continue;
       const close = closeMarker(m[1]!, syntax);
-      const closeStart = content.indexOf(close, lineStart + m.index + m[0].length);
+      const closeStart = closeStartAfter(content, close, lineStart + m.index + m[0].length);
       // No close: an orphan open, not a body — nothing to skip (the line itself
       // was already emitted, so the caller still sees the marker).
       if (closeStart >= 0) bodyEnd = Math.max(bodyEnd, closeStart + close.length);
@@ -531,7 +576,7 @@ function locateManagedBlocks(content: string, style: CommentStyle): LocatedBlock
     const id = m[1]!;
     const openStart = line.offset + m.index;
     const close = closeMarker(id, syntax);
-    const closeStart = content.indexOf(close, openStart + m[0].length);
+    const closeStart = closeStartAfter(content, close, openStart + m[0].length);
     if (closeStart < 0) continue; // orphan open — leave to stripOrphanMarkers
     blocks.push({ id, openStart, closeEnd: closeStart + close.length });
   }
