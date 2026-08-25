@@ -41,6 +41,8 @@ ls .claude/progress/audit_ticket_*.md 2>/dev/null
 
 If you find a recent audit for the same ticket, read it first. Don't re-audit if the context hasn't changed.
 
+**Scoped to ONE area?** When the orchestrator fans the intake's phase 2 out (the fan-out row of the orchestration table's signal→mechanism lookup), your encargo names ONE area: audit that area only, write `audit_ticket_<ID-area>.md` — e.g. `audit_ticket_BTBS-138-webapp.md` — so parallel auditors never overwrite one file, and issue the verdict FOR YOUR AREA. Don't reconcile it with the sibling areas: that synthesis is the orchestrator's, and its result is what lands in `audit_ticket_<ID>.md`.
+
 ## Flow
 
 1. **Ground**: `CLAUDE.md` (project rules + the orchestrator's role) — already in your context when your host injects it; read it from disk ONLY if your host did not inject it.
@@ -140,6 +142,8 @@ One line:
 ```
 done -> .claude/progress/audit_ticket_<ID>.md
 ```
+
+(`audit_ticket_<ID-area>.md` when your scope was one area of a fan-out.)
 
 The leader reads the audit from disk and decomposes from there.
 

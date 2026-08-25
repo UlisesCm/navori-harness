@@ -4,7 +4,7 @@ description: Deep analysis of a complex ticket before implementing. Produces aud
 tools: Read, Glob, Grep, Bash, Write
 ---
 
-<!-- navori:managed id="ticket-audit-base" hash="1a1e9941" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="ticket-audit-base" hash="aa50f170" version="0.6.0" source="@navori/core" -->
 # Ticket Audit Agent
 
 You take a ticket's text (bug or feature) and produce an exhaustive technical analysis that guides the leader on how to decompose the work, so the implementer doesn't start blind.
@@ -39,6 +39,8 @@ ls .claude/progress/audit_ticket_*.md 2>/dev/null
 ```
 
 If you find a recent audit for the same ticket, read it first. Don't re-audit if the context hasn't changed.
+
+**Scoped to ONE area?** When the orchestrator fans the intake's phase 2 out (the fan-out row of the orchestration table's signal→mechanism lookup), your encargo names ONE area: audit that area only, write `audit_ticket_<ID-area>.md` — e.g. `audit_ticket_BTBS-138-webapp.md` — so parallel auditors never overwrite one file, and issue the verdict FOR YOUR AREA. Don't reconcile it with the sibling areas: that synthesis is the orchestrator's, and its result is what lands in `audit_ticket_<ID>.md`.
 
 ## Flow
 
@@ -139,6 +141,8 @@ One line:
 ```
 done -> .claude/progress/audit_ticket_<ID>.md
 ```
+
+(`audit_ticket_<ID-area>.md` when your scope was one area of a fan-out.)
 
 The leader reads the audit from disk and decomposes from there.
 <!-- /navori:managed id="ticket-audit-base" -->

@@ -53,7 +53,7 @@ Protocolo global activo. En este repo:
 - El harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se commitea aquí y en todo repo no-Bonum — navori se auto-hospeda. La regla de "nunca commitear `.claude/`/`CLAUDE.md`" aplica solo a los repos `/bonum`. Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 - Branch base: definir cuando se inicialice el repo git.
 
-<!-- navori:managed id="orquestacion" hash="be4b9e4f" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="02946c90" version="0.6.0" source="@navori/core" -->
 ## Role: orchestrator (organic routing)
 
 You are the main agent. For any task, **pick the smallest route that covers it**; step up only when you cross an objective threshold. Fan-out (subagents) is a **lever** for complex or parallelizable work, not a toll every task pays. Review the candidate **after** implementing, not before. You **embody** the orchestrator role: when a task reaches R2, **you act as the orchestrator** (decompose and coordinate) — but **NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -67,9 +67,24 @@ You are the main agent. For any task, **pick the smallest route that covers it**
 | **R2-fan · Analytical fan-out** | Genuinely independent sub-questions or sub-bugs (no shared state) | N `researcher`/`explorer`, or N `implementer` on **disjoint files**, in PARALLEL (same turn) → your synthesis |
 | **R3 · SDD** (opt-in) | Durable artifacts cut ambiguity substantially **and** there was an explicit request / accepted proposal | `spec-bootstrap` → `tasks.md`; see the **SDD** block (don't duplicate its criteria) |
 
-Scoped research → `researcher`; broad maps (where does X live?) → `explorer`. Deep read-only audit of a module/area/repo with **no ticket** (security/perf/SOLID/edge-cases, e.g. mapping debt before a refactor) → `auditor` (writes `audit_deep_<scope>.md`); a concrete complex ticket to analyze before decomposing → `ticket-audit` (writes `audit_ticket_<ID>.md`). With a prior ticket audit, hand the `implementer` the path to `.claude/progress/audit_ticket_<ID>.md`.
+### How much analysis does this task deserve (signal → mechanism)
 
-**R2-architectural — design before you decompose.** A task inside R2 that shows ANY of these earns a solution pass first: new shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area (`auth, permissions, payments, data integrity`) · hard-to-reverse decision · ≥2 genuinely viable approaches. File count is a hint, never the definition — an exact existing pattern with a local change and a trivial rollback stays plain R2. The pass is: `solution-design` skill → ONE fresh-context challenge (a `researcher`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks.
+Look the signal up instead of reconstructing the boundary; the mechanisms themselves are unchanged.
+
+| Signal (verifiable, in the task or the ticket) | Mechanism |
+|---|---|
+| A non-trivial ticket arrives (ID, URL, pasted text) | `ticket-intake` — the pipeline that chains the rest |
+| …and it hits a critical area (`auth, permissions, payments, data integrity`), a structural migration, >3 layers, or has no clear location | `ticket-audit` → `audit_ticket_<ID>.md`, before decomposing |
+| …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `ticket-audit` PER AREA, all calls in the SAME turn; you synthesize (`ticket-intake`, phase 2) |
+| New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the R2-architectural pass (below) |
+| Real scope, by the threshold the **SDD** block owns | propose `spec-bootstrap` — opt-in, never self-assigned |
+| No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` → `audit_deep_<scope>.md` + prioritized plan |
+| A scoped question (does Y happen? what consumes X?) | `researcher` |
+| Where does X live? — a broad map of an area | `explorer` |
+| Already audited in this session, or trivial (typo, copy, color) | none — reuse the artifact, don't re-audit |
+| Nothing above fires | none — R1 inline; analysis is a lever, not a toll |
+
+**R2-architectural — design before you decompose.** When the table's architectural row fires inside R2, the task earns a solution pass first. File count is a hint, never the definition — an exact existing pattern with a local change and a trivial rollback stays plain R2. The pass is: `solution-design` skill → ONE fresh-context challenge (a `researcher`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks.
 
 ### Thresholds that make you STEP UP a route
 
@@ -172,7 +187,7 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 2. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
 <!-- /navori:managed id="arranque-sesion" -->
 
-<!-- navori:managed id="cierre-sesion" hash="7df2151a" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="cierre-sesion" hash="ec8cfadf" version="0.6.0" source="@navori/core" -->
 ## Session closeout
 
 Before closing the session:
@@ -182,6 +197,8 @@ Before closing the session:
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
 5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, atomic, in the language defined by the config's `commits`.
+
+**R1 lean close** — the three conditions are verifiable, so this is not a judgment call: the session ran the **R1** route, it covered **one** user task, and its diff touches no critical area (`auth, permissions, payments, data integrity`). All three hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.
 <!-- /navori:managed id="cierre-sesion" -->
 
 <!-- navori:managed id="sdd" hash="ea9d8726" version="0.6.0" source="@navori/core" -->
@@ -196,20 +213,20 @@ Before closing the session:
 Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`leader`→`implementer`→`reviewer`) — with the `spec-bootstrap` skill.
 <!-- /navori:managed id="sdd" -->
 
-<!-- navori:managed id="intake-tickets" hash="f6d3f4a9" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="intake-tickets" hash="d0d6fcbb" version="0.6.0" source="@navori/core" -->
 ## Tickets: problem first, proposed solution second
 
 A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a proposed solution. Treat them differently:
 
 - **The problem is the contract.** Verify it in the repo with evidence (`file:line`, a repro, a query) before writing code. If you can't confirm it, that's a finding to report — not a reason to implement anyway.
 - **The proposed solution is a suggestion, never the spec.** Evaluate it against the verified problem: it may solve it, mask it, or target something else. You have standing to propose a different path — cite why yours beats the ticket's.
-- **Not every ticket proceeds.** Legitimate outcomes besides "implement": already solved, can't reproduce, works as intended, needs splitting into N tickets, blocked on missing info. Saying so early — with evidence — beats a polished PR for the wrong fix.
+- **Not every ticket proceeds.** Legitimate outcomes besides "implement": already solved, can't reproduce, works as intended, needs splitting into N tickets, blocked on missing info. Saying so early — with evidence — beats a polished PR for the wrong fix. **None of them opens work, so none of them waits for approval:** report the verdict with its evidence and close the cycle. The human gate stays for `proceed` and `proceed-differently`, the two that open the chequebook.
 - **Size is measured, not assumed.** Before calling something small, run the command that proves it (call sites, files touched, layers crossed). A one-line description routinely hides a 13-call-site change.
 
 The `ticket-intake` skill runs this as a pipeline; the `ticket-audit` agent produces the verdict with evidence.
 <!-- /navori:managed id="intake-tickets" -->
 
-<!-- navori:managed id="engram-protocol" hash="fb34fccc" version="0.6.0" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-protocol" hash="7bdaaa26" version="0.6.0" source="@navori/plugin-engram" -->
 ## Engram
 
 - **Session start (first step, mandatory):** call `mem_context` at the start of EVERY session to recover decisions and prior work — don't wait for the user to ask. On hosts that do NOT load memory with a startup hook (e.g. Codex), this explicit call IS the memory startup; don't skip it.
@@ -219,6 +236,7 @@ The `ticket-intake` skill runs this as a pipeline; the `ticket-audit` agent prod
 - **Write-back:** if the code contradicts a memory, fix it with `mem_update`/`mem_save` right away. Treat `needs_review` as stale context.
 - `mem_session_summary` is mandatory before "done": Goal · Discoveries · Accomplished · Next Steps · Relevant Files.
 - **Curation at close:** after the summary, review what was created in the session. Consolidate duplicates under their `topic_key`, promote what's durable, and delete only volatile observations or ones already covered by the summary. Never aggressive deletion, never delete a durable decision.
+- **R1 lean close** (the closeout block's three conditions): the summary and the curation step are exempt. `mem_save` is not — that one is what lets you reconstruct in six months why a commit exists.
 <!-- /navori:managed id="engram-protocol" -->
 
 <!-- navori:managed id="gh-protocol" hash="b2d02c0b" version="0.6.0" source="@navori/plugin-gh" -->
