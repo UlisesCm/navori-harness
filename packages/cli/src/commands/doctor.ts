@@ -224,6 +224,22 @@ export const doctorCommand = defineCommand({
       duplicateMarkers,
       missingExternalTools,
       missingOptionalTools,
+      // The four warning-level checks below are serialized verbatim, in the
+      // order the human output prints them: a CI pipeline (or an agent) reading
+      // `--json` was blind to all of them, which defeats the purpose of #368 and
+      // #440 — debt `render` cannot fix, reported only to a human who is not
+      // watching. They stay warnings: none of them feeds `computeHealthVerdict`,
+      // so the exit code is unchanged.
+      gateReadiness,
+      emptyUserSections,
+      // Uncapped on purpose: MAX_ARTIFACT_ROWS is a readability cap for the
+      // terminal ("… and N more"), and a machine consumer needs every row.
+      interpolationArtifacts,
+      // `path` is absolute because that IS the remediation target, it is not
+      // derivable (NAVORI_BACKUP_ROOT can move the store), and the human output
+      // already prints the same string — so the JSON leaks nothing extra, and
+      // this payload already carries an absolute `configPath`.
+      diskUsage,
       monorepoDrift,
       workspaceLink,
       missingPreset,
