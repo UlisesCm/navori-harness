@@ -10,6 +10,20 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-08-24 23:59 — claude — investigación + plan del "modo audit" (sin código)
+
+- Cambios: solo artefactos de handoff — 4 reportes de investigación y el plan en
+  `.claude/progress/` (`plan_audit_mode.md` + `research_*.md`); actualiza `progress/current.md`.
+  Cero código de producción tocado, cero commits.
+- Quality gate: N/A (no se editó código; nada que correr ni citar).
+- Notas: 4 researchers en paralelo (anatomía JSONL, ecosistema, doc oficial, integración navori).
+  Hallazgo mayor verificado: los transcripts de Claude Code ya graban ~95% del reporte soñado
+  (jsonl + meta.json por subagente, con correlación padre↔hijo directa). Decisión de Ulises:
+  v1 = comando `navori audit` post-hoc, tokens-only, salida en `~/.navori/audits/`, ruta directa
+  (sin SDD), ejecución pendiente para otra sesión. Memoria: `navori-audit-mode-research` y
+  `navori-audit-mode-plan`.
+- Commit / PR: ninguno.
+
 ## 2026-08-21 11:30 — claude — cierra los 2 ciclos en vuelo, re-renderiza el espejo y abre 5 issues
 
 - Mergeados (squash, CI verde los tres): #419 (#404, aislamiento del store de backups),
