@@ -11,9 +11,24 @@ You are the main agent. For any task, **pick the smallest route that covers it**
 | **R2-fan · Analytical fan-out** | Genuinely independent sub-questions or sub-bugs (no shared state) | N `researcher`/`explorer`, or N `implementer` on **disjoint files**, in PARALLEL (same turn) → your synthesis |
 | **R3 · SDD** (opt-in) | Durable artifacts cut ambiguity substantially **and** there was an explicit request / accepted proposal | `spec-bootstrap` → `tasks.md`; see the **SDD** block (don't duplicate its criteria) |
 
-Scoped research → `researcher`; broad maps (where does X live?) → `explorer`. Deep read-only audit of a module/area/repo with **no ticket** (security/perf/SOLID/edge-cases, e.g. mapping debt before a refactor) → `auditor` (writes `audit_deep_<scope>.md`); a concrete complex ticket to analyze before decomposing → `ticket-audit` (writes `audit_ticket_<ID>.md`). With a prior ticket audit, hand the `implementer` the path to `.claude/progress/audit_ticket_<ID>.md`.
+### How much analysis does this task deserve (signal → mechanism)
 
-**R2-architectural — design before you decompose.** A task inside R2 that shows ANY of these earns a solution pass first: new shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area (`{{project.criticalAreas}}`) · hard-to-reverse decision · ≥2 genuinely viable approaches. File count is a hint, never the definition — an exact existing pattern with a local change and a trivial rollback stays plain R2. The pass is: `solution-design` skill → ONE fresh-context challenge (a `researcher`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks.
+Look the signal up instead of reconstructing the boundary; the mechanisms themselves are unchanged.
+
+| Signal (verifiable, in the task or the ticket) | Mechanism |
+|---|---|
+| A non-trivial ticket arrives (ID, URL, pasted text) | `ticket-intake` — the pipeline that chains the rest |
+| …and it hits a critical area (`{{project.criticalAreas}}`), a structural migration, >3 layers, or has no clear location | `ticket-audit` → `audit_ticket_<ID>.md`, before decomposing |
+| …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `ticket-audit` PER AREA, all calls in the SAME turn; you synthesize (`ticket-intake`, phase 2) |
+| New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the R2-architectural pass (below) |
+| Real scope, by the threshold the **SDD** block owns | propose `spec-bootstrap` — opt-in, never self-assigned |
+| No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` → `audit_deep_<scope>.md` + prioritized plan |
+| A scoped question (does Y happen? what consumes X?) | `researcher` |
+| Where does X live? — a broad map of an area | `explorer` |
+| Already audited in this session, or trivial (typo, copy, color) | none — reuse the artifact, don't re-audit |
+| Nothing above fires | none — R1 inline; analysis is a lever, not a toll |
+
+**R2-architectural — design before you decompose.** When the table's architectural row fires inside R2, the task earns a solution pass first. File count is a hint, never the definition — an exact existing pattern with a local change and a trivial rollback stays plain R2. The pass is: `solution-design` skill → ONE fresh-context challenge (a `researcher`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks.
 
 ### Thresholds that make you STEP UP a route
 

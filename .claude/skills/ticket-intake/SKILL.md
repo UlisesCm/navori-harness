@@ -5,41 +5,39 @@ type: reference
 maxWords: 600
 ---
 
-<!-- navori:managed id="ticket-intake" hash="0105774d" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="ticket-intake" hash="cde36619" version="0.6.0" source="@navori/core" -->
 # ticket-intake — 8-phase pipeline
-
-## When to use this skill
-
-When a ticket arrives (ID, URL or pasted text) and the task isn't trivial. It orchestrates the cycle by chaining navori agents and skills with objective gates: the context you pay for with tokens in one phase is written down for the next, without relying on the model's memory.
 
 ## Pipeline
 
-Each phase writes to `.claude/progress/`; the gate is blocking.
+navori agents and skills chained by objective gates: what one phase pays for in tokens is written down for the next. Each phase writes to `.claude/progress/`; the gate is blocking.
 
 | Phase | Who covers it | Artifact / Gate |
 |---|---|---|
 | 0 · Triage | you: `mem_search`, `cat current.md`, `git status/log` | Trivial → resolve it **inline (R1)**, without `implementer`. If `current.md` is not idle and holds ANOTHER ticket, ask; never two in parallel. |
 | 1 · Context (opt.) | you: the tracker CLI (`acli` / `jira` / `gh issue view`) | If there's only pasted text, jump to 2 with it. |
-| 2 · AUDIT | `ticket-audit` agent | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: the user approves the VERDICT.** Non-`proceed` ends the pipeline here, with evidence — a successful outcome, not a failure. |
-| 3 · EXPLORE (opt.) | 2-3 `explorer` agents in a single message | One `explore_<dim>.md` per dimension (handler, schema, side-effects, caller, memory). **Gate: you validate the audit's approach is still alive.** |
-| 4 · SOLUTION (opt.) | `solution-design` skill + ONE `researcher` as fresh-context challenge | Fires when the phase-2 verdict is `proceed-differently`, or the task shows an architectural signal (see R2-architectural in the orchestration block). Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 5. |
+| 2 · AUDIT | `ticket-audit` — ONE, or one per area (fan-out below) | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. |
+| 3 · EXPLORE (opt.) | 2-3 `explorer` agents in a single message | One `explore_<dim>.md` per dimension (handler, schema, side-effects, caller). **Gate: the audit's approach is still alive.** |
+| 4 · SOLUTION (opt.) | `solution-design` skill + ONE `researcher` as fresh-context challenge | Fires on a `proceed-differently` verdict or an architectural signal (orchestration table). Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 5. |
 | 5 · IMPLEMENT | ONE `implementer` agent | Reads `audit_ticket_<ID>.md` → `solution_<scope>.md` (if phase 4 ran) → `explore_*.md` → applicable skill. Produces `impl_<feature>.md`. **Gate: `cd packages/cli && pnpm lint` green in the turn.** |
 | 6 · VERIFY | `verify-before-done` skill (run by the implementer) | `impl_<feature>.md` with "Verify run in this turn" at exit 0 + endpoint smoke. No evidence → to 5. |
 | 7 · REVIEW | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 5. `APPROVED` → continue. |
-| 8 · PR + CLOSE | `commit-pr-pilot` agent | PR created and URL to the user; then `mem_save`, an entry in `history.md`, `current.md` to `idle` and `mem_session_summary`. |
+| 8 · PR + CLOSE | `commit-pr-pilot` agent | PR created and URL to the user; then close the session per the closeout block. |
+
+## Phase 2 fan-out
+
+Only when the orchestration table's fan-out row fires, never on "it feels separable": three auditors on a one-file ticket cost more than the serial run they replace. Then one `ticket-audit` per area, **all the `Agent` calls in the SAME turn**, each writing `audit_ticket_<ID-area>.md` (e.g. `audit_ticket_BTBS-138-webapp.md`) so none overwrites another. **You synthesize** the N reports — contradictions and gaps included — into the single `audit_ticket_<ID>.md` every later phase reads. Never delegated.
 
 ## Hard rules
 
-- **Phase 2 is not skipped on a non-trivial task** "because you already understood the ticket". The audit is for the implementer (and for you in 3 days); delegate it to `ticket-audit`.
-- **The ticket's proposed solution is a suggestion, not the spec** — the audit evaluates it against the verified problem. Calling a task trivial without a measured size is how a "simple" ticket becomes a big, wrong change.
-- **The implementer starts by reading `audit_ticket_<ID>.md`** or you lose context already paid for with tokens.
-- **The reviewer doesn't approve without Pass 1;** the approval does NOT depend on the implementer.
-- **No PR without `APPROVED`** nor two tickets in parallel on the same `current.md`.
+- **Phase 2 is not skipped on a non-trivial task** because you "already understood the ticket": the audit is for the implementer, and for you in 3 days.
+- **No PR without `APPROVED`.**
+- **A verdict that opens no work doesn't wait for approval:** report it with its evidence, leave `current.md` at `idle`, stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
 - **Trivial** = an R1 inline change (orchestration block).
 
 ## Before declaring done
 
-- The cycle closed with a PR via `commit-pr-pilot` and its URL to the user; `current.md` at `idle`.
-- There was a `mem_save` of every non-obvious decision and a `mem_session_summary`.
-- If it was non-trivial: an approved `audit_ticket_<ID>.md`, an `impl_<feature>.md` with verify at exit 0, and a `review_<feature>.md` at `APPROVED` all exist.
+- A cycle that proceeded ends with a PR via `commit-pr-pilot` and its URL to the user.
+- A cycle closed at phase 2 ends with its verdict + evidence and no PR.
+- Either way, `current.md` at `idle`.
 <!-- /navori:managed id="ticket-intake" -->
