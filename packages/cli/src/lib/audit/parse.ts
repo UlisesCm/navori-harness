@@ -360,6 +360,30 @@ export function parseSession(mainJsonl: string): SessionAudit {
     ),
   ];
 
+  /**
+   * How many human messages this session actually carried (#489).
+   *
+   * The session log only ever sees the first kind. A message typed WHILE the
+   * agent is working is not a prompt to Claude Code: it is queued
+   * (`type: "queue-operation"`, `operation: "enqueue"`) and delivered inside
+   * the running turn as an attachment, so it never fires `UserPromptSubmit`
+   * and the hook cannot record it. Measured on a real session: 11 typed vs 7
+   * queued — the hook was missing well over a third of what the human said,
+   * with nothing in the report hinting at the gap.
+   *
+   * The transcript has both, so the count is recovered here rather than
+   * chased in the hook, which structurally cannot see them.
+   *
+   * `enqueue` only: every queued message also emits a matching `remove` when
+   * it is consumed, so counting both would double every figure.
+   */
+  const typedPrompts = lines.filter(
+    (l) => str(l.type) === "user" && str(l.promptSource) === "typed",
+  ).length;
+  const queuedPrompts = lines.filter(
+    (l) => str(l.type) === "queue-operation" && str(l.operation) === "enqueue",
+  ).length;
+
   // The human's own words: `promptSource: "typed"` separates them from
   // hook injections and task notifications (`system`, `isMeta`).
   const typed = lines.find((l) => str(l.type) === "user" && str(l.promptSource) === "typed");
@@ -404,6 +428,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
     endedAt: last,
     wallClockMs: durationMs(first, last),
     initialPrompt,
+    prompts: { typed: typedPrompts, queued: queuedPrompts },
     gitBranch: str(lines.find((l) => str(l.gitBranch))?.gitBranch),
     cwd: str(lines.find((l) => str(l.cwd))?.cwd),
     ccVersions,

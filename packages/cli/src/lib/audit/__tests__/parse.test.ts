@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parseSession, sumTokens, readJsonl } from "../parse.ts";
 
@@ -116,5 +118,59 @@ describe("parse: missing input", () => {
       parseErrors: 0,
       linesRead: 0,
     });
+  });
+});
+
+describe("parse: user message coverage (#489)", () => {
+  /**
+   * The session log only ever sees messages that START a turn. Anything typed
+   * while the agent works is queued and delivered inside the running turn, so
+   * it fires no hook and the log is blind to it — on a real session that was 7
+   * of 19 messages. The transcript has both, which is why the count lives here
+   * and not in the hook.
+   */
+  function transcript(lines: object[]): string {
+    const dir = mkdtempSync(join(tmpdir(), "navori-parse-"));
+    const file = join(dir, "sess-cov.jsonl");
+    writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n"), "utf-8");
+    return file;
+  }
+
+  const typed = (text: string) => ({
+    type: "user",
+    promptSource: "typed",
+    timestamp: "2026-08-25T10:00:00.000Z",
+    message: { role: "user", content: text },
+  });
+  const enqueue = (text: string) => ({
+    type: "queue-operation",
+    operation: "enqueue",
+    timestamp: "2026-08-25T10:01:00.000Z",
+    content: text,
+  });
+  const removed = (text: string) => ({
+    type: "queue-operation",
+    operation: "remove",
+    timestamp: "2026-08-25T10:02:00.000Z",
+    content: text,
+  });
+
+  it("counts turn-starting prompts and queued ones separately", () => {
+    const s = parseSession(
+      transcript([typed("uno"), enqueue("mid"), removed("mid"), typed("dos")]),
+    );
+    expect(s.prompts).toEqual({ typed: 2, queued: 1 });
+  });
+
+  it("counts a queued message once, not twice", () => {
+    // Every enqueue is matched by a `remove` when consumed; counting both
+    // would double the figure the report shows.
+    const s = parseSession(transcript([typed("uno"), enqueue("a"), removed("a")]));
+    expect(s.prompts.queued).toBe(1);
+  });
+
+  it("reports zero queued when the human never interrupted", () => {
+    const s = parseSession(transcript([typed("uno"), typed("dos")]));
+    expect(s.prompts).toEqual({ typed: 2, queued: 0 });
   });
 });

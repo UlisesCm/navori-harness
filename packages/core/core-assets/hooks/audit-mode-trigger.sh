@@ -92,9 +92,15 @@ esac
 if [ -f "$log_file" ]; then
   # Active: record the human's own words — they entered the model's context,
   # so they cost tokens and belong in the audit.
+  #
+  # `transcript_path` rides along because the payload is the ONLY place it is
+  # stated. Without it the reader has to guess the transcript's location by
+  # re-deriving Claude Code's undocumented directory encoding (see paths.ts),
+  # and a guess that misses costs the whole report.
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || ts=""
-  printf '%s\n' "$(jq -cn --arg ts "$ts" --arg ev "prompt" --arg p "$prompt" \
-    '{ts:$ts,event:$ev,prompt:$p}' 2>/dev/null)" >> "$log_file" 2>/dev/null
+  transcript=$(printf '%s' "$payload" | jq -r '.transcript_path // ""' 2>/dev/null) || transcript=""
+  printf '%s\n' "$(jq -cn --arg ts "$ts" --arg ev "prompt" --arg p "$prompt" --arg tr "$transcript" \
+    '{ts:$ts,event:$ev,prompt:$p} + (if $tr == "" then {} else {transcript:$tr} end)' 2>/dev/null)" >> "$log_file" 2>/dev/null
 
   if [ "$matched" = "1" ] && [ "$off_intent" = "1" ]; then
     if audit_subcommand_available; then

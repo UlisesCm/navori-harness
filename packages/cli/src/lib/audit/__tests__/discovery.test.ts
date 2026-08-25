@@ -103,3 +103,43 @@ describe("paths: audit root isolation", () => {
     expect(auditsRoot().startsWith("/")).toBe(true);
   });
 });
+
+describe("discovery: transcript path recorded by the hook (#489)", () => {
+  /**
+   * Locating the transcript used to mean re-deriving Claude Code's
+   * undocumented directory encoding, with a full scan as fallback. The hook
+   * payload states the path outright, so it is recorded on the first `prompt`
+   * event and preferred here — an exact answer instead of two guesses.
+   */
+  function markWithTranscript(id: string, cwd: string, transcript: string): void {
+    const dir = join(root, REPO);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `session-${id}.log`),
+      [
+        JSON.stringify({ ts: "2026-08-25T10:00:00Z", event: "start", cwd, repo: REPO }),
+        // The path only ever appears on a prompt event, never on `start`.
+        JSON.stringify({ ts: "2026-08-25T10:01:00Z", event: "prompt", prompt: "x", transcript }),
+      ].join("\n") + "\n",
+      "utf-8",
+    );
+  }
+
+  it("uses the recorded path, even where the encoding heuristic would miss", () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), "navori-transcripts-"));
+    const file = join(elsewhere, "anywhere.jsonl");
+    writeFileSync(file, "", "utf-8");
+
+    markWithTranscript("sess-rec", "/some/repo/path", file);
+    const [found] = findMarkedSessions(REPO);
+    expect(found?.transcript).toBe(file);
+    rmSync(elsewhere, { recursive: true, force: true });
+  });
+
+  it("falls back to the search when the recorded path no longer exists", () => {
+    // A transcript can be pruned or moved; a stale record must not win.
+    markWithTranscript("sess-gone", "/some/repo/path", join(tmpdir(), "definitely-not-here.jsonl"));
+    const [found] = findMarkedSessions(REPO);
+    expect(found?.transcript).toBeNull();
+  });
+});

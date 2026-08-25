@@ -174,6 +174,29 @@ describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
     expect(JSON.parse(last ?? "{}").prompt).toBe("el especifico");
   });
 
+  it("records transcript_path so the reader never has to guess it", () => {
+    activate();
+    const input = JSON.stringify({
+      prompt: "haz X",
+      session_id: "sess1",
+      cwd,
+      transcript_path: "/Users/x/.claude/projects/enc/sess1.jsonl",
+    });
+    run(shell, TRIGGER, input);
+    const last = readFileSync(logFile(), "utf-8").trim().split("\n").at(-1);
+    // Only the payload states this path; without it, discovery falls back to
+    // re-deriving Claude Code's undocumented directory encoding.
+    expect(JSON.parse(last ?? "{}").transcript).toBe("/Users/x/.claude/projects/enc/sess1.jsonl");
+  });
+
+  it("omits the transcript key when the payload has no path", () => {
+    activate();
+    run(shell, TRIGGER, payload("haz X"));
+    const last = readFileSync(logFile(), "utf-8").trim().split("\n").at(-1);
+    // An empty string would read as "recorded, and it is nowhere".
+    expect(JSON.parse(last ?? "{}")).not.toHaveProperty("transcript");
+  });
+
   it("appends the typed prompt while active, and only appends", () => {
     activate();
     const before = readFileSync(logFile(), "utf-8");

@@ -74,6 +74,14 @@ export interface SessionAudit {
   wallClockMs: number;
   /** First human-typed prompt (`promptSource: "typed"`), not an injected one. */
   initialPrompt: string;
+  /**
+   * Human messages by delivery path (#489). `typed` starts a turn and fires
+   * `UserPromptSubmit`, so the session log sees it; `queued` is written while
+   * the agent works, is delivered inside the running turn, and fires nothing
+   * — invisible to the hook, recovered here from the transcript. Reported so
+   * the log's coverage is stated instead of assumed to be total.
+   */
+  prompts: { typed: number; queued: number };
   gitBranch: string | null;
   cwd: string | null;
   /** Claude Code versions seen; the basis of the format-drift warning. */
