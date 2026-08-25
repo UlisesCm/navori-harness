@@ -293,6 +293,275 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
     });
   });
 
+  /**
+   * #462 — the guard is scoped to what the shell EXECUTES, never to the text a
+   * command merely WRITES.
+   *
+   * Documenting a security fix means quoting the attack it defends against, so
+   * the text-only match blocked the very PR bodies that describe it (#403 could
+   * not write its own). What the decision explicitly does NOT excuse is writing
+   * a script and running it: that is still an execution.
+   *
+   * The table below is the record of the attempts that have been MADE, not a
+   * proof that none is left — the first review of #462 found four the original
+   * pass had missed, and calling the list complete is what let them ship. The
+   * frontier the guard actually defends is stated in the hook itself (the "NOT
+   * inert" block): a KNOWN interpreter in command position behind simple
+   * wrappers and prefixes. Any other runner (`npx tsx`, `lua`, `make -f`,
+   * `find … -exec`) escapes by design, same class as the `sh -c` / `eval`
+   * limitation. A new attempt that lands belongs here as a row.
+   */
+  describe("inert content — written text vs executed text (#462)", () => {
+    // 1. Writing a file whose CONTENT quotes a destructive command: passes.
+    const WRITES: ReadonlyArray<{ cmd: string; why: string }> = [
+      {
+        cmd: "cat > /tmp/body.md <<'EOF'\nel fix bloquea rm -rf / y rm -rf ~/\nEOF",
+        why: "quoted heredoc",
+      },
+      {
+        cmd: "cat > /tmp/body.md <<EOF\nel fix bloquea rm -rf /usr\nEOF",
+        why: "unquoted heredoc, no substitution",
+      },
+      { cmd: "cat > /tmp/x.md <<-'EOF'\n\trm -rf ~/\n\tEOF", why: "indented `<<-` heredoc" },
+      {
+        cmd: "cat > \"/tmp/mi archivo.md\" <<'EOF'\nrm -rf ~/\nEOF",
+        why: "quoted destination path",
+      },
+      { cmd: "cat > /tmp/b.md <<'MSG'\nrm -rf ~/\nMSG", why: "custom delimiter" },
+      {
+        cmd: "cat > /tmp/b.md <<'EOF'\nrm -rf ~/\nEOF\n\ngh pr create --body-file /tmp/b.md",
+        why: "the #403 flow end to end",
+      },
+      {
+        cmd: "gh pr create --body-file /tmp/body.md",
+        why: "--body-file: content is not in the command",
+      },
+      { cmd: "git commit -F /tmp/msg.txt", why: "git commit -F: same" },
+      {
+        cmd: 'git commit -m "fix: bloquea rm -rf ~/ en el guard"',
+        why: "commit message quoting the attack",
+      },
+      {
+        cmd: 'gh pr create --title x --body "el ataque era rm -rf ~/ y ahora no corre"',
+        why: "PR body quoting the attack",
+      },
+      { cmd: 'git commit -m "docs: no uses --no-verify"', why: "message naming the skip-flag" },
+      {
+        cmd: "cat > /tmp/x.md <<'EOF'\ngit commit --no-verify\ngit push --force main\nEOF",
+        why: "body quoting rules 1 and 2",
+      },
+      {
+        cmd: "cat > /tmp/b.md <<'EOF'\n:(){ :|:& };:\ndd if=/dev/zero of=/dev/disk0\nEOF",
+        why: "body quoting rules 4 and 5",
+      },
+      // The other half of the four remedies below: each one had to close its
+      // bypass WITHOUT re-blocking the prose #462 exists to allow, so the prose
+      // that sits closest to each remedy is pinned here too.
+      {
+        cmd: "gh pr create --body \"don't use rm -rf ~/ here, it's blocked\"",
+        why: "3 · apostrophes with NO substitution stay inert",
+      },
+      {
+        cmd: "cat > /tmp/b.md <<'EOF'\nit's the rm -rf ~/ case, don't ship it\nEOF",
+        why: "3 · the same inside a heredoc body",
+      },
+      {
+        cmd: "echo \"a << EOF\"\ncat > /tmp/b.md <<'EOF'\nrm -rf ~/\nEOF",
+        why: "4 · a real opener after a line whose `<<` is quoted",
+      },
+      {
+        cmd: 'git commit -m "fix(hooks): bloquea rm -rf ~/ (guard)"',
+        why: "1 · parens in a message are not a subshell",
+      },
+      {
+        cmd: 'git commit -m "docs: usa command git en vez de rm -rf ~/"',
+        why: "1 · `command` in a message is not a wrapper",
+      },
+    ];
+
+    it.each(WRITES)("writes, does not run — $why (exit 0)", ({ cmd }) => {
+      expect(runGuardScript(renderGuard("main"), cmd)).toBe(0);
+    });
+
+    // 2 + 3. Running that same payload — directly, or in the second step of a
+    //        write-then-execute — stays blocked. Every row here was an attempt
+    //        to reach an execution THROUGH the #462 exception.
+    const BYPASS_ATTEMPTS: ReadonlyArray<{ cmd: string; why: string }> = [
+      { cmd: "rm -rf /", why: "2 · running the payload the body quotes" },
+      {
+        // A runner named by a VARIABLE used to escape the tell: the frontier the
+        // hook DECLARES is what justifies leaving other runners out, so a hole in
+        // it undermines the trade-off rather than just the case (#462 review, obs 8).
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\n$SHELL /tmp/p.md",
+        why: "3 · runner named by a variable",
+      },
+      { cmd: "git commit --no-verify -m x", why: "2 · same, rule 1" },
+      {
+        cmd: "cat > /tmp/p.sh <<'EOF'\nrm -rf ~/\nEOF\nbash /tmp/p.sh",
+        why: "3 · write a script, run it",
+      },
+      {
+        cmd: "cat > /tmp/p <<'EOF'\nrm -rf ~/\nEOF\nbash /tmp/p",
+        why: "3 · same, extensionless target",
+      },
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\nsource /tmp/p.md",
+        why: "3 · `source` instead of bash",
+      },
+      { cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\n. /tmp/p.md", why: "3 · the `.` builtin" },
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\nsudo bash /tmp/p.md",
+        why: "3 · sudo wrapper",
+      },
+      {
+        cmd: "cat > /tmp/p.txt <<'EOF'\nrm -rf ~/\nEOF\nchmod +x /tmp/p.txt && /tmp/p.txt",
+        why: "3 · chmod +x, then the path itself",
+      },
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\nFOO=1 /tmp/p.md",
+        why: "3 · VAR=val before the path",
+      },
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\nxargs -a /tmp/p.md sh",
+        why: "3 · xargs as the runner",
+      },
+      {
+        cmd: "tee /tmp/p.sh <<'EOF'\nrm -rf ~/\nEOF",
+        why: "3 · a script written with tee (no `>`)",
+      },
+      { cmd: "cat <<'EOF' > /tmp/p.sh\nrm -rf ~/\nEOF", why: "3 · redirect after the opener" },
+      { cmd: "bash <<'EOF'\nrm -rf ~/\nEOF", why: "3 · the heredoc IS the program" },
+      {
+        cmd: "cat > /tmp/b.md <<'EOF'\ntext\nEOF\ncat > /tmp/q.sh <<'EOF2'\nrm -rf ~/\nEOF2",
+        why: "3 · a second heredoc writing a script",
+      },
+      {
+        cmd: 'git commit -m "$(rm -rf / )"',
+        why: "a substitution is an invocation, not a message",
+      },
+      { cmd: 'gh pr create --body "$(rm -rf ~/ )"', why: "the same in a PR body" },
+      { cmd: 'echo "a << EOF"\nrm -rf ~/', why: "a `<<` inside a string opens no heredoc" },
+      { cmd: "echo 'a << EOF'\nrm -rf ~/\nEOF", why: "the same, single-quoted" },
+      {
+        cmd: "cat > /tmp/b.md <<'EOF'\nbody\nEOF\nrm -rf ~/",
+        why: "a real command AFTER the body ends",
+      },
+      {
+        cmd: "cat > /tmp/b.md <<'EOF'\nbody\nEOF\ndd if=/dev/zero of=/dev/disk0",
+        why: "the same, rule 5",
+      },
+      { cmd: 'git commit -m "x" ; rm -rf ~', why: "a real command after an elided message" },
+      { cmd: 'git commit -m "x" --no-verify', why: "the skip-flag OUTSIDE the elided value" },
+      { cmd: 'git commit -m "x ; rm -rf ~', why: "an unbalanced quote elides nothing" },
+      {
+        cmd: "gh pr create --body-file /tmp/b.md && rm -rf /",
+        why: "--body-file next to a real rm",
+      },
+      // Rules 4 and 5 read `live` too now, and neither had a single blocking
+      // assertion in this suite before #462 — pin them, or a later change to
+      // `live` could switch them off with nothing turning red.
+      { cmd: ":(){ :|:& };:", why: "rule 4 · the bare fork bomb" },
+      {
+        cmd: "cat > /tmp/b.md <<'EOF'\nbody\nEOF\n:(){ :|:& };:",
+        why: "rule 4 · after an elided body",
+      },
+      { cmd: "dd if=/dev/zero of=/dev/disk0", why: "rule 5 · raw block device" },
+      {
+        cmd: "cat > /tmp/b.md <<'EOF'\nbody\nEOF\ncat /dev/zero > /dev/sda",
+        why: "rule 5 · after an elided body",
+      },
+      // The four bypasses the #462 review measured as BLOCK-on-`main` →
+      // pass-with-the-diff. Each one is a hole the ORIGINAL #462 pass opened, so
+      // each stays here as a permanent case: reverting any of the four remedies
+      // turns these red.
+      //
+      // 1 · the execution tell reads a copy normalized like FIX C, so a wrapper
+      //     between the boundary and the interpreter no longer hides it.
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\n(bash /tmp/p.md)",
+        why: "1 · interpreter inside a subshell",
+      },
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\n{ bash /tmp/p.md; }",
+        why: "1 · interpreter inside a brace group",
+      },
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\n\\bash /tmp/p.md",
+        why: "1 · backslash-escaped interpreter",
+      },
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\n\"bash\" /tmp/p.md",
+        why: "1 · quoted interpreter",
+      },
+      // 2 · the prefix group takes the prefix's OWN arguments, so the runner is
+      //     still found behind `sudo -u me`, `env FOO=1`, `timeout 5`.
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\nsudo -u me bash /tmp/p.md",
+        why: "2 · sudo with a flag and its value",
+      },
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\nenv FOO=1 bash /tmp/p.md",
+        why: "2 · env with a VAR=val argument",
+      },
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\ntimeout 5 bash /tmp/p.md",
+        why: "2 · timeout with a numeric argument",
+      },
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\npython3.11 /tmp/p.md",
+        why: "2 · a versioned interpreter name",
+      },
+      {
+        cmd: "cat > /tmp/p.md <<'EOF'\nrm -rf ~/\nEOF\nfish /tmp/p.md",
+        why: "2 · a shell missing from the list",
+      },
+      // 3 · the substitution check also reads the double-quoted spans, where an
+      //     apostrophe is LITERAL and used to swallow the `$(` with it.
+      {
+        cmd: "git commit -m \"it's fine $(rm -rf / ) it's\"",
+        why: "3 · apostrophes around a live substitution",
+      },
+      {
+        cmd: "gh pr create --body \"don't $(rm -rf ~ ) don't\"",
+        why: "3 · the same in a PR body",
+      },
+      // 4 · a line whose quotes do not pair up is a NON-opener: inventing a
+      //     heredoc there elided the real commands that followed.
+      { cmd: 'echo "a \\" << EOF"\nrm -rf ~/', why: "4 · escaped quote fakes an opener" },
+      { cmd: 'echo "a" b" << EOF\nrm -rf ~/', why: "4 · odd quote count fakes an opener" },
+      // 5 · the script-extension match is case-insensitive: on macOS's
+      //     case-insensitive filesystem `p.SH` is the same file as `p.sh`.
+      { cmd: "cat > /tmp/P.SH <<'EOF'\nrm -rf ~/\nEOF", why: "5 · uppercase script extension" },
+      { cmd: "cat > /tmp/p.tsx <<'EOF'\nrm -rf ~/\nEOF", why: "5 · `.tsx`, sibling of `.ts`" },
+    ];
+
+    it.each(BYPASS_ATTEMPTS)("still blocked — $why (exit 2)", ({ cmd }) => {
+      expect(runGuardScript(renderGuard("main"), cmd)).toBe(2);
+    });
+
+    const BYPASS_ATTEMPTS_BASE: ReadonlyArray<{ cmd: string; why: string }> = [
+      {
+        cmd: "cat > /tmp/b.md <<'EOF'\nbody\nEOF\ngit push --force main",
+        why: "a real force-push after the body",
+      },
+      {
+        cmd: 'git commit -m "x" && git push --force main',
+        why: "the same after an elided message",
+      },
+    ];
+
+    it.each(BYPASS_ATTEMPTS_BASE)("still blocked — $why (exit 2)", ({ cmd }) => {
+      expect(runGuardScript(renderGuard("main"), cmd)).toBe(2);
+    });
+
+    // The shell's own reading is the reference: a terminator line that is not
+    // EXACTLY the delimiter keeps the heredoc open, so `EOF && rm -rf ~` is
+    // body text and nothing runs. Blocking it would be a false positive.
+    it("treats a non-exact terminator line as body, like the shell does (exit 0)", () => {
+      expect(runGuard("cat > /tmp/b.md <<'EOF'\ntext\nEOF && rm -rf ~")).toBe(0);
+    });
+  });
+
   describe("with NO JSON parser on PATH (sed fallback)", () => {
     // A minimal PATH with only the coreutils the guard needs — deliberately
     // without jq or node — proves the guard still inspects the command instead

@@ -8,7 +8,9 @@
 # devices. Exit 2 in a PreToolUse hook is evaluated BEFORE permission rules, so
 # this is the strongest line of defense — it overrides even an `allow` match.
 #
-# KNOWN, ACCEPTED LIMITATION: matching is regex-based over the command string.
+# KNOWN, ACCEPTED LIMITATION: matching is regex-based over the command string —
+# over the part of it the shell will actually INTERPRET, since #462 (see "INERT
+# CONTENT" below: a heredoc body or a `-m`/`--body` value is data, not a call).
 # A compound command is split into one segment per line first, so each rule only
 # ever matches WITHIN a segment (see "SEGMENTS" below) — that is what keeps a
 # `git commit` in one segment from being paired with a flag in another.
@@ -42,6 +44,221 @@ block() {
   exit 2
 }
 
+# Pre-expanded newline, shared by the inert-content pass and the segment split.
+# zsh does NOT expand $'\n' in the REPLACEMENT of ${var//pat/repl} (it inserts
+# the literal characters), so an inline $'\n' left compound commands unsplit
+# there and the rules below fail-open (#391). A plain variable expands
+# identically in bash and zsh.
+_nl=$'\n'
+
+# INERT CONTENT (#462) — what the shell EXECUTES vs what it merely WRITES.
+#
+# Every rule below reads the command as TEXT, so a PR body or a commit message
+# that QUOTES a destructive command was blocked even though nothing ran. That
+# fires on every security change, because documenting a fix means quoting the
+# attack it defends against: #403 could not write its own PR body, and a commit
+# message naming a recursive delete of HOME needed the `git commit -F <file>`
+# detour.
+#
+# `live` is `$cmd` minus its INERT spans — the text the shell hands to a program
+# as DATA and never interprets as a command. `$cmd` stays intact for the
+# messages; the rules read `live` (directly, or through `scan`).
+#
+# INERT (dropped before matching):
+#   · a heredoc BODY — `cat > body.md <<'EOF' … EOF` is file content.
+#   · the quoted VALUE of a message/body flag (`-m`, `--body`, …) — it lands in
+#     a commit object or in a PR, the shell never runs it.
+#
+# NOT inert. This is the line the decision draws — stated as the FRONTIER it
+# actually is, denylist included, because an unstated denylist reads as coverage:
+#   · a heredoc whose opener names a SCRIPT path (`cat > run.sh <<'EOF'`) — that
+#     is step 1 of write-then-execute, not documentation. The extension list is
+#     matched case-INSENSITIVELY; an unlisted or absent extension (`Makefile`,
+#     `.mk`, `.lua`, `.awk`, `cat > /tmp/payload`) reads as documentation, and
+#     only the execution tell below can still catch it.
+#   · ANY command that also EXECUTES something. Precisely: a KNOWN interpreter
+#     (`_hd_run`) in COMMAND POSITION — optionally behind `VAR=v` and the simple
+#     prefixes of `_hd_pre` WITH their arguments (`sudo -u me`, `env FOO=1`,
+#     `timeout 5`), and behind the wrappers the tell normalizes away (`(…)`,
+#     `{ …; }`, `\bash`, `"bash"`, `command bash`) —, or a path in command
+#     position (`./x`, `/x`, `~/x`), or a `$(…)`/backtick substitution the shell
+#     would expand (`git commit -m "$(rm -rf ~)"` really does run it). Such a
+#     command is scanned WHOLE, exactly as before #462.
+#     ANY OTHER RUNNER ESCAPES, and that is the accepted trade, not an oversight:
+#     `npx tsx f`, `lua f`, `make -f f`, `find … -exec bash {} \;`, a runner
+#     reached through a shell function or an alias, and one named by a BRACED
+#     variable (`${SH} f` — the wrapper normalization collapses `{` to a space,
+#     so it reaches the tell as `$ SH`; the plain `$SHELL f` IS caught). A word
+#     split by escapes (`b\ash f`) escapes too, as it already does the rules in
+#     the pre-#462 guard. A denylist is never complete;
+#     widening it is cheap per entry, but each entry ALSO drags a legitimate
+#     `… && make build` sitting next to a prose heredoc back into a full scan —
+#     back into the exact false positive #462 exists to kill. Same class as the
+#     `sh -c` / `eval` limitation the header states: a seatbelt, not a sandbox.
+#   · a `<<` that merely sits inside a string (`echo "a << b"`) — it opens no
+#     heredoc, so it can never be used to swallow the next real command. A line
+#     whose quotes do not pair up (`echo "a \" << EOF"`) counts as a NON-opener
+#     for the same reason: inventing a heredoc there would elide the real
+#     commands that follow, the one way this pass could scan LESS than before.
+# Unchanged scope: a deliberate adversary (`sh -c`, `eval`, base64) already had
+# simpler doors and is still out of reach. This is a seatbelt, not a sandbox.
+_hd_q='@navoriQ@'   # marks a QUOTED heredoc delimiter (`<<'EOF'`: no expansion)
+skeleton=""
+_hd_delim=""
+_hd_inert=0
+_hd_expand=0
+while IFS= read -r _line; do
+  if [ -n "$_hd_delim" ]; then
+    # Inside a heredoc body. The terminator is compared whitespace-trimmed (a
+    # `<<-` terminator may be indented); trimming can only end the body EARLIER
+    # than the shell would, i.e. scan more, never less.
+    _t="${_line#"${_line%%[![:space:]]*}"}"
+    _t="${_t%"${_t##*[![:space:]]}"}"
+    if [ "$_t" = "$_hd_delim" ]; then
+      _hd_delim=""
+      continue
+    fi
+    if [ "$_hd_inert" = 0 ]; then
+      skeleton="${skeleton}${_line}${_nl}"
+      continue
+    fi
+    # An UNQUOTED delimiter (`<<EOF`) still runs `$(…)`/backticks inside the
+    # body — plain prose there is inert, a substitution is a real invocation.
+    # Keeping exactly those lines feeds the whole-command fallback below.
+    if [ "$_hd_expand" = 1 ]; then
+      case "$_line" in
+        *'$('* | *'`'*) skeleton="${skeleton}${_line}${_nl}" ;;
+      esac
+    fi
+    continue
+  fi
+  skeleton="${skeleton}${_line}${_nl}"
+  # Fast path: no `<<`, no heredoc — a PreToolUse hook runs on EVERY Bash call,
+  # so the sed probes below are worth paying only on the lines that can open one.
+  case "$_line" in
+    *'<<'*) ;;
+    *) continue ;;
+  esac
+  # Heredoc opener? The probe marks the DELIMITER's own quotes first, then drops
+  # every other quoted span, so `cat <<'EOF'` is told apart from a `<<` inside a
+  # string; `<<<` (here-string) is neutralized so it can't pose as `<<`.
+  _probe=$(printf '%s' "$_line" | sed -E \
+    -e "s/<<(-?)[[:space:]]*'([A-Za-z_][A-Za-z0-9_]*)'/<<\1${_hd_q}\2/g" \
+    -e "s/<<(-?)[[:space:]]*\"([A-Za-z_][A-Za-z0-9_]*)\"/<<\1${_hd_q}\2/g" \
+    -e "s/<<(-?)[[:space:]]*\\\\([A-Za-z_][A-Za-z0-9_]*)/<<\1${_hd_q}\2/g" \
+    -e "s/'[^']*'//g" -e "s/\"[^\"]*\"//g" -e "s/<<</ /g")
+  # A quote left over in the probe means those two `sed` passes paired the quotes
+  # somewhere the shell would not (an escaped `\"`, an odd count): the `<<` may
+  # well sit inside a string, and INVENTING a heredoc here is the one failure
+  # mode of this whole pass that scans LESS — it would elide every following line,
+  # real commands included (`echo "a \" << EOF"` + a real `rm -rf ~/`). Treat the
+  # line as a NON-opener; worst case the body is scanned, which is what the guard
+  # did before #462.
+  case "$_probe" in
+    *'"'* | *"'"*) continue ;;
+  esac
+  # `^[^<]*` anchors on the FIRST `<` of the line: no match (a `<` redirect
+  # before the heredoc) simply leaves the body under the rules.
+  _open=$(printf '%s' "$_probe" \
+    | sed -nE "s/^[^<]*(<<-?[[:space:]]*(${_hd_q})?[A-Za-z_][A-Za-z0-9_]*).*/\1/p")
+  if [ -z "$_open" ]; then continue; fi
+  _hd_delim=$(printf '%s' "$_open" | sed -E "s/^<<-?[[:space:]]*(${_hd_q})?//")
+  _hd_inert=1
+  _hd_expand=0
+  case "$_open" in
+    *"${_hd_q}"*) ;;
+    *) _hd_expand=1 ;;
+  esac
+  # Writing a SCRIPT is not documenting: keep `cat > run.sh <<'EOF'` visible.
+  # Case-INSENSITIVE (`-i`): macOS ships a case-insensitive filesystem, so
+  # `cat > /tmp/p.SH` writes and runs the same file as `p.sh`.
+  if printf '%s' "$_line" \
+    | grep -qiE "\.(sh|bash|zsh|ksh|fish|py|rb|pl|js|jsx|mjs|cjs|ts|tsx|command|bat|ps1|scpt)([[:space:]]|[\"'\`]|\$)"; then
+    _hd_inert=0
+  fi
+done <<< "$cmd"
+
+# A `$(…)`/backtick substitution outside single quotes RUNS: `git commit -m
+# "$(rm -rf ~)"` is an invocation wearing a message's clothes. This check must
+# read the skeleton BEFORE the flag values are elided below — eliding first
+# swallowed the `$(` and let exactly that command through.
+#
+# TWO probes, OR'd, because neither alone is enough:
+#   · single-quoted spans dropped — catches a `$(` sitting outside every quote.
+#   · the double-quoted spans ALONE — inside them an apostrophe is LITERAL, so
+#     the first probe pairs `it's … it's` as if it were a quoted span and deletes
+#     the `$(` between them. That is ordinary punctuation in the very messages
+#     #462 exists to allow (`-m "it's fine $(rm -rf / ) it's"`), and it disarmed
+#     the only check that catches an invocation disguised as a message.
+# Over-reading here only falls back to scanning the whole command, i.e. to the
+# pre-#462 behaviour: the safe side.
+_hd_whole=0
+if printf '%s' "$skeleton" | sed -E "s/'[^']*'//g" | grep -qE '\$\(|`'; then
+  _hd_whole=1
+else
+  # Fast path, same idea as the `<<` one above: probe 2 costs two processes on
+  # EVERY Bash call, and it can only ever fire when a substitution is present
+  # somewhere in the first place.
+  case "$skeleton" in
+    *'$('* | *'`'*)
+      if printf '%s' "$skeleton" | grep -oE '"[^"]*"' | grep -qE '\$\(|`'; then
+        _hd_whole=1
+      fi
+      ;;
+  esac
+fi
+
+# Message/body flag VALUES. The flag itself stays so rule 1 still sees the shape
+# of the invocation (`git commit -m "" --no-verify` is still a skip-flag), and
+# `--body-file` is untouched: `([[:space:]]+|=)` can't match its `-`.
+_hd_flags='-m|--message|--body|--title|--description|--notes'
+skeleton=$(printf '%s' "$skeleton" | sed -E \
+  -e "s/(^|[[:space:]])(${_hd_flags})([[:space:]]+|=)'[^']*'/\1\2 ''/g" \
+  -e "s/(^|[[:space:]])(${_hd_flags})([[:space:]]+|=)\"[^\"]*\"/\1\2 \"\"/g")
+
+# The elision holds ONLY while nothing in the command can run what was written.
+# A segment that STARTS with an interpreter or with a path is an execution, and
+# reverts to the whole command — which is why `cat > x <<'EOF' … EOF; bash x` is
+# still blocked. Anything else keeps only what the shell will interpret.
+#
+# `_hd_pre` — the runner may sit behind simple prefixes, WITH their own arguments:
+# `sudo -u me bash x`, `env FOO=1 bash x`, `timeout 5 bash x`. Matching only a
+# prefix glued to the interpreter turned every one of those into a free pass.
+_hd_pre='(sudo|doas|env|command|nohup|timeout|time|nice|ionice|stdbuf|setsid)'
+_hd_pre="${_hd_pre}([[:space:]]+(-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?"
+_hd_pre="${_hd_pre}|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|[0-9][^[:space:]]*))*[[:space:]]+"
+_hd_run='bash|sh|zsh|ksh|dash|ash|fish|tcsh|csh|source|eval|exec|xargs'
+_hd_run="${_hd_run}|python[0-9.]*|node|deno|bun|perl|ruby|osascript"
+_hd_exec='(^|[;&|])[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
+_hd_exec="${_hd_exec}(${_hd_pre})*"
+# `\$[A-Za-z_]` covers a runner named by a plain VARIABLE (`$SHELL x`). The
+# BRACED form (`${SH} x`) is NOT covered and is one of the declared escapes: the
+# same wrapper normalization that puts `{ bash x; }` back in command position
+# collapses `{` to a space, so `${SH}` reaches the tell as `$ SH`. Catching it
+# would mean teaching that normalization about `$`-prefixed braces — a change to
+# a security-sensitive transform, worth its own unit.
+# Why catching the plain form is safe: a variable in command position is never a
+# legitimate WRITER, so the false-positive cost is ~0 and the declared frontier
+# stays complete — which is what the denylist trade-off rests on (#462).
+_hd_exec="${_hd_exec}((${_hd_run})([[:space:]]|\$)|\.[[:space:]]|[.~]?/|\\\$[A-Za-z_])"
+# The tell reads a NORMALIZED copy, never the raw skeleton: `_hd_exec` anchors on
+# `^`/`;&|`, so any wrapper between the boundary and the interpreter used to hide
+# it. The transforms are FIX C's (below) plus quote REMOVAL, which is what puts
+# `(bash x)`, `{ bash x; }`, `\bash x`, `"bash" x` and `command bash x` back in
+# command position. Unquoting is safe HERE and not below: its only effect is
+# deciding whether to fall back to the whole command, i.e. to the pre-#462
+# behaviour — it never reaches the rules, so a quoted skip-flag is untouched.
+if [ "$_hd_whole" = 1 ] || printf '%s' "$skeleton" | sed -E \
+  -e "s/(^|[;&|]|[[:space:]])command[[:space:]]+/\1/g" \
+  -e "s/\\\\([A-Za-z])/ \1/g" \
+  -e "s/[(){}]/ /g" \
+  -e "s/'([^']*)'/\1/g" \
+  -e 's/"([^"]*)"/\1/g' | grep -qE "$_hd_exec"; then
+  live="$cmd"
+else
+  live="$skeleton"
+fi
+
 # Normalized copy used ONLY by the rules below. `$cmd` stays intact for the
 # messages. The transforms only add boundaries / drop noise, so they always push
 # toward MORE blocking:
@@ -53,7 +270,7 @@ block() {
 #           `\git …` and `(git …)` read as a plain `git …`.
 # `scan` keeps quoted spans intact, so a quoted skip-flag (`git commit
 # "--no-verify"`) is still caught — stripping the quotes there was a real bypass.
-scan="$cmd"
+scan="$live"
 scan="${scan//\\$'\n'/ }"     # FIX B: join line continuations
 scan="${scan//$'\n'/;}"       # FIX B: flatten remaining newlines to a boundary
 scan=$(printf '%s' "$scan" | sed -E \
@@ -76,11 +293,6 @@ scan=$(printf '%s' "$scan" | sed -E \
 # and `VAR=value` env prefixes go away (`FOO=1 git push …` → `git push …`); the
 # `(`, `\` and `command ` wrappers were already neutralized by FIX C above.
 segments=""
-# Pre-expanded newline: zsh does NOT expand $'\n' in the REPLACEMENT of
-# ${var//pat/repl} (it inserts the literal characters), so an inline $'\n'
-# left compound commands unsplit there and the rules below fail-open (#391).
-# A plain variable expands identically in bash and zsh.
-_nl=$'\n'
 _split="$scan"
 _split="${_split//&&/$_nl}"
 _split="${_split//||/$_nl}"
@@ -187,13 +399,14 @@ if printf '%s' "$segments" \
   block "recursive rm over a variable / root / home"
 fi
 
-# 4. Fork bomb.
-if printf '%s' "$cmd" | grep -qE ':\(\)[[:space:]]*\{[[:space:]]*:\|:'; then
+# 4. Fork bomb. Reads `live`, not `scan`: FIX C turns `(` into a space, which
+#    would defuse the very pattern this rule looks for.
+if printf '%s' "$live" | grep -qE ':\(\)[[:space:]]*\{[[:space:]]*:\|:'; then
   block "fork bomb"
 fi
 
 # 5. Writing to a raw block device (wipes a disk/partition).
-if printf '%s' "$cmd" | grep -qE '(of=/dev/(sd|nvme|disk|hd)|>[[:space:]]*/dev/(sd|nvme|disk|hd))'; then
+if printf '%s' "$live" | grep -qE '(of=/dev/(sd|nvme|disk|hd)|>[[:space:]]*/dev/(sd|nvme|disk|hd))'; then
   block "direct write to a block device"
 fi
 
