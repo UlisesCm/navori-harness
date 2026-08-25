@@ -33,6 +33,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:golden": "vitest run golden-render-tree --update",
     "lint": "oxlint src",
     "typecheck": "tsc --noEmit --allowImportingTsExtensions",
     "gen:schemas": "node scripts/gen-schemas.mjs",

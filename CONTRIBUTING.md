@@ -54,9 +54,23 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
      que ya solo arregla `navori sync`. Es la trampa fácil: ante un conflicto de git el reflejo
      es editar, y aquí ese reflejo convierte un problema de un comando en uno que exige entender
      el modelo de marcadores.
+5. **Si el paso 4 aplicó, el golden snapshot del árbol renderizado también se mueve**:
+   regenéralo con `cd packages/cli && pnpm test:golden` (~1 s) y **lee el diff** antes de
+   commitearlo. Son cinco fixtures, uno por engine, en
+   `packages/cli/src/engines/__tests__/__golden__/<engine>.snap`; existen porque los ~11 tests de
+   wiring apuntan a tokens sueltos y nadie ve el output completo (#394). Un cambio que no sepas
+   explicar en ese diff es el hallazgo, no ruido a aplanar con `-u`.
+
+   Un disparador del paso 4 que **no** aplica aquí: el bump de versión. El snapshot normaliza el
+   `version=` y el `hash=` del marcador, así que subir la versión mueve 30 archivos del espejo y
+   **cero** líneas del golden. Es a propósito: sin esa normalización se invalidaría en cada
+   release y dejaría de tener señal.
 
 CI corre además `pnpm --filter navori build` y `check:size` (guard de bundle size). Cambios
 **doc-only** (.md): basta `pnpm lint` + `pnpm format:check`; no necesitas la suite completa.
+**"Doc-only" son los docs del repo, no los assets**: un `.md` bajo `packages/core/core-assets/`
+o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara los pasos 4 y 5
+(espejo y golden) aunque su extensión diga lo contrario.
 
 ## Commits y PRs
 
