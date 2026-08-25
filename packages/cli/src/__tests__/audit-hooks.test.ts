@@ -140,6 +140,40 @@ describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
     expect(out).not.toContain("--start");
   });
 
+  /**
+   * Regression: reading only `.user_prompt` logged `{"prompt":""}` against a
+   * real session — the hook fired and matched, the field just wasn't there.
+   * Blank entries are worse than none in a log whose job is attribution.
+   */
+  it.each([["user_prompt"], ["prompt"]])("records the typed text under .%s", (key) => {
+    activate();
+    const input = JSON.stringify({
+      [key]: "arregla el login",
+      session_id: "sess1",
+      cwd,
+      hook_event_name: "UserPromptSubmit",
+    });
+    run(shell, TRIGGER, input);
+    const last = readFileSync(logFile(), "utf-8").trim().split("\n").at(-1);
+    expect(JSON.parse(last ?? "{}")).toMatchObject({
+      event: "prompt",
+      prompt: "arregla el login",
+    });
+  });
+
+  it("prefers user_prompt when the host sends both", () => {
+    activate();
+    const input = JSON.stringify({
+      user_prompt: "el especifico",
+      prompt: "el generico",
+      session_id: "sess1",
+      cwd,
+    });
+    run(shell, TRIGGER, input);
+    const last = readFileSync(logFile(), "utf-8").trim().split("\n").at(-1);
+    expect(JSON.parse(last ?? "{}").prompt).toBe("el especifico");
+  });
+
   it("appends the typed prompt while active, and only appends", () => {
     activate();
     const before = readFileSync(logFile(), "utf-8");
