@@ -10,16 +10,31 @@
   "commits": "conventional-es",
   "qualityGate": {
     "fast": "cd packages/cli && pnpm lint",
-    "full": "pnpm format:check && cd packages/cli && pnpm test && pnpm lint"
+    "full": "pnpm format:check && cd packages/cli && pnpm test && pnpm lint && pnpm typecheck"
   },
   "plugins": {
-    "engram": { "enabled": true },
-    "gh": { "enabled": true },
-    "jscpd": { "enabled": true },
-    "semgrep": { "enabled": true },
-    "codegraph": { "enabled": true }
+    "engram": {
+      "enabled": true
+    },
+    "gh": {
+      "enabled": true
+    },
+    "jscpd": {
+      "enabled": true
+    },
+    "semgrep": {
+      "enabled": true
+    },
+    "codegraph": {
+      "enabled": true
+    }
   },
   "project": {
-    "libraries": ["zod-validation", "vitest", "citty", "clack"]
+    "libraries": [
+      "zod-validation",
+      "vitest",
+      "citty",
+      "clack"
+    ]
   }
 }
