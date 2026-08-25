@@ -10,6 +10,7 @@ import { buildReport, renderJson, renderMarkdown } from "../lib/audit/report.ts"
 import { repoAuditDir, sessionLogPath } from "../lib/audit/paths.ts";
 import { resolveLang } from "../lib/i18n.ts";
 import { readGlobalConfig } from "../lib/global-config.ts";
+import { readCliVersion } from "../lib/bundled-assets.ts";
 import { brand, color, dim } from "../lib/style.ts";
 
 /**
@@ -38,10 +39,6 @@ function reportLang(cwd: string): Lang {
     }
   }
   return resolveLang(readGlobalConfig()?.language) as Lang;
-}
-
-function readVersion(): string {
-  return process.env.npm_package_version ?? "0.0.0";
 }
 
 export const auditCommand = defineCommand({
@@ -145,7 +142,7 @@ export const auditCommand = defineCommand({
       process.exit(2);
     }
 
-    const report = buildReport(parsed, { repo, version: readVersion(), catalog });
+    const report = buildReport(parsed, { repo, version: readCliVersion(), catalog });
 
     if (args.json) {
       process.stdout.write(renderJson(report));
