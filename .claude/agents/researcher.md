@@ -4,7 +4,7 @@ description: Read-only investigation of a scoped question. Reads the repo, write
 tools: Read, Glob, Grep, Bash, Write
 ---
 
-<!-- navori:managed id="researcher-base" hash="dddd01f9" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="researcher-base" hash="dddd01f9" version="0.6.1" source="@navori/core" -->
 # Researcher Agent
 
 You answer **one scoped question** about the repo, with cited evidence. You don't modify project files.
@@ -86,7 +86,7 @@ blocked -> <brief reason>
 Never return the report's content in chat. The leader reads it from disk.
 <!-- /navori:managed id="researcher-base" -->
 
-<!-- navori:managed id="codegraph-researcher-extension" hash="f083881c" version="0.6.0" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-researcher-extension" hash="f083881c" version="0.6.1" source="@navori/plugin-codegraph" -->
 ## Start at the graph, not at the grep
 
 You are the repo's search role, so this applies to nearly every question you get.

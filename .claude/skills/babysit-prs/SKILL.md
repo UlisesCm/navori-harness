@@ -4,7 +4,7 @@ description: Use when you resume a session with open PRs of yours, or when a che
 type: reference
 ---
 
-<!-- navori:managed id="babysit-prs" hash="2e59d1ac" version="0.6.0" source="@navori/core" -->
+<!-- navori:managed id="babysit-prs" hash="2e59d1ac" version="0.6.1" source="@navori/core" -->
 # babysit-prs — pick up what happened after the PR
 
 ## When to use this skill
