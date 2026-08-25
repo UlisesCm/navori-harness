@@ -899,3 +899,99 @@ describe("write path is code-fence aware (#452)", () => {
     expect(r.output).not.toContain("echo real");
   });
 });
+
+// #459 — the CLOSE half of the same rule. #452 made the OPEN fence-aware but left
+// the close on a raw `indexOf`, so a close QUOTED inside a fence in the BODY of a
+// real block truncated it: the write path replaced a span ending mid-body, and
+// `proseLines` resumed INSIDE the block, swallowing every later block behind the
+// body's own fences. Same failure class as #285/#408/#432/#452 — doctor and
+// render disagreeing on what a marker is.
+describe("close marker is code-fence aware (#459)", () => {
+  const FENCE = "```";
+  /** A body that DOCUMENTS the close marker inside a fence — what navori's own
+   *  docs (and any repo documenting its harness) carry verbatim. */
+  const BODY_QUOTING_CLOSE = `Un bloque termina así:\n\n${FENCE}md\n<!-- /navori:managed id="a" -->\n${FENCE}\n\nY sigue el cuerpo real.`;
+  const openCount = (doc: string, id: string): number =>
+    (doc.match(new RegExp(`<!-- navori:managed id="${id}"`, "g")) ?? []).length;
+  const withQuotedClose = (): string =>
+    injectManagedSection("", "a", `${BODY_QUOTING_CLOSE}\n`).output;
+
+  it("returns the FULL body when the body quotes a close inside a fence", () => {
+    // Before the fix this stopped at the quoted close, dropping everything after it.
+    expect(extractManagedContent(withQuotedClose(), "a")).toBe(BODY_QUOTING_CLOSE);
+  });
+
+  it("rewrites the whole block, not the truncated span", () => {
+    const doc = withQuotedClose();
+    // Idempotent: the stored hash covers the FULL body, so re-injecting the same
+    // content is a no-op. A truncated span made this `user-modified-skipped`.
+    expect(injectManagedSection(doc, "a", `${BODY_QUOTING_CLOSE}\n`).status).toBe("unchanged");
+
+    const r = injectManagedSection(doc, "a", "cuerpo nuevo\n");
+    expect(r.status).toBe("updated");
+    expect(openCount(r.output, "a")).toBe(1);
+    // The quoted close belonged to the OLD body, so it goes with it — no leftover
+    // half block, no stray fence.
+    expect(r.output).toBe(injectManagedSection("", "a", "cuerpo nuevo\n").output);
+  });
+
+  it("removes the whole block, leaving no orphan tail", () => {
+    const removed = removeManagedSection(withQuotedClose(), "a");
+    expect(removed).not.toContain("navori:managed");
+    expect(removed).not.toContain("Y sigue el cuerpo real");
+  });
+
+  it("keeps a later block visible past a body that quotes a close", () => {
+    const doc = injectManagedSection(withQuotedClose(), "b", "cuerpo b\n").output;
+
+    expect(extractManagedContent(doc, "b")).toBe("cuerpo b");
+    const r = injectManagedSection(doc, "b", "cuerpo b v2\n");
+    expect(r.status).toBe("updated");
+    expect(openCount(r.output, "b")).toBe(1);
+    expect(extractManagedContent(r.output, "a")).toBe(BODY_QUOTING_CLOSE);
+  });
+
+  // `reorderManagedBlocks` walks `locateManagedBlocks`, which shares the close
+  // resolution: a truncated span made it move half a block.
+  it("reorders blocks correctly when one body quotes a close", () => {
+    let doc = injectManagedSection("", "b", "cuerpo b\n").output;
+    doc = injectManagedSection(doc, "a", `${BODY_QUOTING_CLOSE}\n`).output;
+
+    const r = reorderManagedBlocks(doc, ["a", "b"]);
+    expect(r.reordered).toBe(true);
+    expect(extractManagedContent(r.output, "a")).toBe(BODY_QUOTING_CLOSE);
+    expect(extractManagedContent(r.output, "b")).toBe("cuerpo b");
+    expect(r.output.indexOf('id="a"')).toBeLessThan(r.output.indexOf('id="b"'));
+  });
+
+  // Mutation direction — the grave failure mode is the OPPOSITE of the bug: stop
+  // seeing a REAL close, and render treats the block as an orphan open, re-injects,
+  // and `stripOrphanMarkers` DELETES the user's marker. A body whose fence is
+  // UNBALANCED makes its own close look "fenced"; the raw scan stays as the
+  // fallback precisely so that block still pairs.
+  it("still pairs a close that an unbalanced fence in the body makes look fenced", () => {
+    const doc = injectManagedSection("", "a", `Un fence sin cerrar:\n\n${FENCE}\n`).output;
+    expect(extractManagedContent(doc, "a")).toBe(`Un fence sin cerrar:\n\n${FENCE}`);
+    expect(injectManagedSection(doc, "a", `Un fence sin cerrar:\n\n${FENCE}\n`).status).toBe(
+      "unchanged",
+    );
+    expect(openCount(doc, "a")).toBe(1);
+  });
+
+  // A close quoted inside another block's body is documentation, never the
+  // terminator of a different id's block.
+  it("does not let a body's quoted close pair with a DIFFERENT block's open", () => {
+    const r = injectManagedSection(withQuotedClose(), "b", "cuerpo b\n");
+    expect(r.status).toBe("created");
+    expect(extractManagedContent(r.output, "a")).toBe(BODY_QUOTING_CLOSE);
+    expect(extractManagedContent(r.output, "b")).toBe("cuerpo b");
+  });
+
+  it("applies the same close rule to shell markers", () => {
+    const body = `Cierre documentado:\n\n${FENCE}sh\n# navori:managed end id="guard"\n${FENCE}\n\nfin.`;
+    const doc = injectManagedSection("", "guard", `${body}\n`, {}, "shell").output;
+    expect(extractManagedContent(doc, "guard", "shell")).toBe(body);
+    expect(injectManagedSection(doc, "guard", `${body}\n`, {}, "shell").status).toBe("unchanged");
+    expect(removeManagedSection(doc, "guard", "shell")).not.toContain("fin.");
+  });
+});

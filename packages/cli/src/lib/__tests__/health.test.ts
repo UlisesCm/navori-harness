@@ -349,6 +349,28 @@ describe("listMarkers + scanManagedDrift", () => {
       ]);
       expect(listMarkers(file).map((m) => m.id)).toEqual(["leader-base", "idioma-rol"]);
     });
+
+    // #459 — the CLOSE half of the same rule, and the reason doctor's count
+    // depends on it: with a raw `indexOf` the body's fenced QUOTE of the close
+    // ended the block early, so the scan resumed INSIDE the body and the body's
+    // own closing fence flipped the state — every later real block went
+    // uncounted while render still wrote them.
+    it("counts a block whose body quotes a close in a fence, and the block after it", () => {
+      const file = write([
+        OPEN,
+        "Un bloque termina así:",
+        "```md",
+        CLOSE,
+        "```",
+        "y sigue el cuerpo real",
+        CLOSE,
+        "",
+        '<!-- navori:managed id="idioma-rol" hash="def456" -->',
+        "language doctrine",
+        '<!-- /navori:managed id="idioma-rol" -->',
+      ]);
+      expect(listMarkers(file).map((m) => m.id)).toEqual(["leader-base", "idioma-rol"]);
+    });
   });
 
   it("detects content drift when the body no longer matches its hash", () => {
@@ -686,6 +708,64 @@ describe("scanMalformedMarkers (#71 item 11)", () => {
     it("keeps classifying the missing terminator as its own reason", () => {
       write(['<!-- navori:managed id="a" hash="abc"', "body", '<!-- /navori:managed id="a" -->']);
       expect(scanMalformedMarkers(cwd)).toMatchObject([{ line: 1, reason: "unterminated" }]);
+    });
+  });
+
+  // #460 — the check #432 added accepted an id ANYWHERE in the tag, so it was
+  // LAXER than the parser it stands in for: `findMarker`/`listMarkers` demand
+  // `id="…"` as the FIRST attribute. An id out of position was therefore in the
+  // same no-man's-land the whole family closes — render ignores it and re-injects
+  // a block on top, and nothing tells the user. Both directions are asserted:
+  // the grave failure here is tightening too far and reporting legitimate prose.
+  describe("open marker whose id is out of position (#460)", () => {
+    const write = (lines: string[]): void =>
+      writeFileSync(join(cwd, "CLAUDE.md"), `${lines.join("\n")}\n`);
+
+    it.each([
+      {
+        why: "an id that is not the first attribute",
+        line: '<!-- navori:managed hash="x" id="a" -->',
+      },
+      { why: "an attribute that merely ends in id", line: '<!-- navori:managed data-id="a" -->' },
+      { why: "an empty id, which the parser rejects too", line: '<!-- navori:managed id="" -->' },
+    ])("flags $why", ({ line }) => {
+      write([line, "body"]);
+      // The parser agrees it is not a block — that is what makes it reportable.
+      expect(listMarkers(join(cwd, "CLAUDE.md"))).toEqual([]);
+      expect(scanMalformedMarkers(cwd)).toMatchObject([{ line: 1, reason: "missing-id" }]);
+    });
+
+    it.each([
+      { why: "canonical open", line: '<!-- navori:managed id="a" hash="x" -->' },
+      { why: "open with no other attribute", line: '<!-- navori:managed id="a" -->' },
+      { why: "indented open", line: '  <!-- navori:managed id="a" hash="x" -->' },
+    ])("does NOT flag the $why the parser accepts", ({ line }) => {
+      write([line, "body", '<!-- /navori:managed id="a" -->']);
+      expect(listMarkers(join(cwd, "CLAUDE.md")).map((m) => m.id)).toEqual(["a"]);
+      expect(scanMalformedMarkers(cwd)).toEqual([]);
+    });
+
+    it("does NOT flag an out-of-position id QUOTED inside a fence", () => {
+      write(["docs:", "```", '<!-- navori:managed hash="x" id="a" -->', "```"]);
+      expect(scanMalformedMarkers(cwd)).toEqual([]);
+    });
+
+    it("keeps flagging it indented, and with CRLF line endings", () => {
+      write(["- docs:", '  <!-- navori:managed hash="x" id="a" -->']);
+      expect(scanMalformedMarkers(cwd)).toMatchObject([{ line: 2, reason: "missing-id" }]);
+
+      writeFileSync(join(cwd, "CLAUDE.md"), '<!-- navori:managed hash="x" id="a" -->\r\nbody\r\n');
+      expect(scanMalformedMarkers(cwd)).toMatchObject([{ line: 1, reason: "missing-id" }]);
+    });
+
+    // The false positive this family already produced twice (#408's phantom,
+    // #432's own CLAUDE.md): a MENTION of the token in the middle of a sentence.
+    it("does NOT flag a prose mention that happens to carry an id elsewhere", () => {
+      write([
+        '- **Modelo híbrido**: los marcadores `<!-- navori:managed -->` (con su `id="…"`)',
+        "  se sincronizan; el resto es del usuario.",
+      ]);
+      expect(scanMalformedMarkers(cwd)).toEqual([]);
     });
   });
 
