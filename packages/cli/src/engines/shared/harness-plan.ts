@@ -133,6 +133,21 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/precompact-session-summary.sh"),
       managedId: "precompact-session-summary-base",
     },
+    // Audit-mode (UserPromptSubmit + SessionEnd). Shipped unconditionally but
+    // INERT until a session opts in by phrase: distribution is global so the
+    // feature is versioned with the harness, activation stays per session.
+    // Both run on rare events only — never PostToolUse — so an inactive repo
+    // pays one cheap spawn per typed prompt.
+    {
+      id: "audit-mode-trigger",
+      assetPath: join(coreAssets, "hooks/audit-mode-trigger.sh"),
+      managedId: "audit-mode-trigger-base",
+    },
+    {
+      id: "audit-mode-close",
+      assetPath: join(coreAssets, "hooks/audit-mode-close.sh"),
+      managedId: "audit-mode-close-base",
+    },
   ];
   if (config.qualityGate?.fast) {
     hooks.push({

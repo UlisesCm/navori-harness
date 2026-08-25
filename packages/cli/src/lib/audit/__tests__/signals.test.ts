@@ -1,0 +1,249 @@
+import { describe, it, expect } from "vitest";
+import type { HarnessCatalog } from "../harness.ts";
+import type { AgentRun, SessionAudit } from "../model.ts";
+import { emptyTokens } from "../model.ts";
+import { detectSignals } from "../signals.ts";
+
+function agent(over: Partial<AgentRun> = {}): AgentRun {
+  return {
+    agentId: "a1",
+    agentType: "implementer",
+    model: "claude-opus-5",
+    description: "",
+    startedAt: "2026-08-25T10:00:00.000Z",
+    endedAt: "2026-08-25T10:05:00.000Z",
+    durationMs: 300000,
+    spawnDepth: 1,
+    tokens: emptyTokens(),
+    startupTokens: 25000,
+    overlapsWith: [],
+    toolCounts: {},
+    skillsRead: [],
+    frictionEvents: 0,
+    repeatedCommands: {},
+    verdict: null,
+    ...over,
+  };
+}
+
+function session(over: Partial<SessionAudit> = {}): SessionAudit {
+  return {
+    sessionId: "s1",
+    startedAt: "2026-08-25T10:00:00.000Z",
+    endedAt: "2026-08-25T11:00:00.000Z",
+    wallClockMs: 3600000,
+    initialPrompt: "haz X",
+    gitBranch: "main",
+    cwd: "/tmp/repo",
+    ccVersions: ["2.1.228"],
+    permissionModes: {},
+    prs: [],
+    orchestrator: {
+      tokens: emptyTokens(),
+      startupTokens: 0,
+      toolCounts: {},
+      skillsRead: [],
+      frictionEvents: 0,
+      repeatedCommands: {},
+    },
+    agents: [],
+    signals: [],
+    parseErrors: 0,
+    linesRead: 100,
+    ...over,
+  };
+}
+
+function catalog(over: Partial<HarnessCatalog> = {}): HarnessCatalog {
+  return {
+    agents: [],
+    skills: [],
+    sections: [],
+    claudeMdTokens: 8000,
+    ...over,
+  };
+}
+
+const kinds = (s: SessionAudit, c: HarnessCatalog): string[] =>
+  detectSignals(s, c, "es").map((x) => x.kind);
+
+describe("signal: unreachable-instructions", () => {
+  const mcpSection = { title: "CodeGraph", chars: 2200, tokens: 550, requiresMcp: ["codegraph"] };
+
+  it("fires when a section orders MCP and the spawned agents cannot reach it", () => {
+    const s = session({ agents: [agent({ agentType: "implementer" })] });
+    const c = catalog({
+      sections: [mcpSection],
+      agents: [{ name: "implementer", tools: ["Read", "Bash"], hasMcp: false }],
+    });
+    const found = detectSignals(s, c, "es").find((x) => x.kind === "unreachable-instructions");
+    expect(found?.severity).toBe("high");
+    expect(found?.tokens).toBe(550);
+  });
+
+  it("stays silent when the agent DOES have MCP access", () => {
+    const s = session({ agents: [agent({ agentType: "implementer" })] });
+    const c = catalog({
+      sections: [mcpSection],
+      agents: [{ name: "implementer", tools: ["Read", "mcp__codegraph__explore"], hasMcp: true }],
+    });
+    expect(kinds(s, c)).not.toContain("unreachable-instructions");
+  });
+
+  it("stays silent when `tools:` is omitted, since that inherits everything", () => {
+    const s = session({ agents: [agent({ agentType: "implementer" })] });
+    const c = catalog({
+      sections: [mcpSection],
+      agents: [{ name: "implementer", tools: null, hasMcp: true }],
+    });
+    expect(kinds(s, c)).not.toContain("unreachable-instructions");
+  });
+
+  it("scales the cost by how many blind agents actually ran", () => {
+    const s = session({ agents: [agent({ agentId: "a" }), agent({ agentId: "b" })] });
+    const c = catalog({
+      sections: [mcpSection],
+      agents: [{ name: "implementer", tools: ["Bash"], hasMcp: false }],
+    });
+    const found = detectSignals(s, c, "es").find((x) => x.kind === "unreachable-instructions");
+    expect(found?.tokens).toBe(1100);
+  });
+});
+
+describe("signal: serial-fanout", () => {
+  it("fires for read-only agents that ran back-to-back", () => {
+    const s = session({
+      agents: [
+        agent({
+          agentId: "r1",
+          agentType: "researcher",
+          startedAt: "2026-08-25T10:00:00.000Z",
+          endedAt: "2026-08-25T10:02:00.000Z",
+        }),
+        agent({
+          agentId: "r2",
+          agentType: "researcher",
+          startedAt: "2026-08-25T10:03:00.000Z",
+          endedAt: "2026-08-25T10:05:00.000Z",
+        }),
+      ],
+    });
+    expect(kinds(s, catalog())).toContain("serial-fanout");
+  });
+
+  it("stays silent when their windows overlap", () => {
+    const s = session({
+      agents: [
+        agent({
+          agentId: "r1",
+          agentType: "researcher",
+          startedAt: "2026-08-25T10:00:00.000Z",
+          endedAt: "2026-08-25T10:05:00.000Z",
+          overlapsWith: ["r2"],
+        }),
+        agent({
+          agentId: "r2",
+          agentType: "researcher",
+          startedAt: "2026-08-25T10:01:00.000Z",
+          endedAt: "2026-08-25T10:06:00.000Z",
+          overlapsWith: ["r1"],
+        }),
+      ],
+    });
+    expect(kinds(s, catalog())).not.toContain("serial-fanout");
+  });
+
+  it("ignores writers, which must not be parallelized blindly", () => {
+    const s = session({
+      agents: [
+        agent({
+          agentId: "i1",
+          startedAt: "2026-08-25T10:00:00.000Z",
+          endedAt: "2026-08-25T10:02:00.000Z",
+        }),
+        agent({
+          agentId: "i2",
+          startedAt: "2026-08-25T10:03:00.000Z",
+          endedAt: "2026-08-25T10:05:00.000Z",
+        }),
+      ],
+    });
+    expect(kinds(s, catalog())).not.toContain("serial-fanout");
+  });
+});
+
+describe("signal: permission-mode", () => {
+  it("reports auto, because the tool histogram cannot be read without it", () => {
+    const s = session({ permissionModes: { auto: 100, default: 3 } });
+    expect(kinds(s, catalog())).toContain("permission-mode");
+  });
+
+  it("stays silent when the dominant mode is the default one", () => {
+    const s = session({ permissionModes: { default: 100, auto: 3 } });
+    expect(kinds(s, catalog())).not.toContain("permission-mode");
+  });
+});
+
+describe("signal: format-drift", () => {
+  it("fires above a 1% unreadable-line ratio", () => {
+    const s = session({ parseErrors: 5, linesRead: 100 });
+    const found = detectSignals(s, catalog(), "es").find((x) => x.kind === "format-drift");
+    expect(found?.severity).toBe("high");
+  });
+
+  it("stays silent below the threshold", () => {
+    expect(kinds(session({ parseErrors: 0, linesRead: 100 }), catalog())).not.toContain(
+      "format-drift",
+    );
+  });
+});
+
+describe("signal: review-cycles and rework", () => {
+  it("needs two rejected reviews before it counts as a pattern", () => {
+    const one = session({ agents: [agent({ verdict: "CHANGES_REQUESTED" })] });
+    expect(kinds(one, catalog())).not.toContain("review-cycles");
+
+    const two = session({
+      agents: [
+        agent({ agentId: "a", verdict: "CHANGES_REQUESTED" }),
+        agent({ agentId: "b", verdict: "CHANGES_REQUESTED" }),
+      ],
+    });
+    expect(kinds(two, catalog())).toContain("review-cycles");
+  });
+
+  it("reports repeated commands as rework", () => {
+    const s = session({
+      orchestrator: { ...session().orchestrator, repeatedCommands: { "pnpm test": 5 } },
+    });
+    expect(kinds(s, catalog())).toContain("repeated-commands");
+  });
+});
+
+describe("signal ordering", () => {
+  it("puts high severity first", () => {
+    const s = session({
+      agents: [agent({ agentType: "implementer" })],
+      parseErrors: 50,
+      linesRead: 100,
+      permissionModes: { auto: 10 },
+    });
+    const c = catalog({
+      sections: [{ title: "CodeGraph", chars: 2200, tokens: 550, requiresMcp: ["codegraph"] }],
+      agents: [{ name: "implementer", tools: ["Bash"], hasMcp: false }],
+    });
+    const severities = detectSignals(s, c, "es").map((x) => x.severity);
+    expect(severities[0]).toBe("high");
+    expect(severities[severities.length - 1]).toBe("info");
+  });
+});
+
+describe("report language", () => {
+  it("renders summaries in the configured language", () => {
+    const s = session({ permissionModes: { auto: 10 } });
+    const es = detectSignals(s, catalog(), "es")[0]?.summary ?? "";
+    const en = detectSignals(s, catalog(), "en")[0]?.summary ?? "";
+    expect(es).not.toBe(en);
+    expect(en).toContain("permission mode");
+  });
+});

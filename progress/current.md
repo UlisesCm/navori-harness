@@ -1,130 +1,139 @@
 # Sesión actual
 
-**Estado:** `main` @ `e09e693`, limpio, **0 PRs abiertos**, **13 issues**. Sesión 2026-08-24
-(noche): solo investigación + plan, **cero código tocado** — no hay gate que citar.
+**Estado:** **PR #485 abierto** (`feat/audit-mode-impl` → `main`), rebasado sobre `e931b2e`, gate
+completo en verde. Sesión 2026-08-25: diseño del modo audit cerrado en cuestionario 1x1 +
+implementación completa.
 
-## SIGUIENTE PASO EXPLÍCITO: ejecutar el plan del modo audit
+## SIGUIENTE PASO: revisar y mergear el PR #485
 
-Ulises pidió el feature "modo audit" (reporte post-hoc de sesiones para auditar uso real del
-harness: tiempos, tokens, huecos). La investigación (4 researchers paralelos) y el **plan
-detallado aprobado en dirección** están listos; Ulises decidió **dejarlo en plan por hoy**.
+- https://github.com/UlisesCm/navori-harness/pull/485 — esperar CI y mergear.
+- **Después del merge, el fix del cableado MCP** (decisión 8): los subagentes reciben los bloques de
+  CodeGraph y Engram que no pueden ejecutar. ~107k tokens/sesión. Se dejó para después a propósito,
+  como caso de validación del reporte.
+- **`main` local quedó con el commit del feature encima** (por el enredo de concurrencia de abajo).
+  Apuntarlo a `origin/main` cuando la otra sesión no esté trabajando; el trabajo ya está a salvo en
+  `feat/audit-mode-impl` y en el PR.
 
-- **Plan completo:** `.claude/progress/plan_audit_mode.md` (ruta R2: fixture → implementer A
-  parser → implementer B señales+comando → reviewer → PR).
-- **Investigación:** `.claude/progress/research_{transcript_anatomy,existing_tools,native_capabilities,navori_integration}.md`.
-- **Decisiones de Ulises fijadas:** reportes en `~/.navori/audits/` (fuera del repo), costo en
-  TOKENS solamente (sin USD), capturar prompt inicial, ruta directa sin spec SDD, v1 = solo el
-  comando `navori audit` (sin hooks ni cambios a assets renderizados — invariante: no romper el
-  harness). Caso de uso: usar el harness unos días en un proyecto real y auditar después.
-- **Hallazgo clave (verificado):** los transcripts JSONL ya contienen ~95% del reporte; cada
-  subagente tiene jsonl propio + `meta.json` con `agentType`/`toolUseId`. Gotcha: dedupe por
-  `message.id` o los tokens se inflan 2x. Memoria engram: `navori-audit-mode-research`.
-- Al retomar: arrancar por el paso 0 del plan (fixture sanitizado + branch desde `main`).
-- Empalme: este feature probablemente cierra o alimenta **#396** (benchmark).
+## Contexto del feature (por si hay que retomarlo)
+
+- **Plan detallado (fuente de verdad):** `.claude/progress/plan_audit_mode.md` — reescrito hoy con
+  el diseño final; supersede el plan post-hoc del 24-ago. Ahí están las 8 decisiones de Ulises y
+  los hechos verificados contra doc oficial.
+- **Memoria engram:** topic_key `navori-audit-mode-diseno-final` (decisiones + mediciones).
+- El código WIP está commiteado en esta branch. Lo que falta se lista abajo.
+
+### Las 8 decisiones (salieron de cuestionario 1x1, no re-litigar)
+
+1. Alcance **completo e independiente** (tokens + adherencia). Se evaluó y descartó apoyarse en
+   **AgentSight** (CLI Rust MIT/Apache, `brew install agentsight`, parsea los mismos transcripts).
+2. **Solo sesiones MARCADAS** con audit-mode; sin auditoría retroactiva. Dentro de una sesión
+   marcada se toma la sesión completa, no solo desde el gatillo.
+3. **Confirmación humana explícita en ambos extremos.** El hook NO activa: inyecta
+   `additionalContext` y el agente pregunta ("¿continuar?").
+4. **Distribución global** (`packages/core`), **activación por sesión**.
+5. **Log append-only inmutable**, uno por sesión. `.json`/`.md` son derivados regenerables.
+6. **Si no cuesta tokens, se omite** (fuera: latencia de hooks, gates corriendo, routing).
+7. Hooks SOLO en `UserPromptSubmit` + `SessionEnd`. Fail-open absoluto, test bash+zsh.
+8. **Primero el audit, después** el fix del cableado MCP — ese bug es el caso de validación.
+
+### Hecho y verificado (commiteado en esta branch)
+
+- `packages/cli/src/lib/audit/{paths,model,parse,harness,signals,discovery,report}.ts`
+- `packages/cli/src/commands/audit.ts` + registro en `index.ts` (1 import + 1 entrada)
+- `packages/core/core-assets/hooks/audit-mode-{trigger,close}.sh` + registro en
+  `harness-plan.ts` y `build-settings.ts`
+- Tests: 40 unit (parse/signals/discovery) + 30 de hooks en **bash y zsh** = 70 nuevos, verdes.
+- **Validado contra la sesión real `ec30221a`** (88 subagentes): 0 parseErrors en 4427 líneas,
+  y **destapó solo el bug de codegraph como HIGH (~107k tokens)** — la prueba de calibración
+  que Ulises pidió.
+
+### Lo que FALTA para cerrar
+
+1. **Test de integración del comando** (end-to-end contra el fixture, con `NAVORI_AUDITS_ROOT`).
+2. **Suite completa en verde** — quedó 1 fallo por resolver (ver abajo) y falta correr
+   `pnpm format:check` + `pnpm lint`.
+3. Decidir si el copy de los hooks (hoy español hardcodeado) debe pasar por el i18n del render.
+
+## ⚠️ Sesión concurrente: qué pasó y qué quedó pendiente de limpiar
+
+Otra sesión trabajó en este mismo repo durante toda la sesión: mergeó el release **0.6.1 (#483)** y
+el **#484**, y su `navori render` corrió sobre el repo raíz (dejó backup
+`~/.navori/backups/navori-harness-2026-08-25T13-12-25-213-p54354-0`). Consecuencias vividas:
+
+- `CLAUDE.md` y `.claude/{agents,skills,hooks}` aparecieron modificados con **solo** el bump
+  `version="0.6.0"` → `"0.6.1"`. Resultó ser contenido **ya idéntico a `origin/main`** — no eran
+  cambios pendientes, era que la branch partía de un main anterior.
+- Disparó el guard de aislamiento (#424) como **falso positivo**, que su propio mensaje contempla.
+- **`HEAD` del repo raíz volvió a `main` a media sesión**, así que el commit del feature cayó sobre
+  `main` local. Se preservó creando `feat/audit-mode-impl` (operación no destructiva) y se rebasó
+  dos veces sobre el `origin/main` móvil.
+
+**Pendiente:** `main` local sigue con ese commit encima. Apuntarlo a `origin/main` cuando nadie más
+esté trabajando en el repo.
+
+**Lección de proceso:** con dos sesiones sobre el mismo working tree, `git rev-parse --abbrev-ref
+HEAD` antes de commitear deja de ser paranoia. El `git push -u` no falla ruidosamente cuando la
+branch local ya no es la que crees.
+
+## Ajuste colateral que sí entró: bundle guard 800 → 900KB
+
+`check:size` iba a explotar con cualquier feature nuevo: medido **792KB sin audit, 816KB con él**.
+El comentario del guard promete headroom para cazar una dep pesada, y ese headroom ya estaba
+gastado por crecimiento de primera parte. `audit` agrega ~24KB y **cero dependencias**. El nuevo
+límite deja ~84KB de margen. La medición quedó documentada en el propio script.
+
+## Gotcha nuevo, verificado hoy (bash vs zsh)
+
+Con `HOME` fuera del entorno, **zsh lo repuebla desde la entrada de passwd y bash no**. El mismo
+hook, por tanto, bail-out silencioso en bash y sigue adelante en zsh. Ambos cumplen el contrato
+(exit 0, cero escrituras), pero un test que exija "sin output" en ambos shells falla. Está
+documentado en `audit-hooks.test.ts`.
 
 ## LO PRIMERO QUE HAY QUE SABER: el rollout 0.6.0 sigue CONGELADO
 
 **Criterio de salida dictado por Ulises (2026-08-24):** no se descongela hasta **(a) resolver
-TODOS los issues abiertos** y **(b) garantizar una versión estable** para renderizar en sus
-proyectos. No es "cuando baje el tablero" ni "cuando entren los fixes importantes". Se le ofreció
-descongelar per-repo el mismo día en que entraron fixes grandes y eligió esperar.
+TODOS los issues abiertos** y **(b) garantizar una versión estable**. No lo propongas ni lo
+arranques. Cuando toque: **per-repo, NUNCA `--all`**.
 
-No lo propongas ni lo arranques. Cuando toque: **per-repo, NUNCA `--all`**.
+**Límite que hay que decirle ANTES del rollout:** por el hueco de #440, un `render` **no actualiza
+las zonas de usuario ya escritas** — se congelan con la redacción que las creó. Los tokens viejos
+necesitan el chequeo de `doctor` (#440) y corrección **a mano**.
 
-**Límite que hay que decirle ANTES del rollout, no después:** por el hueco de #440, un `render`
-**no actualiza las zonas de usuario ya escritas** — se congelan con la redacción del render que
-las creó. Así que "versión estable" no basta para dejar limpios los repos onboardeados: los
-tokens viejos en zona de usuario (p. ej. el fallback en español de #445) necesitan el chequeo de
-`doctor` que entró con #440 y corrección **a mano**.
-
-## Regla de trabajo acordada hoy (aplícala)
-
-Ulises señaló que el tablero llevaba días sin bajar. Se midió: no estaba creciendo, estaba en un
-**punto fijo** — cada ciclo cerraba ~3 y abría ~3, porque cada implementación auditaba el código
-vecino. El conteo medía tasa de descubrimiento, no avance.
+## Regla de trabajo vigente
 
 > Un hallazgo se vuelve issue **solo** si (a) necesita una decisión que no es del agente, (b) no
 > cabe en el ciclo que lo encontró, o (c) se va a olvidar y duele. Si el fix cabe en el diff
 > abierto y no requiere decisión: **se arregla ahí y se cuenta en el cuerpo del PR**, sin ticket.
 
-Caso testigo de la regla: **#447** no debió abrirse (guard de una línea) y encima su análisis
-resultó equivocado — decía "no explotable" mirando solo `resolvePath`, cuando la fuga estaba en
-`placeholderFallback`. Lo destapó el test al fallar.
-
-Y **#423 se cerró sin código**, con una medición que probó que el caché saldría 1.3 s peor.
-Medir antes de implementar es camino legítimo a cero, no atajo.
-
 ## Issues abiertos (13)
 
-**Decisiones de Ulises del 2026-08-24 (cuestionario), dirección ya fijada:**
+**Decisiones de Ulises del 2026-08-24, dirección ya fijada:**
 
-- **#461** `high` — 209 errores de tipos que ningún gate ve. **Decisión: limpiar los 209 PRIMERO,
-  y después agregar `typecheck` al gate.** Descartadas explícitamente la variante de baseline y la
-  informativa. Recomendación de ejecución: medir el reparto por archivo y regla antes de repartir
-  tandas.
-- **#462** — el `guard-destructive` bloquea prosa que *cita* comandos destructivos (frenó el cuerpo
-  del PR de #403 por citar sus strings de ataque). **Decisión: acotarlo a lo que se EJECUTA, no al
-  texto que se escribe.** NO autoriza excusar la escritura de archivos por completo. **Bloqueado
-  por nada ya** (#454 mergeó), pero toca los mismos hooks: revisa el estado antes.
+- **#461** `high` — 209 errores de tipos. Limpiar los 209 PRIMERO, después agregar `typecheck`
+  al gate. (Ojo: `pnpm typecheck` ya existe y pasa limpio hoy.)
+- **#462** — el `guard-destructive` bloquea prosa que *cita* comandos destructivos. Acotarlo a lo
+  que se EJECUTA, no al texto que se escribe.
 - **#458** — `.gitignore` es la única escritura del render que esquiva el punto de respaldo.
-- **#459** — el cierre de marcador sigue con `indexOf` crudo: un cierre citado trunca el bloque real.
-- **#460** `low` — `MARKER_ID_ATTR_RE` más laxo que el parser (tercera forma del hueco de #432).
+- **#459** — el cierre de marcador sigue con `indexOf` crudo.
+- **#460** `low` — `MARKER_ID_ATTR_RE` más laxo que el parser.
 
-**Tanda de optimización, alcance decidido el 20-ago:** #377 (fan-out en fase 2 del intake),
-#378 (R1 exprés atado al diff), #379 (solo mitad B), #370 (asíncrono solo para cerrar).
-
-**Testing:** #394 (golden snapshot por engine), #395 (repos fixture init→render→doctor),
-#396 (benchmark, NO gate de CI — es `question`, evaluar si procede).
-
-**Auditoría de reprocesos:** #401 (ceremonia de memoria duplicada) — último de los tres.
-
-## Lo que se cerró hoy (15)
-
-#435, #375, #439, #440, #428, #447, #403, #405, #432, #423 (wontfix con medición), #445, #443,
-#452, #454, y el estado de sesión.
-
-Los cuatro más grandes, por si hace falta el contexto:
-
-- **#375 + el bug que destapó**: un placeholder que resolvía a vacío dejaba prosa rota
-  (`a `` area`) en TODO repo sin el campo declarado.
-- **#452**: `findMarker` no era fence-aware en la **ruta de escritura**. Doble `render --apply`
-  demostró que `main` **destruía el ejemplo documentado** y dejaba el bloque duplicado, en
-  silencio y permanente.
-- **#454**: los hooks de semgrep/jscpd/pre-commit **pasaban en verde sin escanear** desde un
-  worktree de agente. Todos los commits del flujo multi-agente estaban sin gatear por los dos
-  escáneres que CI no corre.
-- **#403**: el quality gate promptaba permisos; 772 entradas acumuladas y 91 envolturas
-  `bash -c` que el agente aprendió para esquivar el prompt.
+**Tanda de optimización:** #377, #378, #379, #370.
+**Testing:** #394 (golden snapshot por engine), #395 (repos fixture), #396 (benchmark — este
+feature probablemente lo alimenta o lo cierra).
+**Auditoría de reprocesos:** #401.
 
 ## Gotchas de proceso vigentes
 
-- **Un fuente con un byte NUL es invisible para grep y opaco para `git diff`.** Diagnóstico:
-  `file <archivo>` dice `data`; `command grep` sin pipe muestra `Binary file … matches`.
-- **La base se mueve durante un ciclo largo.** Pasó cuatro veces hoy. El receipt se ancla a
-  `git diff HEAD`, NO a `origin/main`: anclarlo a la ref movida ata archivos de ciclos ajenos que
-  la review nunca cubrió. El pilot rebasa y **re-corre el gate** — el verde del reviewer caduca.
+- **Un fuente con un byte NUL es invisible para grep y opaco para `git diff`.**
+- **La base se mueve durante un ciclo largo.** El receipt se ancla a `git diff HEAD`, NO a
+  `origin/main`. El pilot rebasa y **re-corre el gate**.
 - **Editar el body de un PR puede romper el auto-cierre del issue** (`Closes #<n>`).
-- **`${PIPESTATUS[0]}` no existe en zsh** (es `$pipestatus[1]`): sale vacío y no prueba nada.
-- **Al aplicar un fix con script, no reuses la variable del path.** Hoy escribí un archivo sobre
-  otro; se detectó porque el build falló y **se restauró desde el blob del receipt**
-  (`git cat-file -p <sha>`), verificando que `git hash-object` volviera a coincidir.
-
-## Residuos declarados en cuerpos de PR, SIN ticket (decisión consciente)
-
-- **#454**: dos worktrees enlazados del mismo repo son indistinguibles, así que
-  `cd <hermano> && cd <main> && git commit` sigue peor que `main`. Documentado en el script
-  (`SAME-REPOSITORY CONSTRAINT — DO NOT REMOVE`) con su disparador de mejora.
-- **#454**: un `GIT_DIR` en el entorno del hook colapsaría la igualdad. Sin vía alcanzable
-  encontrada.
-- **#445**: el título del test en `placeholders.test.ts` dice "defaults to es" para un default que
-  ya no existe. La aserción sigue siendo válida.
+- **`${PIPESTATUS[0]}` no existe en zsh** (es `$pipestatus[1]`).
+- **Al aplicar un fix con script, no reuses la variable del path.**
 
 ## Notas heredadas
 
 - `~/.navori/backups` acumula fixtures de test históricos. **El filtro seguro es por prefijo, no
-  por edad**: `navori backup prune` borra por edad y se llevaría los backups reales, que son los
-  más viejos. Conteo: `ls ~/.navori/backups | grep -v '^navori-harness-' | wc -l`.
-- La ruta de los repos Bonum del `~/.claude/CLAUDE.md` global está desactualizada
-  (`/Users/ulisescm/Documents/dev/bonum/` no existe en esta máquina), `~/.navori/registry.json`
-  conserva una entrada de prueba apuntando al scratchpad, y siguen pendientes los PRs del repo
-  externo bonum-webapp (#639, #640, #559) más el rebind de SonarCloud.
+  por edad.**
+- La ruta de los repos Bonum del `~/.claude/CLAUDE.md` global está desactualizada, y siguen
+  pendientes los PRs del repo externo bonum-webapp (#639, #640, #559) más el rebind de SonarCloud.

@@ -382,3 +382,70 @@ Continuación de la entrada anterior. El tablero quedó en **cero issues y cero 
   de archivos. Los reviewers fueron el eslabón que más valor agregó: cazaron el bypass de #454,
   el sobreventa de #452, un test cuyo nombre afirmaba lo contrario de su aserción (#439), y una
   verificación de tipos que el gate estructuralmente no puede hacer (#445).
+
+## 2026-08-25 13:30 claude — Modo audit: diseño cerrado en cuestionario 1x1 + implementación (PR #485)
+
+**Objetivo.** Ulises pidió implementar el "modo audit" que quedó en plan el 24-ago. Antes de codear
+preguntó cuál sería el funcionamiento esperado, y de ahí salió un rediseño completo: el plan v1 era
+post-hoc puro y terminó siendo activación por frase, con confirmación humana y log por sesión.
+
+**Decisiones (cuestionario 1x1, todas de Ulises).**
+1. Alcance **completo e independiente** — se evaluó y descartó apoyarse en **AgentSight** (CLI Rust
+   MIT/Apache que ya parsea estos transcripts y detecta cache churning / retry loops / subagent
+   sprawl). Se prefiere un solo reporte sin dependencia externa.
+2. **Solo sesiones marcadas**; sin auditoría retroactiva (descartó explícitamente auditar agosto).
+3. **Confirmación humana en ambos extremos**: el hook no activa, inyecta `additionalContext` y el
+   agente pregunta. Un falso positivo muere en la pregunta sin dejar estado en disco.
+4. Distribución global (`packages/core`), activación por sesión.
+5. **Log append-only inmutable** — descartó el `.json` de documento único al ver que los subagentes
+   corren en paralelo y read-modify-write se corrompe.
+6. **"Si no cuesta tokens, se omite"** — regla suya. Deja fuera latencia de hooks, gates y routing.
+7. Hooks solo en `UserPromptSubmit` + `SessionEnd`, nunca `PostToolUse`.
+8. Primero el audit, después el fix del cableado MCP (ese bug es el caso de validación).
+
+**Descubrimientos.**
+- **Ningún subagente puede usar codegraph ni engram**, y aun así reciben el CLAUDE.md que se los
+  ordena. Confirmado en doc oficial: los subagentes reciben la jerarquía completa de CLAUDE.md, y
+  `tools:` es una allowlist que **incluye MCP**. Costo medido: **~107k tokens/sesión** en órdenes
+  imposibles. El reporte lo destapó solo, como ALTO — que era el criterio de calibración pactado.
+- **El contexto inicial NO se persiste en el transcript**, solo su tamaño (`cache_creation`). Por
+  eso un grep del bloque orchestrator en un transcript de subagente da 0 y eso NO prueba ausencia;
+  me equivoqué al leerlo así y la doc lo zanjó. Consecuencia de diseño: desglosar QUÉ compone el
+  arranque exige leer el harness del repo — lo que ninguna herramienta externa puede hacer.
+- **Arranque real: 22-28k tokens por subagente** (~1.9M en una sesión de 88). El encargo son ~1.6k.
+- **Gotcha de interpretación, casi acuso en falso:** 4141 Bash contra 131 Read y cero Grep/Glob en
+  los subagentes parecía violación del CLAUDE.md — hasta ver **153 registros `permission-mode: auto`**,
+  que instruye justamente usar Bash. El reporte ahora registra el permission-mode por eso.
+- **Las skills se leen con `cat`, no con la tool `Skill`**: 0 invocaciones contra 34 `SKILL.md`
+  abiertos. Contar solo la tool reportaría "ninguna skill usada" — falso.
+- **Ningún hook expone tokens** (doc oficial). El transcript es la única fuente.
+- El campo de `UserPromptSubmit` es **`user_prompt`**, no `prompt` (el research del 24-ago lo tenía mal).
+- Existe campo **`skills:`** en la definición de agente que precarga una skill completa — mejora
+  pendiente del harness, hoy los agentes la leen a media tarea.
+- **bash vs zsh:** con `HOME` fuera del entorno, **zsh lo repuebla desde passwd y bash no**. El mismo
+  hook hace bail-out silencioso en bash y sigue en zsh. Ambos cumplen el contrato; el test afirma el
+  contrato (exit 0, cero escrituras), no el output.
+
+**Hecho.** `lib/audit/{paths,model,parse,harness,signals,discovery,report}.ts`, `commands/audit.ts`,
+los hooks `audit-mode-{trigger,close}.sh` cableados en `harness-plan.ts` y `build-settings.ts`, y 70
+tests nuevos (40 unit + 30 de hooks en bash **y** zsh). Golden snapshots regenerados: el diff son
+solo los contadores (34→36, 28→30) y los dos hooks. Validado contra la sesión real `ec30221a`: 0
+parseErrors en 4427 líneas.
+
+**Colateral.** `check:size` 800 → 900KB. Medido 792KB sin el feature y 816KB con él: el headroom que
+el guard promete ya estaba gastado por crecimiento de primera parte, así que iba a dispararse justo
+en el caso que dice no vigilar. `audit` agrega ~24KB y cero dependencias.
+
+**Ruido de concurrencia.** Otra sesión mergeó el release 0.6.1 (#483) y el PR #484 mientras esta
+corría, y su `navori render` sobre el repo raíz movió `HEAD` a `main` — mi commit quedó ahí encima.
+Se preservó en `feat/audit-mode-impl` (creación de branch, nada destructivo) y se rebasó dos veces
+sobre el `origin/main` móvil. **`main` local quedó con ese commit encima; hay que apuntarlo a
+`origin/main` cuando la otra sesión no esté trabajando.** También disparó el guard de aislamiento
+(#424) como falso positivo — que su propio mensaje contempla.
+
+**Gate.** `format:check` ✓ · `pnpm test` **2084/2084** ✓ · `lint` ✓ · `typecheck` ✓ · `check:size`
+815.4KB/900 ✓ — corrido tras el rebase final sobre `e931b2e`.
+
+**Queda abierto.** Test de integración end-to-end del comando; el copy de las dos preguntas está
+hardcodeado en español dentro del `.sh` y debería pasar por el i18n del render; la ruta completa
+gatillo → log → reporte no se ha ejercitado sobre una sesión marcada real (no existe ninguna aún).

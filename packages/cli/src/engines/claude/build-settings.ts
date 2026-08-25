@@ -63,6 +63,8 @@ import { deepMerge } from "./deep-merge.ts";
 const QG_HOOK_DEST = ".claude/hooks/quality-gate-pre-commit.sh";
 const GUARD_HOOK_DEST = ".claude/hooks/guard-destructive.sh";
 const SESSION_START_HOOK_DEST = ".claude/hooks/session-start-context.sh";
+const AUDIT_TRIGGER_HOOK_DEST = ".claude/hooks/audit-mode-trigger.sh";
+const AUDIT_CLOSE_HOOK_DEST = ".claude/hooks/audit-mode-close.sh";
 const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
 const PRECOMPACT_HOOK_DEST = ".claude/hooks/precompact-session-summary.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
@@ -146,6 +148,43 @@ export function buildClaudeSettings(
               command: `bash "$CLAUDE_PROJECT_DIR/${SESSION_START_HOOK_DEST}"`,
               timeout: 15,
               statusMessage: "navori: session context",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  // Audit-mode hooks. Registered unconditionally but INERT until a session
+  // opts in by phrase — and even then the trigger only ASKS Claude to confirm
+  // with the user; it never activates recording on its own, so a spurious
+  // phrase match costs one question and leaves nothing on disk.
+  //
+  // Deliberately confined to UserPromptSubmit + SessionEnd. A PostToolUse hook
+  // would fire thousands of times per session; these fire once per typed
+  // prompt and once at the end. Both are fail-open: any error exits 0.
+  settings = deepMerge(settings, {
+    hooks: {
+      UserPromptSubmit: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${AUDIT_TRIGGER_HOOK_DEST}"`,
+              timeout: 10,
+              statusMessage: "navori: audit-mode",
+            },
+          ],
+        },
+      ],
+      SessionEnd: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${AUDIT_CLOSE_HOOK_DEST}"`,
+              timeout: 10,
+              statusMessage: "navori: audit-mode close",
             },
           ],
         },

@@ -13,8 +13,14 @@ import { dirname, resolve } from "node:path";
  * third-party node_modules). The limit sits above today's size with headroom
  * so it still catches a runaway dependency — a NEW heavy dep would push the
  * bundle past 800KB — without flagging normal first-party growth.
+ *
+ * Raised 800 -> 900 when `audit` landed. Measured at that point: 792KB
+ * without the feature, 816KB with it — the headroom this comment promises had
+ * already been spent by first-party growth, so the guard was about to fire on
+ * exactly the case it says it does not police. `audit` adds ~24KB and ZERO
+ * dependencies; the new limit restores ~84KB of room for a dep to trip.
  */
-const LIMIT_KB = 800;
+const LIMIT_KB = 900;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundle = resolve(here, "..", "dist", "index.js");

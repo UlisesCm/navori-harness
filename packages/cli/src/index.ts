@@ -21,6 +21,7 @@ import { benchCommand } from "./commands/bench.ts";
 import { registryCommand } from "./commands/registry.ts";
 import { globalCommand } from "./commands/global.ts";
 import { dominioCommand } from "./commands/dominio.ts";
+import { auditCommand } from "./commands/audit.ts";
 
 function readVersion(): string {
   // dist/index.js → ../package.json (both in dev and published layouts)
@@ -62,6 +63,7 @@ const main = defineCommand({
     preset: presetCommand,
     global: globalCommand,
     dominio: dominioCommand,
+    audit: auditCommand,
   },
 });
 
