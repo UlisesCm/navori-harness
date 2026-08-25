@@ -54,6 +54,14 @@ jobs:
       - name: Lint
         run: pnpm --filter navori lint
 
+      # #461: the build is esbuild, which strips types WITHOUT checking them, so
+      # until this step existed nothing verified the strict typing CLAUDE.md
+      # declares — 136 errors had accumulated unseen, including a union that made
+      # `tsc` report LIVE code as unreachable. Added only after the tree reached
+      # zero, so it can never be "temporarily" skipped.
+      - name: Typecheck
+        run: pnpm --filter navori typecheck
+
       - name: Format check
         run: pnpm format:check
 
