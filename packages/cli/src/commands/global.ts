@@ -1,8 +1,6 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import { brand, check, color, dim as grey, sym } from "../lib/style.ts";
 import { tc, resolveLang } from "../lib/i18n.ts";
 import {
@@ -13,6 +11,7 @@ import {
   writeGlobalConfig,
   type GlobalConfig,
 } from "../lib/global-config.ts";
+import { readCliVersion } from "../lib/bundled-assets.ts";
 import {
   applyGlobalRender,
   configuredPermissionsCount,
@@ -24,20 +23,6 @@ import {
   uninstallGlobalRender,
   type GlobalRenderPlan,
 } from "../engines/claude/global-render.ts";
-
-/** CLI version, read from the nearest package.json (dev + published layouts). */
-function readVersion(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  for (const candidate of [resolve(here, "..", "package.json"), resolve(here, "package.json")]) {
-    try {
-      const pkg = JSON.parse(readFileSync(candidate, "utf-8")) as { version?: string };
-      if (pkg.version) return pkg.version;
-    } catch {
-      // try next candidate
-    }
-  }
-  return "0.0.0";
-}
 
 /** Compose the render plan or fail cleanly (e.g. a non-global-safe block). */
 function planOrExit(config: GlobalConfig): GlobalRenderPlan {
@@ -64,8 +49,8 @@ const initSubCommand = defineCommand({
     const language = langArg ?? existing?.language ?? "es";
     const g = tc(resolveLang(language)).global;
 
-    const config = existing ?? defaultGlobalConfig(readVersion(), language);
-    config.version = readVersion();
+    const config = existing ?? defaultGlobalConfig(readCliVersion(), language);
+    config.version = readCliVersion();
     config.language = language;
     writeGlobalConfig(config);
 
@@ -159,7 +144,7 @@ const doctorSubCommand = defineCommand({
       }
     }
 
-    const cliVersion = readVersion();
+    const cliVersion = readCliVersion();
     if (config.version === cliVersion) {
       lines.push(`  ${color.cyan(sym.bullet)} ${g.versionOk(config.version)}`);
     } else {
