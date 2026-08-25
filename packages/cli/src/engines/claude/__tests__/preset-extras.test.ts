@@ -93,8 +93,8 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // spec-bootstrap, dominio, babysit-prs) + 2 progress files + 2 medusa skills
     // + 2 CLAUDE.md managed blocks counted independently of the file + 1 guard
     // hook + 1 session-start hook + 2 lifecycle hooks (subagent-stop,
-    // precompact) = 31.
-    expect(r.inspected).toBe(31);
+    // precompact) + 2 audit-mode hooks (trigger, close) = 33.
+    expect(r.inspected).toBe(33);
   });
 
   describe("bundled stack presets (B4)", () => {

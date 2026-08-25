@@ -1,0 +1,272 @@
+import type { HarnessCatalog } from "./harness.ts";
+import {
+  type AuditReport,
+  type SessionAudit,
+  type TokenTotals,
+  addTokens,
+  emptyTokens,
+} from "./model.ts";
+import type { Lang } from "./signals.ts";
+
+/**
+ * Renders a parsed audit into its two derived artifacts.
+ *
+ * Both are regenerable from the append-only session log plus the transcript,
+ * so neither is ever mutated in place — a report that looks wrong is fixed by
+ * re-running the generator, never by editing the file.
+ */
+
+function k(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${Math.round(n / 1000)}k`;
+  return String(n);
+}
+
+function pct(part: number, whole: number): string {
+  if (whole <= 0) return "0%";
+  return `${Math.round((part / whole) * 100)}%`;
+}
+
+function minutes(ms: number): string {
+  const m = Math.round(ms / 60000);
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+}
+
+function t(lang: Lang, es: string, en: string): string {
+  return lang === "es" ? es : en;
+}
+
+/**
+ * Tokens that were actually purchased for a session.
+ *
+ * `cache_read` is deliberately excluded: it accumulates per turn (every turn
+ * re-reads the whole cached context) and reaches hundreds of millions, which
+ * would drown every other figure while representing re-reads of context
+ * already paid for. It is reported separately, with that caveat stated.
+ */
+function billable(t: TokenTotals): number {
+  return t.input + t.output + t.cacheCreation;
+}
+
+function sessionTokens(s: SessionAudit): TokenTotals {
+  return s.agents.reduce((acc, a) => addTokens(acc, a.tokens), s.orchestrator.tokens);
+}
+
+/** The headline table: where the tokens went, by concept. */
+function spendBreakdown(s: SessionAudit, lang: Lang): string {
+  const total = sessionTokens(s);
+  const startup =
+    s.agents.reduce((sum, a) => sum + a.startupTokens, 0) + s.orchestrator.startupTokens;
+  const reasoning = total.output;
+  const billed = billable(total);
+  const rest = Math.max(0, billed - startup - reasoning);
+
+  const rows = [
+    [t(lang, "arranque de agentes", "agent startup"), startup],
+    [t(lang, "razonamiento (output + thinking)", "reasoning (output + thinking)"), reasoning],
+    [t(lang, "contexto de trabajo", "working context"), rest],
+  ] as const;
+
+  const lines = rows.map(
+    ([label, n]) =>
+      `  ${String(label).padEnd(36)} ${k(n).padStart(7)}  ${pct(n, billed).padStart(4)}`,
+  );
+
+  return [
+    t(lang, `TOTAL facturable ${k(billed)} tokens`, `BILLABLE TOTAL ${k(billed)} tokens`),
+    ...lines,
+    "",
+    t(
+      lang,
+      `  cache_read acumulado: ${k(total.cacheRead)} — relectura de contexto ya cacheado, se reporta aparte porque se acumula en cada turno y no es gasto nuevo.`,
+      `  accumulated cache_read: ${k(total.cacheRead)} — re-reads of already-cached context, reported separately because it accrues every turn and is not new spend.`,
+    ),
+  ].join("\n");
+}
+
+function agentTimeline(s: SessionAudit, lang: Lang): string {
+  if (s.agents.length === 0) return t(lang, "(sin subagentes)", "(no subagents)");
+  const top = [...s.agents].sort((a, b) => billable(b.tokens) - billable(a.tokens)).slice(0, 15);
+  const lines = top.map((a) => {
+    const time = a.startedAt.slice(11, 16);
+    const par = a.overlapsWith.length > 0 ? "∥" : " ";
+    const verdict = a.verdict === "CHANGES_REQUESTED" ? " ⟲" : "";
+    return `  ${time} ${par} ${a.agentType.padEnd(16)} ${minutes(a.durationMs).padStart(5)} ${k(billable(a.tokens)).padStart(7)}${verdict}  ${a.description.slice(0, 44)}`;
+  });
+  const omitted = s.agents.length - top.length;
+  if (omitted > 0) {
+    lines.push(t(lang, `  … y ${omitted} agentes más`, `  … and ${omitted} more agents`));
+  }
+  return lines.join("\n");
+}
+
+function byAgentType(s: SessionAudit): string {
+  const by = new Map<string, { n: number; tok: number; startup: number }>();
+  for (const a of s.agents) {
+    const cur = by.get(a.agentType) ?? { n: 0, tok: 0, startup: 0 };
+    by.set(a.agentType, {
+      n: cur.n + 1,
+      tok: cur.tok + billable(a.tokens),
+      startup: cur.startup + a.startupTokens,
+    });
+  }
+  return [...by.entries()]
+    .sort((a, b) => b[1].tok - a[1].tok)
+    .map(
+      ([type, v]) =>
+        `  ${type.padEnd(18)} ${String(v.n).padStart(3)}x  ${k(v.tok).padStart(7)}  (${k(v.startup)} ${"startup"})`,
+    )
+    .join("\n");
+}
+
+/** Human-facing report, in the repo's configured language. */
+export function renderMarkdown(report: AuditReport, lang: Lang): string {
+  const out: string[] = [];
+  out.push(`# ${t(lang, "Auditoría del harness", "Harness audit")} — ${report.repo}`);
+  out.push("");
+  out.push(
+    `${t(lang, "Rango", "Range")}: ${report.range.from} → ${report.range.to} · ` +
+      `${report.totals.sessions} ${t(lang, "sesiones", "sessions")} · ` +
+      `${report.totals.agents} ${t(lang, "agentes", "agents")} · ` +
+      `${t(lang, "generado por", "generated by")} ${report.generatedBy}`,
+  );
+
+  for (const s of report.sessions) {
+    out.push("", "---", "");
+    out.push(
+      `## ${t(lang, "Sesión", "Session")} ${s.sessionId.slice(0, 8)} · ${s.startedAt.slice(0, 10)}`,
+    );
+    out.push("");
+    out.push(
+      `**${t(lang, "Prompt inicial", "Initial prompt")}:** ${s.initialPrompt.slice(0, 300) || "—"}`,
+    );
+    out.push("");
+    const modes = Object.entries(s.permissionModes)
+      .sort((a, b) => b[1] - a[1])
+      .map(([m, n]) => `${m}:${n}`)
+      .join(" ");
+    out.push(
+      `${t(lang, "Duración", "Duration")} ${minutes(s.wallClockMs)} · ` +
+        `branch \`${s.gitBranch ?? "—"}\` · CC ${s.ccVersions.join(", ") || "—"} · ` +
+        `${t(lang, "permisos", "permissions")} ${modes || "—"}` +
+        (s.prs.length > 0 ? ` · PRs ${s.prs.join(", ")}` : ""),
+    );
+
+    out.push(
+      "",
+      `### ${t(lang, "En qué se fueron los tokens", "Where the tokens went")}`,
+      "",
+      "```",
+    );
+    out.push(spendBreakdown(s, lang));
+    out.push("```");
+
+    if (s.signals.length > 0) {
+      out.push("", `### ${t(lang, "Hallazgos", "Findings")}`, "");
+      for (const sig of s.signals) {
+        const tag = sig.severity === "high" ? "ALTO" : sig.severity === "warn" ? "MEDIO" : "INFO";
+        const tokens = sig.tokens ? ` (~${k(sig.tokens)} tok)` : "";
+        out.push(`- **[${tag}] ${sig.kind}**${tokens} — ${sig.summary}`);
+        out.push(`  <br>${sig.evidence.split("\n").join("<br>")}`);
+      }
+    }
+
+    out.push(
+      "",
+      `### ${t(lang, "Agentes (top 15 por gasto)", "Agents (top 15 by spend)")}`,
+      "",
+      "```",
+    );
+    out.push(agentTimeline(s, lang));
+    out.push("```");
+
+    out.push("", `### ${t(lang, "Por tipo de agente", "By agent type")}`, "", "```");
+    out.push(byAgentType(s));
+    out.push("```");
+
+    const skills = [
+      ...new Set([...s.orchestrator.skillsRead, ...s.agents.flatMap((a) => a.skillsRead)]),
+    ];
+    out.push("", `### Skills`, "");
+    out.push(
+      skills.length > 0 ? skills.join(", ") : t(lang, "(ninguna detectada)", "(none detected)"),
+    );
+    out.push("");
+    out.push(
+      t(
+        lang,
+        "> Detección aproximada: incluye la tool `Skill` y los `SKILL.md` abiertos con `cat`/`Read`, que es como se usan en la práctica.",
+        "> Approximate detection: covers the `Skill` tool plus `SKILL.md` files opened with `cat`/`Read`, which is how they are used in practice.",
+      ),
+    );
+
+    if (s.parseErrors > 0) {
+      out.push(
+        "",
+        t(
+          lang,
+          `> ${s.parseErrors} de ${s.linesRead} líneas no se pudieron leer.`,
+          `> ${s.parseErrors} of ${s.linesRead} lines could not be read.`,
+        ),
+      );
+    }
+  }
+
+  out.push("");
+  return out.join("\n");
+}
+
+/** Machine-facing artifact: the stable comparison contract. */
+export function renderJson(report: AuditReport): string {
+  return `${JSON.stringify(report, null, 2)}\n`;
+}
+
+/** Aggregates parsed sessions into the report envelope. */
+export function buildReport(
+  sessions: SessionAudit[],
+  opts: { repo: string; version: string; catalog: HarnessCatalog },
+): AuditReport {
+  const byAgentType: AuditReport["totals"]["byAgentType"] = {};
+  const byModel: Record<string, number> = {};
+  let tokens = emptyTokens();
+  let startupTokens = 0;
+  let agents = 0;
+
+  for (const s of sessions) {
+    tokens = addTokens(tokens, sessionTokens(s));
+    startupTokens += s.orchestrator.startupTokens;
+    for (const a of s.agents) {
+      agents++;
+      startupTokens += a.startupTokens;
+      const cur = byAgentType[a.agentType] ?? { count: 0, tokens: emptyTokens() };
+      byAgentType[a.agentType] = { count: cur.count + 1, tokens: addTokens(cur.tokens, a.tokens) };
+      if (a.model) byModel[a.model] = (byModel[a.model] ?? 0) + 1;
+    }
+  }
+
+  const stamps = sessions
+    .flatMap((s) => [s.startedAt, s.endedAt])
+    .filter(Boolean)
+    .sort();
+
+  return {
+    schemaVersion: 1,
+    generatedBy: `navori@${opts.version}`,
+    repo: opts.repo,
+    range: {
+      from: stamps[0]?.slice(0, 10) ?? "",
+      to: stamps[stamps.length - 1]?.slice(0, 10) ?? "",
+    },
+    ccVersions: [...new Set(sessions.flatMap((s) => s.ccVersions))],
+    sessions,
+    totals: {
+      sessions: sessions.length,
+      agents,
+      tokens,
+      startupTokens,
+      byAgentType,
+      byModel,
+    },
+    signals: sessions.flatMap((s) => s.signals),
+  };
+}
