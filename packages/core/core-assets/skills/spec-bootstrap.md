@@ -2,7 +2,7 @@
 name: spec-bootstrap
 description: Use when starting a real-scope feature before writing code — scaffolds a complete SDD spec (requirements/design/tasks) with EARS and R<n>↔test traceability.
 type: reference
-maxWords: 600
+maxWords: 650
 ---
 
 # spec-bootstrap — kickoff of an SDD spec
@@ -18,6 +18,7 @@ Produces `{{sdd.specsDir}}/<feature>/{requirements.md, design.md, tasks.md}` rea
 1. **requirements.md first.** No clear requirements, no design. Derive from the ticket/request; each requirement is EARS with id `R<n>`.
 2. **design.md** — how to meet those `R<n>`: affected components, contracts, decisions and trade-offs. Reference the `R<n>` each decision satisfies. Design BEFORE decomposing: an architecture decision (a contract, who owns a piece of state, a migration path) moves the natural task boundaries, so tasks written first get rewritten.
 3. **tasks.md** — batches of 1-3 tasks; each task lists the `R<n>` it covers and its test(s).
+4. **`evals.md` — optional, and rare.** Only when the feature ships a new **always-on layer** (context every session pays for), where prose can't prove behavior moved: `{{sdd.specsDir}}/<feature>/evals.md` tabulates RED (the scenario without the layer) / GREEN (the same scenario with it) over ONE isolated variable — same ticket, same repo, same model — with named scenarios, each failure against its evidence, and inverted results kept exactly as they came out. The raw transcript dies with the session; the distilled table survives in git, which is why the artifact lives with the spec.
 
 The reasoning that fills `design.md` is the `solution-design` skill — same dimensions, and it's also the lighter home for an R2-architectural change that doesn't earn a full spec.
 
