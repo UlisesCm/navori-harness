@@ -34,22 +34,40 @@ export interface DiscoveryFilters {
 interface LogHeader {
   cwd: string | null;
   markedAt: string;
+  /** Transcript path as reported by the hook payload, when the log has one. */
+  transcript: string | null;
 }
 
-/** Reads the activation record: the log's first well-formed line. */
+/**
+ * Reads the activation record, plus the transcript path if the log carries one.
+ *
+ * `cwd`/`markedAt` come from the first well-formed line (the `start` event).
+ * The transcript path cannot: only the hook payload states it, so it is
+ * recorded on the first `prompt` event and this keeps scanning until it finds
+ * one. Worth the extra pass — it replaces a guess at Claude Code's
+ * undocumented directory encoding with the path Claude Code itself reported.
+ */
 function readHeader(logFile: string): LogHeader {
+  let cwd: string | null = null;
+  let markedAt = "";
+  let transcript: string | null = null;
+  let seenHeader = false;
   try {
     const raw = readFileSync(logFile, "utf-8");
     for (const line of raw.split("\n")) {
       if (!line.trim()) continue;
       try {
         const obj: unknown = JSON.parse(line);
-        if (typeof obj === "object" && obj !== null) {
-          const rec = obj as Record<string, unknown>;
-          return {
-            cwd: typeof rec.cwd === "string" ? rec.cwd : null,
-            markedAt: typeof rec.ts === "string" ? rec.ts : "",
-          };
+        if (typeof obj !== "object" || obj === null) continue;
+        const rec = obj as Record<string, unknown>;
+        if (!seenHeader) {
+          cwd = typeof rec.cwd === "string" ? rec.cwd : null;
+          markedAt = typeof rec.ts === "string" ? rec.ts : "";
+          seenHeader = true;
+        }
+        if (!transcript && typeof rec.transcript === "string" && rec.transcript) {
+          transcript = rec.transcript;
+          break; // Nothing left to learn from the rest of the log.
         }
       } catch {
         // Skip malformed lines; a truncated log is still a valid log.
@@ -58,7 +76,7 @@ function readHeader(logFile: string): LogHeader {
   } catch {
     // Unreadable log: treat as headerless rather than failing discovery.
   }
-  return { cwd: null, markedAt: "" };
+  return { cwd, markedAt, transcript };
 }
 
 /**
@@ -68,7 +86,15 @@ function readHeader(logFile: string): LogHeader {
  * encoding is undocumented, so a fallback scans every transcript directory for
  * a file matching the session id — which is exact regardless of encoding.
  */
-export function resolveTranscript(sessionId: string, cwd: string | null): string | null {
+export function resolveTranscript(
+  sessionId: string,
+  cwd: string | null,
+  recorded?: string | null,
+): string | null {
+  // Recorded by the hook from the payload: an exact path beats both guesses.
+  // Still verified on disk — a transcript can be moved or pruned.
+  if (recorded && existsSync(recorded)) return recorded;
+
   const root = transcriptsRoot();
   if (!existsSync(root)) return null;
 
@@ -112,13 +138,13 @@ export function findMarkedSessions(
       .replace(/^session-/, "")
       .replace(/\.log$/, "");
     const logFile = join(dir, file);
-    const { cwd, markedAt } = readHeader(logFile);
+    const { cwd, markedAt, transcript } = readHeader(logFile);
     sessions.push({
       sessionId,
       logFile,
       cwd,
       markedAt,
-      transcript: resolveTranscript(sessionId, cwd),
+      transcript: resolveTranscript(sessionId, cwd, transcript),
     });
   }
 

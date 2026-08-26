@@ -33,6 +33,7 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
     endedAt: "2026-08-25T11:00:00.000Z",
     wallClockMs: 3600000,
     initialPrompt: "haz X",
+    prompts: { typed: 1, queued: 0 },
     gitBranch: "main",
     cwd: "/tmp/repo",
     ccVersions: ["2.1.228"],

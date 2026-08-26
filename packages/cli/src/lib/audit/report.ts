@@ -152,6 +152,26 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
         (s.prs.length > 0 ? ` · PRs ${s.prs.join(", ")}` : ""),
     );
 
+    // #489 — state what the session log could and could not see. A message
+    // written while the agent works never fires `UserPromptSubmit`, so the log
+    // is blind to it by construction; the transcript is not. Saying so beats a
+    // silently partial count in a report whose whole point is attribution.
+    const { typed, queued } = s.prompts;
+    out.push(
+      "",
+      queued > 0
+        ? t(
+            lang,
+            `**Mensajes del usuario:** ${typed + queued} — ${typed} iniciaron un turno y ${queued} se escribieron mientras el agente trabajaba. Estos últimos se entregan dentro del turno en curso y NO disparan el hook, así que el log de la sesión no los ve; el conteo sale del transcript.`,
+            `**User messages:** ${typed + queued} — ${typed} started a turn and ${queued} were written while the agent was working. The latter are delivered inside the running turn and do NOT fire the hook, so the session log cannot see them; this count comes from the transcript.`,
+          )
+        : t(
+            lang,
+            `**Mensajes del usuario:** ${typed}, todos al inicio de un turno.`,
+            `**User messages:** ${typed}, all starting a turn.`,
+          ),
+    );
+
     out.push(
       "",
       `### ${t(lang, "En qué se fueron los tokens", "Where the tokens went")}`,
