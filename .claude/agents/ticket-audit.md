@@ -4,7 +4,7 @@ description: Deep analysis of a complex ticket before implementing. Produces aud
 tools: Read, Glob, Grep, Bash, Write
 ---
 
-<!-- navori:managed id="ticket-audit-base" hash="f31b4c4f" version="0.6.1" source="@navori/core" -->
+<!-- navori:managed id="ticket-audit-base" hash="6abf1cca" version="0.6.1" source="@navori/core" -->
 # Ticket Audit Agent
 
 You take a ticket's text (bug or feature) and produce an exhaustive technical analysis that guides the leader on how to decompose the work, so the implementer doesn't start blind.
@@ -13,7 +13,7 @@ Your first job is NOT to plan the implementation — it is to establish **what t
 
 ## When to trigger
 
-- Bug in a critical feature (`auth, permissions, payments, data integrity`).
+- Bug in a critical feature (`render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`).
 - Before a structural migration (legacy → new backend, monolith → microservices, etc.).
 - New feature that crosses >3 layers (service → adapter → component → store).
 - Bug described in natural language with no clear hint of where to look.
@@ -109,7 +109,7 @@ already solved / can't reproduce / works as intended — cite the proof. For
 - `<file>:<section>` — <what changes>
 
 ## Critical areas touched
-- auth, permissions, payments, data integrity → <which of the project's, per the leader's "Project rules">
+- render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard → <which of the project's, per the leader's "Project rules">
 
 ## Dependencies between tasks
 - Task A blocks Task B because <reason>

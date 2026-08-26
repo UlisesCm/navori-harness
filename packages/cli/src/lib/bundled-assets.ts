@@ -54,6 +54,18 @@ export function getPluginPath(pluginId: string): string {
   return resolve(getPluginAssetsRoot(), pluginId);
 }
 
+/**
+ * `@navori/core`'s own package version — an internal, statically-versioned
+ * package, so this is `0.0.1` and does not move with releases. Its ONLY use is
+ * the `$navori.version` stamp in the generated `.claude/settings.json`, a
+ * write-only provenance note nothing reads back.
+ *
+ * NOT the anti-rollback signal (#508.3 flagged the mismatch as a risk to it):
+ * that guard is `isDowngrade()` in `lib/marker.ts`, which compares the
+ * `version=` attribute of managed-block markers, and every stamp site takes
+ * that from `readCliVersion()` below. One scale, one source — the two numbers
+ * never meet.
+ */
 export function readBundledCoreVersion(): string {
   try {
     const pkg = JSON.parse(readFileSync(resolve(getCoreRoot(), "package.json"), "utf-8")) as {

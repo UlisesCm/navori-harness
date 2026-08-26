@@ -4,7 +4,7 @@ description: Do NOT invoke as a subagent. Orchestration playbook that the main a
 tools: Read, Glob, Grep, Bash, Agent, mcp__engram__*
 ---
 
-<!-- navori:managed id="leader-base" hash="97ce53d1" version="0.6.1" source="@navori/core" -->
+<!-- navori:managed id="leader-base" hash="95c1e4c1" version="0.6.1" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live inline in the "## Role: orchestrator" block of `CLAUDE.md`, which auto-loads. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: leader)`.
@@ -118,7 +118,7 @@ If the review returned `CHANGES_REQUESTED`, do NOT invoke `commit-pr-pilot`: lau
 
 ```bash
 cd packages/cli && pnpm lint    # fast gate — pre-step to the reviewer
-pnpm format:check && cd packages/cli && pnpm test && pnpm lint && pnpm typecheck    # full gate — before closing the session / creating the PR
+pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck    # full gate — before closing the session / creating the PR
 ```
 
 If the repo has no test suite, the `implementer` still can't claim "done" without fresh evidence (a correct diff plus whatever checks exist) — but browser/visual validation stays **on-request only, never automatic**. The `verify-before-done` skill enforces the "fresh evidence rule" over any "done" claim.

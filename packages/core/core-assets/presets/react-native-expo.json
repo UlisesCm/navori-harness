@@ -1,5 +1,5 @@
 {
-  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.preset.v1.json",
   "id": "react-native-expo",
   "displayName": "React Native + Expo app",
   "extends": "core",

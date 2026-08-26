@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://navori.dev/schema/prompts.v1.json",
+  "$id": "https://ulisescm.github.io/navori-harness/schema/prompts.v1.json",
   "title": "navori init prompts",
   "description": "Project-customization questions the `init` wizard asks; answers persist to config.project.<key> and render into the managed project-context block.",
   "type": "object",

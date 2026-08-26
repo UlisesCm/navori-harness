@@ -287,11 +287,88 @@ describe.each(SHELLS)("audit-mode fail-open under %s", (shell) => {
       "prompt with quotes and newlines",
       JSON.stringify({ user_prompt: 'a "b" \n audit mode', session_id: "s", cwd: "/tmp" }),
     ],
+    // The table used to assume what the CLI assumed — "a session id is a UUID"
+    // — which is precisely why neither half caught the traversal of #503.
+    [
+      "path-shaped session id",
+      JSON.stringify({ user_prompt: "audit mode", session_id: "a/../../escaped", cwd: "/tmp" }),
+    ],
   ];
 
   it.each(hostile)("exits 0 on %s", (_label, input) => {
     expect(run(shell, TRIGGER, input).code).toBe(0);
     expect(run(shell, CLOSE, input).code).toBe(0);
+  });
+
+  /**
+   * A path-shaped id would compose `<root>/<repo>/session-a/../../escaped.log`,
+   * i.e. `<root>/escaped.log`.
+   *
+   * BOTH halves now refuse it on their own. The CLI validates the id because it
+   * is the half that CREATES the file (#503, see commands/__tests__/audit.test.ts),
+   * and the hook validates it because it is the half that COMPOSES the path.
+   * The hook used to be safe only structurally — it appends solely to a log that
+   * already exists, and the intermediate `session-a` directory is one navori
+   * never creates — but "safe because the other layer cannot produce the case"
+   * is precisely the coupling that let three delete paths drift apart in this
+   * same audit. A guard that holds on its own survives a change to its neighbour.
+   */
+  it("writes nothing outside the audit root for a path-shaped session id", () => {
+    activate(); // a legitimate session is recording at the same time
+    const before = readFileSync(logFile(), "utf-8");
+    const input = JSON.stringify({
+      user_prompt: "audit mode",
+      session_id: "a/../../escaped",
+      cwd,
+    });
+
+    expect(run(shell, TRIGGER, input).code).toBe(0);
+    expect(existsSync(join(root, "escaped.log"))).toBe(false);
+    expect(existsSync(join(root, REPO, "escaped.log"))).toBe(false);
+    // …and the real session's log is untouched.
+    expect(readFileSync(logFile(), "utf-8")).toBe(before);
+  });
+
+  /**
+   * The guard, isolated from the structural protection above.
+   *
+   * What makes the append REACHABLE is the TARGET FILE existing, not the
+   * intermediate directory: the hook appends only `if [ -f "$log_file" ]`, and
+   * `session-a/../../escaped` composes `<root>/escaped.log`. An earlier version
+   * of this test seeded `<root>/<repo>/session-a/` instead — which only makes
+   * the path RESOLVABLE — so the `[ -f ]` still failed, the `>>` was never
+   * reached, and removing the guard left the suite green. It tested nothing.
+   *
+   * Seeding the target is the one arrangement under which the unguarded hook
+   * really writes (measured: 69 bytes appended outside the repo's audit dir),
+   * so it is the only arrangement in which this assertion means anything.
+   */
+  it("refuses a path-shaped id even when the escape target already exists", () => {
+    activate();
+    const before = readFileSync(logFile(), "utf-8");
+    // Both halves of what the unguarded hook needs: the walked-through directory…
+    mkdirSync(join(root, REPO, "session-a"), { recursive: true });
+    // …and the file `[ -f "$log_file" ]` tests for.
+    const target = join(root, "escaped.log");
+    writeFileSync(target, "", "utf-8");
+    const input = JSON.stringify({ user_prompt: "audit mode", session_id: "a/../../escaped", cwd });
+
+    expect(run(shell, TRIGGER, input).code).toBe(0);
+    // The guard refused, so the pre-seeded file is still empty…
+    expect(readFileSync(target, "utf-8")).toBe("");
+    // …and the real session's log is untouched.
+    expect(readFileSync(logFile(), "utf-8")).toBe(before);
+  });
+
+  /**
+   * Anti-false-green for the two cases above: if the guard rejected every id,
+   * they would pass while the hook silently stopped working for everyone.
+   */
+  it("still records a legitimate session id (the guard is not a blanket refusal)", () => {
+    activate();
+    const before = readFileSync(logFile(), "utf-8");
+    expect(run(shell, TRIGGER, payload("seguimos en audit mode")).code).toBe(0);
+    expect(readFileSync(logFile(), "utf-8").length).toBeGreaterThan(before.length);
   });
 
   /**

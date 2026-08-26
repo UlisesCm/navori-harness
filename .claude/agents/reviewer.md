@@ -4,7 +4,7 @@ description: Strict reviewer. Approves or rejects the implementer's work against
 tools: Read, Glob, Grep, Bash, Write
 ---
 
-<!-- navori:managed id="reviewer-base" hash="c31b746d" version="0.6.1" source="@navori/core" -->
+<!-- navori:managed id="reviewer-base" hash="bf87fc20" version="0.6.1" source="@navori/core" -->
 # Reviewer Agent
 
 You are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.
@@ -56,7 +56,7 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 
 Does the code match the repo's conventions? Here you do review style/naming/types.
 
-Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions, with severities. When the diff touches auth, permissions, object access, secrets or anything in `auth, permissions, payments, data integrity`, also apply `.claude/skills/security-guidance/SKILL.md`: it carries the business invariants a static scanner cannot infer from the code. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. Summary of the minimum to validate against `CLAUDE.md` and the leader's "Project rules":
+Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions, with severities. When the diff touches auth, permissions, object access, secrets or anything in `render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`, also apply `.claude/skills/security-guidance/SKILL.md`: it carries the business invariants a static scanner cannot infer from the code. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. Summary of the minimum to validate against `CLAUDE.md` and the leader's "Project rules":
 
 - **Conventions**: naming, path aliases, folder structure.
 - **Centralized types**: no inline `type`/`interface` where the convention says "outside".
@@ -69,7 +69,7 @@ Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions
 **Quality gate** (mandatory green, run this turn):
 
 ```bash
-pnpm format:check && cd packages/cli && pnpm test && pnpm lint && pnpm typecheck
+pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck
 ```
 
 Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed.
@@ -116,10 +116,10 @@ A second mode, distinct from the re-review of item 3: you already signed this di
 
 1. **The previous `APPROVED` stands.** What didn't change isn't re-opened; you're extending a verdict, not replacing it.
 2. **Measure the delta, never eyeball it.** Per drifted file, the receipt line gives the approved sha: `git diff <blob-sha> <file>` is the exact change since the signature (`git cat-file -p <blob-sha>` for the full approved content). "It looks small" is not evidence.
-3. **Re-run `pnpm format:check && cd packages/cli && pnpm test && pnpm lint && pnpm typecheck` anyway**, over the live bytes. The previous green expired the moment the bytes changed, and that evidence is what the pilot reuses.
+3. **Re-run `pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck` anyway**, over the live bytes. The previous green expired the moment the bytes changed, and that evidence is what the pilot reuses.
 4. **Rewrite the receipt** over the final bytes (same recipe above). A delta re-sign that doesn't re-sign leaves the pilot blocked on the same drift.
 5. **Append** to the existing `.claude/progress/review_<feature>.md` — your own heading, observations continuing the original numbering — never overwrite it. The chain of what was approved when has to stay readable.
-6. **Limit (anti-rubber-stamp):** this mode only covers a delta that stays inside the change that was suggested. If it alters logic beyond that hunk, touches shared machinery, or lands in `auth, permissions, payments, data integrity`, it is NOT a delta re-sign — do the full review. Same if the drift has no known author (a rebase, another session, a stray checkout): with no explanation there's no delta to bound.
+6. **Limit (anti-rubber-stamp):** this mode only covers a delta that stays inside the change that was suggested. If it alters logic beyond that hunk, touches shared machinery, or lands in `render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`, it is NOT a delta re-sign — do the full review. Same if the drift has no known author (a rebase, another session, a stray checkout): with no explanation there's no delta to bound.
 
 ### Confidence scoring per finding (Pass 2)
 
@@ -160,7 +160,7 @@ Write `.claude/progress/review_<feature>.md`:
 ### Quality gate (run this turn)
 | Check | Status | Evidence |
 |---|---|---|
-| `pnpm format:check && cd packages/cli && pnpm test && pnpm lint && pnpm typecheck` | [x] / [ ] | <output or exit code from this turn> |
+| `pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck` | [x] / [ ] | <output or exit code from this turn> |
 | Zero new errors vs baseline | [x] / [ ] | <`git stash` comparison from this turn> |
 
 ### Conventions (CLAUDE.md + leader's Project rules)
@@ -195,7 +195,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ❌ Never skip Pass 1 (spec compliance). If the code is pretty but doesn't do what was asked, it's `CHANGES_REQUESTED`.
 - ❌ Never include as a blocker (in "Issues ≥80") a finding with confidence <80.
 - ✅ Apply `.claude/skills/verify-before-done/SKILL.md` before marking APPROVED: each `[x]` must be backed by evidence run this turn (not from the implementer's cached report).
-- ❌ Never approve with `pnpm format:check && cd packages/cli && pnpm test && pnpm lint && pnpm typecheck` red.
+- ❌ Never approve with `pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck` red.
 - ❌ Never approve if the new code **adds new errors or warnings** vs baseline.
 - ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.
 - ❌ Don't block or escalate a screen change to a human for lack of browser validation — the default gate is the diff + tests; require a visual check only when the user explicitly asked for one.

@@ -1,10 +1,10 @@
 // Generate the public JSON Schema files that back every `$schema` URL navori
 // writes into the configs/manifests it emits. The CLI stamps
-// `https://navori.dev/schema/<name>.json` into each generated file; those URLs
-// 404 unless the matching JSON Schema is published on the website. The website
+// `<SCHEMA_BASE_URL>/<name>.json` into each generated file; those URLs 404
+// unless the matching JSON Schema is published on the website. The website
 // (Astro) serves `apps/website/public/` at the site root, so a file at
 // `apps/website/public/schema/navori.config.v1.json` becomes reachable at
-// `https://navori.dev/schema/navori.config.v1.json`.
+// `<site>/schema/navori.config.v1.json`.
 //
 // Single source of truth: the JSON Schemas are DERIVED from the zod schemas via
 // `z.toJSONSchema()` (native in zod v4), so editors validate against the exact
@@ -20,6 +20,7 @@ import { NavoriConfigSchema } from "../src/lib/schema.ts";
 import { WorkspaceConfigSchema } from "../src/lib/workspace.ts";
 import { PresetDefinitionSchema } from "../src/lib/presets.ts";
 import { CorePromptsFileSchema } from "../src/engines/claude/prompts-loader.ts";
+import { SCHEMA_BASE_URL } from "../src/lib/schema-url.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI_ROOT = resolve(HERE, ".."); // packages/cli
@@ -28,8 +29,10 @@ const REPO_ROOT = resolve(CLI_ROOT, "..", "..");
 /** Where the website serves static files from ({site}/schema/<file>). */
 export const OUT_DIR = resolve(REPO_ROOT, "apps", "website", "public", "schema");
 
-/** Base URL the CLI stamps into every emitted `$schema`. */
-const BASE_URL = "https://navori.dev/schema";
+// Base URL: imported, never re-typed. The `$id` published here and the
+// `$schema` the CLI stamps are two halves of the same contract; a second
+// literal is how they drift (#505).
+const BASE_URL = SCHEMA_BASE_URL;
 
 /**
  * Each spec pairs a zod schema with the exact filename its `$schema` URL points

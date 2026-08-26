@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://navori.dev/schema/navori.preset.v1.json",
+  "$id": "https://ulisescm.github.io/navori-harness/schema/navori.preset.v1.json",
   "title": "navori preset definition",
   "description": "Stack-specific preset manifest declaring the EXTRA managed assets (managed blocks, agents, skills, hooks) a preset contributes on top of the core baseline.",
   "type": "object",

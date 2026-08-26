@@ -27,6 +27,11 @@
     "librarySkills": 28
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/UlisesCm/navori-harness.git"
+  },
+  "homepage": "https://ulisescm.github.io/navori-harness/",
   "scripts": {
     "build": "tsup && node scripts/copy-assets.mjs",
     "dev": "tsup --watch",

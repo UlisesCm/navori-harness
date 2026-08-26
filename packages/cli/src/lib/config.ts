@@ -4,8 +4,9 @@ import { writeFileAtomic } from "./atomic.ts";
 import { NavoriError } from "./errors.ts";
 import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "./schema.ts";
 import { tc, resolveLang } from "./i18n.ts";
+import { schemaUrl } from "./schema-url.ts";
 
-const SCHEMA_URL = "https://navori.dev/schema/navori.config.v1.json";
+const SCHEMA_URL = schemaUrl("navori.config.v1.json");
 
 /**
  * The tolerant enum schema DROPS unknown values on parse (issue #70) so an old
