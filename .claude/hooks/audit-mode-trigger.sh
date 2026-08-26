@@ -1,4 +1,4 @@
-# navori:managed start id="audit-mode-trigger-base" hash="041281eb" version="0.6.1" source="@navori/core"
+# navori:managed start id="audit-mode-trigger-base" hash="f7522245" version="0.6.1" source="@navori/core"
 #!/usr/bin/env bash
 # navori — audit-mode trigger (UserPromptSubmit)
 #
@@ -63,6 +63,15 @@ prompt=$(printf '%s' "$payload" | jq -r '.user_prompt // .prompt // ""' 2>/dev/n
 session_id=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
 cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null) || exit 0
 [ -n "$session_id" ] || exit 0
+# The id composes `log_file` below, so a path-shaped one would escape the
+# audit root. The CLI validates it too (#503) — this guard is here so the
+# hook does not DEPEND on that: "safe because the other layer cannot create
+# the case" is the coupling that let three delete paths drift apart. Same
+# character class the CLI enforces; anything else means the payload is not
+# what we think it is, so do nothing rather than guess.
+case "$session_id" in
+  *[!A-Za-z0-9_-]*) exit 0 ;;
+esac
 [ -n "$cwd" ] || cwd=$PWD
 
 repo=$(basename "$cwd" 2>/dev/null) || exit 0

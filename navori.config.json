@@ -1,5 +1,5 @@
 {
-  "$schema": "https://navori.dev/schema/navori.config.v1.json",
+  "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json",
   "name": "navori-harness",
   "version": "1.0.0",
   "engines": [
@@ -10,7 +10,7 @@
   "commits": "conventional-es",
   "qualityGate": {
     "fast": "cd packages/cli && pnpm lint",
-    "full": "pnpm format:check && cd packages/cli && pnpm test && pnpm lint && pnpm typecheck"
+    "full": "pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck"
   },
   "plugins": {
     "engram": {
@@ -38,6 +38,11 @@
     ],
     "localSkills": [
       "playwright-cli"
+    ],
+    "criticalAreas": [
+      "render/sync/backup writes and deletes in the user's repo",
+      "settings.json permissions, deny/ask rules and hooks",
+      "managed-block markers and the anti-rollback guard"
     ]
   }
 }

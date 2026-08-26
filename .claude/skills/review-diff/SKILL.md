@@ -5,7 +5,7 @@ type: behavior
 maxWords: 1200
 ---
 
-<!-- navori:managed id="review-diff-base" hash="cfa82722" version="0.6.1" source="@navori/core" -->
+<!-- navori:managed id="review-diff-base" hash="9c64f042" version="0.6.1" source="@navori/core" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
@@ -109,7 +109,7 @@ Rule: if removing the abstraction leaves the code **just as correct** and shorte
 
 ## Critical areas
 
-Pay extra attention if the diff touches `auth, permissions, payments, data integrity`. A finding in those zones goes up one severity level.
+Pay extra attention if the diff touches `render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`. A finding in those zones goes up one severity level.
 
 ## Output
 

@@ -195,7 +195,7 @@ y los *tolerant enums* forward-compat de `lib/schema.ts:17-45`. Se replica en un
   `z.array(z.string()).or(z.literal("all"))`.
 - **`DominioManifestSchema`** — `{ $schema, formatVersion: 1, entries: [{ id, updated_by,
   updated_at, checksum }] }` para portabilidad (§4.2). El `$schema` lleva versión en la ruta
-  (`https://navori.dev/schema/navori.dominio.v1.json`), como `navori.workspace.v1.json`.
+  (`https://ulisescm.github.io/navori-harness/schema/navori.dominio.v1.json`), como `navori.workspace.v1.json`.
 - **Versionado de formato:** **no** hay sistema de migraciones de schema en navori (`navori
   migrations` es backup/restore de archivos, `commands/migrations.ts`; la compat se maneja con
   tolerant enums, no con upgrades). Por eso el Dominio versiona vía `formatVersion` + `$schema` +

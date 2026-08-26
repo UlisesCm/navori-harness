@@ -42,6 +42,17 @@ jobs:
       - name: Build
         run: pnpm --filter navori build
 
+      # #508 — `apps/website` was built ONLY by the deploy workflow, which runs
+      # after the merge, so a change that breaks the site (an Astro/Tailwind
+      # upgrade, a bad import, a schema file that stops parsing) surfaced in the
+      # deploy instead of on the PR. Same env the deploy uses, so a base-path
+      # regression fails here too.
+      - name: Build website
+        env:
+          SITE_URL: ${{ vars.SITE_URL || format('https://{0}.github.io', github.repository_owner) }}
+          SITE_BASE: ${{ vars.SITE_BASE || format('/{0}/', github.event.repository.name) }}
+        run: pnpm --filter @navori/website build
+
       - name: Bundle size guard
         run: pnpm --filter navori check:size
 

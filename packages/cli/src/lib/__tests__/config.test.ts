@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { writeConfig, readConfig, effectiveConfig, ConfigError } from "../config.ts";
 import { NavoriConfigSchema } from "../schema.ts";
+import { schemaUrl } from "../schema-url.ts";
 
 function makeTmpDir(): string {
   return mkdtempSync(join(tmpdir(), "navori-test-"));
@@ -187,7 +188,7 @@ describe("writeConfig", () => {
       writeFileSync(
         path,
         JSON.stringify({
-          $schema: "https://navori.dev/schema/navori.config.v1.json",
+          $schema: schemaUrl("navori.config.v1.json"),
           name: "future-app",
           engines: ["claude"],
           preset: "custom",

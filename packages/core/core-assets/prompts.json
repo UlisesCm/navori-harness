@@ -1,5 +1,5 @@
 {
-  "$schema": "https://navori.dev/schema/prompts.v1.json",
+  "$schema": "https://ulisescm.github.io/navori-harness/schema/prompts.v1.json",
   "description": "Preguntas base del wizard de `init`, en 2 fases: 'general' (postura del repo) y 'specific' (reglas concretas). Las respuestas se persisten en config.project.<key> y se renderizan como reglas activas en el bloque managed `contexto-proyecto` de CLAUDE.md (no como hints en comentarios).",
   "prompts": [
     {

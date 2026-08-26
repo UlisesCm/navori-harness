@@ -6,6 +6,7 @@ import { writeFileAtomic } from "../lib/atomic.ts";
 import { readConfig, writeConfig } from "../lib/config.ts";
 import { brand, accent, dim } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
+import { schemaUrl } from "../lib/schema-url.ts";
 
 /** Mirrors PresetDefinitionSchema.id — kebab-case, alphanumeric start. */
 const PRESET_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -59,7 +60,7 @@ const initSubCommand = defineCommand({
     const skillId = `${id}-example`;
     // relPath are relative to the preset folder (its asset root), not core-assets.
     const manifest = {
-      $schema: "https://navori.dev/schema/navori.preset.v1.json",
+      $schema: schemaUrl("navori.preset.v1.json"),
       id,
       displayName: id,
       extends: "core",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://navori.dev/schema/navori.workspace.v1.json",
+  "$id": "https://ulisescm.github.io/navori-harness/schema/navori.workspace.v1.json",
   "title": "navori workspace manifest",
   "description": "Machine-local workspace manifest (~/.navori/workspaces/<name>/workspace.json) linking related repos and cross-repo defaults.",
   "type": "object",

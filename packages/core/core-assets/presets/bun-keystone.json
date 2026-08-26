@@ -1,5 +1,5 @@
 {
-  "$schema": "https://navori.dev/schema/navori.preset.v1.json",
+  "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.preset.v1.json",
   "id": "bun-keystone",
   "displayName": "Keystone 6 backend (Bun + Prisma)",
   "extends": "core",

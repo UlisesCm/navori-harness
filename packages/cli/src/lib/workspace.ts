@@ -14,6 +14,7 @@ import { writeFileAtomic } from "./atomic.ts";
 import { safeHomedir } from "./home.ts";
 import { withFileLock } from "./lockfile.ts";
 import { NavoriError } from "./errors.ts";
+import { schemaUrl } from "./schema-url.ts";
 import { safeRelPath } from "./zod-helpers.ts";
 
 function workspacesRootLazy(): string {
@@ -182,7 +183,7 @@ export function writeWorkspace(workspace: WorkspaceConfig): string {
 
   const path = workspacePath(workspace.name);
   const validated = WorkspaceConfigSchema.parse({
-    $schema: "https://navori.dev/schema/navori.workspace.v1.json",
+    $schema: schemaUrl("navori.workspace.v1.json"),
     ...workspace,
   });
   writeFileAtomic(path, JSON.stringify(validated, null, 2) + "\n");

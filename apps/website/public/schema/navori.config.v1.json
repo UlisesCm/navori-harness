@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://navori.dev/schema/navori.config.v1.json",
+  "$id": "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json",
   "title": "navori.config.json",
   "description": "Source-of-truth config checked into a repo that uses navori. `navori render` reconstructs the harness from this file.",
   "type": "object",
