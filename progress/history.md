@@ -10,6 +10,34 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-08-26 00:40 — claude — Auditoría a ciegas con 5 agentes sin contexto: 17 issues, 4 de seguridad
+
+- **Cambios:** ninguno en código. 17 issues abiertos (#495–#511) + `progress/`.
+- **Quality gate:** ✅ sin cambios de código desde el verde de la sesión anterior (2124 tests);
+  `check:render` re-verificado en verde al cerrar.
+- **Método:** 5 `auditor` en paralelo (assets / hooks / CLI / config / tests), cada uno con
+  prohibición explícita de leer `progress/`, usar engram o mirar `git log`, y con obligación de
+  **demostrar** cada hallazgo (repro, comando, o la mutación que debería romper un test y no lo
+  hace). Verifiqué a mano los load-bearing antes de abrir issues y ajusté severidades donde el
+  auditor se quedó corto (el `sg` venía como ALTO y es de seguridad).
+- **Notas:**
+  - **El patrón es uno solo, no 17 bugs sueltos:** las defensas del harness describen el peligro por
+    su **forma textual** (`-rf`, un nombre de binario, una lista de rutas) en vez de por su
+    semántica, y **ninguna verifica que pudo hacer su trabajo**. Un guard que no evaluó, un gate que
+    salió 1, un backup vacío y un parser ciego dan la misma señal visible que el éxito.
+  - **Seguridad (4):** #509 el guard se esquiva con `rm -R` y flags largas (incluido
+    `--no-preserve-root /`); #495 `Bash(sg:*)` pre-aprueba ejecución arbitraria en Linux; #510 los
+    gates de semgrep/jscpd salen `exit 1` y `PreToolUse` solo bloquea con `2`; #511 el guard se
+    satura (46,9 s vs timeout de 10 s) y muere sin evaluar.
+  - **Pérdida de datos (3):** #497 `global init` destruye `~/.claude/settings.json` sin backup;
+    #496 `--prune` borra archivos ajenos; #498 un fence sin cerrar duplica todos los bloques.
+  - **Cruce que ningún auditor vio solo:** el de CLI citó el backup del `--prune` como mitigación;
+    el de tests lo mutó a `createBackup(cwd, [])` y la suite siguió **2124/2124 verde**.
+  - **Hallazgo sobre código del mismo día:** #503, `audit --start` escribe fuera de su raíz
+    declarada. El test que afirma ese contrato prueba la mitad que no puede romperlo.
+- **Commit / PR:** sin PR de código. Reportes completos en `.claude/progress/audit_ciego_*.md`
+  (**gitignored**: no se versionan; la sustancia vive en los issues).
+
 ## 2026-08-25 23:05 — claude — Los 3 issues del audit, cerrados: uno refutó su propia premisa
 
 - **Cambios:** `commands/{audit,global}.ts` + `index.ts` (una sola `readCliVersion`),
