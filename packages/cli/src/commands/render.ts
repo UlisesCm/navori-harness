@@ -146,8 +146,9 @@ export interface RunRenderOptions {
   /**
    * Delete outputs owned only by engines no longer in `config.engines[]`
    * (orphaned `AGENTS.md`, `.codex/`, …) after rendering the enabled engines.
-   * Only deletes when combined with a non-preview (apply) run; in preview it's a
-   * no-op (the orphans are still reported, never touched). #312.
+   * Only DELETES when combined with a non-preview (apply) run; preview still
+   * computes the full plan and reports it in `prunedEngineOutputs` /
+   * `keptEngineOutputs` without touching a single file (#312, #521).
    */
   prune?: boolean;
 }
@@ -194,14 +195,18 @@ export function runRender(
   extraEngines?: EngineRenderSummary[];
   /** Outputs owned only by engines no longer in config.engines[] (#312). */
   orphanedEngineOutputs?: OrphanedEngineOutput[];
-  /** FILES deleted this run (only with --prune + --apply): the ones that carry
-   *  navori's own marker. A reported orphan directory is never deleted whole —
-   *  see `keptEngineOutputs` for what stayed behind (#496). */
+  /** FILES the prune deleted — or, in preview, WOULD delete (#521): the ones
+   *  that carry navori's own marker. `undefined` when `--prune` was not asked
+   *  for or there was nothing orphaned; the caller tells preview from apply by
+   *  the `dryRun` it passed (`--json` publishes it as `mode`). A reported orphan
+   *  directory is never deleted whole — see `keptEngineOutputs` for what stays
+   *  behind (#496). */
   prunedEngineOutputs?: string[];
-  /** Paths inside an orphaned output that the prune left in place, with the
-   *  reason: `foreign` (navori never wrote it), `ephemeral` (machine-local
-   *  harness state the harness never versions) or `symlink` (a link, neither
-   *  followed nor unlinked — its target is usually outside the repository). */
+  /** Paths inside an orphaned output that the prune left — or would leave — in
+   *  place, with the reason: `foreign` (navori never wrote it), `ephemeral`
+   *  (machine-local harness state the harness never versions) or `symlink` (a
+   *  link, neither followed nor unlinked — its target is usually outside the
+   *  repository). Same preview/apply semantics as `prunedEngineOutputs`. */
   keptEngineOutputs?: KeptEngineOutput[];
   /** Where the pre-prune snapshot landed, or null when nothing was deleted. */
   prunedBackupPath?: string | null;
@@ -424,7 +429,7 @@ export function runRender(
   let prunedEngineOutputs: string[] | undefined;
   let keptEngineOutputs: KeptEngineOutput[] | undefined;
   let prunedBackupPath: string | null = null;
-  if (pruneFlag && !dryRun && orphanedEngineOutputs.length > 0) {
+  if (pruneFlag && orphanedEngineOutputs.length > 0) {
     const paths = orphanedEngineOutputs.flatMap((o) => o.paths);
     // #496: `paths` are OWNERSHIP paths from a static per-engine map — "a
     // disabled engine would write here" — not evidence that what is there is
@@ -433,8 +438,14 @@ export function runRender(
     // walked and each file judged by the SAME authorship test the engine delete
     // path uses (lib/removable.ts): navori's files go, everything else stays and
     // is reported back so the run says what it spared and why.
+    // #521: the plan is PURE (it only reads), so it runs in preview too — that
+    // is the whole point. `render --prune` without `--apply` used to re-print
+    // the orphan ROOTS and nothing else, so the file-by-file verdict this plan
+    // computes (what goes, what stays and why) only ever appeared AFTER the
+    // deletion. Preview now answers it before. Only the writes below stay
+    // behind `!dryRun`.
     const plan = planOrphanRemoval(cwd, paths, EPHEMERAL_HARNESS_PATHS);
-    if (plan.remove.length > 0) {
+    if (!dryRun && plan.remove.length > 0) {
       // Back up before deleting so a mistaken prune is recoverable (same safety
       // net the prose engine uses for overwrites). The excludes are NOT optional:
       // an orphaned engine dir is exactly where the ephemerals live (`.codex/
@@ -652,15 +663,22 @@ export const renderCommand = defineCommand({
 
     if (result.gitignore) reportGitignore(result.gitignore, result.language);
 
-    // #312: orphaned outputs from disabled engines. If pruned this run, confirm
-    // what was deleted; otherwise warn (and point at --prune) without touching.
-    if (result.prunedEngineOutputs && result.prunedEngineOutputs.length > 0) {
-      p.log.info(
-        tr.prunedEngineOutputs(
-          result.prunedEngineOutputs.length,
-          result.prunedEngineOutputs.map((path) => `  ${color.green(sym.ok)} ${path}`).join("\n"),
-        ),
-      );
+    // #312: orphaned outputs from disabled engines. With --prune the run reports
+    // its file-by-file plan — what it deleted, or (in preview, #521) what it
+    // WOULD delete; otherwise it warns about the roots and points at --prune.
+    // `prunedEngineOutputs` being defined at all means the plan ran, so an empty
+    // one is "--prune found nothing of navori's here", not "no --prune": the
+    // kept list below carries that answer and the roots warning would contradict
+    // it by promising a deletion that will not happen.
+    if (result.prunedEngineOutputs) {
+      if (result.prunedEngineOutputs.length > 0) {
+        const lines = result.prunedEngineOutputs
+          .map((path) => `  ${preview ? color.magenta(sym.removed) : color.green(sym.ok)} ${path}`)
+          .join("\n");
+        const count = result.prunedEngineOutputs.length;
+        if (preview) p.log.warn(tr.prunePreviewEngineOutputs(count, lines));
+        else p.log.info(tr.prunedEngineOutputs(count, lines));
+      }
     } else if (result.orphanedEngineOutputs && result.orphanedEngineOutputs.length > 0) {
       const lines = result.orphanedEngineOutputs
         .flatMap((o) =>
@@ -681,14 +699,16 @@ export const renderCommand = defineCommand({
             `  ${color.yellow(sym.update)} ${k.path} ${dim(`(${tr.keptEngineOutputReason(k.reason)})`)}`,
         )
         .join("\n");
-      p.log.info(tr.keptEngineOutputs(result.keptEngineOutputs.length, lines));
+      const count = result.keptEngineOutputs.length;
+      p.log.info(
+        preview ? tr.keptEngineOutputsPreview(count, lines) : tr.keptEngineOutputs(count, lines),
+      );
     }
 
     const allDowngrades = result.downgrades.concat(...result.workspaces.map((w) => w.downgrades));
     const downgradeWarn = formatDowngradeWarning(allDowngrades, result.language);
     if (downgradeWarn) p.log.warn(downgradeWarn);
 
-    const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
     // In preview mode `written` means "would write" — the engine populates it
     // with pending changes without touching disk.
     const anyPending = resultHasPendingWrites(result);
@@ -698,7 +718,7 @@ export const renderCommand = defineCommand({
     // knowingly left stale.
     const skipped = countSkippedFiles(result);
     const skippedTail = skipped > 0 ? ` ${dim("·")} ${color.yellow(tr.skippedOutro(skipped))}` : "";
-    const summary = summarize(allEntries);
+    const summary = summarize(countRenderStatuses(result));
     if (anyPending) {
       const word = preview ? color.yellow(tr.previewWord) : color.green(tr.doneWord);
       const hint = preview ? ` ${dim(`· ${tr.previewHint}`)}` : "";
@@ -763,6 +783,75 @@ export function countSkippedFiles(result: ReturnType<typeof runRender>): number 
 }
 
 /**
+ * Engine files the Claude engine inspected and found already up to date.
+ *
+ * `CLAUDE.md` is discounted on purpose: `reportClaudeMd` owns that file and
+ * enumerates its managed blocks one by one, so leaving it in counts it twice —
+ * once as a file, once per block. The engine plans it like any other
+ * destination (`inspected` includes it) and it is absent from `written` exactly
+ * when it did not change, which is the only case that reaches this residual.
+ */
+export function countUnchangedEngineFiles(engine: ClaudeEngineResult | undefined): number {
+  if (!engine) return 0;
+  const claudeMdWritten = engine.written.some((w) => w.path === "CLAUDE.md");
+  const residual = engine.inspected - engine.written.length - engine.skipped.length;
+  return Math.max(0, residual - (claudeMdWritten ? 0 : 1));
+}
+
+/**
+ * Count, by status, EVERYTHING this render's own report enumerates: the
+ * CLAUDE.md managed blocks (root + every workspace) AND the engine files —
+ * `.claude/**`, `AGENTS.md`, `.codex/…`, the harness `.gitignore` — in the root
+ * and in every workspace.
+ *
+ * #519: the outro and `--json`'s `summary` counted the blocks alone. A rollout
+ * whose listing enumerated 5 created / 53 updated announced "1 created, 18
+ * updated" — a number that reads as a total while describing under a third of
+ * what `--apply` was about to write, and a `--json` consumer inherited the
+ * undercount with no way to detect it. The three summaries (outro, `--json`,
+ * multi-repo `renderRepoRows`) share this one counter so they cannot diverge
+ * again.
+ *
+ * Two deliberate exclusions:
+ * - File-level SKIPS. They are neither written nor unchanged: render REFUSED
+ *   them, and `countSkippedFiles` reports them on its own channel (the outro
+ *   tail, `--json`'s per-scope `skipped`). Counting them here would report the
+ *   same refusal twice. Block-level skips stay in, as the red "N conflict".
+ * - Unchanged files of the non-Claude (prose) engines, which report no
+ *   `inspected` count — invisible in the listing too, so the summary matches it.
+ */
+export function countRenderStatuses(result: ReturnType<typeof runRender>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  const bump = (status: string, n = 1): void => {
+    if (n > 0) counts[status] = (counts[status] ?? 0) + n;
+  };
+  const countScope = (
+    entries: AssetPlanEntry[],
+    engine: ClaudeEngineResult | undefined,
+    extraEngines: EngineRenderSummary[],
+  ): void => {
+    for (const e of entries) bump(e.status);
+    // `CLAUDE.md` dropped for the same reason `reportEngineFiles` drops it from
+    // its section: the entries above already account for it, block by block.
+    for (const w of engine?.written ?? []) {
+      if (w.path !== "CLAUDE.md") bump(w.status);
+    }
+    bump("unchanged", countUnchangedEngineFiles(engine));
+    for (const ee of extraEngines) {
+      for (const w of ee.written) bump(w.status);
+    }
+  };
+  countScope(result.entries, result.engineResult, result.extraEngines ?? []);
+  for (const ws of result.workspaces) countScope(ws.entries, ws.engineResult, ws.extraEngines);
+  // The harness `.gitignore` is one more line of the same listing. Its skips go
+  // to `countSkippedFiles`, like every other file-level skip.
+  if (result.gitignore && !result.gitignore.status.endsWith("-skipped")) {
+    bump(result.gitignore.status);
+  }
+  return counts;
+}
+
+/**
  * Machine-readable render result. Keys are stable English (never localized) so
  * CI/automation can parse the same shape regardless of `config.language`.
  * Status tokens come straight from the render plan (created/updated/…).
@@ -790,11 +879,15 @@ function buildRenderJson(
   // without these lists a CI consumer can't name WHICH files are stale — the
   // whole point of #421, where 15 rendered files (hooks included) drifted.
   // In preview mode `written` means "would write".
+  // `unchangedFiles` travels with them (#519): the engine reports its up-to-date
+  // files as a COUNT, not a list, and without it `summary.unchanged` cannot be
+  // recomputed from this payload — which is precisely the audit a consumer needs
+  // to trust the summary at all.
   const claudeFilesJson = (engineResult: ClaudeEngineResult | undefined) => ({
     written: (engineResult?.written ?? []).map((w) => ({ path: w.path, status: w.status })),
     skipped: (engineResult?.skipped ?? []).map((s) => ({ path: s.path, reason: s.reason })),
+    unchangedFiles: countUnchangedEngineFiles(engineResult),
   });
-  const allEntries = result.entries.concat(...result.workspaces.map((w) => w.entries));
   const pending = resultHasPendingWrites(result);
   const downgrades = result.downgrades
     .concat(...result.workspaces.map((w) => w.downgrades))
@@ -842,17 +935,14 @@ function buildRenderJson(
         }
       : null,
     downgrades,
-    summary: countStatuses(allEntries),
+    // CONTRACT (#519): counts every managed block AND every engine file this
+    // render touched or checked, not just the CLAUDE.md blocks. The numbers grew
+    // — they now match the listing above them, which is the whole fix. Recompute
+    // it from `root`/`workspaces`/`extraEngines` (`entries` + `written` +
+    // `unchangedFiles`) if you need the breakdown.
+    summary: countRenderStatuses(result),
     pending,
   };
-}
-
-/** Count render-plan entries by status for the --json summary object. */
-function countStatuses(entries: AssetPlanEntry[]): Record<string, number> {
-  return entries.reduce<Record<string, number>>((acc, e) => {
-    acc[e.status] = (acc[e.status] ?? 0) + 1;
-    return acc;
-  }, {});
 }
 
 /**
@@ -880,11 +970,8 @@ export function formatDowngradeWarning(
   });
 }
 
-function summarize(entries: AssetPlanEntry[]): string {
-  const counts = entries.reduce<Record<string, number>>((acc, e) => {
-    acc[e.status] = (acc[e.status] ?? 0) + 1;
-    return acc;
-  }, {});
+/** The outro's colored one-liner, from `countRenderStatuses`' buckets. */
+function summarize(counts: Record<string, number>): string {
   const parts: string[] = [];
   if (counts.created) parts.push(color.green(`${counts.created} created`));
   if (counts.updated) parts.push(color.yellow(`${counts.updated} updated`));
@@ -968,10 +1055,9 @@ function reportEngineFiles(engine: ClaudeEngineResult, lang: Lang): void {
   // here. "Engine files" describes the union (settings, agents, skills, hooks,
   // progress).
   const written = engine.written.filter((w) => w.path !== "CLAUDE.md");
-  const unchangedCount = Math.max(
-    0,
-    engine.inspected - engine.written.length - engine.skipped.length,
-  );
+  // Discounts CLAUDE.md the same way `written` does above — it has its own
+  // section — so this "+N unchanged" and the outro's summary count one set.
+  const unchangedCount = countUnchangedEngineFiles(engine);
 
   if (
     written.length === 0 &&
@@ -1035,12 +1121,9 @@ export interface RepoRenderRow {
   warnings: string[];
 }
 
-/** Compact per-repo counts for the multi-repo render table. */
-export function summarizeRenderEntries(entries: Array<{ status: string }>): string {
-  const counts = entries.reduce<Record<string, number>>((acc, e) => {
-    acc[e.status] = (acc[e.status] ?? 0) + 1;
-    return acc;
-  }, {});
+/** Compact per-repo counts for the multi-repo render table, from the same
+ *  `countRenderStatuses` buckets the single-repo outro prints (#519). */
+export function summarizeRenderEntries(counts: Record<string, number>): string {
   const parts: string[] = [];
   if (counts.created) parts.push(`${counts.created} created`);
   if (counts.updated) parts.push(`${counts.updated} updated`);
@@ -1093,8 +1176,9 @@ export function renderRepoRows(
       // Engine-written files (.claude/ tree + AGENTS.md), root + every workspace.
       // These carry changes the CLAUDE.md block entries don't — a repo whose only
       // pending change is a hook/agent/skill/settings file would otherwise read as
-      // "unchanged" next to a "would-write" status. Folded into the summary and the
-      // --verbose list so the detail always explains the status.
+      // "unchanged" next to a "would-write" status. This walk feeds the --verbose
+      // per-file list; the row's counts come from `countRenderStatuses`, the same
+      // counter the single-repo outro and `--json` use (#519).
       const engineFiles: Array<{ id: string; status: RenderStatus }> = [];
       // Warnings ride the same walk as the files. Deduped (Set) because a
       // monorepo re-emits repo-level advisories once per workspace render — the
@@ -1104,7 +1188,11 @@ export function renderRepoRows(
         written: Array<{ path: string; status: RenderStatus }>;
         warnings: string[];
       }): void => {
-        for (const w of eng?.written ?? []) engineFiles.push({ id: w.path, status: w.status });
+        // `CLAUDE.md` is listed by its blocks, right below; naming the file too
+        // would print (and count) the same change twice.
+        for (const w of eng?.written ?? []) {
+          if (w.path !== "CLAUDE.md") engineFiles.push({ id: w.path, status: w.status });
+        }
         for (const w of eng?.warnings ?? []) engineWarnings.add(w);
       };
       collectEngine(result.engineResult);
@@ -1113,11 +1201,9 @@ export function renderRepoRows(
         collectEngine(ws.engineResult);
         for (const ee of ws.extraEngines) collectEngine(ee);
       }
-      const combined = allEntries
-        .map((e) => ({ status: e.status }))
-        .concat(engineFiles.map((f) => ({ status: f.status })));
+      const counts = countRenderStatuses(result);
       const anyPending = resultHasPendingWrites(result);
-      const conflicts = combined.filter((e) => e.status === "user-modified-skipped").length;
+      const conflicts = counts["user-modified-skipped"] ?? 0;
       const changed = allEntries
         .filter((e) => e.status !== "unchanged")
         .map((e) => ({ id: e.asset.id, status: e.status }))
@@ -1130,7 +1216,7 @@ export function renderRepoRows(
       rows.push({
         name: repo.name,
         status,
-        detail: summarizeRenderEntries(combined),
+        detail: summarizeRenderEntries(counts),
         conflicts,
         changed,
         warnings: [...engineWarnings],

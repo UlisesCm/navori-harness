@@ -36,8 +36,12 @@ import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
  *   - Modes mirror render: dry-run shows only, --apply / --yes write,
  *     --yes aborts with exit 1 if there are conflicts (CI gate).
  *   - The "apply-all (overwrite my edits)" choice from the legacy sync is
- *     no longer offered: navori prefers losing user edits never. Users who
- *     want to overwrite a conflict resolve it by hand and re-run.
+ *     no longer offered as a PROMPT: navori never overwrites user edits by
+ *     default. #523 added the explicit, non-interactive way out —
+ *     `--accept-new` / `--keep-mine` — because a formatter can invalidate every
+ *     managed block's hash at once and the only documented recovery
+ *     (`--interactive`) needs a human to answer one prompt per block, which
+ *     leaves an agent-driven rollout stuck.
  */
 export const syncCommand = defineCommand({
   meta: {
@@ -55,7 +59,22 @@ export const syncCommand = defineCommand({
     },
     yes: {
       type: "boolean",
-      description: "Auto-confirm. Implies --apply. Fails with exit 1 if conflicts exist.",
+      description:
+        "Auto-confirm. Implies --apply. Fails with exit 1 if conflicts exist, unless " +
+        "--accept-new/--keep-mine already resolved them.",
+    },
+    "accept-new": {
+      type: "boolean",
+      description:
+        "Resolve EVERY CLAUDE.md block conflict by overwriting your edit with the rendered " +
+        "version, without prompting. Destructive: requires --apply (or --yes) to write, and " +
+        "backs up CLAUDE.md first. Your user zone is never touched.",
+    },
+    "keep-mine": {
+      type: "boolean",
+      description:
+        "Resolve EVERY CLAUDE.md block conflict by keeping your edit, applying every " +
+        "non-conflicting change, without prompting. Requires --apply (or --yes) to write.",
     },
     workspace: {
       type: "string",
@@ -102,6 +121,35 @@ export const syncCommand = defineCommand({
     const ts = tc(lang).sync;
     const workspaceFilter = (args.workspace as string | undefined) ?? null;
 
+    // #523: bulk, non-interactive conflict resolution. Validated before any
+    // rendering so a contradictory invocation fails fast and identically in
+    // --json and human mode.
+    const bulk = resolveBulkMode(
+      {
+        acceptNew: Boolean(args["accept-new"]),
+        keepMine: Boolean(args["keep-mine"]),
+        interactive: Boolean(args.interactive),
+      },
+      lang,
+    );
+    if (!bulk.ok) {
+      if (json) {
+        // `reason` is a STABLE English code; `detail` carries localized text.
+        console.log(
+          JSON.stringify({
+            command: "sync",
+            ok: false,
+            reason: bulk.reasonCode,
+            detail: bulk.reason,
+          }),
+        );
+      } else {
+        p.cancel(bulk.reason);
+      }
+      process.exit(1);
+    }
+    const bulkMode = bulk.mode;
+
     const targetsResult = resolveSyncTargets(cwd, config, workspaceFilter);
     if (!targetsResult.ok) {
       if (json) {
@@ -134,12 +182,15 @@ export const syncCommand = defineCommand({
     // overwritten). --yes + conflicts is a CI gate failure (ok:false, exit 1).
     if (json) {
       const autoApply = Boolean(args.apply || args.yes) && !args["dry-run"];
-      const yesBlocked = Boolean(args.yes) && conflicts.length > 0;
+      // A bulk flag ANSWERS the conflicts, so it defuses the --yes CI gate —
+      // that gate exists precisely because nobody had decided what to do.
+      const yesBlocked = Boolean(args.yes) && conflicts.length > 0 && bulkMode === null;
       let writtenTotal = 0;
       const backups: Array<{ label: string; path: string }> = [];
       if (autoApply && !yesBlocked) {
+        const resolutions = buildBulkResolutions(plans, bulkMode);
         for (const t of targets) {
-          const applied = renderSyncTarget(t, false);
+          const applied = renderSyncTarget(t, false, resolutions.get(t.label));
           writtenTotal += countTargetWrites(applied);
           backups.push(...collectTargetBackups(applied));
         }
@@ -152,6 +203,7 @@ export const syncCommand = defineCommand({
             // Stable English code (never localized) — only present on failure.
             reason: yesBlocked ? "conflicts-detected" : undefined,
             mode,
+            resolution: bulkMode,
             pending: pendingCount,
             written: writtenTotal,
             backups,
@@ -196,17 +248,37 @@ export const syncCommand = defineCommand({
     }
 
     const autoApply = Boolean(args.yes || args.apply);
+    const blockConflicts = conflicts.filter((c) => c.kind === "block");
+    const fileConflicts = conflicts.filter((c) => c.kind === "file");
 
-    if (args.yes && conflicts.length > 0) {
+    // The CI gate stands only when the conflicts are unanswered: a bulk flag IS
+    // the answer, so `--yes --accept-new` must not exit 1 (#523).
+    if (args.yes && conflicts.length > 0 && bulkMode === null) {
       const lines = conflicts.map((c) => `  - ${c.path}: ${c.reason}`).join("\n");
       p.cancel(ts.conflictsWithYes(conflicts.length, lines));
       process.exit(1);
     }
 
-    // Per-target conflict resolutions chosen in --interactive mode.
+    // Per-target conflict resolutions, chosen in --interactive mode or in bulk.
     let resolutions: Map<string, ConflictResolution> = new Map();
 
-    if (!autoApply) {
+    if (bulkMode !== null) {
+      // Decided in bulk: never prompt. Writing still requires --apply/--yes —
+      // `--accept-new` destroys hand edits, so it must never be the side effect
+      // of a bare `navori sync`. Without them this is a preview: the plan above
+      // already showed each conflicting block's diff.
+      if (!autoApply) {
+        p.outro(ts.bulkPreview(`--${bulkMode}`, blockConflicts.length));
+        return;
+      }
+      resolutions = buildBulkResolutions(plans, bulkMode);
+      p.log.info(ts.bulkApplied(`--${bulkMode}`, blockConflicts.length));
+      // Whole-file conflicts are out of reach for both modes (the plan carries
+      // no rendered body for them); say so instead of implying they were fixed.
+      if (fileConflicts.length > 0) {
+        p.log.warn(ts.fileConflictsRemain(fileConflicts.length));
+      }
+    } else if (!autoApply) {
       if (conflicts.length > 0 && Boolean(args.interactive)) {
         const resolved = await resolveConflictsInteractively(plans, lang);
         if (resolved === null) {
@@ -216,7 +288,6 @@ export const syncCommand = defineCommand({
         resolutions = resolved;
         // Whole-file conflicts aren't resolved block-by-block. They stay as-is;
         // surface that explicitly.
-        const fileConflicts = conflicts.filter((c) => !c.path.includes("CLAUDE.md"));
         if (fileConflicts.length > 0) {
           p.log.warn(ts.fileConflictsRemain(fileConflicts.length));
         }
@@ -266,8 +337,11 @@ export const syncCommand = defineCommand({
       }
     }
 
+    // `--accept-new` resolved every block conflict, so only the whole-file ones
+    // are still "kept"; reporting the original count would contradict the run.
+    const keptConflicts = bulkMode === "accept-new" ? fileConflicts.length : conflicts.length;
     p.log.success(ts.wroteFiles(writtenTotal));
-    p.outro(`${color.green(ts.doneWord)} ${summarize(writtenTotal, conflicts.length, lang)}`);
+    p.outro(`${color.green(ts.doneWord)} ${summarize(writtenTotal, keptConflicts, lang)}`);
   },
 });
 
@@ -379,13 +453,97 @@ export function resolveSyncTargets(
 export interface Conflict {
   path: string;
   reason: string;
+  /**
+   * `block` — a managed block inside CLAUDE.md. Resolvable one by one
+   * (`--interactive`) or in bulk (`--accept-new` / `--keep-mine`), because the
+   * plan carries the rendered body for it.
+   * `file` — a whole managed file the user hand-edited (`.claude/agents/*.md`,
+   * `AGENTS.md`, `.cursor/rules/*`). NO resolution flag reaches these: the plan
+   * has no rendered body to put in their place, so navori never overwrites them
+   * automatically. Reported so nobody reads a clean exit as "all fixed".
+   */
+  kind: ConflictKind;
 }
 
-interface ConflictResolution {
+export type ConflictKind = "block" | "file";
+
+export interface ConflictResolution {
   /** CLAUDE.md block ids to keep the user's edit (skip render). */
   skipIds: Set<string>;
   /** CLAUDE.md block ids to overwrite with the rendered version (accept-new). */
   forceIds: Set<string>;
+}
+
+/**
+ * Non-interactive bulk resolution for CLAUDE.md block conflicts (#523).
+ *
+ * `accept-new` — overwrite every conflicting block with the rendered version.
+ * `keep-mine`  — keep every hand-edited block, apply everything else.
+ */
+export type BulkMode = "accept-new" | "keep-mine";
+
+export type BulkModeResult =
+  | { ok: true; mode: BulkMode | null }
+  /** `reason` is the LOCALIZED human message; `reasonCode` is the stable
+   *  kebab-case code `--json` consumers branch on (never localized). */
+  | { ok: false; reason: string; reasonCode: string };
+
+/**
+ * Validate the mutually exclusive bulk flags.
+ *
+ * Both at once is a contradiction (`--accept-new` destroys the very edits
+ * `--keep-mine` preserves). Either one together with `--interactive` is also a
+ * contradiction: one decides without asking, the other asks per block. Both
+ * fail fast with exit 1 rather than picking a winner silently.
+ */
+export function resolveBulkMode(
+  flags: { acceptNew: boolean; keepMine: boolean; interactive: boolean },
+  lang: Lang = DEFAULT_LANG,
+): BulkModeResult {
+  const ts = tc(lang).sync;
+  if (flags.acceptNew && flags.keepMine) {
+    return { ok: false, reason: ts.bulkFlagsConflict, reasonCode: "bulk-flags-conflict" };
+  }
+  const mode: BulkMode | null = flags.acceptNew
+    ? "accept-new"
+    : flags.keepMine
+      ? "keep-mine"
+      : null;
+  if (mode !== null && flags.interactive) {
+    return { ok: false, reason: ts.bulkFlagsInteractive, reasonCode: "bulk-flags-interactive" };
+  }
+  return { ok: true, mode };
+}
+
+/**
+ * Turn a bulk mode into the per-target resolutions the render consumes.
+ *
+ * `accept-new` collects EVERY conflicting CLAUDE.md block id into `forceIds`, so
+ * the render overwrites the hand-edited body with the freshly rendered one. The
+ * user zone is out of its reach by construction: the Claude engine carves that
+ * zone off before any managed-block work and re-emits it verbatim, so `forceIds`
+ * can only ever reach text between navori's own markers.
+ *
+ * `keep-mine` returns an EMPTY map on purpose — that is not an oversight. The
+ * engine ALREADY refuses to touch a hand-edited block, so "keep mine" has
+ * nothing to tell it; it only means "don't ask me, write the rest". Passing the
+ * ids as `skipIds` instead would drop them from the plan entirely and the report
+ * would stop naming the conflicts that are still there.
+ */
+export function buildBulkResolutions(
+  plans: TargetPlan[],
+  mode: BulkMode | null,
+): Map<string, ConflictResolution> {
+  const resolutions = new Map<string, ConflictResolution>();
+  if (mode !== "accept-new") return resolutions;
+  for (const tp of plans) {
+    const ids = (tp.claude?.claudeMdEntries ?? [])
+      .filter((e) => e.status === "user-modified-skipped")
+      .map((e) => e.asset.id);
+    if (ids.length === 0) continue;
+    resolutions.set(tp.target.label, { skipIds: new Set(), forceIds: new Set(ids) });
+  }
+  return resolutions;
 }
 
 function renderSyncTarget(
@@ -492,6 +650,8 @@ function buildSyncJson(
     /** Stable English failure code; omitted from the payload when undefined. */
     reason?: string;
     mode: string;
+    /** Bulk conflict resolution applied this run, or null when none (#523). */
+    resolution: BulkMode | null;
     pending: number;
     written: number;
     backups: Array<{ label: string; path: string }>;
@@ -504,6 +664,7 @@ function buildSyncJson(
     ok: meta.ok,
     ...(meta.reason ? { reason: meta.reason } : {}),
     mode: meta.mode,
+    resolution: meta.resolution,
     targets: plans.map(({ target, claude, engines }) => ({
       label: target.label,
       claudeMd: (claude?.claudeMdEntries ?? []).map((e) => ({
@@ -534,7 +695,9 @@ function buildSyncJson(
         warnings: engine.warnings,
       })),
     })),
-    conflicts: conflicts.map((c) => ({ path: c.path, reason: c.reason })),
+    // `kind` tells automation which conflicts `--accept-new`/`--keep-mine` can
+    // reach ("block") and which no flag can ("file") — see the Conflict docs.
+    conflicts: conflicts.map((c) => ({ path: c.path, reason: c.reason, kind: c.kind })),
     orphanedWorkspaces: meta.orphanedWorkspaces,
     pending: meta.pending,
     written: meta.written,
@@ -558,6 +721,7 @@ export function collectTargetConflicts({ target, claude, engines }: TargetPlan):
       out.push({
         path: `${prefix}CLAUDE.md (${e.asset.id})`,
         reason: "managed block edited",
+        kind: "block",
       });
     }
   }
@@ -567,7 +731,7 @@ export function collectTargetConflicts({ target, claude, engines }: TargetPlan):
   // (block from a newer navori) is intentionally not a conflict.
   for (const s of claude?.skipped ?? []) {
     if (s.status === "user-modified-skipped") {
-      out.push({ path: `${prefix}${s.path}`, reason: s.reason });
+      out.push({ path: `${prefix}${s.path}`, reason: s.reason, kind: "file" });
     }
   }
   for (const engine of engines) {
@@ -576,6 +740,7 @@ export function collectTargetConflicts({ target, claude, engines }: TargetPlan):
         out.push({
           path: `${prefix}[${engine.engine}] ${skipped.path}`,
           reason: skipped.reason,
+          kind: "file",
         });
       }
     }
@@ -593,13 +758,30 @@ function reportTargetPlan({ target, claude, engines }: TargetPlan, lang: Lang): 
   const ts = tc(lang).sync;
   const lines: string[] = [ts.planTitle(target.label)];
 
-  for (const e of claude?.claudeMdEntries ?? []) {
+  const claudeMdEntries = claude?.claudeMdEntries ?? [];
+  // #523: the plan used to say `user-modified-skipped` and nothing else, so
+  // deciding whether a conflict was "just emphasis quotes" or "my paragraph is
+  // about to go" meant opening every file by hand. Read CLAUDE.md once, and only
+  // when there IS a block conflict to diff.
+  const hasBlockConflict = claudeMdEntries.some((e) => e.status === "user-modified-skipped");
+  const claudeMdOnDisk = hasBlockConflict ? readClaudeMd(target.cwd) : "";
+
+  for (const e of claudeMdEntries) {
     const symStr = renderStatusSymbol(e.status);
     const label = renderStatusLabel(e.status);
     const cond = e.asset.condition ? dim(` [cond: ${e.asset.condition}]`) : "";
     lines.push(
       `  ${symStr} [claude] CLAUDE.md:${e.asset.id}  ${dim("(")}${label}${dim(")")}${cond}`,
     );
+    if (e.status === "user-modified-skipped") {
+      lines.push(
+        ...formatConflictDiffLines(
+          extractManagedContent(claudeMdOnDisk, e.asset.id) ?? "",
+          e.newContent ?? "",
+          lang,
+        ),
+      );
+    }
   }
 
   for (const w of claude?.written ?? []) {
@@ -641,7 +823,87 @@ function reportTargetPlan({ target, claude, engines }: TargetPlan, lang: Lang): 
     }
   }
 
+  // Whole-file conflicts get NO diff (see formatConflictDiffLines): the plan
+  // carries no rendered body for them. Say it once per target rather than
+  // letting the silence read as "nothing differs".
+  const hasFileConflict =
+    (claude?.skipped ?? []).some((s) => s.status === "user-modified-skipped") ||
+    engines.some((engine) => engine.skipped.some((s) => s.status === "user-modified-skipped"));
+  if (hasFileConflict) lines.push(`      ${dim(ts.conflictDiffFileLevel)}`);
+
   p.log.message(lines.join("\n"));
+}
+
+/** On-disk CLAUDE.md for a target, or "" when it does not exist yet. */
+function readClaudeMd(cwd: string): string {
+  const path = join(cwd, "CLAUDE.md");
+  return existsSync(path) ? readFileSync(path, "utf-8") : "";
+}
+
+/** How many diff lines the plan preview prints per conflicting block. Small on
+ *  purpose: a formatter-induced conflict hits every block at once (17 of 19 in
+ *  #523), and a full diff each would bury the plan. */
+export const CONFLICT_DIFF_MAX_LINES = 6;
+
+export interface ConflictDiffPreview {
+  /** Total diff lines between the two bodies (`-` and `+` counted separately). */
+  changed: number;
+  /** The first `max` of them, `- ` = on disk, `+ ` = what navori would render. */
+  lines: string[];
+  /** Diff lines left out by the cap; 0 when the whole diff fits. */
+  hidden: number;
+}
+
+/**
+ * Bounded diff between a managed block as it sits on disk and as navori would
+ * render it.
+ *
+ * WHAT IT SHOWS: the number of differing lines, then the first `max` of them.
+ * WHAT IT DOES NOT SHOW: everything past the cap (the caller prints how many
+ * were dropped and points at `sync --interactive`, which renders the full diff).
+ *
+ * The comparison is POSITIONAL — line i against line i, the same cheap scan
+ * `formatLineDiff` uses — not a Myers diff. It is exact for the case #523 is
+ * about (a formatter rewriting lines in place: `*forms*` → `_forms_`), and it
+ * over-reports when lines were inserted or deleted, because every line after the
+ * shift compares unequal. That is why the summary line says "diff lines" and not
+ * "lines you changed": it must not claim a precision it does not have.
+ */
+export function summarizeConflictDiff(
+  actual: string,
+  proposed: string,
+  max: number = CONFLICT_DIFF_MAX_LINES,
+): ConflictDiffPreview {
+  const a = actual.split("\n");
+  const b = proposed.split("\n");
+  const changed: string[] = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const ai = a[i];
+    const bi = b[i];
+    if (ai === bi) continue;
+    if (ai !== undefined) changed.push(`- ${ai}`);
+    if (bi !== undefined) changed.push(`+ ${bi}`);
+  }
+  return {
+    changed: changed.length,
+    lines: changed.slice(0, max),
+    hidden: Math.max(0, changed.length - max),
+  };
+}
+
+/** The indented, colorized preview block the plan prints under a conflicting
+ *  CLAUDE.md entry. Empty when the two bodies are identical (which shouldn't
+ *  happen for a conflict, but an empty preview beats a lying one). */
+function formatConflictDiffLines(actual: string, proposed: string, lang: Lang): string[] {
+  const ts = tc(lang).sync;
+  const preview = summarizeConflictDiff(actual, proposed);
+  if (preview.changed === 0) return [];
+  const out = [`      ${dim(ts.conflictDiffSummary(preview.changed, preview.lines.length))}`];
+  for (const line of preview.lines) {
+    out.push(`      ${line.startsWith("-") ? color.red(line) : color.green(line)}`);
+  }
+  if (preview.hidden > 0) out.push(`      ${dim(ts.conflictDiffTruncated(preview.hidden))}`);
+  return out;
 }
 
 function summarize(writtenCount: number, conflictCount: number, lang: Lang): string {

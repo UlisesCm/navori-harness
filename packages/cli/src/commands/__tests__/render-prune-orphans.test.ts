@@ -94,9 +94,15 @@ describe("runRender — orphaned engine output pruning (#312)", () => {
     expect(existsSync(join(cwd, ".codex"))).toBe(true);
   });
 
-  it("does NOT delete on --prune in preview mode", () => {
+  it("does NOT delete on --prune in preview mode — it reports the plan instead", () => {
     const result = runRender(cwd, { dryRun: true, prune: true });
-    expect(result.prunedEngineOutputs ?? []).toHaveLength(0);
+    // #521: this used to assert `prunedEngineOutputs` was EMPTY here, pinning
+    // the defect as the contract — the preview's silence was the bug, not the
+    // safety. The invariant is that nothing is deleted, and it still holds; the
+    // plan travels back so the user can approve it (equivalence with the apply
+    // plan is pinned in `render-prune-preview.test.ts`).
+    expect(result.prunedEngineOutputs).toEqual([".codex/config.toml", "AGENTS.md"]);
+    expect(result.prunedBackupPath).toBeNull();
     expect(existsSync(join(cwd, "AGENTS.md"))).toBe(true);
     expect(existsSync(join(cwd, ".codex"))).toBe(true);
   });

@@ -24,6 +24,7 @@ import { scanQualityGateReadiness } from "../lib/gate-readiness.ts";
 import { scanEmptyUserSections } from "../lib/skill-user-section.ts";
 import { scanInterpolationArtifacts } from "../lib/interpolation-artifacts.ts";
 import { scanDiskUsage, humanBytes } from "../lib/disk-usage.ts";
+import { scanNestedWorktrees } from "../lib/nested-worktrees.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -157,6 +158,13 @@ export const doctorCommand = defineCommand({
     // nobody). Two `du`s so growth is visible before the disk fills; doctor
     // reports and suggests the cleanup command, it never deletes.
     const diskUsage = scanDiskUsage(cwd);
+    // #522: the twin of the size check, and the one that actually costs work.
+    // Agent worktrees are full checkouts nested in the repo, so an eslint run
+    // started inside one resolves the parent repo's config too and dies with
+    // "couldn't determine the plugin uniquely". With eslint in a pre-commit
+    // hook that means the agent CANNOT commit — its branch never ships and the
+    // only visible symptom is a fat, abandoned worktree. Warning-level.
+    const nestedWorktrees = scanNestedWorktrees(cwd);
     // Referenced hook scripts (.claude/scripts|hooks) that are missing or lost
     // their exec bit — the hook then breaks/no-ops silently on every Bash (#213).
     const claudeHookScripts = scanClaudeHookScripts(cwd, config);
@@ -188,9 +196,12 @@ export const doctorCommand = defineCommand({
     // break the render, so it's a warning, not an `ok`-flipping error.
     const placeholderName = isPlaceholderName(config.name) ? config.name : null;
     // Informational: config.name doesn't match the repo's directory — usually a
-    // harness copied from another repo whose name was never updated. Skipped
-    // when the name is already a placeholder (warned above) so the hints don't
-    // double up. Never flips `ok`. #315.
+    // harness copied from another repo whose name was never updated. Compared
+    // against the directory's KEBAB-CASE form, which is the only shape the
+    // schema accepts: against the raw basename the warning was unsatisfiable in
+    // any directory with an underscore (#520). Skipped when the name is already
+    // a placeholder (warned above) so the hints don't double up. Never flips
+    // `ok`. #315.
     const nameMismatch = scanNameMismatch(cwd, config);
     // Outputs left behind by an engine no longer in config.engines[] (e.g. a
     // stale AGENTS.md/.codex after narrowing to claude). Informational — never
@@ -240,6 +251,10 @@ export const doctorCommand = defineCommand({
       // already prints the same string — so the JSON leaks nothing extra, and
       // this payload already carries an absolute `configPath`.
       diskUsage,
+      // Same reason `diskUsage` is here (#479): a check only a human can read
+      // is invisible to the CI job and to the agent parsing the report — and
+      // this one explains why that agent's own commit is failing.
+      nestedWorktrees,
       monorepoDrift,
       workspaceLink,
       missingPreset,
@@ -368,7 +383,9 @@ export const doctorCommand = defineCommand({
     }
 
     if (nameMismatch) {
-      p.log.warn(td.nameMismatch(nameMismatch.configName, nameMismatch.dirName));
+      p.log.warn(
+        td.nameMismatch(nameMismatch.configName, nameMismatch.dirName, nameMismatch.suggestedName),
+      );
     }
 
     if (missingPresetFiles.length > 0) {
@@ -568,6 +585,19 @@ export const doctorCommand = defineCommand({
         return `  ${color.yellow(sym.update)} ${accent(issue.path)}  ${grey(row)}`;
       });
       p.log.warn(td.diskUsage(diskUsage.length, lines.join("\n")));
+    }
+
+    if (nestedWorktrees) {
+      const lines = nestedWorktrees.worktrees.map(
+        (path) => `  ${color.yellow(sym.update)} ${accent(path)}  ${grey(td.nestedWorktreeRow)}`,
+      );
+      p.log.warn(
+        td.nestedWorktrees(
+          nestedWorktrees.worktrees.length,
+          nestedWorktrees.eslintConfig,
+          lines.join("\n"),
+        ),
+      );
     }
 
     if (monorepoDrift) {
@@ -796,20 +826,53 @@ export interface NameMismatch {
   configName: string;
   /** The repo directory basename it doesn't match. */
   dirName: string;
+  /** The value that satisfies BOTH the check and the schema: `dirName` in
+   *  kebab-case. What the warning tells the user to write. */
+  suggestedName: string;
 }
 
 /**
- * `config.name` doesn't match the repo's directory basename — the twin of the
- * placeholder-name check (#315). Usually a harness copied from another repo
- * whose `name` was never updated. Informational (never flips `ok`). Skipped when
- * the name is already a known placeholder — that's warned separately, so the two
- * hints don't double up on the same config.
+ * The kebab-case form of a directory basename: lowercased, every run of
+ * non-alphanumerics collapsed into a single hyphen, leading/trailing hyphens
+ * dropped. Null when nothing survives (`___`, `.`), the only case where no
+ * `name` can both match the directory and validate.
+ *
+ * Deliberately the SAME transform `init` applies when it derives `name` from
+ * the directory (`normalizeName` in lib/detect.ts) — so the value this suggests
+ * is the value `init` would have written. It is kept here rather than imported
+ * because that one takes `unknown` (user manifests) and strips an npm scope,
+ * neither of which applies to a basename; `name-mismatch-doctor.test.ts` pins
+ * the two against each other so they cannot drift apart.
+ *
+ * Load-bearing: the schema requires kebab-case (`/^[a-z0-9][a-z0-9-]*$/`), so
+ * comparing against the RAW basename made the warning unsatisfiable in any
+ * directory with an underscore — `alertaciudadana_backend` accepts no `name`
+ * that both matches it and validates, and the advice ("edit name") could not be
+ * followed no matter what you wrote (#520).
+ */
+function kebabDirName(dirName: string): string | null {
+  const kebab = dirName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return kebab.length > 0 ? kebab : null;
+}
+
+/**
+ * `config.name` doesn't match the repo directory's kebab-case form — the twin
+ * of the placeholder-name check (#315). Usually a harness copied from another
+ * repo whose `name` was never updated. Informational (never flips `ok`).
+ * Skipped when the name is already a known placeholder — that's warned
+ * separately, so the two hints don't double up on the same config — and when
+ * the directory has no kebab-case form at all.
  */
 export function scanNameMismatch(cwd: string, config: NavoriConfig): NameMismatch | null {
   if (isPlaceholderName(config.name)) return null;
   const dirName = basename(cwd);
-  if (dirName === config.name) return null;
-  return { configName: config.name, dirName };
+  const suggestedName = kebabDirName(dirName);
+  if (suggestedName === null || config.name === suggestedName) return null;
+  return { configName: config.name, dirName, suggestedName };
 }
 
 export interface CorruptedSettingsReport {

@@ -82,6 +82,7 @@ interface DoctorReport {
   emptyUserSections: Array<{ id: string; path: string }>;
   interpolationArtifacts: Array<{ path: string; line: number; token: string; reason: string }>;
   diskUsage: Array<{ target: string; path: string; bytes: number; thresholdBytes: number }>;
+  nestedWorktrees: { eslintConfig: string; worktrees: string[] } | null;
   monorepoDrift: { added: string[]; orphan: string[]; emptyDeclared: boolean } | null;
   config: { monorepo?: { workspaces: Array<{ name: string; path: string }> } };
 }
@@ -219,6 +220,28 @@ describe("doctor --json — warning-level checks", () => {
       path: join(repo, ".claude", "worktrees"),
       bytes: 3 * 1024 ** 3,
       thresholdBytes: 2 * 1024 ** 3,
+    });
+  });
+
+  it("nestedWorktrees: an eslint repo with an installed nested worktree (#522)", () => {
+    const repo = seedRepo();
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    // The worktree alone is not a finding — a repo with no eslint config has no
+    // upward resolution to break. Pinning the silent side first is what makes
+    // the assertion below a real one instead of a key-presence check.
+    const worktree = join(repo, ".claude", "worktrees", "agent-a028");
+    mkdirSync(join(worktree, "node_modules", "eslint-plugin-reactotron"), { recursive: true });
+    expect(doctorJson(repo).nestedWorktrees).toBeNull();
+
+    // Now the repo lints: eslint started inside the worktree resolves this file
+    // too, finds the plugin twice and dies — and the pre-commit hook takes the
+    // agent's commit with it.
+    writeFileSync(join(repo, ".eslintrc.js"), "module.exports = { plugins: ['reactotron'] };\n");
+
+    expect(doctorJson(repo).nestedWorktrees).toEqual({
+      eslintConfig: ".eslintrc.js",
+      worktrees: [".claude/worktrees/agent-a028"],
     });
   });
 });

@@ -166,6 +166,14 @@ interface Strings {
   monorepoAddPrompt: (n: number) => string;
   monorepoUseSuggested: string;
   monorepoPresetFor: (path: string) => string;
+
+  // Prettier prevention (#523). `prettier --write .` reformats CLAUDE.md
+  // (emphasis quotes, blank lines), which invalidates every managed block's
+  // hash and freezes the harness. init writes the harness paths into
+  // `.prettierignore` and reports the outcome with these.
+  prettierIgnoreWritten: (entries: string) => string;
+  prettierIgnoreAlreadyCovered: string;
+  prettierIgnoreSkipped: string;
 }
 
 const ES: Strings = {
@@ -337,6 +345,15 @@ const ES: Strings = {
   monorepoAddPrompt: (n) => `¿Agregar ${n} workspace(s) a monorepo.workspaces[]?`,
   monorepoUseSuggested: "¿Usar el preset sugerido en cada workspace?",
   monorepoPresetFor: (path) => `Preset para ${path}`,
+
+  prettierIgnoreWritten: (entries) =>
+    `Prettier detectado: agregué ${entries} a .prettierignore. Si el formateador reescribe esos ` +
+    `archivos invalida el hash de cada bloque managed y el harness se congela (#523).`,
+  prettierIgnoreAlreadyCovered:
+    "Prettier detectado: tu .prettierignore ya cubre los archivos del harness — no toqué nada.",
+  prettierIgnoreSkipped:
+    "El bloque managed de .prettierignore está editado a mano: lo conservé. Verifica que siga " +
+    "ignorando los archivos del harness o el formateador puede congelarlo (#523).",
 };
 
 const EN: Strings = {
@@ -507,6 +524,15 @@ const EN: Strings = {
   monorepoAddPrompt: (n) => `Add ${n} workspace(s) to monorepo.workspaces[]?`,
   monorepoUseSuggested: "Use the suggested preset for every workspace?",
   monorepoPresetFor: (path) => `Preset for ${path}`,
+
+  prettierIgnoreWritten: (entries) =>
+    `Prettier detected: added ${entries} to .prettierignore. If the formatter rewrites those ` +
+    `files it invalidates every managed block's hash and freezes the harness (#523).`,
+  prettierIgnoreAlreadyCovered:
+    "Prettier detected: your .prettierignore already covers the harness files — left untouched.",
+  prettierIgnoreSkipped:
+    "The managed block in .prettierignore was hand-edited: it was preserved. Check that it still " +
+    "ignores the harness files or the formatter can freeze it (#523).",
 };
 
 const DICTS: Record<Lang, Strings> = { es: ES, en: EN };
@@ -578,7 +604,11 @@ interface RenderCmdStrings {
   orphanedWorkspaces: (count: number, list: string) => string;
   orphanedEngineOutputs: (count: number, list: string) => string;
   prunedEngineOutputs: (count: number, list: string) => string;
+  /** Same list, before anything is deleted: `--prune` without `--apply` (#521). */
+  prunePreviewEngineOutputs: (count: number, list: string) => string;
   keptEngineOutputs: (count: number, list: string) => string;
+  /** The spared half of that same preview plan (#521). */
+  keptEngineOutputsPreview: (count: number, list: string) => string;
   keptEngineOutputReason: (reason: KeepReason) => string;
   downgradeWarning: (args: { count: number; newest: string; ids: string }) => string;
   previewWord: string;
@@ -599,6 +629,9 @@ interface RenderCmdStrings {
   /** Comment seeded at the top of a freshly-created `.gitignore` (respects
    *  `language`); the managed block is appended right after it. */
   gitignoreHeader: string;
+  /** Comment seeded at the top of a freshly-created `.prettierignore` (#523);
+   *  the managed block is appended right after it. */
+  prettierIgnoreHeader: string;
 }
 
 interface SyncCmdStrings {
@@ -624,6 +657,21 @@ interface SyncCmdStrings {
   doneWord: string;
   writtenToken: (n: number) => string;
   conflictKeptToken: (n: number) => string;
+  // Bulk (non-interactive) conflict resolution — #523.
+  /** `--accept-new` and `--keep-mine` contradict each other. */
+  bulkFlagsConflict: string;
+  /** A bulk flag cannot be combined with `--interactive` (prompt vs no prompt). */
+  bulkFlagsInteractive: string;
+  /** Bulk flag passed without `--apply`/`--yes`: preview only, nothing written. */
+  bulkPreview: (mode: string, count: number) => string;
+  /** Bulk resolution actually applied to N CLAUDE.md block conflicts. */
+  bulkApplied: (mode: string, count: number) => string;
+  /** Header above a conflicting block's diff in the plan preview. */
+  conflictDiffSummary: (changed: number, shown: number) => string;
+  /** Tail line naming how many diff lines the preview left out. */
+  conflictDiffTruncated: (hidden: number) => string;
+  /** Whole-file conflicts carry no block-level diff — say so, don't stay silent. */
+  conflictDiffFileLevel: string;
 }
 
 interface DoctorCmdStrings {
@@ -639,7 +687,7 @@ interface DoctorCmdStrings {
   missingPreset: (preset: string) => string;
   presetOverride: (preset: string) => string;
   placeholderName: (name: string) => string;
-  nameMismatch: (configName: string, dirName: string) => string;
+  nameMismatch: (configName: string, dirName: string, suggestedName: string) => string;
   orphanedEngineOutputsTitle: (n: number) => string;
   orphanedEngineOutputRow: (engine: string) => string;
   missingPresetFiles: (preset: string, n: number, lines: string) => string;
@@ -699,6 +747,10 @@ interface DoctorCmdStrings {
   diskUsage: (n: number, lines: string) => string;
   diskBackupsRow: (size: string) => string;
   diskWorktreesRow: (size: string) => string;
+  /** #522 — nested agent worktrees with their own install break eslint's
+   *  upward config resolution, so no agent can commit from one. */
+  nestedWorktrees: (n: number, eslintConfig: string, lines: string) => string;
+  nestedWorktreeRow: string;
   monorepoEmptyDeclared: string;
   monorepoAddedRow: string;
   monorepoOrphanRow: string;
@@ -1247,8 +1299,15 @@ const CMD_ES: CmdStrings = {
     prunedEngineOutputs: (count, list) =>
       `Borré archivos huérfanos de engines desactivados (${count}) — solo los que escribió ` +
       `navori (llevan su marcador), respaldados antes de borrar:\n${list}`,
+    prunePreviewEngineOutputs: (count, list) =>
+      `Con --apply borraría ${count} archivo(s) huérfanos de engines desactivados — solo los ` +
+      `que escribió navori (llevan su marcador), y los respalda antes de borrar. Este preview ` +
+      `no tocó nada:\n${list}`,
     keptEngineOutputs: (count, list) =>
       `Dejé intacto lo que navori no escribió (${count}) — el prune borra archivo por archivo, ` +
+      `nunca el directorio completo. Bórralos tú si ya no los quieres:\n${list}`,
+    keptEngineOutputsPreview: (count, list) =>
+      `Conservaría lo que navori no escribió (${count}) — el prune borra archivo por archivo, ` +
       `nunca el directorio completo. Bórralos tú si ya no los quieres:\n${list}`,
     keptEngineOutputReason: (reason) => {
       switch (reason) {
@@ -1291,6 +1350,10 @@ const CMD_ES: CmdStrings = {
     gitignoreHeader:
       "# .gitignore gestionado por navori. El bloque de abajo se regenera con 'navori render';\n" +
       "# edita fuera de él con libertad.\n",
+    prettierIgnoreHeader:
+      "# .prettierignore gestionado por navori. El bloque de abajo evita que el formateador\n" +
+      "# reescriba los archivos del harness e invalide el hash de sus bloques managed.\n" +
+      "# Edita fuera del bloque con libertad.\n",
   },
   sync: {
     workspaceRequiresMonorepo:
@@ -1318,6 +1381,23 @@ const CMD_ES: CmdStrings = {
     doneWord: "Done",
     writtenToken: (n) => `${n} written`,
     conflictKeptToken: (n) => `${n} conflict kept`,
+    bulkFlagsConflict:
+      "--accept-new y --keep-mine son excluyentes: elige uno. --accept-new sobrescribe tus " +
+      "ediciones con la versión renderizada; --keep-mine las conserva y aplica todo lo demás.",
+    bulkFlagsInteractive:
+      "--interactive no se combina con --accept-new/--keep-mine: uno pregunta bloque por bloque " +
+      "y los otros deciden en bloque sin preguntar. Elige uno.",
+    bulkPreview: (mode, count) =>
+      `${mode} resolvería ${count} conflicto(s) de bloques en CLAUDE.md. No escribí nada: ` +
+      `vuelve a correrlo con --apply (o --yes) para aplicarlo.`,
+    bulkApplied: (mode, count) => `${mode}: resolví ${count} conflicto(s) de bloques en CLAUDE.md`,
+    conflictDiffSummary: (changed, shown) =>
+      `${changed} línea(s) de diff (mostrando ${shown}; - tu versión, + la renderizada)`,
+    conflictDiffTruncated: (hidden) =>
+      `… +${hidden} línea(s) de diff sin mostrar — 'navori sync --interactive' trae el diff completo`,
+    conflictDiffFileLevel:
+      "(conflicto de archivo completo: el preview no trae diff — compáralo contra el backup o " +
+      "resuélvelo a mano)",
   },
   doctor: {
     noConfigRunInit: (path) => `No hay navori.config.json en ${path}. Corre 'navori init' primero.`,
@@ -1341,10 +1421,11 @@ const CMD_ES: CmdStrings = {
     placeholderName: (name) =>
       `El name '${name}' parece un placeholder de scaffold (probablemente heredado del ` +
       `package.json sin renombrar). Edita "name" en navori.config.json si no es el nombre real del repo.`,
-    nameMismatch: (configName, dirName) =>
+    nameMismatch: (configName, dirName, suggestedName) =>
       `El name '${configName}' en navori.config.json no coincide con el directorio del repo ` +
       `('${dirName}') — probablemente un harness copiado de otro repo sin actualizar el nombre. ` +
-      `Edita "name" si no es intencional.`,
+      `Edita "name" a '${suggestedName}' (la forma kebab-case del directorio, la única que ` +
+      `acepta el esquema) si no es intencional.`,
     orphanedEngineOutputsTitle: (n) =>
       `Outputs huérfanos de engines desactivados · ${n} ('navori render --prune --apply' borra ` +
       `de ahí solo los archivos que escribió navori)`,
@@ -1458,6 +1539,15 @@ const CMD_ES: CmdStrings = {
       `— ${size} en worktrees de agente; revisa 'git worktree list' y quita los que ` +
       `sobren con 'git worktree remove <ruta>' (pueden tener trabajo sin commitear; ` +
       `navori nunca los borra solo)`,
+    nestedWorktrees: (n, eslintConfig, lines) =>
+      `Worktrees anidados con node_modules propio y eslint en el repo (${n}) — eslint ` +
+      `resuelve su configuración subiendo por el árbol, así que una corrida dentro del ` +
+      `worktree carga también '${eslintConfig}' del repo padre y falla con "couldn't ` +
+      `determine the plugin uniquely". Si eslint corre en un hook de pre-commit, ningún ` +
+      `agente puede commitear desde ahí: su rama nunca se publica y lo único que se ve ` +
+      `es un worktree abandonado. Cierra el ciclo desde el árbol principal y quita el ` +
+      `worktree con 'git worktree remove <ruta>' al terminar:\n${lines}`,
+    nestedWorktreeRow: "— checkout anidado con node_modules propio",
     monorepoEmptyDeclared:
       "monorepo declarado pero workspaces[] vacío — corre 'navori scan' para poblarlo",
     monorepoAddedRow: "— en disco, falta en config (corre 'navori scan')",
@@ -2111,8 +2201,15 @@ const CMD_EN: CmdStrings = {
     prunedEngineOutputs: (count, list) =>
       `Deleted orphaned files from disabled engines (${count}) — only the ones navori wrote ` +
       `(they carry its marker), backed up before deletion:\n${list}`,
+    prunePreviewEngineOutputs: (count, list) =>
+      `With --apply this would delete ${count} orphaned file(s) from disabled engines — only ` +
+      `the ones navori wrote (they carry its marker), backed up before deletion. This preview ` +
+      `touched nothing:\n${list}`,
     keptEngineOutputs: (count, list) =>
       `Left untouched what navori did not write (${count}) — the prune deletes file by file, ` +
+      `never the whole directory. Delete them yourself if you no longer want them:\n${list}`,
+    keptEngineOutputsPreview: (count, list) =>
+      `Would keep what navori did not write (${count}) — the prune deletes file by file, ` +
       `never the whole directory. Delete them yourself if you no longer want them:\n${list}`,
     keptEngineOutputReason: (reason) => {
       switch (reason) {
@@ -2151,6 +2248,10 @@ const CMD_EN: CmdStrings = {
     gitignoreHeader:
       "# .gitignore managed by navori. The block below is regenerated by 'navori render';\n" +
       "# edit freely outside it.\n",
+    prettierIgnoreHeader:
+      "# .prettierignore managed by navori. The block below keeps the formatter from\n" +
+      "# rewriting the harness files and invalidating their managed blocks' hashes.\n" +
+      "# Edit freely outside the block.\n",
   },
   sync: {
     workspaceRequiresMonorepo:
@@ -2178,6 +2279,23 @@ const CMD_EN: CmdStrings = {
     doneWord: "Done",
     writtenToken: (n) => `${n} written`,
     conflictKeptToken: (n) => `${n} conflict kept`,
+    bulkFlagsConflict:
+      "--accept-new and --keep-mine are mutually exclusive: pick one. --accept-new overwrites " +
+      "your edits with the rendered version; --keep-mine keeps them and applies everything else.",
+    bulkFlagsInteractive:
+      "--interactive cannot be combined with --accept-new/--keep-mine: one asks block by block, " +
+      "the others decide in bulk without asking. Pick one.",
+    bulkPreview: (mode, count) =>
+      `${mode} would resolve ${count} CLAUDE.md block conflict(s). Nothing was written: ` +
+      `re-run it with --apply (or --yes) to apply it.`,
+    bulkApplied: (mode, count) => `${mode}: resolved ${count} CLAUDE.md block conflict(s)`,
+    conflictDiffSummary: (changed, shown) =>
+      `${changed} diff line(s) (showing ${shown}; - yours, + rendered)`,
+    conflictDiffTruncated: (hidden) =>
+      `… +${hidden} diff line(s) not shown — 'navori sync --interactive' has the full diff`,
+    conflictDiffFileLevel:
+      "(whole-file conflict: the preview carries no diff — compare it against the backup or " +
+      "resolve it by hand)",
   },
   doctor: {
     noConfigRunInit: (path) => `No navori.config.json at ${path}. Run 'navori init' first.`,
@@ -2200,10 +2318,11 @@ const CMD_EN: CmdStrings = {
     placeholderName: (name) =>
       `The name '${name}' looks like a scaffold placeholder (probably carried over from an ` +
       `un-renamed package.json). Edit "name" in navori.config.json if it isn't the repo's real name.`,
-    nameMismatch: (configName, dirName) =>
+    nameMismatch: (configName, dirName, suggestedName) =>
       `The name '${configName}' in navori.config.json doesn't match the repo directory ` +
       `('${dirName}') — likely a harness copied from another repo without updating the name. ` +
-      `Edit "name" if it isn't intentional.`,
+      `Edit "name" to '${suggestedName}' (the directory's kebab-case form, the only shape the ` +
+      `schema accepts) if it isn't intentional.`,
     orphanedEngineOutputsTitle: (n) =>
       `Orphaned outputs from disabled engines · ${n} ('navori render --prune --apply' deletes ` +
       `only the files navori wrote in there)`,
@@ -2319,6 +2438,15 @@ const CMD_EN: CmdStrings = {
       `— ${size} in agent worktrees; review 'git worktree list' and drop stale ones ` +
       `with 'git worktree remove <path>' (they may hold uncommitted work; ` +
       `navori never deletes them itself)`,
+    nestedWorktrees: (n, eslintConfig, lines) =>
+      `Nested worktrees with their own node_modules while the repo runs eslint (${n}) — ` +
+      `eslint resolves its config by walking up the tree, so a run started inside the ` +
+      `worktree also loads the parent repo's '${eslintConfig}' and fails with "couldn't ` +
+      `determine the plugin uniquely". With eslint in a pre-commit hook no agent can ` +
+      `commit from there: its branch is never pushed and all you see is an abandoned ` +
+      `worktree. Close the cycle from the main tree and drop the worktree with ` +
+      `'git worktree remove <path>' when it's done:\n${lines}`,
+    nestedWorktreeRow: "— nested checkout with its own node_modules",
     monorepoEmptyDeclared:
       "monorepo declared but workspaces[] empty — run 'navori scan' to populate it",
     monorepoAddedRow: "— on disk, missing in config (run 'navori scan')",
