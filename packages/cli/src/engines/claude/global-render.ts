@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { createBackup } from "../../lib/backup.ts";
 import { safeHomedir } from "../../lib/home.ts";
 import { CORE_MANAGED_ASSETS, resolveAssetPath } from "../../lib/render-plan.ts";
 import { resolveLang, tc } from "../../lib/i18n.ts";
@@ -154,23 +155,61 @@ export function permissionsFragment(config: GlobalConfig): Record<string, unknow
   return Object.keys(perms).length > 0 ? { permissions: perms } : {};
 }
 
-/** Read the existing global settings.json (empty object if absent/corrupt). */
-function readExistingSettings(dir: string): Record<string, unknown> {
+/**
+ * What `<dir>/settings.json` holds right now. "Absent" and "unreadable" are
+ * DIFFERENT facts and this type refuses to conflate them (#497): absent means
+ * there is nothing to preserve, unreadable means the user's machine-wide config
+ * IS there and we just cannot understand it — merging over it would destroy
+ * their model, env, hooks and permissions with no way back (unlike the
+ * repo-scoped `.claude/settings.json`, git tracks nothing here).
+ */
+export type GlobalSettingsRead =
+  | { kind: "absent" }
+  | { kind: "ok"; settings: Record<string, unknown> }
+  | { kind: "parse-error"; detail: string }
+  | { kind: "not-object" };
+
+/**
+ * Read the existing global settings.json. A file that exists but cannot be
+ * parsed (or does not hold a JSON object) comes back as its own kind, so each
+ * caller decides what that means for it — never as an empty object.
+ */
+export function readExistingSettings(dir: string): GlobalSettingsRead {
   const path = join(dir, "settings.json");
-  if (!existsSync(path)) return {};
+  if (!existsSync(path)) return { kind: "absent" };
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
+    parsed = JSON.parse(readFileSync(path, "utf-8"));
+  } catch (err) {
+    return { kind: "parse-error", detail: err instanceof Error ? err.message : String(err) };
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { kind: "not-object" };
+  return { kind: "ok", settings: parsed as Record<string, unknown> };
+}
+
+/**
+ * Localized explanation of why the global settings.json cannot be merged into,
+ * naming the file and (for a syntax error) the parser's own message — the same
+ * contract `planSettings` honours for the repo-scoped file.
+ */
+export function unreadableSettingsMessage(
+  read: Extract<GlobalSettingsRead, { kind: "parse-error" | "not-object" }>,
+  path: string,
+  language?: string,
+): string {
+  const g = tc(resolveLang(language)).global;
+  return read.kind === "parse-error"
+    ? g.settingsParseFailed(path, read.detail)
+    : g.settingsNotObject(path);
 }
 
 /** True iff `<dir>/settings.json` already registers navori's baseline hook. */
 export function settingsHasBaseline(dir = globalTargetDir()): boolean {
-  const hooks = readExistingSettings(dir).hooks;
+  const read = readExistingSettings(dir);
+  // Unreadable counts as "not registered": doctor's job is to report what it can
+  // PROVE is in place, and a file it cannot parse proves nothing (#497).
+  if (read.kind !== "ok") return false;
+  const hooks = read.settings.hooks;
   if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) return false;
   const sessionStart = (hooks as Record<string, unknown>).SessionStart;
   if (!Array.isArray(sessionStart)) return false;
@@ -186,7 +225,9 @@ export function settingsHasBaseline(dir = globalTargetDir()): boolean {
  * only surfaces this check when the user actually declared permissions.
  */
 export function settingsHasPermissions(config: GlobalConfig, dir = globalTargetDir()): boolean {
-  const perms = readExistingSettings(dir).permissions;
+  const read = readExistingSettings(dir);
+  if (read.kind !== "ok") return false; // same as settingsHasBaseline: can't prove it
+  const perms = read.settings.permissions;
   const bag =
     perms && typeof perms === "object" && !Array.isArray(perms)
       ? (perms as Record<string, unknown>)
@@ -221,28 +262,62 @@ export interface GlobalRenderPlan {
  * SessionStart hook registration and the personal `permissions` from
  * `global.json` (Spec 0010). Merging over the user's existing settings means
  * navori never clobbers their other global hooks/permissions.
+ *
+ * THROWS when settings.json exists but cannot be read (#497). The repo-scoped
+ * twin (`planSettings`) offers `--force` as a conscious escape hatch because the
+ * pre-render backup plus git can bring that file back; `~/.claude/settings.json`
+ * has neither, so there is no version of "overwrite anyway" worth offering —
+ * the only way forward is fixing the JSON, which loses nothing.
  */
 export function planGlobalRender(config: GlobalConfig, dir = globalTargetDir()): GlobalRenderPlan {
   const baseline = composeBaseline(config);
   const hookPath = globalHookPath(dir);
-  const existing = readExistingSettings(dir);
+  const settingsPath = join(dir, "settings.json");
+  const read = readExistingSettings(dir);
+  if (read.kind === "parse-error" || read.kind === "not-object") {
+    throw new Error(unreadableSettingsMessage(read, settingsPath, config.language));
+  }
+  const existing = read.kind === "ok" ? read.settings : {};
   const fragment = deepMerge(hookSettingsFragment(hookPath), permissionsFragment(config));
   const settings = deepMerge(existing, fragment);
   return {
     dir,
     hookPath,
     hookScript: generateHookScript(baseline),
-    settingsPath: join(dir, "settings.json"),
+    settingsPath,
     settings,
   };
 }
 
-/** Write the plan to disk: gate hook (executable) + merged settings.json. */
-export function applyGlobalRender(plan: GlobalRenderPlan): void {
+/**
+ * Snapshot the settings.json we are about to overwrite into `~/.navori/backups`,
+ * returning the snapshot dir (null when there is no file yet — a first install
+ * destroys nothing). The repo render gets this from `commitWrites`; the global
+ * render is outside that pipeline (§2.4), so it takes its own.
+ *
+ * Backs up EXACTLY the one file it will rewrite, never `dir`: the Claude config
+ * dir also holds `projects/` (every session transcript) and agent worktrees, and
+ * walking a dir like that into a backup on every render is the #348 mistake that
+ * grew to 131 GB until `ENOSPC` broke render itself.
+ */
+function backupSettings(dir: string, settingsPath: string): string | null {
+  if (!existsSync(settingsPath)) return null;
+  return createBackup(dir, ["settings.json"]).path;
+}
+
+/**
+ * Write the plan to disk: gate hook (executable) + merged settings.json.
+ * Returns the backup dir holding the previous settings.json, or null when there
+ * was none to save. Throws before writing anything if the backup fails — losing
+ * the user's machine-wide config is worse than not installing the baseline.
+ */
+export function applyGlobalRender(plan: GlobalRenderPlan): string | null {
+  const backupPath = backupSettings(plan.dir, plan.settingsPath);
   mkdirSync(dirname(plan.hookPath), { recursive: true });
   writeFileSync(plan.hookPath, plan.hookScript);
   chmodSync(plan.hookPath, 0o755);
   writeFileSync(plan.settingsPath, `${JSON.stringify(plan.settings, null, 2)}\n`);
+  return backupPath;
 }
 
 /** True iff a SessionStart hook entry points at navori's global baseline. */
@@ -292,6 +367,10 @@ export function stripBaselineFromSettings(
 export interface GlobalUninstallResult {
   removedHook: boolean;
   updatedSettings: boolean;
+  /** settings.json exists but could not be parsed, so it was left untouched. */
+  settingsUnreadable: boolean;
+  /** Backup dir holding the settings.json as it was before the rewrite. */
+  backupPath: string | null;
 }
 
 /**
@@ -309,13 +388,21 @@ export function uninstallGlobalRender(dir = globalTargetDir()): GlobalUninstallR
 
   const settingsPath = join(dir, "settings.json");
   let updatedSettings = false;
-  if (existsSync(settingsPath)) {
-    const before = readExistingSettings(dir);
-    const after = stripBaselineFromSettings(before);
-    if (JSON.stringify(after) !== JSON.stringify(before)) {
+  let settingsUnreadable = false;
+  let backupPath: string | null = null;
+  const read = readExistingSettings(dir);
+  // Uninstall never aborts on an unreadable file the way the render does: the
+  // hook removal still succeeds and refusing it would trap the user. It just
+  // does not touch what it cannot understand, and says so (#497).
+  if (read.kind === "parse-error" || read.kind === "not-object") {
+    settingsUnreadable = true;
+  } else if (read.kind === "ok") {
+    const after = stripBaselineFromSettings(read.settings);
+    if (JSON.stringify(after) !== JSON.stringify(read.settings)) {
+      backupPath = backupSettings(dir, settingsPath);
       writeFileSync(settingsPath, `${JSON.stringify(after, null, 2)}\n`);
       updatedSettings = true;
     }
   }
-  return { removedHook, updatedSettings };
+  return { removedHook, updatedSettings, settingsUnreadable, backupPath };
 }

@@ -933,6 +933,36 @@ describe("scanDuplicateMarkers (#274)", () => {
     expect(scanDuplicateMarkers(cwd)).toHaveLength(0);
   });
 
+  // #498: the duplicate guard is the check that has to work when the PARSER is
+  // wrong. An unclosed fence in the user's prose blinded `proseLines`, so the
+  // writer re-appended every block below it AND this scan — which used to walk
+  // the same parser — reported the file healthy while it grew 27 KB per render.
+  it("sees duplicates hidden below an UNCLOSED code fence", () => {
+    writeFileSync(
+      join(cwd, "CLAUDE.md"),
+      "# Notas\n\n```bash\nnpm i\n\n" +
+        dupBlock("sdd", "first copy") +
+        dupBlock("sdd", "STALE second copy"),
+    );
+    const found = scanDuplicateMarkers(cwd);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ filePath: "CLAUDE.md", id: "sdd", count: 2 });
+  });
+
+  // The property that makes the guard worth more than the parser fix: it does
+  // NOT walk `proseLines`, so no future blind spot in the parser can blind it.
+  // Pinned through the one case where the two readings genuinely differ — a
+  // duplicated id inside a CLOSED fence. Reporting it is the accepted trade-off
+  // (a report the user reads, versus a silent miss that grows a file forever);
+  // this spec fails the moment the scan goes back to the parser's reading.
+  it("reports a duplicated id even inside a closed fence — it does not trust the parser", () => {
+    writeFileSync(
+      join(cwd, "CLAUDE.md"),
+      dupBlock("sdd", "real") + "\n```md\n" + dupBlock("sdd", "quoted example") + "```\n",
+    );
+    expect(scanDuplicateMarkers(cwd)[0]).toMatchObject({ id: "sdd", count: 2 });
+  });
+
   it("scans monorepo workspaces when passed the config", () => {
     mkdirSync(join(cwd, "apps/api"), { recursive: true });
     writeFileSync(join(cwd, "apps/api/CLAUDE.md"), dupBlock("sdd", "a") + dupBlock("sdd", "b"));

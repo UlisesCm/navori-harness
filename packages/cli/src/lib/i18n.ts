@@ -8,6 +8,10 @@
  * pulls strings via `t(lang).<key>`.
  */
 
+// Type-only (erased at build time): this file stays runtime-dependency-free,
+// but the prune's reason union is defined once, where the prune decides it.
+import type { KeepReason } from "./removable.ts";
+
 export type Lang = "es" | "en";
 
 interface Strings {
@@ -574,6 +578,8 @@ interface RenderCmdStrings {
   orphanedWorkspaces: (count: number, list: string) => string;
   orphanedEngineOutputs: (count: number, list: string) => string;
   prunedEngineOutputs: (count: number, list: string) => string;
+  keptEngineOutputs: (count: number, list: string) => string;
+  keptEngineOutputReason: (reason: KeepReason) => string;
   downgradeWarning: (args: { count: number; newest: string; ids: string }) => string;
   previewWord: string;
   previewHint: string;
@@ -1037,6 +1043,16 @@ interface GlobalCmdStrings {
   hooksDisabledHint: string;
   uninstallNothing: string;
   uninstallDone: (dir: string) => string;
+  uninstallSettingsUnreadable: (path: string) => string;
+  /**
+   * #497 — the machine-wide settings.json exists but cannot be merged into.
+   * Separate from `engine.settingsParseFailed` (the repo-scoped twin) because
+   * the remediation differs: git can restore `.claude/settings.json`, so there
+   * the answer is `render --force`; nothing can restore `~/.claude/settings.json`,
+   * so the only answer is fixing the JSON by hand.
+   */
+  settingsParseFailed: (path: string, detail: string) => string;
+  settingsNotObject: (path: string) => string;
   outroOk: string;
   outroIssues: string;
 }
@@ -1229,7 +1245,26 @@ const CMD_ES: CmdStrings = {
       `Outputs huérfanos de engines desactivados (${count}) — quedaron de un engine que ya ` +
       `no está en config.engines; render no los toca. Corre 'navori render --prune --apply' para borrarlos:\n${list}`,
     prunedEngineOutputs: (count, list) =>
-      `Borré outputs huérfanos de engines desactivados (${count}) — respaldados antes de borrar:\n${list}`,
+      `Borré archivos huérfanos de engines desactivados (${count}) — solo los que escribió ` +
+      `navori (llevan su marcador), respaldados antes de borrar:\n${list}`,
+    keptEngineOutputs: (count, list) =>
+      `Dejé intacto lo que navori no escribió (${count}) — el prune borra archivo por archivo, ` +
+      `nunca el directorio completo. Bórralos tú si ya no los quieres:\n${list}`,
+    keptEngineOutputReason: (reason) => {
+      switch (reason) {
+        case "ephemeral":
+          return "estado local efímero; navori nunca lo versiona";
+        case "symlink":
+          // The prune leaving a link in place is a deliberate change of
+          // behaviour, not a failure: say so, or the user reads the surviving
+          // `.cursor` as a prune that did not work.
+          return "es un enlace simbólico: no lo seguimos ni lo desenlazamos; bórralo tú si ya no lo quieres";
+        // No `default`: a new reason must fail to compile in BOTH locales
+        // instead of silently rendering as "we did not write it".
+        case "foreign":
+          return "sin marcador de navori: no lo escribimos nosotros";
+      }
+    },
     downgradeWarning: ({ count, newest, ids }) =>
       `Tu CLI está detrás del repo: ${count} bloque(s) los escribió una navori más nueva ` +
       `(hasta ${newest}). Los preservé sin tocar para no degradarlos. ` +
@@ -1311,9 +1346,14 @@ const CMD_ES: CmdStrings = {
       `('${dirName}') — probablemente un harness copiado de otro repo sin actualizar el nombre. ` +
       `Edita "name" si no es intencional.`,
     orphanedEngineOutputsTitle: (n) =>
-      `Outputs huérfanos de engines desactivados · ${n} (corre 'navori render --prune --apply' para borrarlos)`,
+      `Outputs huérfanos de engines desactivados · ${n} ('navori render --prune --apply' borra ` +
+      `de ahí solo los archivos que escribió navori)`,
+    // NUNCA "seguro de borrar" (#496): doctor reporta rutas de un mapa estático
+    // por engine sin haber leído su contenido, y esa recomendación llevó a
+    // borrar el `.cursor/` del usuario. Que diga lo que sabe: de quién es la
+    // ruta y qué hará el prune — la decisión archivo por archivo la toma él.
     orphanedEngineOutputRow: (engine) =>
-      `— del engine '${engine}' (no está en engines); seguro de borrar`,
+      `— del engine '${engine}' (no está en engines); el prune solo borra lo que lleve marcador de navori`,
     missingPresetFiles: (preset, n, lines) =>
       `Extras del preset '${preset}' sin archivo (${n}) — el render ` +
       `fallará al leerlos; créalos o quítalos del manifest:\n${lines}`,
@@ -1840,6 +1880,16 @@ const CMD_ES: CmdStrings = {
       "recuerda: si deshabilitaste los hooks de Claude Code, el baseline no se inyecta",
     uninstallNothing: "No hay harness global que desinstalar.",
     uninstallDone: (dir) => `Harness global desinstalado de ${dir}.`,
+    uninstallSettingsUnreadable: (path) =>
+      `No se pudo parsear ${path}, así que quedó intacto: se borró el archivo del hook, ` +
+      `pero su registro sigue en settings.json. Arregla el JSON y vuelve a correr 'navori global uninstall'.`,
+    settingsParseFailed: (path, detail) =>
+      `El settings.json global (${path}) no se pudo parsear como JSON: ${detail}. ` +
+      `No se escribió nada: es tu archivo, no lo versiona git y navori no puede regenerarlo. ` +
+      `Arregla el JSON a mano y vuelve a correr el comando.`,
+    settingsNotObject: (path) =>
+      `El settings.json global (${path}) no es un objeto JSON — no se puede fusionar. ` +
+      `No se escribió nada: arréglalo a mano y vuelve a correr el comando.`,
     outroOk: "OK",
     outroIssues: "Revisa lo anterior",
   },
@@ -2059,7 +2109,23 @@ const CMD_EN: CmdStrings = {
       `Orphaned outputs from disabled engines (${count}) — left over from an engine no longer ` +
       `in config.engines; render never touches them. Run 'navori render --prune --apply' to delete them:\n${list}`,
     prunedEngineOutputs: (count, list) =>
-      `Deleted orphaned outputs from disabled engines (${count}) — backed up before deletion:\n${list}`,
+      `Deleted orphaned files from disabled engines (${count}) — only the ones navori wrote ` +
+      `(they carry its marker), backed up before deletion:\n${list}`,
+    keptEngineOutputs: (count, list) =>
+      `Left untouched what navori did not write (${count}) — the prune deletes file by file, ` +
+      `never the whole directory. Delete them yourself if you no longer want them:\n${list}`,
+    keptEngineOutputReason: (reason) => {
+      switch (reason) {
+        case "ephemeral":
+          return "ephemeral local state; navori never versions it";
+        case "symlink":
+          // See the es-MX twin: a surviving link is a deliberate decision the
+          // user must be able to tell apart from a prune that failed.
+          return "it is a symlink: we neither follow nor unlink it; delete it yourself if you no longer want it";
+        case "foreign":
+          return "no navori marker: we did not write it";
+      }
+    },
     downgradeWarning: ({ count, newest, ids }) =>
       `Your CLI is behind the repo: ${count} block(s) were written by a newer navori ` +
       `(up to ${newest}). They were preserved untouched to avoid downgrading them. ` +
@@ -2139,9 +2205,15 @@ const CMD_EN: CmdStrings = {
       `('${dirName}') — likely a harness copied from another repo without updating the name. ` +
       `Edit "name" if it isn't intentional.`,
     orphanedEngineOutputsTitle: (n) =>
-      `Orphaned outputs from disabled engines · ${n} (run 'navori render --prune --apply' to delete them)`,
+      `Orphaned outputs from disabled engines · ${n} ('navori render --prune --apply' deletes ` +
+      `only the files navori wrote in there)`,
+    // NEVER "safe to delete" (#496): doctor reports paths from a static
+    // per-engine map without having read a byte of their contents, and that
+    // recommendation is what deleted a user's own `.cursor/`. It says what it
+    // knows — whose path it is and what the prune will do — and leaves the
+    // file-by-file decision to the prune.
     orphanedEngineOutputRow: (engine) =>
-      `— from disabled engine '${engine}' (not in engines); safe to delete`,
+      `— from disabled engine '${engine}' (not in engines); the prune only deletes what carries navori's marker`,
     missingPresetFiles: (preset, n, lines) =>
       `Extras of preset '${preset}' with no file (${n}) — render ` +
       `will fail reading them; create or remove them from the manifest:\n${lines}`,
@@ -2665,6 +2737,16 @@ const CMD_EN: CmdStrings = {
     hooksDisabledHint: "note: if you disabled Claude Code hooks, the baseline won't be injected",
     uninstallNothing: "No global harness to uninstall.",
     uninstallDone: (dir) => `Global harness uninstalled from ${dir}.`,
+    uninstallSettingsUnreadable: (path) =>
+      `Could not parse ${path}, so it was left untouched: the hook file is gone, but its ` +
+      `registration is still in settings.json. Fix the JSON and run 'navori global uninstall' again.`,
+    settingsParseFailed: (path, detail) =>
+      `The global settings.json (${path}) could not be parsed as JSON: ${detail}. ` +
+      `Nothing was written: it is your file, git does not track it and navori cannot regenerate it. ` +
+      `Fix the JSON by hand and run the command again.`,
+    settingsNotObject: (path) =>
+      `The global settings.json (${path}) is not a JSON object — can't merge. ` +
+      `Nothing was written: fix it by hand and run the command again.`,
     outroOk: "OK",
     outroIssues: "Check the above",
   },

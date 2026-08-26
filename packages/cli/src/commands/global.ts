@@ -1,8 +1,9 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { brand, check, color, dim as grey, sym } from "../lib/style.ts";
-import { tc, resolveLang } from "../lib/i18n.ts";
+import { t, tc, resolveLang } from "../lib/i18n.ts";
 import {
   defaultGlobalConfig,
   deleteGlobalConfig,
@@ -52,22 +53,22 @@ const initSubCommand = defineCommand({
     const config = existing ?? defaultGlobalConfig(readCliVersion(), language);
     config.version = readCliVersion();
     config.language = language;
-    writeGlobalConfig(config);
 
+    // Plan BEFORE persisting anything: an unreadable ~/.claude/settings.json
+    // aborts here (#497), and a run that installs nothing should leave no
+    // ~/.navori/global.json claiming otherwise.
     const plan = planOrExit(config);
-    applyGlobalRender(plan);
+    writeGlobalConfig(config);
+    const backupPath = applyGlobalRender(plan);
 
     if (existing) p.log.info(g.initReinit(plan.dir));
-    p.note(
-      [
-        g.wroteHook(plan.hookPath),
-        g.wroteSettings(plan.settingsPath),
-        g.baselineBlocks(config.blocks.include.join(", ")),
-      ]
-        .map((s) => `  ${color.cyan(sym.bullet)} ${s}`)
-        .join("\n"),
-      g.doctorTitle(plan.dir),
-    );
+    const rows = [
+      g.wroteHook(plan.hookPath),
+      g.wroteSettings(plan.settingsPath),
+      g.baselineBlocks(config.blocks.include.join(", ")),
+    ];
+    if (backupPath) rows.push(t(resolveLang(language)).backedUp(1, backupPath));
+    p.note(rows.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), g.doctorTitle(plan.dir));
     p.log.info(grey(g.hooksDisabledHint));
     p.outro(color.green(g.initDone(plan.dir)));
   },
@@ -92,7 +93,8 @@ const renderSubCommand = defineCommand({
     const plan = planOrExit(config);
     const rows = [g.wroteHook(plan.hookPath), g.wroteSettings(plan.settingsPath)];
     if (args.apply) {
-      applyGlobalRender(plan);
+      const backupPath = applyGlobalRender(plan);
+      if (backupPath) rows.push(t(resolveLang(config.language)).backedUp(1, backupPath));
       p.note(rows.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), g.previewTitle);
       p.outro(color.green(g.renderApplied(plan.dir)));
     } else {
@@ -171,6 +173,15 @@ const uninstallSubCommand = defineCommand({
 
     const result = uninstallGlobalRender(dir);
     const hadConfig = deleteGlobalConfig();
+
+    // #497: an unreadable settings.json is left byte-for-byte alone, so say what
+    // is still there instead of reporting a clean uninstall.
+    if (result.settingsUnreadable) {
+      p.log.warn(g.uninstallSettingsUnreadable(join(dir, "settings.json")));
+    }
+    if (result.backupPath) {
+      p.log.info(t(resolveLang(config?.language)).backedUp(1, result.backupPath));
+    }
 
     if (!result.removedHook && !result.updatedSettings && !hadConfig) {
       p.outro(g.uninstallNothing);

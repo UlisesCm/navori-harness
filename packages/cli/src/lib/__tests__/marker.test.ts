@@ -995,3 +995,55 @@ describe("close marker is code-fence aware (#459)", () => {
     expect(removeManagedSection(doc, "guard", "shell")).not.toContain("fin.");
   });
 });
+
+describe("an UNCLOSED code fence never hides a real block (#498)", () => {
+  const FENCE = "```";
+  const openCount = (doc: string, id: string): number =>
+    (doc.match(new RegExp(`<!-- navori:managed id="${id}"`, "g")) ?? []).length;
+  /** User prose that opens a fence and never closes it — a half-pasted snippet. */
+  const UNCLOSED = `# Mi repo\n\nInstala:\n\n${FENCE}bash\nnpm i\n\nY sigue la prosa.\n`;
+
+  it("finds the block that follows a stray fence instead of appending a second copy", () => {
+    const doc = injectManagedSection(UNCLOSED, "a", "cuerpo\n").output;
+    expect(openCount(doc, "a")).toBe(1);
+
+    // Before the fix, `inFence` stayed true to EOF, the block was invisible, and
+    // every render appended another copy (24 → 48 → 72 markers in the issue).
+    const again = injectManagedSection(doc, "a", "cuerpo\n");
+    expect(again.status).toBe("unchanged");
+    expect(openCount(again.output, "a")).toBe(1);
+
+    const updated = injectManagedSection(doc, "a", "cuerpo v2\n");
+    expect(updated.status).toBe("updated");
+    expect(openCount(updated.output, "a")).toBe(1);
+    expect(extractManagedContent(updated.output, "a")).toBe("cuerpo v2");
+  });
+
+  it("removes (instead of duplicating) a block sitting below the stray fence", () => {
+    const doc = injectManagedSection(UNCLOSED, "a", "cuerpo\n").output;
+    expect(removeManagedSection(doc, "a")).not.toContain("navori:managed");
+  });
+
+  it("keeps honouring a CLOSED fence — a quoted marker is still documentation", () => {
+    // The relaxation is scoped to a MALFORMED file: balance the fence and #432's
+    // rule applies again, so the quoted block is not adopted as a real one.
+    const quoting = `Ejemplo:\n\n${FENCE}md\n<!-- navori:managed id="a" hash="x" version="0.0.1" source="@navori/core" -->\ncita\n<!-- /navori:managed id="a" -->\n${FENCE}\n`;
+    const r = injectManagedSection(quoting, "a", "cuerpo real\n");
+    expect(r.status).toBe("created");
+    expect(r.output).toContain("cita"); // the quoted example survives untouched
+    expect(extractManagedContent(r.output, "a")).toBe("cuerpo real");
+  });
+
+  it("does not re-emit the user zone's own end marker when its fence is unclosed", () => {
+    const managed = injectManagedSection("", "a", "cuerpo\n").output;
+    const doc = emitUserSection(managed, `Mis notas\n\n${FENCE}bash\nnpm run dev\n`);
+    // The `user-end` token below the stray fence used to read as fenced prose,
+    // so the zone was wrapped a second time on every render.
+    const split = splitUserSection(doc);
+    expect(split.userBody).not.toContain(USER_SECTION_END);
+    const again = emitUserSection(split.managed, split.userBody ?? "");
+    expect(again.match(new RegExp(USER_SECTION_END, "g")) ?? []).toHaveLength(1);
+    expect(again.match(new RegExp(USER_SECTION_START, "g")) ?? []).toHaveLength(1);
+    expect(again).toBe(doc);
+  });
+});

@@ -105,12 +105,26 @@ describe("engine inventory parity (claude ↔ codex)", () => {
     const codexAgents = names(join(codexCwd, ".codex/agents"), stripToml).filter(
       (id) => !AGENT_KNOWN_DIFFS.has(id),
     );
+    // `names()` answers [] for a directory that isn't there, so a renamed
+    // destination on BOTH sides used to satisfy this as `[] === []` (#504).
+    expect(claudeAgents.length).toBeGreaterThan(0);
     expect(codexAgents).toEqual(claudeAgents);
+  });
+
+  it("keeps `leader` a REAL diff: emitted by Claude, absent from Codex", () => {
+    // The exemption above is subtracted from both sides, so on its own it hides
+    // both regressions it is meant to describe: Codex growing a spawnable leader
+    // (the main thread already embodies the role) or Claude losing one. Asserted
+    // here, the entry has to keep earning its place in AGENT_KNOWN_DIFFS.
+    expect(names(join(claudeCwd, ".claude/agents"), stripMd)).toContain("leader");
+    expect(names(join(codexCwd, ".codex/agents"), stripToml)).not.toContain("leader");
   });
 
   it("emits the same hook set", () => {
     const claudeHooks = names(join(claudeCwd, ".claude/hooks"), stripSh);
     const codexHooks = names(join(codexCwd, ".codex/hooks"), stripSh);
+    // Same trap as the agent set: pin non-empty before comparing.
+    expect(claudeHooks.length).toBeGreaterThan(0);
     expect(codexHooks).toEqual(claudeHooks);
   });
 });

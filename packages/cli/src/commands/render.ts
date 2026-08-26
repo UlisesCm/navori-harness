@@ -4,6 +4,7 @@ import { existsSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { scanOrphanedEngineOutputs, type OrphanedEngineOutput } from "../lib/health.ts";
+import { planOrphanRemoval, removeEmptyDirs, type OrphanRemovalPlan } from "../lib/removable.ts";
 import { createBackup, purgeOldBackups } from "../lib/backup.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render-plan.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
@@ -33,6 +34,9 @@ import { describeCoreProvenance, type CoreProvenance } from "../lib/bundled-asse
 import { effectiveConfigForWorkspace, buildMonorepoContext } from "../lib/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
 import { listRegistryRepos, pruneRegistry, registryPath } from "../lib/registry.ts";
+
+/** One path `render --prune` deliberately did NOT delete, with its reason. */
+export type KeptEngineOutput = OrphanRemovalPlan["keep"][number];
 
 export interface WorkspaceRenderResult {
   /** Workspace path relative to the repo root (e.g. "apps/backend"). */
@@ -190,8 +194,17 @@ export function runRender(
   extraEngines?: EngineRenderSummary[];
   /** Outputs owned only by engines no longer in config.engines[] (#312). */
   orphanedEngineOutputs?: OrphanedEngineOutput[];
-  /** Orphaned-output paths deleted this run (only with --prune + --apply). */
+  /** FILES deleted this run (only with --prune + --apply): the ones that carry
+   *  navori's own marker. A reported orphan directory is never deleted whole —
+   *  see `keptEngineOutputs` for what stayed behind (#496). */
   prunedEngineOutputs?: string[];
+  /** Paths inside an orphaned output that the prune left in place, with the
+   *  reason: `foreign` (navori never wrote it), `ephemeral` (machine-local
+   *  harness state the harness never versions) or `symlink` (a link, neither
+   *  followed nor unlinked — its target is usually outside the repository). */
+  keptEngineOutputs?: KeptEngineOutput[];
+  /** Where the pre-prune snapshot landed, or null when nothing was deleted. */
+  prunedBackupPath?: string | null;
   /** Harness `.gitignore` block reconciliation (#313). Absent when
    *  `gitignoreHarness` is `"off"` — navori doesn't touch `.gitignore` then. */
   gitignore?: GitignoreRenderResult | null;
@@ -409,18 +422,39 @@ export function runRender(
   // run, back them up and delete them.
   const orphanedEngineOutputs = scanOrphanedEngineOutputs(cwd, config);
   let prunedEngineOutputs: string[] | undefined;
+  let keptEngineOutputs: KeptEngineOutput[] | undefined;
+  let prunedBackupPath: string | null = null;
   if (pruneFlag && !dryRun && orphanedEngineOutputs.length > 0) {
     const paths = orphanedEngineOutputs.flatMap((o) => o.paths);
-    // Back up before deleting so a mistaken prune is recoverable (same safety
-    // net the prose engine uses for overwrites). The excludes are NOT optional:
-    // an orphaned engine dir is exactly where the ephemerals live (`.codex/
-    // progress/` under a dropped Codex engine), and copying them is what filled
-    // a disk with 131 GB of backups in #348. `commitWrites` already does this
-    // for the render backup; this second entry point had been missed (#373).
-    const handle = createBackup(cwd, paths, { exclude: [...EPHEMERAL_HARNESS_PATHS] });
-    if (handle.files.length > 0) purgeOldBackups();
-    for (const rel of paths) rmSync(resolve(cwd, rel), { recursive: true, force: true });
-    prunedEngineOutputs = paths;
+    // #496: `paths` are OWNERSHIP paths from a static per-engine map — "a
+    // disabled engine would write here" — not evidence that what is there is
+    // navori's. Deleting them recursively took the user's hand-written AGENTS.md
+    // and their whole `.cursor/` (own rules + mcp.json) with it. So the tree is
+    // walked and each file judged by the SAME authorship test the engine delete
+    // path uses (lib/removable.ts): navori's files go, everything else stays and
+    // is reported back so the run says what it spared and why.
+    const plan = planOrphanRemoval(cwd, paths, EPHEMERAL_HARNESS_PATHS);
+    if (plan.remove.length > 0) {
+      // Back up before deleting so a mistaken prune is recoverable (same safety
+      // net the prose engine uses for overwrites). The excludes are NOT optional:
+      // an orphaned engine dir is exactly where the ephemerals live (`.codex/
+      // progress/` under a dropped Codex engine), and copying them is what filled
+      // a disk with 131 GB of backups in #348. `commitWrites` already does this
+      // for the render backup; this second entry point had been missed (#373).
+      // Second guard, on purpose: `planOrphanRemoval` already skips the same
+      // paths, so this holds the #348 invariant even if that skip ever narrows.
+      const handle = createBackup(cwd, plan.remove, { exclude: [...EPHEMERAL_HARNESS_PATHS] });
+      if (handle.files.length > 0) {
+        prunedBackupPath = handle.path;
+        purgeOldBackups();
+      }
+      // Never recursive: the plan enumerated FILES, so a directory can only go
+      // away through `removeEmptyDirs` — i.e. when nothing of the user's is left.
+      for (const rel of plan.remove) rmSync(resolve(cwd, rel), { force: true });
+      removeEmptyDirs(cwd, paths);
+    }
+    prunedEngineOutputs = plan.remove;
+    keptEngineOutputs = plan.keep;
   }
 
   return {
@@ -439,6 +473,8 @@ export function runRender(
     extraEngines,
     orphanedEngineOutputs,
     prunedEngineOutputs,
+    keptEngineOutputs,
+    prunedBackupPath,
     gitignore,
   };
 }
@@ -635,6 +671,19 @@ export const renderCommand = defineCommand({
       p.log.warn(tr.orphanedEngineOutputs(count, lines));
     }
 
+    // #496: what the prune deliberately did NOT delete. Printed even when
+    // nothing was deleted — "I walked your .cursor/ and every file in it is
+    // yours" is the answer the user needs, and silence there reads as success.
+    if (result.keptEngineOutputs && result.keptEngineOutputs.length > 0) {
+      const lines = result.keptEngineOutputs
+        .map(
+          (k) =>
+            `  ${color.yellow(sym.update)} ${k.path} ${dim(`(${tr.keptEngineOutputReason(k.reason)})`)}`,
+        )
+        .join("\n");
+      p.log.info(tr.keptEngineOutputs(result.keptEngineOutputs.length, lines));
+    }
+
     const allDowngrades = result.downgrades.concat(...result.workspaces.map((w) => w.downgrades));
     const downgradeWarn = formatDowngradeWarning(allDowngrades, result.language);
     if (downgradeWarn) p.log.warn(downgradeWarn);
@@ -780,6 +829,11 @@ function buildRenderJson(
     orphanedWorkspaces: result.orphanedWorkspaces ?? [],
     orphanedEngineOutputs: result.orphanedEngineOutputs ?? [],
     prunedEngineOutputs: result.prunedEngineOutputs ?? [],
+    // #496: what the prune spared travels with what it deleted. Publishing one
+    // without the other is the #479 shape — a `--json` consumer that sees an
+    // empty `prunedEngineOutputs` cannot tell "nothing was orphaned" from
+    // "everything there is yours, and here is why I left it".
+    keptEngineOutputs: result.keptEngineOutputs ?? [],
     gitignore: result.gitignore
       ? {
           path: result.gitignore.path,

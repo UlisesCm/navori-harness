@@ -9,7 +9,8 @@ import { injectManagedSection } from "../../lib/marker.ts";
 import type { LoadedPlugin } from "../../lib/plugins.ts";
 import type { loadPreset } from "../../lib/presets.ts";
 import type { RenderStatus } from "../../lib/style.ts";
-import { isDowngrade } from "../../lib/semver.ts";
+// The authorship test both delete paths share — see lib/removable.ts (#496).
+import { isRemovableNavoriFile } from "../../lib/removable.ts";
 import { tc, DEFAULT_LANG, type Lang } from "../../lib/i18n.ts";
 import { renderManagedFile } from "./render-managed-file.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "./ephemeral-paths.ts";
@@ -423,18 +424,4 @@ function readDirSafe(path: string) {
   } catch {
     return [];
   }
-}
-
-function isRemovableNavoriFile(path: string): boolean {
-  if (!existsSync(path)) return false;
-  let content: string;
-  try {
-    content = readFileSync(path, "utf-8");
-  } catch {
-    return false;
-  }
-  if (!content.includes("navori:managed")) return false;
-  const existingVersion = content.match(/version="([^"]+)"/)?.[1];
-  if (!existingVersion) return false;
-  return !isDowngrade(existingVersion, CORE_META.version);
 }
