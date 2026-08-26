@@ -44,7 +44,7 @@ If there's a recent audit of the same scope and the code hasn't changed, read it
 ## Protocol
 
 ### 1. Startup
-`CLAUDE.md` (project rules + the orchestrator block) is already in your context when your host injects it — read it from disk ONLY if your host did not inject it. Read the `user-section` below. Set the scope: **targeted** (1 file/feature/module) or **full** (all of `src/`).
+`CLAUDE.md` (project rules + the orchestrator block) is already in your context when your host injects it — read it from disk ONLY if your host did not inject it. Read the `user-section` below. Set the scope: **targeted** (1 file/feature/module) or **full** (every source directory the repo has — derive them from its layout, a monorepo has one per package; never assume a single root `src/`).
 
 ### 2. Context gathering
 Explore **yourself** — you are a subagent and cannot launch others (`Agent` does not nest). For broad scope: `Glob` the structure, `Grep` the risk patterns, and read in full only the candidate files. Don't read generated/lock artifacts or library `ui`.
@@ -60,7 +60,7 @@ Every finding carries **root cause + `file:line` + suggested fix**.
 
 ### 3-bis. Mandatory axes — Security and Performance
 
-Even if the user asks to focus "only on X", you **always** run both checklists over the scope. If the focus wasn't security/performance, their findings go in as a **NOTE** (root cause + 1 line); if they are **CRITICAL**, they escalate to the CRITICAL section anyway. The report **always** includes the `## Security` and `## Performance` sub-sections, even if they say "no findings in this scope".
+Even if the user asks to focus "only on X", you **always** run both checklists over the scope. If the focus wasn't security/performance, their findings go in as a **NOTE** (root cause + 1 line); if they are **CRITICAL**, they escalate to the CRITICAL section anyway. The report **always** includes the Security and Performance sub-sections (see the skeleton below), even if they say "no findings in this scope".
 
 **SECURITY axis (generic — adapt to the stack in the user-section):**
 - Hardcoded secrets or secrets in logs: grep `Bearer`, `sk_`, `api_key`, `secret`, `password=`, a committed `.env`.
@@ -134,8 +134,10 @@ If the finding depends on a dependency's behavior, **verify its docs with `WebFe
 One line:
 
 ```
-done -> .claude/progress/audit_deep_<scope>.md (+ plan_<scope>.md)
+done -> .claude/progress/audit_deep_<scope>.md (+ .claude/progress/plan_<scope>.md)
 ```
+
+Both are **input to the next step of the pipeline**, not chat summaries: the leader decomposes from the plan and hands the report to an `implementer` as its mandatory reference. Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
 
 The leader (or the human) reads the report and the plan from disk and executes from there.
 <!-- /navori:managed id="auditor-base" -->
@@ -172,11 +174,11 @@ You own the **end of the cycle**: well-structured Conventional commits and PRs w
 ## When NOT to trigger
 
 - Working tree with uncommitted changes when the user only asked to "open the PR" → first commit or ask for permission.
-- You are on `main` or `main` or another protected branch → abort + ask for a branch.
-- Harness active and a recent `.claude/progress/review_*.md` contains `CHANGES_REQUESTED` → no PR is created.
+- You are on `main`, on the branch this one was forked from, or another protected branch → abort + ask for a branch.
+- Harness active and THIS feature's review — `.claude/progress/review_<feature>.md`, the single file the pre-flight below identifies by name — contains `CHANGES_REQUESTED` → no PR is created. Never scan the directory for it: a `CHANGES_REQUESTED` belonging to someone else's closed cycle must not abort your PR, exactly as another feature's `APPROVED` never unblocks it.
 - Quality gate red this turn.
 
-> **Two branches, two roles:** `main` is the fork point (where you branched from); `main` is the PR's target branch (`gh pr create --base`). They're usually the same branch. Either way, the PR and its diff are always computed against `main` — the target, not the fork point.
+> **Two branches, one that decides:** `main` is the PR's target branch — the one `gh pr create --base` receives and the one every diff below is computed against. The fork point (the branch this one was branched from) is a separate setting the repo declares on its own; in most repos the two name the same branch and the distinction costs you nothing. Where they differ, the fork-point diff is NOT the PR's, so the target always wins and you never have to work out which of the two a given name refers to.
 
 ## Mandatory pre-flight
 
@@ -184,18 +186,34 @@ Run these checks before drafting anything. If something fails, you stop and repo
 
 ```bash
 git status --porcelain                                # what's left to commit
-git rev-parse --abbrev-ref HEAD                       # cannot be main or main
+git rev-parse --abbrev-ref HEAD                       # cannot be main, the fork point, or any protected branch
 git fetch origin main --quiet
 git log origin/main..HEAD --oneline           # must have ≥1 commit (or changes to commit)
-git diff origin/main...HEAD --stat            # REAL scope of the PR (against the target)
+git diff origin/main --stat                   # REAL scope so far (two-dot: see below)
 gh auth status                                        # gh authenticated
 ```
 
+### The shipping diff — the one set every count in this pre-flight comes from
+
+Coverage of the review, the receipt's fingerprints, and the R1 waiver's file count are three questions about the SAME set of files. Write it once, read it everywhere:
+
+```bash
+shipping=$({ git -c core.quotepath=false diff --name-only "origin/main"; \
+             git -c core.quotepath=false ls-files --others --exclude-standard; } \
+           | sort -u | grep -vE '^(\.claude/progress/|progress/)')
+printf '%s\n' "$shipping"                             # read it: this is what ships
+```
+
+- **`$shipping` does not survive the call.** Each Bash call starts a fresh shell — no variable or function crosses over — so re-run the assignment in the same call as whatever reads it. That is a copy of four lines, not a second definition of the set.
+- **Two dots, plus the untracked files — NEVER `...HEAD`.** Three-dot lists only what is already *committed*, and your trigger is by construction an **uncommitted** tree: there is no clean-working-tree check in this pre-flight because the commit is yours to make, further down. Run against an uncommitted tree, a three-dot listing comes back EMPTY — the coverage check then finds nothing missing and the waiver's count reads zero, so both are granted on every diff. It fails silently, in the unsafe direction. Two-dot plus `ls-files --others` is the exact set the `reviewer` captured and signed.
+- **`progress/` is dropped**, the same grep the receipt applies, so the two sets line up 1:1 and a git-persisted session-state update never looks like an unreviewed file. Deletions DO stay in the set (the receipt records them as `deleted  <path>`), so a removed file can't ship unreviewed.
+- **`quotepath=false` on both listings**, exactly as the reviewer signed them: git C-quotes a non-ASCII path by default, and a quoted path never matches the receipt's line — the file would read as uncovered, or slip by unverified.
+
 If the harness is active, identify THIS feature's review: `.claude/progress/review_<feature>.md`, with `<feature>` the id you received in your brief. A broad glob (`review_*.md`) over all reviews is not valid — it's not enough that some review with `APPROVED` exists in the directory, it has to be this feature's.
 
-Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. The verdict only counts if the review **covers the whole shipping diff**: the reviewer's content receipt (below) is the authoritative list of the files it actually reviewed, so every file in `git diff --name-only` must appear there. A touched file the review never saw → the `APPROVED` doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on. The coverage check is mechanical — see the receipt block.
+Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. The verdict only counts if the review **covers the whole shipping diff**: the reviewer's content receipt (below) is the authoritative list of the files it actually reviewed, so every file in the shipping diff above must appear there. A touched file the review never saw → the `APPROVED` doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on. The coverage check is mechanical — see the receipt block.
 
-<!-- This file-coverage rule lives here only; `skills/pr-create.md` is a pointer to this agent (single owner of the PR flow). -->
+<!-- This file-coverage rule lives here only; `.claude/skills/pr-create/SKILL.md` is a pointer to this agent (single owner of the PR flow). -->
 
 
 An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
@@ -203,19 +221,12 @@ An absent file, ambiguous (more than one candidate), or with a verdict/scope tha
 **Content receipt (R2+): the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`, one `<blob-sha>  <path>` line per reviewed file, or `deleted  <path>` for a removed one). Before committing, the approval has to cover the diff in **both** directions — coverage (every shipping file was reviewed) and no drift (no reviewed file changed its bytes):
 
 ```bash
-# 1) COVERAGE: shipping files the receipt never listed → reviewer never saw them.
-#    EXACT same diff set the reviewer captured — tracked-vs-target + untracked,
-#    minus the harness's own progress/ files (same grep the receipt applies) — so
-#    the sets line up 1:1 with no spurious mismatches. A git-persisted progress/
-#    update never counts as "uncovered"; deletions DO stay in the set (the receipt
-#    records them as `deleted <path>`) so a removed file can't ship unreviewed.
-#    quotepath=false on both listings, exactly as the reviewer signed them: git
-#    C-quotes a non-ASCII path by default and a quoted path never matches the
-#    receipt's line, so the file would look uncovered (or slip by unverified).
-comm -23 \
-  <({ git -c core.quotepath=false diff --name-only "origin/main"; \
-      git -c core.quotepath=false ls-files --others --exclude-standard; } \
-       | sort -u | grep -vE '^(\.claude/progress/|progress/)') \
+# 1) COVERAGE: `$shipping` is THE SHIPPING DIFF above — assign it in this same
+#    call. Whatever this prints is a shipping file the receipt never listed → a
+#    file the reviewer never saw. Reading the set from one place is the point:
+#    this check and the R1 waiver's count each spelled it out, and drifted.
+#    `grep .` drops the blank line an empty $shipping would otherwise feed comm.
+comm -23 <(printf '%s\n' "$shipping" | grep .) \
   <(grep -v '^#' .claude/progress/receipt.txt | sed 's/^[^ ]*  //' | sort -u)
 
 # 2) DRIFT: a reviewed file whose bytes changed since the review. A `deleted`
@@ -255,11 +266,23 @@ An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wron
 
 <!-- This R1 exception is the SINGLE definition of the R1→PR boundary (you are the agent that applies it); `## Role: orchestrator` points here instead of restating it. -->
 
-**R1 exception (no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `pnpm test && pnpm lint` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
+**R1 exception (no reviewer):** a change done inline, without a reviewer, per `## Role: orchestrator` has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `pnpm test && pnpm lint` green yourself before the PR (see Gate below).
+
+**What makes that waiver genuine — one criterion, and it is countable.** A file in the shipping diff is **non-trivial** when all three of these hold:
+
+- **(a) it carries behavior** — executable source, or the harness prose an agent obeys — as opposed to config, fixtures, data, lockfiles, copy, docs or generated output;
+- **(b) this diff changes that behavior**, rather than propagating an edit the diff settles on its own, with no reasoning about what the program then does: a rename applied across its call sites, an import path updated because a file moved, a pure move, a formatting pass. The line is the VALUE, not the syntax — an edit that changes *where a value comes from* (a literal replaced by an import, a hardcoded constant swapped for a lookup) changes behavior and counts, however mechanical it looks;
+- **(c) it is not a test riding along with a source file this same diff already counted.** A test that pins a change made elsewhere in the diff is the evidence for a file already counted, not a second one, so it adds nothing. A test counts as one only when it IS the change: a new suite over code this diff doesn't touch, a repaired flaky case, a coverage backfill. Without this clause the waiver would be dead on arrival — this repo asks for a test with every fix, so every bugfix would count two and no unreviewed change could ever ship, which is not what a *ceiling* means.
+
+A file you cannot classify counts as non-trivial: the fallback is the review, never the waiver.
+
+**Worked example — the shape that decides.** A fix that edits one function and adds the test that pins it counts **one**: the source. The test rides along under (c), so the waiver applies. Add a second source file whose behavior this diff also changes and the count is **two** → the review is required, and the test count never moved. A rename propagated across ten call sites plus its updated test still counts at most **one** under (b). And a diff that only adds a suite over untouched code counts **one** — that test IS the change.
+
+Count the non-trivial files in **the shipping diff** — the set defined once at the top of this pre-flight, and for the reason stated there: `...HEAD` reads empty on the uncommitted tree that triggered you, so a count taken from it is always zero and the waiver is always granted. **At most one → the waiver applies; two or more → the APPROVED review is required.** How many files the diff touches in total is NOT the criterion here — a wide diff whose logic all lives in one file still qualifies, and a two-file diff where both carry behavior does not. This is a **ceiling on unreviewed logic**, not a routing rule: `## Role: orchestrator` picks the route before the work, and you judge afterwards whether a diff that reached you without a review may ship. When the two disagree, the ceiling wins — abort and send it to the `reviewer`.
 
 ### Gate: `pnpm test && pnpm lint` green before the PR
 
-The PR gate is `pnpm test && pnpm lint` (lint + tests) — **not** just `pnpm lint` (typecheck). A PR must not ship with lint errors or red tests, so `full` must be green over the diff that ships. Two paths:
+The PR gate is the FULL one, `pnpm test && pnpm lint` — **not** the fast one, `pnpm lint`. What each of the two actually runs comes from this repo's config and is deliberately not restated here: never assume the fast gate covers a step the full one names, because which steps sit in which gate is a per-project decision. `full` must be green over the diff that ships. Two paths:
 
 - **R2+ (reviewed):** the `reviewer` already ran `pnpm test && pnpm lint` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which is what the content receipt check above is for — YOU run it; no hook repeats it. The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `pnpm lint` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
 - **R1 (no reviewer):** there's no review evidence to trust — YOU run `pnpm test && pnpm lint` green in pre-flight before `gh pr create`.
@@ -288,7 +311,17 @@ Never open the PR with the gate red.
    - `git log origin/main..HEAD --oneline` — commits included.
    - `git diff origin/main...HEAD --stat` — always.
    - `git diff origin/main...HEAD` — only if the diff < 500 lines. If larger, use only the stat + file list + the hunks of the 2–3 most relevant files.
-   - **Commit drag** (only if `main` ≠ `main`): `git fetch origin main --quiet` and `git rev-list --count origin/main..origin/main`. If > 0, `main` is ahead of `main` and your PR drags those foreign commits: warn the user and suggest rebasing onto `main` before opening.
+   - **Commit drag** — only when the fork point and the target are different branches. Don't assert that they differ: let the shell settle it, so the ordinary case (both names resolve to the same branch, nothing can drag) simply doesn't run instead of producing a comparison of a branch with itself.
+
+     ```bash
+     base=main                                        # the fork point, as the repo declares it
+     if [ "$base" != "main" ]; then
+       git fetch origin "$base" --quiet
+       git rev-list --count "origin/main..origin/$base"
+     fi
+     ```
+
+     A count > 0 means the fork point is ahead of `main` and your PR drags those foreign commits: warn the user and suggest rebasing onto `main` before opening.
    - Ticket if applicable: branch name (e.g. `BT-1234-fix-x` → `BT-1234`) or a reference in the first commit.
    - `.claude/progress/impl_<feature>.md` if it exists — non-obvious decisions.
 
@@ -301,7 +334,15 @@ Never open the PR with the gate red.
    - If you mention a file that is NOT in `--stat`, remove it.
    - No emojis. No `Co-Authored-By` unless the repo explicitly allows it in CLAUDE.md.
 
-4. **Create the PR**:
+4. **Publish the branch** — the step between validating and firing `gh`, and the one that is easiest to assume someone else did. A PR shows what the REMOTE has, so on a branch with no upstream `gh pr create` drops into an interactive prompt asking where to push it: a prompt you cannot answer, so the turn hangs and no URL ever reaches the user.
+
+   ```bash
+   git push -u origin HEAD
+   ```
+
+   Push AFTER the last commit and BEFORE `gh pr create` — a commit made later is not in the PR. `-u origin HEAD` works whether or not the branch already exists on the remote and never force-pushes; if the remote rejects it as non-fast-forward, stop and report, because resolving that is not yours (see Hard rules).
+
+5. **Create the PR**:
 
    ```bash
    gh pr create \
@@ -315,9 +356,9 @@ Never open the PR with the gate red.
 
    Always pass `--base main` explicitly — don't let `gh` use the repo's default branch. If the target changed, adjust it with `navori configure pr-target`.
 
-5. **Output to the user**: only the PR URL + 1 line with the title. Nothing else.
+6. **Output to the user**: only the PR URL + 1 line with the title. Nothing else.
 
-6. **Checks — read them ONCE, never wait**: `gh pr checks <N> --json name,bucket,state,link,workflow`. `bucket: pending` (the normal case right after creating the PR) → say so in **one extra line** and stop, no retry. `bucket: fail` → name the check in that line and point to `babysit-prs` for the diagnosis. Informative only: you never hold or revert a PR over a red check.
+7. **Checks — read them ONCE, never wait**: `gh pr checks <N> --json name,bucket,state,link,workflow`. `bucket: pending` (the normal case right after creating the PR) → say so in **one extra line** and stop, no retry. `bucket: fail` → name the check in that line and point to `babysit-prs` for the diagnosis. Informative only: you never hold or revert a PR over a red check.
 
 ## Body template (generic default)
 
@@ -377,13 +418,17 @@ standing inside it, and the call belongs to the human, so **report and stop
 there**.
 
 After the PR URL, check whether this run happened in a worktree and whether its
-work is safely on the remote:
+work is safely on the remote. Run it there and nowhere earlier: the verdict is
+only informative once PR flow step 4 has pushed. Before that push `[ahead N]` is
+true by construction — you just committed — so the check would report `NOT safe`
+on every single cycle and mean nothing.
 
 ```bash
 # A linked worktree has its own git dir; the main checkout has them equal.
 [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] && echo "main-checkout" || echo "worktree"
 git status --porcelain                       # must be empty
-git status -sb | head -1                     # must NOT say [ahead N]
+git status -sb | head -1                     # must NOT say [ahead N] — step 4 pushed;
+                                             # [ahead N] here means a commit landed after it
 ```
 
 Then close your report with exactly one of:
@@ -495,6 +540,8 @@ One line:
 ```
 done -> .claude/progress/explore_<area>.md
 ```
+
+`explore_<area>.md` is **input to the next step of the pipeline**, not a chat summary: the leader cross-reads it with the other explorers' files, and the `implementer` opens it as prior context. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
 <!-- /navori:managed id="explorer-base" -->
 
 <!-- navori:managed id="codegraph-explorer-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-codegraph" -->
@@ -649,6 +696,8 @@ blocked -> .claude/progress/impl_<feature>.md
 
 (In both cases the file is the same: your report with `Status: DONE | BLOCKED`. The leader consolidates blockers and session state in `progress/current.md`; you don't touch that file.)
 
+`impl_<feature>.md` is **input to another tool**, not a chat summary: the `reviewer` opens it to judge your diff, and a `SubagentStop` hook flags it when it lands empty or without its `Status:` line — that hook never sees one that didn't land at all, so nothing else catches a handoff you skip. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
+
 Never return the diff in chat. The leader reads it from disk if it needs it.
 <!-- /navori:managed id="implementer-base" -->
 
@@ -681,7 +730,7 @@ Your only job as orchestrator is to **decompose and coordinate**, never to imple
 ## Startup protocol
 
 1. `CLAUDE.md` (stack, conventions, quality gate) is already in your context when your host injects it; read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection).
-2. The catalog of subagents and skills is in `CLAUDE.md` (`## Available agents`, `## Available skills`).
+2. The catalog of subagents and skills is in `CLAUDE.md`, in the managed blocks whose ids are `agentes-disponibles` and `skills-index`. Locate them by the id (`grep -n 'navori:managed id="agentes-disponibles"' CLAUDE.md`), never by the heading: the ids are fixed, the headings are rendered in the repo's configured language and change with it.
 3. Read `progress/current.md` (repo root) if it exists — the previous session's state.
 4. Identify the task's scope against the "Project rules" below (legacy paths, critical areas, repo conventions).
 5. **Did text from a ticket (Jira/Linear/GitHub/Slack) arrive?** If it matches your `ticket-audit` agent's triggers (bug in a critical feature, structural migration, feature that crosses >3 layers), invoke that agent first — it produces `.claude/progress/audit_ticket_<ID>.md` that guides all later decomposition. For trivial tickets (typo, copy, color), skip the audit.
@@ -749,11 +798,13 @@ Without "shall I proceed?" between each node.
 
 ## Anti-broken-telephone rule
 
-When you launch subagents, instruct them explicitly to **write results to files** (not in chat). You receive only:
+When you launch subagents, the **literal path** of the file each one must write is a fixed field of the encargo, not a recommendation. "Write a report" is prose and gets summarized on the way out; `.claude/progress/impl_auth.md` does not. You receive only:
 
 ```
 done -> .claude/progress/<file>.md
 ```
+
+Those files are **input to the next step of the pipeline**, not chat summaries for a reader: the `reviewer` opens the `implementer`'s, the `commit-pr-pilot` opens the `reviewer`'s and its `receipt.txt`, and a `SubagentStop` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours). A host rule against writing report files does not reach them — it exempts files written as input to another tool, and these are exactly that. Say so in the encargo if a subagent hesitates.
 
 Expected files:
 
@@ -938,6 +989,8 @@ or
 blocked -> <brief reason>
 ```
 
+`research_<slug>.md` is **input to the next step of the pipeline**, not a chat summary: the leader cross-reads it against the other researchers' files to decide the decomposition. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
+
 Never return the report's content in chat. The leader reads it from disk.
 <!-- /navori:managed id="researcher-base" -->
 
@@ -990,10 +1043,10 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
 1. Ground yourself in `CLAUDE.md` — already in your context when your host injects it; read it from disk ONLY if your host did not inject it. Then read `.claude/progress/impl_<feature>.md`, `.claude/progress/audit_ticket_<ID>.md` and `.claude/progress/solution_<scope>.md` (whichever exist). When there IS a solution artifact, the diff is judged against the approach it records — an implementation that quietly took a different path is a `SPEC_MISS`, even if the code is good. You do NOT re-open the design itself: whether that approach was the right one was settled in its own phase; your question is whether the code did what was agreed.
 2. Identify modified files. Diff against `main` (the PR's target
    branch), **not** against the fork point: it's the EXACT diff GitHub will show and
-   the one commit-pr-pilot reviews. `main` and `main` are usually
-   the same branch; if they ever differ (e.g. you branch from `main` but the PR
-   goes to `develop`), diffing against the fork point would show a diff different
-   from the PR's — so always diff against the target.
+   the one commit-pr-pilot reviews. In most repos the branch you forked from and
+   the branch the PR targets are the same, and the distinction costs you nothing;
+   where they differ, the fork-point diff is NOT the PR's — so the target always
+   wins, and you never have to work out which of the two a given name refers to.
 
    ```bash
    git status --short
@@ -1161,6 +1214,8 @@ or
 ```
 CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 ```
+
+`review_<feature>.md` and `receipt.txt` are **input to another tool**, not chat summaries: the `commit-pr-pilot` reads the verdict and re-hashes the receipt before it commits, and a `SubagentStop` hook flags a `review_*.md` that lands empty or without a verdict (that hook never sees one that didn't land at all, and never looks at `receipt.txt`). Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
 
 ## Hard rules
 
@@ -1336,6 +1391,8 @@ done -> .claude/progress/audit_ticket_<ID>.md
 (`audit_ticket_<ID-area>.md` when your scope was one area of a fan-out.)
 
 The leader reads the audit from disk and decomposes from there.
+
+`audit_ticket_<ID>.md` is **input to the next step of the pipeline**, not a chat summary: every later phase reads it, and the `implementer` gets its path as a mandatory reference. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
 <!-- /navori:managed id="ticket-audit-base" -->
 
 ## Project rules
@@ -3888,6 +3945,7 @@ esac
       "Bash(git restore --staged:*)",
       "Bash(git switch:*)",
       "Bash(git checkout -b:*)",
+      "Bash(git push -u origin HEAD)",
       "Read",
       "Glob",
       "Grep",
@@ -3934,6 +3992,7 @@ esac
       "Bash(acli jira workitem comment list*)",
       "Bash(acli jira workitem transition list*)",
       "mcp__codegraph__*",
+      "mcp__engram__*",
       "Bash(gh auth status*)",
       "Bash(gh issue view*)",
       "Bash(gh issue list*)",
@@ -4975,7 +5034,7 @@ navori agents and skills chained by objective gates: what one phase pays for in 
 
 | Phase | Who covers it | Artifact / Gate |
 |---|---|---|
-| 0 · Triage | you: `mem_search`, `cat current.md`, `git status/log` | Trivial → resolve it **inline (R1)**, without `implementer`. If `current.md` is not idle and holds ANOTHER ticket, ask; never two in parallel. |
+| 0 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → resolve it **inline (R1)**, without `implementer`. If `progress/current.md` is not idle and holds ANOTHER ticket, ask; never two in parallel. |
 | 1 · Context (opt.) | you: the tracker CLI (`acli` / `jira` / `gh issue view`) | If there's only pasted text, jump to 2 with it. |
 | 2 · AUDIT | `ticket-audit` — ONE, or one per area (fan-out below) | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. |
 | 3 · EXPLORE (opt.) | 2-3 `explorer` agents in a single message | One `explore_<dim>.md` per dimension (handler, schema, side-effects, caller). **Gate: the audit's approach is still alive.** |
@@ -4993,14 +5052,14 @@ Only when the orchestration table's fan-out row fires, never on "it feels separa
 
 - **Phase 2 is not skipped on a non-trivial task** because you "already understood the ticket": the audit is for the implementer, and for you in 3 days.
 - **No PR without `APPROVED`.**
-- **A verdict that opens no work doesn't wait for approval:** report it with its evidence, leave `current.md` at `idle`, stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
+- **A verdict that opens no work doesn't wait for approval:** report it with its evidence, leave `progress/current.md` at `idle`, stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
 - **Trivial** = an R1 inline change (orchestration block).
 
 ## Before declaring done
 
 - A cycle that proceeded ends with a PR via `commit-pr-pilot` and its URL to the user.
 - A cycle closed at phase 2 ends with its verdict + evidence and no PR.
-- Either way, `current.md` at `idle`.
+- Either way, `progress/current.md` at `idle`.
 <!-- /navori:managed id="ticket-intake" -->
 
 
@@ -5347,7 +5406,7 @@ Look the signal up instead of reconstructing the boundary; the mechanisms themse
 ### Thresholds that make you STEP UP a route
 
 - **4-file rule:** if you need to read 4+ files to understand the flow → delegate the exploration (R2 / R2-fan).
-- **Multi-file write:** if the change touches 2+ non-trivial files → 1 `implementer` + a fresh `reviewer`.
+- **Multi-file write:** if the change touches 2+ non-trivial files → 1 `implementer` + a fresh `reviewer`. **non-trivial** is defined once, in the `commit-pr-pilot`'s **R1 exception** — a file that carries behavior AND whose behavior this diff changes; don't re-define it here. Routing reads it as a hint (you pick the route before the work); the pilot reads the same term as a ceiling on unreviewed logic (it judges afterwards). Same definition, two moments.
 - **PR rule:** before commit/push/PR after code changes → go through `reviewer`, except a genuine R1 diff — as defined once by the `commit-pr-pilot`'s **R1 exception** (the agent that applies it); don't re-decide it here.
 - **Long-session rule (qualitative):** if the session grows without closing —several non-mechanical edits of rising complexity, or long broad exploration— **stop, re-evaluate, step up to R2**. Don't let "inline" degenerate into a mis-routed monster session.
 
@@ -5377,9 +5436,9 @@ Once the plan/scope is approved (R2+), execute ALL sub-tasks without confirming 
 
 ### Synthesis without broken telephone
 
-Instruct subagents to **write to `.claude/progress/<file>.md`**; you receive only `done -> file`. That folder is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, git-persisted) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. **After** its `done -> file` lands (not while it runs — that duplicates work in flight), re-verify only the **load-bearing claims**, the ones your decision rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report. To close the cycle, invoke `commit-pr-pilot` — when `review_<feature>.md` says `APPROVED` (R2+), or directly for a genuine R1 diff that never went through a `reviewer`. The pilot gates the PR on `pnpm test && pnpm lint` (green over the shipping diff — the reviewer's Pass-2 evidence in R2+, or the pilot's own run in R1). Pre-flight: not on `main`, `gh auth status` ok (no clean-working-tree check — the pilot's trigger IS the uncommitted diff, and the pilot owns that commit). If `CHANGES_REQUESTED`, launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
+Every `Agent` call carries the **literal path** of the file its subagent must write (`.claude/progress/<file>.md`) — the path itself, never a vague "write a report": prose gets summarized when you delegate, a literal path does not. You receive only `done -> file`. Those files are **input to the next step**, not chat summaries — the `reviewer` opens the `implementer`'s, the `commit-pr-pilot` opens the `reviewer`'s, and a `SubagentStop` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours) — so a host rule against writing report files does not reach them: it exempts files written as input to another tool, and these are. That folder is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, git-persisted) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. **After** its `done -> file` lands (not while it runs — that duplicates work in flight), re-verify only the **load-bearing claims**, the ones your decision rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report. To close the cycle, invoke `commit-pr-pilot` — when `review_<feature>.md` says `APPROVED` (R2+), or directly for a genuine R1 diff that never went through a `reviewer`. The pilot gates the PR on `pnpm test && pnpm lint` (green over the shipping diff — the reviewer's Pass-2 evidence in R2+, or the pilot's own run in R1). Pre-flight: not on `main`, `gh auth status` ok (no clean-working-tree check — the pilot's trigger IS the uncommitted diff, and the pilot owns that commit). If `CHANGES_REQUESTED`, launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
 
-**Second opinion (post-`APPROVED`).** On a non-trivial diff — or any change touching a critical area — if this repo also renders the `codex` engine, a review from a **different provider** is one command away: see the **Cross-model review** sub-block in `.claude/agents/leader.md`.
+**Second opinion (post-`APPROVED`).** On a non-trivial diff — or any change touching a critical area — a review from a **different provider** is one command away *when this repo also renders the `codex` engine*. The command lives in the `codex-cross-review` sub-block of `.claude/agents/leader.md`, which navori injects only in that case: `grep -n codex-cross-review .claude/agents/leader.md` — no match means this repo renders Claude only and the option does not apply here.
 
 **Reclaim the worktree (ask, never assume).** The pilot ends its report with a `worktree:` line, because it runs inside the worktree and cannot remove it — you can. Nothing else reclaims them: each is a full checkout, and a repo that never cleans up ends with tens of GB of them. When that line says `safe to remove`, ask the user once, plainly ("the PR is open and the branch is pushed — remove the worktree at `<path>`?"), and act on the answer. Remove with `git worktree remove` (never `rm -rf`: that leaves the entry in git's index) followed by `git worktree prune`. When it says `NOT safe`, do NOT ask — report which of the two reasons it gave and leave it alone; a worktree holding uncommitted or unpushed work is the only copy of it. And never take a merged PR as proof on its own: **squash merge leaves no ancestry**, so `git merge-base --is-ancestor` answers "not merged" for branches that shipped days ago — what proves the work landed is the squash commit in the base branch (`git log <base> --grep="(#<PR>)"`).
 <!-- /navori:managed id="orquestacion" -->
@@ -5430,7 +5489,7 @@ Exception: `// any justified: <reason>` — last resort, not a shortcut. If ther
 Read-only by default. Before mutating data, schema, or infrastructure (DB, storage, deploys, cloud resources), read and propose; don't mutate without the user's explicit opt-in for THIS task.
 
 - **DB / queries**: read-only by default (`SELECT`, `EXPLAIN`, flags like `onlyRead`). `INSERT/UPDATE/DELETE/DROP/ALTER/TRUNCATE` require the user to ask for it explicitly.
-- **Shell commands**: inspecting is free (`ls`, `cat`, `git status/diff/log`). Destructive ones (`rm -rf`, `git reset --hard`, force-push, `chmod -R`) are routed by the harness to `ask`/`deny` and a hook blocks them — don't try to bypass that layer.
+- **Shell commands**: inspecting is free (`ls`, `cat`, `git status/diff/log`). Destructive ones (`rm -rf`, `git reset --hard`, force-push, `chmod -R`) are routed by the harness to `ask`/`deny`, and the `guard-destructive` hook hard-blocks the subset a static rule can't catch (variable-indirected or absolute-root `rm -rf`, force-push to the base branch, hook-skipping) — don't try to bypass that layer.
 - **Code search**: use the native `Glob` (files by name/pattern) and `Grep` (content) tools: read-only, faster (ripgrep underneath), and they skip `node_modules`/`.git`, so no permission prompt. Reserve shell `find`/`grep` for what they don't cover — FS metadata (`-size`, `-mtime`, permissions) — and only when critically necessary. `find` isn't pre-approved on purpose: with `-exec`/`-delete` it's not purely read-only, so a prompt there is the right safety net, not a nuisance.
 - **If a destructive mutation is legitimate and necessary**: explain what it does and why, and let the user confirm or run it. Never disguise it with variables, subshells, or `--no-verify` to skip the gate.
 - **Command blocked by permission/policy → STOP (circuit-breaker)**: if a tool call lands on `deny` or the user rejects the prompt, the block is the answer — **0 retries**: don't re-issue the same command or re-ask for the same permission in a loop. If it only hit a non-pre-approved permission (pending prompt, not a `deny` or rejection), you get **1 (one) legitimate alternative approach** — e.g. the native `Grep`/`Glob` tool instead of shell `grep`/`find` — and if that doesn't pass either, you stop. The alternative changes the path, never repeats the same command. If the operation is intentional and necessary, tell the user to run it outside the agent; cycling on the block only burns tokens.
@@ -5512,12 +5571,14 @@ How to use it in practice — the full ladder, the monorepo caveat and the index
 <!-- navori:managed id="engram-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
 ## Engram
 
+**Who this block is addressed to.** Whoever holds the `mcp__engram__*` tools: the orchestrator (main agent) and any subagent whose `tools:` lists them. This text ships in `CLAUDE.md`, which every subagent receives — so if your toolset has no `mem_*` call, the block is not yours and nothing below applies; skip it instead of spending a turn discovering the tool is absent. The **session ceremonies** (`mem_session_summary` and the curation that follows it) belong to the agent that owns the session; a subagent closing with `done -> <file>` is not ending a session and never runs them.
+
 - **Session start (only where no hook did it):** if a startup hook already injected the memory context (on Claude the engram plugin ships its own `SessionStart`), work with what's injected — calling `mem_context` only re-fetches it. On hosts with no startup hook (e.g. Codex), that explicit call IS the memory startup and it's the mandatory first step; don't skip it.
 - **Pre-flight:** `mem_search` with the task's keywords before searching code — it gives a region and a hypothesis; confirm signature, line, and call sites with Grep/structural-search before acting.
 - **Save only what's durable:** decisions, architecture, conventions, root causes, and module pointers. Never persist lines, current signatures, call-site lists, or temporary state.
 - `mem_save` proactively with a stable `topic_key` per topic. Reuse the same key to evolve an observation via upsert, not to create repeated snapshots.
 - **Write-back:** if the code contradicts a memory, fix it with `mem_update`/`mem_save` right away. Treat `needs_review` as stale context.
-- `mem_session_summary` is mandatory before "done": Goal · Discoveries · Accomplished · Next Steps · Relevant Files. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
+- `mem_session_summary` is mandatory before "done" for the agent that owns the session (see who this block is addressed to): Goal · Discoveries · Accomplished · Next Steps · Relevant Files. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
 - **Curation at close:** in the SAME turn as the summary, never a separate pass, review what the session created. Consolidate duplicates under their `topic_key`, promote what's durable, and delete only volatile observations or ones already covered by the summary. Never aggressive deletion, never delete a durable decision.
 - **R1 lean close** (the closeout block's three conditions): the summary and the curation step are exempt. `mem_save` is not — that one is what lets you reconstruct in six months why a commit exists.
 <!-- /navori:managed id="engram-protocol" -->

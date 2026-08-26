@@ -19,11 +19,11 @@ You own the **end of the cycle**: well-structured Conventional commits and PRs w
 ## When NOT to trigger
 
 - Working tree with uncommitted changes when the user only asked to "open the PR" → first commit or ask for permission.
-- You are on `{{branchBase}}` or `{{prTarget}}` or another protected branch → abort + ask for a branch.
-- Harness active and a recent `.claude/progress/review_*.md` contains `CHANGES_REQUESTED` → no PR is created.
+- You are on `{{prTarget}}`, on the branch this one was forked from, or another protected branch → abort + ask for a branch.
+- Harness active and THIS feature's review — `.claude/progress/review_<feature>.md`, the single file the pre-flight below identifies by name — contains `CHANGES_REQUESTED` → no PR is created. Never scan the directory for it: a `CHANGES_REQUESTED` belonging to someone else's closed cycle must not abort your PR, exactly as another feature's `APPROVED` never unblocks it.
 - Quality gate red this turn.
 
-> **Two branches, two roles:** `{{branchBase}}` is the fork point (where you branched from); `{{prTarget}}` is the PR's target branch (`gh pr create --base`). They're usually the same branch. Either way, the PR and its diff are always computed against `{{prTarget}}` — the target, not the fork point.
+> **Two branches, one that decides:** `{{prTarget}}` is the PR's target branch — the one `gh pr create --base` receives and the one every diff below is computed against. The fork point (the branch this one was branched from) is a separate setting the repo declares on its own; in most repos the two name the same branch and the distinction costs you nothing. Where they differ, the fork-point diff is NOT the PR's, so the target always wins and you never have to work out which of the two a given name refers to.
 
 ## Mandatory pre-flight
 
@@ -31,18 +31,34 @@ Run these checks before drafting anything. If something fails, you stop and repo
 
 ```bash
 git status --porcelain                                # what's left to commit
-git rev-parse --abbrev-ref HEAD                       # cannot be {{branchBase}} or {{prTarget}}
+git rev-parse --abbrev-ref HEAD                       # cannot be {{prTarget}}, the fork point, or any protected branch
 git fetch origin {{prTarget}} --quiet
 git log origin/{{prTarget}}..HEAD --oneline           # must have ≥1 commit (or changes to commit)
-git diff origin/{{prTarget}}...HEAD --stat            # REAL scope of the PR (against the target)
+git diff origin/{{prTarget}} --stat                   # REAL scope so far (two-dot: see below)
 gh auth status                                        # gh authenticated
 ```
 
+### The shipping diff — the one set every count in this pre-flight comes from
+
+Coverage of the review, the receipt's fingerprints, and the R1 waiver's file count are three questions about the SAME set of files. Write it once, read it everywhere:
+
+```bash
+shipping=$({ git -c core.quotepath=false diff --name-only "origin/{{prTarget}}"; \
+             git -c core.quotepath=false ls-files --others --exclude-standard; } \
+           | sort -u | grep -vE '^(\.claude/progress/|progress/)')
+printf '%s\n' "$shipping"                             # read it: this is what ships
+```
+
+- **`$shipping` does not survive the call.** Each Bash call starts a fresh shell — no variable or function crosses over — so re-run the assignment in the same call as whatever reads it. That is a copy of four lines, not a second definition of the set.
+- **Two dots, plus the untracked files — NEVER `...HEAD`.** Three-dot lists only what is already *committed*, and your trigger is by construction an **uncommitted** tree: there is no clean-working-tree check in this pre-flight because the commit is yours to make, further down. Run against an uncommitted tree, a three-dot listing comes back EMPTY — the coverage check then finds nothing missing and the waiver's count reads zero, so both are granted on every diff. It fails silently, in the unsafe direction. Two-dot plus `ls-files --others` is the exact set the `reviewer` captured and signed.
+- **`progress/` is dropped**, the same grep the receipt applies, so the two sets line up 1:1 and a git-persisted session-state update never looks like an unreviewed file. Deletions DO stay in the set (the receipt records them as `deleted  <path>`), so a removed file can't ship unreviewed.
+- **`quotepath=false` on both listings**, exactly as the reviewer signed them: git C-quotes a non-ASCII path by default, and a quoted path never matches the receipt's line — the file would read as uncovered, or slip by unverified.
+
 If the harness is active, identify THIS feature's review: `.claude/progress/review_<feature>.md`, with `<feature>` the id you received in your brief. A broad glob (`review_*.md`) over all reviews is not valid — it's not enough that some review with `APPROVED` exists in the directory, it has to be this feature's.
 
-Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. The verdict only counts if the review **covers the whole shipping diff**: the reviewer's content receipt (below) is the authoritative list of the files it actually reviewed, so every file in `git diff --name-only` must appear there. A touched file the review never saw → the `APPROVED` doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on. The coverage check is mechanical — see the receipt block.
+Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. The verdict only counts if the review **covers the whole shipping diff**: the reviewer's content receipt (below) is the authoritative list of the files it actually reviewed, so every file in the shipping diff above must appear there. A touched file the review never saw → the `APPROVED` doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on. The coverage check is mechanical — see the receipt block.
 
-<!-- This file-coverage rule lives here only; `skills/pr-create.md` is a pointer to this agent (single owner of the PR flow). -->
+<!-- This file-coverage rule lives here only; `.claude/skills/pr-create/SKILL.md` is a pointer to this agent (single owner of the PR flow). -->
 
 
 An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
@@ -50,19 +66,12 @@ An absent file, ambiguous (more than one candidate), or with a verdict/scope tha
 **Content receipt (R2+): the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`, one `<blob-sha>  <path>` line per reviewed file, or `deleted  <path>` for a removed one). Before committing, the approval has to cover the diff in **both** directions — coverage (every shipping file was reviewed) and no drift (no reviewed file changed its bytes):
 
 ```bash
-# 1) COVERAGE: shipping files the receipt never listed → reviewer never saw them.
-#    EXACT same diff set the reviewer captured — tracked-vs-target + untracked,
-#    minus the harness's own progress/ files (same grep the receipt applies) — so
-#    the sets line up 1:1 with no spurious mismatches. A git-persisted progress/
-#    update never counts as "uncovered"; deletions DO stay in the set (the receipt
-#    records them as `deleted <path>`) so a removed file can't ship unreviewed.
-#    quotepath=false on both listings, exactly as the reviewer signed them: git
-#    C-quotes a non-ASCII path by default and a quoted path never matches the
-#    receipt's line, so the file would look uncovered (or slip by unverified).
-comm -23 \
-  <({ git -c core.quotepath=false diff --name-only "origin/{{prTarget}}"; \
-      git -c core.quotepath=false ls-files --others --exclude-standard; } \
-       | sort -u | grep -vE '^(\.claude/progress/|progress/)') \
+# 1) COVERAGE: `$shipping` is THE SHIPPING DIFF above — assign it in this same
+#    call. Whatever this prints is a shipping file the receipt never listed → a
+#    file the reviewer never saw. Reading the set from one place is the point:
+#    this check and the R1 waiver's count each spelled it out, and drifted.
+#    `grep .` drops the blank line an empty $shipping would otherwise feed comm.
+comm -23 <(printf '%s\n' "$shipping" | grep .) \
   <(grep -v '^#' .claude/progress/receipt.txt | sed 's/^[^ ]*  //' | sort -u)
 
 # 2) DRIFT: a reviewed file whose bytes changed since the review. A `deleted`
@@ -102,11 +111,23 @@ An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wron
 
 <!-- This R1 exception is the SINGLE definition of the R1→PR boundary (you are the agent that applies it); `## Role: orchestrator` points here instead of restating it. -->
 
-**R1 exception (no reviewer):** a genuine R1 change (1–3 files, mechanical or a bugfix with a clear cause, done inline without a reviewer per `## Role: orchestrator`) has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `{{qualityGate.full}}` green yourself before the PR (see Gate below). This waiver is ONLY for a real R1 diff; anything R2+ (4+ files, or 2+ non-trivial files) still requires the APPROVED review.
+**R1 exception (no reviewer):** a change done inline, without a reviewer, per `## Role: orchestrator` has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `{{qualityGate.full}}` green yourself before the PR (see Gate below).
+
+**What makes that waiver genuine — one criterion, and it is countable.** A file in the shipping diff is **non-trivial** when all three of these hold:
+
+- **(a) it carries behavior** — executable source, or the harness prose an agent obeys — as opposed to config, fixtures, data, lockfiles, copy, docs or generated output;
+- **(b) this diff changes that behavior**, rather than propagating an edit the diff settles on its own, with no reasoning about what the program then does: a rename applied across its call sites, an import path updated because a file moved, a pure move, a formatting pass. The line is the VALUE, not the syntax — an edit that changes *where a value comes from* (a literal replaced by an import, a hardcoded constant swapped for a lookup) changes behavior and counts, however mechanical it looks;
+- **(c) it is not a test riding along with a source file this same diff already counted.** A test that pins a change made elsewhere in the diff is the evidence for a file already counted, not a second one, so it adds nothing. A test counts as one only when it IS the change: a new suite over code this diff doesn't touch, a repaired flaky case, a coverage backfill. Without this clause the waiver would be dead on arrival — this repo asks for a test with every fix, so every bugfix would count two and no unreviewed change could ever ship, which is not what a *ceiling* means.
+
+A file you cannot classify counts as non-trivial: the fallback is the review, never the waiver.
+
+**Worked example — the shape that decides.** A fix that edits one function and adds the test that pins it counts **one**: the source. The test rides along under (c), so the waiver applies. Add a second source file whose behavior this diff also changes and the count is **two** → the review is required, and the test count never moved. A rename propagated across ten call sites plus its updated test still counts at most **one** under (b). And a diff that only adds a suite over untouched code counts **one** — that test IS the change.
+
+Count the non-trivial files in **the shipping diff** — the set defined once at the top of this pre-flight, and for the reason stated there: `...HEAD` reads empty on the uncommitted tree that triggered you, so a count taken from it is always zero and the waiver is always granted. **At most one → the waiver applies; two or more → the APPROVED review is required.** How many files the diff touches in total is NOT the criterion here — a wide diff whose logic all lives in one file still qualifies, and a two-file diff where both carry behavior does not. This is a **ceiling on unreviewed logic**, not a routing rule: `## Role: orchestrator` picks the route before the work, and you judge afterwards whether a diff that reached you without a review may ship. When the two disagree, the ceiling wins — abort and send it to the `reviewer`.
 
 ### Gate: `{{qualityGate.full}}` green before the PR
 
-The PR gate is `{{qualityGate.full}}` (lint + tests) — **not** just `{{qualityGate.fast}}` (typecheck). A PR must not ship with lint errors or red tests, so `full` must be green over the diff that ships. Two paths:
+The PR gate is the FULL one, `{{qualityGate.full}}` — **not** the fast one, `{{qualityGate.fast}}`. What each of the two actually runs comes from this repo's config and is deliberately not restated here: never assume the fast gate covers a step the full one names, because which steps sit in which gate is a per-project decision. `full` must be green over the diff that ships. Two paths:
 
 - **R2+ (reviewed):** the `reviewer` already ran `{{qualityGate.full}}` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which is what the content receipt check above is for — YOU run it; no hook repeats it. The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `{{qualityGate.fast}}` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
 - **R1 (no reviewer):** there's no review evidence to trust — YOU run `{{qualityGate.full}}` green in pre-flight before `gh pr create`.
@@ -135,7 +156,17 @@ Never open the PR with the gate red.
    - `git log origin/{{prTarget}}..HEAD --oneline` — commits included.
    - `git diff origin/{{prTarget}}...HEAD --stat` — always.
    - `git diff origin/{{prTarget}}...HEAD` — only if the diff < 500 lines. If larger, use only the stat + file list + the hunks of the 2–3 most relevant files.
-   - **Commit drag** (only if `{{branchBase}}` ≠ `{{prTarget}}`): `git fetch origin {{branchBase}} --quiet` and `git rev-list --count origin/{{prTarget}}..origin/{{branchBase}}`. If > 0, `{{branchBase}}` is ahead of `{{prTarget}}` and your PR drags those foreign commits: warn the user and suggest rebasing onto `{{prTarget}}` before opening.
+   - **Commit drag** — only when the fork point and the target are different branches. Don't assert that they differ: let the shell settle it, so the ordinary case (both names resolve to the same branch, nothing can drag) simply doesn't run instead of producing a comparison of a branch with itself.
+
+     ```bash
+     base={{branchBase}}                                        # the fork point, as the repo declares it
+     if [ "$base" != "{{prTarget}}" ]; then
+       git fetch origin "$base" --quiet
+       git rev-list --count "origin/{{prTarget}}..origin/$base"
+     fi
+     ```
+
+     A count > 0 means the fork point is ahead of `{{prTarget}}` and your PR drags those foreign commits: warn the user and suggest rebasing onto `{{prTarget}}` before opening.
    - Ticket if applicable: branch name (e.g. `BT-1234-fix-x` → `BT-1234`) or a reference in the first commit.
    - `.claude/progress/impl_<feature>.md` if it exists — non-obvious decisions.
 
@@ -148,7 +179,15 @@ Never open the PR with the gate red.
    - If you mention a file that is NOT in `--stat`, remove it.
    - No emojis. No `Co-Authored-By` unless the repo explicitly allows it in CLAUDE.md.
 
-4. **Create the PR**:
+4. **Publish the branch** — the step between validating and firing `gh`, and the one that is easiest to assume someone else did. A PR shows what the REMOTE has, so on a branch with no upstream `gh pr create` drops into an interactive prompt asking where to push it: a prompt you cannot answer, so the turn hangs and no URL ever reaches the user.
+
+   ```bash
+   git push -u origin HEAD
+   ```
+
+   Push AFTER the last commit and BEFORE `gh pr create` — a commit made later is not in the PR. `-u origin HEAD` works whether or not the branch already exists on the remote and never force-pushes; if the remote rejects it as non-fast-forward, stop and report, because resolving that is not yours (see Hard rules).
+
+5. **Create the PR**:
 
    ```bash
    gh pr create \
@@ -162,9 +201,9 @@ Never open the PR with the gate red.
 
    Always pass `--base {{prTarget}}` explicitly — don't let `gh` use the repo's default branch. If the target changed, adjust it with `navori configure pr-target`.
 
-5. **Output to the user**: only the PR URL + 1 line with the title. Nothing else.
+6. **Output to the user**: only the PR URL + 1 line with the title. Nothing else.
 
-6. **Checks — read them ONCE, never wait**: `gh pr checks <N> --json name,bucket,state,link,workflow`. `bucket: pending` (the normal case right after creating the PR) → say so in **one extra line** and stop, no retry. `bucket: fail` → name the check in that line and point to `babysit-prs` for the diagnosis. Informative only: you never hold or revert a PR over a red check.
+7. **Checks — read them ONCE, never wait**: `gh pr checks <N> --json name,bucket,state,link,workflow`. `bucket: pending` (the normal case right after creating the PR) → say so in **one extra line** and stop, no retry. `bucket: fail` → name the check in that line and point to `babysit-prs` for the diagnosis. Informative only: you never hold or revert a PR over a red check.
 
 ## Body template (generic default)
 
@@ -224,13 +263,17 @@ standing inside it, and the call belongs to the human, so **report and stop
 there**.
 
 After the PR URL, check whether this run happened in a worktree and whether its
-work is safely on the remote:
+work is safely on the remote. Run it there and nowhere earlier: the verdict is
+only informative once PR flow step 4 has pushed. Before that push `[ahead N]` is
+true by construction — you just committed — so the check would report `NOT safe`
+on every single cycle and mean nothing.
 
 ```bash
 # A linked worktree has its own git dir; the main checkout has them equal.
 [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] && echo "main-checkout" || echo "worktree"
 git status --porcelain                       # must be empty
-git status -sb | head -1                     # must NOT say [ahead N]
+git status -sb | head -1                     # must NOT say [ahead N] — step 4 pushed;
+                                             # [ahead N] here means a commit landed after it
 ```
 
 Then close your report with exactly one of:

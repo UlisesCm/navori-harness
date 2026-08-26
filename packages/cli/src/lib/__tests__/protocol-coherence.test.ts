@@ -119,8 +119,12 @@ describe("R1 → PR boundary — defined once, by the agent that applies it (M6)
   it("the pilot marks its R1 exception as the single definition", () => {
     const pilot = read("agents/commit-pr-pilot.md");
     expect(pilot).toMatch(/SINGLE definition of the R1→PR boundary/);
-    // The criterion itself stays here.
-    expect(pilot).toContain("1–3 files, mechanical or a bugfix with a clear cause");
+    // The criterion itself stays here — and since #502.3 there is exactly ONE
+    // of them (the non-trivial-file count), defined in that same paragraph
+    // instead of borrowed. `commit-pr-pilot-contract.test.ts` owns the shape of
+    // the definition; what this line pins is that it lives in the pilot.
+    expect(pilot).toContain("**non-trivial**");
+    expect(pilot).toMatch(/the waiver applies/);
   });
 
   it("orquestacion points at that exception from both places, with one wording", () => {

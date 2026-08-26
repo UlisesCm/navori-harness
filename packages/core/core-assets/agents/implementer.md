@@ -119,6 +119,8 @@ blocked -> .claude/progress/impl_<feature>.md
 
 (In both cases the file is the same: your report with `Status: DONE | BLOCKED`. The leader consolidates blockers and session state in `progress/current.md`; you don't touch that file.)
 
+`impl_<feature>.md` is **input to another tool**, not a chat summary: the `reviewer` opens it to judge your diff, and a `SubagentStop` hook flags it when it lands empty or without its `Status:` line — that hook never sees one that didn't land at all, so nothing else catches a handoff you skip. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
+
 Never return the diff in chat. The leader reads it from disk if it needs it.
 
 <!-- navori:user-section -->

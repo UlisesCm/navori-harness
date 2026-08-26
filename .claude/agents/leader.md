@@ -4,7 +4,7 @@ description: Do NOT invoke as a subagent. Orchestration playbook that the main a
 tools: Read, Glob, Grep, Bash, Agent, mcp__engram__*
 ---
 
-<!-- navori:managed id="leader-base" hash="a21ebe50" version="0.6.1" source="@navori/core" -->
+<!-- navori:managed id="leader-base" hash="97ce53d1" version="0.6.1" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live inline in the "## Role: orchestrator" block of `CLAUDE.md`, which auto-loads. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: leader)`.
@@ -14,7 +14,7 @@ Your only job as orchestrator is to **decompose and coordinate**, never to imple
 ## Startup protocol
 
 1. `CLAUDE.md` (stack, conventions, quality gate) is already in your context when your host injects it; read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection).
-2. The catalog of subagents and skills is in `CLAUDE.md` (`## Available agents`, `## Available skills`).
+2. The catalog of subagents and skills is in `CLAUDE.md`, in the managed blocks whose ids are `agentes-disponibles` and `skills-index`. Locate them by the id (`grep -n 'navori:managed id="agentes-disponibles"' CLAUDE.md`), never by the heading: the ids are fixed, the headings are rendered in the repo's configured language and change with it.
 3. Read `progress/current.md` (repo root) if it exists — the previous session's state.
 4. Identify the task's scope against the "Project rules" below (legacy paths, critical areas, repo conventions).
 5. **Did text from a ticket (Jira/Linear/GitHub/Slack) arrive?** If it matches your `ticket-audit` agent's triggers (bug in a critical feature, structural migration, feature that crosses >3 layers), invoke that agent first — it produces `.claude/progress/audit_ticket_<ID>.md` that guides all later decomposition. For trivial tickets (typo, copy, color), skip the audit.
@@ -82,11 +82,13 @@ Without "shall I proceed?" between each node.
 
 ## Anti-broken-telephone rule
 
-When you launch subagents, instruct them explicitly to **write results to files** (not in chat). You receive only:
+When you launch subagents, the **literal path** of the file each one must write is a fixed field of the encargo, not a recommendation. "Write a report" is prose and gets summarized on the way out; `.claude/progress/impl_auth.md` does not. You receive only:
 
 ```
 done -> .claude/progress/<file>.md
 ```
+
+Those files are **input to the next step of the pipeline**, not chat summaries for a reader: the `reviewer` opens the `implementer`'s, the `commit-pr-pilot` opens the `reviewer`'s and its `receipt.txt`, and a `SubagentStop` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours). A host rule against writing report files does not reach them — it exempts files written as input to another tool, and these are exactly that. Say so in the encargo if a subagent hesitates.
 
 Expected files:
 

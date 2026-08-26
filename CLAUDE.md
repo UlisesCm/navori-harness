@@ -7,7 +7,7 @@
 ## Qué es este proyecto
 Paquete npm (CLI) para replicar harness multi-agente + SDD en múltiples proyectos con soporte multi-engine (Claude Code, AGENTS.md universal, Cursor, Copilot).
 
-**Estado actual**: MVP funcional. Monorepo pnpm con `packages/cli` (publicado a npm como `navori`, binario `navori`) + `@navori/core` (managed assets) + `apps/website` (landing/docs). Los 19 subcomandos registrados en `packages/cli/src/index.ts`: `init`, `add`, `remove`, `configure`, `update`, `render`, `sync`, `scan`, `registry`, `doctor`, `status`, `bench`, `workspace`, `ticket`, `backup`, `migrations`, `preset`, `global`, `dominio`.
+**Estado actual**: MVP funcional. Monorepo pnpm con `packages/cli` (publicado a npm como `navori`, binario `navori`) + `@navori/core` (managed assets) + `apps/website` (landing/docs). Los 20 subcomandos registrados en `packages/cli/src/index.ts`: `init`, `add`, `remove`, `configure`, `update`, `render`, `sync`, `scan`, `registry`, `doctor`, `status`, `bench`, `workspace`, `ticket`, `backup`, `migrations`, `preset`, `global`, `dominio`, `audit`. (Este inventario lo verifica `subcommand-inventory.test.ts` contra `index.ts`: si agregas un subcomando y no lo listas aquí, la suite falla.)
 
 > **Fuente de verdad de objetivo y dirección: [`docs/DIRECTION.md`](docs/DIRECTION.md).** Léela ANTES de proponer cambios de dirección o tocar navori — define metas, no-metas e invariantes que no se re-litigan sin una spec. Colaboradores humanos: `CONTRIBUTING.md`.
 
@@ -53,7 +53,7 @@ Protocolo global activo. En este repo:
 - El harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se commitea aquí y en todo repo no-Bonum — navori se auto-hospeda. La regla de "nunca commitear `.claude/`/`CLAUDE.md`" aplica solo a los repos `/bonum`. Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 - Branch base: definir cuando se inicialice el repo git.
 
-<!-- navori:managed id="orquestacion" hash="7034ff3b" version="0.6.1" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="e4e97831" version="0.6.1" source="@navori/core" -->
 ## Role: orchestrator (organic routing)
 
 You are the main agent. For any task, **pick the smallest route that covers it**; step up only when you cross an objective threshold. Fan-out (subagents) is a **lever** for complex or parallelizable work, not a toll every task pays. Review the candidate **after** implementing, not before. You **embody** the orchestrator role: when a task reaches R2, **you act as the orchestrator** (decompose and coordinate) — but **NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -89,7 +89,7 @@ Look the signal up instead of reconstructing the boundary; the mechanisms themse
 ### Thresholds that make you STEP UP a route
 
 - **4-file rule:** if you need to read 4+ files to understand the flow → delegate the exploration (R2 / R2-fan).
-- **Multi-file write:** if the change touches 2+ non-trivial files → 1 `implementer` + a fresh `reviewer`.
+- **Multi-file write:** if the change touches 2+ non-trivial files → 1 `implementer` + a fresh `reviewer`. **non-trivial** is defined once, in the `commit-pr-pilot`'s **R1 exception** — a file that carries behavior AND whose behavior this diff changes; don't re-define it here. Routing reads it as a hint (you pick the route before the work); the pilot reads the same term as a ceiling on unreviewed logic (it judges afterwards). Same definition, two moments.
 - **PR rule:** before commit/push/PR after code changes → go through `reviewer`, except a genuine R1 diff — as defined once by the `commit-pr-pilot`'s **R1 exception** (the agent that applies it); don't re-decide it here.
 - **Long-session rule (qualitative):** if the session grows without closing —several non-mechanical edits of rising complexity, or long broad exploration— **stop, re-evaluate, step up to R2**. Don't let "inline" degenerate into a mis-routed monster session.
 
@@ -119,9 +119,9 @@ Once the plan/scope is approved (R2+), execute ALL sub-tasks without confirming 
 
 ### Synthesis without broken telephone
 
-Instruct subagents to **write to `.claude/progress/<file>.md`**; you receive only `done -> file`. That folder is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, git-persisted) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. **After** its `done -> file` lands (not while it runs — that duplicates work in flight), re-verify only the **load-bearing claims**, the ones your decision rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report. To close the cycle, invoke `commit-pr-pilot` — when `review_<feature>.md` says `APPROVED` (R2+), or directly for a genuine R1 diff that never went through a `reviewer`. The pilot gates the PR on `pnpm format:check && cd packages/cli && pnpm test && pnpm lint && pnpm typecheck` (green over the shipping diff — the reviewer's Pass-2 evidence in R2+, or the pilot's own run in R1). Pre-flight: not on `main`, `gh auth status` ok (no clean-working-tree check — the pilot's trigger IS the uncommitted diff, and the pilot owns that commit). If `CHANGES_REQUESTED`, launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
+Every `Agent` call carries the **literal path** of the file its subagent must write (`.claude/progress/<file>.md`) — the path itself, never a vague "write a report": prose gets summarized when you delegate, a literal path does not. You receive only `done -> file`. Those files are **input to the next step**, not chat summaries — the `reviewer` opens the `implementer`'s, the `commit-pr-pilot` opens the `reviewer`'s, and a `SubagentStop` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours) — so a host rule against writing report files does not reach them: it exempts files written as input to another tool, and these are. That folder is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, git-persisted) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. **After** its `done -> file` lands (not while it runs — that duplicates work in flight), re-verify only the **load-bearing claims**, the ones your decision rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report. To close the cycle, invoke `commit-pr-pilot` — when `review_<feature>.md` says `APPROVED` (R2+), or directly for a genuine R1 diff that never went through a `reviewer`. The pilot gates the PR on `pnpm format:check && cd packages/cli && pnpm test && pnpm lint && pnpm typecheck` (green over the shipping diff — the reviewer's Pass-2 evidence in R2+, or the pilot's own run in R1). Pre-flight: not on `main`, `gh auth status` ok (no clean-working-tree check — the pilot's trigger IS the uncommitted diff, and the pilot owns that commit). If `CHANGES_REQUESTED`, launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
 
-**Second opinion (post-`APPROVED`).** On a non-trivial diff — or any change touching a critical area — if this repo also renders the `codex` engine, a review from a **different provider** is one command away: see the **Cross-model review** sub-block in `.claude/agents/leader.md`.
+**Second opinion (post-`APPROVED`).** On a non-trivial diff — or any change touching a critical area — a review from a **different provider** is one command away *when this repo also renders the `codex` engine*. The command lives in the `codex-cross-review` sub-block of `.claude/agents/leader.md`, which navori injects only in that case: `grep -n codex-cross-review .claude/agents/leader.md` — no match means this repo renders Claude only and the option does not apply here.
 
 **Reclaim the worktree (ask, never assume).** The pilot ends its report with a `worktree:` line, because it runs inside the worktree and cannot remove it — you can. Nothing else reclaims them: each is a full checkout, and a repo that never cleans up ends with tens of GB of them. When that line says `safe to remove`, ask the user once, plainly ("the PR is open and the branch is pushed — remove the worktree at `<path>`?"), and act on the answer. Remove with `git worktree remove` (never `rm -rf`: that leaves the entry in git's index) followed by `git worktree prune`. When it says `NOT safe`, do NOT ask — report which of the two reasons it gave and leave it alone; a worktree holding uncommitted or unpushed work is the only copy of it. And never take a merged PR as proof on its own: **squash merge leaves no ancestry**, so `git merge-base --is-ancestor` answers "not merged" for branches that shipped days ago — what proves the work landed is the squash commit in the base branch (`git log <base> --grep="(#<PR>)"`).
 <!-- /navori:managed id="orquestacion" -->
@@ -166,13 +166,13 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 Exception: `// any justified: <reason>` — last resort, not a shortcut. If there's no clear reason, it's not justified.
 <!-- /navori:managed id="tipado-fuerte" -->
 
-<!-- navori:managed id="operaciones-seguras" hash="d770ec13" version="0.6.1" source="@navori/core" -->
+<!-- navori:managed id="operaciones-seguras" hash="6f495062" version="0.6.1" source="@navori/core" -->
 ## Operations on data and infrastructure
 
 Read-only by default. Before mutating data, schema, or infrastructure (DB, storage, deploys, cloud resources), read and propose; don't mutate without the user's explicit opt-in for THIS task.
 
 - **DB / queries**: read-only by default (`SELECT`, `EXPLAIN`, flags like `onlyRead`). `INSERT/UPDATE/DELETE/DROP/ALTER/TRUNCATE` require the user to ask for it explicitly.
-- **Shell commands**: inspecting is free (`ls`, `cat`, `git status/diff/log`). Destructive ones (`rm -rf`, `git reset --hard`, force-push, `chmod -R`) are routed by the harness to `ask`/`deny` and a hook blocks them — don't try to bypass that layer.
+- **Shell commands**: inspecting is free (`ls`, `cat`, `git status/diff/log`). Destructive ones (`rm -rf`, `git reset --hard`, force-push, `chmod -R`) are routed by the harness to `ask`/`deny`, and the `guard-destructive` hook hard-blocks the subset a static rule can't catch (variable-indirected or absolute-root `rm -rf`, force-push to the base branch, hook-skipping) — don't try to bypass that layer.
 - **Code search**: use the native `Glob` (files by name/pattern) and `Grep` (content) tools: read-only, faster (ripgrep underneath), and they skip `node_modules`/`.git`, so no permission prompt. Reserve shell `find`/`grep` for what they don't cover — FS metadata (`-size`, `-mtime`, permissions) — and only when critically necessary. `find` isn't pre-approved on purpose: with `-exec`/`-delete` it's not purely read-only, so a prompt there is the right safety net, not a nuisance.
 - **If a destructive mutation is legitimate and necessary**: explain what it does and why, and let the user confirm or run it. Never disguise it with variables, subshells, or `--no-verify` to skip the gate.
 - **Command blocked by permission/policy → STOP (circuit-breaker)**: if a tool call lands on `deny` or the user rejects the prompt, the block is the answer — **0 retries**: don't re-issue the same command or re-ask for the same permission in a loop. If it only hit a non-pre-approved permission (pending prompt, not a `deny` or rejection), you get **1 (one) legitimate alternative approach** — e.g. the native `Grep`/`Glob` tool instead of shell `grep`/`find` — and if that doesn't pass either, you stop. The alternative changes the path, never repeats the same command. If the operation is intentional and necessary, tell the user to run it outside the agent; cycling on the block only burns tokens.
@@ -228,15 +228,17 @@ A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a 
 The `ticket-intake` skill runs this as a pipeline; the `ticket-audit` agent produces the verdict with evidence.
 <!-- /navori:managed id="intake-tickets" -->
 
-<!-- navori:managed id="engram-protocol" hash="604ad644" version="0.6.1" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-protocol" hash="9cb6b07f" version="0.6.1" source="@navori/plugin-engram" -->
 ## Engram
+
+**Who this block is addressed to.** Whoever holds the `mcp__engram__*` tools: the orchestrator (main agent) and any subagent whose `tools:` lists them. This text ships in `CLAUDE.md`, which every subagent receives — so if your toolset has no `mem_*` call, the block is not yours and nothing below applies; skip it instead of spending a turn discovering the tool is absent. The **session ceremonies** (`mem_session_summary` and the curation that follows it) belong to the agent that owns the session; a subagent closing with `done -> <file>` is not ending a session and never runs them.
 
 - **Session start (only where no hook did it):** if a startup hook already injected the memory context (on Claude the engram plugin ships its own `SessionStart`), work with what's injected — calling `mem_context` only re-fetches it. On hosts with no startup hook (e.g. Codex), that explicit call IS the memory startup and it's the mandatory first step; don't skip it.
 - **Pre-flight:** `mem_search` with the task's keywords before searching code — it gives a region and a hypothesis; confirm signature, line, and call sites with Grep/structural-search before acting.
 - **Save only what's durable:** decisions, architecture, conventions, root causes, and module pointers. Never persist lines, current signatures, call-site lists, or temporary state.
 - `mem_save` proactively with a stable `topic_key` per topic. Reuse the same key to evolve an observation via upsert, not to create repeated snapshots.
 - **Write-back:** if the code contradicts a memory, fix it with `mem_update`/`mem_save` right away. Treat `needs_review` as stale context.
-- `mem_session_summary` is mandatory before "done": Goal · Discoveries · Accomplished · Next Steps · Relevant Files. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
+- `mem_session_summary` is mandatory before "done" for the agent that owns the session (see who this block is addressed to): Goal · Discoveries · Accomplished · Next Steps · Relevant Files. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
 - **Curation at close:** in the SAME turn as the summary, never a separate pass, review what the session created. Consolidate duplicates under their `topic_key`, promote what's durable, and delete only volatile observations or ones already covered by the summary. Never aggressive deletion, never delete a durable decision.
 - **R1 lean close** (the closeout block's three conditions): the summary and the curation step are exempt. `mem_save` is not — that one is what lets you reconstruct in six months why a commit exists.
 <!-- /navori:managed id="engram-protocol" -->
@@ -297,10 +299,11 @@ It forms the hypothesis; it does not settle it. codegraph is beta and can return
 How to use it in practice — the full ladder, the monorepo caveat and the index rules — is Rung -1 of the `structural-search` skill, loaded when you actually go looking for code.
 <!-- /navori:managed id="codegraph-protocol" -->
 
-<!-- navori:managed id="skills-index" hash="23baaece" version="0.6.1" source="@navori/core" -->
+<!-- navori:managed id="skills-index" hash="71045771" version="0.6.1" source="@navori/core" -->
 ## Skills disponibles
 
 Skills que los agentes pueden aplicar; las propias de navori viven en `.claude/skills/<id>/SKILL.md` (una skill que hayas agregado tú puede ser un `<id>.md` plano). La nota tras el `·` dice cuándo usar cada una.
+Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido.
 
 - `verify-before-done` — navori · Use when about to declare a task done
 - `loop-back-debug` — navori · Use when a fix doesn't work the first time
@@ -318,6 +321,7 @@ Skills que los agentes pueden aplicar; las propias de navori viven en `.claude/s
 - `vitest` — library (detected) · Use when writing or fixing unit/integration tests with Vitest
 - `citty` — library (detected) · Use when adding or editing a CLI command with citty
 - `clack` — library (detected) · Use when building interactive CLI prompts with @clack/prompts
+- `playwright-cli` — project-local · Automate browser interactions, test web pages and work with Playwright tests
 <!-- /navori:managed id="skills-index" -->
 
 <!-- navori:managed id="agentes-disponibles" hash="0ec0b7dc" version="0.6.1" source="@navori/core" -->

@@ -35,6 +35,9 @@
       "vitest",
       "citty",
       "clack"
+    ],
+    "localSkills": [
+      "playwright-cli"
     ]
   }
 }

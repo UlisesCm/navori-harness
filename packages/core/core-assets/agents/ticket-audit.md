@@ -147,6 +147,8 @@ done -> .claude/progress/audit_ticket_<ID>.md
 
 The leader reads the audit from disk and decomposes from there.
 
+`audit_ticket_<ID>.md` is **input to the next step of the pipeline**, not a chat summary: every later phase reads it, and the `implementer` gets its path as a mandatory reference. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
+
 <!-- navori:user-section -->
 ## Project rules
 

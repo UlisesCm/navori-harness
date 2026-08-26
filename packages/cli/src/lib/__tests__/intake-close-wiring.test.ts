@@ -57,7 +57,10 @@ describe("closing verdicts don't wait for approval (#370)", () => {
   it("closing the cycle is defined as an ACTION, not just an absence of waiting", () => {
     const skill = read("skills/ticket-intake.md");
     // Report the verdict + evidence, park the session state, stop.
-    expect(skill).toMatch(/doesn't wait for approval:.*`current\.md` at `idle`/s);
+    // Repo-relative path, not the bare filename: #507 found the skill's phase-0
+    // `cat current.md` failing from the repo root, where the file is
+    // `progress/current.md`. The anchor moves with the fix so it stays honest.
+    expect(skill).toMatch(/doesn't wait for approval:.*`progress\/current\.md` at `idle`/s);
     // Both legitimate ends of the pipeline are declared, so "no PR" isn't read
     // as an unfinished run.
     expect(skill).toMatch(/closed at phase 2 ends with its verdict \+ evidence and no PR/i);

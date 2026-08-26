@@ -36,6 +36,7 @@
       "Bash(git restore --staged:*)",
       "Bash(git switch:*)",
       "Bash(git checkout -b:*)",
+      "Bash(git push -u origin HEAD)",
       "Read",
       "Glob",
       "Grep",

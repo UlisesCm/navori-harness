@@ -196,6 +196,48 @@ describe("buildClaudeSettings — base shape", () => {
 });
 
 /**
+ * Claude Code matches a Bash pattern by prefix, with a trailing `*` extending
+ * it to whatever follows. This models the WIDEST plausible reading (`*` as
+ * "any run of characters, including none") on purpose: a negative control has
+ * to fail if a new entry could swallow everyday work — or a force push — under
+ * any reading, not just the strictest one.
+ *
+ * The model is spelled out — split on `*`, then walk the literals with
+ * `indexOf` — rather than translated into a `new RegExp(...)`. Two reasons,
+ * and the second is the one that matters: a derived regex hides the matching
+ * rule behind an escape table (miss one metacharacter and `$HOME` silently
+ * becomes an anchor), and it is exactly the pattern
+ * `detect-non-literal-regexp` flags, so building it here would make this
+ * repo's own semgrep gate block every commit of this file. The executable
+ * spec of the model is the `MATCHING_SEMANTICS` table below.
+ *
+ * Module scope, not block scope: #509's rm matrix and #499's `git push` control
+ * both need it, and a second copy is a second semantics.
+ */
+function permissionMatches(pattern: string, command: string): boolean {
+  const body = pattern.startsWith("Bash(") ? pattern.slice(5, -1) : pattern;
+  const literals = body.split("*");
+  const head = literals.shift() ?? "";
+  // No `*` at all: the entry is an exact literal and nothing extends it.
+  if (literals.length === 0) return command === head;
+  const tail = literals.pop() ?? "";
+  if (!command.startsWith(head) || !command.endsWith(tail)) return false;
+
+  // Anchors consumed. Every remaining literal must appear in order inside
+  // what is left, and taking the EARLIEST occurrence of each is enough — a
+  // later occurrence can only ever leave less room for the ones after it.
+  let cursor = head.length;
+  const end = command.length - tail.length;
+  if (cursor > end) return false; // head and tail would overlap
+  for (const literal of literals) {
+    const at = command.indexOf(literal, cursor);
+    if (at < 0 || at + literal.length > end) return false;
+    cursor = at + literal.length;
+  }
+  return true;
+}
+
+/**
  * #509, point 3 — `permissions.deny` / `.ask` shared the guard's blind spot.
  *
  * The guard described the danger by the TEXT it usually wears (`-rf`, lowercase)
@@ -233,45 +275,6 @@ describe("buildClaudeSettings — recursive-rm permissions are a derived cross p
 
   /** The targets a recursive rm must never reach, whatever the spelling. */
   const RM_TARGETS = ["/", "/*", "~", "~/*", "$HOME", "$HOME/*"];
-
-  /**
-   * Claude Code matches a Bash pattern by prefix, with a trailing `*` extending
-   * it to whatever follows. This models the WIDEST plausible reading (`*` as
-   * "any run of characters, including none") on purpose: the negative control
-   * below has to fail if a new entry could swallow everyday work under any
-   * reading, not just the strictest one.
-   *
-   * The model is spelled out — split on `*`, then walk the literals with
-   * `indexOf` — rather than translated into a `new RegExp(...)`. Two reasons,
-   * and the second is the one that matters: a derived regex hides the matching
-   * rule behind an escape table (miss one metacharacter and `$HOME` silently
-   * becomes an anchor), and it is exactly the pattern
-   * `detect-non-literal-regexp` flags, so building it here would make this
-   * repo's own semgrep gate block every commit of this file. The executable
-   * spec of the model is the `MATCHING_SEMANTICS` table below.
-   */
-  function permissionMatches(pattern: string, command: string): boolean {
-    const body = pattern.startsWith("Bash(") ? pattern.slice(5, -1) : pattern;
-    const literals = body.split("*");
-    const head = literals.shift() ?? "";
-    // No `*` at all: the entry is an exact literal and nothing extends it.
-    if (literals.length === 0) return command === head;
-    const tail = literals.pop() ?? "";
-    if (!command.startsWith(head) || !command.endsWith(tail)) return false;
-
-    // Anchors consumed. Every remaining literal must appear in order inside
-    // what is left, and taking the EARLIEST occurrence of each is enough — a
-    // later occurrence can only ever leave less room for the ones after it.
-    let cursor = head.length;
-    const end = command.length - tail.length;
-    if (cursor > end) return false; // head and tail would overlap
-    for (const literal of literals) {
-      const at = command.indexOf(literal, cursor);
-      if (at < 0 || at + literal.length > end) return false;
-      cursor = at + literal.length;
-    }
-    return true;
-  }
 
   const permissions = () =>
     buildClaudeSettings(MINIMAL_CONFIG, []).permissions as {
@@ -928,5 +931,81 @@ describe("buildClaudeSettings — commands the harness itself orders (#506)", ()
       offenders,
       `these navori subcommands write to disk and must stay behind the prompt: ${offenders.join(", ")}`,
     ).toEqual([]);
+  });
+});
+
+/**
+ * #499 — the PR flow ends in `git push`, so the settings have to pre-approve it.
+ *
+ * No asset ordered a push at all, and `gh pr create` on a branch with no
+ * upstream opens an interactive prompt the agent cannot answer. The fix adds the
+ * order to `commit-pr-pilot.md` (pinned by `commit-pr-pilot-contract.test.ts`)
+ * and the permission here — and the permission is the half that can go wrong
+ * quietly: the obvious `Bash(git push:*)` would ALSO pre-approve
+ * `git push --force`, silently overriding the `ask` entries that exist precisely
+ * to put a human in front of a rewritten remote history.
+ *
+ * So the rule shipped is the exact command the asset orders, and the control
+ * below is a negative one: no allow entry may cover any spelling of a force
+ * push, under the widest reading of the matching model.
+ */
+describe("buildClaudeSettings — the PR flow's `git push` is pre-approved, a force push is not (#499)", () => {
+  const permissions = () =>
+    buildClaudeSettings(MINIMAL_CONFIG, []).permissions as {
+      allow: string[];
+      ask: string[];
+      deny: string[];
+    };
+
+  /**
+   * The widest reading of an allow entry. `permissionMatches` treats `:` as
+   * ordinary text, while Claude Code's `Bash(cmd:*)` spelling means "cmd plus
+   * any arguments" — so a `Bash(git push:*)` entry would look like it matched
+   * nothing and the negative control would pass by construction. Collapsing the
+   * `:*` form into a raw `*` prefix first is what makes the naive fix FAIL here
+   * instead of shipping.
+   */
+  function preApproves(rule: string, command: string): boolean {
+    return permissionMatches(rule.replace(/:\*\)$/, "*)"), command);
+  }
+
+  /** Every spelling of "rewrite what the remote already has". */
+  const FORCE_PUSHES = [
+    "git push --force",
+    "git push --force origin main",
+    "git push -f origin main",
+    "git push --force-with-lease origin main",
+    "git push -u origin HEAD --force",
+    "git push origin +main",
+  ];
+
+  it("pre-approves exactly the publish command the PR flow orders", () => {
+    expect(permissions().allow).toContain("Bash(git push -u origin HEAD)");
+    expect(preApproves("Bash(git push -u origin HEAD)", "git push -u origin HEAD")).toBe(true);
+  });
+
+  it("judges by the widest reading — otherwise the naive fix would pass unnoticed", () => {
+    // Anti-false-green: this pins that the `:*` widening actually happens. Drop
+    // it and the negative control below turns into a test that cannot fail.
+    expect(preApproves("Bash(git push:*)", "git push --force origin main")).toBe(true);
+    expect(permissionMatches("Bash(git push:*)", "git push --force origin main")).toBe(false);
+  });
+
+  it("never pre-approves a force push, under the widest reading of every allow rule", () => {
+    const allow = permissions().allow;
+    const offenders = FORCE_PUSHES.flatMap((command) =>
+      allow.filter((rule) => preApproves(rule, command)).map((rule) => `${rule} → "${command}"`),
+    );
+    expect(
+      offenders,
+      "an allow entry pre-approves a force push: it would override the `ask` entries and let an agent rewrite remote history with no human in the loop",
+    ).toEqual([]);
+  });
+
+  it("keeps every force spelling in `ask`, where a human sees it", () => {
+    const { ask } = permissions();
+    for (const rule of ["Bash(git push --force*)", "Bash(git push -f *)"]) {
+      expect(ask).toContain(rule);
+    }
   });
 });

@@ -79,6 +79,8 @@ One line:
 done -> .claude/progress/explore_<area>.md
 ```
 
+`explore_<area>.md` is **input to the next step of the pipeline**, not a chat summary: the leader cross-reads it with the other explorers' files, and the `implementer` opens it as prior context. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
+
 <!-- navori:user-section -->
 ## Project rules
 

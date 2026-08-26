@@ -32,10 +32,10 @@ import { getCoreRoot } from "../bundled-assets.ts";
  *
  * Deliberately NOT covered (a namespace mentioned ONLY this way slips through):
  *   - a bare filename with neither backticks nor the folder prefix, e.g. inside
- *     a fenced block: `done -> .claude/progress/audit_deep_<scope>.md (+ plan_<scope>.md)`
- *     in `agents/auditor.md` — the `plan_<scope>.md` there is invisible here.
- *     Harmless today (every live namespace also appears in a covered form), but
- *     it is a real hole, not an oversight.
+ *     a fenced block. `agents/auditor.md` used to close with
+ *     `(+ plan_<scope>.md)` and that second artifact was invisible here; #500's
+ *     literal-path rule spelled it out, so no live instance remains. The hole in
+ *     this extractor does, and it is a real one, not an oversight.
  *   - extensions other than `.md` / `.txt` in the literal form.
  *   - artifacts described in prose with no filename ("the reviewer's receipt").
  *   - namespaces outside the folder's lowercase snake_case convention.
