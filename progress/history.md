@@ -583,3 +583,46 @@ verde. Lo atrapó el reviewer mutando producción. **Razonar sobre el fixture no
 **Queda abierto.** Descongelar el rollout exige **publicar primero**: el fix de `Bash(sg:*)` no llega
 a ningún repo onboardeado hasta que se publique. Y el límite de #440 (un `render` no actualiza las
 zonas de usuario ya escritas) obliga a ir **per-repo, nunca `--all`**.
+
+## 2026-08-26 22:40 leader — cierra 22 issues, publica 0.6.2 y hace el rollout a los 3 repos de /navori
+
+**Alcance.** Los 17 de la auditoría a ciegas (#495–#511) + el release 0.6.2 + el rollout uno a uno a
+`alertaciudadana_app`, `alertaciudadana_backend` y `navori-dashboard-template` + los 5 defectos que ese
+rollout destapó (#519–#523). **6 PRs en navori, 5 en los repos de Ulises, todos con CI verde.**
+Tests **2124 → 2716**. Tablero en **0 issues / 0 PRs**.
+
+**El patrón transversal.** Las defensas describían el peligro por su **forma textual** —`-rf`, un nombre
+de binario, un mapa de rutas, un conteo de apóstrofos— en vez de por su **semántica**, y ninguna
+verificaba que pudo hacer su trabajo. Un guard que no llegó a evaluar, un gate que salió 1, un backup
+vacío y un parser ciego producen **la misma señal visible que el éxito**.
+
+**Lo más caro de cada bloque.** El guard destructivo se esquivaba por **tres ejes ciegos** (flags,
+posición del operando, comillas) y tardaba **83 849 ms** con timeout de 10 s → lo mataban antes de
+evaluar una regla. Los gates de semgrep/jscpd salían 1 y `PreToolUse` bloquea solo con 2. `global init`
+destruía `~/.claude/settings.json` corrupto sin backup — y el bug estaba escrito como contrato en el
+JSDoc. Un fence impar duplicaba todos los bloques en cada render con `doctor` diciendo OK. **Y el fix de
+`--prune` introdujo una pérdida de datos peor que la que arreglaba**: `statSync` sigue symlinks, así que
+borraba archivos del usuario **fuera del repositorio** — lo atrapó el review.
+
+**La patología de tests, OCHO apariciones**, cuatro de ellas protegiendo el bug (corregir el código
+rompía el test). Dos las produje yo, con el patrón fresco y en tests escritos para no caer en él. Las
+atrapó lo único que las atrapa: **mutar producción y comprobar el rojo**.
+
+**El rollout encontró lo que ninguna auditoría podía ver**, porque solo existe cuando el harness se
+topa con un repo real: prettier congelaba un harness entero invalidando el hash de sus 19 bloques; los
+worktrees anidados rompen eslint, así que ningún agente podía commitear desde ellos (3 abandonados,
+**2,6 GB**, 3 ramas sin publicar); `doctor` pedía un `name` que el esquema prohíbe — y la causa raíz era
+que **`init` ya normalizaba con esa misma cadena**, así que doctor regañaba por lo que init escribió.
+
+**Tres hallazgos solo existen por cruzar repos**: la zona (la app confía en el backend, el backend no
+valida); el voto (parecía vulnerable desde la app, **refutado** — protegido en tres capas); y el
+anonimato, **protegido en la escritura y expuesto en la lectura**. Desde cada repo por separado la
+invariante parece cumplida.
+
+**Gate.** `format:check` ✓ · `check:render` ✓ · `check:assets` ✓ · `lint` ✓ · `typecheck` ✓ ·
+`check:size` ✓ · **2716/2716 tests** ✓ — y CI verde en los 6 PRs.
+
+**Queda abierto.** Publicar **0.6.3**: los 5 fixes están en `main` pero no en npm, y el de
+`.prettierignore` en `init` **solo actúa al onboardear**. Y 3 issues de seguridad en los repos de
+Ulises (`alertaciudadana_app#113`, `alertaciudadana_backend#148`, `navori-dashboard-template#53`), el
+más caro PII y CURP en logs de un build release.
