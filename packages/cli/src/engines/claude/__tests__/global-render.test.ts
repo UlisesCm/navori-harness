@@ -102,6 +102,26 @@ describe("global-render — hook script + gate (executed with bash)", () => {
     );
   });
 
+  /**
+   * The baseline is PROSE, and prose has apostrophes. While the heredoc sat
+   * directly inside `$( … )`, bash 3.2 (still `/bin/bash` on macOS) parsed the
+   * body before honoring the heredoc's quoting, so the hook aborted with
+   * "unexpected EOF while looking for matching `''" whenever the embedded
+   * assets happened to hold an ODD number of `'`. It shipped green only by
+   * parity: one edit to one sentence in `operaciones-seguras.md` was enough to
+   * take the global baseline down for every repo without its own harness.
+   * Metacharacters the shell would otherwise expand ride along in the same case.
+   */
+  it("survives a baseline with an unbalanced quote and shell metacharacters", () => {
+    const prose = "don't stop — a lone ' and a ) plus $(echo pwned) and `backticks`";
+    const hookFile = join(scratch, "hook.sh");
+    writeFileSync(hookFile, generateHookScript(prose));
+    const out = execFileSync("bash", [hookFile], { cwd: scratch, input: "", encoding: "utf-8" });
+    const parsed = JSON.parse(out) as { hookSpecificOutput?: { additionalContext?: string } };
+    // Verbatim: the quote does not abort the parse and `$(…)` is not expanded.
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain(prose);
+  });
+
   it("DEFERS (emits nothing) when a navori.config.json exists at/above cwd", () => {
     const script = generateHookScript(composeBaseline(defaultGlobalConfig("0.5.0")));
     const hookFile = join(scratch, "hook.sh");

@@ -26,6 +26,13 @@
       "--tools=agent"
     ]
   },
+  "settingsFragment": {
+    "permissions": {
+      "allow": [
+        "mcp__engram__*"
+      ]
+    }
+  },
   "skills": [
     {
       "id": "engram-leader-extension",

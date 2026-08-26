@@ -84,6 +84,8 @@ or
 blocked -> <brief reason>
 ```
 
+`research_<slug>.md` is **input to the next step of the pipeline**, not a chat summary: the leader cross-reads it against the other researchers' files to decide the decomposition. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
+
 Never return the report's content in chat. The leader reads it from disk.
 
 <!-- navori:user-section -->

@@ -122,16 +122,25 @@ const CODEX_RUNTIME_EXCEPTIONS: readonly PathException[] = [
  * root the sweep could not see that class at all: every other citation it knows
  * starts with a dot. The dot-rooted alternatives still win when both apply,
  * and the lookbehind keeps `.claude/scripts/…` from matching as a bare root.
+ *
+ * `skills` joined for the same reason (#507): an agent cited `skills/pr-create.md`
+ * — the plugin author's frame again — and the sweep was structurally blind to it,
+ * because the only bare roots it knew were `progress`, `specs` and `scripts`.
+ * That citation now names the rendered path and carries NO exception: the root is
+ * what makes the next one fail here instead of in an onboarded repo.
  */
 function extractCitations(content: string): string[] {
   const re =
-    /(?:\.claude|\.codex|\.agents|\.cursor|\.github|(?<![\w./-])progress|(?<![\w./-])specs|(?<![\w./-])scripts)\/[\w<>*./-]*/g;
+    /(?:\.claude|\.codex|\.agents|\.cursor|\.github|(?<![\w./-])progress|(?<![\w./-])specs|(?<![\w./-])scripts|(?<![\w./-])skills)\/[\w<>*./-]*/g;
   const citations: string[] = [];
   for (const raw of content.match(re) ?? []) {
     // Trailing sentence punctuation is not part of the path.
     const cite = raw.replace(/\.+$/, "");
     if (
-      (cite.startsWith("progress/") || cite.startsWith("specs/") || cite.startsWith("scripts/")) &&
+      (cite.startsWith("progress/") ||
+        cite.startsWith("specs/") ||
+        cite.startsWith("scripts/") ||
+        cite.startsWith("skills/")) &&
       !(cite.endsWith("/") || cite.endsWith(".md") || cite.endsWith(".txt") || cite.endsWith(".sh"))
     ) {
       continue;
@@ -298,6 +307,123 @@ describe("every path cited by a rendered artifact exists in its render (#392)", 
       expect(misses).toEqual([]);
     });
   }
+});
+
+/**
+ * Second dimension of the same failure (#507). A citation can resolve as a PATH
+ * and still send the model nowhere, because what it names is a HEADING inside
+ * the file. `leader.md` pointed its startup protocol at `## Available agents` /
+ * `## Available skills` in `CLAUDE.md`, while the render emits those two blocks
+ * with LOCALIZED headings (`## Agentes disponibles`): a `Grep` comes back empty
+ * and the agent concludes, at step 2 of its boot, that the catalog doesn't
+ * exist. The path sweep above is blind to it by construction — `CLAUDE.md`
+ * exists; the miss is inside the file.
+ *
+ * The rule: every backticked `## Heading` an emitted artifact cites must match
+ * the start of a real heading somewhere in that engine's render. Deliberately
+ * NOT attributed to a particular file — an asset seldom names the target on the
+ * same line, and "this heading exists nowhere in the render" is already the
+ * finding. Prefix, not equality: `## Role: orchestrator` legitimately points at
+ * `## Role: orchestrator (organic routing)`.
+ *
+ * Two exclusions, both about templates rather than pointers: headings inside a
+ * fenced block are output the agent WRITES (auditor.md's report skeleton has
+ * `## Security`), and a heading carrying a `<placeholder>` is a shape, not a
+ * destination.
+ */
+
+/** Drop fenced code blocks — a heading inside one is a template, not a pointer. */
+function stripFences(content: string): string {
+  const out: string[] = [];
+  let inFence = false;
+  for (const line of content.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence) out.push(line);
+  }
+  return out.join("\n");
+}
+
+/** Backticked `## Heading` pointers in `content`, templates excluded. */
+function extractHeadingCitations(content: string): string[] {
+  const found: string[] = [];
+  for (const [, cite] of stripFences(content).matchAll(/`(#{2,6} [^`\n]+)`/g)) {
+    if (cite === undefined || cite.includes("<")) continue;
+    found.push(cite.trim());
+  }
+  return found;
+}
+
+/** The text of a markdown heading line, or null when the line isn't one. */
+function headingText(line: string): string | null {
+  const [, text] = line.match(/^#{1,6}\s+(.*\S)\s*$/) ?? [];
+  return text ?? null;
+}
+
+interface HeadingSweep {
+  readonly cited: string[];
+  readonly misses: Array<{ file: string; heading: string }>;
+}
+
+/** Every heading citation in a render, split into resolved and unreachable. */
+function sweepHeadings(cwd: string): HeadingSweep {
+  const surfaces = listFiles(cwd).filter((f) => SWEPT_EXTENSIONS.test(f));
+  expect(surfaces.length).toBeGreaterThan(0);
+  const bodies = surfaces.map((file) => ({ file, body: readFileSync(join(cwd, file), "utf-8") }));
+  const real = bodies.flatMap(({ body }) =>
+    body.split("\n").flatMap((line) => headingText(line) ?? []),
+  );
+
+  const cited: string[] = [];
+  const misses: HeadingSweep["misses"] = [];
+  for (const { file, body } of bodies) {
+    for (const cite of extractHeadingCitations(body)) {
+      cited.push(cite);
+      // The regex only matches a leading `#`-run, so `headingText` always parses
+      // a citation it produced — the guard satisfies the type, not a real case.
+      const target = headingText(cite);
+      if (target === null) continue;
+      if (!real.some((line) => line.startsWith(target))) misses.push({ file, heading: cite });
+    }
+  }
+  return { cited, misses };
+}
+
+describe("every heading cited by a rendered artifact exists in its render (#507)", () => {
+  for (const engineCase of ENGINE_CASES) {
+    it(`${engineCase.id}: emitted artifacts cite no unreachable heading`, () => {
+      expect(sweepHeadings(renderCase(engineCase)).misses).toEqual([]);
+    });
+  }
+
+  // Anti-vacuity, anchored on the engine that HAS the citations: a broken
+  // extractor reports zero misses over zero citations and reads as green. Only
+  // Claude renders `.claude/agents/`, so only there is a citation guaranteed —
+  // asserting this per engine would fail on the prose engines for being right.
+  it("the sweep actually finds citations (a mute extractor is not a pass)", () => {
+    const { cited } = sweepHeadings(renderCase(ENGINE_CASES[0] as EngineCase));
+    expect(ENGINE_CASES[0]?.id).toBe("claude");
+    expect(cited).toContain("## Role: orchestrator");
+  });
+});
+
+describe("the heading extractor separates pointers from templates (#507)", () => {
+  it("takes a real pointer and leaves fenced templates and placeholders out", () => {
+    const doc = [
+      "Read the catalog in `## Available agents` before deciding.",
+      "",
+      "```markdown",
+      "## Security",
+      "`## Performance`",
+      "```",
+      "",
+      "History entries look like `## YYYY-MM-DD HH:MM <agent> — <summary>`.",
+    ].join("\n");
+
+    expect(extractHeadingCitations(doc)).toEqual(["## Available agents"]);
+  });
 });
 
 describe("hooks probe every engine's handoff dir, not one engine's (#389)", () => {

@@ -104,10 +104,20 @@ while :; do
 done
 
 # --- No repo navori config -> emit the global baseline ----------------------
-BASELINE=$(cat <<'${HEREDOC}'
+# The heredoc lives in a FUNCTION, never directly inside \`$( … )\`: bash 3.2 —
+# still /bin/bash on macOS — parses the body of a command substitution before it
+# honors the heredoc's quoting, so a lone \`'\` in the prose aborts the whole hook
+# with "unexpected EOF while looking for matching \`''". That made the baseline
+# depend on the APOSTROPHE PARITY of the assets embedded in it: the day an edit
+# left an odd count, every session without a repo harness lost its baseline.
+# Wrapped in a function the heredoc is parsed on its own and the substitution
+# sees a plain command name.
+navori_baseline() {
+cat <<'${HEREDOC}'
 ${baseline}
 ${HEREDOC}
-)
+}
+BASELINE=$(navori_baseline)
 
 [ -n "$BASELINE" ] || exit 0
 if command -v node >/dev/null 2>&1; then
