@@ -525,37 +525,67 @@ export function proseLines(
     const syntax = syntaxFor(style);
     return { syntax, re: openRegexFor(syntax) };
   });
-  const out: ProseLine[] = [];
-  const lines = content.split("\n");
-  let offset = 0;
-  let inFence = false;
-  for (let li = 0; li < lines.length; li++) {
-    const text = lines[li]!;
-    const lineStart = offset;
-    offset += text.length + 1; // +1 for the "\n" split removed
-    if (FENCE_LINE_RE.test(text)) {
-      inFence = !inFence;
-      continue;
+
+  const scan = (fenceAware: boolean): { lines: ProseLine[]; fenceLeftOpen: boolean } => {
+    const out: ProseLine[] = [];
+    const lines = content.split("\n");
+    let offset = 0;
+    let inFence = false;
+    for (let li = 0; li < lines.length; li++) {
+      const text = lines[li]!;
+      const lineStart = offset;
+      offset += text.length + 1; // +1 for the "\n" split removed
+      if (fenceAware) {
+        if (FENCE_LINE_RE.test(text)) {
+          inFence = !inFence;
+          continue;
+        }
+        if (inFence) continue; // quoted prose — never a real marker
+      }
+      out.push({ text, index: li, offset: lineStart });
+      // If this line opens a managed block, skip every line through its close.
+      let bodyEnd = -1;
+      for (const { syntax, re } of opens) {
+        const m = re.exec(text);
+        if (!m || m.index === undefined) continue;
+        const close = closeMarker(m[1]!, syntax);
+        const closeStart = closeStartAfter(content, close, lineStart + m.index + m[0].length);
+        // No close: an orphan open, not a body — nothing to skip (the line itself
+        // was already emitted, so the caller still sees the marker).
+        if (closeStart >= 0) bodyEnd = Math.max(bodyEnd, closeStart + close.length);
+      }
+      while (offset <= bodyEnd && li < lines.length - 1) {
+        li++;
+        offset += lines[li]!.length + 1;
+      }
     }
-    if (inFence) continue; // quoted prose — never a real marker
-    out.push({ text, index: li, offset: lineStart });
-    // If this line opens a managed block, skip every line through its close.
-    let bodyEnd = -1;
-    for (const { syntax, re } of opens) {
-      const m = re.exec(text);
-      if (!m || m.index === undefined) continue;
-      const close = closeMarker(m[1]!, syntax);
-      const closeStart = closeStartAfter(content, close, lineStart + m.index + m[0].length);
-      // No close: an orphan open, not a body — nothing to skip (the line itself
-      // was already emitted, so the caller still sees the marker).
-      if (closeStart >= 0) bodyEnd = Math.max(bodyEnd, closeStart + close.length);
-    }
-    while (offset <= bodyEnd && li < lines.length - 1) {
-      li++;
-      offset += lines[li]!.length + 1;
-    }
-  }
-  return out;
+    return { lines: out, fenceLeftOpen: inFence };
+  };
+
+  const fenced = scan(true);
+  if (!fenced.fenceLeftOpen) return fenced.lines;
+  // UNCLOSED FENCE (#498). An odd number of ``` leaves the toggle stuck ON to
+  // EOF, so every marker below the stray delimiter drops out of the listing. The
+  // reading is not merely incomplete — it is KNOWN to be wrong, and both callers
+  // act on it destructively: the writer concludes the block is absent and appends
+  // a second copy (24 → 48 → 72 markers, 27 KB → 82 KB across three renders),
+  // while `doctor`, walking this same function, sees the healthy prefix and
+  // reports OK. Silent, unbounded corruption of the harness's central file.
+  //
+  // WHY RE-SCAN FENCE-BLIND instead of trusting the truncated read: an unclosed
+  // fence is a malformed document, so one of two guesses must be made about the
+  // tail, and they are not symmetric.
+  //   - Trust the fence: every real block below it becomes invisible → duplicated
+  //     on write, invisible to every diagnostic, unrecoverable without a manual
+  //     edit. The damage grows on each render.
+  //   - Ignore fences: a marker the author QUOTED below the stray delimiter can
+  //     be taken for a real block → at worst navori rewrites documentation once.
+  //     Bounded, visible in the diff, and covered by the pre-render backup.
+  // The second failure is the cheap one, so the malformed file is read as if it
+  // carried no fences at all. Fences are re-honoured the moment the file is
+  // balanced again — no state is persisted. `scanMalformedMarkers` surfaces the
+  // typo separately; this only decides how not to lose blocks meanwhile.
+  return scan(false).lines;
 }
 
 /**
@@ -713,11 +743,19 @@ export interface UserSectionSplit {
  */
 function extractUserProse(raw: string): string {
   const withoutLegacy = normalize(raw).replace(LEGACY_USER_HINT_RE, "");
+  const lines = withoutLegacy.split("\n");
+  // #498, the user zone's half of the rule `proseLines` applies to markers: an
+  // ODD number of fence delimiters leaves the toggle stuck ON, so the zone's own
+  // `user-end` token below it is mistaken for fenced prose, survives extraction,
+  // and `emitUserSection` wraps a zone that already closes itself — one extra
+  // `<!-- navori:user-end -->` per render, forever. A malformed region is read
+  // as if it had no fences: the bounded cost is a token the user deliberately
+  // quoted below the stray delimiter losing its line.
+  const fenceAware = lines.filter((line) => FENCE_LINE_RE.test(line)).length % 2 === 0;
   let inFence = false;
-  return withoutLegacy
-    .split("\n")
+  return lines
     .filter((line) => {
-      if (FENCE_LINE_RE.test(line)) {
+      if (fenceAware && FENCE_LINE_RE.test(line)) {
         inFence = !inFence;
         return true; // keep the fence delimiter itself
       }

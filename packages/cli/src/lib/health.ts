@@ -33,10 +33,38 @@ export interface MarkerInfo {
   source: string | null;
 }
 
+/** OPEN markers only, both syntaxes, in the exact shape marker.ts's parser
+ *  requires. Module-level (not per call) so the two listings below can never
+ *  drift into two different notions of "a marker". */
+const MARKER_TAG_RE = /(?:<!-- navori:managed|# navori:managed start)[ \t]+id="([^"\n]+)"[^\n>]*/g;
+
+/** Read the marker tags out of already-selected lines. */
+function markersInLines(lines: Iterable<string>): MarkerInfo[] {
+  const result: MarkerInfo[] = [];
+  for (const text of lines) {
+    for (const match of text.matchAll(MARKER_TAG_RE)) {
+      const tag = match[0];
+      const hash = tag.match(/hash="([^"]+)"/)?.[1] ?? null;
+      const version = tag.match(/version="([^"]+)"/)?.[1] ?? null;
+      const source = tag.match(/source="([^"]+)"/)?.[1] ?? null;
+      result.push({ id: match[1]!, hash, version, source });
+    }
+  }
+  return result;
+}
+
+function readFileOrEmpty(filePath: string): string {
+  if (!existsSync(filePath)) return "";
+  try {
+    return readFileSync(filePath, "utf-8");
+  } catch {
+    return "";
+  }
+}
+
 /** Parse navori managed-marker metadata out of an HTML- or shell-comment file. */
 export function listMarkers(filePath: string): MarkerInfo[] {
-  if (!existsSync(filePath)) return [];
-  const content = readFileSync(filePath, "utf-8");
+  const content = readFileOrEmpty(filePath);
   // OPEN markers only, both syntaxes, in the exact shape marker.ts's parser
   // requires: the open prefix (`<!-- navori:managed` / `# navori:managed start`)
   // followed ON THE SAME LINE by `id="…"`, the first attribute `openMarker`
@@ -57,18 +85,27 @@ export function listMarkers(filePath: string): MarkerInfo[] {
   // marker quoted inside a ```fenced``` block is documentation, and counting it
   // made doctor see blocks render never touches — #285's discrepancy, which
   // #408 fixed for MENTIONS but left open for fenced quotes (#432).
-  const re = /(?:<!-- navori:managed|# navori:managed start)[ \t]+id="([^"\n]+)"[^\n>]*/g;
-  const result: MarkerInfo[] = [];
-  for (const { text } of proseLines(content)) {
-    for (const match of text.matchAll(re)) {
-      const tag = match[0];
-      const hash = tag.match(/hash="([^"]+)"/)?.[1] ?? null;
-      const version = tag.match(/version="([^"]+)"/)?.[1] ?? null;
-      const source = tag.match(/source="([^"]+)"/)?.[1] ?? null;
-      result.push({ id: match[1]!, hash, version, source });
-    }
-  }
-  return result;
+  return markersInLines(proseLines(content).map((l) => l.text));
+}
+
+/**
+ * Every marker tag in the file, read LINE BY LINE with no parser in between —
+ * no fence rule, no opaque bodies, no marker pairing.
+ *
+ * Deliberately dumber than `listMarkers`, and that is the point (#498): the
+ * duplicate-id guard is the check that has to survive the parser being wrong.
+ * When an unclosed fence made `proseLines` blind past the stray delimiter, the
+ * writer duplicated every block below it AND `doctor` — walking that same
+ * parser — reported the file healthy. A guard sharing the reader it is meant to
+ * second-guess reports on a file it cannot see.
+ *
+ * Trade-off, taken on purpose: a doc that quotes the SAME managed id twice
+ * inside fences is now reported as a duplicate. That is a report, not a
+ * deletion — the user reads two paths and decides — whereas the miss it
+ * replaces is silent, unbounded growth of the harness's central file.
+ */
+export function listMarkersRaw(filePath: string): MarkerInfo[] {
+  return markersInLines(readFileOrEmpty(filePath).split("\n"));
 }
 
 function collectFilesRecursive(
@@ -806,7 +843,9 @@ function scanDuplicateMarkersAt(
   const rel = (p: string): string => (pathPrefix ? `${pathPrefix}/${p}` : p);
   for (const { path } of collectMarkerFiles(scanCwd, undefined, engines)) {
     const counts = new Map<string, number>();
-    for (const m of listMarkers(join(scanCwd, path))) {
+    // `listMarkersRaw`, not `listMarkers`: this guard must hold when the marker
+    // parser is blind (see its doc — #498).
+    for (const m of listMarkersRaw(join(scanCwd, path))) {
       counts.set(m.id, (counts.get(m.id) ?? 0) + 1);
     }
     for (const [id, count] of counts) {

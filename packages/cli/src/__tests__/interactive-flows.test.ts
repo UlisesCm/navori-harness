@@ -44,8 +44,12 @@ vi.mock("@clack/prompts", () => {
   };
 });
 
-// migrate.ts moves files into the real ~/.navori/migrations; here we only care
-// that the adoption flow invokes it. The backup mechanics live in migrate.test.ts.
+// migrate.ts copies the repo's harness into the real ~/.navori/migrations; here
+// we only care WHICH calls the adoption flow makes (and, for #240, which it does
+// NOT make yet). The mechanics run for real — unmocked, over a throwaway repo —
+// in lib/__tests__/migrate.test.ts. That file is the reason this mock is
+// legitimate, and #504 found it did not exist when the mock first cited it: a
+// mock justified by coverage nobody had written.
 vi.mock("../lib/migrate.ts", () => ({
   createMigrationBackup: vi.fn(() => ({
     path: "/fake/backup",

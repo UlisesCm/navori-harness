@@ -60,8 +60,12 @@ jobs:
       # so a PR landing a subcommand plus an asset calling it ships an asset that
       # is broken until the next release (that is how `audit` shipped in #485).
       # Reports, never blocks: failing here would force publishing before merging.
+      # The `:ci` variant adds `--strict` (#504), which flips ONE outcome to red:
+      # "could not run". The checkout above fetches tags precisely so this check
+      # CAN compare against one, so a skip here means that setup regressed — and
+      # a check that skipped itself must never read as a check that passed.
       - name: Assets cite released subcommands
-        run: pnpm check:assets
+        run: pnpm check:assets:ci
 
       - name: Lint
         run: pnpm --filter navori lint
@@ -84,13 +88,10 @@ jobs:
       - name: Install zsh
         run: sudo apt-get update && sudo apt-get install -y zsh
 
-      # On PRs: run the full suite fast (no coverage instrumentation) for quick
-      # feedback — every test still runs, only the coverage GATE is deferred.
-      - name: Test (PR)
-        if: github.event_name == 'pull_request'
-        run: pnpm --filter navori test
-
-      # On main: the full suite AND the lib/ coverage gate (the merge bar).
-      - name: Test + coverage gate (main)
-        if: github.event_name == 'push'
+      # The full suite AND the coverage gate — on PRs too (#504). Deferring the
+      # gate to the `main` push meant a PR could not fail on coverage: the module
+      # it left untested was only reported once merged, which is after the only
+      # moment the gate can change anything. The suite is the same either way;
+      # instrumentation costs seconds.
+      - name: Test + coverage gate
         run: pnpm --filter navori test:coverage

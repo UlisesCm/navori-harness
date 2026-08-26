@@ -32,12 +32,24 @@ import { dirname, join, relative, resolve } from "node:path";
  * cost is that a typo'd subcommand reads as prose and is skipped — that case
  * belongs to #392's checker, not to this one.
  *
- * Usage: node scripts/check-asset-commands.mjs
+ * THREE outcomes, three markers, and they are not interchangeable (#504):
+ *   ⚠  ran, and assets cite something unreleased  → reported, exit 0
+ *   ✓  ran clean over N asset files against a tag → exit 0
+ *   ⊘  COULD NOT RUN (no tag, unreadable tag, no assets to walk) → nothing was
+ *      compared. Exit 0 by default (a shallow clone is not a defect) and exit 1
+ *      under --strict, the mode CI uses: there the environment is configured to
+ *      make the check runnable (`fetch-depth: 0`), so "cannot run" means that
+ *      configuration regressed. Before this the skip printed a ⚠ and exited 0 —
+ *      indistinguishable from a real run, which is the #421 blind spot again.
+ *
+ * Usage: node scripts/check-asset-commands.mjs [--strict]
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const INDEX_TS = "packages/cli/src/index.ts";
 const ASSET_DIRS = ["packages/core/core-assets", "packages/plugins"];
+/** Turns "could not run" into a failure. CI passes it; a local clone does not. */
+const STRICT = process.argv.includes("--strict");
 
 /** Subcommand names registered in the CLI's `subCommands: { ... }` block. */
 function parseSubCommands(source) {
@@ -50,6 +62,17 @@ function fail(message, detail) {
   console.error(`✗ ${message}`);
   if (detail) console.error(detail);
   process.exit(1);
+}
+
+/**
+ * The check could not run. NOT a clean run: say so with its own marker and
+ * spell out that nothing was compared, so no reader (human or test) can mistake
+ * this for a ✓.
+ */
+function cannotRun(reason, hint) {
+  console.log(`⊘ could not run: ${reason} — NO asset was compared against a published CLI`);
+  if (hint) console.log(`  ${hint}`);
+  process.exit(STRICT ? 1 : 0);
 }
 
 const known = parseSubCommands(readFileSync(join(REPO_ROOT, INDEX_TS), "utf-8"));
@@ -93,6 +116,7 @@ function* walk(dir) {
 
 // Collect every `navori <known-subcommand>` an asset cites, with its location.
 const citations = new Map(); // subcommand -> Set<"path:line">
+let scanned = 0; // asset files actually read
 for (const rel of ASSET_DIRS) {
   const root = join(REPO_ROOT, rel);
   let files;
@@ -102,6 +126,7 @@ for (const rel of ASSET_DIRS) {
     continue; // directory absent in this layout
   }
   for (const abs of files) {
+    scanned++;
     const lines = readFileSync(abs, "utf-8").split("\n");
     lines.forEach((line, i) => {
       for (const m of line.matchAll(/\bnavori\s+([a-z][\w-]*)/g)) {
@@ -114,21 +139,34 @@ for (const rel of ASSET_DIRS) {
   }
 }
 
+// Zero assets walked is not "no violations": a renamed or unbuilt asset layout
+// would otherwise print a ✓ over an empty scan (same family as #454's "0 files
+// to scan").
+if (scanned === 0) {
+  cannotRun(
+    `no .md/.sh asset found under ${ASSET_DIRS.join(", ")}`,
+    "the asset layout moved, or this is not the navori repo root",
+  );
+}
+
 const tag = latestTag();
 const published = tag ? publishedSubCommands(tag) : null;
 
 if (!published) {
-  console.log(
-    `⚠ no release tag to compare against${tag ? ` (could not read ${INDEX_TS} at ${tag})` : ""} — skipping the unreleased-subcommand check`,
+  cannotRun(
+    tag ? `${INDEX_TS} is unreadable at ${tag}` : "there is no release tag to compare against",
+    tag
+      ? `\`git show ${tag}:${INDEX_TS}\` failed — a tag from before that path existed?`
+      : "a shallow clone has no tags: `git fetch --tags` (CI uses actions/checkout with fetch-depth: 0)",
   );
-  process.exit(0);
 }
 
 const unreleased = [...citations.keys()].filter((cmd) => !published.has(cmd)).sort();
 
 if (unreleased.length === 0) {
+  // The file count is part of the verdict: it says the ✓ came from a real scan.
   console.log(
-    `✓ every subcommand cited by an asset exists in ${tag} (${citations.size} cited, ${known.size} registered)`,
+    `✓ every subcommand cited by an asset exists in ${tag} (${citations.size} cited across ${scanned} asset files, ${known.size} registered)`,
   );
   process.exit(0);
 }

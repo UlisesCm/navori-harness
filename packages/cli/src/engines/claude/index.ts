@@ -18,6 +18,10 @@ import {
 import { loadPreset, PresetError } from "../../lib/presets.ts";
 import { LIBRARY_SKILLS, REMOVED_LIB_SKILLS, unknownLibraries } from "../../lib/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
+// The authorship test every delete path in the product shares — see
+// lib/removable.ts. The skill prunes below pass their managed id so it answers
+// "did navori write this file AS that block?" (#496).
+import { isRemovableNavoriFile } from "../../lib/removable.ts";
 import {
   injectManagedSection,
   removeManagedSection,
@@ -778,6 +782,13 @@ export function renderClaudeEngine(
       inspected += 1;
       removeSubBlock({ cwd, skill, pending });
     }
+    // Marker-free by construction, so `isRemovableNavoriFile` does NOT gate this
+    // one (it would never match and the cleanup would silently stop working): a
+    // plugin script is copied verbatim from the plugin package and interpolated,
+    // and a shell script carries no managed block. What stands in for the marker
+    // is provenance, not a guess: `script.dest` comes from the plugin's OWN
+    // manifest, so `.claude/scripts/<dest>` is a path navori created for that
+    // plugin and nothing else writes. commitWrites backs it up before deleting.
     for (const script of plugin.scriptAssets) {
       const destPath = join(cwd, ".claude/scripts", script.dest);
       if (existsSync(destPath)) {
@@ -916,21 +927,26 @@ export function renderClaudeEngine(
  * Prune a stale FLAT skill file (`.claude/skills/<id>.md`) that an earlier
  * navori wrote, now that navori emits the DIRECTORY form
  * `.claude/skills/<id>/SKILL.md` (the only shape Claude Code auto-discovers).
- * Guarded by the marker so a user's hand-written `<id>.md` of the same name is
- * never removed. `markerId` is the managed-block id navori stamped (`<id>-base`
- * for core skills, the bare id for workflow/library/preset). Returns null when
- * there's nothing (safe) to remove. (#166)
+ * `markerId` is the managed-block id navori stamped (`<id>-base` for core
+ * skills, the bare id for workflow/library/preset). Returns null when there's
+ * nothing (safe) to remove. (#166)
+ *
+ * The verdict is `isRemovableNavoriFile`'s, the criterion the prune and the
+ * orphan scans already run on: the marker keeps a user's hand-written `<id>.md`
+ * safe, and the version guard keeps a file a NEWER navori wrote safe too — this
+ * helper used to check only the marker, so a downgraded CLI deleted the newer
+ * one (#496's third face).
+ *
+ * The trade-off that guard buys, stated plainly: under an actual downgrade the
+ * flat file survives beside the directory form this render writes, and the model
+ * sees the skill twice — the duplicate §8.8 exists to prevent. That is the
+ * cheaper failure. A duplicate is visible in the tree and one render by the
+ * newer CLI clears it; a deletion of content the running CLI cannot reproduce is
+ * not reversible from the repo. Same call render makes for managed blocks (#79).
  */
 function planFlatSkillRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
   const flat = join(cwd, ".claude/skills", `${id}.md`);
-  if (!existsSync(flat)) return null;
-  let content: string;
-  try {
-    content = readFileSync(flat, "utf-8");
-  } catch {
-    return null; // unreadable — leave it rather than guess
-  }
-  if (!content.includes(`navori:managed id="${markerId}"`)) return null; // user's own — keep
+  if (!isRemovableNavoriFile(flat, markerId)) return null;
   return { path: flat };
 }
 
@@ -938,20 +954,15 @@ function planFlatSkillRemoval(cwd: string, id: string, markerId: string): Pendin
  * Prune an ORPHANED DIRECTORY-form skill (`.claude/skills/<id>/SKILL.md`) navori
  * no longer renders. Removes the whole directory when SKILL.md is its only child,
  * else just SKILL.md so a user's sibling refs/assets survive — mirroring the
- * `skill-dir` orphan shape the shared spine uses for Codex. Marker-gated like the
- * flat prune. Returns null when there's nothing (safe) to remove. (#166)
+ * `skill-dir` orphan shape the shared spine uses for Codex. Gated by the same
+ * shared criterion as the flat prune (marker id + anti-rollback version), so the
+ * three delete paths cannot drift apart. Returns null when there's nothing
+ * (safe) to remove. (#166)
  */
 function planDirSkillRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
   const skillDir = join(cwd, ".claude/skills", id);
   const skillPath = join(skillDir, "SKILL.md");
-  if (!existsSync(skillPath)) return null;
-  let content: string;
-  try {
-    content = readFileSync(skillPath, "utf-8");
-  } catch {
-    return null; // unreadable — leave it rather than guess
-  }
-  if (!content.includes(`navori:managed id="${markerId}"`)) return null; // user's own — keep
+  if (!isRemovableNavoriFile(skillPath, markerId)) return null;
   let children: string[];
   try {
     children = readdirSync(skillDir);
