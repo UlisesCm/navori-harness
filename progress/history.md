@@ -526,3 +526,60 @@ sobre el `origin/main` móvil. **`main` local quedó con ese commit encima; hay 
 **Queda abierto.** Test de integración end-to-end del comando; el copy de las dos preguntas está
 hardcodeado en español dentro del `.sh` y debería pasar por el i18n del render; la ruta completa
 gatillo → log → reporte no se ha ejercitado sobre una sesión marcada real (no existe ninguna aún).
+
+## 2026-08-26 17:48 leader — cierra los 17 issues de la auditoría a ciegas en 4 PRs
+
+**Alcance.** #495–#511, los 17 hallazgos de la auditoría a ciegas del 2026-08-26, en 4 bloques:
+seguridad (#513), pérdida de datos (#514), contrato de agentes (#515) y config (#516). Los cuatro
+mergeados con CI en verde. Tests **2124 → 2642**. Tablero de issues en **0**.
+
+**El patrón, que vale más que los parches.** Las defensas describían el peligro por su **forma
+textual** —`-rf`, un nombre de binario, un mapa de rutas— en vez de por su **semántica**, y ninguna
+verificaba que pudo hacer su trabajo. Un guard que no llegó a evaluar, un gate que salió 1, un
+backup vacío y un parser ciego producen **la misma señal visible que el éxito**.
+
+**Lo que se arregló, por bloque.**
+- **Seguridad.** `Bash(sg:*)` pre-aprobaba ejecución arbitraria en Linux (shadow-utils, no ast-grep)
+  — y `doctor` reportaba ast-grep *instalado* ahí por la misma confusión. El guard destructivo se
+  esquivaba por **tres ejes ciegos**: flags (`-R`, `--recursive`), posición del operando
+  (`rm -rf node_modules ~/` pasaba; GNU permuta argv) y comillas (`rm -rf "/"` pasaba, mientras
+  `rm -rf "~/"` bloqueaba **por accidente**). Los gates de semgrep/jscpd salían 1 y `PreToolUse`
+  bloquea solo con 2. El guard tardaba **83 849 ms** con timeout de 10 s → 66 ms tras matar una
+  sustitución cuadrática de bash 3.2.
+- **Pérdida de datos.** `global init` destruía `~/.claude/settings.json` corrupto sin backup y
+  reportando éxito (el bug estaba escrito como contrato en el JSDoc). `--prune` borraba `.cursor/`
+  y `AGENTS.md` escritos a mano. Un fence impar duplicaba todos los bloques en cada render (22→44→66
+  marcadores) con `doctor` diciendo OK, porque el detector camina el mismo parser roto. **Y el fix
+  de `--prune` introdujo una regresión peor**: `statSync` sigue symlinks, así que borraba archivos
+  del usuario **fuera del repositorio** — lo atrapó el review.
+- **Contrato de agentes.** Ningún asset ordenaba `git push`, así que el paso terminal del ciclo no
+  podía ejecutarse. El host prohíbe escribir archivos de reporte y el harness entero depende de
+  ellos (resuelto por la excepción del propio host). `non-trivial` —el término del que cuelga la
+  excepción R1— no estaba definido, y el comando que lo mide usaba `...HEAD`, que **lee cero** en el
+  caso del árbol sin commitear.
+- **Config.** El `$schema` apuntaba a `navori.dev`, NXDOMAIN, con un test protegiéndolo.
+  `criticalAreas` heredaba un placeholder sin relación con el producto — por eso un cambio en
+  `render.ts` que borraba archivos del usuario **no contaba como área crítica**. `audit --start`
+  escribía fuera de la raíz que el propio comando declara.
+
+**Un "no procede" con evidencia.** #508.3 afirmaba que el guard anti-retroceso compara escalas
+distintas. **Falso, verificado dos veces**: los 6 sitios que estampan `version=` usan
+`readCliVersion()`; `$navori.version` es otro campo write-only que nadie lee. Documentado en vez de
+"arreglado" — habría ensuciado 5 goldens en cada release por un campo que nadie consume.
+
+**Seis guards nuevos que atacan clases.** `removal-parity` (declara los 12 puntos de borrado y falla
+si aparece uno nuevo), `hook-claims-vs-scripts` (cruza lo que la prosa afirma contra lo que el script
+hace), `asset-command-permissions`, `cited-paths-exist` ensanchado a **encabezados**,
+`check-coverage-floor`, y `repo-config-gate` derivado de `ci.yml`.
+
+**La patología de tests, seis veces.** Un test que congela la forma de la implementación en vez de
+verificar la regla; en tres casos **protegía el bug**. Y produje una séptima yo mismo, con el patrón
+fresco: sembré el directorio intermedio en lugar del archivo destino, y quitar el guard dejaba 56/56
+verde. Lo atrapó el reviewer mutando producción. **Razonar sobre el fixture no basta.**
+
+**Gate.** `format:check` ✓ · `check:render` ✓ · `check:assets` ✓ · website build ✓ · `lint` ✓ ·
+`typecheck` ✓ · `check:size` ✓ · **2642/2642 tests** ✓ — y CI en verde en los 4 PRs.
+
+**Queda abierto.** Descongelar el rollout exige **publicar primero**: el fix de `Bash(sg:*)` no llega
+a ningún repo onboardeado hasta que se publique. Y el límite de #440 (un `render` no actualiza las
+zonas de usuario ya escritas) obliga a ir **per-repo, nunca `--all`**.

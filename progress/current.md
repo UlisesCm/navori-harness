@@ -1,112 +1,85 @@
 # Sesión actual
 
-**Estado:** `idle`. `main` en `f7bf659`, working tree limpio, espejo verificado. **17 issues abiertos
-(#495–#511)**, todos de la auditoría a ciegas del 2026-08-26. Sin código cambiado en esa auditoría.
+**Estado:** `idle`. `main` en `acc31ca`, working tree limpio, espejo verificado, **0 issues abiertos**.
+Los 17 de la auditoría a ciegas (#495–#511) cerrados en 4 PRs, los cuatro con CI en verde.
+Tests 2124 → **2642**.
 
-## ⚠️ LO PRIMERO: el rollout vuelve a estar bloqueado, y ahora con razón de peso
+## SIGUIENTE PASO: descongelar el rollout
 
-La condición (a) del descongelamiento era **cero issues abiertos**. Ya no se cumple, y no es
-burocracia: **cuatro de los issues nuevos son de seguridad y afectan a todo repo onboardeado**.
-Publicar o extender el rollout ahora propaga esos defectos a más repos.
+La condición que fijó Ulises era **cero issues abiertos + versión estable**. Lo primero ya se cumple.
+Falta publicar, y hay una razón concreta para publicar ANTES de tocar los 15 repos: **el fix de
+`Bash(sg:*)` no llega a ninguno hasta que se publique** — los repos renderizan con el `navori`
+instalado, no con este árbol.
 
-## SIGUIENTE PASO: el bloque de seguridad (3 fixes chicos, impacto grande)
+Orden: bump del CLI → `chore(release)` directo a `main` → tag → `gh workflow run deploy-website.yml`
+→ `npm publish` (manual, OTP de Ulises).
 
-| # | Qué | Esfuerzo |
-|---|---|---|
-| **#509** | `rm -R ~/` y `rm -rf --no-preserve-root /` **pasan** el guard destructivo (matchea `[rf]` solo minúsculas; las flags largas rompen el matcheo) | bajo |
-| **#495** | `Bash(sg:*)` pre-aprobado: en macOS es ast-grep, **en Linux es shadow-utils** → `sg <grupo> -c "…"` ejecuta cualquier cosa | **una línea** |
-| **#510** | Los gates de semgrep y jscpd salen `exit 1`; un `PreToolUse` solo bloquea con `exit 2`. No bloquean nada | bajo |
-| **#511** | El guard se satura (46,9 s con 2000 segmentos vs timeout de 10 s) y muere sin evaluar una regla | medio |
+**Límite que hay que decir ANTES del rollout, no después.** Por el hueco de #440 un `render` **no
+actualiza las zonas de usuario ya escritas**: los tokens viejos necesitan el chequeo de `doctor` y
+corrección **a mano**. Ir **per-repo, NUNCA `--all`**.
 
-**#495 y #509 se anulan mutuamente en el peor sentido**: uno pre-aprueba ejecución arbitraria, el
-otro deja pasar el borrado recursivo, y las `deny` rules de `settings.json` comparten el mismo punto
-ciego (describen `-rf`, no la semántica).
+## Qué cambió de verdad (más que los 17 parches)
 
-Después: **pérdida de datos** — #497 (`global init` destruye `~/.claude/settings.json` sin backup),
-#496 (`--prune` borra archivos ajenos), #498 (fence sin cerrar duplica todos los bloques).
+Las defensas describían el peligro por su **forma textual** en vez de por su **semántica**, y ninguna
+verificaba que pudo hacer su trabajo. Los cinco fixes reales quitaron la dependencia de la forma:
+normalizar flags antes de evaluar, exigir marcador de autoría, eliminar el alias ambiguo, detectar el
+fence sin cerrar, y mover el heredoc a una función para que el quoting no dependa de un conteo.
 
-Y sigue pendiente **publicar 0.7.0** (manual, OTP), pero conviene **después** del bloque de
-seguridad, no antes.
+**Seis guards nuevos que atacan CLASES, no instancias:**
 
-## El patrón transversal (esto es lo que hay que entender, no los 17 bugs sueltos)
+| Guard | Qué impide |
+|---|---|
+| `removal-parity.test.ts` | una cuarta ruta de borrado con criterio propio (declara las 12 existentes) |
+| `hook-claims-vs-scripts.test.ts` | que un asset atribuya a un hook una capacidad que su script no tiene |
+| `asset-command-permissions.test.ts` | que el harness ordene un comando sin permiso en settings |
+| `cited-paths-exist.test.ts` (ensanchado) | que un asset cite un **encabezado** inexistente, no solo una ruta |
+| `check-coverage-floor.mjs` | que un módulo nuevo entre a 0% diluido en el agregado |
+| `repo-config-gate.test.ts` | que el gate local deje de cubrir lo que CI exige (deriva de `ci.yml`) |
 
-> Las defensas del harness describen el peligro por su **forma textual** (`-rf`, un nombre de
-> binario, una lista de rutas) en vez de por su **semántica**, y **ninguna verifica que pudo hacer
-> su trabajo**.
+## La patología de tests, encontrada SEIS veces
 
-Un guard que no llegó a evaluar, un gate que salió 1, un backup vacío y un parser ciego producen
-**la misma señal visible que el éxito**. Cualquier fix que solo tape un caso concreto sin atacar
-esto deja viva la clase.
+Un test que congela la **forma de la implementación** en vez de verificar la **regla**. En tres casos
+no solo no atrapaba el bug: **lo protegía** — corregir el código rompía el test.
 
-## Método de la auditoría (repetible, funcionó)
+- `guard-destructive.test.ts`: 30 casos de `rm`, los 30 con `-rf`. Eje del target agotado, eje de
+  flags inexistente.
+- `gate-hook-worktree.test.ts`: `it("semgrep BLOCKS…")` con `toBe(1)`. La suite tenía escrito que
+  bloquear era 1, cuando `PreToolUse` bloquea con 2.
+- `build-settings.test.ts`: `expect(allow).toContain("Bash(sg:*)")` — aseveraba el agujero.
+- `schema-publish.test.ts`: `$id` fijado a un dominio NXDOMAIN.
+- `protocol-coherence.test.ts`: la cadena literal de la redacción ambigua de R1.
+- `removal-parity.test.ts`: symlink como *hijo*, nunca como *raíz*.
 
-5 `auditor` en paralelo, un eje cada uno (assets / hooks / CLI / config / tests), con:
-- **prohibición explícita** de leer `progress/`, usar engram o mirar `git log` — para que ningún
-  hallazgo viniera contaminado por lo que la sesión ya sabía;
-- **obligación de demostrar**: repro ejecutada, comando de verificación, o la mutación del código de
-  producción que debería romper un test y no lo hace;
-- ruta literal del archivo de salida en el encargo (sin eso, el host les prohíbe escribir .md).
+**Y yo produje una séptima**, con el patrón fresco: sembré el directorio intermedio para probar un
+guard, cuando la condición real del hook era `[ -f "$log_file" ]` (el archivo destino). Quitar el
+guard dejaba 56/56 verde. Lo atrapó el reviewer con lo único que lo atrapa: **mutar producción y
+comprobar el rojo**. Razonar sobre el fixture no basta.
 
-Los reportes completos quedaron en `.claude/progress/audit_ciego_*.md`, que está **gitignored**: no
-se versionan y se pierden al limpiar. La sustancia está en los 17 issues.
+## Hechos de método verificados esta jornada (no re-investigar)
 
-**Dos cruces que ningún auditor vio solo** (la síntesis no se delega):
-1. El de CLI citó el `createBackup` del `--prune` como mitigación; el de tests lo mutó a
-   `createBackup(cwd, [])` y la suite siguió **2124/2124 verde**. La red existe por suerte.
-2. #503 apunta a código de ESTA misma jornada: `audit --start` escribe fuera de su raíz declarada,
-   y el test que afirma ese contrato prueba **la mitad que no puede romperlo**.
-
-## Hechos verificados sobre Claude Code (no re-investigar)
-
-- **`PreToolUse` solo bloquea con `exit 2`.** Cualquier otro código ≠0 se muestra y **deja pasar**.
-  Prueba interna: `guard-destructive.sh` sí bloquea y sale 2; los gates salen 1.
-- **El payload de `UserPromptSubmit`** es
-  `{cwd, hook_event_name, permission_mode, prompt, prompt_id, session_id, transcript_path}`.
-  La clave del texto es **`prompt`**; `user_prompt` **nunca existió**.
-- **Los mensajes escritos mientras el agente trabaja NO son prompts**: se encolan
-  (`queue-operation`, `enqueue` + `remove`) y no disparan `UserPromptSubmit`. El transcript sí los ve.
-- **`tools:` acepta patrones a nivel servidor** (`mcp__<server>__*`). Habilitar MCP son 3 capas y un
-  `permissions.allow` **no** concede una tool, solo silencia su prompt.
-- **El host prohíbe a los subagentes escribir .md de reporte.** El encargo con ruta literal rompe el
-  empate (verificado: los 5 auditores sí escribieron). Ver #500.
-- **`sg` es ast-grep en macOS (Homebrew) y shadow-utils en Linux.** No son intercambiables.
-- **`/bin/bash` de macOS es 3.2.57**, donde `${var//pat/repl}` es cuadrático.
-
-## Gotchas de método (los que más costaron)
-
-- **Un test que no puede fallar no prueba nada.** Se repitió cuatro veces: payloads sintéticos que
-  cargan la suposición equivocada del código; un guard cuyo `grep` fallaba en silencio bajo una ruta
-  con espacios (`url.pathname` percent-encoded); un test que verifica que el borrado ocurrió pero no
-  que el respaldo existe; un test de contrato que prueba la mitad inofensiva.
-  **Todo guard nuevo lleva un test anti-false-green** que verifique que encuentra algo conocido.
-- **`git merge-base --is-ancestor` NO sirve aquí** (squash merge → "no mergeado" para el 100%). Lo
-  que decide: `git log origin/main --grep="(#<PR>)"`.
-- **`invariants[]` de un plugin no son nombres de tools** — son load-bearing substrings del render.
-- **Las skills tienen cap de palabras** (`behavior` = 200): mover contenido ahí lo dispara.
-- **`actions/checkout` no trae tags** → un check que compara contra un tag se salta a sí mismo.
-- **En un pipe del Bash tool, `basename`/`wc`/`tr` pueden salir `command not found`** y los globs de
-  zsh (`--include=*.ts`) fallan. Para auditorías, `python3`.
-
-## Idioma: regla vigente
-
-**Código y prompts en inglés; la interacción con el usuario en español.** Los mensajes de hook son
-prompts → inglés. Los patrones de detección son input del usuario → español. El i18n del reporte
-queda intacto.
-
-## Regla de trabajo vigente
-
-> Un hallazgo se vuelve issue **solo** si (a) necesita una decisión que no es del agente, (b) no
-> cabe en el ciclo que lo encontró, o (c) se va a olvidar y duele.
-
-## Límite que hay que decir ANTES del rollout
-
-Por el hueco de #440, un `render` **no actualiza las zonas de usuario ya escritas**. Los tokens
-viejos necesitan el chequeo de `doctor` y corrección **a mano**. Cuando toque: **per-repo, NUNCA
-`--all`**.
+- **`gh pr create` inmediatamente tras el push deja el evento sin encolar.** CI no arranca. Lo
+  reemiten `reopened` (cerrar/reabrir el PR) o `synchronize` (un push). Pasó en #514, #515 y #516;
+  #513 fue la excepción. **No es facturación ni latencia** — el repo es público (minutos ilimitados).
+- **`vitest` corre `tsup` en su `globalSetup` y ese build limpia `dist/`.** Dos suites concurrentes
+  hacen que los e2e ejecuten un binario a medio escribir: medido **7 003 s contra 55 s de baseline**,
+  con 28 fallos inexistentes. Correr un archivo aislado antes de creer un fallo.
+- **La carga de daemons de macOS** (`contactsdonationagent` al 75%) dispara `Test timed out in
+  15000ms` en masa. Usar `npx vitest run --testTimeout=90000`.
+- **Un `git stash` en un worktree compartido se lleva el trabajo de todos los agentes activos.**
+  Pasó; se recuperó con `pop`. Prohibido en los encargos desde entonces.
+- **Cambiar de rama en un árbol con implementers activos** arrastra su trabajo sin commitear a la
+  otra rama. Lo hice yo con `git checkout main`; se recuperó. Operaciones de git solo en árboles sin
+  agentes.
+- **Un agente que muere a mitad de una mutación deja producción rota.** Encontré `nukeStaleThing`
+  con `rmSync` recursivo sembrado en `lib/semver.ts`. Los encargos ahora exigen aplicar y restaurar
+  en el MISMO turno, con `git diff --stat` de confirmación.
+- **Los conflictos de rebase en `.claude/` y `CLAUDE.md` NO se resuelven a mano**: son espejo. Tomar
+  la versión de `main` y regenerar con `render:apply`. Cinco conflictos → cero decisiones.
 
 ## Notas heredadas
 
+- Tres ramas locales mergeadas por borrar: `fix/bloque-assets`, `fix/bloque-config`,
+  `fix/bloque-perdida-datos` (más las ~60 anteriores de PRs ya mergeados, de 127).
 - `~/.navori/backups` acumula fixtures de test históricos. **Filtrar por prefijo, no por edad.**
-- 60 branches locales con PR ya mergeado (de 127).
 - La ruta de los repos Bonum del `~/.claude/CLAUDE.md` global está desactualizada; siguen pendientes
   los PRs de bonum-webapp (#639, #640, #559) y el rebind de SonarCloud.
