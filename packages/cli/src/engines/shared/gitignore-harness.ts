@@ -81,17 +81,33 @@ const ENGINE_EXTRA_OUTPUTS: Readonly<Record<string, readonly string[]>> = {
  * both codex and agents-md) and sorted for a deterministic body.
  */
 function cuboBEntries(engines: readonly string[]): string[] {
+  const paths = new Set<string>(engineOutputPaths(engines));
+  for (const engine of engines) {
+    for (const extra of ENGINE_EXTRA_OUTPUTS[engine] ?? []) paths.add(extra);
+  }
+  return [...paths].sort();
+}
+
+/**
+ * Ignore-file entries for every harness output owned by `engines`, derived from
+ * `ENGINE_OUTPUTS` (single source of truth) via `engineOwnedPaths`: `.claude/`,
+ * `CLAUDE.md`, `.codex/`, `AGENTS.md`, … Deduped and sorted, so the body is
+ * deterministic across runs; an engine absent from `engines` contributes
+ * nothing.
+ *
+ * Shared by the two ignore files navori maintains — `.gitignore` (Cubo B) and
+ * `.prettierignore` (#523) — because both answer the same question ("which
+ * paths does the harness own here?") in the same gitignore-style syntax.
+ */
+export function engineOutputPaths(engines: readonly string[]): string[] {
   const paths = new Set<string>();
   for (const eo of ENGINE_OUTPUTS) {
     if (!engines.includes(eo.engine)) continue;
     for (const owned of engineOwnedPaths(eo.engine)) {
       // A path with no file extension is a directory (e.g. `.claude`, `.codex`);
-      // append a trailing slash so git treats it as a dir-only ignore.
+      // append a trailing slash so it is treated as a dir-only ignore.
       paths.add(extname(owned) === "" ? `${owned}/` : owned);
     }
-  }
-  for (const engine of engines) {
-    for (const extra of ENGINE_EXTRA_OUTPUTS[engine] ?? []) paths.add(extra);
   }
   return [...paths].sort();
 }

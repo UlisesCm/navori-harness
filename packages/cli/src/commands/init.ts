@@ -36,6 +36,7 @@ import {
   RECOMMENDED_EFFORT,
 } from "../lib/recommended.ts";
 import { scanMissingExternalTools } from "./doctor.ts";
+import { ensurePrettierIgnore } from "../engines/shared/prettierignore-harness.ts";
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
 
@@ -366,7 +367,10 @@ export const initCommand = defineCommand({
         return;
       }
       // citty negates booleans on --no-X, so args.render === false when --no-render is passed.
-      if (args.render !== false) renderInline(cwd);
+      if (args.render !== false) {
+        renderInline(cwd);
+        writePrettierIgnoreInline(cwd, defaultEngines, lang);
+      }
       await offerPreCommitHook(cwd, {
         autoYes,
         force: Boolean(args["pre-commit-hook"]) || isFull,
@@ -765,6 +769,7 @@ export const initCommand = defineCommand({
     }
 
     renderInline(cwd);
+    writePrettierIgnoreInline(cwd, engines, lang);
     await offerPreCommitHook(cwd, { autoYes, force: Boolean(args["pre-commit-hook"]), lang });
     p.outro(tr.harnessReady);
   },
@@ -1024,6 +1029,38 @@ function renderInline(cwd: string): void {
     for (const w of result.engineResult.warnings) {
       p.log.warn(w);
     }
+  }
+}
+
+/**
+ * #523 prevention: teach `.prettierignore` to skip the harness files when the
+ * repo runs prettier. One `prettier --write .` over `CLAUDE.md` rewrites its
+ * Markdown (`*forms*` → `_forms_`), which invalidates the hash of every managed
+ * block; navori then refuses to update them and the harness freezes at whatever
+ * version it was on — recoverable only by hand.
+ *
+ * Runs right after the render, and only there: a user who declined the render
+ * asked navori not to write harness files yet. No-op when prettier isn't
+ * detected. Best-effort — an ignore file navori couldn't write is a warning,
+ * never a failed init.
+ */
+function writePrettierIgnoreInline(cwd: string, engines: readonly string[], lang: Lang): void {
+  const tr = t(lang);
+  try {
+    const result = ensurePrettierIgnore(cwd, { engines }, { lang });
+    if (!result) return; // prettier not detected — nothing to prevent.
+    if (result.skippedReason) {
+      p.log.warn(tr.prettierIgnoreSkipped);
+      return;
+    }
+    if (result.status === "unchanged") {
+      p.log.info(tr.prettierIgnoreAlreadyCovered);
+      return;
+    }
+    p.log.success(tr.prettierIgnoreWritten(result.entries.join(", ")));
+  } catch (error) {
+    // RenderWriteError already carries localized prose (and the backup path).
+    p.log.warn(error instanceof Error ? error.message : String(error));
   }
 }
 
