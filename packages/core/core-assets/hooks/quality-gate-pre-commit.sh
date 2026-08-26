@@ -62,7 +62,23 @@ TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:sp
 # is not a commit still pays nothing for it.
 # navori:include resolve-worktree
 
-if is_scan_trigger "$cmd"; then
+# An EMPTY `$cmd` is not "some command that isn't a commit": it means nothing
+# could be read out of the tool input at all (no JSON parser, a malformed or
+# truncated payload). `is_scan_trigger ""` simply finds no git segment, so the
+# whole block below was skipped WITHOUT A WORD — a gate that omits itself in
+# silence is indistinguishable from a gate that passed (#511). Its two siblings
+# (`check-semgrep.sh`, `check-jscpd.sh`) already scan unconditionally there,
+# which is the contract the shared extractor documents; this one drifted. The
+# verdict is now stated out loud in both directions, per #88.
+run_needed=0
+if [ -z "$cmd" ]; then
+  echo "[navori] no command could be read from the tool input; running the quality gate anyway rather than skipping it silently." >&2
+  run_needed=1
+elif is_scan_trigger "$cmd"; then
+  run_needed=1
+fi
+
+if [ "$run_needed" = 1 ]; then
   # Pin the cwd to the root of the tree BEING COMMITTED before anything below
   # runs. Claude Code fires PreToolUse hooks from a cwd that is neither always
   # the repo root (#309: a relative gate like `cd packages/cli && pnpm lint`

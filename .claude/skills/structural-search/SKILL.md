@@ -4,7 +4,7 @@ description: Use when locating something in code before reading it (a symbol, sy
 type: reference
 ---
 
-<!-- navori:managed id="structural-search-base" hash="4219a873" version="0.6.1" source="@navori/core" -->
+<!-- navori:managed id="structural-search-base" hash="151d7d2b" version="0.6.1" source="@navori/core" -->
 # structural-search — read the minimum correct amount
 
 Find the right region first and open only the confirmed span. Precision tools verify a hypothesis; they don't form it.
@@ -35,16 +35,18 @@ Escalate to Rung 2 only if one of these happens:
 
 ### Rung 2 — structure with ast-grep
 
-Use `sg` or `ast-grep` for AST shapes:
+`ast-grep` is the canonical binary for AST shapes — spell it out in full:
 
 ```bash
-sg -p 'async function $N($$$) { $$$ }' -l ts src/
+ast-grep -p 'async function $N($$$) { $$$ }' -l ts src/
 ast-grep -p 'useAuth($$$)' -l tsx apps/
 ```
 
+Homebrew also installs it as `sg`, and that alias is deliberately NOT pre-approved: on Linux `sg` is shadow-utils — `sg <group> -c "<command>"` runs an arbitrary command, so allowlisting it would bypass the whole permission layer. Type `ast-grep`.
+
 To rewrite, first test the pattern without `--rewrite`, limit paths/language and review the diff before applying. A literal name is still Rung 1; a conceptual question goes back to Rung 0.
 
-If neither binary exists, fall back to Grep and targeted reading: **don't block the task** nor invent ast-grep syntax.
+If it isn't installed, fall back to Grep and targeted reading: **don't block the task** nor invent ast-grep syntax.
 
 ## Quick map
 

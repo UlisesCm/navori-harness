@@ -72,10 +72,33 @@ if [ -z "$base_sha" ]; then
 fi
 base_short=$(git rev-parse --short "$base_sha" 2>/dev/null || printf '%s' "$base_sha")
 
+# `git diff` runs inside a process substitution, whose exit status the shell
+# never reports, and its stderr used to go to /dev/null — so a diff that FAILED
+# (exit 128: unborn HEAD, a corrupt index, a base that vanished mid-run)
+# produced zero records and was indistinguishable from "nothing changed": the
+# hook printed `0 files to scan` and exited 0 (#511). The sentinel carries the
+# status back out of the subshell. It can never collide with a real record: the
+# pathspec restricts the list to `*.ts`/`*.tsx`.
+diff_sentinel='@navori-diff-status:'
+diff_status=""
 files=()
 while IFS= read -r -d '' f; do
+  case "$f" in
+    "${diff_sentinel}"*) diff_status="${f#"${diff_sentinel}"}"; continue ;;
+  esac
   files+=("$f")
-done < <(git diff --name-only -z --diff-filter=ACMRT "$base_sha" -- '*.ts' '*.tsx' 2>/dev/null)
+done < <(
+  # `|| diff_rc=$?` and not a bare `$?`: the subshell inherits `set -e`, which
+  # would kill it on a failing `git diff` before the sentinel is ever written.
+  diff_rc=0
+  git diff --name-only -z --diff-filter=ACMRT "$base_sha" -- '*.ts' '*.tsx' || diff_rc=$?
+  printf '%s%s\0' "$diff_sentinel" "$diff_rc"
+)
+if [ "$diff_status" != "0" ]; then
+  echo "✗ semgrep: \`git diff\` FAILED (exit ${diff_status:-unknown}) in $tree — NOTHING was scanned" >&2
+  echo "  this is not a security verdict: no file was compared against $base ($base_short)" >&2
+  exit 1
+fi
 
 # An empty scan is NOT a silent green (#454): say which tree and which base
 # produced it, so "there was nothing to scan" reads differently from "I scanned
@@ -189,21 +212,27 @@ echo "▶ semgrep: ${#files[@]} changed file(s) vs $base ($base_short) in $tree"
 # second scan pass; the content cache above absorbs the repeats within a cycle.
 echo "  baseline: findings already at $base ($base_short) are not blocking" >&2
 
+# `>&2` is not cosmetic (#510): a PreToolUse hook shows the user its stderr and
+# swallows its stdout, so the findings themselves — the whole point of the gate
+# — used to be written where nobody could read them, leaving only the `▶ …`
+# progress line visible.
 scan_status=0
 semgrep scan \
   --config=p/default \
   --error \
   --metrics=off \
   --baseline-commit "$base_sha" \
-  "${files[@]}" || scan_status=$?
+  "${files[@]}" >&2 || scan_status=$?
 
 # `--error` maps findings to exit 1; anything above that is semgrep itself
-# failing (invalid ruleset, unusable baseline, crash). It still blocks the
-# commit — same as before this hook grew a baseline — but say WHY, so a broken
-# scanner is never read as a security verdict.
+# failing (invalid ruleset, unusable baseline, crash). Say WHY, so a broken
+# scanner is never read as a security verdict — and see the exit mapping at the
+# bottom, which is where that distinction becomes a decision.
 if [ "$scan_status" -gt 1 ]; then
   echo "✗ semgrep: scan FAILED with exit $scan_status (not a findings verdict) — nothing was validated" >&2
-elif [ "$scan_status" -eq 0 ]; then
+elif [ "$scan_status" -eq 1 ]; then
+  echo "✗ semgrep: new findings vs $base ($base_short) — BLOCKED" >&2
+else
   echo "✓ semgrep: ${#files[@]} file(s) scanned vs $base ($base_short) — no new findings" >&2
 fi
 
@@ -227,4 +256,21 @@ if [ "$scan_status" -eq 0 ] && [ -n "$cache_key" ]; then
   fi
 fi
 
-exit "$scan_status"
+# PreToolUse EXIT CONTRACT (#510). Claude Code blocks a tool call ONLY on exit
+# 2; every other non-zero code is shown to the user and the call PROCEEDS. The
+# old `exit "$scan_status"` handed semgrep's own code straight through, and
+# `--error` maps findings to 1 — so this gate printed a progress line, listed
+# its findings where nobody saw them, and blocked exactly nothing. The two
+# outcomes the block above already tells apart become two different decisions:
+#
+#   findings (1)        → 2. A security VERDICT about this diff: block.
+#   scanner broken (>1) → 1. NOT a verdict — nothing was validated, so it is
+#                         reported loudly and the call proceeds. Blocking on a
+#                         tooling failure would spend the gate's credibility on
+#                         a claim it cannot make.
+#   clean (0)           → 0.
+case "$scan_status" in
+  0) exit 0 ;;
+  1) exit 2 ;;
+  *) exit 1 ;;
+esac

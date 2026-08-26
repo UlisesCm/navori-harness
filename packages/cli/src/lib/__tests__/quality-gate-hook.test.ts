@@ -142,6 +142,52 @@ describe("quality-gate hook — declared runner present", () => {
   });
 });
 
+/**
+ * #511 — an EMPTY command is "nothing could be read from the payload", not
+ * "some command that isn't a commit".
+ *
+ * `is_scan_trigger ""` finds no git segment, so the whole gate block was
+ * skipped with NO output at all: a gate that omits itself in silence is
+ * byte-for-byte indistinguishable from a gate that ran and passed. Both
+ * siblings (`check-semgrep.sh`, `check-jscpd.sh`) already scan unconditionally
+ * in that case — the contract the shared extractor documents — and this file
+ * already carries the doctrine two blocks below (#88: never skip the gate
+ * silently). It was the one gate that drifted from both.
+ *
+ * The suite did not catch it because it only ever fed the hook REAL commands:
+ * `git commit …` (gate runs) or `ls -la` (gate skips). The degenerate input was
+ * never exercised, so there was nothing to assert against.
+ */
+describe("quality-gate hook — an empty command is not a silent skip (#511)", () => {
+  it("runs the gate and SAYS why when no command could be extracted", () => {
+    fakeBin("pnpm", 0);
+    const r = runHook(installHook("pnpm run typecheck"), "");
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("no command could be read from the tool input");
+    expect(r.stderr).toContain("running quality-gate fast");
+    expect(r.stdout).toContain("RAN pnpm run typecheck");
+  });
+
+  it("a red gate on that path still BLOCKS (exit 2), it is not advisory", () => {
+    fakeBin("pnpm", 1);
+    const r = runHook(installHook("pnpm run typecheck"), "");
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("quality-gate fast failed");
+  });
+
+  // ANTI-FALSE-GREEN: the two cases above would also pass if the hook had
+  // started running the gate on EVERY Bash call. A real non-commit command must
+  // still skip — silently, which is correct there because the command itself is
+  // the evidence that no gate was owed.
+  it("a real non-commit command still skips, with no gate output", () => {
+    fakeBin("pnpm", 0);
+    const r = runHook(installHook("pnpm run typecheck"), "ls -la");
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain("no command could be read");
+    expect(r.stderr).not.toContain("running quality-gate fast");
+  });
+});
+
 // #309: Claude Code fires the hook from the session's persistent cwd, which is
 // not always the repo root. The hook must cd to the root before running the
 // gate, or a relative gate (`cd packages/cli && pnpm lint`) fails with "No such

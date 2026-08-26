@@ -72,19 +72,46 @@ describe("codegraph externalTool.install platform selection (#270 item 2)", () =
 describe("scanMissingOptionalTools", () => {
   beforeEach(() => hasBinary.mockReset());
 
-  it("warns with an install hint when neither ast-grep binary exists", () => {
+  it("warns with an install hint when ast-grep is absent", () => {
     hasBinary.mockReturnValue(false);
     expect(scanMissingOptionalTools()).toEqual([
       {
         id: "structural-search",
-        binaries: ["sg", "ast-grep"],
+        binaries: ["ast-grep"],
         install: "npm install --global @ast-grep/cli",
       },
     ]);
   });
 
-  it.each(["sg", "ast-grep"])("stays silent when %s is available", (available) => {
-    hasBinary.mockImplementation((binary: string) => binary === available);
+  it("stays silent when ast-grep is available", () => {
+    hasBinary.mockImplementation((binary: string) => binary === "ast-grep");
     expect(scanMissingOptionalTools()).toEqual([]);
+  });
+
+  // #495, the other half. This assertion USED to read `it.each(["sg", "ast-grep"])
+  // ("stays silent when %s is available")` — i.e. the suite actively asserted the
+  // bug. On macOS `sg` is Homebrew's ast-grep alias; on any Linux with
+  // shadow-utils `/usr/bin/sg` is a different program that always exists, so
+  // probing it turned doctor's "ast-grep installed" into a machine-wide false OK.
+  // The name means two things; only `ast-grep` means one.
+  it("does NOT accept a bare `sg` as ast-grep — on Linux that is shadow-utils", () => {
+    hasBinary.mockImplementation((binary: string) => binary === "sg");
+    expect(scanMissingOptionalTools()).toEqual([
+      {
+        id: "structural-search",
+        binaries: ["ast-grep"],
+        install: "npm install --global @ast-grep/cli",
+      },
+    ]);
+  });
+
+  // Anti-false-green: the three tests above all drive `hasBinary` through a
+  // mock, so a probe that stopped calling it entirely would still look right in
+  // two of them. Pin the call itself.
+  it("actually probes for the binary — a detector that asks nothing proves nothing", () => {
+    hasBinary.mockReturnValue(false);
+    scanMissingOptionalTools();
+    expect(hasBinary).toHaveBeenCalledWith("ast-grep");
+    expect(hasBinary).not.toHaveBeenCalledWith("sg");
   });
 });

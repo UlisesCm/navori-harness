@@ -989,11 +989,20 @@ export interface MissingOptionalTool {
 
 /**
  * Optional precision tools improve the generated harness but never gate it.
- * structural-search supports both official CLI names and falls back to Grep,
- * so doctor only warns when neither binary is available.
+ * structural-search falls back to Grep, so doctor only warns when the binary
+ * is absent.
+ *
+ * `sg` is NOT a valid tell for ast-grep (#495), even though Homebrew installs
+ * ast-grep under that alias on macOS. On any Linux with shadow-utils
+ * `/usr/bin/sg` always exists and is an unrelated program ("execute command as
+ * different group ID"), so probing it made doctor report ast-grep as INSTALLED
+ * on every such machine — a false OK, which is the one verdict a doctor must
+ * never produce. Every ast-grep distribution channel (npm `@ast-grep/cli`,
+ * Homebrew, cargo) ships the canonical `ast-grep` name, so dropping the alias
+ * costs no true positive; it only stops trusting a name that means two things.
  */
 export function scanMissingOptionalTools(): MissingOptionalTool[] {
-  const binaries = ["sg", "ast-grep"];
+  const binaries = ["ast-grep"];
   if (binaries.some((binary) => hasBinary(binary))) return [];
   return [
     {
