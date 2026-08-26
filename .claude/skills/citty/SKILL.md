@@ -4,7 +4,7 @@ description: Use when adding or editing a CLI command with citty — defineComma
 type: reference
 ---
 
-<!-- navori:managed id="citty" hash="68d15811" version="0.6.1" source="@navori/core" -->
+<!-- navori:managed id="citty" hash="68d15811" version="0.6.2" source="@navori/core" -->
 # Citty — command definitions
 
 ## When to use this skill
