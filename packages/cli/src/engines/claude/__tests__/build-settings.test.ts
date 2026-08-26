@@ -64,7 +64,6 @@ describe("buildClaudeSettings — base shape", () => {
     expect(allow).toContain("Bash(ls:*)");
     // Search / text inspection — read-only, no in-place write mode.
     expect(allow).toContain("Bash(grep:*)");
-    expect(allow).toContain("Bash(sg:*)");
     expect(allow).toContain("Bash(ast-grep:*)");
     expect(allow).toContain("Bash(jq:*)");
     expect(allow).toContain("Bash(diff:*)");
@@ -96,6 +95,9 @@ describe("buildClaudeSettings — base shape", () => {
     expect(allow).not.toContain("Bash(git remote*)");
   });
 
+  // Smoke check only — three entries sampled by hand. The rm family's real
+  // coverage is the DERIVED matrix below ("recursive-rm permissions"); sampling
+  // a list you wrote yourself is what let it stay asymmetric for months.
   it("ships permissions.deny for catastrophic, no-legit-use commands (hard block)", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
     const deny = (s.permissions as { deny: string[] }).deny;
@@ -190,6 +192,309 @@ describe("buildClaudeSettings — base shape", () => {
     );
     expect(bucket).toBeDefined();
     expect(bucket?.hooks[0]?.command).toContain("$CLAUDE_PROJECT_DIR");
+  });
+});
+
+/**
+ * #509, point 3 — `permissions.deny` / `.ask` shared the guard's blind spot.
+ *
+ * The guard described the danger by the TEXT it usually wears (`-rf`, lowercase)
+ * instead of by what `rm` MEANS, and so did these lists: `rm -Rf ~`,
+ * `rm --recursive --force /` and `rm -rf --no-preserve-root /` — the one command
+ * that actually erases the system root — appeared in NEITHER `deny` nor `ask`.
+ * The lists were also asymmetric with themselves: `-rf` carried all six targets,
+ * `-fr` only two. Nobody noticed because nothing checked the list's SHAPE.
+ *
+ * Claude Code permission patterns are PREFIX matches, not regexes: "any order of
+ * flags" cannot be expressed in one entry, so covering the axis means
+ * ENUMERATING it. The enumeration is therefore a cross product —
+ * {recursive-flag spellings} × {sensitive targets} — and this block DERIVES the
+ * expected product instead of restating the file. A hand-written list checked
+ * against itself is precisely the test that let the asymmetry ship.
+ *
+ * These rules are DEFENSE IN DEPTH, never the authority. `guard-destructive.sh`
+ * exits 2 and PreToolUse hooks are evaluated BEFORE permission rules, so the
+ * guard is what stops the compound forms (`cd /tmp && rm -rf ~/`) that no prefix
+ * rule can see. The deny list is what remains when the guard is not installed.
+ */
+describe("buildClaudeSettings — recursive-rm permissions are a derived cross product (#509)", () => {
+  const RECURSIVE_FLAGS = ["-r", "-R", "--recursive"];
+  const FORCE_FLAGS = ["-f", "--force"];
+  /** Short flags fused into one token — both letters, both orders. */
+  const FUSED_FLAGS = ["-rf", "-fr", "-Rf", "-fR"];
+
+  /** Every way of writing "recursive rm". Derived once, never typed twice. */
+  const RM_SPELLINGS = [
+    ...FUSED_FLAGS,
+    ...RECURSIVE_FLAGS,
+    ...RECURSIVE_FLAGS.flatMap((r) => FORCE_FLAGS.map((f) => `${r} ${f}`)),
+    ...FORCE_FLAGS.flatMap((f) => RECURSIVE_FLAGS.map((r) => `${f} ${r}`)),
+  ];
+
+  /** The targets a recursive rm must never reach, whatever the spelling. */
+  const RM_TARGETS = ["/", "/*", "~", "~/*", "$HOME", "$HOME/*"];
+
+  /**
+   * Claude Code matches a Bash pattern by prefix, with a trailing `*` extending
+   * it to whatever follows. This models the WIDEST plausible reading (`*` as
+   * "any run of characters, including none") on purpose: the negative control
+   * below has to fail if a new entry could swallow everyday work under any
+   * reading, not just the strictest one.
+   *
+   * The model is spelled out — split on `*`, then walk the literals with
+   * `indexOf` — rather than translated into a `new RegExp(...)`. Two reasons,
+   * and the second is the one that matters: a derived regex hides the matching
+   * rule behind an escape table (miss one metacharacter and `$HOME` silently
+   * becomes an anchor), and it is exactly the pattern
+   * `detect-non-literal-regexp` flags, so building it here would make this
+   * repo's own semgrep gate block every commit of this file. The executable
+   * spec of the model is the `MATCHING_SEMANTICS` table below.
+   */
+  function permissionMatches(pattern: string, command: string): boolean {
+    const body = pattern.startsWith("Bash(") ? pattern.slice(5, -1) : pattern;
+    const literals = body.split("*");
+    const head = literals.shift() ?? "";
+    // No `*` at all: the entry is an exact literal and nothing extends it.
+    if (literals.length === 0) return command === head;
+    const tail = literals.pop() ?? "";
+    if (!command.startsWith(head) || !command.endsWith(tail)) return false;
+
+    // Anchors consumed. Every remaining literal must appear in order inside
+    // what is left, and taking the EARLIEST occurrence of each is enough — a
+    // later occurrence can only ever leave less room for the ones after it.
+    let cursor = head.length;
+    const end = command.length - tail.length;
+    if (cursor > end) return false; // head and tail would overlap
+    for (const literal of literals) {
+      const at = command.indexOf(literal, cursor);
+      if (at < 0 || at + literal.length > end) return false;
+      cursor = at + literal.length;
+    }
+    return true;
+  }
+
+  const permissions = () =>
+    buildClaudeSettings(MINIMAL_CONFIG, []).permissions as {
+      allow: string[];
+      ask: string[];
+      deny: string[];
+    };
+
+  /**
+   * The matching model, written down as a table instead of left implicit inside
+   * the matcher. Three shapes exhaust what an entry can look like (exact,
+   * trailing `*`, inner `*`), and the last rows are the ones a regex
+   * translation gets wrong when an escape is missed or when the head and tail
+   * anchors are allowed to overlap.
+   */
+  const MATCHING_SEMANTICS: ReadonlyArray<{
+    shape: string;
+    pattern: string;
+    command: string;
+    matches: boolean;
+  }> = [
+    // EXACT — no `*`, so nothing extends it and no character is a wildcard.
+    { shape: "exact", pattern: "Bash(rm -rf /)", command: "rm -rf /", matches: true },
+    { shape: "exact", pattern: "Bash(rm -rf /)", command: "rm -rf /tmp", matches: false },
+    {
+      shape: "exact",
+      pattern: "Bash(git checkout .)",
+      command: "git checkout . -- x",
+      matches: false,
+    },
+    // …and `.` is plain text, not "any character".
+    { shape: "exact", pattern: "Bash(git checkout .)", command: "git checkout x", matches: false },
+    // TRAILING `*` — a RAW prefix: it implies no separator and also stands for
+    // nothing at all.
+    { shape: "trailing *", pattern: "Bash(rm -rf /*)", command: "rm -rf /tmp/x", matches: true },
+    { shape: "trailing *", pattern: "Bash(rm -rf /*)", command: "rm -rf /", matches: true },
+    { shape: "trailing *", pattern: "Bash(rm -rf /*)", command: "rm -rf ~", matches: false },
+    {
+      shape: "trailing *",
+      pattern: "Bash(rm -rf *)",
+      command: "rm -rf node_modules",
+      matches: true,
+    },
+    // Because the prefix is literal, a flag fused into the token escapes it.
+    // That is a declared frontier of these lists (`rm -rfv ~` matches nothing),
+    // not an accident — the guard hook is what covers it.
+    {
+      shape: "trailing *",
+      pattern: "Bash(rm -rf *)",
+      command: "rm -rfv node_modules",
+      matches: false,
+    },
+    // INNER `*` — no entry uses this shape today; pinned so the model stays
+    // defined the day one does.
+    { shape: "inner *", pattern: "Bash(rm -r * /etc)", command: "rm -r -f /etc", matches: true },
+    { shape: "inner *", pattern: "Bash(rm -r * /etc)", command: "rm -r -f /etc/x", matches: false },
+    // The head and the tail may not overlap: `rm -r /etc` is too short to carry
+    // both `rm -r ` and ` /etc`.
+    { shape: "inner *", pattern: "Bash(rm -r * /etc)", command: "rm -r /etc", matches: false },
+    // Regex metacharacters are ordinary text: `$HOME` is a literal target of the
+    // deny list, never an end-of-string anchor.
+    { shape: "literal $", pattern: "Bash(rm -rf $HOME)", command: "rm -rf $HOME", matches: true },
+    {
+      shape: "literal $",
+      pattern: "Bash(rm -rf $HOME/*)",
+      command: "rm -rf $HOME/projects",
+      matches: true,
+    },
+  ];
+
+  it("matches by the documented model — literal text, `*` = any run of characters", () => {
+    const observed = MATCHING_SEMANTICS.map((row) => ({
+      ...row,
+      matches: permissionMatches(row.pattern, row.command),
+    }));
+    expect(observed).toEqual([...MATCHING_SEMANTICS]);
+  });
+
+  // The model treats `:` as ordinary text, while Claude Code's `Bash(cmd:*)`
+  // spelling means "cmd plus any arguments" and covers the bare `cmd` too. That
+  // simplification is sound only while no ask/deny entry uses the form, so it is
+  // ASSERTED, not assumed: the day one appears this fails and the model has to
+  // grow the rule, instead of the checks below quietly under-matching.
+  it("is only ever fed ask/deny entries that avoid the `:` argument form", () => {
+    const { ask, deny } = permissions();
+    expect([...ask, ...deny].filter((entry) => entry.includes(":"))).toEqual([]);
+  });
+
+  it("denies the FULL product of {flag spelling} × {sensitive target}", () => {
+    const { deny } = permissions();
+    const expected = RM_SPELLINGS.flatMap((spelling) =>
+      RM_TARGETS.map((target) => `Bash(rm ${spelling} ${target})`),
+    );
+    expect(expected.filter((entry) => !deny.includes(entry))).toEqual([]);
+  });
+
+  // The historical defect itself: not a missing family, a RAGGED one. Grouping
+  // the shipped entries by spelling and demanding the same target set for each
+  // is what `toContain("Bash(rm -rf /*)")` could never catch.
+  it("keeps the product SYMMETRIC — every spelling carries every target", () => {
+    const { deny } = permissions();
+    const bySpelling = new Map<string, Set<string>>();
+    for (const entry of deny) {
+      const parsed = /^Bash\(rm (.+) (\S+)\)$/.exec(entry);
+      if (!parsed) continue;
+      const [, spelling, target] = parsed as unknown as [string, string, string];
+      if (target.startsWith("--no-preserve-root")) continue;
+      const targets = bySpelling.get(spelling) ?? new Set<string>();
+      targets.add(target);
+      bySpelling.set(spelling, targets);
+    }
+    expect([...bySpelling.keys()].sort()).toEqual([...RM_SPELLINGS].sort());
+    for (const [spelling, targets] of bySpelling) {
+      expect({ spelling, targets: [...targets].sort() }).toEqual({
+        spelling,
+        targets: [...RM_TARGETS].sort(),
+      });
+    }
+  });
+
+  // `--no-preserve-root` disarms the last safety net `rm` itself has and no
+  // legitimate use of it exists inside an agent, so it denies on its own — but
+  // a prefix rule still has to name the position it sits in, hence one entry
+  // per spelling PLUS the flag-first form.
+  it("denies `--no-preserve-root` on its own, whatever the target", () => {
+    const { deny } = permissions();
+    expect(deny).toContain("Bash(rm --no-preserve-root*)");
+    const expected = RM_SPELLINGS.map((s) => `Bash(rm ${s} --no-preserve-root*)`);
+    expect(expected.filter((entry) => !deny.includes(entry))).toEqual([]);
+  });
+
+  it("asks on EVERY spelling of a recursive rm, not only the three it used to know", () => {
+    const { ask } = permissions();
+    const expected = RM_SPELLINGS.map((s) => `Bash(rm ${s} *)`);
+    expect(expected.filter((entry) => !ask.includes(entry))).toEqual([]);
+    // Everyday cleanup is legitimate work, so it lands in `ask` (a human
+    // confirms) — the point of the widened axis is that `-R` and the long
+    // forms now reach that prompt too, instead of running unannounced.
+    for (const cmd of ["rm -rf node_modules", "rm -R node_modules", "rm --recursive dist"]) {
+      expect(ask.some((pattern) => permissionMatches(pattern, cmd))).toBe(true);
+    }
+  });
+
+  // NEGATIVE CONTROL: the new entries widen the FLAG axis, never the target
+  // axis. Without this, "cover more spellings" could be satisfied by a rule
+  // like `Bash(rm -R*)` that hard-blocks `rm -rf node_modules` — daily work,
+  // and the fastest way to teach an operator to route around the harness.
+  it("never DENIES everyday cleanup, nor anything the allow list pre-approves", () => {
+    const { allow, deny } = permissions();
+    // RELATIVE targets only, deliberately: the absolute ones carry the OPPOSITE
+    // verdict and are pinned in the test right below. Mixing them here would let
+    // the widening over absolute paths hide inside a list named "everyday".
+    const EVERYDAY = [
+      "rm -rf node_modules",
+      "rm -R node_modules",
+      "rm --recursive --force node_modules",
+      "rm -rf ./dist",
+      "rm -rf build coverage",
+      "rm -Rf .cache",
+    ];
+    for (const cmd of EVERYDAY) {
+      expect({ cmd, denied: deny.filter((p) => permissionMatches(p, cmd)) }).toEqual({
+        cmd,
+        denied: [],
+      });
+    }
+    // …and no deny entry swallows a command the allow list pre-approves.
+    const allowedLiterals = allow
+      .filter((rule) => rule.startsWith("Bash("))
+      .map((rule) =>
+        rule
+          .slice(5, -1)
+          .replace(/[:*].*$/, "")
+          .trim(),
+      )
+      .filter((literal) => literal.length > 0);
+    for (const literal of allowedLiterals) {
+      expect({ literal, denied: deny.filter((p) => permissionMatches(p, literal)) }).toEqual({
+        literal,
+        denied: [],
+      });
+    }
+  });
+
+  // THE OTHER HALF OF THE TRADE-OFF, stated instead of implied. Widening the
+  // product does broaden the hard block over ABSOLUTE paths: `rm -r /tmp/x` and
+  // `rm -R /Users/me/dev/app/node_modules` now land in `deny`, no prompt, no
+  // override. That is chosen, not incidental — `Bash(rm -rf /*)` already imposed
+  // it on `main` for one spelling, and the alternative (dropping the `/*` target
+  // so the other 18 spellings stay narrower) is precisely the asymmetry #509
+  // reported. The cost is named so nobody rediscovers it as a surprise: a
+  // recursive rm on an absolute path is no longer available to the agent at all,
+  // and legitimate cases (a build dir outside the repo) have to be run by a human
+  // outside the harness. Relative cleanup — the everyday case above — is
+  // untouched.
+  it("DOES deny a recursive rm on an ABSOLUTE path — the accepted cost of the `/*` target", () => {
+    const { deny } = permissions();
+    const ABSOLUTE: ReadonlyArray<{ cmd: string; by: string }> = [
+      { cmd: "rm -r /tmp/x", by: "Bash(rm -r /*)" },
+      { cmd: "rm -R /Users/me/dev/app/node_modules", by: "Bash(rm -R /*)" },
+      { cmd: "rm --recursive --force /var/tmp/build", by: "Bash(rm --recursive --force /*)" },
+    ];
+    for (const { cmd, by } of ABSOLUTE) {
+      // Asserted as the EXACT set, not `length > 0`: which entry does the
+      // blocking is the part that says the widening is the target axis of the
+      // product and nothing else.
+      expect({ cmd, denied: deny.filter((p) => permissionMatches(p, cmd)) }).toEqual({
+        cmd,
+        denied: [by],
+      });
+    }
+  });
+
+  // ANTI-FALSE-GREEN on the derivation itself: if the generator lost the
+  // uppercase or long-form axis, every assertion above would still be green
+  // while the exact blind spot #509 reported came back.
+  it("derives a matrix that actually spans the axes it claims", () => {
+    expect(RM_SPELLINGS.some((s) => /R/.test(s))).toBe(true);
+    expect(RM_SPELLINGS.some((s) => s.includes("--recursive"))).toBe(true);
+    expect(RM_SPELLINGS.some((s) => s.includes("--force"))).toBe(true);
+    expect(RM_SPELLINGS.some((s) => s.includes(" "))).toBe(true);
+    expect(new Set(RM_SPELLINGS).size).toBe(RM_SPELLINGS.length);
+    expect(RM_TARGETS).toEqual(expect.arrayContaining(["/", "~", "$HOME"]));
   });
 });
 
@@ -541,5 +846,87 @@ describe("buildClaudeSettings — compound gate + pure-filter boundary (#403)", 
       NEVER_ALLOWED.filter((re) => re.test(rule)).map((re) => `${rule} matches ${re}`),
     );
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("buildClaudeSettings — `sg` is never pre-approved (#495)", () => {
+  const allowOf = (config: NavoriConfig): string[] =>
+    (buildClaudeSettings(config, []).permissions as { allow: string[] }).allow;
+
+  // The whole reason, kept in the failure message: whoever re-adds the rule must
+  // read WHY it was removed, not just that it is forbidden.
+  const WHY = [
+    "`sg` was allowlisted meaning ast-grep — Homebrew installs that binary as `sg`,",
+    "so on macOS the rule did what it looked like it did.",
+    "On any Linux with shadow-utils `/usr/bin/sg` is a DIFFERENT program:",
+    '"execute command as different group ID", used as `sg <group> -c "<command>"`,',
+    "which runs an arbitrary command through /bin/sh. Pre-approving it turns the",
+    'whole permission layer into a bypass — `sg users -c "rm -rf ~"` never prompts,',
+    "so permissions.deny and guard-destructive.sh stop meaning anything.",
+    "A prefix rule cannot tell the two binaries apart, so there is no safer",
+    "variant: spell `ast-grep`, which is unambiguous on every platform.",
+  ].join("\n  ");
+
+  it("ships no allow rule invoking a bare `sg` (shadow-utils runs arbitrary commands)", () => {
+    // Any shape: `Bash(sg:*)`, `Bash(sg *)`, `Bash(sg -p:*)` — all of them let the
+    // shadow-utils form through, since the dangerous syntax is `sg <group> -c …`.
+    const offenders = allowOf(MINIMAL_CONFIG).filter((rule) => /^Bash\(\s*sg\b/.test(rule));
+    expect(offenders, `\n  ${WHY}\n\n  offending rule(s): ${offenders.join(", ")}`).toEqual([]);
+  });
+
+  it("keeps `ast-grep` pre-approved — the fix removes the alias, not the tool", () => {
+    expect(allowOf(MINIMAL_CONFIG)).toContain("Bash(ast-grep:*)");
+  });
+});
+
+describe("buildClaudeSettings — commands the harness itself orders (#506)", () => {
+  const allowOf = (config: NavoriConfig): string[] =>
+    (buildClaudeSettings(config, []).permissions as { allow: string[] }).allow;
+
+  it("pre-approves the read-only navori subcommands the assets order", () => {
+    // `navori doctor` is the session-startup block's first instruction and
+    // `navori audit --start/--stop` is what audit-mode-trigger.sh orders. Without
+    // these, the circuit-breaker rule ("permission not pre-approved → stop")
+    // tells the agent to abandon the very flow the harness just ordered.
+    const allow = allowOf(MINIMAL_CONFIG);
+    expect(allow).toContain("Bash(navori doctor:*)");
+    expect(allow).toContain("Bash(navori status:*)");
+    expect(allow).toContain("Bash(navori audit:*)");
+    expect(allow).toContain("Bash(navori dominio list:*)");
+    expect(allow).toContain("Bash(navori dominio show:*)");
+    expect(allow).toContain("Bash(navori dominio doctor:*)");
+  });
+
+  it("pre-approves jscpd and semgrep — gates the prose orders before approving a change", () => {
+    const allow = allowOf(MINIMAL_CONFIG);
+    expect(allow).toContain("Bash(jscpd:*)");
+    expect(allow).toContain("Bash(semgrep:*)");
+  });
+
+  it("pre-approves the read-only git introspection the agents order", () => {
+    // The `-c core.quotepath=false` prefix is what reviewer.md and
+    // commit-pr-pilot.md actually type; `Bash(git diff*)` does not match it,
+    // because rules match the command string from its first character.
+    const allow = allowOf(MINIMAL_CONFIG);
+    expect(allow).toContain("Bash(git merge-base*)");
+    expect(allow).toContain("Bash(git rev-list*)");
+    expect(allow).toContain("Bash(git -c core.quotepath=false diff*)");
+    expect(allow).toContain("Bash(git -c core.quotepath=false ls-files*)");
+  });
+
+  it("enumerates navori's READ subcommands only — nothing that writes", () => {
+    // The counterweight to the fix: `Bash(navori:*)` would have been shorter and
+    // would have pre-approved `render --apply`, `init`, `scan` (rewrites
+    // navori.config.json) and `dominio inject` — the commands that overwrite the
+    // user's harness. The allowlist enumerates, it never wildcards the binary.
+    const allow = allowOf(MINIMAL_CONFIG);
+    expect(allow).not.toContain("Bash(navori:*)");
+    const WRITERS =
+      /^Bash\(navori (render|init|add|remove|configure|update|sync|scan|registry|bench|workspace|ticket|backup|migrations|preset|global|dominio (init|inject|reindex))\b/;
+    const offenders = allow.filter((rule) => WRITERS.test(rule));
+    expect(
+      offenders,
+      `these navori subcommands write to disk and must stay behind the prompt: ${offenders.join(", ")}`,
+    ).toEqual([]);
   });
 });

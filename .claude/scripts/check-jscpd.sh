@@ -319,10 +319,33 @@ if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
   exit 0
 fi
 
+# `git diff` runs inside a process substitution, whose exit status the shell
+# never reports, and its stderr used to go to /dev/null — so a diff that FAILED
+# (exit 128: unborn HEAD, a corrupt index, a base that vanished mid-run)
+# produced zero records and was indistinguishable from "nothing changed": the
+# hook printed `0 files to scan` and exited 0 (#511). The sentinel carries the
+# status back out of the subshell. It can never collide with a real record: the
+# pathspec restricts the list to `*.ts`/`*.tsx`.
+diff_sentinel='@navori-diff-status:'
+diff_status=""
 files=()
 while IFS= read -r -d '' f; do
+  case "$f" in
+    "${diff_sentinel}"*) diff_status="${f#"${diff_sentinel}"}"; continue ;;
+  esac
   files+=("$f")
-done < <(git diff --name-only -z --diff-filter=ACMRT "$base" -- '*.ts' '*.tsx' 2>/dev/null)
+done < <(
+  # `|| diff_rc=$?` and not a bare `$?`: the subshell inherits `set -e`, which
+  # would kill it on a failing `git diff` before the sentinel is ever written.
+  diff_rc=0
+  git diff --name-only -z --diff-filter=ACMRT "$base" -- '*.ts' '*.tsx' || diff_rc=$?
+  printf '%s%s\0' "$diff_sentinel" "$diff_rc"
+)
+if [ "$diff_status" != "0" ]; then
+  echo "✗ jscpd: \`git diff\` FAILED (exit ${diff_status:-unknown}) in $tree — NOTHING was scanned" >&2
+  echo "  this is not a duplication verdict: no file was compared against $base" >&2
+  exit 1
+fi
 
 # An empty scan is NOT a silent green (#454): say which tree and which base
 # produced it, so "there was nothing to scan" reads differently from "I scanned
@@ -337,6 +360,10 @@ echo "▶ jscpd: ${#files[@]} changed file(s) vs $base in $tree" >&2
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
+# `>&2` is not cosmetic (#510): a PreToolUse hook shows the user its stderr and
+# swallows its stdout, so the console reporter's clone table — the whole point
+# of the gate — used to be written where nobody could read it.
+scan_status=0
 "$JSCPD_BIN" \
   --min-tokens 100 \
   --min-lines 10 \
@@ -344,4 +371,26 @@ trap 'rm -rf "$tmpdir"' EXIT
   --threshold "$threshold" \
   --reporters console \
   --output "$tmpdir" \
-  "${files[@]}"
+  "${files[@]}" >&2 || scan_status=$?
+
+# PreToolUse EXIT CONTRACT (#510). Claude Code blocks a tool call ONLY on exit
+# 2; every other non-zero code is shown to the user and the call PROCEEDS. This
+# script used to END on the `jscpd` invocation, so `set -e` handed jscpd's own
+# code straight through — and jscpd maps "over threshold" to 1. The gate printed
+# a progress line and blocked exactly nothing.
+#
+# TODO(fidelity): jscpd spends exit 1 on BOTH "over threshold" and an internal
+# crash, so a crash is read here as a duplication verdict and blocks. That is
+# the strict direction, and it is the ceiling of this mapping — split it if
+# jscpd ever gives the two outcomes distinct codes, or if a crash starts firing
+# often enough to teach people to route around the gate.
+if [ "$scan_status" -eq 0 ]; then
+  echo "✓ jscpd: ${#files[@]} file(s) scanned vs $base — duplication under the ${threshold}% threshold" >&2
+  exit 0
+fi
+if [ "$scan_status" -eq 1 ]; then
+  echo "✗ jscpd: duplication over the ${threshold}% threshold — BLOCKED" >&2
+  exit 2
+fi
+echo "✗ jscpd: the run FAILED with exit $scan_status (not a duplication verdict) — nothing was validated" >&2
+exit 1

@@ -210,9 +210,13 @@ describe.runIf(runsBash)("semgrep gate — content cache (#402)", () => {
     });
 
     expect(out.scans).toBe(2);
-    // semgrep's exit code still reaches the caller — the gate keeps blocking.
-    expect(out.first.status).toBe(1);
-    expect(out.second).toMatchObject({ status: 1, scanned: true, cacheHit: false });
+    // The gate keeps BLOCKING — at exit 2, the only code `PreToolUse` treats as
+    // a block (#510). It used to assert 1, semgrep's own `--error` code, which
+    // Claude Code merely prints before letting the call through: the gate was
+    // decorative and this line said it was working. `scanned`/`scans` are what
+    // report that the scanner ran; the status reports the verdict.
+    expect(out.first.status).toBe(2);
+    expect(out.second).toMatchObject({ status: 2, scanned: true, cacheHit: false });
     expect(out.marker).toBe(false);
   });
 

@@ -39,6 +39,32 @@ const runsBash = process.platform !== "win32";
 // in a temp bin dir prepended to PATH.
 const BASE_PATH = "/usr/bin:/bin";
 
+/**
+ * The HOOK's own exit code — a verdict — as `PreToolUse` defines it (#510).
+ * DO NOT "restore" these to the scanner's codes: 2 is the contract, not a
+ * regression.
+ *
+ * Claude Code blocks a tool call ONLY on exit 2; any other non-zero code is
+ * shown and the call PROCEEDS. Until #510 these cases asserted `1`, which is
+ * what the STUB exits with, and titled it "BLOCKS". That conflated two
+ * different signals into one number: `1` only ever proved the hook REACHED the
+ * scanner, never that the verdict blocked anything. With the gates passing the
+ * scanner's code straight through, the suite ended up pinning the exact
+ * contract they were violating — the gate shipped decorative and green.
+ *
+ * The two signals are now kept apart, and on purpose they are different
+ * numbers: "did the scanner run?" is `invocations(fx).length`, "does the
+ * verdict block?" is the hook's exit code. The same file already had the right
+ * shape two assertions below, where the quality gate asserts 2 for a red gate.
+ */
+const HOOK_BLOCKS = 2;
+/**
+ * A scanner that fell over is NOT a verdict: nothing was validated, so the hook
+ * reports it loudly and lets the call through rather than passing a tooling
+ * failure off as a security decision.
+ */
+const HOOK_WARNS_WITHOUT_BLOCKING = 1;
+
 type HookId = "semgrep" | "jscpd" | "quality-gate";
 
 /** Render a hook exactly as `navori render` does: inline the shared
@@ -93,6 +119,10 @@ function git(cwd: string, ...args: string[]): string {
  * main working tree, so its checkout cannot show up in the main repo's own
  * diff) carrying one changed `.ts` file. That asymmetry is the whole point: the
  * main repo has nothing to scan, the worktree does.
+ *
+ * `scanExit` is the SCANNER stub's exit code — the finding it seeds, not the
+ * hook's verdict. The hook maps it (see `HOOK_BLOCKS`): 1 (findings) → 2, >1
+ * (scanner broken) → 1, 0 → 0.
  */
 function setupFixture(scanExit = 1): Fixture {
   // realpath, not the raw mkdtemp path: on macOS mkdtemp hands back `/var/…`
@@ -248,7 +278,9 @@ function invocations(fx: Fixture): string[] {
 describe.runIf(runsBash)("gate hooks — scan the tree the commit acts on (#454)", () => {
   // THE regression. Against the pre-#454 hooks this case is green with zero
   // scans: the hook cd'd into the (clean) main repo and reported "no changes vs
-  // main". The stub exits 1, so reaching the scanner at all is observable.
+  // main". Two independent signals prove the opposite here, and they no longer
+  // share a number (#510): `scans` says the scanner RAN, the exit code says the
+  // verdict BLOCKS.
   it("semgrep BLOCKS a commit whose diff lives in an agent worktree", () => {
     const out = acrossShells((shell) => {
       const fx = setupFixture(1);
@@ -256,7 +288,7 @@ describe.runIf(runsBash)("gate hooks — scan the tree the commit acts on (#454)
       return { run, scans: invocations(fx).length };
     });
 
-    expect(out.run.status).toBe(1);
+    expect(out.run.status).toBe(HOOK_BLOCKS);
     expect(out.scans).toBe(1);
     // The tree it announces is the WORKTREE, not the (clean) main repo.
     expect(out.run.stderr).toContain("1 changed file(s) vs main (<BASE_SHORT>) in <WORKTREE>");
@@ -272,7 +304,7 @@ describe.runIf(runsBash)("gate hooks — scan the tree the commit acts on (#454)
       return { run, scans: runs.length, scannedFile: runs.every((line) => line.endsWith("a.ts")) };
     });
 
-    expect(out.run.status).toBe(1);
+    expect(out.run.status).toBe(HOOK_BLOCKS);
     expect(out.scans).toBe(1);
     expect(out.scannedFile).toBe(true);
   });
@@ -312,7 +344,7 @@ describe.runIf(runsBash)("gate hooks — scan the tree the commit acts on (#454)
       return { run, scans: invocations(fx).length };
     });
 
-    expect(out.run.status).toBe(1);
+    expect(out.run.status).toBe(HOOK_BLOCKS);
     expect(out.scans).toBe(1);
   });
 
@@ -326,7 +358,7 @@ describe.runIf(runsBash)("gate hooks — scan the tree the commit acts on (#454)
       return { run, scans: invocations(fx).length };
     });
 
-    expect(out.run.status).toBe(1);
+    expect(out.run.status).toBe(HOOK_BLOCKS);
     expect(out.scans).toBe(1);
   });
 
@@ -369,9 +401,9 @@ function bypassRun(
  * happens to mention lets it override the payload cwd and aim the scan at a
  * tree with nothing to scan — exit 0 with the scanner never invoked, the same
  * shape #454 is about. Every case below is one of those commands; each asserts
- * that the scanner RAN over the tree the commit acts on (invocations are
- * counted, and the stub exits 1 so reaching it also shows in the status) and
- * that the foreign tree is never announced.
+ * that the scanner RAN over the tree the commit acts on (counted invocations)
+ * and, separately, that the seeded finding produced a BLOCKING verdict
+ * (`HOOK_BLOCKS`) — and that the foreign tree is never announced.
  */
 describe.runIf(runsBash)("gate hooks — the command cannot aim the scan elsewhere (#454)", () => {
   it("ignores a `cd <other repo>` earlier in the chain", () => {
@@ -383,7 +415,7 @@ describe.runIf(runsBash)("gate hooks — the command cannot aim the scan elsewhe
     );
 
     expect(out.scans).toBe(1);
-    expect(out.run.status).toBe(1);
+    expect(out.run.status).toBe(HOOK_BLOCKS);
     expect(out.run.stderr).toContain("1 changed file(s) vs main (<BASE_SHORT>) in <WORKTREE>");
     expect(out.run.stderr).not.toContain("<FOREIGN>");
   });
@@ -403,7 +435,7 @@ describe.runIf(runsBash)("gate hooks — the command cannot aim the scan elsewhe
     );
 
     expect(out.scans).toBe(1);
-    expect(out.run.status).toBe(1);
+    expect(out.run.status).toBe(HOOK_BLOCKS);
     expect(out.run.stderr).toContain("1 changed file(s) vs main (<BASE_SHORT>) in <MAIN>");
     expect(out.run.stderr).not.toContain("<FOREIGN>");
   });
@@ -419,7 +451,7 @@ describe.runIf(runsBash)("gate hooks — the command cannot aim the scan elsewhe
     );
 
     expect(out.scans).toBe(1);
-    expect(out.run.status).toBe(1);
+    expect(out.run.status).toBe(HOOK_BLOCKS);
     expect(out.run.stderr).toContain("1 changed file(s) vs main (<BASE_SHORT>) in <WORKTREE>");
     expect(out.run.stderr).not.toContain("<FOREIGN>");
   });
@@ -436,7 +468,7 @@ describe.runIf(runsBash)("gate hooks — the command cannot aim the scan elsewhe
     );
 
     expect(out.scans).toBe(1);
-    expect(out.run.status).toBe(1);
+    expect(out.run.status).toBe(HOOK_BLOCKS);
     expect(out.run.stderr).toContain("1 changed file(s) vs main (<BASE_SHORT>) in <WORKTREE>");
     expect(out.run.stderr).not.toContain("<FOREIGN>");
   });
@@ -454,7 +486,7 @@ describe.runIf(runsBash)("gate hooks — the command cannot aim the scan elsewhe
     );
 
     expect(out.scans).toBe(1);
-    expect(out.run.status).toBe(1);
+    expect(out.run.status).toBe(HOOK_BLOCKS);
     expect(out.run.stderr).toContain("1 changed file(s) vs main (<BASE_SHORT>) in <MAIN>");
     expect(out.run.stderr).not.toContain("<MAIN>/sub");
   });
@@ -470,7 +502,7 @@ describe.runIf(runsBash)("gate hooks — the command cannot aim the scan elsewhe
     );
 
     expect(out.scans).toBe(1);
-    expect(out.run.status).toBe(1);
+    expect(out.run.status).toBe(HOOK_BLOCKS);
     expect(out.run.stderr).toContain("1 changed file(s) vs main in <MAIN>");
     expect(out.run.stderr).not.toContain("<FOREIGN>");
   });
@@ -551,7 +583,10 @@ describe.runIf(runsBash)("semgrep gate — fails on NEW findings, not inherited 
       return normalize(fx, runHook(fx, shell, "semgrep", "git commit -m x", fx.worktree));
     });
 
-    expect(out.status).toBe(2);
+    // …and it does not block on it either (#510): a crashed scanner is a
+    // tooling failure, so it is reported and the call proceeds. Blocking here
+    // would spend the gate's credibility on a claim it cannot make.
+    expect(out.status).toBe(HOOK_WARNS_WITHOUT_BLOCKING);
     expect(out.stderr).toContain("scan FAILED with exit 2");
     expect(out.stderr).toContain("nothing was validated");
   });
