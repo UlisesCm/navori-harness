@@ -10,6 +10,33 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-08-25 23:05 — claude — Los 3 issues del audit, cerrados: uno refutó su propia premisa
+
+- **Cambios:** `commands/{audit,global}.ts` + `index.ts` (una sola `readCliVersion`),
+  `scripts/check-asset-commands.mjs` (nuevo) + `ci.yml` (`fetch-depth: 0`),
+  `lib/audit/{parse,model,report,discovery}.ts`, `audit-mode-trigger.sh` (graba `transcript_path`),
+  suites nuevas de versión y del check, espejo renderizado y golden snapshots.
+- **Quality gate:** ✅ `pnpm format:check` · 2124 tests · `pnpm lint` · `pnpm typecheck` ·
+  `pnpm check:render`. (`check:assets` avisa por `audit`, que es correcto hasta publicar 0.7.0.)
+- **Notas:**
+  - **#488** no era un typo de versión: había **cuatro** implementaciones de "leer mi propia
+    versión". La de `audit` usaba `process.env.npm_package_version`, que solo existe bajo un script
+    de npm — como binario el fallback `"0.0.0"` disparaba el **100%** de las veces.
+  - **Mi propio guard de #488 nació como falso verde** y lo destapó su test de sanidad:
+    `url.pathname` queda percent-encoded, y bajo `Dev - Docs` daba `Dev%20-%20Docs` → grep fallaba →
+    el `catch` lo reportaba como "sin coincidencias". Ahora `fileURLToPath`, y solo el exit 1 cuenta
+    como vacío.
+  - **#490** generaliza el bloqueador de #486 a un check. Compara contra el **último tag de git**
+    (sin red, determinista). Detalle que casi lo vuelve inútil: `actions/checkout` no trae tags por
+    defecto → `fetch-depth: 0`, o se saltaría a sí mismo en silencio (punto ciego de #421).
+  - **#489 refutó su premisa, que era mía.** El log no perdía prompts: lo que el humano escribe
+    mientras el agente trabaja se encola (`queue-operation`) y se entrega dentro del turno, sin
+    disparar `UserPromptSubmit`. El hook no puede verlo. El fix lee del transcript y el reporte
+    **declara** su cobertura (19 = 12 de turno + 7 encolados) en vez de aparentarla.
+  - **`user_prompt` nunca existió**: la clave del payload es `prompt`. Y `transcript_path` estaba
+    ahí sin usarse, mientras `discovery.ts` adivinaba la ruta con una heurística.
+- **Commit / PR:** #491, #492, #493 — todos mergeados. Tablero: **0 issues, 0 PRs**.
+
 ## 2026-08-25 21:33 — claude — Primer uso real del modo audit: destapó su propio bloqueador y 4 hallazgos más
 
 - **Cambios:** `audit-mode-trigger.sh` (introspección del subcomando + clave del prompt + copy a inglés),
