@@ -26,10 +26,11 @@
 89d840f7c70e7e01966788906d39ccf560c3da6e  .claude/skills/review-diff/SKILL.md
 979b53b4a0cfb3f5a3734126761adde62b17fe4a  CLAUDE.md
 a092c062c85598b27e4b29724be5807e0a7e76a5  .claude/skills/playwright-cli/references/tracing.md
+a48a8232b5da6e57ed1620c9af7b7e84db70a3ba  .claude/settings.json
 a5a01561f0dfa89e82faac7d57dce52239508402  .claude/agents/ticket-audit.md
+a6a48664dede0f794edd81b3ab350aeef17d7a28  .claude/hooks/worktree-reclaim.sh
 b54dbe684517593032c596d4c5c300384b72df34  .claude/skills/playwright-cli/references/running-code.md
 b7881f576fb3043d03c091ec30f45c995957c2a7  .claude/skills/playwright-cli/references/playwright-tests.md
-c08273e27e749c51d128d71991314ba014f12790  .claude/settings.json
 c3fc30043da5953f8b6de3ca084ac0500f6bf4db  .claude/skills/playwright-cli/references/test-generation.md
 d5feb407c5436b7aae57ceb6ca1d75b10b3d17f2  .claude/skills/ticket-intake/SKILL.md
 d70a429bb6e729a0845f0d173ad6a1ef0ae109ea  .claude/skills/playwright-cli/references/request-mocking.md

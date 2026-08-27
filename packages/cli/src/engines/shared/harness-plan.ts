@@ -143,6 +143,14 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/managed-drift-watch.sh"),
       managedId: "managed-drift-watch-base",
     },
+    // #527: SessionEnd sweep for agent worktrees. Cleanup that depended on an
+    // agent remembering to report a `worktree:` line left 27 of them (~2.6 GB)
+    // behind; this one runs whether or not anybody remembered.
+    {
+      id: "worktree-reclaim",
+      assetPath: join(coreAssets, "hooks/worktree-reclaim.sh"),
+      managedId: "worktree-reclaim-base",
+    },
     // Audit-mode (UserPromptSubmit + SessionEnd). Shipped unconditionally but
     // INERT until a session opts in by phrase: distribution is global so the
     // feature is versioned with the harness, activation stays per session.

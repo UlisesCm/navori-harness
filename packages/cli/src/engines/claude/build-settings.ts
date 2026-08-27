@@ -67,6 +67,7 @@ const AUDIT_TRIGGER_HOOK_DEST = ".claude/hooks/audit-mode-trigger.sh";
 const AUDIT_CLOSE_HOOK_DEST = ".claude/hooks/audit-mode-close.sh";
 const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
 const MANAGED_DRIFT_HOOK_DEST = ".claude/hooks/managed-drift-watch.sh";
+const WORKTREE_RECLAIM_HOOK_DEST = ".claude/hooks/worktree-reclaim.sh";
 const PRECOMPACT_HOOK_DEST = ".claude/hooks/precompact-session-summary.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
 const SETTINGS_BASE_REL = "core-assets/settings/settings-base.json";
@@ -214,6 +215,17 @@ export function buildClaudeSettings(
               command: `bash "$CLAUDE_PROJECT_DIR/${AUDIT_CLOSE_HOOK_DEST}"`,
               timeout: 10,
               statusMessage: "navori: audit-mode close",
+            },
+            // #527: sweep agent worktrees whose work provably survived. It
+            // shares this event because the answer only exists at the end —
+            // when a subagent stops its PR usually does not exist yet, so
+            // nothing could prove the branch was safe to drop. `gh` calls make
+            // it slower than its neighbour, hence the wider timeout.
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${WORKTREE_RECLAIM_HOOK_DEST}"`,
+              timeout: 30,
+              statusMessage: "navori: reclaim worktrees",
             },
           ],
         },
