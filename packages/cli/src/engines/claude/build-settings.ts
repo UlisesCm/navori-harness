@@ -66,6 +66,7 @@ const SESSION_START_HOOK_DEST = ".claude/hooks/session-start-context.sh";
 const AUDIT_TRIGGER_HOOK_DEST = ".claude/hooks/audit-mode-trigger.sh";
 const AUDIT_CLOSE_HOOK_DEST = ".claude/hooks/audit-mode-close.sh";
 const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
+const MANAGED_DRIFT_HOOK_DEST = ".claude/hooks/managed-drift-watch.sh";
 const PRECOMPACT_HOOK_DEST = ".claude/hooks/precompact-session-summary.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
 const SETTINGS_BASE_REL = "core-assets/settings/settings-base.json";
@@ -105,6 +106,34 @@ export function buildClaudeSettings(
               command: `bash "$CLAUDE_PROJECT_DIR/${GUARD_HOOK_DEST}"`,
               timeout: 10,
               statusMessage: "navori: guard-destructive",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  // #530: the drift watcher, the harness's only PostToolUse hook. The guard
+  // above decides by the SHAPE of the command, so it covers the write verbs
+  // someone enumerated; this one ignores the command entirely and asks whether
+  // the managed blocks still hash to what their markers claim — so a `python`
+  // write, a `perl -i`, or a formatter surfaces too. Unconditional like the
+  // guard: the freeze it detects is silent, and a defense that ships off
+  // protects nobody. The "a PostToolUse hook would fire thousands of times"
+  // note further down still holds for audit-mode, which does real work per
+  // call; this one costs one `find` against a stamp file (~10ms) unless a
+  // managed file actually changed.
+  settings = deepMerge(settings, {
+    hooks: {
+      PostToolUse: [
+        {
+          matcher: "Bash",
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${MANAGED_DRIFT_HOOK_DEST}"`,
+              timeout: 10,
+              statusMessage: "navori: managed-block drift",
             },
           ],
         },

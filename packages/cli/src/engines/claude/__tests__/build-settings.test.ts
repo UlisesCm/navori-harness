@@ -124,6 +124,23 @@ describe("buildClaudeSettings — base shape", () => {
     expect(guard?.matcher).toBe("Bash");
   });
 
+  it("always injects the managed-drift PostToolUse(Bash) watcher (#530)", () => {
+    // Unconditional on purpose. The freeze it detects is silent, so a watcher
+    // that ships off by default would protect only the repos that already knew
+    // to ask for it — the same reason the guard above has no config switch.
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const post = (
+      s.hooks as { PostToolUse?: Array<{ matcher?: string; hooks: Array<{ command: string }> }> }
+    ).PostToolUse;
+    const watcher = post?.find((b) =>
+      b.hooks.some((h) => h.command.includes("managed-drift-watch.sh")),
+    );
+    expect(watcher).toBeDefined();
+    // Scoped to Bash: a managed file cannot be rewritten by a Read or a Glob,
+    // and firing on every tool call would multiply the cost for nothing.
+    expect(watcher?.matcher).toBe("Bash");
+  });
+
   it("does NOT inject quality-gate hook when config.qualityGate.fast is unset", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
     const pre =
@@ -587,13 +604,17 @@ describe("buildClaudeSettings — plugin merging", () => {
     // Bash bucket (coalesced), so assert on membership, not position.
     const bashBucket = hooks.PreToolUse?.find((b) => b.matcher === "Bash");
     expect(bashBucket?.hooks.some((h) => h.command === "bash check.sh")).toBe(true);
-    // Assert the PostToolUse bucket EXISTS before asserting it carries no
-    // matcher: `postBucket?.matcher` is `undefined` when the bucket is missing
-    // too, so without this line a translation that emitted nothing would pass.
-    const postBucket = hooks.PostToolUse?.[0];
+    // Found by CONTENT, not by index: the core's own PostToolUse hook (the
+    // #530 drift watcher, matcher "Bash") also lives in this list now, and
+    // position said nothing about the translation being tested. Asserting the
+    // bucket EXISTS still comes first — `postBucket?.matcher` is `undefined`
+    // when the bucket is missing too, so a translation that emitted nothing
+    // would otherwise pass.
+    const postBucket = hooks.PostToolUse?.find((b) =>
+      b.hooks.some((h) => h.command === "echo done"),
+    );
     expect(postBucket).toBeDefined();
     expect(postBucket?.matcher).toBeUndefined();
-    expect(postBucket?.hooks[0]?.command).toBe("echo done");
   });
 
   it("groups multiple plugin hooks on the same event+matcher under one bucket", () => {

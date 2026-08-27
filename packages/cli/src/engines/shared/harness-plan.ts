@@ -133,6 +133,16 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/precompact-session-summary.sh"),
       managedId: "precompact-session-summary-base",
     },
+    // #530. The ONE PostToolUse hook, and the exception to the "never
+    // PostToolUse" note in build-settings: it costs a single `find` against a
+    // stamp file in the common case (~10ms measured, nothing changed → no
+    // hashing at all). It is unconditional on purpose — an opt-in defense
+    // protects nobody by default, and the freeze it detects is silent.
+    {
+      id: "managed-drift-watch",
+      assetPath: join(coreAssets, "hooks/managed-drift-watch.sh"),
+      managedId: "managed-drift-watch-base",
+    },
     // Audit-mode (UserPromptSubmit + SessionEnd). Shipped unconditionally but
     // INERT until a session opts in by phrase: distribution is global so the
     // feature is versioned with the harness, activation stays per session.
