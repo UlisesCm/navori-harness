@@ -626,3 +626,47 @@ invariante parece cumplida.
 `.prettierignore` en `init` **solo actúa al onboardear**. Y 3 issues de seguridad en los repos de
 Ulises (`alertaciudadana_app#113`, `alertaciudadana_backend#148`, `navori-dashboard-template#53`), el
 más caro PII y CURP en logs de un build release.
+
+## 2026-08-26 20:10 claude — release 0.6.3 y el follow-up de #523: la prevención alcanza a los repos ya onboardeados
+
+**Publicado `navori@0.6.3`** (PR #526, CI verde, squash en `8e88efb`). Lleva a npm los 5 fixes del
+rollout (#519–#523), que llevaban en `main` desde ayer y por eso **no estaban en ningún repo**. El
+diff del release fue 33 archivos / 53 líneas, **todas bumps de versión**: ningún hash ni contenido de
+asset cambió. Deploy del website verde.
+
+**El tag `v0.6.2` nunca se había creado, y no era cosmético.** `check:assets` resuelve la versión
+publicada con `latestTag()` (`scripts/check-asset-commands.mjs:84`) — lee **tags de git, no npm**, así
+que llevaba un día avisando que los assets citan `navori audit` contra "v0.6.1", un subcomando que
+0.6.2 ya había publicado. Creados `v0.6.2` (sobre `833b55a`) y `v0.6.3`; el aviso se apagó solo.
+
+**El hueco de #523 (PR #528).** Ese fix le enseñó al formateador a saltarse el harness pero cableó la
+prevención **solo en `init`** — que corre una vez. Nunca alcanzó a un repo existente, y **el repo que
+motivó el issue era uno de esos**. Inventario del parque: **19 instalaciones** expuestas hoy igual que
+antes del fix, sin que nada lo reportara. `ensurePrettierIgnore` ya estaba lista (`dryRun`, `force`,
+escribe por `commitWrites`); faltaban los dos consumidores que su hermano `gitignore-harness` tiene
+desde #313: `render` la invoca en la raíz (y como `update` termina en un render, cada instalación
+cierra el hueco en su próximo ciclo) y `doctor` gana `scanPrettierIgnore` como advisory.
+
+**La paridad scan ↔ escritor es el invariante, no un detalle.** Los dos comparten el criterio de "ya
+cubierto": si el usuario ya lista las rutas del harness en sus propias reglas, doctor calla y render no
+escribe. Si divergieran, doctor avisaría de un hueco que render se niega a cerrar y **el aviso no se
+iría nunca** — que es exactamente como un advisory se degrada a ruido. Hay un test dedicado.
+
+**Verificado por mutación.** Al quitar la llamada de `render.ts`, **7 de los 8 tests nuevos se ponen
+rojos**; el único que sobrevive es el que afirma que un repo sin prettier no se toca, y es correcto que
+sobreviva. Razonar sobre el fixture no habría distinguido las dos cosas.
+
+**El inventario del parque, que vale más que el fix.** 15 repos Bonum (+14 worktrees de webapp), moonar
+y navori-health están en **0.5.1**: se saltaron 0.6.0→0.6.3, o sea los 22 fixes de la auditoría a
+ciegas (4 de seguridad, 4 de pérdida de datos) más los 5 del rollout. Los 3 de `/navori` están en
+0.6.2. Solo este repo está al día.
+
+**Gate.** `format:check` ✓ · `check:render` ✓ (0 pending) · `check:assets` ✓ · website build ✓ ·
+`check:size` ✓ (837.1KB/900KB) · **2730/2730 tests** ✓ (2716 → 2730) · `lint` ✓ · `typecheck` ✓ — y CI
+verde en #526 y #528.
+
+**Tres issues abiertos desde el chat de Ulises**: #527 (un hook que reclame el worktree del agente al
+terminar — hoy la limpieza depende de que un agente se acuerde), #529 (`testsForNewCode` derivado de la
+detección, y poder excluir una suite: quiere unitarios sí y los flows de Maestro no), #530 (el harness
+asume las tools nativas; en auto mode todo pasa por Bash y `guard-destructive` no cubre `sed -i`, `>`
+ni `tee` sobre archivos managed).
