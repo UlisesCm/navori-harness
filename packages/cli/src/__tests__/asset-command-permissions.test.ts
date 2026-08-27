@@ -301,6 +301,14 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
   ],
   ["navori configure", "writes navori.config.json — a config mutation stays behind the prompt"],
   ["navori dominio reindex", "rewrites DOMINIO.md in the workspace — a write, not a read"],
+  [
+    "navori sync",
+    "reconciles managed blocks against the user's edits — the resolution is a write, and which side wins is the user's call (#530)",
+  ],
+  [
+    "navori render --apply",
+    "rewrites the harness mirror in the user's repo — the write the whole managed-block guard exists to route through a decision, so the prompt IS the gate (#530)",
+  ],
 ];
 
 function isExpectedPrompt(command: string): string | null {

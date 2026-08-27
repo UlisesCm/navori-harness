@@ -633,6 +633,66 @@ if printf '%s' "$live" | grep -qE '(of=/dev/(sd|nvme|disk|hd)|>[[:space:]]*/dev/
   block "direct write to a block device"
 fi
 
+# 6. Shell rewrites of a file navori MAINTAINS (#530). In auto mode every edit
+#    arrives as a shell command — `sed -i`, a heredoc, a `>` redirect — instead
+#    of the `Edit` tool, and the two fail very differently: `Edit` aborts when
+#    the old text doesn't match (a check that the agent understood the file),
+#    while `sed -i` with a pattern that matches nothing exits 0 and a `>` with
+#    the wrong path truncates the file. On a managed file the damage is the #523
+#    shape: the body changes, its `hash=` no longer matches, navori marks the
+#    block `user-modified` and STOPS UPDATING IT. Nothing announces that.
+#
+#    These files are a MIRROR, and the harness already says so in prose ("los
+#    conflictos en `.claude/` y CLAUDE.md no se resuelven a mano: son espejo").
+#    This rule is that policy made executable. The way to change them is to edit
+#    the source asset and run `navori render --apply`, or `navori sync` to
+#    reconcile — neither of which matches here, because neither redirects.
+#
+#    COVERED (blocked), by FORM of the write:
+#      > path  ·  >| path        truncating redirect (`>>` append is NOT: it adds
+#                                after the blocks and invalidates no hash)
+#      sed -i … path             in-place rewrite
+#      tee path                  overwrite (`tee -a` is an append, so it is not)
+#    …and by TARGET, the marker-carrying outputs of `ENGINE_OUTPUTS`
+#    (lib/health.ts), which is what "managed" means anywhere else in navori:
+#      CLAUDE.md · AGENTS.md · .claude/settings.json
+#      .claude/agents · .claude/skills · .claude/hooks
+#      .agents/skills · .codex/config.toml · .codex/agents · .codex/hooks
+#      .cursor/rules
+#
+#    NOT COVERED, and each exclusion is load-bearing:
+#      .claude/progress/… and .codex/progress/…   the agent handoff files, for
+#        BOTH engines. Every subagent ends by writing one, usually with a
+#        heredoc; blocking that breaks the harness's own protocol with the
+#        harness's own guard. They carry no markers, so nothing there can be
+#        invalidated. Naming `.codex/` wholesale was exactly that bug: it
+#        swallowed `.codex/progress/` and would have silenced every Codex
+#        subagent's handoff (#389's rule caught it).
+#      .claude/settings.local.json · .claude/worktrees/   machine-local, never
+#        rendered, never marker-managed.
+#      cp/mv INTO a managed path, `python -c` writes, `awk > file`, `perl -i`.
+#        Enumerating write verbs is the losing half of this fight — the same
+#        "describe the danger by its textual form" pattern the blind audit found
+#        eight times. The PostToolUse watcher is the half that doesn't care about
+#        form: it re-checks the hashes AFTER the fact, so anything that gets past
+#        this rule still surfaces. This rule is the seatbelt; that one is the net.
+managed_dir='\.claude/(agents|skills|hooks)|\.agents/skills|\.codex/(agents|hooks)|\.cursor/rules'
+managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.toml|(${managed_dir})/[^[:space:];&|]+)"
+# The redirect check reads `scan`, NOT `segments`: the split rewrites every `|`
+# into a newline, so `>| CLAUDE.md` (forced clobber) would be torn in half and
+# the target would land in a segment of its own. Reading the unsplit copy is
+# safe HERE and nowhere else in this file, because the pattern is local — only
+# whitespace may sit between the `>` and its target, so it cannot reach across a
+# `&&` into another command the way rules 1-3 could.
+# `-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*` accepts the backup-suffix spellings that
+# are the everyday form on both platforms: GNU `sed -i.bak`, BSD `sed -i ''`.
+# Missing them would have left the rule covering the tutorial spelling only.
+if printf '%s' "$scan" | grep -qE "(^|[^>])>\|?[[:space:]]*(\./)?${managed_path}([[:space:]]|\$)" \
+  || printf '%s' "$segments" | grep -qE "(^|[[:space:]])sed[[:space:]]+(-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*|--in-place)([[:space:]]|=).*${managed_path}" \
+  || printf '%s' "$segments" | grep -qE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*(\./)?${managed_path}([[:space:]]|\$)"; then
+  block "shell rewrite of a navori-managed file — edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it"
+fi
+
 # navori:user-section
 # user: add extra guards here. `$cmd` already holds the full command (compound
 # commands included) and `block "<reason>"` aborts with exit 2.

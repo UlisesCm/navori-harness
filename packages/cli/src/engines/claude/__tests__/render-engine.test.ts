@@ -433,13 +433,14 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   solution-design, pr-create, spec-bootstrap, dominio, babysit-prs) +
     //   1 guard hook + 1 session-start hook + 2 lifecycle hooks (subagent-stop,
     //   precompact) + 1 qg hook + 2 progress files +
-    //   1 engram-leader-extension sub-block + 2 audit-mode hooks = 33.
+    //   1 engram-leader-extension sub-block + 2 audit-mode hooks +
+    //   1 managed-drift watcher (#530) = 34.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(33);
+    expect(first.inspected).toBe(34);
     // Written counts files actually emitted. engram-leader-extension is a
-    // sub-block injected into leader.md, not a separate file, so written = 32
-    // (the 29 files + the .mcp.json + both audit-mode hooks).
-    expect(first.written.length).toBe(32);
+    // sub-block injected into leader.md, not a separate file, so written = 33
+    // (the 29 files + the .mcp.json + both audit-mode hooks + the watcher).
+    expect(first.written.length).toBe(33);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -537,9 +538,10 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
 describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
-    // Dry-run still reports the would-write set, including structural-search and
-    // the .mcp.json engram registration (#212) and both audit-mode hooks.
-    expect(r.written).toHaveLength(32);
+    // Dry-run still reports the would-write set, including structural-search,
+    // the .mcp.json engram registration (#212), both audit-mode hooks and the
+    // managed-drift watcher (#530).
+    expect(r.written).toHaveLength(33);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

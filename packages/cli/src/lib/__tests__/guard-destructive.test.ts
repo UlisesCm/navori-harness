@@ -313,6 +313,67 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
   });
 
   /**
+   * Rule 6 (#530) — shell rewrites of a file navori maintains.
+   *
+   * In auto mode every edit arrives as a shell command, so the mirror is one
+   * `sed -i` away from the #523 freeze: the body changes, `hash=` stops
+   * matching, navori marks the block hand-edited and stops updating it — in
+   * silence.
+   *
+   * The `false` rows carry the weight. This rule sits in front of EVERY Bash
+   * call an agent makes, and `.claude/progress/` writes are how the harness's
+   * own handoff protocol works: blocking those would break navori with navori.
+   * A rule that fires on daily work gets routed around, which is worse than no
+   * rule, so the table pins what stays legal as carefully as what does not.
+   */
+  const MANAGED_WRITE_VERDICTS: ReadonlyArray<{ cmd: string; blocked: boolean; why: string }> = [
+    { cmd: "echo x > CLAUDE.md", blocked: true, why: "truncating redirect" },
+    { cmd: "echo x >| CLAUDE.md", blocked: true, why: "forced clobber survives the `|` split" },
+    { cmd: "cd /tmp && echo x > AGENTS.md", blocked: true, why: "past a compound boundary" },
+    { cmd: "sed -i '' s/a/b/ CLAUDE.md", blocked: true, why: "BSD in-place" },
+    { cmd: "sed -i.bak s/a/b/ .claude/agents/implementer.md", blocked: true, why: "GNU suffix" },
+    { cmd: "sed --in-place s/a/b/ .codex/config.toml", blocked: true, why: "long in-place flag" },
+    { cmd: "cat foo | tee .claude/settings.json", blocked: true, why: "tee overwrite" },
+    {
+      cmd: "echo x > .claude/skills/vitest/SKILL.md",
+      blocked: true,
+      why: "a skill is managed too",
+    },
+    { cmd: "echo x > .codex/agents/reviewer.toml", blocked: true, why: "codex agents too" },
+    // Everything below is daily, legitimate work.
+    {
+      cmd: "cat > .codex/progress/impl_foo.md",
+      blocked: false,
+      why: "the handoff protocol, Codex half (#389)",
+    },
+    { cmd: "cat > .claude/progress/impl_foo.md", blocked: false, why: "the handoff protocol" },
+    { cmd: "echo x >> CLAUDE.md", blocked: false, why: "append invalidates no hash" },
+    { cmd: "cat foo | tee -a .claude/agents/notes.md", blocked: false, why: "tee -a appends" },
+    {
+      cmd: "echo x > .claude/settings.local.json",
+      blocked: false,
+      why: "machine-local, unrendered",
+    },
+    { cmd: "navori render --apply", blocked: false, why: "the sanctioned way to write them" },
+    { cmd: "cat CLAUDE.md", blocked: false, why: "a read" },
+    { cmd: "grep -n managed CLAUDE.md", blocked: false, why: "a search" },
+    { cmd: 'sed -n "1,20p" CLAUDE.md', blocked: false, why: "sed WITHOUT -i is a read" },
+    { cmd: "cp CLAUDE.md /tmp/backup.md", blocked: false, why: "managed path is the SOURCE" },
+    { cmd: "echo x > dist/CLAUDE.md.bak", blocked: false, why: "a different file entirely" },
+    {
+      cmd: 'git commit -m "touches CLAUDE.md and .claude/agents/x.md"',
+      blocked: false,
+      why: "a message is inert",
+    },
+  ];
+
+  describe("rule 6 — shell rewrites of managed files (#530)", () => {
+    it.each(MANAGED_WRITE_VERDICTS)("$why: `$cmd` → $blocked", ({ cmd, blocked }) => {
+      expect(runGuard(cmd)).toBe(blocked ? 2 : 0);
+    });
+  });
+
+  /**
    * #462 — the guard is scoped to what the shell EXECUTES, never to the text a
    * command merely WRITES.
    *

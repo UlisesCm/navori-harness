@@ -16,6 +16,8 @@ coverage/
 # session's artifacts leaked into git. Session STATE lives in progress/ (root),
 # which IS versioned on purpose.
 .claude/progress/
+# mtime baseline for the managed-drift watcher — machine-local timing state
+.claude/.managed-drift-stamp
 
 # Local Codex state (not committed per workspace convention)
 .codex/

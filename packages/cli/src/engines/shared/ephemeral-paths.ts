@@ -41,4 +41,8 @@ export const EPHEMERAL_HARNESS_PATHS: readonly string[] = [
   // Appended, never inserted: the order above is the one already hashed into
   // every onboarded repo's `.gitignore` block (see the note on order).
   ".codex/progress/",
+  // #530: the drift watcher's stamp file. Pure machine-local timing state — its
+  // mtime is the "last checked" mark and nothing else — so committing it would
+  // make every teammate's first command re-check every managed file.
+  ".claude/.managed-drift-stamp",
 ];
