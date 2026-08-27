@@ -141,6 +141,20 @@ describe("buildClaudeSettings — base shape", () => {
     expect(watcher?.matcher).toBe("Bash");
   });
 
+  it("always injects the worktree-reclaim SessionEnd hook (#527)", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const end = (
+      s.hooks as { SessionEnd?: Array<{ hooks: Array<{ command: string; timeout?: number }> }> }
+    ).SessionEnd;
+    const reclaim = end
+      ?.flatMap((b) => b.hooks)
+      .find((h) => h.command.includes("worktree-reclaim.sh"));
+    expect(reclaim).toBeDefined();
+    // Wider than its neighbours on purpose: it shells out to `gh` once per
+    // candidate worktree, and a timeout kill would leave the sweep half done.
+    expect(reclaim?.timeout).toBe(30);
+  });
+
   it("does NOT inject quality-gate hook when config.qualityGate.fast is unset", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
     const pre =

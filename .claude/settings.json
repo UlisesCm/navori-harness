@@ -82,6 +82,12 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/audit-mode-close.sh\"",
             "timeout": 10,
             "statusMessage": "navori: audit-mode close"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-reclaim.sh\"",
+            "timeout": 30,
+            "statusMessage": "navori: reclaim worktrees"
           }
         ]
       }
