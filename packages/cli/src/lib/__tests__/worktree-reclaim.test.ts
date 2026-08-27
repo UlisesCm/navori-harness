@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, chmodSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+  chmodSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { getCoreRoot } from "../bundled-assets.ts";
@@ -84,6 +92,24 @@ function addWorktree(branch: string, opts: { push?: boolean } = {}): string {
   return wt;
 }
 
+/**
+ * A PATH with `git` (and `cat`, which the hook reads its payload with) but
+ * provably NO `gh`. Hardcoding `/usr/bin:/bin` was wrong: `gh` IS installed
+ * there on the GitHub runner, so the "no gh" case silently became the "no
+ * merged PR" case and the test asserted the wrong branch.
+ */
+function pathWithoutGh(): string {
+  const dir = join(root, "nogh");
+  mkdirSync(dir, { recursive: true });
+  // `bash` included because execFileSync resolves the interpreter through this
+  // same PATH; `cat` because the hook reads its payload with it.
+  for (const bin of ["bash", "git", "cat"]) {
+    const real = execFileSync("bash", ["-c", `command -v ${bin}`], { encoding: "utf-8" }).trim();
+    symlinkSync(real, join(dir, bin));
+  }
+  return dir;
+}
+
 /** Run the hook against `repo` with the stubbed PATH; returns stdout. */
 function runHook(withGh = true): string {
   return execFileSync("bash", [hookPath], {
@@ -91,9 +117,7 @@ function runHook(withGh = true): string {
     encoding: "utf-8",
     env: {
       ...process.env,
-      // A PATH holding only the stub dir plus the real git/bash locations, so
-      // "no gh installed" is reproducible.
-      PATH: withGh ? `${binDir}:${process.env.PATH}` : "/usr/bin:/bin",
+      PATH: withGh ? `${binDir}:${process.env.PATH}` : pathWithoutGh(),
       CLAUDE_PROJECT_DIR: repo,
     },
   });
