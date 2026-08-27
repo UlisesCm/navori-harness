@@ -20,6 +20,10 @@ import {
   type GitignoreRenderResult,
 } from "../engines/shared/gitignore-harness.ts";
 import {
+  ensurePrettierIgnore,
+  type PrettierIgnoreResult,
+} from "../engines/shared/prettierignore-harness.ts";
+import {
   renderStatusSymbol,
   renderStatusLabel,
   dim,
@@ -29,7 +33,7 @@ import {
   sym,
   type RenderStatus,
 } from "../lib/style.ts";
-import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
+import { t, tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 import { describeCoreProvenance, type CoreProvenance } from "../lib/bundled-assets.ts";
 import { effectiveConfigForWorkspace, buildMonorepoContext } from "../lib/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
@@ -213,6 +217,10 @@ export function runRender(
   /** Harness `.gitignore` block reconciliation (#313). Absent when
    *  `gitignoreHarness` is `"off"` — navori doesn't touch `.gitignore` then. */
   gitignore?: GitignoreRenderResult | null;
+  /** Harness `.prettierignore` block reconciliation (#523). Absent when the repo
+   *  does not run prettier — navori installs no opinion about a tool it doesn't
+   *  detect. */
+  prettierignore?: PrettierIgnoreResult | null;
 } {
   // Back-compat: callers passing (cwd, dryRun, force) keep working.
   const opts: RunRenderOptions =
@@ -421,6 +429,18 @@ export function runRender(
   // repo-level file, not per-engine). Returns null in mode "off" (untouched).
   const gitignore = renderGitignore(cwd, config, { dryRun, force: forceFlag, lang });
 
+  // #523 follow-up: reconcile the harness `.prettierignore` too, once at the
+  // repo root. The prevention shipped wired into `init` alone, which reaches
+  // repos onboarded AFTER it — never the already-onboarded ones, and the repo
+  // that motivated it was one of those. Every install converges here instead:
+  // `update` ends in a render, so the next one closes the gap on its own.
+  // Returns null when prettier isn't detected (file never read or created).
+  const prettierignore = ensurePrettierIgnore(cwd, config, {
+    dryRun,
+    force: forceFlag,
+    lang,
+  });
+
   // #312: outputs owned only by engines no longer in config.engines[] (a stale
   // AGENTS.md/.codex after narrowing to claude) linger because render never
   // revisits a disabled engine. Report them always; with --prune on an apply
@@ -487,6 +507,7 @@ export function runRender(
     keptEngineOutputs,
     prunedBackupPath,
     gitignore,
+    prettierignore,
   };
 }
 
@@ -663,6 +684,8 @@ export const renderCommand = defineCommand({
 
     if (result.gitignore) reportGitignore(result.gitignore, result.language);
 
+    if (result.prettierignore) reportPrettierIgnore(result.prettierignore, result.language);
+
     // #312: orphaned outputs from disabled engines. With --prune the run reports
     // its file-by-file plan — what it deleted, or (in preview, #521) what it
     // WOULD delete; otherwise it warns about the roots and points at --prune.
@@ -755,7 +778,9 @@ export function resultHasPendingWrites(result: ReturnType<typeof runRender>): bo
     (result.extraEngines ?? []).some((e) => e.written.length > 0) ||
     result.workspaces.some((w) => w.extraEngines.some((e) => e.written.length > 0)) ||
     result.gitignore?.status === "created" ||
-    result.gitignore?.status === "updated"
+    result.gitignore?.status === "updated" ||
+    result.prettierignore?.status === "created" ||
+    result.prettierignore?.status === "updated"
   );
 }
 
@@ -778,7 +803,8 @@ export function countSkippedFiles(result: ReturnType<typeof runRender>): number 
       (n, w) => n + claudeSkips(w.engineResult) + extraSkips(w.extraEngines),
       0,
     ) +
-    (result.gitignore?.status.endsWith("-skipped") ? 1 : 0)
+    (result.gitignore?.status.endsWith("-skipped") ? 1 : 0) +
+    (result.prettierignore?.status.endsWith("-skipped") ? 1 : 0)
   );
 }
 
@@ -847,6 +873,10 @@ export function countRenderStatuses(result: ReturnType<typeof runRender>): Recor
   // to `countSkippedFiles`, like every other file-level skip.
   if (result.gitignore && !result.gitignore.status.endsWith("-skipped")) {
     bump(result.gitignore.status);
+  }
+  // ...and so is the harness `.prettierignore`, on the same terms.
+  if (result.prettierignore && !result.prettierignore.status.endsWith("-skipped")) {
+    bump(result.prettierignore.status);
   }
   return counts;
 }
@@ -932,6 +962,18 @@ function buildRenderJson(
           path: result.gitignore.path,
           status: result.gitignore.status,
           backupPath: result.gitignore.backupPath ?? null,
+        }
+      : null,
+    // #523 follow-up. `entries` travels because it is the answer to "what is
+    // this block protecting?" — a consumer seeing `unchanged` with an empty
+    // list knows the user's own rules already cover the harness, which is a
+    // different state from "navori wrote nothing".
+    prettierignore: result.prettierignore
+      ? {
+          path: result.prettierignore.path,
+          status: result.prettierignore.status,
+          entries: result.prettierignore.entries,
+          backupPath: result.prettierignore.backupPath ?? null,
         }
       : null,
     downgrades,
@@ -1028,6 +1070,41 @@ function reportGitignore(gitignore: GitignoreRenderResult, lang: Lang): void {
   // so the pre-write snapshot is the user's way back to their own rules.
   if (gitignore.backupPath) {
     lines.push(`  ${dim(tc(lang).common.backupLabel)} ${gitignore.backupPath}`);
+  }
+  p.log.message(lines.join("\n"));
+}
+
+/**
+ * Report the harness `.prettierignore` reconciliation (#523). Same shape as
+ * `reportGitignore` — one status line, a hand-edited block surfaces as a skip.
+ * Absent (null) when the repo does not run prettier.
+ *
+ * `unchanged` with no entries is its own sentence: it means the user's own
+ * ignore rules already cover every harness path, which is a success and not a
+ * no-op. Left as a bare "unchanged" line it reads like navori checked nothing.
+ */
+function reportPrettierIgnore(prettierignore: PrettierIgnoreResult, lang: Lang): void {
+  const tr = tc(lang).render;
+  const lines: string[] = [tr.prettierIgnoreTitle];
+  if (
+    prettierignore.status === "user-modified-skipped" ||
+    prettierignore.status === "downgrade-skipped"
+  ) {
+    lines.push(
+      `  ${color.yellow("!")} ${prettierignore.path}  ${dim("(")}${color.yellow("skipped")}${dim(")")}`,
+    );
+    if (prettierignore.skippedReason) lines.push(`      ${dim(prettierignore.skippedReason)}`);
+  } else if (prettierignore.status === "unchanged" && prettierignore.entries.length === 0) {
+    lines.push(`  ${renderStatusSymbol("unchanged")} ${dim(t(lang).prettierIgnoreAlreadyCovered)}`);
+  } else {
+    lines.push(
+      `  ${renderStatusSymbol(prettierignore.status)} ${prettierignore.path}  ${dim("(")}${renderStatusLabel(prettierignore.status)}${dim(")")}`,
+    );
+  }
+  // Same reason as `.gitignore`: navori edits this file without having authored
+  // it, so the pre-write snapshot is the user's way back to their own rules.
+  if (prettierignore.backupPath) {
+    lines.push(`  ${dim(tc(lang).common.backupLabel)} ${prettierignore.backupPath}`);
   }
   p.log.message(lines.join("\n"));
 }

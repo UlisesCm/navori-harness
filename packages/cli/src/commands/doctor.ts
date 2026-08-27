@@ -17,6 +17,7 @@ import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
 import { unknownLibraries } from "../lib/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
+import { scanPrettierIgnore } from "../engines/shared/prettierignore-harness.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace-drift.ts";
@@ -184,6 +185,10 @@ export const doctorCommand = defineCommand({
     // Harness `.gitignore` block drift (#313). Null in mode "off" — doctor must
     // not evaluate `.gitignore` at all then (R8/R10).
     const gitignoreHealth = scanGitignoreHarness(cwd, config);
+    // #523 follow-up: the same question for `.prettierignore`. Null when the
+    // repo doesn't run prettier — navori has no business evaluating a file it
+    // would never create there.
+    const prettierIgnoreHealth = scanPrettierIgnore(cwd, config);
     // The other half of #313: what MUST be versioned isn't ignored (specs/) and
     // what's ephemeral is (.claude/progress|worktrees). Null outside git. #325.
     const gitHygiene = scanGitHygiene(cwd, config);
@@ -269,6 +274,7 @@ export const doctorCommand = defineCommand({
       codexHealth,
       codegraphHealth,
       gitignoreHealth,
+      prettierIgnoreHealth,
       gitHygiene,
       workspaceDrift,
       engineInventory,
@@ -706,6 +712,14 @@ export const doctorCommand = defineCommand({
     if (gitignoreHealth && (gitignoreHealth.missing || gitignoreHealth.drift)) {
       const gi = gitignoreHealth.missing ? td.gitignoreMissing : td.gitignoreDrift;
       p.note(`  ${color.yellow(sym.update)} ${gi}`, td.gitignoreTitle);
+    }
+
+    // #523 follow-up: the harness `.prettierignore`. Advisory on the same terms
+    // as the block above — `render --apply` reconciles it. Absent when the repo
+    // doesn't run prettier.
+    if (prettierIgnoreHealth && (prettierIgnoreHealth.missing || prettierIgnoreHealth.drift)) {
+      const pi = prettierIgnoreHealth.missing ? td.prettierIgnoreMissing : td.prettierIgnoreDrift;
+      p.note(`  ${color.yellow(sym.update)} ${pi}`, td.prettierIgnoreTitle);
     }
 
     // #325: git hygiene. Advisory like the block above — the fix is the user's
