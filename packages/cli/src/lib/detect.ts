@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { presetExists } from "./presets.ts";
@@ -36,6 +36,92 @@ export interface StackInfo {
    * not serve HTTP. null = none found. */
   worker: string | null;
   deps: ReadonlyArray<string>;
+}
+
+/**
+ * Does this repo have a test SUITE, or only a test SETUP? (#529)
+ *
+ * The distinction is the whole point. A legacy repo where someone added jest
+ * two years ago and nobody ever wrote a test has a `testRunner`, so deriving
+ * the policy from the dependency alone would order every agent to ship tests
+ * into a repo that has none — a rule nobody follows is worse than no rule.
+ *
+ * Cheap and deliberately shallow: a bounded walk that stops at the first hit
+ * and never descends into `node_modules`/`.git`/build output. It answers
+ * "is there at least one", not "how many".
+ */
+export function hasTestSuite(cwd: string): boolean {
+  const SKIP = new Set([
+    "node_modules",
+    ".git",
+    "dist",
+    "build",
+    "coverage",
+    ".next",
+    ".venv",
+    "vendor",
+    "target",
+  ]);
+  const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$|^test_.*\.py$|.*_test\.(py|go|rs)$/;
+  const TEST_DIR = new Set(["__tests__", "test", "tests", "spec"]);
+
+  const walk = (dir: string, depth: number): boolean => {
+    if (depth > 4) return false;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (SKIP.has(entry.name)) continue;
+        // A test directory counts only when something is IN it: an empty
+        // `__tests__/` is scaffolding, which is the case being separated.
+        if (TEST_DIR.has(entry.name) && hasAnyFile(join(dir, entry.name))) return true;
+        if (walk(join(dir, entry.name), depth + 1)) return true;
+      } else if (TEST_FILE.test(entry.name)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  return walk(cwd, 0);
+}
+
+/** True when `dir` holds at least one regular file, at any depth (bounded). */
+function hasAnyFile(dir: string, depth = 0): boolean {
+  if (depth > 3) return false;
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isFile()) return true;
+      if (entry.isDirectory() && hasAnyFile(join(dir, entry.name), depth + 1)) return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+/**
+ * The `testsForNewCode` value the repo's own evidence supports (#529).
+ *
+ * - suite present  → `"always"`: the repo already tests, so new code matching
+ *   that bar is the status quo, not a new demand.
+ * - runner but no suite → `"when-applicable"`: the setup exists and nobody
+ *   used it. Ordering `always` here writes a rule against reality; ordering
+ *   `none` throws away a runner that is right there.
+ * - no runner → `undefined`: navori does not invent a testing policy for a
+ *   repo that shows no sign of testing. Silence is an answer.
+ *
+ * This is a DEFAULT, not a derived field like `project.libraries`: it seeds the
+ * prompt and the recommended baseline, and `update` never overwrites what the
+ * user chose. Testing policy is a decision, and detection does not get to
+ * revoke it.
+ */
+export function suggestTestsForNewCode(cwd: string, runner: string | null): string | undefined {
+  if (!runner) return undefined;
+  return hasTestSuite(cwd) ? "always" : "when-applicable";
 }
 
 export interface QualityGateGuess {

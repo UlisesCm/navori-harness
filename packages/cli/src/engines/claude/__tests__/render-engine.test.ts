@@ -685,6 +685,44 @@ describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
   });
 });
 
+describe("renderClaudeEngine — tests policy exclusions (#529)", () => {
+  const claudeMd = () => readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+
+  const withPolicy = (policy: string, exclude: string[]): NavoriConfig =>
+    ({
+      ...CONFIG_FULL,
+      language: "en",
+      project: { testsForNewCode: policy, testsExclude: exclude },
+    }) as unknown as NavoriConfig;
+
+  it("renders the excluded suites next to a policy that demands tests", () => {
+    renderClaudeEngine(cwd, withPolicy("always", [".maestro/flows"]));
+    const md = claudeMd();
+    expect(md).toContain("new code MUST ship with tests");
+    expect(md).toContain("Suites outside that rule");
+    expect(md).toContain(".maestro/flows");
+  });
+
+  it("renders them under when-applicable too", () => {
+    renderClaudeEngine(cwd, withPolicy("when-applicable", ["e2e/"]));
+    expect(claudeMd()).toContain("e2e/");
+  });
+
+  it("says nothing about exclusions under `none` — there is nothing to carve out", () => {
+    // Two rules where one says "no tests required" and the other carves an
+    // exception out of it read as a contradiction, not as detail.
+    renderClaudeEngine(cwd, withPolicy("none", [".maestro/flows"]));
+    const md = claudeMd();
+    expect(md).toContain("doesn't require tests for new code");
+    expect(md).not.toContain("Suites outside that rule");
+  });
+
+  it("stays silent when the list is empty", () => {
+    renderClaudeEngine(cwd, withPolicy("always", []));
+    expect(claudeMd()).not.toContain("Suites outside that rule");
+  });
+});
+
 describe("renderClaudeEngine — canonical block order", () => {
   const blockIds = (md: string): string[] =>
     [...md.matchAll(/<!-- navori:managed id="([^"]+)"/g)].map((m) => m[1]!);

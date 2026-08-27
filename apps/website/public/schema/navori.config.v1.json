@@ -475,6 +475,13 @@
         "testsForNewCode": {
           "type": "string"
         },
+        "testsExclude": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "localSkills": {
           "default": [],
           "type": "array",
@@ -520,6 +527,7 @@
       "required": [
         "legacyPaths",
         "criticalAreas",
+        "testsExclude",
         "localSkills",
         "libraries",
         "libraryMigrations"

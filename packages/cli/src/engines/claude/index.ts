@@ -355,6 +355,16 @@ function buildContextoProyectoBody(config: NavoriConfig, lang: Lang): string | n
     rows.push(t.testsNone);
   }
 
+  // #529: the exclusion only means something next to a policy that demands
+  // tests. Under `none` there is nothing to carve out, and printing it there
+  // would read as a second, contradictory rule.
+  if (tests === "always" || tests === "when-applicable") {
+    const excluded = (proj?.testsExclude ?? [])
+      .map((e) => sanitizeProjectValue(e))
+      .filter((e) => e !== "");
+    if (excluded.length > 0) rows.push(t.testsExclude(excluded.join(", ")));
+  }
+
   if (rows.length === 0) return null;
 
   return [t.heading, "", t.intro, "", ...rows, ""].join("\n");
