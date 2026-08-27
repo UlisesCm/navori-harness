@@ -1,85 +1,90 @@
 # Sesión actual
 
-**Estado:** `idle`. `main` en `acc31ca`, working tree limpio, espejo verificado, **0 issues abiertos**.
-Los 17 de la auditoría a ciegas (#495–#511) cerrados en 4 PRs, los cuatro con CI en verde.
-Tests 2124 → **2642**.
+**Estado:** `idle`. `main` en `cf6fcb0`, working tree limpio, **0 issues / 0 PRs**, un solo worktree.
+Tests **2124 → 2716**. `navori@0.6.2` publicado en npm.
 
-## SIGUIENTE PASO: descongelar el rollout
+## SIGUIENTE PASO: publicar 0.6.3
 
-La condición que fijó Ulises era **cero issues abiertos + versión estable**. Lo primero ya se cumple.
-Falta publicar, y hay una razón concreta para publicar ANTES de tocar los 15 repos: **el fix de
-`Bash(sg:*)` no llega a ninguno hasta que se publique** — los repos renderizan con el `navori`
-instalado, no con este árbol.
+Los 5 fixes del rollout (#519–#523) están en `main` pero **no en npm**, así que ningún repo los tiene.
+El más urgente de propagar es el de `.prettierignore` en `init`: **solo actúa al onboardear**, así que
+cada día que pasa es otro repo que puede congelarse sin que nadie lo note.
 
-Orden: bump del CLI → `chore(release)` directo a `main` → tag → `gh workflow run deploy-website.yml`
-→ `npm publish` (manual, OTP de Ulises).
+Proceso: bump `packages/cli/package.json` → `render:apply` + `test:golden` (el bump reestampa los
+marcadores) → gate → PR → tag → `npm publish` (manual, OTP de Ulises).
 
-**Límite que hay que decir ANTES del rollout, no después.** Por el hueco de #440 un `render` **no
-actualiza las zonas de usuario ya escritas**: los tokens viejos necesitan el chequeo de `doctor` y
-corrección **a mano**. Ir **per-repo, NUNCA `--all`**.
+## Lo que se hizo hoy
 
-## Qué cambió de verdad (más que los 17 parches)
+**22 issues cerrados en 6 PRs**, todos con CI verde:
 
-Las defensas describían el peligro por su **forma textual** en vez de por su **semántica**, y ninguna
-verificaba que pudo hacer su trabajo. Los cinco fixes reales quitaron la dependencia de la forma:
-normalizar flags antes de evaluar, exigir marcador de autoría, eliminar el alias ambiguo, detectar el
-fence sin cerrar, y mover el heredoc a una función para que el quoting no dependa de un conteo.
-
-**Seis guards nuevos que atacan CLASES, no instancias:**
-
-| Guard | Qué impide |
+| PR | Qué |
 |---|---|
-| `removal-parity.test.ts` | una cuarta ruta de borrado con criterio propio (declara las 12 existentes) |
-| `hook-claims-vs-scripts.test.ts` | que un asset atribuya a un hook una capacidad que su script no tiene |
-| `asset-command-permissions.test.ts` | que el harness ordene un comando sin permiso en settings |
-| `cited-paths-exist.test.ts` (ensanchado) | que un asset cite un **encabezado** inexistente, no solo una ruta |
-| `check-coverage-floor.mjs` | que un módulo nuevo entre a 0% diluido en el agregado |
-| `repo-config-gate.test.ts` | que el gate local deje de cubrir lo que CI exige (deriva de `ci.yml`) |
+| #513 | Seguridad: #495 #506 #509 #510 #511 |
+| #514 | Pérdida de datos: #496 #497 #498 #504 |
+| #515 | Contrato de agentes: #499 #500 #501 #502 #507 |
+| #516 | Config: #503 #505 #508 |
+| #518 | Release 0.6.2 |
+| #524 | Los 5 del rollout: #519 #520 #521 #522 #523 |
 
-## La patología de tests, encontrada SEIS veces
+**Rollout a los 3 repos de `/navori`**, uno a uno: `alertaciudadana_app`, `alertaciudadana_backend`,
+`navori-dashboard-template`. Los tres en `0.6.2`, verificado **contra las ramas base**, no contra la
+copia local. 5 PRs mergeados allá.
 
-Un test que congela la **forma de la implementación** en vez de verificar la **regla**. En tres casos
-no solo no atrapaba el bug: **lo protegía** — corregir el código rompía el test.
+## Pendientes de Ulises (no bloquean navori)
 
-- `guard-destructive.test.ts`: 30 casos de `rm`, los 30 con `-rf`. Eje del target agotado, eje de
-  flags inexistente.
-- `gate-hook-worktree.test.ts`: `it("semgrep BLOCKS…")` con `toBe(1)`. La suite tenía escrito que
-  bloquear era 1, cuando `PreToolUse` bloquea con 2.
-- `build-settings.test.ts`: `expect(allow).toContain("Bash(sg:*)")` — aseveraba el agujero.
-- `schema-publish.test.ts`: `$id` fijado a un dominio NXDOMAIN.
-- `protocol-coherence.test.ts`: la cadena literal de la redacción ambigua de R1.
-- `removal-parity.test.ts`: symlink como *hijo*, nunca como *raíz*.
+- **3 issues de seguridad** abiertos en sus repos:
+  - `alertaciudadana_app#113` — PII y CURP a logcat en build release; cookie de sesión en requests públicas.
+  - `alertaciudadana_backend#148` — un reporte fuera de zona se crea igual y queda **invisible para toda
+    autoridad** (`reportQueryFilter` nunca matchea `zone: null`).
+  - `navori-dashboard-template#53` — overview sin `requireRole`, con `catch {}` que hace el access-denied
+    idéntico a "no hay datos"; anonimato en una sola capa (presentación).
+- `docs/status-enum-truth-144` (backend) tiene 1 commit **sin publicar**.
+- WIP de `fix/adapter-pattern-82` (app) en `stash@{0}`: viola `project-no-graphql-generated-import-in-ui`,
+  la regla que esa misma rama introdujo. Completar el refactor es trabajo de esa rama.
+- `navori-dashboard-template` declara `branchBase: main` pero el flujo real es `dev` (60 commits adelante).
+  Esa discrepancia me hizo ramificar mal; corregirla es una línea.
 
-**Y yo produje una séptima**, con el patrón fresco: sembré el directorio intermedio para probar un
-guard, cuando la condición real del hook era `[ -f "$log_file" ]` (el archivo destino). Quitar el
-guard dejaba 56/56 verde. Lo atrapó el reviewer con lo único que lo atrapa: **mutar producción y
-comprobar el rojo**. Razonar sobre el fixture no basta.
+## El patrón, que vale más que los 22 parches
 
-## Hechos de método verificados esta jornada (no re-investigar)
+> Las defensas describían el peligro por su **forma textual** —`-rf`, un nombre de binario, un mapa de
+> rutas, un conteo de apóstrofos— en vez de por su **semántica**, y **ninguna verificaba que pudo hacer
+> su trabajo**.
 
-- **`gh pr create` inmediatamente tras el push deja el evento sin encolar.** CI no arranca. Lo
-  reemiten `reopened` (cerrar/reabrir el PR) o `synchronize` (un push). Pasó en #514, #515 y #516;
-  #513 fue la excepción. **No es facturación ni latencia** — el repo es público (minutos ilimitados).
-- **`vitest` corre `tsup` en su `globalSetup` y ese build limpia `dist/`.** Dos suites concurrentes
-  hacen que los e2e ejecuten un binario a medio escribir: medido **7 003 s contra 55 s de baseline**,
-  con 28 fallos inexistentes. Correr un archivo aislado antes de creer un fallo.
-- **La carga de daemons de macOS** (`contactsdonationagent` al 75%) dispara `Test timed out in
-  15000ms` en masa. Usar `npx vitest run --testTimeout=90000`.
-- **Un `git stash` en un worktree compartido se lleva el trabajo de todos los agentes activos.**
-  Pasó; se recuperó con `pop`. Prohibido en los encargos desde entonces.
-- **Cambiar de rama en un árbol con implementers activos** arrastra su trabajo sin commitear a la
-  otra rama. Lo hice yo con `git checkout main`; se recuperó. Operaciones de git solo en árboles sin
-  agentes.
-- **Un agente que muere a mitad de una mutación deja producción rota.** Encontré `nukeStaleThing`
-  con `rmSync` recursivo sembrado en `lib/semver.ts`. Los encargos ahora exigen aplicar y restaurar
-  en el MISMO turno, con `git diff --stat` de confirmación.
-- **Los conflictos de rebase en `.claude/` y `CLAUDE.md` NO se resuelven a mano**: son espejo. Tomar
-  la versión de `main` y regenerar con `render:apply`. Cinco conflictos → cero decisiones.
+Los fixes reales no taparon el caso: **quitaron la dependencia de la forma**.
+
+**La patología de tests, OCHO apariciones.** Un test que congela la *forma de la implementación* en vez
+de verificar la *regla*. En cuatro casos **protegía el bug** — corregir el código rompía el test:
+
+- `guard-destructive.test.ts` — 30 casos de `rm`, los 30 con `-rf`. Eje del target agotado, eje de flags inexistente.
+- `gate-hook-worktree.test.ts` — `it("semgrep BLOCKS…")` con `toBe(1)`. La suite tenía escrito que bloquear era 1.
+- `build-settings.test.ts` — `expect(allow).toContain("Bash(sg:*)")`: aseveraba el agujero de seguridad.
+- `schema-publish.test.ts` — `$id` fijado a un dominio NXDOMAIN.
+- `protocol-coherence.test.ts` — congelaba la cadena literal de la redacción ambigua de R1.
+- `removal-parity.test.ts` — symlink como *hijo*, nunca como *raíz*.
+- `render-prune-orphans.test.ts` — `it("does NOT delete…")` afirmando que el preview **no reportara nada**.
+- Y la guarda de `--accept-new`: **borrarla dejaba 125 tests en verde**.
+
+**Dos las produje yo**, con el patrón fresco y en tests escritos para no caer en él. Las atrapó lo único
+que las atrapa: **mutar producción y comprobar el rojo**. Razonar sobre el fixture no basta.
+
+## Hechos verificados (no re-investigar)
+
+- **`gh pr create` inmediatamente tras el push no encola el evento**: CI no arranca. Lo reemiten
+  `reopened` (cerrar/reabrir) o `synchronize` (un push). No es facturación —el repo es público— ni latencia.
+- **`vitest` corre `tsup` en `globalSetup` y ese build limpia `dist/`**: dos suites concurrentes hacen que
+  los e2e ejecuten un binario a medio escribir. Medido **7 003 s contra 55 s**, con 28 fallos inexistentes.
+- **La carga de daemons de macOS** dispara `Test timed out in 15000ms` en masa. Usar `--testTimeout=90000`,
+  y **correr un archivo aislado antes de creer un fallo**.
+- **Un `git stash` en árbol compartido** se lleva el trabajo de todos los agentes activos.
+- **Cambiar de rama con implementers activos** arrastra su trabajo sin commitear a la otra rama.
+- **Un agente que muere a mitad de una mutación deja producción rota** (apareció `nukeStaleThing` con
+  `rmSync` recursivo en `lib/semver.ts`). Los encargos exigen aplicar y restaurar en el MISMO turno.
+- **Los conflictos de rebase en `.claude/` y `CLAUDE.md` no se resuelven a mano**: son espejo. Tomar la
+  versión de `main` y regenerar con `render:apply`.
+- **eslint no corre dentro de un worktree anidado** (encuentra el plugin dos veces). Por eso los agentes
+  no podían commitear ahí. Ya lo detecta `doctor` (#522).
 
 ## Notas heredadas
 
-- Tres ramas locales mergeadas por borrar: `fix/bloque-assets`, `fix/bloque-config`,
-  `fix/bloque-perdida-datos` (más las ~60 anteriores de PRs ya mergeados, de 127).
 - `~/.navori/backups` acumula fixtures de test históricos. **Filtrar por prefijo, no por edad.**
-- La ruta de los repos Bonum del `~/.claude/CLAUDE.md` global está desactualizada; siguen pendientes
-  los PRs de bonum-webapp (#639, #640, #559) y el rebind de SonarCloud.
+- La ruta de los repos Bonum del `~/.claude/CLAUDE.md` global está desactualizada; siguen pendientes los
+  PRs de bonum-webapp (#639, #640, #559) y el rebind de SonarCloud.
