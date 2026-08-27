@@ -670,3 +670,67 @@ terminar — hoy la limpieza depende de que un agente se acuerde), #529 (`testsF
 detección, y poder excluir una suite: quiere unitarios sí y los flows de Maestro no), #530 (el harness
 asume las tools nativas; en auto mode todo pasa por Bash y `guard-destructive` no cubre `sed -i`, `>`
 ni `tee` sobre archivos managed).
+
+## 2026-08-26 21:45 claude — release 0.6.3 y 0.6.4, el follow-up de #523 y los tres issues del chat
+
+**Dos releases publicados.** `0.6.3` llevó a npm los 5 fixes del rollout (#519–#523), que llevaban un
+día en `main` sin llegar a ningún repo. `0.6.4` publica el follow-up de #523 y los tres issues de la
+jornada. Tags `v0.6.2` (retroactivo), `v0.6.3` y `v0.6.4`; deploy del website verde en ambos.
+
+**El tag `v0.6.2` faltante no era cosmético.** `check:assets` resuelve la versión publicada con
+`latestTag()` (`scripts/check-asset-commands.mjs:84`) — lee **tags de git, no npm**. Sin el tag llevaba
+un día avisando que los assets citan `navori audit` contra "v0.6.1", un subcomando que 0.6.2 ya había
+publicado. El paso "tag" del release le da la verdad a un gate; no es ceremonia.
+
+**#528 — la prevención de #523 no alcanzaba a nadie.** Ese fix cableó `ensurePrettierIgnore` solo en
+`init`, que corre una vez: nunca llegó a un repo existente, **y el repo que motivó el issue era uno de
+esos**. 19 instalaciones seguían igual de expuestas. Lo delató la **asimetría con el módulo hermano**:
+`gitignore-harness` tiene dos consumidores (`doctor.ts:19` escanea, `render.ts:21` aplica) y
+`prettierignore-harness` tenía cero. Esa es la pregunta de review que generaliza: cuando un módulo
+mantiene un archivo del usuario, ¿quién lo aplica cada ciclo y quién lo detecta?
+
+**Los tres issues salieron del chat, no de una auditoría** (#527, #529, #530), y los tres se cerraron el
+mismo día en #532, #533 y #534.
+
+**#530 — dos capas para el auto mode.** En auto mode toda edición llega como comando de shell: `Edit`
+aborta cuando el texto viejo no coincide, `sed -i` sale 0 y un `>` mal dirigido trunca. La regla 6 del
+guard es el cinturón (bloquea `>`, `sed -i`, `tee` sobre outputs marker-managed); el watcher
+`PostToolUse` —el primero del harness— es la red: **no lee el comando**, compara los hashes managed
+después, así que cubre `python`, `perl`, `awk` y formateadores. Lo que NO bloquea pesa más: 12 casos
+cotidianos fijados en la tabla, `cat > .claude/progress/impl_x.md` entre ellos.
+
+**Tres bugs los encontraron los tests o CI, no yo:**
+- `.codex/` entero como ruta protegida se tragaba `.codex/progress/` — el handoff de todo subagente de
+  Codex. Lo destapó la regla #389 del propio repo.
+- El watcher usaba `find -newer`, y la resolución de mtime es de **1 segundo** en el filesystem del
+  runner: perdía la segunda escritura dentro del mismo segundo, justo el fallo que existe para prevenir.
+  Pasaba en macOS por suerte del filesystem. Ahora compara **contenido** (~25ms, sin reloj de por medio).
+- El hook de worktrees comparaba rutas con symlink contra las **físicas** que imprime `git worktree
+  list`. Nunca coincidían: inoperante y callado, en cualquier repo bajo un symlink.
+
+**Y uno de proceso:** `navori render --apply` y `navori sync` no estaban pre-aprobados, así que el
+mensaje del guard ordenaba comandos que el circuit-breaker detiene — la instrucción nacía muerta (#506).
+Documentados como prompts intencionales: escriben en el repo del usuario.
+
+**#529 — la política de tests se deriva, y admite excepciones.** `testsForNewCode` era preguntado y
+terminaba ausente (este repo ni lo declaraba). Ahora: runner+suite → `always`, runner sin suite →
+`when-applicable`, sin runner → nada. Es un DEFAULT, no un campo derivado: `update` no pisa una decisión.
+Nuevo `project.testsExclude` para el caso real de `alertaciudadana_app`, donde jest y Maestro conviven y
+los flows de dispositivo se mantienen a mano.
+
+**#527 — el hook de worktrees borra solo con las tres condiciones**: limpio, pusheado, y PR mergeado
+según `gh`. El squash merge hace que `--is-ancestor` mienta, así que `gh` es la única fuente barata de
+verdad — y sin `gh` no borra. 6 de sus 9 tests verifican que NO borra.
+
+**Un hallazgo del auto mode que vale registrar:** un heredoc a un intérprete NO es inerte para el guard
+(python podría ejecutarlo), así que un archivo de tests que cite `> CLAUDE.md` no se puede escribir con
+`python3 - <<PY`. Es la misma clase que #462. La salida es la tool nativa `Edit`, que es exactamente el
+caso de "Bash no puede hacerlo".
+
+**Gate.** `format:check` ✓ · `check:render` ✓ (0 pending) · `check:assets` ✓ · website build ✓ ·
+`check:size` ✓ (839.2KB/900KB) · **2787/2787 tests** ✓ (2716 → 2787) · `lint` ✓ · `typecheck` ✓ — y CI
+verde en los 6 PRs (#526, #528, #531, #532, #533, #534, #535).
+
+**Queda abierto.** El rollout: 15 repos Bonum + 14 worktrees de webapp + moonar + navori-health siguen
+en **0.5.1** (dos releases atrás), y los 3 de `/navori` en 0.6.2. Y los críticos del backend de Ulises
+(`alertaciudadana_backend#151`, `#150`).
