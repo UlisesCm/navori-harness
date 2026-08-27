@@ -1,4 +1,4 @@
-import type { DetectedProject } from "./detect.ts";
+import { suggestTestsForNewCode, type DetectedProject } from "./detect.ts";
 
 /**
  * Build a reasonable quality-gate fallback for `init --recommended` when
@@ -46,15 +46,25 @@ function tscCommandFor(pm: DetectedProject["packageManager"]): string {
  * The user can fill `legacyPaths` / `criticalAreas` later via
  * `navori configure project` once they know the repo specifics.
  */
-export function buildRecommendedProject(detected: DetectedProject): {
+export function buildRecommendedProject(
+  detected: DetectedProject,
+  cwd?: string,
+): {
   legacyPaths: string[];
   criticalAreas: string[];
   testRunner?: string;
+  testsForNewCode?: string;
 } {
+  // #529: the policy is seeded from what the repo SHOWS, not asked and then
+  // left blank. `cwd` is optional so the existing call shape keeps working;
+  // without it only the runner is inferred, never the policy (guessing a
+  // testing rule with no way to look at the tests would be worse than silence).
+  const testsForNewCode = cwd ? suggestTestsForNewCode(cwd, detected.stack.test) : undefined;
   return {
     legacyPaths: [],
     criticalAreas: [],
     ...(detected.stack.test ? { testRunner: detected.stack.test } : {}),
+    ...(testsForNewCode ? { testsForNewCode } : {}),
   };
 }
 
@@ -127,7 +137,10 @@ export function buildFullPlugins(pluginIds: string[]): Record<string, { enabled:
  * opinionated posture for a production-grade harness. `architectureRule` stays
  * unset on purpose — it's repo-specific and full mode never invents it.
  */
-export function buildFullProject(detected: DetectedProject): {
+export function buildFullProject(
+  detected: DetectedProject,
+  cwd?: string,
+): {
   legacyPaths: string[];
   criticalAreas: string[];
   testRunner?: string;
@@ -136,9 +149,13 @@ export function buildFullProject(detected: DetectedProject): {
   testsForNewCode: string;
 } {
   return {
-    ...buildRecommendedProject(detected),
+    ...buildRecommendedProject(detected, cwd),
     posture: "production",
     reviewRigor: "strict",
+    // Full mode keeps `always` even when the repo has no suite yet (#529): the
+    // user asked for the strict block, and that IS the answer to "must new code
+    // ship with tests?". The derivation seeds the recommended baseline and the
+    // interactive default, where nobody has declared a posture.
     testsForNewCode: "always",
   };
 }

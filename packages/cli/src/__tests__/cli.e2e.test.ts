@@ -351,7 +351,10 @@ describe("CLI e2e — happy paths", () => {
     expect(r.combined).toMatch(/fallback/i);
   });
 
-  it("init --recommended writes project block with empty arrays + detected testRunner", () => {
+  it("init --recommended: a runner with NO suite behind it derives when-applicable (#529)", () => {
+    // The legacy shape: someone added vitest years ago and nobody wrote a test.
+    // Deriving `always` here would order every agent to ship tests into a repo
+    // that has none — a rule against reality is a rule nobody follows.
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({
         name: "vitest-app",
@@ -371,8 +374,43 @@ describe("CLI e2e — happy paths", () => {
       libraries: ["vitest"],
       libraryMigrations: [],
       testRunner: "vitest",
+      testsForNewCode: "when-applicable",
+      testsExclude: [],
       codeLanguage: "js",
     });
+  });
+
+  it("init --recommended: a runner WITH a suite derives always (#529)", () => {
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "vitest-app",
+        dependencies: { vitest: "^4" },
+      }),
+      // Flat on purpose: `makeTmpRepo` does not create intermediate dirs.
+      "sum.test.js": "test('sums', () => {});",
+    });
+    dirs.push(repo);
+
+    const r = runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+    expect(r.status).toBe(0);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.project.testsForNewCode).toBe("always");
+  });
+
+  it("init --recommended: no runner means no policy at all (#529)", () => {
+    // Silence is an answer: navori does not invent a testing rule for a repo
+    // that shows no sign of testing.
+    const repo = makeTmpRepo({
+      "package.json": JSON.stringify({ name: "plain-app", dependencies: {} }),
+    });
+    dirs.push(repo);
+
+    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+    expect(config.project.testsForNewCode).toBeUndefined();
+    expect(config.project.testRunner).toBeUndefined();
   });
 
   it("init --recommended on TS+test stack renders agents without <not configured> placeholders", () => {
@@ -427,6 +465,9 @@ describe("CLI e2e — happy paths", () => {
       localSkills: [],
       libraries: [],
       libraryMigrations: [],
+      // Empty like its sibling lists (#529): the field exists so the rendered
+      // rule can name it, and an absent policy carves out nothing.
+      testsExclude: [],
       codeLanguage: "ts",
     });
   });

@@ -900,6 +900,8 @@ interface BlocksCmdStrings {
     testsAlways: string;
     testsWhenApplicable: string;
     testsNone: string;
+    /** Suites the tests policy does not reach (#529). */
+    testsExclude: (list: string) => string;
   };
 }
 
@@ -1959,6 +1961,8 @@ const CMD_ES: CmdStrings = {
       testsWhenApplicable:
         "- **Tests:** exige tests para lógica no trivial; opcionales para código simple.",
       testsNone: "- **Tests:** el repo no exige tests para código nuevo.",
+      testsExclude: (list) =>
+        `- **Suites fuera de esa regla:** ${list}. Se mantienen a mano — un cambio de código no exige actualizarlas, y el reviewer no bloquea por ellas.`,
     },
   },
   global: {
@@ -2863,6 +2867,8 @@ const CMD_EN: CmdStrings = {
       testsWhenApplicable:
         "- **Tests:** require tests for non-trivial logic; optional for simple code.",
       testsNone: "- **Tests:** the repo doesn't require tests for new code.",
+      testsExclude: (list) =>
+        `- **Suites outside that rule:** ${list}. They are maintained by hand — a code change does not require updating them, and the reviewer does not block on them.`,
     },
   },
   global: {

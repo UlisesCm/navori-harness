@@ -228,8 +228,19 @@ const ProjectSchema = z
     reviewRigor: z.string().optional(),
     /** One-line architecture/data-flow rule new code must follow. */
     architectureRule: z.string().optional(),
-    /** Tests policy for new code: always | when-applicable | none. */
+    /** Tests policy for new code: always | when-applicable | none.
+     *  Seeded from detection (`suggestTestsForNewCode`) but owned by the user:
+     *  a policy is a decision, so `update` never overwrites it the way it
+     *  overwrites the derived `libraries` (#529). */
     testsForNewCode: z.string().optional(),
+    /** Test suites the policy above does NOT reach — paths or globs (#529).
+     *  `testsForNewCode` alone is a single switch, and a repo can want unit
+     *  tests on every change while maintaining its e2e suite by hand: device
+     *  flows are slow, expensive to run and written deliberately. Without this
+     *  the only options were "demand every suite" or "demand none".
+     *  Not `legacyPaths`: that one means frozen CODE, not "a suite that doesn't
+     *  count", and saying it with the wrong field lies to the rendered rule. */
+    testsExclude: z.array(z.string()).default([]),
     /** Skill ids the user owns under `.claude/skills/<id>.md`. navori never
      * writes their content — it only indexes them so agents discover them. */
     localSkills: z.array(z.string()).default([]),

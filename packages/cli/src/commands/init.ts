@@ -8,6 +8,7 @@ import { writeFileAtomic } from "../lib/atomic.ts";
 import {
   detectProject,
   isPlaceholderName,
+  suggestTestsForNewCode,
   type ClaudeInfraInventory,
   type PackageManager,
 } from "../lib/detect.ts";
@@ -300,9 +301,9 @@ export const initCommand = defineCommand({
       // tipado-fuerte) resolve without a wizard answer.
       const projectBlock = {
         ...(isFull
-          ? buildFullProject(detected)
+          ? buildFullProject(detected, cwd)
           : isRecommended
-            ? buildRecommendedProject(detected)
+            ? buildRecommendedProject(detected, cwd)
             : {}),
         libraries: detected.libraries,
         libraryMigrations: detected.migrations,
@@ -687,7 +688,15 @@ export const initCommand = defineCommand({
     let project: Record<string, unknown> | undefined;
     const promptsResult = loadPrompts(pluginsConfig);
     if (promptsResult.prompts.length > 0) {
-      const collected = await runProjectPrompts(promptsResult.prompts, lang);
+      // #529: seed the tests-policy answer from the repo's own evidence — a
+      // runner with a suite behind it means `always`, a runner nobody used
+      // means `when-applicable`, no runner means no default at all.
+      const suggestedTests = suggestTestsForNewCode(cwd, detected.stack.test);
+      const collected = await runProjectPrompts(
+        promptsResult.prompts,
+        lang,
+        suggestedTests ? { "project.testsForNewCode": suggestedTests } : {},
+      );
       if (collected === null) return cancel(lang);
       if (Object.keys(collected).length > 0) {
         project = collected;
@@ -1225,6 +1234,11 @@ export function buildConfigPreview(state: PreviewState, lang: Lang): string {
 export async function runProjectPrompts(
   prompts: LoadedPrompt[],
   lang: Lang,
+  /** Pre-selected answers keyed by prompt key, derived from the repo itself
+   *  (#529). A default the user confirms beats a question they answer blind —
+   *  and beats the field staying unset, which is how it ended up absent from
+   *  navori's own config. */
+  defaults: Readonly<Record<string, string>> = {},
 ): Promise<Record<string, unknown> | null> {
   const tr = t(lang);
   p.note(tr.projectPromptsIntro, "project");
@@ -1262,7 +1276,7 @@ export async function runProjectPrompts(
     for (const prompt of group) {
       const subKey = prompt.key.startsWith("project.") ? prompt.key.slice("project.".length) : null;
       if (!subKey) continue; // non-project keys not supported yet
-      const value = await askProjectPrompt(prompt, lang);
+      const value = await askProjectPrompt(prompt, lang, defaults[prompt.key]);
       if (value === null) return null; // user cancelled mid-walk
       if (value === undefined) continue; // optional, skipped
       collected[subKey] = value;
@@ -1274,6 +1288,7 @@ export async function runProjectPrompts(
 async function askProjectPrompt(
   prompt: LoadedPrompt,
   lang: Lang,
+  preselected?: string,
 ): Promise<unknown | null | undefined> {
   const tr = t(lang);
   const question = prompt.question[lang] ?? prompt.question.es;
@@ -1314,7 +1329,14 @@ async function askProjectPrompt(
       // Optional selects get an explicit skip choice (you pick it, not "leave
       // empty"), so use the bare question without the "leave empty" hint.
       if (prompt.optional) opts.push({ value: "__skip__", label: tr.projectPromptSkipOption });
-      const v = await p.select<string>({ message: question, options: opts });
+      // Only honour a preselection that is actually on the menu: a stale
+      // default naming a removed option would land the cursor nowhere.
+      const initial = opts.some((o) => o.value === preselected) ? preselected : undefined;
+      const v = await p.select<string>({
+        message: question,
+        options: opts,
+        ...(initial ? { initialValue: initial } : {}),
+      });
       if (p.isCancel(v)) return null;
       return v === "__skip__" ? undefined : v;
     }
