@@ -4,7 +4,13 @@ import { readCliVersion } from "../../lib/bundled-assets.ts";
 import { commitWrites } from "./execute-plan.ts";
 import { engineOutputPaths } from "./gitignore-harness.ts";
 import { tc, type Lang } from "../../lib/i18n.ts";
-import { injectManagedSection, removeManagedSection, type MarkerMeta } from "../../lib/marker.ts";
+import {
+  computeManagedHash,
+  extractManagedContent,
+  injectManagedSection,
+  removeManagedSection,
+  type MarkerMeta,
+} from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 
 /**
@@ -258,4 +264,61 @@ export function ensurePrettierIgnore(
   }
 
   return { path: PRETTIERIGNORE_FILE, status: result.status, entries };
+}
+
+/** Drift verdict for the harness `.prettierignore` block (doctor). */
+export interface PrettierIgnoreHealth {
+  /** No managed block, and the user's own rules don't cover the harness either:
+   *  the formatter can reach `CLAUDE.md` right now. */
+  missing: boolean;
+  /** Block present but its body differs from the config-derived entries. */
+  drift: boolean;
+}
+
+/**
+ * Compare the on-disk managed block in `.prettierignore` against the entries the
+ * current config would write. Returns `null` when the repo does not run prettier
+ * — doctor must not evaluate a file navori has no business creating there.
+ *
+ * The follow-up to #523: that fix wired the prevention into `init` alone, so it
+ * only ever reached repos onboarded AFTER it shipped. The repo that motivated it
+ * was an already-onboarded one, and neither `doctor` nor `render` could see the
+ * gap. This is doctor's half — `render` applies it.
+ *
+ * "Covered by the user's own rules" counts as healthy, mirroring
+ * `ensurePrettierIgnore`: when their `.prettierignore` already lists every
+ * harness path, navori writing a block of its own would add duplicate rules and
+ * nothing else. The two must agree, or doctor would warn about a gap render
+ * refuses to close (and would keep warning forever).
+ */
+export function scanPrettierIgnore(
+  cwd: string,
+  config: { engines: readonly string[] },
+): PrettierIgnoreHealth | null {
+  if (!detectPrettier(cwd)) return null;
+
+  const desired = prettierIgnoreEntries(config.engines);
+  if (desired.length === 0) return null; // no configured engine owns anything.
+
+  const filePath = join(cwd, PRETTIERIGNORE_FILE);
+  // No file at all is the worst case, not an absent one: prettier's built-in
+  // ignores are `node_modules` and `.git`, so `prettier --write .` reaches
+  // CLAUDE.md. Read it as empty and let the checks below reach `missing: true`.
+  const existing = existsSync(filePath) ? readFileSync(filePath, "utf-8") : "";
+
+  const alreadyCovered = userOwnedEntries(existing);
+  const entries = desired.filter((entry) => !alreadyCovered.has(normalizeEntry(entry)));
+  if (entries.length === 0) return { missing: false, drift: false };
+
+  const current = extractManagedContent(
+    existing,
+    PRETTIERIGNORE_MANAGED_ID,
+    PRETTIERIGNORE_COMMENT_STYLE,
+  );
+  if (current === null) return { missing: true, drift: false };
+
+  return {
+    missing: false,
+    drift: computeManagedHash(current) !== computeManagedHash(entries.join("\n")),
+  };
 }

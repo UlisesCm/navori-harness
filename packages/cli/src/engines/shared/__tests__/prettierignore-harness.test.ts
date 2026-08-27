@@ -16,8 +16,13 @@ import { join } from "node:path";
 const home = vi.hoisted(() => ({ dir: "" }));
 vi.mock("../../../lib/home.ts", () => ({ safeHomedir: () => home.dir }));
 
-const { detectPrettier, ensurePrettierIgnore, prettierIgnoreEntries, PRETTIERIGNORE_MANAGED_ID } =
-  await import("../prettierignore-harness.ts");
+const {
+  detectPrettier,
+  ensurePrettierIgnore,
+  prettierIgnoreEntries,
+  scanPrettierIgnore,
+  PRETTIERIGNORE_MANAGED_ID,
+} = await import("../prettierignore-harness.ts");
 const { extractManagedContent } = await import("../../../lib/marker.ts");
 
 let cwd: string;
@@ -230,5 +235,65 @@ describe("ensurePrettierIgnore", () => {
     const content = readFileSync(join(cwd, ".prettierignore"), "utf-8");
     expect(content).toContain("managed by navori");
     expect(content).not.toContain("gestionado por navori");
+  });
+});
+
+/**
+ * doctor's half of the follow-up. The invariant that matters is PARITY with
+ * `ensurePrettierIgnore`: doctor must warn exactly when render would write. If
+ * doctor flags a gap render then refuses to close, the warning never goes away
+ * and the user learns to ignore it — the failure mode that makes advisory
+ * output worthless.
+ */
+describe("scanPrettierIgnore", () => {
+  it("says nothing about a repo that does not run prettier", () => {
+    writePackageJson({ name: "x" });
+    expect(scanPrettierIgnore(cwd, { engines: ["claude"] })).toBeNull();
+  });
+
+  it("reports a missing block when the repo runs prettier and has no .prettierignore", () => {
+    writePackageJson({ name: "x", devDependencies: { prettier: "^3.0.0" } });
+    expect(scanPrettierIgnore(cwd, { engines: ["claude"] })).toEqual({
+      missing: true,
+      drift: false,
+    });
+  });
+
+  it("reports a missing block when the file exists without one", () => {
+    writePackageJson({ name: "x", devDependencies: { prettier: "^3.0.0" } });
+    writeFileSync(join(cwd, ".prettierignore"), "dist/\ncoverage/\n", "utf-8");
+    expect(scanPrettierIgnore(cwd, { engines: ["claude"] })?.missing).toBe(true);
+  });
+
+  it("stays quiet when the user's own rules already cover the harness", () => {
+    writePackageJson({ name: "x", devDependencies: { prettier: "^3.0.0" } });
+    writeFileSync(join(cwd, ".prettierignore"), "CLAUDE.md\n.claude/\n", "utf-8");
+    expect(scanPrettierIgnore(cwd, { engines: ["claude"] })).toEqual({
+      missing: false,
+      drift: false,
+    });
+  });
+
+  it("reports drift when the block no longer matches the configured engines", () => {
+    writePackageJson({ name: "x", devDependencies: { prettier: "^3.0.0" } });
+    // Written for claude alone, then codex is added to the config: AGENTS.md and
+    // `.codex/` now carry managed blocks the block doesn't protect.
+    ensurePrettierIgnore(cwd, { engines: ["claude"] }, { lang: "en" });
+    expect(scanPrettierIgnore(cwd, { engines: ["claude", "codex"] })).toEqual({
+      missing: false,
+      drift: true,
+    });
+  });
+
+  it("goes quiet after the write that closes the gap (parity with the writer)", () => {
+    writePackageJson({ name: "x", devDependencies: { prettier: "^3.0.0" } });
+    expect(scanPrettierIgnore(cwd, { engines: ["claude"] })?.missing).toBe(true);
+
+    ensurePrettierIgnore(cwd, { engines: ["claude"] }, { lang: "en" });
+
+    expect(scanPrettierIgnore(cwd, { engines: ["claude"] })).toEqual({
+      missing: false,
+      drift: false,
+    });
   });
 });
