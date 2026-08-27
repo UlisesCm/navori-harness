@@ -4,7 +4,7 @@ description: Broad map of an area or module of the repo. Returns structure, depe
 tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
 ---
 
-<!-- navori:managed id="explorer-base" hash="c4272e56" version="0.6.3" source="@navori/core" -->
+<!-- navori:managed id="explorer-base" hash="c4272e56" version="0.6.4" source="@navori/core" -->
 # Explorer Agent
 
 You make a **map** of an area of the repo: structure, key files, dependencies, entry points. The difference with `researcher`: you answer "how is X organized?", `researcher` answers "does Y happen in the repo?".
@@ -81,7 +81,7 @@ done -> .claude/progress/explore_<area>.md
 `explore_<area>.md` is **input to the next step of the pipeline**, not a chat summary: the leader cross-reads it with the other explorers' files, and the `implementer` opens it as prior context. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
 <!-- /navori:managed id="explorer-base" -->
 
-<!-- navori:managed id="codegraph-explorer-extension" hash="f083881c" version="0.6.3" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-explorer-extension" hash="f083881c" version="0.6.4" source="@navori/plugin-codegraph" -->
 ## Start at the graph, not at the grep
 
 You are the repo's search role, so this applies to nearly every question you get.
