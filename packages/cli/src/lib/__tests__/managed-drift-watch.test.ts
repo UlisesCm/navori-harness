@@ -139,6 +139,27 @@ describe.runIf(runsBash)("managed-drift-watch.sh (#530)", () => {
     expect(runHook().code).toBe(0);
   });
 
+  it("catches a second write that lands in the same second as the first", () => {
+    // The regression that CI caught and macOS hid. The first implementation
+    // asked `find -newer <stamp>`, and `find` compares mtimes at the
+    // filesystem's resolution — ONE SECOND on ext4 under the runner. Two writes
+    // inside the same second as the stamp were invisible: the watcher reported
+    // the first and silently missed the second, which is the exact failure it
+    // exists to prevent. No sleeps here on purpose — the writes below land
+    // milliseconds apart, so a clock-based implementation fails this test.
+    writeManagedClaudeMd("Managed body.");
+    runHook();
+
+    const md = join(cwd, "CLAUDE.md");
+    writeFileSync(md, readFileSync(md, "utf-8").replace("Managed body.", "First rewrite."));
+    expect(runHook().code).toBe(2);
+
+    writeFileSync(md, readFileSync(md, "utf-8").replace("First rewrite.", "Second rewrite."));
+    const second = runHook();
+    expect(second.code).toBe(2);
+    expect(second.stderr).toContain(computeManagedHash("Second rewrite."));
+  });
+
   it("reports one write once, not on every command that follows", () => {
     writeManagedClaudeMd("Managed body.");
     runHook();

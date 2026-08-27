@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="fc9b5c64" version="0.6.3" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="dbd1e4c6" version="0.6.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse(Bash) watcher for managed-block drift (#530).
@@ -26,34 +26,43 @@
 # a block broken INSIDE a worktree is not seen here. It surfaces when that branch
 # is rendered or reviewed.
 #
-# COST. The common case is "nothing changed", and it costs ONE `find` against a
-# stamp file — not a stat of every managed file, and never a hash. Hashing only
-# happens for files that actually changed since the last tool call, which in a
-# normal session is zero and in a bad one is one or two.
+# COST, and why this compares CONTENT rather than mtimes. The obvious cheap
+# check is `find -newer <stamp>`, and it is wrong here: `find` compares mtimes at
+# whatever resolution the filesystem stores, which on several (ext4 under the CI
+# runner among them) is ONE SECOND. Two writes inside the same second as the
+# stamp are invisible — the watcher would report the first and silently miss the
+# second, which is precisely the failure it exists to prevent. It passed on APFS
+# and failed in CI, so the clock was never a sound basis.
+#
+# So the common case costs one `shasum` pass over the managed files (~25ms
+# measured over 60 files) and compares that list against the previous one. It is
+# exact, it depends on no clock, and per-block hashing — the expensive part, ~3.5s
+# for 53 blocks — runs ONLY for the files whose content actually changed, which
+# in a normal session is none and in a bad one is one.
 set -uo pipefail
 
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
 
 stamp=".claude/.managed-drift-stamp"
 
-# First run in a session (or after a `render` wiped the ephemeral dir): adopt
-# the current state as the baseline and say nothing. Reporting every block on
-# the first command would train the reader to ignore this hook by lunchtime.
-if [ ! -f "$stamp" ]; then
-  mkdir -p .claude 2>/dev/null || exit 0
-  : > "$stamp" 2>/dev/null || exit 0
-  exit 0
-fi
+# sha1 tool, resolved once. `shasum` on macOS, `sha1sum` on most Linuxes; both
+# print `<hash>  <path>` for a file list, which is the format the stamp stores.
+sha=""
+command -v shasum >/dev/null 2>&1 && sha="shasum -a 1"
+[ -z "$sha" ] && command -v sha1sum >/dev/null 2>&1 && sha="sha1sum"
+# No sha tool: stay silent. This is a detector, not a gate — the guard still
+# sits in front, and a noisy failure here would fire on every single command.
+[ -z "$sha" ] && exit 0
 
 # The marker-carrying outputs of `ENGINE_OUTPUTS` (lib/health.ts) — the same
 # list the guard's rule 6 protects, and for the same reason.
 #
 # `.claude/progress/` and `.codex/progress/` are deliberately absent for BOTH
 # engines: those are agent handoff files, they carry no markers, and every
-# subagent writes one — walking them would hash a fresh report on every command
-# and find nothing. `.claude/worktrees/` too: each is a full checkout, so
-# walking it would make this hook cost more than the command it follows. That is
-# why `.codex` is NOT listed wholesale.
+# subagent writes one — including them would re-hash a fresh report on every
+# command and find nothing. `.claude/worktrees/` too: each is a full checkout,
+# so walking it would make this hook cost more than the command it follows. That
+# is why `.codex` is NOT listed wholesale.
 roots=""
 for r in CLAUDE.md AGENTS.md .claude/settings.json .claude/agents .claude/skills .claude/hooks .agents/skills .codex/config.toml .codex/agents .codex/hooks .cursor/rules; do
   [ -e "$r" ] && roots="$roots $r"
@@ -61,24 +70,32 @@ done
 [ -z "$roots" ] && exit 0
 
 # shellcheck disable=SC2086 — word splitting is how the root list is passed.
-changed=$(find $roots -type f -newer "$stamp" 2>/dev/null || true)
-# Re-stamp BEFORE reporting, so one broken file is reported once instead of on
-# every command for the rest of the session. A second write to the same file
-# moves its mtime again and does get a second report.
-: > "$stamp" 2>/dev/null || true
+current=$(find $roots -type f -exec $sha {} + 2>/dev/null | sort || true)
+[ -z "$current" ] && exit 0
+
+# First run in a session (or after the ephemeral dir was wiped): adopt the
+# current state as the baseline and say nothing. Reporting every block on the
+# first command would train the reader to ignore this hook by lunchtime.
+if [ ! -f "$stamp" ]; then
+  mkdir -p .claude 2>/dev/null || exit 0
+  printf '%s\n' "$current" > "$stamp" 2>/dev/null || true
+  exit 0
+fi
+
+# Lines present now but not in the baseline: a file whose CONTENT changed, or a
+# new one. A deleted file appears only in the baseline and is ignored — there is
+# no block left to verify.
+changed=$(printf '%s\n' "$current" | grep -F -x -v -f "$stamp" 2>/dev/null | sed -E 's/^[a-f0-9]+[[:space:]]+//' || true)
+# Re-baseline BEFORE reporting, so one write is reported once instead of on
+# every command for the rest of the session. A second write does change the
+# content again, and does get its own report.
+printf '%s\n' "$current" > "$stamp" 2>/dev/null || true
 [ -z "$changed" ] && exit 0
 
-# sha1, first 8 hex, over the body with trailing whitespace removed — the exact
-# algorithm `computeManagedHash` uses (lib/marker.ts). `$(…)` strips the
-# trailing newline, which is what makes the two agree; without it every hash
-# differs and the hook cries wolf on healthy files.
-sha=""
-command -v shasum  >/dev/null 2>&1 && sha="shasum -a 1"
-[ -z "$sha" ] && command -v sha1sum >/dev/null 2>&1 && sha="sha1sum"
-# No sha tool: stay silent. This hook is a detector, not a gate — the guard is
-# still in front, and a noisy failure here would fire on every command.
-[ -z "$sha" ] && exit 0
-
+# From here on the work is per-CHANGED-file only. `$(…)` strips the trailing
+# newline, which is what makes these hashes agree with `computeManagedHash`
+# (lib/marker.ts: sha1 over the body with trailing whitespace removed, first 8
+# hex); without it every hash differs and the hook cries wolf on healthy files.
 drift=""
 while IFS= read -r file; do
   [ -n "$file" ] || continue
