@@ -1,9 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { expandHookIncludes } from "../lib/hook-includes.ts";
 
 /**
  * The audit-mode hooks run on EVERY prompt of every repo that renders the
@@ -54,6 +64,58 @@ function payload(prompt: string, sessionId = "sess1"): string {
 
 function logFile(sessionId = "sess1"): string {
   return join(root, REPO, `session-${sessionId}.log`);
+}
+
+/**
+ * Materialize a hook the way `render` does — includes expanded, `{{shq:...}}`
+ * resolved — and return its path. The raw asset is not a runnable script: its
+ * `# navori:include` lines are resolved at render time, so testing the raw file
+ * would exercise something that exists in no repo.
+ */
+function install(_shell: string, assetPath: string): string {
+  const raw = expandHookIncludes(readFileSync(assetPath, "utf-8")).replace(
+    "{{shq:branchBase}}",
+    "'main'",
+  );
+  const path = join(root, `installed-${assetPath.split("/").pop()}`);
+  writeFileSync(path, raw, "utf-8");
+  chmodSync(path, 0o755);
+  return path;
+}
+
+/** Run an already-installed script with `payload` on stdin. */
+function runFile(shell: string, path: string, input: string): { out: string; code: number } {
+  try {
+    const out = execFileSync(shell, [path], {
+      input,
+      encoding: "utf-8",
+      cwd: root,
+      env: {
+        ...process.env,
+        NAVORI_AUDITS_ROOT: root,
+        CLAUDE_PROJECT_DIR: root,
+        // Several hooks prefer `node` to serialize their JSON; without it on
+        // PATH they take a different branch and the test measures the fallback.
+        PATH: `${dirname(process.execPath)}:/usr/bin:/bin:${process.env.PATH ?? ""}`,
+      },
+    });
+    return { out, code: 0 };
+  } catch (err) {
+    // stderr is surfaced deliberately: a hook that dies takes its reason with it
+    // otherwise, and "exit 127" alone says nothing about WHICH command was
+    // missing.
+    const e = err as { stdout?: string; stderr?: string; status?: number };
+    return { out: (e.stdout ?? "") + (e.stderr ?? ""), code: e.status ?? -1 };
+  }
+}
+
+/** Every parsed line of the session log. */
+function logEvents(sessionId = "sess1"): Array<Record<string, unknown>> {
+  if (!existsSync(logFile(sessionId))) return [];
+  return readFileSync(logFile(sessionId), "utf-8")
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
 }
 
 function activate(sessionId = "sess1"): void {
@@ -332,5 +394,146 @@ describe.each(SHELLS)("audit-mode close under %s", (shell) => {
       event: "session-end",
       reason: "clear",
     });
+  });
+});
+
+/**
+ * Spec 0013, lote B — the harness records its own execution.
+ *
+ * A hook is only visible to the transcript when it BLOCKS or INJECTS; one that
+ * runs and lets the action through leaves no trace at all. So `navori audit`
+ * could never answer "did the gate run, and what did it cost?" — not from
+ * missing parsing, but because the evidence did not exist. The harness now
+ * writes it.
+ *
+ * These specs run the EXPANDED hook (`# navori:include` is a render-time
+ * directive), because the raw asset is a file that exists nowhere.
+ */
+describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
+  /** Every managed hook that carries the recorder, with the payload shape its
+   *  phase actually receives. Derived from the assets, not hand-listed: a new
+   *  hook that forgets the recorder must fail HERE (B3). */
+  function hooksWithRecorder(): string[] {
+    const dirs = [HOOKS, resolve(HOOKS, "../../../plugins")];
+    const found: string[] = [];
+    for (const dir of dirs) {
+      if (!existsSync(dir)) continue;
+      const stack = [dir];
+      while (stack.length > 0) {
+        const current = stack.pop() as string;
+        for (const entry of readdirSync(current, { withFileTypes: true })) {
+          const full = join(current, entry.name);
+          if (entry.isDirectory()) stack.push(full);
+          else if (
+            entry.name.endsWith(".sh") &&
+            readFileSync(full, "utf-8").includes("navori_audit_log")
+          ) {
+            found.push(full);
+          }
+        }
+      }
+    }
+    return found.sort();
+  }
+
+  // Covers: R5
+  it("wires the recorder into every managed hook that has a phase", () => {
+    const wired = hooksWithRecorder().map((f) => f.split("/").pop());
+    // The two audit-mode hooks write their own events; the partial itself is not
+    // a hook. Everything else that Claude Code invokes must be here.
+    for (const expected of [
+      "guard-destructive.sh",
+      "quality-gate-pre-commit.sh",
+      "managed-drift-watch.sh",
+      "session-start-context.sh",
+      "subagent-stop-handoff.sh",
+      "precompact-session-summary.sh",
+      "worktree-reclaim.sh",
+      "stop-verify-reminder.sh",
+      "check-jscpd.sh",
+      "check-semgrep.sh",
+    ]) {
+      expect(wired, `${expected} does not record its execution`).toContain(expected);
+    }
+  });
+
+  // Covers: R6
+  it("writes nothing and stays silent when audit-mode is off", () => {
+    // No `activate()`: the log does not exist, which is every session that never
+    // opted in. This is the path that must cost nothing.
+    const hook = install(shell, join(HOOKS, "precompact-session-summary.sh"));
+    const { code, out } = runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+    expect(code).toBe(0);
+    // The hook's OWN output is untouched — the recorder never writes to stdout,
+    // where a stray byte would be read by the host as context injection.
+    expect(out).toContain("additionalContext");
+    expect(existsSync(logFile())).toBe(false);
+  });
+
+  // Covers: R5, R22
+  it("records a hook that ran and decided it had nothing to do", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "worktree-reclaim.sh"));
+    runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+    const events = logEvents().filter((e) => e.event === "hook");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ name: "worktree-reclaim", phase: "SessionEnd" });
+    // `skip` is the whole point: this sandbox is not a git repo, so the hook
+    // bailed at its first guard. Without a recorded verdict that run would be
+    // indistinguishable from the hook never having executed — and the default
+    // is what makes a NEW early exit correct without anyone remembering to
+    // wire it.
+    expect(events[0]?.verdict).toBe("skip");
+    expect(typeof events[0]?.ms).toBe("number");
+  });
+
+  // Covers: R7
+  it("keeps the hook working when the log cannot be written", () => {
+    activate();
+    chmodSync(logFile(), 0o444);
+    try {
+      const hook = install(shell, join(HOOKS, "precompact-session-summary.sh"));
+      const { code, out } = runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+      // The hook's contract is fail-open ABSOLUTE. A recorder that can break the
+      // thing it observes is the one defect this partial may never have.
+      expect(code).toBe(0);
+      expect(out).toContain("additionalContext");
+    } finally {
+      chmodSync(logFile(), 0o644);
+    }
+  });
+
+  // Covers: R5
+  it("carries the agent id when the payload states one", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "worktree-reclaim.sh"));
+    runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd, agent_id: "ag_07" }));
+    // Attribution by agent id, not by overlapping time windows: with agents
+    // running in parallel the windows overlap and timestamps become a guess.
+    expect(logEvents().find((e) => e.event === "hook")?.agentId).toBe("ag_07");
+  });
+
+  // Covers: R5
+  it("names the plugin a hook came from, not just 'core'", () => {
+    const semgrep = resolve(HOOKS, "../../../plugins/semgrep/scripts/check-semgrep.sh");
+    // Disabling a plugin changes which hooks run; without `source` the report
+    // cannot explain why a phase thinned out between two sessions.
+    expect(readFileSync(semgrep, "utf-8")).toContain('navori_audit_source="plugin:semgrep"');
+  });
+
+  // Covers: R7
+  it("survives being run with its includes UNexpanded", () => {
+    activate();
+    // A raw asset copy, or a render that half-finished: the include directive is
+    // still a comment, so the recorder functions do not exist. Under `set -e` an
+    // undefined function is exit 127 — which would kill the hook. The fallback
+    // no-ops are what keep that from happening.
+    const raw = readFileSync(join(HOOKS, "precompact-session-summary.sh"), "utf-8");
+    const path = join(root, "unexpanded.sh");
+    writeFileSync(path, raw, "utf-8");
+    chmodSync(path, 0o755);
+    const { code, out } = runFile(shell, path, JSON.stringify({ session_id: "sess1", cwd }));
+    expect(code).toBe(0);
+    expect(out).toContain("additionalContext");
   });
 });

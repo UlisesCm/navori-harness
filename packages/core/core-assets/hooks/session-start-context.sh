@@ -22,7 +22,38 @@
 # The `{{...}}` placeholders are filled by `navori render`; do NOT edit by hand.
 set -euo pipefail
 
-cat >/dev/null 2>&1 || true   # drain the SessionStart JSON on stdin (unused)
+# The payload was drained and discarded here; it is kept now because the audit
+# recorder reads `session_id`/`cwd` out of it. Draining is still the point: an
+# undrained stdin can leave the host writing into a closed pipe.
+payload=$(cat 2>/dev/null) || payload=""
+
+navori_audit_name="session-start-context"
+navori_audit_phase="SessionStart"
+# Fallback no-ops, overwritten by the real definitions the include brings in.
+# They exist because this hook is FAIL-OPEN: if the file ever runs WITHOUT its
+# includes expanded — a raw copy of the asset, a render that half-finished — an
+# undefined function would be exit 127, and under `set -e` that KILLS the hook.
+# A recorder that can kill the thing it observes is the one bug this partial may
+# never have.
+navori_audit_begin() { :; }
+navori_audit_log() { :; }
+# navori:include audit-log
+navori_audit_begin
+
+# The verdict is a VARIABLE resolved in a trap, not a call per branch. These
+# hooks have several early exits each (no git, no worktrees, nothing to inject),
+# and wiring a call into every one is how the set drifts the next time somebody
+# adds an exit. Defaulting to `skip` makes a new early exit semantically correct
+# for free: it means "ran, decided it had nothing to do", which is exactly what
+# an unhandled early return is.
+navori_audit_verdict="skip"
+navori_audit_reason=""
+navori_audit_on_exit() {
+  navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
+  return 0
+}
+trap navori_audit_on_exit EXIT
+
 
 ctx=""
 add() { ctx="${ctx}${1}"$'\n'; }
@@ -103,12 +134,25 @@ if [ -d "$HOME/.navori/workspaces" ] && command -v navori >/dev/null 2>&1; then
   fi
 fi
 
-[ -n "$ctx" ] || exit 0
+if [ -z "$ctx" ]; then
+  navori_audit_verdict="noop"
+  navori_audit_reason="no habia contexto que inyectar"
+  exit 0
+fi
 
 # Emit the JSON safely: node (best escaping) → jq → give up (exit 0, no context).
 if command -v node >/dev/null 2>&1; then
   CTX="$ctx" node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:process.env.CTX}}))'
+  # `bytes` is what makes this measurable: session startup is the single largest
+  # context cost of a session, and this hook is one of its inputs.
+  navori_audit_verdict="inject"
+  navori_audit_reason="${#ctx} bytes"
 elif command -v jq >/dev/null 2>&1; then
   jq -n --arg ctx "$ctx" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}'
+  navori_audit_verdict="inject"
+  navori_audit_reason="${#ctx} bytes"
+else
+  navori_audit_verdict="noop"
+  navori_audit_reason="sin node ni jq: el contexto no se emitio"
 fi
 exit 0

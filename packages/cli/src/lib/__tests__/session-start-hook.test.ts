@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync, chmodSync, mkdirSync, readFileSync 
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
+import { expandHookIncludes } from "../hook-includes.ts";
 import { getCoreRoot } from "../bundled-assets.ts";
 import { shellSingleQuote } from "../shell-escape.ts";
 import { acrossShells } from "./helpers/shells.ts";
@@ -33,7 +34,11 @@ function git(...args: string[]): void {
  * `{{shq:branchBase}}` marker is shell-quoted at render time (#197), so mirror
  * that here with `shellSingleQuote`. */
 function installHook(): string {
-  const raw = readFileSync(HOOK_SRC, "utf-8").replace(
+  // Includes expanded first, then placeholders — the same order `render` uses,
+  // and the reason it matters: a partial may itself carry `{{...}}`. Testing the
+  // raw asset would exercise a script that exists nowhere, since
+  // `# navori:include` is resolved at render time.
+  const raw = expandHookIncludes(readFileSync(HOOK_SRC, "utf-8")).replace(
     "{{shq:branchBase}}",
     shellSingleQuote("main"),
   );

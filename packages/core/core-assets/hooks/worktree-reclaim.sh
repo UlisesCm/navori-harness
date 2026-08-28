@@ -38,6 +38,35 @@
 set +e
 
 payload=$(cat 2>/dev/null)
+
+navori_audit_name="worktree-reclaim"
+navori_audit_phase="SessionEnd"
+# Fallback no-ops, overwritten by the real definitions the include brings in.
+# They exist because this hook is FAIL-OPEN: if the file ever runs WITHOUT its
+# includes expanded — a raw copy of the asset, a render that half-finished — an
+# undefined function would be exit 127, and under `set -e` that KILLS the hook.
+# A recorder that can kill the thing it observes is the one bug this partial may
+# never have.
+navori_audit_begin() { :; }
+navori_audit_log() { :; }
+# navori:include audit-log
+navori_audit_begin
+
+# The verdict is a VARIABLE resolved in a trap, not a call per branch. These
+# hooks have several early exits each (no git, no worktrees, nothing to inject),
+# and wiring a call into every one is how the set drifts the next time somebody
+# adds an exit. Defaulting to `skip` makes a new early exit semantically correct
+# for free: it means "ran, decided it had nothing to do", which is exactly what
+# an unhandled early return is.
+navori_audit_verdict="skip"
+navori_audit_reason=""
+navori_audit_on_exit() {
+  navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
+  return 0
+}
+trap navori_audit_on_exit EXIT
+
+
 cwd=""
 if [ -n "$payload" ] && command -v jq >/dev/null 2>&1; then
   cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null)
@@ -137,5 +166,15 @@ if [ -n "$removed" ]; then
 fi
 if [ -n "$kept" ]; then
   printf 'navori: agent worktrees KEPT — each holds work that exists nowhere else:%s\n' "$kept"
+fi
+
+# The verdict says what the sweep DID, which is what an audit needs to answer
+# "where did the disk go": `noop` is the common case (no worktrees to sweep) and
+# must stay distinguishable from a run that reclaimed or refused one.
+if [ -n "$removed" ] || [ -n "$kept" ]; then
+  navori_audit_verdict="clean"
+  navori_audit_reason="reclamados:${removed:+ si} conservados:${kept:+ si}"
+else
+  navori_audit_verdict="noop"
 fi
 exit 0

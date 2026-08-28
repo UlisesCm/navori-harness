@@ -53,8 +53,9 @@ verifica nada: mide honestidad, no comportamiento.
 - `packages/cli/src/lib/audit/harness.ts` — ya expone `DeclaredAgent.tools` y `hasMcp`; se
   refina para resolver alcance POR servidor (`mcp__codegraph__*` no concede engram) y se
   cruza con las llamadas observadas. Cubre R19, R20.
-- `packages/core/core-assets/hooks/lib/audit-log.sh` (nuevo) — el helper compartido.
-  Cubre R5, R6, R7.
+- `packages/core/core-assets/hooks/_partials/audit-log.sh` (nuevo) — el cuerpo compartido,
+  inlineado en cada hook por `# navori:include audit-log` en tiempo de render. Cubre R5,
+  R6, R7.
 - `packages/core/core-assets/hooks/*.sh` — los hooks managed de core que no son del audit
   (`guard-destructive`, `managed-drift-watch`, `precompact-session-summary`,
   `quality-gate-pre-commit`, `session-start-context`, `stop-verify-reminder`,
@@ -69,9 +70,13 @@ verifica nada: mide honestidad, no comportamiento.
 
 ## Decisions
 
-- **El helper vive en `hooks/lib/` y no dentro de `_partials/`** — `_partials` compone
-  texto en tiempo de render; esto es un archivo shell que se `source`a en tiempo de
-  ejecución. Mezclarlos haría que un cambio de render pudiera romper un hook en marcha.
+- **El helper es un `_partials/`, no un archivo sourceado en runtime** — la primera
+  redacción de esta spec proponía un `hooks/lib/audit-log.sh` con `source`. El repo ya
+  resuelve este problema mejor: `lib/hook-includes.ts` expande `# navori:include <name>` en
+  tiempo de render, así que el hook que aterriza en el repo del usuario queda autocontenido
+  y auditable de un vistazo, sin depender de que `$CLAUDE_PROJECT_DIR` esté definido cuando
+  el hook corre. Un `source` en runtime añade un modo de fallo (ruta no resoluble) a hooks
+  cuyo contrato es fail-open absoluto.
 - **El evento `hook` lleva `ms` propio, no derivado de timestamps** — dos eventos
   consecutivos pueden pertenecer a hooks distintos de la misma fase; restar sus `ts` mide
   el hueco entre ellos, no la duración de ninguno.

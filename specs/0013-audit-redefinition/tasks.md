@@ -25,15 +25,15 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
 
 ## Lote B — el log como fuente de verdad
 
-- [ ] **B1** (R5, R6, R7) — Crear `core-assets/hooks/lib/audit-log.sh` con
-  `audit_log_hook <name> <phase> <verdict> [tool] [reason]`: resuelve el log por
-  `$NAVORI_AUDITS_ROOT`/`$HOME` y el `session_id` del payload, escribe una línea JSON con
-  el contrato de `design.md`, mide `ms` internamente, y vuelve 0 sin escribir cuando el log
-  no existe o no es escribible. Nunca toca stdout.
+- [x] **B1** (R5, R6, R7, R22) — Crear `core-assets/hooks/_partials/audit-log.sh`, incluido
+  con `# navori:include audit-log`, exponiendo `navori_audit_log <verdict> [reason]`:
+  resuelve el log por `$NAVORI_AUDITS_ROOT`/`$HOME` y el `session_id` del payload, escribe
+  una línea JSON con el contrato de `design.md`, mide `ms` desde el arranque del hook, y
+  vuelve 0 sin escribir cuando el log no existe o no es escribible. Nunca toca stdout.
   · test: `__tests__/audit-hooks.test.ts`::"no escribe ni altera la salida sin audit-mode
   activo" y ::"un log no escribible no cambia el código de salida del hook" con
   `// Covers: R5, R6, R7`
-- [ ] **B2** (R5) — Cablear el helper en los hooks managed no-audit de core
+- [x] **B2** (R5) — Cablear el helper en los hooks managed no-audit de core
   (`guard-destructive`, `managed-drift-watch`, `precompact-session-summary`,
   `quality-gate-pre-commit`, `session-start-context`, `stop-verify-reminder`,
   `subagent-stop-handoff`, `worktree-reclaim`) y en los de plugin
@@ -41,7 +41,7 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
   llamada con el veredicto que ya calcula cada uno. No cambiar la lógica de ninguno.
   · test: `__tests__/audit-hooks.test.ts`::"todo hook managed cableado registra su
   ejecución con audit-mode activo" con `// Covers: R5`
-- [ ] **B3** (R5) — Derivar la lista de hooks a cablear del render en vez de fijarla en el
+- [x] **B3** (R5) — Derivar la lista de hooks a cablear del render en vez de fijarla en el
   test, para que un hook managed nuevo que no llame al helper haga fallar la suite en vez
   de quedar mudo en los reportes.
   · test: `__tests__/audit-hooks.test.ts`::"ningún hook managed renderizado queda sin

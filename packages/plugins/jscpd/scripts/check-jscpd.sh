@@ -11,6 +11,38 @@ set -euo pipefail
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # navori:include extract-cmd
 
+navori_audit_name="check-jscpd"
+navori_audit_phase="PreToolUse"
+navori_audit_tool="Bash"
+# `source` names the PLUGIN, not core: disabling a plugin changes which hooks
+# run, and without this the report cannot explain why a phase thinned out
+# between two sessions.
+navori_audit_source="plugin:jscpd"
+# Fallback no-ops, overwritten by the real definitions the include brings in.
+# They exist because this hook is FAIL-OPEN: if the file ever runs WITHOUT its
+# includes expanded — a raw copy of the asset, a render that half-finished — an
+# undefined function would be exit 127, and under `set -e` that KILLS the hook.
+# A recorder that can kill the thing it observes is the one bug this partial may
+# never have.
+navori_audit_begin() { :; }
+navori_audit_log() { :; }
+# navori:include audit-log
+navori_audit_begin
+
+# Same shape as quality-gate-pre-commit: fires on every Bash call, works on
+# almost none, so the verdict comes from the exit code rather than from a call
+# per branch.
+navori_audit_on_exit() {
+  navori_audit_code=$?
+  if [ "$navori_audit_code" -eq 0 ]; then
+    navori_audit_log "allow" || true
+  else
+    navori_audit_log "block" "el escaneo de jscpd no paso" || true
+  fi
+  return 0
+}
+trap navori_audit_on_exit EXIT
+
 # Gate to `git commit` only (this copy runs on commit, not push). $TRIGGER_RE is
 # consumed by the shared detector inlined below.
 TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'

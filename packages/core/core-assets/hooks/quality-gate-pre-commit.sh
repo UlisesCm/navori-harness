@@ -20,6 +20,42 @@ set -euo pipefail
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # navori:include extract-cmd
 
+navori_audit_name="quality-gate-pre-commit"
+navori_audit_phase="PreToolUse"
+navori_audit_tool="Bash"
+# Fallback no-ops, overwritten by the real definitions the include brings in.
+# They exist because this hook is FAIL-OPEN: if the file ever runs WITHOUT its
+# includes expanded — a raw copy of the asset, a render that half-finished — an
+# undefined function would be exit 127, and under `set -e` that KILLS the hook.
+# A recorder that can kill the thing it observes is the one bug this partial may
+# never have.
+navori_audit_begin() { :; }
+navori_audit_log() { :; }
+# navori:include audit-log
+navori_audit_begin
+
+# This hook fires on EVERY Bash call and does real work on almost none of them,
+# so its verdict is derived from the exit code in a trap rather than from a call
+# per branch — the branch set here is the one most likely to grow.
+#
+# `navori_audit_ran_gate` is the distinction that matters: the recorded `ms` of a
+# run that actually executed the gate (tens of seconds) means something very
+# different from that of a run that looked at the command and moved on (single
+# digits). Collapsing both into `allow` would make the timing unreadable.
+navori_audit_ran_gate=0
+navori_audit_on_exit() {
+  navori_audit_code=$?
+  if [ "$navori_audit_code" -ne 0 ]; then
+    navori_audit_log "block" "el quality gate no paso o no pudo correr" || true
+  elif [ "$navori_audit_ran_gate" -eq 1 ]; then
+    navori_audit_log "allow" "gate ejecutado y verde" || true
+  else
+    navori_audit_log "skip" "el comando no es un commit" || true
+  fi
+  return 0
+}
+trap navori_audit_on_exit EXIT
+
 # Detect the project's REAL package manager from lockfiles / package.json, so a
 # gate command hardcoded to one PM (e.g. `pnpm run ...`) can still run in a repo
 # that actually uses another (e.g. bun). Mirrors lib/detect.ts precedence:
@@ -45,6 +81,7 @@ is_pm() {
 }
 
 run_gate() {
+  navori_audit_ran_gate=1
   echo "[navori] running quality-gate fast: $1" >&2
   eval "$1" || {
     echo "[navori] quality-gate fast failed. Commit aborted." >&2
