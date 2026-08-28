@@ -35,12 +35,29 @@ Otros repos Bonum donde también vive infraestructura similar (referencia):
 Revisar engram + `git log` para el contexto vigente. Decisiones nuevas se documentan vía `mem_save`.
 
 ## Quality gate
-Antes de cerrar cambios en `packages/cli`, corre lo mismo que valida el job `quality` de CI, o el PR falla:
-1. `cd packages/cli && pnpm test` — la suite (vitest). El monorepo aún no tiene script `typecheck` ni `test` raíz.
-2. `cd packages/cli && pnpm lint` — oxlint.
-3. **Desde la raíz del monorepo**: `pnpm format:check` — biome. **Ojo**: este NO está bajo `packages/cli`; se corre en la raíz y es el paso que más se olvida (biome expande objetos de una línea, parte llamadas largas, etc.). Si falla, arréglalo con `pnpm format` (write) antes de commitear.
+El gate vive en **un solo lugar**: `qualityGate.full` en `navori.config.json`. De ahí salen los
+bloques managed de este archivo y el que aplica el `commit-pr-pilot`; no lo copies a mano en otro
+sitio, porque una segunda copia es una copia que se desincroniza.
 
-CI (`.github/workflows/ci.yml`, job `quality`) corre además `pnpm --filter navori build` y `check:size` (bundle size guard) — normalmente pasan solos, pero si agregas mucho código nuevo verifica el tamaño del bundle.
+Corre desde la raíz del monorepo (o `pnpm check`, que es el mismo comando):
+
+```
+pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck
+```
+
+**`pnpm format:check`** (biome) NO está bajo `packages/cli`: se corre en la raíz, y es el paso que
+más se olvida. Biome expande objetos de una línea y parte llamadas largas. Se arregla con
+`pnpm format`.
+
+**`pnpm test:coverage`, no `pnpm test`.** Corre la misma suite más `check-coverage-floor.mjs`, que
+—además del umbral— caza una entrada obsoleta en `KNOWN_ZERO`, la lista de módulos que navori envía
+sin tests. Eso no es una barra de merge: es determinista y local, y correr solo `pnpm test` lo deja
+pasar. Ya costó un CI rojo con el gate verde, que es justo lo que el gate existe para evitar.
+
+`repo-config-gate.test.ts` sostiene el gate contra `ci.yml`: si el workflow gana un paso de
+verificación que el gate no declara, la suite falla y dice cuál. Solo `check:assets:ci` sigue
+**exento a propósito** —`--strict` depende de tags que CI trae y un clon fresco no tiene, así que
+en el gate fallaría por una causa ambiental y no por el fondo—, con su razón escrita en ese test.
 
 ## Engram
 Protocolo global activo. En este repo:
@@ -53,7 +70,7 @@ Protocolo global activo. En este repo:
 - El harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se commitea aquí y en todo repo no-Bonum — navori se auto-hospeda. La regla de "nunca commitear `.claude/`/`CLAUDE.md`" aplica solo a los repos `/bonum`. Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 - Branch base: definir cuando se inicialice el repo git.
 
-<!-- navori:managed id="orquestacion" hash="1afe537c" version="0.6.4" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="93bd2000" version="0.6.4" source="@navori/core" -->
 ## Role: orchestrator (organic routing)
 
 You are the main agent. For any task, **pick the smallest route that covers it**; step up only when you cross an objective threshold. Fan-out (subagents) is a **lever** for complex or parallelizable work, not a toll every task pays. Review the candidate **after** implementing, not before. You **embody** the orchestrator role: when a task reaches R2, **you act as the orchestrator** (decompose and coordinate) — but **NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -119,7 +136,7 @@ Once the plan/scope is approved (R2+), execute ALL sub-tasks without confirming 
 
 ### Synthesis without broken telephone
 
-Every `Agent` call carries the **literal path** of the file its subagent must write (`.claude/progress/<file>.md`) — the path itself, never a vague "write a report": prose gets summarized when you delegate, a literal path does not. You receive only `done -> file`. Those files are **input to the next step**, not chat summaries — the `reviewer` opens the `implementer`'s, the `commit-pr-pilot` opens the `reviewer`'s, and a `SubagentStop` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours) — so a host rule against writing report files does not reach them: it exempts files written as input to another tool, and these are. That folder is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, git-persisted) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. **After** its `done -> file` lands (not while it runs — that duplicates work in flight), re-verify only the **load-bearing claims**, the ones your decision rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report. To close the cycle, invoke `commit-pr-pilot` — when `review_<feature>.md` says `APPROVED` (R2+), or directly for a genuine R1 diff that never went through a `reviewer`. The pilot gates the PR on `pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck` (green over the shipping diff — the reviewer's Pass-2 evidence in R2+, or the pilot's own run in R1). Pre-flight: not on `main`, `gh auth status` ok (no clean-working-tree check — the pilot's trigger IS the uncommitted diff, and the pilot owns that commit). If `CHANGES_REQUESTED`, launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
+Every `Agent` call carries the **literal path** of the file its subagent must write (`.claude/progress/<file>.md`) — the path itself, never a vague "write a report": prose gets summarized when you delegate, a literal path does not. You receive only `done -> file`. Those files are **input to the next step**, not chat summaries — the `reviewer` opens the `implementer`'s, the `commit-pr-pilot` opens the `reviewer`'s, and a `SubagentStop` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours) — so a host rule against writing report files does not reach them: it exempts files written as input to another tool, and these are. That folder is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, git-persisted) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. **After** its `done -> file` lands (not while it runs — that duplicates work in flight), re-verify only the **load-bearing claims**, the ones your decision rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report. To close the cycle, invoke `commit-pr-pilot` — when `review_<feature>.md` says `APPROVED` (R2+), or directly for a genuine R1 diff that never went through a `reviewer`. The pilot gates the PR on `pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` (green over the shipping diff — the reviewer's Pass-2 evidence in R2+, or the pilot's own run in R1). Pre-flight: not on `main`, `gh auth status` ok (no clean-working-tree check — the pilot's trigger IS the uncommitted diff, and the pilot owns that commit). If `CHANGES_REQUESTED`, launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
 
 **Second opinion (post-`APPROVED`).** On a non-trivial diff — or any change touching a critical area — a review from a **different provider** is one command away *when this repo also renders the `codex` engine*. The command lives in the `codex-cross-review` sub-block of `.claude/agents/leader.md`, which navori injects only in that case: `grep -n codex-cross-review .claude/agents/leader.md` — no match means this repo renders Claude only and the option does not apply here.
 
@@ -192,12 +209,12 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 2. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
 <!-- /navori:managed id="arranque-sesion" -->
 
-<!-- navori:managed id="cierre-sesion" hash="1d881953" version="0.6.4" source="@navori/core" -->
+<!-- navori:managed id="cierre-sesion" hash="aae24fb9" version="0.6.4" source="@navori/core" -->
 ## Session closeout
 
 Before closing the session:
 
-1. **Quality gate**: pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck — confirm it passes, **or cite this cycle's green run** (reviewer's Pass-2 in R2, pilot's pre-flight in R1) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
+1. **Quality gate**: pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck — confirm it passes, **or cite this cycle's green run** (reviewer's Pass-2 in R2, pilot's pre-flight in R1) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
 2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.

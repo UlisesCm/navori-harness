@@ -10,7 +10,7 @@
   "commits": "conventional-es",
   "qualityGate": {
     "fast": "cd packages/cli && pnpm lint",
-    "full": "pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck"
+    "full": "pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck"
   },
   "plugins": {
     "engram": {

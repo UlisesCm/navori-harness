@@ -5,7 +5,7 @@ type: behavior
 maxWords: 1000
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="1392b825" version="0.6.4" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="32be854e" version="0.6.4" source="@navori/core" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -45,7 +45,7 @@ Skipping any step = a lie, not verification.
 | Claim | Required output | Not sufficient |
 |---|---|---|
 | `cd packages/cli && pnpm lint` green | Full command run this turn with exit 0 | "ran it before", "should be green", "lint passed yesterday" |
-| `pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck` green | Same — fresh exit 0 this turn | "the dev server runs", "build passed a while ago" |
+| `pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green | Same — fresh exit 0 this turn | "the dev server runs", "build passed a while ago" |
 | Zero new errors vs baseline | `git stash` → re-run → compare counts → `git stash pop` | "lint said OK" without comparing baseline |
 | UI validated in the browser (only if the user asked) | Observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed", "the diff covers the case" |
@@ -85,7 +85,7 @@ Skipping any step = a lie, not verification.
 
 ## Connection with the rest of the harness
 
-- `CLAUDE.md` § Session closeout mentions `pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck` green. This skill adds "fresh evidence" rigor + covers UI / bug-fixed dimensions the quality gate doesn't touch.
+- `CLAUDE.md` § Session closeout mentions `pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green. This skill adds "fresh evidence" rigor + covers UI / bug-fixed dimensions the quality gate doesn't touch.
 - The `implementer` references this skill in its "Evidence-based completion".
 - The `reviewer` must cite this skill when marking `APPROVED`.
 - The `commit-pr-pilot` applies it in its pre-flight before touching `gh`.
