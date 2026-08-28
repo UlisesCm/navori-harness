@@ -45,8 +45,26 @@ navori_audit_log() { :; }
 # navori:include audit-log
 navori_audit_begin
 
+# The verdict is resolved in a trap, NOT by a call at the end of the file.
+#
+# This hook's managed block ends before its `navori:user-section`, and the render
+# only syncs what is INSIDE the block — so a call placed after it lives in the
+# user's own territory and never reaches the mirror. That is exactly how the most
+# critical hook in the harness ended up being the only one not recording.
+#
+# The trap also covers the extra guards a user writes in that section: whatever
+# they add, the exit code still tells the truth about what happened.
+navori_audit_verdict="allow"
+navori_audit_reason=""
+navori_audit_on_exit() {
+  navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
+  return 0
+}
+trap navori_audit_on_exit EXIT
+
 if [ -z "$cmd" ]; then
-  navori_audit_log "skip" "sin comando que inspeccionar" || true
+  navori_audit_verdict="skip"
+  navori_audit_reason="sin comando que inspeccionar"
   exit 0
 fi
 
@@ -61,11 +79,11 @@ block() {
   # should carry, and the reason line already says which rule fired.
   echo "[navori] command: ${cmd:0:2000}" >&2
   echo "[navori] if intentional, run the command yourself outside the agent." >&2
-  # `|| true` is not defensive noise here: this is the ONE place the guard says
-  # no, and NOTHING may come between the decision and `exit 2`. The recorder
-  # already returns 0 on every path, so this is a second lock on the door that
-  # matters most — observation must never be able to unblock a blocked command.
-  navori_audit_log "block" "$1" || true
+  # Only ASSIGNMENTS here: this is the one place the guard says no, and nothing
+  # may come between the decision and `exit 2`. The recording happens in the
+  # trap, after the exit is already committed.
+  navori_audit_verdict="block"
+  navori_audit_reason="$1"
   exit 2
 }
 
@@ -725,6 +743,4 @@ fi
 #     block "DROP TABLE/DATABASE"
 #   fi
 
-# Reached only when every rule above let the command through.
-navori_audit_log "allow" || true
 exit 0

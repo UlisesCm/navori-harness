@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="4dfc68fc" version="0.6.4" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="1e111a76" version="0.6.4" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -146,6 +146,23 @@ navori_audit_log() {
   [ -f "$navori_audit_file" ] || return 0
   [ -w "$navori_audit_file" ] || return 0
 
+  # Volume valve, OFF by default.
+  #
+  # `PreToolUse(Bash)` chains four hooks, so every shell command leaves four
+  # lines and most are `skip` — a long session runs to thousands. Set
+  # NAVORI_AUDIT_SKIP_NOOPS=1 to drop the ones that did nothing.
+  #
+  # Default off on purpose: a `skip` is the ONLY evidence that a hook ran and
+  # decided it had no business acting, which is exactly what distinguishes it
+  # from a hook that never executed — the question that motivated recording
+  # hooks at all. The valve trades that away knowingly; it must not be the
+  # silent default.
+  if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = "1" ]; then
+    case "$1" in
+      skip|noop) return 0 ;;
+    esac
+  fi
+
   navori_audit_now=$(perl -MTime::HiRes=time -e 'printf "%.0f", time*1000' 2>/dev/null) \
     || navori_audit_now=$(( $(date +%s 2>/dev/null || echo 0) * 1000 ))
   navori_audit_ms=$(( navori_audit_now - ${navori_audit_t0:-$navori_audit_now} ))
@@ -177,8 +194,26 @@ navori_audit_log() {
 }
 navori_audit_begin
 
+# The verdict is resolved in a trap, NOT by a call at the end of the file.
+#
+# This hook's managed block ends before its `navori:user-section`, and the render
+# only syncs what is INSIDE the block — so a call placed after it lives in the
+# user's own territory and never reaches the mirror. That is exactly how the most
+# critical hook in the harness ended up being the only one not recording.
+#
+# The trap also covers the extra guards a user writes in that section: whatever
+# they add, the exit code still tells the truth about what happened.
+navori_audit_verdict="allow"
+navori_audit_reason=""
+navori_audit_on_exit() {
+  navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
+  return 0
+}
+trap navori_audit_on_exit EXIT
+
 if [ -z "$cmd" ]; then
-  navori_audit_log "skip" "sin comando que inspeccionar" || true
+  navori_audit_verdict="skip"
+  navori_audit_reason="sin comando que inspeccionar"
   exit 0
 fi
 
@@ -193,11 +228,11 @@ block() {
   # should carry, and the reason line already says which rule fired.
   echo "[navori] command: ${cmd:0:2000}" >&2
   echo "[navori] if intentional, run the command yourself outside the agent." >&2
-  # `|| true` is not defensive noise here: this is the ONE place the guard says
-  # no, and NOTHING may come between the decision and `exit 2`. The recorder
-  # already returns 0 on every path, so this is a second lock on the door that
-  # matters most — observation must never be able to unblock a blocked command.
-  navori_audit_log "block" "$1" || true
+  # Only ASSIGNMENTS here: this is the one place the guard says no, and nothing
+  # may come between the decision and `exit 2`. The recording happens in the
+  # trap, after the exit is already committed.
+  navori_audit_verdict="block"
+  navori_audit_reason="$1"
   exit 2
 }
 

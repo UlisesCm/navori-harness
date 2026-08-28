@@ -409,33 +409,33 @@ describe.each(SHELLS)("audit-mode close under %s", (shell) => {
  * These specs run the EXPANDED hook (`# navori:include` is a render-time
  * directive), because the raw asset is a file that exists nowhere.
  */
-describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
-  /** Every managed hook that carries the recorder, with the payload shape its
-   *  phase actually receives. Derived from the assets, not hand-listed: a new
-   *  hook that forgets the recorder must fail HERE (B3). */
-  function hooksWithRecorder(): string[] {
-    const dirs = [HOOKS, resolve(HOOKS, "../../../plugins")];
-    const found: string[] = [];
-    for (const dir of dirs) {
-      if (!existsSync(dir)) continue;
-      const stack = [dir];
-      while (stack.length > 0) {
-        const current = stack.pop() as string;
-        for (const entry of readdirSync(current, { withFileTypes: true })) {
-          const full = join(current, entry.name);
-          if (entry.isDirectory()) stack.push(full);
-          else if (
-            entry.name.endsWith(".sh") &&
-            readFileSync(full, "utf-8").includes("navori_audit_log")
-          ) {
-            found.push(full);
-          }
+/** Every managed hook that carries the recorder, with the payload shape its
+ *  phase actually receives. Derived from the assets, not hand-listed: a new
+ *  hook that forgets the recorder must fail HERE (B3). */
+function hooksWithRecorder(): string[] {
+  const dirs = [HOOKS, resolve(HOOKS, "../../../plugins")];
+  const found: string[] = [];
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    const stack = [dir];
+    while (stack.length > 0) {
+      const current = stack.pop() as string;
+      for (const entry of readdirSync(current, { withFileTypes: true })) {
+        const full = join(current, entry.name);
+        if (entry.isDirectory()) stack.push(full);
+        else if (
+          entry.name.endsWith(".sh") &&
+          readFileSync(full, "utf-8").includes("navori_audit_log")
+        ) {
+          found.push(full);
         }
       }
     }
-    return found.sort();
   }
+  return found.sort();
+}
 
+describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
   // Covers: R5
   it("wires the recorder into every managed hook that has a phase", () => {
     const wired = hooksWithRecorder().map((f) => f.split("/").pop());
@@ -535,5 +535,78 @@ describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
     const { code, out } = runFile(shell, path, JSON.stringify({ session_id: "sess1", cwd }));
     expect(code).toBe(0);
     expect(out).toContain("additionalContext");
+  });
+});
+
+/**
+ * The volume valve (spec 0013). `PreToolUse(Bash)` chains four hooks, so every
+ * shell command leaves four lines and most are `skip`.
+ */
+describe.each(SHELLS)("audit-mode volume valve under %s", (shell) => {
+  // Covers: R22
+  it("records skip verdicts by default", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "worktree-reclaim.sh"));
+    runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+    expect(logEvents().filter((e) => e.event === "hook")).toHaveLength(1);
+  });
+
+  // Covers: R22
+  it("drops them only when NAVORI_AUDIT_SKIP_NOOPS is explicitly set", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "worktree-reclaim.sh"));
+    const before = logEvents().length;
+    try {
+      process.env.NAVORI_AUDIT_SKIP_NOOPS = "1";
+      runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+    } finally {
+      process.env.NAVORI_AUDIT_SKIP_NOOPS = undefined;
+    }
+    // Opt-in, never the default: a `skip` is the only evidence separating "ran
+    // and had nothing to do" from "never executed".
+    expect(logEvents()).toHaveLength(before);
+  });
+});
+
+/**
+ * The defect this suite exists to prevent from recurring.
+ *
+ * `guard-destructive` closes its managed block BEFORE its `navori:user-section`.
+ * The render only syncs what is inside the block, so a recorder call written
+ * after the `end` marker lives in the user's own territory and NEVER reaches the
+ * rendered mirror. That is how the most critical hook in the harness — the one
+ * that blocks destructive commands — became the only one silently not
+ * recording, while its asset looked perfectly wired.
+ *
+ * A test asserting "the asset calls the recorder" would have passed. What has to
+ * be asserted is WHERE the call lives.
+ */
+describe("recorder calls live inside the managed block", () => {
+  // Covers: R5
+  it("never places a recorder call after the managed end marker", () => {
+    const offenders: string[] = [];
+    for (const file of hooksWithRecorder()) {
+      const body = readFileSync(file, "utf-8");
+      const endMarker = body.indexOf("navori:managed end");
+      if (endMarker === -1) continue; // no managed block: nothing to fall out of
+      const tail = body.slice(endMarker);
+      // Assignments are fine out there — the trap that reads them is inside.
+      // A CALL is not: it would never be rendered.
+      if (/^\s*navori_audit_(log|begin)\b/m.test(tail)) offenders.push(file);
+    }
+    expect(
+      offenders,
+      "recorder call after the managed end marker: it will not be rendered",
+    ).toEqual([]);
+  });
+
+  // Covers: R5
+  it("keeps guard-destructive's verdict wired through its trap", () => {
+    // The specific hook that broke, pinned: its block path must set a verdict,
+    // and the recording must happen where the render can reach it.
+    const body = readFileSync(join(HOOKS, "guard-destructive.sh"), "utf-8");
+    const endMarker = body.indexOf("navori:managed end");
+    expect(body.slice(0, endMarker)).toContain("trap navori_audit_on_exit EXIT");
+    expect(body.slice(0, endMarker)).toContain('navori_audit_verdict="block"');
   });
 });
