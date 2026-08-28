@@ -140,12 +140,66 @@ function wallClockOf(agents: AgentRun[]): number {
 }
 
 function agentCards(s: SessionAudit, lang: Lang): string {
-  if (s.agents.length === 0) return t(lang, "(sin subagentes)", "(no subagents)");
-  return [...s.agents]
-    .sort((a, b) => billable(b.tokens) - billable(a.tokens))
-    .map((a) => agentCard(a, lang))
-    .join("\n\n");
+  // The orchestrator gets a card too, and FIRST: it is where most of a session
+  // happens, and every hook event that could not be attributed to a subagent
+  // lands on it. Without this, a session with one subagent showed 340 hook
+  // events and hid the orchestrator's 187.
+  const cards = [orchestratorCard(s, lang)];
+  cards.push(
+    ...[...s.agents]
+      .sort((a, b) => billable(b.tokens) - billable(a.tokens))
+      .map((a) => agentCard(a, lang)),
+  );
+  return cards.join("\n\n");
 }
+
+/**
+ * The session's own run, in the same shape as a subagent's card.
+ *
+ * It has no `agentType`, `model` or `description` — it is not spawned — so the
+ * header names the session instead, and the rest is identical on purpose: the
+ * reader should not have to learn a second layout to answer the same question.
+ */
+function orchestratorCard(s: SessionAudit, lang: Lang): string {
+  const o = s.orchestrator;
+  const reasoning = o.tokens.output + o.tokens.thinking;
+  const context = Math.max(0, billable(o.tokens) - o.startupTokens - reasoning);
+  const rows = [
+    `${minutes(s.wallClockMs)} · ${s.prompts.typed + s.prompts.queued} ${t(lang, "mensajes del usuario", "user messages")}`,
+    "",
+    `  ${t(lang, "arranque", "startup").padEnd(14)}${k(o.startupTokens)}`,
+    `  ${t(lang, "razonamiento", "reasoning").padEnd(14)}${k(reasoning)}`,
+    `  ${t(lang, "contexto", "context").padEnd(14)}${k(context)}`,
+    `  ${"cache_read".padEnd(14)}${k(o.tokens.cacheRead)}`,
+    "",
+    `  ${t(lang, "skills", "skills").padEnd(LABEL)}${o.skills.length > 0 ? o.skills.map((sk) => sk.slug).join(", ") : t(lang, "—", "—")}`,
+    `  ${t(lang, "tools", "tools").padEnd(LABEL)}${toolsLine(o.toolCounts)}`,
+    `  ${"mcp".padEnd(LABEL)}${orchestratorMcp(o.mcpCalls, lang)}`,
+    `  ${"hooks".padEnd(LABEL)}${hooksLine(o.hookEvents, lang)}`,
+  ];
+  const head = `### ${t(lang, "orquestador", "orchestrator")} · "${s.initialPrompt.slice(0, 60)}"`;
+  return `${head}\n\n\`\`\`\n${rows.join("\n")}\n\`\`\``;
+}
+
+/** The orchestrator inherits every tool, so there is no allowlist to cross. */
+function orchestratorMcp(calls: Record<string, Record<string, number>>, lang: Lang): string {
+  const servers = Object.keys(calls).sort();
+  if (servers.length === 0) return t(lang, "—", "—");
+  return servers
+    .map((server) => {
+      const ops = calls[server] ?? {};
+      const total = Object.values(ops).reduce((sum, n) => sum + n, 0);
+      const detail = Object.entries(ops)
+        .sort((x, y) => y[1] - x[1])
+        .map(([op, n]) => `${op} ${n}`)
+        .join(", ");
+      return `${server.padEnd(11)}${total} (${detail})`;
+    })
+    .join(`\n  ${" ".repeat(LABEL)}`);
+}
+
+/** Width of a card's label column. Must exceed the longest label. */
+const LABEL = 11;
 
 function agentCard(a: AgentRun, lang: Lang): string {
   const head = `### ${a.agentType} · "${a.description}"`;
@@ -162,11 +216,13 @@ function agentCard(a: AgentRun, lang: Lang): string {
     "",
   ];
 
-  rows.push(`  ${t(lang, "skills", "skills").padEnd(9)}${skillsLine(a, lang)}`);
-  rows.push(`  ${t(lang, "tools", "tools").padEnd(9)}${toolsLine(a.toolCounts)}`);
-  rows.push(`  ${"mcp".padEnd(9)}${mcpLines(a, lang)}`);
-  rows.push(`  ${"hooks".padEnd(9)}${hooksLine(a.hookEvents, lang)}`);
-  if (a.verdict) rows.push(`  ${t(lang, "veredicto", "verdict").padEnd(9)}${a.verdict}`);
+  // 11, not 9: `veredicto` is itself nine characters, so `padEnd(9)` left it
+  // glued to its value (`veredictoCHANGES_REQUESTED`).
+  rows.push(`  ${t(lang, "skills", "skills").padEnd(LABEL)}${skillsLine(a, lang)}`);
+  rows.push(`  ${t(lang, "tools", "tools").padEnd(LABEL)}${toolsLine(a.toolCounts)}`);
+  rows.push(`  ${"mcp".padEnd(LABEL)}${mcpLines(a, lang)}`);
+  rows.push(`  ${"hooks".padEnd(LABEL)}${hooksLine(a.hookEvents, lang)}`);
+  if (a.verdict) rows.push(`  ${t(lang, "veredicto", "verdict").padEnd(LABEL)}${a.verdict}`);
 
   return `${head}\n\n\`\`\`\n${rows.join("\n")}\n\`\`\``;
 }
@@ -233,7 +289,7 @@ function mcpLines(a: AgentRun, lang: Lang): string {
       }`,
     );
   }
-  return lines.join("\n           ");
+  return lines.join(`\n  ${" ".repeat(LABEL)}`);
 }
 
 /** Whether an agent's declared `tools:` lets it reach ONE server. A blanket
@@ -277,7 +333,7 @@ function hooksLine(events: HookEvent[], lang: Lang): string {
         ([name, v]) =>
           `${name} ${v.n}× ${(v.ms / 1000).toFixed(1)}s${v.blocked > 0 ? t(lang, ` · ${v.blocked} bloqueos`, ` · ${v.blocked} blocked`) : ""}`,
       )
-      .join("\n           ")
+      .join(`\n  ${" ".repeat(LABEL)}`)
   );
 }
 

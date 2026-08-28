@@ -216,3 +216,38 @@ describe("schema (#0013)", () => {
     expect(report.schemaVersion).toBe(2);
   });
 });
+
+describe("the orchestrator gets a card too (#0013)", () => {
+  // Covers: R8
+  it("renders the session's own run, with its hooks", () => {
+    const s = session([agent()]);
+    s.orchestrator.hookEvents = [
+      {
+        ts: "2026-08-25T10:01:00Z",
+        name: "guard-destructive",
+        phase: "PreToolUse",
+        verdict: "allow",
+        ms: 11,
+        source: "core",
+      },
+    ];
+    s.orchestrator.toolCounts = { Bash: 302 };
+    const report = buildReport([s], { repo: "demo", version: "0.6.5", catalog: CATALOG });
+    const out = renderMarkdown(report, "es");
+    // Most of a session happens in the orchestrator, and every hook event that
+    // could not be attributed to a subagent lands on it. A real session showed
+    // 340 events on its one subagent and hid the orchestrator's 187.
+    expect(out).toContain("orquestador");
+    expect(out).toContain("Bash 302");
+    expect(out).toMatch(/hooks\s+guard-destructive 1×/);
+  });
+
+  // Covers: R8
+  it("keeps the verdict label separated from its value", () => {
+    const out = md([agent({ verdict: "CHANGES_REQUESTED" })]);
+    // `veredicto` is itself nine characters, so a nine-wide label column glued
+    // it to the value: `veredictoCHANGES_REQUESTED`.
+    expect(out).not.toContain("veredictoCHANGES_REQUESTED");
+    expect(out).toMatch(/veredicto\s+CHANGES_REQUESTED/);
+  });
+});
