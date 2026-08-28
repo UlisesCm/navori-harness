@@ -792,3 +792,42 @@ confirmadas (`rem(15.4)` en el theme, `0.875rem` de la opción, `13.75rem` de `m
 `Could not find the pullrequest with key` en todos los PRs del repo — el rebind pendiente es hoy lo único
 entre este trabajo y producción. Y el rollout al resto: 14 repos Bonum + moonar + navori-health en
 **0.5.1**, los 3 de `/navori` en 0.6.2.
+
+## 2026-08-28 20:45 orchestrator — #538: el criterio de autoría del prune aprende a leer JSON (PR #539)
+
+**Objetivo.** "Sigue lo pendiente" → terminar y cerrar el ciclo de #538, el único issue abierto del repo.
+La implementación ya estaba en el working tree de `fix/538-json-authorship-prune`, sin commitear.
+
+**El bug.** El marcador managed es un **comentario**, y JSON no tiene comentarios. Ningún `.json` que
+navori genera entero puede llevarlo, así que **ninguno era alcanzable por `isRemovableNavoriFile`** — no
+por descuido, por diseño del formato. `render --prune` los conservaba a todos bajo "Dejé intacto lo que
+navori no escribió", una afirmación falsa sobre archivos que había generado él mismo.
+
+**El arreglo, en cuatro piezas.**
+
+1. **`lib/json-ownership.ts` (nuevo).** La notación JSON del marcador: la clave `$navori` de nivel 1 que
+   `.claude/settings.json` ya llevaba, con las mismas dos piezas (`managed` + `version`). Vive en `lib/`
+   y no junto al engine claude que la estrenó porque la leen **dos preguntas distintas**: si el adapter
+   puede sobrescribir el settings.json y si el prune puede borrarlo. Dos copias de la forma del marcador
+   es como la segunda se respondió mal.
+2. **`isRemovableNavoriFile` lee las dos notaciones**, y se abre en
+   `navoriAuthorship(): "ours" | "newer" | "foreign"` porque son tres respuestas distintas. Sigue
+   decidiendo **por contenido, nunca por path** — volver a un mapa de paths es el defecto que quitó #496.
+3. **`$navori.version` pasa a la escala del CLI.** Estaba congelado en el `0.0.1` de `@navori/core` en un
+   repo rendereado con 0.6.4: cualquier guard anti-rollback apoyado en ese número era vacuo. Ahora sale
+   de `readCliVersion()`. `readBundledCoreVersion()` eliminada, con el "KNOWN GAP" que documentaba.
+4. **El mensaje deja de mentir.** `newer` es su propia razón, y `foreign` afirma el hecho verificado (no
+   lleva marcador) en vez de la inferencia que navori no puede probar.
+
+**Dos hallazgos que corrigieron el alcance del issue.** Proponía emitir `$navori` en `.codex/hooks.json`
+y `.mcp.json`; ninguna procede. `.codex/hooks.json` **ya no lo genera el CLI** (el engine codex escribe
+`config.toml`) — los que sobrevivieron al prune en 5 repos Bonum son huérfanos de 0.5.1, sin marcador de
+ninguna notación, irreclamables por contenido. Y `.mcp.json` es **híbrido a propósito**: navori reconcilia
+`mcpServers` y el resto es del usuario; estamparle `managed` lo volvería borrable con su config dentro.
+El punto 3 del issue (retrofit) **no hace falta**: `isDowngrade("0.0.1", "0.6.4")` es `false` → `ours`,
+así que todo repo ya rendereado queda cubierto sin re-render, a diferencia de #523/#528.
+
+**Gate.** Verde en local y en CI (`quality` pass, 2m8s): `format:check` · `check:render` · `check:assets`
+· build del website · `check:size` 839.8KB/900KB · **2796 tests** (eran 2787) · `lint` · `typecheck`.
+
+**Estado.** PR #539 abierto contra `main`, CI verde, **sin mergear**. 24 archivos, +371/−116.

@@ -1,11 +1,15 @@
 # Sesión actual
 
-**Estado:** `idle`. `main` en `8ab7fa7`, working tree limpio, **0 issues / 0 PRs** en navori.
-La jornada del 2026-08-27 fue **operativa fuera de navori**: no se tocó código de `packages/cli`.
+**Estado:** `idle`. Branch `fix/538-json-authorship-prune`, **PR #539 abierto contra `main` con CI verde,
+sin mergear**. Es lo único abierto: 0 issues (#538 lo cierra el PR), 1 PR.
 
-## SIGUIENTE PASO: dos issues de navori que salieron de usarlo
+## SIGUIENTE PASO: mergear #539 y seguir con los dos issues que faltan abrir
 
-Los dos aparecieron haciendo el rollout real a `bonum-webapp`, no auditando. Ninguno está abierto todavía.
+**Mergear PR #539** (`fix(prune): el criterio de autoría lee también la notación JSON del marcador`).
+CI verde, 2796 tests. Cierra #538. Después, `main` queda listo para el rollout pendiente.
+
+Los dos issues siguientes salieron de **usar** navori en el rollout a `bonum-webapp`, no de auditar.
+Ninguno está abierto todavía:
 
 **1. `navori update` propone pisar configuración declarada.** En un repo con `engines: ["claude"]` y un
 `qualityGate` propio, propuso truncar el gate (se comía `lint` y `test:unit`) y **reactivar los engines
@@ -31,16 +35,26 @@ una muerta).
 Método probado: `doctor` → (corregir `libraries` a mano si el registro retiró alguna) → `render --apply`
 → `render --prune --apply` → `doctor`. **No usar `navori update`** hasta que se arregle el punto 1.
 
-## Lo que se hizo (2026-08-27)
+**Basura que el prune no puede reclamar solo:** los 5 repos Bonum con `.codex/hooks.json` huérfano
+(`notifications--server`, `services--sessions`, `bonum-dashboard`, `bonum-nexus`, `services--evaluations`).
+Lo escribió navori 0.5.1 sin marcador de ninguna notación, así que ningún criterio por contenido lo
+alcanza — y borrar por path es #496 otra vez. **Bórralos a mano** al pasar por cada repo. Con #539 el
+prune al menos ya no afirma que son tuyos.
 
-- **~30.7 GB liberados** en worktrees de `/bonum`: 18 eliminados + 32 `node_modules`. El censo real eran
-  **53**, no 34 — 19 estaban ocultos en `.wt-services-users/` (dos ubicaciones) y `.claude/worktrees/`.
-- **Ruta de los repos Bonum corregida** en el `~/.claude/CLAUDE.md` global (apuntaba a una carpeta
-  inexistente; son `/Users/ulisescm/Documents/Dev - Docs/bonum`).
-- **3 PRs en webapp**: #651 (harness 0.6.4 + codex fuera), #653 (BT-1427), #654 (BT-1425).
-- **BT-1427 y BT-1425** comentados en Jira con mención en ADF y movidos a `CODE REVIEW`.
+## Hechos verificados de #538 (no re-investigar)
 
-## Hechos verificados (no re-investigar)
+- **El marcador de autoría tiene DOS notaciones**: el comentario (`navori:managed … version="X"`) y la
+  clave `$navori` de nivel 1, para los JSON que navori genera enteros. La segunda vive en
+  `packages/cli/src/lib/json-ownership.ts`, en `lib/` y no en el engine claude, porque la leen dos
+  preguntas: sobrescribir vs. borrar.
+- **La autoría se decide por CONTENIDO, jamás por path.** Volver a un mapa de paths es exactamente el
+  defecto que quitó #496. Cualquier propuesta futura sobre el prune tiene que respetar esa lección.
+- **Híbrido ≠ generado**: un JSON donde navori reconcilia solo algunas claves (`.mcp.json` → solo
+  `mcpServers`; un `settings.json` coexistente) lleva `$navori` **sin** `managed: true`, deliberadamente.
+  Estamparle `managed` lo volvería borrable con la configuración del usuario dentro.
+- **`.codex/hooks.json` ya no lo genera el CLI**: el engine codex escribe `config.toml`.
+
+## Hechos verificados de la jornada anterior (no re-investigar)
 
 - **El patrón de Mantine en webapp:** todo default suyo expresado en `rem` sale al **62.5%** (su helper
   divide entre 16; la app fija la raíz al 62.5%). Tres apariciones confirmadas. **Merece ticket propio.**
@@ -58,7 +72,7 @@ Método probado: `doctor` → (corregir `libraries` a mano si el registro retir�
 ## Bloqueo que no depende de nosotros
 
 Los 3 PRs de webapp **no pueden mergear**: SonarCloud falla con `Could not find the pullrequest with key`
-en **todos** los PRs del repo. Es el rebind pendiente. Los dos tickets se quedan en `CODE REVIEW` hasta
+en **todos** los PRs del repo. Es el rebind pendiente. BT-1427 y BT-1425 se quedan en `CODE REVIEW` hasta
 que se resuelva.
 
 ## Pendientes de Ulises (no bloquean navori)
