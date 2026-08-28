@@ -1,6 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -267,5 +276,85 @@ describe("audit --start is the only way in (R1)", () => {
     expect(res.status).toBe(0);
     expect(res.combined).toContain("session-sess-named.log");
     expect(existsSync(join(auditDir, "session-sess-named.log"))).toBe(true);
+  });
+});
+
+/**
+ * Spec 0013, lote D — one directory per audited unit.
+ *
+ * The old layout named every artifact by RANGE (`audit-<from>-<to>.md`), so two
+ * runs covering different ranges left overlapping pairs that nothing ever
+ * reconciled — four had piled up in this repo's own store.
+ */
+describe("audit: output layout (R15, R16, R18)", () => {
+  /** Mark a session and give it a transcript the CLI can actually find. */
+  function markedSessionWithTranscript(id: string, day: string): void {
+    runAudit(["--start", id]);
+    const transcripts = join(sandbox, "transcripts", "enc");
+    mkdirSync(transcripts, { recursive: true });
+    const jsonl = join(transcripts, `${id}.jsonl`);
+    writeFileSync(
+      jsonl,
+      `${JSON.stringify({
+        type: "assistant",
+        timestamp: `${day}T10:00:00Z`,
+        message: { model: "claude-opus-5", usage: { input_tokens: 1, output_tokens: 1 } },
+      })}\n`,
+      "utf-8",
+    );
+    // The hook records the transcript path on the first prompt; without it
+    // discovery would have to guess Claude Code's undocumented encoding.
+    appendFileSync(
+      join(auditDir, `session-${id}.log`),
+      `${JSON.stringify({ ts: `${day}T10:00:00Z`, event: "prompt", prompt: "x", transcript: jsonl })}\n`,
+      "utf-8",
+    );
+  }
+
+  // Covers: R15
+  it("gives one session its own directory with log, json and md", () => {
+    markedSessionWithTranscript("sess-alpha", "2026-08-25");
+    const res = runAudit(["--session", "sess-alpha"]);
+    expect(res.status).toBe(0);
+    const dir = join(auditDir, "sessions", "2026-08-25-sess-alp");
+    for (const file of ["report.md", "report.json", "session.log"]) {
+      expect(existsSync(join(dir, file)), `${file} missing`).toBe(true);
+    }
+  });
+
+  // Covers: R16
+  it("puts a multi-session report under ranges/, with its index", () => {
+    markedSessionWithTranscript("sess-one", "2026-08-25");
+    markedSessionWithTranscript("sess-two", "2026-08-26");
+    const res = runAudit([]);
+    expect(res.status).toBe(0);
+    const dir = join(auditDir, "ranges", "2026-08-25--2026-08-26");
+    expect(existsSync(join(dir, "report.md"))).toBe(true);
+    // The index is what makes the aggregate navigable without opening the JSON.
+    const index = readFileSync(join(dir, "sessions.txt"), "utf-8");
+    expect(index).toContain("2026-08-25-sess-one");
+    expect(index).toContain("2026-08-26-sess-two");
+  });
+
+  // Covers: R18
+  it("leaves reports written by the old layout alone", () => {
+    markedSessionWithTranscript("sess-old", "2026-08-25");
+    // What a pre-0013 navori left behind, loose in the repo dir.
+    const legacy = join(auditDir, "audit-2026-08-01-2026-08-02.md");
+    writeFileSync(legacy, "reporte viejo", "utf-8");
+    runAudit(["--session", "sess-old"]);
+    // Migrating (or deleting) these would be a write the user never asked for,
+    // inside a store navori shares with backups.
+    expect(readFileSync(legacy, "utf-8")).toBe("reporte viejo");
+  });
+
+  // Covers: R15
+  it("honours --out verbatim instead of imposing the layout", () => {
+    markedSessionWithTranscript("sess-out", "2026-08-25");
+    const custom = join(sandbox, "custom-out");
+    runAudit(["--session", "sess-out", "--out", custom]);
+    // `--out` is the scripting escape hatch; nesting it would defeat it.
+    expect(existsSync(join(custom, "report.md"))).toBe(true);
+    expect(existsSync(join(custom, "sessions"))).toBe(false);
   });
 });

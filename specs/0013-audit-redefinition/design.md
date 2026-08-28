@@ -132,17 +132,14 @@ pero son la única evidencia de que un hook corrió y decidió no actuar — sin
 distingue un hook que se saltó su trabajo de uno que nunca se ejecutó, que es justo la
 pregunta que motivó registrar hooks.
 
-Eventos de subagente, que hoy solo existen reconstruidos del transcript:
-
-```json
-{"ts":"…","event":"agent-start","agentId":"ag_01","agentType":"implementer",
- "description":"cierra los 5 defectos","model":"claude-opus-5","spawnDepth":1,"parentTurn":1}
-{"ts":"…","event":"agent-stop","agentId":"ag_01","durationMs":342000,"verdict":"APPROVED"}
-```
-
-Se registran además del transcript, no en su lugar: hacen que la duración, el veredicto y
-la ligadura agente↔turno sobrevivan a una poda del transcript, y `parentTurn` es lo que
-responde "en qué fase se lanzó este agente" sin cruzar timestamps.
+**Eventos de subagente: descartados.** El preview de este contrato incluía `agent-start` /
+`agent-stop`, para que la duración, el veredicto y la ligadura agente↔turno sobrevivieran a
+una poda del transcript. No es implementable: el host no expone ninguna fase de arranque de
+subagente (las disponibles son `PreToolUse`, `PostToolUse`, `UserPromptSubmit`,
+`SessionStart`, `SessionEnd`, `Stop`, `SubagentStop`, `PreCompact`), así que un `agent-start`
+tendría que inventarse. `SubagentStop` sí existe y su hook registra su ejecución como
+cualquier otro, pero no conoce ni la identidad ni la duración del agente que terminó. La
+reconstrucción de agentes sigue siendo del transcript, que es donde el dato existe.
 
 Un evento al que le falte un campo obligatorio se cuenta en `parseErrors` y no rompe la
 lectura — misma tolerancia que el log ya tiene con las líneas malformadas.

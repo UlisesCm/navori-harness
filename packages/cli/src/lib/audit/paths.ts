@@ -98,3 +98,52 @@ export function transcriptsRoot(): string {
 export function encodeCwdToSlug(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
+
+/**
+ * Where one session's artifacts live: `sessions/<YYYY-MM-DD>-<id8>/`.
+ *
+ * A directory per session rather than loose files sharing a prefix (spec 0013,
+ * R15). The old layout named reports by RANGE, so two runs covering different
+ * ranges left overlapping pairs that nothing ever reconciled — four of them had
+ * accumulated in this repo's own store before anyone noticed.
+ *
+ * The id is validated by the same rule `sessionLogPath` applies, and for the
+ * same reason: this is a function that turns an opaque host token into a
+ * filesystem path (#503).
+ */
+export function sessionReportDir(repoName: string, day: string, sessionId: string): string {
+  if (!SESSION_ID_RE.test(sessionId)) {
+    throw new NavoriError(
+      "invalid-session-id",
+      `Invalid session id '${sessionId}': only letters, digits, '-' and '_' are allowed. ` +
+        `The report directory is named after it, and every write must stay under the audit root.`,
+    );
+  }
+  if (!DAY_RE.test(day)) {
+    throw new NavoriError(
+      "invalid-audit-day",
+      `Invalid day '${day}': expected YYYY-MM-DD. It composes the report directory name.`,
+    );
+  }
+  // Short id: the directory is for a human to open, and the date already
+  // disambiguates. The FULL id stays inside the log's own `start` event.
+  return join(repoAuditDir(repoName), "sessions", `${day}-${sessionId.slice(0, 8)}`);
+}
+
+/** Where a multi-session report lives: `ranges/<from>--<to>/` (R16). */
+export function rangeReportDir(repoName: string, from: string, to: string): string {
+  for (const day of [from, to]) {
+    if (!DAY_RE.test(day)) {
+      throw new NavoriError(
+        "invalid-audit-day",
+        `Invalid day '${day}': expected YYYY-MM-DD. It composes the report directory name.`,
+      );
+    }
+  }
+  return join(repoAuditDir(repoName), "ranges", `${from}--${to}`);
+}
+
+/** `YYYY-MM-DD`, the only shape allowed to compose a directory name. Anything
+ *  else — an empty range from a session with no timestamps included — would
+ *  produce a nameless or traversing path. */
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;

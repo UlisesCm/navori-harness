@@ -47,11 +47,14 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
   · test: `__tests__/audit-hooks.test.ts`::"ningún hook managed renderizado queda sin
   registrar" con `// Covers: R5`
 
-- [ ] **B4** (R21, R22) — Emitir `agent-start` / `agent-stop` desde
-  `subagent-stop-handoff.sh` y el punto de arranque que el host exponga, con el contrato de
-  `design.md`, y confirmar que el helper registra los veredictos `skip`.
-  · test: `__tests__/audit-hooks.test.ts`::"un subagente deja agent-start y agent-stop en el
-  log" y ::"un hook que no actúa deja su evento skip" con `// Covers: R21, R22`
+- [x] **B4** (R21, R22) — `subagent-stop-handoff.sh` registra su ejecución en `SubagentStop`
+  (veredicto `clean`/`dirty`), que es la única marca de fin de subagente que el host permite
+  observar; y el helper registra los veredictos `skip`. Los eventos `agent-start`/`agent-stop`
+  del contrato quedan FUERA: no hay fase de arranque de subagente que un hook pueda usar
+  (ver R21), así que la identidad y la duración siguen viniendo del transcript.
+  · test: `__tests__/audit-hooks.test.ts`::"records a hook that ran and decided it had
+  nothing to do" (el `skip`) y ::"wires the recorder into every managed hook that has a
+  phase" (incluye subagent-stop-handoff) con `// Covers: R21, R22`
 
 ## Lote C — leer y mostrar
 
@@ -93,14 +96,14 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
 
 ## Lote D — la estructura de salida
 
-- [ ] **D1** (R15, R16) — Añadir a `paths.ts` los constructores
+- [x] **D1** (R15, R16) — Añadir a `paths.ts` los constructores
   `sessionReportDir(repo, fecha, id)` y `rangeReportDir(repo, desde, hasta)`, con la misma
   validación de id que `sessionLogPath`, y escribir desde `audit.ts` bajo el layout nuevo.
   El reporte de rango incluye el índice de las sesiones que agrega.
   · test: `lib/audit/__tests__/paths.test.ts`::"un id path-shaped no compone una ruta fuera
   del audit root" y `commands/__tests__/audit.test.ts`::"una sesión auditada deja log, json
   y md en su propio directorio" con `// Covers: R15, R16`
-- [ ] **D2** (R18) — Confirmar que los logs y reportes con el layout viejo se siguen
+- [x] **D2** (R18) — Confirmar que los logs y reportes con el layout viejo se siguen
   leyendo para generar reportes y que ninguna ruta los borra, mueve ni reescribe.
   · test: `commands/__tests__/audit.test.ts`::"los reportes del layout viejo sobreviven a
   una corrida nueva" con `// Covers: R18`

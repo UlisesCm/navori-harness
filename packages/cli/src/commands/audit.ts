@@ -1,13 +1,25 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { readHarnessCatalog } from "../lib/audit/harness.ts";
 import { findMarkedSessions } from "../lib/audit/discovery.ts";
 import { attachHookEvents, parseSession } from "../lib/audit/parse.ts";
 import { detectSignals, type Lang } from "../lib/audit/signals.ts";
 import { buildReport, renderJson, renderMarkdown } from "../lib/audit/report.ts";
-import { repoAuditDir, sessionLogPath } from "../lib/audit/paths.ts";
+import {
+  rangeReportDir,
+  repoAuditDir,
+  sessionLogPath,
+  sessionReportDir,
+} from "../lib/audit/paths.ts";
 import { NavoriError } from "../lib/errors.ts";
 import { resolveLang } from "../lib/i18n.ts";
 import { readGlobalConfig } from "../lib/global-config.ts";
@@ -218,13 +230,60 @@ export const auditCommand = defineCommand({
       return;
     }
 
-    const outDir = args.out ? resolve(args.out) : auditDir;
+    // One directory per audited unit (R15/R16). A single session gets
+    // `sessions/<day>-<id8>/`; a report spanning several gets
+    // `ranges/<from>--<to>/`. The old layout named every file by RANGE, so two
+    // runs over different ranges left overlapping pairs nothing reconciled.
+    //
+    // `--out` still wins verbatim: it is an escape hatch for scripting, and
+    // imposing the layout on an explicit destination would defeat it.
+    const single = parsed.length === 1 ? parsed[0] : undefined;
+    const outDir = args.out
+      ? resolve(args.out)
+      : auditPathOrExit(
+          () =>
+            single
+              ? sessionReportDir(repo, single.startedAt.slice(0, 10), single.sessionId)
+              : rangeReportDir(repo, report.range.from, report.range.to),
+          json,
+        );
     mkdirSync(outDir, { recursive: true });
-    const stem = `audit-${report.range.from}-${report.range.to}`.replace(/[^\w.-]/g, "-");
-    const mdFile = join(outDir, `${stem}.md`);
-    const jsonFile = join(outDir, `${stem}.json`);
+    const mdFile = join(outDir, "report.md");
+    const jsonFile = join(outDir, "report.json");
     writeFileSync(mdFile, renderMarkdown(report, lang), "utf-8");
     writeFileSync(jsonFile, renderJson(report), "utf-8");
+
+    // A snapshot of the event log beside its report, so the session folder holds
+    // everything about that session. It is a COPY, deliberately: the hooks write
+    // `session-<id>.log` at the repo root — they run long before anyone knows
+    // which day the session started, and pointing them at a dated directory
+    // would make every hook depend on a name only the report can compute. The
+    // original stays the append-only source of truth.
+    if (single && !args.out) {
+      const source = marked.find((m) => m.sessionId === single.sessionId)?.logFile;
+      if (source && existsSync(source)) {
+        try {
+          copyFileSync(source, join(outDir, "session.log"));
+        } catch {
+          // A snapshot that cannot be written is not worth failing the report
+          // for: the log it copies is still intact where the hooks wrote it.
+        }
+      }
+    }
+    // The range report is an index too: without it, "which sessions does this
+    // aggregate cover?" is answerable only by reading the JSON.
+    if (!single && !args.out) {
+      writeFileSync(
+        join(outDir, "sessions.txt"),
+        `${parsed
+          .map(
+            (sess) =>
+              `${sess.startedAt.slice(0, 10)}-${sess.sessionId.slice(0, 8)}\t${sess.initialPrompt.slice(0, 90)}`,
+          )
+          .join("\n")}\n`,
+        "utf-8",
+      );
+    }
 
     const high = report.signals.filter((s) => s.severity === "high").length;
     const warn = report.signals.filter((s) => s.severity === "warn").length;
