@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="7792c33d" version="0.6.4" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="7792c33d" version="0.6.5" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse(Bash) watcher for managed-block drift (#530).
