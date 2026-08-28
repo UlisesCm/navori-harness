@@ -62,6 +62,12 @@ Público: el operador del harness (hoy, Ulises) auditando sus propias sesiones.
   tiempo de reloj que ocuparon, cuando sus ventanas de ejecución se solapan.
 - **R14** — El resumen que el comando imprime al terminar SHALL nombrar el total
   facturable, no solo el de arranque.
+- **R19** — El reporte SHALL indicar, por cada servidor MCP que el harness instruye a usar
+  y por cada subagente, si el servidor estaba alcanzable según el `tools:` declarado de ese
+  agente, distinguiendo "disponible y no usado" de "vedado por la allowlist".
+- **R20** — IF un subagente recibe instrucciones de un servidor MCP que su `tools:` no le
+  permite alcanzar, THEN el reporte SHALL cuantificar los tokens de esas instrucciones que
+  pagó en su arranque.
 
 ### Estructura de salida
 

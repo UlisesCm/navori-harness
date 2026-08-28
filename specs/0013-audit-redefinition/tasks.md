@@ -33,13 +33,19 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
   · test: `__tests__/audit-hooks.test.ts`::"no escribe ni altera la salida sin audit-mode
   activo" y ::"un log no escribible no cambia el código de salida del hook" con
   `// Covers: R5, R6, R7`
-- [ ] **B2** (R5) — Cablear el helper en los ocho hooks managed no-audit
+- [ ] **B2** (R5) — Cablear el helper en los hooks managed no-audit de core
   (`guard-destructive`, `managed-drift-watch`, `precompact-session-summary`,
   `quality-gate-pre-commit`, `session-start-context`, `stop-verify-reminder`,
-  `subagent-stop-handoff`, `worktree-reclaim`): un `source` y una llamada con el veredicto
-  que ya calcula cada uno. No cambiar la lógica de ninguno.
-  · test: `__tests__/audit-hooks.test.ts`::"los ocho hooks managed registran su ejecución
-  con audit-mode activo" con `// Covers: R5`
+  `subagent-stop-handoff`, `worktree-reclaim`) y en los de plugin
+  (`jscpd/scripts/check-jscpd.sh`, `semgrep/scripts/check-semgrep.sh`): un `source` y una
+  llamada con el veredicto que ya calcula cada uno. No cambiar la lógica de ninguno.
+  · test: `__tests__/audit-hooks.test.ts`::"todo hook managed cableado registra su
+  ejecución con audit-mode activo" con `// Covers: R5`
+- [ ] **B3** (R5) — Derivar la lista de hooks a cablear del render en vez de fijarla en el
+  test, para que un hook managed nuevo que no llame al helper haga fallar la suite en vez
+  de quedar mudo en los reportes.
+  · test: `__tests__/audit-hooks.test.ts`::"ningún hook managed renderizado queda sin
+  registrar" con `// Covers: R5`
 
 ## Lote C — leer y mostrar
 
@@ -69,6 +75,15 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
 - [ ] **C5** (R17) — Subir `schemaVersion` a `2` en `model.ts` y en el render JSON.
   · test: `lib/audit/__tests__/report.test.ts`::"el JSON declara schemaVersion 2" con
   `// Covers: R17`
+- [ ] **C6** (R19, R20) — Resolver en `harness.ts` el alcance MCP por servidor (un
+  `mcp__codegraph__*` no concede engram; un `tools:` ausente los concede todos) y cruzarlo
+  en la ficha con las llamadas observadas: cada servidor sale como usado con sus
+  operaciones, disponible-sin-usar, o vedado. Para el vedado, atribuir los tokens de las
+  secciones MCP de `CLAUDE.md` que ese agente pagó en su arranque, reusando la medición que
+  ya hace la señal `unreachable-instructions`.
+  · test: `lib/audit/__tests__/report.test.ts`::"distingue un servidor MCP vedado de uno
+  disponible y no usado" y ::"atribuye al agente vedado los tokens de instrucciones que no
+  puede ejecutar" con `// Covers: R19, R20`
 
 ## Lote D — la estructura de salida
 
@@ -92,7 +107,7 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
 | R2 | A1 |
 | R3 | A2 |
 | R4 | A2 |
-| R5 | B1, B2, C1 |
+| R5 | B1, B2, B3, C1 |
 | R6 | B1 |
 | R7 | B1 |
 | R8 | C3 |
@@ -106,3 +121,5 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
 | R16 | D1 |
 | R17 | C5 |
 | R18 | D2 |
+| R19 | C6 |
+| R20 | C6 |

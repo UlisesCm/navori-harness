@@ -50,13 +50,20 @@ verifica nada: mide honestidad, no comportamiento.
   procedencia) y `hookEvents`; `AuditReport.schemaVersion` pasa a `2`. Cubre R8, R17.
 - `packages/cli/src/lib/audit/report.ts` — render de la ficha por agente, del desglose de
   tiempo y del resumen corregido. Cubre R8, R12, R13, R14.
+- `packages/cli/src/lib/audit/harness.ts` — ya expone `DeclaredAgent.tools` y `hasMcp`; se
+  refina para resolver alcance POR servidor (`mcp__codegraph__*` no concede engram) y se
+  cruza con las llamadas observadas. Cubre R19, R20.
 - `packages/core/core-assets/hooks/lib/audit-log.sh` (nuevo) — el helper compartido.
   Cubre R5, R6, R7.
-- `packages/core/core-assets/hooks/*.sh` — los ocho hooks managed que no son del audit
+- `packages/core/core-assets/hooks/*.sh` — los hooks managed de core que no son del audit
   (`guard-destructive`, `managed-drift-watch`, `precompact-session-summary`,
   `quality-gate-pre-commit`, `session-start-context`, `stop-verify-reminder`,
   `subagent-stop-handoff`, `worktree-reclaim`) hacen `source` del helper y lo llaman.
   Cubre R5.
+- `packages/plugins/<id>/scripts/*.sh` — los hooks que aportan los plugins habilitados
+  (hoy `jscpd/scripts/check-jscpd.sh` y `semgrep/scripts/check-semgrep.sh`, ambos en
+  `PreToolUse(Bash)`) reciben el mismo cableado. Viven bajo `scripts/`, no bajo
+  `assets/hooks/`. Cubre R5.
 - `packages/core/core-assets/hooks/audit-mode-trigger.sh` — pierde la detección por
   subcadena y conserva el registro de prompts. Cubre R3, R4.
 
@@ -148,9 +155,10 @@ Cada prueba responde a un riesgo nombrado arriba, no a una cuota:
 - **Granularidad por paso dentro del agente.** Descartada arriba; si más adelante hace
   falta, entra por el JSON antes que por el Markdown.
 - **Migrar o borrar los reportes viejos.** Explícitamente fuera (R18).
-- **Medir hooks de plugins.** Hoy ningún plugin envía hooks propios
-  (`packages/plugins/*/assets/hooks/` no existe); cuando alguno lo haga, hereda el helper
-  sin cambios en el lector.
+- **Cablear hooks que el render no genera.** Un hook escrito a mano por el usuario en
+  `.claude/hooks/` no lleva marcador managed, así que navori no lo reescribe y no puede
+  añadirle el `source`. Sus ejecuciones seguirán siendo invisibles salvo que bloqueen, y el
+  reporte debe decirlo en vez de dar la cobertura por total.
 - **Reportar el contenido del contexto inicial de un agente.** El transcript registra su
   tamaño, nunca su contenido; eso es un límite del host, no una tarea pendiente.
 - **Atribuir costo en dinero.** El reporte cuenta tokens; convertirlos a moneda exige una
