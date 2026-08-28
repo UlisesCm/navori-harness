@@ -734,3 +734,61 @@ verde en los 6 PRs (#526, #528, #531, #532, #533, #534, #535).
 **Queda abierto.** El rollout: 15 repos Bonum + 14 worktrees de webapp + moonar + navori-health siguen
 en **0.5.1** (dos releases atrás), y los 3 de `/navori` en 0.6.2. Y los críticos del backend de Ulises
 (`alertaciudadana_backend#151`, `#150`).
+
+## 2026-08-27 19:32 claude — limpieza de 30 GB en worktrees, rollout del harness a bonum-webapp y dos tickets de QA (BT-1427, BT-1425)
+
+Jornada operativa **fuera de navori**: no se tocó código de `packages/cli`. El trabajo fue en
+`bonum-webapp` (3 PRs) y en la máquina de Ulises. Cierra con **0 issues / 0 PRs** en navori.
+
+**1. Limpieza de worktrees — ~30.7 GB liberados.** El censo real eran **53**, no 34: el patrón `wt-*`
+solo ve uno de tres layouts. Los otros 19 vivían ocultos en `.wt-services-users/` (en DOS ubicaciones
+distintas) y en `bonum-dashboard/.claude/worktrees/`. El único inventario confiable es
+`git worktree list` por repo padre. Se eliminaron 18 (PR mergeado, `ahead=0`) y los `node_modules` de
+los 32 restantes: `/bonum` pasó de ~50 GB a 19 GB. Criterio: los PRs de Bonum mergean con **squash**, así
+que `--is-ancestor` no sirve — hay que preguntar `gh pr list --head <branch> --state all`.
+
+**2. La ruta de los repos Bonum estaba mal en el `~/.claude/CLAUDE.md` global.** Apuntaba a
+`/Users/ulisescm/Documents/dev/bonum/`, que no existe; los repos están en
+`/Users/ulisescm/Documents/Dev - Docs/bonum`. Corregidas las 16 rutas, verificadas con `-d`.
+
+**3. Rollout a bonum-webapp (PR #651).** De **0.5.1 a 0.6.4** (43 bloques en drift), engine `codex`
+eliminado (`.codex/` y `AGENTS.md` quedaron huérfanos en v0.2.23, y `AGENTS.md` ni siquiera estaba
+versionado). `doctor` cierra en drift 0. Dos hallazgos de navori que **merecen issue**:
+
+- **`navori update` propone pisar configuración declarada**: truncaba el `qualityGate` (se comía `lint` y
+  `test:unit`) y **reactivaba engines desactivados a propósito**. No distingue un valor detectado de uno
+  escrito por el usuario. Es interactivo, así que nunca contestar "Yes" a ciegas.
+- **El `doctor` no detecta skills project-local desalineadas.** Un bloque managed desalineado se detecta
+  por hash; una skill local no tiene detector alguno. `typescript-first` llevaba 16 días afirmando que
+  `compile` fallaba y que había un import roto de Chakra — ambas cosas las había arreglado el propio
+  commit que la dejó mintiendo. Su regla dura #5 ordenaba **descartar errores de compile como ajenos**.
+  Feature barata: que el doctor verifique las rutas `src/...` que citan las skills locales.
+
+**4. Flujo `main-harness` / `develop-harness`.** Branch local (sin upstream, para que un push no empuje
+el harness) = base + los commits del harness. Se trabaja encima y antes de pushear:
+`git rebase --onto origin/<base> <base>-harness <ticket>`. Probado dos veces con trabajo real: 49→3
+archivos en BT-1427 y 44→1 en BT-1425.
+
+**5. BT-1427 (PR #653) y BT-1425 (PR #654).** Ambos comentados en Jira con mención en ADF y movidos a
+`CODE REVIEW`. El patrón común de los dos: **medir en el navegador, no leer el CSS**.
+
+- BT-1427: el CSS del dropdown de idiomas **nunca aplicó** — Mantine lo monta en un portal fuera del
+  root, así que la regla anidada no lo alcanzaba y las opciones se quedaron en 8.75px. El PR anterior
+  editó un número dentro de una regla muerta. La primera corrección propia habría sido igual de inerte;
+  lo destapó medir con `getComputedStyle`. En Inicio, `Home.scss` nunca se editó y aun así creció: su
+  label estaba en `em` colgando del root que fija el theme.
+- BT-1425: **nadie agrandó la leyenda**. `Advice.scss` es idéntico antes y después del PR anterior; lo
+  que se fue fue su contrapeso (la columna del calendario dejó de estirarse hasta ~768px alrededor de un
+  calendario que siempre midió 498px). Pasó del 27% al 36% del ancho sin moverse un píxel.
+
+**El patrón transversal, para ticket propio:** en webapp, **todo default de Mantine expresado en `rem`
+sale al 62.5%** — su helper divide entre 16 y la app fija la raíz al 62.5%. Van tres apariciones
+confirmadas (`rem(15.4)` en el theme, `0.875rem` de la opción, `13.75rem` de `maxDropdownHeight`).
+
+**Gate.** No se editó código de navori; el gate de webapp cerró verde en los dos ciclos:
+`compile` ✓ · `lint` 0 errores ✓ · **146 tests** ✓.
+
+**Queda abierto.** Los 3 PRs de webapp **no pueden mergear**: SonarCloud falla con
+`Could not find the pullrequest with key` en todos los PRs del repo — el rebind pendiente es hoy lo único
+entre este trabajo y producción. Y el rollout al resto: 14 repos Bonum + moonar + navori-health en
+**0.5.1**, los 3 de `/navori` en 0.6.2.
