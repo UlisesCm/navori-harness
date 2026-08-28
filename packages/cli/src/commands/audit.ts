@@ -66,6 +66,29 @@ function auditPathOrExit(build: () => string, json: boolean): string {
   }
 }
 
+/**
+ * A mode-switching flag must carry its value or stop the command.
+ *
+ * citty gives a `type: "string"` flag declared without a value the EMPTY STRING,
+ * never `undefined`, so `--stop` alone is indistinguishable from `--stop ""` and
+ * a truthiness check reads both as "flag absent". For a flag that only carries
+ * data that is harmless; for one that decides WHAT the command does it is a
+ * silent no-op, and the command goes on to do something else entirely.
+ *
+ * Rejecting here rather than inside each branch is deliberate: the branch is the
+ * code that never runs when the bug fires, so a guard placed there cannot catch
+ * it.
+ */
+function emptyFlagOrExit(value: unknown, flag: string, json: boolean, isEs: boolean): void {
+  if (value !== "") return;
+  const message = isEs
+    ? `La bandera ${flag} necesita un id de sesión: '${flag} <id>'. Sin id no se activa ni se sella nada, así que no genero ningún reporte.`
+    : `The ${flag} flag needs a session id: '${flag} <id>'. With no id nothing is activated or sealed, so no report is produced.`;
+  if (json) console.log(JSON.stringify({ ok: false, error: "missing-flag-value", flag }));
+  else p.cancel(message);
+  process.exit(2);
+}
+
 export const auditCommand = defineCommand({
   meta: {
     name: "audit",
@@ -96,9 +119,18 @@ export const auditCommand = defineCommand({
     // three writes later.
     const auditDir = auditPathOrExit(() => repoAuditDir(repo), json);
 
-    // --start / --stop are the human-confirmed ends of the recording. The hook
-    // never runs them: it only asks Claude to ask the user, and Claude runs
-    // this once the user says yes.
+    // --start / --stop are the ONLY way in and out of the recording (R3): the
+    // hook no longer proposes either, because no heuristic over natural language
+    // separates talking ABOUT audit-mode from invoking it.
+    //
+    // Both are mode switches, so an empty value is rejected before anything
+    // runs. citty hands a valueless `type: "string"` flag the empty string, not
+    // `undefined` — so the truthiness check these guards used to do let
+    // `navori audit --stop` fall through to the range report and print a
+    // summary that reads exactly like a successful seal (#538-adjacent, R2).
+    emptyFlagOrExit(args.start, "--start", json, isEs);
+    emptyFlagOrExit(args.stop, "--stop", json, isEs);
+
     const startId = args.start;
     if (typeof startId === "string" && startId) {
       const logFile = auditPathOrExit(() => sessionLogPath(repo, startId), json);

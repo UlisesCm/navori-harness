@@ -360,7 +360,12 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
     ).toBeGreaterThan(20);
     for (const known of [
       "navori doctor", // CLAUDE.md, session-startup block
-      "navori audit --start", // audit-mode-trigger.sh message
+      // `navori audit --start` used to be here, ordered by audit-mode-trigger.sh.
+      // Spec 0013 removed that message: the hook no longer proposes activating
+      // audit-mode from the prompt text, so no asset orders the command any more.
+      // The permission rule for it stays in settings.json — the operator still
+      // runs it by hand — but this canary tracks what ASSETS order, not what is
+      // allowed.
       "jscpd --silent", // CLAUDE.md, duplication gate
       "semgrep scan --config=p/default --error --metrics=off", // CLAUDE.md, security gate
       "git push -u origin HEAD", // commit-pr-pilot.md, PR flow step 4 (#499)

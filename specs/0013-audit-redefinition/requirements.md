@@ -68,6 +68,11 @@ Público: el operador del harness (hoy, Ulises) auditando sus propias sesiones.
 - **R20** — IF un subagente recibe instrucciones de un servidor MCP que su `tools:` no le
   permite alcanzar, THEN el reporte SHALL cuantificar los tokens de esas instrucciones que
   pagó en su arranque.
+- **R21** — WHEN un subagente arranca o termina y audit-mode está activo, el sistema SHALL
+  registrar en el log su identificador, su tipo, su modelo, el turno que lo originó y, al
+  terminar, su duración y su veredicto.
+- **R22** — El sistema SHALL registrar los eventos de hook cuyo veredicto es que no les
+  correspondía actuar, en vez de omitirlos.
 
 ### Estructura de salida
 

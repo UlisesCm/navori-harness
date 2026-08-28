@@ -1,6 +1,7 @@
 039168f2bc6dd60653595ac42e3f14caeefed8d5  .claude/skills/vitest/SKILL.md
 044bc4988cfe784af761da884ef66ce74808ee3f  .claude/agents/commit-pr-pilot.md
 0612af8bb710fca5034be42f0f9e56e74f07f45c  .claude/agents/leader.md
+0d4291aba8632b0ac655732f48f7066088790184  .claude/hooks/audit-mode-trigger.sh
 0d55fb7fbe9b0026d149f9424266b6ccdfc01382  .claude/skills/babysit-prs/SKILL.md
 11c81141d3f14dfb3604836851dec1849087ecdc  .claude/hooks/quality-gate-pre-commit.sh
 134ed2dca3c50be951dcd035451b50ebde88d74e  .claude/skills/pr-create/SKILL.md
@@ -9,7 +10,6 @@
 213ce871151241cc00263a95be7e7128c6a3e673  .claude/skills/playwright-cli/references/video-recording.md
 2d026293994bdd7612d167375ddd242f5958243c  .claude/skills/ticket-intake/SKILL.md
 2fc083cb245e681532edaa4b925bdbdd130f18a8  .claude/skills/playwright-cli/references/storage-state.md
-30dd3ac4d18cbcf8868d4825d5634b55ac30dc7a  .claude/hooks/audit-mode-trigger.sh
 42b4eb15e78231856e160327f495fe504dbab61f  .claude/agents/implementer.md
 43822850d5057e5fe51be785134e12f1c25e7241  .claude/skills/playwright-cli/SKILL.md
 49434b76b7e7e2518ce6e466c62c37fdb70e1fef  .claude/skills/playwright-cli/references/element-attributes.md

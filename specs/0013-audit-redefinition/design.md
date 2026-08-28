@@ -90,15 +90,57 @@ verifica nada: mide honestidad, no comportamiento.
 El evento `hook` que el helper escribe y `parse.ts` lee:
 
 ```json
-{"ts":"2026-08-28T02:09:04Z","event":"hook","name":"guard-destructive",
- "phase":"PreToolUse","tool":"Bash","verdict":"block","ms":9,
- "reason":"rm -rf con ruta absoluta"}
+{"ts":"2026-08-28T18:07:41Z","event":"hook","name":"guard-destructive",
+ "phase":"PreToolUse","matcher":"Bash","tool":"Bash","verdict":"block","ms":9,
+ "reason":"rm -rf con ruta absoluta","agentId":"ag_01","source":"core"}
 ```
 
-`name`, `phase`, `verdict` y `ms` son obligatorios. `tool` y `reason` son opcionales: hay
-fases sin tool asociada (`SessionEnd`) y veredictos sin motivo (`allow`). Un evento al que
-le falte un campo obligatorio se cuenta en `parseErrors` y no rompe la lectura — misma
-tolerancia que el log ya tiene con las líneas malformadas.
+Obligatorios: `ts`, `event`, `name`, `phase`, `verdict`, `ms`.
+
+Opcionales, cada uno porque hay casos legítimos sin él:
+
+- `matcher` / `tool` — hay fases sin tool asociada (`SessionEnd`, `PreCompact`).
+- `reason` — un `allow` no necesita motivo; un `block` o un `skip` sí lo llevan.
+- `agentId` — presente cuando el payload lo trae. Es lo que permite atribuir el hook a un
+  subagente SIN adivinar: con agentes en paralelo las ventanas temporales se solapan, así
+  que la atribución por tiempo (C1) es la vía de respaldo, no la primaria.
+- `source` — `core` o `plugin:<id>`. Deshabilitar un plugin cambia qué hooks corren, y sin
+  este campo el reporte no puede explicar por qué una fase adelgazó entre dos sesiones.
+
+`verdict` es un vocabulario CERRADO; un hook que necesite uno nuevo lo añade aquí y al
+lector en el mismo cambio, para que no proliferen sinónimos por hook:
+
+| verdict | significado |
+|---|---|
+| `allow` | el hook evaluó y dejó pasar |
+| `block` | el hook detuvo la acción (lleva `reason`) |
+| `skip` | el hook decidió que no le tocaba (lleva `reason`) |
+| `inject` | el hook añadió contexto (lleva `bytes`) |
+| `clean` | verificación posterior sin hallazgos |
+| `dirty` | verificación posterior CON hallazgos (lleva `reason`) |
+| `sealed` | el hook cerró un artefacto |
+| `noop` | el hook corrió y no había nada que hacer |
+| `error` | el hook falló internamente (lleva `reason`) |
+
+Los `skip` SÍ se registran. Son la mitad del volumen del log y la tentación es podarlos,
+pero son la única evidencia de que un hook corrió y decidió no actuar — sin ellos no se
+distingue un hook que se saltó su trabajo de uno que nunca se ejecutó, que es justo la
+pregunta que motivó registrar hooks.
+
+Eventos de subagente, que hoy solo existen reconstruidos del transcript:
+
+```json
+{"ts":"…","event":"agent-start","agentId":"ag_01","agentType":"implementer",
+ "description":"cierra los 5 defectos","model":"claude-opus-5","spawnDepth":1,"parentTurn":1}
+{"ts":"…","event":"agent-stop","agentId":"ag_01","durationMs":342000,"verdict":"APPROVED"}
+```
+
+Se registran además del transcript, no en su lugar: hacen que la duración, el veredicto y
+la ligadura agente↔turno sobrevivan a una poda del transcript, y `parentTurn` es lo que
+responde "en qué fase se lanzó este agente" sin cruzar timestamps.
+
+Un evento al que le falte un campo obligatorio se cuenta en `parseErrors` y no rompe la
+lectura — misma tolerancia que el log ya tiene con las líneas malformadas.
 
 Estructura de salida (R15, R16):
 

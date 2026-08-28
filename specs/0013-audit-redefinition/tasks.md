@@ -5,20 +5,20 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
 
 ## Lote A — la falla abierta y la activación explícita
 
-- [ ] **A1** (R2) — Validar las banderas antes de actuar en `commands/audit.ts`: `--start`
+- [x] **A1** (R2) — Validar las banderas antes de actuar en `commands/audit.ts`: `--start`
   y `--stop` con cadena vacía terminan con `exit 2` y un mensaje que nombra la bandera sin
   id, sin escribir reporte. Respeta el contrato de `--json` (error como JSON, no como
   prosa), igual que hace hoy `auditPathOrExit`.
   · test: `commands/__tests__/audit.test.ts`::"--start sin id sale con error y no escribe
   reporte" y ::"--stop sin id sale con error y no escribe reporte" con `// Covers: R2`
-- [ ] **A2** (R3, R4) — Quitar de `audit-mode-trigger.sh` la detección por subcadena
+- [x] **A2** (R3, R4) — Quitar de `audit-mode-trigger.sh` la detección por subcadena
   (`matched`/`off_intent`, `audit_subcommand_available` y los cuatro mensajes de
   activación/desactivación). Conservar íntegra la rama que registra el prompt cuando el log
   ya existe, incluida la lectura de `transcript_path`.
   · test: `__tests__/audit-hooks.test.ts`::"un prompt que menciona audit mode no propone
   activar nada" y ::"con el log presente el prompt tecleado se registra" con
   `// Covers: R3, R4`
-- [ ] **A3** (R1) — Confirmar que `--start <id>` sigue nombrando el log creado y que la
+- [x] **A3** (R1) — Confirmar que `--start <id>` sigue nombrando el log creado y que la
   guarda de idempotencia se mantiene, ahora que es la única vía de activación.
   · test: `commands/__tests__/audit.test.ts`::"--start nombra el log que creó" con
   `// Covers: R1`
@@ -46,6 +46,12 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
   de quedar mudo en los reportes.
   · test: `__tests__/audit-hooks.test.ts`::"ningún hook managed renderizado queda sin
   registrar" con `// Covers: R5`
+
+- [ ] **B4** (R21, R22) — Emitir `agent-start` / `agent-stop` desde
+  `subagent-stop-handoff.sh` y el punto de arranque que el host exponga, con el contrato de
+  `design.md`, y confirmar que el helper registra los veredictos `skip`.
+  · test: `__tests__/audit-hooks.test.ts`::"un subagente deja agent-start y agent-stop en el
+  log" y ::"un hook que no actúa deja su evento skip" con `// Covers: R21, R22`
 
 ## Lote C — leer y mostrar
 
@@ -123,3 +129,5 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
 | R18 | D2 |
 | R19 | C6 |
 | R20 | C6 |
+| R21 | B4 |
+| R22 | B1, B4 |

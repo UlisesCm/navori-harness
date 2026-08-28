@@ -203,3 +203,69 @@ describe("audit --json", () => {
     });
   });
 });
+
+/**
+ * The defect that motivated spec 0013: a mode-switching flag invoked WITHOUT a
+ * value.
+ *
+ * citty hands a valueless `type: "string"` flag the empty string, not
+ * `undefined`, so the guards that read `typeof id === "string" && id` treated
+ * `--stop` exactly like "no --stop at all" — and the command fell through to the
+ * range report, printing a summary that reads like a successful seal. It failed
+ * OPEN: an operator ran it, saw "4 sessions", and nothing had been sealed.
+ *
+ * Spawning the real CLI matters here for the same reason as the specs above: the
+ * whole defect lived in the exit code and in what did (not) reach disk.
+ */
+describe("audit: a mode flag with no value stops the command (R2)", () => {
+  // Covers: R2
+  it("--start with no id exits non-zero and writes no report", () => {
+    const res = runAudit(["--start"]);
+    expect(res.status).not.toBe(0);
+    expect(res.combined).toContain("--start");
+    // The heart of the defect: not merely "no log" but "no REPORT either".
+    // Falling through to the range report is what made the failure look like
+    // success.
+    expect(sandboxTree().filter((f) => f.endsWith(".md") || f.endsWith(".json"))).toEqual([]);
+  });
+
+  // Covers: R2
+  it("--stop with no id exits non-zero and writes no report", () => {
+    const res = runAudit(["--stop"]);
+    expect(res.status).not.toBe(0);
+    expect(res.combined).toContain("--stop");
+    expect(sandboxTree().filter((f) => f.endsWith(".md") || f.endsWith(".json"))).toEqual([]);
+  });
+
+  // Covers: R2
+  it("reports the missing value as JSON under --json, not as prose", () => {
+    const res = runAudit(["--json", "--stop"]);
+    expect(res.status).not.toBe(0);
+    const parsed = JSON.parse(res.combined.trim()) as { ok: boolean; error: string };
+    expect(parsed).toMatchObject({ ok: false, error: "missing-flag-value" });
+  });
+
+  // Covers: R2
+  it("still accepts an empty value for a flag that only carries data", () => {
+    // `--since` is a filter, not a mode switch: an empty value falls back to its
+    // default instead of silently changing what the command does. The guard must
+    // not spread to those, or every optional filter becomes mandatory.
+    runAudit(["--start", "sess1"]);
+    const res = runAudit(["--json", "--since", "", "--session", "sess1"]);
+    // Asserting on the CAUSE, not on the exit code: this run also fails (the
+    // fixture session has no transcript), and both failures share `exit 2`. What
+    // must not happen is that it fails as a missing flag value.
+    const parsed = JSON.parse(res.combined.trim()) as { error: string };
+    expect(parsed.error).not.toBe("missing-flag-value");
+  });
+});
+
+describe("audit --start is the only way in (R1)", () => {
+  // Covers: R1
+  it("names the log file it created", () => {
+    const res = runAudit(["--start", "sess-named"]);
+    expect(res.status).toBe(0);
+    expect(res.combined).toContain("session-sess-named.log");
+    expect(existsSync(join(auditDir, "session-sess-named.log"))).toBe(true);
+  });
+});

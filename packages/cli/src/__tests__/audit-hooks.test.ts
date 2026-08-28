@@ -23,40 +23,6 @@ const REPO = "fixture-repo";
 
 let root: string;
 let cwd: string;
-let pathWithAudit: string;
-let pathWithoutAudit: string;
-const binDirs: string[] = [];
-
-/**
- * A stub `navori` on PATH.
- *
- * The trigger introspects the CLI before ordering `navori audit`, so without a
- * controlled PATH this suite would assert against whichever version the
- * developer happens to have installed — green on a machine with a fresh navori
- * and red on one release behind. The stub only has to print a USAGE line: that
- * is the whole surface the hook reads.
- */
-function fakeNavoriPath(withAudit: boolean): string {
-  const bin = mkdtempSync(join(tmpdir(), "navori-bin-"));
-  const usage = withAudit ? "USAGE navori init|add|audit|doctor" : "USAGE navori init|add|doctor";
-  writeFileSync(join(bin, "navori"), `#!/bin/sh\necho "${usage}"\n`, { mode: 0o755 });
-  binDirs.push(bin);
-  return `${bin}:${process.env.PATH ?? ""}`;
-}
-
-/**
- * The real PATH with every directory holding a `navori` binary removed.
- *
- * Blanking PATH outright is not an option: the hook needs jq (and the harness
- * needs the shell itself), so an empty PATH tests "no tools" rather than "no
- * navori" — the hook would bail at its jq guard and emit nothing.
- */
-function pathWithoutNavori(): string {
-  return (process.env.PATH ?? "")
-    .split(":")
-    .filter((dir) => dir !== "" && !existsSync(join(dir, "navori")))
-    .join(":");
-}
 
 function run(
   shell: string,
@@ -68,7 +34,7 @@ function run(
     const out = execFileSync(shell, [hook], {
       input: payload,
       encoding: "utf-8",
-      env: { ...process.env, NAVORI_AUDITS_ROOT: root, PATH: pathOverride ?? pathWithAudit },
+      env: { ...process.env, NAVORI_AUDITS_ROOT: root, PATH: pathOverride ?? process.env.PATH },
     });
     return { out, code: 0 };
   } catch (e) {
@@ -103,13 +69,10 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "navori-hook-"));
   cwd = join(tmpdir(), REPO);
   mkdirSync(cwd, { recursive: true });
-  pathWithAudit = fakeNavoriPath(true);
-  pathWithoutAudit = fakeNavoriPath(false);
 });
 
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
-  while (binDirs.length > 0) rmSync(binDirs.pop() as string, { recursive: true, force: true });
 });
 
 describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
@@ -119,25 +82,36 @@ describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
     expect(out.trim()).toBe("");
   });
 
-  it("asks for confirmation instead of activating", () => {
-    const { out, code } = run(shell, TRIGGER, payload("audita el ticket en audit mode"));
+  /**
+   * The hook used to match `audit mode` as a substring and ask Claude to offer
+   * activation. Removed in spec 0013 (R3): substring matching cannot separate
+   * INVOKING the mode from TALKING ABOUT it, and the second is what you do all
+   * day while working on the feature — the request that opened this spec was
+   * itself misread as an invocation. Activation is now `--start` only.
+   */
+  // Covers: R3
+  it.each([
+    ["english", "audita el ticket en audit mode"],
+    ["spanish", "entra en modo audit por favor"],
+    ["hyphenated", "mi feature de audit-mode no funciona"],
+    ["off-intent", "apaga el audit mode"],
+  ])("proposes nothing for a prompt that merely mentions audit-mode (%s)", (_label, text) => {
+    const { out, code } = run(shell, TRIGGER, payload(text));
     expect(code).toBe(0);
-    expect(out).toContain("continue?");
-    expect(out).toContain("navori audit --start sess1");
-    // The decisive assertion: detection alone must leave NOTHING on disk.
+    expect(out.trim()).toBe("");
+    // Detection left nothing on disk before, and proposes nothing now.
     expect(existsSync(logFile())).toBe(false);
   });
 
-  it("accepts the Spanish phrasing too", () => {
-    const { out } = run(shell, TRIGGER, payload("entra en modo audit por favor"));
-    expect(out).toContain("navori audit --start");
-  });
-
-  it("does not re-ask once the session is already active", () => {
+  // Covers: R3
+  it("proposes nothing about turning the mode off while it is active", () => {
     activate();
-    const { out, code } = run(shell, TRIGGER, payload("seguimos en audit mode"));
+    const { out, code } = run(shell, TRIGGER, payload("apaga el audit mode"));
     expect(code).toBe(0);
-    expect(out).not.toContain("--start");
+    expect(out.trim()).toBe("");
+    // …and the prompt is still recorded, because the mode IS active (R4).
+    const last = readFileSync(logFile(), "utf-8").trim().split("\n").at(-1);
+    expect(JSON.parse(last ?? "{}")).toMatchObject({ event: "prompt" });
   });
 
   /**
@@ -210,70 +184,9 @@ describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
     });
   });
 
-  it("asks before turning the mode off", () => {
-    activate();
-    const { out } = run(shell, TRIGGER, payload("apaga el audit mode"));
-    expect(out).toContain("navori audit --stop sess1");
-    expect(out).toContain("continue?");
-  });
-
   it("never writes outside the audit root", () => {
     run(shell, TRIGGER, payload("audit mode"));
     expect(existsSync(join(cwd, "session-sess1.log"))).toBe(false);
-  });
-});
-
-/**
- * The hook orders a command that resolves the PUBLISHED binary, never the
- * working tree's build. When the installed navori predates `audit`, citty
- * prints the help and exits 0 — so an agent checking only the status reads a
- * silent no-op as success and reports a recording that never started. The
- * trigger must therefore introspect the CLI before ordering anything.
- */
-describe.each(SHELLS)("audit-mode availability under %s", (shell) => {
-  // The fallback names the command in order to FORBID it ("Do NOT run ...
-  // blindly"), so the assertion is about the imperative that would launch it,
-  // not about the flag appearing anywhere in the text.
-  const ORDERS_START = "run: navori audit --start";
-  const ORDERS_STOP = "run: navori audit --stop";
-
-  it("does not order --start when the CLI has no audit subcommand", () => {
-    const { out, code } = run(shell, TRIGGER, payload("audit mode"), pathWithoutAudit);
-    expect(code).toBe(0);
-    expect(out).not.toContain(ORDERS_START);
-    expect(out).toContain("Do NOT run");
-    expect(out).toContain("could not be confirmed");
-    expect(existsSync(logFile())).toBe(false);
-  });
-
-  it("does not order --start when navori is not installed at all", () => {
-    const { out, code } = run(shell, TRIGGER, payload("audit mode"), pathWithoutNavori());
-    expect(code).toBe(0);
-    expect(out).not.toContain(ORDERS_START);
-    // A machine with no navori must not be told its version is old.
-    expect(out).toContain("may not be installed");
-    expect(existsSync(logFile())).toBe(false);
-  });
-
-  it("orders --start AND demands the output be verified when audit exists", () => {
-    const { out } = run(shell, TRIGGER, payload("audit mode"), pathWithAudit);
-    expect(out).toContain("navori audit --start sess1");
-    // Introspection can be right and the call still fail, so the agent is told
-    // to read the output. The cue is the log path, not a localized string: the
-    // CLI translates its own output and the hook must not depend on that.
-    expect(out).toContain("name the log file");
-    expect(out).toContain("USAGE");
-  });
-
-  it("does not order --stop when the subcommand is missing, and keeps the log", () => {
-    activate();
-    const before = readFileSync(logFile(), "utf-8");
-    const { out, code } = run(shell, TRIGGER, payload("apaga el audit mode"), pathWithoutAudit);
-    expect(code).toBe(0);
-    expect(out).not.toContain(ORDERS_STOP);
-    expect(out).toContain("stays intact");
-    // The log is append-only: a failed close must never truncate it.
-    expect(readFileSync(logFile(), "utf-8").startsWith(before)).toBe(true);
   });
 });
 
