@@ -36,7 +36,7 @@ describe("settings-base.json", () => {
     const navori = parsed.$navori as { managed?: boolean; version?: string } | undefined;
     expect(navori).toBeDefined();
     expect(navori?.managed).toBe(true);
-    expect(navori?.version).toBe("{{coreVersion}}");
+    expect(navori?.version).toBe("{{cliVersion}}");
   });
 
   it("has hooks and permissions skeleton ready for plugin merge", () => {

@@ -14,6 +14,7 @@
 43822850d5057e5fe51be785134e12f1c25e7241  .claude/skills/playwright-cli/SKILL.md
 49434b76b7e7e2518ce6e466c62c37fdb70e1fef  .claude/skills/playwright-cli/references/element-attributes.md
 53655aa0556ae25c396cdc0efa79eafc2fb50083  .claude/skills/verify-before-done/SKILL.md
+6f011162a89ddb7dcb507cf35d168f4e8cc9de89  .claude/settings.json
 7551a60cedcfcafd481713b88404cffeee46271e  .claude/agents/reviewer.md
 79bf275cebf0c5e5eabd30e630b789b739474a46  .claude/skills/spec-bootstrap/SKILL.md
 800a0ac3258d9fc417582a41cdab023a97c8d2e3  .claude/hooks/precompact-session-summary.sh
@@ -24,7 +25,6 @@
 9cc828ff489d729638b65460f4deed32d735ffd1  .claude/skills/structural-search/SKILL.md
 a092c062c85598b27e4b29724be5807e0a7e76a5  .claude/skills/playwright-cli/references/tracing.md
 a477c4826f570b4664573fb3e786b3f8b4607cc2  .claude/agents/auditor.md
-a48a8232b5da6e57ed1620c9af7b7e84db70a3ba  .claude/settings.json
 a4c24110b96d54a9475f203b88714bbb53d8d937  .claude/hooks/managed-drift-watch.sh
 a54080d829128bcdd3d9e1128b649f8fae86cc62  CLAUDE.md
 a60dcaf16d88c8d1ca6aaa6c61bb3a4ac9544b62  .claude/skills/dominio/SKILL.md

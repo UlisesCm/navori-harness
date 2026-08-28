@@ -78,6 +78,14 @@ const NORMALIZERS: readonly Normalizer[] = [
     pattern: /(navori:managed[^\n]*?)hash="[^"]*"/g,
     replacement: '$1hash="<HASH>"',
   },
+  {
+    reason:
+      "the `$navori.version` stamp is the same CLI version in JSON notation (#538): it moves on every release with nothing behind it",
+    // Scoped to the `$navori` object — whose value has no nested braces — so a
+    // `"version"` belonging to any other JSON navori renders is left verbatim.
+    pattern: /("\$navori":\s*\{[^}]*?"version":\s*")[^"]*"/g,
+    replacement: '$1<VERSION>"',
+  },
 ];
 
 function normalize(content: string): string {

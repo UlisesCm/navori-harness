@@ -55,29 +55,6 @@ export function getPluginPath(pluginId: string): string {
 }
 
 /**
- * `@navori/core`'s own package version — an internal, statically-versioned
- * package, so this is `0.0.1` and does not move with releases. Its ONLY use is
- * the `$navori.version` stamp in the generated `.claude/settings.json`, a
- * write-only provenance note nothing reads back.
- *
- * NOT the anti-rollback signal (#508.3 flagged the mismatch as a risk to it):
- * that guard is `isDowngrade()` in `lib/marker.ts`, which compares the
- * `version=` attribute of managed-block markers, and every stamp site takes
- * that from `readCliVersion()` below. One scale, one source — the two numbers
- * never meet.
- */
-export function readBundledCoreVersion(): string {
-  try {
-    const pkg = JSON.parse(readFileSync(resolve(getCoreRoot(), "package.json"), "utf-8")) as {
-      version?: string;
-    };
-    return pkg.version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-}
-
-/**
  * The navori CLI's own release version (e.g. "0.2.9"). This is the version that
  * actually bumps every release — unlike `@navori/core`, which is versioned
  * statically. Managed-block markers stamp THIS so the anti-retroceso guard
@@ -145,11 +122,9 @@ export interface CoreProvenance {
  * `[path under packages/, path under dist/assets/]`. Keep in sync with it:
  * a tree missing here is a tree the freshness hint can't see.
  *
- * KNOWN GAP: copy-assets also copies `packages/core/package.json`, which is not
- * a tree and is not listed here. Its `version` does reach the mirror (
- * `build-settings.ts` interpolates `{{coreVersion}}` into `settings.json`), so
- * bumping `@navori/core` without rebuilding is real drift this hint cannot see.
- * `check:render` still catches it — the hint is an accelerator, not the gate.
+ * copy-assets also copies `packages/core/package.json`, which is not a tree and
+ * is not listed here. Nothing rendered reads its `version` any more (#538 moved
+ * the `$navori.version` stamp onto the CLI's scale), so it is not a gap.
  *
  * The mirror image, also by design: dev-side files with NO bundle counterpart
  * (today every plugin's own `package.json` under `packages/plugins/` — copy-assets takes only

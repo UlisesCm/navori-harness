@@ -207,10 +207,12 @@ export function runRender(
    *  behind (#496). */
   prunedEngineOutputs?: string[];
   /** Paths inside an orphaned output that the prune left — or would leave — in
-   *  place, with the reason: `foreign` (navori never wrote it), `ephemeral`
-   *  (machine-local harness state the harness never versions) or `symlink` (a
-   *  link, neither followed nor unlinked — its target is usually outside the
-   *  repository). Same preview/apply semantics as `prunedEngineOutputs`. */
+   *  place, with the reason: `foreign` (navori never wrote it), `newer` (navori
+   *  wrote it, but a release ahead of this CLI, so rolling it back is not ours
+   *  to do — #79), `ephemeral` (machine-local harness state the harness never
+   *  versions) or `symlink` (a link, neither followed nor unlinked — its target
+   *  is usually outside the repository). Same preview/apply semantics as
+   *  `prunedEngineOutputs`. */
   keptEngineOutputs?: KeptEngineOutput[];
   /** Where the pre-prune snapshot landed, or null when nothing was deleted. */
   prunedBackupPath?: string | null;

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
 import type { LoadedPlugin, PluginHookEntry } from "../../lib/plugins.ts";
-import { getCoreRoot, readBundledCoreVersion } from "../../lib/bundled-assets.ts";
+import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import { interpolate } from "../../lib/interpolate.ts";
 import { deepMerge } from "./deep-merge.ts";
 
@@ -12,7 +12,7 @@ import { deepMerge } from "./deep-merge.ts";
  * JSON.stringify it once.
  *
  * Layering (deep-merged in order):
- *   1. settings-base.json from @navori/core (interpolated with coreVersion).
+ *   1. settings-base.json from @navori/core (interpolated with cliVersion).
  *      Ships permissions.allow (read-only git + file inspection + the native
  *      Read/Glob/Grep tools, so trivial reads don't prompt), .ask
  *      (destructive-but-legit) and .deny (catastrophic, no-legit-use) rules.
@@ -79,7 +79,11 @@ export function buildClaudeSettings(
   const basePath = resolve(getCoreRoot(), SETTINGS_BASE_REL);
   const baseRaw = readFileSync(basePath, "utf-8");
   const baseInterp = interpolate(baseRaw, config, {
-    extraVars: { coreVersion: readBundledCoreVersion() },
+    // The CLI's release version, NOT @navori/core's static one: `$navori.version`
+    // is the anti-rollback stamp `lib/removable.ts` compares before deleting a
+    // generated JSON (#538), so it has to move on the same scale as a managed
+    // block's `version=`. Stamping the frozen 0.0.1 made the guard vacuous.
+    extraVars: { cliVersion: readCliVersion() },
   });
   let settings = JSON.parse(baseInterp) as Record<string, unknown>;
 

@@ -1,6 +1,7 @@
 import { lstatSync, readFileSync, readdirSync, rmdirSync } from "node:fs";
 import { join } from "node:path";
 import { readCliVersion } from "./bundled-assets.ts";
+import { readNavoriOwnership } from "./json-ownership.ts";
 import { isDowngrade } from "./semver.ts";
 
 /** Read once per process, like the `CORE_META` constant this criterion was
@@ -39,6 +40,20 @@ const CLI_VERSION = readCliVersion();
  * to delete (same anti-rollback rule render applies to managed blocks, #79).
  */
 export function isRemovableNavoriFile(path: string, markerId?: string): boolean {
+  return navoriAuthorship(path, markerId) === "ours";
+}
+
+/**
+ * Who wrote this file, as far as navori can tell from its bytes.
+ *
+ * `ours` is the only deletable verdict; the other two are kept apart because
+ * they are DIFFERENT ANSWERS and the run says which one it gave. `foreign` means
+ * "we read it and nothing in it says navori wrote it"; `newer` means "navori
+ * wrote it — a newer one than this CLI — so it is not ours to roll back" (#79).
+ * Collapsing the two is how the prune came to report a file navori had generated
+ * whole under "left untouched what navori did not write" (#538).
+ */
+export function navoriAuthorship(path: string, markerId?: string): NavoriAuthorship {
   let stats;
   try {
     // `lstat`, never `stat`/`existsSync`: both resolve the link, so a symlink
@@ -47,22 +62,59 @@ export function isRemovableNavoriFile(path: string, markerId?: string): boolean 
     // is the user's whatever it points at, so it is never navori's to remove.
     stats = lstatSync(path, { throwIfNoEntry: false });
   } catch {
-    return false;
+    return "foreign";
   }
-  if (!stats?.isFile()) return false;
+  if (!stats?.isFile()) return "foreign";
   let content: string;
   try {
     content = readFileSync(path, "utf-8");
   } catch {
-    return false;
+    return "foreign";
   }
-  // Where to read `version=` from: the opening tag of the block the caller
-  // named, or — when it named none — anywhere in the file.
+  const writer = writerVersion(content, markerId);
+  if (writer === null) return "foreign";
+  return isDowngrade(writer, CLI_VERSION) ? "newer" : "ours";
+}
+
+/** The three answers `navoriAuthorship` can give. Only `ours` may be deleted. */
+export type NavoriAuthorship = "ours" | "newer" | "foreign";
+
+/**
+ * The navori release that wrote this content, or null when nothing in it claims
+ * navori did — read from whichever of the TWO notations the file can carry.
+ *
+ * 1. The comment marker, in every format that has comments. `markerId` narrows
+ *    the read to that block's opening tag; without one, any managed marker in
+ *    the file answers for it.
+ * 2. The `$navori` key, for the JSON files navori generates whole. JSON has no
+ *    comments, so notation 1 can never appear in one — which left EVERY
+ *    generated JSON permanently unauthored: `.claude/settings.json` survived the
+ *    prune of a disabled `claude` engine, reported as a file navori had not
+ *    written, with its hooks pointing at the scripts the same prune had just
+ *    deleted (#538).
+ *
+ * A caller that named a `markerId` is asking "does navori own this file AS that
+ * block", and a JSON file has no blocks — so notation 2 is not offered there,
+ * rather than pretending the id matched.
+ *
+ * Still authorship BY CONTENT, never by path: no extension is tested, no list of
+ * "files navori is known to write" exists here. Reintroducing one is the exact
+ * defect #496 removed.
+ */
+function writerVersion(content: string, markerId?: string): string | null {
   const scope = markerId === undefined ? content : openingTagFor(content, markerId);
-  if (scope === null || !scope.includes("navori:managed")) return false;
-  const existingVersion = scope.match(/version="([^"]+)"/)?.[1];
-  if (!existingVersion) return false;
-  return !isDowngrade(existingVersion, CLI_VERSION);
+  if (scope !== null && scope.includes("navori:managed")) {
+    const marked = scope.match(/version="([^"]+)"/)?.[1];
+    if (marked) return marked;
+  }
+  if (markerId !== undefined) return null;
+  const ownership = readNavoriOwnership(content);
+  // `managed` is what separates a file navori GENERATED from one it merely edits
+  // by key (`.mcp.json`, a coexisting settings.json, which record their tracking
+  // under the same `$navori` key). The second kind is the user's file and no
+  // delete path may touch it.
+  if (!ownership?.managed) return null;
+  return ownership.version ?? null;
 }
 
 /**
@@ -83,11 +135,14 @@ function openingTagFor(content: string, id: string): string | null {
   return content.slice(start, end === -1 ? undefined : end);
 }
 
-/** Why a path survived the prune. `symlink` is its own reason and not a flavour
- *  of `foreign` because it answers a different question: `foreign` means "we
- *  read this file and it is not ours", `symlink` means "we did not follow it and
- *  will not unlink it". */
-export type KeepReason = "foreign" | "ephemeral" | "symlink";
+/** Why a path survived the prune. Each reason answers a DIFFERENT question, so
+ *  none is a flavour of another: `foreign` means "we read this file and it is
+ *  not ours", `newer` means "it is ours but a newer navori wrote it, so we will
+ *  not roll it back" (#79), `symlink` means "we did not follow it and will not
+ *  unlink it", `ephemeral` means "machine-local state we never version". The
+ *  user acts differently on each, and a run that called them all `foreign` told
+ *  them navori had not written a file it had generated whole (#538). */
+export type KeepReason = "foreign" | "newer" | "ephemeral" | "symlink";
 
 /** What a prune may and may not touch, decided file by file. */
 export interface OrphanRemovalPlan {
@@ -169,8 +224,9 @@ export function planOrphanRemoval(
       return;
     }
     if (stats.isFile()) {
-      if (isRemovableNavoriFile(join(cwd, rel))) plan.remove.push(rel);
-      else keep(rel, "foreign");
+      const authorship = navoriAuthorship(join(cwd, rel));
+      if (authorship === "ours") plan.remove.push(rel);
+      else keep(rel, authorship === "newer" ? "newer" : "foreign");
       return;
     }
     if (!stats.isDirectory() || depth > MAX_DEPTH) {

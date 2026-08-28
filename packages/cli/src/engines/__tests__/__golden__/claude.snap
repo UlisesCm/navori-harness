@@ -6,6 +6,7 @@
 # Normalized (see golden-render-tree.test.ts → NORMALIZERS):
 #   (navori:managed[^\n]*?)version="[^"]*" → $1version="<VERSION>"
 #   (navori:managed[^\n]*?)hash="[^"]*" → $1hash="<HASH>"
+#   ("\$navori":\s*\{[^}]*?"version":\s*")[^"]*" → $1<VERSION>"
 
 ===== FILE: .claude/agents/auditor.md =====
 ---
@@ -4175,7 +4176,7 @@ esac
 {
   "$navori": {
     "managed": true,
-    "version": "0.0.1",
+    "version": "<VERSION>",
     "notes": "Archivo generado por navori. NO editar a mano — los cambios se pierden en el próximo `navori render`. Per-user / per-machine permissions van a settings.local.json (gitignored)."
   },
   "hooks": {

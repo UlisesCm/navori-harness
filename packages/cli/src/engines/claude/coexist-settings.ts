@@ -24,7 +24,7 @@
  * user keeps ownership of everything else.
  */
 
-const OWNERSHIP_KEY = "$navori";
+import { NAVORI_OWNERSHIP_KEY as OWNERSHIP_KEY } from "../../lib/json-ownership.ts";
 
 type Json = Record<string, unknown>;
 

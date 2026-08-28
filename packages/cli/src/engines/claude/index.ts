@@ -30,7 +30,7 @@ import {
   emitUserSection,
 } from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
-import { isNavoriOwnedSettings } from "./settings-detection.ts";
+import { isNavoriOwnedSettings } from "../../lib/json-ownership.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
 import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
 import { renderManagedFile } from "../shared/render-managed-file.ts";

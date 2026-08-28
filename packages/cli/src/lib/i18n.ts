@@ -1314,11 +1314,13 @@ const CMD_ES: CmdStrings = {
       `que escribió navori (llevan su marcador), y los respalda antes de borrar. Este preview ` +
       `no tocó nada:\n${list}`,
     keptEngineOutputs: (count, list) =>
-      `Dejé intacto lo que navori no escribió (${count}) — el prune borra archivo por archivo, ` +
-      `nunca el directorio completo. Bórralos tú si ya no los quieres:\n${list}`,
+      `Dejé intacto lo que no me tocaba borrar (${count}) — el prune borra archivo por archivo, ` +
+      `nunca el directorio completo. La razón va junto a cada uno; bórralos tú si ya no los ` +
+      `quieres:\n${list}`,
     keptEngineOutputsPreview: (count, list) =>
-      `Conservaría lo que navori no escribió (${count}) — el prune borra archivo por archivo, ` +
-      `nunca el directorio completo. Bórralos tú si ya no los quieres:\n${list}`,
+      `Conservaría lo que no me toca borrar (${count}) — el prune borra archivo por archivo, ` +
+      `nunca el directorio completo. La razón va junto a cada uno; bórralos tú si ya no los ` +
+      `quieres:\n${list}`,
     keptEngineOutputReason: (reason) => {
       switch (reason) {
         case "ephemeral":
@@ -1328,10 +1330,17 @@ const CMD_ES: CmdStrings = {
           // behaviour, not a failure: say so, or the user reads the surviving
           // `.cursor` as a prune that did not work.
           return "es un enlace simbólico: no lo seguimos ni lo desenlazamos; bórralo tú si ya no lo quieres";
+        case "newer":
+          // NOT `foreign`: navori sí lo escribió, sólo que una versión más nueva
+          // que este CLI. Decir "no lo escribimos nosotros" era mentira (#538).
+          return "lo escribió una navori más nueva que tu CLI: no lo degradamos; actualiza con 'npm i -g navori@latest'";
         // No `default`: a new reason must fail to compile in BOTH locales
         // instead of silently rendering as "we did not write it".
         case "foreign":
-          return "sin marcador de navori: no lo escribimos nosotros";
+          // Afirma el HECHO (no lleva marcador), no la inferencia (es tuyo): un
+          // JSON que escribió una navori vieja, de antes de que estampara
+          // `$navori`, tampoco lo lleva y el mensaje lo daba por ajeno (#538).
+          return "sin marcador de navori: no puedo confirmar que sea nuestro, así que no lo toco";
       }
     },
     downgradeWarning: ({ count, newest, ids }) =>
@@ -2226,11 +2235,13 @@ const CMD_EN: CmdStrings = {
       `the ones navori wrote (they carry its marker), backed up before deletion. This preview ` +
       `touched nothing:\n${list}`,
     keptEngineOutputs: (count, list) =>
-      `Left untouched what navori did not write (${count}) — the prune deletes file by file, ` +
-      `never the whole directory. Delete them yourself if you no longer want them:\n${list}`,
+      `Left in place what was not mine to delete (${count}) — the prune deletes file by file, ` +
+      `never the whole directory. Each one carries its reason; delete them yourself if you no ` +
+      `longer want them:\n${list}`,
     keptEngineOutputsPreview: (count, list) =>
-      `Would keep what navori did not write (${count}) — the prune deletes file by file, ` +
-      `never the whole directory. Delete them yourself if you no longer want them:\n${list}`,
+      `Would keep what is not mine to delete (${count}) — the prune deletes file by file, ` +
+      `never the whole directory. Each one carries its reason; delete them yourself if you no ` +
+      `longer want them:\n${list}`,
     keptEngineOutputReason: (reason) => {
       switch (reason) {
         case "ephemeral":
@@ -2239,8 +2250,15 @@ const CMD_EN: CmdStrings = {
           // See the es-MX twin: a surviving link is a deliberate decision the
           // user must be able to tell apart from a prune that failed.
           return "it is a symlink: we neither follow nor unlink it; delete it yourself if you no longer want it";
+        case "newer":
+          // See the es-MX twin: navori DID write it, just a newer one than this
+          // CLI, so `foreign`'s "we did not write it" was false (#538).
+          return "written by a navori newer than your CLI: we do not roll it back; update with 'npm i -g navori@latest'";
         case "foreign":
-          return "no navori marker: we did not write it";
+          // See the es-MX twin: states the FACT (no marker), not the inference
+          // (it is yours). A JSON written by an older navori, from before it
+          // stamped `$navori`, carries none either (#538).
+          return "no navori marker: we cannot confirm it is ours, so we leave it alone";
       }
     },
     downgradeWarning: ({ count, newest, ids }) =>
