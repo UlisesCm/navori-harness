@@ -358,3 +358,47 @@ describe("audit: output layout (R15, R16, R18)", () => {
     expect(existsSync(join(custom, "sessions"))).toBe(false);
   });
 });
+
+/**
+ * R14 — the summary used to lead with `startupTokens`, the SMALLEST of the three
+ * numbers in its own report: a run printing "346k" carried 2.3M billable and
+ * 137.5M of cache_read in the body.
+ */
+describe("audit: the summary reports the real spend (R14)", () => {
+  // Covers: R14
+  it("names the billable total, not only startup", () => {
+    runAudit(["--start", "sess-sum"]);
+    const transcripts = join(sandbox, "transcripts", "enc");
+    mkdirSync(transcripts, { recursive: true });
+    const jsonl = join(transcripts, "sess-sum.jsonl");
+    writeFileSync(
+      jsonl,
+      `${JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-08-25T10:00:00Z",
+        message: {
+          model: "claude-opus-5",
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_creation_input_tokens: 500_000,
+            cache_read_input_tokens: 9_000_000,
+          },
+        },
+      })}\n`,
+      "utf-8",
+    );
+    appendFileSync(
+      join(auditDir, "session-sess-sum.log"),
+      `${JSON.stringify({ ts: "2026-08-25T10:00:00Z", event: "prompt", prompt: "x", transcript: jsonl })}\n`,
+      "utf-8",
+    );
+
+    const res = runAudit(["--session", "sess-sum"]);
+    expect(res.status).toBe(0);
+    expect(res.combined).toContain("facturable");
+    // cache_read is reported too, and separately: it accrues every turn and is
+    // not new spend, so folding it into one number would mislead the other way.
+    expect(res.combined).toContain("cache_read");
+  });
+});

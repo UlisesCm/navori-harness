@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="9e4d0862" version="0.6.4" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="7792c33d" version="0.6.4" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse(Bash) watcher for managed-block drift (#530).
@@ -80,13 +80,60 @@ navori_audit_log() { :; }
 # nothing is ever written to stdout — a stray byte there would be interpreted by
 # the host as hook output (context injection, or a block reason).
 
-# Start the clock. Called once, right after the payload is read.
+# Start the clock — but only after establishing that anything will be recorded.
+#
+# THE COST OF BEING OFF is the number that matters here: this code is inlined
+# into hooks that fire on EVERY Bash call, and audit-mode is off for virtually
+# every session of every user. An earlier version ran `perl` plus two `jq`
+# invocations before it ever checked whether a log existed — three processes per
+# hook, four hooks per command, ~48 ms on every single shell call for a feature
+# nobody had turned on.
+#
+# So the gate is a pure-builtin one first: the per-repo audit directory only
+# exists once audit-mode has been activated in this repo at least once. No
+# subprocess, no parsing. Everything expensive lives behind it.
 navori_audit_begin() {
-  # Milliseconds since epoch, portable: GNU date has %s%3N, BSD/macOS date does
-  # not. `perl` is present on every macOS and virtually every Linux; when it is
-  # missing the clock degrades to seconds*1000 rather than disabling the record.
-  navori_audit_t0=$(perl -MTime::HiRes=time -e 'printf "%.0f", time*1000' 2>/dev/null) \
-    || navori_audit_t0=$(( $(date +%s 2>/dev/null || echo 0) * 1000 ))
+  navori_audit_on=0
+
+  navori_audit_root=${NAVORI_AUDITS_ROOT:-}
+  if [ -z "$navori_audit_root" ]; then
+    [ -n "${HOME:-}" ] || return 0
+    navori_audit_root=$HOME/.navori/audits
+  fi
+
+  # The gate tests the audit ROOT, not the per-repo directory.
+  #
+  # Deriving the repo cheaply would mean `${CLAUDE_PROJECT_DIR##*/}` — and that
+  # is WRONG: the authoritative repo comes from the payload's `cwd`, and the two
+  # differ whenever a hook fires inside an agent worktree, since the hook process
+  # starts in the main repo (#454). A gate built on the wrong name would silently
+  # record nothing exactly where the harness runs its parallel work.
+  #
+  # The root alone is enough for what this gate is for: a user who has never
+  # activated audit-mode anywhere has no `~/.navori/audits`, so the common case
+  # costs one stat and zero processes. Someone who does use audit-mode pays the
+  # parsing — which is the cost of the feature they turned on.
+  [ -d "$navori_audit_root" ] || return 0
+
+  navori_audit_on=1
+  navori_audit_t0=$(navori_audit_now)
+}
+
+# Milliseconds since epoch, spending a process only when it has to.
+#
+# `$EPOCHREALTIME` is a BUILTIN in bash 5 and in zsh (with zsh/datetime, which
+# the harness's zsh path already has): no fork at all. Only a shell without it
+# pays for `perl`, and only a machine without perl degrades to whole seconds —
+# `date` has no portable millisecond format (GNU has %s%3N, BSD does not).
+navori_audit_now() {
+  if [ -n "${EPOCHREALTIME:-}" ]; then
+    # `1756... .123456` → milliseconds, with pure parameter expansion.
+    navori_audit_epoch=${EPOCHREALTIME/,/.}
+    printf '%s%s' "${navori_audit_epoch%%.*}" "$(printf '%.3s' "${navori_audit_epoch#*.}")"
+    return 0
+  fi
+  perl -MTime::HiRes=time -e 'printf "%.0f", time*1000' 2>/dev/null \
+    || printf '%s' $(( $(date +%s 2>/dev/null || echo 0) * 1000 ))
 }
 
 # navori_audit_log <verdict> [reason]
@@ -95,12 +142,26 @@ navori_audit_begin() {
 # which the render sets per hook — the partial never guesses which hook it is
 # inlined into.
 navori_audit_log() {
+  # The builtin-only gate from `navori_audit_begin`: when audit-mode was never
+  # activated in this repo, nothing below runs and no process is spawned.
+  [ "${navori_audit_on:-0}" = "1" ] || return 0
   # No payload, no jq, no clock → nothing to record. Each of these is a normal
   # state for a hook that bailed early, not an error worth surfacing.
   [ -n "${payload:-}" ] || return 0
   command -v jq >/dev/null 2>&1 || return 0
 
-  navori_audit_session=$(printf '%s' "${payload:-}" | jq -r '.session_id // ""' 2>/dev/null) || return 0
+  # ONE jq for every field, not one per field: this runs on each hook of each
+  # Bash call, and a fork is the most expensive thing in it. Newline-separated,
+  # read back positionally.
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", .agent_id // .subagent_id // ""] | .[]' 2>/dev/null) || return 0
+  navori_audit_session=${navori_audit_fields%%
+*}
+  navori_audit_rest=${navori_audit_fields#*
+}
+  navori_audit_cwd=${navori_audit_rest%%
+*}
+  navori_audit_agent=${navori_audit_rest#*
+}
   [ -n "$navori_audit_session" ] || return 0
   # Same character class the CLI enforces (#503): the id composes a path, so
   # anything path-shaped means the payload is not what we think it is.
@@ -108,22 +169,15 @@ navori_audit_log() {
     *[!A-Za-z0-9_-]*) return 0 ;;
   esac
 
-  navori_audit_cwd=$(printf '%s' "${payload:-}" | jq -r '.cwd // ""' 2>/dev/null) || return 0
   [ -n "$navori_audit_cwd" ] || navori_audit_cwd=$PWD
   navori_audit_repo=$(basename "$navori_audit_cwd" 2>/dev/null) || return 0
   [ -n "$navori_audit_repo" ] || return 0
 
-  if [ -n "${NAVORI_AUDITS_ROOT:-}" ]; then
-    navori_audit_root=$NAVORI_AUDITS_ROOT
-  else
-    [ -n "${HOME:-}" ] || return 0
-    navori_audit_root=$HOME/.navori/audits
-  fi
   navori_audit_file=$navori_audit_root/$navori_audit_repo/session-$navori_audit_session.log
 
-  # THE no-op that keeps audit-mode free: one stat when the mode is off, which
-  # is every session that never opted in. Also the writability check — a log
-  # that cannot be appended to is not an error, it is simply not recording.
+  # The session may not be the marked one even in a repo that has been audited
+  # before. Also the writability check — a log that cannot be appended to is not
+  # an error, it is simply not recording.
   [ -f "$navori_audit_file" ] || return 0
   [ -w "$navori_audit_file" ] || return 0
 
@@ -144,16 +198,15 @@ navori_audit_log() {
     esac
   fi
 
-  navori_audit_now=$(perl -MTime::HiRes=time -e 'printf "%.0f", time*1000' 2>/dev/null) \
-    || navori_audit_now=$(( $(date +%s 2>/dev/null || echo 0) * 1000 ))
-  navori_audit_ms=$(( navori_audit_now - ${navori_audit_t0:-$navori_audit_now} ))
+  navori_audit_end=$(navori_audit_now)
+  navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
-  # The agent id is what lets the report attribute a hook to a subagent WITHOUT
-  # guessing: with agents running in parallel their time windows overlap, so
-  # attribution by timestamp is the fallback, not the primary route.
-  navori_audit_agent=$(printf '%s' "${payload:-}" | jq -r '.agent_id // .subagent_id // ""' 2>/dev/null) || navori_audit_agent=""
+  # `navori_audit_agent` came out of the same single jq above. It is what lets
+  # the report attribute a hook to a subagent WITHOUT guessing: with agents
+  # running in parallel their time windows overlap, so attribution by timestamp
+  # is the fallback, not the primary route.
 
   printf '%s\n' "$(jq -cn \
     --arg ts "$navori_audit_ts" \

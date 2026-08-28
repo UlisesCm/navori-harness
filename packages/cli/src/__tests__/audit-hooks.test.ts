@@ -610,3 +610,48 @@ describe("recorder calls live inside the managed block", () => {
     expect(body.slice(0, endMarker)).toContain('navori_audit_verdict="block"');
   });
 });
+
+/**
+ * R21 — the only end-of-subagent mark the host lets a hook observe.
+ *
+ * There is NO subagent-start phase (the host offers PreToolUse, PostToolUse,
+ * UserPromptSubmit, SessionStart, SessionEnd, Stop, SubagentStop, PreCompact),
+ * so identity and duration keep coming from the transcript. What the log can
+ * carry is that a subagent finished, and that is what this pins.
+ */
+describe.each(SHELLS)("subagent end is observable under %s", (shell) => {
+  // Covers: R21
+  it("records the SubagentStop hook when a subagent finishes", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
+    runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd, agent_id: "ag_42" }));
+    const event = logEvents().find((e) => e.event === "hook");
+    expect(event).toMatchObject({ name: "subagent-stop-handoff", phase: "SubagentStop" });
+    // The agent id rides along, so the end can be tied to the run the
+    // transcript reconstructed.
+    expect(event?.agentId).toBe("ag_42");
+  });
+});
+
+/**
+ * bash keeps exactly ONE EXIT trap. A hook that installs its own cleanup trap
+ * after the recorder's silently discards it — and `check-jscpd` did, on the one
+ * path where it does real work.
+ */
+describe("a hook's own EXIT trap must compose with the recorder's", () => {
+  // Covers: R5
+  it("never replaces the recorder trap with a bare one", () => {
+    const offenders: string[] = [];
+    for (const file of hooksWithRecorder()) {
+      const body = readFileSync(file, "utf-8");
+      if (!body.includes("trap navori_audit_on_exit EXIT")) continue;
+      // Any OTHER EXIT trap in the same file must call the recorder too.
+      for (const m of body.matchAll(/^\s*trap\s+(.+?)\s+EXIT\s*$/gm)) {
+        const handler = m[1] ?? "";
+        if (handler === "navori_audit_on_exit") continue;
+        if (!handler.includes("navori_audit_on_exit")) offenders.push(`${file}: ${handler}`);
+      }
+    }
+    expect(offenders, "this EXIT trap overwrites the recorder's").toEqual([]);
+  });
+});

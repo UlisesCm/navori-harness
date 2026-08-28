@@ -190,8 +190,8 @@ export const auditCommand = defineCommand({
 
     if (marked.length === 0) {
       const msg = isEs
-        ? `No hay sesiones marcadas con audit-mode para '${repo}'. Escribe "audit mode" en una sesión para empezar a registrar.`
-        : `No sessions marked with audit-mode for '${repo}'. Type "audit mode" in a session to start recording.`;
+        ? `No hay sesiones marcadas con audit-mode para '${repo}'. Actívalo con 'navori audit --start <id-de-sesión>'.`
+        : `No sessions marked with audit-mode for '${repo}'. Activate it with 'navori audit --start <session-id>'.`;
       if (json) console.log(JSON.stringify({ ok: false, error: "no-marked-sessions", repo }));
       else p.cancel(msg);
       process.exit(2);

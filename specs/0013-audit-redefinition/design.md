@@ -17,8 +17,14 @@ el prompt cuando el modo ya está activo (R3, R4).
 partial (`hooks/lib/audit-log.sh`) que cada hook managed hace `source` y llama una vez. Se
 elige el helper sobre diez implementaciones independientes porque el formato del evento es
 un contrato del lector (`parse.ts`): diez copias de un `jq -cn` derivan, y el lector se
-entera cuando ya perdió datos. El helper es no-op sin log presente, así que fuera de
-audit-mode el costo es un `[ -f ]` (R5, R6).
+entera cuando ya perdió datos. El helper es no-op sin audit-mode, y el costo de estarlo se
+MIDIÓ en vez de suponerse: la primera versión gastaba `perl` + dos `jq` antes de comprobar
+si había log — tres procesos por hook, cuatro hooks por comando, ~12 ms extra en cada
+llamada a Bash de cualquier usuario de navori. La guarda es ahora un `[ -d ]` sobre el audit
+root resuelto con builtins, así que quien nunca activó audit-mode no paga ningún proceso. La
+guarda NO deriva el repo de `$CLAUDE_PROJECT_DIR`: el repo autoritativo viene del `cwd` del
+payload y ambos difieren cuando el hook corre dentro de un worktree de agente (#454) —
+precisamente donde el harness paraleliza (R5, R6).
 
 **3. El reporte gana una ficha por agente.** Este es el cambio con menos riesgo y más
 valor visible: `AgentRun` ya captura tipo, modelo, descripción, tokens, arranque,

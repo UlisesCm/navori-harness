@@ -146,7 +146,12 @@ fi
 echo "▶ jscpd: ${#files[@]} changed file(s) vs $base in $tree" >&2
 
 tmpdir=$(mktemp -d)
-trap 'rm -rf "$tmpdir"' EXIT
+# COMPOSED, not replaced: bash keeps exactly ONE EXIT trap, so a bare
+# `trap 'rm -rf ...' EXIT` here silently discards the audit recorder installed
+# above — and it does so precisely on the path where this hook does real work,
+# which is the one worth recording. The cleanup runs first so the temp dir goes
+# away even if the recorder were ever to hang.
+trap 'rm -rf "$tmpdir"; navori_audit_on_exit' EXIT
 
 # `>&2` is not cosmetic (#510): a PreToolUse hook shows the user its stderr and
 # swallows its stdout, so the console reporter's clone table — the whole point
