@@ -84,8 +84,8 @@ describe("interpolate — default mode", () => {
   });
 
   it("respects extraVars over config paths", () => {
-    const r = interpolate("ver={{coreVersion}}", CONFIG, { extraVars: { coreVersion: "0.0.1" } });
-    expect(r).toBe("ver=0.0.1");
+    const r = interpolate("ver={{cliVersion}}", CONFIG, { extraVars: { cliVersion: "0.6.4" } });
+    expect(r).toBe("ver=0.6.4");
   });
 });
 

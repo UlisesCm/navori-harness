@@ -581,3 +581,97 @@ describe("doctor never promises a path is safe to delete (#496)", () => {
     }
   });
 });
+
+/**
+ * #538 — the notation half of the same criterion.
+ *
+ * The authorship test reads a COMMENT marker, and JSON has no comments. So every
+ * JSON file navori generates whole was unauthored by construction: `render
+ * --prune` on a disabled `claude` engine deleted the whole harness and left
+ * `.claude/settings.json` behind, reported as a file navori had not written,
+ * with its hooks still pointing at the scripts that same prune had just deleted.
+ *
+ * The fix is the `$navori` key the file already carried — the JSON twin of the
+ * marker, with the same two facts (`managed` + `version`) and the same
+ * anti-rollback guard. Authorship stays decided by CONTENT: no extension is
+ * tested and no list of "JSON navori is known to write" exists, because a path
+ * list is exactly the defect #496 removed.
+ */
+describe("the criterion reads the JSON notation of the marker too (#538)", () => {
+  /** A repo whose only configured engine is `codex`, so everything under
+   *  `.claude/` is an orphaned output the prune must judge file by file. */
+  function repoWithOrphanedClaudeFile(
+    rel: string,
+    content: string,
+  ): {
+    cwd: string;
+    path: string;
+    kept: Array<{ path: string; reason: string }>;
+  } {
+    const cwd = newRepo();
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "demo",
+      engines: ["codex"],
+      preset: "custom",
+    });
+    const path = join(cwd, rel);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content, "utf-8");
+    const result = runRender(cwd, { dryRun: false, prune: true });
+    return { cwd, path, kept: result.keptEngineOutputs ?? [] };
+  }
+
+  /** `.claude/settings.json` as navori generates it: owned whole, stamped. */
+  function generatedSettings(version: string): string {
+    return `${JSON.stringify({ $navori: { managed: true, version }, hooks: {} }, null, 2)}\n`;
+  }
+
+  it("deletes a settings.json navori generated, instead of calling it the user's", () => {
+    const { path, kept } = repoWithOrphanedClaudeFile(
+      ".claude/settings.json",
+      generatedSettings(readCliVersion()),
+    );
+    expect(existsSync(path)).toBe(false);
+    expect(kept.map((k) => k.path)).not.toContain(".claude/settings.json");
+  });
+
+  it("keeps one a NEWER navori wrote, and says so instead of 'we did not write it'", () => {
+    const { path, kept } = repoWithOrphanedClaudeFile(
+      ".claude/settings.json",
+      generatedSettings("99.0.0"),
+    );
+    expect(existsSync(path)).toBe(true);
+    expect(kept).toContainEqual({ path: ".claude/settings.json", reason: "newer" });
+  });
+
+  it("keeps a HYBRID json — `$navori` present, `managed` absent — as the user's", () => {
+    // A coexisting settings.json (and `.mcp.json`): navori owns some KEYS, never
+    // the file. Deleting it would take the user's own configuration with it.
+    const { path, kept } = repoWithOrphanedClaudeFile(
+      ".claude/settings.json",
+      `${JSON.stringify({ $navori: { managedHooks: ["x"] }, permissions: {} }, null, 2)}\n`,
+    );
+    expect(existsSync(path)).toBe(true);
+    expect(kept).toContainEqual({ path: ".claude/settings.json", reason: "foreign" });
+  });
+
+  it("keeps a json with no marker at all", () => {
+    const { path, kept } = repoWithOrphanedClaudeFile(
+      ".claude/mis-cosas.json",
+      `${JSON.stringify({ mine: true }, null, 2)}\n`,
+    );
+    expect(existsSync(path)).toBe(true);
+    expect(kept).toContainEqual({ path: ".claude/mis-cosas.json", reason: "foreign" });
+  });
+
+  it("still never deletes the per-user settings.local.json, marker or not", () => {
+    // Ephemeral state wins over authorship: it is the user's machine-local file
+    // and navori never versions it (#348).
+    const { path, kept } = repoWithOrphanedClaudeFile(
+      ".claude/settings.local.json",
+      generatedSettings(readCliVersion()),
+    );
+    expect(existsSync(path)).toBe(true);
+    expect(kept).toContainEqual({ path: ".claude/settings.local.json", reason: "ephemeral" });
+  });
+});

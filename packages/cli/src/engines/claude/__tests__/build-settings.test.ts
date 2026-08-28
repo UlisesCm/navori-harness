@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildClaudeSettings } from "../build-settings.ts";
 import type { NavoriConfig } from "../../../lib/config.ts";
 import type { LoadedPlugin } from "../../../lib/plugins.ts";
+import { readCliVersion } from "../../../lib/bundled-assets.ts";
 
 const MINIMAL_CONFIG = {
   name: "test",
@@ -38,11 +39,15 @@ function makePlugin(overrides: Partial<LoadedPlugin["manifest"]>): LoadedPlugin 
 }
 
 describe("buildClaudeSettings — base shape", () => {
-  it("includes the $navori ownership marker with resolved coreVersion", () => {
+  it("includes the $navori ownership marker stamped with the CLI version", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
     const navori = s.$navori as { managed: boolean; version: string };
     expect(navori.managed).toBe(true);
-    expect(navori.version).toMatch(/^\d+\.\d+\.\d+$/);
+    // The CLI's release version, not @navori/core's frozen 0.0.1: this stamp is
+    // the anti-rollback signal `lib/removable.ts` reads before deleting the file
+    // (#538), so it has to move on the same scale as a managed block's
+    // `version=`.
+    expect(navori.version).toBe(readCliVersion());
   });
 
   it("ships base permissions.allow entries (read-only git checks)", () => {

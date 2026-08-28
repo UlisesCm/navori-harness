@@ -6,6 +6,7 @@
 # Normalized (see golden-render-tree.test.ts → NORMALIZERS):
 #   (navori:managed[^\n]*?)version="[^"]*" → $1version="<VERSION>"
 #   (navori:managed[^\n]*?)hash="[^"]*" → $1hash="<HASH>"
+#   ("\$navori":\s*\{[^}]*?"version":\s*")[^"]*" → $1<VERSION>"
 
 ===== FILE: .github/copilot-instructions.md =====
 # Copilot instructions
