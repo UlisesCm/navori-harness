@@ -4,12 +4,12 @@ description: Use when closing a cycle's PR (e.g. Phase 8 of ticket-intake). Supe
 type: reference
 ---
 
-<!-- navori:managed id="pr-create" hash="2316d625" version="0.6.4" source="@navori/core" -->
+<!-- navori:managed id="pr-create" hash="2e850cff" version="0.6.4" source="@navori/core" -->
 # pr-create — superseded by `commit-pr-pilot`
 
 The commit + PR flow has **one owner**: the `commit-pr-pilot` agent
 (`.claude/agents/commit-pr-pilot.md`). It owns the pre-flight, the PR gate
-(`pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test && pnpm lint && pnpm typecheck` green), the review/R1 handling, the body template and the
+(`pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green), the review/R1 handling, the body template and the
 commit/PR language (per the config's `commits`).
 
 **To close a cycle, invoke `commit-pr-pilot`.** Don't draft the PR from a separate

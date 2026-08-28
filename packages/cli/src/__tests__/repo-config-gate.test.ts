@@ -44,10 +44,6 @@ const EXEMPT_FROM_LOCAL_GATE = new Map<string, string>([
   ["install", "dependency install, not a check"],
   ["build", "`check:render` rebuilds before rendering, so the gate builds anyway"],
   [
-    "test:coverage",
-    "same suite as `test`, plus the coverage threshold — a merge bar measured in CI, not a local one",
-  ],
-  [
     "check:assets:ci",
     // The gate runs `check:assets`, the SAME check: `:ci` only adds `--strict`,
     // which turns its "could not run" outcome red. That outcome depends on tags

@@ -1,6 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -201,5 +210,195 @@ describe("audit --json", () => {
       error: "no-marked-sessions",
       repo: REPO,
     });
+  });
+});
+
+/**
+ * The defect that motivated spec 0013: a mode-switching flag invoked WITHOUT a
+ * value.
+ *
+ * citty hands a valueless `type: "string"` flag the empty string, not
+ * `undefined`, so the guards that read `typeof id === "string" && id` treated
+ * `--stop` exactly like "no --stop at all" — and the command fell through to the
+ * range report, printing a summary that reads like a successful seal. It failed
+ * OPEN: an operator ran it, saw "4 sessions", and nothing had been sealed.
+ *
+ * Spawning the real CLI matters here for the same reason as the specs above: the
+ * whole defect lived in the exit code and in what did (not) reach disk.
+ */
+describe("audit: a mode flag with no value stops the command (R2)", () => {
+  // Covers: R2
+  it("--start with no id exits non-zero and writes no report", () => {
+    const res = runAudit(["--start"]);
+    expect(res.status).not.toBe(0);
+    expect(res.combined).toContain("--start");
+    // The heart of the defect: not merely "no log" but "no REPORT either".
+    // Falling through to the range report is what made the failure look like
+    // success.
+    expect(sandboxTree().filter((f) => f.endsWith(".md") || f.endsWith(".json"))).toEqual([]);
+  });
+
+  // Covers: R2
+  it("--stop with no id exits non-zero and writes no report", () => {
+    const res = runAudit(["--stop"]);
+    expect(res.status).not.toBe(0);
+    expect(res.combined).toContain("--stop");
+    expect(sandboxTree().filter((f) => f.endsWith(".md") || f.endsWith(".json"))).toEqual([]);
+  });
+
+  // Covers: R2
+  it("reports the missing value as JSON under --json, not as prose", () => {
+    const res = runAudit(["--json", "--stop"]);
+    expect(res.status).not.toBe(0);
+    const parsed = JSON.parse(res.combined.trim()) as { ok: boolean; error: string };
+    expect(parsed).toMatchObject({ ok: false, error: "missing-flag-value" });
+  });
+
+  // Covers: R2
+  it("still accepts an empty value for a flag that only carries data", () => {
+    // `--since` is a filter, not a mode switch: an empty value falls back to its
+    // default instead of silently changing what the command does. The guard must
+    // not spread to those, or every optional filter becomes mandatory.
+    runAudit(["--start", "sess1"]);
+    const res = runAudit(["--json", "--since", "", "--session", "sess1"]);
+    // Asserting on the CAUSE, not on the exit code: this run also fails (the
+    // fixture session has no transcript), and both failures share `exit 2`. What
+    // must not happen is that it fails as a missing flag value.
+    const parsed = JSON.parse(res.combined.trim()) as { error: string };
+    expect(parsed.error).not.toBe("missing-flag-value");
+  });
+});
+
+describe("audit --start is the only way in (R1)", () => {
+  // Covers: R1
+  it("names the log file it created", () => {
+    const res = runAudit(["--start", "sess-named"]);
+    expect(res.status).toBe(0);
+    expect(res.combined).toContain("session-sess-named.log");
+    expect(existsSync(join(auditDir, "session-sess-named.log"))).toBe(true);
+  });
+});
+
+/**
+ * Spec 0013, lote D — one directory per audited unit.
+ *
+ * The old layout named every artifact by RANGE (`audit-<from>-<to>.md`), so two
+ * runs covering different ranges left overlapping pairs that nothing ever
+ * reconciled — four had piled up in this repo's own store.
+ */
+describe("audit: output layout (R15, R16, R18)", () => {
+  /** Mark a session and give it a transcript the CLI can actually find. */
+  function markedSessionWithTranscript(id: string, day: string): void {
+    runAudit(["--start", id]);
+    const transcripts = join(sandbox, "transcripts", "enc");
+    mkdirSync(transcripts, { recursive: true });
+    const jsonl = join(transcripts, `${id}.jsonl`);
+    writeFileSync(
+      jsonl,
+      `${JSON.stringify({
+        type: "assistant",
+        timestamp: `${day}T10:00:00Z`,
+        message: { model: "claude-opus-5", usage: { input_tokens: 1, output_tokens: 1 } },
+      })}\n`,
+      "utf-8",
+    );
+    // The hook records the transcript path on the first prompt; without it
+    // discovery would have to guess Claude Code's undocumented encoding.
+    appendFileSync(
+      join(auditDir, `session-${id}.log`),
+      `${JSON.stringify({ ts: `${day}T10:00:00Z`, event: "prompt", prompt: "x", transcript: jsonl })}\n`,
+      "utf-8",
+    );
+  }
+
+  // Covers: R15
+  it("gives one session its own directory with log, json and md", () => {
+    markedSessionWithTranscript("sess-alpha", "2026-08-25");
+    const res = runAudit(["--session", "sess-alpha"]);
+    expect(res.status).toBe(0);
+    const dir = join(auditDir, "sessions", "2026-08-25-sess-alp");
+    for (const file of ["report.md", "report.json", "session.log"]) {
+      expect(existsSync(join(dir, file)), `${file} missing`).toBe(true);
+    }
+  });
+
+  // Covers: R16
+  it("puts a multi-session report under ranges/, with its index", () => {
+    markedSessionWithTranscript("sess-one", "2026-08-25");
+    markedSessionWithTranscript("sess-two", "2026-08-26");
+    const res = runAudit([]);
+    expect(res.status).toBe(0);
+    const dir = join(auditDir, "ranges", "2026-08-25--2026-08-26");
+    expect(existsSync(join(dir, "report.md"))).toBe(true);
+    // The index is what makes the aggregate navigable without opening the JSON.
+    const index = readFileSync(join(dir, "sessions.txt"), "utf-8");
+    expect(index).toContain("2026-08-25-sess-one");
+    expect(index).toContain("2026-08-26-sess-two");
+  });
+
+  // Covers: R18
+  it("leaves reports written by the old layout alone", () => {
+    markedSessionWithTranscript("sess-old", "2026-08-25");
+    // What a pre-0013 navori left behind, loose in the repo dir.
+    const legacy = join(auditDir, "audit-2026-08-01-2026-08-02.md");
+    writeFileSync(legacy, "reporte viejo", "utf-8");
+    runAudit(["--session", "sess-old"]);
+    // Migrating (or deleting) these would be a write the user never asked for,
+    // inside a store navori shares with backups.
+    expect(readFileSync(legacy, "utf-8")).toBe("reporte viejo");
+  });
+
+  // Covers: R15
+  it("honours --out verbatim instead of imposing the layout", () => {
+    markedSessionWithTranscript("sess-out", "2026-08-25");
+    const custom = join(sandbox, "custom-out");
+    runAudit(["--session", "sess-out", "--out", custom]);
+    // `--out` is the scripting escape hatch; nesting it would defeat it.
+    expect(existsSync(join(custom, "report.md"))).toBe(true);
+    expect(existsSync(join(custom, "sessions"))).toBe(false);
+  });
+});
+
+/**
+ * R14 — the summary used to lead with `startupTokens`, the SMALLEST of the three
+ * numbers in its own report: a run printing "346k" carried 2.3M billable and
+ * 137.5M of cache_read in the body.
+ */
+describe("audit: the summary reports the real spend (R14)", () => {
+  // Covers: R14
+  it("names the billable total, not only startup", () => {
+    runAudit(["--start", "sess-sum"]);
+    const transcripts = join(sandbox, "transcripts", "enc");
+    mkdirSync(transcripts, { recursive: true });
+    const jsonl = join(transcripts, "sess-sum.jsonl");
+    writeFileSync(
+      jsonl,
+      `${JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-08-25T10:00:00Z",
+        message: {
+          model: "claude-opus-5",
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_creation_input_tokens: 500_000,
+            cache_read_input_tokens: 9_000_000,
+          },
+        },
+      })}\n`,
+      "utf-8",
+    );
+    appendFileSync(
+      join(auditDir, "session-sess-sum.log"),
+      `${JSON.stringify({ ts: "2026-08-25T10:00:00Z", event: "prompt", prompt: "x", transcript: jsonl })}\n`,
+      "utf-8",
+    );
+
+    const res = runAudit(["--session", "sess-sum"]);
+    expect(res.status).toBe(0);
+    expect(res.combined).toContain("facturable");
+    // cache_read is reported too, and separately: it accrues every turn and is
+    // not new spend, so folding it into one number would mislead the other way.
+    expect(res.combined).toContain("cache_read");
   });
 });

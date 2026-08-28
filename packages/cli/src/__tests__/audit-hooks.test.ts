@@ -1,9 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { expandHookIncludes } from "../lib/hook-includes.ts";
 
 /**
  * The audit-mode hooks run on EVERY prompt of every repo that renders the
@@ -23,40 +33,6 @@ const REPO = "fixture-repo";
 
 let root: string;
 let cwd: string;
-let pathWithAudit: string;
-let pathWithoutAudit: string;
-const binDirs: string[] = [];
-
-/**
- * A stub `navori` on PATH.
- *
- * The trigger introspects the CLI before ordering `navori audit`, so without a
- * controlled PATH this suite would assert against whichever version the
- * developer happens to have installed — green on a machine with a fresh navori
- * and red on one release behind. The stub only has to print a USAGE line: that
- * is the whole surface the hook reads.
- */
-function fakeNavoriPath(withAudit: boolean): string {
-  const bin = mkdtempSync(join(tmpdir(), "navori-bin-"));
-  const usage = withAudit ? "USAGE navori init|add|audit|doctor" : "USAGE navori init|add|doctor";
-  writeFileSync(join(bin, "navori"), `#!/bin/sh\necho "${usage}"\n`, { mode: 0o755 });
-  binDirs.push(bin);
-  return `${bin}:${process.env.PATH ?? ""}`;
-}
-
-/**
- * The real PATH with every directory holding a `navori` binary removed.
- *
- * Blanking PATH outright is not an option: the hook needs jq (and the harness
- * needs the shell itself), so an empty PATH tests "no tools" rather than "no
- * navori" — the hook would bail at its jq guard and emit nothing.
- */
-function pathWithoutNavori(): string {
-  return (process.env.PATH ?? "")
-    .split(":")
-    .filter((dir) => dir !== "" && !existsSync(join(dir, "navori")))
-    .join(":");
-}
 
 function run(
   shell: string,
@@ -68,7 +44,7 @@ function run(
     const out = execFileSync(shell, [hook], {
       input: payload,
       encoding: "utf-8",
-      env: { ...process.env, NAVORI_AUDITS_ROOT: root, PATH: pathOverride ?? pathWithAudit },
+      env: { ...process.env, NAVORI_AUDITS_ROOT: root, PATH: pathOverride ?? process.env.PATH },
     });
     return { out, code: 0 };
   } catch (e) {
@@ -90,6 +66,58 @@ function logFile(sessionId = "sess1"): string {
   return join(root, REPO, `session-${sessionId}.log`);
 }
 
+/**
+ * Materialize a hook the way `render` does — includes expanded, `{{shq:...}}`
+ * resolved — and return its path. The raw asset is not a runnable script: its
+ * `# navori:include` lines are resolved at render time, so testing the raw file
+ * would exercise something that exists in no repo.
+ */
+function install(_shell: string, assetPath: string): string {
+  const raw = expandHookIncludes(readFileSync(assetPath, "utf-8")).replace(
+    "{{shq:branchBase}}",
+    "'main'",
+  );
+  const path = join(root, `installed-${assetPath.split("/").pop()}`);
+  writeFileSync(path, raw, "utf-8");
+  chmodSync(path, 0o755);
+  return path;
+}
+
+/** Run an already-installed script with `payload` on stdin. */
+function runFile(shell: string, path: string, input: string): { out: string; code: number } {
+  try {
+    const out = execFileSync(shell, [path], {
+      input,
+      encoding: "utf-8",
+      cwd: root,
+      env: {
+        ...process.env,
+        NAVORI_AUDITS_ROOT: root,
+        CLAUDE_PROJECT_DIR: root,
+        // Several hooks prefer `node` to serialize their JSON; without it on
+        // PATH they take a different branch and the test measures the fallback.
+        PATH: `${dirname(process.execPath)}:/usr/bin:/bin:${process.env.PATH ?? ""}`,
+      },
+    });
+    return { out, code: 0 };
+  } catch (err) {
+    // stderr is surfaced deliberately: a hook that dies takes its reason with it
+    // otherwise, and "exit 127" alone says nothing about WHICH command was
+    // missing.
+    const e = err as { stdout?: string; stderr?: string; status?: number };
+    return { out: (e.stdout ?? "") + (e.stderr ?? ""), code: e.status ?? -1 };
+  }
+}
+
+/** Every parsed line of the session log. */
+function logEvents(sessionId = "sess1"): Array<Record<string, unknown>> {
+  if (!existsSync(logFile(sessionId))) return [];
+  return readFileSync(logFile(sessionId), "utf-8")
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+}
+
 function activate(sessionId = "sess1"): void {
   mkdirSync(join(root, REPO), { recursive: true });
   writeFileSync(
@@ -103,13 +131,10 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "navori-hook-"));
   cwd = join(tmpdir(), REPO);
   mkdirSync(cwd, { recursive: true });
-  pathWithAudit = fakeNavoriPath(true);
-  pathWithoutAudit = fakeNavoriPath(false);
 });
 
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
-  while (binDirs.length > 0) rmSync(binDirs.pop() as string, { recursive: true, force: true });
 });
 
 describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
@@ -119,25 +144,36 @@ describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
     expect(out.trim()).toBe("");
   });
 
-  it("asks for confirmation instead of activating", () => {
-    const { out, code } = run(shell, TRIGGER, payload("audita el ticket en audit mode"));
+  /**
+   * The hook used to match `audit mode` as a substring and ask Claude to offer
+   * activation. Removed in spec 0013 (R3): substring matching cannot separate
+   * INVOKING the mode from TALKING ABOUT it, and the second is what you do all
+   * day while working on the feature — the request that opened this spec was
+   * itself misread as an invocation. Activation is now `--start` only.
+   */
+  // Covers: R3
+  it.each([
+    ["english", "audita el ticket en audit mode"],
+    ["spanish", "entra en modo audit por favor"],
+    ["hyphenated", "mi feature de audit-mode no funciona"],
+    ["off-intent", "apaga el audit mode"],
+  ])("proposes nothing for a prompt that merely mentions audit-mode (%s)", (_label, text) => {
+    const { out, code } = run(shell, TRIGGER, payload(text));
     expect(code).toBe(0);
-    expect(out).toContain("continue?");
-    expect(out).toContain("navori audit --start sess1");
-    // The decisive assertion: detection alone must leave NOTHING on disk.
+    expect(out.trim()).toBe("");
+    // Detection left nothing on disk before, and proposes nothing now.
     expect(existsSync(logFile())).toBe(false);
   });
 
-  it("accepts the Spanish phrasing too", () => {
-    const { out } = run(shell, TRIGGER, payload("entra en modo audit por favor"));
-    expect(out).toContain("navori audit --start");
-  });
-
-  it("does not re-ask once the session is already active", () => {
+  // Covers: R3
+  it("proposes nothing about turning the mode off while it is active", () => {
     activate();
-    const { out, code } = run(shell, TRIGGER, payload("seguimos en audit mode"));
+    const { out, code } = run(shell, TRIGGER, payload("apaga el audit mode"));
     expect(code).toBe(0);
-    expect(out).not.toContain("--start");
+    expect(out.trim()).toBe("");
+    // …and the prompt is still recorded, because the mode IS active (R4).
+    const last = readFileSync(logFile(), "utf-8").trim().split("\n").at(-1);
+    expect(JSON.parse(last ?? "{}")).toMatchObject({ event: "prompt" });
   });
 
   /**
@@ -210,70 +246,9 @@ describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
     });
   });
 
-  it("asks before turning the mode off", () => {
-    activate();
-    const { out } = run(shell, TRIGGER, payload("apaga el audit mode"));
-    expect(out).toContain("navori audit --stop sess1");
-    expect(out).toContain("continue?");
-  });
-
   it("never writes outside the audit root", () => {
     run(shell, TRIGGER, payload("audit mode"));
     expect(existsSync(join(cwd, "session-sess1.log"))).toBe(false);
-  });
-});
-
-/**
- * The hook orders a command that resolves the PUBLISHED binary, never the
- * working tree's build. When the installed navori predates `audit`, citty
- * prints the help and exits 0 — so an agent checking only the status reads a
- * silent no-op as success and reports a recording that never started. The
- * trigger must therefore introspect the CLI before ordering anything.
- */
-describe.each(SHELLS)("audit-mode availability under %s", (shell) => {
-  // The fallback names the command in order to FORBID it ("Do NOT run ...
-  // blindly"), so the assertion is about the imperative that would launch it,
-  // not about the flag appearing anywhere in the text.
-  const ORDERS_START = "run: navori audit --start";
-  const ORDERS_STOP = "run: navori audit --stop";
-
-  it("does not order --start when the CLI has no audit subcommand", () => {
-    const { out, code } = run(shell, TRIGGER, payload("audit mode"), pathWithoutAudit);
-    expect(code).toBe(0);
-    expect(out).not.toContain(ORDERS_START);
-    expect(out).toContain("Do NOT run");
-    expect(out).toContain("could not be confirmed");
-    expect(existsSync(logFile())).toBe(false);
-  });
-
-  it("does not order --start when navori is not installed at all", () => {
-    const { out, code } = run(shell, TRIGGER, payload("audit mode"), pathWithoutNavori());
-    expect(code).toBe(0);
-    expect(out).not.toContain(ORDERS_START);
-    // A machine with no navori must not be told its version is old.
-    expect(out).toContain("may not be installed");
-    expect(existsSync(logFile())).toBe(false);
-  });
-
-  it("orders --start AND demands the output be verified when audit exists", () => {
-    const { out } = run(shell, TRIGGER, payload("audit mode"), pathWithAudit);
-    expect(out).toContain("navori audit --start sess1");
-    // Introspection can be right and the call still fail, so the agent is told
-    // to read the output. The cue is the log path, not a localized string: the
-    // CLI translates its own output and the hook must not depend on that.
-    expect(out).toContain("name the log file");
-    expect(out).toContain("USAGE");
-  });
-
-  it("does not order --stop when the subcommand is missing, and keeps the log", () => {
-    activate();
-    const before = readFileSync(logFile(), "utf-8");
-    const { out, code } = run(shell, TRIGGER, payload("apaga el audit mode"), pathWithoutAudit);
-    expect(code).toBe(0);
-    expect(out).not.toContain(ORDERS_STOP);
-    expect(out).toContain("stays intact");
-    // The log is append-only: a failed close must never truncate it.
-    expect(readFileSync(logFile(), "utf-8").startsWith(before)).toBe(true);
   });
 });
 
@@ -419,5 +394,264 @@ describe.each(SHELLS)("audit-mode close under %s", (shell) => {
       event: "session-end",
       reason: "clear",
     });
+  });
+});
+
+/**
+ * Spec 0013, lote B — the harness records its own execution.
+ *
+ * A hook is only visible to the transcript when it BLOCKS or INJECTS; one that
+ * runs and lets the action through leaves no trace at all. So `navori audit`
+ * could never answer "did the gate run, and what did it cost?" — not from
+ * missing parsing, but because the evidence did not exist. The harness now
+ * writes it.
+ *
+ * These specs run the EXPANDED hook (`# navori:include` is a render-time
+ * directive), because the raw asset is a file that exists nowhere.
+ */
+/** Every managed hook that carries the recorder, with the payload shape its
+ *  phase actually receives. Derived from the assets, not hand-listed: a new
+ *  hook that forgets the recorder must fail HERE (B3). */
+function hooksWithRecorder(): string[] {
+  const dirs = [HOOKS, resolve(HOOKS, "../../../plugins")];
+  const found: string[] = [];
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    const stack = [dir];
+    while (stack.length > 0) {
+      const current = stack.pop() as string;
+      for (const entry of readdirSync(current, { withFileTypes: true })) {
+        const full = join(current, entry.name);
+        if (entry.isDirectory()) stack.push(full);
+        else if (
+          entry.name.endsWith(".sh") &&
+          readFileSync(full, "utf-8").includes("navori_audit_log")
+        ) {
+          found.push(full);
+        }
+      }
+    }
+  }
+  return found.sort();
+}
+
+describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
+  // Covers: R5
+  it("wires the recorder into every managed hook that has a phase", () => {
+    const wired = hooksWithRecorder().map((f) => f.split("/").pop());
+    // The two audit-mode hooks write their own events; the partial itself is not
+    // a hook. Everything else that Claude Code invokes must be here.
+    for (const expected of [
+      "guard-destructive.sh",
+      "quality-gate-pre-commit.sh",
+      "managed-drift-watch.sh",
+      "session-start-context.sh",
+      "subagent-stop-handoff.sh",
+      "precompact-session-summary.sh",
+      "worktree-reclaim.sh",
+      "stop-verify-reminder.sh",
+      "check-jscpd.sh",
+      "check-semgrep.sh",
+    ]) {
+      expect(wired, `${expected} does not record its execution`).toContain(expected);
+    }
+  });
+
+  // Covers: R6
+  it("writes nothing and stays silent when audit-mode is off", () => {
+    // No `activate()`: the log does not exist, which is every session that never
+    // opted in. This is the path that must cost nothing.
+    const hook = install(shell, join(HOOKS, "precompact-session-summary.sh"));
+    const { code, out } = runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+    expect(code).toBe(0);
+    // The hook's OWN output is untouched — the recorder never writes to stdout,
+    // where a stray byte would be read by the host as context injection.
+    expect(out).toContain("additionalContext");
+    expect(existsSync(logFile())).toBe(false);
+  });
+
+  // Covers: R5, R22
+  it("records a hook that ran and decided it had nothing to do", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "worktree-reclaim.sh"));
+    runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+    const events = logEvents().filter((e) => e.event === "hook");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ name: "worktree-reclaim", phase: "SessionEnd" });
+    // `skip` is the whole point: this sandbox is not a git repo, so the hook
+    // bailed at its first guard. Without a recorded verdict that run would be
+    // indistinguishable from the hook never having executed — and the default
+    // is what makes a NEW early exit correct without anyone remembering to
+    // wire it.
+    expect(events[0]?.verdict).toBe("skip");
+    expect(typeof events[0]?.ms).toBe("number");
+  });
+
+  // Covers: R7
+  it("keeps the hook working when the log cannot be written", () => {
+    activate();
+    chmodSync(logFile(), 0o444);
+    try {
+      const hook = install(shell, join(HOOKS, "precompact-session-summary.sh"));
+      const { code, out } = runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+      // The hook's contract is fail-open ABSOLUTE. A recorder that can break the
+      // thing it observes is the one defect this partial may never have.
+      expect(code).toBe(0);
+      expect(out).toContain("additionalContext");
+    } finally {
+      chmodSync(logFile(), 0o644);
+    }
+  });
+
+  // Covers: R5
+  it("carries the agent id when the payload states one", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "worktree-reclaim.sh"));
+    runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd, agent_id: "ag_07" }));
+    // Attribution by agent id, not by overlapping time windows: with agents
+    // running in parallel the windows overlap and timestamps become a guess.
+    expect(logEvents().find((e) => e.event === "hook")?.agentId).toBe("ag_07");
+  });
+
+  // Covers: R5
+  it("names the plugin a hook came from, not just 'core'", () => {
+    const semgrep = resolve(HOOKS, "../../../plugins/semgrep/scripts/check-semgrep.sh");
+    // Disabling a plugin changes which hooks run; without `source` the report
+    // cannot explain why a phase thinned out between two sessions.
+    expect(readFileSync(semgrep, "utf-8")).toContain('navori_audit_source="plugin:semgrep"');
+  });
+
+  // Covers: R7
+  it("survives being run with its includes UNexpanded", () => {
+    activate();
+    // A raw asset copy, or a render that half-finished: the include directive is
+    // still a comment, so the recorder functions do not exist. Under `set -e` an
+    // undefined function is exit 127 — which would kill the hook. The fallback
+    // no-ops are what keep that from happening.
+    const raw = readFileSync(join(HOOKS, "precompact-session-summary.sh"), "utf-8");
+    const path = join(root, "unexpanded.sh");
+    writeFileSync(path, raw, "utf-8");
+    chmodSync(path, 0o755);
+    const { code, out } = runFile(shell, path, JSON.stringify({ session_id: "sess1", cwd }));
+    expect(code).toBe(0);
+    expect(out).toContain("additionalContext");
+  });
+});
+
+/**
+ * The volume valve (spec 0013). `PreToolUse(Bash)` chains four hooks, so every
+ * shell command leaves four lines and most are `skip`.
+ */
+describe.each(SHELLS)("audit-mode volume valve under %s", (shell) => {
+  // Covers: R22
+  it("records skip verdicts by default", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "worktree-reclaim.sh"));
+    runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+    expect(logEvents().filter((e) => e.event === "hook")).toHaveLength(1);
+  });
+
+  // Covers: R22
+  it("drops them only when NAVORI_AUDIT_SKIP_NOOPS is explicitly set", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "worktree-reclaim.sh"));
+    const before = logEvents().length;
+    try {
+      process.env.NAVORI_AUDIT_SKIP_NOOPS = "1";
+      runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+    } finally {
+      process.env.NAVORI_AUDIT_SKIP_NOOPS = undefined;
+    }
+    // Opt-in, never the default: a `skip` is the only evidence separating "ran
+    // and had nothing to do" from "never executed".
+    expect(logEvents()).toHaveLength(before);
+  });
+});
+
+/**
+ * The defect this suite exists to prevent from recurring.
+ *
+ * `guard-destructive` closes its managed block BEFORE its `navori:user-section`.
+ * The render only syncs what is inside the block, so a recorder call written
+ * after the `end` marker lives in the user's own territory and NEVER reaches the
+ * rendered mirror. That is how the most critical hook in the harness — the one
+ * that blocks destructive commands — became the only one silently not
+ * recording, while its asset looked perfectly wired.
+ *
+ * A test asserting "the asset calls the recorder" would have passed. What has to
+ * be asserted is WHERE the call lives.
+ */
+describe("recorder calls live inside the managed block", () => {
+  // Covers: R5
+  it("never places a recorder call after the managed end marker", () => {
+    const offenders: string[] = [];
+    for (const file of hooksWithRecorder()) {
+      const body = readFileSync(file, "utf-8");
+      const endMarker = body.indexOf("navori:managed end");
+      if (endMarker === -1) continue; // no managed block: nothing to fall out of
+      const tail = body.slice(endMarker);
+      // Assignments are fine out there — the trap that reads them is inside.
+      // A CALL is not: it would never be rendered.
+      if (/^\s*navori_audit_(log|begin)\b/m.test(tail)) offenders.push(file);
+    }
+    expect(
+      offenders,
+      "recorder call after the managed end marker: it will not be rendered",
+    ).toEqual([]);
+  });
+
+  // Covers: R5
+  it("keeps guard-destructive's verdict wired through its trap", () => {
+    // The specific hook that broke, pinned: its block path must set a verdict,
+    // and the recording must happen where the render can reach it.
+    const body = readFileSync(join(HOOKS, "guard-destructive.sh"), "utf-8");
+    const endMarker = body.indexOf("navori:managed end");
+    expect(body.slice(0, endMarker)).toContain("trap navori_audit_on_exit EXIT");
+    expect(body.slice(0, endMarker)).toContain('navori_audit_verdict="block"');
+  });
+});
+
+/**
+ * R21 — the only end-of-subagent mark the host lets a hook observe.
+ *
+ * There is NO subagent-start phase (the host offers PreToolUse, PostToolUse,
+ * UserPromptSubmit, SessionStart, SessionEnd, Stop, SubagentStop, PreCompact),
+ * so identity and duration keep coming from the transcript. What the log can
+ * carry is that a subagent finished, and that is what this pins.
+ */
+describe.each(SHELLS)("subagent end is observable under %s", (shell) => {
+  // Covers: R21
+  it("records the SubagentStop hook when a subagent finishes", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
+    runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd, agent_id: "ag_42" }));
+    const event = logEvents().find((e) => e.event === "hook");
+    expect(event).toMatchObject({ name: "subagent-stop-handoff", phase: "SubagentStop" });
+    // The agent id rides along, so the end can be tied to the run the
+    // transcript reconstructed.
+    expect(event?.agentId).toBe("ag_42");
+  });
+});
+
+/**
+ * bash keeps exactly ONE EXIT trap. A hook that installs its own cleanup trap
+ * after the recorder's silently discards it — and `check-jscpd` did, on the one
+ * path where it does real work.
+ */
+describe("a hook's own EXIT trap must compose with the recorder's", () => {
+  // Covers: R5
+  it("never replaces the recorder trap with a bare one", () => {
+    const offenders: string[] = [];
+    for (const file of hooksWithRecorder()) {
+      const body = readFileSync(file, "utf-8");
+      if (!body.includes("trap navori_audit_on_exit EXIT")) continue;
+      // Any OTHER EXIT trap in the same file must call the recorder too.
+      for (const m of body.matchAll(/^\s*trap\s+(.+?)\s+EXIT\s*$/gm)) {
+        const handler = m[1] ?? "";
+        if (handler === "navori_audit_on_exit") continue;
+        if (!handler.includes("navori_audit_on_exit")) offenders.push(`${file}: ${handler}`);
+      }
+    }
+    expect(offenders, "this EXIT trap overwrites the recorder's").toEqual([]);
   });
 });

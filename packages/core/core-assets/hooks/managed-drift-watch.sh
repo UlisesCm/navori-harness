@@ -40,6 +40,46 @@
 # in a normal session is none and in a bad one is one.
 set -uo pipefail
 
+# PostToolUse delivers its payload on stdin; this hook never needed it and the
+# audit recorder does (session_id/cwd), so it is captured rather than ignored.
+payload=$(cat 2>/dev/null) || payload=""
+
+navori_audit_name="managed-drift-watch"
+navori_audit_phase="PostToolUse"
+navori_audit_tool="Bash"
+# Fallback no-ops, overwritten by the real definitions the include brings in.
+# They exist because this hook is FAIL-OPEN: if the file ever runs WITHOUT its
+# includes expanded — a raw copy of the asset, a render that half-finished — an
+# undefined function would be exit 127, and under `set -e` that KILLS the hook.
+# A recorder that can kill the thing it observes is the one bug this partial may
+# never have.
+navori_audit_begin() { :; }
+navori_audit_log() { :; }
+# navori:include audit-log
+navori_audit_begin
+
+# This hook has SEVEN early exits (no sha, no roots, no changes, …). Wiring a
+# call into each is how the set drifts the next time one is added, so the verdict
+# is derived once, from the exit code, in a trap.
+#
+# `navori_audit_reached_check` is what separates "ran and found nothing" from
+# "bailed before checking anything" — the distinction the whole exercise exists
+# for. Without it every early exit would report `clean`, i.e. would claim a
+# verification that never happened.
+navori_audit_reached_check=0
+navori_audit_on_exit() {
+  navori_audit_code=$?
+  if [ "$navori_audit_code" -eq 2 ]; then
+    navori_audit_log "dirty" "bloque managed con hash desalineado"
+  elif [ "$navori_audit_reached_check" -eq 1 ]; then
+    navori_audit_log "clean"
+  else
+    navori_audit_log "skip" "sin nada que verificar"
+  fi
+  return 0
+}
+trap navori_audit_on_exit EXIT
+
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
 
 stamp=".claude/.managed-drift-stamp"
@@ -121,6 +161,7 @@ done <<EOF
 $changed
 EOF
 
+navori_audit_reached_check=1
 [ -z "$drift" ] && exit 0
 
 # Exit 2 so the text reaches the model rather than scrolling past in a log: the

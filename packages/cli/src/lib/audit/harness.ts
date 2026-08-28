@@ -41,6 +41,11 @@ export interface HarnessCatalog {
   skills: string[];
   sections: DeclaredSection[];
   claudeMdTokens: number;
+  /** The MCP servers this harness instructs agents to use. Exposed from
+   *  `MCP_HINTS` rather than re-listed by the report: a server named in two
+   *  places is a server that will be named in only one of them after the next
+   *  edit. */
+  mcpFamilies: string[];
 }
 
 /** MCP tool families the harness may instruct agents to use. */
@@ -115,6 +120,7 @@ export function readHarnessCatalog(repoRoot: string): HarnessCatalog {
 
   return {
     agents: agents.sort((a, b) => a.name.localeCompare(b.name)),
+    mcpFamilies: MCP_HINTS.map((h) => h.server).sort(),
     skills: skills.sort(),
     sections: parseSections(claudeMd),
     claudeMdTokens: Math.round(claudeMd.length / 4),

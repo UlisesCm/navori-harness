@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync, chmodSync, mkdirSync, readFileSync 
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
+import { expandHookIncludes } from "../hook-includes.ts";
 import { getCoreRoot } from "../bundled-assets.ts";
 import { acrossShells } from "./helpers/shells.ts";
 
@@ -38,7 +39,10 @@ function seedRepo(): void {
 /** Install a hook script (plain copy) and run it with `payload` on stdin.
  * Runs under every available shell (bash AND zsh, #391); the outputs must agree. */
 function runHook(script: string, payload: unknown): { status: number; stdout: string } {
-  const raw = readFileSync(join(HOOKS_DIR, script), "utf-8");
+  // Expanded, not raw: `# navori:include` is resolved at RENDER time, so the
+  // file that actually runs in a user repo is the expanded one. Testing the
+  // raw asset would exercise a script that never exists anywhere.
+  const raw = expandHookIncludes(readFileSync(join(HOOKS_DIR, script), "utf-8"));
   const path = join(dir, script);
   writeFileSync(path, raw);
   chmodSync(path, 0o755);

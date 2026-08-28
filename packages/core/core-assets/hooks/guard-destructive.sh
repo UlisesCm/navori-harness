@@ -30,7 +30,43 @@ set -euo pipefail
 # A missing JSON parser used to make this guard wave every command through; the
 # shared extractor falls back to sed so it still inspects the command.
 # navori:include extract-cmd
-[ -z "$cmd" ] && exit 0
+
+navori_audit_name="guard-destructive"
+navori_audit_phase="PreToolUse"
+navori_audit_tool="Bash"
+# Fallback no-ops, overwritten by the real definitions the include brings in.
+# They exist because this hook is FAIL-OPEN: if the file ever runs WITHOUT its
+# includes expanded — a raw copy of the asset, a render that half-finished — an
+# undefined function would be exit 127, and under `set -e` that KILLS the hook.
+# A recorder that can kill the thing it observes is the one bug this partial may
+# never have.
+navori_audit_begin() { :; }
+navori_audit_log() { :; }
+# navori:include audit-log
+navori_audit_begin
+
+# The verdict is resolved in a trap, NOT by a call at the end of the file.
+#
+# This hook's managed block ends before its `navori:user-section`, and the render
+# only syncs what is INSIDE the block — so a call placed after it lives in the
+# user's own territory and never reaches the mirror. That is exactly how the most
+# critical hook in the harness ended up being the only one not recording.
+#
+# The trap also covers the extra guards a user writes in that section: whatever
+# they add, the exit code still tells the truth about what happened.
+navori_audit_verdict="allow"
+navori_audit_reason=""
+navori_audit_on_exit() {
+  navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
+  return 0
+}
+trap navori_audit_on_exit EXIT
+
+if [ -z "$cmd" ]; then
+  navori_audit_verdict="skip"
+  navori_audit_reason="sin comando que inspeccionar"
+  exit 0
+fi
 
 # branchBase is shell-quoted at render time via the shq: marker (#197): a
 # hostile branchBase in navori.config.json lands here as an inert literal,
@@ -43,6 +79,11 @@ block() {
   # should carry, and the reason line already says which rule fired.
   echo "[navori] command: ${cmd:0:2000}" >&2
   echo "[navori] if intentional, run the command yourself outside the agent." >&2
+  # Only ASSIGNMENTS here: this is the one place the guard says no, and nothing
+  # may come between the decision and `exit 2`. The recording happens in the
+  # trap, after the exit is already committed.
+  navori_audit_verdict="block"
+  navori_audit_reason="$1"
   exit 2
 }
 

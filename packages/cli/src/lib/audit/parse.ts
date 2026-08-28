@@ -2,7 +2,10 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
   type AgentRun,
+  type HookEvent,
   type SessionAudit,
+  type SkillSource,
+  type SkillUse,
   type TokenTotals,
   addTokens,
   emptyTokens,
@@ -167,32 +170,95 @@ function countTools(uses: Rec[]): Record<string, number> {
 }
 
 /**
- * Skills actually loaded, by whichever route.
+ * Skills TOUCHED, with how we learned about each.
  *
- * The explicit `Skill` tool is the documented path but in practice barely
- * used: the reference session shows 0 `Skill` calls and 34 `SKILL.md` files
- * opened with `cat` through Bash. Counting only the tool would report "no
- * skills used" — false. So the Bash command string and Read paths are scanned
- * too, and the result is deliberately a superset.
+ * "Touched", not "used", and the distinction is not pedantry: an `auditor` in
+ * the reference session opened eleven `SKILL.md` files one by one because it was
+ * AUDITING them. Reading a skill to apply it and reading it to review it are the
+ * same event in the transcript, so no criterion over content can separate them.
+ * The provenance label is what keeps the report honest about that: it reports
+ * how the skill was detected and lets the reader judge, instead of asserting a
+ * use it cannot observe.
+ *
+ * The explicit `Skill` tool is the documented path but in practice barely used:
+ * the reference session shows 0 `Skill` calls and 34 `SKILL.md` files opened
+ * through Read/Bash. Counting only the tool would report "no skills" — false.
  */
-function collectSkills(uses: Rec[]): string[] {
-  const found = new Set<string>();
+function collectSkills(uses: Rec[]): {
+  skills: SkillUse[];
+  discarded: number;
+} {
+  /** slug → how we learned about it. `skill-tool` wins: an explicit invocation
+   *  is stronger evidence than the file having been opened. */
+  const found = new Map<string, SkillSource>();
+  let discarded = 0;
+
   for (const u of uses) {
     const name = str(u.name);
     if (name === "Skill") {
       const s = str(path(u, "input", "skill"));
-      if (s) found.add(s);
+      if (s) found.set(s, "skill-tool");
       continue;
     }
     const haystack = str(path(u, "input", "command")) ?? str(path(u, "input", "file_path")) ?? "";
+
+    // A command that ENUMERATES the skills directory is not using any skill —
+    // it is looking at the shelf. The old criterion counted every slug such a
+    // command printed, which is how one auditor was credited with eleven skills
+    // for a single `ls`. Every match in this command is discarded, not just the
+    // ambiguous ones: the distinguishing fact is the SHAPE OF THE COMMAND, not
+    // the shape of each path it happens to contain.
+    if (isDirectoryListing(haystack)) {
+      for (const m of haystack.matchAll(SKILL_PATH_RE)) if ((m[1]?.length ?? 0) > 2) discarded++;
+      continue;
+    }
+
     for (const m of haystack.matchAll(SKILL_PATH_RE)) {
       const slug = m[1];
       // Skip 1-2 char segments: those are placeholders from documentation and
       // globs (`<id>/SKILL.md`, `*/SKILL.md`), never real skill slugs.
-      if (slug && slug.length > 2) found.add(slug);
+      // Skip 1-2 char segments AND the literal glob: `*/SKILL.md` does not
+      // match `[\w-]+` anyway, which is why a `for f in .claude/skills/*/SKILL.md`
+      // never inflated the count in the first place — verified against the
+      // reference session before trusting it.
+      if (!slug || slug.length <= 2) continue;
+      if (!found.has(slug)) found.set(slug, "skill-md");
     }
   }
-  return [...found].sort();
+
+  const skills = [...found.entries()]
+    .map(([slug, source]) => ({ slug, source }))
+    .sort((a, b) => a.slug.localeCompare(b.slug));
+  return { skills, discarded };
+}
+
+/** Commands that ENUMERATE rather than read: `ls`, `find`, `tree`, `glob`. The
+ *  test is on the leading verb, so `cat .claude/skills/x/SKILL.md` is untouched
+ *  no matter what its path looks like. */
+function isDirectoryListing(command: string): boolean {
+  return /(^|[;&|]\s*)(ls|find|tree|du|stat)\s/.test(command);
+}
+
+/**
+ * MCP calls grouped by server: `mcp__engram__mem_save` becomes
+ * `{ engram: { mem_save: 1 } }`.
+ *
+ * The transcript records MCP tools as ordinary flat tool names, so the data was
+ * always there — nothing grouped it, and "did this agent reach engram at all?"
+ * had no answer short of eyeballing `toolCounts`.
+ */
+function collectMcpCalls(uses: Rec[]): Record<string, Record<string, number>> {
+  const servers: Record<string, Record<string, number>> = {};
+  for (const u of uses) {
+    const name = str(u.name);
+    const m = name?.match(/^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/);
+    if (!m) continue;
+    const [, server, op] = m;
+    if (!server || !op) continue;
+    servers[server] ??= {};
+    servers[server][op] = (servers[server][op] ?? 0) + 1;
+  }
+  return servers;
 }
 
 /** Blocks and denials that reached the model's context (and so cost tokens). */
@@ -301,6 +367,7 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
     .map((l) => str(path(l, "message", "model")))
     .find((m): m is string => m !== null);
 
+  const skills = collectSkills(uses);
   return {
     agentId,
     agentType,
@@ -314,7 +381,16 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
     startupTokens: startupTokensOf(lines),
     overlapsWith: [],
     toolCounts: countTools(uses),
-    skillsRead: collectSkills(uses),
+    skillsRead: skills.skills.map((sk) => sk.slug),
+    skills: skills.skills,
+    skillsDiscarded: skills.discarded,
+    mcpCalls: collectMcpCalls(uses),
+    // Filled by `buildReport`, which is where the harness catalog lives.
+    mcpReach: {},
+    mcpBarredTokens: {},
+    // Filled by `attachHookEvents` once the session log has been read: the
+    // events live in the harness's own log, not in the transcript.
+    hookEvents: [],
     frictionEvents: countFriction(lines),
     repeatedCommands: repeatedCommands(uses),
     verdict: findVerdict(lines),
@@ -422,6 +498,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
     }
   }
 
+  const skills = collectSkills(uses);
   return {
     sessionId,
     startedAt: first,
@@ -438,7 +515,11 @@ export function parseSession(mainJsonl: string): SessionAudit {
       tokens: sumTokens(lines),
       startupTokens: startupTokensOf(lines),
       toolCounts: countTools(uses),
-      skillsRead: collectSkills(uses),
+      skillsRead: skills.skills.map((sk) => sk.slug),
+      skills: skills.skills,
+      skillsDiscarded: skills.discarded,
+      mcpCalls: collectMcpCalls(uses),
+      hookEvents: [],
       frictionEvents: countFriction(lines),
       repeatedCommands: repeatedCommands(uses),
     },
@@ -447,4 +528,102 @@ export function parseSession(mainJsonl: string): SessionAudit {
     parseErrors,
     linesRead,
   };
+}
+
+/**
+ * Attach the hook executions the harness recorded to the runs they belong to.
+ *
+ * The transcript cannot answer this: a hook is only visible there when it BLOCKS
+ * or INJECTS, so every hook that ran and let the action through left no trace.
+ * The events come from the session's own append-only log instead (see the
+ * `audit-log` partial).
+ *
+ * Attribution is by `agentId` when the payload carried one — exact, and the
+ * whole reason the field exists. Only when it is absent does this fall back to
+ * the time window, which with agents running in parallel is a guess: overlapping
+ * windows make more than one run a candidate, and the event goes to the
+ * orchestrator rather than to an arbitrary winner.
+ */
+export function attachHookEvents(session: SessionAudit, logFile: string): void {
+  if (!existsSync(logFile)) return;
+
+  const events: HookEvent[] = [];
+  let raw: string;
+  try {
+    raw = readFileSync(logFile, "utf-8");
+  } catch {
+    return;
+  }
+
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    let rec: Rec;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (!isRec(parsed)) continue;
+      rec = parsed;
+    } catch {
+      // A malformed line is counted, never thrown on: the log is append-only
+      // and a crashed session leaves a valid, merely shorter file.
+      session.parseErrors++;
+      continue;
+    }
+    if (str(rec.event) !== "hook") continue;
+
+    const name = str(rec.name);
+    const phase = str(rec.phase);
+    const verdict = str(rec.verdict);
+    // The four mandatory fields of the contract. An event missing one comes from
+    // a newer (or broken) writer, so it is counted rather than half-read —
+    // half-reading it would put a nameless hook in somebody's card.
+    if (!name || !phase || !verdict || typeof rec.ms !== "number") {
+      session.parseErrors++;
+      continue;
+    }
+
+    const event: HookEvent = {
+      ts: str(rec.ts) ?? "",
+      name,
+      phase,
+      verdict,
+      ms: rec.ms,
+      source: str(rec.source) ?? "core",
+    };
+    const tool = str(rec.tool);
+    if (tool) event.tool = tool;
+    const reason = str(rec.reason);
+    if (reason) event.reason = reason;
+    const agentId = str(rec.agentId);
+    if (agentId) event.agentId = agentId;
+    events.push(event);
+  }
+
+  for (const event of events) {
+    const owner = ownerOf(event, session);
+    owner.push(event);
+  }
+}
+
+/** Which run's card an event belongs on. */
+function ownerOf(event: HookEvent, session: SessionAudit): HookEvent[] {
+  if (event.agentId) {
+    const byId = session.agents.find((a) => a.agentId === event.agentId);
+    if (byId) return byId.hookEvents;
+  }
+  if (event.ts) {
+    const at = Date.parse(event.ts);
+    if (Number.isFinite(at)) {
+      const inWindow = session.agents.filter((a) => {
+        const from = Date.parse(a.startedAt);
+        const to = Date.parse(a.endedAt);
+        return Number.isFinite(from) && Number.isFinite(to) && at >= from && at <= to;
+      });
+      // EXACTLY one candidate, or none: with two overlapping agents the window
+      // cannot decide, and inventing an owner is worse than saying "the
+      // session". The orchestrator is the honest home for an unattributable
+      // event, since it is the run that spans all of them.
+      if (inWindow.length === 1 && inWindow[0]) return inWindow[0].hookEvents;
+    }
+  }
+  return session.orchestrator.hookEvents;
 }
