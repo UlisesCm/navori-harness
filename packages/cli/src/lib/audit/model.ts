@@ -56,14 +56,68 @@ export interface AgentRun {
   overlapsWith: string[];
   /** tool name → call count. */
   toolCounts: Record<string, number>;
-  /** Skill paths read, however they were read (tool `Skill` or `cat` via Bash). */
+  /** Skill paths read, however they were read (tool `Skill` or `cat` via Bash).
+   *  Kept as the flat list the older report shape consumed; `skills` below is
+   *  the one that says HOW each was detected. */
   skillsRead: string[];
+  /** Skills with their provenance, so a report can stop conflating "invoked"
+   *  with "walked past" (#538-era `skillsRead` listed eleven skills for an agent
+   *  that had merely listed the index directory). */
+  skills: SkillUse[];
+  /** Skill files seen through a directory listing or a glob, and therefore NOT
+   *  counted as used. Reported so the discard is visible instead of silent. */
+  skillsDiscarded: number;
+  /** MCP server → the operations called on it, with counts. The transcript
+   *  records these as flat `mcp__<server>__<op>` tool names; grouping is what
+   *  turns them into "did this agent reach engram at all?". */
+  mcpCalls: Record<string, Record<string, number>>;
+  /** MCP server → whether this agent's declared `tools:` let it reach the
+   *  server at all. Resolved when the report is built (that is where the
+   *  harness catalog lives) and PERSISTED, so the JSON answers "was it barred
+   *  or merely unused?" without re-reading the agent definitions. */
+  mcpReach: Record<string, boolean>;
+  /** MCP server → tokens of `CLAUDE.md` sections requiring it that this agent
+   *  paid for in its startup WITHOUT being able to reach it (R20). A label says
+   *  the reach is barred; this says what the bar costs. */
+  mcpBarredTokens: Record<string, number>;
+  /** Hook executions recorded by the harness itself, in order. The transcript
+   *  only ever sees a hook that blocked or injected, so this is the sole
+   *  evidence that a hook ran and let the action through. */
+  hookEvents: HookEvent[];
   /** Hook blocks and permission denials that reached this agent's context. */
   frictionEvents: number;
   /** Normalized Bash commands run 3+ times, and how often. Repetition = rework. */
   repeatedCommands: Record<string, number>;
   /** Verdict string found in the run's output, when the agent emits one. */
   verdict: "APPROVED" | "CHANGES_REQUESTED" | null;
+}
+
+/** How a skill was detected, which is not the same as how much it is worth.
+ *  `skill-tool` is an explicit invocation; `skill-md` is the file being opened,
+ *  which is how skills are used in practice but also how a stray `cat` looks. */
+export type SkillSource = "skill-tool" | "skill-md";
+
+export interface SkillUse {
+  slug: string;
+  source: SkillSource;
+}
+
+/** One hook execution, as the hook itself recorded it (see the `audit-log`
+ *  partial). `ms` is measured inside the hook, never derived from the gap
+ *  between consecutive events — those can belong to different hooks. */
+export interface HookEvent {
+  ts: string;
+  name: string;
+  phase: string;
+  verdict: string;
+  ms: number;
+  /** `core` or `plugin:<id>`: disabling a plugin changes which hooks run. */
+  source: string;
+  tool?: string;
+  reason?: string;
+  /** Present when the payload stated one; the reason attribution does not have
+   *  to fall back to overlapping time windows. */
+  agentId?: string;
 }
 
 /** One audited session: the orchestrator plus every subagent it spawned. */
@@ -98,6 +152,10 @@ export interface SessionAudit {
     startupTokens: number;
     toolCounts: Record<string, number>;
     skillsRead: string[];
+    skills: SkillUse[];
+    skillsDiscarded: number;
+    mcpCalls: Record<string, Record<string, number>>;
+    hookEvents: HookEvent[];
     frictionEvents: number;
     repeatedCommands: Record<string, number>;
   };
@@ -124,7 +182,10 @@ export interface Signal {
 
 /** Aggregate across the audited range. */
 export interface AuditReport {
-  schemaVersion: 1;
+  /** Bumped to 2 by spec 0013: reports now carry per-agent cards (skills with
+   *  provenance, MCP by server, recorded hook executions). A reader can tell the
+   *  two shapes apart by this number alone. */
+  schemaVersion: 2;
   generatedBy: string;
   repo: string;
   range: { from: string; to: string };
@@ -137,6 +198,12 @@ export interface AuditReport {
     startupTokens: number;
     byAgentType: Record<string, { count: number; tokens: TokenTotals }>;
     byModel: Record<string, number>;
+    /** Sum of every subagent's own duration. */
+    agentDurationMs: number;
+    /** Wall-clock the subagents actually occupied, merging overlapping windows:
+     *  five agents of 20 minutes running in parallel cost 30 minutes of clock,
+     *  not 100. Reporting only the sum reads as time nobody spent. */
+    agentWallClockMs: number;
   };
   signals: Signal[];
 }

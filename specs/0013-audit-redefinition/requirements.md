@@ -55,8 +55,12 @@ Público: el operador del harness (hoy, Ulises) auditando sus propias sesiones.
 - **R10** — El reporte SHALL distinguir una skill invocada por la tool `Skill` de una
   detectada por lectura de su `SKILL.md`, indicando en la ficha cuál de las dos rutas la
   registró.
-- **R11** — IF un `SKILL.md` aparece por el listado de un directorio o por un glob, THEN
-  el sistema SHALL excluirlo de las skills usadas y SHALL reportar cuántas descartó.
+- **R11** — IF un `SKILL.md` aparece por el listado de un directorio, THEN el sistema SHALL
+  excluirlo y SHALL reportar cuántas descartó. (Un glob `*/SKILL.md` ya queda excluido por
+  la forma del patrón, verificado contra la sesión de referencia: el `*` no compone un
+  slug. El caso que sí ocurre —un agente que lee once skills porque las está AUDITANDO— es
+  indistinguible por contenido de usarlas, y por eso el reporte etiqueta la procedencia en
+  vez de afirmar un uso que no puede observar.)
 - **R12** — El reporte SHALL indicar la duración de cada corrida de subagente.
 - **R13** — El reporte SHALL distinguir la suma de duraciones de los subagentes del
   tiempo de reloj que ocuparon, cuando sus ventanas de ejecución se solapan.

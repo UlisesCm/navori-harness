@@ -55,33 +55,33 @@ lote C lee lo que B escribe, así que va después de B. El lote D depende de A.
 
 ## Lote C — leer y mostrar
 
-- [ ] **C1** (R5) — Leer los eventos `hook` del log en `parse.ts` y colgarlos del agente o
+- [x] **C1** (R5) — Leer los eventos `hook` del log en `parse.ts` y colgarlos del agente o
   del orquestador según la ventana temporal en que caen. Un evento sin campo obligatorio
   suma a `parseErrors` sin abortar la lectura.
   · test: `lib/audit/__tests__/parse.test.ts`::"asocia cada evento hook a la corrida en
   cuya ventana cae" y ::"un evento hook incompleto suma a parseErrors" con `// Covers: R5`
-- [ ] **C2** (R9, R10, R11) — En `parse.ts`: agrupar las tools `mcp__<servidor>__<op>` por
+- [x] **C2** (R9, R10, R11) — En `parse.ts`: agrupar las tools `mcp__<servidor>__<op>` por
   servidor con sus operaciones, y rehacer `collectSkills` para devolver procedencia
   (`skill-tool` | `skill-md`) descartando las vistas por listado de directorio o glob, con
   el conteo de descartadas.
   · test: `lib/audit/__tests__/parse.test.ts`::"agrupa las llamadas MCP por servidor",
   ::"distingue una skill invocada de una leída" y ::"descarta las skills vistas al listar
   el índice y las cuenta" con `// Covers: R9, R10, R11`
-- [ ] **C3** (R8, R12) — Renderizar la ficha por agente en `report.ts` con tipo,
+- [x] **C3** (R8, R12) — Renderizar la ficha por agente en `report.ts` con tipo,
   descripción, modelo, duración, tokens desglosados, `cache_read`, skills con procedencia,
   tools, MCP por servidor, hooks y veredicto. Extender `AgentRun` y subir
   `schemaVersion` a `2`.
   · test: `lib/audit/__tests__/report.test.ts`::"la ficha de un agente incluye sus skills,
   su MCP y sus hooks" con `// Covers: R8, R12`
-- [ ] **C4** (R13, R14) — Distinguir suma de duraciones y reloj de pared usando
+- [x] **C4** (R13, R14) — Distinguir suma de duraciones y reloj de pared usando
   `overlapsWith`, y corregir el resumen del comando para que nombre el total facturable.
   · test: `lib/audit/__tests__/report.test.ts`::"agentes solapados no suman su duración al
   reloj de pared" y `commands/__tests__/audit.test.ts`::"el resumen nombra el total
   facturable" con `// Covers: R13, R14`
-- [ ] **C5** (R17) — Subir `schemaVersion` a `2` en `model.ts` y en el render JSON.
+- [x] **C5** (R17) — Subir `schemaVersion` a `2` en `model.ts` y en el render JSON.
   · test: `lib/audit/__tests__/report.test.ts`::"el JSON declara schemaVersion 2" con
   `// Covers: R17`
-- [ ] **C6** (R19, R20) — Resolver en `harness.ts` el alcance MCP por servidor (un
+- [x] **C6** (R19, R20) — Resolver en `harness.ts` el alcance MCP por servidor (un
   `mcp__codegraph__*` no concede engram; un `tools:` ausente los concede todos) y cruzarlo
   en la ficha con las llamadas observadas: cada servidor sale como usado con sus
   operaciones, disponible-sin-usar, o vedado. Para el vedado, atribuir los tokens de las

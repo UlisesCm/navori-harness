@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { basename, join, resolve } from "node:path";
 import { readHarnessCatalog } from "../lib/audit/harness.ts";
 import { findMarkedSessions } from "../lib/audit/discovery.ts";
-import { parseSession } from "../lib/audit/parse.ts";
+import { attachHookEvents, parseSession } from "../lib/audit/parse.ts";
 import { detectSignals, type Lang } from "../lib/audit/signals.ts";
 import { buildReport, renderJson, renderMarkdown } from "../lib/audit/report.ts";
 import { repoAuditDir, sessionLogPath } from "../lib/audit/paths.ts";
@@ -194,6 +194,10 @@ export const auditCommand = defineCommand({
         continue;
       }
       const session = parseSession(m.transcript);
+      // The harness's own record of what its hooks did. It comes from the
+      // session log, not the transcript, because a hook that runs and lets the
+      // action through is invisible to the transcript by construction.
+      attachHookEvents(session, m.logFile);
       session.signals = detectSignals(session, catalog, lang);
       parsed.push(session);
     }
@@ -224,10 +228,23 @@ export const auditCommand = defineCommand({
 
     const high = report.signals.filter((s) => s.severity === "high").length;
     const warn = report.signals.filter((s) => s.severity === "warn").length;
+    // The summary used to lead with `startupTokens`, the SMALLEST of the three
+    // numbers in the report: a run showing "346k" in the terminal had 2.3M
+    // billable and 137.5M of cache_read in its body. Billable leads now, and
+    // startup stays as the share it actually is.
+    const billable =
+      report.totals.tokens.input +
+      report.totals.tokens.output +
+      report.totals.tokens.cacheCreation +
+      report.totals.tokens.thinking;
+    const k = (n: number): string =>
+      n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`;
     p.note(
       [
         `${report.totals.sessions} ${isEs ? "sesiones" : "sessions"} · ${report.totals.agents} ${isEs ? "agentes" : "agents"}`,
-        `${isEs ? "arranque" : "startup"}  ${Math.round(report.totals.startupTokens / 1000)}k tok`,
+        `${isEs ? "facturable" : "billable"}  ${k(billable)} tok`,
+        `${isEs ? "arranque" : "startup"}  ${k(report.totals.startupTokens)} tok`,
+        `cache_read  ${k(report.totals.tokens.cacheRead)} tok`,
         `${isEs ? "hallazgos" : "findings"}  ${high} ${isEs ? "alto" : "high"} · ${warn} ${isEs ? "medio" : "warn"}`,
         missing.length > 0
           ? `${isEs ? "sin transcript" : "no transcript"}  ${missing.join(", ")}`

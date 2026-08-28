@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { parseSession, sumTokens, readJsonl } from "../parse.ts";
+import { parseAgentRun, parseSession, sumTokens, readJsonl } from "../parse.ts";
 
 const FIXTURE = join(
   fileURLToPath(new URL("../../../__tests__/fixtures/audit/", import.meta.url)),
@@ -172,5 +172,112 @@ describe("parse: user message coverage (#489)", () => {
   it("reports zero queued when the human never interrupted", () => {
     const s = parseSession(transcript([typed("uno"), typed("dos")]));
     expect(s.prompts).toEqual({ typed: 2, queued: 0 });
+  });
+});
+
+/**
+ * Spec 0013, lote C — what the parser must now distinguish.
+ */
+
+/** A subagent transcript with the given tool calls, written to a temp file. */
+function agentWith(uses: Array<{ name: string; input?: Record<string, unknown> }>): string {
+  const dir = mkdtempSync(join(tmpdir(), "navori-parse-"));
+  const file = join(dir, "agent-a1.jsonl");
+  const lines = [
+    JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-08-25T10:00:00Z",
+      message: {
+        model: "claude-opus-5",
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 10 },
+        content: uses.map((u) => ({ type: "tool_use", name: u.name, input: u.input ?? {} })),
+      },
+    }),
+    JSON.stringify({ type: "assistant", timestamp: "2026-08-25T10:05:00Z", message: {} }),
+  ];
+  writeFileSync(file, `${lines.join("\n")}\n`, "utf-8");
+  return file;
+}
+
+describe("MCP calls grouped by server (#0013)", () => {
+  // Covers: R9
+  it("groups mcp__<server>__<op> under its server, with per-op counts", () => {
+    const run = parseAgentRun(
+      agentWith([
+        { name: "mcp__engram__mem_save" },
+        { name: "mcp__engram__mem_save" },
+        { name: "mcp__engram__mem_search" },
+        { name: "mcp__codegraph__codegraph_explore" },
+        { name: "Bash", input: { command: "ls" } },
+      ]),
+    );
+    // The transcript records these as flat tool names, so the data was always
+    // there; grouping is what turns it into "did this agent reach engram?".
+    expect(run?.mcpCalls).toEqual({
+      engram: { mem_save: 2, mem_search: 1 },
+      codegraph: { codegraph_explore: 1 },
+    });
+  });
+
+  // Covers: R9
+  it("leaves non-MCP tools out of the grouping", () => {
+    const run = parseAgentRun(agentWith([{ name: "Bash", input: { command: "ls" } }]));
+    expect(run?.mcpCalls).toEqual({});
+  });
+});
+
+describe("skills carry how they were detected (#0013)", () => {
+  // Covers: R10
+  it("marks an explicit Skill invocation apart from a SKILL.md read", () => {
+    const run = parseAgentRun(
+      agentWith([
+        { name: "Skill", input: { skill: "structural-search" } },
+        { name: "Read", input: { file_path: "/repo/.claude/skills/verify-before-done/SKILL.md" } },
+      ]),
+    );
+    expect(run?.skills).toEqual([
+      { slug: "structural-search", source: "skill-tool" },
+      { slug: "verify-before-done", source: "skill-md" },
+    ]);
+  });
+
+  // Covers: R10
+  it("prefers the explicit invocation when a skill was ALSO read as a file", () => {
+    const run = parseAgentRun(
+      agentWith([
+        { name: "Read", input: { file_path: "/repo/.claude/skills/review-diff/SKILL.md" } },
+        { name: "Skill", input: { skill: "review-diff" } },
+      ]),
+    );
+    // Invoking is stronger evidence than opening, in either order.
+    expect(run?.skills).toEqual([{ slug: "review-diff", source: "skill-tool" }]);
+  });
+
+  // Covers: R11
+  it("discards skills seen through a directory listing", () => {
+    const run = parseAgentRun(
+      agentWith([
+        {
+          name: "Bash",
+          input: {
+            command: "ls .claude/skills/dominio/SKILL.md .claude/skills/pr-create/SKILL.md",
+          },
+        },
+      ]),
+    );
+    // An `ls`-shaped command looks at the shelf; it does not use what is on it.
+    expect(run?.skills).toEqual([]);
+    expect(run?.skillsDiscarded).toBe(2);
+  });
+
+  // Covers: R11
+  it("does NOT discard a plain read just because its path looks listy", () => {
+    const run = parseAgentRun(
+      agentWith([{ name: "Bash", input: { command: "cat .claude/skills/dominio/SKILL.md" } }]),
+    );
+    // The test is the leading verb, not the path: over-discarding would report
+    // "no skills" for an agent that genuinely used one.
+    expect(run?.skills).toEqual([{ slug: "dominio", source: "skill-md" }]);
+    expect(run?.skillsDiscarded).toBe(0);
   });
 });

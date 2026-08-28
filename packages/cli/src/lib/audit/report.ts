@@ -1,6 +1,8 @@
-import type { HarnessCatalog } from "./harness.ts";
+import type { DeclaredAgent, HarnessCatalog } from "./harness.ts";
 import {
+  type AgentRun,
   type AuditReport,
+  type HookEvent,
   type SessionAudit,
   type TokenTotals,
   addTokens,
@@ -100,6 +102,185 @@ function agentTimeline(s: SessionAudit, lang: Lang): string {
   return lines.join("\n");
 }
 
+/**
+ * One card per subagent — the report's main view (spec 0013, R8).
+ *
+ * Everything here was ALREADY captured; the previous report rendered one line
+ * per agent and discarded the rest, which is why "what did this implementer
+ * actually work with" had no answer despite the data sitting in the JSON.
+ */
+
+/**
+ * Wall-clock the subagents actually occupied, merging overlapping windows.
+ *
+ * Five auditors of 20 minutes launched together cost 30 minutes of clock, not
+ * 100. Reporting only the sum describes time nobody spent — and parallel fan-out
+ * is the harness's main lever, so overstating its cost argues against the thing
+ * that works.
+ */
+function wallClockOf(agents: AgentRun[]): number {
+  const windows = agents
+    .map((a) => [Date.parse(a.startedAt), Date.parse(a.endedAt)] as const)
+    .filter(([from, to]) => Number.isFinite(from) && Number.isFinite(to) && to >= from)
+    .sort((x, y) => x[0] - y[0]);
+  if (windows.length === 0) return 0;
+
+  let total = 0;
+  let [openFrom, openTo] = windows[0] as readonly [number, number];
+  for (const [from, to] of windows.slice(1)) {
+    if (from <= openTo) {
+      // Overlapping (or touching): extend the open window instead of adding it.
+      openTo = Math.max(openTo, to);
+      continue;
+    }
+    total += openTo - openFrom;
+    [openFrom, openTo] = [from, to];
+  }
+  return total + (openTo - openFrom);
+}
+
+function agentCards(s: SessionAudit, lang: Lang): string {
+  if (s.agents.length === 0) return t(lang, "(sin subagentes)", "(no subagents)");
+  return [...s.agents]
+    .sort((a, b) => billable(b.tokens) - billable(a.tokens))
+    .map((a) => agentCard(a, lang))
+    .join("\n\n");
+}
+
+function agentCard(a: AgentRun, lang: Lang): string {
+  const head = `### ${a.agentType} · "${a.description}"`;
+  const reasoning = a.tokens.output + a.tokens.thinking;
+  const context = Math.max(0, billable(a.tokens) - a.startupTokens - reasoning);
+
+  const rows: string[] = [
+    `${a.model ?? "?"} · ${minutes(a.durationMs)}${a.overlapsWith.length > 0 ? t(lang, ` · en paralelo con ${a.overlapsWith.length}`, ` · in parallel with ${a.overlapsWith.length}`) : ""}`,
+    "",
+    `  ${t(lang, "arranque", "startup").padEnd(14)}${k(a.startupTokens)}`,
+    `  ${t(lang, "razonamiento", "reasoning").padEnd(14)}${k(reasoning)}`,
+    `  ${t(lang, "contexto", "context").padEnd(14)}${k(context)}`,
+    `  ${"cache_read".padEnd(14)}${k(a.tokens.cacheRead)}`,
+    "",
+  ];
+
+  rows.push(`  ${t(lang, "skills", "skills").padEnd(9)}${skillsLine(a, lang)}`);
+  rows.push(`  ${t(lang, "tools", "tools").padEnd(9)}${toolsLine(a.toolCounts)}`);
+  rows.push(`  ${"mcp".padEnd(9)}${mcpLines(a, lang)}`);
+  rows.push(`  ${"hooks".padEnd(9)}${hooksLine(a.hookEvents, lang)}`);
+  if (a.verdict) rows.push(`  ${t(lang, "veredicto", "verdict").padEnd(9)}${a.verdict}`);
+
+  return `${head}\n\n\`\`\`\n${rows.join("\n")}\n\`\`\``;
+}
+
+function skillsLine(a: AgentRun, lang: Lang): string {
+  if (a.skills.length === 0 && a.skillsDiscarded === 0) return t(lang, "—", "—");
+  const used = a.skills
+    .map(
+      (sk) =>
+        `${sk.slug} (${sk.source === "skill-tool" ? t(lang, "tool Skill", "Skill tool") : t(lang, "SKILL.md leído", "SKILL.md read")})`,
+    )
+    .join(", ");
+  // The discard is stated, never silent: it is the difference between "used no
+  // skills" and "walked past eleven of them while listing the index".
+  const dropped =
+    a.skillsDiscarded > 0
+      ? t(
+          lang,
+          ` · ${a.skillsDiscarded} descartadas (vistas al listar el índice)`,
+          ` · ${a.skillsDiscarded} discarded (seen while listing the index)`,
+        )
+      : "";
+  return `${used || t(lang, "—", "—")}${dropped}`;
+}
+
+function toolsLine(counts: Record<string, number>): string {
+  const entries = Object.entries(counts)
+    // MCP tools have their own line; repeating them here would double-count.
+    .filter(([name]) => !name.startsWith("mcp__"))
+    .sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) return "—";
+  return entries.map(([name, n]) => `${name} ${n}`).join(" · ");
+}
+
+/**
+ * MCP per server, crossed with what the agent was ALLOWED to reach (R19/R20).
+ *
+ * An empty `mcp` line is ambiguous on its own — it cannot distinguish an agent
+ * that did not need engram from one whose `tools:` never let it near engram
+ * while `CLAUDE.md` charged it for the instructions anyway.
+ */
+function mcpLines(a: AgentRun, lang: Lang): string {
+  const servers = new Set([...Object.keys(a.mcpCalls), ...Object.keys(a.mcpReach)]);
+  if (servers.size === 0) return t(lang, "—", "—");
+
+  const lines: string[] = [];
+  for (const server of [...servers].sort()) {
+    const ops = a.mcpCalls[server];
+    if (ops) {
+      const detail = Object.entries(ops)
+        .sort((x, y) => y[1] - x[1])
+        .map(([op, n]) => `${op} ${n}`)
+        .join(", ");
+      const total = Object.values(ops).reduce((sum, n) => sum + n, 0);
+      lines.push(`${server.padEnd(11)}${total} (${detail})`);
+      continue;
+    }
+    lines.push(
+      `${server.padEnd(11)}${
+        a.mcpReach[server] !== false
+          ? t(lang, "disponible · 0 llamadas", "available · 0 calls")
+          : t(lang, "⚠ vedado por su tools:", "⚠ barred by its tools:") +
+            barredCost(a, server, lang)
+      }`,
+    );
+  }
+  return lines.join("\n           ");
+}
+
+/** Whether an agent's declared `tools:` lets it reach ONE server. A blanket
+ *  `mcp__codegraph__*` grants codegraph and nothing else; an absent `tools:`
+ *  inherits everything. */
+function reaches(declared: DeclaredAgent | undefined, server: string): boolean {
+  if (!declared || declared.tools === null) return true;
+  return declared.tools.some(
+    (tool) => tool === "*" || tool === `mcp__${server}__*` || tool.startsWith(`mcp__${server}__`),
+  );
+}
+
+/** What a barred agent paid, in its startup, for instructions it cannot follow. */
+function barredCost(a: AgentRun, server: string, lang: Lang): string {
+  const wasted = a.mcpBarredTokens[server];
+  if (!wasted) return "";
+  return t(
+    lang,
+    ` · ${k(wasted)} tok de instrucciones inejecutables`,
+    ` · ${k(wasted)} tok of unexecutable instructions`,
+  );
+}
+
+function hooksLine(events: HookEvent[], lang: Lang): string {
+  if (events.length === 0) return t(lang, "—", "—");
+  const by = new Map<string, { n: number; ms: number; blocked: number }>();
+  for (const e of events) {
+    const cur = by.get(e.name) ?? { n: 0, ms: 0, blocked: 0 };
+    by.set(e.name, {
+      n: cur.n + 1,
+      ms: cur.ms + e.ms,
+      blocked: cur.blocked + (e.verdict === "block" ? 1 : 0),
+    });
+  }
+  return (
+    [...by.entries()]
+      // Slowest first: the point of recording `ms` is finding the hook that costs
+      // seconds on every tool call.
+      .sort((x, y) => y[1].ms - x[1].ms)
+      .map(
+        ([name, v]) =>
+          `${name} ${v.n}× ${(v.ms / 1000).toFixed(1)}s${v.blocked > 0 ? t(lang, ` · ${v.blocked} bloqueos`, ` · ${v.blocked} blocked`) : ""}`,
+      )
+      .join("\n           ")
+  );
+}
+
 function byAgentType(s: SessionAudit): string {
   const by = new Map<string, { n: number; tok: number; startup: number }>();
   for (const a of s.agents) {
@@ -191,14 +372,27 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
       }
     }
 
-    out.push(
-      "",
-      `### ${t(lang, "Agentes (top 15 por gasto)", "Agents (top 15 by spend)")}`,
-      "",
-      "```",
-    );
+    out.push("", `### ${t(lang, "Línea de tiempo", "Timeline")}`, "", "```");
     out.push(agentTimeline(s, lang));
     out.push("```");
+
+    if (s.agents.length > 0) {
+      const wall = wallClockOf(s.agents);
+      const sum = s.agents.reduce((n, a) => n + a.durationMs, 0);
+      out.push(
+        "",
+        t(
+          lang,
+          `Los subagentes suman **${minutes(sum)}** de trabajo en **${minutes(wall)}** de reloj: ` +
+            `corrieron en paralelo, así que sumar sus duraciones describe tiempo que nadie esperó.`,
+          `The subagents add up to **${minutes(sum)}** of work over **${minutes(wall)}** of clock: ` +
+            `they ran in parallel, so summing their durations describes time nobody waited.`,
+        ),
+      );
+    }
+
+    out.push("", `### ${t(lang, "Ficha por agente", "Per-agent card")}`, "");
+    out.push(agentCards(s, lang));
 
     out.push("", `### ${t(lang, "Por tipo de agente", "By agent type")}`, "", "```");
     out.push(byAgentType(s));
@@ -264,13 +458,42 @@ export function buildReport(
     }
   }
 
+  // Resolve each agent's MCP reach ONCE, here: this is the only place that has
+  // both the runs and the harness catalog.
+  //
+  // `barredTokens` is what turns the finding from a label into a cost (R20): the
+  // CLAUDE.md sections that REQUIRE a server are shipped in every agent's
+  // startup context whether or not its `tools:` can reach it, so a barred agent
+  // pays for instructions it is structurally unable to follow. Same measurement
+  // the `unreachable-instructions` signal reports for the session, attributed
+  // per agent.
+  const mcpSectionTokens = new Map<string, number>();
+  for (const section of opts.catalog.sections) {
+    for (const server of section.requiresMcp) {
+      mcpSectionTokens.set(server, (mcpSectionTokens.get(server) ?? 0) + section.tokens);
+    }
+  }
+  for (const sess of sessions) {
+    for (const a of sess.agents) {
+      const declared = opts.catalog.agents.find((d) => d.name === a.agentType);
+      for (const server of opts.catalog.mcpFamilies) {
+        const canReach = reaches(declared, server);
+        a.mcpReach[server] = canReach;
+        if (!canReach) {
+          const wasted = mcpSectionTokens.get(server) ?? 0;
+          if (wasted > 0) a.mcpBarredTokens[server] = wasted;
+        }
+      }
+    }
+  }
+
   const stamps = sessions
     .flatMap((s) => [s.startedAt, s.endedAt])
     .filter(Boolean)
     .sort();
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedBy: `navori@${opts.version}`,
     repo: opts.repo,
     range: {
@@ -286,6 +509,11 @@ export function buildReport(
       startupTokens,
       byAgentType,
       byModel,
+      agentDurationMs: sessions.reduce(
+        (sum, sess) => sum + sess.agents.reduce((n, a) => n + a.durationMs, 0),
+        0,
+      ),
+      agentWallClockMs: sessions.reduce((sum, sess) => sum + wallClockOf(sess.agents), 0),
     },
     signals: sessions.flatMap((s) => s.signals),
   };
