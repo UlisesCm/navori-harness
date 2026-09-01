@@ -59,6 +59,7 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
     },
     agents: [],
     signals: [],
+    hookLogFrom: null,
     parseErrors: 0,
     linesRead: 100,
     ...over,
@@ -257,5 +258,49 @@ describe("report language", () => {
     const en = detectSignals(s, catalog(), "en")[0]?.summary ?? "";
     expect(es).not.toBe(en);
     expect(en).toContain("permission mode");
+  });
+});
+
+describe("signal: hook-log-coverage", () => {
+  const HORIZON = "2026-08-25T10:30:00.000Z";
+
+  it("fires for agents that finished before the recorder existed", () => {
+    const s = session({
+      hookLogFrom: HORIZON,
+      agents: [
+        agent({
+          agentId: "a1",
+          startedAt: "2026-08-25T10:00:00.000Z",
+          endedAt: "2026-08-25T10:10:00.000Z",
+        }),
+        agent({
+          agentId: "a2",
+          startedAt: "2026-08-25T10:40:00.000Z",
+          endedAt: "2026-08-25T10:50:00.000Z",
+        }),
+      ],
+    });
+    const found = detectSignals(s, catalog(), "es").find((x) => x.kind === "hook-log-coverage");
+    expect(found?.summary).toContain("1 de 2");
+    // The gap is what explains it: a harness rendered 30 min into the session.
+    expect(found?.evidence).toContain("30 min");
+  });
+
+  it("stays silent when every agent ran under the recorder", () => {
+    const s = session({
+      hookLogFrom: HORIZON,
+      agents: [
+        agent({ startedAt: "2026-08-25T10:40:00.000Z", endedAt: "2026-08-25T10:50:00.000Z" }),
+      ],
+    });
+    expect(kinds(s, catalog())).not.toContain("hook-log-coverage");
+  });
+
+  it("stays silent when the log holds no hook to draw a horizon from", () => {
+    const s = session({
+      hookLogFrom: null,
+      agents: [agent({ endedAt: "2026-08-25T10:10:00.000Z" })],
+    });
+    expect(kinds(s, catalog())).not.toContain("hook-log-coverage");
   });
 });

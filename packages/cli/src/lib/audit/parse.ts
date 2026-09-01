@@ -525,6 +525,8 @@ export function parseSession(mainJsonl: string): SessionAudit {
     },
     agents,
     signals: [],
+    // Filled by `attachHookEvents`: it lives in the session log, not here.
+    hookLogFrom: null,
     parseErrors,
     linesRead,
   };
@@ -602,14 +604,62 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     const owner = ownerOf(event, session);
     owner.push(event);
   }
+
+  // The recorder's horizon. Taken as a MINIMUM rather than the first line
+  // because the log is appended to by hooks of parallel agents, and two writes
+  // racing on the same append leave the file ordered by arrival, not by `ts`.
+  let earliest = Number.POSITIVE_INFINITY;
+  for (const event of events) {
+    const at = Date.parse(event.ts);
+    if (!Number.isFinite(at) || at >= earliest) continue;
+    earliest = at;
+    session.hookLogFrom = event.ts;
+  }
 }
 
 /** Which run's card an event belongs on. */
+/**
+ * Hook phases that only ever fire in the process owning the session.
+ *
+ * A subagent cannot produce one: `SubagentStop` runs in the PARENT once a child
+ * has already died, and the session-level phases bracket the whole run. Listing
+ * them is what stops the time-window fallback below from placing an event
+ * inside a card where it is structurally impossible — in the reference session
+ * that mistake put `subagent-stop-handoff 21x` on a reviewer that never spawned
+ * anything (every agent there had `spawnDepth: 1` and zero `Agent` calls).
+ *
+ * The payload's own `agent_id` does not rescue this: on `SubagentStop` the host
+ * sends the id of the child that STOPPED, and 102 of the 112 ids it sent in that
+ * session matched no transcript at all. The parent is the honest owner either
+ * way — it is the process that ran the hook and paid its milliseconds — and the
+ * event keeps its `agentId`, so nothing is lost by not guessing.
+ */
+const PARENT_ONLY_PHASES = new Set([
+  "SessionStart",
+  "SessionEnd",
+  "UserPromptSubmit",
+  "PreCompact",
+  "Stop",
+  "SubagentStop",
+  "Notification",
+]);
+
 function ownerOf(event: HookEvent, session: SessionAudit): HookEvent[] {
+  if (PARENT_ONLY_PHASES.has(event.phase)) return session.orchestrator.hookEvents;
+
   if (event.agentId) {
     const byId = session.agents.find((a) => a.agentId === event.agentId);
-    if (byId) return byId.hookEvents;
+    // An id naming nobody is INVALID data, not missing data, and the difference
+    // decides the owner. The host states an identity on every event: for the
+    // orchestrator it states the repo's `cwd`, which matches no agent by
+    // construction. Falling through to the window then re-attributed those to
+    // whichever agent happened to be alive — ~294 of the reference session's
+    // events, on top of the 99 stray `SubagentStop`s. When the payload names
+    // someone we cannot find, the one thing we know is that the window's answer
+    // would be a different someone.
+    return byId ? byId.hookEvents : session.orchestrator.hookEvents;
   }
+
   if (event.ts) {
     const at = Date.parse(event.ts);
     if (Number.isFinite(at)) {
