@@ -176,6 +176,16 @@ interface EngineOutputs {
    *  prose files are read from `markers` (kind:"file"); these are the asset
    *  trees under them. */
   textDirs: string[];
+  /**
+   * Files the engine GENERATES that carry no comment marker, so no drift scan
+   * can read them — JSON has no comments (`lib/json-ownership.ts`). They are
+   * still outputs the engine owns, which is what `engineOwnedPaths` answers, so
+   * leaving them out made the ownership map disagree with reality: `.mcp.json`
+   * was invisible to the orphan scan, and a prune of a disabled `claude` engine
+   * neither removed it nor mentioned it — the file stayed on disk pointing at
+   * MCP servers nobody would read again, and nothing said so (#557).
+   */
+  generated?: string[];
 }
 
 /**
@@ -206,6 +216,12 @@ export const ENGINE_OUTPUTS: EngineOutputs[] = [
       { kind: "recursive", dir: ".claude/hooks", ext: ".sh", style: "shell" },
     ],
     textDirs: [".claude"],
+    // The project-scoped MCP registry at the repo ROOT — outside `.claude/`, so
+    // no other entry covers it. What happens to it at prune time is decided by
+    // its own `$navori` key, never by this list: navori generated it whole
+    // (deletable) or it is the user's file navori merely edits by key (kept and
+    // reported). This list only makes it VISIBLE to that decision.
+    generated: [".mcp.json"],
   },
   {
     engine: "codex",
@@ -294,6 +310,7 @@ export function engineOwnedPaths(engine: string): string[] {
   const raw = new Set<string>();
   for (const src of eo.markers) raw.add(src.kind === "file" ? src.path : src.dir);
   for (const dir of eo.textDirs) raw.add(dir);
+  for (const file of eo.generated ?? []) raw.add(file);
   // Collapse nested paths to their outermost ancestor within the set.
   const sorted = [...raw].sort();
   const out: string[] = [];

@@ -60,33 +60,19 @@ type GitignoreConfig = {
 };
 
 /**
- * Harness outputs an engine generates that are NOT part of `ENGINE_OUTPUTS`
- * (which only tracks marker-managed / prose files for drift scanning). These are
- * regenerable-from-config files that a `full` (Bonum) `.gitignore` must still
- * ignore. `.mcp.json` is written by the Claude engine but is generated JSON, not
- * a marker file, so it never entered
- * `ENGINE_OUTPUTS`. `navori.config.json` is intentionally absent everywhere: it
- * is the checked-in source of truth and stays versioned even in `full` mode.
- */
-const ENGINE_EXTRA_OUTPUTS: Readonly<Record<string, readonly string[]>> = {
-  claude: [".mcp.json"],
-};
-
-/**
  * Cubo B — the versionable harness outputs (`.claude/`, `CLAUDE.md`, `.codex/`,
- * `AGENTS.md`, `.mcp.json`, …) owned by the currently-configured engines. Derived
- * from `ENGINE_OUTPUTS` (single source of truth) via `engineOwnedPaths`, plus the
- * non-marker extras above, so an engine absent from `config.engines` contributes
- * nothing. Directory paths get a trailing slash; deduped (AGENTS.md is claimed by
- * both codex and agents-md) and sorted for a deterministic body.
+ * `AGENTS.md`, `.mcp.json`, …) owned by the currently-configured engines,
+ * derived from `ENGINE_OUTPUTS` via `engineOwnedPaths`: an engine absent from
+ * `config.engines` contributes nothing.
+ *
+ * `.mcp.json` used to be kept in a SECOND list right here, because it is
+ * generated JSON rather than a marker file and never entered `ENGINE_OUTPUTS`.
+ * It does now (`generated`, #557) — a copy that only this file knew about was
+ * also a copy the ownership map and the prune did not, which is exactly how the
+ * file came to be neither deleted nor mentioned by `render --prune`.
+ * `navori.config.json` is intentionally absent everywhere: it is the checked-in
+ * source of truth and stays versioned even in `full` mode.
  */
-function cuboBEntries(engines: readonly string[]): string[] {
-  const paths = new Set<string>(engineOutputPaths(engines));
-  for (const engine of engines) {
-    for (const extra of ENGINE_EXTRA_OUTPUTS[engine] ?? []) paths.add(extra);
-  }
-  return [...paths].sort();
-}
 
 /**
  * Ignore-file entries for every harness output owned by `engines`, derived from
@@ -126,7 +112,9 @@ export function buildGitignoreBody(config: GitignoreConfig): string | null {
   const mode = config.gitignoreHarness ?? "off";
   if (mode === "off") return null;
   const entries =
-    mode === "full" ? [...CUBO_A_ENTRIES, ...cuboBEntries(config.engines)] : [...CUBO_A_ENTRIES];
+    mode === "full"
+      ? [...CUBO_A_ENTRIES, ...engineOutputPaths(config.engines)]
+      : [...CUBO_A_ENTRIES];
   return entries.join("\n");
 }
 

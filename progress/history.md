@@ -912,6 +912,9 @@ revertirlo: lo que yo había staged es idéntico a lo que esa sesión va a commi
   (43 y 42 archivos), a la espera de que cierre la sesión paralela.
 - `alertaciudadana_backend`: `.codex/` huérfano de un engine que ya no está en `config.engines`.
   `render --prune --apply` lo borraría, pero arrastra el bug conocido de dejar atrás `.codex/hooks.json`.
+  [Corrección del 2026-09-01, #538/#557: el diagnóstico era falso — navori nunca escribió
+  `.codex/hooks.json`. El residuo real era `.mcp.json`, que el prune ni borraba ni mencionaba; #557
+  lo arregla.]
 - `alertaciudadana_app`: `name: "alertaciudadana"` no coincide con el directorio; doctor sugiere
   `alertaciudadana-app`. No se tocó por si es intencional.
 - `navori-dashboard-template`: `.claude/progress/` y `.claude/.managed-drift-stamp` sin ignorar, y 4

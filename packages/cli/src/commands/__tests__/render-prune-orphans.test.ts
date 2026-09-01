@@ -224,6 +224,56 @@ describe("runRender --prune — deletes navori's files, never the user's (#496)"
     expect(result.keptEngineOutputs).toContainEqual({ path: "AGENTS.md", reason: "foreign" });
   });
 
+  it("removes a `.mcp.json` navori generated whole, with the engine that motivated it (#557)", () => {
+    // Reproduction from the issue: `claude` out of `engines[]`, and the registry
+    // it wrote left on disk — pointing at MCP servers nobody will read again —
+    // without a single line of the run mentioning it.
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "demo",
+      engines: ["codex"],
+      preset: "custom",
+    });
+    writeFileSync(
+      join(cwd, ".mcp.json"),
+      `${JSON.stringify(
+        {
+          $navori: { managed: true, version: readCliVersion() },
+          mcpServers: { engram: { command: "engram", args: ["mcp"] } },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(result.prunedEngineOutputs).toContain(".mcp.json");
+    expect(existsSync(join(cwd, ".mcp.json"))).toBe(false);
+  });
+
+  it("keeps a `.mcp.json` that is the user's, and SAYS it kept it (#557)", () => {
+    // The nuance the fix turns on: navori only ever added keys to this file, so
+    // deleting it would take the user's server with it. Keeping it silently is
+    // what the issue objected to — the user could not tell it had been left.
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "demo",
+      engines: ["codex"],
+      preset: "custom",
+    });
+    const usersRegistry = `${JSON.stringify(
+      { mcpServers: { "my-server": { command: "my-bin", args: [] } } },
+      null,
+      2,
+    )}\n`;
+    writeFileSync(join(cwd, ".mcp.json"), usersRegistry);
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(readFileSync(join(cwd, ".mcp.json"), "utf-8")).toBe(usersRegistry);
+    expect(result.prunedEngineOutputs).not.toContain(".mcp.json");
+    expect(result.keptEngineOutputs).toContainEqual({ path: ".mcp.json", reason: "foreign" });
+  });
+
   it("does not delete a managed file a NEWER navori wrote (anti-rollback)", () => {
     writeFileSync(
       join(cwd, "AGENTS.md"),
