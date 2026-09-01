@@ -28,6 +28,20 @@ import {
   type GlobalRenderPlan,
 } from "../engines/claude/global-render.ts";
 
+/**
+ * Persist which permission entries navori owns, right after the write that made
+ * it true (#544). It lives in the command layer, not in `applyGlobalRender`, so
+ * the renderer keeps writing only to the Claude config dir: a render that also
+ * touched `~/.navori/global.json` would put every spec that calls it in reach of
+ * the real machine-global store the suite guards (#404/#424).
+ */
+function recordPermissionOwnership(config: GlobalConfig, plan: GlobalRenderPlan): void {
+  const before = JSON.stringify(config.ownedPermissions);
+  if (before === JSON.stringify(plan.ownedPermissions)) return;
+  config.ownedPermissions = plan.ownedPermissions;
+  writeGlobalConfig(config);
+}
+
 /** Compose the render plan or fail cleanly (e.g. a non-global-safe block). */
 function planOrExit(config: GlobalConfig): GlobalRenderPlan {
   try {
@@ -63,6 +77,7 @@ const initSubCommand = defineCommand({
     const plan = planOrExit(config);
     writeGlobalConfig(config);
     const backupPath = applyGlobalRender(plan);
+    recordPermissionOwnership(config, plan);
 
     if (existing) p.log.info(g.initReinit(plan.dir));
     const rows = [
@@ -97,6 +112,7 @@ const renderSubCommand = defineCommand({
     const rows = [g.wroteHook(plan.hookPath), g.wroteSettings(plan.settingsPath)];
     if (args.apply) {
       const backupPath = applyGlobalRender(plan);
+      recordPermissionOwnership(config, plan);
       if (backupPath) rows.push(t(resolveLang(config.language)).backedUp(1, backupPath));
       p.note(rows.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), g.previewTitle);
       p.outro(color.green(g.renderApplied(plan.dir)));
@@ -238,7 +254,7 @@ const uninstallSubCommand = defineCommand({
     const g = tc(resolveLang(config?.language)).global;
     const dir = globalTargetDir();
 
-    const result = uninstallGlobalRender(dir);
+    const result = uninstallGlobalRender(dir, config);
     const hadConfig = deleteGlobalConfig();
 
     // #497: an unreadable settings.json is left byte-for-byte alone, so say what
