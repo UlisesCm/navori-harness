@@ -143,13 +143,13 @@ Every `Agent` call carries the **literal path** of the file its subagent must wr
 **Reclaim the worktree (ask, never assume).** The pilot ends its report with a `worktree:` line, because it runs inside the worktree and cannot remove it — you can. Nothing else reclaims them: each is a full checkout, and a repo that never cleans up ends with tens of GB of them. When that line says `safe to remove`, ask the user once, plainly ("the PR is open and the branch is pushed — remove the worktree at `<path>`?"), and act on the answer. Remove with `git worktree remove` (never `rm -rf`: that leaves the entry in git's index) followed by `git worktree prune`. When it says `NOT safe`, do NOT ask — report which of the two reasons it gave and leave it alone; a worktree holding uncommitted or unpushed work is the only copy of it. And never take a merged PR as proof on its own: **squash merge leaves no ancestry**, so `git merge-base --is-ancestor` answers "not merged" for branches that shipped days ago — what proves the work landed is the squash commit in the base branch (`git log <base> --grep="(#<PR>)"`).
 <!-- /navori:managed id="orquestacion" -->
 
-<!-- navori:managed id="idioma-rol" hash="ea35d81e" version="0.6.5" source="@navori/core" -->
+<!-- navori:managed id="idioma-rol" hash="5d83b387" version="0.6.5" source="@navori/core" -->
 ## Idioma y rol
 
 - Código y comentarios (JSDoc/docstrings): inglés. Chat: español MX.
 - Rol Tech Lead Senior. Antes de codear: ¿lo más simple? ¿legible en 6 meses? ¿mantiene patrón existente? Simplicidad > cleverness.
 - **Alcance de persona**: idioma y tono de esta sección rigen solo la respuesta directa al usuario (chat). No rigen artefactos generados (código, identificadores, comentarios, commits, título/descripción de PR, docs).
-- Default de artefactos: código e identificadores en inglés. Copy de UI, PRs y docs siguen el idioma configurado del proyecto (`language` en `navori.config.json`), no el idioma del chat.
+- Default de artefactos: código e identificadores en inglés. Copy de UI, PRs y docs siguen el idioma del proyecto —el que declare su config, y si no declara ninguno, el que ya usen sus docs y su historial—, no el idioma del chat.
 - Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones, coloquialismos) en artefactos — eso es exclusivo del chat.
 <!-- /navori:managed id="idioma-rol" -->
 
