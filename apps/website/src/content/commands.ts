@@ -281,6 +281,408 @@ const es: Record<string, CommandDoc> = {
       "Respeta CLAUDE_CONFIG_DIR: si lo tienes seteado, el plugin va ahí y no a ~/.claude.",
     ],
   },
+  remove: {
+    id: "remove",
+    title: "remove",
+    summary:
+      "Desactiva un plugin y limpia lo que había dejado: bloques managed, sub-bloques inyectados y scripts.",
+    usage: "navori remove <plugin> [--yes] [--cwd <dir>]",
+    flags: [
+      { flag: "<plugin>", desc: "Id del plugin a quitar (semgrep, jscpd, codegraph, acli, gh)." },
+      { flag: "--yes", desc: "Sin confirmación." },
+      { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
+    ],
+    example: [
+      {
+        title: "Quitar un plugin",
+        code: "$ navori remove semgrep --yes\n◆  'semgrep' quitado y limpiado.\n└  Listo",
+      },
+      {
+        title: "engram no se puede quitar",
+        code: "$ navori remove engram\n└  engram es always-on con navori; no se puede quitar.",
+      },
+    ],
+    notes: [
+      "Va en dos fases: primero marca el plugin como enabled:false y re-renderiza —eso es lo que borra sus bloques y scripts—, y solo después quita la clave del config. Borrar la clave de una sí se saltaría la limpieza.",
+      "Si el render falla, el comando sale con código 1 y deja el config en enabled:false, para que el árbol a medias no pase por bueno en CI.",
+    ],
+  },
+  configure: {
+    id: "configure",
+    title: "configure",
+    summary:
+      "Modifica secciones de navori.config.json después del init. Cada sección es un subcomando.",
+    usage:
+      "navori configure <plugins|quality-gate|language|branch-base|pr-target|engines|workspace|blocks> [valor]",
+    flags: [
+      { flag: "plugins", desc: "Habilita o deshabilita plugins de este repo (interactivo)." },
+      {
+        flag: "quality-gate [--fast <cmd>] [--full <cmd>]",
+        desc: "Define los dos comandos del gate. Sin flags pregunta; con ellos es no interactivo.",
+      },
+      { flag: "language <es|en>", desc: "Idioma de los assets Core managed." },
+      { flag: "branch-base <rama>", desc: "Rama base contra la que los gates sacan el diff." },
+      {
+        flag: "pr-target <rama>",
+        desc: "Rama a la que apuntan los PRs (gh pr create --base). Por default, la de branch-base.",
+      },
+      {
+        flag: "engines",
+        desc: "Agrega o quita engines: claude, agents-md, cursor, copilot, codex.",
+      },
+      {
+        flag: "workspace <nombre>",
+        desc: "Asocia el repo a un workspace (vacío para desasociar).",
+      },
+      { flag: "blocks", desc: "Excluye bloques core managed (p. ej. orquestacion, sdd)." },
+      {
+        flag: "--cwd <dir>",
+        desc: "Directorio del repo (default: actual). Aplica a todos los subcomandos.",
+      },
+    ],
+    example: [
+      {
+        title: "Cambiar el idioma",
+        code: "$ navori configure language en\n◆  language → en\n└  Corre 'navori render --apply' para volver a renderizar los bloques managed en el nuevo idioma.",
+      },
+      {
+        title: "Definir el gate sin prompts",
+        code: '$ navori configure quality-gate --fast "pnpm lint" --full "pnpm test && pnpm lint"\n◆  qualityGate updated\n└  Done',
+      },
+      {
+        title: "PRs a develop, gates contra main",
+        code: "$ navori configure branch-base main\n$ navori configure pr-target develop\n◆  prTarget → develop",
+      },
+    ],
+    notes: [
+      "configure solo escribe navori.config.json. El cambio se materializa con 'navori render --apply'.",
+      "branchBase y prTarget son dos cosas distintas: la primera es el punto de fork contra el que se mide el diff, la segunda es a dónde apunta el PR. En la mayoría de los repos coinciden.",
+    ],
+  },
+  update: {
+    id: "update",
+    title: "update",
+    summary:
+      "El 'ponme al día' de un solo tiro: vuelve a detectar el repo, ofrece los cambios de config y corre sync.",
+    usage: "navori update [--yes] [--cwd <dir>]",
+    flags: [
+      { flag: "--yes", desc: "Aplica los diffs detectados y sincroniza sin preguntar." },
+      { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
+    ],
+    example: [
+      {
+        title: "Nada que hacer",
+        code: "$ navori update\n└  Al día — nada que actualizar",
+      },
+      {
+        title: "En CI",
+        code: "navori update --yes",
+      },
+    ],
+    notes: [
+      "Detecta drift entre lo que el repo es hoy y lo que el config dice: preset sugerido, comandos del quality gate, rama base y migraciones de librería.",
+      "Tu edición manda: cuando la detección discrepa de un valor que ya editaste a mano, el config gana.",
+      "Después de acomodar el config corre sync, así que los bloques managed quedan al día en la misma pasada.",
+    ],
+  },
+  scan: {
+    id: "scan",
+    title: "scan",
+    summary:
+      "Vuelve a detectar los workspaces de un monorepo y agrega al config los que aparecieron desde el init.",
+    usage: "navori scan [--yes] [--cwd <dir>]",
+    flags: [
+      { flag: "--yes", desc: "Acepta el preset sugerido de cada workspace nuevo sin preguntar." },
+      { flag: "--cwd <dir>", desc: "Directorio a escanear (default: actual)." },
+    ],
+    example: [
+      {
+        title: "Repo que no declara monorepo",
+        code: "$ navori scan\n└  navori.config.json no declara 'monorepo'. Edita el config para agregar { monorepo: { enabled: true, tool: '...' } } y vuelve a correr scan.",
+      },
+    ],
+    notes: [
+      "Es incremental: solo agrega los workspaces que el config todavía no lista, y nunca toca los que ya están.",
+      "Requiere que el config declare monorepo.enabled. 'navori init --scan-monorepo' es lo que lo deja listo desde el arranque.",
+    ],
+  },
+  registry: {
+    id: "registry",
+    title: "registry",
+    summary:
+      "Registro global de todos los repos con navori de esta máquina. Es lo que hace posible 'render --all'.",
+    usage: "navori registry <ls|scan|add|remove|prune> [args]",
+    flags: [
+      { flag: "ls", desc: "Lista cada repo registrado." },
+      {
+        flag: "scan <dir...> [--depth=<n>]",
+        desc: "Recorre uno o más directorios y registra todos los repos navori que encuentre. Profundidad máxima: 4.",
+      },
+      { flag: "add <path>", desc: "Registra un repo por ruta." },
+      { flag: "remove <path>", desc: "Lo saca del registro; sus archivos no se tocan." },
+      { flag: "prune", desc: "Quita las entradas cuyo repo ya no existe en disco." },
+    ],
+    example: [
+      {
+        title: "Registrar todo lo que hay bajo un directorio",
+        code: "$ navori registry scan ~/dev --depth=3\n│    · conocido  demo  /Users/tu/dev/demo\n└  Listo 0 agregado(s) · 1 ya registrado(s)",
+      },
+      {
+        title: "Ver el registro",
+        code: "$ navori registry ls\n│    ✓ demo\n│        /Users/tu/dev/demo\n└  1 repo(s)",
+      },
+      {
+        title: "Limpiar lo que ya no existe",
+        code: "$ navori registry prune\n└  Nada que limpiar · 1 repo(s) registrado(s)",
+      },
+    ],
+    notes: [
+      "El registro vive en ~/.navori/ y es machine-local: no se commitea ni viaja con el repo.",
+      "'ls' marca con missing los repos que ya no están en disco y te sugiere el prune.",
+      "'remove' es solo desregistrar: nunca borra archivos del repo.",
+    ],
+  },
+  workspace: {
+    id: "workspace",
+    title: "workspace",
+    summary:
+      "Config y tickets compartidos entre varios repos: defaults que aplican a todos y un render de la flota completa.",
+    usage: "navori workspace <init|ls|show|link|add-repo|set-default|render|rename|delete> [args]",
+    flags: [
+      {
+        flag: "init <nombre> [--description <txt>] [--yes]",
+        desc: "Crea el workspace en ~/.navori/workspaces/<nombre>.json.",
+      },
+      { flag: "ls [--json]", desc: "Lista los workspaces conocidos." },
+      { flag: "show <nombre> [--json]", desc: "Muestra rutas, defaults y repos registrados." },
+      {
+        flag: "link [<nombre>] [--cwd <dir>]",
+        desc: "Registra el repo actual en el workspace y lo anota en su navori.config.json. Sin nombre, usa el que declare el config.",
+      },
+      {
+        flag: "add-repo <workspace> --name <n> --path <p> [--stack <s>] [--description <d>]",
+        desc: "Registra un repo por ruta, sin estar parado en él.",
+      },
+      {
+        flag: "set-default <workspace> <key> <value>",
+        desc: "Default que aplica a todos los repos del workspace (engines: separados por coma; plugins: true|false).",
+      },
+      {
+        flag: "render <workspace> [--apply] [--force] [--verbose]",
+        desc: "Renderiza cada repo registrado. Sin --apply es preview.",
+      },
+      { flag: "rename <de> <a> [--yes]", desc: "Renombra conservando tickets, repos y defaults." },
+      { flag: "delete <nombre> [--yes]", desc: "Lo manda a ~/.navori/.trash (recuperable)." },
+    ],
+    example: [
+      {
+        title: "Crear y enlazar",
+        code: "$ navori workspace init bonum --yes\n◆  Escribí ~/.navori/workspaces/bonum/workspace.json\n\n$ navori workspace link bonum\n◆  Registré 'demo' en el workspace 'bonum'.\n◆  workspace → 'bonum' guardado en navori.config.json",
+      },
+      {
+        title: "Inspeccionar",
+        code: '$ navori workspace show bonum\n│    ticketsDir : tickets\n│    defaults   : {"engines":["claude"]}\n│    repos      : 1\n│  Repos:\n│      · demo  /Users/tu/dev/demo',
+      },
+      {
+        title: "Render de la flota (preview)",
+        code: "$ navori workspace render bonum\n│    · demo  up-to-date  45 unchanged\n└  Preview 1/1 ok · 0 would change · 0 conflict · 1 warning · 0 failed",
+      },
+    ],
+    notes: [
+      "El workspace vive en ~/.navori/workspaces/: es machine-local. Lo único que queda en el repo es la clave 'workspace' de navori.config.json.",
+      "'link' es el camino corto desde adentro del repo; 'add-repo' es el mismo registro pero desde afuera y por ruta.",
+      "'render' sin --apply previsualiza los repos completos, así que sirve para medir el impacto de un cambio de preset antes de aplicarlo.",
+      "'delete' no borra: mueve a ~/.navori/.trash.",
+    ],
+  },
+  ticket: {
+    id: "ticket",
+    title: "ticket",
+    summary:
+      "Tickets como archivos dentro de un workspace, para que el trabajo que cruza repos tenga un lugar común.",
+    usage: "navori ticket <list|show|new|archive|unarchive|delete> <workspace> [args]",
+    flags: [
+      {
+        flag: "list <workspace> [--archive] [--json]",
+        desc: "Lista los tickets activos; --archive incluye los archivados.",
+      },
+      {
+        flag: "show <workspace> <id> [--json]",
+        desc: "Muestra el ticket y los repos que lo referencian.",
+      },
+      {
+        flag: "new <workspace> <id> [--title <txt>]",
+        desc: "Crea el ticket a partir de la plantilla.",
+      },
+      { flag: "archive <workspace> <id>", desc: "Lo mueve a _archive (reversible)." },
+      { flag: "unarchive <workspace> <id>", desc: "Lo regresa a la carpeta activa." },
+      { flag: "delete <workspace> <id> [--yes]", desc: "Lo borra definitivamente." },
+    ],
+    example: [
+      {
+        title: "Crear uno",
+        code: "$ navori ticket new bonum BNM-123 --title 'Login rompe en Safari'\n◆  Escribí ~/.navori/workspaces/bonum/tickets/BNM-123.md\n└  Referéncialo desde el progress/current.md de un repo con:\n  ticket: BNM-123",
+      },
+      {
+        title: "Listar",
+        code: "$ navori ticket list bonum\n│    · BNM-123  Login rompe en Safari\n└  1 ticket",
+      },
+    ],
+    notes: [
+      "El ticket es un .md con secciones (Goal, Repos affected, Scope): está hecho para que lo lean los agentes, no solo las personas.",
+      "'show' cruza el id contra el progress/current.md de cada repo del workspace, así que te dice quién lo está trabajando.",
+      "El id se valida: letras, dígitos, guiones y guiones bajos, empezando con alfanumérico.",
+    ],
+  },
+  dominio: {
+    id: "dominio",
+    title: "dominio",
+    summary:
+      "La base de conocimiento del workspace: los hechos canónicos que cruzan repos y no caben en el CLAUDE.md de ninguno.",
+    usage: "navori dominio <init|list|show|reindex|doctor|inject> [--workspace <nombre>]",
+    flags: [
+      { flag: "init", desc: "Crea el store del Dominio del workspace." },
+      { flag: "list", desc: "Lista las entradas." },
+      { flag: "show <id>", desc: "Imprime una entrada." },
+      { flag: "reindex", desc: "Reconstruye DOMINIO.md desde los archivos de entrada." },
+      { flag: "doctor", desc: "Valida el Dominio (solo advertencias)." },
+      { flag: "inject", desc: "Emite el índice para el hook SessionStart." },
+      {
+        flag: "--workspace <nombre>",
+        desc: "Workspace sobre el que opera. Por default, el que declare el config del repo actual.",
+      },
+    ],
+    example: [
+      {
+        title: "Crear el store",
+        code: "$ navori dominio init --workspace bonum\n└  Dominio creado en ~/.navori/workspaces/bonum/dominio.",
+      },
+      {
+        title: "Revisar consistencia",
+        code: "$ navori dominio doctor --workspace bonum\n◇  Dominio de 'bonum' ───────╮\n│    ✓ Dominio consistente.  │\n└  OK",
+      },
+      {
+        title: "Reconstruir el índice",
+        code: "$ navori dominio reindex --workspace bonum\n└  Índice reconstruido (0 entrada(s)): ~/.navori/workspaces/bonum/dominio/DOMINIO.md",
+      },
+    ],
+    notes: [
+      "Es para hechos durables que sobreviven al repo: un modelo de datos, una regla de negocio, un contrato entre servicios, un gotcha compartido.",
+      "'inject' es lo que consume el hook de SessionStart: el índice entra al contexto, las entradas se leen bajo demanda.",
+      "La skill 'dominio' del harness es el camino guiado para promover un hallazgo aquí en vez de dejarlo en la memoria de la sesión.",
+    ],
+  },
+  backup: {
+    id: "backup",
+    title: "backup",
+    summary:
+      "La red de seguridad: cada sync o render que modifica archivos deja antes un snapshot en ~/.navori/backups/.",
+    usage: "navori backup <list|restore|prune> [args]",
+    flags: [
+      {
+        flag: "list [--limit <n>] [--json]",
+        desc: "Lista los snapshots. Default: los 20 más recientes.",
+      },
+      {
+        flag: "restore <timestamp> [--cwd <dir>] [--yes]",
+        desc: "Restaura los archivos de un snapshot al directorio actual. El timestamp sale de 'backup list'.",
+      },
+      {
+        flag: "prune [--days <n>] [--yes]",
+        desc: "Borra lo que pasó la retención (default 30 días) y después los más viejos hasta el tope de tamaño.",
+      },
+    ],
+    example: [
+      {
+        title: "Ver qué hay guardado",
+        code: "$ navori backup list\n│  1 backup(s) en total. Mostrando 1:\n│    · repo-2026-09-01T17-49-47-756  (recién)\n│        · .claude/agents/leader.md\n│        · CLAUDE.md\n└  Listo",
+      },
+      {
+        title: "Volver atrás",
+        code: "navori backup restore repo-2026-09-01T17-49-47-756 --yes",
+      },
+      {
+        title: "Podar",
+        code: "$ navori backup prune --days 30 --yes\n└  Nada que podar — los backups están dentro de la retención y del tope de tamaño",
+      },
+    ],
+    notes: [
+      "Los backups son automáticos: no hay 'backup create'. Se crean solos antes de cada escritura destructiva.",
+      "Viven en ~/.navori/backups/ y son machine-local: no se commitean.",
+      "El snapshot guarda solo los archivos que la operación iba a tocar, no el repo entero.",
+    ],
+  },
+  migrations: {
+    id: "migrations",
+    title: "migrations",
+    summary:
+      "El respaldo del harness previo cuando 'init' adopta navori en modo replace. Reversible.",
+    usage: "navori migrations <list|restore> [args]",
+    flags: [
+      {
+        flag: "list [--limit <n>] [--json]",
+        desc: "Lista las migraciones guardadas. Default: las 20 más recientes.",
+      },
+      {
+        flag: "restore <timestamp> <repo> [--cwd <dir>] [--yes] [--json]",
+        desc: "Devuelve el harness original al repo. Ambos valores salen de 'migrations list'.",
+      },
+    ],
+    example: [
+      {
+        title: "Cuando no hay ninguna",
+        code: "$ navori migrations list\n●  No hay migraciones. Se crean cuando 'init' adopta navori en modo replace (el wizard interactivo) en un repo con infraestructura Claude previa.\n└  Listo",
+      },
+      {
+        title: "Para scripts",
+        code: '$ navori migrations list --json\n{\n  "migrations": [],\n  "totalAvailable": 0\n}',
+      },
+    ],
+    notes: [
+      "Es distinto de backup: backup respalda cada escritura de navori, migrations respalda el .claude/ que existía ANTES de navori.",
+      "Solo el modo replace genera una: el modo coexistir no reemplaza nada, así que no hay qué respaldar.",
+      "Viven en ~/.navori/migrations/ y son machine-local.",
+    ],
+  },
+  audit: {
+    id: "audit",
+    title: "audit",
+    summary:
+      "Cómo corrió el harness de verdad: a dónde se fueron los tokens y qué instrucciones nadie siguió.",
+    usage:
+      "navori audit [--session <id>] [--days <n>] [--since <fecha>] [--until <fecha>] [--json]",
+    flags: [
+      { flag: "--session <id>", desc: "Una sesión por id, prefijo, o 'latest'." },
+      { flag: "--days <n>", desc: "Solo sesiones marcadas en los últimos N días." },
+      { flag: "--since <YYYY-MM-DD>", desc: "Desde esta fecha." },
+      { flag: "--until <YYYY-MM-DD>", desc: "Hasta esta fecha." },
+      { flag: "--json", desc: "Imprime el reporte JSON a stdout sin escribir archivos." },
+      { flag: "--out <dir>", desc: "Cambia el directorio de salida." },
+      { flag: "--start <id>", desc: "Marca una sesión como auditada (lo usa el flujo del hook)." },
+      { flag: "--stop <id>", desc: "Sella el log de la sesión y reporta sobre ella." },
+      { flag: "--cwd <dir>", desc: "Repo a auditar (default: actual)." },
+    ],
+    example: [
+      {
+        title: "Activar audit-mode",
+        code: "$ navori audit --start 8f3c1d2e\n└  audit-mode activo ~/.navori/audits/demo/session-8f3c1d2e.log",
+      },
+      {
+        title: "Sin sesiones marcadas",
+        code: "$ navori audit\n└  No hay sesiones marcadas con audit-mode para 'demo'. Actívalo con 'navori audit --start <id-de-sesión>'.",
+      },
+      {
+        title: "Reporte de una sesión",
+        code: "$ navori audit --session latest\n◇  demo · 2026-09-01 → 2026-09-01 ─╮\n│  1 sesiones · 19 agentes         │\n│  facturable  2.3M tok            │\n│  arranque  346k tok              │\n│  hallazgos  1 alto · 3 medio     │\n└  Reporte ~/.navori/audits/demo/sessions/2026-09-01-8f3c1d2e/report.md",
+      },
+    ],
+    notes: [
+      "Es opt-in y por sesión: sin un '--start' previo no hay log que auditar, y navori no observa nada.",
+      "Los datos salen de dos fuentes que no se sustituyen: el log de eventos que los hooks escriben (qué hizo el harness) y el transcript de Claude Code (el único lugar donde viven los tokens).",
+      "El reporte se escribe en markdown y JSON dentro de ~/.navori/audits/<repo>/, junto a una copia del log de la sesión.",
+      "Los conteos de hooks son parciales cuando el recorder arrancó tarde: la ficha del orquestador lo declara con el porcentaje de la sesión que sí observó.",
+    ],
+  },
 };
 
 const en: Record<string, CommandDoc> = {
@@ -555,6 +957,409 @@ const en: Record<string, CommandDoc> = {
       "Honors CLAUDE_CONFIG_DIR: if you have it set, the plugin goes there instead of ~/.claude.",
     ],
   },
+  remove: {
+    id: "remove",
+    title: "remove",
+    summary:
+      "Disable a plugin and clean up what it left behind: managed blocks, injected sub-blocks and scripts.",
+    usage: "navori remove <plugin> [--yes] [--cwd <dir>]",
+    flags: [
+      { flag: "<plugin>", desc: "Plugin id to remove (semgrep, jscpd, codegraph, acli, gh)." },
+      { flag: "--yes", desc: "Skip confirmation." },
+      { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
+    ],
+    example: [
+      {
+        title: "Remove a plugin",
+        code: "$ navori remove semgrep --yes\n◆  'semgrep' removed and cleaned up.\n└  Done",
+      },
+      {
+        title: "engram cannot be removed",
+        code: "$ navori remove engram\n└  engram is always-on with navori; it can't be removed.",
+      },
+    ],
+    notes: [
+      "Two phases: it first marks the plugin as enabled:false and re-renders — that is what deletes its blocks and scripts — and only then drops the key from the config. Deleting the key in one go would skip the cleanup.",
+      "If the render fails the command exits 1 and leaves the config at enabled:false, so a half-written tree never passes for good in CI.",
+    ],
+  },
+  configure: {
+    id: "configure",
+    title: "configure",
+    summary: "Modify sections of navori.config.json after init. Each section is a subcommand.",
+    usage:
+      "navori configure <plugins|quality-gate|language|branch-base|pr-target|engines|workspace|blocks> [value]",
+    flags: [
+      { flag: "plugins", desc: "Enable or disable this repo's plugins (interactive)." },
+      {
+        flag: "quality-gate [--fast <cmd>] [--full <cmd>]",
+        desc: "Set the gate's two commands. Without flags it prompts; with them it is non-interactive.",
+      },
+      { flag: "language <es|en>", desc: "Language of the managed Core assets." },
+      { flag: "branch-base <branch>", desc: "Base branch the gates diff against." },
+      {
+        flag: "pr-target <branch>",
+        desc: "Branch PRs target (gh pr create --base). Defaults to branch-base.",
+      },
+      {
+        flag: "engines",
+        desc: "Add or remove engines: claude, agents-md, cursor, copilot, codex.",
+      },
+      { flag: "workspace <name>", desc: "Associate the repo with a workspace (empty to detach)." },
+      { flag: "blocks", desc: "Opt out of core managed blocks (e.g. orquestacion, sdd)." },
+      {
+        flag: "--cwd <dir>",
+        desc: "Repo directory (default: current). Applies to every subcommand.",
+      },
+    ],
+    example: [
+      {
+        title: "Switch the language",
+        code: "$ navori configure language en\n◆  language → en\n└  Run 'navori render --apply' to re-render managed blocks in the new language.",
+      },
+      {
+        title: "Set the gate without prompts",
+        code: '$ navori configure quality-gate --fast "pnpm lint" --full "pnpm test && pnpm lint"\n◆  qualityGate updated\n└  Done',
+      },
+      {
+        title: "PRs to develop, gates against main",
+        code: "$ navori configure branch-base main\n$ navori configure pr-target develop\n◆  prTarget → develop",
+      },
+    ],
+    notes: [
+      "configure only writes navori.config.json. Run 'navori render --apply' to materialize the change.",
+      "branchBase and prTarget are two different things: the first is the fork point every diff is measured against, the second is where the PR points. In most repos they name the same branch.",
+    ],
+  },
+  update: {
+    id: "update",
+    title: "update",
+    summary:
+      "The one-shot 'bring me up to date': re-detects the repo, offers the config diffs, and runs sync.",
+    usage: "navori update [--yes] [--cwd <dir>]",
+    flags: [
+      { flag: "--yes", desc: "Apply the detected diffs and sync without prompting." },
+      { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
+    ],
+    example: [
+      {
+        title: "Nothing to do",
+        code: "$ navori update\n└  Up to date — nothing to update",
+      },
+      {
+        title: "In CI",
+        code: "navori update --yes",
+      },
+    ],
+    notes: [
+      "It detects drift between what the repo is today and what the config says: suggested preset, quality-gate commands, base branch and library migrations.",
+      "Your edit wins: when detection disagrees with a value you already set by hand, the config keeps it.",
+      "After settling the config it runs sync, so the managed blocks come up to date in the same pass.",
+    ],
+  },
+  scan: {
+    id: "scan",
+    title: "scan",
+    summary:
+      "Re-detect a monorepo's workspaces and add to the config the ones that appeared since init.",
+    usage: "navori scan [--yes] [--cwd <dir>]",
+    flags: [
+      {
+        flag: "--yes",
+        desc: "Accept the suggested preset for every new workspace without prompting.",
+      },
+      { flag: "--cwd <dir>", desc: "Directory to scan (default: current)." },
+    ],
+    example: [
+      {
+        title: "A repo that declares no monorepo",
+        code: "$ navori scan\n└  navori.config.json does not declare 'monorepo'. Add { monorepo: { enabled: true, tool: '...' } } to the config and run scan again.",
+      },
+    ],
+    notes: [
+      "It is incremental: it only adds workspaces the config does not list yet, and never touches the ones already there.",
+      "It needs monorepo.enabled in the config. 'navori init --scan-monorepo' is what sets that up from the start.",
+    ],
+  },
+  registry: {
+    id: "registry",
+    title: "registry",
+    summary:
+      "Global registry of every navori repo on this machine. It is what makes 'render --all' possible.",
+    usage: "navori registry <ls|scan|add|remove|prune> [args]",
+    flags: [
+      { flag: "ls", desc: "List every registered repo." },
+      {
+        flag: "scan <dir...> [--depth=<n>]",
+        desc: "Walk one or more directories and register every navori repo found. Max depth: 4.",
+      },
+      { flag: "add <path>", desc: "Register a repo by path." },
+      { flag: "remove <path>", desc: "Unregister it; its files are left untouched." },
+      { flag: "prune", desc: "Drop entries whose repo no longer exists on disk." },
+    ],
+    example: [
+      {
+        title: "Register everything under a directory",
+        code: "$ navori registry scan ~/dev --depth=3\n│    · known  demo  /Users/you/dev/demo\n└  Done 0 added · 1 already registered",
+      },
+      {
+        title: "See the registry",
+        code: "$ navori registry ls\n│    ✓ demo\n│        /Users/you/dev/demo\n└  1 repo(s)",
+      },
+      {
+        title: "Clean up what is gone",
+        code: "$ navori registry prune\n└  Nothing to prune · 1 repo(s) registered",
+      },
+    ],
+    notes: [
+      "The registry lives in ~/.navori/ and is machine-local: it is never committed and never travels with the repo.",
+      "'ls' tags repos that are no longer on disk as missing and points you at the prune.",
+      "'remove' only unregisters: it never deletes files from the repo.",
+    ],
+  },
+  workspace: {
+    id: "workspace",
+    title: "workspace",
+    summary:
+      "Config and tickets shared across repos: defaults that apply to all of them, and one render for the whole fleet.",
+    usage: "navori workspace <init|ls|show|link|add-repo|set-default|render|rename|delete> [args]",
+    flags: [
+      {
+        flag: "init <name> [--description <txt>] [--yes]",
+        desc: "Create the workspace at ~/.navori/workspaces/<name>.json.",
+      },
+      { flag: "ls [--json]", desc: "List the known workspaces." },
+      { flag: "show <name> [--json]", desc: "Show paths, defaults and registered repos." },
+      {
+        flag: "link [<name>] [--cwd <dir>]",
+        desc: "Register the current repo in the workspace and record it in its navori.config.json. With no name it uses the one the config declares.",
+      },
+      {
+        flag: "add-repo <workspace> --name <n> --path <p> [--stack <s>] [--description <d>]",
+        desc: "Register a repo by path, without standing in it.",
+      },
+      {
+        flag: "set-default <workspace> <key> <value>",
+        desc: "A default applied to every repo in the workspace (engines: comma-separated; plugins: true|false).",
+      },
+      {
+        flag: "render <workspace> [--apply] [--force] [--verbose]",
+        desc: "Render every registered repo. Without --apply it is a preview.",
+      },
+      {
+        flag: "rename <from> <to> [--yes]",
+        desc: "Rename, preserving tickets, repos and defaults.",
+      },
+      { flag: "delete <name> [--yes]", desc: "Move it to ~/.navori/.trash (recoverable)." },
+    ],
+    example: [
+      {
+        title: "Create and link",
+        code: "$ navori workspace init bonum --yes\n◆  Wrote ~/.navori/workspaces/bonum/workspace.json\n\n$ navori workspace link bonum\n◆  Registered 'demo' in workspace 'bonum'.\n◆  workspace → 'bonum' saved in navori.config.json",
+      },
+      {
+        title: "Inspect it",
+        code: '$ navori workspace show bonum\n│    ticketsDir : tickets\n│    defaults   : {"engines":["claude"]}\n│    repos      : 1\n│  Repos:\n│      · demo  /Users/you/dev/demo',
+      },
+      {
+        title: "Fleet render (preview)",
+        code: "$ navori workspace render bonum\n│    · demo  up-to-date  45 unchanged\n└  Preview 1/1 ok · 0 would change · 0 conflict · 1 warning · 0 failed",
+      },
+    ],
+    notes: [
+      "The workspace lives in ~/.navori/workspaces/: it is machine-local. All that stays in the repo is the 'workspace' key in navori.config.json.",
+      "'link' is the short path from inside the repo; 'add-repo' is the same registration from outside, by path.",
+      "'render' without --apply previews whole repos, so it measures the blast radius of a preset change before you apply it.",
+      "'delete' does not delete: it moves to ~/.navori/.trash.",
+    ],
+  },
+  ticket: {
+    id: "ticket",
+    title: "ticket",
+    summary:
+      "Tickets as files inside a workspace, so work that crosses repos has one place to live.",
+    usage: "navori ticket <list|show|new|archive|unarchive|delete> <workspace> [args]",
+    flags: [
+      {
+        flag: "list <workspace> [--archive] [--json]",
+        desc: "List active tickets; --archive includes archived ones.",
+      },
+      {
+        flag: "show <workspace> <id> [--json]",
+        desc: "Show the ticket and which repos reference it.",
+      },
+      {
+        flag: "new <workspace> <id> [--title <txt>]",
+        desc: "Create the ticket from the template.",
+      },
+      { flag: "archive <workspace> <id>", desc: "Move it to _archive (reversible)." },
+      { flag: "unarchive <workspace> <id>", desc: "Move it back to the active folder." },
+      { flag: "delete <workspace> <id> [--yes]", desc: "Delete it permanently." },
+    ],
+    example: [
+      {
+        title: "Create one",
+        code: "$ navori ticket new bonum BNM-123 --title 'Login breaks on Safari'\n◆  Wrote ~/.navori/workspaces/bonum/tickets/BNM-123.md\n└  Reference it from a repo's progress/current.md with:\n  ticket: BNM-123",
+      },
+      {
+        title: "List them",
+        code: "$ navori ticket list bonum\n│    · BNM-123  Login breaks on Safari\n└  1 ticket",
+      },
+    ],
+    notes: [
+      "The ticket is a .md with sections (Goal, Repos affected, Scope): it is built to be read by agents, not only by people.",
+      "'show' cross-references the id against every repo's progress/current.md in the workspace, so it tells you who is working on it.",
+      "The id is validated: letters, digits, hyphens and underscores, starting alphanumeric.",
+    ],
+  },
+  dominio: {
+    id: "dominio",
+    title: "dominio",
+    summary:
+      "The workspace's knowledge base: the canonical facts that span repos and fit in no single CLAUDE.md.",
+    usage: "navori dominio <init|list|show|reindex|doctor|inject> [--workspace <name>]",
+    flags: [
+      { flag: "init", desc: "Create the workspace's Dominio store." },
+      { flag: "list", desc: "List the entries." },
+      { flag: "show <id>", desc: "Print one entry." },
+      { flag: "reindex", desc: "Rebuild DOMINIO.md from the entry files." },
+      { flag: "doctor", desc: "Validate the Dominio (warnings only)." },
+      { flag: "inject", desc: "Emit the index for the SessionStart hook." },
+      {
+        flag: "--workspace <name>",
+        desc: "Workspace to operate on. Defaults to the one the current repo's config declares.",
+      },
+    ],
+    example: [
+      {
+        title: "Create the store",
+        code: "$ navori dominio init --workspace bonum\n└  Dominio created at ~/.navori/workspaces/bonum/dominio.",
+      },
+      {
+        title: "Check consistency",
+        code: "$ navori dominio doctor --workspace bonum\n◇  Dominio for 'bonum' ────────╮\n│    ✓ Dominio is consistent.  │\n└  OK",
+      },
+      {
+        title: "Rebuild the index",
+        code: "$ navori dominio reindex --workspace bonum\n└  Index rebuilt (0 entries): ~/.navori/workspaces/bonum/dominio/DOMINIO.md",
+      },
+    ],
+    notes: [
+      "It is for durable facts that outlive the repo: a data model, a business rule, a cross-service contract, a shared gotcha.",
+      "'inject' is what the SessionStart hook consumes: the index enters the context, the entries are read on demand.",
+      "The harness's 'dominio' skill is the guided path for promoting a finding here instead of leaving it in session memory.",
+    ],
+  },
+  backup: {
+    id: "backup",
+    title: "backup",
+    summary:
+      "The safety net: every sync or render that modifies files leaves a snapshot in ~/.navori/backups/ first.",
+    usage: "navori backup <list|restore|prune> [args]",
+    flags: [
+      {
+        flag: "list [--limit <n>] [--json]",
+        desc: "List the snapshots. Default: the 20 most recent.",
+      },
+      {
+        flag: "restore <timestamp> [--cwd <dir>] [--yes]",
+        desc: "Restore a snapshot's files into the current directory. The timestamp comes from 'backup list'.",
+      },
+      {
+        flag: "prune [--days <n>] [--yes]",
+        desc: "Delete what is past retention (default 30 days), then oldest-first down to the size cap.",
+      },
+    ],
+    example: [
+      {
+        title: "See what is stored",
+        code: "$ navori backup list\n│  1 backup(s) total. Showing 1:\n│    · repo-2026-09-01T17-49-47-756  (just now)\n│        · .claude/agents/leader.md\n│        · CLAUDE.md\n└  Done",
+      },
+      {
+        title: "Roll back",
+        code: "navori backup restore repo-2026-09-01T17-49-47-756 --yes",
+      },
+      {
+        title: "Prune",
+        code: "$ navori backup prune --days 30 --yes\n└  Nothing to prune — backups are within retention and under the size cap",
+      },
+    ],
+    notes: [
+      "Backups are automatic: there is no 'backup create'. They are written before every destructive write.",
+      "They live in ~/.navori/backups/ and are machine-local: never committed.",
+      "A snapshot holds only the files the operation was about to touch, not the whole repo.",
+    ],
+  },
+  migrations: {
+    id: "migrations",
+    title: "migrations",
+    summary:
+      "The backup of your previous harness when 'init' adopts navori in replace mode. Reversible.",
+    usage: "navori migrations <list|restore> [args]",
+    flags: [
+      {
+        flag: "list [--limit <n>] [--json]",
+        desc: "List the stored migrations. Default: the 20 most recent.",
+      },
+      {
+        flag: "restore <timestamp> <repo> [--cwd <dir>] [--yes] [--json]",
+        desc: "Put the original harness back in the repo. Both values come from 'migrations list'.",
+      },
+    ],
+    example: [
+      {
+        title: "When there is none",
+        code: "$ navori migrations list\n●  No migrations found. They are created when 'init' adopts navori in replace mode (the interactive wizard) on a repo with existing Claude infrastructure.\n└  Done",
+      },
+      {
+        title: "For scripts",
+        code: '$ navori migrations list --json\n{\n  "migrations": [],\n  "totalAvailable": 0\n}',
+      },
+    ],
+    notes: [
+      "Different from backup: backup covers every navori write, migrations covers the .claude/ that existed BEFORE navori.",
+      "Only replace mode produces one: coexist mode replaces nothing, so there is nothing to back up.",
+      "They live in ~/.navori/migrations/ and are machine-local.",
+    ],
+  },
+  audit: {
+    id: "audit",
+    title: "audit",
+    summary:
+      "How the harness actually ran: where the tokens went, and which instructions nobody could follow.",
+    usage: "navori audit [--session <id>] [--days <n>] [--since <date>] [--until <date>] [--json]",
+    flags: [
+      { flag: "--session <id>", desc: "One session by id, prefix, or 'latest'." },
+      { flag: "--days <n>", desc: "Only sessions marked in the last N days." },
+      { flag: "--since <YYYY-MM-DD>", desc: "From this date." },
+      { flag: "--until <YYYY-MM-DD>", desc: "Up to this date." },
+      { flag: "--json", desc: "Print the JSON report to stdout without writing files." },
+      { flag: "--out <dir>", desc: "Override the output directory." },
+      { flag: "--start <id>", desc: "Mark a session as audited (used by the hook flow)." },
+      { flag: "--stop <id>", desc: "Seal the session's log and report on it." },
+      { flag: "--cwd <dir>", desc: "Repo to audit (default: current)." },
+    ],
+    example: [
+      {
+        title: "Turn audit-mode on",
+        code: "$ navori audit --start 8f3c1d2e\n└  audit-mode active ~/.navori/audits/demo/session-8f3c1d2e.log",
+      },
+      {
+        title: "No marked sessions",
+        code: "$ navori audit\n└  No sessions marked with audit-mode for 'demo'. Activate it with 'navori audit --start <session-id>'.",
+      },
+      {
+        title: "One session's report",
+        code: "$ navori audit --session latest\n◇  demo · 2026-09-01 → 2026-09-01 ─╮\n│  1 sessions · 19 agents          │\n│  billable  2.3M tok              │\n│  startup  346k tok               │\n│  findings  1 high · 3 warn       │\n└  Report ~/.navori/audits/demo/sessions/2026-09-01-8f3c1d2e/report.md",
+      },
+    ],
+    notes: [
+      "Opt-in and per session: with no prior '--start' there is no log to audit, and navori observes nothing.",
+      "Two sources feed it and neither replaces the other: the event log the hooks write (what the harness did) and Claude Code's transcript (the only place token usage exists).",
+      "The report is written as markdown and JSON under ~/.navori/audits/<repo>/, beside a copy of the session's log.",
+      "Hook counts are partial when the recorder started late: the orchestrator's card says so, with the share of the session it did observe.",
+    ],
+  },
 };
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
@@ -562,11 +1367,22 @@ export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
 export const commandOrder = [
   "init",
   "add",
+  "remove",
+  "configure",
   "preset",
   "render",
   "sync",
+  "update",
+  "scan",
   "doctor",
   "status",
   "bench",
+  "audit",
+  "backup",
+  "migrations",
+  "registry",
+  "workspace",
+  "ticket",
+  "dominio",
   "global",
 ] as const;
