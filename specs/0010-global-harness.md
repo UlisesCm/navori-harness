@@ -2,11 +2,16 @@
 
 > Estado: **F1 implementado** · 2026-07-30 · Baseline (operaciones-seguras + idioma-rol +
 > formato-respuesta) entregado por hook con gate; comandos `navori global
-> init/render/doctor/uninstall`; invariante de huella-cero con guard estructural. F2 (omisión
-> opt-in) y F3 (doctor cross-scope) pendientes. Deriva del issue #150 (decisiones de
-> producto parqueadas de #124, @RicardoMarin7). Alcance elegido con Ulises: **MVP lean —
-> solo identidad, aditivo**. La "voz de navori", el sistema de features/app-builder y el
-> review 4R del #124 quedan **fuera** (ver §9).
+> init/render/doctor/uninstall`; invariante de huella-cero con guard estructural. Deriva del
+> issue #150 (decisiones de producto parqueadas de #124, @RicardoMarin7). Alcance elegido con
+> Ulises: **MVP lean — solo identidad, aditivo**. La "voz de navori", el sistema de
+> features/app-builder y el review 4R del #124 quedan **fuera** (ver §9).
+>
+> **Revisión 2026-08-31 (§8 rehecha).** Auditoría del F1 en disco contra esta spec: 9 huecos,
+> de los cuales §4 estaba **desactualizada** (ver la nota ahí). Fases nuevas: **FA** cierra la
+> fiabilidad de F1, **FB** lleva skills y subagentes al scope global vía **plugin
+> `@skills-dir`**, **FC** es el doctor cross-scope (ex-F3). La **ex-F2** (omisión opt-in de
+> bloques en el repo) queda **descartada** — ver §9.
 >
 > Objetivo: instalar una **base de harness repo-agnóstica una sola vez por máquina** en el
 > directorio global de Claude Code (`~/.claude`), para que Claude entre a **cualquier**
@@ -188,7 +193,7 @@ global si **no interpola ninguna config de repo** (`{{project.*}}`, `{{branchBas
 | Bloque | Interpola | Nota |
 |---|---|---|
 | `orquestacion` | `{{branchBase}}`, `{{qualityGate.fast\|full}}` | La doctrina de routing (R1/R2) **es** agnóstica, pero el bloque hornea el branch base y los comandos del quality-gate, que no existen a nivel global. Globalizarla exige **partir el bloque** (doctrina vs referencias repo) → follow-up, no MVP. |
-| `arranque-sesion` | `{{branchBase}}` | Además es el contexto de sesión por-repo (git/progress) — sin sentido global. |
+| `arranque-sesion` | ~~`{{branchBase}}`~~ **ninguna** | **Corregido 2026-08-31: el asset ya no interpola nada.** Sigue OUT, pero por la razón de fondo, no por la mecánica: habla de `progress/current.md`, `navori doctor` y `navori.config.json`, que en un repo sin navori no existen. Es el caso que motiva `globalSafe` (FA1) — hoy pasaría el check de `{{` de `composeBaseline` e inyectaría prosa repo-específica en toda sesión. |
 
 **OUT — naturaleza repo/condicional:** `tipado-fuerte` (`condition: project.typedLanguage`),
 `sdd` (`condition: sdd.enabled`), `cierre-sesion`.
@@ -289,13 +294,157 @@ snippet de prueba del #124 lo usa (`CLAUDE_CONFIG_DIR=~/navori-fresh navori glob
   output**; (2) el gate emite baseline en dir sin navori y hace **defer** (nada) en repo con
   `navori.config.json`; (3) respeto de `CLAUDE_CONFIG_DIR`; (4) `uninstall` deja intacto lo
   no-navori.
-- **F2 — Omisión opcional (token savings), opt-in:** un repo puede declarar
-  `useGlobalHarness: true` para **omitir** en su render los bloques que ya carga el global.
-  Trae el **tradeoff de portabilidad** (repo deja de ser autocontenido) → opt-in explícito,
-  nunca default; documentado. Aquí aparece la necesidad de `scope: both`.
-- **F3 — Doctor cross-scope:** `navori doctor` ve global+repo y avisa de choques reales,
-  resolviendo el **falso-positivo de `both`** con el precedente `rootOnly`/`omitRootOnly`
-  (un bloque intencionalmente en ambos scopes no es drift).
+- **~~F2~~ — descartada.** Omisión opt-in de bloques en el repo. Ver §9.
+- **~~F3~~ — renumerada a FC** (abajo), y simplificada: sin F2 no hay `scope: both`, así que
+  el falso-positivo que la bloqueaba desaparece.
+
+### FA — Cerrar F1 de verdad (fiabilidad)
+
+Cinco unidades sin diseño nuevo. **FA2 y FA3 son las urgentes**: hoy no hay forma de saber si
+el baseline se está inyectando.
+
+- **FA1 — `globalSafe` declarado en el asset.** `composeBaseline` valida hoy por regex `/\{\{/`
+  (`global-render.ts:62`), que mide interpolación, no seguridad global. Sumar `globalSafe?:
+  boolean` a `CoreManagedAsset` (mismo precedente que `rootOnly`) y validar contra el atributo;
+  la regex queda como red secundaria. Re-auditar los 10 assets y §4.
+  *Pruebas:* (1) rechaza un id sin `globalSafe` aunque no interpole — el caso `arranque-sesion`;
+  (2) test de inventario que recorre `CORE_MANAGED_ASSETS` y falla si un asset `globalSafe`
+  contiene `{{` o un token repo-específico (`progress/`, `navori.config.json`, `navori doctor`),
+  para que la auditoría no pueda volver a envejecer en silencio; (3) `DEFAULT_GLOBAL_BLOCKS` ⊆
+  los `globalSafe`.
+- **FA2 — Marcador y hash en el hook.** El hook dice "MANAGED BY NAVORI" sin `version=` ni hash,
+  y `global doctor` solo compara `config.version` contra el CLI (`global.ts:150`): un hook
+  editado a mano, o un asset que cambió dentro de la misma versión, es invisible. Es la única
+  excepción no declarada al modelo de marcadores del resto de navori.
+  *Pruebas:* (1) round-trip render → doctor limpio; (2) editar una línea a mano → doctor
+  reporta drift y nombra el archivo; (3) cambiar un asset del baseline sin bumpear versión →
+  doctor reporta drift (hoy invisible); (4) `render --apply` reconcilia.
+- **FA3 — Doctor ejecuta el gate.** Hoy solo verifica que el archivo exista. El hook necesita
+  `node` o `jq` para emitir el JSON (`global-render.ts:123-125`); sin ninguno hace `exit 0`
+  mudo — realista con nvm, donde `node` entra al PATH desde `.zshrc` y un Claude Code lanzado
+  desde el app bundle de macOS puede no tenerlo. Correrlo en dos tmpdirs (con y sin
+  `navori.config.json`) y verificar emisión/defer, más detección de `node`/`jq` ausentes.
+  *Pruebas:* los dos casos del gate **vía doctor**; `PATH` recortado → doctor falla con mensaje
+  accionable, no en verde; hook presente pero no registrado se distingue de hook ausente.
+- **FA4 — Autoría de los permisos y `uninstall` simétrico.** `applyGlobalRender` mergea
+  `permissions` en `settings.json` y `uninstallGlobalRender` (`global-render.ts:391`) nunca los
+  quita. No es trivial: `deepMerge` dedupea, así que post-merge no se distingue quién puso qué —
+  misma clase de autoría que #538. Persistir en `global.json` el set exacto que navori escribió,
+  en el momento del merge, y retirar solo esa intersección.
+  *Pruebas:* (1) install → uninstall deja `settings.json` **byte-idéntico** al pre-install;
+  (2) permiso preexistente que navori también declara → sobrevive; (3) permiso agregado por el
+  usuario después del install → sobrevive; (4) dos `render --apply` con `permissions` distintos
+  → el registro se actualiza sin acumular huérfanos.
+- **FA5 — `init` interactivo + preview.** §6 prometía "interactivo o `--recommended`"; hoy `init`
+  acepta solo `--lang` (`global.ts:44`) y escribe sin preview, y el campo `permissions` del
+  schema solo se llena editando el JSON a mano. Multiselect de bloques `globalSafe` + prompt de
+  permisos (patrón de `init` de repo), `--recommended` headless, `--apply` con preview default.
+  *Pruebas:* e2e contra el CLI construido (patrón de `global-render.test.ts:409`):
+  `--recommended` no promptea; sin `--apply` no escribe y el preview nombra hook/settings/bloques;
+  `init` sobre instalación existente preserva la selección y no la resetea a los defaults.
+
+### FB — Skills y subagentes globales, como plugin `@skills-dir`
+
+Es lo que hace que un repo sin navori herede un harness **operativo** y no solo 37 líneas de
+prosa que describen guardrails inexistentes.
+
+**Spike ejecutado (2026-08-31) — resultado que define el diseño.** La precedencia de Claude Code
+NO es uniforme entre agentes y skills:
+
+| Asset | Precedencia | Consecuencia para navori |
+|---|---|---|
+| Subagentes | `.claude/agents/` (prio 3) **gana** a `~/.claude/agents/` (prio 4) | Instalarlos sueltos sería seguro |
+| Skills | **personal gana a project** — *"with a `deploy` skill in both `~/.claude/skills/` and your project's `.claude/skills/`, `/deploy` runs the personal one"* | Instalarlas sueltas **eclipsaría las del repo**, user-sections incluidas, en silencio y en los 15+ repos Bonum |
+
+La salida no es renunciar a las skills: es **empaquetar todo como plugin**. Un directorio bajo
+`~/.claude/skills/` con `.claude-plugin/plugin.json` se carga como `navori@skills-dir` *"on the
+next session, with no marketplace and no install step"*, y soporta el layout completo:
+
+```
+~/.claude/skills/navori/
+├── .claude-plugin/plugin.json     name: "navori"
+├── skills/     → las 12 base, invocables como /navori:<nombre>
+├── agents/     → los 7 invocables + leader.md
+└── hooks/hooks.json  → el gate del §3.1 se muda aquí
+```
+
+Cuatro propiedades que salen del mecanismo, no de cuidado nuestro:
+
+1. **Las skills no pueden eclipsar.** *"Plugin skills are namespaced as `/plugin-name:skill-name`,
+   so the original `/skill-name` and the plugin copy both remain available rather than one
+   overriding the other."*
+2. **Los agentes heredan el gate gratis.** *"Project and user `.claude/agents/` definitions
+   override same-named plugin agents."* Repo con navori → gana el del repo. Repo sin navori →
+   el del plugin es el único. Es la semántica de defer del §3.1 sin walk-up ni detección.
+3. **`uninstall` es borrar un directorio** — *"There is no `uninstall` step because nothing was
+   installed from a marketplace"* — más un `claude plugin disable navori@skills-dir` que el
+   usuario gana sin que lo construyamos.
+4. **El gate sale de `settings.json`.** Con `hooks/hooks.json` en el plugin, el merge de hooks
+   desaparece; en `settings.json` solo quedan los `permissions` (el `settings.json` de plugin
+   acepta únicamente `agent` y `subagentStatusLine`).
+
+**Interpolación: el modo `globalFallback`.** El inventario de los 8 agentes y las 12 skills
+desmiente el supuesto de que los agentes de escritura no son globalizables:
+
+| Placeholder | Naturaleza | Resolución global |
+|---|---|---|
+| `{{models.X}}`, `{{effort.X}}` | Config del **harness**, no del repo | `global.json` los lleva igual que el repo; `omitUnresolvedKeyLines` ya cubre el frontmatter |
+| `{{project.criticalAreas}}`, `{{project.legacyPaths}}` | Repo, con fallback genérico **ya escrito** | `placeholders.ts:38-40`, sin cambios |
+| `{{sdd.specsDir}}` | Default sano (`specs/`) | sin cambios |
+| `{{qualityGate.fast\|full}}`, `{{branchBase}}`, `{{prTarget}}` | Repo de verdad | **`globalFallback`** (abajo) |
+
+Los tres últimos NO se resuelven detectando: un archivo en `~/.claude` es estático y la detección
+es por-`cwd`, en tiempo de sesión. Y no se arreglan inyectándolos por el hook, porque un subagente
+arranca con su propio contexto y no vería el `additionalContext` de la sesión principal. La salida
+es que el agente global **derive** en vez de traer horneado: *corre el quality gate del proyecto —
+si el repo declara uno en su `CLAUDE.md`, ese; si no, derívalo de `package.json`/`Makefile` y
+declara cuál corriste*. Es un `SOFT_FALLBACKS` paralelo en `placeholders.ts`, no un motor nuevo.
+La simetría lo justifica: el agente global solo corre en repos sin navori, donde por definición no
+hay gate declarado que hornear.
+
+**Esto retira el follow-up de "partir `orquestacion`"**: existía solo mientras la única salida
+fuera la pureza de interpolación. Con `globalFallback`, el bloque entra completo al baseline — y
+tiene que entrar, porque sin la doctrina de routing instalas 7 agentes que el orquestador no sabe
+cuándo lanzar.
+
+*Pruebas:* (1) inventario — **todo** asset de `core-assets/agents/` y `core-assets/skills/`
+renderiza en modo global sin dejar un solo `<not configured: …>`; es la red que impide que un
+placeholder nuevo se cuele sin fallback global (#375 y #445 ya causaron esa clase de bug en el
+path de repo); (2) el agente global renderizado **no** contiene un comando de quality gate
+literal, y sí la instrucción de derivarlo; (3) en un repo **con** navori, `.claude/agents/` queda
+byte-idéntico con y sin harness global instalado — extiende el guard de huella-cero a FB;
+(4) round-trip: `global init` completo → `uninstall` deja `~/.claude/skills` como estaba, skills
+propias del usuario incluidas; (5) `plugin.json` válido contra `claude plugin validate`.
+
+*Costos, dichos completos:* las skills globales se invocan `/navori:<nombre>` (irrelevante para
+invocación por modelo, cosmético para slash); una org con `blockedMarketplaces: [{source:
+"skills-dir"}]` o `strictKnownMarketplaces` lo bloquea — FC debe detectarlo; los cambios que no
+son de `SKILL.md` piden `/reload-plugins` tras `render --apply`; las sesiones de Cowork y cloud
+no leen `~/.claude/skills/`, así que el harness global no alcanza routines. Y mover el hook de
+`settings.json` al plugin **es una migración** para instalaciones F1 existentes → entrada en
+`navori migrations`.
+
+### FC — Doctor cross-scope (ex-F3)
+
+Sin F2 no existe `scope: both`, y con él desaparece el falso-positivo que la bloqueaba. Queda algo
+chico y honesto: `navori doctor` detecta si hay harness global instalado y avisa de **choques
+reales** — un agente del plugin ensombrecido de forma no intencional, un permiso global que
+contradice un `deny` del repo, drift del hook, y el caso `@skills-dir` bloqueado por managed
+settings. Nada más.
+
+*Pruebas:* (1) repo sin global instalado → doctor no menciona la capa global en absoluto (huella
+cero también en el output); (2) agente homónimo en ambos scopes → un aviso que nombra la
+resolución de precedencia; (3) `deny` de repo contra `allow` global de la misma regla → aviso;
+(4) global sano + repo sano → cero ruido.
+
+### FD — Documentación
+
+`navori global` no aparece en el README ni en el website: `commandOrder`
+(`apps/website/src/content/commands.ts:432`) documenta 8 de 20 comandos. En una feature **opt-in**
+eso es fatal — hay que pedirla explícitamente y nada la anuncia. Entrada `global` con sus 4
+subcomandos, sección en el README, párrafo en `DIRECTION.md`. Y el guard que cierra la clase
+entera: **un test que falla si un subcomando registrado en `index.ts` no está en `commandOrder`**,
+igual que `subcommand-inventory.test.ts` hace contra `CLAUDE.md`.
 
 ## 9. No-objetivos / descartado
 
@@ -310,16 +459,30 @@ snippet de prueba del #124 lo usa (`CLAUDE_CONFIG_DIR=~/navori-fresh navori glob
   usuario, no lo sustituye.
 - **Sistema de features + app-builder** (#124 §4): fuera de alcance (colisiona con Spec 0004,
   ~2100 líneas para un solo caso de uso).
-- **Omisión de bloques en el MVP:** diferida a F2 por el tradeoff de portabilidad.
-- **`scope: both` y doctor cross-scope en el MVP:** diferidos a F2/F3.
-- **Agentes y skills globales:** fuera del MVP — Claude Code no los gatea per-`cwd`, así que
-  romperían el requisito de omisión-cuando-hay-config-local. Fase posterior, mecanismo propio.
+- **Omisión de bloques (ex-F2) — DESCARTADA** (2026-08-31, con Ulises). Un repo con navori que
+  declara `useGlobalHarness: true` y omite de su render los bloques que ya carga el global.
+  Se descarta porque **el valor se evaporó y el costo sigue ahí**: el ahorro que perseguía era
+  evitar la doble emisión, y el gate de F1 (§3.1) ya la elimina por construcción. Lo que
+  quedaría es adelgazar el `CLAUDE.md` de un repo que *sí* tiene navori, a cambio de romper que
+  sea autocontenido — un compañero sin `navori global init` clona y recibe un harness degradado,
+  sin ningún aviso. Ese tradeoff se paga en soporte, no en tokens. Además arrastraba `scope:
+  "both"` al core, que era la única razón por la que FC tenía un falso-positivo que resolver.
+- **Skills globales sueltas en `~/.claude/skills/` — DESCARTADO** por el spike de FB: en skills
+  **personal gana a project**, así que eclipsarían las del repo (user-sections incluidas) en
+  silencio. El scope global entrega skills solo vía plugin `@skills-dir`, que las namespacea.
+- **`scope: both`:** ya no hace falta — era un requisito de la ex-F2.
+- **Agentes y skills globales:** fuera del **MVP** — Claude Code no los gatea per-`cwd`, así que
+  romperían el requisito de omisión-cuando-hay-config-local. **Ya no es un no-objetivo: es FB**,
+  y el mecanismo propio que pedía resultó ser el plugin `@skills-dir` (la precedencia de plugin
+  hace el trabajo del gate).
 
 ## 10. Riesgos y decisiones abiertas
 
 - **Interpolación:** ~~riesgo~~ **resuelto** (§4): 3 bloques puros componen el baseline sin
-  refactor. `orquestacion` queda fuera hasta partirla (doctrina agnóstica vs referencias repo)
-  — follow-up, no bloquea el MVP.
+  refactor. ~~`orquestacion` queda fuera hasta partirla (doctrina agnóstica vs referencias
+  repo) — follow-up~~ **Retirado en FB**: con el modo `globalFallback` el bloque entra completo
+  y no hay que partirlo. El follow-up existía solo mientras la única salida fuera la pureza de
+  interpolación.
 - **`~/.claude/CLAUDE.md` preexistente del usuario:** el render global debe **respetar** lo no
   managed (mismo modelo híbrido de marcadores `<!-- navori:managed -->` que en repos) y nunca
   pisar bloques del usuario sin permiso.
