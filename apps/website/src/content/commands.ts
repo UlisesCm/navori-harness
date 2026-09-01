@@ -222,15 +222,23 @@ const es: Record<string, CommandDoc> = {
     summary:
       "Instala un harness base por máquina en ~/.claude, para las sesiones que arrancan fuera de un repo con navori. Opt-in y de huella cero: sin 'navori global init' no existe, y navori no tocó nada de tu máquina.",
     usage:
-      "navori global init [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global uninstall",
+      "navori global init [--apply] [--recommended] [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global uninstall",
     flags: [
       {
         flag: "init",
-        desc: "Instala la capa global: el manifest ~/.navori/global.json y el plugin 'navori@skills-dir' en ~/.claude/skills/navori/ (8 agentes, 12 skills y el hook del baseline).",
+        desc: "Wizard de la capa global: elige los bloques del baseline y tus permisos personales. Preview por default — sin --apply no escribe un solo byte, solo muestra el plugin, el hook y los settings que instalaría.",
+      },
+      {
+        flag: "init --apply",
+        desc: "Escribe lo que el preview mostró: el manifest ~/.navori/global.json y el plugin 'navori@skills-dir' en ~/.claude/skills/navori/ (8 agentes, 12 skills y el hook del baseline).",
+      },
+      {
+        flag: "init --recommended",
+        desc: "Sin preguntas: toma la selección recomendada (o la que ya tenías, si re-inicializas). Es el camino headless para CI y scripts; también es a lo que cae solo cuando no hay terminal interactiva.",
       },
       {
         flag: "init --lang <es|en>",
-        desc: "Idioma del baseline global. Default: es, o el que ya tenía la instalación.",
+        desc: "Idioma del baseline global y de los prompts. Default: es, o el que ya tenía la instalación.",
       },
       {
         flag: "render",
@@ -248,8 +256,12 @@ const es: Record<string, CommandDoc> = {
     ],
     example: [
       {
+        title: "Ver qué instalaría (no escribe nada)",
+        code: "$ navori global init --recommended\n  · plugin: ~/.claude/skills/navori (23 archivos)\n  · hook: ~/.claude/skills/navori/hooks/navori-global-baseline.sh\n  · settings: sin cambios (~/.claude/settings.json)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\nPreview: no se escribió un solo byte. Corre 'navori global init --apply' para instalar.",
+      },
+      {
         title: "Instalar la capa global",
-        code: "$ navori global init\n  · plugin: ~/.claude/skills/navori (23 archivos)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Harness global instalado en ~/.claude.",
+        code: "$ navori global init --apply\n  · plugin: ~/.claude/skills/navori (23 archivos)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Harness global instalado en ~/.claude.",
       },
       {
         title: "Auditar",
@@ -261,7 +273,8 @@ const es: Record<string, CommandDoc> = {
       },
     ],
     notes: [
-      "Opt-in de verdad: sin 'navori global init' no existe ~/.navori/global.json y navori no escribió un solo byte en tu máquina.",
+      "Opt-in de verdad: sin 'navori global init --apply' no existe ~/.navori/global.json y navori no escribió un solo byte en tu máquina. El init sin --apply tampoco escribe: es un preview.",
+      "El wizard es el único camino de UI para 'permissions'. Lo que declares ahí se mergea a ~/.claude/settings.json y queda registrado como de navori, que es lo que permite al uninstall retirarlo sin tocar tus reglas.",
       "El plugin 'navori@skills-dir' lo carga Claude Code sin marketplace ni paso de instalación; sus skills se invocan '/navori:<nombre>'.",
       "El hook se hace a un lado solo: si la sesión arranca dentro de un repo con navori.config.json, no emite nada. Manda el harness del repo.",
       "De ~/.claude/settings.json solo escribe 'permissions', y con la config por default ni siquiera lo crea.",
@@ -483,15 +496,23 @@ const en: Record<string, CommandDoc> = {
     summary:
       "Installs a machine-wide harness baseline into ~/.claude, for sessions that start outside a navori repo. Opt-in and zero-footprint: without 'navori global init' it doesn't exist, and navori touched nothing on your machine.",
     usage:
-      "navori global init [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global uninstall",
+      "navori global init [--apply] [--recommended] [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global uninstall",
     flags: [
       {
         flag: "init",
-        desc: "Installs the global layer: the ~/.navori/global.json manifest and the 'navori@skills-dir' plugin under ~/.claude/skills/navori/ (8 agents, 12 skills and the baseline hook).",
+        desc: "Global-layer wizard: pick the baseline blocks and your personal permissions. Preview by default — without --apply it writes not a single byte, it only shows the plugin, the hook and the settings it would install.",
+      },
+      {
+        flag: "init --apply",
+        desc: "Writes what the preview showed: the ~/.navori/global.json manifest and the 'navori@skills-dir' plugin under ~/.claude/skills/navori/ (8 agents, 12 skills and the baseline hook).",
+      },
+      {
+        flag: "init --recommended",
+        desc: "No questions: takes the recommended selection (or the one you already had, on a re-init). It is the headless path for CI and scripts, and also what it falls back to with no interactive terminal.",
       },
       {
         flag: "init --lang <es|en>",
-        desc: "Global baseline language. Default: es, or whatever the existing install already had.",
+        desc: "Language of the global baseline and of the prompts. Default: es, or whatever the existing install already had.",
       },
       {
         flag: "render",
@@ -509,8 +530,12 @@ const en: Record<string, CommandDoc> = {
     ],
     example: [
       {
+        title: "See what it would install (writes nothing)",
+        code: "$ navori global init --recommended\n  · plugin: ~/.claude/skills/navori (23 files)\n  · hook: ~/.claude/skills/navori/hooks/navori-global-baseline.sh\n  · settings: unchanged (~/.claude/settings.json)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\nPreview: not a single byte was written. Run 'navori global init --apply' to install.",
+      },
+      {
         title: "Install the global layer",
-        code: "$ navori global init\n  · plugin: ~/.claude/skills/navori (23 files)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Global harness installed at ~/.claude.",
+        code: "$ navori global init --apply\n  · plugin: ~/.claude/skills/navori (23 files)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Global harness installed at ~/.claude.",
       },
       {
         title: "Audit",
@@ -522,7 +547,8 @@ const en: Record<string, CommandDoc> = {
       },
     ],
     notes: [
-      "Opt-in for real: without 'navori global init' there is no ~/.navori/global.json, and navori wrote not a single byte on your machine.",
+      "Opt-in for real: without 'navori global init --apply' there is no ~/.navori/global.json, and navori wrote not a single byte on your machine. An init without --apply writes nothing either: it is a preview.",
+      "The wizard is the only UI path to 'permissions'. What you declare there is merged into ~/.claude/settings.json and recorded as navori's, which is what lets uninstall retract it without touching your own rules.",
       "Claude Code loads the 'navori@skills-dir' plugin with no marketplace and no install step; its skills are invoked as '/navori:<name>'.",
       "The hook steps aside on its own: if the session starts inside a repo with navori.config.json it emits nothing. The repo's harness wins.",
       "In ~/.claude/settings.json it only writes 'permissions', and with the default config it doesn't even create the file.",

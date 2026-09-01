@@ -227,13 +227,22 @@ Es **opt-in de huella cero**: si nunca corres `navori global init`, no existe `~
 y navori no escribió un solo byte en tu máquina.
 
 ```bash
-navori global init             # instala la capa (--lang es|en para el idioma del baseline)
-navori global doctor           # audita: drift del hook, gate, plugin, permisos y versión
-navori global render --apply   # re-renderiza tras un bump del CLI (preview sin --apply)
-navori global uninstall        # la retira por completo
+navori global init                        # wizard: bloques del baseline + permisos personales.
+                                          # Preview: sin --apply no escribe un solo byte
+navori global init --apply                # escribe lo que el preview mostró
+navori global init --recommended --apply  # headless (CI): sin preguntas, selección recomendada
+navori global doctor                      # audita: drift del hook, gate, plugin, permisos y versión
+navori global render --apply              # re-renderiza tras un bump del CLI (preview sin --apply)
+navori global uninstall                   # la retira por completo
 ```
 
-Qué escribe el `init`, y nada más:
+El `init` pregunta dos cosas: **qué bloques** componen el baseline (los que declaran `globalSafe`)
+y **qué permisos personales** quieres en `~/.claude/settings.json` — ése es el único camino de UI
+para `permissions`. Re-inicializar **preserva** lo que ya habías elegido: no te resetea a los
+defaults. Sin TTY (CI, pipe) cae solo al camino de `--recommended`, y `--lang es|en` fija el idioma
+del baseline y de los prompts.
+
+Qué escribe el `init --apply`, y nada más:
 
 - `~/.navori/global.json` — el manifest: idioma, bloques del baseline y tus permisos globales.
 - `~/.claude/skills/navori/` — el plugin `navori@skills-dir` con los 8 agentes, las 12 skills y el

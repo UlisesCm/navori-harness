@@ -172,6 +172,17 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
 export const CORE_BLOCK_IDS: readonly string[] = CORE_MANAGED_ASSETS.map((a) => a.id);
 
 /**
+ * Ids of the core blocks that may compose the GLOBAL baseline, in emission
+ * order (#545). Derived from the assets' declared `globalSafe` so the `global
+ * init` picker offers exactly what `composeBaseline` accepts: a hand-written
+ * second list would let the two drift, which is the defect #541 fixed on the
+ * enforcement side.
+ */
+export const GLOBAL_SAFE_BLOCK_IDS: readonly string[] = CORE_MANAGED_ASSETS.filter(
+  (a) => a.globalSafe === true,
+).map((a) => a.id);
+
+/**
  * Ids of the core managed blocks a repo may opt OUT of via `blocks.exclude`.
  * Deliberately a SMALL whitelist — only the two protocol blocks that actually
  * compete with a repo's OWN harness (its own orchestration / SDD). Everything

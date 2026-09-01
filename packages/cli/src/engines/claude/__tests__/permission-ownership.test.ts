@@ -172,7 +172,7 @@ describe("uninstall is symmetric with install (#544)", () => {
       permissions: { allow: ["Bash(theirs:*)"] },
     });
 
-    expect(run(["init"])).toBe(0);
+    expect(run(["init", "--recommended", "--apply"])).toBe(0);
     declarePermissions({ allow: ["Bash(navori:*)"], deny: ["Bash(rm -rf:*)"] });
     expect(run(["render", "--apply"])).toBe(0);
     expect(readSettings()).not.toBe(before); // the install really did land
@@ -183,7 +183,7 @@ describe("uninstall is symmetric with install (#544)", () => {
 
   it("a rule the user already had — and navori also declares — survives uninstall", () => {
     seedSettings({ permissions: { allow: ["Bash(shared:*)"] } });
-    run(["init"]);
+    run(["init", "--recommended", "--apply"]);
     declarePermissions({ allow: ["Bash(shared:*)", "Bash(navori:*)"] });
     run(["render", "--apply"]);
     run(["uninstall"]);
@@ -193,7 +193,7 @@ describe("uninstall is symmetric with install (#544)", () => {
   });
 
   it("a rule the user adds AFTER install survives uninstall", () => {
-    run(["init"]);
+    run(["init", "--recommended", "--apply"]);
     declarePermissions({ allow: ["Bash(navori:*)"] });
     run(["render", "--apply"]);
 
@@ -208,7 +208,7 @@ describe("uninstall is symmetric with install (#544)", () => {
 
   it("without a readable global.json, uninstall touches no permission", () => {
     seedSettings({ permissions: { allow: ["Bash(theirs:*)"] } });
-    run(["init"]);
+    run(["init", "--recommended", "--apply"]);
     declarePermissions({ allow: ["Bash(navori:*)"] });
     run(["render", "--apply"]);
 

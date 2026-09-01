@@ -542,8 +542,8 @@ describe("global init — end to end against the built CLI (#497)", () => {
   const CLI = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../dist/index.js");
 
   /** Run the real binary with HOME and CLAUDE_CONFIG_DIR pinned to temp dirs. */
-  function runGlobalInit(): { status: number; combined: string } {
-    const r = spawnSync("node", [CLI, "global", "init"], {
+  function runGlobalInit(...extra: string[]): { status: number; combined: string } {
+    const r = spawnSync("node", [CLI, "global", "init", ...extra], {
       encoding: "utf-8",
       env: {
         ...process.env,
@@ -560,7 +560,9 @@ describe("global init — end to end against the built CLI (#497)", () => {
     writeFileSync(path, CORRUPT_SETTINGS);
     const before = readFileSync(path, "utf-8");
 
-    const { status, combined } = runGlobalInit();
+    // The write path, which is the one with something to lose (#545 made
+    // --apply explicit; a preview writes nothing by construction).
+    const { status, combined } = runGlobalInit("--recommended", "--apply");
 
     expect(status).not.toBe(0);
     expect(combined).toContain(path);
@@ -571,7 +573,7 @@ describe("global init — end to end against the built CLI (#497)", () => {
   });
 
   it("installs the plugin, its gate hook and the agents, leaving settings.json alone", () => {
-    const { status } = runGlobalInit();
+    const { status } = runGlobalInit("--recommended", "--apply");
 
     expect(status).toBe(0);
     expect(pluginInstalled(claudeDir)).toBe(true);
@@ -589,6 +591,109 @@ describe("global init — end to end against the built CLI (#497)", () => {
     // FB: a default config merges nothing, so the user's machine-wide settings
     // file is not even created.
     expect(existsSync(join(claudeDir, "settings.json"))).toBe(false);
+  });
+});
+
+describe("global init — interactive, preview and re-init (#545)", () => {
+  const CLI = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../dist/index.js");
+
+  function runGlobalInit(...extra: string[]): { status: number; combined: string } {
+    const r = spawnSync("node", [CLI, "global", "init", ...extra], {
+      encoding: "utf-8",
+      env: { ...process.env, HOME: scratch, CLAUDE_CONFIG_DIR: claudeDir, FORCE_COLOR: "0" },
+    });
+    return { status: r.status ?? -1, combined: (r.stdout ?? "") + (r.stderr ?? "") };
+  }
+
+  const globalJson = () => join(scratch, ".navori", "global.json");
+  function readManifest(): {
+    blocks: { include: string[] };
+    permissions: { allow: string[]; deny: string[]; ask: string[] };
+    ownedPermissions: { allow: string[]; deny: string[]; ask: string[] };
+  } {
+    return JSON.parse(readFileSync(globalJson(), "utf-8")) as ReturnType<typeof readManifest>;
+  }
+
+  /** Seed an existing install's manifest without running the CLI. */
+  function seedManifest(config: Record<string, unknown>): void {
+    mkdirSync(join(scratch, ".navori"), { recursive: true });
+    writeFileSync(globalJson(), `${JSON.stringify(config, null, 2)}\n`);
+  }
+
+  it("--recommended is headless: it never prompts and writes the expected install", () => {
+    const { status, combined } = runGlobalInit("--recommended", "--apply");
+
+    expect(status).toBe(0);
+    // A prompt in a spawned process with no TTY would crash or hang; asserting
+    // the copy is absent says it was never even reached.
+    expect(combined).not.toContain("¿Qué bloques quieres");
+    expect(combined).not.toContain("¿Declarar permisos personales");
+    // Nor the no-TTY fallback notice: --recommended is the DECLARED headless
+    // path, so it must not read as an accident.
+    expect(combined).not.toContain("Sin terminal interactiva");
+
+    expect(pluginInstalled(claudeDir)).toBe(true);
+    expect(existsSync(hookPathOf(claudeDir))).toBe(true);
+    expect(readManifest().blocks.include).toEqual([
+      "operaciones-seguras",
+      "idioma-rol",
+      "formato-respuesta",
+      "orquestacion",
+    ]);
+  });
+
+  it("without --apply it writes NOTHING, and the preview names hook, settings and blocks", () => {
+    const { status, combined } = runGlobalInit("--recommended");
+
+    expect(status).toBe(0);
+    // Verified against the filesystem, not the output: the zero-footprint
+    // invariant (Spec 0010 §2.4) is about bytes, and a preview that creates the
+    // manifest "so it can describe it" breaks exactly what the layer promises.
+    expect(readdirSync(claudeDir)).toEqual([]);
+    expect(readdirSync(scratch)).toEqual([]);
+    expect(existsSync(globalJson())).toBe(false);
+    expect(pluginInstalled(claudeDir)).toBe(false);
+
+    expect(combined).toContain(hookPathOf(claudeDir));
+    expect(combined).toContain(join(claudeDir, "settings.json"));
+    expect(combined).toContain("orquestacion");
+    // The default stopped writing, so the preview has to say how to apply.
+    expect(combined).toContain("navori global init --apply");
+  });
+
+  it("a re-init PRESERVES the previous selection instead of resetting the defaults", () => {
+    seedManifest({
+      version: "0.0.1",
+      language: "es",
+      blocks: { include: ["idioma-rol", "formato-respuesta"] },
+      permissions: { allow: ["Read(//tmp/**)"], deny: [], ask: [] },
+    });
+
+    const { status, combined } = runGlobalInit("--recommended", "--apply");
+
+    expect(status).toBe(0);
+    const manifest = readManifest();
+    expect(manifest.blocks.include).toEqual(["idioma-rol", "formato-respuesta"]);
+    expect(manifest.blocks.include).not.toContain("orquestacion");
+    expect(combined).toContain("idioma-rol, formato-respuesta");
+
+    // The permissions the manifest declared still travel the #544 ownership
+    // path: merged into settings.json AND claimed, or uninstall could not
+    // retract them.
+    const settings = JSON.parse(readFileSync(join(claudeDir, "settings.json"), "utf-8")) as {
+      permissions?: { allow?: string[] };
+    };
+    expect(settings.permissions?.allow).toEqual(["Read(//tmp/**)"]);
+    expect(manifest.ownedPermissions.allow).toEqual(["Read(//tmp/**)"]);
+  });
+
+  it("with no TTY and no --recommended it falls back to the recommended values", () => {
+    // The prompts need a TTY; a piped/CI run must degrade to the declared
+    // headless path instead of crashing on setRawMode.
+    const { status, combined } = runGlobalInit();
+    expect(status).toBe(0);
+    expect(combined).toContain("Sin terminal interactiva");
+    expect(readdirSync(scratch)).toEqual([]); // still a preview: no --apply
   });
 });
 
@@ -819,7 +924,7 @@ describe("global doctor — drift and gate reach the report (#542, #543)", () =>
   }
 
   it("a fresh install reports the hook up to date AND the gate working", () => {
-    expect(run(["init"]).status).toBe(0);
+    expect(run(["init", "--recommended", "--apply"]).status).toBe(0);
     const { combined } = run(["doctor"]);
     expect(combined).toContain("al día");
     expect(combined).toContain("gate funcional");
@@ -827,7 +932,7 @@ describe("global doctor — drift and gate reach the report (#542, #543)", () =>
   });
 
   it("a hand-edited hook is named as such, and doctor does NOT just say 'run render'", () => {
-    run(["init"]);
+    run(["init", "--recommended", "--apply"]);
     const path = hookPathOf(claudeDir);
     writeFileSync(path, `${readFileSync(path, "utf-8")}\n# someone was here\n`);
 
@@ -838,7 +943,7 @@ describe("global doctor — drift and gate reach the report (#542, #543)", () =>
   });
 
   it("a hook from a navori older than #542 is reported as unmarked, not as healthy", () => {
-    run(["init"]);
+    run(["init", "--recommended", "--apply"]);
     const path = hookPathOf(claudeDir);
     // Strip the marker line: exactly what a pre-#542 install looks like on disk.
     writeFileSync(path, readFileSync(path, "utf-8").replace(/^# navori:managed .*\n/m, ""));
@@ -846,7 +951,7 @@ describe("global doctor — drift and gate reach the report (#542, #543)", () =>
   });
 
   it("render --apply reconciles, and doctor goes back to clean", () => {
-    run(["init"]);
+    run(["init", "--recommended", "--apply"]);
     const path = hookPathOf(claudeDir);
     writeFileSync(path, `${readFileSync(path, "utf-8")}\n# smuggled\n`);
     expect(run(["doctor"]).combined).toContain("editado a mano");
@@ -858,7 +963,7 @@ describe("global doctor — drift and gate reach the report (#542, #543)", () =>
   });
 
   it("a deleted hook is reported as missing, and the gate is not probed", () => {
-    run(["init"]);
+    run(["init", "--recommended", "--apply"]);
     rmSync(hookPathOf(claudeDir));
     const { combined } = run(["doctor"]);
     expect(combined).toContain("ausente");

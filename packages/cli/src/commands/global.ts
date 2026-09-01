@@ -30,6 +30,7 @@ import {
   unreadableSettingsMessage,
   type GlobalRenderPlan,
 } from "../engines/claude/global-render.ts";
+import { pickGlobalBlocks, pickGlobalPermissions } from "./global-prompts.ts";
 import {
   applyGlobalPlugin,
   globalPluginDir,
@@ -108,6 +109,78 @@ function migrateLegacy(dir: string, g: ReturnType<typeof tc>["global"]): () => v
   };
 }
 
+/**
+ * Whether `global init` should ask. `--recommended` is the declared headless
+ * path; a missing TTY is the undeclared one (a CI job, a pipe), and there the
+ * prompts would crash on `setRawMode` instead of failing on their own terms.
+ */
+function initIsInteractive(recommended: boolean): boolean {
+  return !recommended && process.stdin.isTTY === true;
+}
+
+/**
+ * Run the `init` wizard over `config`, mutating it in place. Returns false when
+ * the user aborted, in which case NOTHING has been written yet — the prompts run
+ * before the plan, so a cancel costs zero bytes.
+ *
+ * The non-interactive path leaves `config` exactly as it arrived: the previous
+ * selection on a re-`init`, `DEFAULT_GLOBAL_BLOCKS` on a fresh one. That is what
+ * `--recommended` means here — take the recommended selection, never reset one
+ * the user already made.
+ */
+async function collectInitChoices(
+  config: GlobalConfig,
+  recommended: boolean,
+  g: ReturnType<typeof tc>["global"],
+): Promise<boolean> {
+  if (!initIsInteractive(recommended)) {
+    if (!recommended) p.log.info(grey(g.initHeadless));
+    return true;
+  }
+  const lang = resolveLang(config.language);
+  const blocks = await pickGlobalBlocks(config.blocks.include, lang);
+  if (blocks === null) {
+    p.cancel(g.initCancelled);
+    return false;
+  }
+  const permissions = await pickGlobalPermissions(config.permissions, lang);
+  if (permissions === null) {
+    p.cancel(g.initCancelled);
+    return false;
+  }
+  // Assigned only once BOTH answers are in, so an abort halfway leaves the
+  // config as untouched as the disk.
+  config.blocks.include = blocks;
+  config.permissions = permissions;
+  return true;
+}
+
+/**
+ * What an `init` would write, or did — one list, so the preview cannot describe
+ * a different install from the one `--apply` performs. It names the hook and the
+ * settings file explicitly because those are the two artifacts a user cannot
+ * infer from "plugin: <dir>".
+ */
+function initPlanRows(
+  plans: GlobalPlans,
+  config: GlobalConfig,
+  g: ReturnType<typeof tc>["global"],
+): string[] {
+  const rows = [
+    g.wrotePlugin(plans.plugin.dir, plans.plugin.files.length),
+    g.wroteHook(join(plans.plugin.dir, PLUGIN_HOOK_SCRIPT_REL)),
+    // A default config merges nothing, so settings.json is not even created;
+    // saying "settings: <path>" there would promise a write that never happens.
+    plans.settings.settingsChanged
+      ? g.wroteSettings(plans.settings.settingsPath)
+      : g.settingsUnchanged(plans.settings.settingsPath),
+    g.baselineBlocks(config.blocks.include.join(", ")),
+  ];
+  const permissions = configuredPermissionsCount(config);
+  if (permissions > 0) rows.push(g.permsPlanned(permissions));
+  return rows;
+}
+
 const initSubCommand = defineCommand({
   meta: {
     name: "init",
@@ -115,6 +188,11 @@ const initSubCommand = defineCommand({
   },
   args: {
     lang: { type: "string", description: "Baseline language: es | en (default es)" },
+    apply: { type: "boolean", description: "Write files (default: preview)" },
+    recommended: {
+      type: "boolean",
+      description: "Take the recommended selection without prompting (headless / CI)",
+    },
   },
   async run({ args }) {
     p.intro(brand("global init"));
@@ -128,23 +206,32 @@ const initSubCommand = defineCommand({
     config.language = language;
     upgradeDefaultBlocks(config);
 
-    // Plan BEFORE persisting anything: an unreadable ~/.claude/settings.json
-    // aborts here (#497), and a run that installs nothing should leave no
-    // ~/.navori/global.json claiming otherwise.
+    // Read-only, and BEFORE the wizard: an unreadable ~/.claude/settings.json
+    // aborts here (#497), so nobody answers prompts for a run that could not
+    // have written anything.
     const dir = globalTargetDir();
     assertSettingsReadableOrExit(config, dir);
-    const plans = planOrExit(config, dir, migrateLegacy(dir, g));
+
+    if (!(await collectInitChoices(config, Boolean(args.recommended), g))) return;
+
+    // Planning is read-only; the legacy migration is not, so it only runs on the
+    // apply path. Without --apply this whole command must leave the machine
+    // byte-for-byte as it found it (Spec 0010 §2.4).
+    const plans = planOrExit(config, dir, args.apply ? migrateLegacy(dir, g) : null);
+    const rows = initPlanRows(plans, config, g);
+
+    if (!args.apply) {
+      p.note(rows.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), g.previewTitle);
+      p.outro(grey(g.initPreviewHint));
+      return;
+    }
+
     writeGlobalConfig(config);
-    const written = applyGlobalPlugin(plans.plugin);
+    applyGlobalPlugin(plans.plugin);
     const backupPath = applyGlobalRender(plans.settings);
     recordPermissionOwnership(config, plans.settings);
 
     if (existing) p.log.info(g.initReinit(dir));
-    const rows = [
-      g.wrotePlugin(plans.plugin.dir, written.length),
-      g.wroteSettings(plans.settings.settingsPath),
-      g.baselineBlocks(config.blocks.include.join(", ")),
-    ];
     if (backupPath) rows.push(t(resolveLang(language)).backedUp(1, backupPath));
     p.note(rows.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), g.doctorTitle(dir));
     p.log.info(grey(g.pluginNamespaceHint));
