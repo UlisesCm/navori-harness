@@ -7,18 +7,22 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readCliVersion } from "../../../lib/bundled-assets.ts";
 import { defaultGlobalConfig } from "../../../lib/global-config.ts";
 import {
   applyGlobalRender,
   composeBaseline,
   configuredPermissionsCount,
   generateHookScript,
+  probeGate,
+  readHookDrift,
   globalHookPath,
   globalTargetDir,
   permissionsFragment,
@@ -448,5 +452,281 @@ describe("global init — end to end against the built CLI (#497)", () => {
     expect(written.hooks?.SessionStart?.[0]?.hooks[0]?.command).toContain(
       "navori-global-baseline.sh",
     );
+  });
+});
+
+// ============================================================
+// #542 — the hook carries a marker + digest, so drift is visible
+// ============================================================
+
+/** Install the hook for `config` and hand back its path and expected content. */
+function installHook(config = defaultGlobalConfig("9.9.9", "es")) {
+  const plan = planGlobalRender(config, claudeDir);
+  applyGlobalRender(plan);
+  return { path: plan.hookPath, expected: plan.hookScript };
+}
+
+describe("global-render — hook authorship marker and drift (#542)", () => {
+  it("stamps a navori:managed marker carrying the CLI version and a digest", () => {
+    const script = generateHookScript("baseline body", "1.2.3");
+    const marker = script.split("\n")[1];
+    expect(marker).toMatch(/^# navori:managed version="1\.2\.3" hash="[0-9a-f]{16}"$/);
+    // The shebang must stay first or the kernel never runs it as a script.
+    expect(script.split("\n")[0]).toBe("#!/usr/bin/env bash");
+  });
+
+  it("the stamped digest is stable for the same input and moves with the baseline", () => {
+    const a = generateHookScript("baseline body", "1.2.3");
+    const b = generateHookScript("baseline body", "1.2.3");
+    const c = generateHookScript("a DIFFERENT baseline", "1.2.3");
+    expect(a).toBe(b);
+    expect(hashOf(a)).not.toBe(hashOf(c));
+  });
+
+  it("reports a freshly applied hook as up to date", () => {
+    const { path, expected } = installHook();
+    expect(readHookDrift(path, expected)).toEqual({ kind: "ok" });
+  });
+
+  it("reports 'absent' when nothing is installed", () => {
+    const expected = generateHookScript("x", "1.0.0");
+    expect(readHookDrift(join(claudeDir, "hooks/navori-global-baseline.sh"), expected)).toEqual({
+      kind: "absent",
+    });
+  });
+
+  it("reports 'unmarked' for a hook written by a navori older than #542", () => {
+    const path = join(claudeDir, "hooks/navori-global-baseline.sh");
+    mkdirSync(dirname(path), { recursive: true });
+    // The pre-#542 shape: managed, but with nothing to verify it against.
+    writeFileSync(path, "#!/usr/bin/env bash\n# navori global baseline\nexit 0\n");
+    expect(readHookDrift(path, generateHookScript("x", "1.0.0"))).toEqual({ kind: "unmarked" });
+  });
+
+  it("catches a HAND EDIT — the file no longer matches its own hash", () => {
+    const { path, expected } = installHook();
+    const tampered = readFileSync(path, "utf-8").replace(
+      "exit 0\n",
+      "rm -rf /tmp/whatever\nexit 0\n",
+    );
+    writeFileSync(path, tampered);
+    expect(readHookDrift(path, expected)).toEqual({ kind: "hand-edited" });
+  });
+
+  it("catches a hand edit even when the marker line itself is the thing edited", () => {
+    const { path, expected } = installHook();
+    const onDisk = readFileSync(path, "utf-8");
+    // Forging a plausible-looking digest must not buy the file a clean verdict.
+    writeFileSync(path, onDisk.replace(/hash="[0-9a-f]{16}"/, 'hash="deadbeefdeadbeef"'));
+    expect(readHookDrift(path, expected)).toEqual({ kind: "hand-edited" });
+  });
+
+  it("the marker records the CLI that rendered it, not the version stored in global.json", () => {
+    // They are different facts: `global.json.version` is what last wrote the
+    // CONFIG, and `render` never touches it, so it lags. Only the renderer's own
+    // version can answer "what produced these bytes".
+    const { path } = installHook(defaultGlobalConfig("0.1.0", "es"));
+    expect(readFileSync(path, "utf-8")).toContain(`version="${readCliVersion()}"`);
+  });
+
+  it("catches STALENESS — an intact hook whose baseline asset changed under the same version", () => {
+    const { path } = installHook();
+    // The exact case doctor could never see before: same CLI version, different
+    // rendered content, file untouched since navori wrote it.
+    const drift = readHookDrift(path, generateHookScript("the asset was edited"));
+    expect(drift).toEqual({
+      kind: "stale",
+      installedVersion: readCliVersion(),
+      expectedVersion: readCliVersion(),
+    });
+  });
+
+  it("names both versions when the CLI moved on", () => {
+    const path = writeHook(generateHookScript("baseline", "0.1.0"));
+    const drift = readHookDrift(path, generateHookScript("newer baseline", "0.2.0"));
+    expect(drift).toEqual({
+      kind: "stale",
+      installedVersion: "0.1.0",
+      expectedVersion: "0.2.0",
+    });
+  });
+
+  it("re-applying reconciles a hand-edited hook back to 'ok'", () => {
+    const config = defaultGlobalConfig("9.9.9", "es");
+    const { path } = installHook(config);
+    writeFileSync(path, `${readFileSync(path, "utf-8")}\n# smuggled\n`);
+    expect(readHookDrift(path, planGlobalRender(config, claudeDir).hookScript).kind).toBe(
+      "hand-edited",
+    );
+
+    const plan = planGlobalRender(config, claudeDir);
+    applyGlobalRender(plan);
+    expect(readHookDrift(path, plan.hookScript)).toEqual({ kind: "ok" });
+  });
+
+  it("the marker does not break the script — bash still runs it and the gate still works", () => {
+    const { path } = installHook();
+    const out = execFileSync("bash", [path], { cwd: scratch, input: "{}", encoding: "utf-8" });
+    expect(JSON.parse(out).hookSpecificOutput.hookEventName).toBe("SessionStart");
+  });
+});
+
+/** The digest a rendered hook declares about itself. */
+function hashOf(script: string): string {
+  return /hash="([0-9a-f]{16})"/.exec(script)?.[1] ?? "";
+}
+
+// ============================================================
+// #543 — doctor RUNS the gate instead of trusting the file exists
+// ============================================================
+
+/** Write an arbitrary hook script at the canonical path and return it. */
+function writeHook(body: string): string {
+  const path = join(claudeDir, "hooks/navori-global-baseline.sh");
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, body);
+  return path;
+}
+
+const EMITS_UNCONDITIONALLY = `#!/usr/bin/env bash
+cat >/dev/null 2>&1 || true
+node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:"always"}}))'
+`;
+
+const GATE_ONLY = `#!/usr/bin/env bash
+cat >/dev/null 2>&1 || true
+dir="$PWD"
+while :; do
+  [ -f "$dir/navori.config.json" ] && exit 0
+  [ "$dir" = "/" ] && break
+  dir="$(dirname "$dir")"
+done
+`;
+
+describe("global-render — probeGate executes the hook (#543)", () => {
+  it("reports 'ok' for a real installed hook: emits outside a navori repo, defers inside one", () => {
+    const { path } = installHook();
+    expect(probeGate(path)).toEqual({ kind: "ok" });
+  });
+
+  it("catches a gate that never defers — the double-emission §3.1 exists to prevent", () => {
+    expect(probeGate(writeHook(EMITS_UNCONDITIONALLY))).toEqual({ kind: "no-defer" });
+  });
+
+  it("catches a gate that defers correctly but never emits", () => {
+    expect(probeGate(writeHook(GATE_ONLY))).toEqual({ kind: "no-emit" });
+  });
+
+  it("catches output that is not the SessionStart JSON contract", () => {
+    const probe = probeGate(writeHook(`${GATE_ONLY}echo "not json at all"\n`));
+    expect(probe.kind).toBe("malformed");
+  });
+
+  it("catches an empty additionalContext — valid JSON that injects nothing", () => {
+    const probe = probeGate(
+      writeHook(
+        `${GATE_ONLY}node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{additionalContext:"  "}}))'\n`,
+      ),
+    );
+    expect(probe).toEqual({ kind: "malformed", detail: "hookSpecificOutput.additionalContext" });
+  });
+
+  it("reports a hook that cannot even run, instead of reading it as 'no baseline'", () => {
+    const probe = probeGate(writeHook("#!/usr/bin/env bash\nif [ ; then\n"));
+    expect(probe.kind).toBe("error");
+  });
+
+  it("distinguishes 'no JSON tool on PATH' from a broken gate — the nvm/app-bundle case", () => {
+    const { path } = installHook();
+    // A PATH built by hand rather than a real one like "/bin:/usr/bin": which
+    // system dirs happen to hold `node` or `jq` varies per machine (this one
+    // ships /usr/bin/jq), and a test that depends on that is a test that passes
+    // for the wrong reason somewhere else. Symlink in exactly what the gate
+    // needs to RUN, and nothing it needs to EMIT.
+    const bin = join(scratch, "bin");
+    mkdirSync(bin, { recursive: true });
+    for (const tool of ["bash", "cat", "dirname"]) {
+      symlinkSync(
+        execFileSync("bash", ["-c", `command -v ${tool}`], { encoding: "utf-8" }).trim(),
+        join(bin, tool),
+      );
+    }
+    const savedPath = process.env.PATH;
+    process.env.PATH = bin;
+    try {
+      expect(probeGate(path)).toEqual({ kind: "no-json-tool" });
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
+
+  it("leaves no probe directories behind", () => {
+    const before = readdirSync(tmpdir()).filter((n) => n.startsWith("navori-gate-")).length;
+    probeGate(installHook().path);
+    const after = readdirSync(tmpdir()).filter((n) => n.startsWith("navori-gate-")).length;
+    expect(after).toBe(before);
+  });
+});
+
+// ============================================================
+// #542 + #543 — the verdicts reach `navori global doctor` output
+// ============================================================
+
+describe("global doctor — drift and gate reach the report (#542, #543)", () => {
+  const CLI = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../dist/index.js");
+
+  function run(argv: string[]): { status: number; combined: string } {
+    const r = spawnSync("node", [CLI, "global", ...argv], {
+      encoding: "utf-8",
+      env: { ...process.env, HOME: scratch, CLAUDE_CONFIG_DIR: claudeDir, FORCE_COLOR: "0" },
+    });
+    return { status: r.status ?? -1, combined: (r.stdout ?? "") + (r.stderr ?? "") };
+  }
+
+  it("a fresh install reports the hook up to date AND the gate working", () => {
+    expect(run(["init"]).status).toBe(0);
+    const { combined } = run(["doctor"]);
+    expect(combined).toContain("al día");
+    expect(combined).toContain("gate funcional");
+    expect(combined).not.toContain("editado a mano");
+  });
+
+  it("a hand-edited hook is named as such, and doctor does NOT just say 'run render'", () => {
+    run(["init"]);
+    const path = globalHookPath(claudeDir);
+    writeFileSync(path, `${readFileSync(path, "utf-8")}\n# someone was here\n`);
+
+    const { combined } = run(["doctor"]);
+    expect(combined).toContain("editado a mano");
+    // The remediation destroys the edit, so the report has to say so.
+    expect(combined).toContain("DESCARTA");
+  });
+
+  it("a hook from a navori older than #542 is reported as unmarked, not as healthy", () => {
+    run(["init"]);
+    const path = globalHookPath(claudeDir);
+    // Strip the marker line: exactly what a pre-#542 install looks like on disk.
+    writeFileSync(path, readFileSync(path, "utf-8").replace(/^# navori:managed .*\n/m, ""));
+    expect(run(["doctor"]).combined).toContain("sin marcador");
+  });
+
+  it("render --apply reconciles, and doctor goes back to clean", () => {
+    run(["init"]);
+    const path = globalHookPath(claudeDir);
+    writeFileSync(path, `${readFileSync(path, "utf-8")}\n# smuggled\n`);
+    expect(run(["doctor"]).combined).toContain("editado a mano");
+
+    expect(run(["render", "--apply"]).status).toBe(0);
+    const after = run(["doctor"]).combined;
+    expect(after).toContain("al día");
+    expect(after).not.toContain("editado a mano");
+  });
+
+  it("a deleted hook is reported as missing, and the gate is not probed", () => {
+    run(["init"]);
+    rmSync(globalHookPath(claudeDir));
+    const { combined } = run(["doctor"]);
+    expect(combined).toContain("ausente");
+    expect(combined).not.toContain("gate funcional");
   });
 });

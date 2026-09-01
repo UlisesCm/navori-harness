@@ -1,6 +1,5 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { brand, check, color, dim as grey, sym } from "../lib/style.ts";
 import { t, tc, resolveLang } from "../lib/i18n.ts";
@@ -15,10 +14,14 @@ import {
 import { readCliVersion } from "../lib/bundled-assets.ts";
 import {
   applyGlobalRender,
+  composeBaseline,
   configuredPermissionsCount,
+  generateHookScript,
   globalHookPath,
   globalTargetDir,
   planGlobalRender,
+  probeGate,
+  readHookDrift,
   settingsHasBaseline,
   settingsHasPermissions,
   uninstallGlobalRender,
@@ -122,11 +125,75 @@ const doctorSubCommand = defineCommand({
     const lines: string[] = [];
     let issues = false;
 
-    if (existsSync(globalHookPath(dir))) {
-      lines.push(`  ${check(true)} ${g.hookPresent}`);
-    } else {
-      lines.push(`  ${color.red(sym.fail)} ${g.hookMissing}`);
+    const hookPath = globalHookPath(dir);
+    // Composed here rather than via `planGlobalRender` on purpose: the plan also
+    // reads settings.json and THROWS when it is unreadable (#497), which is a
+    // separate finding the checks below report on their own terms. Doctor must
+    // not abort over it.
+    let expectedHook: string | null = null;
+    try {
+      expectedHook = generateHookScript(composeBaseline(config));
+    } catch (err) {
+      lines.push(`  ${color.red(sym.fail)} ${err instanceof Error ? err.message : String(err)}`);
       issues = true;
+    }
+
+    if (expectedHook !== null) {
+      const drift = readHookDrift(hookPath, expectedHook);
+      switch (drift.kind) {
+        case "ok":
+          lines.push(`  ${check(true)} ${g.hookPresent}`);
+          break;
+        case "absent":
+          lines.push(`  ${color.red(sym.fail)} ${g.hookMissing}`);
+          issues = true;
+          break;
+        case "unmarked":
+          lines.push(`  ${color.yellow(sym.update)} ${g.hookUnmarked}`);
+          issues = true;
+          break;
+        case "hand-edited":
+          lines.push(`  ${color.red(sym.fail)} ${g.hookHandEdited(hookPath)}`);
+          issues = true;
+          break;
+        case "stale":
+          lines.push(
+            `  ${color.yellow(sym.update)} ${g.hookStale(drift.installedVersion, drift.expectedVersion)}`,
+          );
+          issues = true;
+          break;
+      }
+
+      // Running it is the only check that proves the baseline actually reaches a
+      // session (#543); every check above only proves the file's contents.
+      if (drift.kind !== "absent") {
+        const probe = probeGate(hookPath);
+        switch (probe.kind) {
+          case "ok":
+            lines.push(`  ${check(true)} ${g.gateOk}`);
+            break;
+          case "no-json-tool":
+            lines.push(`  ${color.red(sym.fail)} ${g.gateNoJsonTool}`);
+            issues = true;
+            break;
+          case "no-emit":
+            lines.push(`  ${color.red(sym.fail)} ${g.gateNoEmit}`);
+            issues = true;
+            break;
+          case "no-defer":
+            lines.push(`  ${color.red(sym.fail)} ${g.gateNoDefer}`);
+            issues = true;
+            break;
+          case "malformed":
+            lines.push(`  ${color.red(sym.fail)} ${g.gateMalformed(probe.detail)}`);
+            issues = true;
+            break;
+          case "error":
+            lines.push(`  ${color.red(sym.fail)} ${g.gateError(probe.detail)}`);
+            issues = true;
+            break;
+        }
+      }
     }
 
     if (settingsHasBaseline(dir)) {

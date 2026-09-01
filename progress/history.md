@@ -792,3 +792,52 @@ confirmadas (`rem(15.4)` en el theme, `0.875rem` de la opción, `13.75rem` de `m
 `Could not find the pullrequest with key` en todos los PRs del repo — el rebind pendiente es hoy lo único
 entre este trabajo y producción. Y el rollout al resto: 14 repos Bonum + moonar + navori-health en
 **0.5.1**, los 3 de `/navori` en 0.6.2.
+
+## 2026-08-28 13:10 orchestrator — release 0.6.5 (commit + tag) y rollout a los 3 repos de `/navori`
+
+**Qué se hizo.** Bump de `packages/cli/package.json` a **0.6.5** + `render --apply` en el propio repo
+(36 archivos: `CLAUDE.md` y `.claude/**` reestampados a `version="0.6.5"`, sin un solo cambio de
+contenido — el diff es 56 inserciones / 56 borrados, todas de marcador). Commit `2f46add`
+`chore(release): navori 0.6.5` y tag anotado **`v0.6.5`**. Después, rollout a los 3 repos con harness de
+`/navori` vía `npx navori@0.6.5`, uno a uno con `doctor → render → doctor`.
+
+**Hallazgo del release: el paquete ya estaba publicado en npm ANTES de existir el commit y el tag.**
+`npm view navori dist-tags` daba `{ latest: '0.6.5' }` mientras `git log` seguía en `d3a0f80` y el último
+tag era `v0.6.4`, con el bump sin commitear. No es cosmético: `scripts/check-asset-commands.mjs` (el paso
+`check:assets`) no lee `package.json` — resuelve `latestTag()` con `git tag --sort=-creatordate` y lee
+`git show <tag>:src/index.ts`. Sin el tag, el check medía los assets contra **v0.6.4**, o sea contra una
+versión más vieja que la que los usuarios ya estaban instalando, invirtiendo justo el propósito de #490.
+Verificado en ambos sentidos: antes del tag imprimía `existe en v0.6.4`; después, `existe en v0.6.5`.
+
+**Rollout.** Los 3 quedaron en `doctor` "Todo al día" con **0 marcadores por debajo de 0.6.5**:
+
+- `alertaciudadana_app` — 0.6.2 → 0.6.5 · 2 created, 59 updated · 61 marcadores
+- `alertaciudadana_backend` — 0.6.2 → 0.6.5 · 2 created, 59 updated · 62 marcadores
+- `navori-dashboard-template` — 0.6.4 → 0.6.5 · 59 updated · 60 marcadores
+
+Los 2 archivos creados en los que venían de 0.6.2 son los hooks que entraron en 0.6.4:
+`managed-drift-watch.sh` y `worktree-reclaim.sh`. Backup por repo en `~/.navori/backups/`.
+
+**Se abortó el commit del harness en 2 de los 3 repos: había otra sesión de Claude Code haciendo el
+MISMO rollout en paralelo.** Se detectó por evidencia, no por sospecha: `progress/ignite-update-plan.md`
+pasó de staged a estar en `HEAD` entre dos verificaciones mías; el `.gitignore` de `app` y `backend`
+apareció modificado con mtime 13:06/13:07 (minutos después de mis renders de las 12:22) agregando
+`.claude/.managed-drift-stamp`; y `alertaciudadana_app` terminó con `85d2dc9 chore(harness): actualiza
+navori de 0.6.2 a 0.6.5`, commit que no hice yo. Se dejó el index de `backend` como estaba en vez de
+revertirlo: lo que yo había staged es idéntico a lo que esa sesión va a commitear.
+
+**Pendientes que quedan abiertos.**
+- `navori-harness`: `2f46add` y `v0.6.5` son **locales** — falta `git push` + `git push --tags` y
+  `gh workflow run deploy-website.yml`.
+- `alertaciudadana_backend` y `navori-dashboard-template`: harness renderizado pero **sin commitear**
+  (43 y 42 archivos), a la espera de que cierre la sesión paralela.
+- `alertaciudadana_backend`: `.codex/` huérfano de un engine que ya no está en `config.engines`.
+  `render --prune --apply` lo borraría, pero arrastra el bug conocido de dejar atrás `.codex/hooks.json`.
+- `alertaciudadana_app`: `name: "alertaciudadana"` no coincide con el directorio; doctor sugiere
+  `alertaciudadana-app`. No se tocó por si es intencional.
+- `navori-dashboard-template`: `.claude/progress/` y `.claude/.managed-drift-stamp` sin ignorar, y 4
+  skills con la user-section sin llenar (`apollo-client`, `react-hook-form`, `zod-validation`, `zustand`).
+
+**Gate.** Verde sobre el diff que se commiteó: `format:check` (292 archivos) · `check:render`
+(0 pendientes) · `check:assets` · build del website (22 páginas) · `check:size` (848.5KB/900KB) ·
+`test:coverage` (floor ok, 60 módulos, 2 excepciones) · `lint` · `typecheck`.
