@@ -1122,6 +1122,28 @@ interface GlobalCmdStrings {
   renderApplied: (dir: string) => string;
   previewTitle: string;
   previewHint: string;
+  /**
+   * #545 — `global init` is interactive and previews by default, so it needs
+   * copy of its own. `initPreviewHint` must name the exact command that writes:
+   * the default stopped writing, and a user who does not read it would conclude
+   * the install silently did nothing.
+   */
+  initPreviewHint: string;
+  initHeadless: string;
+  initCancelled: string;
+  blocksPrompt: string;
+  /**
+   * One-line description per baseline block, keyed by asset id. A map rather
+   * than a function so a block with no copy yet degrades to no hint instead of
+   * inventing one; the picker itself enumerates `GLOBAL_SAFE_BLOCK_IDS`, never
+   * these keys.
+   */
+  blockHints: Readonly<Record<string, string>>;
+  permsPrompt: string;
+  permsRules: (kind: string) => string;
+  permsPlaceholder: string;
+  permsPlanned: (count: number) => string;
+  settingsUnchanged: (path: string) => string;
   wroteHook: (path: string) => string;
   wroteSettings: (path: string) => string;
   baselineBlocks: (ids: string) => string;
@@ -2065,6 +2087,28 @@ const CMD_ES: CmdStrings = {
     renderApplied: (dir) => `Baseline global renderizado en ${dir}.`,
     previewTitle: "Se escribiría",
     previewHint: "Corre con --apply para escribir.",
+    initPreviewHint:
+      "Preview: no se escribió un solo byte. Corre 'navori global init --apply' para instalar " +
+      "(agrega --recommended para no responder nada).",
+    initHeadless:
+      "Sin terminal interactiva: se usan los valores recomendados, igual que con --recommended.",
+    initCancelled: "Cancelado: no se escribió nada.",
+    blocksPrompt: "¿Qué bloques quieres en el baseline global?",
+    blockHints: {
+      "operaciones-seguras":
+        "contrato de operaciones seguras: lectura por default, nada destructivo sin tu OK",
+      "idioma-rol": "idioma del chat y rol de Tech Lead Senior",
+      "formato-respuesta": "concisión y formato de respuesta (bug fix, code review, commits)",
+      orquestacion: "doctrina de orquestación: cuándo lanzar cada uno de los 8 agentes del plugin",
+      "cierre-sesion": "protocolo de cierre de sesión (quality gate, historial, commit)",
+      "intake-tickets":
+        "intake de tickets: el problema es el contrato, la solución propuesta es una sugerencia",
+    },
+    permsPrompt: "¿Declarar permisos personales para ~/.claude/settings.json?",
+    permsRules: (kind) => `Reglas '${kind}' (separadas por coma; vacío = ninguna)`,
+    permsPlaceholder: "Bash(git status:*), Read(//tmp/**)",
+    permsPlanned: (count) => `Permisos personales: ${count} regla(s) a mergear en settings.json`,
+    settingsUnchanged: (path) => `settings: sin cambios (${path})`,
     wroteHook: (path) => `hook: ${path}`,
     wroteSettings: (path) => `settings: ${path}`,
     baselineBlocks: (ids) => `Bloques del baseline: ${ids}`,
@@ -3041,6 +3085,27 @@ const CMD_EN: CmdStrings = {
     renderApplied: (dir) => `Global baseline rendered to ${dir}.`,
     previewTitle: "Would write",
     previewHint: "Run with --apply to write.",
+    initPreviewHint:
+      "Preview: not a single byte was written. Run 'navori global init --apply' to install " +
+      "(add --recommended to answer nothing).",
+    initHeadless: "No interactive terminal: using the recommended values, same as --recommended.",
+    initCancelled: "Cancelled: nothing was written.",
+    blocksPrompt: "Which blocks do you want in the global baseline?",
+    blockHints: {
+      "operaciones-seguras":
+        "safe-operations contract: read-only by default, nothing destructive without your OK",
+      "idioma-rol": "chat language and the Senior Tech Lead role",
+      "formato-respuesta": "concision and response format (bug fix, code review, commits)",
+      orquestacion: "orchestration doctrine: when to reach for each of the plugin's 8 agents",
+      "cierre-sesion": "session closeout protocol (quality gate, history, commit)",
+      "intake-tickets":
+        "ticket intake: the problem is the contract, the proposed solution is a suggestion",
+    },
+    permsPrompt: "Declare personal permissions for ~/.claude/settings.json?",
+    permsRules: (kind) => `'${kind}' rules (comma-separated; empty = none)`,
+    permsPlaceholder: "Bash(git status:*), Read(//tmp/**)",
+    permsPlanned: (count) => `Personal permissions: ${count} rule(s) to merge into settings.json`,
+    settingsUnchanged: (path) => `settings: unchanged (${path})`,
     wroteHook: (path) => `hook: ${path}`,
     wroteSettings: (path) => `settings: ${path}`,
     baselineBlocks: (ids) => `Baseline blocks: ${ids}`,
