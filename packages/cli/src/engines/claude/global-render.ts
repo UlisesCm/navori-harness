@@ -17,7 +17,11 @@ import { safeHomedir } from "../../lib/home.ts";
 import { CORE_MANAGED_ASSETS, resolveAssetPath } from "../../lib/render-plan.ts";
 import { resolveLang, tc } from "../../lib/i18n.ts";
 import { deepMerge } from "./deep-merge.ts";
-import type { GlobalConfig } from "../../lib/global-config.ts";
+import {
+  PERMISSION_KINDS,
+  type GlobalConfig,
+  type PermissionBag,
+} from "../../lib/global-config.ts";
 
 /**
  * Renders the OPTIONAL global harness (Spec 0010 F1) into Claude Code's global
@@ -475,6 +479,60 @@ export interface GlobalRenderPlan {
   hookScript: string;
   settingsPath: string;
   settings: Record<string, unknown>;
+  /**
+   * The permission entries navori will own once this plan is applied (#544).
+   * The caller persists it to `global.json` after a successful apply — that
+   * record is the ONLY thing that can tell navori's permissions from the user's
+   * later on, and it can only be computed here, before the merge erases the
+   * difference.
+   */
+  ownedPermissions: PermissionBag;
+}
+
+/** The `permissions` object of a settings.json, normalized to three string lists. */
+function permissionBagOf(settings: Record<string, unknown>): Record<string, string[]> {
+  const perms = settings.permissions;
+  const raw =
+    perms && typeof perms === "object" && !Array.isArray(perms)
+      ? (perms as Record<string, unknown>)
+      : {};
+  const bag: Record<string, string[]> = {};
+  for (const kind of PERMISSION_KINDS) {
+    const list = raw[kind];
+    bag[kind] = Array.isArray(list) ? list.filter((e): e is string => typeof e === "string") : [];
+  }
+  return bag;
+}
+
+/**
+ * Which permission entries navori owns after a merge (#544).
+ *
+ * An entry is navori's when THIS render introduced it — declared in
+ * `global.json` and absent from settings.json beforehand — or when a previous
+ * render already claimed it. An entry the user already had stays theirs forever,
+ * even when `permissions` also declares it: uninstall must never delete a rule
+ * that predates navori.
+ *
+ * The result is intersected with what the merge actually produced, so the record
+ * cannot accumulate entries that are no longer on disk. An entry navori added
+ * and the user later dropped from `permissions` stays owned as long as it is
+ * still in settings.json — the merge never removes it, so uninstall is what
+ * eventually has to.
+ */
+function computeOwnedPermissions(
+  config: GlobalConfig,
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): PermissionBag {
+  const beforeBag = permissionBagOf(before);
+  const afterBag = permissionBagOf(after);
+  const owned: PermissionBag = { allow: [], deny: [], ask: [] };
+  for (const kind of PERMISSION_KINDS) {
+    const introduced = config.permissions[kind].filter((e) => !beforeBag[kind]?.includes(e));
+    const claimed = new Set([...config.ownedPermissions[kind], ...introduced]);
+    owned[kind] = [...claimed].filter((e) => afterBag[kind]?.includes(e));
+  }
+  return owned;
 }
 
 /**
@@ -507,6 +565,7 @@ export function planGlobalRender(config: GlobalConfig, dir = globalTargetDir()):
     hookScript: generateHookScript(baseline),
     settingsPath,
     settings,
+    ownedPermissions: computeOwnedPermissions(config, existing, settings),
   };
 }
 
@@ -595,11 +654,57 @@ export interface GlobalUninstallResult {
 }
 
 /**
- * Remove ONLY navori's global footprint: the gate hook file and its SessionStart
- * registration. Any other global hook/skill/plugin/permission the user has is
- * left intact (§3.1 requirement 3).
+ * Strip the permission entries navori recorded as its own, leaving every other
+ * rule untouched (#544). Empty buckets and an emptied `permissions` object are
+ * pruned so uninstall leaves no husk behind.
+ *
+ * Deliberately driven by the RECORD, never by `config.permissions`: the two
+ * differ exactly where it matters. A rule the user already had before installing
+ * is declared but not owned, and removing it would delete something navori never
+ * added — the failure mode that made leaving all of them behind the safer bug.
  */
-export function uninstallGlobalRender(dir = globalTargetDir()): GlobalUninstallResult {
+export function stripOwnedPermissions(
+  settings: Record<string, unknown>,
+  owned: PermissionBag,
+): Record<string, unknown> {
+  const perms = settings.permissions;
+  if (!perms || typeof perms !== "object" || Array.isArray(perms)) return settings;
+
+  const before = perms as Record<string, unknown>;
+  const after: Record<string, unknown> = { ...before };
+  let changed = false;
+  for (const kind of PERMISSION_KINDS) {
+    const mine = owned[kind];
+    const have = before[kind];
+    if (mine.length === 0 || !Array.isArray(have)) continue;
+    const kept = have.filter((e) => !(typeof e === "string" && mine.includes(e)));
+    if (kept.length === have.length) continue;
+    changed = true;
+    if (kept.length > 0) after[kind] = kept;
+    else delete after[kind];
+  }
+  if (!changed) return settings;
+
+  const next: Record<string, unknown> = { ...settings };
+  if (Object.keys(after).length > 0) next.permissions = after;
+  else delete next.permissions;
+  return next;
+}
+
+/**
+ * Remove ONLY navori's global footprint: the gate hook file, its SessionStart
+ * registration, and the permission entries `config.ownedPermissions` records as
+ * navori's (#544). Any other global hook/skill/plugin/permission the user has is
+ * left intact (§3.1 requirement 3).
+ *
+ * `config` is optional because uninstall must still work when `global.json` is
+ * gone or unreadable: without it the hook still goes, and permissions are left
+ * alone rather than guessed at.
+ */
+export function uninstallGlobalRender(
+  dir = globalTargetDir(),
+  config?: GlobalConfig | null,
+): GlobalUninstallResult {
   const hookPath = globalHookPath(dir);
   let removedHook = false;
   if (existsSync(hookPath)) {
@@ -618,7 +723,10 @@ export function uninstallGlobalRender(dir = globalTargetDir()): GlobalUninstallR
   if (read.kind === "parse-error" || read.kind === "not-object") {
     settingsUnreadable = true;
   } else if (read.kind === "ok") {
-    const after = stripBaselineFromSettings(read.settings);
+    const withoutHook = stripBaselineFromSettings(read.settings);
+    const after = config
+      ? stripOwnedPermissions(withoutHook, config.ownedPermissions)
+      : withoutHook;
     if (JSON.stringify(after) !== JSON.stringify(read.settings)) {
       backupPath = backupSettings(dir, settingsPath);
       writeFileSync(settingsPath, `${JSON.stringify(after, null, 2)}\n`);

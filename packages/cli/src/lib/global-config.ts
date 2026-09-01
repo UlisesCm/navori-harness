@@ -26,6 +26,22 @@ export const DEFAULT_GLOBAL_BLOCKS = [
   "formato-respuesta",
 ] as const;
 
+/** The three permission buckets Claude Code understands, in a stable order. */
+export const PERMISSION_KINDS = ["allow", "deny", "ask"] as const;
+
+/**
+ * One `{allow, deny, ask}` bag of permission rules. A factory, not a shared
+ * instance: the config holds two of these and they must default independently.
+ */
+const permissionBagSchema = () =>
+  z
+    .object({
+      allow: z.array(z.string()).default([]),
+      deny: z.array(z.string()).default([]),
+      ask: z.array(z.string()).default([]),
+    })
+    .default({ allow: [], deny: [], ask: [] });
+
 const GlobalConfigSchema = z.object({
   $schema: z.string().optional(),
   /** CLI version that last wrote this file (drift/migration signal). */
@@ -37,14 +53,27 @@ const GlobalConfigSchema = z.object({
     .object({ include: z.array(z.string()).default([...DEFAULT_GLOBAL_BLOCKS]) })
     .default({ include: [...DEFAULT_GLOBAL_BLOCKS] }),
   /** Personal permissions merged additively into `~/.claude/settings.json`. */
-  permissions: z
-    .object({
-      allow: z.array(z.string()).default([]),
-      deny: z.array(z.string()).default([]),
-      ask: z.array(z.string()).default([]),
-    })
-    .default({ allow: [], deny: [], ask: [] }),
+  permissions: permissionBagSchema(),
+  /**
+   * The permission entries navori ACTUALLY wrote into `~/.claude/settings.json`
+   * (#544). Machine-managed — the render maintains it; a user edits
+   * `permissions` above, never this.
+   *
+   * It exists because authorship cannot be recovered after the fact. `deepMerge`
+   * concatenates and dedupes, so once a declared entry lands next to one the user
+   * already had, the two are indistinguishable — the same problem #538 hit on the
+   * marker side. Uninstall used to dodge it by removing the hook and leaving
+   * every permission behind as permanent residue; guessing instead would have
+   * deleted rules navori never added.
+   *
+   * So ownership is recorded at the ONE moment it is still knowable: the merge.
+   * An entry is navori's if the render added it; an entry the user already had is
+   * theirs forever, even when `permissions` also declares it.
+   */
+  ownedPermissions: permissionBagSchema(),
 });
+
+export type PermissionBag = GlobalConfig["permissions"];
 
 export type GlobalConfig = z.infer<typeof GlobalConfigSchema>;
 
