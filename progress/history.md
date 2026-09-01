@@ -10,6 +10,50 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-08-31 22:55 — claude — Harness global: auditoría del F1, plan por fases y 3 de las 5 unidades de FA cerradas
+
+- **Cambios:** `specs/0010-global-harness.md` (§8 rehecha), `engines/claude/global-render.ts`,
+  `commands/global.ts`, `lib/global-config.ts`, `lib/render-plan.ts`, `lib/i18n.ts`,
+  `core-assets/managed/idioma-rol.md`, +2 suites nuevas. Tests 2873 → 2902.
+- **Quality gate:** ✅ verde en los 3 PRs; CI verde en los 3 (#549 1m57s, #550 2m36s, #551 1m51s).
+- **PRs mergeados:** #549 (#542, #543) · #550 (#541) · #551 (#544). Issues abiertos: #545, #546,
+  #547, #548 (nuevos, de este plan) y #538.
+
+### Qué se auditó y qué salió
+
+La pregunta de arranque fue qué existe del harness global (`navori global`). F1 está implementado
+desde 2026-07-30 pero **nunca se corrió en esta máquina**: sin `~/.navori/global.json`, huella cero.
+La auditoría del F1 en disco contra la spec encontró 9 huecos → 8 issues (#541–#548) y la §8 rehecha
+en fases FA/FB/FC/FD.
+
+### Decisiones que no se re-litigan
+
+- **La ex-F2 (omisión opt-in de bloques en el repo) queda DESCARTADA.** El ahorro que perseguía ya lo
+  da el gate de F1 por construcción; lo que quedaría es romper que el repo sea autocontenido. Con
+  ella se va `scope: both`, que era el falso-positivo que bloqueaba FC.
+- **FB cambia de diseño por un spike verificado:** la precedencia de Claude Code NO es uniforme. En
+  subagentes el proyecto gana al usuario; en skills **personal gana a project**. Instalar las 12
+  skills sueltas en `~/.claude/skills/` habría eclipsado en silencio las del repo, user-sections
+  incluidas, en los 15+ repos Bonum. La salida es empaquetar todo como plugin `@skills-dir`, que
+  namespacea las skills y hace que los agentes hereden la semántica de defer sin walk-up.
+- **Se retira el follow-up de "partir `orquestacion`"**: existía solo mientras la única salida fuera
+  la pureza de interpolación; con el modo `globalFallback` el bloque entra completo.
+
+### Notas
+
+- **El test de #541 encontró un defecto real en su primera corrida:** `idioma-rol`, que sí está en el
+  baseline enviado, mandaba seguir el idioma "configurado en `navori.config.json`" — un archivo que
+  por diseño no existe donde ese baseline se inyecta. Arreglado conservando la doctrina.
+- **Error propio:** el squash de #549 se tragó dos commits locales sin pushear (el release 0.6.5 y su
+  cierre de jornada) porque branché de un `main` adelantado que `progress/current.md` advertía.
+  Contenido intacto (verificado con `git diff`); historia menos granular. Resuelto con Ulises:
+  tag `v0.6.5` pusheado apuntando a `2f46add` (lo que npm sirve de verdad) y `main` local reseteado
+  a `origin/main`.
+- **El guard de aislamiento de `~/.navori` (#404/#424) da falso positivo en local**, verificado y no
+  asumido: sesiones de Claude Code concurrentes en `alertaciudadana_backend` y `navori-health`
+  escriben sus logs de auditoría durante la corrida (un log creció 34→36 KB en 55 s **sin correr
+  nada**, con `agentId` de otro repo). En CI pasa siempre.
+
 ## 2026-08-26 00:40 — claude — Auditoría a ciegas con 5 agentes sin contexto: 17 issues, 4 de seguridad
 
 - **Cambios:** ninguno en código. 17 issues abiertos (#495–#511) + `progress/`.
