@@ -84,10 +84,32 @@ describe("global-render — composeBaseline", () => {
     expect(() => composeBaseline(cfg)).toThrow(/unknown core block/);
   });
 
-  it("rejects a block that interpolates repo config (audit enforced at runtime)", () => {
+  it("rejects a block that is not marked globalSafe (audit enforced at runtime)", () => {
     const cfg = defaultGlobalConfig("0.5.0");
     cfg.blocks.include = ["orquestacion"]; // has {{branchBase}} / {{qualityGate.*}}
-    expect(() => composeBaseline(cfg)).toThrow(/interpolates repo config/);
+    expect(() => composeBaseline(cfg)).toThrow(/not marked globalSafe/);
+  });
+
+  /**
+   * The #541 regression, pinned where it would actually bite. `arranque-sesion`
+   * interpolates NOTHING, so the former `/\{\{/` audit waved it through — and it
+   * describes `progress/current.md`, `navori doctor` and `navori.config.json`,
+   * none of which exist in a project without navori. The declared mark is what
+   * catches it; the interpolation scan never could.
+   *
+   * (The `{{` scan survives in `composeBaseline` as a secondary net. It is
+   * unreachable while `global-safe-inventory.test.ts` is green, since that suite
+   * asserts no globalSafe asset contains `{{` — which is the point of a net.)
+   */
+  it("rejects arranque-sesion, which the old interpolation-only audit accepted", () => {
+    const cfg = defaultGlobalConfig("0.5.0");
+    cfg.blocks.include = ["arranque-sesion"];
+    expect(() => composeBaseline(cfg)).toThrow(/not marked globalSafe/);
+  });
+
+  it("accepts every block the default baseline ships with", () => {
+    const cfg = defaultGlobalConfig("0.5.0");
+    expect(() => composeBaseline(cfg)).not.toThrow();
   });
 });
 

@@ -49,6 +49,29 @@ export interface CoreManagedAsset {
    * per-workspace. Issue #70.
    */
   rootOnly?: boolean;
+  /**
+   * Blocks that may compose the machine-wide global baseline (Spec 0010 §4) —
+   * the prose a session gets in a project with NO navori config at all.
+   *
+   * DECLARED, not inferred (#541). `composeBaseline` used to decide this by
+   * testing the body for `{{`, which measures interpolation, not global
+   * safety — and the two had already drifted apart: `arranque-sesion` stopped
+   * interpolating anything while still talking about `progress/current.md` and
+   * `navori doctor`, so it passed the filter and would have injected
+   * repo-specific prose into every session. Nothing failed, because nothing
+   * was checking the actual property.
+   *
+   * A block earns the mark only when all four hold, and
+   * `global-safe-inventory.test.ts` asserts the equivalence in BOTH directions
+   * so the audit cannot age in silence again:
+   *   1. no `{{...}}` — nothing to interpolate a repo config into;
+   *   2. no repo-scoped artifact in the prose (`progress/`, `navori.config.json`,
+   *      `navori doctor`, `.claude/`) — none of them exist in such a project;
+   *   3. no `condition` — a condition reads repo config that isn't there;
+   *   4. no navori agent or skill named — the global scope ships none until
+   *      FB installs them, so naming one is advice the reader cannot follow.
+   */
+  globalSafe?: boolean;
 }
 
 export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
@@ -63,12 +86,14 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/idioma-rol.md",
     baseLanguage: "es",
     rootOnly: true,
+    globalSafe: true,
   },
   {
     id: "formato-respuesta",
     relPath: "core-assets/managed/formato-respuesta.md",
     baseLanguage: "es",
     rootOnly: true,
+    globalSafe: true,
   },
   {
     id: "tipado-fuerte",
@@ -81,6 +106,7 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/operaciones-seguras.md",
     baseLanguage: "en",
     rootOnly: true,
+    globalSafe: true,
   },
   {
     id: "arranque-sesion",
