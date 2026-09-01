@@ -312,6 +312,10 @@ el baseline se está inyectando.
   contiene `{{` o un token repo-específico (`progress/`, `navori.config.json`, `navori doctor`),
   para que la auditoría no pueda volver a envejecer en silencio; (3) `DEFAULT_GLOBAL_BLOCKS` ⊆
   los `globalSafe`.
+  > **FB revisó dos de esas reglas** (ver abajo): la de `{{` pasó de "no interpola" a "no deja
+  > un `<not configured: …>` al renderizar en scope global", y `progress/`/`.claude/` salieron
+  > de la lista de tokens repo-específicos porque los agentes que el plugin instala crean esos
+  > archivos ellos mismos. `navori.config.json`, `navori doctor` y `specs/` siguen dentro.
 - **FA2 — Marcador y hash en el hook.** El hook dice "MANAGED BY NAVORI" sin `version=` ni hash,
   y `global doctor` solo compara `config.version` contra el CLI (`global.ts:150`): un hook
   editado a mano, o un asset que cambió dentro de la misma versión, es invisible. Es la única
@@ -423,6 +427,30 @@ son de `SKILL.md` piden `/reload-plugins` tras `render --apply`; las sesiones de
 no leen `~/.claude/skills/`, así que el harness global no alcanza routines. Y mover el hook de
 `settings.json` al plugin **es una migración** para instalaciones F1 existentes → entrada en
 `navori migrations`.
+
+> **ENTREGADO** (#546). Cinco cosas salieron distintas del boceto, todas hacia abajo en alcance
+> o hacia arriba en honestidad:
+>
+> 1. **`settings.json` queda solo con `permissions`, y a menudo ni se crea.** Con el gate dentro
+>    del plugin, una config sin permisos declarados produce un merge idéntico a lo que ya hay en
+>    disco, así que `applyGlobalRender` no escribe: reescribir el archivo machine-wide del
+>    usuario para no cambiar nada es un backup, un reformateo y un mtime que nadie pidió.
+> 2. **La migración F1→FB deja copia restaurable.** `createMigrationSnapshot` (la mitad genérica
+>    extraída de `createMigrationBackup`) copia el hook suelto y `settings.json` a
+>    `~/.navori/migrations/<ts>/claude-global/` antes de borrarlos; se recuperan con
+>    `navori migrations restore <ts> claude-global --cwd ~/.claude`. El orden importa: la
+>    migración corre ANTES de planear settings, o el merge reescribiría el registro recién
+>    quitado.
+> 3. **`blocks.include` se actualiza solo si nadie lo tocó.** Una instalación F1 lleva los 3
+>    bloques escritos explícitamente, así que el default del schema no la alcanza; el render
+>    sube esa selección a la nueva **solo** cuando es idéntica a la que F1 shippeó.
+> 4. **El manifest lleva `author`.** Sin él `claude plugin validate --strict` avisa, y ese aviso
+>    es un error bajo la bandera contra la que la prueba 5 valida. Nada más entra ahí: cualquier
+>    clave extra —incluido el marcador de autoría de navori— la reporta el validador.
+> 5. **Los fallbacks globales son cortos y sin backticks.** Los assets envuelven estos
+>    placeholders en code spans (``not on `{{branchBase}}` ``): un backtick dentro cierra el span
+>    antes de tiempo. Y `{{prTarget}}` solo aterriza 22 veces en un agente, así que una frase
+>    aquí es un párrafo allá. Las dos reglas están puestas como test.
 
 ### FC — Doctor cross-scope (ex-F3)
 

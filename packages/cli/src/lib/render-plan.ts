@@ -64,12 +64,22 @@ export interface CoreManagedAsset {
    * A block earns the mark only when all four hold, and
    * `global-safe-inventory.test.ts` asserts the equivalence in BOTH directions
    * so the audit cannot age in silence again:
-   *   1. no `{{...}}` — nothing to interpolate a repo config into;
-   *   2. no repo-scoped artifact in the prose (`progress/`, `navori.config.json`,
-   *      `navori doctor`, `.claude/`) — none of them exist in such a project;
+   *   1. every `{{...}}` resolves in the global scope — either to a value or to
+   *      a declared fallback. FB (#546) narrowed this from the old blanket ban
+   *      on interpolation: `qualityGate.*`, `branchBase` and `prTarget` now
+   *      render as the instruction to DERIVE them (`lib/placeholders.ts`), so a
+   *      block is disqualified by a placeholder with NO answer, which is the
+   *      defect the rule was always aiming at;
+   *   2. no repo-scoped artifact in the prose (`navori.config.json`,
+   *      `navori doctor`, `specs/`) — none of them exist in such a project.
+   *      `.claude/` and `progress/` left this list with FB: the plugin's agents
+   *      create their own handoff files there, so naming them is an instruction
+   *      the reader can follow;
    *   3. no `condition` — a condition reads repo config that isn't there;
-   *   4. no navori agent or skill named — the global scope ships none until
-   *      FB installs them, so naming one is advice the reader cannot follow.
+   *   4. any navori agent or skill it names is one the global plugin SHIPS.
+   *      Before FB the global scope shipped none, so the rule read "names
+   *      none"; now it guards the real failure — a block citing a preset or
+   *      library skill that only a repo render materializes.
    */
   globalSafe?: boolean;
 }
@@ -80,6 +90,11 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/orquestacion.md",
     baseLanguage: "en",
     rootOnly: true,
+    // Global-safe since FB (#546): the plugin installs the agents this doctrine
+    // routes to, and the four placeholders it carries have global fallbacks.
+    // Without it the global harness would ship 8 subagents with nothing telling
+    // the orchestrator when to reach for each.
+    globalSafe: true,
   },
   {
     id: "idioma-rol",
@@ -119,6 +134,11 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/cierre-sesion.md",
     baseLanguage: "en",
     rootOnly: true,
+    // Passes the FB audit (its `{{qualityGate.full}}` derives, and `progress/`
+    // is a file the closing agent writes rather than one it must find). Marked
+    // so the audit stays honest in both directions; NOT in
+    // `DEFAULT_GLOBAL_BLOCKS` — the shipped baseline stays tight.
+    globalSafe: true,
   },
   // SDD protocol block. Conditional on `sdd.enabled`, which effectiveConfig
   // defaults to true (SDD is core to navori's identity) unless a config sets it
@@ -141,6 +161,9 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/intake-tickets.md",
     baseLanguage: "en",
     rootOnly: true,
+    // Interpolates nothing and names only skills the global plugin ships. Like
+    // `cierre-sesion`: eligible, not shipped by default.
+    globalSafe: true,
   },
 ] as const;
 

@@ -3,6 +3,7 @@ import type { NavoriConfig } from "../../lib/config.ts";
 import { injectManagedSection, type CommentStyle, type InjectResult } from "../../lib/marker.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { interpolate } from "../../lib/interpolate.ts";
+import type { FallbackScope } from "../../lib/placeholders.ts";
 import { expandHookIncludes } from "../../lib/hook-includes.ts";
 import { mergeFrontmatter } from "../claude/frontmatter-merge.ts";
 
@@ -37,6 +38,13 @@ export interface RenderManagedFileInput {
   meta: { source: string; version: string };
   config: NavoriConfig;
   extraVars?: Record<string, string>;
+  /**
+   * Which scope answers an unresolved placeholder (Spec 0010 FB). The global
+   * plugin render passes `global` so `{{qualityGate.*}}`, `{{branchBase}}` and
+   * `{{prTarget}}` become the instruction to DERIVE them instead of a
+   * `<not configured: …>` hint. Defaults to `repo`.
+   */
+  fallbackScope?: FallbackScope;
   /** Override comment style. Defaults: `.sh` → shell, anything else → html. */
   commentStyle?: CommentStyle;
   /**
@@ -62,16 +70,22 @@ export function renderManagedFile(input: RenderManagedFileInput): RenderManagedF
   const raw = input.transform ? input.transform(expanded) : expanded;
   const asset = parseAsset(raw, commentStyle);
 
+  const scope = input.fallbackScope;
   const interpolatedFmObj = interpolateFrontmatter(
     asset.frontmatter,
     input.config,
     input.extraVars,
+    scope,
   );
   const interpolatedBody = interpolate(asset.managedBody, input.config, {
     extraVars: input.extraVars,
+    fallbackScope: scope,
   });
   const interpolatedUserTpl = asset.userTemplate
-    ? interpolate(asset.userTemplate, input.config, { extraVars: input.extraVars })
+    ? interpolate(asset.userTemplate, input.config, {
+        extraVars: input.extraVars,
+        fallbackScope: scope,
+      })
     : null;
 
   if (input.existingContent === null) {
@@ -108,12 +122,17 @@ function interpolateFrontmatter(
   fm: Record<string, string>,
   config: NavoriConfig,
   extraVars: Record<string, string> | undefined,
+  fallbackScope: FallbackScope | undefined,
 ): Record<string, string> {
   if (Object.keys(fm).length === 0) return {};
   const serialized = Object.entries(fm)
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
-  const interp = interpolate(serialized, config, { extraVars, omitUnresolvedKeyLines: true });
+  const interp = interpolate(serialized, config, {
+    extraVars,
+    omitUnresolvedKeyLines: true,
+    fallbackScope,
+  });
   return parseKeyValueLines(interp);
 }
 

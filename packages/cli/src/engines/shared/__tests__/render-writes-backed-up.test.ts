@@ -141,6 +141,9 @@ describe("render — every write is covered by a backup (#458)", () => {
       "engines/claude/global-render.ts":
         "writes the machine-global ~/.claude baseline (hook + settings), not repo content; " +
         "`navori global` has its own install/uninstall contract",
+      "engines/claude/global-plugin.ts":
+        "writes ~/.claude/skills/navori/, a directory navori owns end to end and uninstall " +
+        "deletes whole; nothing of the repo — or of the user's own ~/.claude/skills — is in reach",
     };
 
     const WRITE_PRIMITIVE =

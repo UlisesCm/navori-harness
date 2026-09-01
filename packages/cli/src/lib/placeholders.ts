@@ -42,6 +42,39 @@ const SOFT_FALLBACKS: ReadonlyMap<string, (lang: Lang) => string> = new Map([
 ]);
 
 /**
+ * The `global` scope's overrides (Spec 0010 FB, issue #546). The machine-wide
+ * harness renders the SAME agents and skills into `~/.claude/skills/navori/`,
+ * where three of their placeholders describe something that genuinely does not
+ * exist: the quality gate, the base branch and the PR target belong to a repo,
+ * and a file under `~/.claude` is static while the repo is whatever `cwd` the
+ * session happens to start in.
+ *
+ * Neither of the two obvious outs works. Detecting at render time freezes one
+ * repo's answer into every session; injecting through the SessionStart gate
+ * never reaches a subagent, which starts with its own context and never sees
+ * the main session's `additionalContext`.
+ *
+ * So the global agent DERIVES instead of carrying a baked value, and these
+ * strings are the instruction to do so. The asymmetry is what justifies it: the
+ * global harness only ever runs in a project with NO navori config, where by
+ * definition there is no declared gate to bake in.
+ *
+ * A path missing here falls through to `SOFT_FALLBACKS` and then to the hard
+ * `<not configured: …>` hint, which is what `global-asset-inventory.test.ts`
+ * fails on — the net that stops a new placeholder from shipping globally
+ * without an answer (#375 and #445 were this bug on the repo path).
+ */
+const GLOBAL_FALLBACKS: ReadonlyMap<string, (lang: Lang) => string> = new Map([
+  ["qualityGate.fast", (lang: Lang) => tc(lang).common.globalQualityGate],
+  ["qualityGate.full", (lang: Lang) => tc(lang).common.globalQualityGate],
+  ["branchBase", (lang: Lang) => tc(lang).common.globalBranchBase],
+  ["prTarget", (lang: Lang) => tc(lang).common.globalPrTarget],
+]);
+
+/** Which scope's fallbacks apply. `repo` is the default everywhere else. */
+export type FallbackScope = "repo" | "global";
+
+/**
  * @param path - The config path the template referenced, verbatim from the asset.
  * @param lang - Locale for the prose fallbacks, normally
  * `resolveLang(config.language)`. Required on purpose: a default would let a
@@ -49,7 +82,14 @@ const SOFT_FALLBACKS: ReadonlyMap<string, (lang: Lang) => string> = new Map([
  * failing — which is the bug #445 fixed. The one call site with no config to
  * read (doctor's artifact scan, which probes for the fallback's SHAPE) passes
  * `DEFAULT_LANG` explicitly, so the choice is visible where it is made.
+ * @param scope - `global` consults `GLOBAL_FALLBACKS` first. Defaults to `repo`,
+ * so every existing call site renders byte-identically (Spec 0010 §2.4).
  */
-export function placeholderFallback(path: string, lang: Lang): string {
-  return SOFT_FALLBACKS.get(path)?.(lang) ?? `<not configured: ${path}>`;
+export function placeholderFallback(
+  path: string,
+  lang: Lang,
+  scope: FallbackScope = "repo",
+): string {
+  const global = scope === "global" ? GLOBAL_FALLBACKS.get(path) : undefined;
+  return (global ?? SOFT_FALLBACKS.get(path))?.(lang) ?? `<not configured: ${path}>`;
 }

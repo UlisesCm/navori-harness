@@ -1,58 +1,53 @@
 # Sesión actual
 
-**Estado:** `idle`. `main` en `789fb24`, sincronizado con `origin/main`. Tag `v0.6.5` pusheado.
-**4 issues abiertos**, todos de la spec 0010: #545, #546, #547, #548. Más #538 (prune / `.codex/hooks.json`).
+**Estado:** FB entregada (#546) en la branch `feat/546-global-plugin-skills-dir`, gate verde.
+**4 issues abiertos**: #545, #547, #548 (spec 0010) y #538 (prune / `.codex/hooks.json`).
 
 ## Dónde quedó el harness global (spec 0010)
 
-`navori global` es la capa por-máquina en `~/.claude`: un SessionStart hook con gate que inyecta un
-baseline de prosa **solo** donde no hay `navori.config.json`. **Sigue sin instalarse en esta máquina**
-(no existe `~/.navori/global.json` — huella cero, que es la invariante §2.4). Para probarlo sin tocar
-el perfil real: `CLAUDE_CONFIG_DIR=~/navori-fresh navori global init`.
+`navori global` es la capa por-máquina en `~/.claude`. **Sigue sin instalarse en esta máquina**
+(no existe `~/.navori/global.json` — huella cero, la invariante §2.4). Para probarlo sin tocar el
+perfil real: `CLAUDE_CONFIG_DIR=$(mktemp -d) HOME=$(mktemp -d) navori global init`.
 
-La §8 de la spec se rehizo esta jornada en fases **FA / FB / FC / FD**. FA cerró 3 de 5.
+La §8 se rehizo en fases **FA / FB / FC / FD**. FA cerró 3 de 5 (#541, #542+#543, #544). **FB cerró.**
 
-### Hecho
+### FB — el harness global dejó de ser solo prosa
 
-- **#542 + #543** (PR #549) — el hook lleva marcador `navori:managed` + hash sobre cada byte, y
-  `global doctor` **ejecuta** el gate en dos tmpdirs en vez de solo comprobar que el archivo existe.
-- **#541** (PR #550) — `globalSafe` declarado en `CoreManagedAsset` + `global-safe-inventory.test.ts`,
-  que afirma la equivalencia en ambas direcciones (todo marcado pasa las 4 reglas; todo sin marcar
-  falla al menos una).
-- **#544** (PR #551) — `ownedPermissions` se calcula en el merge y `uninstall` retira esa
-  intersección y nada más. Round-trip byte-idéntico.
+`~/.claude/skills/navori/` con `.claude-plugin/plugin.json` carga como `navori@skills-dir` sin
+marketplace y sin paso de instalación. Ahí van los 8 agentes, las 12 skills base y —esto es lo que
+saca los hooks de navori del `settings.json` del usuario— el gate del §3.1, vía `hooks/hooks.json`.
 
-## SIGUIENTE PASO: #546 (FB) — skills y subagentes globales como plugin `@skills-dir`
+Las tres propiedades salen del mecanismo, no de cuidado nuestro: las skills quedan namespaceadas
+`/navori:<id>` y no pueden eclipsar las del repo; los agentes de plugin son la precedencia MÁS BAJA,
+así que `.claude/agents/` del repo gana y el defer del §3.1 sale gratis; y desinstalar es borrar un
+directorio.
 
-Es lo que hace que un repo sin navori herede un harness **operativo** y no 37 líneas de prosa que
-describen guardrails inexistentes. El diseño ya está decidido y verificado contra la doc de Claude
-Code (ver el issue y §8 FB de la spec):
+**El modo `globalFallback`** (`lib/placeholders.ts`) es lo que hace renderizables los assets fuera de
+un repo: `qualityGate.fast|full`, `branchBase` y `prTarget` rinden como la instrucción de DERIVARLOS.
+Con eso `orquestacion` entra completo al baseline —y tiene que entrar, o instalas 8 subagentes sin
+doctrina de routing— y se retira el follow-up de "partir el bloque".
 
-```
-~/.claude/skills/navori/
-├── .claude-plugin/plugin.json     name: "navori"
-├── skills/     → las 12 base, como /navori:<nombre>
-├── agents/     → los 7 invocables + leader.md
-└── hooks/hooks.json  → el gate se muda aquí
-```
+Cinco desviaciones del boceto, todas anotadas en la spec (§8 FB, bloque **ENTREGADO**): settings.json
+queda solo con `permissions` y a menudo ni se crea; la migración F1→FB deja copia restaurable en
+`~/.navori/migrations/<ts>/claude-global/`; `blocks.include` se actualiza solo si nadie lo tocó; el
+manifest lleva `author` porque `--strict` lo exige; y los fallbacks son cortos y sin backticks.
 
-**Lo crítico a no olvidar:** las skills NO pueden instalarse sueltas en `~/.claude/skills/` — ahí
-**personal gana a project** y eclipsarían las del repo, user-sections incluidas, en los 15+ repos
-Bonum. El plugin las namespacea y el problema desaparece por construcción. Los agentes del plugin, en
-cambio, heredan la semántica de defer gratis: `.claude/agents/` del proyecto los sobrescribe.
+## SIGUIENTE PASO
 
-Requiere el modo `globalFallback` en `placeholders.ts` para `{{qualityGate.*}}`, `{{branchBase}}` y
-`{{prTarget}}` — el agente global **deriva** el gate en vez de traerlo horneado. Y una entrada en
-`navori migrations` por la mudanza del hook desde `settings.json`.
+**#547 (FC)** — doctor cross-scope: `navori doctor` detecta el harness global y avisa de choques
+reales (agente ensombrecido, permiso global contra un `deny` del repo, drift del hook, y el caso
+`@skills-dir` bloqueado por managed settings). Sin `scope: both` ya no tiene falso-positivo.
 
-Después: **#545** (init interactivo, ya desbloqueado por #541), **#547** (FC), **#548** (docs).
+Después: **#545** (init interactivo) y **#548** (docs + el guard de `commandOrder`).
 
 ## Deuda / gotchas vigentes
 
 - **El guard `~/.navori` (#404/#424) da falso positivo en local** cuando hay otra sesión de Claude
   Code trabajando en otro repo: sus hooks escriben `~/.navori/audits/<repo>/session-<uuid>.log`
-  durante la corrida. Verificable: el log crece **sin** correr tests. En CI siempre pasa.
-- **Ojo con la base de las branches.** El squash de #549 se tragó dos commits locales sin pushear.
-  Antes de branchear: `git log origin/main..main` debe estar vacío.
+  durante la corrida. Pasó en esta jornada (`audits/alertaciudadana_backend/`). En CI siempre pasa.
+- **Un spec que escriba en `~/.navori` necesita mockear `home.ts`.** Es la razón por la que la
+  migración F1→FB vive en su propio archivo (`global-legacy-migration.test.ts`) y no junto al resto
+  de `global-render`: el mock de `safeHomedir` no se puede acotar a un `describe`.
+- **Ojo con la base de las branches.** Antes de branchear: `git log origin/main..main` debe estar vacío.
 - El website documenta **8 de 20** comandos (`apps/website/src/content/commands.ts`). #548 propone el
   guard que cierra la clase entera, igual que `subcommand-inventory.test.ts` hace contra `CLAUDE.md`.

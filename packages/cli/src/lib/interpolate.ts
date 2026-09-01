@@ -1,6 +1,6 @@
 import type { NavoriConfig } from "./config.ts";
 import { resolveLang } from "./i18n.ts";
-import { placeholderFallback } from "./placeholders.ts";
+import { placeholderFallback, type FallbackScope } from "./placeholders.ts";
 import { shellSingleQuote } from "./shell-escape.ts";
 
 /**
@@ -44,6 +44,14 @@ import { shellSingleQuote } from "./shell-escape.ts";
 export interface InterpolateOptions {
   extraVars?: Record<string, string>;
   omitUnresolvedKeyLines?: boolean;
+  /**
+   * Which scope's fallbacks answer an unresolved placeholder (Spec 0010 FB).
+   * `global` renders the same asset for `~/.claude/skills/navori/`, where
+   * `qualityGate.*`, `branchBase` and `prTarget` describe a repo that is not
+   * there — see `GLOBAL_FALLBACKS`. Defaults to `repo`, so the repo render is
+   * byte-identical to before (§2.4).
+   */
+  fallbackScope?: FallbackScope;
 }
 
 /**
@@ -97,12 +105,13 @@ export function interpolate(
   options: InterpolateOptions = {},
 ): string {
   const extra = options.extraVars ?? {};
+  const scope = options.fallbackScope ?? "repo";
   if (!options.omitUnresolvedKeyLines) {
-    return interpolateRaw(content, config, extra);
+    return interpolateRaw(content, config, extra, scope);
   }
   return content
     .split("\n")
-    .map((line) => maybeInterpolateLine(line, config, extra))
+    .map((line) => maybeInterpolateLine(line, config, extra, scope))
     .filter((line): line is string => line !== null)
     .join("\n");
 }
@@ -111,6 +120,7 @@ function maybeInterpolateLine(
   line: string,
   config: NavoriConfig,
   extra: Record<string, string>,
+  scope: FallbackScope,
 ): string | null {
   // Both groups are mandatory in KEY_LINE_RE, so either the line is a key line
   // and both are present, or there was no match at all.
@@ -120,13 +130,14 @@ function maybeInterpolateLine(
     if (resolved === null) return null;
     return `${key}: ${resolved}`;
   }
-  return interpolateRaw(line, config, extra);
+  return interpolateRaw(line, config, extra, scope);
 }
 
 function interpolateRaw(
   content: string,
   config: NavoriConfig,
   extra: Record<string, string>,
+  scope: FallbackScope,
 ): string {
   return content.replace(PLACEHOLDER_RE, (_match, marker: string | undefined, path: string) => {
     // `{{raw:token}}` — the asset wants the braces as TEXT (#439). Emit them and
@@ -136,7 +147,7 @@ function interpolateRaw(
     // The fallback is prose the reader of the rendered file sees, so it follows
     // the repo's language like the rest of the published copy (#445).
     const resolved =
-      value !== null ? value : placeholderFallback(path, resolveLang(config.language));
+      value !== null ? value : placeholderFallback(path, resolveLang(config.language), scope);
     // `{{shq:path}}` — shell-quote so untrusted config can't escape its string
     // context in a generated `.sh` file (#197). Quote the fallback too, so an
     // unresolved `shq` placeholder still lands as an inert literal.

@@ -64,10 +64,7 @@ export interface MigrationResult {
  * symlinks and cross-device cases.
  */
 export function createMigrationBackup(repoRoot: string, repoName: string): MigrationResult {
-  const dir = join(migrationsRootLazy(), timestamp(), repoName);
-  mkdirSync(dir, { recursive: true });
-
-  const candidates = [
+  return createMigrationSnapshot(repoRoot, repoName, [
     ".claude",
     "CLAUDE.md",
     "AGENTS.md",
@@ -75,14 +72,35 @@ export function createMigrationBackup(repoRoot: string, repoName: string): Migra
     "feature_list.json",
     "progress",
     "specs",
-  ];
+  ]);
+}
+
+/**
+ * Copy `relPaths` (the ones that exist) out of `sourceRoot` into
+ * `~/.navori/migrations/<timestamp>/<label>/`, preserving their relative
+ * structure. The generic half of `createMigrationBackup`, extracted so a
+ * migration outside a repo can land in the same store the user already browses
+ * with `navori migrations list` and rolls back with `navori migrations restore
+ * <ts> <label> --cwd <dir>`.
+ *
+ * Its second caller is the Spec 0010 FB move of the global baseline hook from
+ * `~/.claude/hooks/` into the `@skills-dir` plugin (#546): that rewrites a hook
+ * and a `settings.json` the user cannot recover from git, so it leaves a
+ * restorable copy behind exactly like replace-mode `init` does.
+ */
+export function createMigrationSnapshot(
+  sourceRoot: string,
+  label: string,
+  relPaths: readonly string[],
+): MigrationResult {
+  const dir = join(migrationsRootLazy(), timestamp(), label);
+  mkdirSync(dir, { recursive: true });
 
   const moved: string[] = [];
-  for (const rel of candidates) {
-    const src = resolve(repoRoot, rel);
+  for (const rel of relPaths) {
+    const src = resolve(sourceRoot, rel);
     if (!existsSync(src)) continue;
-    const dest = join(dir, rel);
-    copyRecursive(src, dest);
+    copyRecursive(src, join(dir, rel));
     moved.push(rel);
   }
 

@@ -361,6 +361,11 @@ describe("the inventory of delete paths is complete (#496)", () => {
     "engines/claude/global-render.ts":
       "`navori global uninstall` removes navori's own global hook file — the whole point of " +
       "the command, so a marker gate would only make uninstalling fail",
+    "engines/claude/global-plugin.ts":
+      "removes ~/.claude/skills/navori/, the @skills-dir plugin navori installed; there is no " +
+      "marketplace to uninstall from, so deleting that one directory IS the uninstall. The " +
+      "parent skills/ dir goes only when it is left empty, so a sibling skill of the user's " +
+      "is never in reach",
 
     // ── Deletes the USER's files on purpose, after copying them. ──
     "lib/migrate.ts":

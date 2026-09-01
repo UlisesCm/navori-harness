@@ -24,7 +24,37 @@ export const DEFAULT_GLOBAL_BLOCKS = [
   "operaciones-seguras",
   "idioma-rol",
   "formato-respuesta",
+  // FB (#546). The routing doctrine is what makes the plugin's 8 subagents
+  // usable: without it a session inherits agents nobody knows when to spawn.
+  // It carries `{{qualityGate.*}}`, `{{branchBase}}` and `{{project.criticalAreas}}`,
+  // all of which resolve through the global fallback scope.
+  "orquestacion",
 ] as const;
+
+/**
+ * The baseline F1 shipped, before FB added `orquestacion` (#546). Kept so an
+ * install can tell an UNTOUCHED default apart from a selection the user made:
+ * only the former is upgraded on the next render, because rewriting a chosen
+ * one would be navori overruling a decision it never asked about.
+ */
+const F1_GLOBAL_BLOCKS = ["operaciones-seguras", "idioma-rol", "formato-respuesta"] as const;
+
+/**
+ * Bring an untouched F1 block selection up to the current default. Returns true
+ * when it changed the config (the caller persists it).
+ *
+ * An F1 `global.json` carries `blocks.include` explicitly, so the schema default
+ * never applies to it — without this, a machine that installed the global
+ * harness before FB would keep a baseline that describes no orchestration while
+ * the plugin installs 8 subagents.
+ */
+export function upgradeDefaultBlocks(config: GlobalConfig): boolean {
+  const current = config.blocks.include;
+  if (current.length !== F1_GLOBAL_BLOCKS.length) return false;
+  if (!current.every((id, i) => id === F1_GLOBAL_BLOCKS[i])) return false;
+  config.blocks.include = [...DEFAULT_GLOBAL_BLOCKS];
+  return true;
+}
 
 /** The three permission buckets Claude Code understands, in a stable order. */
 export const PERMISSION_KINDS = ["allow", "deny", "ask"] as const;
