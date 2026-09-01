@@ -148,7 +148,7 @@ function agentCards(s: SessionAudit, lang: Lang): string {
   cards.push(
     ...[...s.agents]
       .sort((a, b) => billable(b.tokens) - billable(a.tokens))
-      .map((a) => agentCard(a, lang)),
+      .map((a) => agentCard(a, s.hookLogFrom, lang)),
   );
   return cards.join("\n\n");
 }
@@ -201,7 +201,7 @@ function orchestratorMcp(calls: Record<string, Record<string, number>>, lang: La
 /** Width of a card's label column. Must exceed the longest label. */
 const LABEL = 11;
 
-function agentCard(a: AgentRun, lang: Lang): string {
+function agentCard(a: AgentRun, hookLogFrom: string | null, lang: Lang): string {
   const head = `### ${a.agentType} · "${a.description}"`;
   const reasoning = a.tokens.output + a.tokens.thinking;
   const context = Math.max(0, billable(a.tokens) - a.startupTokens - reasoning);
@@ -221,7 +221,7 @@ function agentCard(a: AgentRun, lang: Lang): string {
   rows.push(`  ${t(lang, "skills", "skills").padEnd(LABEL)}${skillsLine(a, lang)}`);
   rows.push(`  ${t(lang, "tools", "tools").padEnd(LABEL)}${toolsLine(a.toolCounts)}`);
   rows.push(`  ${"mcp".padEnd(LABEL)}${mcpLines(a, lang)}`);
-  rows.push(`  ${"hooks".padEnd(LABEL)}${hooksLine(a.hookEvents, lang)}`);
+  rows.push(`  ${"hooks".padEnd(LABEL)}${agentHooksLine(a, hookLogFrom, lang)}`);
   if (a.verdict) rows.push(`  ${t(lang, "veredicto", "verdict").padEnd(LABEL)}${a.verdict}`);
 
   return `${head}\n\n\`\`\`\n${rows.join("\n")}\n\`\`\``;
@@ -310,6 +310,31 @@ function barredCost(a: AgentRun, server: string, lang: Lang): string {
     lang,
     ` · ${k(wasted)} tok de instrucciones inejecutables`,
     ` · ${k(wasted)} tok of unexecutable instructions`,
+  );
+}
+
+/**
+ * An agent's hooks, with the one distinction the raw list cannot make.
+ *
+ * An empty list means "this agent ran no hooks" ONLY if the recorder was
+ * already running when it did. A harness rendered or updated mid-session
+ * starts recording later than the session starts, and every agent that
+ * finished before that instant shows an empty list for a reason that has
+ * nothing to do with hooks — in the reference session the first nine agents
+ * of nineteen looked hook-free because the recorder landed an hour in.
+ */
+function agentHooksLine(a: AgentRun, hookLogFrom: string | null, lang: Lang): string {
+  if (a.hookEvents.length > 0 || !hookLogFrom) return hooksLine(a.hookEvents, lang);
+  const from = Date.parse(hookLogFrom);
+  const ended = Date.parse(a.endedAt);
+  if (!Number.isFinite(from) || !Number.isFinite(ended) || ended >= from) {
+    return hooksLine(a.hookEvents, lang);
+  }
+  const at = hookLogFrom.slice(11, 19);
+  return t(
+    lang,
+    `sin registro · el recorder arrancó a las ${at}Z`,
+    `not recorded · the recorder started at ${at}Z`,
   );
 }
 

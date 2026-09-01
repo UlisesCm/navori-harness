@@ -300,6 +300,50 @@ function formatDrift(session: SessionAudit, lang: Lang): Signal[] {
   ];
 }
 
+/**
+ * How much of the session the hook recorder actually saw.
+ *
+ * The recorder is inlined into the managed hooks, so it only exists from the
+ * moment the harness that carries it is on disk. Render or update it mid-run
+ * and every agent that finished earlier has hooks that ran and were never
+ * written down — which the report must state, because an empty hook list is
+ * otherwise read as "the gate never fired".
+ */
+function recorderCoverage(session: SessionAudit, lang: Lang): Signal[] {
+  if (!session.hookLogFrom) return [];
+  const from = Date.parse(session.hookLogFrom);
+  if (!Number.isFinite(from)) return [];
+
+  const blind = session.agents.filter((a) => {
+    const ended = Date.parse(a.endedAt);
+    return Number.isFinite(ended) && ended < from;
+  });
+  if (blind.length === 0) return [];
+
+  const started = Date.parse(session.startedAt);
+  const gap = Number.isFinite(started) ? Math.round((from - started) / 60000) : null;
+  return [
+    {
+      kind: "hook-log-coverage",
+      severity: "info",
+      summary: pick(
+        lang,
+        `${blind.length} de ${session.agents.length} agentes corrieron antes de que el recorder existiera`,
+        `${blind.length} of ${session.agents.length} agents ran before the recorder existed`,
+      ),
+      evidence: pick(
+        lang,
+        `El primer hook registrado es de ${session.hookLogFrom}${gap === null ? "" : `, ${gap} min después del inicio de la sesión`}. ` +
+          `Un harness renderizado o actualizado a mitad de sesión explica el hueco: los hooks de esos agentes corrieron, pero sin el recorder que los anota. ` +
+          `Su ficha dice "sin registro", no "ninguno".`,
+        `The first recorded hook is from ${session.hookLogFrom}${gap === null ? "" : `, ${gap} min after the session started`}. ` +
+          `A harness rendered or updated mid-session explains the gap: those agents' hooks did run, without the recorder that writes them down. ` +
+          `Their card says "not recorded", not "none".`,
+      ),
+    },
+  ];
+}
+
 /** Runs every detector over one session. */
 export function detectSignals(
   session: SessionAudit,
@@ -317,5 +361,6 @@ export function detectSignals(
     ...deadCatalog(session, catalog, lang),
     ...permissionContext(session, lang),
     ...formatDrift(session, lang),
+    ...recorderCoverage(session, lang),
   ].sort((a, b) => order[a.severity] - order[b.severity]);
 }

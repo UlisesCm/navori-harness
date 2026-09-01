@@ -40,7 +40,7 @@ function agent(over: Partial<AgentRun> = {}): AgentRun {
   };
 }
 
-function session(agents: AgentRun[]): SessionAudit {
+function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionAudit {
   return {
     sessionId: "sess1",
     startedAt: "2026-08-25T10:00:00Z",
@@ -67,8 +67,10 @@ function session(agents: AgentRun[]): SessionAudit {
     },
     agents,
     signals: [],
+    hookLogFrom: null,
     parseErrors: 0,
     linesRead: 10,
+    ...over,
   };
 }
 
@@ -88,8 +90,8 @@ const CATALOG: HarnessCatalog = {
   mcpFamilies: ["codegraph", "engram"],
 };
 
-function md(agents: AgentRun[]): string {
-  const report = buildReport([session(agents)], {
+function md(agents: AgentRun[], over: Partial<SessionAudit> = {}): string {
+  const report = buildReport([session(agents, over)], {
     repo: "demo",
     version: "0.6.5",
     catalog: CATALOG,
@@ -249,5 +251,35 @@ describe("the orchestrator gets a card too (#0013)", () => {
     // it to the value: `veredictoCHANGES_REQUESTED`.
     expect(out).not.toContain("veredictoCHANGES_REQUESTED");
     expect(out).toMatch(/veredicto\s+CHANGES_REQUESTED/);
+  });
+});
+
+describe("an empty hook list is not the same as no record", () => {
+  /**
+   * The recorder is inlined into the managed hooks, so it exists only once the
+   * harness carrying it is on disk. Render or update it mid-session and the
+   * agents that finished earlier show an empty list for a reason that has
+   * nothing to do with hooks — nine of nineteen in the session that motivated
+   * this. Rendering both as "—" makes the report claim something it cannot know.
+   */
+  const HORIZON = "2026-08-25T10:30:00Z";
+
+  it("says 'sin registro' for an agent that finished before the recorder started", () => {
+    const out = md([agent({ endedAt: "2026-08-25T10:20:00Z", hookEvents: [] })], {
+      hookLogFrom: HORIZON,
+    });
+    expect(out).toContain("sin registro · el recorder arrancó a las 10:30:00Z");
+  });
+
+  it("keeps the plain dash for an agent the recorder DID cover", () => {
+    const out = md([agent({ endedAt: "2026-08-25T10:40:00Z", hookEvents: [] })], {
+      hookLogFrom: HORIZON,
+    });
+    expect(out).not.toContain("sin registro");
+  });
+
+  it("keeps the plain dash when the log recorded no hook at all", () => {
+    const out = md([agent({ hookEvents: [] })], { hookLogFrom: null });
+    expect(out).not.toContain("sin registro");
   });
 });
