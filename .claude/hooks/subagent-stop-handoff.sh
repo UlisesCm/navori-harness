@@ -1,4 +1,4 @@
-# navori:managed start id="subagent-stop-handoff-base" hash="211e993a" version="0.6.5" source="@navori/core"
+# navori:managed start id="subagent-stop-handoff-base" hash="5fa82704" version="0.6.5" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SubagentStop lifecycle hook — handoff validator.
@@ -33,6 +33,37 @@ payload=$(cat 2>/dev/null) || payload=""
 
 navori_audit_name="subagent-stop-handoff"
 navori_audit_phase="SubagentStop"
+
+# Where the problem set last REPORTED in this session is remembered (#560).
+#
+# The host fires this phase far more often than subagents finish: 117 executions
+# for 19 subagents in the measured session, every one of them reporting the same
+# broken handoff — the identical `systemMessage` injected 117 times. Running the
+# check again is cheap; re-telling the reader something already told is not, and
+# a note repeated on every firing is a note nobody reads by the third one.
+#
+# Parsed with parameter expansion, never jq: this must work whether or not
+# audit-mode is on, and jq may not exist. Keyed by session AND repo so two
+# sessions never silence each other. In the OS temp dir, so nothing lands in the
+# user's tree and a reboot is a clean slate.
+navori_handoff_key="anon"
+case "$payload" in
+  *'"session_id"'*)
+    navori_handoff_key=${payload#*\"session_id\":}
+    navori_handoff_key=${navori_handoff_key# }
+    navori_handoff_key=${navori_handoff_key#\"}
+    navori_handoff_key=${navori_handoff_key%%\"*}
+    ;;
+esac
+case "$navori_handoff_key" in
+  "" | *[!A-Za-z0-9_-]*) navori_handoff_key="anon" ;;
+esac
+navori_handoff_repo=${PWD##*/}
+case "$navori_handoff_repo" in
+  "" | *[!A-Za-z0-9_.-]*) navori_handoff_repo="repo" ;;
+esac
+navori_handoff_stamp="${TMPDIR:-/tmp}/navori-handoff-$navori_handoff_repo-$navori_handoff_key"
+
 # Fallback no-ops, overwritten by the real definitions the include brings in.
 # They exist because this hook is FAIL-OPEN: if the file ever runs WITHOUT its
 # includes expanded — a raw copy of the asset, a render that half-finished — an
@@ -192,6 +223,15 @@ navori_audit_log() {
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
   # running in parallel their time windows overlap, so attribution by timestamp
   # is the fallback, not the primary route.
+  #
+  # It is recorded, never trusted as an agent identity by itself (#560). What
+  # `.agent_id` means depends on the PHASE: on the tool phases it is stable —
+  # 485 events of one measured session carried 11 distinct ids, and the
+  # subagents' resolved to real transcripts — but on `SubagentStop` the host
+  # sends a fresh id per firing: 112 distinct ids for 117 firings, 102 of them
+  # matching nothing under `~/.claude`. So a consumer that resolves this field
+  # must treat "names nobody" as invalid data rather than as a different agent
+  # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
   printf '%s\n' "$(jq -cn \
     --arg ts "$navori_audit_ts" \
@@ -282,9 +322,34 @@ done
 # evidence that the handoff check RAN and found nothing, as opposed to never
 # having run at all.
 if [ -z "$problems" ]; then
+  # Emptying the stamp is what keeps a RECURRENCE audible: the same problem
+  # coming back after being fixed is news, and a stamp left behind would
+  # swallow it. Truncated rather than deleted — one redirection, no process,
+  # and no delete inside a hook that runs in the user's repo.
+  : >"$navori_handoff_stamp" 2>/dev/null || true
   navori_audit_verdict="clean"
   exit 0
 fi
+
+# Same problem set as the previous firing of this session → the message was
+# already delivered. The run is still RECORDED (verdict `repeat`), because "the
+# check ran and found the same thing" is evidence the audit needs; what is
+# skipped is only the injection.
+#
+# Read WITHOUT testing the path first, and that is deliberate: a failed
+# redirection already answers "no stamp yet", and this script must keep having
+# no existence test in it. `hook-claims-vs-scripts.test.ts` reads that absence
+# as proof that the hook cannot notice a handoff that never landed — a `-f`
+# here, on an unrelated file, would silently license every asset that claims it
+# does.
+navori_handoff_prev=""
+IFS= read -r navori_handoff_prev <"$navori_handoff_stamp" 2>/dev/null || navori_handoff_prev=""
+if [ "$navori_handoff_prev" = "$problems" ]; then
+  navori_audit_verdict="repeat"
+  navori_audit_reason="$problems"
+  exit 0
+fi
+printf '%s\n' "$problems" >"$navori_handoff_stamp" 2>/dev/null || true
 
 msg="navori: handoff(s) de subagente incompletos — ${problems}. Revisa que el reporte quedó bien escrito antes de consolidarlo."
 

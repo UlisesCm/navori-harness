@@ -628,11 +628,15 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
  * that mistake put `subagent-stop-handoff 21x` on a reviewer that never spawned
  * anything (every agent there had `spawnDepth: 1` and zero `Agent` calls).
  *
- * The payload's own `agent_id` does not rescue this: on `SubagentStop` the host
- * sends the id of the child that STOPPED, and 102 of the 112 ids it sent in that
- * session matched no transcript at all. The parent is the honest owner either
- * way — it is the process that ran the hook and paid its milliseconds — and the
- * event keeps its `agentId`, so nothing is lost by not guessing.
+ * The payload's own `agent_id` does not rescue this, and #560 measured why: on
+ * `SubagentStop` that field is a per-FIRING identifier, not an agent's. The same
+ * session sent 112 distinct ids across 117 firings, 102 of which appear nowhere
+ * under `~/.claude` — not as a transcript, not as a filename, not inside one —
+ * while the identical payload field on the Bash-phase hooks of that same session
+ * yielded 11 stable ids across 485 events. Only each agent's terminal firing
+ * carried an id that resolves. The parent is the honest owner either way — it is
+ * the process that ran the hook and paid its milliseconds — and the event keeps
+ * its `agentId`, so nothing is lost by not guessing.
  */
 const PARENT_ONLY_PHASES = new Set([
   "SessionStart",
