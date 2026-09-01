@@ -586,6 +586,18 @@ interface CommonCmdStrings {
   // INLINE in the rendered prose of ~82 asset sites when no gate is configured,
   // so it follows the repo's language like every other user-facing string (#445).
   qualityGateNotConfigured: string;
+  // lib/placeholders.ts GLOBAL fallbacks (Spec 0010 FB). Published inline in the
+  // agents and skills rendered into `~/.claude/skills/navori/`, where the repo
+  // these three describe is whatever project the session opened — so the text is
+  // an instruction to derive the value, not a diagnostic.
+  //
+  // Two constraints, both enforced by `global-plugin.test.ts`. NO BACKTICKS: the
+  // assets wrap these placeholders in code spans (``not on `{{branchBase}}` ``),
+  // and a nested backtick breaks the span. And SHORT: `{{prTarget}}` alone lands
+  // 22 times in one agent, so a sentence here is a paragraph there.
+  globalQualityGate: string;
+  globalBranchBase: string;
+  globalPrTarget: string;
 }
 
 interface RenderCmdStrings {
@@ -1111,8 +1123,21 @@ interface GlobalCmdStrings {
   gateNoDefer: string;
   gateMalformed: (detail: string) => string;
   gateError: (detail: string) => string;
-  settingsRegistered: string;
-  settingsNotRegistered: string;
+  /**
+   * FB (#546) — the `@skills-dir` plugin that carries the agents, the skills
+   * and the gate hook. It replaced the SessionStart registration navori used to
+   * merge into the user's settings.json, so the old `settingsRegistered` pair
+   * is gone: settings.json now holds permissions and nothing else.
+   */
+  wrotePlugin: (path: string, count: number) => string;
+  pluginAssets: (agents: number, skills: number) => string;
+  pluginPresent: string;
+  pluginMissing: string;
+  pluginStale: (files: string) => string;
+  pluginNamespaceHint: string;
+  /** The F1 hook found loose in ~/.claude, and what became of it. */
+  legacyMigrated: (snapshotPath: string) => string;
+  legacyLeftover: (path: string) => string;
   permsMerged: (count: number) => string;
   permsNotMerged: string;
   versionOk: (v: string) => string;
@@ -1298,6 +1323,11 @@ const CMD_ES: CmdStrings = {
       "navori preserva intacto todo lo que esté entre estos marcadores en cada render. -->",
     qualityGateNotConfigured:
       "(quality gate sin configurar — corre 'navori configure quality-gate')",
+    globalQualityGate:
+      "el quality gate que el proyecto declare, o el que derives de package.json/Makefile " +
+      "diciendo cuál corriste",
+    globalBranchBase: "la branch base del repo (la que apunte origin/HEAD)",
+    globalPrTarget: "la branch a la que el repo abre sus PRs (su base, salvo que declare otra)",
   },
   render: {
     renderFailed: "El render falló",
@@ -2025,8 +2055,22 @@ const CMD_ES: CmdStrings = {
       "lado (Spec 0010 §3.1). El repo y el global se estarían duplicando",
     gateMalformed: (detail) => `el gate emitió algo que no es el JSON esperado (${detail})`,
     gateError: (detail) => `el gate falló al ejecutarse: ${detail}`,
-    settingsRegistered: "registrado en settings.json (SessionStart)",
-    settingsNotRegistered: "no registrado en settings.json — corre 'navori global render --apply'",
+    wrotePlugin: (path, count) => `plugin: ${path} (${count} archivos)`,
+    pluginAssets: (agents, skills) => `Plugin: ${agents} agentes, ${skills} skills`,
+    pluginPresent: "plugin 'navori@skills-dir' instalado y al día",
+    pluginMissing:
+      "plugin 'navori@skills-dir' ausente — sin él no hay agentes ni skills globales. " +
+      "Corre 'navori global render --apply'",
+    pluginStale: (files) =>
+      `plugin desactualizado en: ${files} — corre 'navori global render --apply'`,
+    pluginNamespaceHint:
+      "las skills globales se invocan '/navori:<nombre>'; tras un render corre '/reload-plugins' " +
+      "(o abre una sesión nueva) para que Claude Code las recargue",
+    legacyMigrated: (snapshotPath) =>
+      `el hook suelto de ~/.claude se mudó al plugin; copia restaurable en ${snapshotPath}`,
+    legacyLeftover: (path) =>
+      `quedó un hook de una instalación anterior en ${path} — corre 'navori global render --apply' ` +
+      "para mudarlo al plugin y evitar que el baseline se emita dos veces",
     permsMerged: (count) => `${count} permiso(s) personales presentes en settings.json`,
     permsNotMerged:
       "permisos configurados ausentes en settings.json — corre 'navori global render --apply'",
@@ -2243,6 +2287,11 @@ const CMD_EN: CmdStrings = {
       "<!-- Write your repo's domain and specific conventions here. " +
       "navori preserves everything between these markers verbatim on every render. -->",
     qualityGateNotConfigured: "(quality gate not configured — run 'navori configure quality-gate')",
+    globalQualityGate:
+      "whichever quality gate the project declares, or one you derive from package.json/Makefile " +
+      "and name",
+    globalBranchBase: "the repo's base branch (whatever origin/HEAD points at)",
+    globalPrTarget: "the branch the repo opens PRs against (its base, unless it declares another)",
   },
   render: {
     renderFailed: "Render failed",
@@ -2964,8 +3013,21 @@ const CMD_EN: CmdStrings = {
     gateMalformed: (detail) =>
       `the gate emitted something that is not the expected JSON (${detail})`,
     gateError: (detail) => `the gate failed to run: ${detail}`,
-    settingsRegistered: "registered in settings.json (SessionStart)",
-    settingsNotRegistered: "not registered in settings.json — run 'navori global render --apply'",
+    wrotePlugin: (path, count) => `plugin: ${path} (${count} files)`,
+    pluginAssets: (agents, skills) => `Plugin: ${agents} agents, ${skills} skills`,
+    pluginPresent: "plugin 'navori@skills-dir' installed and up to date",
+    pluginMissing:
+      "plugin 'navori@skills-dir' missing — without it there are no global agents or skills. " +
+      "Run 'navori global render --apply'",
+    pluginStale: (files) => `plugin out of date at: ${files} — run 'navori global render --apply'`,
+    pluginNamespaceHint:
+      "global skills are invoked as '/navori:<name>'; after a render run '/reload-plugins' " +
+      "(or start a new session) so Claude Code picks them up",
+    legacyMigrated: (snapshotPath) =>
+      `the loose hook in ~/.claude moved into the plugin; restorable copy at ${snapshotPath}`,
+    legacyLeftover: (path) =>
+      `a hook from an earlier install is still at ${path} — run 'navori global render --apply' ` +
+      "to move it into the plugin and stop the baseline being emitted twice",
     permsMerged: (count) => `${count} personal permission(s) present in settings.json`,
     permsNotMerged:
       "configured permissions missing from settings.json — run 'navori global render --apply'",

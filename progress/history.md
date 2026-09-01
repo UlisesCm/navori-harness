@@ -10,6 +10,41 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-01 09:55 — claude — FB del harness global: los agentes y las skills como plugin `navori@skills-dir` (#546)
+
+- **Cambios:** `engines/claude/global-plugin.ts` (nuevo), `engines/claude/global-render.ts`,
+  `commands/global.ts`, `lib/placeholders.ts`, `lib/interpolate.ts`,
+  `engines/shared/render-managed-file.ts`, `lib/migrate.ts`, `lib/global-config.ts`,
+  `lib/render-plan.ts`, `lib/i18n.ts`, +2 suites nuevas. Tests 2908 → 2945.
+- **Quality gate:** ✅ verde (180 archivos, 2945 tests, coverage floor OK, bundle 861.3 KB/900 KB).
+  CI verde en 2m5s.
+- **PR:** #552 → cierra #546. Issues abiertos: #545, #547, #548, #538.
+
+### Qué entregó
+
+`~/.claude/skills/navori/` con `.claude-plugin/plugin.json` carga como `navori@skills-dir` sin
+marketplace y sin paso de instalación: los 8 agentes, las 12 skills base y el gate del §3.1
+(`hooks/hooks.json`), que es lo que saca los hooks de navori del `settings.json` del usuario.
+
+No son archivos sueltos porque la precedencia de Claude Code no es uniforme y en skills corre al
+revés que en subagentes: una skill personal **eclipsa** la del proyecto. El plugin las namespacea
+`/navori:<id>`; los agentes de plugin son la precedencia más baja, así que `.claude/agents/` del
+repo gana — el defer del §3.1 sin walk-up ni detección.
+
+El modo `globalFallback` hace renderizables los assets fuera de un repo: `qualityGate.fast|full`,
+`branchBase` y `prTarget` rinden como la instrucción de derivarlos. Con eso `orquestacion` entra
+completo al baseline y se retira el follow-up de "partir el bloque".
+
+### Decisiones que no se re-litigan
+
+- **La auditoría de `globalSafe` se revisó, no se relajó.** "No contiene `{{`" → "no deja un
+  `<not configured: …>` al renderizar en scope global". `progress/` y `.claude/` salieron de los
+  tokens repo-específicos (los agentes del plugin crean esos archivos); `navori.config.json`,
+  `navori doctor` y `specs/` siguen dentro, así que la regresión del #541 sigue clavada.
+- **`settings.json` solo lleva `permissions`**, y con una config sin permisos ni se crea.
+- **Los fallbacks globales van sin backticks y cortos** — los assets los envuelven en code spans y
+  `{{prTarget}}` aterriza 22 veces en un solo agente. Ambas reglas están como test.
+
 ## 2026-08-31 22:55 — claude — Harness global: auditoría del F1, plan por fases y 3 de las 5 unidades de FA cerradas
 
 - **Cambios:** `specs/0010-global-harness.md` (§8 rehecha), `engines/claude/global-render.ts`,

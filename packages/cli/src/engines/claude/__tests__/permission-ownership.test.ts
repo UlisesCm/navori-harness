@@ -206,7 +206,7 @@ describe("uninstall is symmetric with install (#544)", () => {
     expect(after.permissions?.allow).toEqual(["Bash(added-later:*)"]);
   });
 
-  it("without a readable global.json, uninstall drops the hook and touches no permission", () => {
+  it("without a readable global.json, uninstall touches no permission", () => {
     seedSettings({ permissions: { allow: ["Bash(theirs:*)"] } });
     run(["init"]);
     declarePermissions({ allow: ["Bash(navori:*)"] });
@@ -214,7 +214,7 @@ describe("uninstall is symmetric with install (#544)", () => {
 
     // Ownership is unknowable now, so guessing is the one thing not allowed.
     const result = uninstallGlobalRender(claudeDir, null);
-    expect(result.removedHook).toBe(true);
+    expect(result.updatedSettings).toBe(false);
     const after = JSON.parse(readSettings()) as { permissions?: { allow?: string[] } };
     expect(after.permissions?.allow).toEqual(["Bash(theirs:*)", "Bash(navori:*)"]);
   });

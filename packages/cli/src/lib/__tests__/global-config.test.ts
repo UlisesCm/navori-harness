@@ -51,7 +51,12 @@ describe("global-config — read/write round-trip", () => {
   it("default config seeds the audited baseline blocks in emission order", () => {
     const cfg = defaultGlobalConfig("0.5.0");
     expect(cfg.blocks.include).toEqual([...DEFAULT_GLOBAL_BLOCKS]);
-    expect(cfg.blocks.include).toEqual(["operaciones-seguras", "idioma-rol", "formato-respuesta"]);
+    expect(cfg.blocks.include).toEqual([
+      "operaciones-seguras",
+      "idioma-rol",
+      "formato-respuesta",
+      "orquestacion",
+    ]);
     expect(cfg.permissions).toEqual({ allow: [], deny: [], ask: [] });
     expect(cfg.language).toBe("es");
   });

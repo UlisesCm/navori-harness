@@ -8,6 +8,7 @@ import {
   deleteGlobalConfig,
   globalConfigExists,
   readGlobalConfig,
+  upgradeDefaultBlocks,
   writeGlobalConfig,
   type GlobalConfig,
 } from "../lib/global-config.ts";
@@ -16,17 +17,28 @@ import {
   applyGlobalRender,
   composeBaseline,
   configuredPermissionsCount,
+  detectLegacyGlobalHook,
   generateHookScript,
-  globalHookPath,
   globalTargetDir,
+  migrateLegacyGlobalHook,
   planGlobalRender,
   probeGate,
+  readExistingSettings,
   readHookDrift,
-  settingsHasBaseline,
   settingsHasPermissions,
   uninstallGlobalRender,
+  unreadableSettingsMessage,
   type GlobalRenderPlan,
 } from "../engines/claude/global-render.ts";
+import {
+  applyGlobalPlugin,
+  globalPluginDir,
+  planGlobalPlugin,
+  pluginDrift,
+  pluginInstalled,
+  removeGlobalPlugin,
+  PLUGIN_HOOK_SCRIPT_REL,
+} from "../engines/claude/global-plugin.ts";
 
 /**
  * Persist which permission entries navori owns, right after the write that made
@@ -42,14 +54,58 @@ function recordPermissionOwnership(config: GlobalConfig, plan: GlobalRenderPlan)
   writeGlobalConfig(config);
 }
 
-/** Compose the render plan or fail cleanly (e.g. a non-global-safe block). */
-function planOrExit(config: GlobalConfig): GlobalRenderPlan {
+/** Everything a global render produces, computed before a single byte is written. */
+interface GlobalPlans {
+  plugin: ReturnType<typeof planGlobalPlugin>;
+  settings: GlobalRenderPlan;
+}
+
+/**
+ * Compose both plans or fail cleanly (a non-global-safe block, an unreadable
+ * settings.json).
+ *
+ * ORDER IS LOAD-BEARING when `migrate` is set. The baseline is composed first,
+ * so a block that cannot render in the global scope aborts before any write.
+ * The settings plan is computed AFTER the legacy migration, because that
+ * migration strips the F1 SessionStart entry from settings.json and
+ * `planGlobalRender` merges over whatever is on disk — computing it first would
+ * write the entry straight back and leave the gate registered twice.
+ */
+function planOrExit(config: GlobalConfig, dir: string, migrate: (() => void) | null): GlobalPlans {
   try {
-    return planGlobalRender(config);
+    const baseline = composeBaseline(config);
+    if (migrate) migrate();
+    const settings = planGlobalRender(config, dir);
+    return { plugin: planGlobalPlugin(config, baseline, dir), settings };
   } catch (err) {
     p.cancel(err instanceof Error ? err.message : String(err));
     process.exit(1);
   }
+}
+
+/**
+ * Refuse to start when the user's machine-wide settings.json exists but cannot
+ * be parsed (#497). Checked BEFORE the legacy migration so a broken file never
+ * ends with the old hook deleted and the new plugin not installed.
+ */
+function assertSettingsReadableOrExit(config: GlobalConfig, dir: string): void {
+  const read = readExistingSettings(dir);
+  if (read.kind === "parse-error" || read.kind === "not-object") {
+    p.cancel(unreadableSettingsMessage(read, join(dir, "settings.json"), config.language));
+    process.exit(1);
+  }
+}
+
+/**
+ * Move an F1 install onto the plugin layout and say so. Returns the thunk
+ * `planOrExit` runs between composing the baseline and planning settings; a
+ * machine with no F1 install gets a silent no-op.
+ */
+function migrateLegacy(dir: string, g: ReturnType<typeof tc>["global"]): () => void {
+  return () => {
+    const result = migrateLegacyGlobalHook(dir);
+    if (result.snapshotPath !== null) p.log.info(g.legacyMigrated(result.snapshotPath));
+  };
 }
 
 const initSubCommand = defineCommand({
@@ -70,25 +126,30 @@ const initSubCommand = defineCommand({
     const config = existing ?? defaultGlobalConfig(readCliVersion(), language);
     config.version = readCliVersion();
     config.language = language;
+    upgradeDefaultBlocks(config);
 
     // Plan BEFORE persisting anything: an unreadable ~/.claude/settings.json
     // aborts here (#497), and a run that installs nothing should leave no
     // ~/.navori/global.json claiming otherwise.
-    const plan = planOrExit(config);
+    const dir = globalTargetDir();
+    assertSettingsReadableOrExit(config, dir);
+    const plans = planOrExit(config, dir, migrateLegacy(dir, g));
     writeGlobalConfig(config);
-    const backupPath = applyGlobalRender(plan);
-    recordPermissionOwnership(config, plan);
+    const written = applyGlobalPlugin(plans.plugin);
+    const backupPath = applyGlobalRender(plans.settings);
+    recordPermissionOwnership(config, plans.settings);
 
-    if (existing) p.log.info(g.initReinit(plan.dir));
+    if (existing) p.log.info(g.initReinit(dir));
     const rows = [
-      g.wroteHook(plan.hookPath),
-      g.wroteSettings(plan.settingsPath),
+      g.wrotePlugin(plans.plugin.dir, written.length),
+      g.wroteSettings(plans.settings.settingsPath),
       g.baselineBlocks(config.blocks.include.join(", ")),
     ];
     if (backupPath) rows.push(t(resolveLang(language)).backedUp(1, backupPath));
-    p.note(rows.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), g.doctorTitle(plan.dir));
+    p.note(rows.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), g.doctorTitle(dir));
+    p.log.info(grey(g.pluginNamespaceHint));
     p.log.info(grey(g.hooksDisabledHint));
-    p.outro(color.green(g.initDone(plan.dir)));
+    p.outro(color.green(g.initDone(dir)));
   },
 });
 
@@ -108,21 +169,47 @@ const renderSubCommand = defineCommand({
       p.cancel(g.notInstalled);
       process.exit(1);
     }
-    const plan = planOrExit(config);
-    const rows = [g.wroteHook(plan.hookPath), g.wroteSettings(plan.settingsPath)];
+    const dir = globalTargetDir();
+    assertSettingsReadableOrExit(config, dir);
+    // Before planning: the baseline it composes must reflect the upgraded
+    // selection, and a preview must show what an apply would actually write.
+    const upgradedBlocks = upgradeDefaultBlocks(config);
+    const plans = planOrExit(config, dir, args.apply ? migrateLegacy(dir, g) : null);
+    const rows = [
+      g.wrotePlugin(plans.plugin.dir, plans.plugin.files.length),
+      g.wroteSettings(plans.settings.settingsPath),
+    ];
     if (args.apply) {
-      const backupPath = applyGlobalRender(plan);
-      recordPermissionOwnership(config, plan);
+      if (upgradedBlocks) writeGlobalConfig(config);
+      applyGlobalPlugin(plans.plugin);
+      const backupPath = applyGlobalRender(plans.settings);
+      recordPermissionOwnership(config, plans.settings);
       if (backupPath) rows.push(t(resolveLang(config.language)).backedUp(1, backupPath));
       p.note(rows.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), g.previewTitle);
-      p.outro(color.green(g.renderApplied(plan.dir)));
+      p.log.info(grey(g.pluginNamespaceHint));
+      p.outro(color.green(g.renderApplied(dir)));
     } else {
+      const legacy = detectLegacyGlobalHook(dir);
+      if (legacy.filePresent) p.log.warn(g.legacyLeftover(legacy.hookPath));
       rows.push(g.baselineBlocks(config.blocks.include.join(", ")));
       p.note(rows.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), g.previewTitle);
       p.outro(grey(g.previewHint));
     }
   },
 });
+
+/**
+ * Which plugin files drift from what the CLI would render now, or null when the
+ * plan itself cannot be built. Doctor reports; it never aborts over a bad block
+ * (the baseline check above already said so on its own terms).
+ */
+function pluginDriftOrNull(config: GlobalConfig, dir: string): string[] | null {
+  try {
+    return pluginDrift(planGlobalPlugin(config, composeBaseline(config), dir));
+  } catch {
+    return null;
+  }
+}
 
 const doctorSubCommand = defineCommand({
   meta: {
@@ -141,7 +228,7 @@ const doctorSubCommand = defineCommand({
     const lines: string[] = [];
     let issues = false;
 
-    const hookPath = globalHookPath(dir);
+    const hookPath = join(globalPluginDir(dir), PLUGIN_HOOK_SCRIPT_REL);
     // Composed here rather than via `planGlobalRender` on purpose: the plan also
     // reads settings.json and THROWS when it is unreadable (#497), which is a
     // separate finding the checks below report on their own terms. Doctor must
@@ -212,10 +299,26 @@ const doctorSubCommand = defineCommand({
       }
     }
 
-    if (settingsHasBaseline(dir)) {
-      lines.push(`  ${check(true)} ${g.settingsRegistered}`);
+    // The plugin is what makes the agents and the skills exist at all; the hook
+    // checks above only prove the baseline prose reaches a session.
+    if (!pluginInstalled(dir)) {
+      lines.push(`  ${color.red(sym.fail)} ${g.pluginMissing}`);
+      issues = true;
     } else {
-      lines.push(`  ${color.red(sym.fail)} ${g.settingsNotRegistered}`);
+      const drifted = pluginDriftOrNull(config, dir);
+      if (drifted === null || drifted.length > 0) {
+        lines.push(`  ${color.yellow(sym.update)} ${g.pluginStale((drifted ?? []).join(", "))}`);
+        issues = true;
+      } else {
+        lines.push(`  ${check(true)} ${g.pluginPresent}`);
+      }
+    }
+
+    // An F1 install that was never re-rendered still has the loose hook, which
+    // would emit the baseline a second time alongside the plugin's.
+    const legacy = detectLegacyGlobalHook(dir);
+    if (legacy.filePresent || legacy.registeredInSettings) {
+      lines.push(`  ${color.yellow(sym.update)} ${g.legacyLeftover(legacy.hookPath)}`);
       issues = true;
     }
 
@@ -237,6 +340,7 @@ const doctorSubCommand = defineCommand({
     }
 
     p.note(lines.join("\n"), g.doctorTitle(dir));
+    p.log.info(grey(g.pluginNamespaceHint));
     p.log.info(grey(g.hooksDisabledHint));
     p.outro(issues ? color.yellow(g.outroIssues) : color.green(g.outroOk));
   },
@@ -254,6 +358,7 @@ const uninstallSubCommand = defineCommand({
     const g = tc(resolveLang(config?.language)).global;
     const dir = globalTargetDir();
 
+    const removedPlugin = removeGlobalPlugin(dir);
     const result = uninstallGlobalRender(dir, config);
     const hadConfig = deleteGlobalConfig();
 
@@ -266,7 +371,7 @@ const uninstallSubCommand = defineCommand({
       p.log.info(t(resolveLang(config?.language)).backedUp(1, result.backupPath));
     }
 
-    if (!result.removedHook && !result.updatedSettings && !hadConfig) {
+    if (!removedPlugin && !result.removedHook && !result.updatedSettings && !hadConfig) {
       p.outro(g.uninstallNothing);
       return;
     }

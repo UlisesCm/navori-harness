@@ -2,8 +2,11 @@ import { readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getCoreRoot } from "../bundled-assets.ts";
-import { DEFAULT_GLOBAL_BLOCKS } from "../global-config.ts";
+import { DEFAULT_GLOBAL_BLOCKS, defaultGlobalConfig } from "../global-config.ts";
+import { interpolate } from "../interpolate.ts";
 import { CORE_MANAGED_ASSETS, resolveAssetPath, type CoreManagedAsset } from "../render-plan.ts";
+import { globalRenderConfig } from "../../engines/claude/global-render.ts";
+import { CORE_AGENTS, CORE_SKILLS, WORKFLOW_SKILLS } from "../../engines/shared/harness-assets.ts";
 
 /**
  * The audit behind `globalSafe` (Spec 0010 §4, issue #541), enforced instead of
@@ -23,20 +26,21 @@ import { CORE_MANAGED_ASSETS, resolveAssetPath, type CoreManagedAsset } from "..
  * which is exactly how a curated list rots.
  */
 
-/** Artifacts that only exist inside a repo navori has initialized. */
-const REPO_SCOPED_TOKENS = [
-  "progress/",
-  "navori.config.json",
-  "navori doctor",
-  ".claude/",
-  "specs/",
-] as const;
+/**
+ * Artifacts that only exist inside a repo navori has initialized, and that the
+ * prose sends its reader to CONSULT.
+ *
+ * FB (#546) dropped `progress/` and `.claude/` from this list. The global scope
+ * now installs the agents, and those two paths name files the agents WRITE —
+ * a handoff report, a session-state file — which any project can hold. What
+ * stays is what has to be there already for the advice to mean anything:
+ * navori's own config, its doctor, and the SDD tree a repo opts into.
+ */
+const REPO_SCOPED_TOKENS = ["navori.config.json", "navori doctor", "specs/"] as const;
 
 /**
  * Every navori agent and skill, read off disk rather than hardcoded, so a new
- * one is covered the day it ships. A global-safe block must name none of them:
- * the global scope installs no agents and no skills until Spec 0010 FB, so
- * naming one is advice its reader cannot act on.
+ * one is covered the day it ships.
  */
 function navoriAgentAndSkillNames(): string[] {
   const root = getCoreRoot();
@@ -49,7 +53,22 @@ function navoriAgentAndSkillNames(): string[] {
   return [...new Set(names)];
 }
 
+/**
+ * The subset the `@skills-dir` plugin actually installs (Spec 0010 FB). Naming
+ * one of these globally is fine — the reader can act on it. Naming an asset
+ * OUTSIDE the set (a preset agent, a library skill) still is not: only a repo
+ * render materializes those.
+ */
+const GLOBALLY_SHIPPED = new Set<string>([
+  ...CORE_AGENTS.map((a) => a.id),
+  ...CORE_SKILLS,
+  ...WORKFLOW_SKILLS,
+]);
+
 const AGENT_AND_SKILL_NAMES = navoriAgentAndSkillNames();
+
+/** The config the global render interpolates against — the real one, not a stub. */
+const GLOBAL_CONFIG = globalRenderConfig(defaultGlobalConfig("0.0.0"));
 
 /** Both language renderings of a block — a rule must hold for whichever ships. */
 function bodies(asset: CoreManagedAsset): string[] {
@@ -67,14 +86,25 @@ function disqualifiers(asset: CoreManagedAsset): string[] {
     reasons.push(`has condition '${asset.condition}', which reads repo config`);
   }
   for (const body of bodies(asset)) {
-    if (/\{\{/.test(body)) reasons.push("interpolates repo config ({{...}})");
+    // Not "has {{" — "has a {{ that resolves to nothing here". The global
+    // fallback scope answers `qualityGate.*`, `branchBase` and `prTarget` with
+    // the instruction to derive them, which is what lets `orquestacion` ship.
+    for (const miss of new Set(
+      interpolate(body, GLOBAL_CONFIG, { fallbackScope: "global" }).match(
+        /<not configured: [^>]+>/g,
+      ) ?? [],
+    )) {
+      reasons.push(`leaves ${miss} unresolved in the global scope`);
+    }
     for (const token of REPO_SCOPED_TOKENS) {
       if (body.includes(token)) reasons.push(`names the repo-scoped artifact '${token}'`);
     }
     for (const name of AGENT_AND_SKILL_NAMES) {
       // Backticked so prose like "explore the code" never counts as naming the
       // `explorer` agent — the assets cite them as `code`, always.
-      if (body.includes(`\`${name}\``)) reasons.push(`names the navori agent/skill '${name}'`);
+      if (body.includes(`\`${name}\``) && !GLOBALLY_SHIPPED.has(name)) {
+        reasons.push(`names '${name}', which the global plugin does not ship`);
+      }
     }
   }
   return [...new Set(reasons)];
@@ -126,6 +156,21 @@ describe("globalSafe is the audit, executed (#541, Spec 0010 §4)", () => {
     expect(asset?.globalSafe).toBeFalsy();
     const reasons = disqualifiers(asset as CoreManagedAsset);
     expect(reasons.some((r) => r.includes("repo-scoped artifact"))).toBe(true);
-    expect(reasons.some((r) => r.includes("interpolates"))).toBe(false);
+    expect(reasons.some((r) => r.includes("unresolved"))).toBe(false);
+  });
+
+  /**
+   * FB's headline: the routing doctrine ships globally BECAUSE the placeholders
+   * it carries now have answers, not because the rule was loosened away.
+   */
+  it("orquestacion qualifies through the global fallbacks, not despite them", () => {
+    const asset = CORE_MANAGED_ASSETS.find((a) => a.id === "orquestacion");
+    expect(asset?.globalSafe).toBe(true);
+    expect(disqualifiers(asset as CoreManagedAsset)).toEqual([]);
+    const body = bodies(asset as CoreManagedAsset)[0] as string;
+    expect(body).toContain("{{qualityGate.full}}");
+    expect(interpolate(body, GLOBAL_CONFIG, { fallbackScope: "global" })).not.toContain(
+      "{{qualityGate.full}}",
+    );
   });
 });

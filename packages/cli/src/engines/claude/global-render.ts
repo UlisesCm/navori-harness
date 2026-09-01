@@ -1,20 +1,15 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createBackup } from "../../lib/backup.ts";
+import { createMigrationSnapshot } from "../../lib/migrate.ts";
 import { readCliVersion } from "../../lib/bundled-assets.ts";
 import { safeHomedir } from "../../lib/home.ts";
 import { CORE_MANAGED_ASSETS, resolveAssetPath } from "../../lib/render-plan.ts";
+import { interpolate } from "../../lib/interpolate.ts";
+import type { NavoriConfig } from "../../lib/schema.ts";
 import { resolveLang, tc } from "../../lib/i18n.ts";
 import { deepMerge } from "./deep-merge.ts";
 import {
@@ -39,8 +34,20 @@ import {
  * (§3.1).
  */
 
-/** Path of the gate hook relative to the global config dir. */
-export const GLOBAL_HOOK_REL = "hooks/navori-global-baseline.sh";
+/** Filename of the gate hook, wherever it is installed. */
+export const GLOBAL_HOOK_BASENAME = "navori-global-baseline.sh";
+
+/**
+ * Where F1 installed the gate hook: loose under the Claude config dir, with its
+ * registration merged into the user's `~/.claude/settings.json`. FB moved both
+ * into the `@skills-dir` plugin (`engines/claude/global-plugin.ts`), so this
+ * path now exists only to MIGRATE an older install off it — nothing renders
+ * here anymore.
+ */
+export const LEGACY_GLOBAL_HOOK_REL = `hooks/${GLOBAL_HOOK_BASENAME}`;
+
+/** Label of the FB migration snapshot under `~/.navori/migrations/<timestamp>/`. */
+export const LEGACY_MIGRATION_LABEL = "claude-global";
 
 /** Heredoc delimiter for the embedded baseline. Unique enough to never collide. */
 const HEREDOC = "NAVORI_GLOBAL_BASELINE_EOF_9f3a";
@@ -56,9 +63,36 @@ export function globalTargetDir(): string {
   return join(safeHomedir(), ".claude");
 }
 
-/** Absolute path of the installed gate hook under the global config dir. */
-export function globalHookPath(dir = globalTargetDir()): string {
-  return join(dir, GLOBAL_HOOK_REL);
+/** Absolute path of the F1-era gate hook (migration source only — see above). */
+export function legacyGlobalHookPath(dir = globalTargetDir()): string {
+  return join(dir, LEGACY_GLOBAL_HOOK_REL);
+}
+
+/**
+ * The config the global render interpolates assets against (Spec 0010 FB).
+ *
+ * Deliberately NOT a `NavoriConfigSchema.parse(...)`: the schema defaults
+ * `branchBase` to `"main"`, which would bake one repo's answer into files that
+ * every project on the machine reads. The three repo-truths (`qualityGate.*`,
+ * `branchBase`, `prTarget`) are left ABSENT so the interpolator's `global`
+ * fallback scope answers them with the instruction to DERIVE them
+ * (`lib/placeholders.ts`). Everything else is either harness config the global
+ * scope legitimately carries, or a path whose generic fallback is already
+ * written for the repo that declares nothing.
+ */
+export function globalRenderConfig(config: GlobalConfig): NavoriConfig {
+  return {
+    name: "navori-global",
+    language: config.language,
+    engines: ["claude"],
+    // `{{sdd.specsDir}}` has a sane default in either scope; the SDD managed
+    // block itself stays out of the baseline (it is `condition`-gated).
+    sdd: { enabled: true, specsDir: "specs", applyWhen: [], doesNotApplyTo: [] },
+    // Empty, not absent: `project.criticalAreas` / `project.legacyPaths` then
+    // resolve through their generic soft fallbacks — the same text a repo that
+    // declares none already gets.
+    project: {},
+  } as unknown as NavoriConfig;
 }
 
 /**
@@ -66,18 +100,26 @@ export function globalHookPath(dir = globalTargetDir()): string {
  * audit at runtime, in two layers.
  *
  * The FIRST is the asset's declared `globalSafe` (#541) — the actual property
- * being asserted. The second is the older `{{...}}` scan, kept as a secondary
- * net: it catches an asset marked `globalSafe` whose body later grows an
- * interpolation, without waiting for the inventory suite to run.
+ * being asserted. The second is the unresolved-placeholder scan below, kept as
+ * a secondary net: it catches an asset marked `globalSafe` whose body later
+ * grows a placeholder with no answer in this scope, without waiting for the
+ * inventory suite to run.
  *
- * The order matters. Testing `{{` alone is what let the two notions drift:
- * `arranque-sesion` stopped interpolating while still describing
- * `progress/current.md` and `navori doctor`, so the only check in place said
- * yes to a block that would have injected repo-specific prose into every
- * session of every project without navori.
+ * The order matters. Testing for the mere PRESENCE of `{{` is what let the two
+ * notions drift before #541: `arranque-sesion` stopped interpolating while
+ * still describing `progress/current.md` and `navori doctor`, so the only check
+ * in place said yes to a block that would have injected repo-specific prose
+ * into every session of every project without navori.
+ *
+ * FB (#546) narrowed that scan rather than dropping it. Blocks are now
+ * interpolated in the `global` fallback scope — `{{qualityGate.full}}` and
+ * `{{branchBase}}` render as the instruction to derive them, so `orquestacion`
+ * composes the baseline whole instead of needing to be split — and what fails
+ * is a placeholder that resolved to NOTHING, which is the real defect.
  */
 export function composeBaseline(config: GlobalConfig): string {
   const parts: string[] = [];
+  const renderConfig = globalRenderConfig(config);
   for (const id of config.blocks.include) {
     const asset = CORE_MANAGED_ASSETS.find((a) => a.id === id);
     if (!asset) {
@@ -90,16 +132,19 @@ export function composeBaseline(config: GlobalConfig): string {
       );
     }
     const raw = readFileSync(resolveAssetPath(asset, config.language).path, "utf-8").trim();
-    if (/\{\{/.test(raw)) {
+    const rendered = interpolate(raw, renderConfig, { fallbackScope: "global" });
+    const unresolved = rendered.match(/<not configured: [^>]+>/g);
+    if (unresolved) {
       throw new Error(
-        `Block '${id}' interpolates repo config ({{...}}), so it can't be part of ` +
-          `the global baseline (Spec 0010 §4). Remove it from blocks.include.`,
+        `Block '${id}' has ${[...new Set(unresolved)].join(", ")} with no answer in the ` +
+          `global scope (Spec 0010 §4). Give the path a global fallback in ` +
+          `lib/placeholders.ts, or remove the block from blocks.include.`,
       );
     }
-    if (raw.includes(HEREDOC)) {
+    if (rendered.includes(HEREDOC)) {
       throw new Error(`Block '${id}' collides with the hook heredoc delimiter.`);
     }
-    parts.push(raw);
+    parts.push(rendered);
   }
   const intro = tc(resolveLang(config.language)).engine.globalBaselineIntro;
   return `${intro}\n\n${parts.join("\n\n")}\n`;
@@ -344,27 +389,6 @@ export function probeGate(hookPath: string): GateProbe {
   }
 }
 
-/** The SessionStart registration navori merges into `~/.claude/settings.json`. */
-export function hookSettingsFragment(hookAbsPath: string): Record<string, unknown> {
-  return {
-    hooks: {
-      SessionStart: [
-        {
-          matcher: "startup|resume|compact",
-          hooks: [
-            {
-              type: "command",
-              command: `bash "${hookAbsPath}"`,
-              timeout: 15,
-              statusMessage: "navori: global baseline",
-            },
-          ],
-        },
-      ],
-    },
-  };
-}
-
 /**
  * The personal permissions navori merges additively into `~/.claude/settings.json`
  * (Spec 0010 — `global.json.permissions`). Only non-empty buckets are emitted so
@@ -428,8 +452,12 @@ export function unreadableSettingsMessage(
     : g.settingsNotObject(path);
 }
 
-/** True iff `<dir>/settings.json` already registers navori's baseline hook. */
-export function settingsHasBaseline(dir = globalTargetDir()): boolean {
+/**
+ * True iff `<dir>/settings.json` still carries the F1-era SessionStart
+ * registration. FB stopped writing it — the plugin's `hooks/hooks.json` owns
+ * the gate now — so this reports a leftover to migrate, never a healthy state.
+ */
+export function settingsHasLegacyHook(dir = globalTargetDir()): boolean {
   const read = readExistingSettings(dir);
   // Unreadable counts as "not registered": doctor's job is to report what it can
   // PROVE is in place, and a file it cannot parse proves nothing (#497).
@@ -451,7 +479,7 @@ export function settingsHasBaseline(dir = globalTargetDir()): boolean {
  */
 export function settingsHasPermissions(config: GlobalConfig, dir = globalTargetDir()): boolean {
   const read = readExistingSettings(dir);
-  if (read.kind !== "ok") return false; // same as settingsHasBaseline: can't prove it
+  if (read.kind !== "ok") return false; // same as settingsHasLegacyHook: can't prove it
   const perms = read.settings.permissions;
   const bag =
     perms && typeof perms === "object" && !Array.isArray(perms)
@@ -475,10 +503,16 @@ export function configuredPermissionsCount(config: GlobalConfig): number {
 
 export interface GlobalRenderPlan {
   dir: string;
-  hookPath: string;
-  hookScript: string;
   settingsPath: string;
   settings: Record<string, unknown>;
+  /**
+   * Whether the merge changes anything. Since FB moved the hook registration
+   * into the plugin, a config with no `permissions` produces a settings object
+   * identical to what is on disk — and rewriting the user's machine-wide
+   * settings.json to change nothing is a backup, a reformat and a mtime bump
+   * they did not ask for.
+   */
+  settingsChanged: boolean;
   /**
    * The permission entries navori will own once this plan is applied (#544).
    * The caller persists it to `global.json` after a successful apply — that
@@ -536,11 +570,14 @@ function computeOwnedPermissions(
 }
 
 /**
- * Compute (without writing) every file the global render would produce: the
- * gate hook and the merged settings.json. The merged fragment carries BOTH the
- * SessionStart hook registration and the personal `permissions` from
- * `global.json` (Spec 0010). Merging over the user's existing settings means
- * navori never clobbers their other global hooks/permissions.
+ * Compute (without writing) what the global render leaves in the user's
+ * `~/.claude/settings.json`: their personal `permissions`, merged additively,
+ * and nothing else. FB moved the SessionStart registration into the plugin's
+ * own `hooks/hooks.json`, so this file is no longer where navori installs
+ * behaviour — only where it adds permission rules the user asked for.
+ *
+ * Merging over the existing object means navori never clobbers the other hooks,
+ * permissions and settings the user has there.
  *
  * THROWS when settings.json exists but cannot be read (#497). The repo-scoped
  * twin (`planSettings`) offers `--force` as a conscious escape hatch because the
@@ -549,22 +586,18 @@ function computeOwnedPermissions(
  * the only way forward is fixing the JSON, which loses nothing.
  */
 export function planGlobalRender(config: GlobalConfig, dir = globalTargetDir()): GlobalRenderPlan {
-  const baseline = composeBaseline(config);
-  const hookPath = globalHookPath(dir);
   const settingsPath = join(dir, "settings.json");
   const read = readExistingSettings(dir);
   if (read.kind === "parse-error" || read.kind === "not-object") {
     throw new Error(unreadableSettingsMessage(read, settingsPath, config.language));
   }
   const existing = read.kind === "ok" ? read.settings : {};
-  const fragment = deepMerge(hookSettingsFragment(hookPath), permissionsFragment(config));
-  const settings = deepMerge(existing, fragment);
+  const settings = deepMerge(existing, permissionsFragment(config));
   return {
     dir,
-    hookPath,
-    hookScript: generateHookScript(baseline),
     settingsPath,
     settings,
+    settingsChanged: JSON.stringify(settings) !== JSON.stringify(existing),
     ownedPermissions: computeOwnedPermissions(config, existing, settings),
   };
 }
@@ -586,16 +619,15 @@ function backupSettings(dir: string, settingsPath: string): string | null {
 }
 
 /**
- * Write the plan to disk: gate hook (executable) + merged settings.json.
- * Returns the backup dir holding the previous settings.json, or null when there
- * was none to save. Throws before writing anything if the backup fails — losing
- * the user's machine-wide config is worse than not installing the baseline.
+ * Write the merged settings.json. Returns the backup dir holding the previous
+ * one, or null when there was nothing to save or nothing to change. Throws
+ * before writing anything if the backup fails — losing the user's machine-wide
+ * config is worse than not merging a permission.
  */
 export function applyGlobalRender(plan: GlobalRenderPlan): string | null {
+  if (!plan.settingsChanged) return null;
   const backupPath = backupSettings(plan.dir, plan.settingsPath);
-  mkdirSync(dirname(plan.hookPath), { recursive: true });
-  writeFileSync(plan.hookPath, plan.hookScript);
-  chmodSync(plan.hookPath, 0o755);
+  mkdirSync(dirname(plan.settingsPath), { recursive: true });
   writeFileSync(plan.settingsPath, `${JSON.stringify(plan.settings, null, 2)}\n`);
   return backupPath;
 }
@@ -642,6 +674,88 @@ export function stripBaselineFromSettings(
   if (Object.keys(nextHooks).length > 0) next.hooks = nextHooks;
   else delete next.hooks;
   return next;
+}
+
+/**
+ * What an F1-era install still has on disk (Spec 0010 FB migration, #546).
+ * Either half can be present on its own: a user who deleted the hook file by
+ * hand keeps the dangling registration, and vice versa.
+ */
+export interface LegacyGlobalHook {
+  hookPath: string;
+  filePresent: boolean;
+  registeredInSettings: boolean;
+}
+
+/** Detect the F1 layout. `filePresent || registeredInSettings` ⇒ migrate. */
+export function detectLegacyGlobalHook(dir = globalTargetDir()): LegacyGlobalHook {
+  const hookPath = legacyGlobalHookPath(dir);
+  return {
+    hookPath,
+    filePresent: existsSync(hookPath),
+    registeredInSettings: settingsHasLegacyHook(dir),
+  };
+}
+
+export interface LegacyMigrationResult {
+  /** Where the removed files were copied, browsable with `navori migrations list`. */
+  snapshotPath: string | null;
+  removedHook: boolean;
+  updatedSettings: boolean;
+  /** settings.json is there but unparseable, so its registration was left alone. */
+  settingsUnreadable: boolean;
+}
+
+/**
+ * Move an F1 install onto the FB layout: delete the loose gate hook and drop
+ * its SessionStart entry from the user's `~/.claude/settings.json`, because the
+ * plugin's `hooks/hooks.json` now registers the same gate. Running both would
+ * emit the baseline twice in every session without a repo harness.
+ *
+ * It snapshots what it removes into `~/.navori/migrations/` first. Neither file
+ * is under version control — `~/.claude/settings.json` least of all — so this
+ * is the only way back, and `navori migrations restore <ts> claude-global --cwd
+ * ~/.claude` is the way to take it.
+ *
+ * A no-op (all-false, null snapshot) when there is no F1 install to migrate,
+ * which is every fresh machine.
+ */
+export function migrateLegacyGlobalHook(dir = globalTargetDir()): LegacyMigrationResult {
+  const legacy = detectLegacyGlobalHook(dir);
+  if (!legacy.filePresent && !legacy.registeredInSettings) {
+    return {
+      snapshotPath: null,
+      removedHook: false,
+      updatedSettings: false,
+      settingsUnreadable: false,
+    };
+  }
+
+  const snapshot = createMigrationSnapshot(dir, LEGACY_MIGRATION_LABEL, [
+    LEGACY_GLOBAL_HOOK_REL,
+    "settings.json",
+  ]);
+
+  let removedHook = false;
+  if (legacy.filePresent) {
+    rmSync(legacy.hookPath);
+    removedHook = true;
+  }
+
+  let updatedSettings = false;
+  let settingsUnreadable = false;
+  const read = readExistingSettings(dir);
+  if (read.kind === "parse-error" || read.kind === "not-object") {
+    settingsUnreadable = true;
+  } else if (read.kind === "ok") {
+    const stripped = stripBaselineFromSettings(read.settings);
+    if (JSON.stringify(stripped) !== JSON.stringify(read.settings)) {
+      writeFileSync(join(dir, "settings.json"), `${JSON.stringify(stripped, null, 2)}\n`);
+      updatedSettings = true;
+    }
+  }
+
+  return { snapshotPath: snapshot.path, removedHook, updatedSettings, settingsUnreadable };
 }
 
 export interface GlobalUninstallResult {
@@ -692,10 +806,14 @@ export function stripOwnedPermissions(
 }
 
 /**
- * Remove ONLY navori's global footprint: the gate hook file, its SessionStart
- * registration, and the permission entries `config.ownedPermissions` records as
- * navori's (#544). Any other global hook/skill/plugin/permission the user has is
- * left intact (§3.1 requirement 3).
+ * Remove navori's footprint from the Claude config dir's own files: any F1-era
+ * gate hook still loose there, its SessionStart registration, and the permission
+ * entries `config.ownedPermissions` records as navori's (#544). Any other global
+ * hook/skill/plugin/permission the user has is left intact (§3.1 requirement 3).
+ *
+ * The `@skills-dir` plugin is removed by its own module (`removeGlobalPlugin`);
+ * the command calls both. Splitting them keeps this file free of an import
+ * cycle — `global-plugin.ts` renders the hook script from here.
  *
  * `config` is optional because uninstall must still work when `global.json` is
  * gone or unreadable: without it the hook still goes, and permissions are left
@@ -705,7 +823,7 @@ export function uninstallGlobalRender(
   dir = globalTargetDir(),
   config?: GlobalConfig | null,
 ): GlobalUninstallResult {
-  const hookPath = globalHookPath(dir);
+  const hookPath = legacyGlobalHookPath(dir);
   let removedHook = false;
   if (existsSync(hookPath)) {
     rmSync(hookPath);

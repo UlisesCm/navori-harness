@@ -21,18 +21,33 @@ import {
   composeBaseline,
   configuredPermissionsCount,
   generateHookScript,
+  legacyGlobalHookPath,
   probeGate,
   readHookDrift,
-  globalHookPath,
   globalTargetDir,
   permissionsFragment,
   planGlobalRender,
   readExistingSettings,
-  settingsHasBaseline,
+  settingsHasLegacyHook,
   settingsHasPermissions,
   stripBaselineFromSettings,
   uninstallGlobalRender,
 } from "../global-render.ts";
+import {
+  applyGlobalPlugin,
+  globalPluginDir,
+  planGlobalPlugin,
+  pluginInstalled,
+  removeGlobalPlugin,
+  PLUGIN_HOOKS_REL,
+  PLUGIN_HOOK_SCRIPT_REL,
+  PLUGIN_MANIFEST_REL,
+} from "../global-plugin.ts";
+
+/** Where the gate hook lives since FB: inside the @skills-dir plugin. */
+function hookPathOf(dir: string): string {
+  return join(globalPluginDir(dir), PLUGIN_HOOK_SCRIPT_REL);
+}
 
 /**
  * The global render targets Claude Code's config dir, which we pin to a throwaway
@@ -59,7 +74,8 @@ afterEach(() => {
 describe("global-render — target dir", () => {
   it("globalTargetDir respects CLAUDE_CONFIG_DIR", () => {
     expect(globalTargetDir()).toBe(claudeDir);
-    expect(globalHookPath()).toBe(join(claudeDir, "hooks/navori-global-baseline.sh"));
+    expect(globalPluginDir()).toBe(join(claudeDir, "skills/navori"));
+    expect(legacyGlobalHookPath()).toBe(join(claudeDir, "hooks/navori-global-baseline.sh"));
   });
 });
 
@@ -86,8 +102,21 @@ describe("global-render — composeBaseline", () => {
 
   it("rejects a block that is not marked globalSafe (audit enforced at runtime)", () => {
     const cfg = defaultGlobalConfig("0.5.0");
-    cfg.blocks.include = ["orquestacion"]; // has {{branchBase}} / {{qualityGate.*}}
+    cfg.blocks.include = ["tipado-fuerte"]; // condition-gated: reads repo config
     expect(() => composeBaseline(cfg)).toThrow(/not marked globalSafe/);
+  });
+
+  /**
+   * FB (#546): the routing doctrine ships whole. Its three repo-truths render as
+   * the instruction to derive them, so what a session inherits never quotes a
+   * quality gate or a base branch that belongs to some other repo.
+   */
+  it("renders orquestacion with derived repo-truths, not a baked command", () => {
+    const body = composeBaseline(defaultGlobalConfig("0.5.0"));
+    expect(body).toContain("R1 · Inline");
+    expect(body).not.toContain("{{qualityGate.full}}");
+    expect(body).not.toContain("<not configured:");
+    expect(body).toContain("el quality gate que el proyecto declare");
   });
 
   /**
@@ -97,9 +126,10 @@ describe("global-render — composeBaseline", () => {
    * none of which exist in a project without navori. The declared mark is what
    * catches it; the interpolation scan never could.
    *
-   * (The `{{` scan survives in `composeBaseline` as a secondary net. It is
-   * unreachable while `global-safe-inventory.test.ts` is green, since that suite
-   * asserts no globalSafe asset contains `{{` — which is the point of a net.)
+   * (The unresolved-placeholder scan survives in `composeBaseline` as a
+   * secondary net. It is unreachable while `global-safe-inventory.test.ts` is
+   * green, since that suite asserts every globalSafe asset resolves — which is
+   * the point of a net.)
    */
   it("rejects arranque-sesion, which the old interpolation-only audit accepted", () => {
     const cfg = defaultGlobalConfig("0.5.0");
@@ -173,14 +203,25 @@ describe("global-render — hook script + gate (executed with bash)", () => {
 });
 
 describe("global-render — settings merge (no clobber)", () => {
-  it("registers the hook pointing at the absolute path", () => {
+  /**
+   * FB (#546): the gate is registered by the plugin's own `hooks/hooks.json`,
+   * addressed through `${CLAUDE_PLUGIN_ROOT}`. Nothing navori writes reaches the
+   * `hooks` key of the user's machine-wide settings.json anymore.
+   */
+  it("puts NO hook in settings.json — the plugin's hooks.json owns the gate", () => {
     const plan = planGlobalRender(defaultGlobalConfig("0.5.0"));
-    const ss = (plan.settings.hooks as { SessionStart?: Array<{ hooks: { command: string }[] }> })
-      .SessionStart;
-    expect(ss).toBeDefined();
-    const cmd = ss?.[0]?.hooks[0]?.command;
-    expect(cmd).toBe(`bash "${plan.hookPath}"`);
-    expect(plan.hookPath).toBe(join(claudeDir, "hooks/navori-global-baseline.sh"));
+    expect(plan.settings.hooks).toBeUndefined();
+    expect(plan.settingsChanged).toBe(false);
+
+    const cfg = defaultGlobalConfig("0.5.0");
+    const hooks = JSON.parse(
+      planGlobalPlugin(cfg, composeBaseline(cfg), claudeDir).files.find(
+        (f) => f.relPath === PLUGIN_HOOKS_REL,
+      )!.content,
+    ) as { hooks: { SessionStart: Array<{ hooks: Array<{ command: string }> }> } };
+    expect(hooks.hooks.SessionStart[0]!.hooks[0]!.command).toBe(
+      `"\${CLAUDE_PLUGIN_ROOT}"/${PLUGIN_HOOK_SCRIPT_REL}`,
+    );
   });
 
   it("preserves the user's existing global settings", () => {
@@ -191,7 +232,6 @@ describe("global-render — settings merge (no clobber)", () => {
     const plan = planGlobalRender(defaultGlobalConfig("0.5.0"));
     expect(plan.settings.model).toBe("opusplan");
     expect((plan.settings.permissions as { allow: string[] }).allow).toContain("Bash(ls:*)");
-    expect(plan.settings.hooks).toBeDefined();
   });
 });
 
@@ -219,7 +259,7 @@ describe("global-render — personal permissions merge (#237)", () => {
     expect(perms.allow).toContain("Bash(ls:*)"); // user's existing kept
     expect(perms.allow).toContain("Bash(pnpm test:*)"); // navori's added
     expect(perms.deny).toContain("Bash(rm -rf:*)");
-    expect(plan.settings.hooks).toBeDefined(); // hook still registered too
+    expect(plan.settingsChanged).toBe(true);
   });
 
   it("settingsHasPermissions reflects whether the perms landed on disk", () => {
@@ -232,23 +272,35 @@ describe("global-render — personal permissions merge (#237)", () => {
 
 describe("global-render — apply + uninstall round-trip", () => {
   it("writes an executable hook and merged settings, then uninstall removes only navori", () => {
-    writeFileSync(join(claudeDir, "settings.json"), JSON.stringify({ model: "opusplan" }));
-    const plan = planGlobalRender(defaultGlobalConfig("0.5.0"));
+    writeFileSync(
+      join(claudeDir, "settings.json"),
+      JSON.stringify({ model: "opusplan", permissions: { allow: ["Bash(ls:*)"] } }),
+    );
+    const cfg = defaultGlobalConfig("0.5.0");
+    cfg.permissions.allow = ["Bash(pnpm test:*)"];
+    const plan = planGlobalRender(cfg, claudeDir);
+    applyGlobalPlugin(planGlobalPlugin(cfg, composeBaseline(cfg), claudeDir));
     applyGlobalRender(plan);
+    cfg.ownedPermissions = plan.ownedPermissions;
 
-    expect(existsSync(plan.hookPath)).toBe(true);
-    expect(statSync(plan.hookPath).mode & 0o111).toBeGreaterThan(0); // executable bit
+    const hookPath = hookPathOf(claudeDir);
+    expect(existsSync(hookPath)).toBe(true);
+    expect(statSync(hookPath).mode & 0o111).toBeGreaterThan(0); // executable bit
     const written = JSON.parse(readFileSync(plan.settingsPath, "utf-8")) as Record<string, unknown>;
     expect(written.model).toBe("opusplan");
-    expect(written.hooks).toBeDefined();
+    expect(written.hooks).toBeUndefined(); // FB: the gate lives in the plugin
 
-    const result = uninstallGlobalRender();
-    expect(result.removedHook).toBe(true);
+    expect(removeGlobalPlugin(claudeDir)).toBe(true);
+    const result = uninstallGlobalRender(claudeDir, cfg);
     expect(result.updatedSettings).toBe(true);
-    expect(existsSync(plan.hookPath)).toBe(false);
-    const after = JSON.parse(readFileSync(plan.settingsPath, "utf-8")) as Record<string, unknown>;
+    expect(existsSync(hookPath)).toBe(false);
+    expect(existsSync(globalPluginDir(claudeDir))).toBe(false);
+    const after = JSON.parse(readFileSync(plan.settingsPath, "utf-8")) as {
+      model?: string;
+      permissions?: { allow?: string[] };
+    };
     expect(after.model).toBe("opusplan"); // user key intact
-    expect(after.hooks).toBeUndefined(); // navori's only hook pruned cleanly
+    expect(after.permissions?.allow).toEqual(["Bash(ls:*)"]); // theirs stays, navori's goes
   });
 
   it("stripBaselineFromSettings leaves an unrelated SessionStart hook intact", () => {
@@ -295,6 +347,17 @@ const USER_SETTINGS = {
 
 /** The same settings with ONE trailing comma — how a hand-edited file breaks. */
 const CORRUPT_SETTINGS = `${JSON.stringify(USER_SETTINGS, null, 2).replace(/\n\}$/, ",\n}")}\n`;
+
+/**
+ * A config that actually changes settings.json. Since FB moved the gate into
+ * the plugin, a default config merges NOTHING into the user's file — so the
+ * write/backup contract can only be exercised with a permission declared.
+ */
+function cfgThatWritesSettings(version = "0.5.0") {
+  const cfg = defaultGlobalConfig(version);
+  cfg.permissions.allow = ["Bash(pnpm test:*)"];
+  return cfg;
+}
 
 /** Every file under `dir`, as paths relative to it. */
 function filesUnder(dir: string, root = dir): string[] {
@@ -345,22 +408,34 @@ describe("global-render — an unreadable settings.json is never merged over (#4
 
   it("still installs normally when there is no settings.json at all", () => {
     expect(existsSync(join(claudeDir, "settings.json"))).toBe(false);
-    const plan = planGlobalRender(defaultGlobalConfig("0.5.0"));
+    const plan = planGlobalRender(cfgThatWritesSettings());
     expect(applyGlobalRender(plan)).toBeNull(); // nothing to snapshot on a first install
-    const written = JSON.parse(readFileSync(plan.settingsPath, "utf-8")) as Record<string, unknown>;
-    expect(written.hooks).toBeDefined();
+    const written = JSON.parse(readFileSync(plan.settingsPath, "utf-8")) as {
+      permissions?: { allow?: string[] };
+    };
+    expect(written.permissions?.allow).toEqual(["Bash(pnpm test:*)"]);
   });
 
-  it("doctor's checks report 'not registered' instead of trusting an unreadable file", () => {
-    const cfg = defaultGlobalConfig("0.5.0");
-    cfg.permissions.allow = ["Bash(pnpm test:*)"];
+  /**
+   * A default config now leaves settings.json alone entirely, so a first install
+   * on a machine with no settings.json creates no file — the absence IS the
+   * correct state, not a failed write.
+   */
+  it("writes no settings.json at all when nothing has to be merged into it", () => {
+    const plan = planGlobalRender(defaultGlobalConfig("0.5.0"));
+    expect(plan.settingsChanged).toBe(false);
+    expect(applyGlobalRender(plan)).toBeNull();
+    expect(existsSync(join(claudeDir, "settings.json"))).toBe(false);
+  });
+
+  it("doctor's checks report 'not merged' instead of trusting an unreadable file", () => {
+    const cfg = cfgThatWritesSettings();
     applyGlobalRender(planGlobalRender(cfg));
-    expect(settingsHasBaseline(claudeDir)).toBe(true);
     expect(settingsHasPermissions(cfg, claudeDir)).toBe(true);
 
     writeFileSync(join(claudeDir, "settings.json"), CORRUPT_SETTINGS);
-    expect(settingsHasBaseline(claudeDir)).toBe(false);
     expect(settingsHasPermissions(cfg, claudeDir)).toBe(false);
+    expect(settingsHasLegacyHook(claudeDir)).toBe(false);
   });
 });
 
@@ -370,7 +445,7 @@ describe("global-render — the previous settings.json is backed up before the r
     writeFileSync(path, `${JSON.stringify(USER_SETTINGS, null, 2)}\n`);
     const original = readFileSync(path, "utf-8");
 
-    const backupPath = applyGlobalRender(planGlobalRender(defaultGlobalConfig("0.5.0")));
+    const backupPath = applyGlobalRender(planGlobalRender(cfgThatWritesSettings()));
     expect(backupPath).toBeTruthy();
     expect(backupPath?.startsWith(process.env.NAVORI_BACKUP_ROOT as string)).toBe(true);
 
@@ -397,20 +472,52 @@ describe("global-render — the previous settings.json is backed up before the r
     mkdirSync(join(claudeDir, "worktrees", "feature"), { recursive: true });
     writeFileSync(join(claudeDir, "worktrees", "feature", "file.ts"), "x");
 
-    const backupPath = applyGlobalRender(planGlobalRender(defaultGlobalConfig("0.5.0")));
+    const backupPath = applyGlobalRender(planGlobalRender(cfgThatWritesSettings()));
     expect(filesUnder(backupPath as string)).toEqual(["settings.json"]);
   });
 });
 
+/**
+ * Seed an F1-era install: the gate hook loose under the Claude config dir, plus
+ * the SessionStart entry navori used to merge into the user's settings.json.
+ * That layout is what uninstall and the FB migration still have to handle.
+ */
+function seedLegacyInstall(dir: string, extraSettings: Record<string, unknown> = {}): string {
+  const hookPath = legacyGlobalHookPath(dir);
+  mkdirSync(dirname(hookPath), { recursive: true });
+  writeFileSync(hookPath, generateHookScript(composeBaseline(defaultGlobalConfig("0.5.0"))));
+  writeFileSync(
+    join(dir, "settings.json"),
+    `${JSON.stringify(
+      {
+        ...extraSettings,
+        hooks: {
+          ...((extraSettings.hooks as Record<string, unknown>) ?? {}),
+          SessionStart: [
+            {
+              matcher: "startup|resume|compact",
+              hooks: [{ type: "command", command: `bash "${hookPath}"` }],
+            },
+          ],
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  return hookPath;
+}
+
 describe("global-render — uninstall against an unreadable settings.json (#497)", () => {
   it("removes the hook file but leaves the settings byte-for-byte, and says so", () => {
-    applyGlobalRender(planGlobalRender(defaultGlobalConfig("0.5.0")));
+    const hookPath = seedLegacyInstall(claudeDir);
     const path = join(claudeDir, "settings.json");
     writeFileSync(path, CORRUPT_SETTINGS);
     const before = readFileSync(path, "utf-8");
 
     const result = uninstallGlobalRender(claudeDir);
     expect(result.removedHook).toBe(true);
+    expect(existsSync(hookPath)).toBe(false);
     expect(result.updatedSettings).toBe(false);
     expect(result.settingsUnreadable).toBe(true);
     expect(result.backupPath).toBeNull();
@@ -418,8 +525,7 @@ describe("global-render — uninstall against an unreadable settings.json (#497)
   });
 
   it("backs up the settings it DOES rewrite, keeping the pre-uninstall state", () => {
-    writeFileSync(join(claudeDir, "settings.json"), JSON.stringify(USER_SETTINGS));
-    applyGlobalRender(planGlobalRender(defaultGlobalConfig("0.5.0")));
+    seedLegacyInstall(claudeDir, { model: "opusplan" });
 
     const result = uninstallGlobalRender(claudeDir);
     expect(result.updatedSettings).toBe(true);
@@ -459,21 +565,30 @@ describe("global init — end to end against the built CLI (#497)", () => {
     expect(status).not.toBe(0);
     expect(combined).toContain(path);
     expect(readFileSync(path, "utf-8")).toBe(before); // byte-for-byte, not just present
-    expect(existsSync(globalHookPath(claudeDir))).toBe(false);
+    expect(existsSync(hookPathOf(claudeDir))).toBe(false);
+    expect(pluginInstalled(claudeDir)).toBe(false);
     expect(existsSync(join(scratch, ".navori", "global.json"))).toBe(false); // nothing persisted
   });
 
-  it("installs the baseline when settings.json is absent", () => {
+  it("installs the plugin, its gate hook and the agents, leaving settings.json alone", () => {
     const { status } = runGlobalInit();
 
     expect(status).toBe(0);
-    expect(existsSync(globalHookPath(claudeDir))).toBe(true);
-    const written = JSON.parse(readFileSync(join(claudeDir, "settings.json"), "utf-8")) as {
-      hooks?: { SessionStart?: Array<{ hooks: Array<{ command: string }> }> };
+    expect(pluginInstalled(claudeDir)).toBe(true);
+    expect(existsSync(hookPathOf(claudeDir))).toBe(true);
+    expect(statSync(hookPathOf(claudeDir)).mode & 0o111).toBeGreaterThan(0);
+
+    const pluginDir = globalPluginDir(claudeDir);
+    const manifest = JSON.parse(readFileSync(join(pluginDir, PLUGIN_MANIFEST_REL), "utf-8")) as {
+      name: string;
     };
-    expect(written.hooks?.SessionStart?.[0]?.hooks[0]?.command).toContain(
-      "navori-global-baseline.sh",
-    );
+    expect(manifest.name).toBe("navori");
+    expect(existsSync(join(pluginDir, "agents/implementer.md"))).toBe(true);
+    expect(existsSync(join(pluginDir, "skills/review-diff/SKILL.md"))).toBe(true);
+
+    // FB: a default config merges nothing, so the user's machine-wide settings
+    // file is not even created.
+    expect(existsSync(join(claudeDir, "settings.json"))).toBe(false);
   });
 });
 
@@ -483,9 +598,10 @@ describe("global init — end to end against the built CLI (#497)", () => {
 
 /** Install the hook for `config` and hand back its path and expected content. */
 function installHook(config = defaultGlobalConfig("9.9.9", "es")) {
-  const plan = planGlobalRender(config, claudeDir);
-  applyGlobalRender(plan);
-  return { path: plan.hookPath, expected: plan.hookScript };
+  const plan = planGlobalPlugin(config, composeBaseline(config), claudeDir);
+  applyGlobalPlugin(plan);
+  const file = plan.files.find((f) => f.relPath === PLUGIN_HOOK_SCRIPT_REL);
+  return { path: join(plan.dir, PLUGIN_HOOK_SCRIPT_REL), expected: file?.content ?? "" };
 }
 
 describe("global-render — hook authorship marker and drift (#542)", () => {
@@ -575,15 +691,12 @@ describe("global-render — hook authorship marker and drift (#542)", () => {
 
   it("re-applying reconciles a hand-edited hook back to 'ok'", () => {
     const config = defaultGlobalConfig("9.9.9", "es");
-    const { path } = installHook(config);
+    const { path, expected } = installHook(config);
     writeFileSync(path, `${readFileSync(path, "utf-8")}\n# smuggled\n`);
-    expect(readHookDrift(path, planGlobalRender(config, claudeDir).hookScript).kind).toBe(
-      "hand-edited",
-    );
+    expect(readHookDrift(path, expected).kind).toBe("hand-edited");
 
-    const plan = planGlobalRender(config, claudeDir);
-    applyGlobalRender(plan);
-    expect(readHookDrift(path, plan.hookScript)).toEqual({ kind: "ok" });
+    const again = installHook(config);
+    expect(readHookDrift(again.path, again.expected)).toEqual({ kind: "ok" });
   });
 
   it("the marker does not break the script — bash still runs it and the gate still works", () => {
@@ -715,7 +828,7 @@ describe("global doctor — drift and gate reach the report (#542, #543)", () =>
 
   it("a hand-edited hook is named as such, and doctor does NOT just say 'run render'", () => {
     run(["init"]);
-    const path = globalHookPath(claudeDir);
+    const path = hookPathOf(claudeDir);
     writeFileSync(path, `${readFileSync(path, "utf-8")}\n# someone was here\n`);
 
     const { combined } = run(["doctor"]);
@@ -726,7 +839,7 @@ describe("global doctor — drift and gate reach the report (#542, #543)", () =>
 
   it("a hook from a navori older than #542 is reported as unmarked, not as healthy", () => {
     run(["init"]);
-    const path = globalHookPath(claudeDir);
+    const path = hookPathOf(claudeDir);
     // Strip the marker line: exactly what a pre-#542 install looks like on disk.
     writeFileSync(path, readFileSync(path, "utf-8").replace(/^# navori:managed .*\n/m, ""));
     expect(run(["doctor"]).combined).toContain("sin marcador");
@@ -734,7 +847,7 @@ describe("global doctor — drift and gate reach the report (#542, #543)", () =>
 
   it("render --apply reconciles, and doctor goes back to clean", () => {
     run(["init"]);
-    const path = globalHookPath(claudeDir);
+    const path = hookPathOf(claudeDir);
     writeFileSync(path, `${readFileSync(path, "utf-8")}\n# smuggled\n`);
     expect(run(["doctor"]).combined).toContain("editado a mano");
 
@@ -746,7 +859,7 @@ describe("global doctor — drift and gate reach the report (#542, #543)", () =>
 
   it("a deleted hook is reported as missing, and the gate is not probed", () => {
     run(["init"]);
-    rmSync(globalHookPath(claudeDir));
+    rmSync(hookPathOf(claudeDir));
     const { combined } = run(["doctor"]);
     expect(combined).toContain("ausente");
     expect(combined).not.toContain("gate funcional");
