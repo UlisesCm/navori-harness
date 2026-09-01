@@ -1096,6 +1096,21 @@ interface GlobalCmdStrings {
   doctorTitle: (dir: string) => string;
   hookPresent: string;
   hookMissing: string;
+  /**
+   * #542 — the hook's own drift verdicts. `hookHandEdited` must name the file
+   * and must NOT read as "run render": the remediation destroys the edit, so
+   * the user has to be the one who decides that.
+   */
+  hookUnmarked: string;
+  hookHandEdited: (path: string) => string;
+  hookStale: (found: string, expected: string) => string;
+  /** #543 — what running the gate actually produced. */
+  gateOk: string;
+  gateNoJsonTool: string;
+  gateNoEmit: string;
+  gateNoDefer: string;
+  gateMalformed: (detail: string) => string;
+  gateError: (detail: string) => string;
   settingsRegistered: string;
   settingsNotRegistered: string;
   permsMerged: (count: number) => string;
@@ -1985,8 +2000,31 @@ const CMD_ES: CmdStrings = {
     wroteSettings: (path) => `settings: ${path}`,
     baselineBlocks: (ids) => `Bloques del baseline: ${ids}`,
     doctorTitle: (dir) => `Harness global en ${dir}`,
-    hookPresent: "hook de baseline presente",
+    hookPresent: "hook de baseline presente y al día",
     hookMissing: "hook de baseline ausente — corre 'navori global render --apply'",
+    hookUnmarked:
+      "hook sin marcador (lo escribió un navori anterior) — corre 'navori global render --apply' " +
+      "para que quede versionado y doctor pueda detectar cambios",
+    hookHandEdited: (path) =>
+      `hook editado a mano: ${path} no coincide con su propio hash. ` +
+      "'navori global render --apply' lo regenera y DESCARTA esa edición; " +
+      "si la quieres conservar, muévela a otro hook antes de renderizar",
+    hookStale: (found, expected) =>
+      `hook desactualizado (renderizado con ${found}, el CLI es ${expected}) — ` +
+      "corre 'navori global render --apply'",
+    gateOk: "gate funcional (emite baseline fuera de un repo navori, y nada dentro)",
+    gateNoJsonTool:
+      "el gate no puede emitir: no hay 'node' ni 'jq' en el PATH del hook. " +
+      "Ninguna sesión recibe el baseline. Con nvm suele pasar cuando Claude Code " +
+      "arranca fuera de tu shell (app de escritorio): instala 'jq' o expón 'node' al PATH del sistema",
+    gateNoEmit:
+      "el gate no emitió nada en un directorio sin config navori — debería inyectar el baseline. " +
+      "Corre 'navori global render --apply'; si sigue, el hook está roto",
+    gateNoDefer:
+      "el gate emitió el baseline DENTRO de un repo con navori.config.json — debería hacerse a un " +
+      "lado (Spec 0010 §3.1). El repo y el global se estarían duplicando",
+    gateMalformed: (detail) => `el gate emitió algo que no es el JSON esperado (${detail})`,
+    gateError: (detail) => `el gate falló al ejecutarse: ${detail}`,
     settingsRegistered: "registrado en settings.json (SessionStart)",
     settingsNotRegistered: "no registrado en settings.json — corre 'navori global render --apply'",
     permsMerged: (count) => `${count} permiso(s) personales presentes en settings.json`,
@@ -2900,8 +2938,32 @@ const CMD_EN: CmdStrings = {
     wroteSettings: (path) => `settings: ${path}`,
     baselineBlocks: (ids) => `Baseline blocks: ${ids}`,
     doctorTitle: (dir) => `Global harness at ${dir}`,
-    hookPresent: "baseline hook present",
+    hookPresent: "baseline hook present and up to date",
     hookMissing: "baseline hook missing — run 'navori global render --apply'",
+    hookUnmarked:
+      "hook has no marker (an older navori wrote it) — run 'navori global render --apply' so it " +
+      "carries a version and doctor can detect changes",
+    hookHandEdited: (path) =>
+      `hook edited by hand: ${path} does not match its own hash. ` +
+      "'navori global render --apply' regenerates it and DISCARDS that edit; " +
+      "to keep it, move it to a hook of your own before rendering",
+    hookStale: (found, expected) =>
+      `hook out of date (rendered with ${found}, CLI is ${expected}) — ` +
+      "run 'navori global render --apply'",
+    gateOk: "gate works (emits the baseline outside a navori repo, nothing inside one)",
+    gateNoJsonTool:
+      "the gate cannot emit: neither 'node' nor 'jq' is on the hook's PATH. " +
+      "No session receives the baseline. Common under nvm when Claude Code starts outside your " +
+      "shell (desktop app): install 'jq', or expose 'node' on the system PATH",
+    gateNoEmit:
+      "the gate emitted nothing in a directory with no navori config — it should inject the " +
+      "baseline. Run 'navori global render --apply'; if it persists, the hook is broken",
+    gateNoDefer:
+      "the gate emitted the baseline INSIDE a repo with a navori.config.json — it should step " +
+      "aside (Spec 0010 §3.1). The repo and the global layer would be duplicating each other",
+    gateMalformed: (detail) =>
+      `the gate emitted something that is not the expected JSON (${detail})`,
+    gateError: (detail) => `the gate failed to run: ${detail}`,
     settingsRegistered: "registered in settings.json (SessionStart)",
     settingsNotRegistered: "not registered in settings.json — run 'navori global render --apply'",
     permsMerged: (count) => `${count} personal permission(s) present in settings.json`,
