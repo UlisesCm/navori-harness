@@ -216,6 +216,43 @@ navori registry prune                       # quitar los que ya no existen
 Es ortogonal a los workspaces: el registro es "qué repos existen"; el workspace
 es el perfil de policy (branchBase/prTarget) que cada repo hereda.
 
+## Harness global por máquina (opt-in)
+
+Todo lo de arriba es por repo. Cuando abres una sesión **fuera** de un repo con navori (un scratch,
+un repo ajeno, tu `~`), no hay harness: ni doctrina de orquestación, ni skills, ni agentes. La capa
+global cubre ese hueco. No la confundas con `render --all` de la sección anterior: aquélla empuja tu
+harness a los repos que **ya** tienen navori; ésta cubre las sesiones que no están en ninguno.
+
+Es **opt-in de huella cero**: si nunca corres `navori global init`, no existe `~/.navori/global.json`
+y navori no escribió un solo byte en tu máquina.
+
+```bash
+navori global init             # instala la capa (--lang es|en para el idioma del baseline)
+navori global doctor           # audita: drift del hook, gate, plugin, permisos y versión
+navori global render --apply   # re-renderiza tras un bump del CLI (preview sin --apply)
+navori global uninstall        # la retira por completo
+```
+
+Qué escribe el `init`, y nada más:
+
+- `~/.navori/global.json` — el manifest: idioma, bloques del baseline y tus permisos globales.
+- `~/.claude/skills/navori/` — el plugin `navori@skills-dir` con los 8 agentes, las 12 skills y el
+  hook del baseline. Claude Code lo carga sin marketplace ni paso de instalación; las skills globales
+  se invocan `/navori:<nombre>` (tras un render, `/reload-plugins` o sesión nueva).
+- `~/.claude/settings.json` — **solo** la clave `permissions`, y solo si declaraste permisos globales
+  en el manifest. Con la config por default ni siquiera lo crea.
+
+Respeta `CLAUDE_CONFIG_DIR`: si lo tienes seteado, el plugin va ahí en vez de a `~/.claude`.
+
+**El baseline se hace a un lado solo.** El hook corre en `SessionStart` y busca un `navori.config.json`
+hacia arriba desde el directorio de la sesión: si lo encuentra, no emite nada — manda el harness del
+repo, que es más específico. Por eso el baseline viaja dentro de un hook y no como bloque estático en
+`~/.claude/CLAUDE.md`: ese archivo se carga siempre y no podría cederle el paso a nadie.
+
+`navori global uninstall` retira **solo lo que navori escribió**: el plugin, el manifest y los permisos
+que quedaron registrados como suyos. Un permiso que ya tenías en tu `settings.json` nunca se vuelve de
+navori, así que el uninstall no se lo lleva.
+
 ## Managed blocks con versionado
 
 Cada bloque que `navori` inyecta en tu `CLAUDE.md` lleva metadata:

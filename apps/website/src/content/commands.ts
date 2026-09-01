@@ -216,6 +216,58 @@ const es: Record<string, CommandDoc> = {
     ],
     notes: ["Complementa NAVORI_BENCH=1, que instrumenta los tiempos de una sola corrida."],
   },
+  global: {
+    id: "global",
+    title: "global",
+    summary:
+      "Instala un harness base por máquina en ~/.claude, para las sesiones que arrancan fuera de un repo con navori. Opt-in y de huella cero: sin 'navori global init' no existe, y navori no tocó nada de tu máquina.",
+    usage:
+      "navori global init [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global uninstall",
+    flags: [
+      {
+        flag: "init",
+        desc: "Instala la capa global: el manifest ~/.navori/global.json y el plugin 'navori@skills-dir' en ~/.claude/skills/navori/ (8 agentes, 12 skills y el hook del baseline).",
+      },
+      {
+        flag: "init --lang <es|en>",
+        desc: "Idioma del baseline global. Default: es, o el que ya tenía la instalación.",
+      },
+      {
+        flag: "render",
+        desc: "Re-renderiza el plugin y el hook tras un bump del CLI. Preview por default: sin --apply no toca disco.",
+      },
+      { flag: "render --apply", desc: "Escribe a disco (respalda settings.json si lo modifica)." },
+      {
+        flag: "doctor",
+        desc: "Audita la capa: drift del hook, el gate ejecutado de verdad, el plugin al día, permisos y versión. Si no está instalada, lo dice y ya.",
+      },
+      {
+        flag: "uninstall",
+        desc: "Retira solo lo que navori escribió: el plugin, el manifest y los permisos que reclamó — los tuyos quedan intactos.",
+      },
+    ],
+    example: [
+      {
+        title: "Instalar la capa global",
+        code: "$ navori global init\n  · plugin: ~/.claude/skills/navori (23 archivos)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Harness global instalado en ~/.claude.",
+      },
+      {
+        title: "Auditar",
+        code: "$ navori global doctor\n  ✓ hook de baseline presente y al día\n  ✓ gate funcional (emite baseline fuera de un repo navori, y nada dentro)\n  ✓ plugin 'navori@skills-dir' instalado y al día\n✓ OK",
+      },
+      {
+        title: "Quitarla",
+        code: "$ navori global uninstall\n✓ Harness global desinstalado de ~/.claude.",
+      },
+    ],
+    notes: [
+      "Opt-in de verdad: sin 'navori global init' no existe ~/.navori/global.json y navori no escribió un solo byte en tu máquina.",
+      "El plugin 'navori@skills-dir' lo carga Claude Code sin marketplace ni paso de instalación; sus skills se invocan '/navori:<nombre>'.",
+      "El hook se hace a un lado solo: si la sesión arranca dentro de un repo con navori.config.json, no emite nada. Manda el harness del repo.",
+      "De ~/.claude/settings.json solo escribe 'permissions', y con la config por default ni siquiera lo crea.",
+      "Respeta CLAUDE_CONFIG_DIR: si lo tienes seteado, el plugin va ahí y no a ~/.claude.",
+    ],
+  },
 };
 
 const en: Record<string, CommandDoc> = {
@@ -425,6 +477,58 @@ const en: Record<string, CommandDoc> = {
     ],
     notes: ["Complements NAVORI_BENCH=1, which instruments the timings of a single run."],
   },
+  global: {
+    id: "global",
+    title: "global",
+    summary:
+      "Installs a machine-wide harness baseline into ~/.claude, for sessions that start outside a navori repo. Opt-in and zero-footprint: without 'navori global init' it doesn't exist, and navori touched nothing on your machine.",
+    usage:
+      "navori global init [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global uninstall",
+    flags: [
+      {
+        flag: "init",
+        desc: "Installs the global layer: the ~/.navori/global.json manifest and the 'navori@skills-dir' plugin under ~/.claude/skills/navori/ (8 agents, 12 skills and the baseline hook).",
+      },
+      {
+        flag: "init --lang <es|en>",
+        desc: "Global baseline language. Default: es, or whatever the existing install already had.",
+      },
+      {
+        flag: "render",
+        desc: "Re-renders the plugin and the hook after a CLI bump. Preview by default: without --apply nothing is written.",
+      },
+      { flag: "render --apply", desc: "Write to disk (backs up settings.json if it changes it)." },
+      {
+        flag: "doctor",
+        desc: "Audits the layer: hook drift, the gate actually executed, plugin up to date, permissions and version. If it isn't installed, it says so and stops.",
+      },
+      {
+        flag: "uninstall",
+        desc: "Removes only what navori wrote: the plugin, the manifest and the permissions it claimed — yours are left intact.",
+      },
+    ],
+    example: [
+      {
+        title: "Install the global layer",
+        code: "$ navori global init\n  · plugin: ~/.claude/skills/navori (23 files)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Global harness installed at ~/.claude.",
+      },
+      {
+        title: "Audit",
+        code: "$ navori global doctor\n  ✓ baseline hook present and up to date\n  ✓ gate works (emits the baseline outside a navori repo, nothing inside one)\n  ✓ plugin 'navori@skills-dir' installed and up to date\n✓ OK",
+      },
+      {
+        title: "Remove it",
+        code: "$ navori global uninstall\n✓ Global harness uninstalled from ~/.claude.",
+      },
+    ],
+    notes: [
+      "Opt-in for real: without 'navori global init' there is no ~/.navori/global.json, and navori wrote not a single byte on your machine.",
+      "Claude Code loads the 'navori@skills-dir' plugin with no marketplace and no install step; its skills are invoked as '/navori:<name>'.",
+      "The hook steps aside on its own: if the session starts inside a repo with navori.config.json it emits nothing. The repo's harness wins.",
+      "In ~/.claude/settings.json it only writes 'permissions', and with the default config it doesn't even create the file.",
+      "Honors CLAUDE_CONFIG_DIR: if you have it set, the plugin goes there instead of ~/.claude.",
+    ],
+  },
 };
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
@@ -438,4 +542,5 @@ export const commandOrder = [
   "doctor",
   "status",
   "bench",
+  "global",
 ] as const;
