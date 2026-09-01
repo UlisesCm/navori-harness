@@ -161,6 +161,15 @@ export interface SessionAudit {
   };
   agents: AgentRun[];
   signals: Signal[];
+  /**
+   * First hook execution the session log recorded, or `null` when it recorded
+   * none. It is the recorder's horizon, not the session's: a harness rendered
+   * or updated MID-SESSION starts recording an hour into the run, and every
+   * agent that finished before this instant has hooks that ran and left no
+   * trace. Without it "no hooks" and "no record" render identically, and the
+   * report claims something it cannot know.
+   */
+  hookLogFrom: string | null;
   /** Unparseable or unknown lines, counted instead of thrown. */
   parseErrors: number;
   /** Total lines seen, so `parseErrors` can be read as a ratio. */

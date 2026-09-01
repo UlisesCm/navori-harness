@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { parseAgentRun, parseSession, sumTokens, readJsonl } from "../parse.ts";
+import { attachHookEvents, parseAgentRun, parseSession, sumTokens, readJsonl } from "../parse.ts";
+import type { AgentRun, SessionAudit } from "../model.ts";
 
 const FIXTURE = join(
   fileURLToPath(new URL("../../../__tests__/fixtures/audit/", import.meta.url)),
@@ -279,5 +280,174 @@ describe("skills carry how they were detected (#0013)", () => {
     // "no skills" for an agent that genuinely used one.
     expect(run?.skills).toEqual([{ slug: "dominio", source: "skill-md" }]);
     expect(run?.skillsDiscarded).toBe(0);
+  });
+});
+
+describe("parse: hook attribution", () => {
+  /**
+   * `attachHookEvents` is the only place the harness's own record meets the
+   * transcript, and it shipped with no tests — which is how a reviewer ended up
+   * with `subagent-stop-handoff 21x` on its card in a real session. The rule it
+   * must hold is narrow: a card lists the hooks that ran DURING that agent, in
+   * that agent's process. Everything else belongs to the orchestrator.
+   */
+  function agent(over: Partial<AgentRun>): AgentRun {
+    return {
+      agentId: "a1",
+      agentType: "implementer",
+      model: "claude-opus-5",
+      description: "",
+      startedAt: "2026-08-25T10:00:00.000Z",
+      endedAt: "2026-08-25T10:10:00.000Z",
+      durationMs: 600_000,
+      spawnDepth: 1,
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, thinking: 0 },
+      startupTokens: 0,
+      overlapsWith: [],
+      toolCounts: {},
+      skillsRead: [],
+      skills: [],
+      skillsDiscarded: 0,
+      mcpCalls: {},
+      mcpReach: {},
+      mcpBarredTokens: {},
+      hookEvents: [],
+      frictionEvents: 0,
+      repeatedCommands: {},
+      verdict: null,
+      ...over,
+    };
+  }
+
+  function session(agents: AgentRun[]): SessionAudit {
+    return {
+      sessionId: "s1",
+      startedAt: "2026-08-25T09:00:00.000Z",
+      endedAt: "2026-08-25T12:00:00.000Z",
+      wallClockMs: 10_800_000,
+      initialPrompt: "haz X",
+      prompts: { typed: 1, queued: 0 },
+      gitBranch: "main",
+      cwd: "/tmp/repo",
+      ccVersions: [],
+      permissionModes: {},
+      prs: [],
+      orchestrator: {
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, thinking: 0 },
+        startupTokens: 0,
+        toolCounts: {},
+        skillsRead: [],
+        skills: [],
+        skillsDiscarded: 0,
+        mcpCalls: {},
+        hookEvents: [],
+        frictionEvents: 0,
+        repeatedCommands: {},
+      },
+      agents,
+      signals: [],
+      hookLogFrom: null,
+      parseErrors: 0,
+      linesRead: 0,
+    };
+  }
+
+  function log(events: object[]): string {
+    const dir = mkdtempSync(join(tmpdir(), "navori-hooks-"));
+    const file = join(dir, "session-s1.log");
+    writeFileSync(file, events.map((e) => JSON.stringify(e)).join("\n"), "utf-8");
+    return file;
+  }
+
+  const hook = (over: Record<string, unknown>) => ({
+    ts: "2026-08-25T10:05:00Z",
+    event: "hook",
+    name: "guard-destructive",
+    phase: "PreToolUse",
+    verdict: "skip",
+    ms: 12,
+    source: "core",
+    ...over,
+  });
+
+  it("attributes an event to the agent its id names", () => {
+    const s = session([agent({ agentId: "a1" })]);
+    attachHookEvents(s, log([hook({ agentId: "a1" })]));
+    expect(s.agents[0]?.hookEvents).toHaveLength(1);
+    expect(s.orchestrator.hookEvents).toHaveLength(0);
+  });
+
+  it("gives an id that names nobody to the orchestrator, never to the window", () => {
+    // The orchestrator's own events carry the repo `cwd` as their id, which
+    // matches no agent by construction. Falling through to the time window put
+    // ~294 of them inside subagent cards in the reference session.
+    const s = session([agent({ agentId: "a1" })]);
+    attachHookEvents(s, log([hook({ agentId: "/Users/x/repo" })]));
+    expect(s.agents[0]?.hookEvents).toHaveLength(0);
+    expect(s.orchestrator.hookEvents).toHaveLength(1);
+  });
+
+  it("keeps a SubagentStop in the orchestrator even when its id names a real agent", () => {
+    // The host sends the id of the child that STOPPED, but the hook runs in the
+    // parent, after that child is gone: the milliseconds are the parent's. The
+    // `agentId` survives on the event, so nothing is lost.
+    const s = session([agent({ agentId: "a1" })]);
+    attachHookEvents(
+      s,
+      log([hook({ agentId: "a1", phase: "SubagentStop", name: "subagent-stop-handoff" })]),
+    );
+    expect(s.agents[0]?.hookEvents).toHaveLength(0);
+    expect(s.orchestrator.hookEvents[0]?.agentId).toBe("a1");
+  });
+
+  it("falls back to the time window only when no id was stated", () => {
+    const s = session([agent({ agentId: "a1" })]);
+    attachHookEvents(s, log([hook({})]));
+    expect(s.agents[0]?.hookEvents).toHaveLength(1);
+  });
+
+  it("refuses to pick between two agents alive at the same instant", () => {
+    const s = session([agent({ agentId: "a1" }), agent({ agentId: "a2" })]);
+    attachHookEvents(s, log([hook({})]));
+    expect(s.orchestrator.hookEvents).toHaveLength(1);
+    expect(s.agents.every((a) => a.hookEvents.length === 0)).toBe(true);
+  });
+
+  it("loses no event: orchestrator plus agents equals the log", () => {
+    const s = session([agent({ agentId: "a1" }), agent({ agentId: "a2" })]);
+    attachHookEvents(
+      s,
+      log([
+        hook({ agentId: "a1" }),
+        hook({ agentId: "ghost" }),
+        hook({ agentId: "a2", phase: "SubagentStop" }),
+        hook({}),
+      ]),
+    );
+    const attributed =
+      s.orchestrator.hookEvents.length + s.agents.reduce((n, a) => n + a.hookEvents.length, 0);
+    expect(attributed).toBe(4);
+  });
+
+  it("records the recorder's horizon as the earliest event, not the first line", () => {
+    const s = session([]);
+    attachHookEvents(
+      s,
+      log([hook({ ts: "2026-08-25T10:05:00Z" }), hook({ ts: "2026-08-25T09:30:00Z" })]),
+    );
+    expect(s.hookLogFrom).toBe("2026-08-25T09:30:00Z");
+  });
+
+  it("leaves the horizon null when the log recorded no hook at all", () => {
+    const s = session([]);
+    attachHookEvents(s, log([{ ts: "2026-08-25T09:00:00Z", event: "start" }]));
+    expect(s.hookLogFrom).toBeNull();
+  });
+
+  it("counts an event missing a mandatory field instead of half-reading it", () => {
+    const s = session([]);
+    attachHookEvents(s, log([hook({ name: undefined }), hook({})]));
+    expect(s.parseErrors).toBe(1);
+    expect(s.orchestrator.hookEvents).toHaveLength(1);
   });
 });
