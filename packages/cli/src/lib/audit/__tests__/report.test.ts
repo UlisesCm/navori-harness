@@ -283,3 +283,67 @@ describe("an empty hook list is not the same as no record", () => {
     expect(out).not.toContain("sin registro");
   });
 });
+
+describe("the orchestrator's hook counts declare the window they cover (#559)", () => {
+  /**
+   * The subagent case (#558) is an EMPTY list that needs explaining. The
+   * orchestrator's is worse: its card spans the whole session, so a recorder
+   * that started late leaves real counts drawn from part of the run —
+   * `guard-destructive 212x` next to 298 Bash calls, with nothing saying 86
+   * fired before the log existed. Printed beside subagent cards that DO declare
+   * their gap, a bare number reads as the complete one.
+   */
+  const HORIZON = "2026-08-25T10:30:00Z";
+
+  /** The orchestrator with hooks of its own, over a session that starts at 10:00. */
+  function withOrchestratorHooks(over: Partial<SessionAudit> = {}): string {
+    return md([agent()], {
+      orchestrator: {
+        ...session([]).orchestrator,
+        toolCounts: { Bash: 298 },
+        hookEvents: [
+          {
+            ts: "2026-08-25T10:35:00Z",
+            name: "guard-destructive",
+            phase: "PreToolUse",
+            verdict: "allow",
+            ms: 12,
+            source: "core",
+          },
+        ],
+      },
+      ...over,
+    });
+  }
+
+  it("marks the counts partial and states the fraction observed", () => {
+    const out = withOrchestratorHooks({ hookLogFrom: HORIZON });
+    expect(out).toContain("guard-destructive 1×");
+    expect(out).toContain("parcial · el recorder cubre 50% de la sesión, desde 10:30:00Z");
+    expect(out).toContain("30 min sin registrar");
+  });
+
+  it("says nothing when the recorder covered the whole session", () => {
+    const out = withOrchestratorHooks({ hookLogFrom: null });
+    expect(out).toContain("guard-destructive 1×");
+    expect(out).not.toContain("parcial");
+  });
+
+  it("replaces the dash when the orchestrator recorded no hook of its own", () => {
+    // A bare "—" under a late recorder claims the orchestrator ran no hook,
+    // which is exactly what the log cannot say.
+    const out = md([agent()], { hookLogFrom: HORIZON });
+    expect(out).toContain("parcial · el recorder cubre 50% de la sesión");
+  });
+
+  it("renders the note in English too", () => {
+    const report = buildReport([session([agent()], { hookLogFrom: HORIZON })], {
+      repo: "demo",
+      version: "0.6.5",
+      catalog: CATALOG,
+    });
+    expect(renderMarkdown(report, "en")).toContain(
+      "partial · the recorder covers 50% of the session, from 10:30:00Z (30 min unrecorded)",
+    );
+  });
+});

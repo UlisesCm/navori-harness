@@ -176,6 +176,45 @@ export interface SessionAudit {
   linesRead: number;
 }
 
+/**
+ * What the hook recorder observed, when it did not observe the whole session.
+ *
+ * The recorder is inlined into the managed hooks, so it exists only from the
+ * moment the harness carrying it is on disk: render or update the harness
+ * mid-run and every hook that fired earlier is missing, not zero. That makes
+ * every count drawn from the log a PARTIAL count, and a partial count printed
+ * without saying so reads as a total (#559).
+ *
+ * Null when there is nothing to declare: no recorded hook at all, unusable
+ * timestamps, or a recorder that was already running when the session started.
+ */
+export interface RecorderWindow {
+  /** ISO instant of the first recorded hook — the recorder's horizon. */
+  from: string;
+  /** Minutes of the session that ran before it. */
+  blindMinutes: number;
+  /** Share of the session's wall clock the recorder did observe, 0-100. */
+  coveredPercent: number;
+}
+
+export function recorderWindow(session: SessionAudit): RecorderWindow | null {
+  if (!session.hookLogFrom) return null;
+  const from = Date.parse(session.hookLogFrom);
+  const started = Date.parse(session.startedAt);
+  if (!Number.isFinite(from) || !Number.isFinite(started) || from <= started) return null;
+
+  const blindMs = from - started;
+  const total = session.wallClockMs;
+  // A blind stretch longer than the session itself is broken input, never
+  // negative coverage: clamp instead of printing a number that cannot be true.
+  const covered = total > 0 ? Math.round(((total - blindMs) / total) * 100) : 0;
+  return {
+    from: session.hookLogFrom,
+    blindMinutes: Math.round(blindMs / 60000),
+    coveredPercent: Math.max(0, Math.min(100, covered)),
+  };
+}
+
 export type Severity = "info" | "warn" | "high";
 
 export interface Signal {

@@ -286,14 +286,47 @@ describe("signal: hook-log-coverage", () => {
     expect(found?.evidence).toContain("30 min");
   });
 
-  it("stays silent when every agent ran under the recorder", () => {
+  it("still fires when every agent ran under the recorder (#559)", () => {
+    // The agents are covered; the SESSION is not. The orchestrator spans the
+    // whole hour, so its hook counts are short by whatever fired in the first
+    // 30 min — a truncation nothing used to declare, because the signal keyed
+    // on blind agents instead of on the horizon.
     const s = session({
       hookLogFrom: HORIZON,
       agents: [
         agent({ startedAt: "2026-08-25T10:40:00.000Z", endedAt: "2026-08-25T10:50:00.000Z" }),
       ],
     });
+    const found = detectSignals(s, catalog(), "es").find((x) => x.kind === "hook-log-coverage");
+    expect(found?.summary).toContain("50%");
+    // No agent fell in the gap, so the summary claims none did.
+    expect(found?.summary).not.toContain("agentes");
+  });
+
+  it("states the observed fraction, not just when the recorder started (#559)", () => {
+    const s = session({ hookLogFrom: HORIZON });
+    const es = detectSignals(s, catalog(), "es").find((x) => x.kind === "hook-log-coverage");
+    const en = detectSignals(s, catalog(), "en").find((x) => x.kind === "hook-log-coverage");
+    expect(es?.summary).toContain("el recorder observó 50% de la sesión");
+    expect(en?.summary).toContain("the recorder observed 50% of the session");
+    expect(es?.evidence).toContain("30 min");
+  });
+
+  it("stays silent when the recorder was already running at the session start", () => {
+    // Nothing to declare: the log covers the whole run.
+    const s = session({
+      startedAt: "2026-08-25T10:30:00.000Z",
+      hookLogFrom: "2026-08-25T10:30:00.000Z",
+    });
     expect(kinds(s, catalog())).not.toContain("hook-log-coverage");
+  });
+
+  it("never reports negative coverage on broken timestamps", () => {
+    // A horizon beyond the session's own wall clock is broken input, not a
+    // number to print: clamped to 0%, never "-40% observed".
+    const s = session({ wallClockMs: 60_000, hookLogFrom: HORIZON });
+    const found = detectSignals(s, catalog(), "es").find((x) => x.kind === "hook-log-coverage");
+    expect(found?.summary).toContain("0%");
   });
 
   it("stays silent when the log holds no hook to draw a horizon from", () => {

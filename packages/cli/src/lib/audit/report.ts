@@ -7,6 +7,7 @@ import {
   type TokenTotals,
   addTokens,
   emptyTokens,
+  recorderWindow,
 } from "./model.ts";
 import type { Lang } from "./signals.ts";
 
@@ -175,10 +176,36 @@ function orchestratorCard(s: SessionAudit, lang: Lang): string {
     `  ${t(lang, "skills", "skills").padEnd(LABEL)}${o.skills.length > 0 ? o.skills.map((sk) => sk.slug).join(", ") : t(lang, "—", "—")}`,
     `  ${t(lang, "tools", "tools").padEnd(LABEL)}${toolsLine(o.toolCounts)}`,
     `  ${"mcp".padEnd(LABEL)}${orchestratorMcp(o.mcpCalls, lang)}`,
-    `  ${"hooks".padEnd(LABEL)}${hooksLine(o.hookEvents, lang)}`,
+    `  ${"hooks".padEnd(LABEL)}${orchestratorHooksLine(s, lang)}`,
   ];
   const head = `### ${t(lang, "orquestador", "orchestrator")} · "${s.initialPrompt.slice(0, 60)}"`;
   return `${head}\n\n\`\`\`\n${rows.join("\n")}\n\`\`\``;
+}
+
+/**
+ * The orchestrator's hooks, and the window they were counted over.
+ *
+ * A subagent that ran before the recorder existed shows an empty list, and
+ * `agentHooksLine` says so. The orchestrator's case is worse, because it is not
+ * empty: it spans the WHOLE session, so a recorder that started late leaves it
+ * with real counts drawn from part of the run — `guard-destructive 212×` next to
+ * 298 Bash calls, with nothing saying 86 fired before the log existed (#559).
+ * A truncated total printed like a total is the one thing the card must not do,
+ * and it is worse alongside subagent cards that DO declare their gap: the reader
+ * concludes this one is complete.
+ */
+function orchestratorHooksLine(s: SessionAudit, lang: Lang): string {
+  const events = hooksLine(s.orchestrator.hookEvents, lang);
+  const window = recorderWindow(s);
+  if (!window) return events;
+  const at = window.from.slice(11, 19);
+  const note = t(
+    lang,
+    `parcial · el recorder cubre ${window.coveredPercent}% de la sesión, desde ${at}Z (${window.blindMinutes} min sin registrar)`,
+    `partial · the recorder covers ${window.coveredPercent}% of the session, from ${at}Z (${window.blindMinutes} min unrecorded)`,
+  );
+  if (s.orchestrator.hookEvents.length === 0) return note;
+  return `${events}\n  ${" ".repeat(LABEL)}${note}`;
 }
 
 /** The orchestrator inherits every tool, so there is no allowlist to cross. */
