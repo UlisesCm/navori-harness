@@ -1,5 +1,6 @@
 import type { HarnessCatalog } from "./harness.ts";
 import type { AgentRun, SessionAudit, Signal } from "./model.ts";
+import { recorderWindow } from "./model.ts";
 
 /**
  * Findings, as pure functions over one parsed session plus the harness it ran
@@ -305,40 +306,54 @@ function formatDrift(session: SessionAudit, lang: Lang): Signal[] {
  *
  * The recorder is inlined into the managed hooks, so it only exists from the
  * moment the harness that carries it is on disk. Render or update it mid-run
- * and every agent that finished earlier has hooks that ran and were never
- * written down — which the report must state, because an empty hook list is
- * otherwise read as "the gate never fired".
+ * and every hook that fired earlier ran and was never written down — which the
+ * report must state, because an empty hook list is otherwise read as "the gate
+ * never fired".
+ *
+ * The trigger is the LATE HORIZON, not the agents caught behind it (#559). A
+ * recorder that starts 63 min into a session truncates every count in the
+ * report even when all the subagents ran afterwards: the orchestrator spans the
+ * whole session, so its histogram is short by whatever fired in that hour. The
+ * signal therefore always states the fraction observed, and names the blind
+ * agents only when there are some.
  */
 function recorderCoverage(session: SessionAudit, lang: Lang): Signal[] {
-  if (!session.hookLogFrom) return [];
-  const from = Date.parse(session.hookLogFrom);
-  if (!Number.isFinite(from)) return [];
+  const window = recorderWindow(session);
+  if (!window) return [];
 
+  const from = Date.parse(window.from);
   const blind = session.agents.filter((a) => {
     const ended = Date.parse(a.endedAt);
     return Number.isFinite(ended) && ended < from;
   });
-  if (blind.length === 0) return [];
 
-  const started = Date.parse(session.startedAt);
-  const gap = Number.isFinite(started) ? Math.round((from - started) / 60000) : null;
+  const agentsClause = pick(
+    lang,
+    blind.length > 0
+      ? `, y ${blind.length} de ${session.agents.length} agentes corrieron antes de que existiera`
+      : "",
+    blind.length > 0
+      ? `, and ${blind.length} of ${session.agents.length} agents ran before it existed`
+      : "",
+  );
+
   return [
     {
       kind: "hook-log-coverage",
       severity: "info",
       summary: pick(
         lang,
-        `${blind.length} de ${session.agents.length} agentes corrieron antes de que el recorder existiera`,
-        `${blind.length} of ${session.agents.length} agents ran before the recorder existed`,
+        `el recorder observó ${window.coveredPercent}% de la sesión${agentsClause}`,
+        `the recorder observed ${window.coveredPercent}% of the session${agentsClause}`,
       ),
       evidence: pick(
         lang,
-        `El primer hook registrado es de ${session.hookLogFrom}${gap === null ? "" : `, ${gap} min después del inicio de la sesión`}. ` +
-          `Un harness renderizado o actualizado a mitad de sesión explica el hueco: los hooks de esos agentes corrieron, pero sin el recorder que los anota. ` +
-          `Su ficha dice "sin registro", no "ninguno".`,
-        `The first recorded hook is from ${session.hookLogFrom}${gap === null ? "" : `, ${gap} min after the session started`}. ` +
-          `A harness rendered or updated mid-session explains the gap: those agents' hooks did run, without the recorder that writes them down. ` +
-          `Their card says "not recorded", not "none".`,
+        `El primer hook registrado es de ${window.from}, ${window.blindMinutes} min después del inicio de la sesión. ` +
+          `Un harness renderizado o actualizado a mitad de sesión explica el hueco: esos hooks corrieron, pero sin el recorder que los anota. ` +
+          `Todo conteo de hooks del reporte es parcial: la ficha del orquestador lo declara, y la de un agente que terminó antes dice "sin registro", no "ninguno".`,
+        `The first recorded hook is from ${window.from}, ${window.blindMinutes} min after the session started. ` +
+          `A harness rendered or updated mid-session explains the gap: those hooks did run, without the recorder that writes them down. ` +
+          `Every hook count in the report is partial: the orchestrator's card says so, and an agent that finished earlier reads "not recorded", not "none".`,
       ),
     },
   ];
