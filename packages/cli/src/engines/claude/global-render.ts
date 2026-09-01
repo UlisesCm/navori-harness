@@ -59,9 +59,18 @@ export function globalHookPath(dir = globalTargetDir()): string {
 
 /**
  * Compose the baseline prose from the selected core blocks. Enforces the §4
- * audit at runtime: a block that interpolates repo config (`{{...}}`) is NOT
- * global-safe, so it is rejected loudly instead of shipping a broken `<not
- * configured>` placeholder into every session.
+ * audit at runtime, in two layers.
+ *
+ * The FIRST is the asset's declared `globalSafe` (#541) — the actual property
+ * being asserted. The second is the older `{{...}}` scan, kept as a secondary
+ * net: it catches an asset marked `globalSafe` whose body later grows an
+ * interpolation, without waiting for the inventory suite to run.
+ *
+ * The order matters. Testing `{{` alone is what let the two notions drift:
+ * `arranque-sesion` stopped interpolating while still describing
+ * `progress/current.md` and `navori doctor`, so the only check in place said
+ * yes to a block that would have injected repo-specific prose into every
+ * session of every project without navori.
  */
 export function composeBaseline(config: GlobalConfig): string {
   const parts: string[] = [];
@@ -69,6 +78,12 @@ export function composeBaseline(config: GlobalConfig): string {
     const asset = CORE_MANAGED_ASSETS.find((a) => a.id === id);
     if (!asset) {
       throw new Error(`Global baseline references unknown core block '${id}'.`);
+    }
+    if (!asset.globalSafe) {
+      throw new Error(
+        `Block '${id}' is not marked globalSafe, so it can't be part of the global ` +
+          `baseline (Spec 0010 §4). Remove it from blocks.include.`,
+      );
     }
     const raw = readFileSync(resolveAssetPath(asset, config.language).path, "utf-8").trim();
     if (/\{\{/.test(raw)) {
