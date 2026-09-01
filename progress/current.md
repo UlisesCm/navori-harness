@@ -1,53 +1,65 @@
 # Sesión actual
 
-**Estado:** FB entregada (#546) en la branch `feat/546-global-plugin-skills-dir`, gate verde.
-**4 issues abiertos**: #545, #547, #548 (spec 0010) y #538 (prune / `.codex/hooks.json`).
+**Estado:** PR #558 abierto y con CI verde — la atribución de hooks de `navori audit` estaba rota y
+ya está corregida. 3 issues nuevos con lo que quedó fuera de ese PR (#559, #560, #561).
 
-## Dónde quedó el harness global (spec 0010)
+## Lo que pasó hoy
 
-`navori global` es la capa por-máquina en `~/.claude`. **Sigue sin instalarse en esta máquina**
-(no existe `~/.navori/global.json` — huella cero, la invariante §2.4). Para probarlo sin tocar el
-perfil real: `CLAUDE_CONFIG_DIR=$(mktemp -d) HOME=$(mktemp -d) navori global init`.
+Pregunta abierta del usuario ("¿audit-mode carga bien la info?") que terminó en un defecto real:
+`ownerOf` (`lib/audit/parse.ts`) caía al fallback por ventana temporal siempre que el `agentId` del
+evento no identificaba a un agente conocido, y **408 de 2537 eventos acababan en la ficha
+equivocada**. Ver `progress/history.md` para el detalle con evidencia.
 
-La §8 se rehizo en fases **FA / FB / FC / FD**. FA cerró 3 de 5 (#541, #542+#543, #544). **FB cerró.**
-
-### FB — el harness global dejó de ser solo prosa
-
-`~/.claude/skills/navori/` con `.claude-plugin/plugin.json` carga como `navori@skills-dir` sin
-marketplace y sin paso de instalación. Ahí van los 8 agentes, las 12 skills base y —esto es lo que
-saca los hooks de navori del `settings.json` del usuario— el gate del §3.1, vía `hooks/hooks.json`.
-
-Las tres propiedades salen del mecanismo, no de cuidado nuestro: las skills quedan namespaceadas
-`/navori:<id>` y no pueden eclipsar las del repo; los agentes de plugin son la precedencia MÁS BAJA,
-así que `.claude/agents/` del repo gana y el defer del §3.1 sale gratis; y desinstalar es borrar un
-directorio.
-
-**El modo `globalFallback`** (`lib/placeholders.ts`) es lo que hace renderizables los assets fuera de
-un repo: `qualityGate.fast|full`, `branchBase` y `prTarget` rinden como la instrucción de DERIVARLOS.
-Con eso `orquestacion` entra completo al baseline —y tiene que entrar, o instalas 8 subagentes sin
-doctrina de routing— y se retira el follow-up de "partir el bloque".
-
-Cinco desviaciones del boceto, todas anotadas en la spec (§8 FB, bloque **ENTREGADO**): settings.json
-queda solo con `permissions` y a menudo ni se crea; la migración F1→FB deja copia restaurable en
-`~/.navori/migrations/<ts>/claude-global/`; `blocks.include` se actualiza solo si nadie lo tocó; el
-manifest lleva `author` porque `--strict` lo exige; y los fallbacks son cortos y sin backticks.
+Lo que cargaba bien se verificó contra el crudo, no se asumió: transcript completo (`2442/2442`,
+`parseErrors 0`), histograma de tools exacto, 19 agentes = 19 `.jsonl`, `skills: []` real.
 
 ## SIGUIENTE PASO
 
-**#547 (FC)** — doctor cross-scope: `navori doctor` detecta el harness global y avisa de choques
-reales (agente ensombrecido, permiso global contra un `deny` del repo, drift del hook, y el caso
-`@skills-dir` bloqueado por managed settings). Sin `scope: both` ya no tiene falso-positivo.
+**Esperar el merge de #558.** Después, por orden de valor:
 
-Después: **#545** (init interactivo) y **#548** (docs + el guard de `commandOrder`).
+1. **#561** — `lib/audit/harness.ts` en 0% de cobertura. Es el módulo que calcula la única señal
+   `high` del reporte (`unreachable-instructions`). Mismo patrón que produjo el bug de #558: lo que
+   entró sin tests es donde estaba el defecto.
+2. **#559** — la ficha del orquestador no dice que su conteo de hooks está truncado por el horizonte
+   del recorder (muestra `guard-destructive 212×` con 298 llamadas Bash, sin nota).
+3. **#560** — `subagent-stop-handoff` corre ~6× por subagente (117 para 19). Falta averiguar si es
+   del host o del registro del hook.
+
+## En vuelo en otra sesión (no tocar)
+
+**#545** (`global init` interactivo, FA de la spec 0010) — commiteado en `5a31e18` sobre
+`feat/545-global-init-interactivo`, pendiente de reviewer y PR. Esa sesión trabaja desde
+`.claude/worktrees/545-global-init`.
+
+## Cerrado hoy por la otra sesión
+
+- **Spec 0010 completa**: FA/FB/FC/FD mergeados a `main` — PRs #552 (`7e6f0a0`), #553 (`3be7a23`),
+  #554 (`359c961`). Cerrados #546, #547, #548.
+- **#538 cerrado sin código**: se verificó que navori nunca escribió `.codex/hooks.json` (historial
+  completo + 12 tarballs de npm + render real) y que el bug de clase ya lo arregló #539. El residual
+  real quedó en **#557** (`.mcp.json` creado desde cero).
+- Issues nuevos de esa sesión: **#555** (detectar harness ajeno que choca y ofrecer adoptarlo),
+  **#556** (documentar los 11 comandos y vaciar `UNDOCUMENTED_ON_PURPOSE`), **#557**.
 
 ## Deuda / gotchas vigentes
 
-- **El guard `~/.navori` (#404/#424) da falso positivo en local** cuando hay otra sesión de Claude
-  Code trabajando en otro repo: sus hooks escriben `~/.navori/audits/<repo>/session-<uuid>.log`
-  durante la corrida. Pasó en esta jornada (`audits/alertaciudadana_backend/`). En CI siempre pasa.
-- **Un spec que escriba en `~/.navori` necesita mockear `home.ts`.** Es la razón por la que la
-  migración F1→FB vive en su propio archivo (`global-legacy-migration.test.ts`) y no junto al resto
-  de `global-render`: el mock de `safeHomedir` no se puede acotar a un `describe`.
-- **Ojo con la base de las branches.** Antes de branchear: `git log origin/main..main` debe estar vacío.
-- El website documenta **8 de 20** comandos (`apps/website/src/content/commands.ts`). #548 propone el
-  guard que cierra la clase entera, igual que `subcommand-inventory.test.ts` hace contra `CLAUDE.md`.
+- **`progress/current.md` tiene dueño único por acuerdo entre sesiones.** Está versionado y existe
+  idéntico en el árbol principal y en cada worktree, así que el worktree NO aísla este archivo:
+  solo mueve el choque del working tree al merge. Hoy lo escribe esta sesión; la otra manda su línea
+  y no lo edita.
+- **Un gate verde medido con el diff de otra sesión dentro del árbol no prueba tu diff**, prueba la
+  suma de los dos — y la suma puede pasar mientras cada mitad falla por separado. Pasó hoy: el gate
+  de #558 se re-corrió con el árbol limpio.
+- **`cli.e2e.test.ts > "config.language governs CLI output"`** se cae por timeout de 15s bajo
+  contención (dos suites en paralelo) y pasa en 2.5s aislado. Si sale rojo, medirlo solo antes de
+  investigarlo.
+- **Choque de `coverage/.tmp`** entre dos corridas de vitest simultáneas: da un `ENOENT` sobre
+  `coverage-NNN.json` que no tiene nada que ver con el código. Se resuelve con `rm -rf coverage`.
+- **El guard `~/.navori` (#404/#424) da falso positivo en local** cuando otra sesión de Claude Code
+  trabaja en otro repo: sus hooks escriben `~/.navori/audits/<repo>/session-<uuid>.log` durante la
+  corrida. En CI siempre pasa.
+- **Un spec que escriba en `~/.navori` necesita mockear `home.ts`** (razón por la que la migración
+  F1→FB vive en `global-legacy-migration.test.ts`: el mock de `safeHomedir` no se acota a un
+  `describe`).
+- **Ojo con la base de las branches.** Antes de branchear: `git log origin/main..main` debe estar
+  vacío.

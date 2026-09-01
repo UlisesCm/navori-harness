@@ -920,3 +920,63 @@ revertirlo: lo que yo había staged es idéntico a lo que esa sesión va a commi
 **Gate.** Verde sobre el diff que se commiteó: `format:check` (292 archivos) · `check:render`
 (0 pendientes) · `check:assets` · build del website (22 páginas) · `check:size` (848.5KB/900KB) ·
 `test:coverage` (floor ok, 60 módulos, 2 excepciones) · `lint` · `typecheck`.
+
+## 2026-09-01 15:05 orchestrator — auditoría de `navori audit`: la atribución de hooks estaba rota (PR #558)
+
+**Origen.** Pregunta abierta del usuario: "he estado trabajando estos días con audit-mode, ¿puedes
+revisar si se está cargando la info correctamente?". Se auditó el propio auditor, corriendo
+`navori audit` sobre dos sesiones reales (`navori-health` y `alertaciudadana_backend`, esta última
+con 19 subagentes y 2537 eventos de hook) y cruzando el reporte contra el transcript crudo y el
+session log.
+
+**Lo que sí cargaba bien** (verificado contra el crudo, no asumido): `linesRead 2442/2442`,
+`parseErrors 0`; el histograma de tools del orquestador coincide exacto (Bash 298, Agent 19,
+SendMessage 9, WebFetch 8, AskUserQuestion 8, ToolSearch 2, WebSearch 1); 19 agentes en el reporte =
+19 `.jsonl` en `subagents/`; la ficha por agente llega completa. `skills: []` es real y no un parser
+roto — `grep -c '"name":"Skill"'` sobre el transcript da 0.
+
+**El defecto.** `ownerOf` (`lib/audit/parse.ts`) caía al fallback por ventana temporal siempre que el
+`agentId` del evento no identificaba a un agente conocido. **408 de 2537 eventos estaban en la ficha
+equivocada.** El host manda un id en casi todos los eventos, y casi ninguno es el que parece:
+
+- hook en el orquestador → manda el `cwd` DEL REPO, que no matchea ningún agente (~294 eventos);
+- `SubagentStop` → manda el id del HIJO QUE TERMINÓ (confirmado: delta 0s contra su `endedAt`), pero
+  102 de los 112 ids que mandó no existen en NINGÚN transcript del proyecto (99 + 15 eventos);
+- `PreToolUse`/`PostToolUse` dentro de un subagente → id correcto. Estos siempre matchearon.
+
+Síntoma visible: un `reviewer` con `subagent-stop-handoff 21×` sin haber lanzado un subagente (todos
+`spawnDepth: 1`, cero llamadas `Agent`), y `guard-destructive 70×` con 55 llamadas Bash siendo ese
+hook un `PreToolUse` que corre una vez por Bash.
+
+**El fix (PR #558, 2 commits).** `171cb5e` — las fases que solo corren en el proceso padre
+(`SubagentStop`, `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreCompact`, `Stop`,
+`Notification`) nunca se atribuyen por ventana; y un `agentId` que no nombra a nadie es dato
+INVÁLIDO, no ausente → al orquestador, que es quien corrió el hook y pagó sus ms. `07256d9` — una
+ficha sin hooks ahora distingue "no hubo hooks" de "no hay registro", vía `hookLogFrom`.
+
+**Validación independiente** (no depende del razonamiento sobre la semántica del payload):
+`guard-destructive` corre una vez por Bash, así que su conteo debe igualar `toolCounts.Bash`. Tras el
+fix coincide **exactamente en los 10 agentes con registro**; antes no coincidía en ninguno. Y la
+conservación se mantiene: 2537 eventos antes y después.
+
+**Falso positivo descartado.** Los 9 primeros agentes de 19 salían con `hooks —`. No es el parser: el
+primer evento del log es `03:27:59Z` y el mtime de `.claude/hooks/*.sh` de ese repo es `Aug 31 21:27`
+local — el mismo minuto. El harness se renderizó 63 min después de arrancar la sesión. El reporte
+describía la realidad; lo que faltaba era decir que faltaba el registro (eso es `07256d9`).
+
+**Deuda que se cerró de paso.** `attachHookEvents`/`ownerOf` no tenía un solo test — la mitad del
+valor de la spec 0013 entró sin cobertura, y por ahí pasó el defecto. Entran 12 tests, incluida la
+invariante de conservación (orquestador + Σ agentes = log).
+
+**Fuera de scope, anotado.** El host dispara `subagent-stop-handoff` 117 veces para 19 subagentes
+(~6× por agente, ~44s acumulados). Es comportamiento suyo; navori solo deja de creerle al id.
+
+**Coordinación.** Toda la jornada se compartió working tree con otra sesión de Claude Code (#545,
+`global init` interactivo). Se coordinó por mensajes: cada quien commiteó por path explícito, sin
+`-a` y sin `stash`. Esa sesión se mudó después a `.claude/worktrees/545-global-init`, que ataca la
+raíz y no el timing. Su aviso de que mi primer gate se midió con sus 9 archivos dentro del árbol era
+correcto: se re-corrió completo con el árbol limpio.
+
+**Gate.** Verde sobre el diff aislado: `format:check` (300 archivos) · `check:render` (0 pendientes) ·
+`check:assets` · build del website (24 páginas) · `check:size` (870.9KB/900KB) · `test:coverage`
+(3000 tests, floor ok, 61 módulos) · `lint` · `typecheck`. CI del PR: `quality pass 2m0s`.
