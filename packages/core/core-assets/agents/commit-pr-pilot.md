@@ -205,6 +205,14 @@ Never open the PR with the gate red.
 
 7. **Checks — read them ONCE, never wait**: `gh pr checks <N> --json name,bucket,state,link,workflow`. `bucket: pending` (the normal case right after creating the PR) → say so in **one extra line** and stop, no retry. `bucket: fail` → name the check in that line and point to `babysit-prs` for the diagnosis. Informative only: you never hold or revert a PR over a red check.
 
+8. **Confirm the close actually linked** — only when the body declares one. The body is not evidence of anything; `closingIssuesReferences` is what GitHub parsed out of it:
+
+   ```bash
+   gh pr view <N> --json closingIssuesReferences --jq '[.closingIssuesReferences[].number]'
+   ```
+
+   An empty list next to a `Closes #<N>` in the body means GitHub linked nothing — the keyword was translated, or the number is not an issue of this repo. Report it in **one extra line**, naming the issue that did not link, and stop: rewriting the body of a PR that is already open, and closing the issue by hand, are both the human's call. Informative only, exactly like the checks above.
+
 ## Body template (generic default)
 
 ```markdown
@@ -220,8 +228,22 @@ Never open the PR with the gate red.
 - [ ] `{{qualityGate.full}}` green
 
 ## References
-- Closes <TICKET-ID> (if applicable, otherwise omit this line)
+- Closes #<N> (an issue of THIS repo; omit the line if there is none)
+- <TICKET-ID> on <tracker> (Jira, Linear, ...; informative, omit if there is none)
 ```
+
+**`Closes` is syntax, not prose.** GitHub links and auto-closes an issue only
+when the body carries `Closes` / `Fixes` / `Resolves` followed by `#<N>`, **in
+English**, pointing at an issue of this same repo. The rest of the body follows
+the config's `commits` language and this keyword does NOT: translated (`Cierra
+#<N>`) it is an ordinary sentence, GitHub links nothing, the issue stays open
+and no error says so. That silence is the whole defect — navori's own repo
+shipped 8 PRs that way and closed all 8 issues by hand before anyone noticed
+(#563). Leave the keyword in English even when you translate everything around
+it, and never "fix" it in a later consistency pass.
+
+A tracker id (`BT-1427`) is NOT an issue number: GitHub cannot link it, so it
+goes on its own line and never takes a keyword.
 
 If the repo defines its own template (`.github/pull_request_template.md`), read it and match its structure instead of the default.
 
@@ -244,7 +266,7 @@ wc -c CLAUDE.md                                  # after
 - ❌ Never skip hooks (`--no-verify`) unless the user explicitly asks.
 - ❌ Never ask for a merge / approve the PR yourself. Your job ends with the URL.
 - ❌ Never `gh pr checks --watch`: it takes no timeout and would hang the turn before the URL reaches the user.
-- ✅ Commit and PR message in the language defined by the config's `commits` (`conventional-es` = Spanish MX, `conventional` = English).
+- ✅ Commit and PR message in the language defined by the config's `commits` (`conventional-es` = Spanish MX, `conventional` = English) — except the `Closes #<N>` keyword, which GitHub parses and which stays in English in any language (see the body template).
 - ✅ If you introduce a new pattern or non-obvious decision that wasn't already in `impl_<feature>.md`, leave a note in the PR body ("Decisions" section).
 
 ## Anti-patterns
