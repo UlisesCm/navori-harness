@@ -26,6 +26,7 @@ import { scanEmptyUserSections } from "../lib/skill-user-section.ts";
 import { scanInterpolationArtifacts } from "../lib/interpolation-artifacts.ts";
 import { scanDiskUsage, humanBytes } from "../lib/disk-usage.ts";
 import { scanNestedWorktrees } from "../lib/nested-worktrees.ts";
+import { scanGlobalScope, type ManagedPolicyKey } from "../lib/global-scope.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -196,6 +197,11 @@ export const doctorCommand = defineCommand({
     // the mode of its sibling repos. Informational, never auto-applied. #326.
     const workspaceDrift = scanWorkspaceDrift(cwd, config);
     const engineInventory = buildEngineInventory(config, cwd);
+    // #547: real clashes between the machine-global harness (`navori global`)
+    // and this repo's. Null — and therefore invisible — when no global layer is
+    // installed, which is Spec 0010's zero-footprint invariant applied to the
+    // output too. Advisory: it feeds neither the verdict nor the exit code.
+    const globalScope = scanGlobalScope(cwd, config);
     // Informational: a name like `temp-app` or `my-app` is almost always a
     // never-renamed scaffold (the package.json carried it through). Doesn't
     // break the render, so it's a warning, not an `ok`-flipping error.
@@ -277,6 +283,7 @@ export const doctorCommand = defineCommand({
       prettierIgnoreHealth,
       gitHygiene,
       workspaceDrift,
+      globalScope,
       engineInventory,
     };
 
@@ -755,6 +762,44 @@ export const doctorCommand = defineCommand({
         wd.join("\n"),
         td.workspaceDriftTitle(workspaceDrift.workspace, workspaceDrift.siblingsRead),
       );
+    }
+
+    // #547: the machine-global harness seen from this repo. Advisory (yellow),
+    // like every section above — it never flips the verdict, and every sub-check
+    // is read-only. Two guards, the codegraph pattern: the null keeps a machine
+    // with no global layer from ever seeing the heading, and the row count keeps
+    // an installed-and-healthy one from seeing an empty box.
+    if (globalScope) {
+      const gs: string[] = [];
+      for (const agent of globalScope.shadowedAgents) {
+        gs.push(
+          `  ${color.yellow(sym.update)} ${td.globalScopeShadowedAgent(agent.id, agent.repoPath)}`,
+        );
+      }
+      for (const rule of globalScope.permissionConflicts) {
+        gs.push(`  ${color.yellow(sym.update)} ${td.globalScopePermissionConflict(rule)}`);
+      }
+      if (globalScope.hookDrift.kind === "not-evaluable") {
+        gs.push(`  ${color.yellow(sym.update)} ${td.globalScopeHookNotEvaluable}`);
+      } else if (globalScope.hookDrift.kind === "plugin-missing") {
+        gs.push(`  ${color.yellow(sym.update)} ${td.globalScopeHookLegacyInstall}`);
+      } else if (globalScope.hookDrift.kind !== "ok") {
+        gs.push(
+          `  ${color.yellow(sym.update)} ${td.globalScopeHookDrift(globalScope.hookDrift.kind)}`,
+        );
+      }
+      for (const finding of globalScope.managedPolicy) {
+        // A map, not a ternary chain: the exhaustive `Record` is what makes the
+        // typecheck fail if a new `ManagedPolicyKey` lands without its row.
+        const rows: Record<ManagedPolicyKey, string> = {
+          strictPluginOnlyCustomization: td.globalScopeStrictPluginOnly(finding.path),
+          allowManagedPermissionRulesOnly: td.globalScopeManagedPermissionsOnly(finding.path),
+          strictKnownMarketplaces: td.globalScopeStrictKnownMarketplaces(finding.path),
+          blockedMarketplaces: td.globalScopeBlockedMarketplaces(finding.path),
+        };
+        gs.push(`  ${color.yellow(sym.update)} ${rows[finding.key]}`);
+      }
+      if (gs.length > 0) p.note(gs.join("\n"), td.globalScopeTitle);
     }
 
     const hasIssues = !verdict.ok;

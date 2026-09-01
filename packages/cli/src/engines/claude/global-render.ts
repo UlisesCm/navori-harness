@@ -523,8 +523,13 @@ export interface GlobalRenderPlan {
   ownedPermissions: PermissionBag;
 }
 
-/** The `permissions` object of a settings.json, normalized to three string lists. */
-function permissionBagOf(settings: Record<string, unknown>): Record<string, string[]> {
+/**
+ * The `permissions` object of a settings.json, normalized to three string lists.
+ * Exported for the cross-scope doctor check (#547): it needs the SAME notion of
+ * a permission bag on both scopes, and a second normalizer would be a second
+ * definition of what counts as a rule.
+ */
+export function permissionBagOf(settings: Record<string, unknown>): Record<string, string[]> {
   const perms = settings.permissions;
   const raw =
     perms && typeof perms === "object" && !Array.isArray(perms)

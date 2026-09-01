@@ -84,6 +84,12 @@ interface DoctorReport {
   diskUsage: Array<{ target: string; path: string; bytes: number; thresholdBytes: number }>;
   nestedWorktrees: { eslintConfig: string; worktrees: string[] } | null;
   monorepoDrift: { added: string[]; orphan: string[]; emptyDeclared: boolean } | null;
+  globalScope: {
+    shadowedAgents: Array<{ id: string; globalPath: string; repoPath: string }>;
+    permissionConflicts: string[];
+    hookDrift: { kind: string };
+    managedPolicy: Array<{ key: string; path: string }>;
+  } | null;
   config: { monorepo?: { workspaces: Array<{ name: string; path: string }> } };
 }
 
@@ -275,5 +281,65 @@ describe("doctor --json over a monorepo (#395)", () => {
     expect(report.gateReadiness).toEqual([]);
     expect(report.interpolationArtifacts).toEqual([]);
     expect(report.diskUsage).toEqual([]);
+  });
+});
+
+describe("doctor --json — cross-scope clash with the global harness (#547)", () => {
+  /** A rule no preset ships, so the conflict under test is unambiguously ours. */
+  const RULE = "Bash(navori-e2e-cross-scope:*)";
+  /** The section heading, in both languages: the human run must never print it
+   *  on a machine with no global layer (Spec 0010 §2.4, zero footprint). Kept as
+   *  literals — the point is to pin the string a user would actually see. */
+  const TITLES = ["Capa global (navori global)", "Global layer (navori global)"];
+
+  it("stays silent with no global layer, then carries the real conflict once installed", () => {
+    const repo = mkdtempSync(join(tmpdir(), "navori-doctor-json-global-"));
+    const home = mkdtempSync(join(tmpdir(), "navori-doctor-json-ghome-"));
+    const claudeDir = mkdtempSync(join(tmpdir(), "navori-doctor-json-gclaude-"));
+    dirs.push(repo, home, claudeDir);
+    seedRunnableRepo(repo, "doctor-json-global");
+
+    // A HOME of this spec's own (not the shared E2E one) so installing the
+    // global sentinel below cannot leak into the other specs in this file.
+    const env = { HOME: home, CLAUDE_CONFIG_DIR: claudeDir };
+    expect(runCli(["init", "--recommended", "--cwd", repo], env).status).toBe(0);
+
+    // Zero footprint, output included: with no `~/.navori/global.json` the key
+    // is null AND the human run never prints the section (Spec 0010 §2.4).
+    expect(doctorJson(repo, env).globalScope).toBeNull();
+    const quiet = runCli(["doctor", "--cwd", repo], env);
+    expect(quiet.status).toBe(0);
+    for (const title of TITLES) expect(quiet.stdout).not.toContain(title);
+
+    mkdirSync(join(home, ".navori"), { recursive: true });
+    writeFileSync(join(home, ".navori", "global.json"), JSON.stringify({ version: "0.0.0" }));
+    writeFileSync(
+      join(claudeDir, "settings.json"),
+      JSON.stringify({ permissions: { allow: [RULE, "Read(//tmp/**)"] } }),
+    );
+
+    const repoSettingsPath = join(repo, ".claude", "settings.json");
+    const repoSettings = JSON.parse(readFileSync(repoSettingsPath, "utf-8")) as {
+      permissions?: { deny?: string[] };
+    };
+    const deny = repoSettings.permissions?.deny ?? [];
+    repoSettings.permissions = { ...repoSettings.permissions, deny: [...deny, RULE] };
+    writeFileSync(repoSettingsPath, JSON.stringify(repoSettings, null, 2), "utf-8");
+
+    const report = doctorJson(repo, env);
+    // The real payload, not the mere presence of the key: only OUR rule is in
+    // both scopes, so a hardcoded `[]` — or a list of everything global — fails.
+    expect(report.globalScope?.permissionConflicts).toEqual([RULE]);
+    // The plugin was never installed here, so nothing shadows anything and the
+    // hook reads as an unmigrated install (not a raw `absent`, which would
+    // describe a path this machine does not use): facts, not a blanket alarm.
+    expect(report.globalScope?.shadowedAgents).toEqual([]);
+    expect(report.globalScope?.hookDrift).toEqual({ kind: "plugin-missing" });
+
+    // And the counterpart of the zero-footprint assert above: once there IS
+    // something to say, the human run does print the section.
+    const loud = runCli(["doctor", "--cwd", repo], env);
+    expect(loud.status).toBe(0);
+    expect(TITLES.some((title) => loud.stdout.includes(title))).toBe(true);
   });
 });

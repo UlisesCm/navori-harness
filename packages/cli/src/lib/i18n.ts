@@ -820,6 +820,26 @@ interface DoctorCmdStrings {
   ) => string;
   /** How to adopt the divergence (never auto-applied). */
   workspaceDriftHint: string;
+  /** Note title for the cross-scope section against the global harness (#547). */
+  globalScopeTitle: string;
+  /** A repo agent with no managed marker silently disabling the plugin's copy. */
+  globalScopeShadowedAgent: (id: string, repoPath: string) => string;
+  /** A rule the global settings allow and this repo's settings deny. */
+  globalScopePermissionConflict: (rule: string) => string;
+  /** The installed global hook is not what this CLI would render (drift kind). */
+  globalScopeHookDrift: (kind: string) => string;
+  /** The global baseline / global.json could not be read, so the hook is unknown. */
+  globalScopeHookNotEvaluable: string;
+  /** `~/.navori/global.json` exists but the plugin does not: an unmigrated install. */
+  globalScopeHookLegacyInstall: string;
+  /** A managed-settings policy that may leave the `@skills-dir` plugin inert. */
+  globalScopeStrictPluginOnly: (path: string) => string;
+  /** A managed-settings policy that leaves the global permissions inert. */
+  globalScopeManagedPermissionsOnly: (path: string) => string;
+  /** A marketplace allowlist that does not opt the `~/.claude/skills/` scan back in. */
+  globalScopeStrictKnownMarketplaces: (path: string) => string;
+  /** A marketplace blocklist that turns the `~/.claude/skills/` scan off. */
+  globalScopeBlockedMarketplaces: (path: string) => string;
 }
 
 /**
@@ -1685,6 +1705,25 @@ const CMD_ES: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos usan ${expected})`,
     workspaceDriftHint:
       "Informativo: navori nunca lo aplica solo. Adóptalo con 'navori configure', o promuévelo al workspace con 'navori workspace set-default'.",
+    globalScopeTitle: "Capa global (navori global)",
+    globalScopeShadowedAgent: (id, repoPath) =>
+      `el agente '${id}' del plugin global queda inerte: Claude Code resuelve el id a favor del repo y gana '${repoPath}', que no lleva marcador managed de navori — si el reemplazo no era intencional, bórralo o renómbralo`,
+    globalScopePermissionConflict: (rule) =>
+      `'${rule}' está en 'allow' del settings global y en 'deny' del de este repo — un 'deny' tiene precedencia sobre un 'allow', así que aquí la regla queda bloqueada; quítala de uno de los dos scopes`,
+    globalScopeHookDrift: (kind) =>
+      `el hook del harness global no está al día (${kind}) — corre 'navori global doctor' para el detalle`,
+    globalScopeHookNotEvaluable:
+      "no pude evaluar el hook del harness global (no logré componer la baseline o leer '~/.navori/global.json') — corre 'navori global doctor'",
+    globalScopeHookLegacyInstall:
+      "hay una instalación previa del harness global sin migrar: existe '~/.navori/global.json' pero no el plugin, así que el hook viejo sigue suelto y registrado en el settings global — corre 'navori global doctor' para el detalle",
+    globalScopeStrictPluginOnly: (path) =>
+      `'strictPluginOnlyCustomization' está declarado en '${path}': esa policy bloquea skills, agentes y hooks de las fuentes de usuario y de proyecto, así que puede dejar inerte al plugin global de navori (la doc no precisa si alcanza a un plugin descubierto en un skills directory)`,
+    globalScopeManagedPermissionsOnly: (path) =>
+      `'allowManagedPermissionRulesOnly' está declarado en '${path}': solo aplican las reglas de permisos managed, así que los permisos que 'navori global' escribió en el settings global quedan inertes`,
+    globalScopeStrictKnownMarketplaces: (path) =>
+      `'strictKnownMarketplaces' está declarado en '${path}' sin la entrada centinela {"source":"skills-dir"}: cualquier allowlist apaga el escaneo de '~/.claude/skills/', así que el plugin global de navori no se carga — pide que agreguen {"source":"skills-dir"} a esa lista`,
+    globalScopeBlockedMarketplaces: (path) =>
+      `'blockedMarketplaces' incluye la entrada centinela {"source":"skills-dir"} en '${path}': eso apaga el escaneo de '~/.claude/skills/', así que el plugin global de navori no se carga — pide que la quiten de esa lista`,
   },
   update: {
     detectedMigrationSuggestion: (legacy, preferred) =>
@@ -2645,6 +2684,25 @@ const CMD_EN: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos use ${expected})`,
     workspaceDriftHint:
       "Informational: navori never applies it for you. Adopt it with 'navori configure', or promote it to the workspace with 'navori workspace set-default'.",
+    globalScopeTitle: "Global layer (navori global)",
+    globalScopeShadowedAgent: (id, repoPath) =>
+      `the global plugin's '${id}' agent stays inert: Claude Code resolves the id in the repo's favour and '${repoPath}' wins, and that file carries no navori managed marker — if the replacement was not intentional, delete or rename it`,
+    globalScopePermissionConflict: (rule) =>
+      `'${rule}' is in the global settings' 'allow' and in this repo's 'deny' — a 'deny' takes precedence over an 'allow', so the rule is blocked here; drop it from one of the two scopes`,
+    globalScopeHookDrift: (kind) =>
+      `the global harness hook is not up to date (${kind}) — run 'navori global doctor' for the detail`,
+    globalScopeHookNotEvaluable:
+      "could not evaluate the global harness hook (composing the baseline or reading '~/.navori/global.json' failed) — run 'navori global doctor'",
+    globalScopeHookLegacyInstall:
+      "there is an earlier global harness install that was never migrated: '~/.navori/global.json' exists but the plugin does not, so the old loose hook is still registered in the global settings — run 'navori global doctor' for the detail",
+    globalScopeStrictPluginOnly: (path) =>
+      `'strictPluginOnlyCustomization' is declared in '${path}': that policy blocks skills, agents and hooks from user and project sources, so it may leave navori's global plugin inert (the docs do not state whether it reaches a plugin discovered in a skills directory)`,
+    globalScopeManagedPermissionsOnly: (path) =>
+      `'allowManagedPermissionRulesOnly' is declared in '${path}': only managed permission rules apply, so the permissions 'navori global' wrote into the global settings are inert`,
+    globalScopeStrictKnownMarketplaces: (path) =>
+      `'strictKnownMarketplaces' is declared in '${path}' without the {"source":"skills-dir"} sentinel entry: any allowlist turns the '~/.claude/skills/' scan off, so navori's global plugin is not loaded — ask your administrator to add {"source":"skills-dir"} to that list`,
+    globalScopeBlockedMarketplaces: (path) =>
+      `'blockedMarketplaces' carries the {"source":"skills-dir"} sentinel entry in '${path}': that turns the '~/.claude/skills/' scan off, so navori's global plugin is not loaded — ask your administrator to remove it from that list`,
   },
   update: {
     detectedMigrationSuggestion: (legacy, preferred) =>
