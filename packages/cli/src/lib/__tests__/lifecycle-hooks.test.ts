@@ -48,11 +48,22 @@ function runHook(script: string, payload: unknown): { status: number; stdout: st
   chmodSync(path, 0o755);
   const nodeDir = dirname(process.execPath);
   return acrossShells((shell) => {
+    // A temp dir PER SHELL, inside the case's own dir so it is cleaned with it.
+    // `subagent-stop-handoff` remembers what it last reported under $TMPDIR, on
+    // purpose (#560): the host re-fires it while nothing changed, and the note
+    // is said once. Sharing one $TMPDIR across the two shells would hand the
+    // second run the first run's memory and read as a portability divergence.
+    const shellTmp = join(dir, `tmp-${shell}`);
+    mkdirSync(shellTmp, { recursive: true });
     const r = spawnSync(shell, [path], {
       cwd: dir,
       input: JSON.stringify(payload),
       encoding: "utf-8",
-      env: { ...process.env, PATH: `${nodeDir}:/usr/bin:/bin:${process.env.PATH ?? ""}` },
+      env: {
+        ...process.env,
+        TMPDIR: shellTmp,
+        PATH: `${nodeDir}:/usr/bin:/bin:${process.env.PATH ?? ""}`,
+      },
     });
     return { status: r.status ?? -1, stdout: r.stdout ?? "" };
   });

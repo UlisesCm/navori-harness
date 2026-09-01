@@ -94,6 +94,10 @@ function runFile(shell: string, path: string, input: string): { out: string; cod
         ...process.env,
         NAVORI_AUDITS_ROOT: root,
         CLAUDE_PROJECT_DIR: root,
+        // `subagent-stop-handoff` remembers its last report under $TMPDIR
+        // (#560). Pointing it at the case's own root keeps that memory scoped
+        // to one test and removed with it.
+        TMPDIR: root,
         // Several hooks prefer `node` to serialize their JSON; without it on
         // PATH they take a different branch and the test measures the fallback.
         PATH: `${dirname(process.execPath)}:/usr/bin:/bin:${process.env.PATH ?? ""}`,
@@ -653,5 +657,101 @@ describe("a hook's own EXIT trap must compose with the recorder's", () => {
       }
     }
     expect(offenders, "this EXIT trap overwrites the recorder's").toEqual([]);
+  });
+});
+
+/**
+ * #560 — the host fires `SubagentStop` far more often than subagents finish.
+ *
+ * Measured on session `bd3aef2d` (19 subagents): 117 executions of this hook,
+ * every one of them `dirty` with the SAME reason, i.e. the identical
+ * `systemMessage` injected 117 times for one broken handoff file. The hook is
+ * registered once — the extra firings come from the host, and 102 of the 112
+ * `agent_id`s it sent match nothing under `~/.claude` — so the harness cannot
+ * fire less. What it can do is stop re-telling the reader something already
+ * told, which is the part that costs context.
+ *
+ * The run is still recorded on every firing (verdict `repeat`): "the check ran
+ * and found the same thing" is the evidence the audit exists to keep.
+ */
+describe.each(SHELLS)("the handoff note is said once per problem under %s", (shell) => {
+  const STOP = () => JSON.stringify({ session_id: "sess1", cwd, agent_id: "ag_1" });
+  const progressDir = (): string => join(root, ".claude", "progress");
+
+  /** An `impl_*.md` with no `Status:` line — the shape the hook flags. */
+  function brokenHandoff(name = "impl_feature.md"): void {
+    mkdirSync(progressDir(), { recursive: true });
+    writeFileSync(join(progressDir(), name), "# report\n\nwork done\n", "utf-8");
+  }
+
+  function fixHandoff(name = "impl_feature.md"): void {
+    writeFileSync(join(progressDir(), name), "# report\n\nStatus: done\n", "utf-8");
+  }
+
+  function verdicts(): unknown[] {
+    return logEvents()
+      .filter((e) => e.name === "subagent-stop-handoff")
+      .map((e) => e.verdict);
+  }
+
+  it("injects the message once and records the repeat", () => {
+    activate();
+    brokenHandoff();
+    const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
+
+    const first = runFile(shell, hook, STOP());
+    const second = runFile(shell, hook, STOP());
+    const third = runFile(shell, hook, STOP());
+
+    expect(first.out).toContain("systemMessage");
+    expect(second.out).toBe("");
+    expect(third.out).toBe("");
+    // Silent, not absent: every firing is still on the record.
+    expect(verdicts()).toEqual(["dirty", "repeat", "repeat"]);
+  });
+
+  it("speaks again when a NEW problem appears", () => {
+    activate();
+    brokenHandoff();
+    const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
+    runFile(shell, hook, STOP());
+
+    brokenHandoff("impl_second.md");
+    const out = runFile(shell, hook, STOP()).out;
+    expect(out).toContain("systemMessage");
+    expect(out).toContain("impl_second.md");
+  });
+
+  it("speaks again when a fixed handoff breaks a second time", () => {
+    activate();
+    brokenHandoff();
+    const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
+    runFile(shell, hook, STOP());
+
+    fixHandoff();
+    expect(runFile(shell, hook, STOP()).out).toBe("");
+    // A recurrence is news: the clean run clears what was remembered.
+    brokenHandoff();
+    expect(runFile(shell, hook, STOP()).out).toContain("systemMessage");
+    expect(verdicts()).toEqual(["dirty", "clean", "dirty"]);
+  });
+
+  it("never silences a different session", () => {
+    activate();
+    activate("sess2");
+    brokenHandoff();
+    const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
+    runFile(shell, hook, STOP());
+
+    const other = JSON.stringify({ session_id: "sess2", cwd, agent_id: "ag_9" });
+    expect(runFile(shell, hook, other).out).toContain("systemMessage");
+  });
+
+  it("still reports when the payload carries no session id", () => {
+    // Fail-open: an unkeyable firing must warn rather than stay quiet.
+    activate();
+    brokenHandoff();
+    const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
+    expect(runFile(shell, hook, JSON.stringify({ cwd })).out).toContain("systemMessage");
   });
 });

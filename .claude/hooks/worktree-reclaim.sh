@@ -1,4 +1,4 @@
-# navori:managed start id="worktree-reclaim-base" hash="21328dfd" version="0.6.5" source="@navori/core"
+# navori:managed start id="worktree-reclaim-base" hash="bed6aa35" version="0.6.5" source="@navori/core"
 #!/usr/bin/env bash
 # navori — worktree reclaim (SessionEnd) — #527
 #
@@ -201,6 +201,15 @@ navori_audit_log() {
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
   # running in parallel their time windows overlap, so attribution by timestamp
   # is the fallback, not the primary route.
+  #
+  # It is recorded, never trusted as an agent identity by itself (#560). What
+  # `.agent_id` means depends on the PHASE: on the tool phases it is stable —
+  # 485 events of one measured session carried 11 distinct ids, and the
+  # subagents' resolved to real transcripts — but on `SubagentStop` the host
+  # sends a fresh id per firing: 112 distinct ids for 117 firings, 102 of them
+  # matching nothing under `~/.claude`. So a consumer that resolves this field
+  # must treat "names nobody" as invalid data rather than as a different agent
+  # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
   printf '%s\n' "$(jq -cn \
     --arg ts "$navori_audit_ts" \
