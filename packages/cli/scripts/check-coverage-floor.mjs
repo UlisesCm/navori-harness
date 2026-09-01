@@ -42,9 +42,10 @@ const KNOWN_ZERO = new Map([
     "src/lib/args.ts",
     "reached only from src/commands/**, which the e2e specs exercise in the spawned dist/index.js (invisible to in-process v8)",
   ],
-  ["src/lib/audit/harness.ts", "#503 — the audit feature's reporting half ships untested"],
-  // `src/lib/audit/report.ts` left this list in spec 0013: the per-agent card
-  // needed specs of its own, so the reporting half is no longer untested.
+  // The audit feature's reporting half is no longer untested: `report.ts` left
+  // this list in spec 0013 (the per-agent card needed specs of its own) and
+  // `harness.ts` in #561 — its parse feeds the report's only `high` signal, and
+  // writing the specs turned up two silent defects in it.
 ]);
 
 function die(lines) {
