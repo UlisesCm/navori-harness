@@ -991,3 +991,60 @@ enlazó: vacío en los tres que se revisaron con `Cierra #N`, y `[545]` en el #5
 La causa raíz está en la plantilla del `commit-pr-pilot` (`Closes <TICKET-ID>` aparece como prosa
 inglesa, y el harness instruye traducir el cuerpo al idioma del proyecto) → **#563**. `#558` no
 declara cierre de issue, así que no quedó afectado.
+
+## 2026-09-01 16:35 claude — la spec 0010 queda completa: FC y FD entregados, FA y FB cerrados, y #538 resuelto sin escribir código
+
+**Cerrado.** 4 PRs mergeados a `main` con CI verde: **#552** (FB, `7e6f0a0`), **#553** (FC, `3be7a23`),
+**#554** (FD, `359c961`) y **#562** (FA, `1abc3ba`). Con eso la **spec 0010 está COMPLETA** — FA, FB,
+FC y FD. Issues cerrados: #545, #546, #547, #548 y #538. Abiertos en la jornada: #555, #556, #557.
+
+**FC (#547) — doctor cross-scope.** Módulo nuevo `lib/global-scope.ts`: cuatro sub-checks advisory y
+de solo lectura que avisan de choques reales entre la capa global y el harness del repo. El
+discriminante del check de agentes NO puede ser "hay homónimo" —en un repo navori sano los 8 están en
+ambos scopes por diseño— sino el marcador managed: con marcador lo puso navori y el defer es
+intencional; sin marcador es del usuario y ensombrece en silencio.
+
+**El hallazgo caro de la jornada, y me corrigió a mí.** El issue pedía detectar el bloqueo del plugin
+vía `blockedMarketplaces` / `strictKnownMarketplaces`. La doc pública de Claude Code no cubre el caso
+`@skills-dir`, así que concluí que esas llaves no podían alcanzarlo e instruí no implementarlas. **El
+reviewer falsó esa conclusión con el schema embebido del binario instalado (2.1.236)**, que documenta
+un centinela `{"source":"skills-dir"}`: *"In strictKnownMarketplaces: opt the scan back IN (by default
+any allowlist blocks it)"*. El issue tenía razón. Y el caso de mayor probabilidad real no era el que
+pedía: **cualquier allowlist no vacía apaga el escaneo de `~/.claude/skills/`** salvo que lleve el
+centinela. Segunda ronda: la decisión debe tomarse sobre la **policy fusionada** (archivo principal +
+drop-ins, arrays concat+dedupe), no archivo por archivo — evaluar por archivo producía un falso
+positivo afirmativo y un falso negativo (`strictKnownMarketplaces: []` sí bloquea).
+
+**FD (#548) — docs + el guard.** El guard obligaba a documentar 12 comandos (~1,300 líneas de copy en
+dos idiomas), así que el alcance se partió con decisión del usuario: entra `global` documentado y el
+guard shippea con `UNDOCUMENTED_ON_PURPOSE`. Lo que la separa de un basurero: **también falla cuando
+una entrada queda obsoleta** (ya documentada, o ya no registrada), así que la lista solo puede
+encoger. Los ejemplos del website son salida real del binario, no inventada.
+
+**FA (#545) — `global init` interactivo.** Multiselect derivado de los assets `globalSafe`, prompt de
+permisos (el camino de UI que ese campo nunca tuvo), `--recommended` y `--apply` con preview por
+default. Huella cero aplicada también al preview: sin `--apply` no se escribe un byte, ni el manifest.
+Dos arreglos post-`APPROVED` (`c123349`, con delta re-sign): el preview era el único de los tres
+comandos que callaba sobre la migración F1, y aceptar los defaults en el wizard producía el orden
+inverso a la curaduría de `--recommended` para una selección idéntica.
+
+**#538 cerrado SIN código, y era lo correcto.** La premisa del issue es falsa: navori **nunca** escribió
+`.codex/hooks.json` — verificado contra el historial completo de git, 12 tarballs publicados de npm y
+un render real. El bug de clase ya lo había arreglado #539, reproducido lado a lado (0.6.4 dejaba
+`.claude/settings.json` con el mensaje mentiroso; 0.6.5 lo borra). Haber "arreglado" el issue tal como
+estaba escrito habría hecho que el prune borrara un archivo ajeno — el defecto de #496. Residual real
+en **#557**: `.mcp.json` cuando navori lo crea desde cero.
+
+**Coordinación con una sesión paralela.** Toda la jornada se compartió working tree con otra sesión de
+Claude Code, que a media corrida movió el HEAD a su branch. Se resolvió por mensajes: commits por path
+explícito, sin `-a` ni `stash`, y esta sesión se mudó a `.claude/worktrees/545-global-init`. Dos
+lecciones: el worktree ataca la raíz, no el timing; pero **no aísla `progress/current.md`**, que está
+versionado y existe idéntico en los dos checkouts — ahí la única salida es dueño único. Y un gate
+verde medido con el diff de otra sesión dentro del árbol prueba la suma, no tu mitad.
+
+**Gate.** Verde sobre el diff aislado en el worktree: `format:check` (302 archivos) · `check:render`
+(0 pendientes) · `check:assets` · website (24 páginas) · `check:size` (873.2KB/900KB) ·
+`test:coverage` (183 archivos, 2988 tests, floor ok) · `lint` · `typecheck`. CI de los 4 PRs: verde.
+
+**Deuda.** `/tmp/navori547/` (fixture de un smoke; su `rm -rf` lo bloqueó el sistema de permisos) y el
+worktree `.claude/worktrees/545-global-init`, marcado `safe to remove` y pendiente del ok del usuario.
