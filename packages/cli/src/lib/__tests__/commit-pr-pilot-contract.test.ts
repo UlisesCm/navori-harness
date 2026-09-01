@@ -517,3 +517,142 @@ describe("commit-pr-pilot — `non-trivial` is defined where it decides (#502.3)
     ).toEqual([]);
   });
 });
+
+/**
+ * #563 — the closing keyword is SYNTAX, and the asset presented it as prose.
+ *
+ * The template shipped `- Closes <TICKET-ID>` inside a body the harness (rightly)
+ * orders written in the config's `commits` language. Nothing said that `Closes`
+ * is parsed by GitHub, so agents translated it along with the rest, and GitHub
+ * links an issue ONLY for `Closes|Fixes|Resolves #<N>` in English: `Cierra #530`
+ * is an ordinary sentence. The failure is silent — the PR opens, the body reads
+ * correctly to a human, and only `closingIssuesReferences` shows the empty list.
+ * Eight PRs of this repo (#532, #533, #534, #539, #549, #550, #551, #552) closed
+ * their issues by hand, which is precisely why nobody diagnosed it: the symptom
+ * was cleaned up every time.
+ *
+ * The `<TICKET-ID>` placeholder was the second half of it. A tracker id
+ * (`BT-1427`) can never be linked by GitHub, so a template that offers ONE line
+ * for both cases teaches the keyword to be used where it cannot work.
+ */
+const BODY_TEMPLATE = region("## Body template (generic default)", /^### /m);
+const HARD_RULES = region("## Hard rules", /^## /m);
+
+/** What GitHub actually parses: an English keyword immediately before `#<ref>`. */
+const GITHUB_CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s+#/i;
+
+/**
+ * The same intent written in the other language navori renders (`SUPPORTED_LANGS`
+ * is `es | en`), pointing at a real issue number. This is the shape that shipped;
+ * GitHub ignores it. The asset's own counter-example writes `#<N>`, not a number,
+ * so explaining the trap never trips the guard — no exemption list needed.
+ */
+const TRANSLATED_CLOSING =
+  /\b(?:cierra|cierran|cerrar|corrige|resuelve|arregla|soluciona|repara)\b[^\n]{0,24}#\d/i;
+
+describe("commit-pr-pilot — the closing keyword stays in English (#563)", () => {
+  // ---- anti-false-green ---------------------------------------------------
+  it("reads the template and the rules it judges", () => {
+    expect(BODY_TEMPLATE.length, "the body template section came back empty").toBeGreaterThan(300);
+    expect(BODY_TEMPLATE, "the anchor no longer covers the References section").toContain(
+      "## References",
+    );
+    expect(HARD_RULES, "the anchor no longer covers the language rule").toContain("commits");
+  });
+
+  it("the detectors tell the two forms apart", () => {
+    expect(GITHUB_CLOSING.test("- Closes #563")).toBe(true);
+    expect(GITHUB_CLOSING.test("- Fixes #12 (if applicable)")).toBe(true);
+    expect(GITHUB_CLOSING.test("- Closes <TICKET-ID>")).toBe(false);
+    expect(TRANSLATED_CLOSING.test("- Cierra #530")).toBe(true);
+    expect(TRANSLATED_CLOSING.test("Resuelve el issue #545")).toBe(true);
+    // The asset explains the trap with a placeholder, never a live number.
+    expect(TRANSLATED_CLOSING.test("translated (`Cierra #<N>`) it is a sentence")).toBe(false);
+  });
+
+  // ---- the contract -------------------------------------------------------
+  it("offers the keyword only in the form GitHub parses", () => {
+    expect(
+      BODY_TEMPLATE.split("\n").filter((line) => GITHUB_CLOSING.test(line)),
+      "the template no longer shows `Closes #<N>` — an agent with no example writes the sentence it would write in the body's language (#563)",
+    ).not.toEqual([]);
+  });
+
+  it("never points the keyword at a tracker id, which GitHub cannot link", () => {
+    const misuse = BODY_TEMPLATE.split("\n")
+      .filter((line) => GITHUB_CLOSING.test(line) && line.includes("TICKET-ID"))
+      .map((line) => `  ${line.trim()}`);
+    expect(
+      misuse,
+      [
+        "",
+        "  The keyword applied to `<TICKET-ID>`. GitHub links an issue of THIS repo",
+        "  by number; a Jira/Linear id is prose to it, so the line promises a close",
+        "  that can never happen (#563). Keep the two cases on separate lines.",
+        "",
+        misuse.join("\n"),
+        "",
+      ].join("\n"),
+    ).toEqual([]);
+  });
+
+  it("says why the keyword is exempt from the body's language", () => {
+    expect(
+      BODY_TEMPLATE,
+      "the template shows the keyword but never says it is syntax — that omission IS #563, and a later consistency pass translates it again",
+    ).toMatch(/\bin\s+\*\*English\*\*|\bsyntax\b/i);
+    expect(
+      HARD_RULES,
+      "the language rule is where an agent decides what to translate; it must name its one exception there, not only 40 lines above",
+    ).toMatch(GITHUB_CLOSING);
+  });
+
+  it("verifies what GitHub linked, not what the body claims", () => {
+    expect(
+      PR_FLOW,
+      "nothing in the flow reads `closingIssuesReferences`: a translated keyword produces a PR that looks right and links nothing, with no error anywhere (#563)",
+    ).toContain("closingIssuesReferences");
+  });
+});
+
+describe("no template writes a translated closing keyword (#563)", () => {
+  const files = [...markdownFiles(CORE_ASSETS), ...markdownFiles(PLUGINS)];
+
+  // ---- anti-false-green ---------------------------------------------------
+  it("scans templates and finds the keyword it guards", () => {
+    expect(files.length, "the template walk found almost nothing").toBeGreaterThan(50);
+    const withKeyword = files.filter((f) => GITHUB_CLOSING.test(readFileSync(f, "utf-8")));
+    expect(
+      withKeyword.length,
+      "no template shows a closing keyword — the scan is broken",
+    ).toBeGreaterThan(0);
+  });
+
+  // ---- the cross-check ----------------------------------------------------
+  it("keeps it in English everywhere it is written", () => {
+    const violations: string[] = [];
+    for (const file of files) {
+      readFileSync(file, "utf-8")
+        .split("\n")
+        .forEach((line, i) => {
+          if (TRANSLATED_CLOSING.test(line)) {
+            violations.push(`  ${file.slice(REPO_ROOT.length + 1)}:${i + 1}  ${line.trim()}`);
+          }
+        });
+    }
+    expect(
+      violations,
+      [
+        "",
+        "  A closing keyword translated next to an issue number. GitHub parses only",
+        "  `Closes|Fixes|Resolves #<N>` in English: everything else is prose it",
+        "  ignores, so the PR opens, reads correctly, links nothing, and the issue",
+        "  stays open with no error (#563). The body follows the project's language;",
+        "  this keyword does not.",
+        "",
+        violations.join("\n"),
+        "",
+      ].join("\n"),
+    ).toEqual([]);
+  });
+});

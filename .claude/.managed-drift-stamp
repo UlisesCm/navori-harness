@@ -5,7 +5,6 @@
 33daf0346ed91ffb1af1e60fb76beba92f3f298f  .claude/hooks/guard-destructive.sh
 40042d1c9fd287f69fa4f25abd20d2e19665efc1  .claude/agents/ticket-audit.md
 40df7526be1a0df0a7d3f4a96b062b015d4b57fb  .claude/skills/ticket-intake/SKILL.md
-42566ab9f908269b489ca2d1b1aa3faf190ef755  .claude/agents/commit-pr-pilot.md
 43822850d5057e5fe51be785134e12f1c25e7241  .claude/skills/playwright-cli/SKILL.md
 43a8ad4c9f009aeafacb3e07a22b97e9ac374fea  .claude/hooks/audit-mode-close.sh
 44c2e513fee8db4f368d88e4295384a4fd076d6a  .claude/agents/researcher.md
@@ -33,6 +32,7 @@ b54dbe684517593032c596d4c5c300384b72df34  .claude/skills/playwright-cli/referenc
 b7881f576fb3043d03c091ec30f45c995957c2a7  .claude/skills/playwright-cli/references/playwright-tests.md
 bb22d260d03bee586c8f504bfd677b2d03999017  .claude/skills/citty/SKILL.md
 bb979656403a8aa858ffd56040dcf60d4a231415  .claude/skills/clack/SKILL.md
+bd0e6e082e7301f985a4b3b970e74a1cbb8d7dad  .claude/agents/commit-pr-pilot.md
 bf1731bd127fde709a09f8c664621d3817b3000c  .claude/skills/pr-create/SKILL.md
 c3fc30043da5953f8b6de3ca084ac0500f6bf4db  .claude/skills/playwright-cli/references/test-generation.md
 cc8d332769cd7e8089891a639305cbbc3a97d53f  .claude/agents/explorer.md
