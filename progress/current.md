@@ -24,16 +24,16 @@ Lo que cargaba bien se verificó contra el crudo, no se asumió: transcript comp
    del recorder (muestra `guard-destructive 212×` con 298 llamadas Bash, sin nota).
 3. **#560** — `subagent-stop-handoff` corre ~6× por subagente (117 para 19). Falta averiguar si es
    del host o del registro del hook.
-
-## En vuelo en otra sesión (no tocar)
-
-**#545** (`global init` interactivo, FA de la spec 0010) — commiteado en `5a31e18` sobre
-`feat/545-global-init-interactivo`, pendiente de reviewer y PR. Esa sesión trabaja desde
-`.claude/worktrees/545-global-init`.
+4. **#563** — el `commit-pr-pilot` traduce el keyword de cierre y GitHub deja de enlazar el issue.
+   Toca un asset, así que arregla la clase entera en todos los repos que rinden navori.
 
 ## Cerrado hoy por la otra sesión
 
-- **Spec 0010 completa**: FA/FB/FC/FD mergeados a `main` — PRs #552 (`7e6f0a0`), #553 (`3be7a23`),
+- **#545** (FA de la spec 0010): `global init` interactivo, con preview y camino de UI para
+  `permissions` — PR #562 mergeado (`1abc3ba`), CI verde. Dos commits: `5a31e18` la implementación y
+  `c123349` dos arreglos de hallazgos del review, aplicados tras el primer APPROVED con delta
+  re-sign. **Con esto la spec 0010 queda COMPLETA: FA, FB, FC y FD en `main`.**
+- **Spec 0010, el resto**: FB/FC/FD mergeados a `main` — PRs #552 (`7e6f0a0`), #553 (`3be7a23`),
   #554 (`359c961`). Cerrados #546, #547, #548.
 - **#538 cerrado sin código**: se verificó que navori nunca escribió `.codex/hooks.json` (historial
   completo + 12 tarballs de npm + render real) y que el bug de clase ya lo arregló #539. El residual
@@ -61,5 +61,11 @@ Lo que cargaba bien se verificó contra el crudo, no se asumió: transcript comp
 - **Un spec que escriba en `~/.navori` necesita mockear `home.ts`** (razón por la que la migración
   F1→FB vive en `global-legacy-migration.test.ts`: el mock de `safeHomedir` no se acota a un
   `describe`).
+- **El keyword de cierre de un PR va en INGLÉS aunque el cuerpo esté en español.** GitHub solo
+  parsea `Closes/Fixes/Resolves #N`; `Cierra #N` es prosa y no enlaza nada. Por eso ningún PR de este
+  repo había auto-cerrado su issue nunca: 8 PRs (#532, #533, #534, #539, #549, #550, #551, #552) con
+  el keyword traducido y 8 issues cerrados a mano. Se comprueba con
+  `gh pr view <N> --json closingIssuesReferences`, que es lo que GitHub realmente enlazó — leer el
+  cuerpo no basta. La causa raíz está en la plantilla del `commit-pr-pilot` y queda en **#563**.
 - **Ojo con la base de las branches.** Antes de branchear: `git log origin/main..main` debe estar
   vacío.

@@ -980,3 +980,14 @@ correcto: se re-corrió completo con el árbol limpio.
 **Gate.** Verde sobre el diff aislado: `format:check` (300 archivos) · `check:render` (0 pendientes) ·
 `check:assets` · build del website (24 páginas) · `check:size` (870.9KB/900KB) · `test:coverage`
 (3000 tests, floor ok, 61 módulos) · `lint` · `typecheck`. CI del PR: `quality pass 2m0s`.
+
+**Adenda (16:20).** La sesión paralela cerró #545 (PR #562 mergeado), con lo que la spec 0010 queda
+completa. En su pre-flight salió un hallazgo que vale más que la jornada: **los keywords de cierre de
+issues solo funcionan en inglés**, y este repo los venía escribiendo en español, así que ningún PR ha
+auto-cerrado nunca su issue — 8 PRs afectados (#532, #533, #534, #539, #549, #550, #551, #552) y 8
+issues cerrados a mano, que es por qué nadie lo diagnosticó: el síntoma se limpiaba cada vez.
+Verificado con `gh pr view <N> --json closingIssuesReferences`, que es lo que GitHub realmente
+enlazó: vacío en los tres que se revisaron con `Cierra #N`, y `[545]` en el #562 que usó `Closes`.
+La causa raíz está en la plantilla del `commit-pr-pilot` (`Closes <TICKET-ID>` aparece como prosa
+inglesa, y el harness instruye traducir el cuerpo al idioma del proyecto) → **#563**. `#558` no
+declara cierre de issue, así que no quedó afectado.
