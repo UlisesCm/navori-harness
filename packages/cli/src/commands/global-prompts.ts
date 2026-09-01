@@ -1,6 +1,10 @@
 import * as p from "@clack/prompts";
 import { GLOBAL_SAFE_BLOCK_IDS } from "../lib/render-plan.ts";
-import { PERMISSION_KINDS, type PermissionBag } from "../lib/global-config.ts";
+import {
+  DEFAULT_GLOBAL_BLOCKS,
+  PERMISSION_KINDS,
+  type PermissionBag,
+} from "../lib/global-config.ts";
 import { tc, type Lang } from "../lib/i18n.ts";
 
 /**
@@ -34,6 +38,23 @@ export function parseRuleList(raw: string): string[] {
   ];
 }
 
+/** The curated selection, as a set, so the order below can skip its members. */
+const CURATED = new Set<string>(DEFAULT_GLOBAL_BLOCKS);
+
+/**
+ * The order `blocks.include` is written in, which IS the baseline's emission
+ * order. `DEFAULT_GLOBAL_BLOCKS` leads because that array is the shipped
+ * curation: accepting the pre-checked defaults in the wizard has to produce
+ * exactly what `--recommended` writes, and sorting by asset order alone put the
+ * orchestration doctrine first and the safe-operations contract last — the
+ * inverse of the curation, for an identical selection. Any other global-safe
+ * block follows in asset order.
+ */
+const EMISSION_ORDER: readonly string[] = [
+  ...DEFAULT_GLOBAL_BLOCKS,
+  ...GLOBAL_SAFE_BLOCK_IDS.filter((id) => !CURATED.has(id)),
+];
+
 /**
  * Ask which core blocks compose the global baseline. Options come from
  * `GLOBAL_SAFE_BLOCK_IDS` — the assets that DECLARE `globalSafe` — so the picker
@@ -57,10 +78,10 @@ export async function pickGlobalBlocks(
     required: true,
   });
   if (p.isCancel(selected)) return null;
-  // Re-sorted into asset order: `blocks.include` IS the baseline's emission
+  // Re-sorted into EMISSION_ORDER: `blocks.include` IS the baseline's emission
   // order, and a multiselect hands back values in toggle order.
   const chosen = new Set(selected);
-  return GLOBAL_SAFE_BLOCK_IDS.filter((id) => chosen.has(id));
+  return EMISSION_ORDER.filter((id) => chosen.has(id));
 }
 
 /**

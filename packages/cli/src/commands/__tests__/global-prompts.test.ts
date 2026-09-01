@@ -69,15 +69,36 @@ describe("global init — the block picker enumerates globalSafe (#545)", () => 
     expect(optionsOf(0).initialValues).toEqual(["idioma-rol"]);
   });
 
-  it("returns the selection in asset order, not toggle order", async () => {
+  it("returns the selection in emission order, not toggle order", async () => {
     // `blocks.include` IS the baseline emission order; a multiselect hands back
-    // whatever order the user toggled in.
+    // whatever order the user toggled in. Toggled here in reverse on purpose.
     clk.queue.push(["formato-respuesta", "idioma-rol"]);
     const chosen = await pickGlobalBlocks([], "es");
-    const expected = GLOBAL_SAFE_BLOCK_IDS.filter((id) =>
-      ["formato-respuesta", "idioma-rol"].includes(id),
+    expect(chosen).toEqual(["idioma-rol", "formato-respuesta"]);
+  });
+
+  it("accepting the pre-checked defaults writes what --recommended writes", async () => {
+    // The two paths must converge: a user who runs the wizard and just hits
+    // enter has made the SAME choice as `--recommended`, so the baseline it
+    // composes has to be byte-identical. Sorting by asset order alone put
+    // `orquestacion` first and `operaciones-seguras` last — the inverse of the
+    // shipped curation, for an identical selection.
+    clk.queue.push([...DEFAULT_GLOBAL_BLOCKS]);
+    const chosen = await pickGlobalBlocks(DEFAULT_GLOBAL_BLOCKS, "es");
+    expect(chosen).toEqual([...DEFAULT_GLOBAL_BLOCKS]);
+  });
+
+  it("orders a non-curated globalSafe block after the curated ones", async () => {
+    // The curated array leads; anything else global-safe follows in asset
+    // order. Guards the tail of EMISSION_ORDER, which the two cases above
+    // never reach.
+    const extra = GLOBAL_SAFE_BLOCK_IDS.filter(
+      (id) => !DEFAULT_GLOBAL_BLOCKS.includes(id as (typeof DEFAULT_GLOBAL_BLOCKS)[number]),
     );
-    expect(chosen).toEqual([...expected]);
+    if (extra.length === 0) return; // nothing to assert until an asset adds one
+    clk.queue.push([extra[0], "idioma-rol"]);
+    const chosen = await pickGlobalBlocks([], "es");
+    expect(chosen).toEqual(["idioma-rol", extra[0]]);
   });
 
   it("returns null when the user cancels", async () => {

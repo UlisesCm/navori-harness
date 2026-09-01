@@ -221,6 +221,14 @@ const initSubCommand = defineCommand({
     const rows = initPlanRows(plans, config, g);
 
     if (!args.apply) {
+      // Forecast the one write the preview would otherwise hide: on a pre-FB
+      // machine `--apply` migrates the F1 hook, which removes the loose script
+      // and strips its SessionStart entry from settings.json — while the rows
+      // above say "settings: unchanged". Skipping the migration here is what
+      // makes huella cero true; announcing it read-only is what keeps the
+      // preview honest. `render` and `doctor` already warn the same way.
+      const legacy = detectLegacyGlobalHook(dir);
+      if (legacy.filePresent) p.log.warn(g.legacyLeftover(legacy.hookPath));
       p.note(rows.map((s) => `  ${color.cyan(sym.bullet)} ${s}`).join("\n"), g.previewTitle);
       p.outro(grey(g.initPreviewHint));
       return;
