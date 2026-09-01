@@ -17,6 +17,22 @@ verdad (`navori.config.json`), sin pisar el trabajo manual del usuario. Estado a
 funcional en producción interna (rollout a 15 repos Bonum), monorepo pnpm con `@navori/cli` +
 `@navori/core` + `apps/website`.
 
+### La capa global (`~/.claude`) — qué es y qué no es
+
+Además del harness por repo, navori instala opcionalmente un **piso por máquina** con
+`navori global init` (Spec 0010): el manifest `~/.navori/global.json` y el plugin
+`navori@skills-dir` en `~/.claude/skills/navori/` — agentes, skills y un hook `SessionStart`
+que inyecta el baseline de doctrina. Existe por una razón acotada: las sesiones que arrancan
+**fuera** de un repo con navori (un scratch, un repo ajeno, tu `~`) hoy no tienen harness de
+ninguna clase. Es opt-in y de huella cero — sin ese `init` no existe nada y navori no tocó la
+máquina.
+
+Lo que **no** es: no sustituye al harness del repo; no es un segundo lugar donde vivan las reglas
+del proyecto (ésas siguen saliendo de `navori.config.json`, fuente de verdad única, y duplicarlas
+arriba sería exactamente la deriva que el invariante 3 evita); y no se aplica dentro de un repo con
+navori — el hook encuentra el `navori.config.json` y se hace a un lado sin emitir nada, que es el
+invariante 8 en su forma ejecutable.
+
 ## North Star
 
 **Que cualquier repo entre a una sesión de IA con guardrails, doctrina de orquestación,
