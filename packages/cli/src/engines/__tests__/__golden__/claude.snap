@@ -7706,6 +7706,10 @@ In the route: `router.post('/', validate(createResourceSchema, 'body'), ...)`. I
 
 ===== FILE: .mcp.json =====
 {
+  "$navori": {
+    "managed": true,
+    "version": "<VERSION>"
+  },
   "mcpServers": {
     "codegraph": {
       "command": "codegraph",

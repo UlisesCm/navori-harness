@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
 import { renderClaudeEngine } from "../index.ts";
+import { readCliVersion } from "../../../lib/bundled-assets.ts";
 
 /**
  * Ola 3 fixes for the Claude engine:
@@ -74,6 +75,73 @@ describe("#212 — .mcp.json materialization for Claude", () => {
     const parsed = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8"));
     expect(parsed.mcpServers.codegraph).toBeUndefined();
     expect(parsed.mcpServers["my-server"]).toEqual({ command: "my-bin", args: [] });
+  });
+});
+
+/**
+ * #557 — the registry navori writes whole says so, and the one it shares does not.
+ *
+ * `.mcp.json` was the only JSON navori can generate ENTIRELY that carried no
+ * authorship notation at all. With `claude` dropped from `engines[]`, a
+ * `render --prune --apply` neither deleted it nor mentioned it in any line of
+ * its output: the file stayed on disk registering MCP servers nobody would read
+ * again, and the run reported nothing. The stamp is what lets the prune tell the
+ * two cases apart — and by-key ownership stays exactly as it was for the case
+ * that matters, a file the user already had.
+ */
+describe("#557 — `.mcp.json` declares whether navori wrote the whole file", () => {
+  const stampOf = (cwd: string): { managed?: boolean; version?: string } | undefined =>
+    JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8")).$navori;
+
+  it("stamps the file it created from nothing", () => {
+    const cwd = tempRepo();
+    renderClaudeEngine(cwd, config({ codegraph: { enabled: true } }));
+    expect(stampOf(cwd)?.managed).toBe(true);
+    expect(stampOf(cwd)?.version).toBe(readCliVersion());
+  });
+
+  it("leaves the user's own registry unstamped, even while registering into it", () => {
+    const cwd = tempRepo();
+    writeFileSync(
+      join(cwd, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { "my-server": { command: "my-bin", args: [] } } }, null, 2)}\n`,
+    );
+    renderClaudeEngine(cwd, config({ codegraph: { enabled: true } }));
+
+    const parsed = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8"));
+    // Registered, as always — and NOT claimed: deleting this file would take the
+    // user's server with it.
+    expect(parsed.mcpServers.codegraph).toBeDefined();
+    expect(parsed.mcpServers["my-server"]).toBeDefined();
+    expect(parsed.$navori).toBeUndefined();
+  });
+
+  it("does not claim a file that carries a top-level key of the user's", () => {
+    const cwd = tempRepo();
+    writeFileSync(join(cwd, ".mcp.json"), `${JSON.stringify({ inputs: [] }, null, 2)}\n`);
+    renderClaudeEngine(cwd, config({ codegraph: { enabled: true } }));
+
+    const parsed = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8"));
+    expect(parsed.inputs).toEqual([]);
+    expect(parsed.$navori).toBeUndefined();
+  });
+
+  it("gives the file back the moment the user adds a server of their own", () => {
+    const cwd = tempRepo();
+    renderClaudeEngine(cwd, config({ codegraph: { enabled: true } }));
+    expect(stampOf(cwd)?.managed).toBe(true);
+
+    // The user edits the registry navori created.
+    const parsed = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8"));
+    parsed.mcpServers["my-server"] = { command: "my-bin", args: [] };
+    writeFileSync(join(cwd, ".mcp.json"), `${JSON.stringify(parsed, null, 2)}\n`);
+
+    // Recomputed from the content, not remembered: the claim comes off by
+    // itself, with no flag and no migration.
+    renderClaudeEngine(cwd, config({ codegraph: { enabled: true } }));
+    const after = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8"));
+    expect(after.$navori).toBeUndefined();
+    expect(after.mcpServers["my-server"]).toEqual({ command: "my-bin", args: [] });
   });
 });
 

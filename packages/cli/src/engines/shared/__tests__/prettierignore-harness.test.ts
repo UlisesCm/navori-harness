@@ -102,8 +102,9 @@ describe("prettierIgnoreEntries", () => {
   it("covers the whole Claude tree, not just CLAUDE.md", () => {
     // `.claude/agents/*.md` and `.claude/skills/**` carry managed blocks too, so
     // a formatter freezes them the same way. Hardcoding ["CLAUDE.md"] would fix
-    // half the class.
-    expect(prettierIgnoreEntries(["claude"])).toEqual([".claude/", "CLAUDE.md"]);
+    // half the class. `.mcp.json` joined the list with #557: it is generated the
+    // same way, it just lives at the repo root instead of under `.claude/`.
+    expect(prettierIgnoreEntries(["claude"])).toEqual([".claude/", ".mcp.json", "CLAUDE.md"]);
   });
 
   it("adds the Codex outputs only when codex is a configured engine", () => {
@@ -130,7 +131,7 @@ describe("ensurePrettierIgnore", () => {
     writePackageJson({ name: "x", scripts: { format: "prettier --write ." } });
     const result = ensurePrettierIgnore(cwd, { engines: ["claude"] }, { lang: "es" });
     expect(result?.status).toBe("created");
-    expect(managedBody()?.split("\n")).toEqual([".claude/", "CLAUDE.md"]);
+    expect(managedBody()?.split("\n")).toEqual([".claude/", ".mcp.json", "CLAUDE.md"]);
   });
 
   it("injects the block into an existing .prettierignore without losing the user's rules", () => {
@@ -144,7 +145,7 @@ describe("ensurePrettierIgnore", () => {
     const content = readFileSync(join(cwd, ".prettierignore"), "utf-8");
     expect(content).toContain("dist");
     expect(content).toContain("coverage");
-    expect(managedBody()?.split("\n")).toEqual([".claude/", "CLAUDE.md"]);
+    expect(managedBody()?.split("\n")).toEqual([".claude/", ".mcp.json", "CLAUDE.md"]);
   });
 
   it("is idempotent: a second call changes nothing and duplicates nothing", () => {
@@ -161,7 +162,7 @@ describe("ensurePrettierIgnore", () => {
 
   it("writes nothing when the user's own rules already cover every entry", () => {
     writePackageJson({ name: "x", devDependencies: { prettier: "^3.0.0" } });
-    const existing = "# mine\n.claude\nCLAUDE.md\ndist\n";
+    const existing = "# mine\n.claude\nCLAUDE.md\n.mcp.json\ndist\n";
     writeFileSync(join(cwd, ".prettierignore"), existing, "utf-8");
 
     const result = ensurePrettierIgnore(cwd, { engines: ["claude"] }, { lang: "es" });
@@ -177,8 +178,8 @@ describe("ensurePrettierIgnore", () => {
     writeFileSync(join(cwd, ".prettierignore"), "CLAUDE.md\n", "utf-8");
 
     const result = ensurePrettierIgnore(cwd, { engines: ["claude"] }, { lang: "es" });
-    expect(result?.entries).toEqual([".claude/"]);
-    expect(managedBody()?.split("\n")).toEqual([".claude/"]);
+    expect(result?.entries).toEqual([".claude/", ".mcp.json"]);
+    expect(managedBody()?.split("\n")).toEqual([".claude/", ".mcp.json"]);
     // No duplicate rule for what the user already wrote.
     const content = readFileSync(join(cwd, ".prettierignore"), "utf-8");
     expect(content.split("\n").filter((l) => l.trim() === "CLAUDE.md")).toHaveLength(1);
@@ -188,7 +189,7 @@ describe("ensurePrettierIgnore", () => {
     writePackageJson({ name: "x", devDependencies: { prettier: "^3.0.0" } });
     const result = ensurePrettierIgnore(cwd, { engines: ["claude"] }, { lang: "es", dryRun: true });
     expect(result?.status).toBe("created");
-    expect(result?.entries).toEqual([".claude/", "CLAUDE.md"]);
+    expect(result?.entries).toEqual([".claude/", ".mcp.json", "CLAUDE.md"]);
     expect(existsSync(join(cwd, ".prettierignore"))).toBe(false);
   });
 
@@ -267,7 +268,7 @@ describe("scanPrettierIgnore", () => {
 
   it("stays quiet when the user's own rules already cover the harness", () => {
     writePackageJson({ name: "x", devDependencies: { prettier: "^3.0.0" } });
-    writeFileSync(join(cwd, ".prettierignore"), "CLAUDE.md\n.claude/\n", "utf-8");
+    writeFileSync(join(cwd, ".prettierignore"), "CLAUDE.md\n.claude/\n.mcp.json\n", "utf-8");
     expect(scanPrettierIgnore(cwd, { engines: ["claude"] })).toEqual({
       missing: false,
       drift: false,

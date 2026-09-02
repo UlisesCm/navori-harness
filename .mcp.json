@@ -1,4 +1,8 @@
 {
+  "$navori": {
+    "managed": true,
+    "version": "0.6.5"
+  },
   "mcpServers": {
     "engram": {
       "command": "engram",

@@ -137,7 +137,11 @@ describe("render reconciles the harness .prettierignore (#523 follow-up)", () =>
   it("does nothing when the user's own rules already cover the harness", () => {
     repoRunsPrettier();
     config({ engines: ["claude"] });
-    writeFileSync(join(cwd, ".prettierignore"), "CLAUDE.md\n.claude/\n", "utf-8");
+    // `.mcp.json` is on the list since #557 — it is generated the same way as
+    // the rest, it just lives at the repo root — so covering "the harness" means
+    // covering it too.
+    const theirs = "CLAUDE.md\n.claude/\n.mcp.json\n";
+    writeFileSync(join(cwd, ".prettierignore"), theirs, "utf-8");
 
     const result = runRender(cwd, { dryRun: false });
 
@@ -146,7 +150,7 @@ describe("render reconciles the harness .prettierignore (#523 follow-up)", () =>
     // Their file is theirs: no managed block bolted on top of rules that
     // already do the job.
     expect(block()).toBeNull();
-    expect(readFileSync(join(cwd, ".prettierignore"), "utf-8")).toBe("CLAUDE.md\n.claude/\n");
+    expect(readFileSync(join(cwd, ".prettierignore"), "utf-8")).toBe(theirs);
   });
 
   it("preserves a hand-edited block and reports it as a skip", () => {

@@ -30,7 +30,7 @@ import {
   emitUserSection,
 } from "../../lib/marker.ts";
 import type { RenderStatus } from "../../lib/style.ts";
-import { isNavoriOwnedSettings } from "../../lib/json-ownership.ts";
+import { isNavoriOwnedSettings, NAVORI_OWNERSHIP_KEY } from "../../lib/json-ownership.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
 import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
 import { renderManagedFile } from "../shared/render-managed-file.ts";
@@ -1099,6 +1099,19 @@ type McpPlan =
  * plugins are cleaned up elsewhere. An unparseable / non-object existing file is
  * left untouched (skip) unless `--force`, so navori never clobbers a file it
  * can't safely merge into.
+ *
+ * ONE case is not by key, and it is the one #557 left on disk: when the repo had
+ * no `.mcp.json` and navori writes the whole thing, every byte in it is navori's
+ * and nothing else's. That file gets the `$navori` stamp — the same notation
+ * `.claude/settings.json` carries — so `render --prune` can recognise it as
+ * navori's and remove it with the engine that motivated it, instead of leaving
+ * a registry pointing at MCP servers nobody will read again.
+ *
+ * The stamp is RECOMPUTED from the merged content on every render, never
+ * remembered: the moment the file also holds a server or a key that is not
+ * navori's, it stops being navori's whole file and the stamp comes off. So a
+ * user who adds their own entry to a navori-created registry takes it back by
+ * doing exactly that, with no flag and no migration.
  */
 function planMcpRegistration(
   cwd: string,
@@ -1163,7 +1176,24 @@ function planMcpRegistration(
   if (Object.keys(servers).length > 0 || hadServersKey) {
     merged.mcpServers = servers;
   }
-  const newJson = JSON.stringify(merged, null, 2) + "\n";
+
+  // Is the resulting file navori's, whole? Only when nothing in it came from
+  // anywhere else: no top-level key besides `mcpServers` (and the stamp itself),
+  // and no server navori did not put there. Judged on the MERGED content, so the
+  // answer follows the file rather than remembering how it started.
+  const ours = Object.keys(merged).every(
+    (key) => key === "mcpServers" || key === NAVORI_OWNERSHIP_KEY,
+  );
+  const onlyNavoriServers = Object.keys(servers).every((id) => desired.has(id));
+  delete merged[NAVORI_OWNERSHIP_KEY];
+  const stamped =
+    ours && onlyNavoriServers && Object.keys(servers).length > 0
+      ? // First key, as in `.claude/settings.json`: what the file IS reads
+        // before what it configures.
+        { [NAVORI_OWNERSHIP_KEY]: { managed: true, version: readCliVersion() }, ...merged }
+      : merged;
+
+  const newJson = JSON.stringify(stamped, null, 2) + "\n";
   if (existing === newJson) return { kind: "noop" };
   return {
     kind: "write",
