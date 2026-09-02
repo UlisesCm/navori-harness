@@ -36,6 +36,11 @@
         "id": "keystone-rest",
         "relPath": "presets/bun-keystone/skills/keystone-rest.md",
         "destRelPath": ".claude/skills/keystone-rest.md"
+      },
+      {
+        "id": "keystone-graphql",
+        "relPath": "presets/bun-keystone/skills/keystone-graphql.md",
+        "destRelPath": ".claude/skills/keystone-graphql.md"
       }
     ],
     "hooks": []
