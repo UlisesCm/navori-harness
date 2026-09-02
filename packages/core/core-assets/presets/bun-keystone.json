@@ -40,5 +40,5 @@
     ],
     "hooks": []
   },
-  "invariants": ["allowAll", "context.sudo()", "validateInput"]
+  "invariants": ["allowAll", "context.sudo()", "addValidationError"]
 }

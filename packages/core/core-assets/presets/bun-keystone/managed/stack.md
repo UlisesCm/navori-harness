@@ -5,7 +5,7 @@ GraphQL backend on **Keystone 6**, **Bun** runtime, **Prisma + PostgreSQL** pers
 Three contracts govern all data code:
 
 - **3-layer access control** — each list declares `operation`, `filter` and `field`; `allowAll` is forbidden. A null session gets a restrictive filter, never an open one. See `keystone-access`.
-- **Hooks with a strict contract** — `resolveInput` returns data, `validateInput` throws `Error` (never returns a value), `afterOperation` checks `operation` before acting. See `keystone-models`.
+- **Hooks with a strict contract** — `resolveInput` returns data, `validate` reports failures through `addValidationError(msg)` and returns nothing, `afterOperation` checks `operation` before acting. See `keystone-models`. (On `@keystone-6/core` v8 the hook is `validate`; the older `validateInput`/`validateDelete` were removed and are **ignored silently** if still declared.)
 - **`context.sudo()` in hooks and services** — never `context.db` (it would apply the current session's access) or raw Prisma; `context.prisma` is reserved for seed/migration scripts only.
 
 Every external dependency (SMS, payments, third-party APIs) sits behind an interface in `[service].adapter.ts`: services receive the interface, not the implementation, so it can be mocked in tests.

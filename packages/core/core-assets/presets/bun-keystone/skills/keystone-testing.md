@@ -20,10 +20,13 @@ Hooks and access functions are pure functions over `{ session, context, ... }`: 
 // The context mock exposes sudo().db.<Model> and query; return it from a reusable helper.
 const context = makeMockContext({ session: adminSession });
 
-it("validateInput rejects manual truthState", async () => {
-  await expect(
-    Report.hooks.validateInput({ resolvedData: { truthState: "TRUE" }, operation: "create", context }),
-  ).rejects.toThrow();
+it("validate rejects manual truthState", async () => {
+  const addValidationError = vi.fn();
+  await Report.hooks.validate.create({
+    resolvedData: { truthState: "TRUE" }, context, addValidationError,
+  });
+  // Not `.rejects.toThrow()` — a compliant `validate` resolves, so that passes vacuously.
+  expect(addValidationError).toHaveBeenCalled();
 });
 
 it("access.filter.query narrows to the owner's records", () => {
