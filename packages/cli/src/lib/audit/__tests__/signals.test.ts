@@ -49,6 +49,8 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
       tokens: emptyTokens(),
       startupTokens: 0,
       toolCounts: {},
+      toolCountsByMode: {},
+
       skillsRead: [],
       skills: [],
       skillsDiscarded: 0,
@@ -376,5 +378,32 @@ describe("signal: hook-log-coverage", () => {
       agents: [agent({ endedAt: "2026-08-25T10:10:00.000Z" })],
     });
     expect(kinds(s, catalog())).not.toContain("hook-log-coverage");
+  });
+});
+
+describe("signal: hook-log-coverage stays quiet on a gap that rounds away (#584)", () => {
+  it("does not report 100% coverage as a finding", () => {
+    // Reporting the healthy case as a signal is how a reader learns to skip the
+    // section where the real ones live.
+    const s = session({
+      startedAt: "2026-08-25T10:00:00.000Z",
+      wallClockMs: 20 * 60 * 60 * 1000,
+      hookLogFrom: "2026-08-25T10:01:00.000Z",
+    });
+    expect(kinds(s, catalog())).not.toContain("hook-log-coverage");
+  });
+
+  it("still fires when an agent fell inside that gap, however small", () => {
+    // Rounding hides the minute; it must not hide the agent whose hooks that
+    // minute swallowed.
+    const s = session({
+      startedAt: "2026-08-25T10:00:00.000Z",
+      wallClockMs: 20 * 60 * 60 * 1000,
+      hookLogFrom: "2026-08-25T10:01:00.000Z",
+      agents: [
+        agent({ startedAt: "2026-08-25T10:00:10.000Z", endedAt: "2026-08-25T10:00:40.000Z" }),
+      ],
+    });
+    expect(kinds(s, catalog())).toContain("hook-log-coverage");
   });
 });

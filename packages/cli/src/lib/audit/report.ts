@@ -177,6 +177,7 @@ function orchestratorCard(s: SessionAudit, lang: Lang): string {
     `  ${t(lang, "tools", "tools").padEnd(LABEL)}${toolsLine(o.toolCounts)}`,
     `  ${"mcp".padEnd(LABEL)}${orchestratorMcp(o.mcpCalls, lang)}`,
     `  ${"hooks".padEnd(LABEL)}${orchestratorHooksLine(s, lang)}`,
+    ...modeRows(s, lang),
   ];
   const head = `### ${t(lang, "orquestador", "orchestrator")} · "${s.initialPrompt.slice(0, 60)}"`;
   return `${head}\n\n\`\`\`\n${rows.join("\n")}\n\`\`\``;
@@ -197,7 +198,10 @@ function orchestratorCard(s: SessionAudit, lang: Lang): string {
 function orchestratorHooksLine(s: SessionAudit, lang: Lang): string {
   const events = hooksLine(s.orchestrator.hookEvents, lang);
   const window = recorderWindow(s);
-  if (!window) return events;
+  // A gap that rounds away is not a caveat. Announcing "partial … covers 100%"
+  // in one breath contradicts itself, and a reader who sees a warning that
+  // walks itself back learns to skim the next one (#559 follow-up).
+  if (!window || window.coveredPercent >= 100) return events;
   const at = window.from.slice(11, 19);
   const note = t(
     lang,
@@ -206,6 +210,35 @@ function orchestratorHooksLine(s: SessionAudit, lang: Lang): string {
   );
   if (s.orchestrator.hookEvents.length === 0) return note;
   return `${events}\n  ${" ".repeat(LABEL)}${note}`;
+}
+
+/**
+ * The tool histogram split by permission mode (#584), when the session used
+ * more than one.
+ *
+ * A session that switches modes had ONE histogram and a note saying which mode
+ * dominated — which describes no moment of it. The modes are not
+ * interchangeable: `auto` tells the model to work through the shell and charges
+ * a classifier round-trip per command, `plan` forbids writing outright. Reading
+ * "Bash 217" without knowing which mode it happened under answers nothing.
+ *
+ * Silent for a single-mode session: the card above already IS that histogram,
+ * and repeating it under a heading would be noise.
+ */
+function modeRows(s: SessionAudit, lang: Lang): string[] {
+  const byMode = Object.entries(s.orchestrator.toolCountsByMode ?? {});
+  if (byMode.length < 2) return [];
+  const order = new Map(Object.entries(s.permissionModes).map(([m, n]) => [m, n] as const));
+  // Busiest mode first — the one whose numbers the reader is most likely to be
+  // reasoning about — with the undeclared bucket last whatever its size.
+  const sorted = byMode.sort(([a], [b]) => (order.get(b) ?? -1) - (order.get(a) ?? -1));
+  return [
+    "",
+    `  ${t(lang, "por modo", "by mode").padEnd(LABEL)}${t(lang, "solo el hilo principal", "main thread only")}`,
+    ...sorted.map(
+      ([mode, counts]) => `  ${" ".repeat(LABEL)}${mode.padEnd(16)}${toolsLine(counts)}`,
+    ),
+  ];
 }
 
 /** The orchestrator inherits every tool, so there is no allowlist to cross. */
