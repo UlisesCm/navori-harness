@@ -27,24 +27,15 @@ const COMMANDS_TS = resolve(REPO_ROOT, "apps", "website", "src", "content", "com
  * expiry, not a hiding place: the audit below fails when one goes stale, so the
  * list can only ever shrink.
  *
- * #548 shipped `global` alone on purpose — documenting the remaining eleven is
- * ~1,300 lines of public copy in two languages, which would have held the
- * opt-in feature's docs hostage to a copywriting batch. They are the follow-up
- * of #548; delete each name here as its `CommandDoc` (es AND en) lands.
+ * EMPTY since #556, and that is the state to defend. #548 shipped `global`
+ * alone on purpose — the remaining eleven were ~1,300 lines of public copy in
+ * two languages, and holding an opt-in feature's docs hostage to a copywriting
+ * batch would have been the worse trade. They landed together in #556, so every
+ * registered subcommand now has a page. A new command that arrives without one
+ * fails this suite: add the `CommandDoc` (es AND en), or record the exemption
+ * here with the reason it earns and the issue that will retire it.
  */
-const UNDOCUMENTED_ON_PURPOSE = new Map<string, string>([
-  ["remove", "#548 follow-up: public copy pending"],
-  ["configure", "#548 follow-up: public copy pending"],
-  ["update", "#548 follow-up: public copy pending"],
-  ["scan", "#548 follow-up: public copy pending"],
-  ["registry", "#548 follow-up: public copy pending"],
-  ["workspace", "#548 follow-up: public copy pending"],
-  ["ticket", "#548 follow-up: public copy pending"],
-  ["backup", "#548 follow-up: public copy pending"],
-  ["migrations", "#548 follow-up: public copy pending"],
-  ["dominio", "#548 follow-up: public copy pending"],
-  ["audit", "#548 follow-up: public copy pending"],
-]);
+const UNDOCUMENTED_ON_PURPOSE = new Map<string, string>([]);
 
 /** Why an exemption no longer earns its place. */
 type StaleReason = "already documented" | "no longer registered";
