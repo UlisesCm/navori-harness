@@ -4312,20 +4312,27 @@ fi
 # A plain glob + `cat`: the files are managed markdown that `render` wrote, and
 # the hook stays dumb on purpose. Missing directory, missing files or an
 # unreadable one → nothing is added and the rest of the context still ships.
-if [ -d ".claude/context" ]; then
-  # nullglob, each shell spelling it its own way: an EMPTY context dir leaves
-  # the pattern unmatched, and under zsh that is a hard "no matches found" that
-  # kills the hook mid-startup (#391). bash would hand the literal pattern to
-  # `cat` instead — quieter, still wrong.
-  if [ -n "${ZSH_VERSION:-}" ]; then setopt NULL_GLOB; else shopt -s nullglob; fi
-  for f in .claude/context/*.md; do
+#
+# EVERY engine's context dir, for the same reason the progress loop above lists
+# three: `placeHook` copies this body VERBATIM per engine, so a hook that knew
+# only `.claude/` would be a dead branch under `.codex/` the day a block routes
+# there. Literals, not interpolation — same choice the progress loop made.
+#
+# nullglob, each shell spelling it its own way: an EMPTY context dir leaves the
+# pattern unmatched, and under zsh that is a hard "no matches found" that kills
+# the hook mid-startup (#391). bash would hand the literal pattern to `cat`
+# instead — quieter, still wrong.
+if [ -n "${ZSH_VERSION:-}" ]; then setopt NULL_GLOB; else shopt -s nullglob; fi
+for ctxdir in ".claude/context" ".codex/context"; do
+  [ -d "$ctxdir" ] || continue
+  for f in "$ctxdir"/*.md; do
     [ -f "$f" ] || continue
     block=$(cat "$f" 2>/dev/null) || continue
     [ -n "$block" ] || continue
     add ""
     add "$block"
   done
-fi
+done
 
 if [ -z "$ctx" ]; then
   navori_audit_verdict="noop"

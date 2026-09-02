@@ -160,4 +160,16 @@ describe("the directory is only ever read by the hook (#573)", () => {
     // Empty dir under zsh is a hard abort without this (#391).
     expect(hook).toContain("NULL_GLOB");
   });
+
+  it("names EVERY engine's context dir, because the body is copied verbatim", () => {
+    // `placeHook` copies this script per engine without retargeting its paths —
+    // the same reason the progress loop right above it lists three directories.
+    // A hook that knew only `.claude/` would be a dead branch under `.codex/`
+    // the day a block routes there, and nothing would report the silence.
+    renderClaudeEngine(cwd, CONFIG);
+    const hook = readFileSync(join(cwd, ".claude", "hooks", "session-start-context.sh"), "utf-8");
+    for (const dir of [".claude/context", ".codex/context"]) {
+      expect(hook).toContain(dir);
+    }
+  });
 });
