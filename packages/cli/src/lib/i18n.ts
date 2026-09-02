@@ -820,6 +820,10 @@ interface DoctorCmdStrings {
   ) => string;
   /** How to adopt the divergence (never auto-applied). */
   workspaceDriftHint: string;
+  /** Note title for the permission-mode row (#579). */
+  permissionModeTitle: string;
+  /** A repo pinned to `dontAsk` whose allow list cannot write (#579). */
+  permissionModeUnsupported: (mode: string, path: string, missing: string) => string;
   /** Note title for the section about a foreign harness that clashes (#555). */
   foreignHarnessTitle: string;
   /** The word a conflict row starts with, per asset type. */
@@ -1768,6 +1772,9 @@ const CMD_ES: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos usan ${expected})`,
     workspaceDriftHint:
       "Informativo: navori nunca lo aplica solo. Adóptalo con 'navori configure', o promuévelo al workspace con 'navori workspace set-default'.",
+    permissionModeTitle: "Modo de permisos",
+    permissionModeUnsupported: (mode, path, missing) =>
+      `'${path}' fija defaultMode '${mode}', y en ese modo se auto-deniega todo lo que normalmente preguntaría: sin ${missing} en 'permissions.allow', el implementer no puede escribir código ni el reviewer su reporte. navori soporta default, acceptEdits, plan y auto; para este modo agrega tú las reglas que tu CI necesite.`,
     foreignHarnessTitle: "Harness ajeno",
     foreignHarnessAgentWord: "el agente",
     foreignHarnessSkillWord: "la skill",
@@ -2804,6 +2811,9 @@ const CMD_EN: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos use ${expected})`,
     workspaceDriftHint:
       "Informational: navori never applies it for you. Adopt it with 'navori configure', or promote it to the workspace with 'navori workspace set-default'.",
+    permissionModeTitle: "Permission mode",
+    permissionModeUnsupported: (mode, path, missing) =>
+      `'${path}' sets defaultMode '${mode}', and that mode auto-denies everything that would otherwise prompt: without ${missing} in 'permissions.allow', the implementer cannot write code and the reviewer cannot write its report. navori supports default, acceptEdits, plan and auto; for this mode add the rules your CI needs yourself.`,
     foreignHarnessTitle: "Foreign harness",
     foreignHarnessAgentWord: "agent",
     foreignHarnessSkillWord: "skill",

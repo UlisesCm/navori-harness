@@ -884,6 +884,80 @@ export function scanLegacyAgents(cwd: string, config: NavoriConfig): LegacyAgent
   return detectLegacyAgents(detectClaudeInfra(cwd).agentFiles, config);
 }
 
+/**
+ * A repo that declares `dontAsk` as its permission mode, against a harness that
+ * cannot write in it (#579).
+ *
+ * `dontAsk` auto-denies every call that would otherwise prompt, and runs only
+ * what `permissions.allow` covers, the built-in read-only shell set, and what a
+ * PreToolUse hook approves. navori's allow list grants `Read`, `Glob`, `Grep`
+ * and its MCP families — deliberately NOT `Edit`/`Write`, because in every
+ * other mode the prompt on a write is the safety net worth keeping. The two
+ * choices are coherent on their own and fatal together: the implementer cannot
+ * write code, the reviewer cannot write its report, and the mode never asks —
+ * it just denies, in silence.
+ *
+ * Reported, never fixed automatically: granting the write tools would change
+ * the posture of `default` mode for every repo, and that is the user's call.
+ */
+export interface PermissionModeConflict {
+  /** The declared mode, verbatim. */
+  mode: string;
+  /** Repo-relative settings file that declares it. */
+  path: string;
+  /** Tools the harness needs that the allow list does not grant. */
+  missing: string[];
+}
+
+/** Tools the implement/review cycle cannot run without. */
+const CYCLE_TOOLS = ["Edit", "Write"] as const;
+
+/** `defaultMode` as Claude Code reads it: under `permissions`, or top level. */
+function declaredMode(settings: Record<string, unknown>): string | null {
+  const perms = settings.permissions;
+  const nested =
+    perms && typeof perms === "object" && !Array.isArray(perms)
+      ? (perms as Record<string, unknown>).defaultMode
+      : undefined;
+  const value = nested ?? settings.defaultMode;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function allowList(settings: Record<string, unknown>): string[] {
+  const perms = settings.permissions;
+  if (!perms || typeof perms !== "object" || Array.isArray(perms)) return [];
+  const allow = (perms as Record<string, unknown>).allow;
+  return Array.isArray(allow) ? allow.filter((r): r is string => typeof r === "string") : [];
+}
+
+/**
+ * Both settings files a repo can declare the mode in, project first: the local
+ * one is machine-local and wins, so a `dontAsk` declared there is exactly the
+ * case that would otherwise surprise one developer and nobody else.
+ */
+export function scanPermissionMode(cwd: string): PermissionModeConflict[] {
+  const out: PermissionModeConflict[] = [];
+  for (const file of ["settings.json", "settings.local.json"]) {
+    const rel = join(".claude", file);
+    const abs = join(cwd, rel);
+    if (!existsSync(abs)) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(abs, "utf-8"));
+    } catch {
+      continue; // a settings file that does not parse is `scanCorruptedSettings`'s report
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+    const settings = parsed as Record<string, unknown>;
+    const mode = declaredMode(settings);
+    if (mode !== "dontAsk") continue;
+    const allow = allowList(settings);
+    const missing = CYCLE_TOOLS.filter((tool) => !allow.includes(tool));
+    if (missing.length > 0) out.push({ mode, path: rel, missing });
+  }
+  return out;
+}
+
 export interface HealthState {
   claudeMdExists: boolean;
   missingPlugins: MissingPlugin[];
