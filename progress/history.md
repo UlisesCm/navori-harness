@@ -1082,3 +1082,59 @@ los cuales ~60k eran el bloque de orquestación entregado a agentes que no orque
 **Gate**: verde en todos los PRs mergeados (3128 tests al final). La rama
 `feat/audience-channel` queda ROJA a propósito: 5 tests por migrar, declarado en el commit
 y en `current.md`.
+
+## 2026-09-02 15:30 orchestrator — navori 0.7.0 publicado, y la auditoría que lo precedió
+
+**Cerrado**: #573, #572 y #584 (PRs #582, #583), más el release (#585). Con eso, cero issues
+abiertos. Trece issues en dos jornadas.
+
+**La orquestación salió de la capa always-on.** Cuatro bloques —`orquestacion`, `arranque-sesion`,
+`cierre-sesion`, `agentes-disponibles`— se renderizan a `.claude/context/` y los entrega el hook de
+`SessionStart`, que alcanza al agente principal y no a los subagentes. El criterio fue uno solo y no
+se movió nada más: **solo sale lo que un subagente no puede ejecutar** (ninguno declara la tool
+`Agent`). Lo que navori renderiza en el `CLAUDE.md` pasó de 381 a **187 líneas**, bajo el objetivo
+de 200 que documenta Claude Code.
+
+Dos verificaciones sostuvieron la decisión, y sin ellas no la habría tomado: **el canal ya existía**
+(la capa global emite ese mismo bloque por hook desde #546) y **no se perdía nada**, porque el
+contrato de handoff que el bloque le daba a los subagentes ya vivía en el asset de cada agente. Eso
+último quedó como requisito con suite propia: es una duplicación que parece limpiable y no lo es.
+
+**La auditoría del propio cambio encontró dos defectos, y ambos eran de clase conocida:**
+
+1. El hook de contexto solo miraba `.claude/context`, cuando `placeHook` copia ese script **verbatim
+   por engine** — la razón por la que el bucle de progress, veinte líneas más arriba en el mismo
+   archivo, lista tres directorios. La copia bajo `.codex/` era una rama muerta.
+2. `leader.md` mandaba al lector al bloque *"en `CLAUDE.md`, que se auto-carga"*. Clase #501: prosa
+   que afirma una ubicación que se movió.
+
+**#584 nació auditando #572**, y su primer resultado contradijo lo que creíamos: con el histograma
+cortado por modo, el dominio de Bash **no** es cosa de auto mode — en `default` (9/9) y
+`acceptEdits` (13/13), donde el host no inyecta esa preferencia, también fue Bash puro con cero
+Read/Grep/Glob. La atribución es por posición porque los eventos `permission-mode` no traen
+timestamp; las transiciones (`EnterPlanMode` bajo el modo que dejas, `ExitPlanMode` bajo `plan`) son
+la comprobación de que no se corre. De paso arregló una línea de #559 que se contradecía sola:
+*"parcial · el recorder cubre 100% de la sesión"*.
+
+**Correcciones a mis propias cifras**, las dos por leer una media en vez de la distribución:
+
+- El costo de hooks por comando Bash es **203 ms de mediana**, no 530: la media la inflaban tres
+  picos de `check-semgrep` de 4–5.5 s, que ocurren solo en commits/pushes porque el script está
+  gateado a eso. El diseño resiste el escrutinio.
+- La dieta pesa **15% del arranque de un subagente pero 6.5% del orquestador**, y 3 de 4 sesiones
+  auditadas no lanzaron ninguno. El ahorro grande solo aparece con fan-out.
+
+**Diagnóstico de fondo, que no es un ticket**: el harness está afinado para orquestar una flota que
+en la mayoría de las sesiones no zarpa —8 agentes y 17-36 skills declarados, 0 usados en 3 de 4
+sesiones— mientras lo que corre sin parar es Bash, los guards y los gates. Lo mejor que tiene es lo
+más nuevo: **los trece issues salieron de `navori audit`, ninguno de intuición**.
+
+**Release y rollout**: 0.7.0 publicado en npm; los cuatro repos de `navori/` renderizados a 0.7.0
+con `doctor ok=true` y 0 drifts, **sin commitear por decisión del usuario**.
+
+**Gate**: verde, 3154 tests. El único rojo recurrente fue el falso positivo del guard `~/.navori`,
+causado por otra sesión de Claude Code viva en `alertaciudadana_app`.
+
+**Lo que falta es medir**: una sesión con fan-out y `audit --start` desde el primer minuto, en un
+repo ya en 0.7.0. Hasta entonces, lo afirmable es *"el cableado es correcto"*, no *"el
+comportamiento mejoró"*.

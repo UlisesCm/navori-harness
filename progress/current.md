@@ -1,68 +1,73 @@
 # Sesión actual
 
-**Estado:** rama `feat/audience-channel` con trabajo **a medias y sin PR** (commit `fa1f328`).
-El resto de la jornada está mergeado en `main`. Release 0.7.0 pendiente.
+**Estado:** **navori 0.7.0 publicado en npm** y los cuatro repos de `navori/` actualizados.
+Cero issues abiertos. Queda una cosa pendiente y es de commit, no de trabajo.
 
-## SIGUIENTE PASO
+## PENDIENTE INMEDIATO (necesita shell)
 
-**Terminar `feat/audience-channel`**: migrar 5 tests que afirman sobre el `CLAUDE.md` un
-contenido que ahora vive en `.claude/context/orquestacion.md`.
+El commit de cierre de esta jornada — `progress/current.md` + `progress/history.md`. Se quedó sin
+hacer porque **el clasificador de auto mode se cayó** (sobrecarga transitoria) y en ese modo cada
+comando de shell necesita ese viaje. Dos salidas: esperar, o salir de auto mode con Shift+Tab
+(`acceptEdits`/`default`), donde las reglas `allow` resuelven sin clasificador.
 
-| Archivo | Fallos | Qué afirma hoy |
+## SIGUIENTE PASO REAL: medir
+
+La medición que valida —o refuta— dos días de trabajo: **una sesión con fan-out, con
+`navori audit --start <id>` desde el primer minuto**, en un repo ya en 0.7.0. Contesta de una:
+
+1. ¿arranca la escalera de búsqueda? (`codegraph_explore > 0`, hoy 0 en todas las sesiones)
+2. ¿se agrupan los comandos? (llamadas Bash por turno)
+3. ¿cuánto bajó el arranque por subagente? (27,787 → ~23,600 esperado)
+
+Con el corte por modo (#584) el resultado se lee sin la ambigüedad de hoy: sabremos qué pasó en
+`auto` y qué en el resto, en vez de un solo montón.
+
+## Lo que se cerró en esta jornada
+
+**13 issues**, todos con PR mergeado: #563, #561, #559, #560, #557, #556, #555, #574, #575, #579,
+#573, #572, #584. Más las specs 0014 (harness ajeno) y 0015 (la orquestación fuera del always-on).
+
+Los que cambian comportamiento observable:
+
+- **La doctrina de orquestación salió del `CLAUDE.md`.** Cuatro bloques (`orquestacion`,
+  `arranque-sesion`, `cierre-sesion`, `agentes-disponibles`) se renderizan a `.claude/context/` y
+  los entrega el hook de `SessionStart`, que llega al agente principal y no a los subagentes —
+  ninguno declara la tool `Agent`, así que no podían actuar sobre ellos. Lo que navori renderiza
+  en el `CLAUDE.md` bajó de 381 a **187 líneas**, bajo el objetivo documentado de 200.
+- **Siete de los ocho agentes alcanzan MCP** (antes tres), por el mecanismo que ya existía:
+  `withAgentMcpTools` concede la familia del plugin que le inyecta prosa al agente.
+- **El harness reconoce los seis modos de permiso**, y `doctor` avisa del único que no soporta.
+- **El histograma de tools se corta por modo** — atribución posicional, porque los eventos
+  `permission-mode` no traen timestamp.
+
+## Estado del rollout
+
+| repo | harness | nota |
 |---|---|---|
-| `src/__tests__/cli.e2e.test.ts` | 2 | la lista de bloques de `doctor --json` (11 → 10) y "el primer bloque es `orquestacion`" |
-| `src/engines/__tests__/empty-placeholder-render.test.ts` | 2 | que `{{project.criticalAreas}}` interpolado aparece en el `CLAUDE.md` |
-| `src/commands/__tests__/render-monorepo.test.ts` | 1 | que el `CLAUDE.md` raíz contiene el bloque `orquestacion` |
+| `navori-harness` | 0.7.0 | publicado en npm |
+| `alertaciudadana_app` | 0.7.0 | sin commitear |
+| `alertaciudadana_backend` | 0.7.0 | sin commitear |
+| `alertaciudadana_backend_dev` | 0.7.0 | **sin git** — solo el backup de navori |
+| `navori-dashboard-template` | 0.7.0 | sin commitear, incluye 41 archivos de un render previo |
 
-Los tres apuntan al archivo nuevo en vez del `CLAUDE.md`. **El gate está rojo por esos 5** —
-no es deuda oculta, es el estado declarado del commit.
-
-Después: `pnpm test:golden`, gate completo, PR contra `main` (`Closes #573` solo cuando
-también aterricen T5/T6/T8 de la spec; si no, `Refs #573`).
-
-## Lo que YA funciona en esa rama (verificado en este repo)
-
-- `audience: orchestrator` en `render-plan.ts` saca un bloque del `CLAUDE.md` y lo renderiza
-  a `.claude/context/<id>.md` con marcador, hash, versión e interpolación.
-- **`CLAUDE.md`: 381 → 309 líneas.** El objetivo documentado por Claude Code son 200.
-- El hook de `SessionStart` lo emite: 19,070 bytes de `additionalContext`, igual en bash y
-  zsh, con `NULL_GLOB`/`nullglob` (un dir vacío bajo zsh aborta el hook, #391).
-- La migración de un repo ya renderizado sale gratis: el bloque se retira del `CLAUDE.md`
-  por su marcador sin tocar la prosa del usuario.
-- `blocks.exclude` alcanza el canal nuevo (dos specs lo cazaron: salía del `CLAUDE.md` pero
-  se seguía escribiendo en `.claude/context/`).
-- `.claude/context` cubierto por `ENGINE_OUTPUTS` (drift/doctor/prune) y por el scan de
-  `asset-command-permissions`.
-
-## Cerrado hoy
-
-- **#563** keyword de cierre en inglés (#564) · **#561** specs de `readHarnessCatalog` + 2
-  defectos silenciosos (#565) · **#559** ventana del recorder en la ficha del orquestador
-  (#566) · **#560** el aviso de handoff se dice una vez (#567) · **#557** `.mcp.json` en el
-  prune (#568) · **#556** los 11 comandos documentados, `UNDOCUMENTED_ON_PURPOSE` vacío
-  (#569) · **#555** detección de harness ajeno, spec 0014 + implementación (#570, #571) ·
-  **#574** la escalera de búsqueda vs auto mode (#576) · **#575** los roles alcanzan MCP
-  (#577) · **#579** los seis modos de permiso (#580).
-- **Spec 0015** (#578) mergeada: la orquestación fuera de la capa always-on.
-
-## Abiertos
-
-- **#573** — lotes de la spec 0015. Lo de arriba es su Lote 1+2 a medias.
-- **#572** — el `CLAUDE.md` sobre el límite de 200 líneas. Con #573 baja a 309.
-- **Release 0.7.0** — npm sigue en 0.6.5 con 22+ commits sin publicar. El usuario lo quiere
-  DESPUÉS de cerrar todos los issues.
+Por decisión del usuario **no se commiteó el harness en ninguno**. Los backups viven en
+`~/.navori/backups/`. Los otros tres directorios de `navori/` no tienen `navori.config.json`.
 
 ## Deuda / gotchas vigentes
 
-- **El guard `~/.navori` (#404/#424) dio falso positivo toda la jornada**: otra sesión de
-  Claude Code viva en `alertaciudadana_app` escribía su log de audit durante cada corrida
-  del gate (creció de 19,815 a 78,953 bytes). El propio mensaje del guard nombra el caso.
-  En CI siempre pasa.
-- **Cuidado con la rama base.** Dos veces cometí encima de una rama de PR en vez de `main`
-  (una llegó a pushear a la rama de #571, ya mergeada). Antes de commitear:
-  `git branch --show-current`.
-- `git commit --no-verify` lo bloquea el guard, y hace bien: si el gate rápido falla, se
-  arregla la causa (fue un import sin usar), no se salta el hook.
-- **Los inventarios escritos a mano no crecen solos.** Esta jornada rompieron tres veces:
-  el conteo de assets de `render-engine`, la lista de archivos del test e2e de engram, y el
-  `EXPECTED_PROMPTS` de permisos. Cuando un test liste archivos a mano, evalúa derivarlo.
+- **Decisión de producto abierta**: `Skills disponibles` (570 tok) puede ser copia del listado que
+  Claude Code ya inyecta. Dato que la refuerza: 36 skills declaradas y 0 usadas en
+  `alertaciudadana_app`, 15 de 17 sin usar aquí.
+- **La dieta rinde menos de lo que sugiere el titular**: los 4 bloques son 15% del arranque de un
+  subagente pero solo 6.5% del orquestador, y 3 de 4 sesiones auditadas no lanzaron ninguno.
+- **El guard `~/.navori` (#404/#424) dio falso positivo toda la jornada** por otra sesión de Claude
+  Code viva en `alertaciudadana_app`. En CI siempre pasa.
+- **Cuidado con la rama base**: dos veces cometí encima de una rama de PR en vez de `main`. Antes de
+  commitear: `git branch --show-current`.
+- **Un PR apilado contra una rama que no es la default NO enlaza su issue**, aunque el keyword esté
+  en inglés. `closingIssuesReferences` sale vacío hasta reapuntarlo a `main`. Límite del fix de #563.
+- **Los inventarios escritos a mano no crecen solos.** Rompieron cuatro veces: el conteo de assets
+  de `render-engine`, la lista de archivos del e2e de engram, `EXPECTED_PROMPTS`, y el conteo de
+  `preset-extras`. Cuando un test liste archivos a mano, evalúa derivarlo.
+- **`.claude/worktrees/ks8-preset/`** es un worktree ajeno (de #581) con 35 archivos aún en 0.6.5.
+  El render lo salta a propósito. Si su PR ya mergeó, se puede reclamar con `git worktree remove`.
