@@ -94,8 +94,9 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // + 2 CLAUDE.md managed blocks counted independently of the file + 1 guard
     // hook + 1 session-start hook + 2 lifecycle hooks (subagent-stop,
     // precompact) + 2 audit-mode hooks (trigger, close) + 1 managed-drift
-    // watcher (#530) + 1 worktree-reclaim hook (#527) = 35.
-    expect(r.inspected).toBe(35);
+    // watcher (#530) + 1 worktree-reclaim hook (#527) + 1 orchestrator block
+    // routed to `.claude/context/` (#573) = 36.
+    expect(r.inspected).toBe(36);
   });
 
   describe("bundled stack presets (B4)", () => {

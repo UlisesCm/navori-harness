@@ -41,32 +41,37 @@ describe("computeRenderPlan — blocks.exclude", () => {
     expect(plan.changed).toBe(false);
   });
 
+  // The example block is `sdd`, not `orquestacion`: since #573 the routing
+  // doctrine renders to `.claude/context/` instead of CLAUDE.md, so it can no
+  // longer stand in for "a block in this file". The exclusion semantics under
+  // test are the same for both, and the engine spec covers that the opt-out
+  // reaches the new channel too.
   it("omits an excluded block from a fresh render", () => {
     const withBlock = computeRenderPlan("", makeConfig([]), repoRoot).next;
-    expect(withBlock).toContain('id="orquestacion"');
+    expect(withBlock).toContain('id="sdd"');
 
-    const excluded = computeRenderPlan("", makeConfig(["orquestacion"]), repoRoot).next;
-    expect(excluded).not.toContain('id="orquestacion"');
+    const excluded = computeRenderPlan("", makeConfig(["sdd"]), repoRoot).next;
+    expect(excluded).not.toContain('id="sdd"');
     // Other core blocks still render.
     expect(excluded).toContain('id="idioma-rol"');
   });
 
   it("removes a previously-rendered block (markers included) when it becomes excluded", () => {
-    // First render seeds orquestacion + sdd.
+    // First render seeds sdd + idioma-rol.
     const seeded = computeRenderPlan("", makeConfig([]), repoRoot).next;
-    expect(seeded).toContain('id="orquestacion"');
     expect(seeded).toContain('id="sdd"');
+    expect(seeded).toContain('id="idioma-rol"');
 
     // Re-render with the block now excluded → its managed region is stripped.
-    const plan = computeRenderPlan(seeded, makeConfig(["orquestacion"]), repoRoot);
-    expect(plan.next).not.toContain('id="orquestacion"');
-    expect(plan.next).not.toContain('/navori:managed id="orquestacion"');
+    const plan = computeRenderPlan(seeded, makeConfig(["sdd"]), repoRoot);
+    expect(plan.next).not.toContain('id="sdd"');
+    expect(plan.next).not.toContain('/navori:managed id="sdd"');
     // The exclusion is reported via the same status a false condition uses.
-    const entry = plan.entries.find((e) => e.asset.id === "orquestacion");
+    const entry = plan.entries.find((e) => e.asset.id === "sdd");
     expect(entry?.status).toBe("removed-condition-false");
     expect(entry?.newContent).toBeNull();
     // Untouched blocks survive.
-    expect(plan.next).toContain('id="sdd"');
+    expect(plan.next).toContain('id="idioma-rol"');
     expect(plan.changed).toBe(true);
   });
 
@@ -77,18 +82,18 @@ describe("computeRenderPlan — blocks.exclude", () => {
     // (intentional) data-loss behavior so a future change to it is a conscious
     // decision, not an accident.
     const seeded = computeRenderPlan("", makeConfig([]), repoRoot).next;
-    expect(seeded).toContain('id="orquestacion"');
+    expect(seeded).toContain('id="sdd"');
     const handEdited = seeded.replace(
-      '<!-- /navori:managed id="orquestacion" -->',
-      'HAND-EDITED LINE THAT WILL BE LOST\n<!-- /navori:managed id="orquestacion" -->',
+      '<!-- /navori:managed id="sdd" -->',
+      'HAND-EDITED LINE THAT WILL BE LOST\n<!-- /navori:managed id="sdd" -->',
     );
     expect(handEdited).toContain("HAND-EDITED LINE THAT WILL BE LOST");
 
-    const plan = computeRenderPlan(handEdited, makeConfig(["orquestacion"]), repoRoot);
+    const plan = computeRenderPlan(handEdited, makeConfig(["sdd"]), repoRoot);
     // Region + markers + the user's edit are all gone — exclusion trumps edits.
-    expect(plan.next).not.toContain('id="orquestacion"');
+    expect(plan.next).not.toContain('id="sdd"');
     expect(plan.next).not.toContain("HAND-EDITED LINE THAT WILL BE LOST");
-    const entry = plan.entries.find((e) => e.asset.id === "orquestacion");
+    const entry = plan.entries.find((e) => e.asset.id === "sdd");
     expect(entry?.status).toBe("removed-condition-false");
     expect(entry?.newContent).toBeNull();
     expect(plan.changed).toBe(true);
