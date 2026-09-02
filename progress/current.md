@@ -1,71 +1,68 @@
 # Sesión actual
 
-**Estado:** PR #558 abierto y con CI verde — la atribución de hooks de `navori audit` estaba rota y
-ya está corregida. 3 issues nuevos con lo que quedó fuera de ese PR (#559, #560, #561).
-
-## Lo que pasó hoy
-
-Pregunta abierta del usuario ("¿audit-mode carga bien la info?") que terminó en un defecto real:
-`ownerOf` (`lib/audit/parse.ts`) caía al fallback por ventana temporal siempre que el `agentId` del
-evento no identificaba a un agente conocido, y **408 de 2537 eventos acababan en la ficha
-equivocada**. Ver `progress/history.md` para el detalle con evidencia.
-
-Lo que cargaba bien se verificó contra el crudo, no se asumió: transcript completo (`2442/2442`,
-`parseErrors 0`), histograma de tools exacto, 19 agentes = 19 `.jsonl`, `skills: []` real.
+**Estado:** rama `feat/audience-channel` con trabajo **a medias y sin PR** (commit `fa1f328`).
+El resto de la jornada está mergeado en `main`. Release 0.7.0 pendiente.
 
 ## SIGUIENTE PASO
 
-**Esperar el merge de #558.** Después, por orden de valor:
+**Terminar `feat/audience-channel`**: migrar 5 tests que afirman sobre el `CLAUDE.md` un
+contenido que ahora vive en `.claude/context/orquestacion.md`.
 
-1. **#561** — `lib/audit/harness.ts` en 0% de cobertura. Es el módulo que calcula la única señal
-   `high` del reporte (`unreachable-instructions`). Mismo patrón que produjo el bug de #558: lo que
-   entró sin tests es donde estaba el defecto.
-2. **#559** — la ficha del orquestador no dice que su conteo de hooks está truncado por el horizonte
-   del recorder (muestra `guard-destructive 212×` con 298 llamadas Bash, sin nota).
-3. **#560** — `subagent-stop-handoff` corre ~6× por subagente (117 para 19). Falta averiguar si es
-   del host o del registro del hook.
-4. **#563** — el `commit-pr-pilot` traduce el keyword de cierre y GitHub deja de enlazar el issue.
-   Toca un asset, así que arregla la clase entera en todos los repos que rinden navori.
+| Archivo | Fallos | Qué afirma hoy |
+|---|---|---|
+| `src/__tests__/cli.e2e.test.ts` | 2 | la lista de bloques de `doctor --json` (11 → 10) y "el primer bloque es `orquestacion`" |
+| `src/engines/__tests__/empty-placeholder-render.test.ts` | 2 | que `{{project.criticalAreas}}` interpolado aparece en el `CLAUDE.md` |
+| `src/commands/__tests__/render-monorepo.test.ts` | 1 | que el `CLAUDE.md` raíz contiene el bloque `orquestacion` |
 
-## Cerrado hoy por la otra sesión
+Los tres apuntan al archivo nuevo en vez del `CLAUDE.md`. **El gate está rojo por esos 5** —
+no es deuda oculta, es el estado declarado del commit.
 
-- **#545** (FA de la spec 0010): `global init` interactivo, con preview y camino de UI para
-  `permissions` — PR #562 mergeado (`1abc3ba`), CI verde. Dos commits: `5a31e18` la implementación y
-  `c123349` dos arreglos de hallazgos del review, aplicados tras el primer APPROVED con delta
-  re-sign. **Con esto la spec 0010 queda COMPLETA: FA, FB, FC y FD en `main`.**
-- **Spec 0010, el resto**: FB/FC/FD mergeados a `main` — PRs #552 (`7e6f0a0`), #553 (`3be7a23`),
-  #554 (`359c961`). Cerrados #546, #547, #548.
-- **#538 cerrado sin código**: se verificó que navori nunca escribió `.codex/hooks.json` (historial
-  completo + 12 tarballs de npm + render real) y que el bug de clase ya lo arregló #539. El residual
-  real quedó en **#557** (`.mcp.json` creado desde cero).
-- Issues nuevos de esa sesión: **#555** (detectar harness ajeno que choca y ofrecer adoptarlo),
-  **#556** (documentar los 11 comandos y vaciar `UNDOCUMENTED_ON_PURPOSE`), **#557**.
+Después: `pnpm test:golden`, gate completo, PR contra `main` (`Closes #573` solo cuando
+también aterricen T5/T6/T8 de la spec; si no, `Refs #573`).
+
+## Lo que YA funciona en esa rama (verificado en este repo)
+
+- `audience: orchestrator` en `render-plan.ts` saca un bloque del `CLAUDE.md` y lo renderiza
+  a `.claude/context/<id>.md` con marcador, hash, versión e interpolación.
+- **`CLAUDE.md`: 381 → 309 líneas.** El objetivo documentado por Claude Code son 200.
+- El hook de `SessionStart` lo emite: 19,070 bytes de `additionalContext`, igual en bash y
+  zsh, con `NULL_GLOB`/`nullglob` (un dir vacío bajo zsh aborta el hook, #391).
+- La migración de un repo ya renderizado sale gratis: el bloque se retira del `CLAUDE.md`
+  por su marcador sin tocar la prosa del usuario.
+- `blocks.exclude` alcanza el canal nuevo (dos specs lo cazaron: salía del `CLAUDE.md` pero
+  se seguía escribiendo en `.claude/context/`).
+- `.claude/context` cubierto por `ENGINE_OUTPUTS` (drift/doctor/prune) y por el scan de
+  `asset-command-permissions`.
+
+## Cerrado hoy
+
+- **#563** keyword de cierre en inglés (#564) · **#561** specs de `readHarnessCatalog` + 2
+  defectos silenciosos (#565) · **#559** ventana del recorder en la ficha del orquestador
+  (#566) · **#560** el aviso de handoff se dice una vez (#567) · **#557** `.mcp.json` en el
+  prune (#568) · **#556** los 11 comandos documentados, `UNDOCUMENTED_ON_PURPOSE` vacío
+  (#569) · **#555** detección de harness ajeno, spec 0014 + implementación (#570, #571) ·
+  **#574** la escalera de búsqueda vs auto mode (#576) · **#575** los roles alcanzan MCP
+  (#577) · **#579** los seis modos de permiso (#580).
+- **Spec 0015** (#578) mergeada: la orquestación fuera de la capa always-on.
+
+## Abiertos
+
+- **#573** — lotes de la spec 0015. Lo de arriba es su Lote 1+2 a medias.
+- **#572** — el `CLAUDE.md` sobre el límite de 200 líneas. Con #573 baja a 309.
+- **Release 0.7.0** — npm sigue en 0.6.5 con 22+ commits sin publicar. El usuario lo quiere
+  DESPUÉS de cerrar todos los issues.
 
 ## Deuda / gotchas vigentes
 
-- **`progress/current.md` tiene dueño único por acuerdo entre sesiones.** Está versionado y existe
-  idéntico en el árbol principal y en cada worktree, así que el worktree NO aísla este archivo:
-  solo mueve el choque del working tree al merge. Hoy lo escribe esta sesión; la otra manda su línea
-  y no lo edita.
-- **Un gate verde medido con el diff de otra sesión dentro del árbol no prueba tu diff**, prueba la
-  suma de los dos — y la suma puede pasar mientras cada mitad falla por separado. Pasó hoy: el gate
-  de #558 se re-corrió con el árbol limpio.
-- **`cli.e2e.test.ts > "config.language governs CLI output"`** se cae por timeout de 15s bajo
-  contención (dos suites en paralelo) y pasa en 2.5s aislado. Si sale rojo, medirlo solo antes de
-  investigarlo.
-- **Choque de `coverage/.tmp`** entre dos corridas de vitest simultáneas: da un `ENOENT` sobre
-  `coverage-NNN.json` que no tiene nada que ver con el código. Se resuelve con `rm -rf coverage`.
-- **El guard `~/.navori` (#404/#424) da falso positivo en local** cuando otra sesión de Claude Code
-  trabaja en otro repo: sus hooks escriben `~/.navori/audits/<repo>/session-<uuid>.log` durante la
-  corrida. En CI siempre pasa.
-- **Un spec que escriba en `~/.navori` necesita mockear `home.ts`** (razón por la que la migración
-  F1→FB vive en `global-legacy-migration.test.ts`: el mock de `safeHomedir` no se acota a un
-  `describe`).
-- **El keyword de cierre de un PR va en INGLÉS aunque el cuerpo esté en español.** GitHub solo
-  parsea `Closes/Fixes/Resolves #N`; `Cierra #N` es prosa y no enlaza nada. Por eso ningún PR de este
-  repo había auto-cerrado su issue nunca: 8 PRs (#532, #533, #534, #539, #549, #550, #551, #552) con
-  el keyword traducido y 8 issues cerrados a mano. Se comprueba con
-  `gh pr view <N> --json closingIssuesReferences`, que es lo que GitHub realmente enlazó — leer el
-  cuerpo no basta. La causa raíz está en la plantilla del `commit-pr-pilot` y queda en **#563**.
-- **Ojo con la base de las branches.** Antes de branchear: `git log origin/main..main` debe estar
-  vacío.
+- **El guard `~/.navori` (#404/#424) dio falso positivo toda la jornada**: otra sesión de
+  Claude Code viva en `alertaciudadana_app` escribía su log de audit durante cada corrida
+  del gate (creció de 19,815 a 78,953 bytes). El propio mensaje del guard nombra el caso.
+  En CI siempre pasa.
+- **Cuidado con la rama base.** Dos veces cometí encima de una rama de PR en vez de `main`
+  (una llegó a pushear a la rama de #571, ya mergeada). Antes de commitear:
+  `git branch --show-current`.
+- `git commit --no-verify` lo bloquea el guard, y hace bien: si el gate rápido falla, se
+  arregla la causa (fue un import sin usar), no se salta el hook.
+- **Los inventarios escritos a mano no crecen solos.** Esta jornada rompieron tres veces:
+  el conteo de assets de `render-engine`, la lista de archivos del test e2e de engram, y el
+  `EXPECTED_PROMPTS` de permisos. Cuando un test liste archivos a mano, evalúa derivarlo.
