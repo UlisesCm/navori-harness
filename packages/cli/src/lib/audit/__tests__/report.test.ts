@@ -57,6 +57,7 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
       tokens: emptyTokens(),
       startupTokens: 0,
       toolCounts: {},
+      toolCountsByMode: {},
       skillsRead: [],
       skills: [],
       skillsDiscarded: 0,
@@ -345,5 +346,105 @@ describe("the orchestrator's hook counts declare the window they cover (#559)", 
     expect(renderMarkdown(report, "en")).toContain(
       "partial · the recorder covers 50% of the session, from 10:30:00Z (30 min unrecorded)",
     );
+  });
+});
+
+/**
+ * #584 — one histogram for a session that switched modes describes no moment of
+ * it.
+ *
+ * The modes are not interchangeable: `auto` tells the model to work through the
+ * shell and charges a classifier round-trip per command, `plan` forbids writing
+ * outright. The report used to publish a single pile plus a note naming the
+ * dominant mode — so "Bash 217" was unreadable, and every claim about how the
+ * harness behaves outside `auto` was unfalsifiable from the report.
+ */
+describe("the tool histogram is split by permission mode (#584)", () => {
+  const mixed = (over: Partial<SessionAudit> = {}): SessionAudit =>
+    session([], {
+      permissionModes: { auto: 53, plan: 4, acceptEdits: 4 },
+      orchestrator: {
+        ...session([]).orchestrator,
+        toolCounts: { Bash: 30, Write: 1 },
+        toolCountsByMode: {
+          auto: { Bash: 20 },
+          plan: { Bash: 9, Write: 1 },
+          acceptEdits: { Bash: 1 },
+        },
+      },
+      ...over,
+    });
+
+  const render = (s: SessionAudit): string =>
+    renderMarkdown(buildReport([s], { repo: "demo", version: "0.6.5", catalog: CATALOG }), "es");
+
+  it("prints one row per mode, busiest first", () => {
+    const lines = render(mixed())
+      .split("\n")
+      .filter((l) => /^\s+(auto|plan|acceptEdits)\s/.test(l));
+    expect(lines.map((l) => l.trim().split(/\s+/)[0])).toEqual(["auto", "plan", "acceptEdits"]);
+  });
+
+  it("keeps each mode's counts apart, which is the whole point", () => {
+    const out = render(mixed());
+    // The `Write` under `plan` is exactly the kind of thing a merged histogram
+    // hides — plan mode forbids writing.
+    expect(out).toMatch(/plan\s+Bash 9 · Write 1/);
+    expect(out).toMatch(/auto\s+Bash 20/);
+  });
+
+  it("says the split covers the main thread only", () => {
+    // A subagent's transcript declares no mode; inferring one from the parent
+    // would be a guess dressed as a measurement.
+    expect(render(mixed())).toContain("solo el hilo principal");
+  });
+
+  it("stays silent for a single-mode session", () => {
+    const single = mixed({
+      permissionModes: { auto: 10 },
+      orchestrator: {
+        ...session([]).orchestrator,
+        toolCounts: { Bash: 20 },
+        toolCountsByMode: { auto: { Bash: 20 } },
+      },
+    });
+    // The card above already IS that histogram; repeating it under a heading
+    // would be noise.
+    expect(render(single)).not.toContain("por modo");
+  });
+});
+
+/**
+ * #559 follow-up — a caveat that walks itself back teaches the reader to skim
+ * the next one. The line shipped as "parcial · el recorder cubre 100% de la
+ * sesión", which contradicts itself in one breath: a gap that rounds away is
+ * not a caveat.
+ */
+describe("a recorder gap that rounds away is not announced (#584)", () => {
+  it("says nothing when coverage rounds to 100%", () => {
+    const s = session([], {
+      startedAt: "2026-08-25T10:00:00Z",
+      wallClockMs: 20 * 60 * 60 * 1000,
+      hookLogFrom: "2026-08-25T10:01:00Z", // one minute into twenty hours
+    });
+    const out = renderMarkdown(
+      buildReport([s], { repo: "demo", version: "0.6.5", catalog: CATALOG }),
+      "es",
+    );
+    expect(out).not.toContain("parcial");
+  });
+
+  it("still announces a gap big enough to change a number", () => {
+    const s = session([], {
+      startedAt: "2026-08-25T10:00:00Z",
+      wallClockMs: 60 * 60 * 1000,
+      hookLogFrom: "2026-08-25T10:30:00Z", // half the session unobserved
+    });
+    const out = renderMarkdown(
+      buildReport([s], { repo: "demo", version: "0.6.5", catalog: CATALOG }),
+      "es",
+    );
+    expect(out).toContain("parcial");
+    expect(out).toContain("50%");
   });
 });

@@ -160,6 +160,54 @@ function toolUses(lines: Rec[]): Rec[] {
   return out;
 }
 
+/**
+ * The bucket a call lands in when it happened before the transcript declared any
+ * mode. Named rather than folded into a real mode: attributing those calls to
+ * whichever mode came later would be inventing data, and they are usually the
+ * session's first few.
+ */
+export const MODE_UNDECLARED = "(undeclared)";
+
+/**
+ * Tool calls split by the permission mode in force when each ran (#584).
+ *
+ * BY POSITION, not by time, and that is forced: a `permission-mode` line of the
+ * transcript carries only `{type, sessionId, permissionMode}` — no timestamp to
+ * join on. What it does have is its place in an append-only file, interleaved
+ * with the messages, so the mode governing a call is the last such line before
+ * it. The transitions are the check that this lands right: `EnterPlanMode`
+ * shows up under the mode you left, `ExitPlanMode` under `plan`.
+ *
+ * Why it matters: the report used to publish ONE histogram plus the dominant
+ * mode, and a session that switches modes — four of them in the one that
+ * motivated this — collapsed into a single pile. Every claim about how the
+ * harness behaves outside `auto` was unfalsifiable from the report.
+ *
+ * Main thread only. A subagent's transcript carries no `permission-mode` line,
+ * and inferring its mode from the parent's position at spawn time would be a
+ * guess dressed as a measurement.
+ */
+function countToolsByMode(lines: Rec[]): Record<string, Record<string, number>> {
+  const byMode: Record<string, Record<string, number>> = {};
+  let mode = MODE_UNDECLARED;
+  for (const l of lines) {
+    const type = str(l.type);
+    if (type === "permission-mode") {
+      mode = str(l.mode) ?? str(l.permissionMode) ?? mode;
+      continue;
+    }
+    if (type !== "assistant") continue;
+    for (const block of arr(path(l, "message", "content"))) {
+      if (!isRec(block) || str(block.type) !== "tool_use") continue;
+      const name = str(block.name);
+      if (!name) continue;
+      const bucket = (byMode[mode] ??= {});
+      bucket[name] = (bucket[name] ?? 0) + 1;
+    }
+  }
+  return byMode;
+}
+
 function countTools(uses: Rec[]): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const u of uses) {
@@ -515,6 +563,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
       tokens: sumTokens(lines),
       startupTokens: startupTokensOf(lines),
       toolCounts: countTools(uses),
+      toolCountsByMode: countToolsByMode(lines),
       skillsRead: skills.skills.map((sk) => sk.slug),
       skills: skills.skills,
       skillsDiscarded: skills.discarded,

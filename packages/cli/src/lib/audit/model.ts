@@ -151,6 +151,15 @@ export interface SessionAudit {
     tokens: TokenTotals;
     startupTokens: number;
     toolCounts: Record<string, number>;
+    /**
+     * The same calls, split by the permission mode in force when each ran
+     * (#584). Main thread only: a subagent's transcript declares no mode.
+     *
+     * Load-bearing because the modes are not interchangeable — `auto` tells the
+     * model to work through the shell, `plan` forbids writing — so one merged
+     * histogram over a session that switched modes describes no moment of it.
+     */
+    toolCountsByMode: Record<string, Record<string, number>>;
     skillsRead: string[];
     skills: SkillUse[];
     skillsDiscarded: number;

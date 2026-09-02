@@ -824,11 +824,15 @@ describe("CLI e2e — happy paths", () => {
     expect(doctrine).not.toContain("Trivial (1 archivo)");
 
     // The agents index lists the spawnable leaf agents — but NOT the leader,
-    // since the main agent embeds that role rather than delegating to it.
-    expect(claudeMd).toContain('navori:managed id="agentes-disponibles"');
-    expect(claudeMd).toContain("- `implementer`");
-    expect(claudeMd).toContain("- `reviewer`");
-    expect(claudeMd).not.toMatch(/^- `leader` —/m);
+    // since the main agent embeds that role rather than delegating to it. It
+    // rides the orchestrator channel too since #572: a catalog of agents you can
+    // spawn is useless to an agent that cannot spawn one.
+    const agentsIndex = readFileSync(join(repo, ".claude/context/agentes-disponibles.md"), "utf-8");
+    expect(claudeMd).not.toContain('navori:managed id="agentes-disponibles"');
+    expect(agentsIndex).toContain('navori:managed id="agentes-disponibles"');
+    expect(agentsIndex).toContain("- `implementer`");
+    expect(agentsIndex).toContain("- `reviewer`");
+    expect(agentsIndex).not.toMatch(/^- `leader` —/m);
   });
 
   it("doctor reports corrupted settings.json + render --force regenerates (#4)", () => {

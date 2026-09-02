@@ -336,6 +336,7 @@ describe("parse: hook attribution", () => {
         tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, thinking: 0 },
         startupTokens: 0,
         toolCounts: {},
+        toolCountsByMode: {},
         skillsRead: [],
         skills: [],
         skillsDiscarded: 0,

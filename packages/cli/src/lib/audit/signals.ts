@@ -370,6 +370,9 @@ function recorderCoverage(session: SessionAudit, lang: Lang): Signal[] {
     const ended = Date.parse(a.endedAt);
     return Number.isFinite(ended) && ended < from;
   });
+  // Coverage that rounds to 100% with nobody caught in the gap is not a
+  // finding, it is the healthy case reported as if it were one.
+  if (window.coveredPercent >= 100 && blind.length === 0) return [];
 
   const agentsClause = pick(
     lang,
