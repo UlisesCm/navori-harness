@@ -423,8 +423,8 @@ export type GlobalSettingsRead =
  * parsed (or does not hold a JSON object) comes back as its own kind, so each
  * caller decides what that means for it — never as an empty object.
  */
-export function readExistingSettings(dir: string): GlobalSettingsRead {
-  const path = join(dir, "settings.json");
+export function readExistingSettings(dir: string, fileName = "settings.json"): GlobalSettingsRead {
+  const path = join(dir, fileName);
   if (!existsSync(path)) return { kind: "absent" };
   let parsed: unknown;
   try {

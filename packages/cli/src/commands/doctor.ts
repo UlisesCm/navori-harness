@@ -27,6 +27,7 @@ import { scanInterpolationArtifacts } from "../lib/interpolation-artifacts.ts";
 import { scanDiskUsage, humanBytes } from "../lib/disk-usage.ts";
 import { scanNestedWorktrees } from "../lib/nested-worktrees.ts";
 import { scanGlobalScope, type ManagedPolicyKey } from "../lib/global-scope.ts";
+import { scanForeignHarness, type ForeignHarnessReport } from "../lib/foreign-harness.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -202,6 +203,7 @@ export const doctorCommand = defineCommand({
     // installed, which is Spec 0010's zero-footprint invariant applied to the
     // output too. Advisory: it feeds neither the verdict nor the exit code.
     const globalScope = scanGlobalScope(cwd, config);
+    const foreignHarness = scanForeignHarness(cwd, config);
     // Informational: a name like `temp-app` or `my-app` is almost always a
     // never-renamed scaffold (the package.json carried it through). Doesn't
     // break the render, so it's a warning, not an `ok`-flipping error.
@@ -802,6 +804,15 @@ export const doctorCommand = defineCommand({
       if (gs.length > 0) p.note(gs.join("\n"), td.globalScopeTitle);
     }
 
+    // #555 / spec 0014: the harness that was already here. Advisory and
+    // read-only like every section above, and printed ONLY when something
+    // actually clashes — a foreign harness that steps on nothing is never
+    // mentioned, or the section would appear in every repo forever.
+    if (foreignHarness) {
+      const fh = foreignHarnessLines(foreignHarness, td);
+      if (fh.length > 0) p.note(fh.join("\n"), td.foreignHarnessTitle);
+    }
+
     const hasIssues = !verdict.ok;
     const strictFail = Boolean(args.strict) && drifts.length > 0;
     p.outro(
@@ -819,6 +830,60 @@ export const doctorCommand = defineCommand({
     if (strictFail) process.exit(1);
   },
 });
+
+/**
+ * The rows doctor prints for a foreign-harness report (#555).
+ *
+ * Exported and pure so its spec can assert the SENTENCE, which is the whole
+ * product here: the row has to name which of the two files Claude Code loads,
+ * and precedence runs the opposite way for agents and skills. A test that only
+ * covered the scan would prove the conflict was found and nothing about the
+ * claim made to the reader.
+ */
+export function foreignHarnessLines(
+  report: ForeignHarnessReport,
+  td: ReturnType<typeof tc>["doctor"],
+): string[] {
+  const lines: string[] = [];
+  for (const conflict of report.conflicts) {
+    const what =
+      conflict.type === "agent" ? td.foreignHarnessAgentWord : td.foreignHarnessSkillWord;
+    const row =
+      conflict.winner === "undecided"
+        ? td.foreignHarnessUndecided(what, conflict.name, conflict.navoriPath, conflict.foreignPath)
+        : conflict.winner === "navori"
+          ? td.foreignHarnessConflict(
+              what,
+              conflict.name,
+              conflict.navoriPath,
+              conflict.foreignPath,
+            )
+          : td.foreignHarnessConflict(
+              what,
+              conflict.name,
+              conflict.foreignPath,
+              conflict.navoriPath,
+            );
+    const gitignored = conflict.gitignored ? ` ${td.foreignHarnessGitignored}` : "";
+    lines.push(`  ${color.yellow(sym.update)} ${row}${gitignored}`);
+    lines.push(
+      `      ${grey(
+        conflict.adoptable
+          ? td.foreignHarnessAdoptHint(conflict.foreignPath)
+          : td.foreignHarnessAckHint(conflict.id),
+      )}`,
+    );
+  }
+  for (const permission of report.permissions) {
+    lines.push(
+      `  ${color.yellow(sym.update)} ${td.foreignHarnessPermission(permission.rule, permission.path)}`,
+    );
+  }
+  for (const id of report.staleAcknowledged) {
+    lines.push(`  ${color.yellow(sym.update)} ${td.foreignHarnessStaleAck(id)}`);
+  }
+  return lines;
+}
 
 export interface HealthVerdict {
   /**

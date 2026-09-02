@@ -683,6 +683,41 @@ const es: Record<string, CommandDoc> = {
       "Los conteos de hooks son parciales cuando el recorder arrancó tarde: la ficha del orquestador lo declara con el porcentaje de la sesión que sí observó.",
     ],
   },
+  adopt: {
+    id: "adopt",
+    title: "adopt",
+    summary:
+      "Toma un archivo del harness que escribiste a mano y lo pone bajo gestión de navori, sin cambiar lo que dice.",
+    usage: "navori adopt <path> [--apply] [--cwd <dir>]",
+    flags: [
+      {
+        flag: "<path>",
+        desc: "Archivo .md bajo .claude/ del repo (p. ej. .claude/skills/mia.md). Rechaza cualquier otra ruta.",
+      },
+      { flag: "--apply", desc: "Escribe a disco. Sin el flag, adopt solo previsualiza." },
+      { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
+    ],
+    example: [
+      {
+        title: "Ver qué haría",
+        code: "$ navori adopt .claude/skills/mia.md\n●  envolvería '.claude/skills/mia.md' en un bloque managed id=\"adopted-claude-skills-mia\", dejando su contenido intacto\n└  Preview: no se escribió nada. Vuelve a correrlo con --apply.",
+      },
+      {
+        title: "Adoptarlo",
+        code: "$ navori adopt .claude/skills/mia.md --apply\n◆  '.claude/skills/mia.md' adoptado (bloque managed id=\"adopted-claude-skills-mia\").\n└  Backup en ~/.navori/backups/repo-2026-09-01T20-04-26-926",
+      },
+      {
+        title: "Correrlo dos veces no hace nada",
+        code: "$ navori adopt .claude/skills/mia.md --apply\n└  '.claude/skills/mia.md' ya estaba adoptado — sin cambios.",
+      },
+    ],
+    notes: [
+      "Adoptar es ENVOLVER, no reescribir: tu contenido entra tal cual dentro del bloque managed. Lo que navori toma es el ciclo de vida del archivo, nunca lo que dice.",
+      "Rechaza —sin escribir nada y diciendo por qué— un archivo que ya lleva bloque managed, uno fuera del repo, y cualquier ruta que no sea .md bajo .claude/.",
+      "Sale de 'navori doctor': la sección de harness ajeno ofrece este comando cuando el archivo en conflicto vive en el repo. Si vive en ~/.claude, navori solo lee y la salida es asumir el conflicto.",
+      "Siempre hace backup antes de escribir, y te dice dónde quedó.",
+    ],
+  },
 };
 
 const en: Record<string, CommandDoc> = {
@@ -1360,6 +1395,41 @@ const en: Record<string, CommandDoc> = {
       "Hook counts are partial when the recorder started late: the orchestrator's card says so, with the share of the session it did observe.",
     ],
   },
+  adopt: {
+    id: "adopt",
+    title: "adopt",
+    summary:
+      "Take a harness file you wrote by hand under navori's management, without changing what it says.",
+    usage: "navori adopt <path> [--apply] [--cwd <dir>]",
+    flags: [
+      {
+        flag: "<path>",
+        desc: "A .md file under the repo's .claude/ (e.g. .claude/skills/mine.md). Any other path is refused.",
+      },
+      { flag: "--apply", desc: "Write to disk. Without it, adopt only previews." },
+      { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
+    ],
+    example: [
+      {
+        title: "See what it would do",
+        code: "$ navori adopt .claude/skills/mine.md\n●  would wrap '.claude/skills/mine.md' in a managed block id=\"adopted-claude-skills-mine\", leaving its content untouched\n└  Preview: nothing was written. Run it again with --apply.",
+      },
+      {
+        title: "Adopt it",
+        code: "$ navori adopt .claude/skills/mine.md --apply\n◆  '.claude/skills/mine.md' adopted (managed block id=\"adopted-claude-skills-mine\").\n└  Backup at ~/.navori/backups/repo-2026-09-01T20-04-26-926",
+      },
+      {
+        title: "Running it twice does nothing",
+        code: "$ navori adopt .claude/skills/mine.md --apply\n└  '.claude/skills/mine.md' was already adopted — no changes.",
+      },
+    ],
+    notes: [
+      "Adopting is WRAPPING, not rewriting: your content goes inside the managed block unchanged. What navori takes over is the file's lifecycle, never what it says.",
+      "It refuses — without writing anything, and saying why — a file that already carries a managed block, one outside the repo, and any path that is not a .md under .claude/.",
+      "It comes from 'navori doctor': the foreign-harness section offers this command when the clashing file lives in the repo. When it lives in ~/.claude, navori only reads, and the way out is to acknowledge the conflict.",
+      "It always backs up before writing, and tells you where the backup landed.",
+    ],
+  },
 };
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
@@ -1368,6 +1438,7 @@ export const commandOrder = [
   "init",
   "add",
   "remove",
+  "adopt",
   "configure",
   "preset",
   "render",

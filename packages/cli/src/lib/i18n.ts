@@ -820,6 +820,30 @@ interface DoctorCmdStrings {
   ) => string;
   /** How to adopt the divergence (never auto-applied). */
   workspaceDriftHint: string;
+  /** Note title for the section about a foreign harness that clashes (#555). */
+  foreignHarnessTitle: string;
+  /** The word a conflict row starts with, per asset type. */
+  foreignHarnessAgentWord: string;
+  foreignHarnessSkillWord: string;
+  /** A name that exists both in navori's inventory and in a foreign scope. */
+  foreignHarnessConflict: (
+    what: string,
+    name: string,
+    winnerPath: string,
+    loserPath: string,
+  ) => string;
+  /** Same name declared twice inside the repo, with no documented precedence. */
+  foreignHarnessUndecided: (what: string, name: string, aPath: string, bPath: string) => string;
+  /** The foreign file that wins is not in version control. */
+  foreignHarnessGitignored: string;
+  /** How to close a conflict whose foreign file lives in the repo. */
+  foreignHarnessAdoptHint: (path: string) => string;
+  /** How to close one navori cannot write to: declare it and move on. */
+  foreignHarnessAckHint: (id: string) => string;
+  /** A rule navori denies that a foreign settings file allows. */
+  foreignHarnessPermission: (rule: string, path: string) => string;
+  /** An `acknowledged` entry that matches no current conflict. */
+  foreignHarnessStaleAck: (id: string) => string;
   /** Note title for the cross-scope section against the global harness (#547). */
   globalScopeTitle: string;
   /** A repo agent with no managed marker silently disabling the plugin's copy. */
@@ -1304,6 +1328,22 @@ interface RegistryCmdStrings {
   pruneSummary: (removed: number, kept: number) => string;
 }
 
+interface AdoptCmdStrings {
+  /** One refusal message per cause: each is a different answer (#555). */
+  refused: {
+    "outside-repo": (path: string) => string;
+    missing: (path: string) => string;
+    "not-a-file": (path: string) => string;
+    "not-adoptable-path": (path: string) => string;
+    "already-managed": (path: string) => string;
+  };
+  alreadyAdopted: (path: string) => string;
+  preview: (path: string, id: string) => string;
+  previewHint: string;
+  adopted: (path: string, id: string) => string;
+  backupAt: (path: string) => string;
+}
+
 interface RemoveCmdStrings {
   engramAlwaysOn: string;
   notDeclared: (id: string) => string;
@@ -1347,6 +1387,7 @@ interface CmdStrings {
   ticket: TicketCmdStrings;
   registry: RegistryCmdStrings;
   remove: RemoveCmdStrings;
+  adopt: AdoptCmdStrings;
   preset: PresetCmdStrings;
 }
 
@@ -1727,6 +1768,23 @@ const CMD_ES: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos usan ${expected})`,
     workspaceDriftHint:
       "Informativo: navori nunca lo aplica solo. Adóptalo con 'navori configure', o promuévelo al workspace con 'navori workspace set-default'.",
+    foreignHarnessTitle: "Harness ajeno",
+    foreignHarnessAgentWord: "el agente",
+    foreignHarnessSkillWord: "la skill",
+    foreignHarnessConflict: (what, name, winnerPath, loserPath) =>
+      `${what} '${name}': gana '${winnerPath}' y '${loserPath}' queda inerte`,
+    foreignHarnessUndecided: (what, name, aPath, bPath) =>
+      `${what} '${name}' está declarado dos veces en el repo ('${aPath}' y '${bPath}') y la precedencia entre los dos layouts no está documentada — deja uno solo`,
+    foreignHarnessGitignored:
+      "y está fuera de control de versiones, así que el resto del equipo corre otro harness",
+    foreignHarnessAdoptHint: (path) =>
+      `adóptalo con 'navori adopt ${path}' (envuelve tu contenido en un bloque managed, con backup), o asúmelo`,
+    foreignHarnessAckHint: (id) =>
+      `vive fuera del repo, así que navori no lo toca: resuélvelo tú, o asúmelo agregando '${id}' a project.foreignHarness.acknowledged`,
+    foreignHarnessPermission: (rule, path) =>
+      `'${rule}' está en 'deny' del settings de navori y en 'allow' de '${path}' — el guard queda sin efecto donde ese archivo aplica; quítala de uno de los dos`,
+    foreignHarnessStaleAck: (id) =>
+      `'${id}' está en project.foreignHarness.acknowledged pero ya no corresponde a ningún conflicto — quítalo`,
     globalScopeTitle: "Capa global (navori global)",
     globalScopeShadowedAgent: (id, repoPath) =>
       `el agente '${id}' del plugin global queda inerte: Claude Code resuelve el id a favor del repo y gana '${repoPath}', que no lleva marcador managed de navori — si el reemplazo no era intencional, bórralo o renómbralo`,
@@ -2290,6 +2348,24 @@ const CMD_ES: CmdStrings = {
     prunedVerb: "Limpié",
     pruneSummary: (removed, kept) => `${removed} quitado(s) · ${kept} conservado(s)`,
   },
+  adopt: {
+    refused: {
+      "outside-repo": (path) =>
+        `'${path}' está fuera del repo. navori solo escribe dentro del repositorio: lo de afuera se resuelve a mano, o se asume.`,
+      missing: (path) => `'${path}' no existe.`,
+      "not-a-file": (path) => `'${path}' no es un archivo.`,
+      "not-adoptable-path": (path) =>
+        `'${path}' no es un asset del harness. Adoptar solo aplica a archivos .md bajo .claude/ — escribir un marcador en cualquier otro archivo es un riesgo sin beneficio.`,
+      "already-managed": (path) =>
+        `'${path}' ya lleva un bloque managed, así que no es un archivo hecho a mano. Si el bloque es de otra herramienta, resuélvelo tú antes.`,
+    },
+    alreadyAdopted: (path) => `'${path}' ya estaba adoptado — sin cambios.`,
+    preview: (path, id) =>
+      `envolvería '${path}' en un bloque managed id="${id}", dejando su contenido intacto`,
+    previewHint: "Preview: no se escribió nada. Vuelve a correrlo con --apply.",
+    adopted: (path, id) => `'${path}' adoptado (bloque managed id="${id}").`,
+    backupAt: (path) => `Backup en ${path}`,
+  },
   remove: {
     engramAlwaysOn: "engram es always-on con navori; no se puede quitar.",
     notDeclared: (id) => `El plugin '${id}' no está en el config de este repo; nada que quitar.`,
@@ -2728,6 +2804,23 @@ const CMD_EN: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos use ${expected})`,
     workspaceDriftHint:
       "Informational: navori never applies it for you. Adopt it with 'navori configure', or promote it to the workspace with 'navori workspace set-default'.",
+    foreignHarnessTitle: "Foreign harness",
+    foreignHarnessAgentWord: "agent",
+    foreignHarnessSkillWord: "skill",
+    foreignHarnessConflict: (what, name, winnerPath, loserPath) =>
+      `${what} '${name}': '${winnerPath}' wins and '${loserPath}' stays inert`,
+    foreignHarnessUndecided: (what, name, aPath, bPath) =>
+      `${what} '${name}' is declared twice in the repo ('${aPath}' and '${bPath}') and the precedence between the two layouts is undocumented — keep one`,
+    foreignHarnessGitignored:
+      "and it is outside version control, so the rest of the team runs a different harness",
+    foreignHarnessAdoptHint: (path) =>
+      `adopt it with 'navori adopt ${path}' (wraps your content in a managed block, with a backup), or live with it`,
+    foreignHarnessAckHint: (id) =>
+      `it lives outside the repo, so navori does not touch it: resolve it yourself, or live with it by adding '${id}' to project.foreignHarness.acknowledged`,
+    foreignHarnessPermission: (rule, path) =>
+      `'${rule}' is in navori's settings 'deny' and in '${path}' 'allow' — the guard has no effect where that file applies; drop it from one of the two`,
+    foreignHarnessStaleAck: (id) =>
+      `'${id}' is in project.foreignHarness.acknowledged but matches no conflict any more — remove it`,
     globalScopeTitle: "Global layer (navori global)",
     globalScopeShadowedAgent: (id, repoPath) =>
       `the global plugin's '${id}' agent stays inert: Claude Code resolves the id in the repo's favour and '${repoPath}' wins, and that file carries no navori managed marker — if the replacement was not intentional, delete or rename it`,
@@ -3282,6 +3375,24 @@ const CMD_EN: CmdStrings = {
     nothingToPrune: (kept) => `Nothing to prune · ${kept} repo(s) registered`,
     prunedVerb: "Pruned",
     pruneSummary: (removed, kept) => `${removed} removed · ${kept} kept`,
+  },
+  adopt: {
+    refused: {
+      "outside-repo": (path) =>
+        `'${path}' is outside the repo. navori only writes inside the repository: what lives out there you resolve yourself, or live with.`,
+      missing: (path) => `'${path}' does not exist.`,
+      "not-a-file": (path) => `'${path}' is not a file.`,
+      "not-adoptable-path": (path) =>
+        `'${path}' is not a harness asset. Adoption only applies to .md files under .claude/ — writing a marker into any other file is risk with no upside.`,
+      "already-managed": (path) =>
+        `'${path}' already carries a managed block, so it is not a hand-made file. If the block belongs to another tool, resolve that first.`,
+    },
+    alreadyAdopted: (path) => `'${path}' was already adopted — no changes.`,
+    preview: (path, id) =>
+      `would wrap '${path}' in a managed block id="${id}", leaving its content untouched`,
+    previewHint: "Preview: nothing was written. Run it again with --apply.",
+    adopted: (path, id) => `'${path}' adopted (managed block id="${id}").`,
+    backupAt: (path) => `Backup at ${path}`,
   },
   remove: {
     engramAlwaysOn: "engram is always-on with navori; it can't be removed.",

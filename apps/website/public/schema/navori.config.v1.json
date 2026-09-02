@@ -489,6 +489,22 @@
             "type": "string"
           }
         },
+        "foreignHarness": {
+          "type": "object",
+          "properties": {
+            "acknowledged": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "acknowledged"
+          ],
+          "additionalProperties": {}
+        },
         "libraries": {
           "default": [],
           "type": "array",
