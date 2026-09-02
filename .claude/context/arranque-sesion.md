@@ -1,4 +1,4 @@
-<!-- navori:managed id="arranque-sesion" hash="1b168988" version="0.6.5" source="@navori/core" -->
+<!-- navori:managed id="arranque-sesion" hash="1b168988" version="0.7.0" source="@navori/core" -->
 ## Session startup
 
 On Claude, a `SessionStart` hook injects the live context — branch, recent commits, and the previous session's `progress/current.md` — at the top of the session; read it to resume. Otherwise, read `progress/current.md` yourself. Then, before touching code:

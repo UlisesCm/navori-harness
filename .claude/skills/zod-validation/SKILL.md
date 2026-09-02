@@ -4,7 +4,7 @@ description: Use when creating schemas or touching input validation of body/quer
 type: reference
 ---
 
-<!-- navori:managed id="zod-validation" hash="088df5ee" version="0.6.5" source="@navori/core" -->
+<!-- navori:managed id="zod-validation" hash="088df5ee" version="0.7.0" source="@navori/core" -->
 # Zod Validation — the canonical pattern
 
 One schema per resource (`<resource>.schema.ts`), a generic validate middleware, and the DTO from `z.infer`.

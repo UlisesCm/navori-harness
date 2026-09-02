@@ -5,7 +5,7 @@ type: reference
 maxWords: 1050
 ---
 
-<!-- navori:managed id="solution-design" hash="06a32858" version="0.6.5" source="@navori/core" -->
+<!-- navori:managed id="solution-design" hash="06a32858" version="0.7.0" source="@navori/core" -->
 # solution-design — decide what to build, then try to break it
 
 ## When to use this skill
