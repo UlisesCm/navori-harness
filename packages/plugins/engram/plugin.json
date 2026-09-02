@@ -15,7 +15,7 @@
     "checkBinary": "engram",
     "install": {
       "darwin": "brew install gentleman-programming/tap/engram",
-      "linux": "set -euo pipefail\nmkdir -p \"$HOME/.local/bin\"\narch=$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/)\nrelease=$(curl -fsSL https://api.github.com/repos/Gentleman-Programming/engram/releases/latest)\nurl=$(printf '%s' \"$release\" | grep -o \"https://[^\\\"]*linux_${arch}\\.tar\\.gz\" | head -1)\nif [ -z \"$url\" ]; then echo \"engram: no se pudo resolver el asset linux_${arch} del release (GitHub API rate-limited o asset ausente). Instala manualmente: https://github.com/Gentleman-Programming/engram/releases\" >&2; exit 1; fi\ntmp=$(mktemp -d)\ntrap 'rm -rf \"$tmp\"' EXIT\ncurl -fsSL \"$url\" -o \"$tmp/engram.tar.gz\"\nsums=$(printf '%s' \"$release\" | grep -o \"https://[^\\\"]*checksums\\.txt\" | head -1)\nif [ -n \"$sums\" ]; then\n  expected=$(curl -fsSL \"$sums\" | grep \"linux_${arch}.tar.gz\" | awk '{print $1}' | head -1)\n  if [ -z \"$expected\" ]; then echo \"engram: checksums.txt no lista el asset linux_${arch} — abortando por seguridad\" >&2; exit 1; fi\n  actual=$(sha256sum \"$tmp/engram.tar.gz\" | awk '{print $1}')\n  if [ \"$expected\" != \"$actual\" ]; then echo \"engram: el checksum no coincide (descarga corrupta o alterada) — abortando\" >&2; exit 1; fi\nelse\n  echo \"engram: el release no publica checksums.txt; se instala sin verificación de integridad\" >&2\nfi\ntar -xzf \"$tmp/engram.tar.gz\" -C \"$tmp\" engram\nchmod +x \"$tmp/engram\"\nmv -f \"$tmp/engram\" \"$HOME/.local/bin/engram\""
+      "linux": "set -euo pipefail\nmkdir -p \"$HOME/.local/bin\"\narch=$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/)\nrelease=$(curl -fsSL https://api.github.com/repos/Gentleman-Programming/engram/releases/latest)\nurl=$(printf '%s' \"$release\" | grep -o \"https://[^\\\"]*linux_${arch}\\.tar\\.gz\" | head -1)\nif [ -z \"$url\" ]; then echo \"engram: no se pudo resolver el asset linux_${arch} del release (GitHub API rate-limited o asset ausente). Instala manualmente: https://github.com/Gentleman-Programming/engram/releases\" >&2; exit 1; fi\ntmp=$(mktemp -d)\ntrap 'rm -rf \"$tmp\"' EXIT\ncurl -fsSL \"$url\" -o \"$tmp/engram.tar.gz\"\nsums=$(printf '%s' \"$release\" | grep -o \"https://[^\\\"]*checksums\\.txt\" | head -1)\nif [ -n \"$sums\" ]; then\n  expected=$(curl -fsSL \"$sums\" | grep \"linux_${arch}.tar.gz\" | awk '{print $1}' | head -1)\n  if [ -z \"$expected\" ]; then echo \"engram: checksums.txt no lista el asset linux_${arch} \u2014 abortando por seguridad\" >&2; exit 1; fi\n  actual=$(sha256sum \"$tmp/engram.tar.gz\" | awk '{print $1}')\n  if [ \"$expected\" != \"$actual\" ]; then echo \"engram: el checksum no coincide (descarga corrupta o alterada) \u2014 abortando\" >&2; exit 1; fi\nelse\n  echo \"engram: el release no publica checksums.txt; se instala sin verificaci\u00f3n de integridad\" >&2\nfi\ntar -xzf \"$tmp/engram.tar.gz\" -C \"$tmp\" engram\nchmod +x \"$tmp/engram\"\nmv -f \"$tmp/engram\" \"$HOME/.local/bin/engram\""
     },
     "postInstall": "claude plugin marketplace add Gentleman-Programming/engram && claude plugin install engram"
   },
@@ -39,6 +39,30 @@
       "file": "skills/engram-leader.md",
       "recommendedAgent": "leader",
       "injectInto": ".claude/agents/leader.md"
+    },
+    {
+      "id": "engram-implementer-extension",
+      "file": "skills/engram-subagent.md",
+      "recommendedAgent": "implementer",
+      "injectInto": ".claude/agents/implementer.md"
+    },
+    {
+      "id": "engram-reviewer-extension",
+      "file": "skills/engram-subagent.md",
+      "recommendedAgent": "reviewer",
+      "injectInto": ".claude/agents/reviewer.md"
+    },
+    {
+      "id": "engram-ticket-audit-extension",
+      "file": "skills/engram-subagent.md",
+      "recommendedAgent": "ticket-audit",
+      "injectInto": ".claude/agents/ticket-audit.md"
+    },
+    {
+      "id": "engram-auditor-extension",
+      "file": "skills/engram-subagent.md",
+      "recommendedAgent": "auditor",
+      "injectInto": ".claude/agents/auditor.md"
     }
   ],
   "invariants": [

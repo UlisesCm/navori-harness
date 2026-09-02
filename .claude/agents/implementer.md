@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Worker. Implements ONE scoped task, respects CLAUDE.md conventions, and leaves the quality gate green before returning.
-tools: Read, Write, Edit, Glob, Grep, Bash
+tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__*, mcp__codegraph__*
 ---
 
 <!-- navori:managed id="implementer-base" hash="811a1e08" version="0.6.5" source="@navori/core" -->
@@ -122,6 +122,52 @@ blocked -> .claude/progress/impl_<feature>.md
 
 Never return the diff in chat. The leader reads it from disk if it needs it.
 <!-- /navori:managed id="implementer-base" -->
+
+<!-- navori:managed id="engram-implementer-extension" hash="b5d6fc69" version="0.6.5" source="@navori/plugin-engram" -->
+## Engram, from a subagent
+
+**Pre-flight, before you read code:** `mem_search` with the task's keywords. A
+previous decision, an audit of the same area or a root cause someone already
+found is context you would otherwise rediscover file by file. What memory gives
+you is a REGION and a hypothesis — confirm the signature, the line and the call
+sites in the code before acting on either.
+
+**Save only what outlives this task**: a root cause with its evidence, a
+convention that got established, a decision and why it beat the alternative. Use
+a stable `topic_key` so the topic evolves instead of piling up snapshots. Never
+persist line numbers, current signatures or call-site lists — those go stale
+between sessions and mislead the next reader.
+
+**The session ceremonies are not yours.** `mem_session_summary` and the curation
+that follows belong to the agent that owns the session; you are closing a task,
+not a session. Ending with `done -> <file>` is your report.
+
+If a memory contradicts what the code says, the code wins — fix the memory.
+<!-- /navori:managed id="engram-implementer-extension" -->
+
+<!-- navori:managed id="codegraph-implementer-extension" hash="76ce6f81" version="0.6.5" source="@navori/plugin-codegraph" -->
+## Locate before you touch
+
+You act on code someone else wrote, so the first question is always *where*.
+When the `codegraph` MCP tool is available, ask the graph instead of crawling:
+`codegraph_explore` takes a symbol or a plain question and returns the span, the
+call paths and a blast-radius summary in one call. It also follows dynamic hops
+(callbacks, re-render, JSX children) that a string search misses — which is how
+a "small" edit turns out to have thirteen call sites.
+
+It is also the cheapest route in auto mode: `mcp__codegraph__*` carries an
+`allow` rule, so it skips the classifier round-trip every shell command pays.
+
+Then confirm. The graph forms the hypothesis; it never closes it:
+
+- On a stale index or an ambiguous name it returns the WRONG symbol while
+  reporting it as exact. Open the span with `Grep`/`Read` before you edit it or
+  cite it in a review.
+- Its "impact / tests found" is a hint, not a coverage gate.
+
+Not installed, or the index looks stale? Skip it and work as usual — an
+accelerator, never a dependency.
+<!-- /navori:managed id="codegraph-implementer-extension" -->
 
 ## Project rules
 

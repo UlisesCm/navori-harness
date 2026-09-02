@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   utimesSync,
   writeFileSync,
@@ -895,21 +896,34 @@ describe("CLI e2e — happy paths", () => {
     expect(clean.missingInvariants).toHaveLength(0);
 
     // Simulate a template refactor eating the engram protocol everywhere it
-    // lives in the output: CLAUDE.md, the injected sub-block in leader.md, and
-    // the always-on workflow skills that reference the mem_ calls in their
-    // ticket pipeline / PR close-out.
-    for (const rel of [
-      "CLAUDE.md",
-      ".claude/agents/leader.md",
-      ".claude/skills/ticket-intake/SKILL.md",
-      ".claude/skills/pr-create/SKILL.md",
-    ]) {
-      const path = join(repo, rel);
-      const gutted = readFileSync(path, "utf-8")
+    // lives in the output. Derived by walking the rendered markdown instead of
+    // listing the files: the set grows every time a plugin gains an injection
+    // target — #575 added four agent sub-blocks — and a hand-kept list turns
+    // that growth into a false green, since one surviving mention is enough to
+    // satisfy the invariant this test is trying to break.
+    const gutMarkdown = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          gutMarkdown(path);
+        } else if (entry.name.endsWith(".md")) {
+          writeFileSync(
+            path,
+            readFileSync(path, "utf-8")
+              .replaceAll("mem_save", "XXX")
+              .replaceAll("mem_session_summary", "YYY"),
+          );
+        }
+      }
+    };
+    gutMarkdown(join(repo, ".claude"));
+    const claudeMd = join(repo, "CLAUDE.md");
+    writeFileSync(
+      claudeMd,
+      readFileSync(claudeMd, "utf-8")
         .replaceAll("mem_save", "XXX")
-        .replaceAll("mem_session_summary", "YYY");
-      writeFileSync(path, gutted);
-    }
+        .replaceAll("mem_session_summary", "YYY"),
+    );
 
     const broken = runCli(["doctor", "--json", "--cwd", repo]);
     expect(broken.status).toBe(2);

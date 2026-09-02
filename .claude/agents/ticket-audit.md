@@ -1,7 +1,7 @@
 ---
 name: ticket-audit
 description: Deep analysis of a complex ticket before implementing. Produces audit_ticket_<ID>.md with root cause, affected areas, and a decomposition plan.
-tools: Read, Glob, Grep, Bash, Write
+tools: Read, Glob, Grep, Bash, Write, mcp__engram__*
 ---
 
 <!-- navori:managed id="ticket-audit-base" hash="6abf1cca" version="0.6.5" source="@navori/core" -->
@@ -148,6 +148,28 @@ The leader reads the audit from disk and decomposes from there.
 
 `audit_ticket_<ID>.md` is **input to the next step of the pipeline**, not a chat summary: every later phase reads it, and the `implementer` gets its path as a mandatory reference. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
 <!-- /navori:managed id="ticket-audit-base" -->
+
+<!-- navori:managed id="engram-ticket-audit-extension" hash="b5d6fc69" version="0.6.5" source="@navori/plugin-engram" -->
+## Engram, from a subagent
+
+**Pre-flight, before you read code:** `mem_search` with the task's keywords. A
+previous decision, an audit of the same area or a root cause someone already
+found is context you would otherwise rediscover file by file. What memory gives
+you is a REGION and a hypothesis — confirm the signature, the line and the call
+sites in the code before acting on either.
+
+**Save only what outlives this task**: a root cause with its evidence, a
+convention that got established, a decision and why it beat the alternative. Use
+a stable `topic_key` so the topic evolves instead of piling up snapshots. Never
+persist line numbers, current signatures or call-site lists — those go stale
+between sessions and mislead the next reader.
+
+**The session ceremonies are not yours.** `mem_session_summary` and the curation
+that follows belong to the agent that owns the session; you are closing a task,
+not a session. Ending with `done -> <file>` is your report.
+
+If a memory contradicts what the code says, the code wins — fix the memory.
+<!-- /navori:managed id="engram-ticket-audit-extension" -->
 
 ## Project rules
 

@@ -433,10 +433,11 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   solution-design, pr-create, spec-bootstrap, dominio, babysit-prs) +
     //   1 guard hook + 1 session-start hook + 2 lifecycle hooks (subagent-stop,
     //   precompact) + 1 qg hook + 2 progress files +
-    //   1 engram-leader-extension sub-block + 2 audit-mode hooks +
-    //   1 managed-drift watcher (#530) + 1 worktree-reclaim hook (#527) = 35.
+    //   5 engram sub-blocks (leader + the four subagents that reach memory,
+    //   #575) + 2 audit-mode hooks +
+    //   1 managed-drift watcher (#530) + 1 worktree-reclaim hook (#527) = 39.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(35);
+    expect(first.inspected).toBe(39);
     // Written counts files actually emitted. engram-leader-extension is a
     // sub-block injected into leader.md, not a separate file, so written = 33
     // (the 29 files + the .mcp.json + both audit-mode hooks + the drift watcher
