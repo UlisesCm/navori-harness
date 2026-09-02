@@ -5,7 +5,7 @@ type: reference
 maxWords: 600
 ---
 
-<!-- navori:managed id="ticket-intake" hash="5158a230" version="0.6.5" source="@navori/core" -->
+<!-- navori:managed id="ticket-intake" hash="5158a230" version="0.7.0" source="@navori/core" -->
 # ticket-intake — 8-phase pipeline
 
 ## Pipeline
