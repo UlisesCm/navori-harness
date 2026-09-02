@@ -4,7 +4,7 @@ description: Strict reviewer. Approves or rejects the implementer's work against
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__*, mcp__codegraph__*
 ---
 
-<!-- navori:managed id="reviewer-base" hash="ae93544f" version="0.7.0" source="@navori/core" -->
+<!-- navori:managed id="reviewer-base" hash="ae93544f" version="0.7.1" source="@navori/core" -->
 # Reviewer Agent
 
 You are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.
@@ -205,7 +205,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ✅ Be concrete: cite `file:line`. No generic feedback.
 <!-- /navori:managed id="reviewer-base" -->
 
-<!-- navori:managed id="engram-reviewer-extension" hash="b5d6fc69" version="0.7.0" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-reviewer-extension" hash="b5d6fc69" version="0.7.1" source="@navori/plugin-engram" -->
 ## Engram, from a subagent
 
 **Pre-flight, before you read code:** `mem_search` with the task's keywords. A
@@ -227,7 +227,7 @@ not a session. Ending with `done -> <file>` is your report.
 If a memory contradicts what the code says, the code wins — fix the memory.
 <!-- /navori:managed id="engram-reviewer-extension" -->
 
-<!-- navori:managed id="codegraph-reviewer-extension" hash="76ce6f81" version="0.7.0" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-reviewer-extension" hash="76ce6f81" version="0.7.1" source="@navori/plugin-codegraph" -->
 ## Locate before you touch
 
 You act on code someone else wrote, so the first question is always *where*.

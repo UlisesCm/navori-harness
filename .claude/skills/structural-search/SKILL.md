@@ -4,7 +4,7 @@ description: Use when locating something in code before reading it (a symbol, sy
 type: reference
 ---
 
-<!-- navori:managed id="structural-search-base" hash="151d7d2b" version="0.7.0" source="@navori/core" -->
+<!-- navori:managed id="structural-search-base" hash="151d7d2b" version="0.7.1" source="@navori/core" -->
 # structural-search — read the minimum correct amount
 
 Find the right region first and open only the confirmed span. Precision tools verify a hypothesis; they don't form it.
@@ -67,7 +67,7 @@ If it isn't installed, fall back to Grep and targeted reading: **don't block the
 - Don't set up LSP/Serena; this harness ends at Rung 2.
 <!-- /navori:managed id="structural-search-base" -->
 
-<!-- navori:managed id="codegraph-search-extension" hash="dd662711" version="0.7.0" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-search-extension" hash="dd662711" version="0.7.1" source="@navori/plugin-codegraph" -->
 ## Rung -1 — query the code graph first (codegraph)
 
 Before the grep/ast-grep ladder above, if `codegraph` is available, ask the AST graph where the code lives. Its `allow` rule skips the classifier check every shell command pays in auto mode:
