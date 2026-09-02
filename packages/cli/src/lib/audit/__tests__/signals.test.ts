@@ -261,6 +261,47 @@ describe("report language", () => {
   });
 });
 
+describe("signal: classifier-round-trips (#574)", () => {
+  /**
+   * The cost of auto mode that the session's own token usage never shows: the
+   * classifier runs on its own model, with its own slice of the transcript, and
+   * only the shell pays for it. Reads, in-workspace edits and `allow`-covered
+   * MCP calls skip the check, which is why the number to report is the Bash
+   * count and not "how much Bash there was relative to Read".
+   */
+  const withBash = (orchestrator: number, agentBash: number[], mode = "auto") =>
+    session({
+      permissionModes: { [mode]: 10 },
+      orchestrator: { ...session().orchestrator, toolCounts: { Bash: orchestrator } },
+      agents: agentBash.map((n, i) => agent({ agentId: `a${i}`, toolCounts: { Bash: n } })),
+    });
+
+  const found = (s: ReturnType<typeof session>) =>
+    detectSignals(s, catalog(), "es").find((x) => x.kind === "classifier-round-trips");
+
+  it("counts the orchestrator's and the subagents' shell commands", () => {
+    const signal = found(withBash(298, [300, 237]));
+    expect(signal?.summary).toContain("835");
+    expect(signal?.evidence).toContain("298");
+    expect(signal?.evidence).toContain("537");
+  });
+
+  it("stays out of a session that is not in auto mode", () => {
+    // Outside auto mode there is no classifier, so the count means nothing.
+    expect(found(withBash(298, [], "default"))).toBeUndefined();
+  });
+
+  it("stays quiet when nothing went through the shell", () => {
+    expect(found(withBash(0, [0]))).toBeUndefined();
+  });
+
+  it("reports no token figure, because it cannot know one", () => {
+    // Each check sends "a portion of the transcript" this report cannot see.
+    // A made-up number next to measured ones is worse than no number.
+    expect(found(withBash(10, []))?.tokens).toBeUndefined();
+  });
+});
+
 describe("signal: hook-log-coverage", () => {
   const HORIZON = "2026-08-25T10:30:00.000Z";
 

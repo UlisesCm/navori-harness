@@ -278,6 +278,50 @@ function permissionContext(session: SessionAudit, lang: Lang): Signal[] {
   ];
 }
 
+/**
+ * What auto mode's classifier reviewed, counted in shell commands (#574).
+ *
+ * In auto mode a second model checks each action before it runs, and the check
+ * is not uniform: reads and in-workspace edits skip it, and so does anything an
+ * `allow` rule already covers — which in a navori repo includes the `mcp__*`
+ * families. What is left paying a round-trip is the shell, and the harness
+ * steers hard toward the shell in this mode. So the count of Bash calls IS the
+ * count of round-trips, and it is the one cost of auto mode that never shows up
+ * in the session's own token usage: the classifier runs on its own model, with
+ * its own slice of the transcript.
+ *
+ * No `tokens` figure on purpose. Each check sends "a portion of the transcript"
+ * whose size this report cannot see, and inventing one would put a made-up
+ * number next to measured ones.
+ */
+function classifierRoundTrips(session: SessionAudit, lang: Lang): Signal[] {
+  const modes = Object.entries(session.permissionModes).sort((a, b) => b[1] - a[1]);
+  if (modes[0]?.[0] !== "auto") return [];
+
+  const bashOf = (counts: Record<string, number>): number => counts.Bash ?? 0;
+  const orchestrator = bashOf(session.orchestrator.toolCounts);
+  const agents = session.agents.reduce((sum, a) => sum + bashOf(a.toolCounts), 0);
+  const total = orchestrator + agents;
+  if (total === 0) return [];
+
+  return [
+    {
+      kind: "classifier-round-trips",
+      severity: "info",
+      summary: pick(
+        lang,
+        `${total} comandos de shell pasaron por el clasificador de auto mode`,
+        `${total} shell commands went through auto mode's classifier`,
+      ),
+      evidence: pick(
+        lang,
+        `${orchestrator} del orquestador y ${agents} de subagentes. Cada uno agrega un viaje al clasificador ANTES de ejecutarse, con una porción del transcript. Las lecturas, las ediciones dentro del workspace y las llamadas MCP con regla 'allow' no pagan ese viaje: por eso agrupar comandos (\`a && b\`) y acotar las búsquedas es lo que baja el costo, no cambiar de herramienta.`,
+        `${orchestrator} from the orchestrator and ${agents} from subagents. Each adds a classifier round-trip BEFORE it runs, carrying a slice of the transcript. Reads, in-workspace edits and MCP calls covered by an 'allow' rule pay no such trip: which is why batching commands (\`a && b\`) and scoping searches is what lowers the cost, not switching tools.`,
+      ),
+    },
+  ];
+}
+
 /** The transcript format is internal and may move under us; say so honestly. */
 function formatDrift(session: SessionAudit, lang: Lang): Signal[] {
   if (session.linesRead === 0) return [];
@@ -375,6 +419,7 @@ export function detectSignals(
     ...friction(session, lang),
     ...deadCatalog(session, catalog, lang),
     ...permissionContext(session, lang),
+    ...classifierRoundTrips(session, lang),
     ...formatDrift(session, lang),
     ...recorderCoverage(session, lang),
   ].sort((a, b) => order[a.severity] - order[b.severity]);
