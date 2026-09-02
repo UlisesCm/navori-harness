@@ -34,10 +34,10 @@ bd19ccd4e27acd9953567ab621c482e72f7a0207  .claude/agents/implementer.md
 bf1731bd127fde709a09f8c664621d3817b3000c  .claude/skills/pr-create/SKILL.md
 c3fc30043da5953f8b6de3ca084ac0500f6bf4db  .claude/skills/playwright-cli/references/test-generation.md
 c464d73e792287695c385cb1474eb35d4635067f  .claude/hooks/guard-destructive.sh
+cafa4faf822f5a129f9bf7446a46fe84592d3ee2  CLAUDE.md
 cc8d332769cd7e8089891a639305cbbc3a97d53f  .claude/agents/explorer.md
 d0e5a8509bd34d892760b1066ea5e1069230b010  .claude/skills/babysit-prs/SKILL.md
 d70a429bb6e729a0845f0d173ad6a1ef0ae109ea  .claude/skills/playwright-cli/references/request-mocking.md
-e0b15029e5550cf5461f207ef3da14b951f630dd  CLAUDE.md
 e19c6e1e228ab8fe599a2b3c7ecf6d89bc48fef4  .claude/skills/vitest/SKILL.md
 e4d331a6cd1b76742e794514b4dfa33463ec0a96  .claude/hooks/worktree-reclaim.sh
 ec858f267877a7b5f5bc021fb52059adad3557a1  .claude/skills/playwright-cli/references/session-management.md

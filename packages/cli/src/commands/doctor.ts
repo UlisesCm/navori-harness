@@ -28,6 +28,7 @@ import { scanDiskUsage, humanBytes } from "../lib/disk-usage.ts";
 import { scanNestedWorktrees } from "../lib/nested-worktrees.ts";
 import { scanGlobalScope, type ManagedPolicyKey } from "../lib/global-scope.ts";
 import { scanForeignHarness, type ForeignHarnessReport } from "../lib/foreign-harness.ts";
+import { scanPermissionMode } from "../lib/health.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -204,6 +205,7 @@ export const doctorCommand = defineCommand({
     // output too. Advisory: it feeds neither the verdict nor the exit code.
     const globalScope = scanGlobalScope(cwd, config);
     const foreignHarness = scanForeignHarness(cwd, config);
+    const permissionModes = scanPermissionMode(cwd);
     // Informational: a name like `temp-app` or `my-app` is almost always a
     // never-renamed scaffold (the package.json carried it through). Doesn't
     // break the render, so it's a warning, not an `ok`-flipping error.
@@ -808,6 +810,16 @@ export const doctorCommand = defineCommand({
     // read-only like every section above, and printed ONLY when something
     // actually clashes — a foreign harness that steps on nothing is never
     // mentioned, or the section would appear in every repo forever.
+    // #579: a repo pinned to a mode this harness cannot work in. Advisory like
+    // every row above — the fix (granting write tools) changes the posture of
+    // every other mode, so it is the user's call, not a render's.
+    for (const conflict of permissionModes) {
+      p.note(
+        `  ${color.yellow(sym.update)} ${td.permissionModeUnsupported(conflict.mode, conflict.path, conflict.missing.join(", "))}`,
+        td.permissionModeTitle,
+      );
+    }
+
     if (foreignHarness) {
       const fh = foreignHarnessLines(foreignHarness, td);
       if (fh.length > 0) p.note(fh.join("\n"), td.foreignHarnessTitle);
