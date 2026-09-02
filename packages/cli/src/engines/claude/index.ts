@@ -541,19 +541,33 @@ export function renderClaudeEngine(
   // (subagents are a Claude Code capability); the agents-md engine drops it.
   const agentsIndexBody = buildAgentsIndexBody(config, lang);
   if (agentsIndexBody !== null) {
-    const result = injectManagedSection(
-      claudeMdContent,
-      AGENTS_INDEX_ID,
-      agentsIndexBody,
-      CORE_META,
-      "html",
-      options.forceIds?.has(AGENTS_INDEX_ID) ?? false,
-    );
-    claudeMdContent = result.output;
+    // Orchestrator-only, like the doctrine that references it (#572): it is the
+    // catalog of agents you can SPAWN, and no subagent can spawn one — none of
+    // them declares the `Agent` tool. So it goes to the context dir, not into
+    // the file every subagent receives. Computed rather than an asset, which is
+    // why it routes here instead of through `audience` in the plan table.
+    inspected += 1;
+    const file = injectManagedSection("", AGENTS_INDEX_ID, agentsIndexBody, CORE_META, "html");
+    const destRel = `${ORCHESTRATOR_CONTEXT_DIR}/${AGENTS_INDEX_ID}.md`;
+    const destAbs = join(cwd, destRel);
+    const current = existsSync(destAbs) ? readFileSync(destAbs, "utf-8") : null;
+    if (current !== file.output) {
+      // Absolute, like every other entry: `commitWrites` backs up and writes
+      // from this path, and a repo-relative one resolved against the process
+      // cwd — which is how a backup tried to mkdir outside the repo.
+      pending.push({
+        path: destAbs,
+        content: file.output,
+        status: current === null ? "created" : "updated",
+      });
+    }
+    // Whatever an earlier navori left inside CLAUDE.md comes out on this render,
+    // the same migration path every audience block gets.
+    claudeMdContent = removeManagedSection(claudeMdContent, AGENTS_INDEX_ID);
     claudeMdPlan.entries.push({
       asset: { id: AGENTS_INDEX_ID, relPath: "(computed)" },
       source: "core",
-      status: result.status,
+      status: current === null ? "created" : current === file.output ? "unchanged" : "updated",
       newContent: null,
     });
   } else {

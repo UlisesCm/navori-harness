@@ -148,6 +148,10 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/arranque-sesion.md",
     baseLanguage: "en",
     rootOnly: true,
+    // Orchestrator-only (#572). Reading `progress/current.md`, running `doctor`, taking ONE user task and
+    // decomposing it: none of that is a subagent's to do — it does not start a
+    // session, it is handed a scoped task inside one.
+    audience: "orchestrator",
   },
   {
     id: "cierre-sesion",
@@ -159,6 +163,10 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     // so the audit stays honest in both directions; NOT in
     // `DEFAULT_GLOBAL_BLOCKS` — the shipped baseline stays tight.
     globalSafe: true,
+    // Orchestrator-only (#572). The session's ceremonies: the gate, the history entry, clearing
+    // `current.md`. The block itself says they belong to the agent that OWNS the
+    // session; a subagent closing with `done -> <file>` is not ending one.
+    audience: "orchestrator",
   },
   // SDD protocol block. Conditional on `sdd.enabled`, which effectiveConfig
   // defaults to true (SDD is core to navori's identity) unless a config sets it

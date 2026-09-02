@@ -140,28 +140,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, stora
 - **Sensitive data**: don't dump secrets, PII, or full dumps to logs, chat, or repo files.
 <!-- /navori:managed id="operaciones-seguras" -->
 
-<!-- navori:managed id="arranque-sesion" hash="1b168988" version="0.6.5" source="@navori/core" -->
-## Session startup
 
-On Claude, a `SessionStart` hook injects the live context — branch, recent commits, and the previous session's `progress/current.md` — at the top of the session; read it to resume. Otherwise, read `progress/current.md` yourself. Then, before touching code:
-
-1. **Healthy config**: run `navori doctor` if `navori.config.json` / `.claude/` look inconsistent, or to confirm the declared quality gates can actually run.
-2. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
-<!-- /navori:managed id="arranque-sesion" -->
-
-<!-- navori:managed id="cierre-sesion" hash="aae24fb9" version="0.6.5" source="@navori/core" -->
-## Session closeout
-
-Before closing the session:
-
-1. **Quality gate**: pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck — confirm it passes, **or cite this cycle's green run** (reviewer's Pass-2 in R2, pilot's pre-flight in R1) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
-2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
-3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
-4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
-5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, atomic, in the language defined by the config's `commits`.
-
-**R1 lean close** — the three conditions are verifiable, so this is not a judgment call: the session ran the **R1** route, it covered **one** user task, and its diff touches no critical area (`render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`). All three hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.
-<!-- /navori:managed id="cierre-sesion" -->
 
 <!-- navori:managed id="sdd" hash="ea9d8726" version="0.6.5" source="@navori/core" -->
 ## Spec Driven Development (SDD)
@@ -286,19 +265,6 @@ Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido
 - `playwright-cli` — project-local · Automate browser interactions, test web pages and work with Playwright tests
 <!-- /navori:managed id="skills-index" -->
 
-<!-- navori:managed id="agentes-disponibles" hash="0ec0b7dc" version="0.6.5" source="@navori/core" -->
-## Agentes disponibles
-
-Subagentes que puedes lanzar con la herramienta `Agent` (tú eres el orquestador; ve "## Role: orchestrator"). La investigación y la revisión son de solo lectura → paraleliza sin miedo.
-
-- `implementer` — Escribe código y tests para UNA tarea bien acotada.
-- `reviewer` — Valida un diff contra la spec y la calidad (APPROVED / CHANGES_REQUESTED).
-- `researcher` — Responde una pregunta concreta sobre el repo (¿pasa Y? ¿qué consume X?) con evidencia citada.
-- `ticket-audit` — Analiza a fondo un ticket complejo (bug crítico, migración, feature multicapa) antes de descomponerlo.
-- `commit-pr-pilot` — Escribe commits Conventional y abre el PR tras la aprobación del reviewer.
-- `explorer` — Mapea un área o módulo amplio: estructura, puntos de entrada, dependencias.
-- `auditor` — Auditoría profunda de solo lectura (seguridad, rendimiento, SOLID, casos borde); escribe un reporte + plan priorizado en disco.
-<!-- /navori:managed id="agentes-disponibles" -->
 
 <!-- navori:managed id="contexto-proyecto" hash="b1ef1c95" version="0.6.5" source="@navori/core" -->
 ## Contexto del proyecto

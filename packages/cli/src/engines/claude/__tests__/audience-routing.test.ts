@@ -48,11 +48,17 @@ const contextFile = (id: string): string =>
   readFileSync(join(cwd, ".claude", "context", `${id}.md`), "utf-8");
 
 describe("a block addressed to the orchestrator leaves CLAUDE.md (#573)", () => {
-  it("declares exactly one such block today, and it is the routing doctrine", () => {
+  it("declares the blocks only the session owner can act on", () => {
     // Anti-vacuity: if the mark disappears from the table, every assertion
-    // below still passes while testing nothing.
+    // below still passes while testing nothing. The set is the routing doctrine
+    // plus the two session ceremonies (#572) — the agents index rides the same
+    // channel but is computed, so it is not in this table.
     const marked = CORE_MANAGED_ASSETS.filter((a) => a.audience === "orchestrator");
-    expect(marked.map((a) => a.id)).toEqual(["orquestacion"]);
+    expect(marked.map((a) => a.id).sort()).toEqual([
+      "arranque-sesion",
+      "cierre-sesion",
+      "orquestacion",
+    ]);
   });
 
   it("renders it to .claude/context/ and not into CLAUDE.md", () => {

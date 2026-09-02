@@ -436,14 +436,15 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   5 engram sub-blocks (leader + the four subagents that reach memory,
     //   #575) + 2 audit-mode hooks +
     //   1 managed-drift watcher (#530) + 1 worktree-reclaim hook (#527) +
-    //   1 orchestrator-audience block routed to .claude/context/ (#573) = 40.
+    //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
+    //   the two session ceremonies and the agents index (#572) = 43.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(40);
+    expect(first.inspected).toBe(43);
     // Written counts files actually emitted. engram-leader-extension is a
     // sub-block injected into leader.md, not a separate file, so written = 33
     // (the 29 files + the .mcp.json + both audit-mode hooks + the drift watcher
     // + the worktree-reclaim hook).
-    expect(first.written.length).toBe(35);
+    expect(first.written.length).toBe(38);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -545,7 +546,7 @@ describe("renderClaudeEngine — dry-run", () => {
     // the .mcp.json engram registration (#212), both audit-mode hooks and the
     // managed-drift watcher (#530), the worktree-reclaim hook (#527) and the
     // orchestrator block routed to `.claude/context/` (#573).
-    expect(r.written).toHaveLength(35);
+    expect(r.written).toHaveLength(38);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
@@ -617,9 +618,12 @@ describe("renderClaudeEngine — computed blocks respect config.language (#289)"
     const md = claudeMd();
     expect(md).toContain("## Skills disponibles");
     expect(md).toContain("Skills que los agentes pueden aplicar");
-    expect(md).toContain("## Agentes disponibles");
-    expect(md).toContain("Subagentes que puedes lanzar");
-    expect(md).toContain("Escribe código y tests para UNA tarea bien acotada.");
+    // The agents index rides the orchestrator channel since #572 — only whoever
+    // spawns needs the catalog — so its language is verified where it renders.
+    const agentsEs = readFileSync(join(cwd, ".claude/context/agentes-disponibles.md"), "utf-8");
+    expect(agentsEs).toContain("## Agentes disponibles");
+    expect(agentsEs).toContain("Subagentes que puedes lanzar");
+    expect(agentsEs).toContain("Escribe código y tests para UNA tarea bien acotada.");
     expect(md).toContain("## Monorepo — root");
     expect(md).toContain("El código real vive en los workspaces");
     expect(md).toContain("## Contexto del proyecto");
@@ -636,15 +640,16 @@ describe("renderClaudeEngine — computed blocks respect config.language (#289)"
     const md = claudeMd();
     expect(md).toContain("## Available skills");
     expect(md).toContain("Skills the agents can apply");
-    expect(md).toContain("## Available agents");
-    expect(md).toContain("Subagents you can spawn via the `Agent` tool");
-    expect(md).toContain("Writes code and tests for ONE well-scoped task.");
+    const agentsEn = readFileSync(join(cwd, ".claude/context/agentes-disponibles.md"), "utf-8");
+    expect(agentsEn).toContain("## Available agents");
+    expect(agentsEn).toContain("Subagents you can spawn via the `Agent` tool");
+    expect(agentsEn).toContain("Writes code and tests for ONE well-scoped task.");
     expect(md).toContain("## Monorepo — root");
     expect(md).toContain("The real code lives in the workspaces");
     expect(md).toContain("## Project context");
     expect(md).toContain("Active rules derived from your config");
     expect(md).toContain("in production");
-    expect(md).not.toContain("## Agentes disponibles");
+    expect(agentsEn).not.toContain("## Agentes disponibles");
     expect(md).not.toContain("Reglas activas derivadas de tu config");
   });
 });
