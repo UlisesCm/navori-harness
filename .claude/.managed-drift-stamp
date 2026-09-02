@@ -1,5 +1,6 @@
 0c0f777cd7a7cc0d7aca4c904e2b10f345978d3b  .claude/settings.json
 11479a78809b1a97f9c5a547a9c7ecb13c2949c5  .claude/hooks/session-start-context.sh
+1c9c975b8d7d16f1e33994872a9b7ef65a56614b  CLAUDE.md
 213ce871151241cc00263a95be7e7128c6a3e673  .claude/skills/playwright-cli/references/video-recording.md
 21d29aa130a4a1eede83eabd396141dd42f8510b  .claude/hooks/precompact-session-summary.sh
 2fc083cb245e681532edaa4b925bdbdd130f18a8  .claude/skills/playwright-cli/references/storage-state.md
@@ -13,7 +14,6 @@
 55f7e2a42e52a75be1660b34f63d5a259459368b  .claude/skills/spec-bootstrap/SKILL.md
 62ab396d38231d8bedd6fd31eda4609871ec5890  .claude/skills/solution-design/SKILL.md
 65476390a01b86f03e2ec88594f5204470edc078  .claude/skills/verify-before-done/SKILL.md
-71212534f7278c793d77575205618e73c059f6e5  CLAUDE.md
 75bf4f95a3adecd52dce10a9d9180b6f46915732  .claude/skills/debug-error/SKILL.md
 7d1ba67360239ee5b776487af35db19701fcb842  .claude/skills/security-guidance/SKILL.md
 8335373868cd9a92d81ad4e7f82b4c3aa469e371  .claude/agents/leader.md

@@ -6,7 +6,7 @@ al final, cuando lo que reporta ya está probado.
 
 ## Lote 1 — detección y aviso (read-only)
 
-- [ ] **T1** (R1, R2, R5, R10, R17) — `lib/foreign-harness.ts`: `scanForeignHarness(cwd,
+- [x] **T1** (R1, R2, R5, R10, R17) — `lib/foreign-harness.ts`: `scanForeignHarness(cwd,
   config, opts)` que compara el inventario managed de navori contra el repo sin marcador,
   `~/.claude` y los plugins que no son el de navori; resuelve la precedencia por tipo de
   asset según la tabla del design; y devuelve un conflicto por colisión con su id estable
@@ -17,14 +17,14 @@ al final, cuando lo que reporta ya está probado.
   `.claude/skills/x/SKILL.md`), y la aserción anti-ruido: repo navori sano → cero
   conflictos.
 
-- [ ] **T2** (R3, R6) — Al mismo scan: contradicción de permisos (una regla que
+- [x] **T2** (R3, R6) — Al mismo scan: contradicción de permisos (una regla que
   `.claude/settings.json` declara `deny` y `settings.local.json` o `~/.claude/settings.json`
   declara `allow`), y la marca `gitignored` sobre el asset ajeno del repo que gana.
   · test: mismo archivo, `// Covers: R3, R6` — regla contradicha nombrando el archivo
   ajeno; asset ajeno ignorado por git marcado como tal; y un `deny` que nadie contradice
   que no produce hallazgo.
 
-- [ ] **T3** (R4, R7, R16) — `commands/doctor.ts`: sección advisory que por cada conflicto
+- [x] **T3** (R4, R7, R16) — `commands/doctor.ts`: sección advisory que por cada conflicto
   nombra ganador y perdedor con sus rutas, y la acción que lo cierra (adoptar si el archivo
   vive en el repo, asumir si vive fuera). Cadenas en `lib/i18n.ts`, es y en.
   · test: `src/commands/__tests__/doctor-foreign-harness.test.ts` con `// Covers: R4, R7,
@@ -33,19 +33,19 @@ al final, cuando lo que reporta ya está probado.
 
 ## Lote 2 — silenciar sin borrar
 
-- [ ] **T4** (R8) — `lib/schema.ts`: `project.foreignHarness.acknowledged: string[]` con
+- [x] **T4** (R8) — `lib/schema.ts`: `project.foreignHarness.acknowledged: string[]` con
   default `[]`; el scan filtra los conflictos cuyo id esté en la lista.
   · test: `src/lib/__tests__/foreign-harness.test.ts` con `// Covers: R8` — el conflicto
   del fixture desaparece al declararlo, y un id que no corresponde a nada no filtra a otro.
 
-- [ ] **T5** (R9) — Entradas obsoletas: el scan devuelve las que ya no corresponden a
+- [x] **T5** (R9) — Entradas obsoletas: el scan devuelve las que ya no corresponden a
   ningún conflicto, y `doctor` las nombra para que la lista solo pueda encoger.
   · test: mismo archivo, `// Covers: R9` — un `acknowledged` cuyo conflicto se resolvió
   sale reportado como obsoleto, con su id.
 
 ## Lote 3 — adopción (área crítica: escribe sobre archivos hechos a mano)
 
-- [ ] **T6** (R11, R12, R14) — El comando de adopción: preview por default, `--apply` para
+- [x] **T6** (R11, R12, R14) — El comando de adopción: preview por default, `--apply` para
   escribir, y el contenido existente envuelto en un bloque managed **byte a byte**. Rechaza
   —sin escribir nada y nombrando la causa— un archivo que ya carga marcador, uno escrito
   por una navori más nueva, y cualquier ruta fuera del repo.
@@ -53,11 +53,23 @@ al final, cuando lo que reporta ya está probado.
   originales intactos dentro del bloque; preview no toca el disco; los tres rechazos, cada
   uno con su causa y con el archivo sin modificar.
 
-- [ ] **T7** (R13, R15) — Backup antes de la primera escritura, con su ruta en la salida; y
+- [x] **T7** (R13, R15) — Backup antes de la primera escritura, con su ruta en la salida; y
   idempotencia: la segunda adopción del mismo archivo no reporta cambios.
   · test: mismo archivo, `// Covers: R13, R15` — el backup existe y contiene el contenido
   previo (aserción sobre los bytes, no sobre que la función fue llamada), y la segunda
   corrida deja el archivo idéntico.
+
+## Estado
+
+Los tres lotes aterrizaron juntos (#555). Dos cosas que solo aparecieron al construirlo:
+
+- **La colisión dentro del repo existe por los DOS layouts de skill**: un `x.md` plano junto
+  al `x/SKILL.md` de navori. Un mapa nombre→archivo dejaba que el segundo pisara al primero
+  y volvía invisible justo el caso que la spec persigue; se leen en una pasada y el
+  directorio se queda con el nombre.
+- **`navori adopt` obligó a pagar los guards que este mismo repo endureció**: el inventario
+  de subcomandos en `CLAUDE.md` y la página de docs en `es` y `en`, porque
+  `UNDOCUMENTED_ON_PURPOSE` quedó vacío en #556.
 
 ## Trazabilidad
 

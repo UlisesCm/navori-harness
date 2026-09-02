@@ -7,7 +7,7 @@
 ## Qué es este proyecto
 Paquete npm (CLI) para replicar harness multi-agente + SDD en múltiples proyectos con soporte multi-engine (Claude Code, AGENTS.md universal, Cursor, Copilot).
 
-**Estado actual**: MVP funcional. Monorepo pnpm con `packages/cli` (publicado a npm como `navori`, binario `navori`) + `@navori/core` (managed assets) + `apps/website` (landing/docs). Los 20 subcomandos registrados en `packages/cli/src/index.ts`: `init`, `add`, `remove`, `configure`, `update`, `render`, `sync`, `scan`, `registry`, `doctor`, `status`, `bench`, `workspace`, `ticket`, `backup`, `migrations`, `preset`, `global`, `dominio`, `audit`. (Este inventario lo verifica `subcommand-inventory.test.ts` contra `index.ts`: si agregas un subcomando y no lo listas aquí, la suite falla.)
+**Estado actual**: MVP funcional. Monorepo pnpm con `packages/cli` (publicado a npm como `navori`, binario `navori`) + `@navori/core` (managed assets) + `apps/website` (landing/docs). Los 21 subcomandos registrados en `packages/cli/src/index.ts`: `init`, `add`, `remove`, `adopt`, `configure`, `update`, `render`, `sync`, `scan`, `registry`, `doctor`, `status`, `bench`, `workspace`, `ticket`, `backup`, `migrations`, `preset`, `global`, `dominio`, `audit`. (Este inventario lo verifica `subcommand-inventory.test.ts` contra `index.ts`: si agregas un subcomando y no lo listas aquí, la suite falla.)
 
 > **Fuente de verdad de objetivo y dirección: [`docs/DIRECTION.md`](docs/DIRECTION.md).** Léela ANTES de proponer cambios de dirección o tocar navori — define metas, no-metas e invariantes que no se re-litigan sin una spec. Colaboradores humanos: `CONTRIBUTING.md`.
 

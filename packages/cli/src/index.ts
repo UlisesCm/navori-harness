@@ -5,6 +5,7 @@ import { doctorCommand } from "./commands/doctor.ts";
 import { syncCommand } from "./commands/sync.ts";
 import { addCommand } from "./commands/add.ts";
 import { removeCommand } from "./commands/remove.ts";
+import { adoptCommand } from "./commands/adopt.ts";
 import { workspaceCommand } from "./commands/workspace.ts";
 import { ticketCommand } from "./commands/ticket.ts";
 import { configureCommand } from "./commands/configure.ts";
@@ -31,6 +32,7 @@ const main = defineCommand({
     init: initCommand,
     add: addCommand,
     remove: removeCommand,
+    adopt: adoptCommand,
     configure: configureCommand,
     update: updateCommand,
     render: renderCommand,

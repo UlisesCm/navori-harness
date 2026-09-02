@@ -244,6 +244,16 @@ const ProjectSchema = z
     /** Skill ids the user owns under `.claude/skills/<id>.md`. navori never
      * writes their content — it only indexes them so agents discover them. */
     localSkills: z.array(z.string()).default([]),
+    /** Conflicts with a foreign harness the repo has decided to live with
+     * (spec 0014, #555). Ids are `<type>:<scope>:<name>` — no absolute paths,
+     * because this list is committed and has to mean the same thing on another
+     * machine. Deliberately NOT `localSkills`: that one makes navori INDEX a
+     * skill in the rendered CLAUDE.md, and silencing an advisory must not
+     * change what every session reads. */
+    foreignHarness: z
+      .object({ acknowledged: z.array(z.string()).default([]) })
+      .passthrough()
+      .optional(),
     /** Library-skill ids detected in the repo's deps (socketio, mongoose, …).
      * Cross-preset: a skill is materialized whenever its dependency is present,
      * independent of the active preset. Supersedes the old zod/joiValidation
