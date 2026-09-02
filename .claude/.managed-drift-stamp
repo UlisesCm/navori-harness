@@ -1,6 +1,6 @@
+0a4f042ef3b8f9122c1765bd7e8f2ae4698f6832  .claude/skills/structural-search/SKILL.md
 0c0f777cd7a7cc0d7aca4c904e2b10f345978d3b  .claude/settings.json
 11479a78809b1a97f9c5a547a9c7ecb13c2949c5  .claude/hooks/session-start-context.sh
-1c9c975b8d7d16f1e33994872a9b7ef65a56614b  CLAUDE.md
 213ce871151241cc00263a95be7e7128c6a3e673  .claude/skills/playwright-cli/references/video-recording.md
 21d29aa130a4a1eede83eabd396141dd42f8510b  .claude/hooks/precompact-session-summary.sh
 2fc083cb245e681532edaa4b925bdbdd130f18a8  .claude/skills/playwright-cli/references/storage-state.md
@@ -21,7 +21,6 @@
 9323571553f5563e94592d18caec41d54d116712  .claude/hooks/managed-drift-watch.sh
 939e1dfe6c58c8d9f2a94f904530531fb2b7a6e3  .claude/skills/loop-back-debug/SKILL.md
 9427620813ed622f731a1fed80833f38649e2f54  .claude/agents/reviewer.md
-9a4024bf013aa8bdbcfb22e035811f9b5bd68629  .claude/skills/structural-search/SKILL.md
 a092c062c85598b27e4b29724be5807e0a7e76a5  .claude/skills/playwright-cli/references/tracing.md
 b07a4640a11d400556ed912e3d0651cb6f42de9b  .claude/hooks/audit-mode-trigger.sh
 b2dc26f4d2cf780c690d6f2e887ac81bcb73ef48  .claude/agents/implementer.md
@@ -38,6 +37,7 @@ c464d73e792287695c385cb1474eb35d4635067f  .claude/hooks/guard-destructive.sh
 cc8d332769cd7e8089891a639305cbbc3a97d53f  .claude/agents/explorer.md
 d0e5a8509bd34d892760b1066ea5e1069230b010  .claude/skills/babysit-prs/SKILL.md
 d70a429bb6e729a0845f0d173ad6a1ef0ae109ea  .claude/skills/playwright-cli/references/request-mocking.md
+e0b15029e5550cf5461f207ef3da14b951f630dd  CLAUDE.md
 e19c6e1e228ab8fe599a2b3c7ecf6d89bc48fef4  .claude/skills/vitest/SKILL.md
 e4d331a6cd1b76742e794514b4dfa33463ec0a96  .claude/hooks/worktree-reclaim.sh
 ec858f267877a7b5f5bc021fb52059adad3557a1  .claude/skills/playwright-cli/references/session-management.md
