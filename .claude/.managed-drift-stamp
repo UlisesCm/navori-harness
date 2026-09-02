@@ -11,6 +11,7 @@
 4782156e9e2e922791a3903009b0e901f961bc1b  CLAUDE.md
 49434b76b7e7e2518ce6e466c62c37fdb70e1fef  .claude/skills/playwright-cli/references/element-attributes.md
 52687bdc2640579f3509de888692c8c11ff36cce  .claude/skills/dominio/SKILL.md
+5444002374f23fe0ecd057cdb8dde9946273ca66  .claude/skills/zod-validation/SKILL.md
 55f7e2a42e52a75be1660b34f63d5a259459368b  .claude/skills/spec-bootstrap/SKILL.md
 561daf216d859536c3d8ce6364829946088e4ec5  .claude/agents/auditor.md
 62ab396d38231d8bedd6fd31eda4609871ec5890  .claude/skills/solution-design/SKILL.md
@@ -18,7 +19,6 @@
 75bf4f95a3adecd52dce10a9d9180b6f46915732  .claude/skills/debug-error/SKILL.md
 78af79722062633cc5315e6a544b7aeb09309229  .claude/agents/leader.md
 7d1ba67360239ee5b776487af35db19701fcb842  .claude/skills/security-guidance/SKILL.md
-9119af5ab02abe500e344bc07fdb6d626943c279  .claude/skills/zod-validation/SKILL.md
 9323571553f5563e94592d18caec41d54d116712  .claude/hooks/managed-drift-watch.sh
 939e1dfe6c58c8d9f2a94f904530531fb2b7a6e3  .claude/skills/loop-back-debug/SKILL.md
 a092c062c85598b27e4b29724be5807e0a7e76a5  .claude/skills/playwright-cli/references/tracing.md
