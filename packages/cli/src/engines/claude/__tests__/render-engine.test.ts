@@ -435,14 +435,15 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   precompact) + 1 qg hook + 2 progress files +
     //   5 engram sub-blocks (leader + the four subagents that reach memory,
     //   #575) + 2 audit-mode hooks +
-    //   1 managed-drift watcher (#530) + 1 worktree-reclaim hook (#527) = 39.
+    //   1 managed-drift watcher (#530) + 1 worktree-reclaim hook (#527) +
+    //   1 orchestrator-audience block routed to .claude/context/ (#573) = 40.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(39);
+    expect(first.inspected).toBe(40);
     // Written counts files actually emitted. engram-leader-extension is a
     // sub-block injected into leader.md, not a separate file, so written = 33
     // (the 29 files + the .mcp.json + both audit-mode hooks + the drift watcher
     // + the worktree-reclaim hook).
-    expect(first.written.length).toBe(34);
+    expect(first.written.length).toBe(35);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -542,8 +543,9 @@ describe("renderClaudeEngine — dry-run", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
     // Dry-run still reports the would-write set, including structural-search,
     // the .mcp.json engram registration (#212), both audit-mode hooks and the
-    // managed-drift watcher (#530) and the worktree-reclaim hook (#527).
-    expect(r.written).toHaveLength(34);
+    // managed-drift watcher (#530), the worktree-reclaim hook (#527) and the
+    // orchestrator block routed to `.claude/context/` (#573).
+    expect(r.written).toHaveLength(35);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
@@ -751,20 +753,24 @@ describe("renderClaudeEngine — canonical block order", () => {
     return `${rest.trimEnd()}\n\n${block}\n`;
   };
 
-  it("puts the orchestrator block first on a fresh render", () => {
+  // The orchestrator block used to open this file, and since #573 it is not in
+  // it at all — it goes to `.claude/context/`, which the SessionStart hook
+  // emits. `idioma-rol` inherits the first slot; the ORDER rule is unchanged,
+  // so the case it guards is pinned on whichever block leads today.
+  it("puts the first canonical block first on a fresh render", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
-    expect(blockIds(readFileSync(join(cwd, "CLAUDE.md"), "utf-8"))[0]).toBe("orquestacion");
+    expect(blockIds(readFileSync(join(cwd, "CLAUDE.md"), "utf-8"))[0]).toBe("idioma-rol");
   });
 
-  it("restores a hand-moved orchestrator block to the front on re-render", () => {
+  it("restores a hand-moved leading block to the front on re-render", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
     const path = join(cwd, "CLAUDE.md");
-    const disordered = moveBlockToEnd(readFileSync(path, "utf-8"), "orquestacion");
-    expect(blockIds(disordered)[0]).not.toBe("orquestacion"); // sanity: now last
+    const disordered = moveBlockToEnd(readFileSync(path, "utf-8"), "idioma-rol");
+    expect(blockIds(disordered)[0]).not.toBe("idioma-rol"); // sanity: now last
     writeFileSync(path, disordered);
 
     renderClaudeEngine(cwd, CONFIG_FULL);
-    expect(blockIds(readFileSync(path, "utf-8"))[0]).toBe("orquestacion");
+    expect(blockIds(readFileSync(path, "utf-8"))[0]).toBe("idioma-rol");
   });
 
   it("is idempotent — an already-ordered file re-renders unchanged", () => {

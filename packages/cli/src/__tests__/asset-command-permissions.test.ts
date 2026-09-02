@@ -20,7 +20,8 @@ import { fileURLToPath } from "node:url";
  *
  * WHAT IT READS — the rendered tree, because that is what an agent actually
  * loads: `CLAUDE.md`, `.claude/agents/*.md`, `.claude/skills/**.md`,
- * `.claude/hooks/*.sh`, checked against `.claude/settings.json`.
+ * `.claude/hooks/*.sh`, `.claude/context/*.md`, checked against
+ * `.claude/settings.json`.
  *
  * SCOPE, and why each boundary is drawn where it is:
  *
@@ -67,6 +68,11 @@ function renderedAssets(): string[] {
     ...walk(join(REPO_ROOT, ".claude", "agents"), /\.md$/),
     ...walk(join(REPO_ROOT, ".claude", "skills"), /\.md$/),
     ...walk(join(REPO_ROOT, ".claude", "hooks"), /\.sh$/),
+    // Blocks routed to the orchestrator (spec 0015, #573). They left CLAUDE.md
+    // but they still ORDER commands, and the SessionStart hook still delivers
+    // them — so leaving this directory out of the scan would silently retire
+    // the check for every command the routing doctrine gives.
+    ...walk(join(REPO_ROOT, ".claude", "context"), /\.md$/),
   ].filter(existsSync);
 }
 

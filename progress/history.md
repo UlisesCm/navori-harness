@@ -1051,3 +1051,34 @@ verde medido con el diff de otra sesión dentro del árbol prueba la suma, no tu
 
 **Deuda.** `/tmp/navori547/` (fixture de un smoke; su `rm -rf` lo bloqueó el sistema de permisos) y el
 worktree `.claude/worktrees/545-global-init`, marcado `safe to remove` y pendiente del ok del usuario.
+
+## 2026-09-01 22:40 orchestrator — 11 issues cerrados, spec 0015, y el canal `audience` a medias
+
+**Cerrado**: #563, #561, #559, #560, #557, #556, #555 (spec 0014 + implementación), #574,
+#575, #579 — más la spec 0015 (#578). PRs #564 a #580.
+
+**Lo que destapó la jornada, en orden de sorpresa:**
+
+1. **Ningún PR de este repo había auto-cerrado su issue nunca.** GitHub solo parsea
+   `Closes/Fixes/Resolves` en inglés; `Cierra #N` es prosa. La causa raíz estaba en la
+   plantilla del `commit-pr-pilot` (#564), y desde ese PR los issues se cierran solos.
+2. **Escribir specs para `lib/audit/harness.ts` destapó dos parseos que mienten en
+   silencio** (#565): un `## ` dentro de un bloque cercado se leía como encabezado real, y
+   `tools:` se buscaba en todo el archivo del agente en vez de en su frontmatter. Los dos
+   alimentaban la única señal `high` del reporte.
+3. **Investigación contra la doc de Claude Code** (a pedido del usuario) que corrigió una
+   cifra mía: los esquemas MCP **no** viajan en el contexto inicial — con tool search, que
+   es el default, se cargan bajo demanda. El harness pesa 22% del primer turno, no 30%.
+4. **En auto mode cada comando de shell paga un viaje al clasificador**; las lecturas y las
+   llamadas MCP con regla `allow` no. Como navori pre-aprueba `mcp__codegraph__*`, la
+   escalera de búsqueda era la opción MÁS barata, mal explicada (#576).
+5. **El harness conocía 1 de los 6 modos de permiso** (#580). En `dontAsk` el ciclo no puede
+   escribir: `Edit`/`Write` no están en el allow, y el modo deniega `AskUserQuestion`.
+
+**Medición que ordenó el trabajo**: tres sesiones auditadas con `navori audit` —Grep 0,
+Glob 0, codegraph 0 contra 1,497 Bash— y 527,949 tokens solo en arrancar 19 subagentes, de
+los cuales ~60k eran el bloque de orquestación entregado a agentes que no orquestan.
+
+**Gate**: verde en todos los PRs mergeados (3128 tests al final). La rama
+`feat/audience-channel` queda ROJA a propósito: 5 tests por migrar, declarado en el commit
+y en `current.md`.

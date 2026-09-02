@@ -214,6 +214,10 @@ export const ENGINE_OUTPUTS: EngineOutputs[] = [
       // — must be scanned like codex's `.codex/hooks`. Without this, doctor/status
       // stayed green while a hook's managed body was tampered with (#275).
       { kind: "recursive", dir: ".claude/hooks", ext: ".sh", style: "shell" },
+      // Blocks addressed to the orchestrator (spec 0015, #573). They left
+      // CLAUDE.md but they are still managed markdown, so the drift scan has to
+      // reach them here or a hand-edited doctrine would go unreported.
+      { kind: "recursive", dir: ".claude/context", ext: ".md", style: "html" },
     ],
     textDirs: [".claude"],
     // The project-scoped MCP registry at the repo ROOT — outside `.claude/`, so

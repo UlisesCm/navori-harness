@@ -1,4 +1,4 @@
-# navori:managed start id="session-start-context-base" hash="a1cd0f1e" version="0.6.5" source="@navori/core"
+# navori:managed start id="session-start-context-base" hash="f164daac" version="0.6.5" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SessionStart context hook.
@@ -311,6 +311,32 @@ if [ -d "$HOME/.navori/workspaces" ] && command -v navori >/dev/null 2>&1; then
     add ""
     add "$dominio"
   fi
+fi
+
+# Blocks addressed to the ORCHESTRATOR (spec 0015, #573). They left `CLAUDE.md`
+# on purpose: that file travels to every subagent, and doctrine written in the
+# second person to the main agent is something no subagent can act on — none of
+# them declares the `Agent` tool. A hook, by contrast, only ever runs in the
+# session, so this is the one channel that reaches the main agent and nobody
+# else. Registered for `startup|resume|compact`, so it survives compaction the
+# way `CLAUDE.md` does.
+#
+# A plain glob + `cat`: the files are managed markdown that `render` wrote, and
+# the hook stays dumb on purpose. Missing directory, missing files or an
+# unreadable one → nothing is added and the rest of the context still ships.
+if [ -d ".claude/context" ]; then
+  # nullglob, each shell spelling it its own way: an EMPTY context dir leaves
+  # the pattern unmatched, and under zsh that is a hard "no matches found" that
+  # kills the hook mid-startup (#391). bash would hand the literal pattern to
+  # `cat` instead — quieter, still wrong.
+  if [ -n "${ZSH_VERSION:-}" ]; then setopt NULL_GLOB; else shopt -s nullglob; fi
+  for f in .claude/context/*.md; do
+    [ -f "$f" ] || continue
+    block=$(cat "$f" 2>/dev/null) || continue
+    [ -n "$block" ] || continue
+    add ""
+    add "$block"
+  done
 fi
 
 if [ -z "$ctx" ]; then

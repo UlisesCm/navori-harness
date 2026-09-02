@@ -10,6 +10,7 @@ import {
 } from "../../lib/plugins.ts";
 import {
   computeRenderPlan,
+  resolveAssetPath,
   canonicalManagedOrder,
   classifyVersionDrift,
   type AssetPlanEntry,
@@ -126,6 +127,16 @@ const NAVORI_VERSION = readCliVersion();
 const CORE_META = { source: "@navori/core" as const, version: NAVORI_VERSION };
 
 /** Managed-block id for the skills index injected into CLAUDE.md. */
+/**
+ * Where a block addressed to the orchestrator lands (spec 0015, #573).
+ *
+ * NOT `.claude/rules/`: a rule without `paths:` frontmatter loads in every
+ * session AND travels to subagents as part of the CLAUDE.md hierarchy, which
+ * would reintroduce the very cost this routing removes. Nothing but the
+ * SessionStart hook reads this directory.
+ */
+const ORCHESTRATOR_CONTEXT_DIR = ".claude/context";
+
 const SKILLS_INDEX_ID = "skills-index";
 
 /**
@@ -440,6 +451,54 @@ export function renderClaudeEngine(
     omitRootOnly: isWorkspace,
   });
   inspected += 1;
+
+  // Declared here rather than beside the plugin sweeps below: the orchestrator
+  // routing right under this line is the first thing that can retire a file.
+  const removals: PendingRemoval[] = [];
+
+  // 1a-bis. Blocks addressed to the orchestrator (spec 0015, #573).
+  //
+  // These left `CLAUDE.md` in the plan above — `computeRenderPlan` strips them,
+  // which is also what migrates a repo rendered by an earlier navori — and land
+  // in a file of their own that the SessionStart hook emits as
+  // `additionalContext`. A subagent never starts a session, so the hook never
+  // reaches it; that is the whole reason for the detour.
+  //
+  // Still a managed file with its marker, hash and version, so `sync`, the
+  // drift scan and the prune keep treating it exactly like an agent file. The
+  // language-resolved path comes from the plan's own resolver: `planManagedFile`
+  // joins root + relPath, and an absolute second argument wins that join, which
+  // is how a translated sibling reaches the writer unchanged.
+  for (const entry of claudeMdPlan.entries) {
+    if (entry.asset.audience !== "orchestrator") continue;
+    const destRelPath = `${ORCHESTRATOR_CONTEXT_DIR}/${entry.asset.id}.md`;
+    inspected += 1;
+    if (entry.newContent === null) {
+      // The plan decided this block ships nowhere: `blocks.exclude`, a condition
+      // that turned false, or a user-kept edit. The opt-out has to reach THIS
+      // channel too — otherwise excluding a block would only move where it is
+      // delivered from, and the user would keep receiving doctrine they turned
+      // off, out of a file they never learned exists.
+      const dest = join(cwd, destRelPath);
+      if (existsSync(dest) && isRemovableNavoriFile(dest, entry.asset.id)) {
+        removals.push({ path: dest });
+      }
+      continue;
+    }
+    applyManagedFilePlan(
+      planManagedFile({
+        cwd,
+        assetRoot: coreAssets,
+        assetRelPath: resolveAssetPath(entry.asset, config.language).path,
+        destRelPath,
+        managedId: entry.asset.id,
+        config,
+      }),
+      cwd,
+      pending,
+      skipped,
+    );
+  }
 
   // 1b. Skills index — a managed block in CLAUDE.md listing the skills agents
   // can apply: core (always) + preset + library (detected from deps) +
@@ -785,7 +844,6 @@ export function renderClaudeEngine(
   // by computeRenderPlan, but its injectInto sub-blocks (e.g. leader.md) and its
   // .claude/scripts/* were only ever touched on the enabled path — so they'd
   // orphan. Strip them here so disabling a plugin fully cleans up (#80).
-  const removals: PendingRemoval[] = [];
   for (const plugin of disabledPlugins) {
     for (const skill of plugin.skillAssets) {
       if (!skill.injectInto) continue;

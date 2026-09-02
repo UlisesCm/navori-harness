@@ -82,6 +82,21 @@ export interface CoreManagedAsset {
    *      library skill that only a repo render materializes.
    */
   globalSafe?: boolean;
+  /**
+   * Who the block is written for. Absent — the normal case — means the always-on
+   * layer: it renders into `CLAUDE.md`, which every session AND every subagent
+   * receives (`sub-agents#what-loads-at-startup`).
+   *
+   * `"orchestrator"` routes it out of that file and into `.claude/context/<id>.md`,
+   * which the repo's `SessionStart` hook emits as `additionalContext`. Subagents
+   * do not start sessions, so a hook never reaches them — which is the entire
+   * point: doctrine addressed to the main agent in the second person was being
+   * paid for by every subagent that cannot act on it (spec 0015, #573).
+   *
+   * The channel is not new to navori: the global layer has emitted the same
+   * block this way since spec 0010 FB (#546). This applies it to the repo scope.
+   */
+  audience?: "orchestrator";
 }
 
 export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
@@ -95,6 +110,11 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     // Without it the global harness would ship 8 subagents with nothing telling
     // the orchestrator when to reach for each.
     globalSafe: true,
+    // Written in the second person to the main agent, and every section decides
+    // something only it decides. Out of `CLAUDE.md` since spec 0015 (#573): the
+    // subagents that used to receive it declare no `Agent` tool, so none of them
+    // could act on it, and each paid ~3.1k tokens for it at startup.
+    audience: "orchestrator",
   },
   {
     id: "idioma-rol",
@@ -390,6 +410,21 @@ export function computeRenderPlan(
     if (resolved.fallback) languageFallbacks.push(asset.id);
     const rawContent = readFileSync(resolved.path, "utf-8");
     const content = interpolate(rawContent, config);
+    if (asset.audience === "orchestrator") {
+      // Not part of the always-on file. Stripping it from `working` is what
+      // migrates a repo rendered by an earlier navori: the block leaves
+      // `CLAUDE.md` on the next render, by its marker, without touching the
+      // user's prose around it. The engine writes the content to its own file.
+      const before = working;
+      working = removeManagedSection(working, asset.id);
+      entries.push({
+        asset,
+        source: "core",
+        status: before === working ? "unchanged" : "updated",
+        newContent: content,
+      });
+      continue;
+    }
     const result = injectManagedSection(
       working,
       asset.id,

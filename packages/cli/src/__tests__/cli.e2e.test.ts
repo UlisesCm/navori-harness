@@ -803,21 +803,25 @@ describe("CLI e2e — happy paths", () => {
     expect(runCli(["init", "--recommended", "--cwd", repo]).status).toBe(0);
 
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
-    // The orchestrator role is the center of gravity: the FIRST managed block.
-    const firstBlock = claudeMd.match(/navori:managed id="([^"]+)"/)?.[1];
-    expect(firstBlock).toBe("orquestacion");
-    expect(claudeMd).toContain("## Role: orchestrator");
+    // The orchestrator role is the center of gravity, and since #573 it is no
+    // longer in the file every subagent receives: it renders to
+    // `.claude/context/`, which only the SessionStart hook reads. The doctrine
+    // itself is unchanged, so the assertions below just follow it there.
+    const doctrine = readFileSync(join(repo, ".claude/context/orquestacion.md"), "utf-8");
+    expect(claudeMd).not.toContain('navori:managed id="orquestacion"');
+    expect(doctrine).toMatch(/^<!-- navori:managed id="orquestacion"/);
+    expect(doctrine).toContain("## Role: orchestrator");
     // The orchestration mechanics are inlined here (self-contained, auto-loaded)
     // and the main agent is told to embody the role, never delegate it — so a
     // spawned `leader` subagent can't recreate the serialized-work regression.
-    expect(claudeMd).toContain("you act as the orchestrator");
-    expect(claudeMd).toContain("Agent(subagent_type: leader)");
+    expect(doctrine).toContain("you act as the orchestrator");
+    expect(doctrine).toContain("Agent(subagent_type: leader)");
     // Organic routing (M1): the block leads with the smallest-route model, so a
     // 1–3 file mechanical change is done inline — not funneled through a
     // subagent as the old "Trivial (1 archivo) → 1 implementer" floor did.
-    expect(claudeMd).toContain("R1 · Inline");
-    expect(claudeMd).toContain("4-file rule");
-    expect(claudeMd).not.toContain("Trivial (1 archivo)");
+    expect(doctrine).toContain("R1 · Inline");
+    expect(doctrine).toContain("4-file rule");
+    expect(doctrine).not.toContain("Trivial (1 archivo)");
 
     // The agents index lists the spawnable leaf agents — but NOT the leader,
     // since the main agent embeds that role rather than delegating to it.
