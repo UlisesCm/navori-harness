@@ -95,9 +95,14 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
     const root = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
     const ws = readFileSync(join(cwd, "apps/backend/CLAUDE.md"), "utf-8");
 
-    // Root carries the global blocks.
-    expect(root).toContain('navori:managed id="orquestacion"');
+    // Root carries the global blocks. `orquestacion` is root-only too, but since
+    // #573 it renders to `.claude/context/` rather than into this file — and
+    // only at the root, which is what the workspace assertion below still pins.
     expect(root).toContain('navori:managed id="idioma-rol"');
+    expect(readFileSync(join(cwd, ".claude/context/orquestacion.md"), "utf-8")).toContain(
+      'navori:managed id="orquestacion"',
+    );
+    expect(existsSync(join(cwd, "apps/backend/.claude/context/orquestacion.md"))).toBe(false);
 
     // Workspace inherits those from the parent → NOT re-emitted.
     expect(ws).not.toContain('navori:managed id="orquestacion"');

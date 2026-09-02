@@ -140,17 +140,24 @@ describe("a minimal config renders no empty / unconfigured placeholder (#375)", 
     }
   }
 
+  // The sentence lives in the routing doctrine, which since #573 renders to
+  // `.claude/context/orquestacion.md` instead of `CLAUDE.md` — the file the
+  // SessionStart hook emits, and the one no subagent receives. The placeholder
+  // rule under test is unchanged; only where the rendered text lands moved.
+  const doctrine = (cwd: string): string =>
+    readFileSync(join(cwd, ".claude", "context", "orquestacion.md"), "utf-8");
+
   it("substitutes the critical-areas fallback in the R2-architectural signal list", () => {
-    // The exact sentence the bug rendered as "· a `` area ·" (CLAUDE.md:72 here).
-    const claudeMd = readFileSync(join(render(CLAUDE, {}), "CLAUDE.md"), "utf-8");
-    expect(claudeMd).toContain("a critical area (`auth, permissions, payments, data integrity`)");
+    // The exact sentence the bug rendered as "· a `` area ·".
+    expect(doctrine(render(CLAUDE, {}))).toContain(
+      "a critical area (`auth, permissions, payments, data integrity`)",
+    );
   });
 
   it("still prefers the configured value over the fallback", () => {
-    const cwd = render(CLAUDE, { criticalAreas: ["src/auth", "src/billing"] });
-    const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
-    expect(claudeMd).toContain("a critical area (`src/auth, src/billing`)");
-    expect(claudeMd).not.toContain("a critical area (`auth, permissions");
+    const rendered = doctrine(render(CLAUDE, { criticalAreas: ["src/auth", "src/billing"] }));
+    expect(rendered).toContain("a critical area (`src/auth, src/billing`)");
+    expect(rendered).not.toContain("a critical area (`auth, permissions");
   });
 });
 

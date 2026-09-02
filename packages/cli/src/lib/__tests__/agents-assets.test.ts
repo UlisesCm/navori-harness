@@ -117,6 +117,55 @@ describe("core agent assets — shape contract", () => {
   }
 });
 
+/**
+ * Spec 0015 R5 (#573) — what made it safe to take the routing doctrine out of
+ * `CLAUDE.md`.
+ *
+ * That block carried one paragraph aimed at subagents: where each writes its
+ * report, the `Status:` / verdict line that closes it, and the ban on touching
+ * `progress/current.md`. Moving the block would have dropped that on the floor
+ * — except every agent already declares its own half, which is why the move
+ * cost nothing.
+ *
+ * So the duplication is load-bearing, and it looks exactly like the redundancy
+ * somebody tidies up on a slow afternoon. This is the test that makes that
+ * tidy-up fail instead of silently un-teaching every subagent how to report.
+ */
+describe("each agent declares its own handoff contract (#573)", () => {
+  /** agent id -> the strings its own asset must keep declaring. */
+  const CONTRACT: ReadonlyArray<readonly [string, readonly string[]]> = [
+    ["implementer", ["impl_<feature>.md", "Status:"]],
+    ["reviewer", ["review_<feature>.md", "APPROVED"]],
+    ["ticket-audit", ["audit_ticket_"]],
+    ["explorer", ["explore_"]],
+    ["researcher", ["research_"]],
+    ["auditor", ["audit_deep_"]],
+  ];
+
+  it.each(CONTRACT.map(([id, needles]) => [id, needles] as const))(
+    "%s names its own report file and how it closes it",
+    (id, needles) => {
+      const body = readFileSync(resolve(AGENTS_DIR, `${id}.md`), "utf-8");
+      for (const needle of needles) {
+        expect(
+          body,
+          `${id}.md no longer declares "${needle}". The routing doctrine used to say it for ` +
+            "everyone, and since #573 that block does not reach subagents at all — so this " +
+            "asset is now the only place its own agent learns how to hand work back.",
+        ).toContain(needle);
+      }
+    },
+  );
+
+  it("keeps the ban on writing the session's own progress file where the writer reads it", () => {
+    // `progress/current.md` is consolidated by the orchestrator, and implementers
+    // can run in parallel: two of them writing it is a lost report, not a merge.
+    expect(readFileSync(resolve(AGENTS_DIR, "implementer.md"), "utf-8")).toContain(
+      "progress/current.md",
+    );
+  });
+});
+
 describe("core agent assets — interpolation placeholders", () => {
   it("at least one agent references qualityGate (proves wiring path exists)", () => {
     const anyRefs = AGENT_IDS.some((id) => readAgent(id).includes("{{qualityGate."));

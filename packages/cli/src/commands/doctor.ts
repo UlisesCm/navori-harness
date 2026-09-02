@@ -121,7 +121,12 @@ export const doctorCommand = defineCommand({
       throw err;
     }
 
-    const markers = listMarkers(claudeMdPath);
+    // Every managed block this repo carries, not only the ones inside
+    // `CLAUDE.md`: since #573 a block addressed to the orchestrator renders to
+    // `.claude/context/` and is delivered by the SessionStart hook. Its drift is
+    // already scanned there; leaving it out of THIS list would answer "what does
+    // navori manage here?" with a shorter inventory than the truth.
+    const markers = [...listMarkers(claudeMdPath), ...listContextMarkers(cwd)];
     // The health verdict — every `ok`-flipping check in one place, shared with
     // `status` so the two commands can't disagree about the same repo (#244).
     const verdict = computeHealthVerdict(cwd, config);
@@ -895,6 +900,20 @@ export function foreignHarnessLines(
     lines.push(`  ${color.yellow(sym.update)} ${td.foreignHarnessStaleAck(id)}`);
   }
   return lines;
+}
+
+/** Managed blocks living outside `CLAUDE.md`, in the orchestrator context dir. */
+function listContextMarkers(cwd: string): ReturnType<typeof listMarkers> {
+  const dir = join(cwd, ".claude", "context");
+  if (!existsSync(dir)) return [];
+  try {
+    return readdirSync(dir)
+      .filter((name) => name.endsWith(".md"))
+      .sort()
+      .flatMap((name) => listMarkers(join(dir, name)));
+  } catch {
+    return [];
+  }
 }
 
 export interface HealthVerdict {
