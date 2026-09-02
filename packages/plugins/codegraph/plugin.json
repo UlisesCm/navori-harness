@@ -1,6 +1,6 @@
 {
   "id": "codegraph",
-  "name": "CodeGraph — surgical code context",
+  "name": "CodeGraph \u2014 surgical code context",
   "description": "Pre-built AST code graph via MCP: symbols, call paths and blast-radius in one call, fewer grep/read loops",
   "version": "0.0.1",
   "managed": [
@@ -21,11 +21,16 @@
   },
   "mcpServer": {
     "command": "codegraph",
-    "args": ["serve", "--mcp"]
+    "args": [
+      "serve",
+      "--mcp"
+    ]
   },
   "settingsFragment": {
     "permissions": {
-      "allow": ["mcp__codegraph__*"]
+      "allow": [
+        "mcp__codegraph__*"
+      ]
     }
   },
   "skills": [
@@ -45,7 +50,21 @@
       "file": "skills/codegraph-search-agent.md",
       "recommendedAgent": "explorer",
       "injectInto": ".claude/agents/explorer.md"
+    },
+    {
+      "id": "codegraph-implementer-extension",
+      "file": "skills/codegraph-code-agent.md",
+      "recommendedAgent": "implementer",
+      "injectInto": ".claude/agents/implementer.md"
+    },
+    {
+      "id": "codegraph-reviewer-extension",
+      "file": "skills/codegraph-code-agent.md",
+      "recommendedAgent": "reviewer",
+      "injectInto": ".claude/agents/reviewer.md"
     }
   ],
-  "invariants": ["codegraph_explore"]
+  "invariants": [
+    "codegraph_explore"
+  ]
 }

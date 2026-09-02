@@ -198,6 +198,68 @@ describe("the audit reports both halves of the gap (#501)", () => {
   });
 });
 
+/**
+ * #575 — the other half of #501, measured instead of argued.
+ *
+ * `navori audit` emits exactly one `high` signal, and it is this: sections that
+ * require MCP, delivered to agents whose `tools:` cannot reach it. In the
+ * reference session that was ~17k tokens across 19 subagents — five of the
+ * eight roles shipped blind (`implementer`, `reviewer`, `auditor`,
+ * `ticket-audit`, `commit-pr-pilot`), while the always-on `CLAUDE.md` told all
+ * of them to `mem_search` before touching code.
+ *
+ * The fix was not to strip the prose: it was to hand the tools to the roles the
+ * prose is actually for, through the mechanism that already existed
+ * (`withAgentMcpTools` grants a plugin's family to the agents it injects into —
+ * you get the tool BECAUSE the instruction reached you).
+ *
+ * What this pins is the pairing, per role. A future edit that drops an
+ * injection silently re-opens the gap, and the only place it would show is a
+ * `high` signal in somebody's audit weeks later.
+ */
+describe("the roles that are told to use memory can reach it (#575)", () => {
+  /** Agent id -> the MCP families its rendered `tools:` must carry. */
+  const EXPECTED: ReadonlyArray<readonly [string, readonly string[]]> = [
+    ["implementer", ["engram", "codegraph"]],
+    ["reviewer", ["engram", "codegraph"]],
+    ["auditor", ["engram"]],
+    ["ticket-audit", ["engram"]],
+    ["researcher", ["codegraph"]],
+    ["explorer", ["codegraph"]],
+    ["leader", ["engram"]],
+  ];
+
+  /** Plugins that inject into `<agent>.md`, by agent id. */
+  function familiesFor(agent: string): string[] {
+    const target = `.claude/agents/${agent}.md`;
+    return MCP_PLUGINS.filter((plugin) =>
+      (plugin.manifest.skills ?? []).some((skill) => skill.injectInto === target),
+    ).map((plugin) => plugin.manifest.id);
+  }
+
+  it.each(EXPECTED.map(([agent, families]) => [agent, families] as const))(
+    "%s receives the families it is told to use",
+    (agent, families) => {
+      const granted = familiesFor(agent);
+      for (const family of families) {
+        expect(
+          granted,
+          `${agent} is expected to reach ${family}, but no ${family} injection targets it — ` +
+            "`withAgentMcpTools` only grants the family of a plugin that injects into the agent, " +
+            "so without the injection the agent boots carrying orders it cannot execute (#575)",
+        ).toContain(family);
+      }
+    },
+  );
+
+  it("leaves commit-pr-pilot without MCP, and that is the declared choice", () => {
+    // It drafts a commit and a PR from the diff and the review file: no code to
+    // locate, no decision worth remembering. The Engram block already exempts a
+    // toolset with no `mem_*` call by name, so the prose it receives is honest.
+    expect(familiesFor("commit-pr-pilot")).toEqual([]);
+  });
+});
+
 describe("the core never orders a capability only a plugin can grant (#501)", () => {
   /** Always-on core surfaces: a managed block, and every agent's own protocol. */
   function alwaysOnCoreSurfaces(): Array<{ label: string; text: string }> {
