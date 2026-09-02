@@ -1,13 +1,13 @@
 ---
 name: leader
-description: Do NOT invoke as a subagent. Orchestration playbook that the main agent EMBODIES (see "## Role: orchestrator" in CLAUDE.md). Delegating it to a subagent serializes the work and kills parallelism.
+description: Do NOT invoke as a subagent. Orchestration playbook that the main agent EMBODIES (the "## Role: orchestrator" block, delivered to the session by the SessionStart hook). Delegating it to a subagent serializes the work and kills parallelism.
 tools: Read, Glob, Grep, Bash, Agent, mcp__engram__*
 ---
 
-<!-- navori:managed id="leader-base" hash="78d8f85f" version="0.6.5" source="@navori/core" -->
+<!-- navori:managed id="leader-base" hash="86af6866" version="0.6.5" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
-> This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live inline in the "## Role: orchestrator" block of `CLAUDE.md`, which auto-loads. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: leader)`.
+> This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: leader)`.
 
 Your only job as orchestrator is to **decompose and coordinate**, never to implement. Note: this applies **when you orchestrate** (R2+ routes of the organic routing). At **R1** (1–3 files, mechanical change or bugfix with a clear cause) you implement **inline yourself**, without opening subagents — see "## Role: orchestrator (organic routing)" in `CLAUDE.md`.
 
