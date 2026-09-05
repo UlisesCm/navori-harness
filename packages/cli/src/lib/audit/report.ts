@@ -398,28 +398,69 @@ function agentHooksLine(a: AgentRun, hookLogFrom: string | null, lang: Lang): st
   );
 }
 
+/**
+ * Runs slower than this are the hook DOING ITS JOB, not the hook's overhead.
+ *
+ * The gate hooks fire on every Bash call but act only on a commit, so their
+ * timings are bimodal by construction: hundreds of sub-100ms exits plus a
+ * handful of multi-second scans. One measured session: `check-semgrep` at
+ * 902× / 191.2s reads as 212ms of tax per shell command, when the truth is
+ * 876 runs costing 49.6s and 26 real scans costing 141.6s. One second is far
+ * above every observed pass-through and far below every observed scan.
+ */
+const HOOK_WORK_MS = 1000;
+
+/** Middle value — the tax an ADDITIONAL command would actually pay. The mean is
+ *  the wrong statistic for a bimodal distribution, and it is the one that made
+ *  the constant floor look four times bigger than it is. */
+function median(sorted: number[]): number {
+  const mid = Math.floor(sorted.length / 2);
+  const hi = sorted[mid];
+  if (hi === undefined) return 0;
+  if (sorted.length % 2 === 1) return hi;
+  const lo = sorted[mid - 1] ?? hi;
+  return Math.round((lo + hi) / 2);
+}
+
 function hooksLine(events: HookEvent[], lang: Lang): string {
   if (events.length === 0) return t(lang, "—", "—");
-  const by = new Map<string, { n: number; ms: number; blocked: number }>();
+  const by = new Map<string, { ms: number[]; blocked: number }>();
   for (const e of events) {
-    const cur = by.get(e.name) ?? { n: 0, ms: 0, blocked: 0 };
-    by.set(e.name, {
-      n: cur.n + 1,
-      ms: cur.ms + e.ms,
-      blocked: cur.blocked + (e.verdict === "block" ? 1 : 0),
-    });
+    const cur = by.get(e.name) ?? { ms: [], blocked: 0 };
+    cur.ms.push(e.ms);
+    cur.blocked += e.verdict === "block" ? 1 : 0;
+    by.set(e.name, cur);
   }
   return (
     [...by.entries()]
       // Slowest first: the point of recording `ms` is finding the hook that costs
       // seconds on every tool call.
-      .sort((x, y) => y[1].ms - x[1].ms)
-      .map(
-        ([name, v]) =>
-          `${name} ${v.n}× ${(v.ms / 1000).toFixed(1)}s${v.blocked > 0 ? t(lang, ` · ${v.blocked} bloqueos`, ` · ${v.blocked} blocked`) : ""}`,
-      )
+      .sort((x, y) => sumMs(y[1].ms) - sumMs(x[1].ms))
+      .map(([name, v]) => {
+        const total = sumMs(v.ms);
+        const work = v.ms.filter((ms) => ms > HOOK_WORK_MS);
+        const p50 = median([...v.ms].sort((a, b) => a - b));
+        const blocked =
+          v.blocked > 0 ? t(lang, ` · ${v.blocked} bloqueos`, ` · ${v.blocked} blocked`) : "";
+        // The split only appears when there is something to split. A hook that
+        // never ran long — the always-on ones — is honestly described by its
+        // total, and an unconditional parenthesis saying "0 runs" is noise.
+        const split =
+          work.length > 0
+            ? t(
+                lang,
+                ` · ${work.length} corridas >1s = ${(sumMs(work) / 1000).toFixed(1)}s`,
+                ` · ${work.length} runs >1s = ${(sumMs(work) / 1000).toFixed(1)}s`,
+              )
+            : "";
+        return `${name} ${v.ms.length}× ${(total / 1000).toFixed(1)}s · ${t(lang, "mediana", "median")} ${p50}ms${split}${blocked}`;
+      })
       .join(`\n  ${" ".repeat(LABEL)}`)
   );
+}
+
+function sumMs(xs: number[]): number {
+  return xs.reduce((a, b) => a + b, 0);
 }
 
 function byAgentType(s: SessionAudit): string {
@@ -556,6 +597,14 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
 
     out.push("", `### ${t(lang, "Ficha por agente", "Per-agent card")}`, "");
     out.push(agentCards(s, lang));
+    out.push(
+      "",
+      t(
+        lang,
+        "> Los `ms` de un hook los mide el hook mismo, y solo se miden con audit-mode activo: incluyen el costo del propio recorder. La **mediana** es el peaje que pagaría un comando más; el total incluye las corridas largas, que son el gate haciendo su trabajo en un commit y no overhead que se pueda recortar.",
+        "> A hook's `ms` are measured by the hook itself, and only while audit-mode is on: they include the recorder's own cost. The **median** is the toll one more command would pay; the total includes the long runs, which are the gate doing its job on a commit — not overhead to trim.",
+      ),
+    );
 
     out.push("", `### ${t(lang, "Por tipo de agente", "By agent type")}`, "", "```");
     out.push(byAgentType(s));

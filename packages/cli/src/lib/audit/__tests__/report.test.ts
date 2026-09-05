@@ -125,6 +125,60 @@ describe("session header: the navori that ran the session", () => {
   });
 });
 
+/**
+ * A gate hook fires on every Bash call but acts only on a commit, so its
+ * timings are bimodal and the mean describes neither mode. The line used to
+ * print only `n×` and the total, which reads as a per-call tax: the measured
+ * `check-semgrep 902× 191.2s` looks like 212ms on every shell command when 876
+ * of those runs cost 49.6s between them and 26 real scans cost the other 141.6s.
+ */
+describe("hook line: constant toll vs the gate doing its job", () => {
+  /** `n` pass-throughs at `fastMs`, plus `slow` real runs at `slowMs`. */
+  function hookRuns(name: string, n: number, fastMs: number, slow: number, slowMs: number) {
+    return [
+      ...Array.from({ length: n }, () => ({
+        ts: "2026-08-25T10:00:00Z",
+        name,
+        phase: "PreToolUse",
+        verdict: "allow",
+        ms: fastMs,
+        source: "plugin:semgrep",
+      })),
+      ...Array.from({ length: slow }, () => ({
+        ts: "2026-08-25T10:00:00Z",
+        name,
+        phase: "PreToolUse",
+        verdict: "allow",
+        ms: slowMs,
+        source: "plugin:semgrep",
+      })),
+    ];
+  }
+
+  it("reports the median and splits out the runs over a second", () => {
+    const out = md([agent({ hookEvents: hookRuns("check-semgrep", 20, 40, 4, 5000) })]);
+    // 24 runs, 20.8s total — but one more command would pay 40ms, not 867ms.
+    expect(out).toContain("check-semgrep 24× 20.8s · mediana 40ms · 4 corridas >1s = 20.0s");
+  });
+
+  it("says nothing about long runs for a hook that never had one", () => {
+    const out = md([agent({ hookEvents: hookRuns("guard-destructive", 10, 58, 0, 0) })]);
+    expect(out).toContain("guard-destructive 10× 0.6s · mediana 58ms");
+    expect(out).not.toContain("corridas >1s");
+  });
+
+  it("still names the blocks it produced", () => {
+    const events = hookRuns("guard-destructive", 3, 50, 0, 0);
+    events.push({ ...(events[0] as (typeof events)[number]), verdict: "block" });
+    expect(md([agent({ hookEvents: events })])).toContain("1 bloqueos");
+  });
+
+  it("states that the timings include the recorder that produced them", () => {
+    const out = md([agent({ hookEvents: hookRuns("check-jscpd", 2, 30, 0, 0) })]);
+    expect(out).toContain("incluyen el costo del propio recorder");
+  });
+});
+
 describe("per-agent card (#0013)", () => {
   // Covers: R8, R12
   it("renders the agent's skills, tools, MCP and hooks in one card", () => {
