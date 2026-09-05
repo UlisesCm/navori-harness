@@ -5,7 +5,7 @@ type: behavior
 maxWords: 600
 ---
 
-<!-- navori:managed id="debug-error-base" hash="63b4c51a" version="0.7.1" source="@navori/core" -->
+<!-- navori:managed id="debug-error-base" hash="63b4c51a" version="0.7.2" source="@navori/core" -->
 # Debug error — triage before fixing
 
 When a command fails with many lines, the mistake is to react to the first (or the loudest) one and throw a fix at it. This skill forces the triage step first.

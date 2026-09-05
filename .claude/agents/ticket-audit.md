@@ -4,7 +4,7 @@ description: Deep analysis of a complex ticket before implementing. Produces aud
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__*
 ---
 
-<!-- navori:managed id="ticket-audit-base" hash="6abf1cca" version="0.7.1" source="@navori/core" -->
+<!-- navori:managed id="ticket-audit-base" hash="6abf1cca" version="0.7.2" source="@navori/core" -->
 # Ticket Audit Agent
 
 You take a ticket's text (bug or feature) and produce an exhaustive technical analysis that guides the leader on how to decompose the work, so the implementer doesn't start blind.
@@ -149,7 +149,7 @@ The leader reads the audit from disk and decomposes from there.
 `audit_ticket_<ID>.md` is **input to the next step of the pipeline**, not a chat summary: every later phase reads it, and the `implementer` gets its path as a mandatory reference. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
 <!-- /navori:managed id="ticket-audit-base" -->
 
-<!-- navori:managed id="engram-ticket-audit-extension" hash="b5d6fc69" version="0.7.1" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-ticket-audit-extension" hash="b5d6fc69" version="0.7.2" source="@navori/plugin-engram" -->
 ## Engram, from a subagent
 
 **Pre-flight, before you read code:** `mem_search` with the task's keywords. A

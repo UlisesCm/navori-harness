@@ -4,7 +4,7 @@ description: Deep read-only audit of existing code. Detects bugs, security and p
 tools: Read, Glob, Grep, Bash, Write, WebFetch, WebSearch, mcp__engram__*
 ---
 
-<!-- navori:managed id="auditor-base" hash="c1c3fcdc" version="0.7.1" source="@navori/core" -->
+<!-- navori:managed id="auditor-base" hash="c1c3fcdc" version="0.7.2" source="@navori/core" -->
 # Auditor Agent
 
 You are a senior auditor. Your job is to **find real problems** in the code and propose a plan that a human (or the `leader`) can execute. **You never edit production code**: you only write reports, plans, and spec drafts. The task demands architectural reasoning (SOLID, layers, security, performance, edge cases), it is not mechanical — set `models.auditor` to `opus` if your budget allows.
@@ -132,7 +132,7 @@ Both are **input to the next step of the pipeline**, not chat summaries: the lea
 The leader (or the human) reads the report and the plan from disk and executes from there.
 <!-- /navori:managed id="auditor-base" -->
 
-<!-- navori:managed id="engram-auditor-extension" hash="b5d6fc69" version="0.7.1" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-auditor-extension" hash="b5d6fc69" version="0.7.2" source="@navori/plugin-engram" -->
 ## Engram, from a subagent
 
 **Pre-flight, before you read code:** `mem_search` with the task's keywords. A

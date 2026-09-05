@@ -5,7 +5,7 @@ type: reference
 maxWords: 650
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="f4da05fc" version="0.7.1" source="@navori/core" -->
+<!-- navori:managed id="spec-bootstrap" hash="f4da05fc" version="0.7.2" source="@navori/core" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## When to use this skill
