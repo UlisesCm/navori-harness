@@ -441,6 +441,27 @@ function byAgentType(s: SessionAudit): string {
     .join("\n");
 }
 
+/**
+ * The navori that ran the session — NOT the one that wrote this report.
+ *
+ * The report header states the generator; this states the harness. Conflating
+ * them made every comparison across an upgrade unreadable, because a report
+ * regenerated after the upgrade stamped the new version onto the old sessions.
+ *
+ * A session marked before the field existed says `?`: unknown is a legitimate
+ * answer here and the only honest one, since nothing on disk today can prove
+ * what was rendered then.
+ */
+function sessionNavori(s: SessionAudit, lang: Lang): string {
+  const { rendered, cli } = s.navori;
+  if (!rendered && !cli) return t(lang, "? (sesión previa al registro)", "? (session predates it)");
+  if (!rendered) return t(lang, `? · CLI ${cli}`, `? · CLI ${cli}`);
+  // Same number is the normal case and needs no parenthesis. A different one
+  // means the CLI moved without a `render`, so the session ran on an older
+  // harness than the machine had — worth stating where it is discovered.
+  return rendered === cli ? rendered : `${rendered} (CLI ${cli ?? "?"})`;
+}
+
 /** Human-facing report, in the repo's configured language. */
 export function renderMarkdown(report: AuditReport, lang: Lang): string {
   const out: string[] = [];
@@ -470,6 +491,7 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
     out.push(
       `${t(lang, "Duración", "Duration")} ${minutes(s.wallClockMs)} · ` +
         `branch \`${s.gitBranch ?? "—"}\` · CC ${s.ccVersions.join(", ") || "—"} · ` +
+        `navori ${sessionNavori(s, lang)} · ` +
         `${t(lang, "permisos", "permissions")} ${modes || "—"}` +
         (s.prs.length > 0 ? ` · PRs ${s.prs.join(", ")}` : ""),
     );
@@ -634,7 +656,7 @@ export function buildReport(
     .sort();
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedBy: `navori@${opts.version}`,
     repo: opts.repo,
     range: {

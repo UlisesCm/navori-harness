@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { listMarkers } from "../health.ts";
 
 /**
  * Reads what the harness DECLARES, so the audit can compare it against what a
@@ -196,4 +197,27 @@ export function readHarnessCatalog(repoRoot: string): HarnessCatalog {
     sections: parseSections(claudeMd),
     claudeMdTokens: Math.round(claudeMd.length / 4),
   };
+}
+
+/**
+ * The navori version the recorder itself was rendered at, or null.
+ *
+ * WHY THIS FILE and not a scan of every managed marker: the question the report
+ * has to answer is "which harness shaped this session", and the only honest
+ * witness is the code that wrote the log. `audit-mode-trigger.sh` is that code —
+ * no recorder, no session log, no report. Reading its own marker ties the
+ * version to the artifact that produced the data rather than to whatever the
+ * rest of the repo happened to be rendered at, which in a half-applied `render`
+ * is not the same number.
+ *
+ * Read at `--start`, never at report time: a report generated weeks later would
+ * otherwise stamp today's on-disk version onto a session that ran under an older
+ * one — exactly the inversion this field exists to prevent.
+ */
+export function renderedHarnessVersion(repoRoot: string): string | null {
+  const recorder = join(repoRoot, ".claude", "hooks", "audit-mode-trigger.sh");
+  for (const marker of listMarkers(recorder)) {
+    if (marker.version) return marker.version;
+  }
+  return null;
 }

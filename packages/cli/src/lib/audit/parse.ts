@@ -557,6 +557,9 @@ export function parseSession(mainJsonl: string): SessionAudit {
     gitBranch: str(lines.find((l) => str(l.gitBranch))?.gitBranch),
     cwd: str(lines.find((l) => str(l.cwd))?.cwd),
     ccVersions,
+    // Filled by `attachHookEvents` from the log's `start` record: the transcript
+    // never names navori, only the host.
+    navori: { rendered: null, cli: null },
     permissionModes,
     prs,
     orchestrator: {
@@ -617,6 +620,16 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
       // A malformed line is counted, never thrown on: the log is append-only
       // and a crashed session leaves a valid, merely shorter file.
       session.parseErrors++;
+      continue;
+    }
+    // The `start` record is written once, by `audit --start`, before any hook
+    // has run. It carries the only statement of which navori marked and shaped
+    // this session; a log from before the field existed simply leaves it null.
+    if (str(rec.event) === "start") {
+      session.navori = {
+        rendered: str(rec.navoriRendered),
+        cli: str(rec.navoriCli),
+      };
       continue;
     }
     if (str(rec.event) !== "hook") continue;

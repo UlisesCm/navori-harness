@@ -127,6 +127,61 @@ describe("audit --start: valid session id", () => {
 });
 
 /**
+ * The report's own header states the navori that GENERATED it, which for a
+ * report built after an upgrade is not the one that ran the session. Marking
+ * time is the only instant at which both versions are true of the session, so
+ * that is where they are recorded.
+ */
+describe("audit --start: stamps the navori that ran the session", () => {
+  /** A recorder hook rendered at `version`, which is what the stamp reads. */
+  function renderRecorder(version: string): void {
+    mkdirSync(join(repoDir, ".claude", "hooks"), { recursive: true });
+    writeFileSync(
+      join(repoDir, ".claude", "hooks", "audit-mode-trigger.sh"),
+      [
+        `# navori:managed start id="audit-mode-trigger-base" hash="abc123" version="${version}" source="@navori/core"`,
+        "exit 0",
+        '# navori:managed end id="audit-mode-trigger-base"',
+        "",
+      ].join("\n"),
+    );
+  }
+
+  function startRecord(id: string): Record<string, unknown> {
+    return JSON.parse(readFileSync(join(auditDir, `session-${id}.log`), "utf-8").trim()) as Record<
+      string,
+      unknown
+    >;
+  }
+
+  it("reads the rendered version off the recorder's own marker", () => {
+    renderRecorder("0.6.5");
+    expect(runAudit(["--start", "stamped"]).status).toBe(0);
+    expect(startRecord("stamped").navoriRendered).toBe("0.6.5");
+  });
+
+  it("records the CLI version alongside it, so a render lag is visible", () => {
+    renderRecorder("0.6.5");
+    runAudit(["--start", "lagging"]);
+    const rec = startRecord("lagging");
+    // The two are read from different places on purpose: the marker describes
+    // the harness on disk, the binary describes itself. Equal is the healthy
+    // case, not the only one.
+    expect(rec.navoriCli).toMatch(/^\d+\.\d+\.\d+/);
+    expect(rec.navoriRendered).not.toBe(rec.navoriCli);
+  });
+
+  it("stamps null rather than guessing when the repo has no rendered recorder", () => {
+    expect(runAudit(["--start", "bare"]).status).toBe(0);
+    const rec = startRecord("bare");
+    expect(rec.navoriRendered).toBeNull();
+    // The CLI still knows itself: a null there would mean the binary failed to
+    // read its own package.json, which is a different failure.
+    expect(rec.navoriCli).toMatch(/^\d+\.\d+\.\d+/);
+  });
+});
+
+/**
  * The ids are the ones reproduced in #503, each with what the unvalidated
  * builder did with it. `join` normalizes, but `session-` glues to the FIRST
  * segment only — hence "one level absorbed, the rest escapes".

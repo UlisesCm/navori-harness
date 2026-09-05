@@ -43,6 +43,7 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
     gitBranch: "main",
     cwd: "/tmp/repo",
     ccVersions: ["2.1.228"],
+    navori: { rendered: null, cli: null },
     permissionModes: {},
     prs: [],
     orchestrator: {

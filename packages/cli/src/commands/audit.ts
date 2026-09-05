@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { readHarnessCatalog } from "../lib/audit/harness.ts";
+import { readHarnessCatalog, renderedHarnessVersion } from "../lib/audit/harness.ts";
 import { findMarkedSessions } from "../lib/audit/discovery.ts";
 import { attachHookEvents, parseSession } from "../lib/audit/parse.ts";
 import { detectSignals, type Lang } from "../lib/audit/signals.ts";
@@ -152,9 +152,22 @@ export const auditCommand = defineCommand({
         return;
       }
       // O_APPEND from the very first line: the log is only ever appended to.
+      //
+      // The two navori versions are stamped HERE, at marking time, because this
+      // is the only instant at which both are true of the session: the report
+      // runs later — sometimes releases later — and any version it read off disk
+      // would describe its own moment, not the session's.
       appendFileSync(
         logFile,
-        `${JSON.stringify({ ts: new Date().toISOString(), event: "start", cwd, repo, sessionId: startId })}\n`,
+        `${JSON.stringify({
+          ts: new Date().toISOString(),
+          event: "start",
+          cwd,
+          repo,
+          sessionId: startId,
+          navoriRendered: renderedHarnessVersion(cwd),
+          navoriCli: readCliVersion(),
+        })}\n`,
         "utf-8",
       );
       p.outro(

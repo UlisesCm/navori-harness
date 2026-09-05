@@ -330,6 +330,7 @@ describe("parse: hook attribution", () => {
       gitBranch: "main",
       cwd: "/tmp/repo",
       ccVersions: [],
+      navori: { rendered: null, cli: null },
       permissionModes: {},
       prs: [],
       orchestrator: {
@@ -450,5 +451,30 @@ describe("parse: hook attribution", () => {
     attachHookEvents(s, log([hook({ name: undefined }), hook({})]));
     expect(s.parseErrors).toBe(1);
     expect(s.orchestrator.hookEvents).toHaveLength(1);
+  });
+
+  it("reads the navori versions off the start record", () => {
+    const s = session([]);
+    attachHookEvents(
+      s,
+      log([
+        { ts: "2026-08-25T09:00:00Z", event: "start", navoriRendered: "0.7.0", navoriCli: "0.7.1" },
+        hook({}),
+      ]),
+    );
+    expect(s.navori).toEqual({ rendered: "0.7.0", cli: "0.7.1" });
+  });
+
+  it("leaves them null for a log marked before the stamp existed", () => {
+    const s = session([]);
+    attachHookEvents(s, log([{ ts: "2026-08-25T09:00:00Z", event: "start" }, hook({})]));
+    expect(s.navori).toEqual({ rendered: null, cli: null });
+  });
+
+  it("does not count the start record as a malformed hook event", () => {
+    const s = session([]);
+    attachHookEvents(s, log([{ ts: "2026-08-25T09:00:00Z", event: "start" }]));
+    expect(s.parseErrors).toBe(0);
+    expect(s.orchestrator.hookEvents).toHaveLength(0);
   });
 });

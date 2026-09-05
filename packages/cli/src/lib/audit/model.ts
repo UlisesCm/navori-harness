@@ -141,6 +141,22 @@ export interface SessionAudit {
   /** Claude Code versions seen; the basis of the format-drift warning. */
   ccVersions: string[];
   /**
+   * The navori versions in play WHEN THE SESSION RAN, stamped by `--start` and
+   * read back from the session log — never re-derived at report time.
+   *
+   * The report's own header states the version that GENERATED it, which is a
+   * different number and was for a while the only one recorded: a report built
+   * today over a session from three releases ago stamped today's version on it,
+   * so a reader comparing sessions across an upgrade — the exact question the
+   * audit exists to answer — was reading the wrong axis.
+   *
+   * `rendered` is the harness that shaped the session (the recorder's own marker,
+   * see `renderedHarnessVersion`); `cli` is the binary that marked it. The two
+   * diverge whenever the CLI was updated without a `render` — itself a finding.
+   * Both are null for sessions marked before this field existed.
+   */
+  navori: { rendered: string | null; cli: string | null };
+  /**
    * permission-mode → occurrences. Load-bearing, not decorative: `auto` steers
    * the model toward Bash over Read/Grep, so without this the tool histogram
    * reads as a harness defect when it is just the permission mode.
@@ -240,9 +256,11 @@ export interface Signal {
 /** Aggregate across the audited range. */
 export interface AuditReport {
   /** Bumped to 2 by spec 0013: reports now carry per-agent cards (skills with
-   *  provenance, MCP by server, recorded hook executions). A reader can tell the
-   *  two shapes apart by this number alone. */
-  schemaVersion: 2;
+   *  provenance, MCP by server, recorded hook executions). Bumped to 3 when
+   *  sessions gained `navori` — the versions in force WHEN THE SESSION RAN, as
+   *  opposed to `generatedBy`, which describes this file. A reader can tell the
+   *  shapes apart by this number alone. */
+  schemaVersion: 3;
   generatedBy: string;
   repo: string;
   range: { from: string; to: string };

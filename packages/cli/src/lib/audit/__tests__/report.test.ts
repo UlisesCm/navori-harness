@@ -51,6 +51,7 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
     gitBranch: "main",
     cwd: "/repo",
     ccVersions: ["2.1.231"],
+    navori: { rendered: "0.7.1", cli: "0.7.1" },
     permissionModes: {},
     prs: [],
     orchestrator: {
@@ -99,6 +100,30 @@ function md(agents: AgentRun[], over: Partial<SessionAudit> = {}): string {
   });
   return renderMarkdown(report, "es");
 }
+
+/**
+ * `generatedBy` describes the file; this describes the session. A report built
+ * after an upgrade used to state only the former, so every cross-release
+ * comparison read the generator's version as if it were the harness's.
+ */
+describe("session header: the navori that ran the session", () => {
+  it("states the rendered version, not the generator's", () => {
+    // The generator is 0.6.5 (see `md`), the session ran under 0.7.0.
+    const out = md([], { navori: { rendered: "0.7.0", cli: "0.7.0" } });
+    expect(out).toContain("navori 0.7.0");
+    expect(out).toContain("generado por navori@0.6.5");
+  });
+
+  it("names both when the CLI moved ahead of the render", () => {
+    const out = md([], { navori: { rendered: "0.6.5", cli: "0.7.1" } });
+    expect(out).toContain("navori 0.6.5 (CLI 0.7.1)");
+  });
+
+  it("says unknown for a session marked before the stamp existed", () => {
+    const out = md([], { navori: { rendered: null, cli: null } });
+    expect(out).toContain("navori ? (sesión previa al registro)");
+  });
+});
 
 describe("per-agent card (#0013)", () => {
   // Covers: R8, R12
@@ -210,13 +235,13 @@ describe("time: sum vs wall clock (#0013)", () => {
 
 describe("schema (#0013)", () => {
   // Covers: R17
-  it("declares schemaVersion 2", () => {
+  it("declares schemaVersion 3", () => {
     const report = buildReport([session([])], {
       repo: "demo",
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.schemaVersion).toBe(2);
+    expect(report.schemaVersion).toBe(3);
   });
 });
 
