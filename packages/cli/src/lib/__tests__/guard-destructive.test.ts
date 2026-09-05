@@ -1251,6 +1251,65 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
     });
   });
 
+  /**
+   * The fast path — a `case` over the command that returns 0 before the
+   * `sed`/`grep` pipeline runs, for a command no rule below could match.
+   *
+   * It exists because this guard sits in front of EVERY Bash call and in auto
+   * mode that means reads and greps too: measured, ~46ms against a ~2ms process
+   * floor, and 80% of 9,398 real commands carry none of its tokens.
+   *
+   * Its whole safety argument is that the token list is a SUPERSET of what the
+   * rules need, so these specs pin exactly that — not the speed, which is the
+   * part that does not matter if the verdict is wrong.
+   */
+  describe("fast path — the tokens are a superset of what every rule needs", () => {
+    /** The literal tokens of the `case` in the asset, read from the asset so a
+     *  rule added later without its token cannot pass by editing only the test. */
+    const FAST_TOKENS: string[] = (() => {
+      const src = readFileSync(guardPath, "utf-8");
+      const line = src.split("\n").find((l) => l.includes("*git*") && l.trim().startsWith("*"));
+      if (!line) throw new Error("fast-path case arm not found in the guard asset");
+      return [...line.matchAll(/\*'?([^*'|)\s]+)'?\*/g)].map((m) => m[1] as string);
+    })();
+
+    it("reads a token list that still contains every rule's trigger", () => {
+      // Rules 1-2 (git commit/push), 3 (rm), 4 (fork bomb), 5 (block device),
+      // 6 (managed-file writes, via its three write verbs).
+      expect(FAST_TOKENS).toEqual(
+        expect.arrayContaining(["git", "rm", "sed", "tee", "/dev/", ">", ":("]),
+      );
+    });
+
+    /** Every command the suite expects to be BLOCKED, from all three tables. */
+    const BLOCKED = [
+      ...VERDICTS.filter((v) => v.blocked).map((v) => v.cmd),
+      ...MANAGED_WRITE_VERDICTS.filter((v) => v.blocked).map((v) => v.cmd),
+      "git push --force main",
+      "git push origin +main",
+      "true;git push --force main",
+      "FOO=1 git push --force main",
+    ];
+
+    it.each(BLOCKED)("never short-circuits a command that must block: %s", (cmd) => {
+      // The same normalization the asset applies before matching: quotes,
+      // backslashes and newlines removed. Removal can only CREATE matches, which
+      // is why it is the safe direction.
+      const probe = cmd.replace(/['"\\\n]/g, "");
+      expect(FAST_TOKENS.some((tok) => probe.includes(tok))).toBe(true);
+    });
+
+    it("still blocks past the size bound, where the fast path does not run", () => {
+      // FAST_MAX is 4096: `${var//…}` goes superlinear on big strings with many
+      // matches, so the probe is only built below it. Above, the full analysis
+      // runs — and must still reach the same verdict.
+      const padding = "echo 'xxxxxxxxxxxxxxxxxxxxxxxxx'\n".repeat(200);
+      expect(padding.length).toBeGreaterThan(4096);
+      expect(runGuard(`${padding}rm -rf ~/`)).toBe(2);
+      expect(runGuard(`${padding}echo done`)).toBe(0);
+    });
+  });
+
   describe("with NO JSON parser on PATH (sed fallback)", () => {
     // A minimal PATH with only the coreutils the guard needs — deliberately
     // without jq or node — proves the guard still inspects the command instead

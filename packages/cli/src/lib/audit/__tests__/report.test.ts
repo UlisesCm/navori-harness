@@ -51,6 +51,7 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
     gitBranch: "main",
     cwd: "/repo",
     ccVersions: ["2.1.231"],
+    navori: { rendered: "0.7.1", cli: "0.7.1" },
     permissionModes: {},
     prs: [],
     orchestrator: {
@@ -99,6 +100,84 @@ function md(agents: AgentRun[], over: Partial<SessionAudit> = {}): string {
   });
   return renderMarkdown(report, "es");
 }
+
+/**
+ * `generatedBy` describes the file; this describes the session. A report built
+ * after an upgrade used to state only the former, so every cross-release
+ * comparison read the generator's version as if it were the harness's.
+ */
+describe("session header: the navori that ran the session", () => {
+  it("states the rendered version, not the generator's", () => {
+    // The generator is 0.6.5 (see `md`), the session ran under 0.7.0.
+    const out = md([], { navori: { rendered: "0.7.0", cli: "0.7.0" } });
+    expect(out).toContain("navori 0.7.0");
+    expect(out).toContain("generado por navori@0.6.5");
+  });
+
+  it("names both when the CLI moved ahead of the render", () => {
+    const out = md([], { navori: { rendered: "0.6.5", cli: "0.7.1" } });
+    expect(out).toContain("navori 0.6.5 (CLI 0.7.1)");
+  });
+
+  it("says unknown for a session marked before the stamp existed", () => {
+    const out = md([], { navori: { rendered: null, cli: null } });
+    expect(out).toContain("navori ? (sesión previa al registro)");
+  });
+});
+
+/**
+ * A gate hook fires on every Bash call but acts only on a commit, so its
+ * timings are bimodal and the mean describes neither mode. The line used to
+ * print only `n×` and the total, which reads as a per-call tax: the measured
+ * `check-semgrep 902× 191.2s` looks like 212ms on every shell command when 876
+ * of those runs cost 49.6s between them and 26 real scans cost the other 141.6s.
+ */
+describe("hook line: constant toll vs the gate doing its job", () => {
+  /** `n` pass-throughs at `fastMs`, plus `slow` real runs at `slowMs`. */
+  function hookRuns(name: string, n: number, fastMs: number, slow: number, slowMs: number) {
+    return [
+      ...Array.from({ length: n }, () => ({
+        ts: "2026-08-25T10:00:00Z",
+        name,
+        phase: "PreToolUse",
+        verdict: "allow",
+        ms: fastMs,
+        source: "plugin:semgrep",
+      })),
+      ...Array.from({ length: slow }, () => ({
+        ts: "2026-08-25T10:00:00Z",
+        name,
+        phase: "PreToolUse",
+        verdict: "allow",
+        ms: slowMs,
+        source: "plugin:semgrep",
+      })),
+    ];
+  }
+
+  it("reports the median and splits out the runs over a second", () => {
+    const out = md([agent({ hookEvents: hookRuns("check-semgrep", 20, 40, 4, 5000) })]);
+    // 24 runs, 20.8s total — but one more command would pay 40ms, not 867ms.
+    expect(out).toContain("check-semgrep 24× 20.8s · mediana 40ms · 4 corridas >1s = 20.0s");
+  });
+
+  it("says nothing about long runs for a hook that never had one", () => {
+    const out = md([agent({ hookEvents: hookRuns("guard-destructive", 10, 58, 0, 0) })]);
+    expect(out).toContain("guard-destructive 10× 0.6s · mediana 58ms");
+    expect(out).not.toContain("corridas >1s");
+  });
+
+  it("still names the blocks it produced", () => {
+    const events = hookRuns("guard-destructive", 3, 50, 0, 0);
+    events.push({ ...(events[0] as (typeof events)[number]), verdict: "block" });
+    expect(md([agent({ hookEvents: events })])).toContain("1 bloqueos");
+  });
+
+  it("states that the timings include the recorder that produced them", () => {
+    const out = md([agent({ hookEvents: hookRuns("check-jscpd", 2, 30, 0, 0) })]);
+    expect(out).toContain("incluyen el costo del propio recorder");
+  });
+});
 
 describe("per-agent card (#0013)", () => {
   // Covers: R8, R12
@@ -210,13 +289,13 @@ describe("time: sum vs wall clock (#0013)", () => {
 
 describe("schema (#0013)", () => {
   // Covers: R17
-  it("declares schemaVersion 2", () => {
+  it("declares schemaVersion 3", () => {
     const report = buildReport([session([])], {
       repo: "demo",
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.schemaVersion).toBe(2);
+    expect(report.schemaVersion).toBe(3);
   });
 });
 

@@ -37,7 +37,7 @@ cb3aac4b3eb5b365a1c482dce08d312566488051  .claude/skills/dominio/SKILL.md
 d19077ba2bbd00933d1759a4e987892740c4530d  .claude/skills/vitest/SKILL.md
 d6d5b54688d4c9ccc79919cb7fb332cbae451cc7  .claude/hooks/managed-drift-watch.sh
 d70a429bb6e729a0845f0d173ad6a1ef0ae109ea  .claude/skills/playwright-cli/references/request-mocking.md
-e3b640c1b10c302c2027cf4d5d4779079c8ee818  .claude/hooks/guard-destructive.sh
+d89d9ca20781bfccef9702999a35be81c456be6e  .claude/hooks/guard-destructive.sh
 e7f953334466f9da6bc38fce7bb48f0615d48799  .claude/skills/loop-back-debug/SKILL.md
 eb8764beb405bebe6cb6bec727392ba4968d90b8  .claude/agents/explorer.md
 ec858f267877a7b5f5bc021fb52059adad3557a1  .claude/skills/playwright-cli/references/session-management.md

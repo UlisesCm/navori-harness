@@ -334,6 +334,60 @@ else
   skeleton="${cmd}${_nl}"
 fi
 
+# ─── Fast path: a command no rule below can possibly match ───────────────────
+#
+# WHY: this guard runs on EVERY Bash call, and in auto mode the host tells the
+# agent to work through the shell — so it is in front of reads, greps and edits
+# alike. Measured, it costs ~46 ms against a ~2 ms process floor: the other
+# ~44 ms is the `sed`/`grep` pipeline below, roughly forty forks. Over one
+# audited session that is 901 invocations and ~40 s of wall clock spent proving
+# that `cat file` is not `rm -rf /`. On 9,398 real commands from that session,
+# 80% contain none of the tokens below.
+#
+# WHY IT IS SOUND, which is the only part that matters in a security control:
+# every `block` in this file needs one of these literal substrings to survive
+# into the string its rule reads — `git` (rules 1-2, via `$git_cp`), `rm`
+# (rule 3), `:(` (rule 4), `/dev/` (rule 5), and `>`/`sed`/`tee` (rule 6, the
+# three write verbs it recognizes). No rule can fire without one.
+#
+# The probe is the command with quotes, backslashes and newlines REMOVED, which
+# is what makes the argument hold under the obfuscations the rules normalize
+# away: `r'm' -rf ~` becomes `rm -rf ~`, `\git` becomes `git`, and a `g\<NL>it`
+# split across a continuation is rejoined. Removal is the safe direction on
+# purpose — none of the tokens contains a quote, a backslash or a newline, so
+# stripping those can only CREATE matches, never destroy one. A false match
+# costs the full analysis; a false miss would be a hole, and cannot happen here.
+#
+# PLACEMENT is load-bearing too: this sits AFTER the three fail-closed size
+# limits (`CMD_MAX`, `LINE_MAX`, `HEREDOC_PROBE_MAX`) so a command too large to
+# inspect is still blocked, exactly as before. It skips the rule machinery, never
+# a refusal. And it reads `$cmd`, not `$skeleton`: the skeleton drops inert
+# heredoc bodies, so scanning it would narrow what the probe sees.
+#
+# FAST_MAX exists because `${var//pat/}` is NOT linear in bash: on a string past
+# ~64 KB with thousands of matches it goes superlinear hard — measured, 1024
+# lines of quoted `echo` strip instantly and 2048 lines had not finished after
+# nine minutes. An optimization that hangs the guard is a guard that hangs, so
+# the probe is only built for a command small enough for the cost to be free.
+# Above it, the full analysis runs exactly as it did before this block existed.
+# 4096 covers 98.5% of 1,089 real commands from the measured session (p50 370,
+# p90 1650) and sits sixteen times below the cliff.
+FAST_MAX=4096
+if [ "${#cmd}" -le "$FAST_MAX" ]; then
+  _fast=${cmd//\'/}
+  _fast=${_fast//\"/}
+  _fast=${_fast//\\/}
+  _fast=${_fast//"${_nl}"/}
+  case "$_fast" in
+    *git*|*rm*|*sed*|*tee*|*'/dev/'*|*'>'*|*':('*) ;;
+    *)
+      navori_audit_verdict="skip"
+      navori_audit_reason="no rule token in the command"
+      exit 0
+      ;;
+  esac
+fi
+
 # A `$(…)`/backtick substitution outside single quotes RUNS: `git commit -m
 # "$(rm -rf ~)"` is an invocation wearing a message's clothes. This check must
 # read the skeleton BEFORE the flag values are elided below — eliding first
