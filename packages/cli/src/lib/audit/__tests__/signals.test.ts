@@ -272,10 +272,20 @@ describe("signal: classifier-round-trips (#574)", () => {
    * MCP calls skip the check, which is why the number to report is the Bash
    * count and not "how much Bash there was relative to Read".
    */
-  const withBash = (orchestrator: number, agentBash: number[], mode = "auto") =>
+  const withBash = (
+    orchestrator: number,
+    agentBash: number[],
+    byMode: Record<string, number> = { auto: orchestrator },
+  ) =>
     session({
-      permissionModes: { [mode]: 10 },
-      orchestrator: { ...session().orchestrator, toolCounts: { Bash: orchestrator } },
+      permissionModes: Object.fromEntries(Object.keys(byMode).map((m) => [m, 10])),
+      orchestrator: {
+        ...session().orchestrator,
+        toolCounts: { Bash: orchestrator },
+        toolCountsByMode: Object.fromEntries(
+          Object.entries(byMode).map(([mode, n]) => [mode, { Bash: n }]),
+        ),
+      },
       agents: agentBash.map((n, i) => agent({ agentId: `a${i}`, toolCounts: { Bash: n } })),
     });
 
@@ -291,7 +301,7 @@ describe("signal: classifier-round-trips (#574)", () => {
 
   it("stays out of a session that is not in auto mode", () => {
     // Outside auto mode there is no classifier, so the count means nothing.
-    expect(found(withBash(298, [], "default"))).toBeUndefined();
+    expect(found(withBash(298, [], { default: 298 }))).toBeUndefined();
   });
 
   it("stays quiet when nothing went through the shell", () => {
@@ -302,6 +312,86 @@ describe("signal: classifier-round-trips (#574)", () => {
     // Each check sends "a portion of the transcript" this report cannot see.
     // A made-up number next to measured ones is worse than no number.
     expect(found(withBash(10, []))?.tokens).toBeUndefined();
+  });
+
+  /**
+   * Spec 0016 T4.1 — the old test was "is auto the MOST FREQUENT mode?", which
+   * reported zero for exactly the sessions a reader most needs: the mixed ones,
+   * where the auto stretch still paid per command.
+   */
+  describe("counted per mode segment, not per dominant mode (spec 0016 T4.1)", () => {
+    it("fires for a session where auto is a MINORITY of the modes", () => {
+      const signal = found(withBash(140, [], { default: 100, auto: 40 }));
+      expect(signal?.summary).toContain("40");
+    });
+
+    it("counts only the auto segment's commands, not the whole session's", () => {
+      // 100 of the 140 ran under default: they never met a classifier.
+      const signal = found(withBash(140, [], { default: 100, auto: 40 }));
+      expect(signal?.summary).not.toContain("140");
+    });
+
+    it("excludes subagent commands in a MIXED session, and says why", () => {
+      // A subagent transcript declares no mode, so its Bash cannot be placed in
+      // a segment; folding it in silently would be invention.
+      const signal = found(withBash(140, [300], { default: 100, auto: 40 }));
+      expect(signal?.summary).toContain("40");
+      expect(signal?.evidence).toContain("300");
+      expect(signal?.evidence).toContain("no declara modo");
+    });
+
+    it("includes subagent commands when the session never left auto", () => {
+      // Nothing to misattribute: every stretch was auto, so theirs paid too.
+      expect(found(withBash(298, [300, 237]))?.summary).toContain("835");
+    });
+  });
+});
+
+/**
+ * Spec 0016 T4.2 — the gap #576 and #583 left written down: nothing measured
+ * whether the search ladder ever starts. Deliberately mode-blind, because the
+ * corpus found the same Bash-dominant shape under default and acceptEdits too.
+ */
+describe("signal: tool-mix (spec 0016 T4.2)", () => {
+  const withMix = (counts: Record<string, number>, modes: Record<string, number> = { auto: 10 }) =>
+    session({
+      permissionModes: modes,
+      orchestrator: { ...session().orchestrator, toolCounts: counts },
+    });
+
+  const found = (s: ReturnType<typeof session>) =>
+    detectSignals(s, catalog(), "es").find((x) => x.kind === "tool-mix");
+
+  it("fires when Bash dominates the thread, with the lane breakdown", () => {
+    const signal = found(withMix({ Bash: 90, Read: 3, Grep: 2, mcp__codegraph__explore: 5 }));
+    expect(signal?.severity).toBe("warn");
+    expect(signal?.summary).toContain("90%");
+    expect(signal?.evidence).toContain("90 Bash");
+    expect(signal?.evidence).toContain("5 nativas");
+    expect(signal?.evidence).toContain("5 MCP");
+  });
+
+  it("fires under default and acceptEdits too — the habit is not auto's fault", () => {
+    for (const mode of ["default", "acceptEdits"]) {
+      const signal = found(withMix({ Bash: 95, Read: 5 }, { [mode]: 10 }));
+      expect(signal, mode).toBeDefined();
+      expect(signal?.evidence, mode).toContain(mode);
+    }
+  });
+
+  it("stays quiet for a healthy mix", () => {
+    // ~65% Bash is what the measured non-pathological sessions look like.
+    expect(found(withMix({ Bash: 65, Read: 20, Grep: 10, Edit: 5 }))).toBeUndefined();
+  });
+
+  it("stays quiet below the sample floor, where the ratio is noise", () => {
+    // 100% Bash, but on 5 calls it describes nothing.
+    expect(found(withMix({ Bash: 5 }))).toBeUndefined();
+  });
+
+  it("counts non-lane tools in the total without offering them as an alternative", () => {
+    // 80 Bash of 100 calls = 80%, under the threshold once Task/TodoWrite count.
+    expect(found(withMix({ Bash: 80, Task: 15, TodoWrite: 5 }))).toBeUndefined();
   });
 });
 

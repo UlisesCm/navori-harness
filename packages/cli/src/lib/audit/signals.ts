@@ -278,31 +278,74 @@ function permissionContext(session: SessionAudit, lang: Lang): Signal[] {
   ];
 }
 
+/** The native file/search tools — the vía that costs no classifier round-trip
+ *  and no permission prompt, because settings-base puts them in `allow`. */
+const NATIVE_TOOLS = new Set(["Read", "Edit", "Write", "Glob", "Grep", "NotebookEdit"]);
+
+/** Which of the three ways to do the same work a tool call took. `other` is
+ *  everything that is neither (Task, TodoWrite, WebFetch…): counted in the
+ *  total, never presented as an alternative to the other three. */
+function toolLane(name: string): "shell" | "native" | "mcp" | "other" {
+  if (name === "Bash") return "shell";
+  if (NATIVE_TOOLS.has(name)) return "native";
+  if (name.startsWith("mcp__")) return "mcp";
+  return "other";
+}
+
+/** Sum the calls of one lane across a tool histogram. */
+function laneTotal(counts: Record<string, number>, lane: ReturnType<typeof toolLane>): number {
+  let n = 0;
+  for (const [name, count] of Object.entries(counts)) {
+    if (toolLane(name) === lane) n += count;
+  }
+  return n;
+}
+
 /**
  * What auto mode's classifier reviewed, counted in shell commands (#574).
  *
  * In auto mode a second model checks each action before it runs, and the check
  * is not uniform: reads and in-workspace edits skip it, and so does anything an
  * `allow` rule already covers — which in a navori repo includes the `mcp__*`
- * families. What is left paying a round-trip is the shell, and the harness
- * steers hard toward the shell in this mode. So the count of Bash calls IS the
- * count of round-trips, and it is the one cost of auto mode that never shows up
- * in the session's own token usage: the classifier runs on its own model, with
- * its own slice of the transcript.
+ * families. What is left paying a round-trip is the shell. So the count of Bash
+ * calls IS the count of round-trips, and it is the one cost of auto mode that
+ * never shows up in the session's own token usage: the classifier runs on its
+ * own model, with its own slice of the transcript.
+ *
+ * Counted per MODE SEGMENT (spec 0016 T4.1), not per dominant mode. The old
+ * test was "is `auto` the most frequent entry in `permissionModes`?", which
+ * reported ZERO for any session where auto was a minority — precisely the mixed
+ * sessions where a reader most needs to know what the auto stretch cost. The
+ * per-mode histogram (#584) already attributes each main-thread call to the mode
+ * in force when it ran, so the answer was already in the data.
+ *
+ * Subagents are the honest gap: a subagent transcript declares no mode, so its
+ * Bash calls cannot be attributed to a segment. They are added only when the
+ * session never left `auto` (nothing to misattribute) and reported as
+ * unattributable otherwise — never folded in silently.
  *
  * No `tokens` figure on purpose. Each check sends "a portion of the transcript"
  * whose size this report cannot see, and inventing one would put a made-up
  * number next to measured ones.
  */
 function classifierRoundTrips(session: SessionAudit, lang: Lang): Signal[] {
-  const modes = Object.entries(session.permissionModes).sort((a, b) => b[1] - a[1]);
-  if (modes[0]?.[0] !== "auto") return [];
+  const autoBash = session.orchestrator.toolCountsByMode.auto?.Bash ?? 0;
+  if (autoBash === 0) return [];
 
-  const bashOf = (counts: Record<string, number>): number => counts.Bash ?? 0;
-  const orchestrator = bashOf(session.orchestrator.toolCounts);
-  const agents = session.agents.reduce((sum, a) => sum + bashOf(a.toolCounts), 0);
-  const total = orchestrator + agents;
-  if (total === 0) return [];
+  const modes = Object.keys(session.permissionModes);
+  const autoOnly = modes.length === 1 && modes[0] === "auto";
+  const agentBash = session.agents.reduce((sum, a) => sum + (a.toolCounts.Bash ?? 0), 0);
+  const total = autoOnly ? autoBash + agentBash : autoBash;
+
+  const share = pick(
+    lang,
+    autoOnly
+      ? `${autoBash} del orquestador y ${agentBash} de subagentes (la sesión nunca salió de auto, así que sus comandos también pagaron).`
+      : `${autoBash} del orquestador, contados solo en los tramos en modo auto de una sesión que usó ${modes.length} modos (${modes.join(", ")}). Los ${agentBash} comandos de subagentes quedan fuera: su transcript no declara modo, así que atribuirlos sería inventar.`,
+    autoOnly
+      ? `${autoBash} from the orchestrator and ${agentBash} from subagents (the session never left auto, so theirs paid too).`
+      : `${autoBash} from the orchestrator, counted only across the auto stretches of a session that used ${modes.length} modes (${modes.join(", ")}). The ${agentBash} subagent commands are excluded: their transcript declares no mode, so attributing them would be invention.`,
+  );
 
   return [
     {
@@ -315,8 +358,62 @@ function classifierRoundTrips(session: SessionAudit, lang: Lang): Signal[] {
       ),
       evidence: pick(
         lang,
-        `${orchestrator} del orquestador y ${agents} de subagentes. Cada uno agrega un viaje al clasificador ANTES de ejecutarse, con una porción del transcript. Las lecturas, las ediciones dentro del workspace y las llamadas MCP con regla 'allow' no pagan ese viaje: por eso agrupar comandos (\`a && b\`) y acotar las búsquedas es lo que baja el costo, no cambiar de herramienta.`,
-        `${orchestrator} from the orchestrator and ${agents} from subagents. Each adds a classifier round-trip BEFORE it runs, carrying a slice of the transcript. Reads, in-workspace edits and MCP calls covered by an 'allow' rule pay no such trip: which is why batching commands (\`a && b\`) and scoping searches is what lowers the cost, not switching tools.`,
+        `${share} Cada uno agrega un viaje al clasificador ANTES de ejecutarse, con una porción del transcript. Las lecturas, las ediciones dentro del workspace y las llamadas MCP con regla 'allow' no pagan ese viaje. Lo que más lo baja es cambiar de vía —\`Grep\`/\`Read\` nativos y MCP resuelven en ~0.08–0.13s contra ~0.20s (p75 1.83s) de una búsqueda por shell—; para lo que de verdad deba ser shell, agrupar (\`a && b\`) y acotar.`,
+        `${share} Each adds a classifier round-trip BEFORE it runs, carrying a slice of the transcript. Reads, in-workspace edits and MCP calls covered by an 'allow' rule pay no such trip. What lowers it most is switching lane — native \`Grep\`/\`Read\` and MCP answer in ~0.08–0.13s against ~0.20s (p75 1.83s) for the same search through the shell; for whatever must stay shell, batch (\`a && b\`) and scope it.`,
+      ),
+    },
+  ];
+}
+
+/** Above this share of a thread's tool calls, Bash has stopped being one tool
+ *  among several and become the only one. Set at 85% because the measured
+ *  healthy sessions sit near 65% and the pathological ones at 90%+. */
+const BASH_DOMINANCE = 0.85;
+
+/** Below this many calls the ratio is noise, not a habit. */
+const TOOL_MIX_MIN_CALLS = 20;
+
+/**
+ * Does the search ladder actually start? (spec 0016 T4.2.)
+ *
+ * The gap #576 and #583 left written down: the harness teaches a ladder that
+ * goes engram/codegraph → native Grep/Glob → shell, and nothing measured
+ * whether any session climbs it. The corpus behind spec 0016 found sessions at
+ * 90.2% Bash with 3.0% native — and, decisively, found the same shape in
+ * `default` and `acceptEdits` too. So this signal is deliberately MODE-BLIND:
+ * auto makes the habit expensive (a classifier round-trip per command), it does
+ * not cause it, and a signal that only fired in auto would keep confirming the
+ * wrong diagnosis.
+ *
+ * `warn`, not `info`: unlike the round-trip count — a fact about the mode — this
+ * one says the session had cheaper lanes available and did not take them.
+ */
+function toolMix(session: SessionAudit, lang: Lang): Signal[] {
+  const counts = session.orchestrator.toolCounts;
+  const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+  if (total < TOOL_MIX_MIN_CALLS) return [];
+
+  const shell = laneTotal(counts, "shell");
+  if (shell / total < BASH_DOMINANCE) return [];
+
+  const native = laneTotal(counts, "native");
+  const mcp = laneTotal(counts, "mcp");
+  const pct = (n: number): string => `${Math.round((n / total) * 100)}%`;
+  const modes = Object.keys(session.permissionModes).join(", ") || "(sin declarar)";
+
+  return [
+    {
+      kind: "tool-mix",
+      severity: "warn",
+      summary: pick(
+        lang,
+        `El shell fue el ${pct(shell)} de las herramientas del orquestador: la escalera de búsqueda no arrancó`,
+        `Shell was ${pct(shell)} of the orchestrator's tool calls: the search ladder never started`,
+      ),
+      evidence: pick(
+        lang,
+        `${shell} Bash, ${native} nativas (Read/Edit/Grep/Glob) y ${mcp} MCP sobre ${total} llamadas — ${pct(native)} y ${pct(mcp)}. Modo(s): ${modes}. Esto NO es un problema de auto mode: se midió la misma mezcla en default y acceptEdits, donde el shell paga prompt humano en vez de clasificador. Las nativas y MCP están en 'allow' y resuelven en ~0.08–0.13s contra ~0.20s (p75 1.83s) de una búsqueda por shell, y cada Bash arrastra además su batería de hooks y mete su salida completa al contexto.`,
+        `${shell} Bash, ${native} native (Read/Edit/Grep/Glob) and ${mcp} MCP out of ${total} calls — ${pct(native)} and ${pct(mcp)}. Mode(s): ${modes}. This is NOT an auto-mode problem: the same mix was measured under default and acceptEdits, where the shell pays a human prompt instead of a classifier. Native tools and MCP are in 'allow' and answer in ~0.08–0.13s against ~0.20s (p75 1.83s) for the same search through the shell, and every Bash also drags its hook battery and feeds its full output back into context.`,
       ),
     },
   ];
@@ -423,6 +520,7 @@ export function detectSignals(
     ...deadCatalog(session, catalog, lang),
     ...permissionContext(session, lang),
     ...classifierRoundTrips(session, lang),
+    ...toolMix(session, lang),
     ...formatDrift(session, lang),
     ...recorderCoverage(session, lang),
   ].sort((a, b) => order[a.severity] - order[b.severity]);
