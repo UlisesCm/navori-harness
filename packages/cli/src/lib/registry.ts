@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { safeHomedir } from "./home.ts";
@@ -133,6 +133,51 @@ export function registerRepoSafe(repoPath: string, name?: string): RegisterResul
   }
 }
 
+export type RefreshNameResult = "updated" | "unchanged" | "not-registered";
+
+/**
+ * #589 — refresh the cached `name` of a repo ALREADY in the registry, so the
+ * entry tracks its `navori.config.json` instead of freezing whatever the name
+ * was the day it was registered.
+ *
+ * The entry's name was only ever written by `init` and `update`. `init` runs
+ * once in a repo's life and `update` is not part of a rollout, so a name
+ * corrected in the config never reached the registry: in one 15-repo workspace
+ * six entries had drifted, two of them displaying a SIBLING repo's name — which
+ * is what `registry ls` and every `render --all` row then reported.
+ *
+ * Deliberately NOT an upsert: this refreshes, it never adds. `render` calls it
+ * on every apply, and a render inside a git worktree (or any throwaway checkout)
+ * must not enroll that path into the registry — enrolling worktrees is exactly
+ * how `render --all` would start writing the harness into live ticket branches.
+ * Registration stays an explicit act (`init`, `registry add`, `registry scan`).
+ *
+ * Never throws: a failure to touch ~/.navori must not fail the render.
+ */
+export function refreshRepoName(repoPath: string, name: string): RefreshNameResult | null {
+  try {
+    const path = canonicalPath(repoPath);
+    // Cheap pre-check OUTSIDE the lock: the overwhelmingly common case is "name
+    // already correct", and taking the advisory lock on every render — including
+    // every `render --all` iteration — just to read would serialize them.
+    const existing = readRegistry().repos.find((r) => r.path === path);
+    if (!existing) return "not-registered";
+    if (existing.name === name) return "unchanged";
+    return withFileLock(registryLockPath(), () => {
+      // Re-read under the lock: another process may have fixed it meanwhile.
+      const registry = readRegistry();
+      const entry = registry.repos.find((r) => r.path === path);
+      if (!entry) return "not-registered";
+      if (entry.name === name) return "unchanged";
+      entry.name = name;
+      writeRegistry(registry);
+      return "updated";
+    });
+  } catch {
+    return null;
+  }
+}
+
 /** Remove a repo from the registry by path. Returns true if an entry was dropped. */
 export function unregisterRepo(repoPath: string): boolean {
   const path = canonicalPath(repoPath);
@@ -168,22 +213,54 @@ export function pruneRegistry(): { removed: RegistryEntry[]; kept: RegistryEntry
 }
 
 /**
+ * True when `dir` is a git WORKTREE rather than a normal clone. In a worktree
+ * `.git` is a FILE holding `gitdir: <repo>/.git/worktrees/<name>`; in a clone it
+ * is a directory. Structural, so it needs no name convention — a worktree parked
+ * anywhere under the scanned tree is recognized.
+ */
+export function isGitWorktree(dir: string): boolean {
+  const dotGit = join(dir, ".git");
+  try {
+    return statSync(dotGit).isFile();
+  } catch {
+    return false; // absent .git, or unreadable — not our business either way
+  }
+}
+
+export interface ScanResult {
+  /** Canonical paths of the navori repos found. */
+  repos: string[];
+  /** Canonical paths skipped for being git worktrees (see `isGitWorktree`). */
+  worktrees: string[];
+}
+
+/**
  * Bootstrap helper: walk `rootDir` (up to `maxDepth` levels) and return the
  * canonical paths of every directory that holds a `navori.config.json`. Skips
  * heavy/uninteresting dirs and does not descend into a repo once found (a repo's
  * subdirs never hold their own root config). Used by `navori registry scan` to
  * populate the registry for repos that predate auto-registration.
+ *
+ * Git worktrees are found but NOT returned as repos (#589). A worktree carries
+ * its parent's whole tree, harness included, so a scan of a workspace directory
+ * used to enroll every open ticket worktree as an independent repo — under the
+ * parent's own name, which made them indistinguishable in `registry ls`. In a
+ * repo that VERSIONS its harness, a later `render --all` would then write the
+ * harness into each of those live ticket branches. They are reported separately
+ * so the skip is visible rather than silent; `registry add <path>` still
+ * registers one on purpose.
  */
-export function scanForRepos(rootDir: string, opts: { maxDepth?: number } = {}): string[] {
+export function scanForRepos(rootDir: string, opts: { maxDepth?: number } = {}): ScanResult {
   // `??` only catches null/undefined, so a NaN slipping through from an
   // unvalidated caller would make `depth >= maxDepth` always false (unlimited
   // walk). Guard with isFinite so a bad value falls back to the default (#283).
   const maxDepth = Number.isFinite(opts.maxDepth) ? (opts.maxDepth as number) : DEFAULT_SCAN_DEPTH;
   const found: string[] = [];
+  const worktrees: string[] = [];
 
   const walk = (dir: string, depth: number): void => {
     if (existsSync(join(dir, "navori.config.json"))) {
-      found.push(canonicalPath(dir));
+      (isGitWorktree(dir) ? worktrees : found).push(canonicalPath(dir));
       return; // don't descend into a repo
     }
     if (depth >= maxDepth) return;
@@ -201,5 +278,5 @@ export function scanForRepos(rootDir: string, opts: { maxDepth?: number } = {}):
   };
 
   walk(rootDir, 0);
-  return found;
+  return { repos: found, worktrees };
 }

@@ -79,6 +79,7 @@ const scanSubCommand = defineCommand({
 
     let added = 0;
     let unchanged = 0;
+    let skipped = 0;
     const rows: string[] = [];
     for (const dir of dirs) {
       const root = resolve(dir);
@@ -86,7 +87,10 @@ const scanSubCommand = defineCommand({
         rows.push(`  ${color.red(sym.fail)} ${dir} ${dim(tr.dirNotFound)}`);
         continue;
       }
-      const found = scanForRepos(root, maxDepth !== undefined ? { maxDepth } : {});
+      const { repos: found, worktrees } = scanForRepos(
+        root,
+        maxDepth !== undefined ? { maxDepth } : {},
+      );
       for (const repoPath of found) {
         const result = registerRepo(repoPath, repoName(repoPath));
         if (result === "added") added += 1;
@@ -94,8 +98,16 @@ const scanSubCommand = defineCommand({
         const badge = result === "added" ? color.green(tr.addedBadge) : dim(tr.knownBadge);
         rows.push(`  ${badge}  ${accent(repoName(repoPath) ?? repoPath)}  ${dim(repoPath)}`);
       }
+      // Reported, not silently dropped: the user asked for this directory, and a
+      // worktree that vanishes from the output with no explanation reads as a
+      // scan that missed it (#589).
+      for (const wtPath of worktrees) {
+        skipped += 1;
+        rows.push(`  ${dim(tr.worktreeBadge)}  ${dim(wtPath)}`);
+      }
     }
     if (rows.length > 0) p.log.message(rows.join("\n"));
+    if (skipped > 0) p.log.info(tr.worktreesSkipped(skipped));
     p.outro(`${color.green(tr.doneWord)} ${dim(tr.scanSummary(added, unchanged))}`);
   },
 });

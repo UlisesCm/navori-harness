@@ -381,7 +381,7 @@ const es: Record<string, CommandDoc> = {
     ],
     notes: [
       "Detecta drift entre lo que el repo es hoy y lo que el config dice: preset sugerido, comandos del quality gate, rama base y migraciones de librería.",
-      "Tu edición manda: cuando la detección discrepa de un valor que ya editaste a mano, el config gana.",
+      "Tu edición manda: cuando la detección discrepa de un valor que ya editaste a mano, el config gana. El quality gate solo se propone si el repo GANÓ pasos que te faltan — nunca para recortarte uno; 'engines' ni se propone, se reporta; y las migraciones de librería se reconcilian por 'legacy'. La excepción declarada es 'project.libraries', que es un campo derivado de tus dependencias y sí se reemplaza.",
       "Después de acomodar el config corre sync, así que los bloques managed quedan al día en la misma pasada.",
     ],
   },
@@ -425,7 +425,7 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Registrar todo lo que hay bajo un directorio",
-        code: "$ navori registry scan ~/dev --depth=3\n│    · conocido  demo  /Users/tu/dev/demo\n└  Listo 0 agregado(s) · 1 ya registrado(s)",
+        code: "$ navori registry scan ~/dev --depth=3\n│    · conocido  demo  /Users/tu/dev/demo\n│    ~ worktree  /Users/tu/dev/wt-BT-123\n└  Listo 0 agregado(s) · 1 ya registrado(s)",
       },
       {
         title: "Ver el registro",
@@ -440,6 +440,8 @@ const es: Record<string, CommandDoc> = {
       "El registro vive en ~/.navori/ y es machine-local: no se commitea ni viaja con el repo.",
       "'ls' marca con missing los repos que ya no están en disco y te sugiere el prune.",
       "'remove' es solo desregistrar: nunca borra archivos del repo.",
+      "'scan' omite los git worktrees: traen el árbol del repo padre, harness incluido, y registrarlos haría que 'render --all' escriba en las ramas de sus tickets. Te los reporta aparte; si de verdad quieres uno, 'registry add <ruta>'.",
+      "El 'name' que ves aquí es una copia de tu navori.config.json, y 'render' la refresca en cada corrida con --apply.",
     ],
   },
   workspace: {
@@ -1088,7 +1090,7 @@ const en: Record<string, CommandDoc> = {
     ],
     notes: [
       "It detects drift between what the repo is today and what the config says: suggested preset, quality-gate commands, base branch and library migrations.",
-      "Your edit wins: when detection disagrees with a value you already set by hand, the config keeps it.",
+      "Your edit wins: when detection disagrees with a value you already set by hand, the config keeps it. The quality gate is only proposed when the repo GAINED steps yours lacks — never to trim one away; 'engines' is reported, not proposed; and library migrations are reconciled by 'legacy'. The declared exception is 'project.libraries', a field derived from your dependencies, which is replaced.",
       "After settling the config it runs sync, so the managed blocks come up to date in the same pass.",
     ],
   },
@@ -1135,7 +1137,7 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "Register everything under a directory",
-        code: "$ navori registry scan ~/dev --depth=3\n│    · known  demo  /Users/you/dev/demo\n└  Done 0 added · 1 already registered",
+        code: "$ navori registry scan ~/dev --depth=3\n│    · known  demo  /Users/you/dev/demo\n│    ~ worktree  /Users/you/dev/wt-BT-123\n└  Done 0 added · 1 already registered",
       },
       {
         title: "See the registry",
@@ -1150,6 +1152,8 @@ const en: Record<string, CommandDoc> = {
       "The registry lives in ~/.navori/ and is machine-local: it is never committed and never travels with the repo.",
       "'ls' tags repos that are no longer on disk as missing and points you at the prune.",
       "'remove' only unregisters: it never deletes files from the repo.",
+      "'scan' skips git worktrees: they carry the parent repo's tree, harness included, and registering them would make 'render --all' write into their ticket branches. They are reported separately; to register one on purpose, use 'registry add <path>'.",
+      "The 'name' shown here is a copy of your navori.config.json, and 'render' refreshes it on every --apply run.",
     ],
   },
   workspace: {

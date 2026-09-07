@@ -968,6 +968,11 @@ interface BlocksCmdStrings {
 interface UpdateCmdStrings {
   detectedMigrationSuggestion: (legacy: string, preferred: string) => string;
   manualMigrationOverride: (detail: string) => string;
+  /** Engines whose output exists on disk but that `engines[]` does not declare
+   *  — reported, never applied (#588). */
+  unconfiguredEngines: (list: string) => string;
+  /** Gate fields where detection disagreed and the config won (#588). */
+  qualityGateKept: (fields: string) => string;
   upToDate: string;
   configDrift: (count: number, lines: string) => string;
   configInSync: string;
@@ -1320,6 +1325,9 @@ interface RegistryCmdStrings {
   dirNotFound: string;
   addedBadge: string;
   knownBadge: string;
+  /** Row badge for a navori repo skipped for being a git worktree (#589). */
+  worktreeBadge: string;
+  worktreesSkipped: (count: number) => string;
   doneWord: string;
   scanSummary: (added: number, unchanged: number) => string;
   notNavoriRepo: (path: string) => string;
@@ -1817,6 +1825,10 @@ const CMD_ES: CmdStrings = {
       `(detección sugiere ${legacy}→${preferred})`,
     manualMigrationOverride: (detail) =>
       `project.libraryMigrations: respeto tu override manual — ${detail}. No lo sobrescribo; edítalo a mano si quieres adoptar la sugerencia.`,
+    unconfiguredEngines: (list) =>
+      `engines: hay salida de ${list} en disco, pero el config no los declara, así que navori no la mantiene. No lo decido yo: si quieres ese engine, agrégalo a 'engines'; si son restos de uno que quitaste, 'navori render --apply --prune' te dice cuáles puede borrar.`,
+    qualityGateKept: (fields) =>
+      `${fields}: respeto tu valor — la detección propone otro comando y el tuyo no se queda corto. No lo sobrescribo; edítalo a mano si quieres el detectado.`,
     upToDate: "Al día — nada que actualizar",
     configDrift: (count, lines) => `Drift de config detectado (${count}):\n${lines}`,
     configInSync: "El config está sincronizado con el repo",
@@ -2344,6 +2356,9 @@ const CMD_ES: CmdStrings = {
     dirNotFound: "(no encontrado)",
     addedBadge: "+ agregado",
     knownBadge: "· conocido",
+    worktreeBadge: "~ worktree",
+    worktreesSkipped: (count) =>
+      `${count} worktree(s) de git omitido(s): traen el árbol del repo padre, harness incluido, así que registrarlos haría que 'render --all' escriba en las ramas de sus tickets. Si de verdad quieres uno, 'navori registry add <ruta>'.`,
     doneWord: "Listo",
     scanSummary: (added, unchanged) => `${added} agregado(s) · ${unchanged} ya registrado(s)`,
     notNavoriRepo: (path) => `No es un repo navori (sin navori.config.json): ${path}`,
@@ -2856,6 +2871,10 @@ const CMD_EN: CmdStrings = {
       `(detection suggests ${legacy}→${preferred})`,
     manualMigrationOverride: (detail) =>
       `project.libraryMigrations: keeping your manual override — ${detail}. It will not be overwritten; edit it manually to adopt the detected suggestion.`,
+    unconfiguredEngines: (list) =>
+      `engines: there is ${list} output on disk, but the config does not declare them, so navori is not maintaining it. This is not mine to decide: to get that engine, add it to 'engines'; if these are leftovers of one you dropped, 'navori render --apply --prune' reports which it can delete.`,
+    qualityGateKept: (fields) =>
+      `${fields}: keeping your value — detection proposes a different command and yours is not weaker. It will not be overwritten; edit it manually to take the detected one.`,
     upToDate: "Up to date — nothing to update",
     configDrift: (count, lines) => `Config drift detected (${count}):\n${lines}`,
     configInSync: "Config is in sync with the repo",
@@ -3375,6 +3394,9 @@ const CMD_EN: CmdStrings = {
     dirNotFound: "(not found)",
     addedBadge: "+ added",
     knownBadge: "· known",
+    worktreeBadge: "~ worktree",
+    worktreesSkipped: (count) =>
+      `${count} git worktree(s) skipped: they carry the parent repo's tree, harness included, so registering them would make 'render --all' write into their ticket branches. To register one on purpose, run 'navori registry add <path>'.`,
     doneWord: "Done",
     scanSummary: (added, unchanged) => `${added} added · ${unchanged} already registered`,
     notNavoriRepo: (path) => `Not a navori repo (no navori.config.json): ${path}`,
