@@ -6,7 +6,7 @@ renderizados y deja el número medido.
 
 ## Lote 1 — el canal, con el bloque todavía en su sitio
 
-- [ ] **T1** (R1, R6, R7) — `audience: orchestrator` en el frontmatter del asset, y el render
+- [x] **T1** (R1, R6, R7) — `audience: orchestrator` en el frontmatter del asset, y el render
   del engine claude escribe un bloque así marcado en `.claude/context/<id>.md` con su
   marcador, su hash y la config interpolada, en vez de componerlo dentro del `CLAUDE.md`.
   Detrás de la marca: mientras ningún asset la declare, el render se comporta igual que hoy.
@@ -14,28 +14,28 @@ renderizados y deja el número medido.
   — un asset de fixture con la marca aterriza en `.claude/context/` y NO en el `CLAUDE.md`;
   conserva `id`, `hash` y `version`; un placeholder sin resolver hace fallar el render.
 
-- [ ] **T2** (R2, R3) — `session-start-context.sh` concatena `.claude/context/*.md` a su
+- [x] **T2** (R2, R3) — `session-start-context.sh` concatena `.claude/context/*.md` a su
   `additionalContext`. Sin archivos, sin directorio o sin permiso de lectura: emite el resto y
   sale 0.
   · test: `src/lib/__tests__/session-start-context.test.ts` con `// Covers: R2, R3` — el
   contenido aparece en `additionalContext` bajo bash y zsh; el directorio ausente no cambia ni
   la salida previa ni el código de salida.
 
-- [ ] **T3** (R6) — `.claude/context` entra en `ENGINE_OUTPUTS` (marcadores html, recursivo),
+- [x] **T3** (R6) — `.claude/context` entra en `ENGINE_OUTPUTS` (marcadores html, recursivo),
   para que el scan de drift, `doctor` y el prune lo traten como a `.claude/agents`.
   · test: `src/lib/__tests__/health.test.ts` con `// Covers: R6` — un bloque manipulado a mano
   bajo `.claude/context/` sale reportado como drift.
 
 ## Lote 2 — la mudanza
 
-- [ ] **T4** (R1, R4, R8) — `orquestacion.md` declara `audience: orchestrator`. El
+- [x] **T4** (R1, R4, R8) — `orquestacion.md` declara `audience: orchestrator`. El
   `CLAUDE.md` renderizado deja de contenerlo; `.claude/context/orquestacion.md` lo contiene.
   `blocks.exclude: ["orquestacion"]` sigue quitándolo de las dos vías.
   · test: `src/engines/claude/__tests__/render-engine.test.ts` con `// Covers: R1, R4, R8` —
   el marcador `orquestacion` no aparece en el `CLAUDE.md`; sí en el archivo nuevo; con la
   exclusión no aparece en ninguno.
 
-- [ ] **T5** (R5) — Una spec por agente que verifique que su asset sigue declarando lo suyo:
+- [x] **T5** (R5) — Una spec por agente que verifique que su asset sigue declarando lo suyo:
   la ruta de su archivo de reporte y la marca `Status:` / veredicto. Es lo que hoy hace
   redundante al párrafo del bloque, y lo que alguien podría "limpiar" mañana creyéndolo
   duplicado.
@@ -43,7 +43,7 @@ renderizados y deja el número medido.
   nombra `impl_<feature>.md` y `Status:`; `reviewer` nombra `review_<feature>.md` y su
   veredicto; falla nombrando al agente que lo perdió.
 
-- [ ] **T6** (R11) — Conservar y hacer explícito el test de la exclusión mutua con la capa
+- [x] **T6** (R11) — Conservar y hacer explícito el test de la exclusión mutua con la capa
   global: dentro de un repo con `navori.config.json`, el hook global no emite nada, así que el
   bloque llega una sola vez.
   · test: donde ya vive esa aserción (`global-render` / `global-zero-footprint`) con
@@ -52,13 +52,16 @@ renderizados y deja el número medido.
 
 ## Lote 3 — migrar y medir
 
-- [ ] **T7** (R9, R10) — El render retira el bloque de un `CLAUDE.md` ya renderizado, por su
+- [x] **T7** (R9, R10) — El render retira el bloque de un `CLAUDE.md` ya renderizado, por su
   marcador, sin tocar el texto del usuario alrededor, y lo dice en su reporte.
   · test: `src/commands/__tests__/render-audience-migration.test.ts` con `// Covers: R9, R10`
   — un `CLAUDE.md` con el bloque + prosa propia del usuario antes y después queda sin el
   bloque y con la prosa intacta; el reporte del render lo menciona.
 
-- [ ] **T8** (R12) — Medir con `navori audit` el arranque por subagente antes y después sobre
+- [ ] **T8** (R12) — SIN CERRAR a propósito (revisado 2026-09-07, housekeeping de la spec
+      0016): T1-T7 se marcaron con evidencia en el repo, pero esta tarea es una MEDICIÓN y
+      no encontré su resultado registrado en ningún lado. Queda abierta hasta que exista el
+      antes/después. — Medir con `navori audit` el arranque por subagente antes y después sobre
   la misma sesión de referencia, y dejar el número en el PR. Sin código nuevo: la señal
   `startup-overhead` ya lo publica.
   · verificación: el reporte de la sesión de 19 agentes baja de 527,949 tokens de arranque en

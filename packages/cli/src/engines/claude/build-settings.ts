@@ -126,8 +126,9 @@ export function buildClaudeSettings(
   // guard: the freeze it detects is silent, and a defense that ships off
   // protects nobody. The "a PostToolUse hook would fire thousands of times"
   // note further down still holds for audit-mode, which does real work per
-  // call; this one costs one `find` against a stamp file (~10ms) unless a
-  // managed file actually changed.
+  // call; this one costs one shasum pass against a stamp file (~25ms) unless a
+  // managed file actually changed. (It was a find/mtime probe at ~10ms until
+  // that proved unreliable in CI and was redesigned — managed-drift-watch.sh:28-41.)
   settings = deepMerge(settings, {
     hooks: {
       PostToolUse: [
@@ -329,6 +330,46 @@ export function buildClaudeSettings(
 }
 
 const PACKAGE_MANAGERS = new Set(["pnpm", "npm", "yarn", "bun"]);
+
+/** The dev-loop scripts worth a standing rule of their own: run constantly, and
+ *  `build` in particular is rarely part of the quality gate. */
+const DEV_LOOP_SCRIPTS = ["build", "test", "lint", "typecheck", "format"] as const;
+
+/**
+ * Which of `DEV_LOOP_SCRIPTS` each package manager resolves to the SCRIPT when
+ * typed without `run` (spec 0016, T1.2). Only the explicit `<pm> run <script>`
+ * form carried a rule, so the shorter spelling everyone actually types paid a
+ * classifier round-trip in auto mode and a human prompt in default/acceptEdits.
+ *
+ * The spec proposed emitting the bare form for all five on every manager, on the
+ * premise that `<pm> <script>` is always sugar for `<pm> run <script>`. Measured
+ * against the four managers with a package.json declaring all five scripts, that
+ * premise holds only for pnpm and yarn:
+ *
+ *   | pm   | build          | test           | lint | typecheck | format |
+ *   |------|----------------|----------------|------|-----------|--------|
+ *   | pnpm | script         | script         | ✓    | ✓         | ✓      |
+ *   | npm  | Unknown command| script         | ✗    | ✗         | ✗      |
+ *   | yarn | script         | script         | ✓    | ✓         | ✓      |
+ *   | bun  | BUNDLER        | TEST RUNNER    | ✓    | ✓         | ✓      |
+ *
+ * Two distinct reasons to exclude, and only one of them is cosmetic:
+ *   - npm resolves only its lifecycle alias `test`; `npm build`/`lint`/… exit
+ *     with "Unknown command". A rule for those is dead weight that reads like a
+ *     capability the repo does not have.
+ *   - `bun build` and `bun test` are bun's OWN bundler and test runner, not the
+ *     scripts. Emitting them would pre-approve a different command than the rule
+ *     claims — `bun build --outdir <anywhere>` writes files — which is exactly
+ *     the surface expansion the spec said this task would not introduce.
+ *
+ * Verified empirically (pnpm 10 / npm 11 / yarn 1 / bun 1), not from docs.
+ */
+const BARE_SCRIPT_FORMS: Record<string, ReadonlySet<string>> = {
+  pnpm: new Set(DEV_LOOP_SCRIPTS),
+  yarn: new Set(DEV_LOOP_SCRIPTS),
+  npm: new Set(["test"]),
+  bun: new Set(["lint", "typecheck", "format"]),
+};
 // Sequencers navori's quality gate uses to join steps. Bare pipes are excluded:
 // a `| tee`/`| grep` tail is part of one logical step, not a command to allow.
 const GATE_SEQUENCERS = /\s*(?:&&|\|\||;)\s*/;
@@ -425,8 +466,10 @@ function deriveQualityGateAllow(config: NavoriConfig): string[] {
   }
   const pm = resolvePackageManager(config);
   if (pm) {
-    for (const script of ["build", "test", "lint", "typecheck", "format"]) {
+    const bare = BARE_SCRIPT_FORMS[pm] ?? new Set<string>();
+    for (const script of DEV_LOOP_SCRIPTS) {
       rules.add(`Bash(${pm} run ${script}:*)`);
+      if (bare.has(script)) rules.add(`Bash(${pm} ${script}:*)`);
     }
   }
   return [...rules];

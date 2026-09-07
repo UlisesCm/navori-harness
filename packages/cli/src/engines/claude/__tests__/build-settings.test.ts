@@ -702,6 +702,62 @@ describe("buildClaudeSettings — preset-aware allow (M4+A1)", () => {
     expect(allow).toContain("Bash(pnpm run build:*)");
   });
 
+  /**
+   * Spec 0016 T1.2 — the `run`-less spelling is the one people type, and it used
+   * to pay a classifier round-trip in auto mode / a human prompt elsewhere for
+   * lack of a rule. Emitted only where the manager really resolves the bare
+   * token to the SCRIPT; see BARE_SCRIPT_FORMS for the measured table.
+   */
+  describe("bare `<pm> <script>` dev-loop forms (spec 0016 T1.2)", () => {
+    const withPm = (packageManager: string): NavoriConfig =>
+      ({ ...MINIMAL_CONFIG, packageManager }) as unknown as NavoriConfig;
+
+    it("emits every bare form for pnpm and yarn, which resolve all five to scripts", () => {
+      for (const pm of ["pnpm", "yarn"]) {
+        const allow = allowOf(withPm(pm));
+        for (const script of ["build", "test", "lint", "typecheck", "format"]) {
+          expect(allow, `${pm} ${script}`).toContain(`Bash(${pm} ${script}:*)`);
+        }
+      }
+    });
+
+    it("emits only `npm test` for npm: the others exit with Unknown command", () => {
+      const allow = allowOf(withPm("npm"));
+      expect(allow).toContain("Bash(npm test:*)");
+      for (const script of ["build", "lint", "typecheck", "format"]) {
+        expect(allow, `npm ${script} is not script sugar`).not.toContain(`Bash(npm ${script}:*)`);
+      }
+    });
+
+    /**
+     * The one that is a security decision, not cosmetics: `bun build` is bun's
+     * BUNDLER and `bun test` its TEST RUNNER, not the scripts of those names.
+     * A rule for them would pre-approve a different command than it claims —
+     * `bun build --outdir <anywhere>` writes files.
+     */
+    it("never emits `bun build` / `bun test`: those are bun's own commands", () => {
+      const allow = allowOf(withPm("bun"));
+      expect(allow).not.toContain("Bash(bun build:*)");
+      expect(allow).not.toContain("Bash(bun test:*)");
+      // The scripts bun does NOT shadow still get the cheap form.
+      for (const script of ["lint", "typecheck", "format"]) {
+        expect(allow).toContain(`Bash(bun ${script}:*)`);
+      }
+      // …and the explicit form always survives for every script.
+      expect(allow).toContain("Bash(bun run build:*)");
+      expect(allow).toContain("Bash(bun run test:*)");
+    });
+
+    it("keeps the explicit `<pm> run <script>` rule for every manager and script", () => {
+      for (const pm of ["pnpm", "npm", "yarn", "bun"]) {
+        const allow = allowOf(withPm(pm));
+        for (const script of ["build", "test", "lint", "typecheck", "format"]) {
+          expect(allow, `${pm} run ${script}`).toContain(`Bash(${pm} run ${script}:*)`);
+        }
+      }
+    });
+  });
+
   it("falls back to the qualityGate runner when packageManager is absent (pre-field configs)", () => {
     const config = {
       ...MINIMAL_CONFIG,
@@ -803,7 +859,12 @@ describe("buildClaudeSettings — compound gate + pure-filter boundary (#403)", 
     expect(after).toContain("Bash(cd apps/api && pnpm check)");
     expect(after).not.toContain("Bash(cd packages/cli)");
     expect(after).not.toContain("Bash(cd packages/cli && pnpm lint)");
-    expect(after).not.toContain("Bash(pnpm lint:*)");
+    // Witness for "gate-derived", chosen so it stays one: `format:check` is not a
+    // dev-loop script, so this rule can ONLY come from a gate step. It used to be
+    // `Bash(pnpm lint:*)`, which stopped proving anything once spec 0016 T1.2
+    // started emitting the bare dev-loop forms unconditionally — `lint` is now
+    // present whatever the gate says. The guarantee under test is unchanged.
+    expect(after).not.toContain("Bash(pnpm format:check:*)");
   });
 
   it("derives no rule from a gate carrying shell metacharacters", () => {
