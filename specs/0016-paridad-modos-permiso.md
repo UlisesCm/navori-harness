@@ -171,41 +171,75 @@ que la vía barata sea la misma historia en los tres modos, no un carve-out de a
 
 ### Fase 3 — Dieta de hooks por Bash
 
-- **T3.1** — Fast-path de segunda etapa en el guard para `git` read-only
-  (`guard-destructive.sh`, después de :389): si el comando ES un único segmento
-  `git <subcomando-read-only>` (los mismos de la familia allow: status/diff/log/show/
-  blame/branch/describe/rev-parse/ls-files/cat-file/shortlog/…) **sin** secuenciadores,
-  sustituciones, redirecciones ni heredocs → verdict `skip`. Soundness verificada contra
-  el argumento del propio archivo (:347-351): las reglas 1-2 solo disparan con
-  push/commit/config/hooks; un segmento único read-only no puede alcanzarlas. Se valida
-  igual que #587: suite diferencial bash×zsh sobre comandos reales, cero divergencias.
-- **T3.2** — Medir el piso trivial de `check-jscpd`/`check-semgrep`/`quality-gate` con la
-  mediana del #587 (el reporte ya separa corridas >1s) en una sesión nueva. Verificado:
-  `check-jscpd.sh:6-7` ya se gatea a `git commit` vía `is_scan_trigger`
-  (`_partials/gate-trigger.sh:18-70`) — las medias del corpus (267/201/212ms) están
-  infladas por los escaneos reales, así que **primero se mide, luego se recorta**: si el
-  piso trivial supera ~20ms, el trigger-check se adelanta a cualquier trabajo del hook.
-  No se especula con "0.8s de desperdicio por Bash".
-- **T3.3** — `managed-drift-watch`: **NO se condiciona por "forma de escritura"**
-  (descartado, ver §4). Si tras medir el piso (~25-48ms) se quiere recortar, la única vía
-  segura es *debounce con stamp* (saltar si el último pase corrió hace <N segundos) más un
-  pase garantizado en `SessionEnd` — detección con retraso acotado, nunca detección
-  perdida. Opcional; se decide con los números de T3.2.
-- **Criterio**: mediana de hooks para un Bash trivial ≤ 100ms con la batería completa de
-  5; suite diferencial del guard verde; cero cambios en `ask`/`deny`.
+- **T3.1 — HECHO, con una forma más simple que la propuesta.** La tarea pedía un
+  fast-path de *segunda etapa* con allowlist de subcomandos read-only de git. Al verificar
+  la solidez contra las reglas resultó innecesario: el problema no era que faltara una
+  etapa, sino que **el token `git` de la etapa que ya existe es cuatro veces más ancho de
+  lo que las reglas necesitan**. Las reglas 1-2 pasan por `$git_cp`, cuya regex termina en
+  `(commit|push)` — y la 2 se estrecha a `push` —, así que `git` a secas nunca puede
+  alcanzar un `block`. El arreglo es cambiar un token:
+
+  ```
+  -    *git*|*rm*|*sed*|*tee*|*'/dev/'*|*'>'*|*':('*) ;;
+  +    *commit*|*push*|*rm*|*sed*|*tee*|*'/dev/'*|*'>'*|*':('*) ;;
+  ```
+
+  Sigue siendo superset de las regex (todo comando que `$git_cp` matchea contiene
+  literalmente `commit` o `push`), así que el argumento de solidez del archivo no cambia;
+  solo deja de responderse con un token demasiado ancho. Cubre además lo que la propuesta
+  original no alcanzaba: `cat .gitignore` y `ls .github/` pagaban el análisis completo por
+  *contener* el substring.
+
+  **Medido, A/B intercalado (N=41, hooks renderizados):**
+
+  | comando | antes | después | |
+  |---|---|---|---|
+  | `git status --porcelain` | 50.0 ms | **15.1 ms** | −70% |
+  | `git commit -m x` | 51.2 ms | 50.8 ms | sin cambio (sigue analizándose) |
+  | `rm -rf /tmp/x` | 50.0 ms | 50.0 ms | sin cambio (sigue analizándose) |
+
+  El test `fast path — the tokens are a superset of what every rule needs` lee la lista de
+  tokens **del propio asset** y verifica que todo comando que la suite espera bloqueado
+  contenga alguno; esa es la prueba de que el cambio no abre un hueco. 461 tests verdes.
+
+- **T3.2 — MEDIDO: no hay nada que recortar.** El piso trivial de los tres hooks
+  configurables resultó estar ya en el suelo del proceso bash:
+
+  | hook | p50 con comando trivial |
+  |---|---|
+  | `quality-gate-pre-commit` | 17.2 ms |
+  | `check-jscpd` | 17.1 ms |
+  | `check-semgrep` | 16.9 ms |
+  | (referencia: guard con fast-path) | 16.3 ms |
+
+  Los tres están a ~1 ms del piso, así que adelantar el trigger-check no compraría nada.
+  El `is_scan_trigger` de `check-jscpd.sh:6-7` ya hace su trabajo; las medias infladas del
+  corpus (267/201/212 ms) eran los escaneos reales, como la tarea sospechaba. **Sin cambio
+  de código, que era el resultado posible que la tarea dejó abierto.**
+
+- **T3.3 — NO SE HACE, decidido por los números.** `managed-drift-watch` mide 30.3 ms
+  (~14 ms sobre el piso). Con T3.1, la batería completa de 5 hooks para un Bash trivial
+  queda en **97.7 ms contra ~132.5 ms antes**, o sea el criterio de esta fase ya se cumple
+  sin tocarlo. Un debounce con stamp cambiaría detección inmediata por detección con
+  retraso acotado a cambio de ~14 ms que no hacen falta: mal negocio para el único watcher
+  que caza el write que se le escapa al guard.
+
+- **Criterio — CUMPLIDO.** Batería completa de 5 hooks para un Bash trivial: **97.7 ms**
+  (antes ~132.5 ms), bajo el techo de 100 ms. Suite del guard verde (461 tests, bash×zsh).
+  Cero cambios en `ask`/`deny`: este lote no toca `settings-base.json`.
 
 ### Fase 4 — Señales de audit que cierran el loop
 
-- **T4.1** — `classifierRoundTrips` (`signals.ts:297-299`) cuenta por **tramo** de modo
-  usando `session.permissionModes` y la atribución posicional que el histograma del #583
-  ya tiene en `parse.ts`, en vez de exigir que `auto` domine la sesión (hoy una sesión
-  mixta con minoría auto reporta cero).
-- **T4.2** — Señal nueva `tool-mix`: emite en CUALQUIER modo cuando Bash supera un umbral
-  (~85%) del total de tool calls del hilo, con el desglose nativas/MCP/shell. Es el
-  termómetro de si la escalera arranca — la carencia que #576 y #583 dejaron anotada.
-- **T4.3** — Con el campo de versión del #587 ya presente (≥0.7.2), toda re-auditoría
-  distingue "harness viejo" de "doctrina nueva ignorada" — el confounder que este corpus
-  no pudo separar.
+- **T4.1 — HECHO** (#592). Cuenta por tramo leyendo `orchestrator.toolCountsByMode` (el
+  histograma del #584 ya atribuía cada llamada del hilo principal al modo vigente: el dato
+  estaba, no se usaba). Detalle no anticipado: **los subagentes no son atribuibles** — su
+  transcript no declara modo. Se suman solo si la sesión nunca salió de auto; en una mixta
+  se reportan aparte como no atribuibles, en vez de doblarse en un número con precisión
+  aparente.
+- **T4.2 — HECHO** (#592). Señal `tool-mix`, `warn`, umbral 85%, piso de 20 llamadas.
+  Ciega al modo a propósito. Calibrada contra una sesión real: 80% shell / 17% nativas /
+  3% MCP sobre 289 llamadas → NO dispara, que es lo correcto.
+- **T4.3 — YA ESTABA.** Verificado en vivo: `navori: { rendered: "0.7.3", cli: "0.7.3" }`.
 - **Criterio**: una sesión mixta sintética produce la señal por tramo; la señal tool-mix
   aparece en sesiones Bash-pesadas de cualquier modo.
 
