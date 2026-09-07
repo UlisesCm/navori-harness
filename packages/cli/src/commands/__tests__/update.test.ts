@@ -12,6 +12,8 @@ import {
   diffConfig,
   refreshWorkspaceScopes,
   mergeLibraryMigrations,
+  gateVerdict,
+  unconfiguredEngines,
 } from "../update.ts";
 
 let cwd: string;
@@ -181,6 +183,146 @@ describe("project.libraries — a DERIVED field, replaced not merged (#345)", ()
     const configPath = seedRepo(["mongoose"]);
     const diffs = diffConfig(readConfig(configPath), detectProject(cwd));
     expect(diffs.find((d) => d.field === "project.libraries")).toBeUndefined();
+  });
+});
+
+/**
+ * #588 — a quality gate is a DECISION, not a derived field. `update` used to
+ * replace it whenever detection spelled it differently, which in the field would
+ * have cut a five-step gate down to one and traded a repo's own lint script for
+ * a generic one. It may now only ADD steps the config lacks.
+ */
+describe("qualityGate — only adopted when the repo GAINED steps (#588)", () => {
+  it("gateVerdict keeps a config gate that already covers detection", () => {
+    expect(gateVerdict("npm run compile && npm run lint", "npm run compile")).toBe("keep");
+  });
+
+  it("gateVerdict keeps an incomparable gate (neither covers the other)", () => {
+    expect(gateVerdict("bash .claude/scripts/lint-staged.sh", "npm run lint")).toBe("keep");
+    // The pnpm→npm rewrite `services--streaming` would have suffered.
+    expect(gateVerdict("pnpm run lint && pnpm run test", "npm run lint && npm run test")).toBe(
+      "keep",
+    );
+  });
+
+  it("gateVerdict adopts when detection is a strict superset, or there is no gate", () => {
+    expect(
+      gateVerdict("npm run lint && npm run test", "npm run tc && npm run lint && npm run test"),
+    ).toBe("adopt");
+    expect(gateVerdict(undefined, "npm run lint")).toBe("adopt");
+    expect(gateVerdict("   ", "npm run lint")).toBe("adopt");
+  });
+
+  it("gateVerdict keeps the same steps spelled differently instead of churning", () => {
+    expect(gateVerdict("npm run lint  &&  npm run test", "npm run test && npm run lint")).toBe(
+      "keep",
+    );
+  });
+
+  /** package.json scripts detection composes into `compile && lint && test:unit`. */
+  function seedGateRepo(gate: { fast: string; full: string } | undefined): string {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({
+        name: "demo",
+        scripts: { compile: "tsc", lint: "eslint .", "test:unit": "vitest run" },
+      }),
+    );
+    const configPath = join(cwd, "navori.config.json");
+    writeConfig(configPath, {
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      ...(gate ? { qualityGate: gate } : {}),
+    });
+    return configPath;
+  }
+
+  it("emits no gate diff for the stricter gate detection would have degraded", () => {
+    // The bonum-webapp shape: the config gate is detection's plus cypress+build.
+    const configPath = seedGateRepo({
+      fast: "npm run compile && npm run lint && npm run test:unit",
+      full: "npm run compile && npm run lint && npm run test:unit && npm run cypress && npm run build",
+    });
+    const diffs = diffConfig(readConfig(configPath), detectProject(cwd));
+    expect(diffs.filter((d) => d.field.startsWith("qualityGate"))).toEqual([]);
+  });
+
+  it("adopts a gate for a repo that declares none", () => {
+    const configPath = seedGateRepo(undefined);
+    const detected = detectProject(cwd);
+    const diffs = diffConfig(readConfig(configPath), detected);
+    expect(diffs.filter((d) => d.field.startsWith("qualityGate"))).toHaveLength(2);
+
+    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    applyDiffs(raw, detected, diffs);
+    expect(raw.qualityGate).toEqual(detected.qualityGate);
+  });
+
+  /**
+   * The latent bug the per-field rule exposed: `applyDiffs` assigned the WHOLE
+   * detected `qualityGate` object for either diff, so adopting `full` dragged
+   * `fast` along — including a `fast` that `gateVerdict` had just ruled "keep".
+   */
+  it("applies fast and full independently, never as one object", () => {
+    const configPath = seedGateRepo({
+      // `fast` is stricter than detection's ("npm run compile") → keep.
+      // `full` is a strict subset of detection's → adopt.
+      fast: "npm run compile && npm run lint",
+      full: "npm run compile && npm run lint",
+    });
+    const detected = detectProject(cwd);
+    const diffs = diffConfig(readConfig(configPath), detected);
+    expect(diffs.map((d) => d.field).filter((f) => f.startsWith("qualityGate"))).toEqual([
+      "qualityGate.full",
+    ]);
+
+    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    applyDiffs(raw, detected, diffs);
+    expect(raw.qualityGate).toEqual({
+      fast: "npm run compile && npm run lint", // untouched
+      full: detected.qualityGate!.full, // adopted
+    });
+  });
+});
+
+/**
+ * #588 — engine output on disk cannot tell "you have this" from "you had this
+ * and removed it", so `update` reports it instead of proposing to add it back.
+ */
+describe("engines — reported, never diffed (#588)", () => {
+  function seedEnginesRepo(): string {
+    mkdirSync(join(cwd, ".codex"), { recursive: true });
+    writeFileSync(join(cwd, "AGENTS.md"), "# team doc, not navori's\n");
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "demo" }));
+    const configPath = join(cwd, "navori.config.json");
+    writeConfig(configPath, { name: "demo", engines: ["claude"], preset: "custom" });
+    return configPath;
+  }
+
+  it("emits no engines diff for output left by a dropped engine", () => {
+    const configPath = seedEnginesRepo();
+    const detected = detectProject(cwd);
+    // Detection does see them — that is precisely the input we refuse to act on.
+    expect(detected.existingEngines).toEqual(expect.arrayContaining(["codex", "agents-md"]));
+    expect(
+      diffConfig(readConfig(configPath), detected).find((d) => d.field === "engines"),
+    ).toBeUndefined();
+  });
+
+  it("still reports them, so the discovery is not lost", () => {
+    const configPath = seedEnginesRepo();
+    expect(unconfiguredEngines(readConfig(configPath), detectProject(cwd))).toEqual(
+      expect.arrayContaining(["codex", "agents-md"]),
+    );
+  });
+
+  it("says nothing when every detected engine is already configured", () => {
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "demo" }));
+    mkdirSync(join(cwd, ".codex"), { recursive: true });
+    const configPath = join(cwd, "navori.config.json");
+    writeConfig(configPath, { name: "demo", engines: ["claude", "codex"], preset: "custom" });
+    expect(unconfiguredEngines(readConfig(configPath), detectProject(cwd))).toEqual([]);
   });
 });
 

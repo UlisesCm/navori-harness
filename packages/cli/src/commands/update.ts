@@ -127,6 +127,86 @@ export function mergeLibraryMigrations(
   return { merged, changedOverrides };
 }
 
+/**
+ * Steps of a `&&`-chained gate command, trimmed, empties dropped. navori builds
+ * every gate it detects this way (`typecheck && lint && test`), and so does
+ * every hand-written gate in the field. A step whose own text carries `&&`
+ * inside quotes splits too — which only makes `gateVerdict` MORE conservative
+ * (an unrecognized step can't be covered), so the failure mode is "keep the
+ * user's value", never "overwrite it".
+ */
+export function gateSteps(cmd: string): string[] {
+  return cmd
+    .split("&&")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * #588 — what `update` may do with a detected quality gate, given the one the
+ * config already declares.
+ *
+ * The old rule was "differs → replace", and in the field that DEGRADED gates: it
+ * would have cut `bonum-webapp` from `compile && lint && test:unit && cypress
+ * && build` down to `compile`, and traded `services--sessions`' own
+ * `bash .claude/scripts/lint-staged.sh` for a generic `pnpm run lint`. A gate is
+ * a DECISION, the same species as `testsForNewCode` (see detect.ts), and
+ * detection does not get to revoke a decision.
+ *
+ * So we adopt only when the repo genuinely GAINED steps — the config's steps are
+ * a proper subset of the detected ones (e.g. the repo added `typecheck`) — or
+ * when there is no gate at all. Everything else is the user's: the config
+ * already covers detection (a stricter gate), the two spell the same steps
+ * differently, or they diverge in a way detection cannot arbitrate.
+ */
+export function gateVerdict(current: string | undefined, detected: string): "adopt" | "keep" {
+  if (!current?.trim()) return "adopt";
+  const cur = gateSteps(current);
+  const det = gateSteps(detected);
+  // Same steps, different spelling (order/spacing): nothing to gain, and
+  // rewriting would churn the config on every run.
+  if (sameSet(cur, det)) return "keep";
+  return cur.every((step) => det.includes(step)) ? "adopt" : "keep";
+}
+
+/**
+ * #588 — engines whose output exists on disk but that `config.engines` does not
+ * declare. Reported by `update`, never applied by it.
+ *
+ * `detectExistingEngines` answers "does `.codex/` / `AGENTS.md` / `.cursor/`
+ * exist?". That is the right question for `init`, which has no config yet and
+ * must adopt whatever is already here. It is the WRONG question for `update`,
+ * because those same paths are also what an engine leaves behind when it is
+ * dropped from `engines[]` — so "detected" covered both "you have this" and "you
+ * had this and removed it", and `update` acted on the union. In the field it
+ * offered to revive `agents-md` in a repo whose `agents.md` is a hand-written
+ * team doc (the engine was dropped precisely to stop navori writing into it) and
+ * `codex` in a repo whose `.codex/` was orphan residue the prune could not
+ * reclaim (#538): two deliberate removals, both proposed for undo.
+ *
+ * The obvious repair — cross-check against `scanOrphanedEngineOutputs` and drop
+ * the engines it calls orphaned — does not work, twice over. That scan reads the
+ * SAME paths the probe does, so it suppresses every case, leaving a branch that
+ * can never fire; and it dedupes a shared path (`AGENTS.md` belongs to both
+ * `codex` and `agents-md`) onto whichever engine comes first in its table, so
+ * matching by engine name is unsound anyway — in the field it attributed
+ * `AGENTS.md` to `codex` while detection was proposing `agents-md`.
+ *
+ * What actually separates the two cases is not on disk at all: it is that a
+ * config EXISTS. `config.engines` is a recorded decision, and detection does not
+ * get to overturn a decision — the same doctrine `detect.ts` already states for
+ * `testsForNewCode`. So the discovery stays (it is worth saying out loud) and
+ * the decision goes back to the user, who enables the engine in the config or
+ * prunes the leftovers.
+ */
+export function unconfiguredEngines(
+  current: NavoriConfig,
+  detected: ReturnType<typeof detectProject>,
+): string[] {
+  const configured = new Set<string>(current.engines ?? []);
+  return detected.existingEngines.filter((engine) => !configured.has(engine));
+}
+
 /** Merge a patch into the raw `project` object, tolerating it being absent. */
 function withProject(current: unknown, patch: Record<string, unknown>): Record<string, unknown> {
   const base = current && typeof current === "object" ? (current as Record<string, unknown>) : {};
@@ -180,14 +260,22 @@ export function diffConfig(
     out.push({ field: "preset", before: current.preset, after: detected.suggestedPreset });
   }
 
-  // Quality gate (only suggest if the project gained new scripts)
+  // Quality gate — proposed ONLY when the repo gained steps the config lacks
+  // (#588). A config gate that already covers detection, or diverges from it,
+  // is the user's decision; see `gateVerdict`.
   if (detected.qualityGate) {
     const beforeFast = current.qualityGate?.fast ?? "(none)";
     const beforeFull = current.qualityGate?.full ?? "(none)";
-    if (beforeFast !== detected.qualityGate.fast) {
+    if (
+      beforeFast !== detected.qualityGate.fast &&
+      gateVerdict(current.qualityGate?.fast, detected.qualityGate.fast) === "adopt"
+    ) {
       out.push({ field: "qualityGate.fast", before: beforeFast, after: detected.qualityGate.fast });
     }
-    if (beforeFull !== detected.qualityGate.full) {
+    if (
+      beforeFull !== detected.qualityGate.full &&
+      gateVerdict(current.qualityGate?.full, detected.qualityGate.full) === "adopt"
+    ) {
       out.push({ field: "qualityGate.full", before: beforeFull, after: detected.qualityGate.full });
     }
   }
@@ -207,18 +295,10 @@ export function diffConfig(
     });
   }
 
-  // Engines (suggest adding ones detected in the repo, not removing)
-  const currentEngines = new Set(current.engines);
-  const newlyDetected = detected.existingEngines.filter(
-    (e) => !currentEngines.has(e as (typeof current.engines)[number]),
-  );
-  if (newlyDetected.length > 0) {
-    out.push({
-      field: "engines",
-      before: current.engines.join(", "),
-      after: [...current.engines, ...newlyDetected].join(", "),
-    });
-  }
+  // Engines are NOT diffed (#588). An engine's output on disk cannot tell
+  // "you have this" from "you had this and removed it", so proposing an addition
+  // from it meant offering to undo deliberate removals. `unconfiguredEngines`
+  // reports the discovery instead; enabling one stays the user's call.
 
   // Library skills (detected from deps) — the additive cross-preset layer.
   // Refresh whenever detection and config disagree (a dep added/removed a skill).
@@ -275,15 +355,18 @@ export function applyDiffs(
     if (d.field === "preset") {
       raw.preset = detected.suggestedPreset;
     } else if (d.field === "qualityGate.fast" || d.field === "qualityGate.full") {
-      raw.qualityGate = detected.qualityGate ?? raw.qualityGate;
+      // Per FIELD, not the whole object: with `gateVerdict` (#588) `fast` and
+      // `full` are decided independently, so assigning `detected.qualityGate`
+      // wholesale would drag along the half that was ruled "keep". Both keys
+      // stay present — the schema requires them, and one is always either
+      // already in `raw` or carried by its own diff.
+      const key = d.field === "qualityGate.fast" ? "fast" : "full";
+      const cur = (raw.qualityGate as Record<string, unknown> | undefined) ?? {};
+      raw.qualityGate = { ...cur, [key]: d.after };
     } else if (d.field === "branchBase") {
       raw.branchBase = detected.branchBase;
     } else if (d.field === "packageManager") {
       raw.packageManager = detected.packageManager;
-    } else if (d.field === "engines") {
-      const currentEngines = new Set((raw.engines as string[]) ?? []);
-      for (const e of detected.existingEngines) currentEngines.add(e);
-      raw.engines = [...currentEngines];
     } else if (d.field === "project.libraries") {
       // Full replacement, NOT a merge (#345): this field is derived from
       // detection, so a hand-added id is drift. See the schema JSDoc for why the
@@ -355,6 +438,24 @@ export const updateCommand = defineCommand({
         })
         .join(", ");
       p.log.info(tu.manualMigrationOverride(detail));
+    }
+
+    // #588 — the discovery `update` used to ACT on is still worth saying; it
+    // just stopped being something the command decides for you. Both notices
+    // name what detection saw and why the config wins.
+    const unconfigured = unconfiguredEngines(config, detected);
+    if (unconfigured.length > 0) {
+      p.log.info(tu.unconfiguredEngines(unconfigured.join(", ")));
+    }
+    if (detected.qualityGate) {
+      const kept = (["fast", "full"] as const).filter((k) => {
+        const cur = config.qualityGate?.[k];
+        const det = detected.qualityGate?.[k];
+        return det !== undefined && cur !== det && gateVerdict(cur, det) === "keep";
+      });
+      if (kept.length > 0) {
+        p.log.info(tu.qualityGateKept(kept.map((k) => `qualityGate.${k}`).join(", ")));
+      }
     }
 
     const rawConfig = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
@@ -489,8 +590,12 @@ export const updateCommand = defineCommand({
       return;
     }
     // Keep the global registry current (best-effort) so `render --all` sees this
-    // repo even if it predates auto-registration.
-    registerRepoSafe(cwd, detected.name ?? undefined);
+    // repo even if it predates auto-registration. The cached name comes from the
+    // CONFIG, not from detection (#589): the config is the source of truth, and
+    // a name the user corrected by hand — the exact case that left two Bonum
+    // repos registered under a sibling's name — must not be re-overwritten by
+    // whatever `package.json` happens to say.
+    registerRepoSafe(cwd, config.name);
     const applied = aggregateRender(result);
     if (applied.conflicts.length > 0) {
       p.log.warn(tu.conflictsKept(applied.conflicts.length));

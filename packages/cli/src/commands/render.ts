@@ -37,7 +37,12 @@ import { t, tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 import { describeCoreProvenance, type CoreProvenance } from "../lib/bundled-assets.ts";
 import { effectiveConfigForWorkspace, buildMonorepoContext } from "../lib/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
-import { listRegistryRepos, pruneRegistry, registryPath } from "../lib/registry.ts";
+import {
+  listRegistryRepos,
+  pruneRegistry,
+  refreshRepoName,
+  registryPath,
+} from "../lib/registry.ts";
 
 /** One path `render --prune` deliberately did NOT delete, with its reason. */
 export type KeptEngineOutput = OrphanRemovalPlan["keep"][number];
@@ -283,6 +288,14 @@ export function runRender(
   }
   const lang = resolveLang(config.language);
   benchMark("loadConfig");
+
+  // #589 — keep the registry's cached display name in step with the config.
+  // Only `init` and `update` ever wrote that name, and neither runs during a
+  // rollout, so a `name` corrected in the config stayed wrong in `registry ls`
+  // and in every `render --all` row. `render` is the one command every repo runs
+  // on every bump, which makes it the place the refresh belongs. It refreshes an
+  // EXISTING entry and never adds one — see `refreshRepoName`.
+  if (!dryRun) refreshRepoName(cwd, config.name);
 
   // Engine dispatch: render Claude only when it's a declared engine (the
   // default). Before this, render hardcoded Claude and silently ignored any
