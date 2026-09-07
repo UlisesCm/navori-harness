@@ -217,10 +217,13 @@
       "Bash(pnpm typecheck:*)",
       "Bash(pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck)",
       "Bash(pnpm run build:*)",
+      "Bash(pnpm build:*)",
       "Bash(pnpm run test:*)",
+      "Bash(pnpm test:*)",
       "Bash(pnpm run lint:*)",
       "Bash(pnpm run typecheck:*)",
-      "Bash(pnpm run format:*)"
+      "Bash(pnpm run format:*)",
+      "Bash(pnpm format:*)"
     ],
     "ask": [
       "Bash(rm -rf *)",
