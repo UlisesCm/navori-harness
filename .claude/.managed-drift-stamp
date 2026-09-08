@@ -9,13 +9,14 @@
 323a80ebe1f5f7f2438c68c42ee40bba9fbb9b63  .claude/agents/ticket-audit.md
 363084aa74b2f4a04ea1bc298e69fd2a2665d688  .claude/skills/babysit-prs/SKILL.md
 37048ab080251bab319e71312afc894286ae3d8b  .claude/hooks/guard-destructive.sh
-3a67eaf0d9f373252fa1fd2db28507d42465ee77  .claude/agents/researcher.md
 3e458fa157e2a75f851732ee42bbcbab239dd9dd  CLAUDE.md
 3fc6cfb1583a2dcbfe3dcead334f9ab8805f8781  .claude/agents/explorer.md
 43822850d5057e5fe51be785134e12f1c25e7241  .claude/skills/playwright-cli/SKILL.md
 448704fe6516730d4585e0793169c756cafa39ea  .claude/skills/security-guidance/SKILL.md
 49434b76b7e7e2518ce6e466c62c37fdb70e1fef  .claude/skills/playwright-cli/references/element-attributes.md
 4e3151e0653f4b494d15c71bf5c24a063f6162f4  .claude/skills/pr-create/SKILL.md
+54bc311e02194bfbc133eb4e1d3c610d58fc75aa  .claude/skills/structural-search/SKILL.md
+5bf6f167897f841d24b0105691a5ab897bd0f562  .claude/agents/researcher.md
 5d156382416563212e54ee4fe2cfa6276ad24e00  .claude/agents/leader.md
 64ce8c2441276e0db8563d6bb5f1ead79965df03  .claude/skills/dominio/SKILL.md
 74634d707b45f7cd84efd8be1f706280613830ba  .claude/skills/debug-error/SKILL.md
@@ -42,4 +43,3 @@ e44ae68ffe44e52609d4623229a57a19ae827132  .claude/agents/auditor.md
 ec858f267877a7b5f5bc021fb52059adad3557a1  .claude/skills/playwright-cli/references/session-management.md
 ed8d38c6702001d3d8c1adaa710e185b5e1d3a16  .claude/hooks/managed-drift-watch.sh
 f3c2aa264b6113d18831352acf534ec3722fc034  .claude/skills/zod-validation/SKILL.md
-fddf75a283b01b0c1e337966032da0f3648f3ef5  .claude/skills/structural-search/SKILL.md

@@ -201,11 +201,13 @@ que la vía barata sea la misma historia en los tres modos, no un carve-out de a
 - **T2.2** — Corregir el texto de la señal `classifier-round-trips`
   (`signals.ts:316-320`): eliminar "no cambiar de herramienta" (refutado); la
   recomendación pasa a ser escalera primero, agrupar solo lo que deba seguir siendo shell.
-- **T2.3** — Refuerzos puntuales donde la doctrina ya es correcta pero no cita el costo:
-  `researcher.md:40-41` (ya dice native-first — verificado) gana la línea "in auto mode
-  the shell additionally pays a classifier round-trip per command"; `structural-search.md`
-  Rung 1 (:19-24) aclara que `rg` por shell aplica cuando `Grep` nativo no cubre el caso
-  (git history, flags de contexto), no como default.
+- **T2.3 — HECHO** (adelantado a L2: no depende de las respuestas de L0, solo agrega la
+  cifra medida donde la doctrina ya era correcta). `researcher.md` gana la línea del
+  round-trip con las cifras (~0.08s vs ~0.20s, p75 1.83s); el Rung 1 de
+  `structural-search.md` declara la vía nativa primero y el shell como fallback (git
+  history, flags de contexto). Dos guardas del repo moldearon el texto: el cap de 500
+  palabras del cuerpo managed obligó a la versión magra (sin override), y el guard
+  core-flaco vetó la palabra "express" en prosa — la lee como token de stack.
 - **Criterio**: en la re-auditoría, % nativas+MCP en tramos auto ≥ el nivel de acceptEdits
   de hoy (~26%), y búsquedas shell/hora ≤ 12 (hoy 26.8). Si la doctrina sola no mueve la
   aguja (ya pasó con #576), la señal de Fase 4 lo hará visible por sesión y la Fase 5
