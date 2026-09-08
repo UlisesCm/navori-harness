@@ -19,8 +19,17 @@ import { dirname, resolve } from "node:path";
  * already been spent by first-party growth, so the guard was about to fire on
  * exactly the case it says it does not police. `audit` adds ~24KB and ZERO
  * dependencies; the new limit restores ~84KB of room for a dep to trip.
+ *
+ * Raised 900 -> 1000 by the audit signal work (#603/#605/#607), and the
+ * measurement says the same thing again: `main` alone already built to 900KB,
+ * sitting ON the limit before the branch added anything. The four changes add
+ * ~4KB of first-party code and ZERO dependencies. Restores ~96KB of room.
+ *
+ * If a third raise ever gets proposed for first-party growth, the guard has
+ * stopped measuring what it claims to: at that point split the check in two —
+ * a hard ceiling for bundled deps and a soft trend line for our own code.
  */
-const LIMIT_KB = 900;
+const LIMIT_KB = 1000;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundle = resolve(here, "..", "dist", "index.js");
