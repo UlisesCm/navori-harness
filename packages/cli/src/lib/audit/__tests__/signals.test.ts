@@ -52,6 +52,7 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
       tokens: emptyTokens(),
       startupTokens: 0,
       models: {},
+      shellReads: 0,
       toolCounts: {},
       toolCountsByMode: {},
 
@@ -392,46 +393,63 @@ describe("signal: classifier-round-trips (#574)", () => {
  * whether the search ladder ever starts. Deliberately mode-blind, because the
  * corpus found the same Bash-dominant shape under default and acceptEdits too.
  */
-describe("signal: tool-mix (spec 0016 T4.2)", () => {
-  const withMix = (counts: Record<string, number>, modes: Record<string, number> = { auto: 10 }) =>
+describe("signal: tool-mix (spec 0016 T4.2, métrica de #603)", () => {
+  const withMix = (
+    counts: Record<string, number>,
+    shellReads: number,
+    modes: Record<string, number> = { auto: 10 },
+  ) =>
     session({
       permissionModes: modes,
-      orchestrator: { ...session().orchestrator, toolCounts: counts },
+      orchestrator: { ...session().orchestrator, toolCounts: counts, shellReads },
     });
 
   const found = (s: ReturnType<typeof session>) =>
     detectSignals(s, catalog(), "es").find((x) => x.kind === "tool-mix");
 
-  it("fires when Bash dominates the thread, with the lane breakdown", () => {
-    const signal = found(withMix({ Bash: 90, Read: 3, Grep: 2, mcp__codegraph__explore: 5 }));
+  it("fires when the reads went through the shell, with the lane breakdown", () => {
+    const signal = found(withMix({ Bash: 90, Read: 3, Grep: 2, mcp__codegraph__explore: 5 }, 45));
     expect(signal?.severity).toBe("warn");
-    expect(signal?.summary).toContain("90%");
-    expect(signal?.evidence).toContain("90 Bash");
-    expect(signal?.evidence).toContain("5 nativas");
-    expect(signal?.evidence).toContain("5 MCP");
+    // 5 native of 50 reads = 10%.
+    expect(signal?.summary).toContain("10%");
+    expect(signal?.evidence).toContain("5 lecturas nativas");
+    expect(signal?.evidence).toContain("45 comandos de shell");
+    expect(signal?.evidence).toContain("5 llamadas MCP");
   });
 
   it("fires under default and acceptEdits too — the habit is not auto's fault", () => {
     for (const mode of ["default", "acceptEdits"]) {
-      const signal = found(withMix({ Bash: 95, Read: 5 }, { [mode]: 10 }));
+      const signal = found(withMix({ Bash: 95, Read: 5 }, 60, { [mode]: 10 }));
       expect(signal, mode).toBeDefined();
       expect(signal?.evidence, mode).toContain(mode);
     }
   });
 
-  it("stays quiet for a healthy mix", () => {
-    // ~65% Bash is what the measured non-pathological sessions look like.
-    expect(found(withMix({ Bash: 65, Read: 20, Grep: 10, Edit: 5 }))).toBeUndefined();
+  /**
+   * The two worst sessions of the 13 audited: ZERO native reads, 175 and 35
+   * shell reads — and 65 and 21 `Edit`/`Write` calls that dragged the old
+   * Bash-share metric to 83% and 84%, just under its 85% line. Editing work
+   * masked the read habit the signal exists to catch (#603).
+   */
+  it("fires for a session with zero native reads that the Bash share missed", () => {
+    const signal = found(withMix({ Bash: 438, Edit: 60, Write: 5 }, 175));
+    expect(signal?.summary).toContain("0%");
   });
 
-  it("stays quiet below the sample floor, where the ratio is noise", () => {
-    // 100% Bash, but on 5 calls it describes nothing.
-    expect(found(withMix({ Bash: 5 }))).toBeUndefined();
+  it("stays quiet when half the reads took the native lane", () => {
+    // Measured: the sessions that DID climb the ladder sit at 50-61%.
+    expect(found(withMix({ Bash: 120, Read: 54, Edit: 63 }, 55))).toBeUndefined();
   });
 
-  it("counts non-lane tools in the total without offering them as an alternative", () => {
-    // 80 Bash of 100 calls = 80%, under the threshold once Task/TodoWrite count.
-    expect(found(withMix({ Bash: 80, Task: 15, TodoWrite: 5 }))).toBeUndefined();
+  it("stays quiet below the read floor, where the ratio is an accident", () => {
+    // No native reads at all, but on 6 shell reads it describes nothing.
+    expect(found(withMix({ Bash: 38, Edit: 6 }, 6))).toBeUndefined();
+  });
+
+  it("ignores writes, which are the ground the host concedes", () => {
+    // 12 native reads of 40 = 30%, over the line. The 200 Edits neither
+    // rescue a bad ratio nor sink a good one.
+    expect(found(withMix({ Bash: 250, Read: 12, Edit: 200 }, 28))).toBeUndefined();
   });
 });
 

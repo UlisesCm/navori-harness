@@ -3,7 +3,14 @@ import { join } from "node:path";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { attachHookEvents, parseAgentRun, parseSession, sumTokens, readJsonl } from "../parse.ts";
+import {
+  attachHookEvents,
+  isReadLaneCommand,
+  parseAgentRun,
+  parseSession,
+  readJsonl,
+  sumTokens,
+} from "../parse.ts";
 import type { AgentRun, SessionAudit } from "../model.ts";
 
 const FIXTURE = join(
@@ -339,6 +346,7 @@ describe("parse: hook attribution", () => {
         tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, thinking: 0 },
         startupTokens: 0,
         models: {},
+        shellReads: 0,
         toolCounts: {},
         toolCountsByMode: {},
         skillsRead: [],
@@ -515,5 +523,62 @@ describe("orchestrator model (#607)", () => {
   it("stays empty when the transcript declares no model", () => {
     const s = parseSession(sessionWithModels([undefined, undefined]));
     expect(s.orchestrator.models).toEqual({});
+  });
+});
+
+/**
+ * The classifier behind `tool-mix` (#603): which Bash calls were doing work a
+ * native `Read`/`Grep`/`Glob` would have done. Approximate on purpose — the
+ * leading binary, not a shell parse — so the cases that decide the edges are
+ * pinned here.
+ */
+describe("read-lane classification (#603)", () => {
+  it("counts the file readers and searchers", () => {
+    for (const cmd of [
+      "cat src/index.ts",
+      "head -50 README.md",
+      "grep -rn 'foo' src",
+      "rg --files-with-matches bar",
+      "find . -name '*.ts'",
+      "ls -la src/lib",
+      "wc -l src/*.ts",
+    ]) {
+      expect(isReadLaneCommand(cmd), cmd).toBe(true);
+    }
+  });
+
+  it("leaves out the shell work that has no native lane to switch to", () => {
+    for (const cmd of [
+      "git status --short",
+      "gh pr list",
+      "pnpm test",
+      "docker compose up -d",
+      "mkdir -p dist",
+    ]) {
+      expect(isReadLaneCommand(cmd), cmd).toBe(false);
+    }
+  });
+
+  it("takes `sed` only in its print-a-span form", () => {
+    // `sed -i` WRITES; crediting the read lane for an edit would invert the
+    // very ratio the signal reports.
+    expect(isReadLaneCommand("sed -n '10,40p' src/app.ts")).toBe(true);
+    expect(isReadLaneCommand("sed -i '' 's/a/b/' src/app.ts")).toBe(false);
+  });
+
+  it("names a pipeline by what produces the data, not by what filters it", () => {
+    expect(isReadLaneCommand("grep -rn foo src | head -20")).toBe(true);
+    // A `git log` piped into grep is git work: there is no native equivalent.
+    expect(isReadLaneCommand("git log --oneline | grep fix")).toBe(false);
+  });
+
+  it("sees through a leading `cd` and env assignments", () => {
+    expect(isReadLaneCommand('cd "/tmp/my repo" && cat package.json')).toBe(true);
+    expect(isReadLaneCommand("LC_ALL=C grep -c foo bar.txt")).toBe(true);
+    expect(isReadLaneCommand("cd packages/cli && pnpm build")).toBe(false);
+  });
+
+  it("matches on the basename, so an absolute path still counts", () => {
+    expect(isReadLaneCommand("/usr/bin/cat /etc/hosts")).toBe(true);
   });
 });

@@ -202,6 +202,18 @@ export interface SessionAudit {
      * declare no model.
      */
     models: Record<string, number>;
+    /**
+     * Bash calls whose leading binary reads or searches files — the work a
+     * native `Read`/`Grep`/`Glob` would have done.
+     *
+     * Split out because the plain share of Bash cannot answer the question
+     * `tool-mix` asks. `Edit`/`Write` count as native tools but are WRITES, the
+     * ground the host concedes in auto mode; leaving them in the denominator
+     * let a session with 175 shell reads and zero native reads sit at 83% Bash,
+     * under the threshold. Approximate by construction — the leading binary,
+     * not a parse of the command — and the report says so.
+     */
+    shellReads: number;
     toolCounts: Record<string, number>;
     /**
      * The same calls, split by the permission mode in force when each ran

@@ -397,13 +397,19 @@ function classifierRoundTrips(session: SessionAudit, lang: Lang): Signal[] {
   ];
 }
 
-/** Above this share of a thread's tool calls, Bash has stopped being one tool
- *  among several and become the only one. Set at 85% because the measured
- *  healthy sessions sit near 65% and the pathological ones at 90%+. */
-const BASH_DOMINANCE = 0.85;
+/**
+ * Below this share of native reads, the search ladder never started.
+ *
+ * Measured, not chosen: across 13 audited sessions the native share of the
+ * read lane is bimodal — {0, 0, 0, 2, 3, 9, 10, 13}% against {25, 26, 50, 61}%
+ * — and 20% sits in the valley between the two groups. It leaves room for the
+ * shell reads that have no native equivalent (FS metadata, `git show`, context
+ * flags) without demanding purity.
+ */
+const NATIVE_READ_SHARE = 0.2;
 
-/** Below this many calls the ratio is noise, not a habit. */
-const TOOL_MIX_MIN_CALLS = 20;
+/** Below this many shell reads the ratio is an accident, not a habit. */
+const TOOL_MIX_MIN_READS = 10;
 
 /**
  * Does the search ladder actually start? (spec 0016 T4.2.)
@@ -419,18 +425,31 @@ const TOOL_MIX_MIN_CALLS = 20;
  *
  * `warn`, not `info`: unlike the round-trip count — a fact about the mode — this
  * one says the session had cheaper lanes available and did not take them.
+ *
+ * MEASURED ON THE READ LANE, not on the whole histogram (#603). The first
+ * version divided Bash by every tool call and fired above 85%, which failed on
+ * the two worst sessions of the 13 audited: both had ZERO native reads — 175
+ * and 35 shell reads — and their `Edit`/`Write` calls pulled them to 83% and
+ * 84%, just under the line. Writes are the ground the host concedes in auto
+ * mode; keeping them in the denominator let editing work mask the read habit
+ * the signal exists to catch.
+ *
+ * The mode-blind stance holds, with a caveat the same 13 sessions add: the
+ * highest native share (61%) was the only `acceptEdits`-dominant session, while
+ * inside `auto` the spread runs 0% to 50%. The mode does not explain the
+ * variance on its own — but an absolute zero showed up only under `auto`.
  */
 function toolMix(session: SessionAudit, lang: Lang): Signal[] {
   const counts = session.orchestrator.toolCounts;
-  const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
-  if (total < TOOL_MIX_MIN_CALLS) return [];
+  const shellReads = session.orchestrator.shellReads ?? 0;
+  if (shellReads < TOOL_MIX_MIN_READS) return [];
 
-  const shell = laneTotal(counts, "shell");
-  if (shell / total < BASH_DOMINANCE) return [];
+  const nativeReads = (counts.Read ?? 0) + (counts.Grep ?? 0) + (counts.Glob ?? 0);
+  const lane = nativeReads + shellReads;
+  const share = nativeReads / lane;
+  if (share >= NATIVE_READ_SHARE) return [];
 
-  const native = laneTotal(counts, "native");
   const mcp = laneTotal(counts, "mcp");
-  const pct = (n: number): string => `${Math.round((n / total) * 100)}%`;
   const modes = Object.keys(session.permissionModes).join(", ") || "(sin declarar)";
 
   return [
@@ -439,13 +458,13 @@ function toolMix(session: SessionAudit, lang: Lang): Signal[] {
       severity: "warn",
       summary: pick(
         lang,
-        `El shell fue el ${pct(shell)} de las herramientas del orquestador: la escalera de búsqueda no arrancó`,
-        `Shell was ${pct(shell)} of the orchestrator's tool calls: the search ladder never started`,
+        `Solo el ${Math.round(share * 100)}% de las lecturas fue por herramienta nativa: la escalera de búsqueda no arrancó`,
+        `Only ${Math.round(share * 100)}% of the reads went through a native tool: the search ladder never started`,
       ),
       evidence: pick(
         lang,
-        `${shell} Bash, ${native} nativas (Read/Edit/Grep/Glob) y ${mcp} MCP sobre ${total} llamadas — ${pct(native)} y ${pct(mcp)}. Modo(s): ${modes}. Esto NO es un problema de auto mode: se midió la misma mezcla en default y acceptEdits, donde el shell paga prompt humano en vez de clasificador. Las nativas y MCP están en 'allow' y resuelven en ~0.08–0.13s contra ~0.20s (p75 1.83s) de una búsqueda por shell, y cada Bash arrastra además su batería de hooks y mete su salida completa al contexto.`,
-        `${shell} Bash, ${native} native (Read/Edit/Grep/Glob) and ${mcp} MCP out of ${total} calls — ${pct(native)} and ${pct(mcp)}. Mode(s): ${modes}. This is NOT an auto-mode problem: the same mix was measured under default and acceptEdits, where the shell pays a human prompt instead of a classifier. Native tools and MCP are in 'allow' and answer in ~0.08–0.13s against ~0.20s (p75 1.83s) for the same search through the shell, and every Bash also drags its hook battery and feeds its full output back into context.`,
+        `${nativeReads} lecturas nativas (Read/Grep/Glob) contra ${shellReads} comandos de shell que hacen ese mismo trabajo (cat, head, sed -n, grep, rg, find, ls…), sobre ${lane} lecturas en total; ${mcp} llamadas MCP. Modo(s): ${modes}. Las escrituras quedan fuera del cálculo a propósito: Edit y Write son terreno que el host ya cede, y contarlas ocultaba sesiones con CERO lecturas nativas. Esto NO es un problema de auto mode: la misma mezcla se midió en default y acceptEdits, donde el shell paga prompt humano en vez de clasificador. Las nativas y MCP están en 'allow' y resuelven en ~0.08–0.13s contra ~0.20s (p75 1.83s) de una búsqueda por shell, y cada Bash arrastra además su batería de hooks y mete su salida completa al contexto. Detección aproximada: por el binario que encabeza cada comando.`,
+        `${nativeReads} native reads (Read/Grep/Glob) against ${shellReads} shell commands doing the same job (cat, head, sed -n, grep, rg, find, ls…), out of ${lane} reads in total; ${mcp} MCP calls. Mode(s): ${modes}. Writes are deliberately out of the ratio: Edit and Write are ground the host already concedes, and counting them hid sessions with ZERO native reads. This is NOT an auto-mode problem: the same mix was measured under default and acceptEdits, where the shell pays a human prompt instead of a classifier. Native tools and MCP are in 'allow' and answer in ~0.08–0.13s against ~0.20s (p75 1.83s) for the same search through the shell, and every Bash also drags its hook battery and feeds its full output back into context. Approximate detection: by the binary leading each command.`,
       ),
     },
   ];
