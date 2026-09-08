@@ -265,6 +265,11 @@ trap navori_audit_on_exit EXIT
 # only gate that also fires on push and PR creation (remote-push security
 # backstop). $TRIGGER_RE is consumed by the shared detector inlined below.
 TRIGGER_RE='(^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+(commit|push)([[:space:]]|$))|(^gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$))'
+# Literal substrings every branch of $TRIGGER_RE needs; read by the fast
+# path in the shared detector below (spec 0016). Keep NEXT to the regex:
+# a branch added there without its token here silently loses the shortcut
+# (fail-open to the slow path), and the inlined tests pin the pairing.
+TRIGGER_TOKENS='commit push create'
 # Shared gate detector — inlined into each hook at render time (see the include
 # directive in the source scripts + lib/hook-includes.ts). The caller MUST set
 # $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
@@ -288,6 +293,41 @@ is_scan_trigger() {
   # `cd x && git commit` (#391). A plain variable expands identically in
   # bash and zsh. ($'\n' in PATTERN position expands fine in both.)
   local input="$1" segment nl=$'\n'
+
+  # ─── Fast path (spec 0016 T3.2, second pass): the loop below pays one
+  # `grep -qE` FORK per segment — and a heredoc body or a 40-step compound
+  # is 40 segments, so the field cost scaled with command length (measured:
+  # 2.8 ms trivial, 14.8 ms for a 199-char heredoc, 95.8 ms for 40 segments;
+  # p50 across one real session's commands was 40 ms per hook, not the
+  # trivial floor). No $TRIGGER_RE can match without one of the caller's
+  # literal TOKENS appearing in the segment it matches — and every segment is
+  # a substring of the input, transformed only by insertions (`\<NL>` → space,
+  # separators → newline) and prefix-peeling, none of which can CREATE a
+  # token. So a single in-process substring scan of the raw input is a strict
+  # superset of the segment matches: if no token is present, no segment can
+  # match, and the gate answers "not for me" without a single fork. Same
+  # argument, same safe direction, as the guard's own fast path.
+  #
+  # $TRIGGER_TOKENS is set by the including hook NEXT TO its $TRIGGER_RE, so
+  # the pair travels together; when unset the fast path disarms and the loop
+  # runs exactly as before (fail-open to the SLOW path, never to a skip).
+  # Token iteration goes through newline-split + `read`, NOT `for _tok in
+  # $TRIGGER_TOKENS`: zsh does not word-split an unquoted expansion, so the
+  # `for` form iterated ONCE with the whole list as a single token there — and
+  # a token that can never match is a gate that never fires. Caught by the
+  # bash×zsh differential suite; same class as the $'\n' pitfall above.
+  if [ -n "${TRIGGER_TOKENS:-}" ]; then
+    local _tok _hit="" _toks="${TRIGGER_TOKENS// /$nl}"
+    while IFS= read -r _tok; do
+      [ -n "$_tok" ] || continue
+      case "$input" in *"$_tok"*)
+        _hit=1
+        break
+        ;;
+      esac
+    done <<< "$_toks"
+    [ -n "$_hit" ] || return 1
+  fi
   # FIX B: join `\<newline>` continuations into a space FIRST, so a command
   # split across lines with a trailing backslash stays ONE logical segment
   # (otherwise the subcommand/flag lands in a segment not starting with git).
