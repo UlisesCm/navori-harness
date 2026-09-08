@@ -99,6 +99,48 @@ documenta que auto mode obligue a trabajar por shell, y las nativas funcionan en
 - **Criterio de salida**: los tres reportes de `navori audit` comparados; las respuestas
   se anotan en esta spec antes de ejecutar la Fase 2.
 
+#### Resultado parcial — brazo `auto` corrido (2026-09-07, 1 de 3)
+
+La sesión que implementó L1/L3/L4 corrió completa en `auto` con audit-mode
+(`session-fa4dd30b`, CC 2.1.236, navori rendered/cli 0.7.3, 491 min, 359 tool calls del
+orquestador). No es la "tarea chica representativa" que pide T0.1 — es una jornada larga
+de implementación — así que sirve para responder las preguntas cualitativas, no como
+brazo limpio del A/B de mezcla. Lo que contesta:
+
+1. **¿El host aún induce shell en auto mode? SÍ, y para TODO — las dos variantes de T2.1
+   quedan refutadas.** El system prompt de la sesión trae la directiva verbatim: *"While
+   auto mode is active: Do your work through the Bash tool wherever it can accomplish the
+   job: read files with cat, head, or sed -n, search with grep and find, and make file
+   changes with sed, heredocs, or short scripts, rather than using the dedicated Read,
+   Edit, or Write tools."* Cubre lectura, búsqueda Y edición — ni (a) "ya no induce" ni
+   (b) "solo ediciones". La premisa de la Fase 0 ("la doc oficial actual ya no documenta
+   que auto mode obligue a trabajar por shell") describe la doc, no el prompt que el host
+   inyecta. **Consecuencia para T2.1**: la reescritura no puede partir de que el mandato
+   desapareció; tiene que resolver la tensión entre el mandato del host (shell para todo,
+   con su propia válvula "only when Bash genuinely cannot do the job") y el costo medido
+   de la vía nativa. Nota: el mandato NO impidió usar nativas donde el host mismo cede —
+   la sesión hizo 48 `Edit` + 4 `Write` sin fricción; las 0 llamadas a `Read`/`Grep`/`Glob`
+   son la doctrina del host operando, no una imposibilidad técnica.
+
+2. **¿Las reglas `allow` de prefijo resuelven sin clasificador en auto? SIGUE ABIERTA —
+   no es medible desde dentro de la sesión.** Ni el transcript ni el log de audit
+   registran qué comandos pagaron round-trip de clasificador; solo el host lo sabe. Para
+   cerrarla hace falta observación externa (p. ej. comparar latencia de arranque de
+   comandos cubiertos vs no cubiertos sobre una muestra grande, o una fuente oficial).
+
+3. **Baseline de mezcla: 82% shell / 14% nativas / 3% MCP** (294/52/12 sobre 359). Contra
+   el 3.0% de nativas del corpus, la mezcla SÍ se movió (~5x) — pero el detalle importa:
+   las 52 nativas son TODAS de escritura (48 `Edit`, 4 `Write`), y `Read`/`Grep`/`Glob`
+   quedaron en CERO. La doctrina post-#576 movió la edición a nativas; la búsqueda/lectura
+   sigue 100% en shell, que es exactamente lo que el mandato del host ordena. `tool-mix`
+   (T4.2) no disparó (82% < 85%), coherente con su calibración. Caveat: CLAUDE.md cargado
+   al arranque era pre-L1, así que este número tampoco mide la doctrina de L1.
+
+**Pendiente del lote**: los brazos `acceptEdits` y `default` (misma tarea, sesiones de
+Ulises) — con ellos se decide si la pregunta 3 amerita más doctrina (L2) o si el techo en
+auto lo pone el mandato del host, en cuyo caso L2 se reescribe alrededor de esa tensión y
+no de la mezcla.
+
 ### Fase 1 — Cerrar la brecha allow ↔ doctrina (mejora los TRES modos)
 
 Cada regla nueva elimina un round-trip de clasificador en auto **y** un prompt humano en
