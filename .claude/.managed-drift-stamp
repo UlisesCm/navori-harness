@@ -2,6 +2,7 @@
 057869cda879b9b3e50dabe4af454bd4f4711d54  .claude/hooks/precompact-session-summary.sh
 0f59e5ec66c07124ad677ff5e888315816440c62  .claude/hooks/subagent-stop-handoff.sh
 136dfcfdd912f7e980dfa9152e1819452592b11c  .claude/skills/review-diff/SKILL.md
+1cc0b495a83b7fbfb0b13f3016d2136df7a82444  .claude/hooks/session-start-context.sh
 213ce871151241cc00263a95be7e7128c6a3e673  .claude/skills/playwright-cli/references/video-recording.md
 22164d514481b1cd01629246d015adbaa5aa6bba  .claude/agents/commit-pr-pilot.md
 24933ab691d23cc7b702a43d0e8fc4cb21011d5c  .claude/skills/loop-back-debug/SKILL.md
@@ -34,7 +35,6 @@ b7881f576fb3043d03c091ec30f45c995957c2a7  .claude/skills/playwright-cli/referenc
 b8c031a8568ecadaa335ab1a5e85b7bc4d8a821c  .claude/hooks/audit-mode-trigger.sh
 b9989e035e85e30c7e08c54598d166484386caad  .claude/hooks/quality-gate-pre-commit.sh
 c14e06ce2a765b27d134a20089efea5f3cbb19d2  .claude/skills/ticket-intake/SKILL.md
-c2025214f3d7b1428eedd6c7bbd1448a43c744af  .claude/hooks/session-start-context.sh
 c2b5b74f2f8b8fdfc56e44a06ebbd46793c43168  .claude/hooks/worktree-reclaim.sh
 c3fc30043da5953f8b6de3ca084ac0500f6bf4db  .claude/skills/playwright-cli/references/test-generation.md
 d4857abbd32156496ab5e4e836c0b89c45cfa1a9  .claude/agents/reviewer.md

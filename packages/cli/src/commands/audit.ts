@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readFileSync,
   writeFileSync,
+  rmSync,
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { readHarnessCatalog, renderedHarnessVersion } from "../lib/audit/harness.ts";
@@ -116,6 +117,15 @@ export const auditCommand = defineCommand({
     out: { type: "string", description: "Override the output directory" },
     start: { type: "string", description: "Mark a session id as audited (used by the hook flow)" },
     stop: { type: "string", description: "Seal a session's log and report on it" },
+    arm: {
+      type: "boolean",
+      description:
+        "Arm audit-mode for the NEXT session opened in this repo: the SessionStart hook runs --start with that session's id and consumes the flag.",
+    },
+    disarm: {
+      type: "boolean",
+      description: "Remove a pending --arm flag without starting anything",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
@@ -130,6 +140,49 @@ export const auditCommand = defineCommand({
     // produces hangs off it, so an unusable repo name fails here rather than
     // three writes later.
     const auditDir = auditPathOrExit(() => repoAuditDir(repo), json);
+
+    // --arm / --disarm (#597): activation WITHOUT passing through the model's
+    // attention. "Do it in audit mode" inside a task prompt loses to the task —
+    // measured in the field: the agent loaded ticket-intake and started the
+    // pipeline, and the user had to interrupt to get `--start` run. Arming is
+    // explicit and happens OUTSIDE the session (a terminal command before
+    // opening it), so it does not resurrect the natural-language detection R3
+    // removed. The SessionStart hook consumes the flag and calls --start with
+    // the id only IT knows; consumption-first means the flag arms exactly ONE
+    // session, never "every session from now on".
+    if (args.arm === true) {
+      const armedFile = join(auditDir, ".armed");
+      mkdirSync(auditDir, { recursive: true });
+      if (existsSync(armedFile)) {
+        p.outro(
+          isEs
+            ? "ya estaba armado — la próxima sesión de este repo arranca con audit-mode"
+            : "already armed — the next session in this repo starts with audit-mode",
+        );
+        return;
+      }
+      writeFileSync(
+        armedFile,
+        `${JSON.stringify({ ts: new Date().toISOString(), cwd })}\n`,
+        "utf-8",
+      );
+      p.outro(
+        isEs
+          ? `${color.green("armado")} — la PRÓXIMA sesión de este repo arranca con audit-mode (una sola; 'navori audit --disarm' lo cancela)`
+          : `${color.green("armed")} — the NEXT session in this repo starts with audit-mode (one session only; 'navori audit --disarm' cancels)`,
+      );
+      return;
+    }
+    if (args.disarm === true) {
+      const armedFile = join(auditDir, ".armed");
+      if (existsSync(armedFile)) {
+        rmSync(armedFile);
+        p.outro(isEs ? "desarmado" : "disarmed");
+      } else {
+        p.outro(isEs ? "no había nada armado" : "nothing was armed");
+      }
+      return;
+    }
 
     // --start / --stop are the ONLY way in and out of the recording (R3): the
     // hook no longer proposes either, because no heuristic over natural language

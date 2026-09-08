@@ -755,3 +755,106 @@ describe.each(SHELLS)("the handoff note is said once per problem under %s", (she
     expect(runFile(shell, hook, JSON.stringify({ cwd })).out).toContain("systemMessage");
   });
 });
+
+/**
+ * #597 — the armed audit-mode flag. `navori audit --arm` (a terminal command,
+ * BEFORE the session opens) leaves `.armed` under the repo's audit dir; the
+ * SessionStart hook is the only party that knows the new session's id, so IT
+ * runs `--start` and consumes the flag. These specs drive the rendered hook
+ * against a fake `navori` on PATH that records its argv — the contract under
+ * test is the hook's, not the CLI's (that half has its own suite).
+ */
+describe.each(SHELLS)("armed audit-mode via SessionStart under %s", (shell) => {
+  let navoriCalls: string;
+  let shimDir: string;
+
+  function installNavoriShim(exitCode = 0): void {
+    shimDir = join(root, "shim-bin");
+    mkdirSync(shimDir, { recursive: true });
+    navoriCalls = join(root, "navori-calls.log");
+    writeFileSync(
+      join(shimDir, "navori"),
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> "${navoriCalls}"\nexit ${exitCode}\n`,
+      "utf-8",
+    );
+    chmodSync(join(shimDir, "navori"), 0o755);
+  }
+
+  function runSessionStart(sessionId: string): { out: string; code: number } {
+    const hook = install(shell, join(HOOKS, "session-start-context.sh"));
+    const input = JSON.stringify({ session_id: sessionId, cwd, hook_event_name: "SessionStart" });
+    try {
+      const out = execFileSync(shell, [hook], {
+        input,
+        encoding: "utf-8",
+        cwd: root,
+        env: {
+          ...process.env,
+          NAVORI_AUDITS_ROOT: root,
+          CLAUDE_PROJECT_DIR: root, // deliberately NOT the repo: cwd must win (#454)
+          TMPDIR: root,
+          PATH: `${shimDir}:${dirname(process.execPath)}:/usr/bin:/bin`,
+        },
+      });
+      return { out, code: 0 };
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; status?: number };
+      return { out: (e.stdout ?? "") + (e.stderr ?? ""), code: e.status ?? -1 };
+    }
+  }
+
+  const armedFile = () => join(root, REPO, ".armed");
+  function arm(): void {
+    mkdirSync(join(root, REPO), { recursive: true });
+    writeFileSync(armedFile(), `${JSON.stringify({ ts: "2026-09-07T00:00:00Z", cwd })}\n`, "utf-8");
+  }
+
+  it("consumes the flag, starts the audit with the session's id, and tells the model", () => {
+    installNavoriShim();
+    arm();
+    const { out, code } = runSessionStart("sess-armed-1");
+    expect(code).toBe(0);
+    expect(existsSync(armedFile()), "the flag must be consumed").toBe(false);
+    const calls = readFileSync(navoriCalls, "utf-8");
+    expect(calls).toContain("audit --start sess-armed-1");
+    // The repo comes from the payload's cwd, not CLAUDE_PROJECT_DIR (#454).
+    expect(calls).toContain(`--cwd ${cwd}`);
+    // The model learns it is being recorded in the very first context.
+    expect(out).toContain("audit-mode ACTIVO");
+  });
+
+  /** The hook legitimately calls `navori` for other things (dominio inject),
+   *  so the assertion is "no --start was issued", never "navori never ran". */
+  const startCalls = () =>
+    (existsSync(navoriCalls) ? readFileSync(navoriCalls, "utf-8") : "")
+      .split("\n")
+      .filter((l) => l.includes("audit --start"));
+
+  it("does nothing when no flag is armed", () => {
+    installNavoriShim();
+    const { out, code } = runSessionStart("sess-unarmed");
+    expect(code).toBe(0);
+    expect(startCalls()).toEqual([]);
+    expect(out).not.toContain("audit-mode ACTIVO");
+  });
+
+  it("arms exactly ONE session: a failure consumes the flag rather than latching it", () => {
+    // A flag surviving a failed --start would fire on some later unrelated
+    // session; losing the arm and asking the user again is the lesser evil.
+    installNavoriShim(1);
+    arm();
+    const { out, code } = runSessionStart("sess-armed-2");
+    expect(code).toBe(0);
+    expect(existsSync(armedFile())).toBe(false);
+    expect(out).not.toContain("audit-mode ACTIVO");
+  });
+
+  it("leaves the flag alone for a path-shaped session id (payload not trusted)", () => {
+    installNavoriShim();
+    arm();
+    const { code } = runSessionStart("../escape");
+    expect(code).toBe(0);
+    expect(startCalls()).toEqual([]);
+    expect(existsSync(armedFile()), "the arm waits for a valid session").toBe(true);
+  });
+});

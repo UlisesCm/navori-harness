@@ -357,6 +357,10 @@ describe("the inventory of delete paths is complete (#496)", () => {
     "lib/backup.ts": "prunes navori's own backup store (~/.navori/backups) by age and size",
     "lib/lockfile.ts": "removes its own lock file",
     "lib/global-config.ts": "deletes ~/.navori/global.json on an explicit command",
+    "commands/audit.ts":
+      "--disarm removes the `.armed` flag navori itself wrote under the audit root (#597). " +
+      "Never a user file — the audit store is navori's own. (The armed flow's consumption " +
+      "lives in the SessionStart hook, in shell, outside this inventory's reach.)",
     "lib/tickets.ts": "deletes a ticket from navori's workspace store on an explicit command",
     "engines/claude/global-render.ts":
       "`navori global uninstall` removes navori's own global hook file — the whole point of " +

@@ -99,6 +99,50 @@ afterEach(() => {
   rmSync(sandbox, { recursive: true, force: true });
 });
 
+/**
+ * #597 — activation without passing through the model's attention. `--arm`
+ * leaves a per-repo flag the SessionStart hook consumes; these specs pin the
+ * CLI half: the flag's location (the hook computes the same path), one-shot
+ * semantics, and that disarming is safe when nothing is armed.
+ */
+describe("audit --arm / --disarm (#597)", () => {
+  const armedFile = () => join(auditDir, ".armed");
+
+  it("writes the armed flag where the SessionStart hook will look for it", () => {
+    const res = runAudit(["--arm"]);
+    expect(res.status).toBe(0);
+    expect(existsSync(armedFile())).toBe(true);
+    // Diagnostic content, parseable: when it fires on the wrong repo, the
+    // recorded cwd says where the arm actually happened.
+    const body = JSON.parse(readFileSync(armedFile(), "utf-8")) as { cwd: string };
+    expect(body.cwd).toBe(repoDir);
+  });
+
+  it("is idempotent and says so instead of re-stamping", () => {
+    runAudit(["--arm"]);
+    const first = readFileSync(armedFile(), "utf-8");
+    const res = runAudit(["--arm"]);
+    expect(res.status).toBe(0);
+    expect(res.combined).toMatch(/ya estaba armado|already armed/);
+    expect(readFileSync(armedFile(), "utf-8")).toBe(first);
+  });
+
+  it("disarm removes the flag; disarming nothing is a clean no-op", () => {
+    runAudit(["--arm"]);
+    expect(runAudit(["--disarm"]).status).toBe(0);
+    expect(existsSync(armedFile())).toBe(false);
+    const res = runAudit(["--disarm"]);
+    expect(res.status).toBe(0);
+    expect(res.combined).toMatch(/no había nada armado|nothing was armed/);
+  });
+
+  it("arming does NOT start anything: no session log appears", () => {
+    runAudit(["--arm"]);
+    const entries = readdirSync(auditDir).filter((f) => f.startsWith("session-"));
+    expect(entries).toEqual([]);
+  });
+});
+
 describe("audit --start: valid session id", () => {
   it("writes the log inside the audit root", () => {
     const res = runAudit(["--start", "3f9a-b2c_1"]);

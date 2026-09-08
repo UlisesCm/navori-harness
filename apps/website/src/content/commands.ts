@@ -661,6 +661,10 @@ const es: Record<string, CommandDoc> = {
       { flag: "--json", desc: "Imprime el reporte JSON a stdout sin escribir archivos." },
       { flag: "--out <dir>", desc: "Cambia el directorio de salida." },
       { flag: "--start <id>", desc: "Marca una sesión como auditada (lo usa el flujo del hook)." },
+      {
+        flag: "--arm",
+        desc: "Arma el audit-mode para la PRÓXIMA sesión de este repo: lo corres en la terminal antes de abrirla y el hook de SessionStart hace el --start solo (una sesión exacta; --disarm lo cancela).",
+      },
       { flag: "--stop <id>", desc: "Sella el log de la sesión y reporta sobre ella." },
       { flag: "--cwd <dir>", desc: "Repo a auditar (default: actual)." },
     ],
@@ -1375,6 +1379,10 @@ const en: Record<string, CommandDoc> = {
       { flag: "--json", desc: "Print the JSON report to stdout without writing files." },
       { flag: "--out <dir>", desc: "Override the output directory." },
       { flag: "--start <id>", desc: "Mark a session as audited (used by the hook flow)." },
+      {
+        flag: "--arm",
+        desc: "Arm audit-mode for the NEXT session in this repo: run it in the terminal before opening it and the SessionStart hook issues --start itself (exactly one session; --disarm cancels).",
+      },
       { flag: "--stop <id>", desc: "Seal the session's log and report on it." },
       { flag: "--cwd <dir>", desc: "Repo to audit (default: current)." },
     ],
