@@ -46,3 +46,38 @@ describe("cierre-sesion.md — quality-gate step reuses cycle evidence (#398)", 
     }
   });
 });
+
+/**
+ * Content guard (#601): the closeout must park the repo on the base branch,
+ * synced — and it must do it SAFELY. The doctrine exists because every cycle
+ * leaves its feature branch and the repo drifts into starting new work from
+ * stale bases; the guards exist because a parking step that switches branches
+ * under a dirty tree or a parallel session destroys work. Both halves are
+ * load-bearing, so both are pinned.
+ */
+describe("cierre-sesion.md — park on base (#601)", () => {
+  const raw = readFileSync(ASSET_PATH, "utf-8");
+  const step6 = raw.split("\n").findIndex((line) => line.startsWith("6. **Park on base**"));
+  const block = raw
+    .split("\n")
+    .slice(step6, step6 + 8)
+    .join("\n");
+
+  it("has the parking step, interpolating the config's base branch", () => {
+    expect(step6, "closeout step 6 (**Park on base**) not found").toBeGreaterThan(-1);
+    expect(block).toContain("{{branchBase}}");
+  });
+
+  it("pulls fast-forward only — the base never receives a surprise merge", () => {
+    expect(block).toContain("--ff-only");
+  });
+
+  it("never deletes the feature branch, and says so explicitly", () => {
+    expect(block).toMatch(/Never delete the feature branch/);
+  });
+
+  it("refuses to switch on a dirty tree or over a possibly-live parallel session", () => {
+    expect(block).toMatch(/clean working tree/);
+    expect(block).toMatch(/another session may be alive/);
+  });
+});

@@ -11,7 +11,6 @@
 35073652e6d304ffe4d98d95fba98d3f5ce81f61  .claude/skills/verify-before-done/SKILL.md
 3775fd5dcddbf467bfbdf569f47247b06d63862c  .claude/skills/structural-search/SKILL.md
 3a4561172825a129e5ffa79b1ab7e1874e5fe97f  .claude/skills/spec-bootstrap/SKILL.md
-3f7686edf6029153e56eba876af97bcf96ab8ffc  .claude/settings.json
 43822850d5057e5fe51be785134e12f1c25e7241  .claude/skills/playwright-cli/SKILL.md
 49434b76b7e7e2518ce6e466c62c37fdb70e1fef  .claude/skills/playwright-cli/references/element-attributes.md
 590e57f241c7264df744eb51319fd6bc487c8454  .claude/agents/implementer.md
@@ -19,6 +18,7 @@
 604cafa8bf4e34a4dedc5eb7f0a3986c74472564  .claude/agents/reviewer.md
 6a3f45e5ce0499f7e7bbdd80d92c84fb81c5494f  .claude/skills/solution-design/SKILL.md
 7bb0cd89b982b35cf0c46558776faebf489b993b  .claude/skills/vitest/SKILL.md
+9660e33ae5476969906e7ad8005236f08e87837d  .claude/settings.json
 9a194d74fd1b56d472f24a424d8155fccde5de89  .claude/agents/leader.md
 9c466d6e839d20d2d9043f058f3d84f6421006d3  .claude/skills/debug-error/SKILL.md
 9c5eb6c3a565eb7c332c41dc98f34366bf7de4fd  .claude/skills/review-diff/SKILL.md
