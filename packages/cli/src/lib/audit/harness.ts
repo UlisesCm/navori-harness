@@ -40,6 +40,15 @@ export interface DeclaredSection {
 export interface HarnessCatalog {
   agents: DeclaredAgent[];
   skills: string[];
+  /**
+   * The subset of `skills` that navori renders, by their managed marker.
+   *
+   * The `unused-skills` finding used to name every idle skill in one bag —
+   * 35 of them on a real session — which told the reader nothing about what to
+   * do: a skill the preset ships and one the user wrote by hand are the same
+   * sentence but different decisions.
+   */
+  managedSkills: string[];
   sections: DeclaredSection[];
   claudeMdTokens: number;
   /** The MCP servers this harness instructs agents to use. Exposed from
@@ -173,13 +182,24 @@ export function readHarnessCatalog(repoRoot: string): HarnessCatalog {
 
   const skillsDir = join(repoRoot, ".claude", "skills");
   const skills: string[] = [];
+  const managedSkills: string[] = [];
   if (existsSync(skillsDir)) {
     for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
+      let file: string | null = null;
+      let name = "";
       if (entry.isDirectory() && existsSync(join(skillsDir, entry.name, "SKILL.md"))) {
-        skills.push(entry.name);
+        file = join(skillsDir, entry.name, "SKILL.md");
+        name = entry.name;
       } else if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "SKILL.md") {
-        skills.push(entry.name.replace(/\.md$/, ""));
+        file = join(skillsDir, entry.name);
+        name = entry.name.replace(/\.md$/, "");
       }
+      if (!file) continue;
+      skills.push(name);
+      // The marker is the only honest witness of provenance: a name proves
+      // nothing (a user skill may share a name with a shipped one) and the
+      // preset list would have to be re-derived per release.
+      if (listMarkers(file).length > 0) managedSkills.push(name);
     }
   }
 
@@ -194,6 +214,7 @@ export function readHarnessCatalog(repoRoot: string): HarnessCatalog {
     agents: agents.sort((a, b) => a.name.localeCompare(b.name)),
     mcpFamilies: MCP_HINTS.map((h) => h.server).sort(),
     skills: skills.sort(),
+    managedSkills: managedSkills.sort(),
     sections: parseSections(claudeMd),
     claudeMdTokens: Math.round(claudeMd.length / 4),
   };

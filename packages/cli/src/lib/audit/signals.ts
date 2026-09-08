@@ -149,6 +149,21 @@ function deadCatalog(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Si
   ]);
   const unused = cat.skills.filter((s) => !usedSkills.has(s));
   if (unused.length > 0 && cat.skills.length > 0) {
+    // Split by provenance (#607): the two halves lead to different decisions —
+    // the user owns theirs, the preset ships navori's — and one merged list of
+    // 35 names asks the reader to sort it out by hand.
+    const managed = new Set(cat.managedSkills ?? []);
+    const own = unused.filter((s) => !managed.has(s));
+    const fromNavori = unused.filter((s) => managed.has(s));
+    const part = (label: string, list: string[]): string =>
+      list.length > 0 ? `${label} (${list.length}): ${list.join(", ")}` : "";
+    const evidence = [
+      part(pick(lang, "tuyas", "yours"), own),
+      part(pick(lang, "de navori", "navori's"), fromNavori),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
     out.push({
       kind: "unused-skills",
       severity: "info",
@@ -157,7 +172,7 @@ function deadCatalog(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Si
         `${unused.length} de ${cat.skills.length} skills declaradas no se usaron`,
         `${unused.length} of ${cat.skills.length} declared skills went unused`,
       ),
-      evidence: unused.join(", "),
+      evidence: evidence || unused.join(", "),
     });
   }
 

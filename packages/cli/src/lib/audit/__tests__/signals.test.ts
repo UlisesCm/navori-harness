@@ -77,6 +77,7 @@ function catalog(over: Partial<HarnessCatalog> = {}): HarnessCatalog {
   return {
     agents: [],
     skills: [],
+    managedSkills: [],
     sections: [],
     claudeMdTokens: 8000,
     mcpFamilies: ["codegraph", "engram"],
@@ -554,5 +555,36 @@ describe("signal: hook-log-coverage stays quiet on a gap that rounds away (#584)
       ],
     });
     expect(kinds(s, catalog())).toContain("hook-log-coverage");
+  });
+});
+
+/**
+ * The finding used to name every idle skill in one bag — 35 of them on a real
+ * session — which told the reader nothing about what to do next: a skill the
+ * preset ships and one the user wrote are the same sentence but different
+ * decisions (#607).
+ */
+describe("signal: unused-skills splits by provenance", () => {
+  const s = () => session({ orchestrator: { ...session().orchestrator, skillsRead: ["dominio"] } });
+
+  it("separates the user's skills from navori's", () => {
+    const c = catalog({
+      skills: ["dominio", "review-diff", "tamagui-v1", "zod-validation-expert"],
+      managedSkills: ["dominio", "review-diff"],
+    });
+    const found = detectSignals(s(), c, "es").find((x) => x.kind === "unused-skills");
+    expect(found?.summary).toContain("3 de 4");
+    expect(found?.evidence).toBe(
+      "tuyas (2): tamagui-v1, zod-validation-expert · de navori (1): review-diff",
+    );
+  });
+
+  it("names only the half that exists", () => {
+    const c = catalog({
+      skills: ["dominio", "review-diff"],
+      managedSkills: ["dominio", "review-diff"],
+    });
+    const found = detectSignals(s(), c, "es").find((x) => x.kind === "unused-skills");
+    expect(found?.evidence).toBe("de navori (1): review-diff");
   });
 });

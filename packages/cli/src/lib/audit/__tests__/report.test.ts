@@ -87,6 +87,7 @@ const CATALOG: HarnessCatalog = {
     { name: "claude", tools: null, hasMcp: true },
   ],
   skills: [],
+  managedSkills: [],
   sections: [
     // A CLAUDE.md section that REQUIRES engram: every agent pays for it at
     // startup, reachable or not.
