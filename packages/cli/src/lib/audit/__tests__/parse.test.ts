@@ -331,11 +331,14 @@ describe("parse: hook attribution", () => {
       cwd: "/tmp/repo",
       ccVersions: [],
       navori: { rendered: null, cli: null },
+      navoriAtStop: null,
+      sealed: false,
       permissionModes: {},
       prs: [],
       orchestrator: {
         tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, thinking: 0 },
         startupTokens: 0,
+        models: {},
         toolCounts: {},
         toolCountsByMode: {},
         skillsRead: [],
@@ -476,5 +479,41 @@ describe("parse: hook attribution", () => {
     attachHookEvents(s, log([{ ts: "2026-08-25T09:00:00Z", event: "start" }]));
     expect(s.parseErrors).toBe(0);
     expect(s.orchestrator.hookEvents).toHaveLength(0);
+  });
+});
+
+/** A main-thread transcript whose assistant lines declare the given models. */
+function sessionWithModels(models: Array<string | undefined>): string {
+  const dir = mkdtempSync(join(tmpdir(), "navori-models-"));
+  const file = join(dir, "sess-m1.jsonl");
+  const lines = models.map((model, i) =>
+    JSON.stringify({
+      type: "assistant",
+      timestamp: `2026-08-25T10:0${i}:00Z`,
+      message: {
+        ...(model ? { model } : {}),
+        id: `msg_${i}`,
+        usage: { input_tokens: 1, output_tokens: 1 },
+        content: [],
+      },
+    }),
+  );
+  writeFileSync(file, `${lines.join("\n")}\n`, "utf-8");
+  return file;
+}
+
+describe("orchestrator model (#607)", () => {
+  it("counts the assistant messages each model served", () => {
+    const s = parseSession(
+      sessionWithModels(["claude-opus-5", "claude-opus-5", "claude-sonnet-5"]),
+    );
+    // A map, not a winner: `/model` mid-session is legal and the split is what
+    // turns a token total into a bill.
+    expect(s.orchestrator.models).toEqual({ "claude-opus-5": 2, "claude-sonnet-5": 1 });
+  });
+
+  it("stays empty when the transcript declares no model", () => {
+    const s = parseSession(sessionWithModels([undefined, undefined]));
+    expect(s.orchestrator.models).toEqual({});
   });
 });

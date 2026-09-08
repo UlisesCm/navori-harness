@@ -157,6 +157,28 @@ export interface SessionAudit {
    */
   navori: { rendered: string | null; cli: string | null };
   /**
+   * The same two versions re-read when the session was SEALED, and only when
+   * one of them moved.
+   *
+   * `start` stamps once, which describes a session whose harness held still. A
+   * rollout merged mid-session breaks that: `3f9cf38a` began under rendered
+   * `0.7.0`, the rollout PR landed 26 minutes later, and the rest of the run
+   * worked under `0.7.5` while the report credited the whole thing to `0.7.0`.
+   * Null when nothing moved — or when the session was never sealed, since
+   * there was no second reading to take.
+   */
+  navoriAtStop: { rendered: string | null; cli: string | null } | null;
+  /**
+   * Whether `audit --stop` sealed this session's log.
+   *
+   * An unsealed session is still being written to, so every figure in its
+   * report is a snapshot rather than a total: the same session audited three
+   * hours apart reported 154 vs 184 Bash calls, 1h13m vs 1h24m, 2 vs 4 PRs —
+   * both times presented as final. The `stop` record has been written since
+   * audit-mode shipped; nothing read it.
+   */
+  sealed: boolean;
+  /**
    * permission-mode → occurrences. Load-bearing, not decorative: `auto` steers
    * the model toward Bash over Read/Grep, so without this the tool histogram
    * reads as a harness defect when it is just the permission mode.
@@ -166,6 +188,20 @@ export interface SessionAudit {
   orchestrator: {
     tokens: TokenTotals;
     startupTokens: number;
+    /**
+     * model id → assistant messages served by it.
+     *
+     * Load-bearing for the token totals, not decorative: the orchestrator is
+     * where most of a session's spend happens — `bd0e5268` billed 433k tokens
+     * with zero subagents — and the same count means a different bill on Opus
+     * than on Sonnet. A subagent's card has named its model since day one; the
+     * thread that dominates the total did not.
+     *
+     * A map rather than one id because `/model` mid-session is legal: a single
+     * winner would describe neither half. Empty for a transcript whose lines
+     * declare no model.
+     */
+    models: Record<string, number>;
     toolCounts: Record<string, number>;
     /**
      * The same calls, split by the permission mode in force when each ran
@@ -258,10 +294,21 @@ export interface AuditReport {
   /** Bumped to 2 by spec 0013: reports now carry per-agent cards (skills with
    *  provenance, MCP by server, recorded hook executions). Bumped to 3 when
    *  sessions gained `navori` — the versions in force WHEN THE SESSION RAN, as
-   *  opposed to `generatedBy`, which describes this file. A reader can tell the
-   *  shapes apart by this number alone. */
-  schemaVersion: 3;
+   *  opposed to `generatedBy`, which describes this file. Bumped to 4 with
+   *  `generatedAt`, the orchestrator's `models`, and each session's `sealed` /
+   *  `navoriAtStop`. A reader can tell the shapes apart by this number alone. */
+  schemaVersion: 4;
   generatedBy: string;
+  /**
+   * When this report was built, ISO-8601.
+   *
+   * `generatedBy` said which navori wrote the file and never when. The gap
+   * matters for an unsealed session: comparing this against its `endedAt` is
+   * what separates "the run is still going, these figures will move" from "it
+   * ended days ago and nobody sealed the log" — two states that render
+   * identically without a clock.
+   */
+  generatedAt: string;
   repo: string;
   range: { from: string; to: string };
   ccVersions: string[];

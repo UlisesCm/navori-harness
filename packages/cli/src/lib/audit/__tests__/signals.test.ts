@@ -44,11 +44,14 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
     cwd: "/tmp/repo",
     ccVersions: ["2.1.228"],
     navori: { rendered: null, cli: null },
+    navoriAtStop: null,
+    sealed: false,
     permissionModes: {},
     prs: [],
     orchestrator: {
       tokens: emptyTokens(),
       startupTokens: 0,
+      models: {},
       toolCounts: {},
       toolCountsByMode: {},
 

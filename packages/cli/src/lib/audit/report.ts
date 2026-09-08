@@ -161,12 +161,29 @@ function agentCards(s: SessionAudit, lang: Lang): string {
  * header names the session instead, and the rest is identical on purpose: the
  * reader should not have to learn a second layout to answer the same question.
  */
+/**
+ * The orchestrator's model(s), formatted for the head of its card.
+ *
+ * One id renders bare, like a subagent's. Several render with their message
+ * counts — `/model` mid-session is legal, and "which one" is then the wrong
+ * question: what the reader needs is how the spend splits. Empty string when
+ * the transcript declared no model, so the caller drops the segment instead of
+ * printing a label with nothing after it.
+ */
+function modelsLabel(models: Record<string, number>): string {
+  const entries = Object.entries(models).sort(([, a], [, b]) => b - a);
+  if (entries.length === 0) return "";
+  if (entries.length === 1) return entries[0]?.[0] ?? "";
+  return entries.map(([id, n]) => `${id}:${n}`).join(", ");
+}
+
 function orchestratorCard(s: SessionAudit, lang: Lang): string {
   const o = s.orchestrator;
   const reasoning = o.tokens.output + o.tokens.thinking;
   const context = Math.max(0, billable(o.tokens) - o.startupTokens - reasoning);
+  const model = modelsLabel(o.models ?? {});
   const rows = [
-    `${minutes(s.wallClockMs)} · ${s.prompts.typed + s.prompts.queued} ${t(lang, "mensajes del usuario", "user messages")}`,
+    `${model ? `${model} · ` : ""}${minutes(s.wallClockMs)} · ${s.prompts.typed + s.prompts.queued} ${t(lang, "mensajes del usuario", "user messages")}`,
     "",
     `  ${t(lang, "arranque", "startup").padEnd(14)}${k(o.startupTokens)}`,
     `  ${t(lang, "razonamiento", "reasoning").padEnd(14)}${k(reasoning)}`,
@@ -496,11 +513,43 @@ function byAgentType(s: SessionAudit): string {
 function sessionNavori(s: SessionAudit, lang: Lang): string {
   const { rendered, cli } = s.navori;
   if (!rendered && !cli) return t(lang, "? (sesión previa al registro)", "? (session predates it)");
-  if (!rendered) return t(lang, `? · CLI ${cli}`, `? · CLI ${cli}`);
+  const pair = (r: string | null, c: string | null): string =>
+    r === null ? `? · CLI ${c ?? "?"}` : r === c ? r : `${r} (CLI ${c ?? "?"})`;
+  const at = s.navoriAtStop;
+  // A harness that moved mid-session gets both readings joined by an arrow. It
+  // is not a formatting nicety: attributing the whole run to the version it
+  // STARTED on is what made a rollout merged 26 minutes in invisible, in the
+  // very report meant to compare versions.
+  if (at) return `${pair(rendered, cli)} → ${pair(at.rendered, at.cli)}`;
   // Same number is the normal case and needs no parenthesis. A different one
   // means the CLI moved without a `render`, so the session ran on an older
   // harness than the machine had — worth stating where it is discovered.
-  return rendered === cli ? rendered : `${rendered} (CLI ${cli ?? "?"})`;
+  return pair(rendered, cli);
+}
+
+/**
+ * Minutes of silence after which a session is treated as over, sealed or not.
+ *
+ * Sealing is manual (`audit --stop`) and almost nobody does it — 4 of 25 logs
+ * on the machine this was written on. So "unsealed" cannot mean "running", or
+ * the warning would fire on every report ever written, including sessions that
+ * ended weeks ago. Recent activity is the evidence that the figures will still
+ * move; the seal alone is not.
+ */
+const LIVE_WINDOW_MIN = 30;
+
+/**
+ * Is this session still being written to when the report is built?
+ *
+ * Both halves are required: an unsealed log is only suspicious while the
+ * transcript is still growing. What it prevents is real — the same session
+ * audited three hours apart reported 154 vs 184 Bash calls and 2 vs 4 PRs,
+ * both times as a total.
+ */
+function stillRunning(s: SessionAudit, generatedAt: string): boolean {
+  if (s.sealed || !s.endedAt) return false;
+  const idleMin = (Date.parse(generatedAt) - Date.parse(s.endedAt)) / 60000;
+  return Number.isFinite(idleMin) && idleMin >= 0 && idleMin < LIVE_WINDOW_MIN;
 }
 
 /** Human-facing report, in the repo's configured language. */
@@ -536,6 +585,17 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
         `${t(lang, "permisos", "permissions")} ${modes || "—"}` +
         (s.prs.length > 0 ? ` · PRs ${s.prs.join(", ")}` : ""),
     );
+
+    if (stillRunning(s, report.generatedAt)) {
+      out.push(
+        "",
+        t(
+          lang,
+          `**Sesión en curso.** El log no está sellado y la última actividad fue hace menos de ${LIVE_WINDOW_MIN} min: cada cifra de abajo es una foto del momento en que se generó el reporte, no un total. Séllala con \`navori audit --stop ${s.sessionId.slice(0, 8)}\` y vuelve a correrlo.`,
+          `**Session still running.** The log is unsealed and the last activity was under ${LIVE_WINDOW_MIN} min ago: every figure below is a snapshot taken when the report was built, not a total. Seal it with \`navori audit --stop ${s.sessionId.slice(0, 8)}\` and run this again.`,
+        ),
+      );
+    }
 
     // #489 — state what the session log could and could not see. A message
     // written while the agent works never fires `UserPromptSubmit`, so the log
@@ -650,7 +710,7 @@ export function renderJson(report: AuditReport): string {
 /** Aggregates parsed sessions into the report envelope. */
 export function buildReport(
   sessions: SessionAudit[],
-  opts: { repo: string; version: string; catalog: HarnessCatalog },
+  opts: { repo: string; version: string; catalog: HarnessCatalog; now?: Date },
 ): AuditReport {
   const byAgentType: AuditReport["totals"]["byAgentType"] = {};
   const byModel: Record<string, number> = {};
@@ -705,8 +765,9 @@ export function buildReport(
     .sort();
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     generatedBy: `navori@${opts.version}`,
+    generatedAt: (opts.now ?? new Date()).toISOString(),
     repo: opts.repo,
     range: {
       from: stamps[0]?.slice(0, 10) ?? "",

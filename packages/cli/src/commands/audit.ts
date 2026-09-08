@@ -238,9 +238,18 @@ export const auditCommand = defineCommand({
         p.cancel(isEs ? "Esa sesión no está marcada." : "That session is not marked.");
         process.exit(2);
       }
+      // The versions are re-read HERE, not copied from `start`: a rollout
+      // merged mid-session moves the harness under a run already in flight, and
+      // a single stamp cannot say so. The parser keeps this pair only when one
+      // of the two moved.
       appendFileSync(
         logFile,
-        `${JSON.stringify({ ts: new Date().toISOString(), event: "stop" })}\n`,
+        `${JSON.stringify({
+          ts: new Date().toISOString(),
+          event: "stop",
+          navoriRendered: renderedHarnessVersion(cwd),
+          navoriCli: readCliVersion(),
+        })}\n`,
         "utf-8",
       );
       args.session = stopId;

@@ -52,11 +52,14 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
     cwd: "/repo",
     ccVersions: ["2.1.231"],
     navori: { rendered: "0.7.1", cli: "0.7.1" },
+    navoriAtStop: null,
+    sealed: false,
     permissionModes: {},
     prs: [],
     orchestrator: {
       tokens: emptyTokens(),
       startupTokens: 0,
+      models: {},
       toolCounts: {},
       toolCountsByMode: {},
       skillsRead: [],
@@ -289,13 +292,23 @@ describe("time: sum vs wall clock (#0013)", () => {
 
 describe("schema (#0013)", () => {
   // Covers: R17
-  it("declares schemaVersion 3", () => {
+  it("declares schemaVersion 4", () => {
     const report = buildReport([session([])], {
       repo: "demo",
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.schemaVersion).toBe(3);
+    expect(report.schemaVersion).toBe(4);
+  });
+
+  it("stamps when it was built, which `generatedBy` never said", () => {
+    const report = buildReport([session([])], {
+      repo: "demo",
+      version: "0.6.5",
+      catalog: CATALOG,
+      now: new Date("2026-09-08T12:00:00.000Z"),
+    });
+    expect(report.generatedAt).toBe("2026-09-08T12:00:00.000Z");
   });
 });
 
@@ -525,5 +538,90 @@ describe("a recorder gap that rounds away is not announced (#584)", () => {
     );
     expect(out).toContain("parcial");
     expect(out).toContain("50%");
+  });
+});
+
+/** Like `md`, but with the report's clock pinned so the live-session warning
+ *  is deterministic. */
+function mdAt(now: string, over: Partial<SessionAudit> = {}): string {
+  const report = buildReport([session([], over)], {
+    repo: "demo",
+    version: "0.6.5",
+    catalog: CATALOG,
+    now: new Date(now),
+  });
+  return renderMarkdown(report, "es");
+}
+
+/**
+ * The same session audited three hours apart reported 154 vs 184 Bash calls,
+ * 1h13m vs 1h24m and 2 vs 4 PRs — both times as a total, because nothing read
+ * the `stop` record the CLI had been writing all along.
+ */
+describe("session header: a run that is still going (#607)", () => {
+  // The session ends at 11:00Z (see `session`).
+  it("warns when the log is unsealed and the transcript just moved", () => {
+    const out = mdAt("2026-08-25T11:10:00Z", { sealed: false });
+    expect(out).toContain("**Sesión en curso.**");
+    expect(out).toContain("navori audit --stop sess1");
+  });
+
+  it("stays silent for an old unsealed session, which is the common case", () => {
+    // Sealing is manual and almost nobody does it: 4 of 25 logs on the machine
+    // this was written on. Treating "unsealed" as "running" would fire the
+    // warning on nearly every report ever produced.
+    const out = mdAt("2026-08-28T11:00:00Z", { sealed: false });
+    expect(out).not.toContain("Sesión en curso");
+  });
+
+  it("stays silent once the session is sealed, however recent", () => {
+    const out = mdAt("2026-08-25T11:01:00Z", { sealed: true });
+    expect(out).not.toContain("Sesión en curso");
+  });
+});
+
+/**
+ * `3f9cf38a` began under rendered 0.7.0; the rollout PR merged 26 minutes in
+ * and the rest of the run worked under 0.7.5. One stamp credited it all to
+ * 0.7.0 — in the report whose purpose is comparing versions.
+ */
+describe("session header: a harness that moved mid-session (#607)", () => {
+  it("shows both readings when the rendered version moved", () => {
+    const out = md([], {
+      navori: { rendered: "0.7.0", cli: "0.7.5" },
+      navoriAtStop: { rendered: "0.7.5", cli: "0.7.5" },
+    });
+    expect(out).toContain("navori 0.7.0 (CLI 0.7.5) → 0.7.5");
+  });
+
+  it("shows one when nothing moved", () => {
+    const out = md([], { navori: { rendered: "0.7.5", cli: "0.7.5" }, navoriAtStop: null });
+    // Scoped to the version segment: the range line of the header carries its
+    // own arrow, so a bare `not.toContain("→")` would pass for the wrong reason.
+    expect(out).toContain("navori 0.7.5 ·");
+    expect(out).not.toContain("navori 0.7.5 →");
+  });
+});
+
+/**
+ * The orchestrator is where most of the spend happens — one audited session
+ * billed 433k tokens with zero subagents — and its card never named the model
+ * those tokens were priced at, while every subagent card did.
+ */
+describe("orchestrator card: which model spent the tokens (#607)", () => {
+  const withModels = (models: Record<string, number>) =>
+    md([], { orchestrator: { ...session([]).orchestrator, models } });
+
+  it("names the model, like a subagent's card does", () => {
+    expect(withModels({ "claude-opus-5": 554 })).toContain("claude-opus-5 · 1h 0m");
+  });
+
+  it("splits the messages when the session switched with /model", () => {
+    const out = withModels({ "claude-opus-5": 400, "claude-sonnet-5": 154 });
+    expect(out).toContain("claude-opus-5:400, claude-sonnet-5:154");
+  });
+
+  it("drops the segment when the transcript declared no model", () => {
+    expect(withModels({})).toContain("1h 0m · 1 mensajes del usuario");
   });
 });

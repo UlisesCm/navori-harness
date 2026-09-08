@@ -208,6 +208,23 @@ function countToolsByMode(lines: Rec[]): Record<string, Record<string, number>> 
   return byMode;
 }
 
+/**
+ * model id → assistant messages it served, for the main thread.
+ *
+ * Counted rather than picked: `agentRun` takes the FIRST model it sees because
+ * a subagent runs on one, but the orchestrator can switch with `/model` and a
+ * single winner would describe neither half of such a session.
+ */
+function countModels(lines: Rec[]): Record<string, number> {
+  const models: Record<string, number> = {};
+  for (const l of lines) {
+    if (str(l.type) !== "assistant") continue;
+    const model = str(path(l, "message", "model"));
+    if (model) models[model] = (models[model] ?? 0) + 1;
+  }
+  return models;
+}
+
 function countTools(uses: Rec[]): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const u of uses) {
@@ -560,11 +577,14 @@ export function parseSession(mainJsonl: string): SessionAudit {
     // Filled by `attachHookEvents` from the log's `start` record: the transcript
     // never names navori, only the host.
     navori: { rendered: null, cli: null },
+    navoriAtStop: null,
+    sealed: false,
     permissionModes,
     prs,
     orchestrator: {
       tokens: sumTokens(lines),
       startupTokens: startupTokensOf(lines),
+      models: countModels(lines),
       toolCounts: countTools(uses),
       toolCountsByMode: countToolsByMode(lines),
       skillsRead: skills.skills.map((sk) => sk.slug),
@@ -630,6 +650,20 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
         rendered: str(rec.navoriRendered),
         cli: str(rec.navoriCli),
       };
+      continue;
+    }
+    // `stop` seals the log. It also carries a SECOND reading of the versions,
+    // kept only when one moved: a harness updated mid-session is a fact about
+    // the run, and the `start` stamp alone cannot express it. Older logs wrote
+    // the record without the fields, which reads as "nothing moved" — the same
+    // conclusion the reader would draw from their absence.
+    if (str(rec.event) === "stop") {
+      session.sealed = true;
+      const rendered = str(rec.navoriRendered);
+      const cli = str(rec.navoriCli);
+      if (rendered !== session.navori.rendered || cli !== session.navori.cli) {
+        if (rendered !== null || cli !== null) session.navoriAtStop = { rendered, cli };
+      }
       continue;
     }
     if (str(rec.event) !== "hook") continue;
