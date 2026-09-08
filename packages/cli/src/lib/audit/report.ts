@@ -1,4 +1,4 @@
-import type { DeclaredAgent, HarnessCatalog } from "./harness.ts";
+import { type HarnessCatalog, barredMcpTokens, reaches } from "./harness.ts";
 import {
   type AgentRun,
   type AuditReport,
@@ -161,12 +161,29 @@ function agentCards(s: SessionAudit, lang: Lang): string {
  * header names the session instead, and the rest is identical on purpose: the
  * reader should not have to learn a second layout to answer the same question.
  */
+/**
+ * The orchestrator's model(s), formatted for the head of its card.
+ *
+ * One id renders bare, like a subagent's. Several render with their message
+ * counts — `/model` mid-session is legal, and "which one" is then the wrong
+ * question: what the reader needs is how the spend splits. Empty string when
+ * the transcript declared no model, so the caller drops the segment instead of
+ * printing a label with nothing after it.
+ */
+function modelsLabel(models: Record<string, number>): string {
+  const entries = Object.entries(models).sort(([, a], [, b]) => b - a);
+  if (entries.length === 0) return "";
+  if (entries.length === 1) return entries[0]?.[0] ?? "";
+  return entries.map(([id, n]) => `${id}:${n}`).join(", ");
+}
+
 function orchestratorCard(s: SessionAudit, lang: Lang): string {
   const o = s.orchestrator;
   const reasoning = o.tokens.output + o.tokens.thinking;
   const context = Math.max(0, billable(o.tokens) - o.startupTokens - reasoning);
+  const model = modelsLabel(o.models ?? {});
   const rows = [
-    `${minutes(s.wallClockMs)} · ${s.prompts.typed + s.prompts.queued} ${t(lang, "mensajes del usuario", "user messages")}`,
+    `${model ? `${model} · ` : ""}${minutes(s.wallClockMs)} · ${s.prompts.typed + s.prompts.queued} ${t(lang, "mensajes del usuario", "user messages")}`,
     "",
     `  ${t(lang, "arranque", "startup").padEnd(14)}${k(o.startupTokens)}`,
     `  ${t(lang, "razonamiento", "reasoning").padEnd(14)}${k(reasoning)}`,
@@ -352,16 +369,6 @@ function mcpLines(a: AgentRun, lang: Lang): string {
   return lines.join(`\n  ${" ".repeat(LABEL)}`);
 }
 
-/** Whether an agent's declared `tools:` lets it reach ONE server. A blanket
- *  `mcp__codegraph__*` grants codegraph and nothing else; an absent `tools:`
- *  inherits everything. */
-function reaches(declared: DeclaredAgent | undefined, server: string): boolean {
-  if (!declared || declared.tools === null) return true;
-  return declared.tools.some(
-    (tool) => tool === "*" || tool === `mcp__${server}__*` || tool.startsWith(`mcp__${server}__`),
-  );
-}
-
 /** What a barred agent paid, in its startup, for instructions it cannot follow. */
 function barredCost(a: AgentRun, server: string, lang: Lang): string {
   const wasted = a.mcpBarredTokens[server];
@@ -496,11 +503,43 @@ function byAgentType(s: SessionAudit): string {
 function sessionNavori(s: SessionAudit, lang: Lang): string {
   const { rendered, cli } = s.navori;
   if (!rendered && !cli) return t(lang, "? (sesión previa al registro)", "? (session predates it)");
-  if (!rendered) return t(lang, `? · CLI ${cli}`, `? · CLI ${cli}`);
+  const pair = (r: string | null, c: string | null): string =>
+    r === null ? `? · CLI ${c ?? "?"}` : r === c ? r : `${r} (CLI ${c ?? "?"})`;
+  const at = s.navoriAtStop;
+  // A harness that moved mid-session gets both readings joined by an arrow. It
+  // is not a formatting nicety: attributing the whole run to the version it
+  // STARTED on is what made a rollout merged 26 minutes in invisible, in the
+  // very report meant to compare versions.
+  if (at) return `${pair(rendered, cli)} → ${pair(at.rendered, at.cli)}`;
   // Same number is the normal case and needs no parenthesis. A different one
   // means the CLI moved without a `render`, so the session ran on an older
   // harness than the machine had — worth stating where it is discovered.
-  return rendered === cli ? rendered : `${rendered} (CLI ${cli ?? "?"})`;
+  return pair(rendered, cli);
+}
+
+/**
+ * Minutes of silence after which a session is treated as over, sealed or not.
+ *
+ * Sealing is manual (`audit --stop`) and almost nobody does it — 4 of 25 logs
+ * on the machine this was written on. So "unsealed" cannot mean "running", or
+ * the warning would fire on every report ever written, including sessions that
+ * ended weeks ago. Recent activity is the evidence that the figures will still
+ * move; the seal alone is not.
+ */
+const LIVE_WINDOW_MIN = 30;
+
+/**
+ * Is this session still being written to when the report is built?
+ *
+ * Both halves are required: an unsealed log is only suspicious while the
+ * transcript is still growing. What it prevents is real — the same session
+ * audited three hours apart reported 154 vs 184 Bash calls and 2 vs 4 PRs,
+ * both times as a total.
+ */
+function stillRunning(s: SessionAudit, generatedAt: string): boolean {
+  if (s.sealed || !s.endedAt) return false;
+  const idleMin = (Date.parse(generatedAt) - Date.parse(s.endedAt)) / 60000;
+  return Number.isFinite(idleMin) && idleMin >= 0 && idleMin < LIVE_WINDOW_MIN;
 }
 
 /** Human-facing report, in the repo's configured language. */
@@ -536,6 +575,17 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
         `${t(lang, "permisos", "permissions")} ${modes || "—"}` +
         (s.prs.length > 0 ? ` · PRs ${s.prs.join(", ")}` : ""),
     );
+
+    if (stillRunning(s, report.generatedAt)) {
+      out.push(
+        "",
+        t(
+          lang,
+          `**Sesión en curso.** El log no está sellado y la última actividad fue hace menos de ${LIVE_WINDOW_MIN} min: cada cifra de abajo es una foto del momento en que se generó el reporte, no un total. Séllala con \`navori audit --stop ${s.sessionId.slice(0, 8)}\` y vuelve a correrlo.`,
+          `**Session still running.** The log is unsealed and the last activity was under ${LIVE_WINDOW_MIN} min ago: every figure below is a snapshot taken when the report was built, not a total. Seal it with \`navori audit --stop ${s.sessionId.slice(0, 8)}\` and run this again.`,
+        ),
+      );
+    }
 
     // #489 — state what the session log could and could not see. A message
     // written while the agent works never fires `UserPromptSubmit`, so the log
@@ -650,7 +700,7 @@ export function renderJson(report: AuditReport): string {
 /** Aggregates parsed sessions into the report envelope. */
 export function buildReport(
   sessions: SessionAudit[],
-  opts: { repo: string; version: string; catalog: HarnessCatalog },
+  opts: { repo: string; version: string; catalog: HarnessCatalog; now?: Date },
 ): AuditReport {
   const byAgentType: AuditReport["totals"]["byAgentType"] = {};
   const byModel: Record<string, number> = {};
@@ -676,26 +726,20 @@ export function buildReport(
   // `barredTokens` is what turns the finding from a label into a cost (R20): the
   // CLAUDE.md sections that REQUIRE a server are shipped in every agent's
   // startup context whether or not its `tools:` can reach it, so a barred agent
-  // pays for instructions it is structurally unable to follow. Same measurement
-  // the `unreachable-instructions` signal reports for the session, attributed
-  // per agent.
-  const mcpSectionTokens = new Map<string, number>();
-  for (const section of opts.catalog.sections) {
-    for (const server of section.requiresMcp) {
-      mcpSectionTokens.set(server, (mcpSectionTokens.get(server) ?? 0) + section.tokens);
-    }
-  }
+  // pays for instructions it is structurally unable to follow.
+  //
+  // `barredMcpTokens` is shared with the `unreachable-instructions` signal so
+  // the card and the finding cannot drift: this comment used to CLAIM they were
+  // the same measurement while the signal ran off a coarser boolean, and the
+  // two disagreed in print — a card reading "codegraph vedado · 337 tok" under
+  // a session summarised as "0 alto" (#605).
   for (const sess of sessions) {
     for (const a of sess.agents) {
       const declared = opts.catalog.agents.find((d) => d.name === a.agentType);
       for (const server of opts.catalog.mcpFamilies) {
-        const canReach = reaches(declared, server);
-        a.mcpReach[server] = canReach;
-        if (!canReach) {
-          const wasted = mcpSectionTokens.get(server) ?? 0;
-          if (wasted > 0) a.mcpBarredTokens[server] = wasted;
-        }
+        a.mcpReach[server] = reaches(declared, server);
       }
+      a.mcpBarredTokens = barredMcpTokens(declared, opts.catalog);
     }
   }
 
@@ -705,8 +749,9 @@ export function buildReport(
     .sort();
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     generatedBy: `navori@${opts.version}`,
+    generatedAt: (opts.now ?? new Date()).toISOString(),
     repo: opts.repo,
     range: {
       from: stamps[0]?.slice(0, 10) ?? "",

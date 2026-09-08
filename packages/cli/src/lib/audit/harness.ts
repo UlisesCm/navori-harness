@@ -40,6 +40,15 @@ export interface DeclaredSection {
 export interface HarnessCatalog {
   agents: DeclaredAgent[];
   skills: string[];
+  /**
+   * The subset of `skills` that navori renders, by their managed marker.
+   *
+   * The `unused-skills` finding used to name every idle skill in one bag —
+   * 35 of them on a real session — which told the reader nothing about what to
+   * do: a skill the preset ships and one the user wrote by hand are the same
+   * sentence but different decisions.
+   */
+  managedSkills: string[];
   sections: DeclaredSection[];
   claudeMdTokens: number;
   /** The MCP servers this harness instructs agents to use. Exposed from
@@ -173,13 +182,24 @@ export function readHarnessCatalog(repoRoot: string): HarnessCatalog {
 
   const skillsDir = join(repoRoot, ".claude", "skills");
   const skills: string[] = [];
+  const managedSkills: string[] = [];
   if (existsSync(skillsDir)) {
     for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
+      let file: string | null = null;
+      let name = "";
       if (entry.isDirectory() && existsSync(join(skillsDir, entry.name, "SKILL.md"))) {
-        skills.push(entry.name);
+        file = join(skillsDir, entry.name, "SKILL.md");
+        name = entry.name;
       } else if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "SKILL.md") {
-        skills.push(entry.name.replace(/\.md$/, ""));
+        file = join(skillsDir, entry.name);
+        name = entry.name.replace(/\.md$/, "");
       }
+      if (!file) continue;
+      skills.push(name);
+      // The marker is the only honest witness of provenance: a name proves
+      // nothing (a user skill may share a name with a shipped one) and the
+      // preset list would have to be re-derived per release.
+      if (listMarkers(file).length > 0) managedSkills.push(name);
     }
   }
 
@@ -194,6 +214,7 @@ export function readHarnessCatalog(repoRoot: string): HarnessCatalog {
     agents: agents.sort((a, b) => a.name.localeCompare(b.name)),
     mcpFamilies: MCP_HINTS.map((h) => h.server).sort(),
     skills: skills.sort(),
+    managedSkills: managedSkills.sort(),
     sections: parseSections(claudeMd),
     claudeMdTokens: Math.round(claudeMd.length / 4),
   };
@@ -220,4 +241,42 @@ export function renderedHarnessVersion(repoRoot: string): string | null {
     if (marker.version) return marker.version;
   }
   return null;
+}
+
+/**
+ * Whether an agent's declared `tools:` lets it reach ONE server.
+ *
+ * A blanket `mcp__codegraph__*` grants codegraph and nothing else; an absent
+ * `tools:` inherits everything.
+ */
+export function reaches(declared: DeclaredAgent | undefined, server: string): boolean {
+  if (!declared || declared.tools === null) return true;
+  return declared.tools.some(
+    (tool) => tool === "*" || tool === `mcp__${server}__*` || tool.startsWith(`mcp__${server}__`),
+  );
+}
+
+/**
+ * Per server, the CLAUDE.md tokens an agent pays at startup for instructions it
+ * cannot execute. Servers it can reach are absent, not zero.
+ *
+ * This lives HERE, exported, because two callers need the same answer and used
+ * to compute it differently: the per-agent card crossed section↔server (fine),
+ * while the `unreachable-instructions` signal used a single `hasMcp` boolean —
+ * true if the agent reached ANY server. An agent with engram but not codegraph
+ * was therefore "not blind", and its barred codegraph section vanished from the
+ * finding while still being printed on its own card. One report, two numbers.
+ */
+export function barredMcpTokens(
+  declared: DeclaredAgent | undefined,
+  cat: HarnessCatalog,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const section of cat.sections) {
+    for (const server of section.requiresMcp) {
+      if (reaches(declared, server)) continue;
+      out[server] = (out[server] ?? 0) + section.tokens;
+    }
+  }
+  return out;
 }

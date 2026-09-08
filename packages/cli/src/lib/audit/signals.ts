@@ -1,4 +1,4 @@
-import type { HarnessCatalog } from "./harness.ts";
+import { type HarnessCatalog, barredMcpTokens } from "./harness.ts";
 import type { AgentRun, SessionAudit, Signal } from "./model.ts";
 import { recorderWindow } from "./model.ts";
 
@@ -34,43 +34,75 @@ function k(n: number): string {
 }
 
 /**
+ * Above this many wasted tokens the finding is `high`; below it, `warn`.
+ *
+ * The per-server crossing makes the signal fire on cases the old boolean could
+ * not see, and some are small — one `ticket-audit` barred from codegraph costs
+ * 337 tokens. Real, worth printing, not worth the severity reserved for the
+ * thousands a whole session of barred agents burns. A signal that shouts at
+ * every magnitude stops being read.
+ */
+const UNREACHABLE_HIGH_TOKENS = 2000;
+
+/**
  * Instructions the harness ships to agents that cannot possibly follow them.
  *
  * `tools:` is an allowlist covering MCP servers too, so an agent declaring an
  * explicit list without `mcp__` entries can never call those tools — yet it
  * still receives the full CLAUDE.md hierarchy telling it to. The cost is real
  * and recurring: those sections are re-paid on every agent's startup context.
+ *
+ * Crossed PER SERVER, not per agent. The previous version asked `hasMcp` — true
+ * if the agent reached ANY server — so a `researcher` with engram but without
+ * codegraph counted as sighted, and the codegraph section it could not run
+ * disappeared from the finding. Measured on 13 real sessions that hid 2k tokens
+ * inside a session the signal DID fire on, and missed another one entirely: 17
+ * agents, a `researcher` barred from engram, `0 hallazgos altos` (#605).
  */
 function unreachableInstructions(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Signal[] {
-  const mcpSections = cat.sections.filter((s) => s.requiresMcp.length > 0);
-  if (mcpSections.length === 0) return [];
+  if (session.agents.length === 0) return [];
 
-  const blindTypes = new Set(cat.agents.filter((a) => !a.hasMcp).map((a) => a.name));
-  const affected = session.agents.filter((a) => blindTypes.has(a.agentType));
-  if (affected.length === 0) return [];
+  // Per agent TYPE, since the waste is re-paid at every startup of that type.
+  const perType = new Map<string, { runs: number; servers: Record<string, number> }>();
+  let wasted = 0;
+  for (const run of session.agents) {
+    const declared = cat.agents.find((d) => d.name === run.agentType);
+    const barred = barredMcpTokens(declared, cat);
+    const perRun = Object.values(barred).reduce((sum, n) => sum + n, 0);
+    if (perRun === 0) continue;
+    wasted += perRun;
+    const entry = perType.get(run.agentType) ?? { runs: 0, servers: barred };
+    entry.runs++;
+    perType.set(run.agentType, entry);
+  }
+  if (wasted === 0) return [];
 
-  const perAgent = mcpSections.reduce((sum, s) => sum + s.tokens, 0);
-  const wasted = perAgent * affected.length;
-  const servers = [...new Set(mcpSections.flatMap((s) => s.requiresMcp))].join(", ");
+  const affected = [...perType.values()].reduce((sum, e) => sum + e.runs, 0);
+  const detail = [...perType.entries()]
+    .map(([type, e]) => {
+      const servers = Object.entries(e.servers)
+        .map(([srv, tok]) => `${srv} ${k(tok)} tok`)
+        .join(" + ");
+      return `${type} x${e.runs} (${servers})`;
+    })
+    .join(", ");
 
   return [
     {
       kind: "unreachable-instructions",
-      severity: "high",
+      severity: wasted >= UNREACHABLE_HIGH_TOKENS ? "high" : "warn",
       tokens: wasted,
       summary: pick(
         lang,
-        `~${k(wasted)} tokens en instrucciones que ${affected.length} subagentes no pueden ejecutar`,
-        `~${k(wasted)} tokens of instructions ${affected.length} subagents cannot execute`,
+        `~${k(wasted)} tokens en instrucciones que ${affected} subagentes no pueden ejecutar`,
+        `~${k(wasted)} tokens of instructions ${affected} subagents cannot execute`,
       ),
       evidence: pick(
         lang,
-        `Secciones que exigen MCP (${servers}): ${mcpSections.map((s) => `"${s.title}" ${k(s.tokens)} tok`).join(", ")}. ` +
-          `Los agentes ${[...blindTypes].join(", ")} declaran 'tools:' sin entradas mcp__, que es una allowlist e incluye MCP. ` +
-          `Costo = ${k(perAgent)} tok x ${affected.length} arranques.`,
-        `MCP-requiring sections (${servers}): ${mcpSections.map((s) => `"${s.title}" ${k(s.tokens)} tok`).join(", ")}. ` +
-          `Agents ${[...blindTypes].join(", ")} declare 'tools:' with no mcp__ entries, and that field is an allowlist covering MCP. ` +
-          `Cost = ${k(perAgent)} tok x ${affected.length} startups.`,
+        `Vedado por su 'tools:', que es una allowlist e incluye MCP: ${detail}. ` +
+          `El costo se re-paga en cada arranque: la sección viaja en el contexto inicial del agente aunque no pueda llamar la tool.`,
+        `Barred by their 'tools:', which is an allowlist and covers MCP: ${detail}. ` +
+          `The cost is re-paid at every startup: the section ships in the agent's initial context whether or not it can call the tool.`,
       ),
     },
   ];
@@ -117,6 +149,21 @@ function deadCatalog(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Si
   ]);
   const unused = cat.skills.filter((s) => !usedSkills.has(s));
   if (unused.length > 0 && cat.skills.length > 0) {
+    // Split by provenance (#607): the two halves lead to different decisions —
+    // the user owns theirs, the preset ships navori's — and one merged list of
+    // 35 names asks the reader to sort it out by hand.
+    const managed = new Set(cat.managedSkills ?? []);
+    const own = unused.filter((s) => !managed.has(s));
+    const fromNavori = unused.filter((s) => managed.has(s));
+    const part = (label: string, list: string[]): string =>
+      list.length > 0 ? `${label} (${list.length}): ${list.join(", ")}` : "";
+    const evidence = [
+      part(pick(lang, "tuyas", "yours"), own),
+      part(pick(lang, "de navori", "navori's"), fromNavori),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
     out.push({
       kind: "unused-skills",
       severity: "info",
@@ -125,7 +172,7 @@ function deadCatalog(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Si
         `${unused.length} de ${cat.skills.length} skills declaradas no se usaron`,
         `${unused.length} of ${cat.skills.length} declared skills went unused`,
       ),
-      evidence: unused.join(", "),
+      evidence: evidence || unused.join(", "),
     });
   }
 
@@ -365,13 +412,19 @@ function classifierRoundTrips(session: SessionAudit, lang: Lang): Signal[] {
   ];
 }
 
-/** Above this share of a thread's tool calls, Bash has stopped being one tool
- *  among several and become the only one. Set at 85% because the measured
- *  healthy sessions sit near 65% and the pathological ones at 90%+. */
-const BASH_DOMINANCE = 0.85;
+/**
+ * Below this share of native reads, the search ladder never started.
+ *
+ * Measured, not chosen: across 13 audited sessions the native share of the
+ * read lane is bimodal — {0, 0, 0, 2, 3, 9, 10, 13}% against {25, 26, 50, 61}%
+ * — and 20% sits in the valley between the two groups. It leaves room for the
+ * shell reads that have no native equivalent (FS metadata, `git show`, context
+ * flags) without demanding purity.
+ */
+const NATIVE_READ_SHARE = 0.2;
 
-/** Below this many calls the ratio is noise, not a habit. */
-const TOOL_MIX_MIN_CALLS = 20;
+/** Below this many shell reads the ratio is an accident, not a habit. */
+const TOOL_MIX_MIN_READS = 10;
 
 /**
  * Does the search ladder actually start? (spec 0016 T4.2.)
@@ -387,18 +440,31 @@ const TOOL_MIX_MIN_CALLS = 20;
  *
  * `warn`, not `info`: unlike the round-trip count — a fact about the mode — this
  * one says the session had cheaper lanes available and did not take them.
+ *
+ * MEASURED ON THE READ LANE, not on the whole histogram (#603). The first
+ * version divided Bash by every tool call and fired above 85%, which failed on
+ * the two worst sessions of the 13 audited: both had ZERO native reads — 175
+ * and 35 shell reads — and their `Edit`/`Write` calls pulled them to 83% and
+ * 84%, just under the line. Writes are the ground the host concedes in auto
+ * mode; keeping them in the denominator let editing work mask the read habit
+ * the signal exists to catch.
+ *
+ * The mode-blind stance holds, with a caveat the same 13 sessions add: the
+ * highest native share (61%) was the only `acceptEdits`-dominant session, while
+ * inside `auto` the spread runs 0% to 50%. The mode does not explain the
+ * variance on its own — but an absolute zero showed up only under `auto`.
  */
 function toolMix(session: SessionAudit, lang: Lang): Signal[] {
   const counts = session.orchestrator.toolCounts;
-  const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
-  if (total < TOOL_MIX_MIN_CALLS) return [];
+  const shellReads = session.orchestrator.shellReads ?? 0;
+  if (shellReads < TOOL_MIX_MIN_READS) return [];
 
-  const shell = laneTotal(counts, "shell");
-  if (shell / total < BASH_DOMINANCE) return [];
+  const nativeReads = (counts.Read ?? 0) + (counts.Grep ?? 0) + (counts.Glob ?? 0);
+  const lane = nativeReads + shellReads;
+  const share = nativeReads / lane;
+  if (share >= NATIVE_READ_SHARE) return [];
 
-  const native = laneTotal(counts, "native");
   const mcp = laneTotal(counts, "mcp");
-  const pct = (n: number): string => `${Math.round((n / total) * 100)}%`;
   const modes = Object.keys(session.permissionModes).join(", ") || "(sin declarar)";
 
   return [
@@ -407,13 +473,13 @@ function toolMix(session: SessionAudit, lang: Lang): Signal[] {
       severity: "warn",
       summary: pick(
         lang,
-        `El shell fue el ${pct(shell)} de las herramientas del orquestador: la escalera de búsqueda no arrancó`,
-        `Shell was ${pct(shell)} of the orchestrator's tool calls: the search ladder never started`,
+        `Solo el ${Math.round(share * 100)}% de las lecturas fue por herramienta nativa: la escalera de búsqueda no arrancó`,
+        `Only ${Math.round(share * 100)}% of the reads went through a native tool: the search ladder never started`,
       ),
       evidence: pick(
         lang,
-        `${shell} Bash, ${native} nativas (Read/Edit/Grep/Glob) y ${mcp} MCP sobre ${total} llamadas — ${pct(native)} y ${pct(mcp)}. Modo(s): ${modes}. Esto NO es un problema de auto mode: se midió la misma mezcla en default y acceptEdits, donde el shell paga prompt humano en vez de clasificador. Las nativas y MCP están en 'allow' y resuelven en ~0.08–0.13s contra ~0.20s (p75 1.83s) de una búsqueda por shell, y cada Bash arrastra además su batería de hooks y mete su salida completa al contexto.`,
-        `${shell} Bash, ${native} native (Read/Edit/Grep/Glob) and ${mcp} MCP out of ${total} calls — ${pct(native)} and ${pct(mcp)}. Mode(s): ${modes}. This is NOT an auto-mode problem: the same mix was measured under default and acceptEdits, where the shell pays a human prompt instead of a classifier. Native tools and MCP are in 'allow' and answer in ~0.08–0.13s against ~0.20s (p75 1.83s) for the same search through the shell, and every Bash also drags its hook battery and feeds its full output back into context.`,
+        `${nativeReads} lecturas nativas (Read/Grep/Glob) contra ${shellReads} comandos de shell que hacen ese mismo trabajo (cat, head, sed -n, grep, rg, find, ls…), sobre ${lane} lecturas en total; ${mcp} llamadas MCP. Modo(s): ${modes}. Las escrituras quedan fuera del cálculo a propósito: Edit y Write son terreno que el host ya cede, y contarlas ocultaba sesiones con CERO lecturas nativas. Esto NO es un problema de auto mode: la misma mezcla se midió en default y acceptEdits, donde el shell paga prompt humano en vez de clasificador. Las nativas y MCP están en 'allow' y resuelven en ~0.08–0.13s contra ~0.20s (p75 1.83s) de una búsqueda por shell, y cada Bash arrastra además su batería de hooks y mete su salida completa al contexto. Detección aproximada: por el binario que encabeza cada comando.`,
+        `${nativeReads} native reads (Read/Grep/Glob) against ${shellReads} shell commands doing the same job (cat, head, sed -n, grep, rg, find, ls…), out of ${lane} reads in total; ${mcp} MCP calls. Mode(s): ${modes}. Writes are deliberately out of the ratio: Edit and Write are ground the host already concedes, and counting them hid sessions with ZERO native reads. This is NOT an auto-mode problem: the same mix was measured under default and acceptEdits, where the shell pays a human prompt instead of a classifier. Native tools and MCP are in 'allow' and answer in ~0.08–0.13s against ~0.20s (p75 1.83s) for the same search through the shell, and every Bash also drags its hook battery and feeds its full output back into context. Approximate detection: by the binary leading each command.`,
       ),
     },
   ];

@@ -208,6 +208,100 @@ function countToolsByMode(lines: Rec[]): Record<string, Record<string, number>> 
   return byMode;
 }
 
+/**
+ * Shell binaries whose job is to read or search files — the ones with a native
+ * equivalent (`Read`, `Grep`, `Glob`) that costs no classifier round-trip and
+ * no permission prompt.
+ *
+ * Deliberately excludes everything else a session runs through the shell —
+ * `git`, `gh`, package managers, `docker` — because those have no native lane
+ * to switch to, and counting them would measure how much shell work the task
+ * needed rather than which lane the reader chose.
+ */
+const READ_LANE_BINARIES = new Set([
+  "cat",
+  "head",
+  "tail",
+  "nl",
+  "less",
+  "more",
+  "grep",
+  "egrep",
+  "fgrep",
+  "rg",
+  "ag",
+  "ack",
+  "find",
+  "ls",
+  "tree",
+  "wc",
+  "awk",
+  "cut",
+]);
+
+/**
+ * The leading executable of a command: the one that decides what it IS.
+ *
+ * Skips a leading `cd <dir> &&` (a prefix, not the work) and env assignments.
+ * Only the FIRST segment is read: `grep foo | head` is a search, `git log |
+ * grep x` is not — the pipeline is named by what produces the data.
+ */
+function leadingBinary(command: string): string {
+  const withoutCd = command.trim().replace(/^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*&&\s*/, "");
+  for (const part of withoutCd.split(/&&|\|\||;|\|/)) {
+    for (const token of part.trim().split(/\s+/)) {
+      if (!token) continue;
+      // `FOO=bar cmd` — the assignments prefix the real command, so skip them
+      // WITHIN the segment. Skipping to the next segment instead read
+      // `LC_ALL=C grep foo` as having no command at all.
+      if (token.includes("=") && !token.startsWith("/")) continue;
+      return token.split("/").pop() ?? "";
+    }
+  }
+  return "";
+}
+
+/**
+ * Is this Bash call doing a file read or search?
+ *
+ * `sed` only counts with `-n`, which is the print-a-span form. Plain `sed` is
+ * a stream editor — `sed -i` writes — and calling that a read would credit the
+ * lane for an edit.
+ */
+export function isReadLaneCommand(command: string): boolean {
+  const bin = leadingBinary(command);
+  if (bin === "sed") return /\bsed\s+-n\b/.test(command);
+  return READ_LANE_BINARIES.has(bin);
+}
+
+/** How many of these Bash calls read or searched files. */
+function countShellReads(uses: Rec[]): number {
+  let n = 0;
+  for (const u of uses) {
+    if (str(u.name) !== "Bash") continue;
+    const cmd = str(path(u, "input", "command"));
+    if (cmd && isReadLaneCommand(cmd)) n++;
+  }
+  return n;
+}
+
+/**
+ * model id → assistant messages it served, for the main thread.
+ *
+ * Counted rather than picked: `agentRun` takes the FIRST model it sees because
+ * a subagent runs on one, but the orchestrator can switch with `/model` and a
+ * single winner would describe neither half of such a session.
+ */
+function countModels(lines: Rec[]): Record<string, number> {
+  const models: Record<string, number> = {};
+  for (const l of lines) {
+    if (str(l.type) !== "assistant") continue;
+    const model = str(path(l, "message", "model"));
+    if (model) models[model] = (models[model] ?? 0) + 1;
+  }
+  return models;
+}
+
 function countTools(uses: Rec[]): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const u of uses) {
@@ -560,11 +654,15 @@ export function parseSession(mainJsonl: string): SessionAudit {
     // Filled by `attachHookEvents` from the log's `start` record: the transcript
     // never names navori, only the host.
     navori: { rendered: null, cli: null },
+    navoriAtStop: null,
+    sealed: false,
     permissionModes,
     prs,
     orchestrator: {
       tokens: sumTokens(lines),
       startupTokens: startupTokensOf(lines),
+      models: countModels(lines),
+      shellReads: countShellReads(uses),
       toolCounts: countTools(uses),
       toolCountsByMode: countToolsByMode(lines),
       skillsRead: skills.skills.map((sk) => sk.slug),
@@ -630,6 +728,20 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
         rendered: str(rec.navoriRendered),
         cli: str(rec.navoriCli),
       };
+      continue;
+    }
+    // `stop` seals the log. It also carries a SECOND reading of the versions,
+    // kept only when one moved: a harness updated mid-session is a fact about
+    // the run, and the `start` stamp alone cannot express it. Older logs wrote
+    // the record without the fields, which reads as "nothing moved" — the same
+    // conclusion the reader would draw from their absence.
+    if (str(rec.event) === "stop") {
+      session.sealed = true;
+      const rendered = str(rec.navoriRendered);
+      const cli = str(rec.navoriCli);
+      if (rendered !== session.navori.rendered || cli !== session.navori.cli) {
+        if (rendered !== null || cli !== null) session.navoriAtStop = { rendered, cli };
+      }
       continue;
     }
     if (str(rec.event) !== "hook") continue;
