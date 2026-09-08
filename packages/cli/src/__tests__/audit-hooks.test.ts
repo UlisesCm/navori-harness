@@ -820,7 +820,7 @@ describe.each(SHELLS)("armed audit-mode via SessionStart under %s", (shell) => {
     // The repo comes from the payload's cwd, not CLAUDE_PROJECT_DIR (#454).
     expect(calls).toContain(`--cwd ${cwd}`);
     // The model learns it is being recorded in the very first context.
-    expect(out).toContain("audit-mode ACTIVO");
+    expect(out).toContain("audit-mode ACTIVE");
   });
 
   /** The hook legitimately calls `navori` for other things (dominio inject),
@@ -835,7 +835,7 @@ describe.each(SHELLS)("armed audit-mode via SessionStart under %s", (shell) => {
     const { out, code } = runSessionStart("sess-unarmed");
     expect(code).toBe(0);
     expect(startCalls()).toEqual([]);
-    expect(out).not.toContain("audit-mode ACTIVO");
+    expect(out).not.toContain("audit-mode ACTIVE");
   });
 
   it("arms exactly ONE session: a failure consumes the flag rather than latching it", () => {
@@ -846,7 +846,7 @@ describe.each(SHELLS)("armed audit-mode via SessionStart under %s", (shell) => {
     const { out, code } = runSessionStart("sess-armed-2");
     expect(code).toBe(0);
     expect(existsSync(armedFile())).toBe(false);
-    expect(out).not.toContain("audit-mode ACTIVO");
+    expect(out).not.toContain("audit-mode ACTIVE");
   });
 
   it("leaves the flag alone for a path-shaped session id (payload not trusted)", () => {
@@ -856,5 +856,95 @@ describe.each(SHELLS)("armed audit-mode via SessionStart under %s", (shell) => {
     expect(code).toBe(0);
     expect(startCalls()).toEqual([]);
     expect(existsSync(armedFile()), "the arm waits for a valid session").toBe(true);
+  });
+});
+
+/**
+ * #599 — the armed flag also applies to the RUNNING session: the
+ * UserPromptSubmit recorder consumes it on the next prompt, so arming never
+ * requires closing a warm session. Same shim technique as the SessionStart
+ * suite; the contract under test is the trigger hook's.
+ */
+describe.each(SHELLS)("armed audit-mode on the RUNNING session under %s", (shell) => {
+  let navoriCalls: string;
+  let shimDir: string;
+
+  function installNavoriShim(exitCode = 0): void {
+    shimDir = join(root, "shim-bin");
+    mkdirSync(shimDir, { recursive: true });
+    navoriCalls = join(root, "navori-calls.log");
+    writeFileSync(
+      join(shimDir, "navori"),
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> "${navoriCalls}"\nexit ${exitCode}\n`,
+      "utf-8",
+    );
+    chmodSync(join(shimDir, "navori"), 0o755);
+  }
+
+  function runTrigger(
+    sessionId: string,
+    prompt = "sigue con el ticket",
+  ): {
+    out: string;
+    code: number;
+  } {
+    const hook = install(shell, TRIGGER);
+    const input = JSON.stringify({ user_prompt: prompt, session_id: sessionId, cwd });
+    try {
+      const out = execFileSync(shell, [hook], {
+        input,
+        encoding: "utf-8",
+        cwd: root,
+        env: {
+          ...process.env,
+          NAVORI_AUDITS_ROOT: root,
+          TMPDIR: root,
+          PATH: `${shimDir}:${dirname(process.execPath)}:/usr/bin:/bin`,
+        },
+      });
+      return { out, code: 0 };
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; status?: number };
+      return { out: (e.stdout ?? "") + (e.stderr ?? ""), code: e.status ?? -1 };
+    }
+  }
+
+  const armedFile = () => join(root, REPO, ".armed");
+  function arm(): void {
+    mkdirSync(join(root, REPO), { recursive: true });
+    writeFileSync(armedFile(), `${JSON.stringify({ ts: "2026-09-07T00:00:00Z", cwd })}\n`, "utf-8");
+  }
+  const startCalls = () =>
+    (existsSync(navoriCalls) ? readFileSync(navoriCalls, "utf-8") : "")
+      .split("\n")
+      .filter((l) => l.includes("audit --start"));
+
+  it("consumes the flag on the next prompt and announces it on stdout", () => {
+    installNavoriShim();
+    arm();
+    const { out, code } = runTrigger("sess-live-1");
+    expect(code).toBe(0);
+    expect(existsSync(armedFile()), "the flag must be consumed").toBe(false);
+    expect(startCalls().join("\n")).toContain("audit --start sess-live-1");
+    // stdout of a UserPromptSubmit hook is injected as context: the model
+    // learns it is being recorded the moment it starts to be.
+    expect(out).toContain("audit-mode ACTIVE");
+  });
+
+  it("stays silent and free when nothing is armed (the every-prompt path)", () => {
+    installNavoriShim();
+    const { out, code } = runTrigger("sess-live-2");
+    expect(code).toBe(0);
+    expect(startCalls()).toEqual([]);
+    expect(out).toBe("");
+  });
+
+  it("a failed --start consumes the flag rather than latching it", () => {
+    installNavoriShim(1);
+    arm();
+    const { out, code } = runTrigger("sess-live-3");
+    expect(code).toBe(0);
+    expect(existsSync(armedFile())).toBe(false);
+    expect(out).not.toContain("audit-mode ACTIVE");
   });
 });

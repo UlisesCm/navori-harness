@@ -663,7 +663,7 @@ const es: Record<string, CommandDoc> = {
       { flag: "--start <id>", desc: "Marca una sesión como auditada (lo usa el flujo del hook)." },
       {
         flag: "--arm",
-        desc: "Arma el audit-mode para la PRÓXIMA sesión de este repo: lo corres en la terminal antes de abrirla y el hook de SessionStart hace el --start solo (una sesión exacta; --disarm lo cancela).",
+        desc: "Arma el audit-mode: si ya hay una sesión abierta en el repo, arranca en su siguiente mensaje (sirve `! navori audit --arm` desde dentro); si no, arranca al abrir la próxima. El hook hace el --start solo (una sesión exacta; --disarm lo cancela).",
       },
       { flag: "--stop <id>", desc: "Sella el log de la sesión y reporta sobre ella." },
       { flag: "--cwd <dir>", desc: "Repo a auditar (default: actual)." },
@@ -1381,7 +1381,7 @@ const en: Record<string, CommandDoc> = {
       { flag: "--start <id>", desc: "Mark a session as audited (used by the hook flow)." },
       {
         flag: "--arm",
-        desc: "Arm audit-mode for the NEXT session in this repo: run it in the terminal before opening it and the SessionStart hook issues --start itself (exactly one session; --disarm cancels).",
+        desc: "Arm audit-mode: an open session in the repo activates on its next message (works in-session via `! navori audit --arm`); otherwise the next session opened does. The hook issues --start itself (exactly one session; --disarm cancels).",
       },
       { flag: "--stop <id>", desc: "Seal the session's log and report on it." },
       { flag: "--cwd <dir>", desc: "Repo to audit (default: current)." },
