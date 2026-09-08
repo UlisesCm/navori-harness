@@ -120,7 +120,7 @@ export const auditCommand = defineCommand({
     arm: {
       type: "boolean",
       description:
-        "Arm audit-mode for the NEXT session opened in this repo: the SessionStart hook runs --start with that session's id and consumes the flag.",
+        "Arm audit-mode for this repo: a running session activates on its next message, otherwise the next session opened does. A hook consumes the flag and runs --start with the session's id.",
     },
     disarm: {
       type: "boolean",
@@ -156,8 +156,8 @@ export const auditCommand = defineCommand({
       if (existsSync(armedFile)) {
         p.outro(
           isEs
-            ? "ya estaba armado — la próxima sesión de este repo arranca con audit-mode"
-            : "already armed — the next session in this repo starts with audit-mode",
+            ? "ya estaba armado — arranca en el siguiente mensaje de una sesión abierta, o al abrir la próxima"
+            : "already armed — starts on the next message of an open session, or when the next one opens",
         );
         return;
       }
@@ -168,8 +168,8 @@ export const auditCommand = defineCommand({
       );
       p.outro(
         isEs
-          ? `${color.green("armado")} — la PRÓXIMA sesión de este repo arranca con audit-mode (una sola; 'navori audit --disarm' lo cancela)`
-          : `${color.green("armed")} — the NEXT session in this repo starts with audit-mode (one session only; 'navori audit --disarm' cancels)`,
+          ? `${color.green("armado")} — audit-mode arrancará en tu SIGUIENTE mensaje si ya hay una sesión abierta en este repo, o al abrir la próxima (una sola sesión; 'navori audit --disarm' lo cancela)`
+          : `${color.green("armed")} — audit-mode starts on your NEXT message if a session is already open in this repo, or when the next one opens (one session only; 'navori audit --disarm' cancels)`,
       );
       return;
     }

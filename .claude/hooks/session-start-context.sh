@@ -1,4 +1,4 @@
-# navori:managed start id="session-start-context-base" hash="2eb5eddd" version="0.7.5" source="@navori/core"
+# navori:managed start id="session-start-context-base" hash="6b9c90f5" version="0.7.5" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SessionStart context hook.
@@ -237,20 +237,48 @@ trap navori_audit_on_exit EXIT
 ctx=""
 add() { ctx="${ctx}${1}"$'\n'; }
 
-# ─── Armed audit-mode (#597): consume the flag `navori audit --arm` left ─────
+# ─── Armed audit-mode (#597/#599): consume the flag `navori audit --arm` left.
+# The consumption protocol lives in the shared partial (also inlined into the
+# UserPromptSubmit recorder, which covers the RUNNING session); this hook covers
+# "armed before the session opened".
+# Shared armed-audit consumption (#597, #599) — inlined into each consuming hook
+# at render time (see lib/hook-includes.ts). Single source of truth for the flag
+# protocol so the two consumers cannot drift apart:
 #
-# Activation used to depend on the MODEL's attention: "do it in audit mode"
-# inside a task prompt loses to the task, and the natural-language detection
-# was removed on purpose (spec 0013 R3 — invoking the mode is indistinguishable
-# from talking about it). This is the mechanical path: the user arms from the
-# terminal BEFORE opening the session, and this hook — the only party that
-# knows the new session's id — runs `--start` itself.
+#   · SessionStart  — arm BEFORE opening the session (original #597 flow).
+#   · UserPromptSubmit — arm the RUNNING session: `navori audit --arm` (from
+#     another terminal, or in-session via `! navori audit --arm`) and the NEXT
+#     message activates recording (#599). No restart, no lost context.
 #
-# Consumption comes FIRST: the flag arms exactly ONE session. If `--start`
-# then fails, the arm is lost rather than latched — a flag that survives a
-# failure would fire on some later unrelated session, which is worse than
-# asking the user to arm again. Fail-open throughout: this hook's contract is
-# to never break a session, so every step tolerates absence and moves on.
+# The flag is `<audits-root>/<repo>/.armed`, written by `navori audit --arm`.
+# Consumption comes FIRST: the flag arms exactly ONE session. If `--start` then
+# fails, the arm is lost rather than latched — a flag that survives a failure
+# would fire on some later unrelated session, which is worse than asking the
+# user to arm again.
+#
+# CALLER CONTRACT: $1 is a session id ALREADY validated against the shared
+# charset (#503) — this function trusts it into a command line, so an unvalidated
+# id must never reach here. $2 is the payload's cwd (#454: never
+# CLAUDE_PROJECT_DIR — they differ in worktrees, and --arm wrote the flag under
+# the name basename(cwd) resolves to). $3 is the audits root.
+#
+# Fail-open and silent: returns 0 ONLY when audit-mode was actually started, so
+# the caller can announce it; every other path returns 1 and changes nothing.
+# Safe under `set -euo pipefail` and `set +e` alike.
+navori_audit_consume_armed() {
+  narm_sid=$1
+  narm_cwd=$2
+  narm_root=$3
+  [ -n "$narm_sid" ] && [ -n "$narm_cwd" ] && [ -n "$narm_root" ] || return 1
+  narm_repo=$(basename "$narm_cwd" 2>/dev/null) || return 1
+  [ -n "$narm_repo" ] || return 1
+  narm_file=$narm_root/$narm_repo/.armed
+  [ -f "$narm_file" ] || return 1
+  command -v navori >/dev/null 2>&1 || return 1
+  rm -f "$narm_file" 2>/dev/null || true
+  navori audit --start "$narm_sid" --cwd "$narm_cwd" >/dev/null 2>&1 || return 1
+  return 0
+}
 _armed_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
 # The authoritative repo comes from the payload's `cwd`, same as the recorder
 # partial (#454): the hook process can start somewhere other than the session's
@@ -260,24 +288,22 @@ if command -v jq >/dev/null 2>&1; then
   _armed_cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null || true)
 fi
 [ -n "$_armed_cwd" ] || _armed_cwd=${CLAUDE_PROJECT_DIR:-$PWD}
-_armed_repo=$(basename "$_armed_cwd" 2>/dev/null || true)
-if [ -n "$_armed_repo" ] && [ -f "$_armed_root/$_armed_repo/.armed" ] \
-  && command -v jq >/dev/null 2>&1 && command -v navori >/dev/null 2>&1; then
+_armed_sid=""
+if command -v jq >/dev/null 2>&1; then
   _armed_sid=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null || true)
-  # Same charset guard the CLI and the recorder apply (#503): a path-shaped id
-  # means the payload is not what we think it is — do nothing rather than guess.
-  case "$_armed_sid" in
-    "" | *[!A-Za-z0-9_-]*) : ;;
-    *)
-      rm -f "$_armed_root/$_armed_repo/.armed" 2>/dev/null || true
-      if navori audit --start "$_armed_sid" --cwd "$_armed_cwd" >/dev/null 2>&1; then
-        # Tell the MODEL, not just the log: the session should know it is being
-        # recorded, and the user should see the activation in the first turn.
-        add "navori: audit-mode ACTIVO para esta sesión (armado con 'navori audit --arm'; el hook corrió --start ${_armed_sid})."
-      fi
-      ;;
-  esac
 fi
+# Same charset guard the CLI and the recorder apply (#503): a path-shaped id
+# means the payload is not what we think it is — do nothing rather than guess.
+case "$_armed_sid" in
+  "" | *[!A-Za-z0-9_-]*) : ;;
+  *)
+    if navori_audit_consume_armed "$_armed_sid" "$_armed_cwd" "$_armed_root"; then
+      # Tell the MODEL, not just the log: the session should know it is being
+      # recorded, and the user should see the activation in the first turn.
+      add "navori: audit-mode ACTIVE for this session (armed via 'navori audit --arm'; the hook ran --start ${_armed_sid})."
+    fi
+    ;;
+esac
 
 # UNTRUSTED-DATA FENCE (#511). Two of the three things this hook injects are
 # repository CONTENT, not harness instruction: commit subjects and the body of

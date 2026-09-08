@@ -61,6 +61,20 @@ else
 fi
 log_file=$audits_root/$repo/session-$session_id.log
 
+# ─── Armed audit-mode for the RUNNING session (#599) ─────────────────────────
+# `navori audit --arm` (another terminal, or `! navori audit --arm` in-session)
+# → the NEXT prompt lands here, consumes the flag and starts recording. This is
+# the UX the SessionStart-only flow lacked: no closing and reopening a session
+# that is already warm. Costs one stat per prompt when not armed. The stdout
+# line is deliberate — a UserPromptSubmit hook's stdout is injected as context,
+# so the model learns it is being recorded the moment it starts to be.
+# Mid-session coverage is already modeled by the report (recorder horizon), so a
+# log that starts at prompt N is a smaller log, never a broken one.
+# navori:include audit-arm
+if navori_audit_consume_armed "$session_id" "$cwd" "$audits_root"; then
+  printf 'navori: audit-mode ACTIVE from this message on (armed via navori audit --arm; the hook ran --start %s).\n' "$session_id"
+fi
+
 # Not marked → not recording. This is also what makes the hook free outside
 # audit-mode: one stat and out.
 [ -f "$log_file" ] || exit 0
