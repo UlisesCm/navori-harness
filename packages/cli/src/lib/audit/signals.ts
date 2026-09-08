@@ -1,4 +1,4 @@
-import type { HarnessCatalog } from "./harness.ts";
+import { type HarnessCatalog, barredMcpTokens } from "./harness.ts";
 import type { AgentRun, SessionAudit, Signal } from "./model.ts";
 import { recorderWindow } from "./model.ts";
 
@@ -34,43 +34,75 @@ function k(n: number): string {
 }
 
 /**
+ * Above this many wasted tokens the finding is `high`; below it, `warn`.
+ *
+ * The per-server crossing makes the signal fire on cases the old boolean could
+ * not see, and some are small — one `ticket-audit` barred from codegraph costs
+ * 337 tokens. Real, worth printing, not worth the severity reserved for the
+ * thousands a whole session of barred agents burns. A signal that shouts at
+ * every magnitude stops being read.
+ */
+const UNREACHABLE_HIGH_TOKENS = 2000;
+
+/**
  * Instructions the harness ships to agents that cannot possibly follow them.
  *
  * `tools:` is an allowlist covering MCP servers too, so an agent declaring an
  * explicit list without `mcp__` entries can never call those tools — yet it
  * still receives the full CLAUDE.md hierarchy telling it to. The cost is real
  * and recurring: those sections are re-paid on every agent's startup context.
+ *
+ * Crossed PER SERVER, not per agent. The previous version asked `hasMcp` — true
+ * if the agent reached ANY server — so a `researcher` with engram but without
+ * codegraph counted as sighted, and the codegraph section it could not run
+ * disappeared from the finding. Measured on 13 real sessions that hid 2k tokens
+ * inside a session the signal DID fire on, and missed another one entirely: 17
+ * agents, a `researcher` barred from engram, `0 hallazgos altos` (#605).
  */
 function unreachableInstructions(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Signal[] {
-  const mcpSections = cat.sections.filter((s) => s.requiresMcp.length > 0);
-  if (mcpSections.length === 0) return [];
+  if (session.agents.length === 0) return [];
 
-  const blindTypes = new Set(cat.agents.filter((a) => !a.hasMcp).map((a) => a.name));
-  const affected = session.agents.filter((a) => blindTypes.has(a.agentType));
-  if (affected.length === 0) return [];
+  // Per agent TYPE, since the waste is re-paid at every startup of that type.
+  const perType = new Map<string, { runs: number; servers: Record<string, number> }>();
+  let wasted = 0;
+  for (const run of session.agents) {
+    const declared = cat.agents.find((d) => d.name === run.agentType);
+    const barred = barredMcpTokens(declared, cat);
+    const perRun = Object.values(barred).reduce((sum, n) => sum + n, 0);
+    if (perRun === 0) continue;
+    wasted += perRun;
+    const entry = perType.get(run.agentType) ?? { runs: 0, servers: barred };
+    entry.runs++;
+    perType.set(run.agentType, entry);
+  }
+  if (wasted === 0) return [];
 
-  const perAgent = mcpSections.reduce((sum, s) => sum + s.tokens, 0);
-  const wasted = perAgent * affected.length;
-  const servers = [...new Set(mcpSections.flatMap((s) => s.requiresMcp))].join(", ");
+  const affected = [...perType.values()].reduce((sum, e) => sum + e.runs, 0);
+  const detail = [...perType.entries()]
+    .map(([type, e]) => {
+      const servers = Object.entries(e.servers)
+        .map(([srv, tok]) => `${srv} ${k(tok)} tok`)
+        .join(" + ");
+      return `${type} x${e.runs} (${servers})`;
+    })
+    .join(", ");
 
   return [
     {
       kind: "unreachable-instructions",
-      severity: "high",
+      severity: wasted >= UNREACHABLE_HIGH_TOKENS ? "high" : "warn",
       tokens: wasted,
       summary: pick(
         lang,
-        `~${k(wasted)} tokens en instrucciones que ${affected.length} subagentes no pueden ejecutar`,
-        `~${k(wasted)} tokens of instructions ${affected.length} subagents cannot execute`,
+        `~${k(wasted)} tokens en instrucciones que ${affected} subagentes no pueden ejecutar`,
+        `~${k(wasted)} tokens of instructions ${affected} subagents cannot execute`,
       ),
       evidence: pick(
         lang,
-        `Secciones que exigen MCP (${servers}): ${mcpSections.map((s) => `"${s.title}" ${k(s.tokens)} tok`).join(", ")}. ` +
-          `Los agentes ${[...blindTypes].join(", ")} declaran 'tools:' sin entradas mcp__, que es una allowlist e incluye MCP. ` +
-          `Costo = ${k(perAgent)} tok x ${affected.length} arranques.`,
-        `MCP-requiring sections (${servers}): ${mcpSections.map((s) => `"${s.title}" ${k(s.tokens)} tok`).join(", ")}. ` +
-          `Agents ${[...blindTypes].join(", ")} declare 'tools:' with no mcp__ entries, and that field is an allowlist covering MCP. ` +
-          `Cost = ${k(perAgent)} tok x ${affected.length} startups.`,
+        `Vedado por su 'tools:', que es una allowlist e incluye MCP: ${detail}. ` +
+          `El costo se re-paga en cada arranque: la sección viaja en el contexto inicial del agente aunque no pueda llamar la tool.`,
+        `Barred by their 'tools:', which is an allowlist and covers MCP: ${detail}. ` +
+          `The cost is re-paid at every startup: the section ships in the agent's initial context whether or not it can call the tool.`,
       ),
     },
   ];

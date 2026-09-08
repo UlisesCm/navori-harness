@@ -96,8 +96,45 @@ describe("signal: unreachable-instructions", () => {
       agents: [{ name: "implementer", tools: ["Read", "Bash"], hasMcp: false }],
     });
     const found = detectSignals(s, c, "es").find((x) => x.kind === "unreachable-instructions");
-    expect(found?.severity).toBe("high");
+    // `warn`, not `high`: one startup paying 550 tok is real and worth printing,
+    // and nowhere near the thousands that earn the top severity (#605).
+    expect(found?.severity).toBe("warn");
     expect(found?.tokens).toBe(550);
+  });
+
+  it("escalates to high once the waste crosses the token threshold", () => {
+    const s = session({
+      agents: [agent({ agentId: "a" }), agent({ agentId: "b" }), agent({ agentId: "c" })],
+    });
+    const c = catalog({
+      sections: [{ ...mcpSection, tokens: 700 }],
+      agents: [{ name: "implementer", tools: ["Bash"], hasMcp: false }],
+    });
+    const found = detectSignals(s, c, "es").find((x) => x.kind === "unreachable-instructions");
+    expect(found?.tokens).toBe(2100);
+    expect(found?.severity).toBe("high");
+  });
+
+  /**
+   * The defect this signal shipped with: `hasMcp` is true if the agent reaches
+   * ANY server, so an agent barred from ONE of two was counted as sighted and
+   * its unreachable section vanished from the finding — while the per-agent
+   * card kept printing it. One report, two numbers (#605).
+   */
+  it("counts a server the agent cannot reach even when it reaches another", () => {
+    const s = session({ agents: [agent({ agentType: "researcher" })] });
+    const c = catalog({
+      sections: [
+        mcpSection,
+        { title: "Engram", chars: 2712, tokens: 678, requiresMcp: ["engram"] },
+      ],
+      // Reaches codegraph, not engram — `hasMcp` says "has MCP" and hides it.
+      agents: [{ name: "researcher", tools: ["Read", "mcp__codegraph__*"], hasMcp: true }],
+    });
+    const found = detectSignals(s, c, "es").find((x) => x.kind === "unreachable-instructions");
+    expect(found?.tokens).toBe(678);
+    expect(found?.evidence).toContain("engram");
+    expect(found?.evidence).not.toContain("codegraph");
   });
 
   it("stays silent when the agent DOES have MCP access", () => {

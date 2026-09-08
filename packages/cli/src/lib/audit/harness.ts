@@ -221,3 +221,41 @@ export function renderedHarnessVersion(repoRoot: string): string | null {
   }
   return null;
 }
+
+/**
+ * Whether an agent's declared `tools:` lets it reach ONE server.
+ *
+ * A blanket `mcp__codegraph__*` grants codegraph and nothing else; an absent
+ * `tools:` inherits everything.
+ */
+export function reaches(declared: DeclaredAgent | undefined, server: string): boolean {
+  if (!declared || declared.tools === null) return true;
+  return declared.tools.some(
+    (tool) => tool === "*" || tool === `mcp__${server}__*` || tool.startsWith(`mcp__${server}__`),
+  );
+}
+
+/**
+ * Per server, the CLAUDE.md tokens an agent pays at startup for instructions it
+ * cannot execute. Servers it can reach are absent, not zero.
+ *
+ * This lives HERE, exported, because two callers need the same answer and used
+ * to compute it differently: the per-agent card crossed section↔server (fine),
+ * while the `unreachable-instructions` signal used a single `hasMcp` boolean —
+ * true if the agent reached ANY server. An agent with engram but not codegraph
+ * was therefore "not blind", and its barred codegraph section vanished from the
+ * finding while still being printed on its own card. One report, two numbers.
+ */
+export function barredMcpTokens(
+  declared: DeclaredAgent | undefined,
+  cat: HarnessCatalog,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const section of cat.sections) {
+    for (const server of section.requiresMcp) {
+      if (reaches(declared, server)) continue;
+      out[server] = (out[server] ?? 0) + section.tokens;
+    }
+  }
+  return out;
+}

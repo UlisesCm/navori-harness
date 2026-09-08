@@ -1,4 +1,4 @@
-import type { DeclaredAgent, HarnessCatalog } from "./harness.ts";
+import { type HarnessCatalog, barredMcpTokens, reaches } from "./harness.ts";
 import {
   type AgentRun,
   type AuditReport,
@@ -369,16 +369,6 @@ function mcpLines(a: AgentRun, lang: Lang): string {
   return lines.join(`\n  ${" ".repeat(LABEL)}`);
 }
 
-/** Whether an agent's declared `tools:` lets it reach ONE server. A blanket
- *  `mcp__codegraph__*` grants codegraph and nothing else; an absent `tools:`
- *  inherits everything. */
-function reaches(declared: DeclaredAgent | undefined, server: string): boolean {
-  if (!declared || declared.tools === null) return true;
-  return declared.tools.some(
-    (tool) => tool === "*" || tool === `mcp__${server}__*` || tool.startsWith(`mcp__${server}__`),
-  );
-}
-
 /** What a barred agent paid, in its startup, for instructions it cannot follow. */
 function barredCost(a: AgentRun, server: string, lang: Lang): string {
   const wasted = a.mcpBarredTokens[server];
@@ -736,26 +726,20 @@ export function buildReport(
   // `barredTokens` is what turns the finding from a label into a cost (R20): the
   // CLAUDE.md sections that REQUIRE a server are shipped in every agent's
   // startup context whether or not its `tools:` can reach it, so a barred agent
-  // pays for instructions it is structurally unable to follow. Same measurement
-  // the `unreachable-instructions` signal reports for the session, attributed
-  // per agent.
-  const mcpSectionTokens = new Map<string, number>();
-  for (const section of opts.catalog.sections) {
-    for (const server of section.requiresMcp) {
-      mcpSectionTokens.set(server, (mcpSectionTokens.get(server) ?? 0) + section.tokens);
-    }
-  }
+  // pays for instructions it is structurally unable to follow.
+  //
+  // `barredMcpTokens` is shared with the `unreachable-instructions` signal so
+  // the card and the finding cannot drift: this comment used to CLAIM they were
+  // the same measurement while the signal ran off a coarser boolean, and the
+  // two disagreed in print — a card reading "codegraph vedado · 337 tok" under
+  // a session summarised as "0 alto" (#605).
   for (const sess of sessions) {
     for (const a of sess.agents) {
       const declared = opts.catalog.agents.find((d) => d.name === a.agentType);
       for (const server of opts.catalog.mcpFamilies) {
-        const canReach = reaches(declared, server);
-        a.mcpReach[server] = canReach;
-        if (!canReach) {
-          const wasted = mcpSectionTokens.get(server) ?? 0;
-          if (wasted > 0) a.mcpBarredTokens[server] = wasted;
-        }
+        a.mcpReach[server] = reaches(declared, server);
       }
+      a.mcpBarredTokens = barredMcpTokens(declared, opts.catalog);
     }
   }
 
