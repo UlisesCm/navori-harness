@@ -1,83 +1,55 @@
 # Sesión actual
 
-**Estado:** `main` en **0.7.0**, con tag `v0.7.0` y CI verde. Cero issues abiertos, cero PRs
-abiertos. El desfase entre npm y el repo quedó cerrado.
+**Estado:** `main` en **0.7.4** (tag `v0.7.4`, npm `latest: 0.7.4`), 0 issues, 0 PRs. Los 15
+repos Bonum renderizados a 0.7.4 con drift 0. La spec 0016 tiene TODO lo implementable por
+código hecho y mergeado.
 
-## Lo que se cerró en esta sesión
+## Lo que se cerró en esta jornada (sesión `fa4dd30b`, ~9h en auto mode con audit)
 
-**1. Las skills alcanzan a sus librerías (PR #586, `c79b78b`).** Tres skills que navori distribuye
-enseñaban APIs que sus librerías ya retiraron:
+**Rollout + auditoría de migraciones** → 2 issues [ALTO] (#588 update pisaba decisiones,
+#589 registry congelaba el name) → **resueltos en #590** → release **0.7.3**.
 
-- **`keystone-graphql`** — skill nueva del preset `bun-keystone`. No había cobertura de GraphQL
-  custom, que es justo donde el modelo de acceso de Keystone tiene su hueco: el `access` de la lista
-  no corre en un resolver de `extendGraphqlSchema`. Fija el builder `gWithContext<Context>()` en un
-  módulo del proyecto (importar `g` de `@keystone-6/core` no unifica con el `Context` generado,
-  `TS2322`/`TS2345`), con la excepción de los campos `virtual()`, y exige el guard antes del primer
-  read o write.
-- **`prisma-keystone`** — Prisma 7 soltó el motor Rust: `new PrismaClient()` sin opciones lanza,
-  el cliente se importa del `output` del generador, y los parámetros de pool de la `DATABASE_URL`
-  los ignora el adapter **en silencio** (`connectionTimeoutMillis` hay que fijarlo: `pg` lo trae en
-  `0`, "espera para siempre").
-- **`zod-validation`** — v4 al frente con la forma v3 anotada inline. El helper `objectId` deja de
-  ser la regla (era específico de Mongo en una skill agnóstica): ahora se valida la *forma* del id.
+**Spec 0016 (paridad de modos) — 6 PRs, todos mergeados:**
 
-**2. El release 0.7.0 aterrizó en main (`f33db77`, tag `v0.7.0`).** Ver la causa raíz abajo.
-
-## Causa raíz: por qué 0.7.0 no estaba en main
-
-npm servía `navori@0.7.0` desde la jornada pasada, pero `packages/cli/package.json` en `main` decía
-**0.6.5** y no existía el tag. El motivo: **el PR #585 (`chore(release): navori 0.7.0`) se mergeó
-contra `feat/always-on-diet-2`, no contra `main`.** Esa rama ya se había squash-mergeado a main
-antes (como #583), así que el bump quedó huérfano en una rama muerta.
-
-Es la tercera manifestación del mismo gotcha ya anotado ("dos veces cometí encima de una rama de PR
-en vez de `main`"). **Antes de abrir un PR, verificar la base, no solo la rama:**
-`gh pr create --base main` explícito, y `gh pr view <n> --json baseRefName` para confirmar.
-
-El fix se rehizo sobre main en vez de rebasar `release/0.7.0`: esa rama sale de antes del cierre de
-jornada (`d52f7f7`) y su rebase choca en cada hash del drift stamp. Bump + `pnpm render:apply` +
-tag es determinista y de un paso.
-
-## Deuda / gotchas vigentes
-
-- **Ramas remotas obsoletas sin borrar** (todas detrás de main, nada único): `release/0.7.0`,
-  `feat/always-on-diet-2`, `chore/progress-cierre-release-0.6.0`, `chore/release-0.6.1`,
-  `feat/preset-bun-keystone`, `fix/preset-bun-keystone-8`.
-- **El guard `~/.navori` (#404/#424) sigue dando falso positivo** cuando hay otra sesión de Claude
-  Code viva escribiendo `audits/<repo>/session-*.log`. Se manifiesta como el único ✖ de
-  `test:coverage` con los 3156 tests en verde. En CI siempre pasa.
-- **`check:assets` compara contra el último TAG, no contra el working tree** — es su diseño (#490).
-  Después de un bump sin tag reporta la versión vieja; no es staleness.
-- **Decisión de producto abierta**: `Skills disponibles` (570 tok) puede ser copia del listado que
-  Claude Code ya inyecta. Dato que la refuerza: 36 skills declaradas y 0 usadas en
-  `alertaciudadana_app`, 15 de 17 sin usar aquí.
-- **La dieta del always-on rinde menos de lo que sugiere el titular**: los 4 bloques son 15% del
-  arranque de un subagente pero solo 6.5% del orquestador, y 3 de 4 sesiones auditadas no lanzaron
-  ninguno.
-- **Los inventarios escritos a mano no crecen solos.** Rompieron cuatro veces. Cuando un test liste
-  archivos a mano, evalúa derivarlo.
-
-## SIGUIENTE PASO REAL: medir
-
-Sigue pendiente y no se movió: **una sesión con fan-out, con `navori audit --start <id>` desde el
-primer minuto**, en un repo ya en 0.7.0. Contesta de una:
-
-1. ¿arranca la escalera de búsqueda? (`codegraph_explore > 0`, hoy 0 en todas las sesiones)
-2. ¿se agrupan los comandos? (llamadas Bash por turno)
-3. ¿cuánto bajó el arranque por subagente? (27,787 → ~23,600 esperado)
-
-Con el corte por modo (#584) el resultado se lee sin ambigüedad: sabremos qué pasó en `auto` y qué
-en el resto, en vez de un solo montón.
-
-## Estado del rollout
-
-| repo | harness | nota |
+| PR | Lote | Lo esencial |
 |---|---|---|
-| `navori-harness` | 0.7.0 | publicado en npm, main y tag alineados |
-| `alertaciudadana_app` | 0.7.0 | sin commitear |
-| `alertaciudadana_backend` | 0.7.0 | sin commitear |
-| `alertaciudadana_backend_dev` | 0.7.0 | **sin git** — solo el backup de navori |
-| `navori-dashboard-template` | 0.7.0 | sin commitear, incluye 41 archivos de un render previo |
+| #591 | L1 | dev-loop directo en allow (con tabla por PM); `Bash(rg:*)` RECHAZADO (`--pre` ejecuta) |
+| #592 | L4 | `classifier-round-trips` por tramo de modo; señal nueva `tool-mix` (85%, ciega al modo) |
+| #593 | L3 | guard: token `git` → `commit\|push`, −70% en la familia más frecuente |
+| #594 | T3.2b | gate-trigger: fork por segmento → fast-path por tokens, costo plano ~15ms |
+| #595 | L0/auto | brazo auto documentado: el host SÍ manda shell para todo (ambas variantes de T2.1 refutadas) |
+| #596 | T2.3 | researcher + structural-search citan el costo medido (post-0.7.4, sin publicar) |
 
-Por decisión del usuario **no se commiteó el harness en ninguno**. Los backups viven en
-`~/.navori/backups/`. Los otros tres directorios de `navori/` no tienen `navori.config.json`.
+Release **0.7.4** publicado (verificado contra tarball) + rollout 15/15 a Bonum.
+
+## Lo que sigue — EN ORDEN
+
+**1. Los 2 brazos de L0 (T0.1) — sesiones de Ulises.** Protocolo para que salgan comparables:
+
+- **Tarea**: un ticket chico real, EL MISMO en ambas sesiones (idealmente uno con
+  búsqueda + edición + gate; ~30-60 min).
+- **Repo**: cualquiera de Bonum (ya en 0.7.4) o este. Sesión nueva por brazo, una en
+  `acceptEdits` y una en `default`.
+- **Arranque**: `navori audit --start <sessionId>` (o dejar que el hook lo marque).
+- **Cierre**: terminar la sesión normal; luego `navori audit --session <id>` y comparar
+  contra el brazo auto (`session-fa4dd30b`, documentado en la spec §Fase 0).
+- **Qué mirar**: % nativas+MCP del orquestador, si `tool-mix` dispara, búsquedas
+  shell/hora. Bonus: lanzar un `researcher` en una de las dos — sus fichas por agente
+  contestan si el mandato de shell les llega a los subagentes (pregunta abierta).
+
+**2. T2.1 (doctrina de auto mode)** — con las respuestas de L0. Ya replanteado: resolver
+la tensión mandato-del-host vs costo, no asumir que el mandato desapareció.
+
+**3. Re-auditoría §6** — sobre sesiones post-0.7.4; el instrumento (L4) ya existe.
+
+**4. Siguiente release** — T2.3 + lo que salga de T2.1 (no amerita 0.7.5 solo).
+
+## Deuda fuera de la spec (decisiones de Ulises, sin bloquear)
+
+- `bonum-webapp`: harness 0.7.4 SIN commitear (~40 archivos; es el repo que SÍ versiona).
+- `bonum-ai-coach-frontend/.codex/` muerto en disco (el rm lo bloqueó el clasificador).
+- 13 repos con líneas de `.gitignore` sin commitear (protección solo local).
+- `navori update --yes` por repo Bonum adoptaría `packageManager` + libs de test — seguro
+  desde 0.7.4 (#588), pero es diff de config.
+- 4 worktrees de webapp en 0.5.1 a propósito (heredan al rebasear).
+- Spec 0015 T8 abierto: la medición de arranque por subagente nunca se registró.
