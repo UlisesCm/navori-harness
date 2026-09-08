@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { getPluginPath } from "../bundled-assets.ts";
+import { getCoreRoot, getPluginPath } from "../bundled-assets.ts";
 import { interpolate } from "../interpolate.ts";
 import { expandHookIncludes } from "../hook-includes.ts";
 import type { NavoriConfig } from "../config.ts";
@@ -207,8 +207,61 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
         expect(r.status).toBe(0);
         expect(r.stderr).not.toContain("installed");
       });
+
+      /**
+       * Spec 0016 — the detector pays one `grep` fork PER SEGMENT, so its cost
+       * used to scale with command length (85 ms for 40 segments). A substring
+       * fast path over the raw input now answers "not for me" in-process. These
+       * two pin the property that matters: the shortcut changes the price,
+       * never the verdict.
+       */
+      it("still triggers on a `git commit` buried at the end of a long compound", () => {
+        const long = [...Array.from({ length: 39 }, (_, i) => `echo paso${i}`), "git commit"].join(
+          " && ",
+        );
+        const r = runHook(scriptPath, long);
+        expect(r.status).toBe(0);
+        expect(r.stderr).toContain("installed");
+      });
+
+      it("skips a long compound with no gated op (the fast path's whole point)", () => {
+        const long = Array.from({ length: 40 }, (_, i) => `echo paso${i}`).join(" && ");
+        const r = runHook(scriptPath, long);
+        expect(r.status).toBe(0);
+        expect(r.stderr).not.toContain("installed");
+      });
     });
   }
+});
+
+/**
+ * The fast path is sound only while $TRIGGER_TOKENS stays a set of literals
+ * that EVERY branch of its $TRIGGER_RE requires — a regex branch added without
+ * its token would be silently unreachable through the shortcut. The runtime
+ * fails open (unset tokens → slow path), so the pairing itself is pinned here,
+ * against the ASSETS, for the three hooks that gate on git operations.
+ */
+describe("gate fast path — TRIGGER_TOKENS pairs with TRIGGER_RE (spec 0016)", () => {
+  const ASSETS = [
+    ["core", join(getCoreRoot(), "core-assets/hooks/quality-gate-pre-commit.sh"), ["commit"]],
+    ["jscpd", join(getPluginPath("jscpd"), "scripts/check-jscpd.sh"), ["commit"]],
+    [
+      "semgrep",
+      join(getPluginPath("semgrep"), "scripts/check-semgrep.sh"),
+      ["commit", "push", "create"],
+    ],
+  ] as const;
+
+  it.each(ASSETS)("%s: declares its tokens, and each appears in the regex", (_id, path, tokens) => {
+    const src = readFileSync(path, "utf-8");
+    const re = src.match(/^TRIGGER_RE='(.+)'$/m)?.[1];
+    const declared = src.match(/^TRIGGER_TOKENS='(.+)'$/m)?.[1]?.split(" ");
+    expect(re, "TRIGGER_RE not found").toBeDefined();
+    expect(declared, "TRIGGER_TOKENS not found").toEqual([...tokens]);
+    // Each token must be a literal the regex spells out — the substring probe
+    // can only be a superset of matches while this holds.
+    for (const tok of tokens) expect(re).toContain(tok);
+  });
 });
 
 describe("plugin gate commands — generated tool invocation", () => {

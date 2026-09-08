@@ -38,8 +38,8 @@ c9309940b57faa90442891f0016cca16d13aa4b5  .claude/hooks/worktree-reclaim.sh
 d494f998c5bd7e89c540c8fefe63afe5939323c2  .claude/hooks/guard-destructive.sh
 d70a429bb6e729a0845f0d173ad6a1ef0ae109ea  .claude/skills/playwright-cli/references/request-mocking.md
 df14eae91f3420bf5ee11ae77272cf9fc62ad535  .claude/agents/auditor.md
+e2841a9f339450d5a925c94667eaed52c1cb0a71  .claude/hooks/quality-gate-pre-commit.sh
 e9146b458d341ff1362b010b09bdffbef784809c  .claude/skills/zod-validation/SKILL.md
 ec858f267877a7b5f5bc021fb52059adad3557a1  .claude/skills/playwright-cli/references/session-management.md
 f43e43fdf54392f64a078aa138130c27c791b1a7  .claude/hooks/managed-drift-watch.sh
 f63897634d5a48fb9604ae4c975e1bf17d557c46  .claude/skills/review-diff/SKILL.md
-f8ede645b22a6c06924dc09c88934b512c7da06e  .claude/hooks/quality-gate-pre-commit.sh

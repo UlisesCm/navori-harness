@@ -55,6 +55,11 @@ trap navori_audit_on_exit EXIT
 # only gate that also fires on push and PR creation (remote-push security
 # backstop). $TRIGGER_RE is consumed by the shared detector inlined below.
 TRIGGER_RE='(^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+(commit|push)([[:space:]]|$))|(^gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$))'
+# Literal substrings every branch of $TRIGGER_RE needs; read by the fast
+# path in the shared detector below (spec 0016). Keep NEXT to the regex:
+# a branch added there without its token here silently loses the shortcut
+# (fail-open to the slow path), and the inlined tests pin the pairing.
+TRIGGER_TOKENS='commit push create'
 # navori:include gate-trigger
 
 # Resolution of the working tree the commit acts on (#454). Shared body.

@@ -202,20 +202,32 @@ que la vía barata sea la misma historia en los tres modos, no un carve-out de a
   tokens **del propio asset** y verifica que todo comando que la suite espera bloqueado
   contenga alguno; esa es la prueba de que el cambio no abre un hueco. 461 tests verdes.
 
-- **T3.2 — MEDIDO: no hay nada que recortar.** El piso trivial de los tres hooks
-  configurables resultó estar ya en el suelo del proceso bash:
+- **T3.2 — dos pasadas, y la segunda corrigió a la primera.** La primera medición (bench
+  sintético con `git status`) concluyó "el piso trivial ya está en el suelo, sin cambio de
+  código". **El log de la propia sesión de trabajo la refutó**: p50 de 40 ms por hook y
+  185 ms por comando con la batería de 5 — porque los comandos reales no son triviales.
+  Aislado el detector: `is_scan_trigger` paga **un fork de `grep` por segmento/línea** del
+  comando (2.8 ms trivial, 14.8 ms un heredoc de 199 chars, 95.8 ms un compuesto de 40
+  segmentos). Fix en el único lugar (`_partials/gate-trigger.sh`, compartido por los tres
+  hooks): fast-path de substring sobre el input crudo con `$TRIGGER_TOKENS`, declarado
+  junto a cada `$TRIGGER_RE`. Mismo argumento de superset que el guard: las
+  transformaciones del detector solo insertan o pelan prefijos, nunca pueden CREAR un
+  token, así que si ningún token aparece, ningún segmento puede matchear. Sin tokens
+  declarados, el fast-path se desarma (fail-open a la vía lenta, nunca a un skip).
 
-  | hook | p50 con comando trivial |
-  |---|---|
-  | `quality-gate-pre-commit` | 17.2 ms |
-  | `check-jscpd` | 17.1 ms |
-  | `check-semgrep` | 16.9 ms |
-  | (referencia: guard con fast-path) | 16.3 ms |
+  | caso | antes | después |
+  |---|---|---|
+  | trivial | ~17.8 ms | ~16.0 ms |
+  | heredoc real (199 chars) | ~26.7 ms | ~15.7 ms |
+  | compuesto de 40 segmentos | ~87.1 ms | **~15.7 ms** |
 
-  Los tres están a ~1 ms del piso, así que adelantar el trigger-check no compraría nada.
-  El `is_scan_trigger` de `check-jscpd.sh:6-7` ya hace su trabajo; las medias infladas del
-  corpus (267/201/212 ms) eran los escaneos reales, como la tarea sospechaba. **Sin cambio
-  de código, que era el resultado posible que la tarea dejó abierto.**
+  El costo quedó PLANO respecto a la forma del comando. Batería de 5 con un comando real:
+  102 ms contra 185 ms de campo. `git commit` sigue pagando su escaneo completo (control).
+
+  **Bug cazado por la suite diferencial bash×zsh al implementarlo**: `for _tok in
+  $TRIGGER_TOKENS` no hace word-split en zsh (itera UNA vez con la lista entera como token
+  único), así que el gate nunca disparaba ahí. Misma clase que el pitfall de `$'\n'` que
+  el propio partial ya documentaba; la iteración quedó por newline-split + `read`.
 
 - **T3.3 — NO SE HACE, decidido por los números.** `managed-drift-watch` mide 30.3 ms
   (~14 ms sobre el piso). Con T3.1, la batería completa de 5 hooks para un Bash trivial
