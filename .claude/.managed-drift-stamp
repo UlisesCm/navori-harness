@@ -7,7 +7,6 @@
 213ce871151241cc00263a95be7e7128c6a3e673  .claude/skills/playwright-cli/references/video-recording.md
 2de62a1749d40454d76b51159104c34879c0d924  .claude/skills/ticket-intake/SKILL.md
 2fc083cb245e681532edaa4b925bdbdd130f18a8  .claude/skills/playwright-cli/references/storage-state.md
-30adff3e27287e260e95b77ab1c640f5d26f17c6  .claude/hooks/guard-destructive.sh
 3648688b1eb19bd8d13f582ab310c849266bb7bf  CLAUDE.md
 36e46d49d59fecbf985373e1e79fa98316c69ea7  .claude/hooks/audit-mode-close.sh
 43822850d5057e5fe51be785134e12f1c25e7241  .claude/skills/playwright-cli/SKILL.md
@@ -36,6 +35,7 @@ bd9a40a01c3318e42db6d525518e7f6672e745a6  .claude/agents/ticket-audit.md
 be6cb740b1308b07009d04dd1afd2432cc81286f  .claude/skills/verify-before-done/SKILL.md
 c3fc30043da5953f8b6de3ca084ac0500f6bf4db  .claude/skills/playwright-cli/references/test-generation.md
 c9309940b57faa90442891f0016cca16d13aa4b5  .claude/hooks/worktree-reclaim.sh
+d494f998c5bd7e89c540c8fefe63afe5939323c2  .claude/hooks/guard-destructive.sh
 d70a429bb6e729a0845f0d173ad6a1ef0ae109ea  .claude/skills/playwright-cli/references/request-mocking.md
 df14eae91f3420bf5ee11ae77272cf9fc62ad535  .claude/agents/auditor.md
 e9146b458d341ff1362b010b09bdffbef784809c  .claude/skills/zod-validation/SKILL.md

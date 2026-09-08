@@ -1268,17 +1268,47 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
      *  rule added later without its token cannot pass by editing only the test. */
     const FAST_TOKENS: string[] = (() => {
       const src = readFileSync(guardPath, "utf-8");
-      const line = src.split("\n").find((l) => l.includes("*git*") && l.trim().startsWith("*"));
+      const line = src.split("\n").find((l) => l.includes("*commit*") && l.trim().startsWith("*"));
       if (!line) throw new Error("fast-path case arm not found in the guard asset");
       return [...line.matchAll(/\*'?([^*'|)\s]+)'?\*/g)].map((m) => m[1] as string);
     })();
 
     it("reads a token list that still contains every rule's trigger", () => {
-      // Rules 1-2 (git commit/push), 3 (rm), 4 (fork bomb), 5 (block device),
+      // Rules 1-2 (commit/push — `$git_cp` ends in `(commit|push)`, so `git`
+      // alone can never reach a block), 3 (rm), 4 (fork bomb), 5 (block device),
       // 6 (managed-file writes, via its three write verbs).
       expect(FAST_TOKENS).toEqual(
-        expect.arrayContaining(["git", "rm", "sed", "tee", "/dev/", ">", ":("]),
+        expect.arrayContaining(["commit", "push", "rm", "sed", "tee", "/dev/", ">", ":("]),
       );
+    });
+
+    /**
+     * Spec 0016 T3.1 — what narrowing `git` to `commit`/`push` bought. `git` is
+     * the most frequent command family there is, and the old token also caught
+     * every path that merely CONTAINS it, so all of these paid the full ~46 ms
+     * analysis to prove something no rule could have found.
+     */
+    it.each([
+      "git status --porcelain",
+      "git diff --stat",
+      "git log --oneline -20",
+      "git show HEAD",
+      "git rev-parse --abbrev-ref HEAD",
+      "git branch --show-current",
+      "cat .gitignore",
+      "ls .github/workflows",
+    ])("now short-circuits a command no rule could match: %s", (cmd) => {
+      const probe = cmd.replace(/['"\\\n]/g, "");
+      expect(FAST_TOKENS.some((tok) => probe.includes(tok))).toBe(false);
+      // The verdict is what matters, not the shortcut: still allowed.
+      expect(runGuard(cmd)).toBe(0);
+    });
+
+    it("keeps analysing the git commands that CAN block", () => {
+      for (const cmd of ["git commit -m x", "git push origin main"]) {
+        const probe = cmd.replace(/['"\\\n]/g, "");
+        expect(FAST_TOKENS.some((tok) => probe.includes(tok))).toBe(true);
+      }
     });
 
     /** Every command the suite expects to be BLOCKED, from all three tables. */

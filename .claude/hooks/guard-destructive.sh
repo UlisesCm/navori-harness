@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="0687ce3d" version="0.7.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="af7835ec" version="0.7.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -557,9 +557,20 @@ fi
 #
 # WHY IT IS SOUND, which is the only part that matters in a security control:
 # every `block` in this file needs one of these literal substrings to survive
-# into the string its rule reads — `git` (rules 1-2, via `$git_cp`), `rm`
-# (rule 3), `:(` (rule 4), `/dev/` (rule 5), and `>`/`sed`/`tee` (rule 6, the
-# three write verbs it recognizes). No rule can fire without one.
+# into the string its rule reads — `commit`/`push` (rules 1-2), `rm` (rule 3),
+# `:(` (rule 4), `/dev/` (rule 5), and `>`/`sed`/`tee` (rule 6, the three write
+# verbs it recognizes). No rule can fire without one.
+#
+# Rules 1-2 are keyed on `commit`/`push`, NOT on `git` (spec 0016 T3.1). Both go
+# through `$git_cp`, whose regex ends in `(commit|push)` — and rule 2 narrows
+# further to `push`. So `git` alone can never reach a `block`, and testing for it
+# only made the fast path miss: `git` is the most frequent command family there
+# is, and every `git status`, `git diff`, `git log` — plus every `cat
+# .gitignore` and `ls .github/`, which merely CONTAIN the substring — paid the
+# full ~46 ms to prove something the rules could not have found. Substring
+# testing stays a superset of the regexes (any command `$git_cp` matches
+# contains `commit` or `push` literally), so the argument above is unchanged;
+# it just stopped being answered by a token four times too wide.
 #
 # The probe is the command with quotes, backslashes and newlines REMOVED, which
 # is what makes the argument hold under the obfuscations the rules normalize
@@ -590,7 +601,7 @@ if [ "${#cmd}" -le "$FAST_MAX" ]; then
   _fast=${_fast//\\/}
   _fast=${_fast//"${_nl}"/}
   case "$_fast" in
-    *git*|*rm*|*sed*|*tee*|*'/dev/'*|*'>'*|*':('*) ;;
+    *commit*|*push*|*rm*|*sed*|*tee*|*'/dev/'*|*'>'*|*':('*) ;;
     *)
       navori_audit_verdict="skip"
       navori_audit_reason="no rule token in the command"
