@@ -8,6 +8,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -753,6 +754,56 @@ describe.each(SHELLS)("the handoff note is said once per problem under %s", (she
     brokenHandoff();
     const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
     expect(runFile(shell, hook, JSON.stringify({ cwd })).out).toContain("systemMessage");
+  });
+
+  /**
+   * #606 — the hook policed the whole directory, which nothing prunes.
+   *
+   * Handoffs written under an older format failed the check forever: 44 stale
+   * files in one measured repo, 19 in another, and in all four the `clean`
+   * verdict was unreachable. The window is what makes the check about the
+   * handoff that just landed instead of about a month of closed work.
+   */
+  function ageFile(name: string, daysOld: number): void {
+    const when = new Date(Date.now() - daysOld * 86400 * 1000);
+    utimesSync(join(progressDir(), name), when, when);
+  }
+
+  it("ignores a broken handoff from a closed piece of work", () => {
+    activate();
+    brokenHandoff("impl_agosto.md");
+    ageFile("impl_agosto.md", 30);
+    const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
+
+    expect(runFile(shell, hook, STOP()).out).toBe("");
+    // And `clean` becomes reachable again, which is the verdict this hook says
+    // is the whole point of recording it.
+    expect(verdicts()).toEqual(["clean"]);
+  });
+
+  it("keeps checking a handoff written earlier in a long session", () => {
+    // Sessions of 10h41m were measured; the window is 48h so an early handoff
+    // is still policed when the session ends.
+    activate();
+    brokenHandoff("impl_temprano.md");
+    ageFile("impl_temprano.md", 1);
+    const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
+
+    expect(runFile(shell, hook, STOP()).out).toContain("impl_temprano.md");
+  });
+
+  it("does not let a stale file bury the warning about a fresh one", () => {
+    // The stamp compares the whole problem string, so an old permanent failure
+    // rode along on every message and re-fired when the real one was fixed.
+    activate();
+    brokenHandoff("impl_agosto.md");
+    ageFile("impl_agosto.md", 30);
+    brokenHandoff("impl_hoy.md");
+    const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
+
+    const out = runFile(shell, hook, STOP()).out;
+    expect(out).toContain("impl_hoy.md");
+    expect(out).not.toContain("impl_agosto.md");
   });
 });
 

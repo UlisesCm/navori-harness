@@ -4887,28 +4887,54 @@ is_blank() { ! grep -q '[^[:space:]]' "$1" 2>/dev/null; }
 problems=""
 note() { problems="${problems}${problems:+; }$1"; }
 
-# nullglob, so an absent report class yields zero iterations instead of a
-# literal pattern (bash) or a hard "no matches found" abort (zsh, which also
-# has no `shopt` — under `set -e` that unknown command killed the whole hook
-# there, #391). Each shell spells the option its own way.
-if [ -n "${ZSH_VERSION:-}" ]; then setopt NULL_GLOB; else shopt -s nullglob; fi
+# Only handoffs touched inside this window are checked (48h in minutes).
+#
+# The hook fires on SubagentStop, so the handoff it exists to police is the one
+# just written. It used to check the WHOLE directory, which nothing prunes, and
+# that broke it three ways on every repo measured (#606):
+#
+#   1. Handoffs written under an older format failed forever — 44 files in one
+#      repo, 19 in another. The `clean` verdict this script calls "the whole
+#      value of recording this hook" was unreachable in all four.
+#   2. The stamp compares the full problem string, so a genuinely broken new
+#      handoff injected N+1 paths (44 of them from August in one repo) and
+#      fixing it re-injected the N old ones. The real warning arrived buried.
+#   3. Two greps per file, unbounded: the median run tracked the file count
+#      almost linearly — 46 files/165ms, 57/197ms, 80/333ms, 138/419ms — making
+#      this the most expensive hook of the six, the other five sitting at
+#      16-59ms.
+#
+# 48h and not less because a session can be long (10h41m measured) and a handoff
+# written early in one must still be checked when it ends. Everything older is
+# closed work: PRs in the repo this was measured on merge in under 10 hours,
+# p90 8.5h.
+HANDOFF_WINDOW_MIN=2880
+
+# `find` replaces the globs rather than filtering inside them: it does the
+# selection in ONE fork per directory instead of two greps per stale file, which
+# is the cost above. Read through `while read` (not `$(...)` word-splitting) so
+# a path with spaces survives, and via process substitution so `note` writes to
+# the real `problems` and not to a subshell's copy.
+#
 # Reports are named by their PATH, not their basename: with more than one
 # progress dir in play, `impl_x.md` alone wouldn't say which one to open.
 for dir in "${dirs[@]}"; do
-  for f in "$dir"/impl_*.md; do
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
     if is_blank "$f"; then
       note "$f vacío"
     elif ! grep -qiE '^\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
       note "$f sin línea 'Status:'"
     fi
-  done
-  for f in "$dir"/review_*.md; do
+  done < <(find "$dir" -maxdepth 1 -name 'impl_*.md' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
     if is_blank "$f"; then
       note "$f vacío"
     elif ! grep -qE 'APPROVED|CHANGES_REQUESTED' "$f" 2>/dev/null; then
       note "$f sin veredicto (APPROVED/CHANGES_REQUESTED)"
     fi
-  done
+  done < <(find "$dir" -maxdepth 1 -name 'review_*.md' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
 done
 
 # `clean` vs `dirty` is the whole value of recording this hook: it is the only

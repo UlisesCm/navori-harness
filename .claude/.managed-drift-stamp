@@ -13,6 +13,7 @@
 3a4561172825a129e5ffa79b1ab7e1874e5fe97f  .claude/skills/spec-bootstrap/SKILL.md
 43822850d5057e5fe51be785134e12f1c25e7241  .claude/skills/playwright-cli/SKILL.md
 49434b76b7e7e2518ce6e466c62c37fdb70e1fef  .claude/skills/playwright-cli/references/element-attributes.md
+4c06a3ac2f0d179a4d5017c35ea255417ca006d4  .claude/hooks/subagent-stop-handoff.sh
 590e57f241c7264df744eb51319fd6bc487c8454  .claude/agents/implementer.md
 5dd0520a186bd1c3f4dad7ac481949dc73f813ea  .claude/hooks/worktree-reclaim.sh
 604cafa8bf4e34a4dedc5eb7f0a3986c74472564  .claude/agents/reviewer.md
@@ -41,5 +42,4 @@ dd80a452604f1e8c4493258c64f959347607f8c9  .claude/hooks/session-start-context.sh
 e5258bf8901e30b273126c93f500728123b2da84  .claude/hooks/audit-mode-close.sh
 e8b8636235de90b5029bb2cd8e0f0f1df4b39479  .claude/skills/ticket-intake/SKILL.md
 ec858f267877a7b5f5bc021fb52059adad3557a1  .claude/skills/playwright-cli/references/session-management.md
-efe9ea0567fd88f35f231e5176ab2a678f31b76d  .claude/hooks/subagent-stop-handoff.sh
 f2989d972dc99d8e254de8327dded52d82785f5e  .claude/skills/zod-validation/SKILL.md
