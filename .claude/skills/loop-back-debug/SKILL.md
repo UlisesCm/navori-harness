@@ -5,7 +5,7 @@ type: behavior
 maxWords: 1000
 ---
 
-<!-- navori:managed id="loop-back-debug-base" hash="25c7bebc" version="0.7.3" source="@navori/core" -->
+<!-- navori:managed id="loop-back-debug-base" hash="25c7bebc" version="0.7.4" source="@navori/core" -->
 # Loop-Back Debug
 
 ## The anti-pattern this skill attacks
