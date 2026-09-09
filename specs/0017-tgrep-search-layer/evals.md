@@ -70,3 +70,31 @@ tests), pero se reporta en el PR como hallazgo de activación clase #597 con su 
 **Veredicto (2026-09-09).** E1 cerrado en verde con datos de campo. E2 queda
 abierto por falta de una máquina sin tgrep. E3 falla, y su fallo es el hallazgo
 clase #597 que esta spec anticipaba — solo que le tocó a codegraph, no a tgrep.
+
+## T7 — el experimento `alwaysLoad` (2026-09-09)
+
+El hallazgo 1 dejó una pregunta con dos ramas y ninguna forma de decidirla leyendo
+documentación: la doc de Claude Code documenta `alwaysLoad` para servers http/sse/ws y
+guarda silencio sobre stdio, que es como está registrado codegraph (C4 del design).
+
+**Método.** Un solo cambio: `"alwaysLoad": true` en la entrada codegraph del `.mcp.json` de
+navori-harness, y sesión nueva. El instrumento no es la impresión del agente sino un número
+que el propio harness deja escrito en el transcript: cualquier `ToolSearch` reporta
+`total_deferred_tools`. La misma consulta (`select:Grep`) en las dos ramas, la misma versión
+de Claude Code (2.1.236), el mismo repo, el mismo día.
+
+| | sesión | fecha (UTC) | tools diferidas | codegraph |
+|---|---|---|---|---|
+| control | `04eed7b1` | 02:22:38Z | **68** | diferido — pagó `ToolSearch select:…codegraph_explore` a las 01:54:30Z |
+| experimento | `42f06139` | 15:10:34Z | **67** | eager — `codegraph_explore` se llamó al inicio, sin `ToolSearch` |
+
+**Veredicto: `alwaysLoad` funciona en stdio.** El delta es exactamente 1 y codegraph expone
+exactamente 1 tool, así que el número no admite otra lectura. La doc oficial está
+incompleta, no en contra.
+
+**Lo que esto cierra y lo que no.** Cierra el mecanismo: la fricción de arranque que el
+hallazgo 1 identificó era removible por config, no por prosa, y R13 quedó implementado por
+su primera rama. NO cierra E3, que mide *uso*, no *disponibilidad*: que el tool esté cargado
+al arrancar es condición necesaria y todavía no se ha medido una sesión de trabajo real con
+el grafo eager. Esa medición es el siguiente audit, y es la que dice si la fricción era la
+causa entera o solo la mitad.

@@ -8394,7 +8394,8 @@ if (!parsed.success) return res.status(400).json({ error: z.prettifyError(parsed
       "args": [
         "serve",
         "--mcp"
-      ]
+      ],
+      "alwaysLoad": true
     },
     "engram": {
       "command": "engram",

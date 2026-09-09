@@ -1201,6 +1201,10 @@ function planMcpRegistration(
     if (!server) continue;
     const entry: Record<string, unknown> = { command: server.command, args: server.args };
     if (server.env && Object.keys(server.env).length > 0) entry.env = server.env;
+    // Emitted only when true: `alwaysLoad: false` is what the absent key already
+    // means, and writing it would put a line in every repo's registry to say
+    // nothing (spec 0017 R13).
+    if (server.alwaysLoad) entry.alwaysLoad = true;
     desired.set(plugin.manifest.id, entry);
   }
 

@@ -313,3 +313,38 @@ describe("tgrep plugin manifest", () => {
     expect(manifest.hooks?.map((h) => h.event)).toEqual(["SessionStart"]);
   });
 });
+
+/**
+ * Covers: R13 — `mcpServer.alwaysLoad` (spec 0017 T7). The field exists because
+ * of a measurement, not a preference: with codegraph deferred, two full sessions
+ * in this repo called its tools zero times; declaring `alwaysLoad` dropped the
+ * session's deferred-tool count from 68 to 67 and put `codegraph_explore` in the
+ * eagerly-loaded set (same Claude Code 2.1.236, 2026-09-09).
+ *
+ * Pinned here rather than left to the renderer alone: the whole point is that
+ * an optional boolean survives the schema, and `false` stays out of the emitted
+ * registry — the absent key already means it.
+ */
+describe("PluginManifestSchema — mcpServer.alwaysLoad", () => {
+  const withServer = (mcpServer: unknown) =>
+    PluginManifestSchema.safeParse({ ...MINIMAL, mcpServer });
+
+  it("accepts a server that omits alwaysLoad", () => {
+    const result = withServer({ command: "srv", args: [] });
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.mcpServer?.alwaysLoad).toBeUndefined();
+  });
+
+  it("accepts alwaysLoad: true", () => {
+    const result = withServer({ command: "srv", args: [], alwaysLoad: true });
+    expect(result.success && result.data.mcpServer?.alwaysLoad).toBe(true);
+  });
+
+  it("rejects a non-boolean alwaysLoad", () => {
+    expect(withServer({ command: "srv", args: [], alwaysLoad: "yes" }).success).toBe(false);
+  });
+
+  it("is declared by the codegraph plugin — the server the experiment was run on", () => {
+    expect(loadPlugin("codegraph").manifest.mcpServer?.alwaysLoad).toBe(true);
+  });
+});

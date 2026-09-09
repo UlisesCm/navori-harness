@@ -2,7 +2,7 @@
   "id": "codegraph",
   "name": "CodeGraph \u2014 surgical code context",
   "description": "Pre-built AST code graph via MCP: symbols, call paths and blast-radius in one call, fewer grep/read loops",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "managed": [
     {
       "id": "codegraph-protocol",
@@ -24,7 +24,8 @@
     "args": [
       "serve",
       "--mcp"
-    ]
+    ],
+    "alwaysLoad": true
   },
   "settingsFragment": {
     "permissions": {
