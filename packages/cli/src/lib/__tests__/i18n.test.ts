@@ -24,7 +24,6 @@ describe("i18n", () => {
       expect(dict.dirNotFound("/tmp/x").length).toBeGreaterThan(0);
       expect(dict.configExists("/tmp/x").length).toBeGreaterThan(0);
       expect(dict.wroteConfig("/tmp/x").length).toBeGreaterThan(0);
-      expect(dict.agentFor("foo", "bar").length).toBeGreaterThan(0);
       expect(dict.backedUp(3, "/tmp/x").length).toBeGreaterThan(0);
       expect(dict.removedOriginals("/tmp/x").length).toBeGreaterThan(0);
       expect(dict.from("package.json").length).toBeGreaterThan(0);

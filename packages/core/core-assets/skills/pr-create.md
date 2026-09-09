@@ -9,7 +9,7 @@ type: reference
 The commit + PR flow has **one owner**: the `commit-pr-pilot` agent
 (`.claude/agents/commit-pr-pilot.md`). It owns the pre-flight, the PR gate
 (`{{qualityGate.full}}` green), the review/R1 handling, the body template and the
-commit/PR language (per the config's `commits`).
+commit/PR language (per `{{commits}}`).
 
 **To close a cycle, invoke `commit-pr-pilot`.** Don't draft the PR from a separate
 template here — a second flow drifts from the pilot (that's why this skill was

@@ -257,7 +257,6 @@ describe("init — buildConfigPreview (preview-edit summary, #7)", () => {
       branchBase: "main",
       qualityGate: { fast: "pnpm typecheck", full: "pnpm test" },
       plugins: ["engram"],
-      agentAssignments: {},
       project: { criticalAreas: ["auth"] },
       ...over,
     };

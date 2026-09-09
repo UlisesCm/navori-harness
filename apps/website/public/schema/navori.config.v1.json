@@ -382,25 +382,6 @@
         "additionalProperties": false
       }
     },
-    "agentAssignments": {
-      "type": "object",
-      "propertyNames": {
-        "type": "string"
-      },
-      "additionalProperties": {
-        "type": "string",
-        "enum": [
-          "leader",
-          "implementer",
-          "reviewer",
-          "researcher",
-          "ticket-audit",
-          "commit-pr-pilot",
-          "explorer",
-          "auditor"
-        ]
-      }
-    },
     "blocks": {
       "type": "object",
       "properties": {

@@ -142,7 +142,7 @@ Never open the PR with the gate red.
 3. Draft a Conventional commit message:
    - Type: `feat | fix | docs | refactor | perf | test | chore | style | build | ci | revert`.
    - Scope: lowercase, derived from the touched area (module/domain).
-   - Description: imperative, ≤70 chars, no trailing period, language defined by the config's `commits`.
+   - Description: imperative, ≤70 chars, no trailing period, language defined by `{{commits}}`.
    - Optional body with the WHY if the decision isn't obvious.
 4. If you touch potentially sensitive files (`.env*`, credentials, odd lockfiles), **flag the user before staging**.
 5. `git add <files>` (prefer explicit over `git add -A`).
@@ -235,7 +235,7 @@ Never open the PR with the gate red.
 **`Closes` is syntax, not prose.** GitHub links and auto-closes an issue only
 when the body carries `Closes` / `Fixes` / `Resolves` followed by `#<N>`, **in
 English**, pointing at an issue of this same repo. The rest of the body follows
-the config's `commits` language and this keyword does NOT: translated (`Cierra
+the `{{commits}}` language and this keyword does NOT: translated (`Cierra
 #<N>`) it is an ordinary sentence, GitHub links nothing, the issue stays open
 and no error says so. That silence is the whole defect — navori's own repo
 shipped 8 PRs that way and closed all 8 issues by hand before anyone noticed
@@ -266,7 +266,7 @@ wc -c CLAUDE.md                                  # after
 - ❌ Never skip hooks (`--no-verify`) unless the user explicitly asks.
 - ❌ Never ask for a merge / approve the PR yourself. Your job ends with the URL.
 - ❌ Never `gh pr checks --watch`: it takes no timeout and would hang the turn before the URL reaches the user.
-- ✅ Commit and PR message in the language defined by the config's `commits` (`conventional-es` = Spanish MX, `conventional` = English) — except the `Closes #<N>` keyword, which GitHub parses and which stays in English in any language (see the body template).
+- ✅ Commit and PR message in the language defined by `{{commits}}` (`conventional-es` = Spanish MX, `conventional` = English) — except the `Closes #<N>` keyword, which GitHub parses and which stays in English in any language (see the body template).
 - ✅ If you introduce a new pattern or non-obvious decision that wasn't already in `impl_<feature>.md`, leave a note in the PR body ("Decisions" section).
 
 ## Anti-patterns

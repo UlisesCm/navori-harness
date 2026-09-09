@@ -1,12 +1,13 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { scanManagedDrift, suggestNextSteps } from "../lib/health.ts";
 import { computeHealthVerdict } from "./doctor.ts";
 import { brand, dim as grey, color, sym, kv, accent } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
+import { readNavoriOwnership } from "../lib/json-ownership.ts";
 
 /**
  * `status` — spec 0003 §3.5.3. A quick "where did this repo land?" snapshot:
@@ -14,6 +15,29 @@ import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
  * Shares its health-check logic with `doctor` (lib/health.ts); `doctor` is the
  * verbose audit, `status` is the at-a-glance view.
  */
+/**
+ * The navori release that actually WROTE this harness, read from the `$navori`
+ * stamp in `.claude/settings.json`.
+ *
+ * `config.version` is a different thing that shares the name (#604): it is the
+ * PROJECT's version, defaulted to "1.0.0" at init and updated by nobody, so
+ * printing it next to `preset`/`engines` read as "the version of my harness"
+ * and was wrong in every repo. This is the number that answers that question.
+ *
+ * `null` when the repo renders no Claude engine (Codex-only) or was never
+ * rendered — the honest answer, rather than falling back to a value that would
+ * mean something else.
+ */
+export function readRenderedVersion(cwd: string): string | null {
+  const path = resolve(cwd, ".claude/settings.json");
+  if (!existsSync(path)) return null;
+  try {
+    return readNavoriOwnership(readFileSync(path, "utf-8"))?.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export const statusCommand = defineCommand({
   meta: {
     name: "status",
@@ -70,7 +94,10 @@ export const statusCommand = defineCommand({
           {
             ok: verdict.ok,
             name: config.name,
+            // Two different facts that used to share one name (#604): the
+            // project's own version, and the navori release that rendered it.
             version: config.version,
+            renderedVersion: readRenderedVersion(cwd),
             preset: config.preset,
             engines: config.engines,
             enabledPlugins,
@@ -99,7 +126,8 @@ export const statusCommand = defineCommand({
     p.note(
       kv([
         ["name", accent(config.name)],
-        ["version", config.version],
+        ["version (project)", config.version],
+        ["version (navori)", readRenderedVersion(cwd) ?? grey(ts.none)],
         ["preset", config.preset],
         ["engines", config.engines.join(", ")],
         ["plugins", enabledPlugins.length > 0 ? enabledPlugins.join(", ") : grey(ts.none)],

@@ -162,27 +162,16 @@ const PluginEntrySchema = z.object({
   enabled: z.boolean(),
 });
 
-const AGENT_ROLES_FOR_SCHEMA = [
-  "leader",
-  "implementer",
-  "reviewer",
-  "researcher",
-  "ticket-audit",
-  "commit-pr-pilot",
-  "explorer",
-  "auditor",
-] as const;
-
-const AgentAssignmentsSchema = z.record(z.string(), z.enum(AGENT_ROLES_FOR_SCHEMA));
-
 // `skills` ({ auto, optIn }) was removed (#236): no engine, template, doctor or
 // init ever read it — pure configuration theater. Dropping it from the schema
 // stops `init` writing it; the top-level `.passthrough()` preserves the key
 // harmlessly in any config that still carries it (nothing consumes it), so no
-// existing config breaks. `agentAssignments` and `sdd.applyWhen`/`doesNotApplyTo`
-// are the same class of dead field but are still read outside this file (doctor
-// historically, init, and `effectiveConfig`), so they stay marked @deprecated
-// until their remaining readers are retired.
+// existing config breaks. `agentAssignments` went the same way (#604): the
+// wizard asked which agent each plugin block belonged to, wrote the answer, and
+// no engine ever read it. Its remaining readers had already been retired, so
+// only `init` was left — writing a field for itself. `sdd.applyWhen`/
+// `doesNotApplyTo` are the same class of dead field and stay marked @deprecated
+// until theirs are retired too.
 
 // Opt OUT of specific core managed blocks. A repo that already ships its OWN
 // orchestration / SDD protocol (e.g. a personal global Claude Code harness)
@@ -296,6 +285,14 @@ export const NavoriConfigSchema = z
   .object({
     $schema: z.string().optional(),
     name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "name must be kebab-case"),
+    /**
+     * The PROJECT's version — the user's, not navori's. Nothing in the CLI
+     * writes it after `init`, and nothing should: the navori release that
+     * rendered a harness already lives in `.claude/settings.json` (`$navori.version`)
+     * and in every managed marker's `version=`, which is what `health.ts`
+     * compares to tell drift from a downgrade. A third copy is a copy that
+     * desynchronizes (#604). `status` prints both, labelled apart.
+     */
     version: z.string().default("1.0.0"),
     // `workspace` names an entry in the machine-local registry (~/.navori/
     // workspaces/<name>/). Registry names are kebab-case by construction
@@ -348,14 +345,6 @@ export const NavoriConfigSchema = z
     models: ModelsSchema.optional(),
     effort: EffortSchema.optional(),
     plugins: z.record(z.string(), PluginEntrySchema).optional(),
-    /**
-     * @deprecated No-op at render time (#236). Plugins declare their own
-     * recommendedAgent and entries here override it, but NO engine reads either —
-     * doctor no longer displays them as "effective" and the render is identical
-     * with or without them. Still written/edited by `init`; kept until that flow
-     * is retired. Do not add render-time consumers.
-     */
-    agentAssignments: AgentAssignmentsSchema.optional(),
     blocks: BlocksSchema.optional(),
     progress: ProgressSchema.optional(),
     project: ProjectSchema.optional(),
