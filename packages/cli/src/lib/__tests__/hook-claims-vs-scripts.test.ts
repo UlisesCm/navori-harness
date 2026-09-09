@@ -318,7 +318,9 @@ describe("hook claims match what the hook scripts can do", () => {
         "core-assets/agents/reviewer.md",
         "core-assets/managed/arranque-sesion.md",
         "core-assets/managed/operaciones-seguras.md",
-        "core-assets/managed/orquestacion.md",
+        // `orquestacion.md` left this list with spec 0019: its only hook claim
+        // (the `SubagentStop` flag on an empty report) travelled to `leader.md`
+        // together with §Synthesis, and `leader.md` is already asserted above.
       ]),
     );
     expect(named.length).toBeGreaterThanOrEqual(6);

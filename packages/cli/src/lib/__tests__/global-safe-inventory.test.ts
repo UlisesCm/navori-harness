@@ -168,9 +168,12 @@ describe("globalSafe is the audit, executed (#541, Spec 0010 §4)", () => {
     expect(asset?.globalSafe).toBe(true);
     expect(disqualifiers(asset as CoreManagedAsset)).toEqual([]);
     const body = bodies(asset as CoreManagedAsset)[0] as string;
-    expect(body).toContain("{{qualityGate.full}}");
+    // `{{qualityGate.full}}` left with §Synthesis (spec 0019); `fast` stayed, in
+    // the R1 row. The claim under test is the same one FB made: the block ships
+    // globally BECAUSE its placeholders resolve through the global fallbacks.
+    expect(body).toContain("{{qualityGate.fast}}");
     expect(interpolate(body, GLOBAL_CONFIG, { fallbackScope: "global" })).not.toContain(
-      "{{qualityGate.full}}",
+      "{{qualityGate.fast}}",
     );
   });
 });

@@ -206,10 +206,16 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
   log=$(git log --oneline -15 2>/dev/null || true)
   if [ -n "$log" ]; then
-    add "Recent commits (subjects are written by whoever committed them):"
-    add "$FENCE_OPEN"
-    add "$(fence_body "$log")"
-    add "$FENCE_CLOSE"
+    # Bounded since spec 0019: the doctrine blocks are sized to fill the pot,
+    # so this section CAN be the one that overflows the host's cut — and rule 1
+    # of the size contract says what gets cut must be the reconstructible part.
+    # Nothing in this channel is more reconstructible than the git log: the
+    # pointer IS the command.
+    add_bounded "Recent commits (subjects are written by whoever committed them):
+${FENCE_OPEN}
+$(fence_body "$log")
+${FENCE_CLOSE}" \
+      "[navori] recent commits didn't fit the startup context; run \`git log --oneline -15\` to reconstruct them."
   fi
 fi
 

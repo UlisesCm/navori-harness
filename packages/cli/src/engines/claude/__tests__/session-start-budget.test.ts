@@ -38,6 +38,15 @@ import { renderClaudeEngine } from "../index.ts";
  *  observado en campo (10,441 bytes), que es un dato, no una estimación. */
 const BUDGET = 8000;
 
+/** Lo que el hook puede emitir en TOTAL. El presupuesto gobierna la olla de
+ *  secciones bounded; los punteros que las reemplazan y la línea de rama se
+ *  emiten SIEMPRE (nada desaparece en silencio — contrato 2), así que el total
+ *  puede exceder la olla por ese margen fijo. 8,800 caracteres quedan ≥1,200
+ *  bytes por debajo del corte observado incluso contando acentos UTF-8.
+ *  Antes de la spec 0019 esta distinción no se veía: la olla nunca se llenaba,
+ *  y el total quedaba bajo 8,000 por accidente, no por contrato. */
+const DELIVERY_CEILING = BUDGET + 800;
+
 function config(): NavoriConfig {
   return NavoriConfigSchema.parse({
     name: "budget-demo",
@@ -90,14 +99,14 @@ describe("#623 — el contexto de arranque cabe en lo que el host entrega", () =
     // el día que se encontró el defecto. Antes de #623 este caso emitía ~24 KB.
     const ctx = runHook(renderedRepo(4600));
     expect(ctx.length).toBeGreaterThan(0);
-    expect(ctx.length).toBeLessThanOrEqual(BUDGET);
+    expect(ctx.length).toBeLessThanOrEqual(DELIVERY_CEILING);
   });
 
   it("sigue cabiendo cuando el resume crece sin control", () => {
     // Un `progress/current.md` de 60 KB: el modo en que esto se rompió la
     // primera vez fue creciendo, no de golpe.
     const ctx = runHook(renderedRepo(60_000));
-    expect(ctx.length).toBeLessThanOrEqual(BUDGET);
+    expect(ctx.length).toBeLessThanOrEqual(DELIVERY_CEILING);
   });
 
   it("emite la doctrina ANTES que el estado volátil", () => {
@@ -116,7 +125,9 @@ describe("#623 — el contexto de arranque cabe en lo que el host entrega", () =
     expect(blocks.length).toBeGreaterThan(0);
 
     for (const file of blocks) {
-      const id = file.replace(/\.md$/, "");
+      // `10-orquestacion.md` carries its delivery order in the name (spec 0019);
+      // the managed id inside the file stays unprefixed.
+      const id = file.replace(/^\d+-/, "").replace(/\.md$/, "");
       const inline = ctx.includes(`navori:managed id="${id}"`);
       const pointed = ctx.includes(`.claude/context/${file}`);
       expect(inline || pointed, `'${file}' no llegó ni inline ni como puntero`).toBe(true);
@@ -132,10 +143,82 @@ describe("#623 — el contexto de arranque cabe en lo que el host entrega", () =
       readFileSync(join(cwd, ".claude/context", f), "utf-8").includes("Role: orchestrator"),
     );
     expect(orchestration).toBeDefined();
-    if (!ctx.includes(`navori:managed id="${orchestration!.replace(/\.md$/, "")}"`)) {
+    const orchestrationId = orchestration!.replace(/^\d+-/, "").replace(/\.md$/, "");
+    if (!ctx.includes(`navori:managed id="${orchestrationId}"`)) {
       const pointer = ctx.split("\n").find((l) => l.includes(orchestration!));
       expect(pointer).toBeDefined();
       expect(pointer).toMatch(/Read|Léelo|LÉELO/);
     }
+  });
+});
+
+describe("spec 0019 — la escalera llega, no solo cabe", () => {
+  /** Techo del bloque renderizado (R3). Deja sitio para el catálogo de agentes
+   *  detrás (~1,1 KB) dentro del BUDGET; la fuente mide menos — los
+   *  placeholders expanden, así que el techo se afirma sobre lo renderizado. */
+  const CEILING = 6500;
+
+  it("el bloque de orquestación renderizado cabe bajo su techo", () => {
+    // Covers: R3, R6
+    const cwd = renderedRepo(4600);
+    const dir = join(cwd, ".claude/context");
+    const file = readdirSync(dir).find((f) => f.endsWith("-orquestacion.md"));
+    expect(file, "el render ya no emite el bloque de orquestación").toBeDefined();
+    const size = readFileSync(join(dir, file!), "utf-8").length;
+    expect(
+      size,
+      `el bloque renderizado mide ${size} caracteres y el techo es ${CEILING}: ` +
+        "por encima vuelve a degradar a puntero en el arranque (la regresión de #623). " +
+        "Recorta el asset o muda la sección nueva a su dueño (leader.md / la skill del momento).",
+    ).toBeLessThanOrEqual(CEILING);
+  });
+
+  it("los nombres de archivo llevan el orden de entrega: la escalera primero", () => {
+    // Covers: R1
+    // El hook lee el directorio con un glob alfabético; sin prefijo, la
+    // orquestación quedaba SIEMPRE al final por empezar con "o" — y con el
+    // canal sobre-suscrito, siempre en puntero.
+    const cwd = renderedRepo(4600);
+    const blocks = readdirSync(join(cwd, ".claude/context"))
+      .filter((f) => f.endsWith(".md"))
+      .sort();
+    expect(blocks[0]).toBe("10-orquestacion.md");
+    expect(blocks).toContain("20-agentes-disponibles.md");
+  });
+
+  it("re-renderizar retira el nombre viejo: nunca dos copias del mismo bloque", () => {
+    // Covers: R2, R10
+    const cwd = renderedRepo(4600);
+    const dir = join(cwd, ".claude/context");
+    // Simula un repo renderizado por un navori pre-0019: el mismo bloque, bajo
+    // el nombre sin prefijo.
+    const prefixed = readFileSync(join(dir, "10-orquestacion.md"), "utf-8");
+    writeFileSync(join(dir, "orquestacion.md"), prefixed);
+    renderClaudeEngine(cwd, config());
+    const files = readdirSync(dir).filter((f) => f.endsWith("orquestacion.md"));
+    expect(files, "el gemelo sin prefijo debe retirarse en el mismo apply").toEqual([
+      "10-orquestacion.md",
+    ]);
+    // El id managed no cambia con el prefijo (R10): doctor/sync siguen viéndolo.
+    expect(prefixed).toContain('navori:managed id="orquestacion"');
+  });
+
+  it("la escalera y el catálogo llegan como cuerpo; el cierre degrada a puntero", () => {
+    // Covers: R5
+    // Caber y llegar son cosas distintas: #623 se declaró inexistente por
+    // confundirlas. Esto corre el hook de verdad y mira qué salió.
+    const ctx = runHook(renderedRepo(5000));
+    expect(ctx, "la escalera de ruteo no llegó como cuerpo").toContain(
+      'navori:managed id="orquestacion"',
+    );
+    expect(ctx, "el catálogo de agentes no llegó como cuerpo").toContain(
+      'navori:managed id="agentes-disponibles"',
+    );
+    // El primero en degradar es el cierre: sus ceremonias aplican horas después
+    // del arranque y un puntero leído a tiempo las cubre.
+    expect(ctx).not.toContain('navori:managed id="cierre-sesion"');
+    expect(ctx, "cierre-sesion degradó pero sin puntero — se perdió").toContain(
+      "40-cierre-sesion.md",
+    );
   });
 });

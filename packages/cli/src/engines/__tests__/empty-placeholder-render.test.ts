@@ -145,7 +145,7 @@ describe("a minimal config renders no empty / unconfigured placeholder (#375)", 
   // SessionStart hook emits, and the one no subagent receives. The placeholder
   // rule under test is unchanged; only where the rendered text lands moved.
   const doctrine = (cwd: string): string =>
-    readFileSync(join(cwd, ".claude", "context", "orquestacion.md"), "utf-8");
+    readFileSync(join(cwd, ".claude", "context", "10-orquestacion.md"), "utf-8");
 
   it("substitutes the critical-areas fallback in the R2-architectural signal list", () => {
     // The exact sentence the bug rendered as "· a `` area ·".

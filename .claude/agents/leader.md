@@ -4,7 +4,7 @@ description: Do NOT invoke as a subagent. Orchestration playbook that the main a
 tools: Read, Glob, Grep, Bash, Agent, mcp__engram__*
 ---
 
-<!-- navori:managed id="leader-base" hash="86af6866" version="0.8.0" source="@navori/core" -->
+<!-- navori:managed id="leader-base" hash="47e4ba4b" version="0.8.0" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: leader)`.
@@ -62,6 +62,15 @@ When the `done -> file` come back, **gather and analyze deeply YOURSELF**: read 
 
 Researchers are leaves (they don't have `Agent`): you open the fan-out. Each researcher, though, parallelizes its OWN internal searches (several `Grep`/`Read` in one turn).
 
+## Frugal delegation (shape a lean R2 encargo)
+
+Fan-out is a lever, not a toll — so when you do delegate, hand the smallest encargo that covers the work:
+
+- **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → do them yourself in R1 or send them to a low-tier agent; never bundle them into an `implementer`'s encargo, where they inflate its context and its run without raising quality.
+- **One encargo = one unit.** A pre-existing bug the `implementer` hits outside its scope → it reports and stops there (a trivial one-liner is the exception); **you** decide whether to open a separate unit. Scope doesn't self-expand mid-run.
+- **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
+- **One-pass review on small/medium diffs.** Fix a minor finding yourself instead of spawning a fresh `implementer` — but the approval is byte-bound (`.claude/progress/receipt.txt`), so an edit after `APPROVED` needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
+
 ## Continuous execution (don't pause between tasks)
 
 Once the plan/scope is approved, execute ALL the sub-tasks without pausing to ask the user for confirmation. Valid reasons to stop:
@@ -69,6 +78,8 @@ Once the plan/scope is approved, execute ALL the sub-tasks without pausing to as
 1. **BLOCKED**: a subagent reported a blocker you can't resolve (spec ambiguity, broken tool, a decision that requires a human), or a **command got blocked by permission** (a tool call landed on `deny` or the user rejected the prompt). In the permission case: `deny`/rejection → 0 retries, you stop; a non-pre-approved prompt → 1 legitimate alternative approach (e.g. the native `Grep` tool instead of `grep` via shell) and you stop. Never retry the same command or ask for the same permission in a loop.
 2. **Ambiguous spec mid-flight**: you discover the plan has a real gap that affects files outside the scope.
 3. **All sub-tasks complete**: the cycle finished, ready for `commit-pr-pilot`.
+
+**Caps, so a loop cannot pass for persistence.** 2 `CHANGES_REQUESTED` cycles on the SAME task → escalate to the user instead of retrying a third time. The permission cap is symmetric and stricter: `deny`/rejection = **0 retries** (you stop now); a non-pre-approved prompt = **1** legitimate alternative approach — one that changes the path, never the same command again — and you stop.
 
 Do NOT do "I'll do sub-task 1, shall I continue with 2?". The user asked you to execute the plan — execute it. Intermediate progress summaries between tasks burn their time. Exception: a significant milestone (a full layer finished) or a BLOCKED — those you do communicate.
 
@@ -90,6 +101,8 @@ done -> .claude/progress/<file>.md
 
 Those files are **input to the next step of the pipeline**, not chat summaries for a reader: the `reviewer` opens the `implementer`'s, the `commit-pr-pilot` opens the `reviewer`'s and its `receipt.txt`, and a `SubagentStop` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours). A host rule against writing report files does not reach them — it exempts files written as input to another tool, and these are exactly that. Say so in the encargo if a subagent hesitates.
 
+**Re-verify only the load-bearing claims.** AFTER its `done -> file` lands — not while it runs, which duplicates work in flight — check the claims your decision actually rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report.
+
 Expected files:
 
 - `.claude/progress/audit_ticket_<TICKET-ID>.md` — deep analysis of one ticket (`ticket-audit`)
@@ -102,7 +115,7 @@ Expected files:
 - `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
 - `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `commit-pr-pilot`)
 
-**Path separation (don't mix):** `.claude/progress/` is ONLY for these ephemeral handoffs between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
+**Path separation (don't mix):** `.claude/progress/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
 
 ## Closing the cycle: create the PR
 
@@ -112,7 +125,20 @@ When `.claude/progress/review_<feature>.md` contains `APPROVED`:
 2. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `main`, `gh auth status` ok. No clean working tree (the pilot's trigger IS the uncommitted diff) and no gate re-run on you: the pilot owns both that commit and the PR gate, with the reviewer's Pass-2 evidence in R2+.
 3. Return to the user only the PR URL + title.
 
-If the review returned `CHANGES_REQUESTED`, do NOT invoke `commit-pr-pilot`: launch another `implementer` with the list of changes and restart the cycle.
+If the review returned `CHANGES_REQUESTED`, do NOT invoke `commit-pr-pilot`: launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
+
+### Second opinion (post-`APPROVED`)
+
+On a non-trivial diff — or any change touching a critical area — a review from a **different provider** is one command away *when this repo also renders the `codex` engine*. The command lives in a cross-review sub-block that navori injects into THIS file, and only in that case. Scroll to the end: no such sub-block below means this repo renders Claude only and the option does not apply here. (Never re-derive this from a `grep` for the sub-block's id — you are reading the file that would match.)
+
+### Reclaim the worktree (ask, never assume)
+
+The pilot ends its report with a `worktree:` line, because it runs inside the worktree and cannot remove it — you can. Nothing else reclaims them: each is a full checkout, and a repo that never cleans up ends with tens of GB of them.
+
+- `safe to remove` → ask the user once, plainly ("the PR is open and the branch is pushed — remove the worktree at `<path>`?"), and act on the answer. Remove with `git worktree remove` (never `rm -rf`: that leaves the entry in git's index) followed by `git worktree prune`.
+- `NOT safe` → do NOT ask. Report which of the two reasons it gave and leave it alone; a worktree holding uncommitted or unpushed work is the only copy of it.
+
+And never take a merged PR as proof on its own: **squash merge leaves no ancestry**, so `git merge-base --is-ancestor` answers "not merged" for branches that shipped days ago. What proves the work landed is the squash commit in the base branch: `git log <base> --grep="(#<PR>)"`.
 
 ## Quality gate
 

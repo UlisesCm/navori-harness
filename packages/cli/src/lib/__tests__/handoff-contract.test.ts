@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { getCoreRoot } from "../bundled-assets.ts";
 import { AGENTS_DIR, isInvokable, listAgentAssets } from "./helpers/agent-assets.ts";
 
 /**
@@ -36,8 +35,6 @@ import { AGENTS_DIR, isInvokable, listAgentAssets } from "./helpers/agent-assets
  * in the suite, because it will not fail anywhere else.
  */
 
-const CORE_ASSETS = resolve(getCoreRoot(), "core-assets");
-const ORQUESTACION = resolve(CORE_ASSETS, "managed", "orquestacion.md");
 const LEADER = resolve(AGENTS_DIR, "leader.md");
 
 /**
@@ -141,24 +138,27 @@ describe("handoff contract — the literal path survives in every writer (#500)"
 });
 
 describe("handoff contract — the delegating side ships the path (#500)", () => {
-  it.each([
-    ["managed/orquestacion.md", ORQUESTACION],
-    ["agents/leader.md", LEADER],
-  ])("%s makes the literal path part of the delegation format", (_label, path) => {
-    const text = read(path);
-    expect(text).toMatch(/\*\*literal path\*\*/);
-    expect(text).toContain(".claude/progress/");
-    // Prose gets summarized on the way to the subagent; a path does not. The
-    // asset has to say which one is required, or this degrades to advice.
-    expect(text).toMatch(/summarized/i);
-  });
+  // Spec 0019 trimmed the orchestration block to the routing ladder: the
+  // delegation FORMAT moved to `leader.md`, which is the asset the orchestrator
+  // opens at the moment it delegates. One canonical home, still asserted.
+  it.each([["agents/leader.md", LEADER]])(
+    "%s makes the literal path part of the delegation format",
+    (_label, path) => {
+      const text = read(path);
+      expect(text).toMatch(/\*\*literal path\*\*/);
+      expect(text).toContain(".claude/progress/");
+      // Prose gets summarized on the way to the subagent; a path does not. The
+      // asset has to say which one is required, or this degrades to advice.
+      expect(text).toMatch(/summarized/i);
+    },
+  );
 
-  it.each([
-    ["managed/orquestacion.md", ORQUESTACION],
-    ["agents/leader.md", LEADER],
-  ])("%s tells the orchestrator the file is a tool's input, not a report", (_label, path) => {
-    expect(read(path)).toContain(HOST_EXEMPTION);
-  });
+  it.each([["agents/leader.md", LEADER]])(
+    "%s tells the orchestrator the file is a tool's input, not a report",
+    (_label, path) => {
+      expect(read(path)).toContain(HOST_EXEMPTION);
+    },
+  );
 });
 
 describe("the closing-line extractor reports a lost path (#500)", () => {
