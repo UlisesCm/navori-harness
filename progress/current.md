@@ -1,74 +1,89 @@
 # Sesión actual
 
-**Estado:** `main` en `92a91a4`, limpio y sincronizado. **npm en 0.7.8** (publicado por Ulises).
-0 issues abiertos. **2 PRs abiertos y verdes esperando merge**: #617 (engines >=22) y #618
-(evals de T9). Fuera del repo, 2 PRs de rollout: moonar #111 y navori-health #20.
+**Estado:** `main` en `2cfcf0f`, limpio y sincronizado. **npm en 0.8.0** (publicado por
+Ulises). 0 PRs propios abiertos. **2 issues abiertos**: #625 y #626, nacidos fuera de esta
+sesión, los dos sobre skills.
 
-## Jornada: la spec 0017 completa, el 0.7.8, dos issues cerrados y el toolchain
+## Jornada: el 0.8.0, el rollout completo, y la causa raíz de por qué no se delega
 
-Empezó con "mergea mi PR y comencemos la implementación" (#610, la spec 0017) y terminó
-midiendo, sobre sesiones reales, si la capa que construimos se usa.
+Empezó con `navori audit --arm` y terminó encontrando que la doctrina de orquestación
+nunca llegó al agente. En medio: una spec, un release y el parque entero al día.
 
-### La spec 0017 — tgrep como default de búsqueda
+### Spec 0017 T7 — `alwaysLoad` (#619)
 
-T1-T6 y T8 en #611; T9 en #618. Lo que costó de verdad no fue el mecanismo:
+El experimento cerró con control cuantitativo: misma versión de Claude Code (2.1.236),
+misma consulta `select:Grep`, **68 → 67 tools diferidas**, y codegraph expone exactamente
+una. Gana la rama 2a de R13. `McpServerSchema.alwaysLoad`, emitido **solo cuando es true**,
+manifest de codegraph en 0.0.2. De paso responde C4 del design: `alwaysLoad` **sí** aplica a
+servers stdio aunque la doc solo lo documente para http/sse/ws.
 
-- **`status` es variable de solo lectura en zsh** (espeja `$?`). El wrapper abortaba entero bajo
-  zsh y lo cazó `acrossShells`, que corre cada caso bajo los dos shells. Vale como regla para todo
-  script del harness: ese nombre está quemado.
-- **El parser de la vía grep leía el VALOR de un flag como patrón**: `-g '*.ts' foo .` buscaba
-  `*.ts` dentro de un path llamado `foo`.
-- **`-E/--encoding` NO bypassea el índice**, contra lo que afirmaba el design. Medido con
-  `--stats`: solo `--hidden`, `--no-ignore*` y `-a` caen a brute-force. El design quedó corregido.
-- **Un core asset no puede citar rutas de un engine.** La primera redacción de la cláusula de
-  `operaciones-seguras.md` nombraba `.claude/scripts/...`; `cited-paths-exist` y `render-codex` la
-  rechazaron con razón — ese asset también se renderiza a codex/cursor/copilot.
-- **El wrapper no ve dentro de `.claude/`** (default de ripgrep para dot-dirs). Falso negativo
-  silencioso de la misma clase que R2, por otra puerta. Arreglado en #612.
+### Release 0.8.0 y rollout 18/18
 
-### Los dos issues
+Minor y no patch por dos razones que el número tenía que comunicar: `engines.node` pasó de
+`>=20` a `>=22` en los 10 paquetes publicados (rompe instalación en Node 20, que está EOL) y
+`mcpServer.alwaysLoad` es campo nuevo. El repo no documenta política de versionado — de ahí
+la pregunta.
 
-- **#604** (#613): `commits` tenía **seis** citas colgantes, no una; `version` respondía dos
-  preguntas con un nombre (ahora `status` imprime `version (project)` y `version (navori)`); y
-  `agentAssignments` se retiró — el schema ya decía "Do not add render-time consumers".
-- **#614** (#615): el issue pedía un mecanismo nuevo (`audience` en el manifest) y **no hacía
-  falta**: `skills[].injectInto` ya enruta. `jscpd-protocol` y `semgrep-protocol` pasaron a las
-  skills que ya eran dueñas de ese momento. **−357 tokens por agente que arranca**. Lo riesgoso no
-  era mover sino migrar: un bloque quitado de un plugin VIVO no lo alcanza ninguna rama del render
-  — de ahí `RETIRED_PLUGIN_BLOCKS`.
+Rollout verificado en los 18 repos, no asumido: `settings.json` y `.mcp.json` en 0.8.0,
+`alwaysLoad: true` presente, cero bloques `jscpd-protocol`/`semgrep-protocol` sobrantes.
+Los 15 de Bonum sin commit (gitignored). **bonum-webapp queda instalado y sin commitear a
+pedido de Ulises** — ojo: ahí el harness SÍ se versiona y arrastra un mes de drift (HEAD en
+0.5.1) sobre la rama `fix/BT-1442`.
 
-### El toolchain (#616 mergeado, #617 pendiente)
+### Spec 0018 — el harness por workspace (#620)
 
-TypeScript 7.0.2 (port nativo: typecheck completo en **1.8s**, paquete de 2.5 MB contra 23.6),
-pnpm 12.3.4 y Node 24. Dos cambios que rompen y no estaban documentados:
-**TS 7 ya no auto-descubre `@types/*`** (se arregla con `types: ["node"]`) y **pnpm 12 convierte un
-build script ignorado en error** (la llave es `allowBuilds` en `pnpm-workspace.yaml`, no el
-`onlyBuiltDependencies` de pnpm 10). El CI corría en Node 20, que está EOL.
+29 de 35 archivos por workspace son byte-idénticos a la raíz, y el 34-38% de cada PR de bump
+son archivos que el motor no alcanza. Propone `monorepo.workspaceHarness: "minimal" | "full"`
+con default `minimal`.
 
-### T9 — la medición que importaba
+**Casi se cuela un hallazgo falso**: afirmé que 21 skills de workspace estaban anunciadas y
+no cargables. La doc oficial lo desmintió —las skills anidadas cargan en diferido al tocar
+un archivo del subdirectorio— y se retiró ANTES de escribir la spec. Si se cuela, la spec
+habría movido skills que funcionan.
 
-Sobre dos sesiones de trabajo reales post-rollout: **adopción del wrapper 68% y 86%** donde es la
-herramienta correcta, y la primera búsqueda de la sesión fue el wrapper en las dos.
+### La causa raíz (#623 → #624)
 
-**El hallazgo grande es de codegraph: cero llamadas en ambas sesiones.** Mismo repo, mismo modelo,
-misma sesión — y en esas mismas sesiones el agente sí hizo `ToolSearch`, para engram. La
-diferencia que queda en pie es la fricción: el wrapper es un comando Bash con regla `allow`;
-codegraph exige descubrirlo, cargarlo y cambiar de familia de herramienta. **Más doctrina no lo va
-a mover**, y eso convierte a T7 en la pregunta central de lo que queda.
+`navori audit` sobre 13 sesiones: 4 lanzamientos de subagente, `reviewer` una sola vez.
+La Fase 1 (#622) midió la tasa **sobre oportunidades**: **2% (2 de 68)**, y es un techo — el
+instrumento ve el 34% de las escrituras porque el resto va por Bash.
+
+Y entonces apareció el fondo: **`additionalContext` de un hook no se entrega entero**. Pasado
+un límite del host (por debajo de 10,441 bytes, medido), Claude Code entrega un **preview de
+~2 KB** y persiste el resto en un archivo que el modelo nunca abre. navori emitía 20–48 KB con
+el resume ANTES que la doctrina, así que `Role: orchestrator` caía en el byte 4,511–33,129 y
+**no llegó a una sola sesión en 40+ medidas**. El agente no decidía no escalar: no tenía
+escalera.
+
+Control que lo prueba: un fixture recién creado, sin `progress/current.md` que empuje, deja
+el bloque en el byte 1,030 y sí llega.
+
+Arreglado en #624: doctrina primero, `add_bounded` con presupuesto de 8,000 y punteros para
+lo que no cabe. **24,529 → 7,470 caracteres.**
 
 ## Lo que sigue
 
-1. **Mergear #617 y #618** (ambos verdes), y los dos de rollout fuera del repo.
-2. **T7 — el experimento `alwaysLoad`**: poner `"alwaysLoad": true` en la entrada codegraph de
-   `.mcp.json`, abrir sesión nueva y observar si `mcp__codegraph__*` arranca cargado o diferido.
-   Con los datos de T9, es lo más valioso que queda de la spec. Las dos ramas de R13 están escritas.
-3. **E2 de los evals**: sin datos, necesita una máquina sin tgrep en PATH.
-4. **Release 0.7.9**: `engines.node >=22` y los evals no están publicados.
-5. **Rollout del resto del parque**: 3 repos propios y los 15 Bonum (solo render, sin commit).
+1. **Partir o encoger `orquestacion.md`** (12.6 KB). Hoy llega como PUNTERO, no entregada.
+   Es lo único que falta para que la escalera de ruteo exista de verdad. Patrón candidato:
+   el de #615 — el detalle a la skill dueña del momento. **Es spec, no parche.**
+2. **Implementar la spec 0018** (6 tareas en 3 lotes). Su rollout BORRARÁ ~38 archivos en
+   moonar y ~57 en navori-health.
+3. **El A/B de activación**, con el banco ya commiteado en `scripts/ab-activation/`. Correrlo
+   antes de (1) mediría un harness roto contra sí mismo.
+4. **#625 y #626**, ambos sobre skills, ninguno de esta sesión.
+5. **T10 de la spec 0017** sigue sin marcar: el release + rollout se hicieron hoy.
+6. **El drift de bonum-webapp**: un mes sin commitear, ahora con el 0.8.0 encima.
 
-## Nota de método
+## Notas de método (las dos costaron)
 
-El guard de aislamiento de `~/.navori` da **falso positivo determinista** mientras haya sesiones de
-Claude Code vivas en otros repos: sus audit logs se modifican durante la corrida y el guard los lee
-como fuga de la suite. Su propio mensaje lo anticipa. Verificado dos veces por mtime y por los
-procesos `claude` vivos; en CI no ocurre.
+**Un hook no se verifica por lo que emite, sino por lo que sobrevive al corte del host.**
+Declaré #623 inexistente en la Fase 1 tras grepear el archivo persistido del hook — que es
+exactamente la parte que NO llega. Falso negativo con evidencia aparente, la clase peor.
+
+**Un instrumento de medición se audita antes que sus resultados.** El minero de transcripts
+dio primero 1962 oportunidades (la firma de comando era `cd "/Users/…`, idéntica en todo) y
+después un 0% que era artefacto: cuando el orquestador SÍ delega, el trabajo ocurre en el
+sidechain y el detector, que mira el hilo principal, queda ciego.
+
+El guard de aislamiento de `~/.navori` sigue dando **falso positivo determinista** mientras
+haya sesiones de Claude Code vivas en otros repos. Verificado: la entrada que marcó es un log
+de navori-health, con 10 procesos `claude` corriendo.
