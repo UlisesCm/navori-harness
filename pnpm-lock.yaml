@@ -104,6 +104,8 @@ importers:
 
   packages/plugins/semgrep: {}
 
+  packages/plugins/tgrep: {}
+
 packages:
 
   '@astrojs/compiler@2.13.1':

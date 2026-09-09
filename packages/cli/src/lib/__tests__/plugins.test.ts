@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PluginManifestSchema } from "../plugins.ts";
+import { PluginManifestSchema, loadPlugin } from "../plugins.ts";
 
 /**
  * Schema parser tests. Containment of resolved paths (scripts.src,
@@ -278,5 +278,38 @@ describe("PluginManifestSchema — backward compat", () => {
       },
     });
     expect(result.success).toBe(true);
+  });
+});
+
+/**
+ * Covers: R10 — the tgrep plugin's own manifest (spec 0017). Bundling is
+ * automatic (a readdir over packages/plugins), so what is worth pinning is the
+ * manifest's shape: it has to load, and its external-tool contract is what
+ * `doctor` and `add` read to report and install the binary.
+ */
+describe("tgrep plugin manifest", () => {
+  it("loads and validates, declaring tgrep as its external tool", () => {
+    const plugin = loadPlugin("tgrep");
+    expect(plugin.manifest.id).toBe("tgrep");
+    expect(plugin.manifest.externalTool?.checkBinary).toBe("tgrep");
+  });
+
+  it("installs via brew on darwin and linux, and declares nothing for win32", () => {
+    // win32 is omitted deliberately: there is no install command anyone
+    // verified there, and `add.ts` already warns cleanly for a missing platform
+    // — which beats running something unverified on a user's machine.
+    const install = loadPlugin("tgrep").manifest.externalTool?.install ?? {};
+    expect(install.darwin).toBe("brew install tgrep");
+    expect(install.linux).toBe("brew install tgrep");
+    expect(install.win32).toBeUndefined();
+  });
+
+  it("ships both scripts and registers the session hook on SessionStart", () => {
+    const manifest = loadPlugin("tgrep").manifest;
+    expect(manifest.scripts?.map((s) => s.dest).sort()).toEqual([
+      "tgrep-search.sh",
+      "tgrep-session.sh",
+    ]);
+    expect(manifest.hooks?.map((h) => h.event)).toEqual(["SessionStart"]);
   });
 });

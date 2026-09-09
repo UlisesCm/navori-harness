@@ -180,6 +180,7 @@ export const KNOWN_PLUGINS: Record<string, string> = {
   jscpd: "@navori/plugin-jscpd",
   semgrep: "@navori/plugin-semgrep",
   codegraph: "@navori/plugin-codegraph",
+  tgrep: "@navori/plugin-tgrep",
 };
 
 /**
