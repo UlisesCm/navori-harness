@@ -1,5 +1,4 @@
 0e0e9e9d1f52d4e5d248c2e24799467584efb2f2  .claude/skills/solution-design/SKILL.md
-15f704328e2d5ab8f03e21f20ee0b2206e1ebf0b  .claude/hooks/session-start-context.sh
 2109e00c4d1eb2d49a816138ca984cfe8c58a6b5  .claude/hooks/worktree-reclaim.sh
 213ce871151241cc00263a95be7e7128c6a3e673  .claude/skills/playwright-cli/references/video-recording.md
 2bca3e71c7e6e3d03a7b6d633b860ad1abf5193d  .claude/hooks/quality-gate-pre-commit.sh
@@ -20,6 +19,7 @@
 827c293766df3ca8642f8ff9119fdcb188ebe192  .claude/skills/structural-search/SKILL.md
 890005b0206c12230209367e0167466f5c37f81d  CLAUDE.md
 8d55669a35c7361ca3531d7efcf8ba3f60940442  .claude/skills/clack/SKILL.md
+955c02f82e25b972734c400c81f137f750eb2987  .claude/hooks/session-start-context.sh
 a092c062c85598b27e4b29724be5807e0a7e76a5  .claude/skills/playwright-cli/references/tracing.md
 a187b8fa715cff4310042e386a172fe9981dc4fa  .claude/agents/commit-pr-pilot.md
 a38171b240425bc78169d6ee78a6350401386c42  .claude/agents/ticket-audit.md
