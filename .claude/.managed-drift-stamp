@@ -12,14 +12,16 @@
 4c0dfe34c84237557a92d82ba4055ebbdc00f7e5  .claude/hooks/guard-destructive.sh
 504cacfdfbafd89180f31419d799ed008ef67a3f  .claude/hooks/subagent-stop-handoff.sh
 50554f8966812d05cb622e54c7c619eb9a0e5962  .claude/agents/researcher.md
+5e45083e9b235a931751d85569de4eef1a41465a  .claude/agents/leader.md
 632f49fa3253646e44bb2f834a0fb4f5e1b28d42  .claude/hooks/audit-mode-trigger.sh
 637772dc4d197291b0ecddb50fd5f8b147b90e1d  .claude/skills/citty/SKILL.md
+76daf617ab25ed16a4e1a2976c4fa96dfb0a11ad  .claude/hooks/session-start-context.sh
 775cfa67378eed31aee19098ccf7560a9c9720f2  .claude/agents/explorer.md
 77794458ee2bfe5d1fdc2b506f6c686ca3499b0f  .claude/agents/auditor.md
+816732b96601b870e5c91c4b72858759db107143  CLAUDE.md
 827c293766df3ca8642f8ff9119fdcb188ebe192  .claude/skills/structural-search/SKILL.md
-890005b0206c12230209367e0167466f5c37f81d  CLAUDE.md
 8d55669a35c7361ca3531d7efcf8ba3f60940442  .claude/skills/clack/SKILL.md
-955c02f82e25b972734c400c81f137f750eb2987  .claude/hooks/session-start-context.sh
+90000b533c0685fee03abb5f72217e69d6516888  .claude/skills/verify-before-done/SKILL.md
 a092c062c85598b27e4b29724be5807e0a7e76a5  .claude/skills/playwright-cli/references/tracing.md
 a187b8fa715cff4310042e386a172fe9981dc4fa  .claude/agents/commit-pr-pilot.md
 a38171b240425bc78169d6ee78a6350401386c42  .claude/agents/ticket-audit.md
@@ -28,7 +30,6 @@ aed96499d25182584782e1ff8bd03c027100d22b  .claude/skills/loop-back-debug/SKILL.m
 b38cd7e28374318225b4a7ee39a47a426e010a3a  .claude/settings.json
 b54dbe684517593032c596d4c5c300384b72df34  .claude/skills/playwright-cli/references/running-code.md
 b7881f576fb3043d03c091ec30f45c995957c2a7  .claude/skills/playwright-cli/references/playwright-tests.md
-b8581076153c8b715800e55e7891304f66415f4f  .claude/agents/leader.md
 c3fc30043da5953f8b6de3ca084ac0500f6bf4db  .claude/skills/playwright-cli/references/test-generation.md
 c87c13f5ef3bd6dc5e109dec8da99578ed3eeb5c  .claude/skills/pr-create/SKILL.md
 d05aa09f8a4291adc4036eb585be51c290814c6f  .claude/hooks/managed-drift-watch.sh
@@ -41,5 +42,4 @@ e3e2d5d88e9ebc0bdabb27b944476e8c6753cfb4  .claude/skills/dominio/SKILL.md
 ec858f267877a7b5f5bc021fb52059adad3557a1  .claude/skills/playwright-cli/references/session-management.md
 ed037fec89352ac5d6e87aff2cee491b29be51c7  .claude/skills/vitest/SKILL.md
 f06836b6380b1d37925ff3a8dbc4fad50193be18  .claude/skills/security-guidance/SKILL.md
-fb15ae52a23901e463a47f3314f959ae84cbc823  .claude/skills/verify-before-done/SKILL.md
 fcf3111e171f93d355794c2f3e79dd59c6f3311b  .claude/skills/spec-bootstrap/SKILL.md
