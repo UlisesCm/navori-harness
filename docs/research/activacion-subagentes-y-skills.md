@@ -225,6 +225,98 @@ documentación oficial, y no toca ningún mecanismo. Si mueve la aguja, lo demá
   interactivas dirigidas turno a turno, y lo honesto es **recortar** el harness a lo que sí
   se activa — lo mismo que la spec 0018 acaba de hacer con el render por workspace.
 
+## Resultados de la Fase 1 (2026-09-09)
+
+Instrumento: `scripts/mine-activation.py`, sobre las 13 sesiones auditadas.
+
+### La tasa que faltaba
+
+| | sesiones | oportunidades | activadas | tasa |
+|---|---|---|---|---|
+| **TOTAL** | 13 | 68 | 2 | **2%** |
+
+Desglose por disparador:
+
+| disparador | oportunidades | activadas |
+|---|---|---|
+| PR abierto → `review-diff` / `commit-pr-pilot` | 44 | 0 |
+| `reviewer` (fuente editada + commit) | 11 | 1 |
+| `implementer` (2+ archivos fuente en un turno) | 9 | 1 |
+| `loop-back-debug` (mismo comando falla 2×) | 4 | 0 |
+
+**El 2% es un techo, no una estimación.** El instrumento detecta escrituras por
+`Edit`/`Write`, y en estas sesiones **el 66% de las escrituras van por Bash**
+(heredoc, `sed -i`, `write_text`): 192 por herramienta nativa contra 360 por shell.
+Las oportunidades reales son más, las activaciones son las mismas, así que la tasa
+verdadera es menor.
+
+### El hallazgo que reordena las hipótesis
+
+**Las 9 invocaciones registradas fueron automáticas. Cero fueron pedidas por el usuario.**
+
+```
+implementer      automática=3   pedida=0
+spec-bootstrap   automática=4   pedida=0
+reviewer         automática=1   pedida=0
+playwright-cli   automática=1   pedida=0
+```
+
+Esto **debilita H1**. `implementer` no tiene disparador en su `description` y aun
+así se delegó solo tres veces; `auditor`, el único con disparador explícito, cero.
+El campo `description` no es la barrera: cuando el orquestador decide delegar, el
+mecanismo automático funciona. Simplemente casi nunca decide.
+
+Reescribir las 7 descriptions sigue siendo correcto —lo pide la documentación
+oficial— pero **deja de ser la primera intervención**: se predijo que era la causa
+y el dato dice que no lo es.
+
+### La única estratificación que separa
+
+| estrato | sesiones | oportunidades | activadas | tasa |
+|---|---|---|---|---|
+| solo `auto` | 9 | 43 | 0 | **0%** |
+| mezcla con `acceptEdits` / `default` | 4 | 25 | 2 | **8%** |
+
+Las dos activaciones vienen de las dos sesiones que salieron de `auto` en algún
+momento. **Fortalece H4.** Con 2 eventos en total no es una conclusión — es la
+señal que merece la siguiente medición, y conecta directo con la spec 0016.
+
+### H3 no es evaluable con esta muestra, y eso es un hallazgo
+
+Las **13 de 13** sesiones se clasifican como *scope incremental*: arrancan con
+"sigamos", "resuelve el issue pendiente", "haz el rollout". Ninguna empieza con
+"implementa la feature X". No hay grupo de contraste para medir si un prompt de
+scope amplio dispara más delegación.
+
+Lo que sí queda establecido: **el 100% de las jornadas medidas avanzan turno a
+turno**, que es exactamente el régimen donde la escalera R1/R2 clasifica cada
+mensaje aislado como R1 y la única regla que lo cubriría —la de sesión larga— es
+la única sin umbral objetivo.
+
+### Límites del instrumento, escritos a propósito
+
+- Ve el **34%** de las escrituras (el resto va por shell).
+- `loop-back-debug` depende de `is_error` del bloque `tool_result`; un comando que
+  falla pero sale con 0 no se cuenta.
+- La atribución automática/pedida busca el nombre del agente en el texto del
+  usuario: una petición parafraseada ("delega esto") cuenta como automática.
+- 68 oportunidades y 2 eventos positivos: cualquier corte fino es ruido.
+
+### Hipótesis después de la Fase 1
+
+| | antes | después |
+|---|---|---|
+| H1 · descriptions sin disparador | principal | **debilitada** — 3 delegaciones automáticas sin trigger |
+| H4 · auto mode como instrucción rival | secundaria | **principal** — 0/43 contra 2/25 |
+| H3 · ruteo por turno | secundaria | no evaluable; el 100% incremental es el hallazgo |
+| H5 · no hay gate | secundaria | intacta |
+| H2 · `when_to_use` | menor | menor |
+
+**Siguiente intervención propuesta:** no tocar descriptions todavía. Medir H4 con
+un A/B honesto —la misma clase de jornada en `auto` contra `acceptEdits`— porque
+es la única variable que hoy separa los datos. Si H4 se confirma, el hallazgo
+pertenece a la spec 0016 (paridad de modos) y no a un parche de prosa aquí.
+
 ## Criterio de éxito
 
 Tasa de activación sobre oportunidades, antes contra después, en condiciones comparables.
