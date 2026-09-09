@@ -208,7 +208,7 @@ It forms the hypothesis; it does not settle it. codegraph is beta and can return
 How to use it in practice — the full ladder, the monorepo caveat and the index rules — is Rung -1 of the `structural-search` skill, loaded when you actually go looking for code.
 <!-- /navori:managed id="codegraph-protocol" -->
 
-<!-- navori:managed id="tgrep-protocol" hash="954091c5" version="0.7.8" source="@navori/plugin-tgrep" -->
+<!-- navori:managed id="tgrep-protocol" hash="097779eb" version="0.7.8" source="@navori/plugin-tgrep" -->
 ## Content search (the tgrep wrapper)
 
 Content search — a literal, a regex, a copy string — goes through one command:
@@ -222,6 +222,8 @@ It carries an `allow` rule, so it runs with no permission prompt in every mode a
 **The wrapper picks the engine — never ask which one is installed.** With `tgrep` present it searches a trigram index that is rebuilt immediately before each search: a stale index answers exit 1 with no warning, a false negative indistinguishable from "no match", so the rebuild is a correctness requirement and not a preference (it measured 0.07s on the largest repo in the fleet). Without `tgrep` it falls back to `rg`, then to `grep -rn`, prints ONE line on stderr naming the engine and the install command, and keeps the exit-code contract (0 = match, 1 = no match) on all three paths.
 
 That decision lives in the script rather than in this text on purpose: `SessionStart` hooks don't run for subagents, so a subagent cannot know what the machine has — but the same command is right for all of them.
+
+**Searching is not extracting.** The index answers *which file holds X*. Once you already know the file and want its lines, `grep -n "x" that-file` or `Read` is the right call and the cheaper one — the wrapper would reindex the whole tree to read a single file. Measured on real sessions, this is a third of the shell `grep` calls, and all of them are correct.
 
 ### Routing: the graph or the wrapper
 

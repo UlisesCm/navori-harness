@@ -12,9 +12,9 @@
 41251477704529708f316713c1089a2e2a5fe080  .claude/hooks/guard-destructive.sh
 42d31d3f286aaaa93cbfc7286f6bac8d0ad0dae1  .claude/agents/reviewer.md
 43822850d5057e5fe51be785134e12f1c25e7241  .claude/skills/playwright-cli/SKILL.md
+48d9e54744c8498f4604ceae29f4901c906c7d74  CLAUDE.md
 4901b95f5653389a58827aae932cc5c4db561cde  .claude/agents/commit-pr-pilot.md
 49434b76b7e7e2518ce6e466c62c37fdb70e1fef  .claude/skills/playwright-cli/references/element-attributes.md
-4e4e95d8666f6898e4ee014366cd6f44e1cb5628  CLAUDE.md
 578b6c318ade6f18e84c62c9c11ff0b2feb4e84a  .claude/hooks/worktree-reclaim.sh
 621e354f54454e44ed18ac39c1df14b87da5f09b  .claude/skills/ticket-intake/SKILL.md
 760f6d0fe6dc4591df0d2fc0dc4f1306607f7365  .claude/agents/implementer.md
