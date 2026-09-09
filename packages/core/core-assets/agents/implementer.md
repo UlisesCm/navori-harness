@@ -100,7 +100,7 @@ Write `.claude/progress/impl_<feature>.md`:
 - ...
 
 ## Suggested commit
-`feat(<scope>): ...` (Conventional, atomic, language per the config's `commits`)
+`feat(<scope>): ...` (Conventional, atomic, language per `{{commits}}`)
 ```
 
 ## Communication with the leader

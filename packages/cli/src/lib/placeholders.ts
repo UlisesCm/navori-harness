@@ -69,6 +69,7 @@ const GLOBAL_FALLBACKS: ReadonlyMap<string, (lang: Lang) => string> = new Map([
   ["qualityGate.full", (lang: Lang) => tc(lang).common.globalQualityGate],
   ["branchBase", (lang: Lang) => tc(lang).common.globalBranchBase],
   ["prTarget", (lang: Lang) => tc(lang).common.globalPrTarget],
+  ["commits", (lang: Lang) => tc(lang).common.globalCommits],
 ]);
 
 /** Which scope's fallbacks apply. `repo` is the default everywhere else. */

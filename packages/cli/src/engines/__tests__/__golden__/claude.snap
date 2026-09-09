@@ -320,7 +320,7 @@ Never open the PR with the gate red.
 3. Draft a Conventional commit message:
    - Type: `feat | fix | docs | refactor | perf | test | chore | style | build | ci | revert`.
    - Scope: lowercase, derived from the touched area (module/domain).
-   - Description: imperative, ≤70 chars, no trailing period, language defined by the config's `commits`.
+   - Description: imperative, ≤70 chars, no trailing period, language defined by `conventional-es`.
    - Optional body with the WHY if the decision isn't obvious.
 4. If you touch potentially sensitive files (`.env*`, credentials, odd lockfiles), **flag the user before staging**.
 5. `git add <files>` (prefer explicit over `git add -A`).
@@ -413,7 +413,7 @@ Never open the PR with the gate red.
 **`Closes` is syntax, not prose.** GitHub links and auto-closes an issue only
 when the body carries `Closes` / `Fixes` / `Resolves` followed by `#<N>`, **in
 English**, pointing at an issue of this same repo. The rest of the body follows
-the config's `commits` language and this keyword does NOT: translated (`Cierra
+the `conventional-es` language and this keyword does NOT: translated (`Cierra
 #<N>`) it is an ordinary sentence, GitHub links nothing, the issue stays open
 and no error says so. That silence is the whole defect — navori's own repo
 shipped 8 PRs that way and closed all 8 issues by hand before anyone noticed
@@ -444,7 +444,7 @@ wc -c CLAUDE.md                                  # after
 - ❌ Never skip hooks (`--no-verify`) unless the user explicitly asks.
 - ❌ Never ask for a merge / approve the PR yourself. Your job ends with the URL.
 - ❌ Never `gh pr checks --watch`: it takes no timeout and would hang the turn before the URL reaches the user.
-- ✅ Commit and PR message in the language defined by the config's `commits` (`conventional-es` = Spanish MX, `conventional` = English) — except the `Closes #<N>` keyword, which GitHub parses and which stays in English in any language (see the body template).
+- ✅ Commit and PR message in the language defined by `conventional-es` (`conventional-es` = Spanish MX, `conventional` = English) — except the `Closes #<N>` keyword, which GitHub parses and which stays in English in any language (see the body template).
 - ✅ If you introduce a new pattern or non-obvious decision that wasn't already in `impl_<feature>.md`, leave a note in the PR body ("Decisions" section).
 
 ## Anti-patterns
@@ -722,7 +722,7 @@ Write `.claude/progress/impl_<feature>.md`:
 - ...
 
 ## Suggested commit
-`feat(<scope>): ...` (Conventional, atomic, language per the config's `commits`)
+`feat(<scope>): ...` (Conventional, atomic, language per `conventional-es`)
 ```
 
 ## Communication with the leader
@@ -1603,7 +1603,7 @@ Before closing the session:
 2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
-5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, atomic, in the language defined by the config's `commits`.
+5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, atomic, in the language defined by `conventional-es`.
 6. **Park on base**: once the cycle's work is committed and its branch pushed (PR opened when the flow calls for one), leave the repo standing on the base branch, synced: `git switch main` then `git pull --ff-only`. The point is where the NEXT session starts from — a repo parked on last week's feature branch breeds branches cut from stale bases. Rules that make it safe:
    - **Never delete the feature branch.** This is position hygiene, not history hygiene; the branch stays for its pending merge and for `babysit-prs`.
    - Only with a **clean working tree** and the cycle's commits pushed. Anything unpushed or uncommitted → do NOT switch; say what was left and leave parking to the user.
@@ -7481,7 +7481,7 @@ type: reference
 The commit + PR flow has **one owner**: the `commit-pr-pilot` agent
 (`.claude/agents/commit-pr-pilot.md`). It owns the pre-flight, the PR gate
 (`pnpm test && pnpm lint` green), the review/R1 handling, the body template and the
-commit/PR language (per the config's `commits`).
+commit/PR language (per `conventional-es`).
 
 **To close a cycle, invoke `commit-pr-pilot`.** Don't draft the PR from a separate
 template here — a second flow drifts from the pilot (that's why this skill was

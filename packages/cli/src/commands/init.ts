@@ -12,7 +12,7 @@ import {
   type ClaudeInfraInventory,
   type PackageManager,
 } from "../lib/detect.ts";
-import { listKnownPluginIds, loadPlugin, type AgentRole } from "../lib/plugins.ts";
+import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
 import { createMigrationBackup, removeOriginals, type MigrationResult } from "../lib/migrate.ts";
 import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
 import { registerRepoSafe } from "../lib/registry.ts";
@@ -523,10 +523,6 @@ export const initCommand = defineCommand({
 
     let pluginsConfig = buildPluginsConfig(pluginsToEnable);
 
-    // Skill → agent assignments (only ask if plugins selected with recommendations)
-    let agentAssignments = await pickAgentAssignments(pluginsToEnable, lang);
-    if (agentAssignments === null) return cancel(lang);
-
     // Preview + edit loop — last chance to fix any field before writing.
     // Each edit re-runs the field's prompt; cancelling a re-prompt just
     // returns to the preview (no exit), so a typo never forces you to
@@ -544,7 +540,6 @@ export const initCommand = defineCommand({
           // same "no gate" to the preview, which renders it only when set.
           qualityGate: qualityGate ?? undefined,
           plugins: pluginsToEnable,
-          agentAssignments,
         },
         lang,
       );
@@ -574,7 +569,6 @@ export const initCommand = defineCommand({
           { value: "branchBase", label: tr.editField(tr.labelBranchBase) },
           { value: "qualityGate", label: tr.editField(tr.labelQualityGate) },
           { value: "plugins", label: tr.editField("plugins") },
-          { value: "agentAssignments", label: tr.editField("agent assignments") },
           { value: "__back", label: tr.backToPreview },
         ],
       });
@@ -658,20 +652,7 @@ export const initCommand = defineCommand({
           if (v !== null) {
             pluginsToEnable = v;
             pluginsConfig = buildPluginsConfig(v);
-            // Drop assignments whose plugin id is no longer enabled
-            const enabledPluginIds = new Set(v);
-            for (const skillId of Object.keys(agentAssignments)) {
-              const ownerPlugin = findPluginIdForSkill(skillId);
-              if (ownerPlugin && !enabledPluginIds.has(ownerPlugin)) {
-                delete agentAssignments[skillId];
-              }
-            }
           }
-          break;
-        }
-        case "agentAssignments": {
-          const v = await pickAgentAssignments(pluginsToEnable, lang);
-          if (v !== null) agentAssignments = v;
           break;
         }
       }
@@ -732,7 +713,6 @@ export const initCommand = defineCommand({
       models: RECOMMENDED_MODELS,
       effort: RECOMMENDED_EFFORT,
       ...(Object.keys(mergedPlugins).length > 0 ? { plugins: mergedPlugins } : {}),
-      ...(Object.keys(agentAssignments).length > 0 ? { agentAssignments } : {}),
       // Always write `project` so the schema fills empty arrays and render emits
       // no `<not configured: project.*>` placeholders (see autoYes path above).
       // Library skills and codeLanguage are auto-derived from the stack.
@@ -873,80 +853,6 @@ export async function pickPlugins(lang: Lang): Promise<string[] | null> {
   });
   if (p.isCancel(selected)) return null;
   return selected as string[];
-}
-
-/**
- * Build skill → agent assignments based on plugin recommendations, then offer
- * the user a chance to review/override. Returns user-overridden entries only
- * (defaults stay implicit and live in the plugin manifest, not in the config).
- */
-async function pickAgentAssignments(
-  enabledPlugins: string[],
-  lang: Lang,
-): Promise<Record<string, AgentRole> | null> {
-  if (enabledPlugins.length === 0) return {};
-  const tr = t(lang);
-
-  type Recommendation = { id: string; pluginId: string; recommendedAgent: AgentRole };
-  const recommendations: Recommendation[] = [];
-  for (const pluginId of enabledPlugins) {
-    let plugin;
-    try {
-      plugin = loadPlugin(pluginId);
-    } catch {
-      continue;
-    }
-    for (const entry of plugin.manifest.managed) {
-      if (entry.recommendedAgent) {
-        recommendations.push({
-          id: entry.id,
-          pluginId,
-          recommendedAgent: entry.recommendedAgent,
-        });
-      }
-    }
-  }
-
-  if (recommendations.length === 0) return {};
-
-  // Show defaults
-  const summary = recommendations
-    .map((r) => `  · ${r.id} (${r.pluginId})  →  ${r.recommendedAgent}`)
-    .join("\n");
-  p.log.message(`${tr.recommendedAssignments}\n${summary}`);
-
-  const accept = await p.confirm({
-    message: tr.useAssignments,
-    initialValue: true,
-  });
-  if (p.isCancel(accept)) return null;
-  if (accept) return {};
-
-  // Let the user override one or more
-  const overrides: Record<string, AgentRole> = {};
-  const agentOptions: Array<{ value: AgentRole; label: string }> = [
-    { value: "leader", label: tr.roleLeader },
-    { value: "implementer", label: tr.roleImplementer },
-    { value: "reviewer", label: tr.roleReviewer },
-    { value: "researcher", label: tr.roleResearcher },
-    { value: "ticket-audit", label: tr.roleTicketAudit },
-    { value: "commit-pr-pilot", label: tr.roleCommitPrPilot },
-    { value: "explorer", label: tr.roleExplorer },
-  ];
-
-  for (const rec of recommendations) {
-    const choice = await p.select<AgentRole>({
-      message: tr.agentFor(rec.id, rec.pluginId),
-      options: agentOptions,
-      initialValue: rec.recommendedAgent,
-    });
-    if (p.isCancel(choice)) return null;
-    if (choice !== rec.recommendedAgent) {
-      overrides[rec.id] = choice;
-    }
-  }
-
-  return overrides;
 }
 
 /**
@@ -1155,28 +1061,6 @@ function buildPluginsConfig(ids: string[]): Record<string, { enabled: boolean }>
   }, {});
 }
 
-/**
- * Find which plugin id owns a given managed asset id. Used when the user
- * edits the plugin list in the preview loop, so assignments tied to plugins
- * that are now disabled get pruned.
- *
- * Returns null if the skill id is not owned by any known plugin (e.g. a
- * future-core skill, or stale assignment).
- */
-function findPluginIdForSkill(skillId: string): string | null {
-  for (const pluginId of listKnownPluginIds()) {
-    try {
-      const plugin = loadPlugin(pluginId);
-      if (plugin.manifest.managed.some((m) => m.id === skillId)) {
-        return pluginId;
-      }
-    } catch {
-      // unknown / broken plugin — skip
-    }
-  }
-  return null;
-}
-
 export interface PreviewState {
   name: string;
   workspace: string | undefined;
@@ -1186,7 +1070,6 @@ export interface PreviewState {
   branchBase: string;
   qualityGate: { fast: string; full: string } | undefined;
   plugins: string[];
-  agentAssignments: Record<string, AgentRole>;
   project?: Record<string, unknown>;
 }
 
@@ -1206,12 +1089,6 @@ export function buildConfigPreview(state: PreviewState, lang: Lang): string {
   rows.push([
     "plugins",
     state.plugins.length > 0 ? tr.pluginsValueLabel(state.plugins.join(", ")) : dim(tr.pluginsNone),
-  ]);
-  rows.push([
-    "agentAssignments",
-    Object.keys(state.agentAssignments).length > 0
-      ? tr.assignmentsValueLabel(Object.keys(state.agentAssignments).length)
-      : dim(tr.assignmentsNone),
   ]);
   if (state.project) {
     for (const [k, v] of Object.entries(state.project)) {

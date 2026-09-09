@@ -49,9 +49,6 @@ interface Strings {
   qualityGateFull: string;
   pluginsToEnable: string;
   renderNow: string;
-  useAssignments: string;
-  recommendedAssignments: string;
-  agentFor: (id: string, plugin: string) => string;
 
   // Preview + edit loop
   previewTitle: string;
@@ -64,8 +61,6 @@ interface Strings {
   editField: (label: string) => string;
   pluginsValueLabel: (list: string) => string;
   pluginsNone: string;
-  assignmentsValueLabel: (n: number) => string;
-  assignmentsNone: string;
 
   // Project prompts (E4)
   projectPromptsIntro: string;
@@ -83,13 +78,6 @@ interface Strings {
   claudeEngineMissingWarning: string;
 
   // Agent role descriptions
-  roleLeader: string;
-  roleImplementer: string;
-  roleReviewer: string;
-  roleResearcher: string;
-  roleTicketAudit: string;
-  roleCommitPrPilot: string;
-  roleExplorer: string;
 
   // Adoption mode
   existingInfraYesMode: string;
@@ -208,9 +196,6 @@ const ES: Strings = {
   qualityGateFull: "Quality gate (full — corre antes de cerrar sesión)",
   pluginsToEnable: "Plugins a activar",
   renderNow: "¿Renderizar CLAUDE.md ahora?",
-  useAssignments: "¿Usar estas asignaciones?",
-  recommendedAssignments: "Asignaciones recomendadas skill → agente:",
-  agentFor: (id, plugin) => `Agente para '${id}' (${plugin})`,
 
   previewTitle: "Resumen del config",
   previewAction: "¿Está bien?",
@@ -222,8 +207,6 @@ const ES: Strings = {
   editField: (label) => `Editar ${label}`,
   pluginsValueLabel: (list) => list,
   pluginsNone: "(ninguno)",
-  assignmentsValueLabel: (n) => `${n} override(s)`,
-  assignmentsNone: "(defaults)",
 
   projectPromptsIntro:
     "Ahora unas preguntas para afinar el harness a tu repo (lo que navori no puede detectar). Las respuestas se vuelven reglas activas que los agentes siguen.",
@@ -241,14 +224,6 @@ const ES: Strings = {
     "No detecté quality gate en package.json. El harness va a mostrar 'quality gate sin configurar' donde iría el comando y el hook pre-commit no se va a generar. Corre 'navori configure quality-gate' o agrega scripts (`typecheck`, `lint`, `test`) en package.json y re-renderea.",
   claudeEngineMissingWarning:
     "Los engines elegidos no incluyen 'claude' — el harness no va a cargar en sesiones de Claude Code (CLAUDE.md/.claude/ no se generan). Agrega 'claude' a los engines si vas a usar Claude Code.",
-
-  roleLeader: "leader (orquestador)",
-  roleImplementer: "implementer (escribe código)",
-  roleReviewer: "reviewer (revisa diff)",
-  roleResearcher: "researcher (lee, no escribe)",
-  roleTicketAudit: "ticket-audit (análisis profundo)",
-  roleCommitPrPilot: "commit-pr-pilot (commits + PRs)",
-  roleExplorer: "explorer (exploración inicial)",
 
   existingInfraYesMode: "Detecté infraestructura Claude — uso modo 'coexist' (seguro)",
   existingInfraDetected: "Detecté infraestructura Claude:",
@@ -388,9 +363,6 @@ const EN: Strings = {
   qualityGateFull: "Quality gate (full — runs before close session)",
   pluginsToEnable: "Plugins to enable",
   renderNow: "Render CLAUDE.md now?",
-  useAssignments: "Use these assignments?",
-  recommendedAssignments: "Recommended skill → agent assignments:",
-  agentFor: (id, plugin) => `Agent for '${id}' (${plugin})`,
 
   previewTitle: "Config summary",
   previewAction: "Does this look right?",
@@ -402,8 +374,6 @@ const EN: Strings = {
   editField: (label) => `Edit ${label}`,
   pluginsValueLabel: (list) => list,
   pluginsNone: "(none)",
-  assignmentsValueLabel: (n) => `${n} override(s)`,
-  assignmentsNone: "(defaults)",
 
   projectPromptsIntro:
     "A few questions to tune the harness to your repo (what navori can't detect). Answers become active rules the agents follow.",
@@ -421,14 +391,6 @@ const EN: Strings = {
     "No quality gate detected in package.json. The harness will show 'quality gate sin configurar' where the command would go and the pre-commit hook will not be generated. Run 'navori configure quality-gate' or add scripts (`typecheck`, `lint`, `test`) to package.json and re-render.",
   claudeEngineMissingWarning:
     "Selected engines don't include 'claude' — the harness will not load in Claude Code sessions (CLAUDE.md/.claude/ won't be generated). Add 'claude' to engines if you plan to use Claude Code.",
-
-  roleLeader: "leader (orchestrator)",
-  roleImplementer: "implementer (writes code)",
-  roleReviewer: "reviewer (reviews diff)",
-  roleResearcher: "researcher (reads, doesn't write)",
-  roleTicketAudit: "ticket-audit (deep analysis)",
-  roleCommitPrPilot: "commit-pr-pilot (commits + PRs)",
-  roleExplorer: "explorer (initial exploration)",
 
   existingInfraYesMode: "Existing Claude infrastructure detected — using 'coexist' mode (safe)",
   existingInfraDetected: "Existing Claude infrastructure detected:",
@@ -598,6 +560,7 @@ interface CommonCmdStrings {
   globalQualityGate: string;
   globalBranchBase: string;
   globalPrTarget: string;
+  globalCommits: string;
 }
 
 interface RenderCmdStrings {
@@ -1423,6 +1386,8 @@ const CMD_ES: CmdStrings = {
       "diciendo cuál corriste",
     globalBranchBase: "la branch base del repo (la que apunte origin/HEAD)",
     globalPrTarget: "la branch a la que el repo abre sus PRs (su base, salvo que declare otra)",
+    globalCommits:
+      "el estilo de commit que use el repo (Conventional; el idioma, el de su propio historial)",
   },
   render: {
     renderFailed: "El render falló",
@@ -2473,6 +2438,7 @@ const CMD_EN: CmdStrings = {
       "and name",
     globalBranchBase: "the repo's base branch (whatever origin/HEAD points at)",
     globalPrTarget: "the branch the repo opens PRs against (its base, unless it declares another)",
+    globalCommits: "the commit style the repo uses (Conventional; language per its own history)",
   },
   render: {
     renderFailed: "Render failed",
