@@ -783,6 +783,14 @@ interface DoctorCmdStrings {
   ) => string;
   /** How to adopt the divergence (never auto-applied). */
   workspaceDriftHint: string;
+  /** Note title for a stale skill index written by another harness (#625). */
+  foreignSkillIndexTitle: string;
+  /** One dead foreign index: what it declares vs. what resolves here. */
+  foreignSkillIndexRow: (path: string, indexed: number, producer: string) => string;
+  /** When the file admits its own refresh date, name it — staleness in one number. */
+  foreignSkillIndexFrozen: (date: string) => string;
+  /** What to do about it. navori detects; removing another tool's file is the user's. */
+  foreignSkillIndexHint: string;
   /** Note title for the permission-mode row (#579). */
   permissionModeTitle: string;
   /** A repo pinned to `dontAsk` whose allow list cannot write (#579). */
@@ -1745,6 +1753,12 @@ const CMD_ES: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos usan ${expected})`,
     workspaceDriftHint:
       "Informativo: navori nunca lo aplica solo. Adóptalo con 'navori configure', o promuévelo al workspace con 'navori workspace set-default'.",
+    foreignSkillIndexTitle: "Índice de skills de otro harness, obsoleto:",
+    foreignSkillIndexRow: (path, indexed, producer) =>
+      `${path} indexa ${indexed} skills y ninguna de esas rutas existe aquí — lo generó ${producer}`,
+    foreignSkillIndexFrozen: (date) => `congelado el ${date}`,
+    foreignSkillIndexHint:
+      "Se presenta como autoritativo, así que un agente que busque skills en el repo se lleva rutas muertas. navori no lo toca: bórralo o agrégalo al .gitignore.",
     permissionModeTitle: "Modo de permisos",
     permissionModeUnsupported: (mode, path, missing) =>
       `'${path}' fija defaultMode '${mode}', y en ese modo se auto-deniega todo lo que normalmente preguntaría: sin ${missing} en 'permissions.allow', el implementer no puede escribir código ni el reviewer su reporte. navori soporta default, acceptEdits, plan y auto; para este modo agrega tú las reglas que tu CI necesite.`,
@@ -2792,6 +2806,12 @@ const CMD_EN: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos use ${expected})`,
     workspaceDriftHint:
       "Informational: navori never applies it for you. Adopt it with 'navori configure', or promote it to the workspace with 'navori workspace set-default'.",
+    foreignSkillIndexTitle: "Stale skill index from another harness:",
+    foreignSkillIndexRow: (path, indexed, producer) =>
+      `${path} indexes ${indexed} skills and not one of those paths exists here — written by ${producer}`,
+    foreignSkillIndexFrozen: (date) => `frozen on ${date}`,
+    foreignSkillIndexHint:
+      "It presents itself as authoritative, so an agent looking for skills in this repo walks away with dead paths. navori won't touch it: delete it or add it to .gitignore.",
     permissionModeTitle: "Permission mode",
     permissionModeUnsupported: (mode, path, missing) =>
       `'${path}' sets defaultMode '${mode}', and that mode auto-denies everything that would otherwise prompt: without ${missing} in 'permissions.allow', the implementer cannot write code and the reviewer cannot write its report. navori supports default, acceptEdits, plan and auto; for this mode add the rules your CI needs yourself.`,
