@@ -4,7 +4,7 @@ description: Worker. Implements ONE scoped task, respects CLAUDE.md conventions,
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__*, mcp__codegraph__*
 ---
 
-<!-- navori:managed id="implementer-base" hash="5ba4b2f4" version="0.8.0" source="@navori/core" -->
+<!-- navori:managed id="implementer-base" hash="5ba4b2f4" version="0.8.1" source="@navori/core" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -123,7 +123,7 @@ blocked -> .claude/progress/impl_<feature>.md
 Never return the diff in chat. The leader reads it from disk if it needs it.
 <!-- /navori:managed id="implementer-base" -->
 
-<!-- navori:managed id="engram-implementer-extension" hash="b5d6fc69" version="0.8.0" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-implementer-extension" hash="b5d6fc69" version="0.8.1" source="@navori/plugin-engram" -->
 ## Engram, from a subagent
 
 **Pre-flight, before you read code:** `mem_search` with the task's keywords. A
@@ -145,7 +145,7 @@ not a session. Ending with `done -> <file>` is your report.
 If a memory contradicts what the code says, the code wins — fix the memory.
 <!-- /navori:managed id="engram-implementer-extension" -->
 
-<!-- navori:managed id="codegraph-implementer-extension" hash="76ce6f81" version="0.8.0" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-implementer-extension" hash="76ce6f81" version="0.8.1" source="@navori/plugin-codegraph" -->
 ## Locate before you touch
 
 You act on code someone else wrote, so the first question is always *where*.
@@ -169,7 +169,7 @@ Not installed, or the index looks stale? Skip it and work as usual — an
 accelerator, never a dependency.
 <!-- /navori:managed id="codegraph-implementer-extension" -->
 
-<!-- navori:managed id="tgrep-implementer-extension" hash="fcf9f325" version="0.8.0" source="@navori/plugin-tgrep" -->
+<!-- navori:managed id="tgrep-implementer-extension" hash="fcf9f325" version="0.8.1" source="@navori/plugin-tgrep" -->
 ## Find it with the wrapper before you touch it
 
 Most edits start with a lookup. For anything textual — a literal, a copy string, every place a flag name appears:
