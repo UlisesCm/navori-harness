@@ -45,6 +45,27 @@ const McpServerSchema = z.object({
   command: z.string().min(1),
   args: z.array(z.string()).default([]),
   env: z.record(z.string(), z.string()).optional(),
+  /**
+   * Load this server's tools eagerly instead of behind `ToolSearch`.
+   *
+   * Claude Code defers most MCP tools: the agent sees only their NAMES and has
+   * to fetch the schema before it can call one. Spec 0017's field measurement
+   * found that step is where a server dies — over two full sessions the
+   * codegraph tools were called ZERO times while the same sessions did reach
+   * for a Bash wrapper covering the same ground, because the wrapper cost
+   * nothing to discover. Doctrine did not move that number; removing the step
+   * did (R13).
+   *
+   * Claude-only, and it needs no guard: the Codex adapter writes `command`,
+   * `args` and `env` by name into `config.toml`, so a key it does not know
+   * about is not a key it can leak.
+   *
+   * Reserve it for servers whose value is being FIRST — the ones meant to run
+   * before a grep/read crawl rather than after one. Every eager server spends
+   * context on every turn of every session, so `alwaysLoad` on everything is
+   * the same as on nothing.
+   */
+  alwaysLoad: z.boolean().optional(),
 });
 
 // Spec 0002 — engine-agnostic extension points (hooks, scripts, settings).

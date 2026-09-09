@@ -41,9 +41,25 @@ describe("#212 — .mcp.json materialization for Claude", () => {
     expect(parsed.mcpServers.codegraph).toEqual({
       command: "codegraph",
       args: ["serve", "--mcp"],
+      // Covers: R13 (spec 0017) — the manifest declares `alwaysLoad`, so the
+      // rendered registry carries it. This is the field that decides whether
+      // the agent gets codegraph's tools up front or has to go find them.
+      alwaysLoad: true,
     });
     // stdio is the default → no `type` field emitted.
     expect(parsed.mcpServers.codegraph.type).toBeUndefined();
+  });
+
+  // Covers: R13 — a server that does not declare `alwaysLoad` must not grow the
+  // key. `false` and "absent" mean the same thing to Claude Code, and only one
+  // of them keeps the registry readable.
+  it("omits alwaysLoad for a server whose manifest does not declare it", () => {
+    const cwd = tempRepo();
+    renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
+
+    const parsed = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8"));
+    expect(parsed.mcpServers.engram).toBeDefined();
+    expect("alwaysLoad" in parsed.mcpServers.engram).toBe(false);
   });
 
   it("does not create .mcp.json when no enabled plugin declares a server", () => {
