@@ -783,6 +783,12 @@ interface DoctorCmdStrings {
   ) => string;
   /** How to adopt the divergence (never auto-applied). */
   workspaceDriftHint: string;
+  /** Note title for `.md` files loose in a skills root (#626). */
+  flatSkillsTitle: string;
+  /** One loose file: where it is and where it must move to load. */
+  flatSkillsRow: (path: string, suggested: string) => string;
+  /** Why it matters — the failure is silent, which is the whole problem. */
+  flatSkillsHint: string;
   /** Note title for a stale skill index written by another harness (#625). */
   foreignSkillIndexTitle: string;
   /** One dead foreign index: what it declares vs. what resolves here. */
@@ -1753,6 +1759,10 @@ const CMD_ES: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos usan ${expected})`,
     workspaceDriftHint:
       "Informativo: navori nunca lo aplica solo. Adóptalo con 'navori configure', o promuévelo al workspace con 'navori workspace set-default'.",
+    flatSkillsTitle: "Skills que no cargan (formato inválido):",
+    flatSkillsRow: (path, suggested) => `${path} — muévela a ${suggested}`,
+    flatSkillsHint:
+      "Claude Code descubre skills SOLO como '<nombre>/SKILL.md'. Un .md suelto no falla: simplemente no existe, sin aviso ninguno.",
     foreignSkillIndexTitle: "Índice de skills de otro harness, obsoleto:",
     foreignSkillIndexRow: (path, indexed, producer) =>
       `${path} indexa ${indexed} skills y ninguna de esas rutas existe aquí — lo generó ${producer}`,
@@ -2074,7 +2084,7 @@ const CMD_ES: CmdStrings = {
     skillsIndex: {
       heading: "## Skills disponibles",
       intro:
-        "Skills que los agentes pueden aplicar; las propias de navori viven en `.claude/skills/<id>/SKILL.md` (una skill que hayas agregado tú puede ser un `<id>.md` plano). La nota tras el `·` dice cuándo usar cada una.",
+        "Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. La nota tras el `·` dice cuándo usar cada una.",
       localNote: "Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido.",
     },
     agentsIndex: {
@@ -2806,6 +2816,10 @@ const CMD_EN: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos use ${expected})`,
     workspaceDriftHint:
       "Informational: navori never applies it for you. Adopt it with 'navori configure', or promote it to the workspace with 'navori workspace set-default'.",
+    flatSkillsTitle: "Skills that never load (invalid shape):",
+    flatSkillsRow: (path, suggested) => `${path} — move it to ${suggested}`,
+    flatSkillsHint:
+      "Claude Code discovers skills ONLY as '<name>/SKILL.md'. A loose .md doesn't fail: it simply never exists, with no warning at all.",
     foreignSkillIndexTitle: "Stale skill index from another harness:",
     foreignSkillIndexRow: (path, indexed, producer) =>
       `${path} indexes ${indexed} skills and not one of those paths exists here — written by ${producer}`,
@@ -3123,7 +3137,7 @@ const CMD_EN: CmdStrings = {
     skillsIndex: {
       heading: "## Available skills",
       intro:
-        "Skills the agents can apply; navori's own live in `.claude/skills/<id>/SKILL.md` (a skill you added yourself may be a flat `<id>.md` instead). The `·` note says when to reach for each.",
+        "Skills the agents can apply. Every skill lives at `.claude/skills/<id>/SKILL.md` — the directory is not optional: it is the only shape Claude Code discovers, yours included. The `·` note says when to reach for each.",
       localNote:
         "The `project-local` ones are yours — navori indexes them but never touches their content.",
     },

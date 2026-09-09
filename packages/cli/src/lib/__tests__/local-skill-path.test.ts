@@ -16,9 +16,15 @@ afterEach(() => {
 });
 
 describe("resolveLocalSkillPath", () => {
-  it("resolves a flat <id>.md skill file", () => {
+  it("NO resuelve un `<id>.md` plano: el host no lo carga (#626)", () => {
+    // La tabla "Choose where skills load" del host lista cinco ubicaciones y
+    // todas son `<skill-name>/SKILL.md`; el plano pertenece a
+    // `.claude/commands/`, que es otra cosa. Resolverlo hacía que navori leyera
+    // su description y la publicara en el índice de CLAUDE.md — anunciando una
+    // skill que nunca iba a existir. `scanFlatSkills` reporta el archivo para
+    // que el usuario sepa POR QUÉ su skill enmudeció.
     writeFileSync(join(cwd, ".claude/skills/flat.md"), "# flat");
-    expect(resolveLocalSkillPath(cwd, "flat")).toBe(".claude/skills/flat.md");
+    expect(resolveLocalSkillPath(cwd, "flat")).toBeNull();
   });
 
   it("resolves a skill DIRECTORY via <id>/SKILL.md", () => {
@@ -31,11 +37,14 @@ describe("resolveLocalSkillPath", () => {
     expect(resolveLocalSkillPath(cwd, "ghost")).toBeNull();
   });
 
-  it("prefers the flat file when both shapes somehow exist", () => {
+  it("con las dos formas presentes, gana el directorio — el plano ya no cuenta", () => {
+    // Antes ganaba el plano, que es justo el caso que ocultó una divergencia en
+    // campo: dos definiciones del mismo nombre y la que cargaba no era la que
+    // navori estaba leyendo.
     writeFileSync(join(cwd, ".claude/skills/dup.md"), "# flat");
     mkdirSync(join(cwd, ".claude/skills/dup"), { recursive: true });
     writeFileSync(join(cwd, ".claude/skills/dup/SKILL.md"), "# dir");
-    expect(resolveLocalSkillPath(cwd, "dup")).toBe(".claude/skills/dup.md");
+    expect(resolveLocalSkillPath(cwd, "dup")).toBe(".claude/skills/dup/SKILL.md");
   });
 
   it("does not treat a directory without SKILL.md as present", () => {
@@ -45,14 +54,15 @@ describe("resolveLocalSkillPath", () => {
 
   it("rejects ids with path traversal or separators (no escaping the skills root)", () => {
     // Even if the traversal target exists on disk, the id must not resolve.
-    writeFileSync(join(cwd, ".claude/skills/real.md"), "# real");
+    mkdirSync(join(cwd, ".claude/skills/real"), { recursive: true });
+    writeFileSync(join(cwd, ".claude/skills/real/SKILL.md"), "# real");
     expect(resolveLocalSkillPath(cwd, "../../../../etc/hosts")).toBeNull();
     expect(resolveLocalSkillPath(cwd, "..")).toBeNull();
     expect(resolveLocalSkillPath(cwd, "nested/skill")).toBeNull();
     expect(resolveLocalSkillPath(cwd, "a\\b")).toBeNull();
     expect(resolveLocalSkillPath(cwd, "  real  ")).toBeNull();
     expect(resolveLocalSkillPath(cwd, "")).toBeNull();
-    // a legit flat slug next to it still resolves
-    expect(resolveLocalSkillPath(cwd, "real")).toBe(".claude/skills/real.md");
+    // un id legítimo al lado sigue resolviendo
+    expect(resolveLocalSkillPath(cwd, "real")).toBe(".claude/skills/real/SKILL.md");
   });
 });

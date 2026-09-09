@@ -39,9 +39,17 @@ export function resolveLocalSkillPath(cwd: string, id: string): string | null {
   ) {
     return null;
   }
-  const fileRel = `.claude/skills/${id}.md`;
+  // DIRECTORY FORM ONLY (#626). A flat `.claude/skills/<id>.md` used to resolve
+  // here, and win over the directory — so navori read its description and
+  // published the skill in CLAUDE.md's index, advertising something Claude Code
+  // never loads. The host's table ("Choose where skills load") lists five
+  // locations and every one of them is `<skill-name>/SKILL.md`; the flat shape
+  // belongs to `.claude/commands/`, which is a different feature. Every
+  // comparable project agrees: gentle-ai's registry scans `<root>/<skill>/SKILL.md`
+  // ("the Agent Skills layout") and obra/superpowers ships zero loose `.md` in
+  // its skills root. `doctor` reports a flat file so the user learns WHY their
+  // skill went quiet instead of just losing its row.
   const dirRel = `.claude/skills/${id}/${SKILL_DIR_ENTRY}`;
-  if (existsSync(join(cwd, fileRel))) return fileRel;
   if (existsSync(join(cwd, dirRel))) return dirRel;
   return null;
 }

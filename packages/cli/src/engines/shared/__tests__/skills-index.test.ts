@@ -62,11 +62,16 @@ describe("buildSkillRows (shared skills index) — C4", () => {
  */
 describe("buildSkillRows — project-local trigger (#327)", () => {
   let root: string;
-  const skill = (id: string, description: string): void =>
+  // Directory form, the only shape Claude Code discovers (#626). This helper
+  // used to write a flat `<id>.md`, which navori resolved and indexed — the
+  // index advertised skills the host never loaded.
+  const skill = (id: string, description: string): void => {
+    mkdirSync(join(root, `.claude/skills/${id}`), { recursive: true });
     writeFileSync(
-      join(root, `.claude/skills/${id}.md`),
+      join(root, `.claude/skills/${id}/SKILL.md`),
       `---\nname: ${id}\ndescription: ${description}\ntype: reference\n---\n\n# ${id}\n`,
     );
+  };
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "navori-skills-index-"));
@@ -77,13 +82,27 @@ describe("buildSkillRows — project-local trigger (#327)", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("reads the description of a flat `<id>.md` skill", () => {
+  it("reads the description of a project-local skill", () => {
     skill(
       "bundle-cost",
       "Use when adding a dependency — the repo's bundle budget and how to measure it.",
     );
     const rows = buildSkillRows(cfg(), process.cwd(), coreAssets, ["bundle-cost"], root);
     expect(rows).toContain("- `bundle-cost` — project-local · Use when adding a dependency");
+  });
+
+  it("NO indexa un `<id>.md` plano: el host no lo carga, y anunciarlo es mentir (#626)", () => {
+    // El plano ganaba sobre el directorio, así que navori leía su description y
+    // publicaba en CLAUDE.md una skill que Claude Code nunca iba a cargar.
+    // Ahora degrada a la fila de ruta, igual que una skill ausente — porque a
+    // efectos del host lo está.
+    writeFileSync(
+      join(root, ".claude/skills/solo-plana.md"),
+      "---\nname: solo-plana\ndescription: Nunca cargó, y nadie avisó\n---\n",
+    );
+    const rows = buildSkillRows(cfg(), process.cwd(), coreAssets, ["solo-plana"], root);
+    expect(rows).toContain("- `solo-plana` — project-local (`.claude/skills/solo-plana`)");
+    expect(rows.join("\n")).not.toContain("Nunca cargó");
   });
 
   it("reads the description of a `<id>/SKILL.md` directory skill", () => {
@@ -99,7 +118,8 @@ describe("buildSkillRows — project-local trigger (#327)", () => {
   });
 
   it("degrades to the path row when the skill is absent or declares no description", () => {
-    writeFileSync(join(root, ".claude/skills/bare.md"), "# bare\n");
+    mkdirSync(join(root, ".claude/skills/bare"), { recursive: true });
+    writeFileSync(join(root, ".claude/skills/bare/SKILL.md"), "# bare\n");
     const rows = buildSkillRows(cfg(), process.cwd(), coreAssets, ["ghost", "bare"], root);
     expect(rows).toContain("- `ghost` — project-local (`.claude/skills/ghost`)");
     expect(rows).toContain("- `bare` — project-local (`.claude/skills/bare`)");
