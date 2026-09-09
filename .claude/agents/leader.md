@@ -139,12 +139,12 @@ If the task is:
 - A single trivial line in a known file → may not be worth the overhead.
 <!-- /navori:managed id="leader-base" -->
 
-<!-- navori:managed id="engram-leader-extension" hash="ebb4c5cf" version="0.8.0" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-leader-extension" hash="5ba8d1cf" version="0.8.0" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
 Before decomposing work: **search for context** with `mem_search` using keywords from the ticket. If you find a previous audit of the same area or a related architectural decision, read it before dispatching the `implementer`. Don't re-discover what's already saved.
 
-After each architectural decision, new plugin or convention established in the session: a proactive `mem_save` with the appropriate type (`decision`, `convention`, `pattern`, `bugfix`) and a stable `topic_key`. Reuse the key to evolve the topic without piling up snapshots. Save durable pointers; lines, signatures and call sites are verified in code and not persisted.
+After each architectural decision, new plugin or convention established in the session: a proactive `mem_save` with a `title`, the appropriate type (`decision`, `convention`, `pattern`, `bugfix`) and a stable `topic_key`. Reuse the key to evolve the topic without piling up snapshots. Save durable pointers; lines, signatures and call sites are verified in code and not persisted.
 
 Before closing the session: a mandatory `mem_session_summary` — exempt only under **R1 lean close** (see the session closeout block) — with:
 
