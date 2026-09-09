@@ -63,7 +63,9 @@ describe("SDD threshold — one formulation, and it's a proposal (F2)", () => {
 
 describe("verifying a subagent's evidence — bounded subset, after the handoff (F3)", () => {
   it("the rule names WHAT to re-check and WHEN", () => {
-    const block = read("managed/orquestacion.md");
+    // Since spec 0019 the rule lives in `leader.md` (§ Anti-broken-telephone),
+    // the depth reference the orchestrator opens when a `done -> file` lands.
+    const block = read("agents/leader.md");
     // Scope: only the claims the next decision rests on.
     expect(block).toMatch(/load-bearing claims/i);
     // Timing: after the handoff — re-checking in flight is the duplication the

@@ -70,7 +70,10 @@ describe("delta re-sign — the only path that keeps the byte-gate intact (#341)
   });
 
   it("the orchestration rule stops promising a round the byte-gate can't skip", () => {
-    const block = read("managed/orquestacion.md");
+    // Spec 0019: the bullet moved to `leader.md` § Frugal delegation. The size
+    // ceiling below still applies — it is now paid by the depth reference
+    // instead of the always-on channel, and a paragraph there is just as wrong.
+    const block = read("agents/leader.md");
     const bullet = block.split("\n").find((l) => l.includes("One-pass review")) ?? "";
     expect(bullet, "the One-pass review bullet disappeared").not.toBe("");
     // It must name the mechanism that binds it (the receipt) and the way out.

@@ -7,9 +7,14 @@ import { getCoreRoot } from "../bundled-assets.ts";
  * Coherence guard (#409): `.claude/progress/` is declared as a CLOSED set in two
  * canonical lists, and the harness kept producing artifacts outside it.
  *
- *   - `managed/orquestacion.md` — "That folder is ONLY for ephemeral agent
+ *   - `agents/leader.md` § Path separation — "ONLY for ephemeral agent
  *     handoffs (`audit_*`, `plan_*`, ...)"
  *   - `agents/leader.md` — the "Expected files:" inventory
+ *
+ * Both lists live in `leader.md` since spec 0019 trimmed the orchestration
+ * block to the routing ladder: the synthesis doctrine that carried the first
+ * list moved here, and the mechanism keeps its redundancy — two independently
+ * parsed lists that a new producer must register in.
  *
  * A namespace that no list declares (`solution_*` was the live case) is, for a
  * strict orchestrator, an out-of-contract file: ignored when synthesizing at
@@ -45,7 +50,6 @@ import { getCoreRoot } from "../bundled-assets.ts";
  */
 
 const CORE_ASSETS = resolve(getCoreRoot(), "core-assets");
-const ORQUESTACION = "managed/orquestacion.md";
 const LEADER = "agents/leader.md";
 /** Asset directories that PRODUCE handoffs (the declaring side is parsed apart). */
 const PRODUCER_DIRS = ["skills", "agents"] as const;
@@ -93,15 +97,15 @@ function producedNamespaces(): Map<string, Set<string>> {
 }
 
 /**
- * The `orquestacion.md` list: a parenthetical of backticked globs.
+ * The § Path separation list: a parenthetical of backticked globs.
  * Throws if the anchor moved — a reworded asset must fail loudly, never turn
  * this test vacuous.
  */
-function declaredInOrquestacion(): Set<string> {
-  const list = read(ORQUESTACION).match(/ONLY for ephemeral agent handoffs \(([^)]+)\)/)?.[1];
+function declaredInPathSeparation(): Set<string> {
+  const list = read(LEADER).match(/ONLY for ephemeral agent handoffs \(([^)]+)\)/)?.[1];
   if (list === undefined) {
     throw new Error(
-      `could not find the handoff list in ${ORQUESTACION} (anchor: "ONLY for ephemeral agent handoffs (...)"). ` +
+      `could not find the handoff list in ${LEADER} (anchor: "ONLY for ephemeral agent handoffs (...)"). ` +
         "If the wording changed, update this test's anchor — do not delete the list.",
     );
   }
@@ -139,7 +143,7 @@ function declaredInLeader(): Set<string> {
 
 /**
  * A declared namespace covers itself and its sub-namespaces: `audit_*` in
- * orquestacion.md covers the `audit_ticket_*` / `audit_deep_*` that the agents
+ * § Path separation covers the `audit_ticket_*` / `audit_deep_*` that the agents
  * actually write. A literal (`receipt.txt`) covers only itself.
  */
 function isCovered(produced: string, declared: Set<string>): boolean {
@@ -166,15 +170,15 @@ function report(missing: string[], where: string, howTo: string): string {
 }
 
 describe("handoff namespaces — producers vs. the canonical lists (#409)", () => {
-  const orquestacion = declaredInOrquestacion();
+  const pathSeparation = declaredInPathSeparation();
   const leader = declaredInLeader();
 
   it("both canonical lists parse into a real inventory", () => {
     // Anti-vacuity: if a refactor silently emptied either list, every coherence
     // assertion below would pass by accident.
     for (const [where, declared] of [
-      [ORQUESTACION, orquestacion],
-      [LEADER, leader],
+      [`${LEADER} § Path separation`, pathSeparation],
+      [`${LEADER} § Expected files`, leader],
     ] as const) {
       expect(
         [...declared].sort(),
@@ -187,13 +191,13 @@ describe("handoff namespaces — producers vs. the canonical lists (#409)", () =
     ).toEqual(expect.arrayContaining(["impl", "review", "receipt.txt"]));
   });
 
-  it("every namespace produced by a skill or agent is declared in orquestacion.md", () => {
-    const missing = [...PRODUCERS.keys()].filter((ns) => !isCovered(ns, orquestacion)).sort();
+  it("every namespace produced by a skill or agent is declared in § Path separation", () => {
+    const missing = [...PRODUCERS.keys()].filter((ns) => !isCovered(ns, pathSeparation)).sort();
     expect(
       missing,
       report(
         missing,
-        ORQUESTACION,
+        `${LEADER} § Path separation`,
         'add the glob to the "ONLY for ephemeral agent handoffs (...)" parenthetical.',
       ),
     ).toEqual([]);
@@ -213,8 +217,8 @@ describe("handoff namespaces — producers vs. the canonical lists (#409)", () =
 
   it("solution_* is in both lists — the instance that motivated the guard", () => {
     for (const [where, declared] of [
-      [ORQUESTACION, orquestacion],
-      [LEADER, leader],
+      [`${LEADER} § Path separation`, pathSeparation],
+      [`${LEADER} § Expected files`, leader],
     ] as const) {
       expect(isCovered("solution", declared), `solution_* missing from ${where}`).toBe(true);
       expect(

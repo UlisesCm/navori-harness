@@ -869,6 +869,15 @@ When the `done -> file` come back, **gather and analyze deeply YOURSELF**: read 
 
 Researchers are leaves (they don't have `Agent`): you open the fan-out. Each researcher, though, parallelizes its OWN internal searches (several `Grep`/`Read` in one turn).
 
+## Frugal delegation (shape a lean R2 encargo)
+
+Fan-out is a lever, not a toll — so when you do delegate, hand the smallest encargo that covers the work:
+
+- **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → do them yourself in R1 or send them to a low-tier agent; never bundle them into an `implementer`'s encargo, where they inflate its context and its run without raising quality.
+- **One encargo = one unit.** A pre-existing bug the `implementer` hits outside its scope → it reports and stops there (a trivial one-liner is the exception); **you** decide whether to open a separate unit. Scope doesn't self-expand mid-run.
+- **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
+- **One-pass review on small/medium diffs.** Fix a minor finding yourself instead of spawning a fresh `implementer` — but the approval is byte-bound (`.claude/progress/receipt.txt`), so an edit after `APPROVED` needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
+
 ## Continuous execution (don't pause between tasks)
 
 Once the plan/scope is approved, execute ALL the sub-tasks without pausing to ask the user for confirmation. Valid reasons to stop:
@@ -876,6 +885,8 @@ Once the plan/scope is approved, execute ALL the sub-tasks without pausing to as
 1. **BLOCKED**: a subagent reported a blocker you can't resolve (spec ambiguity, broken tool, a decision that requires a human), or a **command got blocked by permission** (a tool call landed on `deny` or the user rejected the prompt). In the permission case: `deny`/rejection → 0 retries, you stop; a non-pre-approved prompt → 1 legitimate alternative approach (e.g. the native `Grep` tool instead of `grep` via shell) and you stop. Never retry the same command or ask for the same permission in a loop.
 2. **Ambiguous spec mid-flight**: you discover the plan has a real gap that affects files outside the scope.
 3. **All sub-tasks complete**: the cycle finished, ready for `commit-pr-pilot`.
+
+**Caps, so a loop cannot pass for persistence.** 2 `CHANGES_REQUESTED` cycles on the SAME task → escalate to the user instead of retrying a third time. The permission cap is symmetric and stricter: `deny`/rejection = **0 retries** (you stop now); a non-pre-approved prompt = **1** legitimate alternative approach — one that changes the path, never the same command again — and you stop.
 
 Do NOT do "I'll do sub-task 1, shall I continue with 2?". The user asked you to execute the plan — execute it. Intermediate progress summaries between tasks burn their time. Exception: a significant milestone (a full layer finished) or a BLOCKED — those you do communicate.
 
@@ -897,6 +908,8 @@ done -> .claude/progress/<file>.md
 
 Those files are **input to the next step of the pipeline**, not chat summaries for a reader: the `reviewer` opens the `implementer`'s, the `commit-pr-pilot` opens the `reviewer`'s and its `receipt.txt`, and a `SubagentStop` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours). A host rule against writing report files does not reach them — it exempts files written as input to another tool, and these are exactly that. Say so in the encargo if a subagent hesitates.
 
+**Re-verify only the load-bearing claims.** AFTER its `done -> file` lands — not while it runs, which duplicates work in flight — check the claims your decision actually rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report.
+
 Expected files:
 
 - `.claude/progress/audit_ticket_<TICKET-ID>.md` — deep analysis of one ticket (`ticket-audit`)
@@ -909,7 +922,7 @@ Expected files:
 - `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
 - `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `commit-pr-pilot`)
 
-**Path separation (don't mix):** `.claude/progress/` is ONLY for these ephemeral handoffs between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
+**Path separation (don't mix):** `.claude/progress/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
 
 ## Closing the cycle: create the PR
 
@@ -919,7 +932,20 @@ When `.claude/progress/review_<feature>.md` contains `APPROVED`:
 2. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `main`, `gh auth status` ok. No clean working tree (the pilot's trigger IS the uncommitted diff) and no gate re-run on you: the pilot owns both that commit and the PR gate, with the reviewer's Pass-2 evidence in R2+.
 3. Return to the user only the PR URL + title.
 
-If the review returned `CHANGES_REQUESTED`, do NOT invoke `commit-pr-pilot`: launch another `implementer` with the list of changes and restart the cycle.
+If the review returned `CHANGES_REQUESTED`, do NOT invoke `commit-pr-pilot`: launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
+
+### Second opinion (post-`APPROVED`)
+
+On a non-trivial diff — or any change touching a critical area — a review from a **different provider** is one command away *when this repo also renders the `codex` engine*. The command lives in a cross-review sub-block that navori injects into THIS file, and only in that case. Scroll to the end: no such sub-block below means this repo renders Claude only and the option does not apply here. (Never re-derive this from a `grep` for the sub-block's id — you are reading the file that would match.)
+
+### Reclaim the worktree (ask, never assume)
+
+The pilot ends its report with a `worktree:` line, because it runs inside the worktree and cannot remove it — you can. Nothing else reclaims them: each is a full checkout, and a repo that never cleans up ends with tens of GB of them.
+
+- `safe to remove` → ask the user once, plainly ("the PR is open and the branch is pushed — remove the worktree at `<path>`?"), and act on the answer. Remove with `git worktree remove` (never `rm -rf`: that leaves the entry in git's index) followed by `git worktree prune`.
+- `NOT safe` → do NOT ask. Report which of the two reasons it gave and leave it alone; a worktree holding uncommitted or unpushed work is the only copy of it.
+
+And never take a merged PR as proof on its own: **squash merge leaves no ancestry**, so `git merge-base --is-ancestor` answers "not merged" for branches that shipped days ago. What proves the work landed is the squash commit in the base branch: `git log <base> --grep="(#<PR>)"`.
 
 ## Quality gate
 
@@ -1564,57 +1590,7 @@ If a memory contradicts what the code says, the code wins — fix the memory.
 -->
 
 
-===== FILE: .claude/context/agentes-disponibles.md =====
-<!-- navori:managed id="agentes-disponibles" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
-## Agentes disponibles
-
-Subagentes que puedes lanzar con la herramienta `Agent` (tú eres el orquestador; ve "## Role: orchestrator"). La investigación y la revisión son de solo lectura → paraleliza sin miedo.
-
-- `implementer` — Escribe código y tests para UNA tarea bien acotada.
-- `reviewer` — Valida un diff contra la spec y la calidad (APPROVED / CHANGES_REQUESTED).
-- `researcher` — Responde una pregunta concreta sobre el repo (¿pasa Y? ¿qué consume X?) con evidencia citada.
-- `ticket-audit` — Analiza a fondo un ticket complejo (bug crítico, migración, feature multicapa) antes de descomponerlo.
-- `commit-pr-pilot` — Escribe commits Conventional y abre el PR tras la aprobación del reviewer.
-- `explorer` — Mapea un área o módulo amplio: estructura, puntos de entrada, dependencias.
-- `auditor` — Auditoría profunda de solo lectura (seguridad, rendimiento, SOLID, casos borde); escribe un reporte + plan priorizado en disco.
-<!-- /navori:managed id="agentes-disponibles" -->
-
-
-===== FILE: .claude/context/arranque-sesion.md =====
-<!-- navori:managed id="arranque-sesion" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
-## Session startup
-
-On Claude, a `SessionStart` hook injects the live context — branch, recent commits, and the previous session's `progress/current.md` — at the top of the session; read it to resume. Otherwise, read `progress/current.md` yourself. Then, before touching code:
-
-1. **Healthy config**: run `navori doctor` if `navori.config.json` / `.claude/` look inconsistent, or to confirm the declared quality gates can actually run.
-2. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
-
-**Audit mode on request**: if the user asks for it in any wording ("audit mode", "con auditoría", "navori audit"), run `navori audit --start <this session's id>` as the FIRST action of that turn — before loading skills or starting any pipeline — and confirm the log path it prints. The phrase never activates anything by itself (by design); the command is the only switch. If the injected context already says audit-mode is ACTIVE (armed via `navori audit --arm` — which also applies to a RUNNING session on its next message), it is running — do not start it again, and never tell the user to close and reopen the session for this.
-<!-- /navori:managed id="arranque-sesion" -->
-
-
-===== FILE: .claude/context/cierre-sesion.md =====
-<!-- navori:managed id="cierre-sesion" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
-## Session closeout
-
-Before closing the session:
-
-1. **Quality gate**: pnpm test && pnpm lint — confirm it passes, **or cite this cycle's green run** (reviewer's Pass-2 in R2, pilot's pre-flight in R1) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
-2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
-3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
-4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
-5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, atomic, in the language defined by `conventional-es`.
-6. **Park on base**: once the cycle's work is committed and its branch pushed (PR opened when the flow calls for one), leave the repo standing on the base branch, synced: `git switch main` then `git pull --ff-only`. The point is where the NEXT session starts from — a repo parked on last week's feature branch breeds branches cut from stale bases. Rules that make it safe:
-   - **Never delete the feature branch.** This is position hygiene, not history hygiene; the branch stays for its pending merge and for `babysit-prs`.
-   - Only with a **clean working tree** and the cycle's commits pushed. Anything unpushed or uncommitted → do NOT switch; say what was left and leave parking to the user.
-   - `--ff-only`, always: the base must never receive a surprise merge from a parking step. If it doesn't fast-forward, report it instead of resolving it here.
-   - If another session may be alive on this same working tree (a second terminal on this repo), switching yanks the branch out from under it — when in doubt, skip and say so.
-
-**R1 lean close** — the three conditions are verifiable, so this is not a judgment call: the session ran the **R1** route, it covered **one** user task, and its diff touches no critical area (`auth, permissions, payments, data integrity`). All three hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.
-<!-- /navori:managed id="cierre-sesion" -->
-
-
-===== FILE: .claude/context/orquestacion.md =====
+===== FILE: .claude/context/10-orquestacion.md =====
 <!-- navori:managed id="orquestacion" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 ## Role: orchestrator (organic routing)
 
@@ -1657,36 +1633,62 @@ Look the signal up instead of reconstructing the boundary; the mechanisms themse
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
-Parallelism is **analytical**, not just speed: the value is splitting the problem into genuinely independent pieces and how you integrate what returns. Mechanics: emit **ALL `Agent` calls in a SINGLE turn** (Claude serializes by default; request parallelism explicitly, in one message).
+Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so parallelism has to be requested explicitly, in one message. **Independent** sub-tasks (no shared state, none depends on another's output) → same turn; serialize only on a real dependency (`implementer` → `reviewer`). **`implementer` in parallel ONLY on disjoint files** (when in doubt, serial). Assign explicit scope before fanning out; synthesis is **never** delegated — when the `done -> file` reports return, you read the N files together and cross-check them yourself.
 
-- ✅ In one message, invoke `Agent` 3 times (`explorer` auth, db, api). They run concurrently; total ≈ the slowest.
-- ❌ Invoke auth, wait for its `done -> file`, then db, then api. That's serial and throws away what parallelism saves.
+### Where the depth lives (read it when the moment asks)
 
-**Independent** sub-tasks (no shared state, none depends on another's output) → same turn. Serialize only on a real dependency (`implementer` → `reviewer`). **`implementer` in parallel ONLY on disjoint files** (two touching the same file collide → serial; when in doubt, serial). Assign explicit scope before fanning out.
-
-**Fan-out → synthesis:** decompose a broad question into sub-questions and launch one researcher each in parallel. When the `done -> file` reports return, **you gather and analyze deeply**: read the N files together, cross-check (contradictions, gaps, what's missing), then decide the implementation. Synthesis is not delegated.
-
-### Frugal delegation (shape a lean R2 encargo)
-
-Fan-out is a lever, not a toll — so when you do delegate, hand the smallest encargo that covers the work:
-
-- **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → do them yourself in R1 or send them to a low-tier agent; never bundle them into an `implementer`'s encargo, where they inflate its context and its run without raising quality.
-- **One encargo = one unit.** A pre-existing bug the `implementer` hits outside its scope → it reports and stops there (a trivial one-liner is the exception); **you** decide whether to open a separate unit. Scope doesn't self-expand mid-run.
-- **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
-- **One-pass review on small/medium diffs.** Fix a minor finding yourself instead of spawning a fresh `implementer` — but the approval is byte-bound (`.claude/progress/receipt.txt`), so an edit after `APPROVED` needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
-
-### Continuous execution (don't pause between tasks)
-
-Once the plan/scope is approved (R2+), execute ALL sub-tasks without confirming between nodes. No "did 1, continue with 2?" — execute the plan. Stop only for: **BLOCKED** (a subagent blocked that you can't resolve), **ambiguous spec mid-flight** (a real gap outside scope), **command blocked by permission** (a tool call hit `deny` or the user rejected the prompt), or **full cycle** (ready for PR). Cap: 2 `CHANGES_REQUESTED` cycles on the same task → escalate to the user instead of retrying in a loop. Symmetric cap for permissions: `deny`/rejection = **0 retries** (stop now); a non-pre-approved prompt = **1 legitimate alternative approach** (e.g. the native `Grep` tool instead of shell `grep`) and you stop — never the same command in a loop.
-
-### Synthesis without broken telephone
-
-Every `Agent` call carries the **literal path** of the file its subagent must write (`.claude/progress/<file>.md`) — the path itself, never a vague "write a report": prose gets summarized when you delegate, a literal path does not. You receive only `done -> file`. Those files are **input to the next step**, not chat summaries — the `reviewer` opens the `implementer`'s, the `commit-pr-pilot` opens the `reviewer`'s, and a `SubagentStop` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours) — so a host rule against writing report files does not reach them: it exempts files written as input to another tool, and these are. That folder is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`); **session state** (task, plan, blockers) lives in `progress/current.md` (root, git-persisted) and you consolidate it, never the subagents — each `implementer` reports its state (including `blocked`) in its own `impl_<feature>.md`. **After** its `done -> file` lands (not while it runs — that duplicates work in flight), re-verify only the **load-bearing claims**, the ones your decision rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report. To close the cycle, invoke `commit-pr-pilot` — when `review_<feature>.md` says `APPROVED` (R2+), or directly for a genuine R1 diff that never went through a `reviewer`. The pilot gates the PR on `pnpm test && pnpm lint` (green over the shipping diff — the reviewer's Pass-2 evidence in R2+, or the pilot's own run in R1). Pre-flight: not on `main`, `gh auth status` ok (no clean-working-tree check — the pilot's trigger IS the uncommitted diff, and the pilot owns that commit). If `CHANGES_REQUESTED`, launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
-
-**Second opinion (post-`APPROVED`).** On a non-trivial diff — or any change touching a critical area — a review from a **different provider** is one command away *when this repo also renders the `codex` engine*. The command lives in the `codex-cross-review` sub-block of `.claude/agents/leader.md`, which navori injects only in that case: `grep -n codex-cross-review .claude/agents/leader.md` — no match means this repo renders Claude only and the option does not apply here.
-
-**Reclaim the worktree (ask, never assume).** The pilot ends its report with a `worktree:` line, because it runs inside the worktree and cannot remove it — you can. Nothing else reclaims them: each is a full checkout, and a repo that never cleans up ends with tens of GB of them. When that line says `safe to remove`, ask the user once, plainly ("the PR is open and the branch is pushed — remove the worktree at `<path>`?"), and act on the answer. Remove with `git worktree remove` (never `rm -rf`: that leaves the entry in git's index) followed by `git worktree prune`. When it says `NOT safe`, do NOT ask — report which of the two reasons it gave and leave it alone; a worktree holding uncommitted or unpushed work is the only copy of it. And never take a merged PR as proof on its own: **squash merge leaves no ancestry**, so `git merge-base --is-ancestor` answers "not merged" for branches that shipped days ago — what proves the work landed is the squash commit in the base branch (`git log <base> --grep="(#<PR>)"`).
+This block is the ladder. The depth sits with whoever owns the moment — open it then: **`.claude/agents/leader.md`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.claude/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/ticket-intake/SKILL.md`** (a ticket arrived: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).
 <!-- /navori:managed id="orquestacion" -->
+
+
+===== FILE: .claude/context/20-agentes-disponibles.md =====
+<!-- navori:managed id="agentes-disponibles" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+## Agentes disponibles
+
+Subagentes que puedes lanzar con la herramienta `Agent` (tú eres el orquestador; ve "## Role: orchestrator"). La investigación y la revisión son de solo lectura → paraleliza sin miedo.
+
+- `implementer` — Escribe código y tests para UNA tarea bien acotada.
+- `reviewer` — Valida un diff contra la spec y la calidad (APPROVED / CHANGES_REQUESTED).
+- `researcher` — Responde una pregunta concreta sobre el repo (¿pasa Y? ¿qué consume X?) con evidencia citada.
+- `ticket-audit` — Analiza a fondo un ticket complejo (bug crítico, migración, feature multicapa) antes de descomponerlo.
+- `commit-pr-pilot` — Escribe commits Conventional y abre el PR tras la aprobación del reviewer.
+- `explorer` — Mapea un área o módulo amplio: estructura, puntos de entrada, dependencias.
+- `auditor` — Auditoría profunda de solo lectura (seguridad, rendimiento, SOLID, casos borde); escribe un reporte + plan priorizado en disco.
+<!-- /navori:managed id="agentes-disponibles" -->
+
+
+===== FILE: .claude/context/30-arranque-sesion.md =====
+<!-- navori:managed id="arranque-sesion" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+## Session startup
+
+On Claude, a `SessionStart` hook injects the live context — branch, recent commits, and the previous session's `progress/current.md` — at the top of the session; read it to resume. Otherwise, read `progress/current.md` yourself. Then, before touching code:
+
+1. **Healthy config**: run `navori doctor` if `navori.config.json` / `.claude/` look inconsistent, or to confirm the declared quality gates can actually run.
+2. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
+
+**Audit mode on request**: if the user asks for it in any wording ("audit mode", "con auditoría", "navori audit"), run `navori audit --start <this session's id>` as the FIRST action of that turn — before loading skills or starting any pipeline — and confirm the log path it prints. The phrase never activates anything by itself (by design); the command is the only switch. If the injected context already says audit-mode is ACTIVE (armed via `navori audit --arm` — which also applies to a RUNNING session on its next message), it is running — do not start it again, and never tell the user to close and reopen the session for this.
+<!-- /navori:managed id="arranque-sesion" -->
+
+
+===== FILE: .claude/context/40-cierre-sesion.md =====
+<!-- navori:managed id="cierre-sesion" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+## Session closeout
+
+Before closing the session:
+
+1. **Quality gate**: pnpm test && pnpm lint — confirm it passes, **or cite this cycle's green run** (reviewer's Pass-2 in R2, pilot's pre-flight in R1) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
+2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
+3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
+4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
+5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, atomic, in the language defined by `conventional-es`.
+6. **Park on base**: once the cycle's work is committed and its branch pushed (PR opened when the flow calls for one), leave the repo standing on the base branch, synced: `git switch main` then `git pull --ff-only`. The point is where the NEXT session starts from — a repo parked on last week's feature branch breeds branches cut from stale bases. Rules that make it safe:
+   - **Never delete the feature branch.** This is position hygiene, not history hygiene; the branch stays for its pending merge and for `babysit-prs`.
+   - Only with a **clean working tree** and the cycle's commits pushed. Anything unpushed or uncommitted → do NOT switch; say what was left and leave parking to the user.
+   - `--ff-only`, always: the base must never receive a surprise merge from a parking step. If it doesn't fast-forward, report it instead of resolving it here.
+   - If another session may be alive on this same working tree (a second terminal on this repo), switching yanks the branch out from under it — when in doubt, skip and say so.
+
+**R1 lean close** — the three conditions are verifiable, so this is not a judgment call: the session ran the **R1** route, it covered **one** user task, and its diff touches no critical area (`auth, permissions, payments, data integrity`). All three hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.
+<!-- /navori:managed id="cierre-sesion" -->
 
 
 ===== FILE: .claude/hooks/audit-mode-close.sh [exec] =====
@@ -4573,10 +4575,16 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
   log=$(git log --oneline -15 2>/dev/null || true)
   if [ -n "$log" ]; then
-    add "Recent commits (subjects are written by whoever committed them):"
-    add "$FENCE_OPEN"
-    add "$(fence_body "$log")"
-    add "$FENCE_CLOSE"
+    # Bounded since spec 0019: the doctrine blocks are sized to fill the pot,
+    # so this section CAN be the one that overflows the host's cut — and rule 1
+    # of the size contract says what gets cut must be the reconstructible part.
+    # Nothing in this channel is more reconstructible than the git log: the
+    # pointer IS the command.
+    add_bounded "Recent commits (subjects are written by whoever committed them):
+${FENCE_OPEN}
+$(fence_body "$log")
+${FENCE_CLOSE}" \
+      "[navori] recent commits didn't fit the startup context; run \`git log --oneline -15\` to reconstruct them."
   fi
 fi
 
@@ -8246,7 +8254,7 @@ Skipping any step = a lie, not verification.
 - ❌ "Trust me, runs locally" — not a valid claim without evidence in the chat.
 - ❌ Making the claim BEFORE the command ("I'll run X and it should be green").
 - ❌ Marking a step of the atomic plan `[x]` without having run the verification that backs that step.
-- ❌ Accepting a subagent's report without verifying its load-bearing claims — the scope is defined ONCE in the orchestrator's "Synthesis without broken telephone" block: cited `file:line`s plus the diff it touched, never a full re-read of a diff the reviewer already validated.
+- ❌ Accepting a subagent's report without verifying its load-bearing claims — the scope is defined ONCE in `.claude/agents/leader.md` § Anti-broken-telephone: cited `file:line`s plus the diff it touched, never a full re-read of a diff the reviewer already validated.
 
 ## Closing
 

@@ -620,7 +620,7 @@ describe("renderClaudeEngine — computed blocks respect config.language (#289)"
     expect(md).toContain("Skills que los agentes pueden aplicar");
     // The agents index rides the orchestrator channel since #572 — only whoever
     // spawns needs the catalog — so its language is verified where it renders.
-    const agentsEs = readFileSync(join(cwd, ".claude/context/agentes-disponibles.md"), "utf-8");
+    const agentsEs = readFileSync(join(cwd, ".claude/context/20-agentes-disponibles.md"), "utf-8");
     expect(agentsEs).toContain("## Agentes disponibles");
     expect(agentsEs).toContain("Subagentes que puedes lanzar");
     expect(agentsEs).toContain("Escribe código y tests para UNA tarea bien acotada.");
@@ -640,7 +640,7 @@ describe("renderClaudeEngine — computed blocks respect config.language (#289)"
     const md = claudeMd();
     expect(md).toContain("## Available skills");
     expect(md).toContain("Skills the agents can apply");
-    const agentsEn = readFileSync(join(cwd, ".claude/context/agentes-disponibles.md"), "utf-8");
+    const agentsEn = readFileSync(join(cwd, ".claude/context/20-agentes-disponibles.md"), "utf-8");
     expect(agentsEn).toContain("## Available agents");
     expect(agentsEn).toContain("Subagents you can spawn via the `Agent` tool");
     expect(agentsEn).toContain("Writes code and tests for ONE well-scoped task.");

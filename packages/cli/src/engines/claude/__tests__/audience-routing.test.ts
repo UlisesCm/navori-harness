@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
@@ -44,8 +44,18 @@ afterEach(() => {
 });
 
 const claudeMd = (): string => readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
-const contextFile = (id: string): string =>
-  readFileSync(join(cwd, ".claude", "context", `${id}.md`), "utf-8");
+/**
+ * Read a context file BY ID. Since spec 0019 the filename carries the delivery
+ * order (`10-orquestacion.md`), so this resolves the suffix instead of the bare
+ * name — the id is what these assertions are about; the prefix has its own
+ * tests in `session-start-budget.test.ts`.
+ */
+const contextFile = (id: string): string => {
+  const dir = join(cwd, ".claude", "context");
+  const file = readdirSync(dir).find((f) => f === `${id}.md` || f.endsWith(`-${id}.md`));
+  expect(file, `no context file for id "${id}" in ${dir}`).toBeDefined();
+  return readFileSync(join(dir, file!), "utf-8");
+};
 
 describe("a block addressed to the orchestrator leaves CLAUDE.md (#573)", () => {
   it("declares the blocks only the session owner can act on", () => {
@@ -88,7 +98,7 @@ describe("a block addressed to the orchestrator leaves CLAUDE.md (#573)", () => 
   it("is idempotent: a second render reports no change", () => {
     renderClaudeEngine(cwd, CONFIG);
     const second = renderClaudeEngine(cwd, CONFIG);
-    const write = second.written.find((w) => w.path.endsWith("context/orquestacion.md"));
+    const write = second.written.find((w) => w.path.endsWith("context/10-orquestacion.md"));
     expect(write).toBeUndefined();
   });
 });
@@ -98,7 +108,7 @@ describe("a repo rendered by an earlier navori migrates on the next render (#573
     // The shape a real repo is in before the move: the block inside CLAUDE.md,
     // with the user's section around it.
     renderClaudeEngine(cwd, CONFIG);
-    const withBlock = `${readFileSync(join(cwd, ".claude", "context", "orquestacion.md"), "utf-8")}\n`;
+    const withBlock = `${readFileSync(join(cwd, ".claude", "context", "10-orquestacion.md"), "utf-8")}\n`;
     const before = claudeMd();
     writeFileSync(
       join(cwd, "CLAUDE.md"),
@@ -111,7 +121,7 @@ describe("a repo rendered by an earlier navori migrates on the next render (#573
 
     expect(claudeMd()).not.toContain('id="orquestacion"');
     expect(claudeMd()).toContain("Esto lo escribí yo.");
-    expect(existsSync(join(cwd, ".claude", "context", "orquestacion.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude", "context", "10-orquestacion.md"))).toBe(true);
   });
 });
 
@@ -123,12 +133,12 @@ describe("the block still answers to blocks.exclude (#573)", () => {
     } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, excluded);
     expect(claudeMd()).not.toContain('id="orquestacion"');
-    expect(existsSync(join(cwd, ".claude", "context", "orquestacion.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude", "context", "10-orquestacion.md"))).toBe(false);
   });
 
   it("removes an already-rendered context file when the exclusion lands later", () => {
     renderClaudeEngine(cwd, CONFIG);
-    expect(existsSync(join(cwd, ".claude", "context", "orquestacion.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude", "context", "10-orquestacion.md"))).toBe(true);
 
     const excluded = {
       ...CONFIG,
@@ -137,7 +147,7 @@ describe("the block still answers to blocks.exclude (#573)", () => {
     renderClaudeEngine(cwd, excluded);
     // Opting out has to reach the new channel too, or the doctrine keeps being
     // delivered by a file nobody remembers exists.
-    const file = join(cwd, ".claude", "context", "orquestacion.md");
+    const file = join(cwd, ".claude", "context", "10-orquestacion.md");
     expect(existsSync(file) && readFileSync(file, "utf-8").includes("Role: orchestrator")).toBe(
       false,
     );

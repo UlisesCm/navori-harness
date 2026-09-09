@@ -99,10 +99,10 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
     // #573 it renders to `.claude/context/` rather than into this file — and
     // only at the root, which is what the workspace assertion below still pins.
     expect(root).toContain('navori:managed id="idioma-rol"');
-    expect(readFileSync(join(cwd, ".claude/context/orquestacion.md"), "utf-8")).toContain(
+    expect(readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8")).toContain(
       'navori:managed id="orquestacion"',
     );
-    expect(existsSync(join(cwd, "apps/backend/.claude/context/orquestacion.md"))).toBe(false);
+    expect(existsSync(join(cwd, "apps/backend/.claude/context/10-orquestacion.md"))).toBe(false);
 
     // Workspace inherits those from the parent → NOT re-emitted.
     expect(ws).not.toContain('navori:managed id="orquestacion"');

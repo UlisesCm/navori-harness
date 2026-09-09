@@ -807,7 +807,7 @@ describe("CLI e2e — happy paths", () => {
     // longer in the file every subagent receives: it renders to
     // `.claude/context/`, which only the SessionStart hook reads. The doctrine
     // itself is unchanged, so the assertions below just follow it there.
-    const doctrine = readFileSync(join(repo, ".claude/context/orquestacion.md"), "utf-8");
+    const doctrine = readFileSync(join(repo, ".claude/context/10-orquestacion.md"), "utf-8");
     expect(claudeMd).not.toContain('navori:managed id="orquestacion"');
     expect(doctrine).toMatch(/^<!-- navori:managed id="orquestacion"/);
     expect(doctrine).toContain("## Role: orchestrator");
@@ -827,7 +827,10 @@ describe("CLI e2e — happy paths", () => {
     // since the main agent embeds that role rather than delegating to it. It
     // rides the orchestrator channel too since #572: a catalog of agents you can
     // spawn is useless to an agent that cannot spawn one.
-    const agentsIndex = readFileSync(join(repo, ".claude/context/agentes-disponibles.md"), "utf-8");
+    const agentsIndex = readFileSync(
+      join(repo, ".claude/context/20-agentes-disponibles.md"),
+      "utf-8",
+    );
     expect(claudeMd).not.toContain('navori:managed id="agentes-disponibles"');
     expect(agentsIndex).toContain('navori:managed id="agentes-disponibles"');
     expect(agentsIndex).toContain("- `implementer`");

@@ -137,6 +137,46 @@ const CORE_META = { source: "@navori/core" as const, version: NAVORI_VERSION };
  */
 const ORCHESTRATOR_CONTEXT_DIR = ".claude/context";
 
+/**
+ * Delivery order of the context files, carried IN THE FILENAME (spec 0019, R1).
+ *
+ * The SessionStart hook reads this directory with a plain glob, which expands
+ * alphabetically — so before this prefix existed, `orquestacion.md` was always
+ * LAST behind its three siblings, and with the four files over-subscribing the
+ * hook's delivery budget it degraded to a pointer in every session of every
+ * repo. The routing ladder never arrived; that is what #622 measured as a 2%
+ * activation rate. The plan table (`CORE_MANAGED_ASSETS`) always declared
+ * `orquestacion` first — the filename is where that intent got lost.
+ *
+ * A numeric prefix makes the glob produce the priority order by construction:
+ * the hook stays dumb (its contract), and the order lives where the hook
+ * already looks — the filesystem. Steps of 10 so a future block lands between
+ * two without renaming the rest. Ids missing from this list sort last at 90:
+ * a new audience block must claim its slot here deliberately.
+ */
+const ORCHESTRATOR_CONTEXT_ORDER: readonly string[] = [
+  "orquestacion",
+  "agentes-disponibles",
+  "arranque-sesion",
+  "cierre-sesion",
+];
+
+/** `orquestacion` → `10-orquestacion.md`; unknown ids → `90-<id>.md`. */
+function orchestratorContextFileName(id: string): string {
+  const slot = ORCHESTRATOR_CONTEXT_ORDER.indexOf(id);
+  const prefix = slot === -1 ? 90 : (slot + 1) * 10;
+  return `${prefix}-${id}.md`;
+}
+
+/**
+ * The pre-0019 unprefixed twin of a context file. Retired on the same apply
+ * that writes the prefixed name (R2): two copies of one block in the directory
+ * is doctrine delivered twice, or two hashes drifting apart.
+ */
+function legacyContextPath(cwd: string, id: string): string {
+  return join(cwd, `${ORCHESTRATOR_CONTEXT_DIR}/${id}.md`);
+}
+
 const SKILLS_INDEX_ID = "skills-index";
 
 /**
@@ -471,8 +511,14 @@ export function renderClaudeEngine(
   // is how a translated sibling reaches the writer unchanged.
   for (const entry of claudeMdPlan.entries) {
     if (entry.asset.audience !== "orchestrator") continue;
-    const destRelPath = `${ORCHESTRATOR_CONTEXT_DIR}/${entry.asset.id}.md`;
+    const destRelPath = `${ORCHESTRATOR_CONTEXT_DIR}/${orchestratorContextFileName(entry.asset.id)}`;
     inspected += 1;
+    // Migration (spec 0019 R2): whatever a pre-prefix navori left under the
+    // bare id comes out on this render, whether the block still ships or not.
+    const legacy = legacyContextPath(cwd, entry.asset.id);
+    if (existsSync(legacy) && isRemovableNavoriFile(legacy, entry.asset.id)) {
+      removals.push({ path: legacy });
+    }
     if (entry.newContent === null) {
       // The plan decided this block ships nowhere: `blocks.exclude`, a condition
       // that turned false, or a user-kept edit. The opt-out has to reach THIS
@@ -548,8 +594,13 @@ export function renderClaudeEngine(
     // why it routes here instead of through `audience` in the plan table.
     inspected += 1;
     const file = injectManagedSection("", AGENTS_INDEX_ID, agentsIndexBody, CORE_META, "html");
-    const destRel = `${ORCHESTRATOR_CONTEXT_DIR}/${AGENTS_INDEX_ID}.md`;
+    const destRel = `${ORCHESTRATOR_CONTEXT_DIR}/${orchestratorContextFileName(AGENTS_INDEX_ID)}`;
     const destAbs = join(cwd, destRel);
+    // Same migration as the audience blocks (spec 0019 R2).
+    const legacyIndex = legacyContextPath(cwd, AGENTS_INDEX_ID);
+    if (existsSync(legacyIndex) && isRemovableNavoriFile(legacyIndex, AGENTS_INDEX_ID)) {
+      removals.push({ path: legacyIndex });
+    }
     const current = existsSync(destAbs) ? readFileSync(destAbs, "utf-8") : null;
     if (current !== file.output) {
       // Absolute, like every other entry: `commitWrites` backs up and writes

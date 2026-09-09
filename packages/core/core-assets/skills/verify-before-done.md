@@ -96,7 +96,7 @@ Skipping any step = a lie, not verification.
 - ❌ "Trust me, runs locally" — not a valid claim without evidence in the chat.
 - ❌ Making the claim BEFORE the command ("I'll run X and it should be green").
 - ❌ Marking a step of the atomic plan `[x]` without having run the verification that backs that step.
-- ❌ Accepting a subagent's report without verifying its load-bearing claims — the scope is defined ONCE in the orchestrator's "Synthesis without broken telephone" block: cited `file:line`s plus the diff it touched, never a full re-read of a diff the reviewer already validated.
+- ❌ Accepting a subagent's report without verifying its load-bearing claims — the scope is defined ONCE in `.claude/agents/leader.md` § Anti-broken-telephone: cited `file:line`s plus the diff it touched, never a full re-read of a diff the reviewer already validated.
 
 ## Closing
 
