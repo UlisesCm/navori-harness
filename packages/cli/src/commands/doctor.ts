@@ -21,6 +21,7 @@ import { scanPrettierIgnore } from "../engines/shared/prettierignore-harness.ts"
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace-drift.ts";
+import { scanForeignSkillIndexes } from "../lib/foreign-skill-index.ts";
 import { scanQualityGateReadiness } from "../lib/gate-readiness.ts";
 import { scanEmptyUserSections } from "../lib/skill-user-section.ts";
 import { scanInterpolationArtifacts } from "../lib/interpolation-artifacts.ts";
@@ -203,6 +204,11 @@ export const doctorCommand = defineCommand({
     // Config drift against the workspace — its declared defaults and, above all,
     // the mode of its sibling repos. Informational, never auto-applied. #326.
     const workspaceDrift = scanWorkspaceDrift(cwd, config);
+    // #625: a skill index written by ANOTHER harness whose paths are all dead.
+    // Advisory and read-only, like everything below the verdict: `.atl/` is not
+    // navori's territory, and a stale file there breaks nothing — it just hands
+    // dead paths to any agent that goes looking for skills in the repo.
+    const foreignSkillIndexes = scanForeignSkillIndexes(cwd);
     const engineInventory = buildEngineInventory(config, cwd);
     // #547: real clashes between the machine-global harness (`navori global`)
     // and this repo's. Null — and therefore invisible — when no global layer is
@@ -292,6 +298,7 @@ export const doctorCommand = defineCommand({
       prettierIgnoreHealth,
       gitHygiene,
       workspaceDrift,
+      foreignSkillIndexes,
       globalScope,
       engineInventory,
     };
@@ -771,6 +778,19 @@ export const doctorCommand = defineCommand({
         wd.join("\n"),
         td.workspaceDriftTitle(workspaceDrift.workspace, workspaceDrift.siblingsRead),
       );
+    }
+
+    // #625. Empty in the overwhelming case, so the heading never shows up in a
+    // repo that has no second harness — and never in one whose second harness
+    // still resolves, which is the no-false-positive half of the check.
+    if (foreignSkillIndexes.length > 0) {
+      const rows = foreignSkillIndexes.map((idx) => {
+        const frozen =
+          idx.frozenAt === null ? "" : ` (${td.foreignSkillIndexFrozen(idx.frozenAt)})`;
+        return `  ${color.yellow(sym.update)} ${td.foreignSkillIndexRow(accent(idx.path), idx.indexed, idx.producer)}${grey(frozen)}`;
+      });
+      rows.push(`  ${color.cyan(sym.bullet)} ${grey(td.foreignSkillIndexHint)}`);
+      p.note(rows.join("\n"), td.foreignSkillIndexTitle);
     }
 
     // #547: the machine-global harness seen from this repo. Advisory (yellow),
