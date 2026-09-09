@@ -108,7 +108,7 @@ paralelizables salvo nota.
   · test: los de T2-T6 ya cubren el mecanismo; esta tarea aporta la evidencia de humo
   end-to-end sobre el repo real, citada en el PR.
 
-- [ ] **T9** (R8, R11) — evals de activación según `evals.md` de esta spec: correr los
+- [x] **T9** (R8, R11) — evals de activación según `evals.md` de esta spec: correr los
   tres escenarios RED/GREEN y llenar la tabla con veredictos y evidencia (los resultados
   invertidos se conservan tal cual salgan). Si GREEN-1 falla (el agente no usa el wrapper
   con la doctrina puesta), eso es un hallazgo de la clase #597 y se reporta en el PR — no

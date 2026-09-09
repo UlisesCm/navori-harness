@@ -12,6 +12,8 @@ It carries an `allow` rule, so it runs with no permission prompt in every mode a
 
 That decision lives in the script rather than in this text on purpose: `SessionStart` hooks don't run for subagents, so a subagent cannot know what the machine has — but the same command is right for all of them.
 
+**Searching is not extracting.** The index answers *which file holds X*. Once you already know the file and want its lines, `grep -n "x" that-file` or `Read` is the right call and the cheaper one — the wrapper would reindex the whole tree to read a single file. Measured on real sessions, this is a third of the shell `grep` calls, and all of them are correct.
+
 ### Routing: the graph or the wrapper
 
 | The question | First call |
