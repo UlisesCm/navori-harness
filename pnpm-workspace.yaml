@@ -2,3 +2,14 @@ packages:
   - "packages/*"
   - "packages/plugins/*"
   - "apps/*"
+
+# pnpm 12 turns an ignored build script into an ERROR — it was a warning before,
+# so an install that used to print a note now fails. These two genuinely need
+# theirs: esbuild fetches its native binary (tsup and vitest both depend on it)
+# and sharp its libvips, for the Astro website. Written by
+# `pnpm approve-builds esbuild sharp` and checked in, so a fresh clone installs
+# without anyone answering a prompt. The key is `allowBuilds`, not pnpm 10's
+# `onlyBuiltDependencies`, and it lives here rather than in package.json.
+allowBuilds:
+  esbuild: true
+  sharp: true
