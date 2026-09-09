@@ -29,7 +29,7 @@
 | C1 | `SessionStart` y `SessionEnd` son eventos de hook soportados; stdout PLANO de un hook SessionStart se agrega como contexto visible para Claude | el hook del plugin emite texto plano, sin jq/node |
 | C2 | **SessionStart corre SOLO para la sesión principal, nunca para subagentes**; PreToolUse/PostToolUse sí corren en subagentes | el fallback vive en el wrapper, no en contexto de sesión |
 | C3 | PreToolUse: exit 2 bloquea; cualquier otro código no-cero es advisory y la llamada procede | (ya documentado en jscpd; sin cambios) |
-| C4 | `alwaysLoad` está documentado para servers http/sse/ws; para stdio los campos documentados son `command/args/env/timeout` | R13 exige verificación empírica antes de renderizarlo |
+| C4 | `alwaysLoad` está documentado para servers http/sse/ws; para stdio los campos documentados son `command/args/env/timeout` | R13 exigió verificación empírica antes de renderizarlo. **Verificado 2026-09-09 (CC 2.1.236): TAMBIÉN funciona en stdio** — las tools diferidas de la sesión bajan de 68 a 67 y `codegraph_explore` arranca cargado. La doc está incompleta, no en contra; medición en `evals.md` |
 
 ### codegraph — doc oficial (github.com/colbymchenry/codegraph) + estado local
 
@@ -155,9 +155,10 @@ razón vigente de su exclusión.
   comentario de contrato actualizado (incluida la advertencia C2: no llega a subagentes).
 - `packages/core/core-assets/managed/operaciones-seguras.md` — cláusula condicional en los
   bullets de las líneas 7 y 22 (R12).
-- `packages/plugins/codegraph/` — según el resultado del experimento R13: manifest 0.0.2 +
-  `McpServerSchema.alwaysLoad` + render en `.mcp.json`, O una línea nueva en
-  `managed/codegraph-protocol.md` (ToolSearch batcheado al primer uso).
+- `packages/plugins/codegraph/` — resuelto por el experimento R13 a favor de la primera
+  rama: manifest 0.0.2 + `McpServerSchema.alwaysLoad` + render en `.mcp.json`. La segunda
+  (una línea de ToolSearch batcheado en `managed/codegraph-protocol.md`) NO se escribió, y
+  eso es lo correcto por el hallazgo 1 de `evals.md`: la doctrina no era lo que faltaba.
 
 ## Decisions
 

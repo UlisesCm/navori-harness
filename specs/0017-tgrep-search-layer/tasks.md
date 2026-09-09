@@ -82,20 +82,26 @@ paralelizables salvo nota.
   re-render deja el fixture sin `tgrep-search.sh`, sin sub-bloques y sin reglas allow
   (R15, reconciliación existente).
 
-- [ ] **T7** (R13) — el experimento `alwaysLoad`, con las dos ramas cerradas: (1) agregar a
-  mano `"alwaysLoad": true` a la entrada codegraph del `.mcp.json` de navori-harness,
-  abrir sesión nueva de Claude Code, observar si `mcp__codegraph__*` aparece en tools
-  cargados (no en la lista diferida del system-reminder); (2a) SI carga eager:
-  `McpServerSchema` gana `alwaysLoad: z.boolean().optional()`, el builder de `.mcp.json`
-  lo emite, manifest de codegraph lo declara y bump a 0.0.2; (2b) SI sigue diferido:
-  revertir el edit manual y añadir a `codegraph-protocol.md` la línea de carga batcheada
-  vía `ToolSearch` citando el hallazgo del audit. El resultado del experimento (fecha +
-  versión de Claude Code + veredicto) queda escrito en el commit del cambio.
-  · test (rama 2a): `src/lib/__tests__/plugins.test.ts` con `// Covers: R13` — manifest
-  con `alwaysLoad` valida y el `.mcp.json` renderizado lo contiene.
-  · test (rama 2b): `render` fixture asserta que `codegraph-protocol` contiene la
-  instrucción de ToolSearch batcheado, en `render-tgrep-plugin.test.ts` con
-  `// Covers: R13`.
+- [x] **T7** (R13) — el experimento `alwaysLoad`. **Resultado: carga eager — gana la rama
+  2a** (2026-09-09, Claude Code 2.1.236, repo navori-harness). Medición con el mismo
+  instrumento en las dos ramas, `ToolSearch` con la consulta `select:Grep`, que reporta
+  `total_deferred_tools`:
+
+  | | sesión | fecha (UTC) | tools diferidas | codegraph |
+  |---|---|---|---|---|
+  | control (sin `alwaysLoad`) | `04eed7b1` | 02:22:38Z | **68** | diferido — esa sesión pagó un `ToolSearch select:…codegraph_explore` a las 01:54:30Z |
+  | experimento (con `alwaysLoad`) | `42f06139` | 15:10:34Z | **67** | cargado eager — `codegraph_explore` se llamó al inicio sin ningún `ToolSearch` |
+
+  El delta es exactamente 1 y codegraph expone exactamente 1 tool. Lo que quedó
+  implementado: `McpServerSchema` gana `alwaysLoad: z.boolean().optional()`, el builder de
+  `.mcp.json` lo emite **solo cuando es true** (`false` y ausente significan lo mismo), y el
+  manifest de codegraph lo declara con bump a 0.0.2. La rama 2b no se ejecutó.
+  · test: `src/lib/__tests__/plugins.test.ts` con `// Covers: R13` — el campo opcional
+  valida, un no-booleano se rechaza y el manifest de codegraph lo declara;
+  `engines/claude/__tests__/ola3-fixes.test.ts` con `// Covers: R13` — el `.mcp.json`
+  renderizado lo contiene para codegraph y NO gana la llave para engram, que no lo declara.
+  · nota: C4 del design queda respondido — `alwaysLoad` **sí** aplica a servers stdio,
+  aunque la doc oficial solo lo documente para http/sse/ws.
 
 ## Lote 4 — cierre auto-hospedado + release
 
