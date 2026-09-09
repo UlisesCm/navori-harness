@@ -12,6 +12,7 @@ import {
   PluginNotFoundError,
   PluginManifestError,
   RETIRED_PLUGINS,
+  RETIRED_PLUGIN_BLOCKS,
 } from "./plugins.ts";
 import { getCoreRoot, readCliVersion } from "./bundled-assets.ts";
 import { loadPreset, PresetError } from "./presets.ts";
@@ -570,6 +571,27 @@ export function computeRenderPlan(
         throw err;
       }
       continue;
+    }
+
+    // Blocks this plugin USED to declare (#614). Pruned before the enabled /
+    // disabled branches because neither can see them: both iterate the manifest's
+    // CURRENT list, so a block dropped from a live plugin is unreachable and
+    // would linger in every rendered CLAUDE.md.
+    const retiredBlocks = RETIRED_PLUGIN_BLOCKS[declaredId];
+    if (retiredBlocks) {
+      for (const blockId of retiredBlocks.blockIds) {
+        if (skipIds.has(blockId)) continue;
+        const before = working;
+        working = removeManagedSection(working, blockId);
+        if (before !== working) {
+          entries.push({
+            asset: { id: blockId, relPath: `@navori/plugin-${declaredId}` },
+            source: declaredId,
+            status: "removed-condition-false",
+            newContent: null,
+          });
+        }
+      }
     }
 
     const enabled = settings.enabled === true;

@@ -7619,6 +7619,22 @@ Pay extra attention if the diff touches `auth, permissions, payments, data integ
 - `verify-before-done`: the §9 quality gate is run this turn, not assumed from the implementer's report.
 <!-- /navori:managed id="review-diff-base" -->
 
+<!-- navori:managed id="jscpd-review-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-jscpd" -->
+## Code duplication (jscpd)
+
+Before approving a change, run jscpd over the diff vs the base branch.
+
+- Only over modified files:
+  ```
+  git diff --name-only main...HEAD | grep -E '\.(ts|tsx|js|jsx)$' | xargs jscpd --silent
+  ```
+- If it reports clones >0 with the project's threshold: **do not approve** the change without justification (reviewers must ask for a refactor or extraction).
+- Silent skip if `jscpd` is not in `PATH` (don't block if the dev doesn't have the tool installed).
+
+The commit gate runs this for you (`PreToolUse` on `git commit`), so this text is
+the reasoning and the manual command — not the mechanism.
+<!-- /navori:managed id="jscpd-review-extension" -->
+
 ## Repo-specific rules
 
 <!-- user: add here the bespoke rules of your stack/domain (the ones that are NOT generalizable). Suggestions:
@@ -7685,6 +7701,27 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 2. Report with severity and `file:line`.
 3. Cross-check with the **rules specific to your stack** (below): the concrete names of your guards, error codes and env prefixes live there — without that, the review only covers the universal layer.
 <!-- /navori:managed id="security-guidance-base" -->
+
+<!-- navori:managed id="semgrep-review-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-semgrep" -->
+## Local security gate (semgrep)
+
+Before closing a relevant change (auth, RBAC, secrets, input validation), run semgrep over the diff.
+
+- Quick diff scan:
+  ```
+  git diff --name-only main...HEAD | xargs semgrep scan --config=p/default --error --metrics=off
+  ```
+- Full project scan (slower, opt-in):
+  ```
+  semgrep scan --config=p/default --error --metrics=off
+  ```
+- `p/default` (not `auto`) on purpose: deterministic and telemetry-off — mirrors the plugin's check script.
+- Custom rules: see `.semgrep.yml` at the repo root if it exists.
+- Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
+
+The commit/push gate runs this for you (`PreToolUse`), so this text is the
+reasoning and the manual command — not the mechanism.
+<!-- /navori:managed id="semgrep-review-extension" -->
 
 ## Your stack's security invariants
 
@@ -8519,37 +8556,6 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 
 `gh auth status` shows whether you're authenticated. If it fails, run `gh auth login`.
 <!-- /navori:managed id="gh-protocol" -->
-
-<!-- navori:managed id="jscpd-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-jscpd" -->
-## Code duplication (jscpd)
-
-Before approving a change, run jscpd over the diff vs the base branch.
-
-- Only over modified files:
-  ```
-  git diff --name-only main...HEAD | grep -E '\.(ts|tsx|js|jsx)$' | xargs jscpd --silent
-  ```
-- If it reports clones >0 with the project's threshold: **do not approve** the change without justification (reviewers must ask for a refactor or extraction).
-- Silent skip if `jscpd` is not in `PATH` (don't block if the dev doesn't have the tool installed).
-<!-- /navori:managed id="jscpd-protocol" -->
-
-<!-- navori:managed id="semgrep-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-semgrep" -->
-## Local security gate (semgrep)
-
-Before closing a relevant change (auth, RBAC, secrets, input validation), run semgrep over the diff.
-
-- Quick diff scan:
-  ```
-  git diff --name-only main...HEAD | xargs semgrep scan --config=p/default --error --metrics=off
-  ```
-- Full project scan (slower, opt-in):
-  ```
-  semgrep scan --config=p/default --error --metrics=off
-  ```
-- `p/default` (not `auto`) on purpose: deterministic and telemetry-off — mirrors the plugin's check script.
-- Custom rules: see `.semgrep.yml` at the repo root if it exists.
-- Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
-<!-- /navori:managed id="semgrep-protocol" -->
 
 <!-- navori:managed id="skills-index" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 ## Skills disponibles

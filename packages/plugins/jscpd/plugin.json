@@ -2,14 +2,8 @@
   "id": "jscpd",
   "name": "jscpd (code duplication detector)",
   "description": "Detección de duplicación de código en el diff vs branch base",
-  "version": "0.0.4",
-  "managed": [
-    {
-      "id": "jscpd-protocol",
-      "file": "managed/jscpd-protocol.md",
-      "recommendedAgent": "reviewer"
-    }
-  ],
+  "version": "0.0.5",
+  "managed": [],
   "externalTool": {
     "name": "jscpd",
     "checkBinary": "jscpd",
@@ -35,5 +29,16 @@
       "statusMessage": "navori/jscpd: dup check"
     }
   ],
-  "invariants": ["jscpd", "do not approve"]
+  "invariants": [
+    "jscpd",
+    "do not approve"
+  ],
+  "skills": [
+    {
+      "id": "jscpd-review-extension",
+      "file": "skills/jscpd-review.md",
+      "recommendedAgent": "reviewer",
+      "injectInto": ".claude/skills/review-diff/SKILL.md"
+    }
+  ]
 }

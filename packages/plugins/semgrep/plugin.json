@@ -2,14 +2,8 @@
   "id": "semgrep",
   "name": "semgrep (security + pattern analysis)",
   "description": "Detección de vulnerabilidades y patrones inseguros local opt-in",
-  "version": "0.0.4",
-  "managed": [
-    {
-      "id": "semgrep-protocol",
-      "file": "managed/semgrep-protocol.md",
-      "recommendedAgent": "reviewer"
-    }
-  ],
+  "version": "0.0.5",
+  "managed": [],
   "externalTool": {
     "name": "semgrep",
     "checkBinary": "semgrep",
@@ -34,5 +28,15 @@
       "statusMessage": "navori/semgrep: security scan"
     }
   ],
-  "invariants": ["run semgrep over the diff"]
+  "invariants": [
+    "run semgrep over the diff"
+  ],
+  "skills": [
+    {
+      "id": "semgrep-review-extension",
+      "file": "skills/semgrep-review.md",
+      "recommendedAgent": "reviewer",
+      "injectInto": ".claude/skills/security-guidance/SKILL.md"
+    }
+  ]
 }
