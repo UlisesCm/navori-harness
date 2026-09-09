@@ -55,12 +55,19 @@ const McpServerSchema = z.object({
 // plugins keep validating without changes.
 
 // Lifecycle points at which a hook can run, in neutral terms:
-//   PreToolUse  — before the agent runs a tool (e.g. before a Bash command).
-//   PostToolUse — after a tool completes.
-//   Stop        — when the agent's turn ends.
+//   PreToolUse   — before the agent runs a tool (e.g. before a Bash command).
+//   PostToolUse  — after a tool completes.
+//   Stop         — when the agent's turn ends.
+//   SessionStart — when a session opens (startup, resume or post-compact).
 // The values are the canonical contract names; each adapter maps them to its
 // native hook system (the Claude adapter uses them 1:1 as settings keys).
-const HOOK_EVENTS = ["PreToolUse", "PostToolUse", "Stop"] as const;
+//
+// SessionStart caveat (spec 0017, from the Claude Code hooks doc): it fires
+// ONLY for the main session, never for subagents. So a plugin whose behaviour
+// must also reach `researcher`/`implementer`/… cannot rely on what this hook
+// announces — put the decision inside the script the agent invokes, or use
+// PreToolUse, which does run in subagents.
+const HOOK_EVENTS = ["PreToolUse", "PostToolUse", "Stop", "SessionStart"] as const;
 
 const HookEntrySchema = z.object({
   event: z.enum(HOOK_EVENTS),

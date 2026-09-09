@@ -70,6 +70,33 @@ describe("PluginManifestSchema — hooks", () => {
     expect(result.success).toBe(false);
   });
 
+  // Covers: R7 — SessionStart joined the contract (spec 0017) so a plugin can
+  // announce itself when a session opens.
+  it("accepts a SessionStart hook", () => {
+    const result = PluginManifestSchema.safeParse({
+      ...MINIMAL,
+      hooks: [
+        {
+          event: "SessionStart",
+          command: 'bash "$CLAUDE_PROJECT_DIR/.claude/scripts/tgrep-session.sh"',
+          timeout: 30,
+          statusMessage: "navori/tgrep: search index",
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  // Covers: R7 — the enum stays the only gate: a plausible-looking neighbour of
+  // the new event is still rejected, so widening it once didn't widen it twice.
+  it("rejects a lookalike event outside the contract (SessionResume)", () => {
+    const result = PluginManifestSchema.safeParse({
+      ...MINIMAL,
+      hooks: [{ event: "SessionResume", command: "echo" }],
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects an empty command", () => {
     const result = PluginManifestSchema.safeParse({
       ...MINIMAL,
