@@ -60,6 +60,16 @@
             "statusMessage": "navori: session context"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/tgrep-session.sh\"",
+            "timeout": 30,
+            "statusMessage": "navori/tgrep: search index"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -206,6 +216,8 @@
       "Bash(gh run list*)",
       "Bash(gh run view*)",
       "mcp__codegraph__*",
+      "Bash(bash .claude/scripts/tgrep-search.sh *)",
+      "Bash(tgrep *)",
       "Bash(cd packages/cli)",
       "Bash(pnpm lint:*)",
       "Bash(cd packages/cli && pnpm lint)",
