@@ -70,6 +70,18 @@ describe("render — tgrep plugin doctrine (spec 0017)", () => {
     expect(skill).toContain("tgrep-search.sh");
   });
 
+  // The wrapper inherits ripgrep's default: dot-directories sit outside every
+  // search. A lookup for a string that lives only in `.claude/` comes back
+  // empty with no warning — the same silent false negative R2 was written
+  // against, arriving through a different door — so the doctrine has to name it.
+  it("warns that dot-directories are outside a default search", () => {
+    renderClaudeEngine(cwd, CONFIG);
+    const claudeMd = read("CLAUDE.md");
+    expect(claudeMd).toContain("--hidden");
+    expect(claudeMd).toMatch(/dot-director/i);
+    expect(read(".claude/skills/structural-search/SKILL.md")).toMatch(/dot-director/i);
+  });
+
   it("injects into all four agents that search or edit code", () => {
     renderClaudeEngine(cwd, CONFIG);
     for (const agent of ["researcher", "explorer", "implementer", "reviewer"]) {

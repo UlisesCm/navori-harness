@@ -14,9 +14,9 @@ bash .claude/scripts/tgrep-search.sh <search args…>
 
 Not a bare `grep`/`rg`. Two mechanical reasons:
 
-- **It is the pre-approved path.** An `allow` rule covers this exact invocation, so it costs no permission prompt in any mode and no classifier round-trip in auto mode. A hand-written `rg …` gets neither: `rg --pre` runs an arbitrary command per file, which is why `rg` is not pre-approved.
-- **It resolves the engine for you.** With `tgrep` installed the search uses a trigram index, rebuilt right before the query because a stale one produces silent false negatives; without it the wrapper falls back to `rg`, then `grep -rn`, warns once on stderr, and preserves exit codes (0 = match, 1 = no match).
+- **It is the pre-approved path.** An `allow` rule covers this exact invocation: no permission prompt in any mode, no classifier round-trip in auto. A hand-written `rg …` gets neither — `rg --pre` runs an arbitrary command per file.
+- **It resolves the engine for you.** With `tgrep` the search uses a trigram index, rebuilt right before the query because a stale one produces silent false negatives; without it the wrapper falls back to `rg`, then `grep -rn`, warns once on stderr, and preserves exit codes (0 = match, 1 = no match).
 
-Flags are ripgrep's, so `-l`, `-n`, `-i`, `-F`, `-w`, `-g` and `-C` carry over. Skip `--hidden`, `--no-ignore*` and `-a`: each drops the index and turns the call into a full scan.
+Flags are ripgrep's: `-l`, `-n`, `-i`, `-F`, `-w`, `-g`, `-C` carry over. Skip `--hidden`, `--no-ignore*` and `-a` — each drops the index into a full scan.
 
-The native `Grep` stays correct for a small, targeted lookup. The wrapper is what scales.
+**Dot-directories are the exception.** `.claude/`, `.github/` and the like sit outside every default search, here and in the native `Grep`. Searching the harness itself needs `--hidden`, and an empty result without it proves nothing.

@@ -237,7 +237,7 @@ It forms the hypothesis; it does not settle it. codegraph is beta and can return
 How to use it in practice — the full ladder, the monorepo caveat and the index rules — is Rung -1 of the `structural-search` skill, loaded when you actually go looking for code.
 <!-- /navori:managed id="codegraph-protocol" -->
 
-<!-- navori:managed id="tgrep-protocol" hash="207b549d" version="0.7.8" source="@navori/plugin-tgrep" -->
+<!-- navori:managed id="tgrep-protocol" hash="954091c5" version="0.7.8" source="@navori/plugin-tgrep" -->
 ## Content search (the tgrep wrapper)
 
 Content search — a literal, a regex, a copy string — goes through one command:
@@ -267,6 +267,8 @@ They are layers, not competitors: the graph answers about structure and impact, 
 Portable across the engines the wrapper may pick: `-i -l -c -n -F -w -e -g -A/-B/-C -m`.
 
 Avoid through the wrapper: `--hidden`, `--no-ignore*` and `-a/--text` each turn the search into a brute-force scan (verified with `--stats`), which is the cost the index exists to avoid; `-t/--type` doesn't name the same type sets in both engines. On the `grep -rn` path only the pattern and the paths survive the translation — the wrapper says on stderr when it drops flags.
+
+**What you don't search by default.** Like ripgrep — and like the native `Grep`, which is ripgrep too — the wrapper skips dot-directories, so `.claude/`, `.github/` and friends are OUTSIDE every search unless you pass `--hidden`. It is not a bug and there is no warning: a search for a string that lives only in your own skills or agents comes back empty and looks exactly like "it isn't there". When the harness itself is what you're searching, `--hidden` is required and the full scan is the price; `git grep` is the other way to reach tracked files in those directories.
 <!-- /navori:managed id="tgrep-protocol" -->
 
 <!-- navori:managed id="skills-index" hash="71045771" version="0.7.8" source="@navori/core" -->

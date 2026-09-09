@@ -2,8 +2,8 @@
 0d8f85a01dc2db1be7a435575861f5d25c1f0b94  .claude/hooks/subagent-stop-handoff.sh
 102452c64709c07e0656ea21f98de2ee9b95e62a  .claude/skills/spec-bootstrap/SKILL.md
 140031c80d6046b2be3f9948a95c9565e9f96dbf  .claude/agents/leader.md
-1956add90939df51906032167e9018d9ce24551d  .claude/skills/structural-search/SKILL.md
 213ce871151241cc00263a95be7e7128c6a3e673  .claude/skills/playwright-cli/references/video-recording.md
+2948262e504687e01bb5724ca320ca3b159e46b9  .claude/skills/structural-search/SKILL.md
 2fc083cb245e681532edaa4b925bdbdd130f18a8  .claude/skills/playwright-cli/references/storage-state.md
 329f6aa01d98b80ad5e92a632ed3fd3a250199fd  .claude/agents/ticket-audit.md
 3e76bdba9a5c127f3586bcc2b36cd5e7372bfcb9  .claude/skills/vitest/SKILL.md
@@ -18,7 +18,6 @@
 89134d65e6495dbca20aa9ec85deafaf3a74c370  .claude/skills/zod-validation/SKILL.md
 891f540b7bab148d24360cc04d95263ef209c926  .claude/hooks/managed-drift-watch.sh
 910d54cfeb3b2ed68879caae6cb36bc842659301  .claude/agents/explorer.md
-9e6ed60f6cbb00713768627a4216b248e51f136a  CLAUDE.md
 a092c062c85598b27e4b29724be5807e0a7e76a5  .claude/skills/playwright-cli/references/tracing.md
 b54dbe684517593032c596d4c5c300384b72df34  .claude/skills/playwright-cli/references/running-code.md
 b7881f576fb3043d03c091ec30f45c995957c2a7  .claude/skills/playwright-cli/references/playwright-tests.md
@@ -35,6 +34,7 @@ c5b0a3356ce667956faeff67d2450bf585a0ecb1  .claude/hooks/quality-gate-pre-commit.
 ccfadcd918e18b5239558785471ac56b1a271bf5  .claude/hooks/session-start-context.sh
 d70a429bb6e729a0845f0d173ad6a1ef0ae109ea  .claude/skills/playwright-cli/references/request-mocking.md
 d81a0d18b5dc75d749bac1d86e647eef99ab4eff  .claude/skills/loop-back-debug/SKILL.md
+dbb5f520e61c7c27021272f349369c13091a62b4  CLAUDE.md
 dbf4afed1870aad73a874aaf87b09932f86f1eb1  .claude/skills/clack/SKILL.md
 eb40f10d7e4be6b8d76c271b50789ad4cf85f799  .claude/skills/babysit-prs/SKILL.md
 ec858f267877a7b5f5bc021fb52059adad3557a1  .claude/skills/playwright-cli/references/session-management.md
