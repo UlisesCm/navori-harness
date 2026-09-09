@@ -18,6 +18,14 @@
       "linux": "brew install tgrep"
     }
   },
+  "settingsFragment": {
+    "permissions": {
+      "allow": [
+        "Bash(bash .claude/scripts/tgrep-search.sh *)",
+        "Bash(tgrep *)"
+      ]
+    }
+  },
   "scripts": [
     {
       "src": "scripts/tgrep-search.sh",
