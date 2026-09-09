@@ -348,7 +348,10 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
     const claudeMd = readFileSync(join(REPO_ROOT, "CLAUDE.md"), "utf-8");
     const regions = managedRegions(claudeMd, "html");
     expect(regions.length, "CLAUDE.md must expose several managed blocks").toBeGreaterThan(3);
-    expect(regions.some((r) => r.includes("semgrep"))).toBe(true);
+    // Anchored to a CORE block, and to one `blocks.exclude` cannot drop: the
+    // canary used to be `semgrep`, and #614 moved that block into a skill —
+    // a plugin block is exactly the wrong thing to prove extraction with.
+    expect(regions.some((r) => r.includes("Read-only by default"))).toBe(true);
   });
 
   it("derives a vocabulary that covers the CLI and the enabled plugins", () => {

@@ -820,13 +820,15 @@ describe("renderClaudeEngine — user-section preservation", () => {
       ),
     );
 
-    // Upgrade: enabling gh + semgrep introduces NEW managed blocks and reorders.
+    // Upgrade: enabling gh introduces a NEW managed block and reorders. (semgrep
+    // is enabled too but no longer contributes one — #614 moved its protocol
+    // into the security-guidance skill, so `gh` is what proves the landing.)
     renderClaudeEngine(cwd, CONFIG_UPGRADED);
     const after = readFileSync(path, "utf-8");
     expect(after).toContain("## Reglas del repo");
     expect(after).toContain("context.sudo().db");
     expect(after).toContain("findZoneByCoordinates()");
-    expect(after).toContain('id="semgrep-protocol"'); // the upgrade landed
+    expect(after).toContain('id="gh-protocol"'); // the upgrade landed
     // Domain stays below every managed block.
     expect(after.indexOf("## Reglas del repo")).toBeGreaterThan(
       after.lastIndexOf("<!-- /navori:managed"),

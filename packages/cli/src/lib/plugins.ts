@@ -217,6 +217,26 @@ export const RETIRED_PLUGINS: Record<
   },
 };
 
+/**
+ * Managed CLAUDE.md blocks that a LIVE plugin used to declare and no longer does.
+ *
+ * `RETIRED_PLUGINS` covers a plugin that disappeared whole; this covers the other
+ * half of the same hole. The render strips a plugin's managed blocks by iterating
+ * what its manifest declares TODAY, so a block dropped from a manifest that still
+ * loads is reached by no branch at all: not the enabled one (it is not in the
+ * list) and not the disabled one (same list). It would sit in every already
+ * rendered CLAUDE.md forever, and `navori render` would report nothing to do.
+ *
+ * Append here whenever a plugin stops declaring a `managed[]` entry — including
+ * when the content MOVES, as #614 moved `jscpd-protocol` and `semgrep-protocol`
+ * into `skills[].injectInto`: from the old render's point of view the block was
+ * retired, whatever happened to its text.
+ */
+export const RETIRED_PLUGIN_BLOCKS: Record<string, { retiredIn: string; blockIds: string[] }> = {
+  jscpd: { retiredIn: "#614", blockIds: ["jscpd-protocol"] },
+  semgrep: { retiredIn: "#614", blockIds: ["semgrep-protocol"] },
+};
+
 export class PluginNotFoundError extends NavoriError {
   readonly pluginId: string;
   constructor(pluginId: string) {

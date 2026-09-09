@@ -124,6 +124,22 @@ Pay extra attention if the diff touches `render/sync/backup writes and deletes i
 - `verify-before-done`: the §9 quality gate is run this turn, not assumed from the implementer's report.
 <!-- /navori:managed id="review-diff-base" -->
 
+<!-- navori:managed id="jscpd-review-extension" hash="f080c7a6" version="0.7.8" source="@navori/plugin-jscpd" -->
+## Code duplication (jscpd)
+
+Before approving a change, run jscpd over the diff vs the base branch.
+
+- Only over modified files:
+  ```
+  git diff --name-only main...HEAD | grep -E '\.(ts|tsx|js|jsx)$' | xargs jscpd --silent
+  ```
+- If it reports clones >0 with the project's threshold: **do not approve** the change without justification (reviewers must ask for a refactor or extraction).
+- Silent skip if `jscpd` is not in `PATH` (don't block if the dev doesn't have the tool installed).
+
+The commit gate runs this for you (`PreToolUse` on `git commit`), so this text is
+the reasoning and the manual command — not the mechanism.
+<!-- /navori:managed id="jscpd-review-extension" -->
+
 ## Repo-specific rules
 
 <!-- user: add here the bespoke rules of your stack/domain (the ones that are NOT generalizable). Suggestions:

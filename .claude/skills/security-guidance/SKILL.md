@@ -53,6 +53,27 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 3. Cross-check with the **rules specific to your stack** (below): the concrete names of your guards, error codes and env prefixes live there — without that, the review only covers the universal layer.
 <!-- /navori:managed id="security-guidance-base" -->
 
+<!-- navori:managed id="semgrep-review-extension" hash="d5aa04ca" version="0.7.8" source="@navori/plugin-semgrep" -->
+## Local security gate (semgrep)
+
+Before closing a relevant change (auth, RBAC, secrets, input validation), run semgrep over the diff.
+
+- Quick diff scan:
+  ```
+  git diff --name-only main...HEAD | xargs semgrep scan --config=p/default --error --metrics=off
+  ```
+- Full project scan (slower, opt-in):
+  ```
+  semgrep scan --config=p/default --error --metrics=off
+  ```
+- `p/default` (not `auto`) on purpose: deterministic and telemetry-off — mirrors the plugin's check script.
+- Custom rules: see `.semgrep.yml` at the repo root if it exists.
+- Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
+
+The commit/push gate runs this for you (`PreToolUse`), so this text is the
+reasoning and the manual command — not the mechanism.
+<!-- /navori:managed id="semgrep-review-extension" -->
+
 ## Your stack's security invariants
 
 <!-- user: document here what the model CAN'T infer from code — the concrete rules of YOUR domain. Suggestions:

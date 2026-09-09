@@ -3,6 +3,7 @@
 0ea9003ace1a7b8e956e6ec72a4a6def2e055192  .claude/skills/pr-create/SKILL.md
 102452c64709c07e0656ea21f98de2ee9b95e62a  .claude/skills/spec-bootstrap/SKILL.md
 140031c80d6046b2be3f9948a95c9565e9f96dbf  .claude/agents/leader.md
+202d716ba513e8ac3c1bbf933862bd6b68d27489  .claude/skills/review-diff/SKILL.md
 213ce871151241cc00263a95be7e7128c6a3e673  .claude/skills/playwright-cli/references/video-recording.md
 2948262e504687e01bb5724ca320ca3b159e46b9  .claude/skills/structural-search/SKILL.md
 2fc083cb245e681532edaa4b925bdbdd130f18a8  .claude/skills/playwright-cli/references/storage-state.md
@@ -13,15 +14,16 @@
 43822850d5057e5fe51be785134e12f1c25e7241  .claude/skills/playwright-cli/SKILL.md
 4901b95f5653389a58827aae932cc5c4db561cde  .claude/agents/commit-pr-pilot.md
 49434b76b7e7e2518ce6e466c62c37fdb70e1fef  .claude/skills/playwright-cli/references/element-attributes.md
+4e4e95d8666f6898e4ee014366cd6f44e1cb5628  CLAUDE.md
 578b6c318ade6f18e84c62c9c11ff0b2feb4e84a  .claude/hooks/worktree-reclaim.sh
 621e354f54454e44ed18ac39c1df14b87da5f09b  .claude/skills/ticket-intake/SKILL.md
-717cd16ec76a8f22c4e2e9353db43911d2365555  .claude/skills/review-diff/SKILL.md
 760f6d0fe6dc4591df0d2fc0dc4f1306607f7365  .claude/agents/implementer.md
 79b32e943d10bdd0e2c1cb7b85da8d52803be8cd  .claude/agents/researcher.md
 89134d65e6495dbca20aa9ec85deafaf3a74c370  .claude/skills/zod-validation/SKILL.md
 891f540b7bab148d24360cc04d95263ef209c926  .claude/hooks/managed-drift-watch.sh
 910d54cfeb3b2ed68879caae6cb36bc842659301  .claude/agents/explorer.md
 a092c062c85598b27e4b29724be5807e0a7e76a5  .claude/skills/playwright-cli/references/tracing.md
+ac796956a0b47e2b08c0c90dc0a83ba184014cb5  .claude/skills/security-guidance/SKILL.md
 b54dbe684517593032c596d4c5c300384b72df34  .claude/skills/playwright-cli/references/running-code.md
 b7881f576fb3043d03c091ec30f45c995957c2a7  .claude/skills/playwright-cli/references/playwright-tests.md
 b98d3db8fd83984f44f4888a7230b00c6acda204  .claude/agents/auditor.md
@@ -36,10 +38,8 @@ c5b0a3356ce667956faeff67d2450bf585a0ecb1  .claude/hooks/quality-gate-pre-commit.
 ccfadcd918e18b5239558785471ac56b1a271bf5  .claude/hooks/session-start-context.sh
 d70a429bb6e729a0845f0d173ad6a1ef0ae109ea  .claude/skills/playwright-cli/references/request-mocking.md
 d81a0d18b5dc75d749bac1d86e647eef99ab4eff  .claude/skills/loop-back-debug/SKILL.md
-dbb5f520e61c7c27021272f349369c13091a62b4  CLAUDE.md
 dbf4afed1870aad73a874aaf87b09932f86f1eb1  .claude/skills/clack/SKILL.md
 eb40f10d7e4be6b8d76c271b50789ad4cf85f799  .claude/skills/babysit-prs/SKILL.md
 ec858f267877a7b5f5bc021fb52059adad3557a1  .claude/skills/playwright-cli/references/session-management.md
-efd3786b626d376019ecba267890578e5edab344  .claude/skills/security-guidance/SKILL.md
 f3eb22ceacaed3f51519aa2c23f101ef07852259  .claude/skills/solution-design/SKILL.md
 fa5b0a6943e928752abe37d776768b5ea791cb2b  .claude/skills/verify-before-done/SKILL.md

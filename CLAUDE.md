@@ -194,36 +194,7 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 `gh auth status` shows whether you're authenticated. If it fails, run `gh auth login`.
 <!-- /navori:managed id="gh-protocol" -->
 
-<!-- navori:managed id="jscpd-protocol" hash="546ab3c4" version="0.7.8" source="@navori/plugin-jscpd" -->
-## Code duplication (jscpd)
 
-Before approving a change, run jscpd over the diff vs the base branch.
-
-- Only over modified files:
-  ```
-  git diff --name-only main...HEAD | grep -E '\.(ts|tsx|js|jsx)$' | xargs jscpd --silent
-  ```
-- If it reports clones >0 with the project's threshold: **do not approve** the change without justification (reviewers must ask for a refactor or extraction).
-- Silent skip if `jscpd` is not in `PATH` (don't block if the dev doesn't have the tool installed).
-<!-- /navori:managed id="jscpd-protocol" -->
-
-<!-- navori:managed id="semgrep-protocol" hash="b6113a2f" version="0.7.8" source="@navori/plugin-semgrep" -->
-## Local security gate (semgrep)
-
-Before closing a relevant change (auth, RBAC, secrets, input validation), run semgrep over the diff.
-
-- Quick diff scan:
-  ```
-  git diff --name-only main...HEAD | xargs semgrep scan --config=p/default --error --metrics=off
-  ```
-- Full project scan (slower, opt-in):
-  ```
-  semgrep scan --config=p/default --error --metrics=off
-  ```
-- `p/default` (not `auto`) on purpose: deterministic and telemetry-off — mirrors the plugin's check script.
-- Custom rules: see `.semgrep.yml` at the repo root if it exists.
-- Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
-<!-- /navori:managed id="semgrep-protocol" -->
 
 <!-- navori:managed id="codegraph-protocol" hash="6146f195" version="0.7.8" source="@navori/plugin-codegraph" -->
 ## CodeGraph (surgical code context)
