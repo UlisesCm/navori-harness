@@ -96,8 +96,20 @@ jobs:
       # whatever shell the host wires in — and ubuntu-latest ships without zsh.
       # The tests skip the zsh rows cleanly when the binary is missing, so this
       # step is what makes the zsh half actually run in CI.
+      #
+      # `apt-get update` exits 100 if ANY configured source fails, and the runner
+      # image ships third-party repos this job never installs from. On 2026-09-09
+      # Google's chrome-stable index served a Hash Sum mismatch and that alone
+      # turned `main` and both open PRs red, with nothing wrong in the tree. So
+      # the update is allowed to report a failing source — the Ubuntu archive it
+      # DOES need refreshes fine — and the guarantee moves to where it belongs:
+      # `zsh --version` fails the step when the shell the suite needs is missing,
+      # so the zsh half can never quietly stop running.
       - name: Install zsh
-        run: sudo apt-get update && sudo apt-get install -y zsh
+        run: |
+          sudo apt-get update || echo "::warning::apt-get update reported a failing source; continuing"
+          sudo apt-get install -y zsh
+          zsh --version
 
       # The full suite AND the coverage gate — on PRs too (#504). Deferring the
       # gate to the `main` push meant a PR could not fail on coverage: the module
