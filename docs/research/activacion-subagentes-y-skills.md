@@ -27,11 +27,11 @@ Lo que no se activa es la mitad del flujo que vive en agentes, no la que vive en
 
 ## Hipótesis descartadas (con número, antes de gastar tiempo)
 
-**H-A · "El bloque de orquestación no llega a la sesión."** FALSO. El `SessionStart` hook
-inyecta `## Role: orchestrator (organic routing)` con sus seis subsecciones — verificado en
-el contexto de la sesión `42f06139`. El bloque llega, y es bueno: escalera R1/R2/R2-fan,
-regla de 4 archivos, regla de sesión larga, delegación frugal, rutas de handoff literales.
-72 líneas de doctrina precisa. **El problema no es que falte doctrina.**
+**H-A · "El bloque de orquestación no llega a la sesión."** ~~FALSO~~ → **ERA VERDADERA.
+Ver "La causa raíz" más abajo.** La descarté por un error de método: grepeé el archivo
+persistido del hook y concluí que el bloque llegaba. Ese archivo es exactamente lo que NO
+llega. La corrección está al final del documento y supersede todo lo que sigue en esta
+sección.
 
 **H-B · "Las descriptions se están truncando por presupuesto."** FALSO. La doc advierte que
 al pasar de 15,000 tokens de descriptions de agentes, Claude Code las recorta empezando por
@@ -331,3 +331,88 @@ documentación oficial. **Este plan no empieza por escribir prosa nueva.** Empie
 medir sobre transcripts que ya existen, y la primera intervención candidata es corregir un
 campo que la documentación dice que es el mecanismo — no agregar otro párrafo pidiendo que
 se use.
+
+
+---
+
+# La causa raíz (2026-09-09, posterior a la Fase 1)
+
+**El bloque de orquestación nunca llegó al agente. En ninguna sesión real, desde que la
+spec 0015 lo movió al hook.**
+
+## El mecanismo
+
+1. La spec 0015 sacó `Role: orchestrator (organic routing)` del `CLAUDE.md` always-on y lo
+   pasó al `additionalContext` de un hook `SessionStart`. La razón era buena y estaba
+   medida: 73 líneas × 19 subagentes ≈ **60k tokens** entregados a agentes que no orquestan.
+2. Ese mismo hook emite también el *resume* de `progress/current.md`, y lo emite **antes**.
+3. Claude Code **trunca** el `additionalContext` de un hook grande: entrega un **preview de
+   los primeros ~2 KB** y escribe el resto en un archivo persistido que el agente no lee.
+4. `progress/current.md` ocupa los primeros ~6 KB, así que el bloque cae más allá del corte.
+
+## La evidencia
+
+Sobre **todas** las sesiones con hook registrado en `~/.claude/projects`:
+
+| sesión | hook (bytes) | offset del bloque | ¿llegó? |
+|---|---|---|---|
+| `42f06139` (esta) | 24,529 | 6,588 | **NO** |
+| `04eed7b1` | 24,055 | 6,109 | **NO** |
+| `fa4dd30b` | 22,991 | 6,709 | **NO** |
+| `163302ed` (moonar) | 33,534 | 16,096 | **NO** |
+| `9a5656bd` (health) | 32,570 | 14,664 | **NO** |
+| `e0b2f2fc` | 48,821 | 33,129 | **NO** |
+| … 40+ sesiones más | 20k–48k | 4,511–33,129 | **NO** |
+| `56d92579` (fixture vacío) | 18,414 | **1,030** | **SÍ** |
+
+**El único SÍ es el control.** Una sonda desechable en un fixture recién creado, sin
+`progress/current.md` que empuje: el bloque cae en el byte 1,030, dentro del preview, y
+llega. Mismo harness, mismo hook, misma versión — la única diferencia es cuánto texto lo
+precede.
+
+## Qué explica
+
+Todo lo medido en la Fase 1 era corriente abajo de un bloque que no existía para el agente:
+
+- La escalera R1/R2, la regla de 4 archivos y la de sesión larga **nunca se entregaron**.
+  Un agente sin escalera de ruteo no "decide no escalar": no tiene escalera.
+- `## Agentes disponibles` cae en el byte 6,479 — **tampoco llega**. El agente no recibe el
+  catálogo; solo ve los agentes por el listado nativo de Claude Code, sin la doctrina de
+  cuándo usarlos.
+- `## Session startup` y `## Session closeout` corren la misma suerte.
+
+Esto **supersede H1 a H5**. No es que la doctrina no convenza: es que no se entrega.
+
+## Por qué no lo vio la Fase 1
+
+Porque verifiqué la premisa contra el archivo equivocado. `grep "Role: orchestrator"` sobre
+el archivo persistido del hook da 4 coincidencias, y de ahí concluí "el bloque llega". El
+archivo persistido es, literalmente, la parte que el agente **no** recibe. La lección de
+método: **un hook no se verifica por lo que emite, sino por lo que queda dentro del corte.**
+
+## El experimento que ahora corresponde
+
+El A/B de `auto` vs `acceptEdits` (H4) queda en segundo plano. El primero es el que aísla
+esta variable, y el fixture de `scripts/ab-activation/` ya sirve tal cual:
+
+- **Brazo A** — `progress/current.md` inflado hasta empujar el bloque fuera del preview
+  (reproduce el estado de campo).
+- **Brazo B** — fixture como está, con el bloque dentro del preview (el estado que el
+  harness cree tener).
+
+Mismo prompt, mismo modo, misma tarea que cruza el umbral R2. Mide: ¿delega?
+
+## La corrección de fondo, independiente del experimento
+
+Sea cual sea el resultado, el hook está roto como canal: emite 20–48 KB por un conducto que
+entrega 2 KB. Las salidas posibles, en orden de cuánto conservan de la spec 0015:
+
+1. **Ordenar el hook**: la doctrina primero, el resume volátil al final. Una línea de cambio,
+   y lo que se pierda al truncar será lo reconstruible.
+2. **Acotar el resume**: `progress/current.md` entra recortado, no completo.
+3. **Devolver el bloque a `CLAUDE.md`** y resolver el costo de los subagentes con
+   `skills[].injectInto`, el mismo mecanismo que el #614 usó para jscpd/semgrep — que
+   entrega a quien debe recibirlo sin pagarlo en todos.
+
+La 1 y la 2 son compatibles y baratas. La 3 revierte parcialmente la spec 0015 y merece su
+propia discusión, porque su medición de 60k tokens sigue siendo válida.
