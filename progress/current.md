@@ -1,63 +1,74 @@
 # Sesión actual
 
-**Estado:** `main` en `8499f7d`, limpio y sincronizado. **npm en 0.7.7** (publicado por Ulises).
-0 issues abiertos de esta jornada salvo #604; 0 PRs abiertos en navori-harness.
+**Estado:** `main` en `92a91a4`, limpio y sincronizado. **npm en 0.7.8** (publicado por Ulises).
+0 issues abiertos. **2 PRs abiertos y verdes esperando merge**: #617 (engines >=22) y #618
+(evals de T9). Fuera del repo, 2 PRs de rollout: moonar #111 y navori-health #20.
 
-## Jornada: auditoría del audit, release 0.7.7 y rollout completo
+## Jornada: la spec 0017 completa, el 0.7.8, dos issues cerrados y el toolchain
 
-El encargo fue "revisa mis audits, ya hay más referencias". Con `--days 3` no aparecía nada nuevo;
-a **7 días** la muestra pasó de 5 a **13 sesiones en 5 repos** — y ahí estaban los brazos
-`acceptEdits` y `default` que la Fase 0 de la spec 0016 daba por inexistentes.
+Empezó con "mergea mi PR y comencemos la implementación" (#610, la spec 0017) y terminó
+midiendo, sobre sesiones reales, si la capa que construimos se usa.
 
-### Lo que la data dijo
+### La spec 0017 — tgrep como default de búsqueda
 
-- **La versión del harness NO predice la mezcla de herramientas.** La 0.7.5, con la doctrina nueva
-  ya rendereada, dio CERO lecturas nativas; la 0.7.0 dio 117. Correlaciona el tipo de tarea, no la
-  doctrina. Eso deja mal especificado el criterio de salida de la Fase 2, que compara porcentajes
-  entre tareas distintas.
-- La única sesión `acceptEdits`-dominante tiene el share nativo más alto de la muestra (61%),
-  contra 0-50% dentro de `auto`. El mode-blind de `tool-mix` sobrevive, pero matizado: el cero
-  absoluto solo aparece en `auto`.
+T1-T6 y T8 en #611; T9 en #618. Lo que costó de verdad no fue el mecanismo:
 
-### Lo que se arregló (2 PRs, 5 issues)
+- **`status` es variable de solo lectura en zsh** (espeja `$?`). El wrapper abortaba entero bajo
+  zsh y lo cazó `acrossShells`, que corre cada caso bajo los dos shells. Vale como regla para todo
+  script del harness: ese nombre está quemado.
+- **El parser de la vía grep leía el VALOR de un flag como patrón**: `-g '*.ts' foo .` buscaba
+  `*.ts` dentro de un path llamado `foo`.
+- **`-E/--encoding` NO bypassea el índice**, contra lo que afirmaba el design. Medido con
+  `--stats`: solo `--hidden`, `--no-ignore*` y `-a` caen a brute-force. El design quedó corregido.
+- **Un core asset no puede citar rutas de un engine.** La primera redacción de la cláusula de
+  `operaciones-seguras.md` nombraba `.claude/scripts/...`; `cited-paths-exist` y `render-codex` la
+  rechazaron con razón — ese asset también se renderiza a codex/cursor/copilot.
+- **El wrapper no ve dentro de `.claude/`** (default de ripgrep para dot-dirs). Falso negativo
+  silencioso de la misma clase que R2, por otra puerta. Arreglado en #612.
 
-| PR | Cierra | Qué |
-|---|---|---|
-| #608 | #603, #605, #607 | `tool-mix` mide la vía de lectura (umbral 20% del valle de una distribución bimodal medida); `unreachable-instructions` cruza sección↔servidor con la misma función que la ficha por agente; el reporte gana modelo del orquestador, `sealed`, `navoriAtStop`, `generatedAt` y `unused-skills` por procedencia. `schemaVersion` 4. |
-| #609 | #606 | `subagent-stop-handoff` acota su revisión a 48h. Validaba el historial entero de `.claude/progress/`: el veredicto `clean` era **inalcanzable en los cuatro repos medidos** y cada aviso arrastraba rutas de agosto. Verificado contra los archivos reales: el hook viejo emitía 18 rutas en app, el nuevo calla. |
+### Los dos issues
 
-Ningún umbral se eligió a ojo: la ventana de 48h sale de que los PRs de Ulises mergean en <10h
-(p90 8.5h), y la subida del tripwire del bundle a 1000KB de que `main` solo ya buildeaba a 900.
+- **#604** (#613): `commits` tenía **seis** citas colgantes, no una; `version` respondía dos
+  preguntas con un nombre (ahora `status` imprime `version (project)` y `version (navori)`); y
+  `agentAssignments` se retiró — el schema ya decía "Do not add render-time consumers".
+- **#614** (#615): el issue pedía un mecanismo nuevo (`audience` en el manifest) y **no hacía
+  falta**: `skills[].injectInto` ya enruta. `jscpd-protocol` y `semgrep-protocol` pasaron a las
+  skills que ya eran dueñas de ese momento. **−357 tokens por agente que arranca**. Lo riesgoso no
+  era mover sino migrar: un bloque quitado de un plugin VIVO no lo alcanza ninguna rama del render
+  — de ahí `RETIRED_PLUGIN_BLOCKS`.
 
-### Release y rollout
+### El toolchain (#616 mergeado, #617 pendiente)
 
-- **0.7.7 publicado.** npm saltó 0.7.5 → 0.7.7 (el 0.7.6 quedó taggeado y nunca publicado).
-- **20 repos en 0.7.7**: los 5 propios con commit (app `a692257` en qa, backend `51cc02f` en dev,
-  dashboard-template PR #99 → `ef7ad5a`, moonar `daa21df`, health `271bbff`) y los **15 de Bonum**
-  renderizados sin commit, porque ahí el harness es gitignored.
+TypeScript 7.0.2 (port nativo: typecheck completo en **1.8s**, paquete de 2.5 MB contra 23.6),
+pnpm 12.3.4 y Node 24. Dos cambios que rompen y no estaban documentados:
+**TS 7 ya no auto-descubre `@types/*`** (se arregla con `types: ["node"]`) y **pnpm 12 convierte un
+build script ignorado en error** (la llave es `allowBuilds` en `pnpm-workspace.yaml`, no el
+`onlyBuiltDependencies` de pnpm 10). El CI corría en Node 20, que está EOL.
 
-## Pendientes
+### T9 — la medición que importaba
 
-1. **#604 — los tres campos que el config declara y el render no honra** (`agentAssignments`,
-   `commits`, `version`). Decisión abierta: honrar o quitar. Empezar por `agentAssignments`:
-   preguntárselo al usuario en el wizard y descartarlo es la peor de las opciones.
-2. **Mitad B de #606** — retención de `.claude/progress/` archivando (no borrando) a
-   `archive/YYYY-MM/`. Ventanas calibradas con Ulises: **3 días** para `impl_*`/`review_*`, **14**
-   para `audit_*`/`solution_*`/`explore_*`/`research_*`/`plan_*`. Sin urgencia desde #609.
-3. **`bonum-webapp`**: es el único repo Bonum con el harness trackeado y sigue sin commitear.
-   Está parado en la branch de ticket `fix/BT-1442-…` con trabajo en `src/`, así que necesita
-   branch propia desde su base y sin sesión activa encima.
-4. **`branchBase: "develop"` en alertaciudadana_app** cuando su casa real es `qa`: con la doctrina
-   de parqueo (#601), el cierre lo manda a la rama equivocada.
-5. `navori-dashboard-template`: cerrar el **PR #98** (obsoleto, su 0.7.2 ya entró por `c0607e2`) y
-   tirar su `stash@{0}`.
+Sobre dos sesiones de trabajo reales post-rollout: **adopción del wrapper 68% y 86%** donde es la
+herramienta correcta, y la primera búsqueda de la sesión fue el wrapper en las dos.
 
-## Deuda previa vigente
+**El hallazgo grande es de codegraph: cero llamadas en ambas sesiones.** Mismo repo, mismo modelo,
+misma sesión — y en esas mismas sesiones el agente sí hizo `ToolSearch`, para engram. La
+diferencia que queda en pie es la fricción: el wrapper es un comando Bash con regla `allow`;
+codegraph exige descubrirlo, cargarlo y cambiar de familia de herramienta. **Más doctrina no lo va
+a mover**, y eso convierte a T7 en la pregunta central de lo que queda.
 
-- **CI de Navori-Technologies en rojo por BILLING**, no por contenido: los jobs no arrancan
-  ("recent account payments have failed"). Confirmado otra vez en el PR #99.
-- El guard de aislamiento de `~/.navori` da falso positivo cuando hay sesiones vivas en otros
-  repos: sus hooks escriben en `~/.navori/audits/*/session-*.log` mientras corre la suite. Se
-  distingue porque los archivos son de OTROS repos y el conjunto cambia entre corridas.
-- Las sesiones abiertas durante un rollout siguen con el harness viejo en contexto y su registro de
-  hooks queda partido — hay que reabrirlas para que tomen la versión nueva.
+## Lo que sigue
+
+1. **Mergear #617 y #618** (ambos verdes), y los dos de rollout fuera del repo.
+2. **T7 — el experimento `alwaysLoad`**: poner `"alwaysLoad": true` en la entrada codegraph de
+   `.mcp.json`, abrir sesión nueva y observar si `mcp__codegraph__*` arranca cargado o diferido.
+   Con los datos de T9, es lo más valioso que queda de la spec. Las dos ramas de R13 están escritas.
+3. **E2 de los evals**: sin datos, necesita una máquina sin tgrep en PATH.
+4. **Release 0.7.9**: `engines.node >=22` y los evals no están publicados.
+5. **Rollout del resto del parque**: 3 repos propios y los 15 Bonum (solo render, sin commit).
+
+## Nota de método
+
+El guard de aislamiento de `~/.navori` da **falso positivo determinista** mientras haya sesiones de
+Claude Code vivas en otros repos: sus audit logs se modifican durante la corrida y el guard los lee
+como fuga de la suite. Su propio mensaje lo anticipa. Verificado dos veces por mtime y por los
+procesos `claude` vivos; en CI no ocurre.
