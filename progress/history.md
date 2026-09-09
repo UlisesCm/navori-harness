@@ -10,6 +10,63 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-09 11:43 — claude — El 45% de las memorias de engram no tenía título, y la doctrina de navori era la causa (#628)
+
+- **Cambios:** `packages/plugins/engram/managed/engram-protocol.md`,
+  `packages/plugins/engram/skills/engram-leader.md`, + regenerados
+  (`__golden__/claude.snap`, `__golden__/codex.snap`, `CLAUDE.md`, `.claude/agents/leader.md`).
+- **Quality gate:** ✅ verde — `format:check`, `check:render`, `check:assets`, build del website,
+  `check:size`, coverage, `lint` y `typecheck`. `skill-caps` + `golden-render-tree` 158/158.
+  Pre-push gate limpio. Salvedad declarada: el guard de aislamiento `~/.navori` marcó
+  `audits/navori-harness/session-42f06139-….log`, escrito por **otra sesión con audit mode**
+  mientras corrían los tests — falso positivo que el propio guard documenta.
+- **Commit / PR:** `50e6376` → PR #628 (base `main`, verificada).
+
+### De dónde salió
+
+De una pregunta lateral: si había alternativas más rápidas al MCP de engram. La respuesta medida
+es que no las hay porque no hace falta — binario nativo sobre SQLite local, `save` 0.02s de user
+time, `search` 0.22s con arranque de proceso incluido; el costo real vive en el round-trip del
+tool call, el tamaño del output y los 10 KB que el `SessionStart` inyecta por sesión. Pero al
+medirlo, `engram doctor` salió `blocked` con 1572 findings, y de ahí salió todo lo demás.
+
+### El hallazgo
+
+**1237 de 2743 observaciones (45%) tenían `title` vacío**, y seguía ocurriendo el mismo día.
+`mem_search` las lista como `#2704 (manual) —`, así que cada resultado sin título obliga a abrir
+su contenido completo para saber de qué trata — justo el costo que la memoria persistente existe
+para evitar.
+
+La causa es nuestra: la doctrina que navori genera insistía en `topic_key` y en `type` pero nunca
+mencionaba `title`. El agente manda `content` + `topic_key` + `type`, omite el título, y la API lo
+acepta sin error. Como esos assets se replican, el defecto viajaba a todo el parque.
+
+Lo que el doctor reportaba como "missing required fields" no era corrupción: los campos existen
+con **cadena vacía** (`"title":""`, `"directory":""`) y el validador de replicación las trata como
+ausentes. Un productor emitiendo lo que su propio validador rechaza.
+
+### Restricción encontrada
+
+`engram-leader.md` no admite la explicación: su cuerpo managed estaba a **3 palabras** del cap de
+200 y `skill-caps.test.ts` rebotó la versión larga con 244. La razón va al bloque managed que
+aterriza en `CLAUDE.md` (sin cap) y la skill solo lleva el recordatorio — patrón a repetir cuando
+una doctrina toque ambos.
+
+### Fuera del repo
+
+Con backup previo (`~/engram-backup-2026-09-09.json` + dump de la tabla), purgada la cola de
+replicación: 15,553 filas hacia un destino nunca configurado. **35 MB → 15 MB**, y `engram doctor`
+pasó de `blocked` a `warning` con `blocked=0`, dejando visibles 2 findings reales de
+`session_project_directory_mismatch` que llevaban meses enterrados. `engram export` no incluye
+`sync_mutations`, lo que confirma que la cola es infraestructura y no dato de memoria.
+Reportado upstream: Gentleman-Programming/engram#1104.
+
+### Notas
+
+- Sesión concurrente en el árbol principal: cambió de branch y commiteó a mitad de esta. El
+  trabajo se aisló con `EnterWorktree`; `progress/current.md` NO se tocó, es de la otra sesión.
+- Los 1237 títulos ya vacíos quedan como están: rellenarlos exige releer cada memoria.
+
 ## 2026-09-01 09:55 — claude — FB del harness global: los agentes y las skills como plugin `navori@skills-dir` (#546)
 
 - **Cambios:** `engines/claude/global-plugin.ts` (nuevo), `engines/claude/global-render.ts`,
