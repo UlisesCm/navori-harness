@@ -139,7 +139,11 @@ razón vigente de su exclusión.
   invocación canónica, tabla de ruteo codegraph↔tgrep, la regla de fallback (el wrapper
   decide, el agente no pregunta), el subset de flags seguro en ambos motores
   (`-i -l -c -n -F -w -e -g -A/-B/-C -m`), y los flags que NO usar por el wrapper
-  (`--hidden`, `--no-ignore*`, `-E`, `-a` bypassean el índice; `-t` difiere entre motores).
+  (`--hidden`, `--no-ignore*` y `-a` bypassean el índice; `-t` difiere entre motores).
+  **Corregido en T5 contra medición**: `-E/--encoding` NO bypassea el índice —
+  `tgrep --stats -E auto <patrón>` sigue reportando `Query plan: AND(n trigrams)`,
+  mientras que los otros tres caen a `Brute-force search`. La doctrina lista solo
+  los tres verificados.
   Redactar claims con la precisión que `hook-claims-vs-scripts.test.ts` exige.
 - `packages/plugins/tgrep/skills/tgrep-rung.md` — inyección a `structural-search/SKILL.md`
   (R11): "Rung 1 — ejecutor". Espejo del estilo de `codegraph-rung.md` (frontmatter
