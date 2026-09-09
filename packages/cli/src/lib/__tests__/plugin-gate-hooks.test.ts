@@ -13,7 +13,10 @@ import { join, resolve } from "node:path";
 import { getCoreRoot, getPluginPath } from "../bundled-assets.ts";
 import { interpolate } from "../interpolate.ts";
 import { expandHookIncludes } from "../hook-includes.ts";
+import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
+import { buildCodexConfigToml } from "../../engines/codex/build-config-toml.ts";
 import type { NavoriConfig } from "../config.ts";
+import type { LoadedPlugin } from "../plugins.ts";
 import { acrossShells } from "./helpers/shells.ts";
 
 /**
@@ -368,4 +371,79 @@ describe.runIf(runsBash)("plugin gate hooks — untrusted branchBase stays inert
       expect(status).toBe(0);
     });
   }
+});
+
+/**
+ * Covers: R7 (spec 0017) — `SessionStart` joined the plugin hook contract so a
+ * plugin can announce itself when a session opens. Mapping it to settings is the
+ * generic path (`pluginHooksToClaudeShape`), so what needs pinning is the
+ * COLLISION: the core context hook already owns that bucket, and a plugin entry
+ * must land BESIDE it, never on top of it. Codex ignores plugin hooks by design
+ * — pinned too, so the new event doesn't quietly start leaking into config.toml.
+ */
+describe("plugin hooks — SessionStart (spec 0017)", () => {
+  const CONFIG = {
+    name: "test",
+    engines: ["claude", "codex"],
+    preset: "custom",
+    version: "1.0.0",
+    language: "es",
+    branchBase: "main",
+    commits: "conventional-es",
+  } as unknown as NavoriConfig;
+
+  const PLUGIN_COMMAND = 'bash "$CLAUDE_PROJECT_DIR/.claude/scripts/tgrep-session.sh"';
+
+  const sessionPlugin: LoadedPlugin = {
+    manifest: {
+      id: "session-fixture",
+      name: "Session fixture",
+      description: "A plugin that only ships a SessionStart hook.",
+      version: "0.0.1",
+      managed: [],
+      invariants: [],
+      hooks: [
+        {
+          event: "SessionStart",
+          command: PLUGIN_COMMAND,
+          timeout: 30,
+          statusMessage: "navori/fixture: session",
+        },
+      ],
+    } as unknown as LoadedPlugin["manifest"],
+    packageRoot: "/tmp/fake",
+    managedAssets: [],
+    scriptAssets: [],
+    skillAssets: [],
+  };
+
+  type HookBucket = { matcher?: string; hooks: Array<{ command: string }> };
+
+  function sessionBuckets(plugins: LoadedPlugin[]): HookBucket[] {
+    const hooks = buildClaudeSettings(CONFIG, plugins).hooks as Record<string, HookBucket[]>;
+    return hooks.SessionStart ?? [];
+  }
+
+  it("adds the plugin's hook without displacing the core context hook", () => {
+    const buckets = sessionBuckets([sessionPlugin]);
+    const commands = buckets.flatMap((b) => b.hooks.map((h) => h.command));
+    expect(commands.some((c) => c.includes("session-start-context.sh"))).toBe(true);
+    expect(commands).toContain(PLUGIN_COMMAND);
+
+    // Separate buckets, not one merged blob: the core hook keeps its lifecycle
+    // matcher, and the plugin's matcher-less entry neither inherits nor erases it.
+    const core = buckets.find((b) => b.matcher === "startup|resume|compact");
+    expect(core?.hooks.map((h) => h.command)).toEqual([
+      expect.stringContaining("session-start-context.sh"),
+    ]);
+    const pluginBucket = buckets.find((b) => b.matcher === undefined);
+    expect(pluginBucket?.hooks.map((h) => h.command)).toEqual([PLUGIN_COMMAND]);
+  });
+
+  it("leaves the codex render byte-identical (it consumes no plugin hooks)", () => {
+    const withPlugin = buildCodexConfigToml(CONFIG, [sessionPlugin]);
+    const without = buildCodexConfigToml(CONFIG, []);
+    expect(withPlugin.body).toBe(without.body);
+    expect(withPlugin.body).not.toContain("tgrep-session.sh");
+  });
 });

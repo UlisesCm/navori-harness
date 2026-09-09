@@ -1,0 +1,81 @@
+{
+  "id": "tgrep",
+  "name": "tgrep — trigram-indexed content search",
+  "description": "Indexed grep (Microsoft tgrep, ripgrep-compatible flags) as the default content search, with an automatic fallback when the binary is absent",
+  "version": "0.0.1",
+  "managed": [
+    {
+      "id": "tgrep-protocol",
+      "file": "managed/tgrep-protocol.md",
+      "recommendedAgent": "leader"
+    }
+  ],
+  "externalTool": {
+    "name": "tgrep",
+    "checkBinary": "tgrep",
+    "install": {
+      "darwin": "brew install tgrep",
+      "linux": "brew install tgrep"
+    }
+  },
+  "settingsFragment": {
+    "permissions": {
+      "allow": [
+        "Bash(bash .claude/scripts/tgrep-search.sh *)",
+        "Bash(tgrep *)"
+      ]
+    }
+  },
+  "scripts": [
+    {
+      "src": "scripts/tgrep-search.sh",
+      "dest": "tgrep-search.sh",
+      "exec": true
+    },
+    {
+      "src": "scripts/tgrep-session.sh",
+      "dest": "tgrep-session.sh",
+      "exec": true
+    }
+  ],
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/tgrep-session.sh\"",
+      "timeout": 30,
+      "statusMessage": "navori/tgrep: search index"
+    }
+  ],
+  "skills": [
+    {
+      "id": "tgrep-search-extension",
+      "file": "skills/tgrep-rung.md",
+      "injectInto": ".claude/skills/structural-search/SKILL.md"
+    },
+    {
+      "id": "tgrep-researcher-extension",
+      "file": "skills/tgrep-search-agent.md",
+      "recommendedAgent": "researcher",
+      "injectInto": ".claude/agents/researcher.md"
+    },
+    {
+      "id": "tgrep-explorer-extension",
+      "file": "skills/tgrep-search-agent.md",
+      "recommendedAgent": "explorer",
+      "injectInto": ".claude/agents/explorer.md"
+    },
+    {
+      "id": "tgrep-implementer-extension",
+      "file": "skills/tgrep-code-agent.md",
+      "recommendedAgent": "implementer",
+      "injectInto": ".claude/agents/implementer.md"
+    },
+    {
+      "id": "tgrep-reviewer-extension",
+      "file": "skills/tgrep-code-agent.md",
+      "recommendedAgent": "reviewer",
+      "injectInto": ".claude/agents/reviewer.md"
+    }
+  ],
+  "invariants": ["tgrep-search.sh"]
+}

@@ -8,7 +8,7 @@ paralelizables salvo nota.
 
 ## Lote 1 — el contrato SessionStart en el schema de plugins
 
-- [ ] **T1** (R7) — `HOOK_EVENTS` en `packages/cli/src/lib/plugins.ts` gana
+- [x] **T1** (R7) — `HOOK_EVENTS` en `packages/cli/src/lib/plugins.ts` gana
   `"SessionStart"`; el comentario del contrato (líneas ~57-62) documenta el evento nuevo y
   la advertencia C2 (no corre para subagentes — un plugin que necesite alcanzarlos usa
   scripts o PreToolUse). Nada más cambia: `pluginHooksToClaudeShape` ya es genérica.
@@ -21,7 +21,7 @@ paralelizables salvo nota.
 
 ## Lote 2 — el bundle del plugin
 
-- [ ] **T2** (R10) — `packages/plugins/tgrep/{plugin.json,package.json}` con los campos
+- [x] **T2** (R10) — `packages/plugins/tgrep/{plugin.json,package.json}` con los campos
   exactos del design (§Components). `package.json` espejo del de jscpd (name
   `@navori/plugin-tgrep`, private). El bundling es automático (readdir) — verificar con
   `pnpm build && node -e "…listBundledPluginIds()"` que `tgrep` aparece.
@@ -29,7 +29,7 @@ paralelizables salvo nota.
   valida contra el schema; `externalTool.checkBinary === "tgrep"`; install declara darwin y
   linux y NO win32 (el warn limpio de `add.ts` es el comportamiento esperado).
 
-- [ ] **T3** (R8) — `scripts/tgrep-session.sh`: stdout plano de UNA línea según presencia
+- [x] **T3** (R8) — `scripts/tgrep-session.sh`: stdout plano de UNA línea según presencia
   de binario (mensajes del design §Components), warm del índice con timeout defensivo,
   exit 0 en TODOS los caminos (binario ausente, cache no escribible, index que falla).
   · test: `src/lib/__tests__/tgrep-session-hook.test.ts` con `// Covers: R8` — bajo bash y
@@ -37,7 +37,7 @@ paralelizables salvo nota.
   con PATH sin tgrep: una línea que contiene `brew install tgrep` y exit 0; con
   `XDG_CACHE_HOME` apuntando a un dir de solo lectura: exit 0 igualmente.
 
-- [ ] **T4** (R1, R2, R3, R4, R5, R6) — `scripts/tgrep-search.sh` según el contrato del
+- [x] **T4** (R1, R2, R3, R4, R5, R6) — `scripts/tgrep-search.sh` según el contrato del
   design (§Components). Es la tarea central del spec; el test de staleness es
   no-negociable.
   · test: `src/lib/__tests__/tgrep-search-script.test.ts` con
@@ -57,7 +57,7 @@ paralelizables salvo nota.
   (f) dos `tgrep index` simultáneos al mismo cache path no dejan la búsqueda siguiente
   rota (design §Failure modes).
 
-- [ ] **T5** (R11) — los cuatro assets de doctrina del plugin: `managed/tgrep-protocol.md`,
+- [x] **T5** (R11) — los cuatro assets de doctrina del plugin: `managed/tgrep-protocol.md`,
   `skills/tgrep-rung.md`, `skills/tgrep-search-agent.md`, `skills/tgrep-code-agent.md`, con
   el contenido del design (invocación canónica, tabla de ruteo codegraph↔tgrep, subset de
   flags seguro, flags prohibidos por bypass de índice). Claims redactados contra lo que los
@@ -70,7 +70,7 @@ paralelizables salvo nota.
 
 ## Lote 3 — doctrina core + codegraph
 
-- [ ] **T6** (R9, R12, R14, R15) — `settingsFragment` del manifest (las DOS reglas allow de
+- [x] **T6** (R9, R12, R14, R15) — `settingsFragment` del manifest (las DOS reglas allow de
   R9, ni una más) + la cláusula condicional en los bullets 7 y 22 de
   `packages/core/core-assets/managed/operaciones-seguras.md` (redacción: cede el default al
   wrapper "cuando el plugin tgrep está habilitado", sin tocar la exclusión vigente de `rg`
@@ -99,7 +99,7 @@ paralelizables salvo nota.
 
 ## Lote 4 — cierre auto-hospedado + release
 
-- [ ] **T8** (R10, R11) — auto-hospedaje: `navori add tgrep` en navori-harness (binario ya
+- [x] **T8** (R10, R11) — auto-hospedaje: `navori add tgrep` en navori-harness (binario ya
   presente → sin install), `navori render --apply`, `navori doctor` limpio, y una sesión
   de humo: el hook emite su línea al arrancar y una búsqueda real por el wrapper devuelve
   lo mismo que `Grep`. Evidencia (salidas de doctor + la línea del hook) en la descripción

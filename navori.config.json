@@ -6,7 +6,9 @@
     "claude"
   ],
   "preset": "custom",
+  "language": "es",
   "branchBase": "main",
+  "gitignoreHarness": "off",
   "commits": "conventional-es",
   "qualityGate": {
     "fast": "cd packages/cli && pnpm lint",
@@ -27,22 +29,28 @@
     },
     "codegraph": {
       "enabled": true
+    },
+    "tgrep": {
+      "enabled": true
     }
   },
   "project": {
+    "legacyPaths": [],
+    "criticalAreas": [
+      "render/sync/backup writes and deletes in the user's repo",
+      "settings.json permissions, deny/ask rules and hooks",
+      "managed-block markers and the anti-rollback guard"
+    ],
+    "testsExclude": [],
+    "localSkills": [
+      "playwright-cli"
+    ],
     "libraries": [
       "zod-validation",
       "vitest",
       "citty",
       "clack"
     ],
-    "localSkills": [
-      "playwright-cli"
-    ],
-    "criticalAreas": [
-      "render/sync/backup writes and deletes in the user's repo",
-      "settings.json permissions, deny/ask rules and hooks",
-      "managed-block markers and the anti-rollback guard"
-    ]
+    "libraryMigrations": []
   }
 }

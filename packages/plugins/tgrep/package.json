@@ -1,0 +1,19 @@
+{
+  "name": "@navori/plugin-tgrep",
+  "version": "0.0.1",
+  "description": "Trigram-indexed content search via tgrep",
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./plugin.json": "./plugin.json"
+  },
+  "files": [
+    "managed",
+    "scripts",
+    "skills",
+    "plugin.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}
