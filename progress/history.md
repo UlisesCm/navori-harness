@@ -10,6 +10,37 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-10 03:00 — claude — La escalera de ruteo por fin llega, el parque en 0.8.2, y 5 bugs cerrados
+
+- Cambios: `.github/workflows/ci.yml`, `packages/core/core-assets/managed/orquestacion.md`,
+  `core-assets/agents/leader.md`, `packages/cli/src/lib/{schema,skill-meta,flat-skills,
+  foreign-skill-index,stale-harness,i18n}.ts`, `engines/claude/index.ts`, `commands/render.ts`,
+  `commands/doctor.ts`, `specs/0018-*`, `specs/0019-*`, `docs/research/activacion-*`.
+- Quality gate: ✅ verde en cada PR (201 archivos / 3422 tests al cierre). El único ✖ recurrente
+  es el guard de aislamiento `~/.navori` (#404/#424), falso positivo determinista con sesiones
+  concurrentes — verificado tres veces por mtime.
+- Commits / PRs: #629, #631, #633, #634, #638, #639, #640, #641 · releases 0.8.1 y 0.8.2.
+
+**La razón de ser del 0.8 quedó cerrada como mecanismo.** El bloque de orquestación no llegaba
+a ninguna sesión, y el #624 no bastó: aun con el orden y el presupuesto corregidos, el hook
+recorre `.claude/context/` con un glob —que expande alfabéticamente— y `orquestacion.md`
+quedaba último **por empezar con "o"**. Prueba de que no era tamaño: recortado a 4,757 chars
+seguía cayendo a puntero. El orden viaja ahora EN el nombre (`10-`, `20-`, `30-`, `40-`).
+Medido corriendo el hook: moonar 8,281 bytes y navori-health 8,559, escalera y catálogo como
+cuerpo, contra los 10,441 del corte del host.
+
+**Pero el criterio de éxito no es ese**, y está sin cumplir: la tasa de activación antes contra
+después. Línea base escrita en `docs/research/`: 2% (Fase 1), 7% sobre 19 sesiones reales, 37%
+en las 5 con harness navori — n=8, o sea pista, no resultado. Las 19 son "antes"; el brazo
+"después" empieza con la próxima sesión en esos repos.
+
+**Cinco bugs, todos con la misma firma**: doctrina que afirma algo falso sobre cómo se comporta
+el host. El CI moría por un repo apt de terceros (#629). navori resolvía el `.md` plano antes
+que el directorio y publicaba en `CLAUDE.md` skills que Claude Code nunca carga (#634). Cuatro
+repos traían índices de skills ajenos con 22-48 rutas muertas (#633). El workspace de un
+monorepo recibía 43-48% de archivos que nada puede activar (#638). Y un script de plugin era el
+único archivo que navori generaba sin poder probar que lo escribió (#641).
+
 ## 2026-09-09 11:43 — claude — El 45% de las memorias de engram no tenía título, y la doctrina de navori era la causa (#628)
 
 - **Cambios:** `packages/plugins/engram/managed/engram-protocol.md`,
