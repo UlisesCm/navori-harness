@@ -294,6 +294,24 @@ describe.runIf(runsBash)("tgrep-search.sh — the fallbacks (spec 0017)", () => 
     expect(r.stderr).toContain("dropped");
   });
 
+  it("exits 2 — not 1 — when no pattern survives the flag dropping (R3)", () => {
+    // The one documented exception to "0 = match, 1 = no match", and the
+    // dangerous one: 2 means NOTHING WAS SEARCHED. Read as "no match" it is the
+    // silent false negative the reindex-per-search exists to prevent, so the
+    // code has to be distinguishable and the message has to say so.
+    //
+    // Found reviewing an independent report of the wrapper written in another
+    // repo: it restated the contract as absolute, faithfully — because both of
+    // navori's own tgrep assets did. Doctrine that overstates a contract is the
+    // #647 class, and nothing pinned this branch until now.
+    const fx = makeFixture();
+    const bin = makeShim(fx, "bare-nopattern");
+    // Every argument is a value-taking flag, so the pattern slot stays empty.
+    const r = acrossShells((shell) => run(fx, { args: ["-g", "*.txt"], path: bin, shell }));
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("nothing was searched");
+  });
+
   it("honours `-e PATTERN` on the grep path (R3)", () => {
     const fx = makeFixture();
     const bin = makeShim(fx, "bare-e");

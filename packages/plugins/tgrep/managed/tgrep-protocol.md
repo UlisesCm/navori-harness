@@ -2,7 +2,7 @@
 
 Content search — a literal, a regex, a copy string — goes through one command: `bash .claude/scripts/tgrep-search.sh <search args…>`.
 
-It carries an `allow` rule, so it runs with no permission prompt in any mode and without the classifier round-trip a plain shell command pays in auto mode. Its flag surface is ripgrep's. Never ask which engine the machine has: the wrapper resolves that and keeps the exit-code contract (0 = match, 1 = no match) whichever one it picks.
+It carries an `allow` rule, so it runs with no permission prompt in any mode and without the classifier round-trip a plain shell command pays in auto mode. Its flag surface is ripgrep's. Never ask which engine the machine has: the wrapper resolves that and keeps the exit-code contract (0 = match, 1 = no match) whichever one it picks. A third code exists and means something else entirely: **exit 2 is "nothing was searched"** — never read it as "no match".
 
 **Structure is a different question.** *Where is this symbol, who calls it, what breaks if I change it* is `codegraph_explore`; *which files hold this string* is the wrapper. And searching is not extracting — once you know the file, `grep -n "x" that-file` or `Read` is the cheaper call.
 
