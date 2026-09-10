@@ -571,6 +571,10 @@ interface RenderCmdStrings {
   engineFilesTitle: string;
   langFallback: (list: string) => string;
   langFallbackWs: (ws: string, list: string) => string;
+  /** A trimmed workspace: how many files navori removed (spec 0018 R4). */
+  workspaceTrimmed: (workspace: string, removed: number) => string;
+  /** Files inside the trimmed paths that were NOT navori's, so they stayed (R5). */
+  workspaceTrimmedKept: (workspace: string, kept: number) => string;
   wouldWrite: string;
   noChangePreview: string;
   written: string;
@@ -783,6 +787,14 @@ interface DoctorCmdStrings {
   ) => string;
   /** How to adopt the divergence (never auto-applied). */
   workspaceDriftHint: string;
+  /** Note title for harness dirs no render reaches any more (spec 0018 R6). */
+  staleHarnessTitle: string;
+  /** One frozen dir: where, why unreachable, how many files, since which version. */
+  staleHarnessRow: (path: string, files: number, frozenAt: string | null) => string;
+  /** A `.claude/` in a subdirectory the config does not declare as a workspace. */
+  staleHarnessUndeclared: string;
+  /** Leftovers a `minimal` workspace no longer owns but navori can't prove it wrote. */
+  staleHarnessTrimmed: string;
   /** Note title for `.md` files loose in a skills root (#626). */
   flatSkillsTitle: string;
   /** One loose file: where it is and where it must move to load. */
@@ -919,6 +931,13 @@ interface BlocksCmdStrings {
     siblingsLead: string;
     onlyWorkspace: string;
     scopedTaskHint: (name: string) => string;
+    /**
+     * Under `workspaceHarness: "minimal"` the workspace has skills and nothing
+     * else (spec 0018 R7). Without this line a collaborator opening the app
+     * reads that as a half-installed harness and "fixes" it by copying the
+     * root's files back in — recreating exactly what the trim removed.
+     */
+    inheritsFromRoot: string;
     rootHeading: string;
     rootIntro: (tool: string) => string;
     workspacesLead: string;
@@ -1413,6 +1432,10 @@ const CMD_ES: CmdStrings = {
       `Fallback a español para: ${list} (versión en inglés aún no disponible)`,
     langFallbackWs: (ws, list) =>
       `[${ws}] Fallback a español para: ${list} (versión en inglés aún no disponible)`,
+    workspaceTrimmed: (workspace, removed) =>
+      `${workspace}: ${removed} archivo(s) retirados — el workspace hereda agentes, hooks y settings de la raíz`,
+    workspaceTrimmedKept: (workspace, kept) =>
+      `${workspace}: ${kept} archivo(s) conservados por no ser de navori — revísalos, son tuyos`,
     wouldWrite: "→ preview (se escribiría)",
     noChangePreview: "→ sin cambios",
     written: "→ written",
@@ -1759,6 +1782,13 @@ const CMD_ES: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos usan ${expected})`,
     workspaceDriftHint:
       "Informativo: navori nunca lo aplica solo. Adóptalo con 'navori configure', o promuévelo al workspace con 'navori workspace set-default'.",
+    staleHarnessTitle: "Harness congelado (ningún render lo alcanza):",
+    staleHarnessRow: (path, files, frozenAt) =>
+      `${path} — ${files} archivo(s)${frozenAt === null ? "" : `, congelados en ${frozenAt}`}`,
+    staleHarnessUndeclared:
+      "Vive en un subdirectorio que el config no declara como workspace, así que el render nunca entra ahí. Decláralo en 'monorepo.workspaces' o bórralo.",
+    staleHarnessTrimmed:
+      "Sobró del recorte por workspace. navori no lo borra porque un script de plugin no lleva marca de autoría y navori nunca borra lo que no puede probar que escribió: bórralo tú una vez, no vuelve a aparecer.",
     flatSkillsTitle: "Skills que no cargan (formato inválido):",
     flatSkillsRow: (path, suggested) => `${path} — muévela a ${suggested}`,
     flatSkillsHint:
@@ -2114,6 +2144,8 @@ const CMD_ES: CmdStrings = {
       onlyWorkspace: "Por ahora es el único workspace declarado.",
       scopedTaskHint: (name) =>
         `Corre tareas acotadas con \`--filter=${name}\`. No importes el código de un hermano por ruta relativa; consúmelo como paquete (\`workspace:*\`).`,
+      inheritsFromRoot:
+        "Este workspace tiene su `CLAUDE.md` y sus skills; **los agentes, los hooks y los permisos son los de la raíz del repo**, no falta nada. Es deliberado: el motor los descubre hacia arriba desde donde arranca la sesión, así que una copia aquí nunca se leería. No los copies de vuelta.",
       rootHeading: "## Monorepo — root",
       rootIntro: (tool) =>
         `Este repo es un monorepo \`${tool}\`. El código real vive en los workspaces, cada uno con su propio harness (\`CLAUDE.md\` + \`.claude/\`). Al orquestar, **enruta cada tarea al workspace dueño** y trabaja desde su \`CLAUDE.md\`, no desde aquí.`,
@@ -2474,6 +2506,10 @@ const CMD_EN: CmdStrings = {
       `Language fallback to Spanish for: ${list} (English version not available yet)`,
     langFallbackWs: (ws, list) =>
       `[${ws}] Language fallback to Spanish for: ${list} (English version not available yet)`,
+    workspaceTrimmed: (workspace, removed) =>
+      `${workspace}: ${removed} file(s) removed — the workspace inherits agents, hooks and settings from the root`,
+    workspaceTrimmedKept: (workspace, kept) =>
+      `${workspace}: ${kept} file(s) kept because navori did not write them — review them, they are yours`,
     wouldWrite: "→ preview (would write)",
     noChangePreview: "→ no changes",
     written: "→ written",
@@ -2816,6 +2852,13 @@ const CMD_EN: CmdStrings = {
       `${key}: ${local} (${agree}/${total} repos use ${expected})`,
     workspaceDriftHint:
       "Informational: navori never applies it for you. Adopt it with 'navori configure', or promote it to the workspace with 'navori workspace set-default'.",
+    staleHarnessTitle: "Frozen harness (no render reaches it):",
+    staleHarnessRow: (path, files, frozenAt) =>
+      `${path} — ${files} file(s)${frozenAt === null ? "" : `, frozen at ${frozenAt}`}`,
+    staleHarnessUndeclared:
+      "It lives in a subdirectory the config does not declare as a workspace, so the render never goes there. Declare it in 'monorepo.workspaces' or delete it.",
+    staleHarnessTrimmed:
+      "Left over from the per-workspace trim. navori does not delete it because a plugin script carries no authorship mark, and navori never deletes what it cannot prove it wrote: remove it once and it will not come back.",
     flatSkillsTitle: "Skills that never load (invalid shape):",
     flatSkillsRow: (path, suggested) => `${path} — move it to ${suggested}`,
     flatSkillsHint:
@@ -3168,6 +3211,8 @@ const CMD_EN: CmdStrings = {
       onlyWorkspace: "For now it's the only declared workspace.",
       scopedTaskHint: (name) =>
         `Run scoped tasks with \`--filter=${name}\`. Don't import a sibling's code by relative path; consume it as a package (\`workspace:*\`).`,
+      inheritsFromRoot:
+        "This workspace has its `CLAUDE.md` and its skills; **the agents, hooks and permissions are the repo root's**, nothing is missing. It is deliberate: the engine discovers them by walking up from where the session started, so a copy here would never be read. Don't copy them back.",
       rootHeading: "## Monorepo — root",
       rootIntro: (tool) =>
         `This repo is a \`${tool}\` monorepo. The real code lives in the workspaces, each with its own harness (\`CLAUDE.md\` + \`.claude/\`). When orchestrating, **route each task to the owning workspace** and work from its \`CLAUDE.md\`, not from here.`,

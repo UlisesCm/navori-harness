@@ -173,6 +173,7 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
         monorepo: {
           enabled: true,
           workspaces: [{ name: "api", path: "apps/api", preset: "nestjs" }],
+          workspaceHarness: "minimal",
         },
       }),
       cwd,
@@ -191,6 +192,7 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
         monorepo: {
           enabled: true,
           workspaces: [{ name: "gone", path: "apps/gone", preset: "nestjs" }],
+          workspaceHarness: "minimal",
         },
       }),
       cwd,

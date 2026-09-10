@@ -23,6 +23,7 @@ import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace-drift.ts";
 import { scanForeignSkillIndexes } from "../lib/foreign-skill-index.ts";
 import { scanFlatSkills } from "../lib/flat-skills.ts";
+import { scanStaleHarness } from "../lib/stale-harness.ts";
 import { scanQualityGateReadiness } from "../lib/gate-readiness.ts";
 import { scanEmptyUserSections } from "../lib/skill-user-section.ts";
 import { scanInterpolationArtifacts } from "../lib/interpolation-artifacts.ts";
@@ -214,6 +215,9 @@ export const doctorCommand = defineCommand({
     // `<name>/SKILL.md`. It fails silently, which is why nobody notices for
     // months, and why doctor is the only place this can ever surface.
     const flatSkills = scanFlatSkills(cwd);
+    // Spec 0018 R6: harness that no render will refresh again. Advisory and
+    // read-only — reporting is the whole contract, navori never touches these.
+    const staleHarness = scanStaleHarness(cwd, config);
     const engineInventory = buildEngineInventory(config, cwd);
     // #547: real clashes between the machine-global harness (`navori global`)
     // and this repo's. Null — and therefore invisible — when no global layer is
@@ -303,6 +307,7 @@ export const doctorCommand = defineCommand({
       prettierIgnoreHealth,
       gitHygiene,
       workspaceDrift,
+      staleHarness,
       flatSkills,
       foreignSkillIndexes,
       globalScope,
@@ -784,6 +789,17 @@ export const doctorCommand = defineCommand({
         wd.join("\n"),
         td.workspaceDriftTitle(workspaceDrift.workspace, workspaceDrift.siblingsRead),
       );
+    }
+
+    // Spec 0018 R6. Finite by construction: delete these once and nothing
+    // recreates them, so this heading disappears for good rather than nagging.
+    if (staleHarness.length > 0) {
+      const rows = staleHarness.map(
+        (h) =>
+          `  ${color.yellow(sym.update)} ${td.staleHarnessRow(accent(h.path), h.files, h.frozenAt)}\n` +
+          `      ${grey(h.reason === "undeclared-workspace" ? td.staleHarnessUndeclared : td.staleHarnessTrimmed)}`,
+      );
+      p.note(rows.join("\n"), td.staleHarnessTitle);
     }
 
     // #626. Advisory like its neighbours: an unloadable skill breaks nothing

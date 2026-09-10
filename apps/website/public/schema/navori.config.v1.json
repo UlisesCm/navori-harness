@@ -620,11 +620,20 @@
             ],
             "additionalProperties": false
           }
+        },
+        "workspaceHarness": {
+          "default": "minimal",
+          "type": "string",
+          "enum": [
+            "minimal",
+            "full"
+          ]
         }
       },
       "required": [
         "enabled",
-        "workspaces"
+        "workspaces",
+        "workspaceHarness"
       ],
       "additionalProperties": false
     }
