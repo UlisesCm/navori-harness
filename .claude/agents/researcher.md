@@ -1,6 +1,6 @@
 ---
 name: researcher
-description: Read-only investigation of a scoped question. Reads the repo, writes findings to a file. Does not modify code.
+description: Answers ONE scoped question about the repo with cited evidence, written to a file. Does not modify code. Use when answering would take reading 4+ files, or to challenge a design decision with fresh context.
 tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: auditor
-description: Deep read-only audit of existing code. Detects bugs, security and performance issues, architecture/SOLID violations, edge cases, duplication, and missing tests/JSDoc. Security and performance are mandatory axes. Writes a report + prioritized plan to disk (and optionally SDD spec drafts). Never edits production code. Trigger it when the user says "audit X", "deep audit", "find bugs in X", "review X thoroughly".
+description: Deep read-only audit of an area — bugs, security, performance, SOLID violations, edge cases, missing tests. Writes a report + prioritized plan to disk; never edits production code. Use when the user asks to audit or find bugs in X, or before refactoring an area with no ticket driving the work.
 tools: Read, Glob, Grep, Bash, Write, WebFetch, WebSearch, mcp__engram__*
 ---
 

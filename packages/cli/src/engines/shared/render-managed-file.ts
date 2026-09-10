@@ -185,16 +185,37 @@ function rerender(
   const destFm = fmBlock === undefined ? {} : parseKeyValueLines(fmBlock);
   const restOfDest = afterFm ?? existing;
 
+  // Asset WITH frontmatter: merge (asset wins for its keys). Asset WITHOUT
+  // frontmatter — e.g. a plugin sub-block injected into a file whose base
+  // asset owns the frontmatter — must PRESERVE the destination's header
+  // verbatim: an empty header here used to be masked by the status collapse
+  // below (the write never happened), and stripping it for real would tear the
+  // `description`/`tools` off `leader.md` on any sub-block update.
   const fmHeader =
-    Object.keys(assetFm).length > 0 ? mergeFrontmatter(assetFm, destFm).serialized + "\n" : "";
+    Object.keys(assetFm).length > 0
+      ? mergeFrontmatter(assetFm, destFm).serialized + "\n"
+      : fmBlock !== undefined
+        ? `---\n${fmBlock}\n---\n`
+        : "";
 
   const inject = injectManagedSection(restOfDest, managedId, body, meta, commentStyle);
   const content = fmHeader + inject.output;
 
-  // If injection said "unchanged" AND the frontmatter didn't shift, the
-  // overall content is byte-identical to existing.
+  // "unchanged" from injection only speaks for the managed BODY. The
+  // frontmatter is merged separately (asset wins for its keys), so a
+  // frontmatter-only change used to fall through here as `inject.status`
+  // ("unchanged") and planManagedFile turned that into a noop: the new
+  // frontmatter was computed correctly and then thrown away. That is how the
+  // spec-0020 descriptions reached every asset and ZERO onboarded repos — the
+  // host reads `.claude/agents/*.md`, which kept the old prose while the
+  // source and the tests (which swept the source) were green. Body unchanged
+  // but bytes differ ⇒ the frontmatter shifted ⇒ "updated".
   const status: InjectResult["status"] =
-    inject.status === "unchanged" && content === existing ? "unchanged" : inject.status;
+    inject.status === "unchanged"
+      ? content === existing
+        ? "unchanged"
+        : "updated"
+      : inject.status;
 
   return { content, status, details: inject.details };
 }

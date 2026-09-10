@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getFrontmatterField, splitFrontmatter } from "../frontmatter.ts";
 import { tc, type Lang } from "../i18n.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../schema.ts";
+import { renderClaudeEngine } from "../../engines/claude/index.ts";
 import { isInvokable, listAgentAssets, type AgentAsset } from "./helpers/agent-assets.ts";
 
 /**
@@ -324,5 +329,35 @@ describe("the criterion fires on the descriptions that shipped before spec 0020"
       triggerForm(text),
       `rejected a description that does state its trigger: ${text}`,
     ).toBeDefined();
+  });
+});
+
+describe("the rendered tree carries the triggers (what the host actually reads)", () => {
+  /**
+   * Cold-review finding on PR #660: the sweep above is over the SOURCE assets,
+   * and a status-collapse bug in `rerender` kept every already-onboarded
+   * repo's `.claude/agents/*.md` on the OLD descriptions while this suite was
+   * green. The host reads the rendered file, so the convention has to hold
+   * there — this renders a real tree and sweeps that.
+   */
+  it("every rendered agent description declares its trigger", () => {
+    // Covers: R1
+    const cwd = mkdtempSync(join(tmpdir(), "navori-desc-render-"));
+    const config: NavoriConfig = NavoriConfigSchema.parse({
+      name: "desc-render",
+      engines: ["claude"],
+      preset: "custom",
+      branchBase: "main",
+      qualityGate: { fast: "pnpm test", full: "pnpm test" },
+    });
+    renderClaudeEngine(cwd, config);
+    const agentsDir = join(cwd, ".claude", "agents");
+    const rendered = readdirSync(agentsDir).filter((f) => f.endsWith(".md"));
+    expect(rendered.length).toBeGreaterThanOrEqual(7);
+    for (const file of rendered) {
+      const raw = readFileSync(join(agentsDir, file), "utf-8");
+      const description = /^description:\s*(.+)$/m.exec(raw)?.[1] ?? "";
+      expect(triggerForm(description), `${file}: "${description}"`).toBeDefined();
+    }
   });
 });

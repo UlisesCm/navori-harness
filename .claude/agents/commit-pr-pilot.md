@@ -1,6 +1,6 @@
 ---
 name: commit-pr-pilot
-description: Drafts commit messages and opens PRs with a title + body following the repo's format. Runs pre-flight against git/gh before touching the network.
+description: Drafts Conventional commits and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR.
 tools: Read, Glob, Grep, Bash
 ---
 

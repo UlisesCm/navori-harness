@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Strict reviewer. Approves or rejects the implementer's work against CLAUDE.md. Does not edit code.
+description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__*, mcp__codegraph__*
 ---
 

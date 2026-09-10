@@ -3882,7 +3882,8 @@ set -uo pipefail
 #              alone, and the discard `case` exits.
 #   2 spawns — a session already `#delegated` or `#notified`: + `session_id`,
 #              which is what names the stamp, and the stamp check exits.
-#   3 spawns — an edit that actually counts: + the file path.
+#   4 spawns — an edit that actually counts: + `agent_id` (the subagent guard
+#              below) + the file path.
 # The discard `case` therefore comes BEFORE `session_id`: a tool this hook does
 # not care about must not pay to locate a stamp it will never open.
 # Shared hook boilerplate — inlined into each hook at render time (see the
@@ -3951,6 +3952,12 @@ stamp="$stamp_dir/$sid"
 # that cannot be written means no note, never an error.
 mark() {
   mkdir -p "$stamp_dir" 2>/dev/null || return 0
+  # First write of THIS session's stamp: sweep siblings older than 7 days.
+  # One `find` over a tiny dir, once per session — without it the directory
+  # grows by one file per session forever (no SessionEnd hook owns it). Age,
+  # not session-end, on purpose: `--resume` reuses the session id, and a
+  # delete-on-end would re-arm the once-per-session notice on every resume.
+  [ -e "$stamp" ] || find "$stamp_dir" -type f -mtime +7 -delete 2>/dev/null || true
   grep -q -F -x "$1" "$stamp" 2>/dev/null && return 0
   printf '%s\n' "$1" >> "$stamp" 2>/dev/null || true
 }
@@ -3970,6 +3977,22 @@ esac
 # compaction, so a note that scrolled out of context is NOT re-emitted.
 # Repeating is what turns a signal into noise.
 grep -q -E '^#(delegated|notified)$' "$stamp" 2>/dev/null && exit 0
+
+# Hooks run INSIDE subagents too — the host fires the same PostToolUse for a
+# subagent's tool calls, adding `agent_id` to the payload (empty in the main
+# conversation). And the `#delegated` mark from the `Agent` case above only
+# lands when that tool RETURNS, i.e. after the subagent already finished. So
+# without this check a delegated implementer's own 4th edit would fire the
+# notice INTO THE SUBAGENT'S context — "no subagent has been invoked" is false
+# there, the advice is unactionable there (no Agent tool in its allowlist) —
+# and would burn the once-per-session note before the orchestrator could ever
+# receive it. An edit arriving from inside a subagent IS proof of delegation,
+# so it is recorded as exactly that.
+agent=$(payload_field agent_id)
+if [ -n "$agent" ]; then
+  mark "#delegated"
+  exit 0
+fi
 
 file=$(payload_field tool_input.file_path)
 # NotebookEdit has carried its target under `notebook_path` in some host
