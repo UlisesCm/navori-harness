@@ -5,7 +5,7 @@ type: behavior
 maxWords: 1000
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="16580b0b" version="0.8.2" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="16580b0b" version="0.8.3" source="@navori/core" -->
 # Verify Before Done
 
 ## The Iron Law
