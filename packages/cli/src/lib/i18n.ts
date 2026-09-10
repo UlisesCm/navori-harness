@@ -931,6 +931,13 @@ interface BlocksCmdStrings {
     siblingsLead: string;
     onlyWorkspace: string;
     scopedTaskHint: (name: string) => string;
+    /**
+     * Under `workspaceHarness: "minimal"` the workspace has skills and nothing
+     * else (spec 0018 R7). Without this line a collaborator opening the app
+     * reads that as a half-installed harness and "fixes" it by copying the
+     * root's files back in — recreating exactly what the trim removed.
+     */
+    inheritsFromRoot: string;
     rootHeading: string;
     rootIntro: (tool: string) => string;
     workspacesLead: string;
@@ -2137,6 +2144,8 @@ const CMD_ES: CmdStrings = {
       onlyWorkspace: "Por ahora es el único workspace declarado.",
       scopedTaskHint: (name) =>
         `Corre tareas acotadas con \`--filter=${name}\`. No importes el código de un hermano por ruta relativa; consúmelo como paquete (\`workspace:*\`).`,
+      inheritsFromRoot:
+        "Este workspace tiene su `CLAUDE.md` y sus skills; **los agentes, los hooks y los permisos son los de la raíz del repo**, no falta nada. Es deliberado: el motor los descubre hacia arriba desde donde arranca la sesión, así que una copia aquí nunca se leería. No los copies de vuelta.",
       rootHeading: "## Monorepo — root",
       rootIntro: (tool) =>
         `Este repo es un monorepo \`${tool}\`. El código real vive en los workspaces, cada uno con su propio harness (\`CLAUDE.md\` + \`.claude/\`). Al orquestar, **enruta cada tarea al workspace dueño** y trabaja desde su \`CLAUDE.md\`, no desde aquí.`,
@@ -3202,6 +3211,8 @@ const CMD_EN: CmdStrings = {
       onlyWorkspace: "For now it's the only declared workspace.",
       scopedTaskHint: (name) =>
         `Run scoped tasks with \`--filter=${name}\`. Don't import a sibling's code by relative path; consume it as a package (\`workspace:*\`).`,
+      inheritsFromRoot:
+        "This workspace has its `CLAUDE.md` and its skills; **the agents, hooks and permissions are the repo root's**, nothing is missing. It is deliberate: the engine discovers them by walking up from where the session started, so a copy here would never be read. Don't copy them back.",
       rootHeading: "## Monorepo — root",
       rootIntro: (tool) =>
         `This repo is a \`${tool}\` monorepo. The real code lives in the workspaces, each with its own harness (\`CLAUDE.md\` + \`.claude/\`). When orchestrating, **route each task to the owning workspace** and work from its \`CLAUDE.md\`, not from here.`,

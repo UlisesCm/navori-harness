@@ -2,7 +2,7 @@
 
 ## Lote 1 — el flag y el recorte
 
-- [ ] **T1** (R1) — `MonorepoSchema` gana `workspaceHarness: z.enum(["minimal","full"]).default("minimal")`
+- [x] **T1** (R1) — `MonorepoSchema` gana `workspaceHarness: z.enum(["minimal","full"]).default("minimal")`
   en `packages/cli/src/lib/schema.ts:89`, con el JSDoc que explica qué recorta y por
   qué el default es `minimal`. Regenerar el JSON Schema publicado con
   `pnpm gen:schemas`.
@@ -12,7 +12,7 @@
   · test: `src/lib/__tests__/schema-publish.test.ts` ya falla si el JSON Schema
   publicado queda atrás — no requiere caso nuevo, sí correr `pnpm gen:schemas`.
 
-- [ ] **T2** (R2, R3) — `renderClaudeEngine` gana la opción `harnessScope?: "minimal" | "full"`
+- [x] **T2** (R2, R3) — `renderClaudeEngine` gana la opción `harnessScope?: "minimal" | "full"`
   (default `"full"`, que es lo que hace hoy y lo que debe seguir haciendo el render
   de raíz). Bajo `"minimal"` se saltan los planes de `agents/`, `hooks/`,
   `scripts/`, `context/`, `planSettings` y `planMcpRegistration`; `CLAUDE.md` y
@@ -30,7 +30,7 @@
 
 ## Lote 2 — la reconciliación
 
-- [ ] **T3** (R4, R5) — `planOrphanRemoval` (`packages/cli/src/lib/removable.ts`)
+- [x] **T3** (R4, R5) — `planOrphanRemoval` (`packages/cli/src/lib/removable.ts`)
   gana el caso "archivo bajo `<workspace>/.claude/` fuera del alcance de
   `minimal`": lo remueve si lleva marca de autoría de navori, lo conserva y lo
   reporta si no. Reusa la misma marca y el mismo reporte de conservados que el
@@ -43,7 +43,7 @@
   y un segundo render seguido no reporta cambios ni borrados (idempotencia). Con
   `// Covers: R4`.
 
-- [ ] **T4** (R6) — `scanOrphanedEngineOutputs` (`packages/cli/src/lib/health.ts`)
+- [x] **T4** (R6) — `scanOrphanedEngineOutputs` (`packages/cli/src/lib/health.ts`)
   detecta un `.claude/` que viva en un subdirectorio del repo que
   `monorepo.workspaces[]` no declara, y `doctor` lo reporta con la ruta y la
   versión del bloque managed más viejo que encuentre ahí — que es el dato que dice
@@ -54,7 +54,7 @@
 
 ## Lote 3 — la prosa y el cierre
 
-- [ ] **T5** (R7) — `packages/core/core-assets/managed/contexto-monorepo.md` gana,
+- [x] **T5** (R7) — `packages/core/core-assets/managed/contexto-monorepo.md` gana,
   bajo `minimal`, la frase que dice que los agentes, hooks y settings del workspace
   son los de la raíz del repo. Sin ella, un colaborador que abre `apps/api/` ve un
   `.claude/` con solo `skills/` y lo lee como harness a medio instalar. El asset es
@@ -64,8 +64,25 @@
   de un workspace bajo `minimal` contiene la cláusula; bajo `full` no. Con
   `// Covers: R7`.
 
-- [ ] **T6** — rollout y medición del recorte: `navori render` en
+- [x] **T6** — rollout y medición del recorte: `navori render` en
   moonar-medusa-monorepo y navori-health, y reportar en el PR el conteo real de
   archivos removidos contra los 38 y 57 que predice el design. Si el número no
   cuadra, el diagnóstico tenía un hueco y eso se escribe antes de mergear.
   · sin test: es la verificación de campo del design, no comportamiento nuevo.
+
+  **Medido (render en preview, worktree limpio desde `main` de cada repo):**
+
+  | | Inalcanzables en disco | Borra el render | Quedan para el usuario |
+  |---|---|---|---|
+  | moonar (2 workspaces) | 48 | **40** | 8 |
+  | navori-health (3 workspaces) | 72 | **60** | 12 |
+
+  **El número NO cuadró con el design, y el hueco está escrito** (ver Decisions
+  y el recuento corregido en `design.md`): la tabla de conteo del design decía
+  38 y 57 porque olvidó `scripts/` y `.mcp.json`, que su propia tabla de
+  evidencia sí lista como inalcanzables. El real es 48 y 72 — casi la mitad de
+  cada PR de bump, no un tercio.
+
+  La diferencia entre inalcanzables y borrados son exactamente los scripts de
+  plugin (4 por workspace), que navori no puede probar que escribió y por eso
+  conserva y reporta en `doctor`. Causa raíz y arreglo: issue #637.

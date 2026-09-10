@@ -292,6 +292,8 @@ function buildContextoMonorepoBody(
   mono: MonorepoRenderContext | undefined,
   isWorkspace: boolean,
   lang: Lang,
+  /** Spec 0018 R7: say the workspace inherits, or its harness reads as broken. */
+  minimalHarness = false,
 ): string | null {
   const t = tc(lang).blocks.monorepo;
   if (isWorkspace) {
@@ -324,6 +326,13 @@ function buildContextoMonorepoBody(
     }
     lines.push("");
     lines.push(t.scopedTaskHint(currentName));
+    if (minimalHarness) {
+      // Without this, a collaborator who opens the app sees a `.claude/` with
+      // only `skills/` in it, reads a half-installed harness, and copies the
+      // root's files back in — recreating exactly what the trim removed.
+      lines.push("");
+      lines.push(t.inheritsFromRoot);
+    }
     lines.push("");
     return lines.join("\n");
   }
@@ -675,6 +684,7 @@ export function renderClaudeEngine(
     options.monorepoContext,
     isWorkspace,
     lang,
+    minimalHarness,
   );
   if (monorepoBody !== null) {
     const result = injectManagedSection(

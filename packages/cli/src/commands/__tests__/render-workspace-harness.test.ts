@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeConfig } from "../../lib/config.ts";
@@ -165,6 +165,29 @@ describe("render por workspace — `minimal` escribe solo lo alcanzable (spec 00
       expect(ws.trimmed, `${ws.workspaceName} borró bajo full`).toEqual([]);
     }
     expect(existsSync(join(cwd, "apps/backend/.claude/agents"))).toBe(true);
+  });
+
+  it("el CLAUDE.md del workspace dice que hereda de la raíz — solo bajo `minimal`", () => {
+    // Covers: R7
+    // Sin esta cláusula, quien abra `apps/backend/` ve un `.claude/` con solo
+    // `skills/`, lo lee como harness a medio instalar, y copia los archivos de
+    // la raíz de vuelta — recreando justo lo que el recorte quitó.
+    writeMonorepoConfig();
+    expect(runRender(cwd).ok).toBe(true);
+    const ws = readFileSync(join(cwd, "apps/backend/CLAUDE.md"), "utf-8");
+    expect(ws).toMatch(/agentes, los hooks y los permisos son los de la raíz/i);
+    expect(ws).toMatch(/no falta nada/i);
+
+    // La raíz nunca la lleva: ahí no se hereda nada.
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf-8")).not.toMatch(/no falta nada/i);
+  });
+
+  it("bajo `full` el workspace NO lleva la cláusula: no hereda, tiene lo suyo", () => {
+    // Covers: R7
+    writeMonorepoConfig("full");
+    expect(runRender(cwd).ok).toBe(true);
+    const ws = readFileSync(join(cwd, "apps/backend/CLAUDE.md"), "utf-8");
+    expect(ws).not.toMatch(/no falta nada/i);
   });
 
   it("es idempotente: un segundo render bajo `minimal` no reporta cambios", () => {
