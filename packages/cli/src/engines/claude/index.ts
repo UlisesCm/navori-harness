@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import type { MonorepoRenderContext } from "../../lib/monorepo.ts";
 import {
@@ -902,15 +902,54 @@ export function renderClaudeEngine(
   for (const plugin of minimalHarness ? [] : enabledPlugins) {
     for (const script of plugin.scriptAssets) {
       inspected += 1;
-      const plan = planPluginScript(cwd, script, config);
-      if (plan.kind === "write") {
-        pending.push({
-          path: plan.path,
-          content: plan.content,
-          status: plan.status,
-          chmodExec: plan.exec,
+      // #637: through the SAME managed-file path every other generated file
+      // uses, so the script carries a marker and navori can prove it wrote it.
+      // Before this it was a plain copy whose only mark was a prose comment,
+      // which made it the one file `navoriAuthorship` could never claim — so
+      // the engine prune left a disabled plugin's scripts behind forever, and
+      // spec 0018's workspace trim had to skip `scripts/` entirely.
+      //
+      // The marker lands ABOVE the shebang, exactly like the core hooks, and
+      // that is safe here for the same reason it is safe there: every one of
+      // the 28 references to these files in the assets invokes them as
+      // `bash <file>`, never directly. A shebang-aware renderer would change
+      // the bytes of every managed file in the park to fix nothing.
+      const managedId = pluginScriptManagedId(plugin.manifest.id, script.dest);
+      const destRelPath = `.claude/scripts/${script.dest}`;
+      const destAbs = join(cwd, destRelPath);
+      const onDisk = existsSync(destAbs) ? readFileSync(destAbs, "utf-8") : null;
+      // MIGRATION. A script written before #637 has no marker, and the normal
+      // path would append the block after it — duplicating the file (measured:
+      // 133 lines became 269). So a marker-less file is decided here first:
+      // byte-equal to the pre-#637 output means it is untouched navori work and
+      // gets replaced wholesale; anything else is the user's and is skipped
+      // with a reason rather than clobbered.
+      const legacy = onDisk !== null && !onDisk.includes(`navori:managed start id="${managedId}"`);
+      if (legacy && onDisk !== legacyPluginScriptContent(script, config)) {
+        skipped.push({
+          path: destRelPath,
+          reason: tc(lang).engine.managedBlockEditedByHand,
+          status: "user-modified-skipped",
         });
+        continue;
       }
+      applyManagedFilePlan(
+        planManagedFile({
+          cwd,
+          assetRoot: dirname(script.src),
+          assetRelPath: basename(script.src),
+          destRelPath,
+          managedId,
+          config,
+          meta: { source: `@navori/plugin-${plugin.manifest.id}`, version: NAVORI_VERSION },
+          extraVars: { jscpdThreshold: String(jscpdThresholdForPreset(config.preset)) },
+          treatAsFresh: legacy,
+        }),
+        cwd,
+        pending,
+        skipped,
+        script.exec,
+      );
     }
   }
 
@@ -1383,6 +1422,20 @@ interface ManagedFilePlanInput {
   destRelPath: string; // relative to cwd
   managedId: string;
   config: NavoriConfig;
+  /** Provenance stamped in the marker. Defaults to core; a plugin passes its own. */
+  meta?: { source: string; version: string };
+  /** Extra interpolation vars (a plugin script may declare its own). */
+  extraVars?: Record<string, string>;
+  /**
+   * Ignore what is on disk and render as if the file were new (#637).
+   *
+   * For a file that carries NO marker yet, the normal path would call
+   * `injectManagedSection`, which APPENDS the block after the existing content
+   * — duplicating the whole file. That is right for a `CLAUDE.md` gaining a new
+   * block and wrong for a script that IS the block. The caller opts in only
+   * after proving the file on disk is navori's own pre-marker output.
+   */
+  treatAsFresh?: boolean;
 }
 
 type ManagedFilePlan =
@@ -1393,13 +1446,15 @@ type ManagedFilePlan =
 function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
   const assetPath = resolve(input.assetRoot, input.assetRelPath);
   const destPath = join(input.cwd, input.destRelPath);
-  const existing = existsSync(destPath) ? readFileSync(destPath, "utf-8") : null;
+  const existing =
+    input.treatAsFresh === true || !existsSync(destPath) ? null : readFileSync(destPath, "utf-8");
   const result = renderManagedFile({
     assetPath,
     existingContent: existing,
     managedId: input.managedId,
-    meta: CORE_META,
+    meta: input.meta ?? CORE_META,
     config: input.config,
+    extraVars: input.extraVars,
   });
   if (result.status === "unchanged") return { kind: "noop" };
   if (result.status === "user-modified-skipped") {
@@ -1672,29 +1727,12 @@ function applyCodexCrossReview(
   pending.push({ path: targetAbs, content: next, status: "updated" });
 }
 
-type PluginScriptPlan =
-  | { kind: "noop" }
-  | {
-      kind: "write";
-      path: string;
-      content: string;
-      status: RenderStatus;
-      exec: boolean;
-    };
-
 /**
- * Plan one plugin script: read from the plugin package, interpolate
- * `{{...}}` placeholders against the config, compare to current dest
- * content. Plugin scripts are navori-owned entire files (no managed
- * markers / no user-section); any user edits are overwritten on the
- * next render that changes the rendered content.
- *
- * #215: unlike managed blocks/sub-blocks, a plugin script carries NO version
- * marker, so there's no drift to classify via `classifyVersionDrift`. It simply
- * auto-corrects on render — a content change yields a `write` that surfaces in
- * the render/`update` WRITE list (`agg.writes`), just not the managed-version
- * `updatesAvailable` report (which is version-marker-based by construction).
- * That's the intended, documented behavior, not a gap.
+ * #215 said a plugin script carried NO version marker, so there was no drift to
+ * classify and it simply auto-corrected on render. **#637 reversed that**: a
+ * script now goes through the same managed-file path as every other generated
+ * file, with an id, a hash and a version — so it drifts, reports and protects a
+ * hand edit exactly like a hook does.
  */
 /**
  * Presets whose repos are frontend UI codebases. Their JSX/TSX repeats by
@@ -1711,29 +1749,47 @@ const FRONTEND_PRESETS = new Set([
 ]);
 
 /** jscpd duplication threshold (percent) for a preset — see FRONTEND_PRESETS. */
+/**
+ * Managed id for a plugin script (#637). DERIVED, not declared: deriving it
+ * means every plugin already installed gains a provable marker on the next
+ * render, with no manifest edit and no burden on plugin authors — and an id
+ * nobody types is an id nobody can typo into a collision.
+ *
+ * `tgrep` + `tgrep-search.sh` → `tgrep-script-tgrep-search`.
+ */
+function pluginScriptManagedId(pluginId: string, dest: string): string {
+  const slug = dest
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  return `${pluginId}-script-${slug}`;
+}
+
 function jscpdThresholdForPreset(preset: string): number {
   return FRONTEND_PRESETS.has(preset) ? 10 : 5;
 }
 
-function planPluginScript(
-  cwd: string,
+/**
+ * Exactly what the pre-#637 renderer wrote for this script: interpolated, with
+ * the shell partials inlined, and no marker.
+ *
+ * This is the migration oracle, and it is the only honest one available. A
+ * legacy script carries no marker, so nothing distinguishes "navori wrote this"
+ * from "the user put a file here" — except reproducing the old output and
+ * comparing. Byte-equal means it is untouched navori output and can be replaced
+ * wholesale; anything else is the user's and gets skipped with a reason.
+ *
+ * Note this is a WRITE decision, not a delete one, and it fails toward not
+ * writing — which is why the byte comparison is acceptable here and was
+ * rejected for the removal path (spec 0018).
+ */
+function legacyPluginScriptContent(
   script: { src: string; dest: string; exec: boolean },
   config: NavoriConfig,
-): PluginScriptPlan {
-  const destPath = join(cwd, ".claude/scripts", script.dest);
-  // Inline `# navori:include` shell partials before interpolating so the shared
-  // gate boilerplate has one source of truth yet the rendered script is standalone.
+): string {
   const raw = expandHookIncludes(readFileSync(script.src, "utf-8"));
-  const interpolated = interpolate(raw, config, {
+  return interpolate(raw, config, {
     extraVars: { jscpdThreshold: String(jscpdThresholdForPreset(config.preset)) },
   });
-  const existing = existsSync(destPath) ? readFileSync(destPath, "utf-8") : null;
-  if (existing === interpolated) return { kind: "noop" };
-  return {
-    kind: "write",
-    path: destPath,
-    content: interpolated,
-    status: existing === null ? "created" : "updated",
-    exec: script.exec,
-  };
 }
