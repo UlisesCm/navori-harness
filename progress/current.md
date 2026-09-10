@@ -1,62 +1,74 @@
 # Sesión actual
 
-**Estado:** `main` en `44065d0`, limpio. **0 issues abiertos, 0 PRs abiertos.**
-npm en **0.8.2**; `main` tiene dos cosas **sin publicar**: la spec 0018 y el #641.
+**Estado:** `main` en `6f32a00` (0.8.3 publicado y taggeado). **2 PRs abiertos** —#644 y
+#645, los dos de la revisión del parque— y **3 issues** en navori-harness: #646, #647, #648.
 
-## Lo que quedó cerrado
+## Dónde quedó todo
 
-Ver la entrada del 2026-09-10 en `progress/history.md` — no se repite aquí.
+Ver `progress/history.md`, entradas del 2026-09-10. No se repite aquí.
 
-## Lo único en curso: la medición
+Resumen de una línea: **el 0.8 cumple su propósito en los 20 repos del parque** —la escalera
+de ruteo llega como cuerpo en todos, verificado uno por uno— y **lo que falta es medirlo**.
 
-El brazo "después" de la tasa de activación se acumula **solo**, con el uso normal de
-`moonar-medusa-monorepo` y `navori-health`. Los dos corren ya 0.8.2 con los archivos de
-contexto prefijados, así que sus próximas sesiones sí reciben la escalera como cuerpo.
+## Lo primero al retomar
 
-Cuando haya sesiones suficientes: correr `scripts/mine-activation.py` sobre ellas y comparar
-contra la tabla de `docs/research/activacion-subagentes-y-skills.md`. **No hace falta el A/B
-sintético** de `scripts/ab-activation/`.
+1. **Mergear #644 y #645.** Los dos salieron de revisar el parque repo por repo: un falso
+   positivo del check de harness congelado, y un mensaje de `doctor` que ofrecía el formato
+   plano de skills como arreglo. Ninguno urge, los dos son correctos.
+2. **Con eso mergeado hará falta un 0.8.4** para que esos dos fixes lleguen al parque. Son de
+   `doctor` y de prosa, así que no corre prisa — se pueden acumular con lo que venga.
 
-**Reserva de método, deliberada:** no rodar más specs a esos dos repos mientras se acumula la
-data. La 0018 solo cambia monorepos —o sea exactamente esos dos— y metería una segunda
-variable justo donde se quiere aislar una. Por eso el **0.8.3 está retenido a propósito**, no
-olvidado.
+## Lo único que corre solo: la medición (#648)
 
-## Cuando la medición cierre
+El brazo "después" de la tasa de activación se acumula con el uso normal de
+`moonar-medusa-monorepo` y `navori-health`, que ya corren 0.8.3. Cuando haya sesiones
+suficientes: `python3 scripts/mine-activation.py <ids>` y comparar contra la tabla de
+`docs/research/activacion-subagentes-y-skills.md`.
 
-1. **Release 0.8.3** con la spec 0018 y el #641, y rollout. Ojo: el #641 cambia los bytes de
-   **todo** script de plugin del parque — conviene leer el diff en un repo antes de los 20.
-2. El primer rollout de la 0018 a los monorepos borra ~40 archivos en moonar y ~60 en
-   navori-health. Es el momento de leer el reporte de conservados; en la medición de campo
-   ambos dieron **0 conservados**.
+**Regla que ese documento ya se puso:** el resultado se escribe aunque salga nulo o inverso.
+Y si el número no se mueve, la respuesta **no** es escribir más prosa — dos veces en este
+proyecto la conclusión fácil fue "falta doctrina" y las dos veces el dato dijo otra cosa.
+
+## Issues abiertos
+
+- **#646** — `.managed-drift-stamp` gitignoreado pero trackeado. Ensucia cada sesión y bloquea
+  `git pull`. Toca el guard anti-rollback, por eso no se hizo al vuelo.
+- **#647** — un check transversal para doctrina que afirma algo falso sobre el host. **Cinco
+  defectos de esta jornada tienen esa firma** y ninguno se detectó por un mecanismo. Conviene
+  diseñarlo antes de codearlo: puede que la respuesta sea extender `hook-claims-vs-scripts`.
+- **#648** — cerrar la medición de activación.
+
+Y en repos del usuario: `navori-dashboard-template#100` y `alertaciudadana_app#251`, por las
+skills en formato plano que nunca han cargado.
 
 ## Deuda conocida, con su razón
 
 - **`scripts/` fuera del recorte por workspace.** Los que ya están en un workspace se
   escribieron sin marcador y bajo `minimal` no se re-escriben, así que nunca lo ganan.
-  Reincorporarlos devolvería el aviso irresoluble que la 0018 quitó a propósito. `doctor` los
-  reporta; la limpieza de una vez es del usuario.
-- **`.claude/.managed-drift-stamp`** está en `.gitignore` pero sigue trackeado: ensucia cada
-  sesión y bloquea `git pull`. Se limpia con `git rm --cached`.
-- **El guard de aislamiento `~/.navori`** da falso positivo determinista mientras haya sesiones
-  de Claude Code vivas en otros repos. Verificado tres veces hoy por mtime.
-- **`.atl/` en 4 repos**: NO se toca. Se investigó y no interfiere — es un dot-directory, fuera
-  de toda búsqueda de contenido. `doctor` lo reporta como higiene.
+  `doctor` los reporta; la limpieza de una vez es del usuario.
+- **El guard de aislamiento `~/.navori`** da falso positivo determinista con sesiones
+  concurrentes en otros repos.
+- **`.atl/` en 4 repos**: NO se toca. Investigado — 185 transcripts, cero lecturas como guía;
+  es dot-directory, fuera de toda búsqueda de contenido.
+- **Los working trees de moonar y navori-health** cargan el harness 0.8.3 sin commitear,
+  duplicando lo que ya va en sus PRs (#130 y #39). Se limpian con
+  `git checkout -- .claude CLAUDE.md .mcp.json` **después** de mergearlos.
+- **Worktrees sin reclamar** en esos dos repos: había sesiones vivas dentro, así que no se
+  tocaron.
 
 ## Notas de método que costaron
 
 **Un hook no se verifica por lo que emite, sino por lo que sobrevive al corte del host** — y
-tiene 4 `SessionStart`; mirar solo el primero da un falso negativo.
+hay 4 `SessionStart`; mirar solo el primero da un falso negativo.
 
-**Cuando el arnés frena un cambio, el guardián suele tener mejor razón que el cambio.** 15
-suites fallaron al recortar el bloque de orquestación; ninguna se reescribió para que el cambio
-pasara.
+**Revisar el parque repo por repo encuentra lo que las suites no.** Los dos fixes de hoy
+salieron de ahí, no de un test.
 
-**Revisar las inspiraciones antes de decidir una convención.** En #626 dieron la respuesta en
-10 minutos y superpowers aportó un caso que no se habría considerado.
+**Cuando el arnés frena un cambio, el guardián suele tener mejor razón que el cambio.**
 
-**No usar `git add -u` en un repo con otra sesión viva.** Barrió archivos de un refactor en
-vuelo; el método correcto es re-renderizar en un **worktree aislado desde `main`**.
+**No usar `git add -u` en un repo con otra sesión viva.** El método correcto es re-renderizar
+en un **worktree aislado desde `main`** y abrir PR desde ahí.
 
-**"Conservador" no es "estable".** Conservar-y-reportar parecía deuda crónica y no lo era:
-bajo `minimal` navori no reescribe esos archivos, así que se borran una vez y el aviso calla.
+**"Conservador" no es "estable".** Conservar-y-reportar parecía deuda crónica y no lo era.
+
+**Un puntero no puede vivir dentro del archivo que enseña a grepear.**
