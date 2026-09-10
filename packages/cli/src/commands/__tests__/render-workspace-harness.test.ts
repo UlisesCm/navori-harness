@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeConfig } from "../../lib/config.ts";
@@ -129,6 +129,44 @@ describe("render por workspace — `minimal` escribe solo lo alcanzable (spec 00
     }
   });
 
+  it("migrar de `full` a `minimal` borra lo de navori y CONSERVA lo ajeno", () => {
+    // Covers: R4, R5
+    // El caso de campo: un repo ya renderizado por un navori anterior tiene los
+    // archivos en disco y, donde el harness se versiona, commiteados.
+    writeMonorepoConfig("full");
+    expect(runRender(cwd).ok).toBe(true);
+    const ws = join(cwd, "apps/backend");
+    expect(existsSync(join(ws, ".claude/agents/reviewer.md"))).toBe(true);
+
+    // Un archivo que el usuario puso ahí a mano, sin marca de navori.
+    writeFileSync(join(ws, ".claude/agents/mio.md"), "# mi agente propio\n");
+
+    writeMonorepoConfig("minimal");
+    const result = runRender(cwd);
+    expect(result.ok).toBe(true);
+
+    const backend = result.workspaces.find((w) => w.workspaceName === "backend");
+    expect(backend).toBeDefined();
+    // Lo de navori se fue…
+    expect(existsSync(join(ws, ".claude/agents/reviewer.md"))).toBe(false);
+    expect(backend?.trimmed.some((r) => r.endsWith("reviewer.md"))).toBe(true);
+    // …y lo del usuario sobrevive Y se reporta, que es la única señal de que
+    // algo en esos directorios no era de navori.
+    expect(existsSync(join(ws, ".claude/agents/mio.md"))).toBe(true);
+    expect(backend?.trimmedKept.some((k) => k.path.endsWith("mio.md"))).toBe(true);
+  });
+
+  it("`full` no borra nada: el recorte es solo de `minimal`", () => {
+    // Covers: R4
+    writeMonorepoConfig("full");
+    expect(runRender(cwd).ok).toBe(true);
+    const second = runRender(cwd);
+    for (const ws of second.workspaces) {
+      expect(ws.trimmed, `${ws.workspaceName} borró bajo full`).toEqual([]);
+    }
+    expect(existsSync(join(cwd, "apps/backend/.claude/agents"))).toBe(true);
+  });
+
   it("es idempotente: un segundo render bajo `minimal` no reporta cambios", () => {
     // Covers: R2
     writeMonorepoConfig();
@@ -137,6 +175,7 @@ describe("render por workspace — `minimal` escribe solo lo alcanzable (spec 00
     expect(second.ok).toBe(true);
     for (const ws of second.workspaces) {
       expect(ws.written, `${ws.workspaceName} reescribió en el segundo render`).toBe(false);
+      expect(ws.trimmed, `${ws.workspaceName} volvió a borrar`).toEqual([]);
     }
   });
 });
