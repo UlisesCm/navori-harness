@@ -259,10 +259,11 @@ const ProjectSchema = z
     /** Skill ids the user owns under `.claude/skills/<id>/SKILL.md`. navori never
      * writes their content — it only indexes them so agents discover them.
      *
-     * The DIRECTORY form is the only one Claude Code loads (#626); this doc
-     * used to name the flat `<id>.md`, which is the shape that silently never
-     * loads. A declared id whose file is flat resolves to nothing, so the index
-     * degrades to the bare path and `doctor` reports it. */
+     * The DIRECTORY form is the only one Claude Code loads (#626, recorded as
+     * `skills-load-shape` in `host-contracts.ts`); this doc used to name the
+     * flat `<id>.md`, which is the shape that silently never loads. A declared
+     * id whose file is flat resolves to nothing, so the index degrades to the
+     * bare path and `doctor` reports it. */
     localSkills: z.array(z.string()).default([]),
     /** Conflicts with a foreign harness the repo has decided to live with
      * (spec 0014, #555). Ids are `<type>:<scope>:<name>` — no absolute paths,
