@@ -244,4 +244,42 @@ describe("describeNavoriHomeLeak", () => {
     expect(describeNavoriHomeLeak(root, null, snapshotOf({ a: "dir" }))).toBeNull();
     expect(describeNavoriHomeLeak(root, snapshotOf({ a: "dir" }), null)).toBeNull();
   });
+
+  /**
+   * #656 — audit-mode ships unconditionally and arms per session, so a Claude
+   * session open on ANY other repo appends to its own log on every prompt, for
+   * minutes at a time, right through a test run. The guard read that as a leak
+   * and failed four consecutive suites in one day while 3,436 tests passed under
+   * it. A red that means nothing trains people to ignore the guard, and it also
+   * hid the coverage floor (`vitest && check-coverage-floor`).
+   */
+  it("ignores another repo's audit log — a concurrent session, not a leak", () => {
+    const before = snapshotOf({ "audits/other-repo/session-a.log": "10:100" });
+    const after = snapshotOf({ "audits/other-repo/session-a.log": "99:200" });
+    expect(describeNavoriHomeLeak(root, before, after, "navori-harness")).toBeNull();
+  });
+
+  it("STILL reports this repo's own audit log — that one is a real leak", () => {
+    // The teeth. A spec that forgets its mock writes under the repo under test,
+    // and the filter must not reach it.
+    const before = snapshotOf({ "audits/navori-harness/session-a.log": "10:100" });
+    const after = snapshotOf({ "audits/navori-harness/session-a.log": "99:200" });
+    const leak = describeNavoriHomeLeak(root, before, after, "navori-harness");
+    expect(leak).toContain("MODIFIED 1 entry");
+    expect(leak).toContain("audits/navori-harness/session-a.log");
+  });
+
+  it("keeps the top-level `audits` entry watched", () => {
+    // Any real leak also creates a child, so keeping the parent strict costs
+    // nothing and closes the gap of a bare directory appearing.
+    const leak = describeNavoriHomeLeak(root, new Map(), snapshotOf({ audits: "dir" }), "self");
+    expect(leak).toContain("Created 1 entry");
+    expect(leak).toContain("audits");
+  });
+
+  it("stays strict when no repo is named — the filter is opt-in", () => {
+    const before = snapshotOf({ "audits/other-repo/session-a.log": "10:100" });
+    const after = snapshotOf({ "audits/other-repo/session-a.log": "99:200" });
+    expect(describeNavoriHomeLeak(root, before, after)).toContain("MODIFIED 1 entry");
+  });
 });

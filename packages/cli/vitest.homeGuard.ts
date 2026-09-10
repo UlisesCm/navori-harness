@@ -254,6 +254,41 @@ function comparable(snapshot: HomeSnapshot, unwatched: readonly string[]): HomeS
 }
 
 /**
+ * `audits/<repo>/…` belonging to a repo that is NOT the one under test.
+ *
+ * Audit-mode ships unconditionally and arms per session, so a Claude session
+ * open on ANY other repo appends to its own log on every prompt — for minutes at
+ * a time, right through a test run. The guard saw that as a leak and failed four
+ * consecutive green suites in one day, naming `audits/reports-server-bonum/…`
+ * and `audits/navori-health/…` while the tests under it passed 3,436 of 3,436.
+ *
+ * The filter is deliberately the narrowest that removes the noise: only the
+ * per-repo subtree of a DIFFERENT repo. A leak from this repo's own specs lands
+ * under `audits/<selfRepo>/` and still fails; every other subtree of the root
+ * (`backups/`, `workspaces/`, `migrations/`, the loose files) stays strict. The
+ * top-level `audits` entry itself stays watched too — any real leak creates a
+ * child under it, so nothing is lost by keeping the parent honest.
+ *
+ * `selfRepo` null disables the filter, which is what a caller that cannot name
+ * the repo under test should get: strict, like before.
+ */
+function isForeignAudit(path: string, selfRepo: string | null): boolean {
+  if (selfRepo === null) return false;
+  const [top, repo] = path.split("/");
+  return top === "audits" && repo !== undefined && repo !== selfRepo;
+}
+
+/** A snapshot without another repo's audit logs (see `isForeignAudit`). */
+function withoutForeignAudits(snapshot: HomeSnapshot, selfRepo: string | null): HomeSnapshot {
+  if (selfRepo === null) return snapshot;
+  const kept = new Map<string, string>();
+  for (const [path, fingerprint] of snapshot) {
+    if (!isForeignAudit(path, selfRepo)) kept.set(path, fingerprint);
+  }
+  return kept;
+}
+
+/**
  * Compare the before/after snapshots and describe the damage, or `null` when
  * the run left the real root untouched. Names every entry that appeared,
  * disappeared or changed — a guard that only says "something changed" is a
@@ -264,11 +299,12 @@ export function describeNavoriHomeLeak(
   root: string,
   before: HomeSnapshot | null,
   after: HomeSnapshot | null,
+  selfRepo: string | null = null,
 ): string | null {
   if (!before || !after) return null;
   const unwatched = unwatchedNames(before, after);
-  const from = comparable(before, unwatched);
-  const to = comparable(after, unwatched);
+  const from = withoutForeignAudits(comparable(before, unwatched), selfRepo);
+  const to = withoutForeignAudits(comparable(after, unwatched), selfRepo);
   const created: string[] = [];
   const modified: string[] = [];
   for (const [path, fingerprint] of to) {
@@ -284,8 +320,10 @@ export function describeNavoriHomeLeak(
     `directory — mock os.homedir() (registry, global-config, workspaces, migrations,`,
     `workspace trash) or set NAVORI_BACKUP_ROOT, which vitest.setup.ts already does`,
     `for every spec. Entry paths are relative to the root, so the fixture label or`,
-    `workspace name below names the spec that escaped isolation — unless a real`,
-    `navori run happened concurrently, which reads as a false positive.`,
+    `workspace name below names the spec that escaped isolation. Another repo's`,
+    `audit logs are filtered out (they are written by concurrent sessions, not by`,
+    `these tests); a concurrent navori run doing anything ELSE can still land here`,
+    `as a false positive.`,
     ...section("Created", created.sort()),
     ...section("MODIFIED", modified.sort()),
     ...section("DELETED", deleted.sort()),
