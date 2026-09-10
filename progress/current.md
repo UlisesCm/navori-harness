@@ -1,85 +1,87 @@
 # Sesión actual
 
-**Estado:** `main` en `910f3e1`, limpio y sincronizado. **npm sigue en 0.8.0** — el fix de
-entrega vive en `main` y **no está publicado**. 0 PRs propios abiertos. 2 issues abiertos:
-#625 y #626, los dos sobre skills, ninguno de esta jornada.
+**Estado:** `main` en `40b57f8`, limpio. **npm en 0.8.1**; hay **dos fixes en `main` sin
+publicar** (#633 y #634). 0 PRs propios abiertos. **0 issues abiertos** — #625 y #626
+cerrados hoy.
 
-## Jornada: el CI ambiental, y la escalera que por fin llega
+## Jornada: el CI ambiental, la escalera que llega, y dos bugs de skills
 
 ### El CI estaba rojo por un repo de terceros (#629)
 
-`main` y los dos PRs abiertos, tres rojos con **una sola causa ajena al código**:
-`apt-get update` sale con exit 100 si CUALQUIER fuente configurada falla, y la imagen del
-runner trae el repo apt de Google Chrome, cuyo índice sirvió un `Hash Sum mismatch`. No era
-transitorio: el rerun falló idéntico, y en la corrida ya verde el mismatch seguía ahí.
+Tres rojos —`main` y dos PRs— con **una sola causa ajena al código**: `apt-get update` sale
+con exit 100 si CUALQUIER fuente falla, y el runner trae el repo apt de Chrome con un
+`Hash Sum mismatch`. No era transitorio: el rerun falló idéntico. La garantía se movió a
+`zsh --version`; un `|| true` a secas habría matado la mitad zsh de las suites en silencio.
 
-El fix deja que el `update` reporte una fuente rota y mueve la garantía a `zsh --version`.
-Un `|| true` a secas habría dejado de instalar zsh en silencio, y la mitad zsh de las suites
-de hooks (#391) habría desaparecido sin avisar — el mismo "check que se salta a sí mismo" de
-#421/#504.
+### Spec 0019 — la escalera de ruteo llega (#630, #631)
 
-### Spec 0019 — la escalera de ruteo llega (#630 spec, #631 implementación)
+**La spec se reescribió a v2 durante su propia implementación.** Dos hallazgos la falsificaron:
 
-**La spec se reescribió a v2 durante su propia implementación.** La v1 modeló "un bloque
-gordo contra el git log" y eso resultó falso. Dos hallazgos lo tumbaron:
+1. **No era tamaño, era el alfabeto.** `.claude/context/` lleva cuatro archivos y el hook los
+   recorre con un glob que expande alfabéticamente. `orquestacion.md` quedaba último **por
+   empezar con "o"**. Prueba: recortado a 4,757 chars *seguía* cayendo a puntero. La
+   intención de prioridad ya existía en `CORE_MANAGED_ASSETS`; se perdía en el nombre del
+   archivo. Ahora el orden viaja EN el nombre (`10-`, `20-`, `30-`, `40-`).
+2. **La tabla señal→mecanismo no podía moverse** (#379 B): la decisión se toma mientras se
+   lee la tarea. Se revirtió el cambio, no el test.
 
-1. **El canal estaba sobre-suscrito y el perdedor lo decidía el alfabeto.**
-   `.claude/context/` lleva CUATRO archivos; el hook los recorre con un glob, que expande
-   alfabéticamente. `orquestacion.md` quedaba último **por empezar con "o"**, y los otros
-   tres gastaban 5,562 del presupuesto de 8,000 antes de que le tocara. Prueba de que
-   recortar no bastaba: con el bloque ya en 4,757 **seguía cayendo a puntero**. Y la
-   intención de prioridad ya existía — `CORE_MANAGED_ASSETS` declara `orquestacion` primero
-   (`render-plan.ts:105`); se perdía en el nombre del archivo. Ahora el orden viaja EN el
-   nombre (`10-`, `20-`, `30-`, `40-`, paso de 10).
+De 15 suites que fallaron, **ninguna se reescribió para que el cambio pasara**.
 
-2. **La tabla señal→mecanismo no puede salir del bloque.** `analysis-cascade-wiring.test.ts`
-   (#379 B) lo impide con mejor razón: la decisión se toma **mientras se lee la tarea**, no
-   después de decidir delegar. Se revirtió el cambio, no el test.
+### Release 0.8.1 + rollout 20/20
 
-Medición real, corriendo el hook: **8,424 bytes** contra los 10,441 del corte mínimo
-observado. Escalera y catálogo como **cuerpo**; arranque, cierre, git log y resume con
-puntero accionable. El git log pasó a `add_bounded` — con la olla por fin llena puede ser él
-quien la desborde, y es lo más reconstruible del canal.
+Patch y no minor por decisión de Ulises, con mejor razón que la propuesta: el 0.8.0 shippeó
+ese feature a la mitad, así que esto lo termina. Rollout a 20 repos, 0 conflictos, 6
+entradas fantasma podadas. PRs de harness en los dos repos vivos: moonar #123 y
+navori-health #30, **ambos mergeados**.
 
-El bloque bajó de 12,728 a **6,495** chars. Cuatro cláusulas existían SOLO ahí (worktree,
-ancestría tras squash-merge, load-bearing claims, cap de 2 ciclos) y se injertaron en
-`leader.md` **antes** de retirarlas.
+### #625 — doctor avisa de índices de skills ajenos muertos (#633)
 
-**Un bug que el arnés atajó**: la doctrina enseñaba a detectar el cross-review con
-`grep -n codex-cross-review .claude/agents/leader.md`. Al mudar ese párrafo DENTRO de
-leader.md el grep habría acertado siempre — falso positivo en todo repo que solo renderiza
-Claude. Lo cazó `render-engine.test.ts`, que usa ese token como prueba de ausencia.
+Cuatro repos traen commiteado un `.atl/skill-registry.md` de gentle-ai: 22, 27, 21 y 48
+skills indexadas, **cero** rutas existentes. Detectar y reportar, nunca tocar. La propiedad
+que lo hace usable: solo reporta si ninguna ruta resuelve — con una viva, calla.
+
+### #626 — el formato de skills, y navori era el outlier (#634)
+
+El issue decía que la doctrina *afirma* algo falso. Peor: `resolveLocalSkillPath` resolvía el
+plano **primero** y le ganaba al directorio, así que navori publicaba en `CLAUDE.md` skills
+que Claude Code nunca carga. Verificado en tres fuentes: la tabla oficial (5 ubicaciones,
+todas `<skill-name>/SKILL.md`), gentle-ai (`registry.go:286`, "the Agent Skills layout") y
+superpowers (cero `.md` sueltos). El plano existe, pero para `.claude/commands/`.
 
 ## Lo que sigue
 
-1. **Publicar y hacer rollout.** El fix está en `main` y **no en npm**: ningún repo del
-   parque lo tiene todavía. Ojo, el cambio **renombra archivos renderizados**
-   (`context/<id>.md` → `context/NN-<id>.md`), así que el rollout migra, no solo actualiza —
-   el render retira el nombre viejo en el mismo apply, pero conviene verificarlo en uno
-   antes de los 18.
-2. **El A/B de activación** ya no mide un harness roto contra sí mismo. **Pero el banco
-   commiteado mide H4** (`--permission-mode auto` vs `acceptEdits`), no el cambio que
-   acabamos de shippear. El A/B que mediría ESTO es harness-viejo (npm 0.8.0) contra
-   harness-nuevo (local), misma fixture y mismo prompt — barato de construir sobre el mismo
-   banco, porque `AB_NAVORI` ya es un parámetro.
-3. **Implementar la spec 0018** (6 tareas en 3 lotes). Su rollout BORRARÁ ~38 archivos en
-   moonar y ~57 en navori-health.
-4. **#625 y #626**, ambos sobre skills.
-5. **T10 de la spec 0017** sigue sin marcar.
-6. **El drift de bonum-webapp**: un mes sin commitear, con el 0.8.0 encima.
+1. **Release 0.8.2 + rollout.** #633 y #634 están en `main` y no en npm. El #634 cambia
+   doctrina renderizada, así que hasta que no se publique los 20 repos siguen diciendo que
+   un `.md` plano es una skill válida.
+2. **El A/B de activación.** El banco commiteado mide **H4** (modo de permisos), no lo que
+   shippeamos. El brazo que mediría ESTO es harness 0.8.0 (npm) contra 0.8.1+ (local), misma
+   fixture y prompt — barato de construir porque `AB_NAVORI` ya es parámetro. Es la pregunta
+   que abrió #622 (activación al 2%) y por fin es medible.
+3. **Implementar la spec 0018** (6 tareas, 3 lotes). Borrará ~38 archivos en moonar y ~57 en
+   navori-health.
+4. **T10 de la spec 0017** sigue sin marcar.
+5. **Limpiar `.atl/`** en los 4 repos (`git rm -r --cached .atl` + `.gitignore`). Fuera del
+   alcance de #625 a propósito.
 
 ## Notas de método
 
-**Cuando el arnés frena un cambio, el guardián suele tener mejor razón que el cambio.** 15
-suites fallaron al recortar el bloque; ninguna se reescribió para que el cambio pasara. Cada
-una se re-ancló (el hecho sobrevive, cambia de dirección) o se revirtió el cambio que la
-rompía. Las dos peores habrían sido pérdidas silenciosas de doctrina.
+**Tres bugs de hoy son la misma familia**: doctrina que afirma algo falso sobre cómo se
+comporta el host. #623 (el corte del contexto), #626 (el formato de skills) y el `grep`
+autocumplido del cross-review. Un check transversal podría tener sentido.
 
-**Un puntero no puede vivir dentro del archivo que enseña a grepear.**
+**Revisar las inspiraciones antes de decidir una convención vale la pena.** En #626 dieron la
+respuesta en 10 minutos y confirmaron que el bug era nuestro — y superpowers aportó un caso
+que no habría considerado: los `.md` DENTRO de una skill son material de apoyo legítimo, así
+que marcarlos habría convertido el check en ruido.
 
-**El guard de aislamiento de `~/.navori` sigue dando falso positivo determinista** mientras
-haya sesiones de Claude Code vivas en otros repos. Verificado dos veces hoy por mtime.
+**Cuando el arnés frena un cambio, el guardián suele tener mejor razón que el cambio.**
 
-**`.claude/.managed-drift-stamp` está en `.gitignore:20` pero sigue trackeado**, así que se
-ensucia en cada sesión y bloquea `git pull`. Se limpia con `git rm --cached`. Papercut
-conocido, no atendido.
+**No usar `git add -u` en un repo con otra sesión viva.** Costó: barrió archivos de un
+refactor en vuelo en navori-health, y al deshacerlo con `reset --soft` quedaron en el índice
+—estado compartido— donde la otra sesión los commiteó. Nada se perdió; el PR salió limpio
+re-renderizando en un **worktree aislado desde `main`**, que es el método a repetir.
+
+**Papercuts vivos:** `.claude/.managed-drift-stamp` está en `.gitignore` pero sigue trackeado
+(ensucia cada sesión, bloquea `git pull`); el guard de aislamiento `~/.navori` da falso
+positivo determinista con sesiones concurrentes; y el bloque renderizado mide distinto por
+repo — bonum-webapp es el más apretado, ~1,000 bytes de margen contra el corte del host.
