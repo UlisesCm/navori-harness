@@ -588,3 +588,70 @@ describe("signal: unused-skills splits by provenance", () => {
     expect(found?.evidence).toBe("de navori (1): review-diff");
   });
 });
+
+describe("signal: routing-notice (spec 0020 R5)", () => {
+  /**
+   * The note has to be COUNTABLE, not merely emitted. `routing-watch` injects
+   * it at most once per session, and an injected note leaves no trace a later
+   * reading of the transcript can find — so the hook records the emission in
+   * the audit log (`verdict: "notify"`) and this signal reads it back.
+   *
+   * Without it, the question the whole spec exists to answer — did the ladder
+   * fire, and did delegation follow? — has no source. #623 is the standing
+   * reason the two halves are asserted apart: "the hook emitted it" and "the
+   * session acted on it" are different claims.
+   */
+  const notice = (reason: string) => ({
+    ts: "2026-09-10T12:00:00Z",
+    name: "routing-watch",
+    phase: "PostToolUse",
+    verdict: "notify",
+    ms: 3,
+    source: "core",
+    reason,
+  });
+
+  const withNotice = (reason: string, agents: SessionAudit["agents"] = []) =>
+    session({
+      orchestrator: { ...session().orchestrator, hookEvents: [notice(reason)] },
+      agents,
+    });
+
+  const routing = (s: SessionAudit) =>
+    detectSignals(s, catalog(), "es").filter((x) => x.kind === "routing-notice");
+
+  it("counts the session's routing notice and carries its detail", () => {
+    // Covers: R5
+    const found = routing(withNotice("7 archivos del hilo principal, sin subagente"));
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence).toContain("7 archivos");
+  });
+
+  it("warns when the note fired and the session still never delegated", () => {
+    // Covers: R5
+    const found = routing(withNotice("4 archivos del hilo principal, sin subagente"));
+    expect(found[0]?.severity).toBe("warn");
+    expect(found[0]?.summary).toContain("sin delegar");
+  });
+
+  it("reports info — not a warning — when delegation followed", () => {
+    // Covers: R5
+    const agents = [agent({ agentType: "implementer" }), agent({ agentType: "reviewer" })];
+    const found = routing(withNotice("4 archivos del hilo principal, sin subagente", agents));
+    expect(found[0]?.severity).toBe("info");
+    expect(found[0]?.summary).toContain("2 subagentes");
+  });
+
+  it("stays silent when the note never fired — silence is not a finding", () => {
+    // Covers: R5
+    expect(routing(session())).toEqual([]);
+    // A routing-watch run that did NOT notify is not a notice either.
+    const ran = session({
+      orchestrator: {
+        ...session().orchestrator,
+        hookEvents: [{ ...notice("x"), verdict: "skip" }],
+      },
+    });
+    expect(routing(ran)).toEqual([]);
+  });
+});

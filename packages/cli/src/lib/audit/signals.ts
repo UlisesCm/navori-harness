@@ -570,6 +570,62 @@ function recorderCoverage(session: SessionAudit, lang: Lang): Signal[] {
 }
 
 /** Runs every detector over one session. */
+/**
+ * R5 of spec 0020 — did the routing ladder actually fire, and did delegation
+ * follow?
+ *
+ * `routing-watch` injects its note at most once per session, and an injected
+ * note is invisible to any later reading of the transcript. So the hook records
+ * the emission in the audit log (`verdict: "notify"`), and this is what turns
+ * that line into an answer.
+ *
+ * Two states, and the second is the one worth naming: the note fired AND the
+ * session still ended with zero subagents. That is not a hook failure — the
+ * note is advisory by design, and inline is sometimes right — but it is the
+ * measurement the spec exists to produce, and it has to be visible rather than
+ * inferred from a log nobody opens.
+ */
+function routingNotice(session: SessionAudit, lang: Lang): Signal[] {
+  const notices = [
+    ...session.orchestrator.hookEvents,
+    ...session.agents.flatMap((a) => a.hookEvents),
+  ].filter((e) => e.name === "routing-watch" && e.verdict === "notify");
+  if (notices.length === 0) return [];
+
+  const detail = notices[0]?.reason ?? "";
+  const delegated = session.agents.length;
+  if (delegated > 0) {
+    return [
+      {
+        kind: "routing-notice",
+        severity: "info",
+        summary: pick(
+          lang,
+          `El aviso de ruteo salió y la sesión delegó (${delegated} subagente${delegated === 1 ? "" : "s"})`,
+          `The routing note fired and the session delegated (${delegated} subagent${delegated === 1 ? "" : "s"})`,
+        ),
+        evidence: detail,
+      },
+    ];
+  }
+  return [
+    {
+      kind: "routing-notice",
+      severity: "warn",
+      summary: pick(
+        lang,
+        "El aviso de ruteo salió y la sesión terminó sin delegar",
+        "The routing note fired and the session ended without delegating",
+      ),
+      evidence: pick(
+        lang,
+        `${detail}. El aviso es consultivo: inline puede ser lo correcto —el host puede haberlo vedado, o el cambio ser mecánico—, pero entonces la razón debería estar escrita en la sesión. Esta línea existe para que la decisión sea contable, no para reprocharla.`,
+        `${detail}. The note is advisory: inline can be right — the host may have ruled delegation out, or the change may be mechanical — but then the reason belongs in the session. This line exists to make the decision countable, not to scold it.`,
+      ),
+    },
+  ];
+}
+
 export function detectSignals(
   session: SessionAudit,
   catalog: HarnessCatalog,
@@ -589,5 +645,6 @@ export function detectSignals(
     ...toolMix(session, lang),
     ...formatDrift(session, lang),
     ...recorderCoverage(session, lang),
+    ...routingNotice(session, lang),
   ].sort((a, b) => order[a.severity] - order[b.severity]);
 }
