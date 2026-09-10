@@ -167,19 +167,66 @@ describe("parse: user message coverage (#489)", () => {
     const s = parseSession(
       transcript([typed("uno"), enqueue("mid"), removed("mid"), typed("dos")]),
     );
-    expect(s.prompts).toEqual({ typed: 2, queued: 1 });
+    expect(s.prompts).toEqual({ typed: 2, queued: 1, queuedSystem: 0 });
   });
 
   it("counts a queued message once, not twice", () => {
-    // Every enqueue is matched by a `remove` when consumed; counting both
-    // would double the figure the report shows.
+    // A queued message leaves a second record when the turn consumes or drops
+    // it; counting anything but `enqueue` would double the figure.
     const s = parseSession(transcript([typed("uno"), enqueue("a"), removed("a")]));
     expect(s.prompts.queued).toBe(1);
   });
 
   it("reports zero queued when the human never interrupted", () => {
     const s = parseSession(transcript([typed("uno"), typed("dos")]));
-    expect(s.prompts).toEqual({ typed: 2, queued: 0 });
+    expect(s.prompts).toEqual({ typed: 2, queued: 0, queuedSystem: 0 });
+  });
+
+  /**
+   * The queue is not the human's alone: the host enqueues its own notifications
+   * through the same record. Measured over this project's transcripts, 415 of
+   * 551 enqueues opened with `<task-notification>` and 9 with
+   * `<cross-session-message` — so an unfiltered `queued` reports mostly machine
+   * traffic as things the human said.
+   */
+  it("does not count a host task notification as a human message", () => {
+    const s = parseSession(
+      transcript([typed("uno"), enqueue("<task-notification>\n<task-id>abc</task-id>\n")]),
+    );
+    expect(s.prompts.queued).toBe(0);
+    expect(s.prompts.queuedSystem).toBe(1);
+  });
+
+  it("does not count a cross-session message as a human message", () => {
+    const s = parseSession(
+      transcript([enqueue('<cross-session-message from="uds:/tmp/cc-socks/1.sock">hola</a>')]),
+    );
+    expect(s.prompts.queued).toBe(0);
+    expect(s.prompts.queuedSystem).toBe(1);
+  });
+
+  it("keeps a human message that merely opens with an angle bracket", () => {
+    // The test is an explicit prefix list, not "starts with `<`": a heuristic
+    // that broad would erase a human asking about `<div>`.
+    const s = parseSession(transcript([enqueue("<div> no renderiza, revisalo")]));
+    expect(s.prompts.queued).toBe(1);
+    expect(s.prompts.queuedSystem).toBe(0);
+  });
+
+  it("accounts for every enqueue: human plus host equals the record count", () => {
+    const s = parseSession(
+      transcript([
+        typed("uno"),
+        enqueue("<task-notification>\nlisto\n"),
+        enqueue("tambien revisa el gate"),
+        enqueue('<cross-session-message from="uds:/tmp/cc-socks/2.sock">x</a>'),
+        removed("tambien revisa el gate"),
+      ]),
+    );
+    // The discard is contable, like `skillsDiscarded`: the report can state the
+    // filter's size instead of quietly shrinking a number.
+    expect(s.prompts.queued).toBe(1);
+    expect(s.prompts.queuedSystem).toBe(2);
   });
 });
 
@@ -333,13 +380,14 @@ describe("parse: hook attribution", () => {
       endedAt: "2026-08-25T12:00:00.000Z",
       wallClockMs: 10_800_000,
       initialPrompt: "haz X",
-      prompts: { typed: 1, queued: 0 },
+      prompts: { typed: 1, queued: 0, queuedSystem: 0 },
       gitBranch: "main",
       cwd: "/tmp/repo",
       ccVersions: [],
       navori: { rendered: null, cli: null },
       navoriAtStop: null,
       sealed: false,
+      endReason: null,
       permissionModes: {},
       prs: [],
       orchestrator: {
@@ -485,6 +533,85 @@ describe("parse: hook attribution", () => {
   it("does not count the start record as a malformed hook event", () => {
     const s = session([]);
     attachHookEvents(s, log([{ ts: "2026-08-25T09:00:00Z", event: "start" }]));
+    expect(s.parseErrors).toBe(0);
+    expect(s.orchestrator.hookEvents).toHaveLength(0);
+  });
+
+  /**
+   * A session that ends on its own is sealed by the `SessionEnd` hook, which
+   * writes `session-end` — not `stop`, which only `audit --stop` writes. The
+   * parser read `stop` alone, so a natural close left `sealed: false` and every
+   * figure in the report was labelled a snapshot of a run that was over (4 of
+   * 25 logs here were sealed; nearly all of them had ended).
+   */
+  const sessionEnd = (over: Record<string, unknown> = {}) => ({
+    ts: "2026-08-25T12:00:00Z",
+    event: "session-end",
+    reason: "clear",
+    ...over,
+  });
+
+  it("treats a natural close as a seal", () => {
+    const s = session([]);
+    attachHookEvents(s, log([hook({}), sessionEnd()]));
+    expect(s.sealed).toBe(true);
+  });
+
+  it("keeps the reason the session ended for", () => {
+    const s = session([]);
+    attachHookEvents(s, log([sessionEnd({ reason: "logout" })]));
+    expect(s.endReason).toBe("logout");
+  });
+
+  it("leaves the reason null when the record states none", () => {
+    const s = session([]);
+    attachHookEvents(s, log([sessionEnd({ reason: undefined })]));
+    expect(s.sealed).toBe(true);
+    expect(s.endReason).toBeNull();
+  });
+
+  it("leaves the reason null for a session that was never closed", () => {
+    const s = session([]);
+    attachHookEvents(s, log([hook({})]));
+    expect(s.sealed).toBe(false);
+    expect(s.endReason).toBeNull();
+  });
+
+  it("takes both seals without either undoing the other", () => {
+    // `audit --stop` and the natural close can BOTH land in one log. The second
+    // seal must not walk back the version reading the first one took.
+    const s = session([]);
+    attachHookEvents(
+      s,
+      log([
+        { ts: "2026-08-25T09:00:00Z", event: "start", navoriRendered: "0.7.0", navoriCli: "0.7.0" },
+        { ts: "2026-08-25T11:59:00Z", event: "stop", navoriRendered: "0.7.5", navoriCli: "0.7.5" },
+        sessionEnd({ reason: "other" }),
+      ]),
+    );
+    expect(s.sealed).toBe(true);
+    expect(s.navoriAtStop).toEqual({ rendered: "0.7.5", cli: "0.7.5" });
+    expect(s.endReason).toBe("other");
+  });
+
+  it("does not let a natural close blank the second version reading", () => {
+    // Reverse order, same requirement: `session-end` carries no versions, so it
+    // must stay out of `navoriAtStop` entirely.
+    const s = session([]);
+    attachHookEvents(
+      s,
+      log([
+        { ts: "2026-08-25T09:00:00Z", event: "start", navoriRendered: "0.7.0", navoriCli: "0.7.0" },
+        sessionEnd(),
+        { ts: "2026-08-25T12:01:00Z", event: "stop", navoriRendered: "0.7.5", navoriCli: "0.7.5" },
+      ]),
+    );
+    expect(s.navoriAtStop).toEqual({ rendered: "0.7.5", cli: "0.7.5" });
+  });
+
+  it("does not count the session-end record as a malformed hook event", () => {
+    const s = session([]);
+    attachHookEvents(s, log([sessionEnd()]));
     expect(s.parseErrors).toBe(0);
     expect(s.orchestrator.hookEvents).toHaveLength(0);
   });

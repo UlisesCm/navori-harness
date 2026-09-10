@@ -134,8 +134,14 @@ export interface SessionAudit {
    * the agent works, is delivered inside the running turn, and fires nothing
    * — invisible to the hook, recovered here from the transcript. Reported so
    * the log's coverage is stated instead of assumed to be total.
+   *
+   * `queuedSystem` is the rest of that same queue: the host enqueues its own
+   * notifications through the identical record, so counting every `enqueue` as
+   * a human message put 424 machine messages against ~127 real ones in this
+   * project's transcripts. Counted rather than dropped, like `skillsDiscarded`
+   * — a filter that shrinks a number silently is one nobody can audit.
    */
-  prompts: { typed: number; queued: number };
+  prompts: { typed: number; queued: number; queuedSystem: number };
   gitBranch: string | null;
   cwd: string | null;
   /** Claude Code versions seen; the basis of the format-drift warning. */
@@ -164,20 +170,40 @@ export interface SessionAudit {
    * rollout merged mid-session breaks that: `3f9cf38a` began under rendered
    * `0.7.0`, the rollout PR landed 26 minutes later, and the rest of the run
    * worked under `0.7.5` while the report credited the whole thing to `0.7.0`.
-   * Null when nothing moved — or when the session was never sealed, since
-   * there was no second reading to take.
+   * Null when nothing moved — or when there was no second reading to take at
+   * all: a session that was never sealed, and equally one sealed by the
+   * `SessionEnd` hook, whose `session-end` record carries no versions. So a
+   * sealed session with null here is the normal case, not a contradiction.
    */
   navoriAtStop: { rendered: string | null; cli: string | null } | null;
   /**
-   * Whether `audit --stop` sealed this session's log.
+   * Whether this session's log was sealed — by `audit --stop` or by the
+   * session ending on its own.
    *
    * An unsealed session is still being written to, so every figure in its
    * report is a snapshot rather than a total: the same session audited three
    * hours apart reported 154 vs 184 Bash calls, 1h13m vs 1h24m, 2 vs 4 PRs —
    * both times presented as final. The `stop` record has been written since
    * audit-mode shipped; nothing read it.
+   *
+   * TWO records seal, and reading only the first was itself the bug: an
+   * explicit `audit --stop` writes `stop`, while a session that just ends gets
+   * `session-end` from the `SessionEnd` hook, which is how sessions normally
+   * finish. Both can land in one log, and both set this to true.
    */
   sealed: boolean;
+  /**
+   * Why the session ended, as the `SessionEnd` payload stated it: `clear`,
+   * `logout`, `other`, or the matcher that fired. Null when the log carries no
+   * `session-end` — an explicit `--stop`, or a run that never closed.
+   *
+   * Recorded because `sealed` alone cannot tell a clean exit from a crash, and
+   * the two mean opposite things about the figures above: a sealed-on-`logout`
+   * session is complete, while a session with no seal at all may simply have
+   * died with its log mid-write. The hook has always written this reason; it
+   * was parsed and thrown away.
+   */
+  endReason: string | null;
   /**
    * permission-mode → occurrences. Load-bearing, not decorative: `auto` steers
    * the model toward Bash over Read/Grep, so without this the tool histogram
@@ -308,8 +334,11 @@ export interface AuditReport {
    *  sessions gained `navori` — the versions in force WHEN THE SESSION RAN, as
    *  opposed to `generatedBy`, which describes this file. Bumped to 4 with
    *  `generatedAt`, the orchestrator's `models`, and each session's `sealed` /
-   *  `navoriAtStop`. A reader can tell the shapes apart by this number alone. */
-  schemaVersion: 4;
+   *  `navoriAtStop`. Bumped to 5 with each session's `endReason` and
+   *  `prompts.queuedSystem` — the same family of field as the bump to 4, and
+   *  published by `renderJson`, which serializes whole sessions.
+   *  A reader can tell the shapes apart by this number alone. */
+  schemaVersion: 5;
   generatedBy: string;
   /**
    * When this report was built, ISO-8601.

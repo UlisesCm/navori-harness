@@ -77,6 +77,34 @@ function preFixTarget(id: string): string {
   return join(auditDir, `session-${id}.log`);
 }
 
+/** Mark a session and give it a transcript the CLI can actually find. */
+function markedSessionWithTranscript(
+  id: string,
+  day: string,
+  usage: Record<string, unknown> = { input_tokens: 1, output_tokens: 1 },
+): void {
+  runAudit(["--start", id]);
+  const transcripts = join(sandbox, "transcripts", "enc");
+  mkdirSync(transcripts, { recursive: true });
+  const jsonl = join(transcripts, `${id}.jsonl`);
+  writeFileSync(
+    jsonl,
+    `${JSON.stringify({
+      type: "assistant",
+      timestamp: `${day}T10:00:00Z`,
+      message: { model: "claude-opus-5", usage },
+    })}\n`,
+    "utf-8",
+  );
+  // The hook records the transcript path on the first prompt; without it
+  // discovery would have to guess Claude Code's undocumented encoding.
+  appendFileSync(
+    join(auditDir, `session-${id}.log`),
+    `${JSON.stringify({ ts: `${day}T10:00:00Z`, event: "prompt", prompt: "x", transcript: jsonl })}\n`,
+    "utf-8",
+  );
+}
+
 beforeEach(() => {
   sandbox = mkdtempSync(join(tmpdir(), "navori-audit-cmd-"));
   home = join(sandbox, "home");
@@ -386,30 +414,6 @@ describe("audit --start is the only way in (R1)", () => {
  * reconciled — four had piled up in this repo's own store.
  */
 describe("audit: output layout (R15, R16, R18)", () => {
-  /** Mark a session and give it a transcript the CLI can actually find. */
-  function markedSessionWithTranscript(id: string, day: string): void {
-    runAudit(["--start", id]);
-    const transcripts = join(sandbox, "transcripts", "enc");
-    mkdirSync(transcripts, { recursive: true });
-    const jsonl = join(transcripts, `${id}.jsonl`);
-    writeFileSync(
-      jsonl,
-      `${JSON.stringify({
-        type: "assistant",
-        timestamp: `${day}T10:00:00Z`,
-        message: { model: "claude-opus-5", usage: { input_tokens: 1, output_tokens: 1 } },
-      })}\n`,
-      "utf-8",
-    );
-    // The hook records the transcript path on the first prompt; without it
-    // discovery would have to guess Claude Code's undocumented encoding.
-    appendFileSync(
-      join(auditDir, `session-${id}.log`),
-      `${JSON.stringify({ ts: `${day}T10:00:00Z`, event: "prompt", prompt: "x", transcript: jsonl })}\n`,
-      "utf-8",
-    );
-  }
-
   // Covers: R15
   it("gives one session its own directory with log, json and md", () => {
     markedSessionWithTranscript("sess-alpha", "2026-08-25");
@@ -499,5 +503,128 @@ describe("audit: the summary reports the real spend (R14)", () => {
     // cache_read is reported too, and separately: it accrues every turn and is
     // not new spend, so folding it into one number would mislead the other way.
     expect(res.combined).toContain("cache_read");
+  });
+});
+
+/**
+ * Audit finding A3 — one run, two different "billable" totals.
+ *
+ * The terminal summary added `thinking` as a fourth addend while the report
+ * body never did. Thinking is a SUBSET of output — verified over the 1028
+ * assistant messages of transcript `4935c4d7` (CC 2.1.236): `thinking_tokens
+ * <= output_tokens` in 100% of them — so the summary was inflated by the whole
+ * session's thinking, and the two artifacts of the same command disagreed in
+ * print about the only number the tool exists to produce.
+ */
+describe("audit: one billable definition, terminal and body (A3)", () => {
+  it("prints the same figure in the summary and in the report", () => {
+    markedSessionWithTranscript("sess-bill", "2026-08-25", {
+      input_tokens: 10,
+      output_tokens: 20,
+      cache_creation_input_tokens: 500_000,
+      cache_read_input_tokens: 9_000_000,
+      output_tokens_details: { thinking_tokens: 400_000 },
+    });
+
+    const res = runAudit(["--session", "sess-bill"]);
+    expect(res.status).toBe(0);
+
+    const dir = join(auditDir, "sessions", "2026-08-25-sess-bil");
+    const body = /TOTAL facturable (\S+) tokens/.exec(
+      readFileSync(join(dir, "report.md"), "utf-8"),
+    );
+    const terminal = /facturable\s+(\S+) tok/.exec(res.combined);
+    // input + output + cacheCreation, thinking NOT added on top of output.
+    expect(body?.[1]).toBe("500k");
+    expect(terminal?.[1]).toBe(body?.[1]);
+
+    // Guards the guard: with no thinking in the fixture the two figures would
+    // agree for the wrong reason.
+    const report = JSON.parse(readFileSync(join(dir, "report.json"), "utf-8")) as {
+      totals: { tokens: { thinking: number } };
+    };
+    expect(report.totals.tokens.thinking).toBe(400_000);
+  });
+});
+
+/**
+ * Audit finding A1 — the only sealing flow the tool teaches could never work.
+ *
+ * The report prints `navori audit --stop <id8>` for a session still running,
+ * but `--stop` composed the log name from the literal value and the file
+ * carries the FULL uuid, so an 8-char prefix named nothing and the command
+ * exited 2 every single time. `--session` had accepted prefixes all along;
+ * `--stop` is now symmetric with it.
+ */
+describe("audit --stop resolves a prefix, like --session (A1)", () => {
+  /** The `stop` records appended to a session's log. */
+  function stopEvents(id: string): unknown[] {
+    const raw = readFileSync(join(auditDir, `session-${id}.log`), "utf-8");
+    return raw
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { event?: string })
+      .filter((rec) => rec.event === "stop");
+  }
+
+  it("seals the session an 8-char prefix names — the exact advice the report gives", () => {
+    markedSessionWithTranscript("abcdef0123456789", "2026-08-25");
+    const res = runAudit(["--stop", "abcdef01"]);
+    expect(res.status).toBe(0);
+    expect(stopEvents("abcdef0123456789")).toHaveLength(1);
+  });
+
+  it("still seals on the full id, unchanged", () => {
+    markedSessionWithTranscript("sess-full", "2026-08-25");
+    const res = runAudit(["--stop", "sess-full"]);
+    expect(res.status).toBe(0);
+    expect(stopEvents("sess-full")).toHaveLength(1);
+  });
+
+  it("refuses an ambiguous prefix, names the candidates and seals nothing", () => {
+    markedSessionWithTranscript("dupli-aaa", "2026-08-25");
+    markedSessionWithTranscript("dupli-bbb", "2026-08-26");
+    const res = runAudit(["--stop", "dupli"]);
+
+    expect(res.status).toBe(2);
+    // Sealing the wrong log appends a `stop` event that cannot be taken back,
+    // so the ambiguity is an error and never a guess.
+    expect(res.combined).toMatch(/ambiguo|ambiguous/);
+    expect(res.combined).toContain("dupli-aaa");
+    expect(res.combined).toContain("dupli-bbb");
+    expect(stopEvents("dupli-aaa")).toEqual([]);
+    expect(stopEvents("dupli-bbb")).toEqual([]);
+  });
+
+  it("reports the ambiguity as JSON under --json", () => {
+    markedSessionWithTranscript("dupli-aaa", "2026-08-25");
+    markedSessionWithTranscript("dupli-bbb", "2026-08-26");
+    const res = runAudit(["--json", "--stop", "dupli"]);
+    expect(res.status).toBe(2);
+    const parsed = JSON.parse(res.combined.trim()) as { matches: string[] };
+    expect(parsed).toMatchObject({ ok: false, error: "ambiguous-session-prefix", prefix: "dupli" });
+    // Order is by marking time, which two spawns a few ms apart make a poor
+    // thing to assert on; the set is what the human needs to disambiguate.
+    expect([...parsed.matches].sort()).toEqual(["dupli-aaa", "dupli-bbb"]);
+  });
+
+  it("keeps saying 'not marked' for a prefix that matches nothing", () => {
+    markedSessionWithTranscript("sess-lonely", "2026-08-25");
+    const res = runAudit(["--stop", "zzz"]);
+    expect(res.status).toBe(2);
+    expect(res.combined).toMatch(/not marked|no está marcada/);
+    expect(stopEvents("sess-lonely")).toEqual([]);
+  });
+
+  it("accepts `latest`, the same word --session takes", () => {
+    // Routing through `findMarkedSessions` gave `--stop latest` for free. It is
+    // pinned here rather than left as a side effect, because this path appends
+    // to an append-only log: whatever it resolves to, it must be deliberate.
+    // One marked session, so `latest` names it without depending on the
+    // marking-time ordering that two spawns milliseconds apart make unstable.
+    markedSessionWithTranscript("sess-only", "2026-08-25");
+    const res = runAudit(["--stop", "latest"]);
+    expect(res.status).toBe(0);
+    expect(stopEvents("sess-only")).toHaveLength(1);
   });
 });
