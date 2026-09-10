@@ -22,6 +22,7 @@ import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace-drift.ts";
 import { scanForeignSkillIndexes } from "../lib/foreign-skill-index.ts";
+import { scanFlatSkills } from "../lib/flat-skills.ts";
 import { scanQualityGateReadiness } from "../lib/gate-readiness.ts";
 import { scanEmptyUserSections } from "../lib/skill-user-section.ts";
 import { scanInterpolationArtifacts } from "../lib/interpolation-artifacts.ts";
@@ -209,6 +210,10 @@ export const doctorCommand = defineCommand({
     // navori's territory, and a stale file there breaks nothing — it just hands
     // dead paths to any agent that goes looking for skills in the repo.
     const foreignSkillIndexes = scanForeignSkillIndexes(cwd);
+    // #626: a `.md` loose in a skills root is not a skill — Claude Code only loads
+    // `<name>/SKILL.md`. It fails silently, which is why nobody notices for
+    // months, and why doctor is the only place this can ever surface.
+    const flatSkills = scanFlatSkills(cwd);
     const engineInventory = buildEngineInventory(config, cwd);
     // #547: real clashes between the machine-global harness (`navori global`)
     // and this repo's. Null — and therefore invisible — when no global layer is
@@ -298,6 +303,7 @@ export const doctorCommand = defineCommand({
       prettierIgnoreHealth,
       gitHygiene,
       workspaceDrift,
+      flatSkills,
       foreignSkillIndexes,
       globalScope,
       engineInventory,
@@ -778,6 +784,18 @@ export const doctorCommand = defineCommand({
         wd.join("\n"),
         td.workspaceDriftTitle(workspaceDrift.workspace, workspaceDrift.siblingsRead),
       );
+    }
+
+    // #626. Advisory like its neighbours: an unloadable skill breaks nothing
+    // that was working, it just never started — but the user has no other way
+    // of learning that, because the host says nothing.
+    if (flatSkills.length > 0) {
+      const rows = flatSkills.map(
+        (f) =>
+          `  ${color.yellow(sym.update)} ${td.flatSkillsRow(accent(f.path), grey(f.suggested))}`,
+      );
+      rows.push(`  ${color.cyan(sym.bullet)} ${grey(td.flatSkillsHint)}`);
+      p.note(rows.join("\n"), td.flatSkillsTitle);
     }
 
     // #625. Empty in the overwhelming case, so the heading never shows up in a

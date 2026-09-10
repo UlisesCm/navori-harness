@@ -8629,7 +8629,7 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 <!-- navori:managed id="skills-index" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 ## Skills disponibles
 
-Skills que los agentes pueden aplicar; las propias de navori viven en `.claude/skills/<id>/SKILL.md` (una skill que hayas agregado tú puede ser un `<id>.md` plano). La nota tras el `·` dice cuándo usar cada una.
+Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. La nota tras el `·` dice cuándo usar cada una.
 
 - `verify-before-done` — navori · Use when about to declare a task done
 - `loop-back-debug` — navori · Use when a fix doesn't work the first time

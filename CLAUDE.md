@@ -244,10 +244,10 @@ Avoid through the wrapper: `--hidden`, `--no-ignore*` and `-a/--text` each turn 
 **What you don't search by default.** Like ripgrep — and like the native `Grep`, which is ripgrep too — the wrapper skips dot-directories, so `.claude/`, `.github/` and friends are OUTSIDE every search unless you pass `--hidden`. It is not a bug and there is no warning: a search for a string that lives only in your own skills or agents comes back empty and looks exactly like "it isn't there". When the harness itself is what you're searching, `--hidden` is required and the full scan is the price; `git grep` is the other way to reach tracked files in those directories.
 <!-- /navori:managed id="tgrep-protocol" -->
 
-<!-- navori:managed id="skills-index" hash="71045771" version="0.8.1" source="@navori/core" -->
+<!-- navori:managed id="skills-index" hash="2f19af5d" version="0.8.1" source="@navori/core" -->
 ## Skills disponibles
 
-Skills que los agentes pueden aplicar; las propias de navori viven en `.claude/skills/<id>/SKILL.md` (una skill que hayas agregado tú puede ser un `<id>.md` plano). La nota tras el `·` dice cuándo usar cada una.
+Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. La nota tras el `·` dice cuándo usar cada una.
 Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido.
 
 - `verify-before-done` — navori · Use when about to declare a task done

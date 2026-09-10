@@ -223,8 +223,22 @@ describe("CLI e2e — happy paths", () => {
     // doctor warns: the declared skill has no file on disk.
     expect(runCli(["doctor", "--cwd", repo]).combined).toMatch(/project-local.*sin archivo/);
 
-    // Once the user writes the file, the warning clears.
+    // Escribirla en PLANO no la arregla: Claude Code solo descubre
+    // `<id>/SKILL.md`, así que la skill sigue sin existir (#626). Antes esto
+    // limpiaba el warning y el índice publicaba una skill que nunca cargaba.
     writeFileSync(join(repo, ".claude/skills/rest-nexus-workflow.md"), "# local skill\n", "utf-8");
+    const conPlana = runCli(["doctor", "--cwd", repo]).combined;
+    expect(conPlana).toMatch(/sin archivo/);
+    // Y doctor dice POR QUÉ, que es la diferencia entre un hueco y una sorpresa.
+    expect(conPlana).toMatch(/rest-nexus-workflow\.md/);
+
+    // La forma de directorio sí la limpia.
+    mkdirSync(join(repo, ".claude/skills/rest-nexus-workflow"), { recursive: true });
+    writeFileSync(
+      join(repo, ".claude/skills/rest-nexus-workflow/SKILL.md"),
+      "# local skill\n",
+      "utf-8",
+    );
     expect(runCli(["doctor", "--cwd", repo]).combined).not.toMatch(/sin archivo/);
   });
 
