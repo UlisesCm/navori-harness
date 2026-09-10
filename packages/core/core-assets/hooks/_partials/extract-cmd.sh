@@ -30,4 +30,7 @@ payload_field() {
 extract_cmd() {
   payload_field tool_input.command '.*'
 }
-cmd=$(extract_cmd)
+# NOT called here on purpose. `payload_field` may spawn a process, and
+# `routing-watch.sh` — which includes this partial and runs after EVERY tool call
+# in every session — never reads `cmd`. Each consumer that wants it calls
+# `extract_cmd` itself, at the point where it already knows it needs it.

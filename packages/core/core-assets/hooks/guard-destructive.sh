@@ -30,6 +30,7 @@ set -euo pipefail
 # A missing JSON parser used to make this guard wave every command through; the
 # shared extractor falls back to sed so it still inspects the command.
 # navori:include extract-cmd
+cmd=$(extract_cmd)
 
 navori_audit_name="guard-destructive"
 navori_audit_phase="PreToolUse"

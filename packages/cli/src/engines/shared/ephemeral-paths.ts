@@ -45,4 +45,11 @@ export const EPHEMERAL_HARNESS_PATHS: readonly string[] = [
   // mtime is the "last checked" mark and nothing else — so committing it would
   // make every teammate's first command re-check every managed file.
   ".claude/.managed-drift-stamp",
+  // Spec 0020: the routing watcher's stamps, one file per `session_id` so two
+  // concurrent sessions never overwrite each other's count. A directory rather
+  // than a glob because the three consumers above take literal repo-relative
+  // paths, and a trailing slash is the shape they already handle. Per-session
+  // and worthless to anyone else, so it is ephemeral by the same rule as the
+  // handoffs: never committed, nothing to recover from a backup.
+  ".claude/.routing-watch/",
 ];

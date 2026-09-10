@@ -436,15 +436,18 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   5 engram sub-blocks (leader + the four subagents that reach memory,
     //   #575) + 2 audit-mode hooks +
     //   1 managed-drift watcher (#530) + 1 worktree-reclaim hook (#527) +
+    //   1 routing watcher (spec 0020: the R2 notice at the moment of the
+    //   decision, the second PostToolUse hook) +
     //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
-    //   the two session ceremonies and the agents index (#572) = 43.
+    //   the two session ceremonies and the agents index (#572) = 44.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(43);
+    expect(first.inspected).toBe(44);
     // Written counts files actually emitted. engram-leader-extension is a
-    // sub-block injected into leader.md, not a separate file, so written = 33
-    // (the 29 files + the .mcp.json + both audit-mode hooks + the drift watcher
-    // + the worktree-reclaim hook).
-    expect(first.written.length).toBe(38);
+    // sub-block injected into leader.md, not a separate file. The arithmetic:
+    // 44 inspected − the 5 engram sub-blocks = 39 files actually emitted (the 33
+    // base files + the .mcp.json + both audit-mode hooks + the drift watcher +
+    // the worktree-reclaim hook + the routing watcher of spec 0020).
+    expect(first.written.length).toBe(39);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -543,10 +546,11 @@ describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
     // Dry-run still reports the would-write set, including structural-search,
-    // the .mcp.json engram registration (#212), both audit-mode hooks and the
-    // managed-drift watcher (#530), the worktree-reclaim hook (#527) and the
-    // orchestrator block routed to `.claude/context/` (#573).
-    expect(r.written).toHaveLength(38);
+    // the .mcp.json engram registration (#212), both audit-mode hooks, the
+    // managed-drift watcher (#530), the worktree-reclaim hook (#527), the
+    // routing watcher (spec 0020) and the orchestrator block routed to
+    // `.claude/context/` (#573).
+    expect(r.written).toHaveLength(39);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

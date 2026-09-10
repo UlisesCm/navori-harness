@@ -19,6 +19,7 @@ set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # navori:include extract-cmd
+cmd=$(extract_cmd)
 
 navori_audit_name="quality-gate-pre-commit"
 navori_audit_phase="PreToolUse"

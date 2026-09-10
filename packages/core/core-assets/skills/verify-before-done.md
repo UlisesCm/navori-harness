@@ -2,7 +2,10 @@
 name: verify-before-done
 description: Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, commit-pr-pilot and any response that declares "done".
 type: behavior
-maxWords: 1000
+# 1050 y no 1000 (spec 0020, R4): entró la fila de `sed -i`, que sale 0 sin haber
+# matcheado nada — el caso en que el exit code no es evidencia. Salió de
+# `operaciones-seguras`, donde se pagaba en cada sesión.
+maxWords: 1050
 ---
 
 # Verify Before Done
@@ -53,6 +56,7 @@ Skipping any step = a lie, not verification.
 | PR creatable | Pre-flight THIS TURN: not on `{{branchBase}}`, `gh auth status` ok, and fresh gate evidence over the shipping diff (R2+: the reviewer's Pass-2 run, bound by a receipt with no drift; R1: your own run). No clean working tree required — the uncommitted diff IS the trigger | "the branch has commits, we can create it" |
 | Tests pass | Suite run fresh with exit 0 this turn + test count | "we didn't touch tests", "they should still be green" |
 | Type-check clean | `tsc --noEmit` (or the runtime's equivalent) exit 0 this turn | "TS didn't complain when I saved it" |
+| A shell edit landed (`sed -i`, a `>` redirect) | Re-read the span you changed, this turn | The exit code. `sed -i` exits 0 when its pattern matches nothing, and a misdirected `>` truncates the file — both look like success |
 
 ## Red flags (STOP)
 

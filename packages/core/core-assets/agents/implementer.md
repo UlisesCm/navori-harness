@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Worker. Implements ONE scoped task, respects CLAUDE.md conventions, and leaves the quality gate green before returning.
+description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: {{models.implementer}}
 effort: {{effort.implementer}}

@@ -67,6 +67,7 @@ const AUDIT_TRIGGER_HOOK_DEST = ".claude/hooks/audit-mode-trigger.sh";
 const AUDIT_CLOSE_HOOK_DEST = ".claude/hooks/audit-mode-close.sh";
 const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
 const MANAGED_DRIFT_HOOK_DEST = ".claude/hooks/managed-drift-watch.sh";
+const ROUTING_WATCH_HOOK_DEST = ".claude/hooks/routing-watch.sh";
 const WORKTREE_RECLAIM_HOOK_DEST = ".claude/hooks/worktree-reclaim.sh";
 const PRECOMPACT_HOOK_DEST = ".claude/hooks/precompact-session-summary.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
@@ -118,7 +119,8 @@ export function buildClaudeSettings(
     },
   });
 
-  // #530: the drift watcher, the harness's only PostToolUse hook. The guard
+  // #530: the drift watcher, the first of the harness's two PostToolUse hooks
+  // (the routing watcher below is the other). The guard
   // above decides by the SHAPE of the command, so it covers the write verbs
   // someone enumerated; this one ignores the command entirely and asks whether
   // the managed blocks still hash to what their markers claim — so a `python`
@@ -140,6 +142,34 @@ export function buildClaudeSettings(
               command: `bash "$CLAUDE_PROJECT_DIR/${MANAGED_DRIFT_HOOK_DEST}"`,
               timeout: 10,
               statusMessage: "navori: managed-block drift",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  // Spec 0020 (R2/R3): the routing watcher. The ladder that says "4+ files →
+  // delegate" ships as CLAUDE.md context, and the host's own docs say context
+  // is "not enforced configuration" — measured, 12 of the 21 sessions that
+  // crossed the threshold delegated nothing. This hands the model the rule at
+  // the moment the edit crosses it, through `additionalContext`, once.
+  //
+  // The matcher is the cost control: this is the ONE hook whose question is
+  // about writes and delegation, so the host filters the tools before the
+  // script ever spawns. Everything else — Read, Grep, Bash — never reaches it.
+  // Advisory by construction (the script has no `exit 2` path).
+  settings = deepMerge(settings, {
+    hooks: {
+      PostToolUse: [
+        {
+          matcher: "Edit|Write|NotebookEdit|Agent|Task",
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${ROUTING_WATCH_HOOK_DEST}"`,
+              timeout: 10,
+              statusMessage: "navori: routing check",
             },
           ],
         },

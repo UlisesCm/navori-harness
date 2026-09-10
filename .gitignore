@@ -18,6 +18,9 @@ coverage/
 .claude/progress/
 # mtime baseline for the managed-drift watcher — machine-local timing state
 .claude/.managed-drift-stamp
+# Per-session tally for the routing watcher (spec 0020): which files the main
+# thread wrote and whether it delegated. Machine-local and per-session.
+.claude/.routing-watch/
 
 # Local Codex state (not committed per workspace convention)
 .codex/

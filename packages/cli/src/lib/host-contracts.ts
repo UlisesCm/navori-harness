@@ -127,6 +127,73 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       "It covers the ONE channel navori emits through today; a second channel would need " +
       "its own budget test, not a generalization of that one.",
   },
+  {
+    id: "post-tool-use-additional-context",
+    claim:
+      "A PostToolUse hook can put text in front of the model mid-session through " +
+      "`hookSpecificOutput.additionalContext`, and the host shows it to Claude. The " +
+      "event fires after the tool has already run, so it can inform but never block.",
+    source:
+      "Claude Code's hooks reference: PostToolUse honors `additionalContext`, and " +
+      '"Claude Code adds `additionalContext` as context that Claude can see and act ' +
+      'on". Its payload carries `tool_name`, `tool_input`, `session_id`, `cwd` and ' +
+      "`transcript_path` — everything the routing watcher reads.",
+    provedBy:
+      "Spec 0020 — the routing ladder reached the model at startup and delegation " +
+      "still did not happen: of 48 audited sessions, 21 crossed the R2 threshold and " +
+      "12 (57%) delegated nothing. Startup context loses to the turn where the " +
+      "decision is actually made.",
+    enforcedBy:
+      "`routing-watch.test.ts` pins what the hook EMITS — that the JSON is well " +
+      "formed, fires once, and never blocks. Nothing here proves the host DELIVERS " +
+      "it: every assertion reads the script's stdout, which is the exact gap that " +
+      "made #623 invisible for weeks. Delivery becomes checkable only with R5, which " +
+      "records each notice in the audit log so the transcript can be read back.",
+  },
+  {
+    id: "agent-description-drives-delegation",
+    claim:
+      "Claude Code decides which subagent to delegate to by matching the task against " +
+      "each subagent's `description`. A description that says only what the agent IS " +
+      "gives the host nothing to match a task against.",
+    source:
+      "Claude Code's subagents doc: \"Claude uses each subagent's description to " +
+      'decide when to delegate tasks", and "to encourage proactive delegation, ' +
+      "include phrases like 'use proactively' in your subagent's description field\". " +
+      "The combined descriptions are also budgeted: past 15,000 tokens the host warns " +
+      "at startup.",
+    provedBy:
+      "Spec 0020 — all 8 agents navori shipped described what they were and none said " +
+      "when to reach for them, while all 40 skills already declared their trigger. It " +
+      "was hypothesis H1 of the activation research, written down and never executed " +
+      "because the investigation pivoted to the delivery channel (#623).",
+    enforcedBy:
+      "`agent-descriptions.test.ts` sweeps the shipped assets for the trigger form. " +
+      "It is a CONVENTION check, not a semantic one — a regex cannot know whether a " +
+      "sentence expresses a condition — so it asserts the only verifiable thing: that " +
+      "the phrasing matches the form the host's own doc names.",
+  },
+  {
+    id: "claude-md-adherence-threshold",
+    claim:
+      "CLAUDE.md is context, not enforced configuration, and its length trades against " +
+      "how reliably it is followed: past roughly 200 lines the host itself reports " +
+      "reduced adherence. A skill body, by contrast, loads only when used.",
+    source:
+      "Claude Code's memory doc: \"Claude treats them as context, not enforced " +
+      'configuration"; "target under 200 lines per CLAUDE.md file. Longer files ' +
+      'consume more context and reduce adherence"; and on skills, "a skill\'s body ' +
+      "loads only when it's used, so long reference material costs almost nothing " +
+      'until you need it".',
+    provedBy:
+      "Spec 0020 — navori's own rendered CLAUDE.md measured 278 lines while the " +
+      "harness spent a week reinforcing that same channel to make its doctrine stick.",
+    enforcedBy:
+      "`claude-md-budget.test.ts` measures the RENDERED file against the threshold. " +
+      "It bounds what navori ships (184 lines) and cannot bound what the user writes " +
+      "in their own half of the file — a repo that crosses the line on its own prose " +
+      "gets no warning today.",
+  },
 ] as const;
 
 /** Look up a contract by id, or null when the id is unknown. */
