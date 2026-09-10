@@ -20,7 +20,6 @@
 5e19baf12604e0a9b5f8942141bfb937ad250754  .claude/skills/clack/SKILL.md
 5ea408dcd6975b64ad643094e6cfb7912c360128  .claude/hooks/subagent-stop-handoff.sh
 5fba335ec97d32da2c83e251dcbf1d307e899bde  .claude/agents/commit-pr-pilot.md
-6a15e4d5ced37a4f64bf34e0fcad51ff52b9467b  CLAUDE.md
 81552247b1e8523a2706ba1f7fd1f762d7a65db6  .claude/skills/citty/SKILL.md
 8332c031682aa8c605d9c922a649469442247542  .claude/skills/pr-create/SKILL.md
 85ddb85b888e9c55750fba4939ac69f7fded6d0e  .claude/agents/leader.md
@@ -29,6 +28,7 @@
 a044d6c5ecaaa9ad40096c4b5b6978e154f3bbb9  .claude/skills/review-diff/SKILL.md
 a092c062c85598b27e4b29724be5807e0a7e76a5  .claude/skills/playwright-cli/references/tracing.md
 a36220a6fe7bb98fc0679a5f2f64c1854641f3cd  .claude/agents/researcher.md
+a41cb43764e6cc1a794cc43741d739070c1433e3  CLAUDE.md
 a9fc7b5ead4e84dc78b51048a5b732e7166287e1  .claude/agents/implementer.md
 b54dbe684517593032c596d4c5c300384b72df34  .claude/skills/playwright-cli/references/running-code.md
 b6f54f4f0c793b6f16426b434406b3401eff2276  .claude/agents/auditor.md
