@@ -15,7 +15,7 @@
       {
         "id": "turbo-workspaces",
         "relPath": "presets/monorepo-turbopnpm/skills/turbo-workspaces.md",
-        "destRelPath": ".claude/skills/turbo-workspaces.md"
+        "destRelPath": ".claude/skills/turbo-workspaces/SKILL.md"
       }
     ],
     "hooks": []

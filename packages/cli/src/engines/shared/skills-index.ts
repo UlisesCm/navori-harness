@@ -1,4 +1,4 @@
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
 import { sanitizeProjectValue } from "../../lib/interpolate.ts";
 import { loadPreset } from "../../lib/presets.ts";
@@ -58,7 +58,13 @@ export function buildSkillRows(
       const loaded = loadPreset(config.preset, repoRoot);
       for (const e of loaded?.def.extras.skills ?? []) {
         if (!extraConditionMet(e, config)) continue;
-        const name = basename(e.destRelPath).replace(/\.md$/, "");
+        // #653: the id, never `basename(destRelPath)`. The skill's destination
+        // is derived by the engine from the id (`.claude/skills/<id>/SKILL.md`),
+        // so reading the path back would make the index depend on a field the
+        // renderer ignores — and once that field carries the directory form,
+        // every preset skill would be indexed as `SKILL`. Same lesson the plan
+        // already learned in `harness-plan-id.test.ts`.
+        const name = e.id;
         if (listed.has(name)) continue;
         // `config.preset` is untrusted config interpolated into this managed row;
         // sanitize so it can't forge a marker / smuggle a newline (#264).

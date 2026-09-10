@@ -15,7 +15,7 @@
       {
         "id": "astro-islands",
         "relPath": "presets/astro/skills/astro-islands.md",
-        "destRelPath": ".claude/skills/astro-islands.md"
+        "destRelPath": ".claude/skills/astro-islands/SKILL.md"
       }
     ],
     "hooks": []

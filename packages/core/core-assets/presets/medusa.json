@@ -15,12 +15,12 @@
       {
         "id": "medusa-modules",
         "relPath": "presets/medusa/skills/medusa-modules.md",
-        "destRelPath": ".claude/skills/medusa-modules.md"
+        "destRelPath": ".claude/skills/medusa-modules/SKILL.md"
       },
       {
         "id": "medusa-api-routes",
         "relPath": "presets/medusa/skills/medusa-api-routes.md",
-        "destRelPath": ".claude/skills/medusa-api-routes.md"
+        "destRelPath": ".claude/skills/medusa-api-routes/SKILL.md"
       }
     ],
     "hooks": []

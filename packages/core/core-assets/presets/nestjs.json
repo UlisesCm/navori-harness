@@ -15,12 +15,12 @@
       {
         "id": "nestjs-modules",
         "relPath": "presets/nestjs/skills/nestjs-modules.md",
-        "destRelPath": ".claude/skills/nestjs-modules.md"
+        "destRelPath": ".claude/skills/nestjs-modules/SKILL.md"
       },
       {
         "id": "nestjs-dtos-validation",
         "relPath": "presets/nestjs/skills/nestjs-dtos-validation.md",
-        "destRelPath": ".claude/skills/nestjs-dtos-validation.md"
+        "destRelPath": ".claude/skills/nestjs-dtos-validation/SKILL.md"
       }
     ],
     "hooks": []

@@ -15,17 +15,17 @@
       {
         "id": "nextjs-app-router",
         "relPath": "presets/nextjs/skills/nextjs-app-router.md",
-        "destRelPath": ".claude/skills/nextjs-app-router.md"
+        "destRelPath": ".claude/skills/nextjs-app-router/SKILL.md"
       },
       {
         "id": "nextjs-data-fetching",
         "relPath": "presets/nextjs/skills/nextjs-data-fetching.md",
-        "destRelPath": ".claude/skills/nextjs-data-fetching.md"
+        "destRelPath": ".claude/skills/nextjs-data-fetching/SKILL.md"
       },
       {
         "id": "new-resource",
         "relPath": "presets/nextjs/skills/new-resource.md",
-        "destRelPath": ".claude/skills/new-resource.md"
+        "destRelPath": ".claude/skills/new-resource/SKILL.md"
       }
     ],
     "hooks": []

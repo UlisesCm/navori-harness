@@ -15,12 +15,12 @@
       {
         "id": "mantine-ui-patterns",
         "relPath": "presets/vite-react-ts-mantine/skills/mantine-ui-patterns.md",
-        "destRelPath": ".claude/skills/mantine-ui-patterns.md"
+        "destRelPath": ".claude/skills/mantine-ui-patterns/SKILL.md"
       },
       {
         "id": "new-feature",
         "relPath": "presets/vite-react-ts-mantine/skills/new-feature.md",
-        "destRelPath": ".claude/skills/new-feature.md"
+        "destRelPath": ".claude/skills/new-feature/SKILL.md"
       }
     ],
     "hooks": []

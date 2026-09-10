@@ -15,12 +15,12 @@
       {
         "id": "express-routes",
         "relPath": "presets/express-mongoose/skills/express-routes.md",
-        "destRelPath": ".claude/skills/express-routes.md"
+        "destRelPath": ".claude/skills/express-routes/SKILL.md"
       },
       {
         "id": "new-endpoint",
         "relPath": "presets/express-mongoose/skills/new-endpoint.md",
-        "destRelPath": ".claude/skills/new-endpoint.md"
+        "destRelPath": ".claude/skills/new-endpoint/SKILL.md"
       }
     ],
     "hooks": []
