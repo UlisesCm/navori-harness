@@ -1,6 +1,6 @@
 ---
 name: explorer
-description: Broad map of an area or module of the repo. Returns structure, dependencies, and entry points. Does not modify code.
+description: Maps a broad area or module — structure, key files, entry points, dependencies. Does not modify code. Use when you don't know where something lives and would otherwise open 4+ files to find out.
 tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
 ---
 

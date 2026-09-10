@@ -1,6 +1,6 @@
 ---
 name: ticket-audit
-description: Deep analysis of a complex ticket before implementing. Produces audit_ticket_<ID>.md with root cause, affected areas, and a decomposition plan.
+description: Deep analysis of a complex ticket before implementing — root cause, affected areas and a decomposition plan in audit_ticket_<ID>.md. Use when a ticket hits a critical area, crosses 3+ layers or has no clear location, before decomposing it.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__*
 ---
 

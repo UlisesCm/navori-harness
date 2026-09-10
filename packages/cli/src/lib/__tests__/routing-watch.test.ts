@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -72,6 +73,17 @@ function delegation(): Record<string, unknown> {
   return { session_id: SESSION, tool_name: "Agent", tool_input: { subagent_type: "implementer" } };
 }
 
+/** An edit fired from INSIDE a subagent: same session, `agent_id` present. */
+function subagentEdit(filePath: string): Record<string, unknown> {
+  return {
+    session_id: SESSION,
+    tool_name: "Edit",
+    tool_input: { file_path: filePath },
+    agent_id: "agent-abc123",
+    agent_type: "implementer",
+  };
+}
+
 function runHook(shell: HookShell, cwd: string, payload: Record<string, unknown>): HookRun {
   const r = spawnSync(shell, [hookPath], {
     input: JSON.stringify(payload),
@@ -91,6 +103,14 @@ function play(payloads: Array<Record<string, unknown>>): HookRun[] {
     mkdirSync(join(cwd, ".claude"), { recursive: true });
     return payloads.map((p) => runHook(shell, cwd, p));
   });
+}
+
+/** A fresh project dir with `.claude/`, for sequences that must pre-seed or
+ * inspect the stamp dir afterwards (`play()` keeps its dir private). */
+function freshProject(): string {
+  const cwd = mkdtempSync(join(tmpdir(), "navori-routing-"));
+  mkdirSync(join(cwd, ".claude"), { recursive: true });
+  return cwd;
 }
 
 /** The runs that actually emitted something on stdout — i.e. the notices. */
@@ -300,5 +320,63 @@ describe("routing-watch — wiring (spec 0020)", () => {
     runHook("bash", cwd, edit("/repo/a.ts"));
 
     expect(existsSync(join(cwd, declared, SESSION))).toBe(true);
+  });
+});
+
+describe("edits made inside a subagent (the host fires hooks there too)", () => {
+  /**
+   * Cold-review finding on PR #660. The docs: "When a subagent calls a tool,
+   * tool events such as PreToolUse and PostToolUse fire the same configured
+   * hooks as in the main conversation", with `agent_id` added to the payload.
+   * The `#delegated` mark from the `Agent` case lands only when that tool
+   * RETURNS — after the subagent finished — so without the guard, a delegated
+   * implementer's 4th edit emitted the notice into the SUBAGENT's context
+   * (false and unactionable there) and burned the once-per-session note before
+   * the orchestrator could ever get it.
+   */
+  it.runIf(runsBash)("never notifies a subagent, and records its edits as delegation", () => {
+    acrossShells((shell) => {
+      const cwd = freshProject();
+      // The implementer edits 5 files — well past the threshold.
+      for (let i = 1; i <= 5; i++) {
+        const r = runHook(shell, cwd, subagentEdit(`/repo/sub-${i}.ts`));
+        expect(r.code).toBe(0);
+        expect(r.stdout).not.toContain("additionalContext"); // Covers: R3
+      }
+      // The stamp says what those edits proved: delegation happened.
+      const stamp = readFileSync(join(cwd, ".claude", ".routing-watch", SESSION), "utf-8");
+      expect(stamp).toContain("#delegated");
+      // ...so a later MAIN-thread burst does not notify either: this session
+      // already delegated, which is exactly what the notice exists to cause.
+      for (let i = 1; i <= 5; i++) {
+        const r = runHook(shell, cwd, edit(`/repo/main-${i}.ts`));
+        expect(r.code).toBe(0);
+        expect(r.stdout).not.toContain("additionalContext");
+      }
+    });
+  });
+});
+
+describe("stamp hygiene (one file per session, forever, unless someone sweeps)", () => {
+  it.runIf(runsBash)("prunes stale sibling stamps when creating this session's", () => {
+    acrossShells((shell) => {
+      const cwd = freshProject();
+      const dir = join(cwd, ".claude", ".routing-watch");
+      mkdirSync(dir, { recursive: true });
+      const stale = join(dir, "sess-ancient");
+      const recent = join(dir, "sess-recent");
+      writeFileSync(stale, "path:/old.ts\n");
+      writeFileSync(recent, "path:/new.ts\n");
+      // 8 days old — past the 7-day window the hook sweeps.
+      const eightDaysAgo = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
+      utimesSync(stale, eightDaysAgo, eightDaysAgo);
+
+      const r = runHook(shell, cwd, edit("/repo/a.ts"));
+      expect(r.code).toBe(0);
+
+      expect(existsSync(stale)).toBe(false); // swept
+      expect(existsSync(recent)).toBe(true); // a live session's stamp survives
+      expect(existsSync(join(dir, SESSION))).toBe(true);
+    });
   });
 });

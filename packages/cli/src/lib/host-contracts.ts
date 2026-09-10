@@ -194,6 +194,28 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       "in their own half of the file — a repo that crosses the line on its own prose " +
       "gets no warning today.",
   },
+  {
+    id: "hooks-run-inside-subagents",
+    claim:
+      "Tool hooks fire for a subagent's tool calls too, not only the main " +
+      "conversation's — with `agent_id` (and `agent_type`) added to the payload, " +
+      "present only inside a subagent. A PostToolUse hook cannot assume its event " +
+      "came from the orchestrator.",
+    source:
+      "Claude Code's hooks reference: \"When a subagent calls a tool, tool events " +
+      "such as PreToolUse and PostToolUse fire the same configured hooks as in the " +
+      'main conversation", and the input gains `agent_id`/`agent_type` "present ' +
+      'only when the hook fires inside a subagent call".',
+    provedBy:
+      "Cold review of PR #660 — routing-watch counted a delegated implementer's own " +
+      "edits (same session_id, `#delegated` only lands when the Agent tool RETURNS), " +
+      "so the once-per-session notice fired INTO the subagent's context and was " +
+      "burned before the orchestrator could ever receive it.",
+    enforcedBy:
+      '`routing-watch.test.ts` ("never notifies a subagent...") drives the hook ' +
+      "with an `agent_id`-carrying payload and pins that it records delegation " +
+      "instead of notifying.",
+  },
 ] as const;
 
 /** Look up a contract by id, or null when the id is unknown. */

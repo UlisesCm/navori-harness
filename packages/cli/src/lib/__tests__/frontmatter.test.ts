@@ -64,3 +64,40 @@ describe("frontmatter (spec 0003 §3.4.3, issue #11)", () => {
     expect(stripFrontmatter(hr)).toBe(hr.trim());
   });
 });
+
+describe("hyphenated keys — the host's own skill frontmatter (#662)", () => {
+  /**
+   * The detector (`FM_KEY_LINE`) always admitted `.` and `-`; the extractor
+   * (`FIELD_RE`) stopped at `[A-Za-z0-9_]`. So a key like the host's
+   * documented `disable-model-invocation` was RECOGNISED as frontmatter and
+   * then dropped on the way out — and `render --apply` wrote the file back
+   * without it. Silently, which is the part that costs.
+   */
+  const raw = [
+    "---",
+    "name: deploy",
+    "disable-model-invocation: true",
+    "user-invocable: false",
+    "some.dotted.key: v",
+    "---",
+    "",
+    "body",
+    "",
+  ].join("\n");
+
+  it("parses a hyphenated key instead of dropping it", () => {
+    const { frontmatter } = splitFrontmatter(raw);
+    expect(getFrontmatterField(frontmatter, "disable-model-invocation")).toBe("true");
+    expect(getFrontmatterField(frontmatter, "user-invocable")).toBe("false");
+  });
+
+  it("keeps dotted keys too — same charset as the detector", () => {
+    const { frontmatter } = splitFrontmatter(raw);
+    expect(getFrontmatterField(frontmatter, "some.dotted.key")).toBe("v");
+  });
+
+  it("still parses the plain keys around them", () => {
+    const { frontmatter } = splitFrontmatter(raw);
+    expect(getFrontmatterField(frontmatter, "name")).toBe("deploy");
+  });
+});

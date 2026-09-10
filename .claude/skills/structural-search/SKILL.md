@@ -2,6 +2,7 @@
 name: structural-search
 description: Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — find the right region and open only the confirmed span instead of reading whole files; escalate from engram to Grep to ast-grep per the trigger.
 type: reference
+maxWords: 600
 ---
 
 <!-- navori:managed id="structural-search-base" hash="ec61be0a" version="0.8.3" source="@navori/core" -->

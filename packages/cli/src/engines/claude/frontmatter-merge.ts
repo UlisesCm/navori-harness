@@ -18,6 +18,23 @@ export function mergeFrontmatter(
   destFm: Record<string, string>,
 ): MergeFrontmatterResult {
   const merged: Record<string, string> = { ...destFm, ...assetFm };
+  // `tools:` is the one key with a THIRD writer. The asset owns the native
+  // list, but a plugin GRANTS its MCP server by appending `mcp__<id>__*` to
+  // the rendered file (`withAgentMcpTools`) — the asset never carries those,
+  // on purpose: the grant is derived per-repo from which plugins are enabled.
+  // Plain asset-wins therefore strips the grant on every re-render, and the
+  // plugin pass re-adds it: an infinite updated/updated churn (surfaced when
+  // the rerender status collapse was fixed for spec 0020 — before that, the
+  // strip was computed and silently thrown away). Asset wins for the native
+  // list; dest-only `mcp__*` entries survive.
+  if (assetFm.tools !== undefined && destFm.tools !== undefined) {
+    const assetList = assetFm.tools.split(",").map((t) => t.trim());
+    const grants = destFm.tools
+      .split(",")
+      .map((t) => t.trim())
+      .filter((t) => t.startsWith("mcp__") && !assetList.includes(t));
+    if (grants.length > 0) merged.tools = [...assetList, ...grants].join(", ");
+  }
   return {
     merged,
     serialized: serialize(merged, assetFm),

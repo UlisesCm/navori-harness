@@ -12,7 +12,21 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 // stops a document that OPENS with a horizontal-rule `---` (no frontmatter) from
 // having its first `---…---` section swallowed as if it were metadata.
 const FM_KEY_LINE = /^[ \t]*[A-Za-z_][A-Za-z0-9_.-]*:/m;
-const FIELD_RE = /^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/;
+/**
+ * #662 — the key charset must match `FM_KEY_LINE` above, which has always
+ * admitted `.` and `-`. It did not: this extractor stopped at `[A-Za-z0-9_]`,
+ * so a HYPHENATED key was detected as frontmatter and then dropped on the way
+ * out. The keys that shape belongs to are the host's own — Claude Code
+ * documents `disable-model-invocation` and `user-invocable` as skill
+ * frontmatter — so a user adding one to a rendered skill lost it on the next
+ * `render --apply`, silently.
+ *
+ * The drop was double-masked until now: the status collapse in `rerender`
+ * meant a frontmatter-only change was never written at all, so the loss rarely
+ * reached disk. Fixing propagation opened the window, which is why this lands
+ * with it.
+ */
+const FIELD_RE = /^([a-zA-Z_][a-zA-Z0-9_.-]*):\s*(.*)$/;
 
 export interface SplitResult {
   /** Raw YAML text between the `---` fences (empty string when none). */
