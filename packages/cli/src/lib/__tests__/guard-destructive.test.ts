@@ -283,6 +283,23 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
     { cmd: "rm -rf $PATH", blocked: true, why: "variable indirection" },
     { cmd: 'rm -rf "$BUILD_DIR"', blocked: true, why: "quoted variable" },
     { cmd: "PATH=/; rm -rf $PATH", blocked: true, why: "variable indirection, compound" },
+    // #655 — `git rm --cached` rewrites the INDEX and deletes nothing. It is
+    // also the fix `doctor` prescribes for an ephemeral that stayed tracked
+    // (#646), so blocking it made the harness refuse its own advice the moment
+    // the path came from a variable.
+    { cmd: 'git rm -r --cached "$p"', blocked: false, why: "#655, index-only" },
+    { cmd: 'git rm --cached -r "$p"', blocked: false, why: "#655, flag order" },
+    { cmd: 'git -c k=v rm -r --cached "$p"', blocked: false, why: "#655, git global option" },
+    // …and the exemption must not become a way to disarm a real deletion. These
+    // four are the teeth: without them the fix is indistinguishable from a hole.
+    {
+      cmd: "git rm --cached x && rm -rf $HOME",
+      blocked: true,
+      why: "#655, the second segment still blocks",
+    },
+    { cmd: "rm -rf $HOME --cached", blocked: true, why: "#655, no `git`: nothing is exempt" },
+    { cmd: 'git rm -r "$HOME"', blocked: true, why: "#655, without --cached it really deletes" },
+    { cmd: "ls | xargs rm -rf /usr", blocked: true, why: "#655, verb stays reachable mid-segment" },
     { cmd: 'git commit "--no-verify"', blocked: true, why: "quoted skip-flag" },
     { cmd: "git commit -qn -m x", blocked: true, why: "combined short flag" },
     { cmd: "sudo git commit --no-verify", blocked: true, why: "wrapper before git" },
