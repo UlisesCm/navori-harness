@@ -674,6 +674,12 @@ interface DoctorCmdStrings {
   missingPresetFiles: (preset: string, n: number, lines: string) => string;
   missingPresetFileRow: (path: string) => string;
   missingLocalSkills: (n: number, lines: string) => string;
+  /**
+   * A declared project-local skill with no loadable file. Names ONLY the
+   * directory shape: the flat `<id>.md` was offered here until #626, and it is
+   * exactly the shape Claude Code never loads — telling the user to create it
+   * would send them straight back into the bug.
+   */
   missingLocalSkillRow: (id: string) => string;
   unknownLibraries: (n: number, lines: string) => string;
   unknownLibraryRemovedRow: (successors: string) => string;
@@ -1603,7 +1609,8 @@ const CMD_ES: CmdStrings = {
     missingPresetFileRow: (path) => `— falta ${path}`,
     missingLocalSkills: (n, lines) =>
       `Skills project-local declarados sin archivo (${n}) — crea el .md (o <id>/SKILL.md) o quita el id de project.localSkills:\n${lines}`,
-    missingLocalSkillRow: (id) => `— falta .claude/skills/${id}.md o ${id}/SKILL.md`,
+    missingLocalSkillRow: (id) =>
+      `— falta .claude/skills/${id}/SKILL.md (el directorio no es opcional: un .md suelto no carga)`,
     unknownLibraries: (n, lines) =>
       `Ids en project.libraries que el registro no conoce (${n}) — su guía no se renderiza ` +
       `y el render borra su skill de disco. Corre 'navori update' para re-detectar:\n${lines}`,
@@ -2672,7 +2679,8 @@ const CMD_EN: CmdStrings = {
     missingPresetFileRow: (path) => `— missing ${path}`,
     missingLocalSkills: (n, lines) =>
       `Project-local skills declared with no file (${n}) — create the .md (or <id>/SKILL.md) or remove the id from project.localSkills:\n${lines}`,
-    missingLocalSkillRow: (id) => `— missing .claude/skills/${id}.md or ${id}/SKILL.md`,
+    missingLocalSkillRow: (id) =>
+      `— missing .claude/skills/${id}/SKILL.md (the directory is not optional: a loose .md never loads)`,
     unknownLibraries: (n, lines) =>
       `Ids in project.libraries the registry doesn't know (${n}) — their guidance is not ` +
       `rendered and render deletes their skill from disk. Run 'navori update' to re-detect:\n${lines}`,
