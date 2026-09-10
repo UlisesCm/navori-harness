@@ -43,11 +43,10 @@ function fixture(description: string): { assetPath: string; existing: string } {
     "name: agent",
     "description: OLD prose that no longer matches the asset.",
     "tools: Read",
-    // Underscore on purpose: `parseKeyValueLines` only admits [a-zA-Z0-9_]
-    // keys, so a HYPHENATED user key (e.g. `disable-model-invocation`) is
-    // silently dropped on re-render today. Real, out of this PR's scope,
-    // recorded in the 0020 follow-up issue.
-    "custom_user_key: kept",
+    // A HYPHENATED key, deliberately: this is the shape the host's own skill
+    // frontmatter uses (`disable-model-invocation`), and #662 is that it used
+    // to be dropped here.
+    "disable-model-invocation: true",
     "---",
     "",
     '<!-- navori:managed id="agent-base" hash="x" version="9.9.9" source="@navori/core" -->',
@@ -76,7 +75,7 @@ describe("frontmatter-only changes propagate to an existing rendered file", () =
     expect(first.content).not.toContain("OLD prose");
     // The destination's own extra key survives the merge (asset wins only for
     // the keys it declares).
-    expect(first.content).toContain("custom_user_key: kept");
+    expect(first.content).toContain("disable-model-invocation: true");
   });
 
   it("is idempotent: the pass after the propagation reports unchanged", () => {

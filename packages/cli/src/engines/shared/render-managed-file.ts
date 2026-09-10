@@ -136,7 +136,11 @@ function interpolateFrontmatter(
   return parseKeyValueLines(interp);
 }
 
-const KEY_VALUE_LINE = /^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/;
+/** Key charset kept in lockstep with `lib/frontmatter.ts` (#662): a
+ *  hyphenated key such as the host's `disable-model-invocation` must survive
+ *  the serialize → interpolate → parse round trip this module performs, not be
+ *  dropped halfway through it. */
+const KEY_VALUE_LINE = /^([a-zA-Z_][a-zA-Z0-9_.-]*):\s*(.*)$/;
 
 /**
  * Parse `key: value` lines into a map; lines that don't match are dropped.
