@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { NavoriConfig } from "./config.ts";
+import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 
 /**
  * Harness files no render will ever refresh again (spec 0018 R6).
@@ -28,6 +29,26 @@ import type { NavoriConfig } from "./config.ts";
 
 /** How deep to look for a stray `.claude/`. Deep enough for `apps/x/y`, cheap. */
 const MAX_DEPTH = 3;
+
+/**
+ * Names that are ephemeral state INSIDE a `.claude/`, not harness.
+ *
+ * Derived from `EPHEMERAL_HARNESS_PATHS`, the single source of truth for "the
+ * harness never versions this", rather than restated — a second list is a
+ * second list that drifts.
+ *
+ * A `.claude/` holding nothing but these is not frozen harness: it is scratch.
+ * Field case that made this necessary: `services-users-bonum` keeps git
+ * worktrees per Jira ticket, and each one had a `.claude/progress/` full of
+ * subagent handoffs (`impl_*.md`, `review_*.md`). Reporting those as "frozen
+ * harness, no render reaches it" is true and useless — nothing is supposed to
+ * reach a handoff file.
+ */
+const EPHEMERAL_INSIDE_CLAUDE: ReadonlySet<string> = new Set(
+  EPHEMERAL_HARNESS_PATHS.filter((p) => p.startsWith(".claude/")).map((p) =>
+    p.slice(".claude/".length).replace(/\/$/, ""),
+  ),
+);
 
 /** Directories never worth walking — big, and never harness. */
 const SKIP_DIRS = new Set([
@@ -77,6 +98,9 @@ function surveyDir(dir: string, depth = 0): { files: number; frozenAt: string | 
     return { files, frozenAt };
   }
   for (const entry of entries) {
+    // Only at the top of a `.claude/`: `progress` deeper down is a real
+    // directory name someone could legitimately have inside a skill.
+    if (depth === 0 && EPHEMERAL_INSIDE_CLAUDE.has(entry)) continue;
     const full = join(dir, entry);
     let stats;
     try {

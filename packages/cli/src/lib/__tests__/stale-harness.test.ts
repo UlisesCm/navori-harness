@@ -112,6 +112,32 @@ describe("scanStaleHarness — lo que ningún render vuelve a tocar (spec 0018 R
     expect(scanStaleHarness(cwd, full)).toEqual([]);
   });
 
+  it("un .claude/ con SOLO efímeros no se reporta: es scratch, no harness", () => {
+    // Covers: R6
+    // Caso de campo que lo hizo necesario: `services-users-bonum` mantiene git
+    // worktrees por ticket de Jira, y cada uno tenía un `.claude/progress/`
+    // lleno de handoffs de subagentes (`impl_*.md`, `review_*.md`). Reportarlos
+    // como "harness congelado que ningún render alcanza" es cierto e inútil:
+    // nada debe alcanzar un archivo de handoff.
+    mkdirSync(join(cwd, ".wt/TICKET-1/.claude/progress"), { recursive: true });
+    writeFileSync(join(cwd, ".wt/TICKET-1/.claude/progress/impl_x.md"), "# handoff\n");
+    writeFileSync(join(cwd, ".wt/TICKET-1/.claude/settings.local.json"), "{}\n");
+    expect(scanStaleHarness(cwd, config())).toEqual([]);
+  });
+
+  it("pero un .claude/ con efímeros Y harness real sí se reporta", () => {
+    // Covers: R6
+    // Anti-sobre-corrección: excluir los efímeros no debe esconder el harness
+    // que los acompaña.
+    mkdirSync(join(cwd, ".wt/TICKET-2/.claude/progress"), { recursive: true });
+    writeFileSync(join(cwd, ".wt/TICKET-2/.claude/progress/impl_x.md"), "# handoff\n");
+    managed(".wt/TICKET-2/.claude/agents/reviewer.md", "0.6.5");
+
+    const found = scanStaleHarness(cwd, config());
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ files: 1, frozenAt: "0.6.5" });
+  });
+
   it("no se mete en node_modules ni en .git", () => {
     // Covers: R6
     // Sin esto el scan recorrería árboles enormes en cada `doctor`.
