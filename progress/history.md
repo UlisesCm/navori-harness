@@ -10,6 +10,34 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-10 05:00 — claude — 0.8.3 publicado y rodado, y el parque revisado repo por repo
+
+- Cambios: release 0.8.3 (spec 0018 + #641), rollout 20/20, y dos fixes nacidos de la revisión.
+- Quality gate: ✅ verde en cada PR (201 archivos / 3424 tests al cierre).
+- Commits / PRs: #643 (release), #130 y #39 (harness en los monorepos), #644, #645 · issues #646, #647, #648 y dos en repos del usuario.
+
+**El 0.8 cumple su propósito en todo el parque, verificado uno por uno:** los 20 repos en
+0.8.3, `doctor` ok en los 20, y **la escalera de ruteo llega como cuerpo en los 20**
+(arranque de 8,265–9,419 bytes contra los 10,441 del corte del host). Antes no llegaba a
+ninguno.
+
+**El recorte de la 0018 dio exactamente lo medido**: 40 archivos en moonar y 60 en
+navori-health, con **0 conservados** — todo lo retirado era de navori. Y la escalera sigue
+llegando después del recorte, que era el riesgo real de mezclar las dos specs.
+
+**La revisión repo por repo encontró lo que las pruebas no**: un falso positivo mío (el check
+de harness congelado marcaba git worktrees cuyo `.claude/` tenía solo handoffs efímeros) y una
+prosa que seguía ofreciendo el formato plano de skills como arreglo válido — el mismo formato
+que #626 acababa de declarar inválido.
+
+**Y cuatro skills tuyas que nunca han cargado**, ~12.7 KB de doctrina muerta en dos repos.
+Una de ellas, `debug-error.md`, contradice a la user-section viva que sí carga: aconseja
+`bun run codegen` donde la viva demuestra que casi nunca es el fix. Issues creados con el
+detalle de qué rescatar y qué no.
+
+**Lo que queda sin cumplir sigue siendo el criterio de éxito**: la tasa de activación antes
+contra después. Línea base escrita; el brazo "después" empieza con las próximas sesiones.
+
 ## 2026-09-10 03:00 — claude — La escalera de ruteo por fin llega, el parque en 0.8.2, y 5 bugs cerrados
 
 - Cambios: `.github/workflows/ci.yml`, `packages/core/core-assets/managed/orquestacion.md`,
