@@ -10,6 +10,49 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-10 15:40 — claude — auditoría en frío del propio `audit`, y los cuatro números que mentían
+
+- Cambios: `packages/cli/src/lib/audit/{model,parse,report}.ts`, `packages/cli/src/commands/audit.ts` y sus 4 suites. 8 archivos, +651/−87.
+- Quality gate: ✅ verde (`pnpm check` exit 0 — 206 archivos / 3524+ tests, coverage floor con su única excepción documentada).
+- Commit / PR: `4205a63` · https://github.com/UlisesCm/navori-harness/pull/669
+
+**El registro resultó muy completo; lo que estaba roto era la aritmética de lo ya capturado.**
+Dos pasadas independientes (auditoría de código verificada contra un transcript real de CC
+2.1.236, y contraste con la doc oficial) dieron 0 críticos, 4 altos, 9 medios, 7 bajos. Los
+fixes históricos (#489, #538, #559, #561, #584, #603, #605, #607) siguen todos en pie, y no
+hubo hallazgos de seguridad: el traversal por session id está cerrado con triple guardia.
+
+Los cuatro altos, todos shippeados en #669:
+
+- **A3 — el mismo run imprimía dos "facturable" distintos.** `thinking` es SUBCONJUNTO de
+  `output` (`thinking_tokens ≤ output_tokens` en el 100% de los 1028 mensajes assistant del
+  transcript `4935c4d7`). Convivían tres aritméticas: la terminal lo sumaba como cuarto
+  sumando, las dos fichas hacían `reasoning = output + thinking` —doble conteo que además
+  subestimaba `context` por el mismo monto— y solo `spendBreakdown` sumaba bien, con la
+  etiqueta equivocada. Ahora hay UNA `billable()` exportada que consume también el comando.
+- **A1 — el consejo que el propio reporte imprimía no podía funcionar.** Decía "séllala con
+  `navori audit --stop <id8>`" pero `--stop` exigía el UUID completo: fallaba el 100% de las
+  veces. Ahora resuelve prefijo como `--session`, y un prefijo ambiguo es error que no sella
+  nada, porque sellar es un append irreversible.
+- **A2 — el cierre natural no sellaba.** El hook `SessionEnd` escribe `session-end` desde
+  siempre y el parser solo leía `start`/`stop`/`hook`. Ahora sella, y el `reason` del cierre
+  se guarda en `endReason` en vez de tirarse.
+- **A4 — `prompts.queued` era mayormente tráfico de máquina.** De 551 `enqueue` en los
+  transcripts de este proyecto, 415 abren con `<task-notification>` y 9 con
+  `<cross-session-message`, contra ~127 humanos reales. Filtrado con lista explícita, y el
+  descarte es contable (`prompts.queuedSystem`) y se declara en el reporte.
+
+**`schemaVersion` del `report.json` sube de 4 a 5**: el JSON gana `endReason` y
+`queuedSystem`, y ese número es el único aviso de que `prompts.queued` cambió de definición
+—cae de ~551 a ~127 para la misma sesión entre dos corridas.
+
+**Dos cosas que el proceso atrapó y valen más que los fixes.** El pilot **abortó el commit**
+porque la review seguía en `CHANGES_REQUESTED` sin receipt: faltaba la firma, no el trabajo.
+Y el reviewer encontró que una justificación que yo mismo había escrito era falsa —atribuía
+los "4 de 25 logs sin sellar" a una era anterior a que el parser leyera `session-end`, cuando
+`git log --diff-filter=A` muestra que hook y parser nacieron en el mismo commit `d1aa8c5`
+(#485). El 4/25 era un artefacto de parseo, no una propiedad de esos archivos.
+
 ## 2026-09-10 05:00 — claude — 0.8.3 publicado y rodado, y el parque revisado repo por repo
 
 - Cambios: release 0.8.3 (spec 0018 + #641), rollout 20/20, y dos fixes nacidos de la revisión.
