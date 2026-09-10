@@ -33,6 +33,9 @@ persistido del hook y concluí que el bloque llegaba. Ese archivo es exactamente
 llega. La corrección está al final del documento y supersede todo lo que sigue en esta
 sección.
 
+**H-C · "Los índices de skills de harnesses ajenos confunden al agente."** FALSO, con
+evidencia sobre 185 transcripts. Ver "Una hipótesis más, descartada con evidencia" al final.
+
 **H-B · "Las descriptions se están truncando por presupuesto."** FALSO. La doc advierte que
 al pasar de 15,000 tokens de descriptions de agentes, Claude Code las recorta empezando por
 las menos usadas — un círculo vicioso que explicaría el 0%. No aplica aquí:
@@ -416,3 +419,89 @@ entrega 2 KB. Las salidas posibles, en orden de cuánto conservan de la spec 001
 
 La 1 y la 2 son compatibles y baratas. La 3 revierte parcialmente la spec 0015 y merece su
 propia discusión, porque su medición de 60k tokens sigue siendo válida.
+
+---
+
+# La línea base del "antes" (2026-09-10, posterior al arreglo de entrega)
+
+El arreglo de entrega está cerrado y verificado **como mecanismo**: la spec 0019 (#631)
+encontró que, aun con el orden y el presupuesto del #624 corregidos, el bloque seguía sin
+llegar porque el hook recorre `.claude/context/` con un glob —que expande alfabéticamente—
+y `orquestacion.md` quedaba último **por empezar con "o"**. Prueba de que no era tamaño:
+recortado a 4,757 caracteres **seguía cayendo a puntero**. Con el orden en el nombre
+(`10-`, `20-`, `30-`, `40-`), medido corriendo el hook en repos reales:
+
+| repo | arranque | escalera | catálogo de agentes |
+|---|---|---|---|
+| moonar | 8,281 bytes | **cuerpo** | **cuerpo** |
+| navori-health | 8,559 bytes | **cuerpo** | **cuerpo** |
+
+(el corte mínimo del host observado son 10,441 bytes)
+
+**Pero el criterio de éxito de este documento no es que el mecanismo funcione**, es la tasa
+de activación antes contra después. Esto es el "antes", medido sobre trabajo real.
+
+## Método
+
+19 sesiones de `moonar-medusa-monorepo` y `navori-health`, los dos repos que el usuario
+trabajó de verdad durante el día. La variable independiente **no se dedujo de la versión de
+navori**: se leyó de cada transcript, buscando en los `attachment` de tipo
+`SessionStart` si el bloque llegó como cuerpo (`navori:managed id="orquestacion"`) o como
+puntero (`no cabe en el contexto de arranque`). Los 4 hooks de `SessionStart` se concatenan
+antes de decidir — mirar solo el primero da un falso negativo, porque el de navori no es
+el primero.
+
+## Los números
+
+| Muestra | Oportunidades | Activadas | Tasa |
+|---|---|---|---|
+| Fase 1 (#622, 13 sesiones, sobre todo navori-harness) | 68 | 2 | **2%** |
+| Las 19 de moonar + navori-health | 80 | 6 | **7%** |
+| Solo las 5 **con** harness navori (bloque = puntero) | 8 | 3 | **37%** |
+
+Desglose de las 19, por disparador: `implementer` 4/28 (14%), `pr → review-diff/pilot` 1/26
+(3%), `reviewer` 1/25 (4%), `loop-back-debug` 0/1.
+
+Todas las invocaciones reales fueron **automáticas**; ninguna la pidió el usuario.
+
+## Lo que estos números NO dicen
+
+- **Ninguna de las 19 tuvo el bloque como cuerpo.** Verificado por transcript: las sesiones
+  más recientes traen los nombres SIN prefijo, o sea que corrían con el harness anterior —
+  el arreglo aún no había aterrizado en su working tree. **Las 19 son "antes". El brazo
+  "después" empieza en cero.**
+- **El 37% se apoya en n=8.** Un caso más o menos mueve la tasa 12 puntos. Es una pista de
+  que el harness ya hacía trabajo *sin* la escalera —probablemente por el puntero accionable
+  que introdujo el #624—, no un resultado.
+- **El minero subcuenta por construcción**, y está escrito arriba: cuando el orquestador sí
+  delega, el trabajo ocurre en el sidechain y el detector, que mira el hilo principal, queda
+  ciego.
+
+## Cómo se cierra
+
+Los dos repos ya corren 0.8.2 con los archivos prefijados, así que el brazo "después" se
+acumula solo con el uso normal. Cuando haya sesiones suficientes, se corre
+`scripts/mine-activation.py` sobre ellas y se compara contra esta tabla. **No hace falta el
+A/B sintético** de `scripts/ab-activation/`: la observación natural mide trabajo real en vez
+de un fixture, que es justamente lo que el criterio de éxito pide.
+
+Reserva deliberada: **no rodar otras specs a esos dos repos mientras se acumula la data.**
+La 0018 solo cambia monorepos, o sea exactamente estos dos, y meterla ahora agregaría una
+segunda variable justo donde se quiere aislar una.
+
+## Una hipótesis más, descartada con evidencia
+
+**H-C · "Los índices de skills de harnesses ajenos (`.atl/skill-registry.md`) confunden al
+agente."** FALSO, y por una razón estructural.
+
+Cuatro repos del workspace lo traen commiteado con 22–48 rutas de skills, **todas muertas**.
+El issue #625 planteaba que un agente que buscara "skills" en el repo se llevaría esas rutas.
+Barridos **185 transcripts** de toda la máquina: **cero lecturas del registry como guía**.
+Las únicas apariciones son salidas de `git status`, diffs históricos, un plan que lo
+regenera a propósito en `alertaciudadana_app` (uso real de gentle-ai), y las sesiones que
+investigaron el propio issue.
+
+La razón de que no ocurra: `.atl/` es un **dot-directory**, y tanto el `Grep` nativo como el
+wrapper de tgrep los saltan por defecto. Está fuera de toda búsqueda de contenido salvo con
+`--hidden`. El aviso de `doctor` (#633) queda como higiene —el contenido es basura rancia—
+pero no es un problema de activación.
