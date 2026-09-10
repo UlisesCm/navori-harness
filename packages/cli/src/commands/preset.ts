@@ -71,7 +71,7 @@ const initSubCommand = defineCommand({
           {
             id: skillId,
             relPath: `skills/${skillId}.md`,
-            destRelPath: `.claude/skills/${skillId}.md`,
+            destRelPath: `.claude/skills/${skillId}/SKILL.md`,
           },
         ],
         hooks: [],

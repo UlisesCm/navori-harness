@@ -15,17 +15,17 @@
       {
         "id": "worker-lifecycle",
         "relPath": "presets/background-worker/skills/worker-lifecycle.md",
-        "destRelPath": ".claude/skills/worker-lifecycle.md"
+        "destRelPath": ".claude/skills/worker-lifecycle/SKILL.md"
       },
       {
         "id": "job-scheduling",
         "relPath": "presets/background-worker/skills/job-scheduling.md",
-        "destRelPath": ".claude/skills/job-scheduling.md"
+        "destRelPath": ".claude/skills/job-scheduling/SKILL.md"
       },
       {
         "id": "queue-consumers",
         "relPath": "presets/background-worker/skills/queue-consumers.md",
-        "destRelPath": ".claude/skills/queue-consumers.md"
+        "destRelPath": ".claude/skills/queue-consumers/SKILL.md"
       }
     ],
     "hooks": []

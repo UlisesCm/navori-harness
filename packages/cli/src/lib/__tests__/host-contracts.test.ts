@@ -125,16 +125,6 @@ const FLAT_SHAPE_ALLOWED: readonly FlatMentionException[] = [
       "names it as legacy, next to the directory form it prefers",
   },
   {
-    file: "packages/core/core-assets/presets",
-    reason:
-      "every preset manifest declares `destRelPath: '.claude/skills/<id>.md'` and the Claude " +
-      "engine NORMALIZES it to the directory form — verified by rendering `vite-react-ts` into " +
-      "a temp repo, where `new-feature` lands at `.claude/skills/new-feature/SKILL.md`. The " +
-      "field is stale data nobody honours, and `preset.ts` still generates it; fixing the 30 " +
-      "manifests plus the generator is its own change, tracked separately. Listed here so the " +
-      "contradiction stays visible instead of being silently excluded",
-  },
-  {
     file: "packages/cli/src/lib/claude-infra.ts",
     reason:
       "foreign-harness DETECTION inventories what sits on disk, and a flat file is on disk " +
@@ -195,6 +185,36 @@ describe("the shape that fails silently: flat `.claude/skills/<x>.md` (#626, #64
       expect(mentions, `stale exception: ${exception.file}`).toBeGreaterThan(0);
       expect(exception.reason.length, `exception ${exception.file}: reason`).toBeGreaterThan(30);
     }
+  });
+});
+
+describe("shipped preset manifests declare the loadable shape (#653)", () => {
+  /**
+   * The sweep above catches the flat literal; it cannot catch a `destRelPath`
+   * that is well-formed but names a different id than the extra. This does.
+   *
+   * The field is not what the Claude engine reads — the destination is derived
+   * from the extra's `id` — so a wrong value breaks nothing today. That is
+   * exactly why it drifted: #653 found all 29 declaring the flat shape while the
+   * renderer quietly wrote the directory one. Dead data that contradicts the
+   * live behavior is one refactor away from becoming a silent outage, because
+   * the shape it names is the shape the host never loads.
+   */
+  interface PresetManifest {
+    extras?: { skills?: Array<{ id?: string; destRelPath?: string }> };
+  }
+
+  it("every skill extra declares `.claude/skills/<id>/SKILL.md`", () => {
+    const wrong: string[] = [];
+    for (const file of walk(join(CORE_ASSETS, "presets"), [".json"])) {
+      const manifest = JSON.parse(readFileSync(file, "utf-8")) as PresetManifest;
+      for (const skill of manifest.extras?.skills ?? []) {
+        const want = `.claude/skills/${skill.id}/SKILL.md`;
+        if (skill.destRelPath === want) continue;
+        wrong.push(`${rel(file)} — '${skill.id}' declares '${skill.destRelPath}', want '${want}'`);
+      }
+    }
+    expect(wrong, wrong.join("\n")).toEqual([]);
   });
 });
 

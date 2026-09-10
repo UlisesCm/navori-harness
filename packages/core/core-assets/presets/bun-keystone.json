@@ -15,32 +15,32 @@
       {
         "id": "keystone-models",
         "relPath": "presets/bun-keystone/skills/keystone-models.md",
-        "destRelPath": ".claude/skills/keystone-models.md"
+        "destRelPath": ".claude/skills/keystone-models/SKILL.md"
       },
       {
         "id": "keystone-access",
         "relPath": "presets/bun-keystone/skills/keystone-access.md",
-        "destRelPath": ".claude/skills/keystone-access.md"
+        "destRelPath": ".claude/skills/keystone-access/SKILL.md"
       },
       {
         "id": "prisma-keystone",
         "relPath": "presets/bun-keystone/skills/prisma-keystone.md",
-        "destRelPath": ".claude/skills/prisma-keystone.md"
+        "destRelPath": ".claude/skills/prisma-keystone/SKILL.md"
       },
       {
         "id": "keystone-testing",
         "relPath": "presets/bun-keystone/skills/keystone-testing.md",
-        "destRelPath": ".claude/skills/keystone-testing.md"
+        "destRelPath": ".claude/skills/keystone-testing/SKILL.md"
       },
       {
         "id": "keystone-rest",
         "relPath": "presets/bun-keystone/skills/keystone-rest.md",
-        "destRelPath": ".claude/skills/keystone-rest.md"
+        "destRelPath": ".claude/skills/keystone-rest/SKILL.md"
       },
       {
         "id": "keystone-graphql",
         "relPath": "presets/bun-keystone/skills/keystone-graphql.md",
-        "destRelPath": ".claude/skills/keystone-graphql.md"
+        "destRelPath": ".claude/skills/keystone-graphql/SKILL.md"
       }
     ],
     "hooks": []
