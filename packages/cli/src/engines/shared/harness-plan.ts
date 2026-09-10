@@ -133,7 +133,7 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/precompact-session-summary.sh"),
       managedId: "precompact-session-summary-base",
     },
-    // #530. The ONE PostToolUse hook, and the exception to the "never
+    // #530. The first PostToolUse hook, and the exception to the "never
     // PostToolUse" note in build-settings: it costs a single `find` against a
     // stamp file in the common case (~10ms measured, nothing changed → no
     // hashing at all). It is unconditional on purpose — an opt-in defense
@@ -142,6 +142,18 @@ export function resolveHarnessPlan(
       id: "managed-drift-watch",
       assetPath: join(coreAssets, "hooks/managed-drift-watch.sh"),
       managedId: "managed-drift-watch-base",
+    },
+    // Spec 0020. The second PostToolUse hook: it counts distinct files written
+    // in the session and hands the model R2 of the routing ladder, ONCE, when
+    // the count crosses 4 with no subagent invoked. Unconditional for the same
+    // reason as its neighbour — the failure it addresses (delegating nothing on
+    // a session that should have) is silent, and measured at 57% of the
+    // sessions that crossed the threshold. Its matcher confines it to the write
+    // tools plus `Agent`, so a Read or a Grep never spawns it.
+    {
+      id: "routing-watch",
+      assetPath: join(coreAssets, "hooks/routing-watch.sh"),
+      managedId: "routing-watch-base",
     },
     // #527: SessionEnd sweep for agent worktrees. Cleanup that depended on an
     // agent remembering to report a `worktree:` line left 27 of them (~2.6 GB)

@@ -2,6 +2,10 @@
 name: structural-search
 description: Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — find the right region and open only the confirmed span instead of reading whole files; escalate from engram to Grep to ast-grep per the trigger.
 type: reference
+# 600 y no 500 (spec 0020, R4): recibió el reparto shell/nativo y la medición de los
+# 835 round-trips del clasificador, que salieron de `operaciones-seguras`. Misma razón
+# que en `tgrep-rung`: se cambia costo por sesión por costo por uso.
+maxWords: 600
 ---
 
 # structural-search — read the minimum correct amount
@@ -26,6 +30,8 @@ Native `Grep` first — it IS ripgrep, pre-approved, ~0.08s vs ~0.20s (p75 1.83s
 2. Ask first for files (`Grep` files mode; `rg -l` via shell) or `file:line` with at most two lines of context.
 3. Dedup before reading.
 4. Open only the span that confirms the hit.
+
+**The shell is for what those tools don't cover** — FS metadata (`-size`, `-mtime`, permissions). `find` isn't pre-approved on purpose: with `-exec`/`-delete` it isn't purely read-only, so the prompt there is the right safety net rather than a nuisance. And when a command genuinely must be shell, the shape that costs is MANY small ones — a measured session spent 835 classifier round-trips, so `cmd1 && cmd2` in a single call beats two calls.
 
 Escalate to Rung 2 only if one of these happens:
 

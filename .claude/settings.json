@@ -47,6 +47,17 @@
             "statusMessage": "navori: managed-block drift"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit|Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/routing-watch.sh\"",
+            "timeout": 10,
+            "statusMessage": "navori: routing check"
+          }
+        ]
       }
     ],
     "SessionStart": [

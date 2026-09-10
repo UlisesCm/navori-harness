@@ -33,14 +33,31 @@ Los datos del repo, verificados:
 | Contexto a mitad de sesión (`additionalContext`) | **0 hooks** lo usan para ruteo |
 | Presupuesto de adherencia del `CLAUDE.md` | **278 líneas** contra el objetivo de 200 |
 
+> **Enmienda durante la implementación.** R1 apuntaba solo al `description` del
+> frontmatter. Al implementarlo se encontró que el bloque `agentes-disponibles` —el
+> que el orquestador lee— **no** se arma desde el frontmatter, sino desde la tabla
+> i18n `blocks.agentsIndex.when`; y que esa tabla tiene el mismo defecto, con el
+> agravante de que el campo se llama `when` y ninguna entrada declara un *cuándo*
+> (`implementer: "Escribe código y tests para UNA tarea bien acotada."`). Arreglar
+> un solo canal dejaría al host y al orquestador leyendo dos historias distintas
+> sobre los mismos 8 agentes, que es peor que cualquiera de los dos extremos. R1
+> pasa a cubrir ambos.
+
 Las skills, en cambio, **ya cumplen**: 40 de 40 declaran su disparador. Por eso esta
 spec no las toca.
 
 ## Requirements (EARS)
 
-- **R1** — El sistema SHALL declarar, en el `description` de cada subagente que
-  entrega, tanto qué hace el agente como la condición observable que debe
-  dispararlo, en la forma que el host evalúa para delegar.
+- **R1** — El sistema SHALL declarar, en **cada uno de los dos canales** que
+  describen a un subagente, tanto qué hace el agente como la condición observable
+  que debe dispararlo:
+  - el `description` del frontmatter, que es lo que **el host** evalúa para delegar;
+  - la tabla `blocks.agentsIndex.when` de `lib/i18n.ts`, que es de donde
+    `buildAgentsIndexBody` arma el bloque `agentes-disponibles` que **el
+    orquestador** lee en el arranque.
+
+  Los dos textos SHALL ser coherentes entre sí en la condición que declaran, sin
+  ser una traducción literal: tienen audiencias e idiomas distintos.
 
 - **R2** — WHEN el hilo principal haya escrito o editado 4 o más archivos distintos
   en una sesión sin que se haya invocado ningún subagente, el sistema SHALL

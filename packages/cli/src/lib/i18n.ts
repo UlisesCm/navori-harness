@@ -2133,17 +2133,20 @@ const CMD_ES: CmdStrings = {
       intro:
         'Subagentes que puedes lanzar con la herramienta `Agent` (tú eres el orquestador; ve "## Role: orchestrator"). La investigación y la revisión son de solo lectura → paraleliza sin miedo.',
       when: {
-        implementer: "Escribe código y tests para UNA tarea bien acotada.",
-        reviewer: "Valida un diff contra la spec y la calidad (APPROVED / CHANGES_REQUESTED).",
+        implementer:
+          "Escribe código y tests para UNA tarea bien acotada. Úsalo proactivamente cuando el cambio toque 4+ archivos o 2+ no triviales.",
+        reviewer:
+          "Valida un diff (APPROVED / CHANGES_REQUESTED). Úsalo tras cada implementer y antes de cualquier commit, push o PR con código.",
         researcher:
-          "Responde una pregunta concreta sobre el repo (¿pasa Y? ¿qué consume X?) con evidencia citada.",
-        explorer: "Mapea un área o módulo amplio: estructura, puntos de entrada, dependencias.",
+          "Responde una pregunta concreta del repo con evidencia citada. Úsalo cuando responderla exija leer 4+ archivos.",
+        explorer:
+          "Mapea un área o módulo amplio. Úsalo cuando no sepas dónde vive algo y tendrías que abrir 4+ archivos.",
         "ticket-audit":
-          "Analiza a fondo un ticket complejo (bug crítico, migración, feature multicapa) antes de descomponerlo.",
+          "Analiza a fondo un ticket complejo. Úsalo cuando toque un área crítica, cruce 3+ capas o no tenga ubicación clara.",
         "commit-pr-pilot":
-          "Escribe commits Conventional y abre el PR tras la aprobación del reviewer.",
+          "Escribe commits Conventional y abre el PR. Úsalo tras la aprobación del reviewer.",
         auditor:
-          "Auditoría profunda de solo lectura (seguridad, rendimiento, SOLID, casos borde); escribe un reporte + plan priorizado en disco.",
+          "Auditoría profunda de solo lectura (seguridad, rendimiento, SOLID) → reporte + plan en disco. Úsalo cuando pidan auditar un área, o antes de refactorizarla sin ticket.",
       },
     },
     monorepo: {
@@ -3203,17 +3206,20 @@ const CMD_EN: CmdStrings = {
       intro:
         'Subagents you can spawn via the `Agent` tool (you are the orchestrator; see "## Role: orchestrator"). Research and review are read-only → parallelize them freely.',
       when: {
-        implementer: "Writes code and tests for ONE well-scoped task.",
-        reviewer: "Validates a diff against spec and quality (APPROVED / CHANGES_REQUESTED).",
+        implementer:
+          "Writes code and tests for ONE well-scoped task. Use proactively when a change touches 4+ files or 2+ non-trivial ones.",
+        reviewer:
+          "Validates a diff (APPROVED / CHANGES_REQUESTED). Use after every implementer run and before any commit, push or PR.",
         researcher:
-          "Answers a concrete question about the repo (does Y happen? what consumes X?) with cited evidence.",
-        explorer: "Maps a broad area or module: structure, entry points, dependencies.",
+          "Answers a concrete question about the repo with cited evidence. Use when answering would take reading 4+ files.",
+        explorer:
+          "Maps a broad area or module. Use when you don't know where something lives and would otherwise open 4+ files.",
         "ticket-audit":
-          "Deeply analyzes a complex ticket (critical bug, migration, multi-layer feature) before decomposing.",
+          "Deeply analyzes a complex ticket. Use when it hits a critical area, crosses 3+ layers or has no clear location.",
         "commit-pr-pilot":
-          "Writes Conventional commits and opens the PR after the reviewer's approval.",
+          "Writes Conventional commits and opens the PR. Use after the reviewer approves.",
         auditor:
-          "Deep read-only audit (security, performance, SOLID, edge cases); writes a report + prioritized plan to disk.",
+          "Deep read-only audit (security, performance, SOLID) → report + prioritized plan on disk. Use when asked to audit an area, or before refactoring one with no ticket.",
       },
     },
     monorepo: {
