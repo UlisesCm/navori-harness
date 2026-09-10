@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describeNavoriHomeLeak, realNavoriHome, snapshotNavoriHome } from "./vitest.homeGuard.ts";
 
@@ -23,6 +23,8 @@ const pkgRoot = dirname(fileURLToPath(import.meta.url));
  * 3. Snapshots the real `~/.navori` root and, on teardown, fails the run if any
  *    entry appeared, changed or disappeared (#424 — the other five
  *    machine-global directories have no env override, only per-spec mocks).
+ *    The repo under test is named so the guard can tell this repo's audit logs
+ *    (a real leak) from another repo's (a concurrent session, #656).
  */
 export default function setup(): () => void {
   const r = spawnSync("pnpm", ["build"], {
@@ -42,12 +44,15 @@ export default function setup(): () => void {
   process.env.NAVORI_BACKUP_ROOT = runRoot;
 
   const realRoot = realNavoriHome();
+  // The audit store keys per-repo directories by `basename(resolve(cwd))`
+  // (`lib/audit/paths.ts`), and this package sits two levels under the repo root.
+  const selfRepo = basename(resolve(pkgRoot, "..", ".."));
   const before = snapshotNavoriHome(realRoot);
 
   return () => {
     rmSync(runRoot, { recursive: true, force: true });
     if (!realRoot) return;
-    const leak = describeNavoriHomeLeak(realRoot, before, snapshotNavoriHome(realRoot));
+    const leak = describeNavoriHomeLeak(realRoot, before, snapshotNavoriHome(realRoot), selfRepo);
     if (!leak) return;
     // Throwing here is swallowed by vitest (it logs "error during close" and
     // still exits 0), so the failure is signalled by the exit code directly.
