@@ -1,6 +1,6 @@
 # Sesión actual
 
-**Estado:** `main` en `cd908f8`. **0 PRs abiertos**, **1 issue**: #661 (tool-mix), abierto a
+**Estado:** `main` en `a277602`. **0 PRs abiertos**, **1 issue**: #661 (tool-mix), abierto a
 propósito. La **spec 0020 quedó cerrada: 9 de 9 tasks**.
 
 ## Dónde quedó todo
@@ -29,6 +29,27 @@ la 0020 conectó las tres palancas que el host sí evalúa, y ahora el efecto es
 3. **Un dato de #661 que no arregla ningún plugin:** `Grep` nativo es 6 llamadas de 4,566
    (0.1%) estando en `allow` en todos los repos. Es probablemente la mitad más interesante
    de ese issue.
+
+## Lo último de la jornada: el contrato de tgrep
+
+Revisando un reporte del wrapper escrito por otra sesión en `moonar-medusa-monorepo` —
+exacto en todo lo técnico, verificado contra el script— apareció que **repetía fielmente una
+promesa que los assets de navori hacían y el script no cumple**: el contrato no es solo
+`0 = match / 1 = no match`. `tgrep-search.sh` sale **2** cuando en la rama `grep -rn` no
+queda patrón tras descartar flags, y eso significa *no se buscó nada*. Leerlo como "no
+match" es el falso negativo silencioso que el reindex-por-búsqueda existe para prevenir.
+Corregido en los dos assets y fijado con un test (#667).
+
+De paso entró la trampa de método que faltaba: verificar QUÉ motor corrió se hace por stderr
+vacío, pero aislarlo con `2>&1 1>/dev/null | head` devuelve stdout bajo MULTIOS de zsh — un
+falso "corrió tgrep" del comando que debía probarlo.
+
+**Y el dato que cierra la discusión de #661:** ese reporte, el mejor entendimiento de tgrep
+que se ha producido, se escribió en moonar — donde el wrapper está instalado y funcionando.
+Moonar lo usa en **33 de 362 búsquedas, 9.1%**. La sesión que entendió tgrep a fondo siguió
+yéndose por shell 9 de cada 10 veces. **El cuello de botella no es documentación ni
+comprensión**, así que "escribir mejor la doctrina" queda descartado con evidencia: lo que
+queda es la palanca mecánica o aceptar el número.
 
 ## Instrumental que quedó listo
 
