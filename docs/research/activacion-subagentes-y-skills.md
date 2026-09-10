@@ -505,3 +505,126 @@ La razón de que no ocurra: `.atl/` es un **dot-directory**, y tanto el `Grep` n
 wrapper de tgrep los saltan por defecto. Está fuera de toda búsqueda de contenido salvo con
 `--hidden`. El aviso de `doctor` (#633) queda como higiene —el contenido es basura rancia—
 pero no es un problema de activación.
+
+---
+
+# El "después", medido (2026-09-10)
+
+El brazo que faltaba. Se cierra con observación natural, sin el A/B sintético, tal como
+quedó escrito arriba.
+
+## La corrección de método que hubo que hacer primero
+
+El "Método" de la línea base dice que la variable independiente se lee de los `attachment`
+de tipo `SessionStart`. **Eso no basta, y por poco vuelve a fallar del mismo modo que #623.**
+El transcript guarda dos cosas distintas y solo una responde la pregunta:
+
+| Registro | Qué es | Sirve de evidencia |
+|---|---|---|
+| `hook_success.stdout` | lo que el hook **imprimió** | no |
+| `hook_additional_context.content` | lo que el host **inyectó**, ya recortado | sí |
+
+La diferencia no es teórica. En `50f01529` (navori-health, 2026-09-08) el `stdout` del hook
+mide 28,643 bytes y trae la escalera entera; el contexto realmente inyectado mide **2,276
+bytes** y no la trae. Clasificar por `stdout` la habría contado como "después". Es
+exactamente el defecto que este documento investiga —un artefacto que afirma algo que el
+host no cumplió— cometido por el instrumento que lo mide.
+
+Un detalle más, de implementación: `hook_additional_context.content` es una **lista de
+bloques**, no un string. Leerlo como string devuelve vacío en silencio, que se lee igual que
+"no llegó".
+
+Con el criterio corregido, los dos brazos se separan sin ambigüedad — no hay casos
+intermedios:
+
+| Brazo | Contexto inyectado | Sesiones |
+|---|---|---|
+| antes | 2,247–2,322 bytes (el corte del host) | 14 |
+| después | 8,160–8,461 bytes, escalera y catálogo como cuerpo | 5 |
+
+(Las 5 "antes" de agosto en navori-health inyectan 4,336–8,397 bytes: son de un harness
+previo, sin escalera. Cuentan como "antes" por ausencia del bloque, no por tamaño.)
+
+## La tabla del "antes" mezcla los dos brazos
+
+La sección anterior afirma que **ninguna** de las 19 tuvo el bloque como cuerpo. Con el
+criterio corregido, **5 de esas mismas 19 sí lo tuvieron**. Ya existían cuando se escribió
+—la más antigua arrancó a las 15:56 hora local y el documento se commiteó a las 20:19—, y
+se clasificaron por los nombres de archivo del contexto; el problema es que las sesiones que
+hicieron el rename traen los nombres viejos **y** los nuevos a la vez, así que ese signo no
+distingue.
+
+Sus 80 oportunidades tampoco son las 93 que suman hoy los dos brazos: cuando corrió aquel
+minero, tres de esas sesiones seguían abiertas y crecieron después.
+
+Conclusión: el 7% de esa tabla **no es la línea base del "antes"** —es una mezcla de los dos
+brazos medida a mitad de camino, y por eso queda por debajo de ambos extremos reales—. El 4%
+de aquí abajo la reemplaza.
+
+## Los números
+
+Mismo minero, mismos dos repos, ambos brazos remedidos para que la comparación sea interna
+y no contra la tabla de la sección anterior:
+
+| Brazo | Sesiones | Oportunidades | Activadas | Tasa |
+|---|---|---|---|---|
+| antes | 14 | 72 | 3 | **4%** |
+| después | 5 | 21 | 12 | **57%** |
+
+Por disparador, en el "después": `implementer` 4/4, `reviewer` 4/4, `pr → review-diff/pilot`
+4/13 (30%). En el "antes": `implementer` 3/27 (11%), `reviewer` 0/24, `pr` 0/20.
+
+Las 12 invocaciones del "después" fueron **automáticas**; ninguna la pidió el usuario. Igual
+que en el "antes".
+
+## Cómo reproducirlo
+
+El criterio de clasificación quedó en un script, para que la remedición no dependa de
+recordar la distinción `stdout` / `hook_additional_context`:
+
+```
+python3 scripts/classify-activation-arm.py <dir-de-proyecto> [<dir> ...]
+python3 scripts/classify-activation-arm.py --ids-after <dir> ... > after.txt
+python3 scripts/mine-activation.py after.txt
+```
+
+`<dir-de-proyecto>` es un directorio bajo `~/.claude/projects`. Sin `--ids-after` imprime la
+tabla de brazos con los bytes inyectados de cada sesión, que es lo que permite auditar la
+clasificación a mano.
+
+## La distribución, que es la mitad del resultado
+
+**En los dos brazos las activaciones salen de una sola sesión.**
+
+| Brazo | Sesión que activó | Las demás |
+|---|---|---|
+| antes | `790b12db` — 3/9 | 13 sesiones, 0/63 |
+| después | `52b9891d` — 12/13 | 4 sesiones, 0/8 |
+
+O sea que lo que se movió con certeza es el **techo**: la mejor sesión pasó de 3/9 (33%) a
+12/13 (92%), y esa sesión corrió el ciclo completo `implementer` → `reviewer` →
+`commit-pr-pilot` sin que nadie se lo pidiera. Lo que **no** se puede afirmar con n=5 es que
+se haya movido la fracción de sesiones que activan algo: 1/14 antes contra 1/5 después no
+distingue nada.
+
+## Lo que estos números NO dicen
+
+- **n=5 sesiones, 21 oportunidades.** Una sesión más o menos mueve la tasa decenas de
+  puntos. Es un resultado direccional, no una medición estable.
+- **El sesgo de observación no separa los brazos** —5 de las 14 "antes" y 4 de las 5
+  "después" son sesiones auditadas a propósito—, así que no explica la diferencia; pero
+  tampoco está controlado.
+- **El minero sigue subcontando por construcción** (el trabajo delegado ocurre en el
+  sidechain). Ambos brazos comparten el sesgo, así que el cociente aguanta mejor que los
+  valores absolutos.
+- **Dos sesiones largas del "después" quedaron en 0** (`d71392e5`, 31 turnos, 0/3;
+  `92123149`, 6 turnos, 0/3) **con la escalera entregada como cuerpo.** La entrega es
+  necesaria y no es suficiente; ahí queda la siguiente pregunta, y la regla de este
+  documento sigue en pie: si el número no se mueve, la respuesta no es escribir más prosa.
+
+## Veredicto
+
+El criterio de éxito se cumple en dirección y magnitud —4% → 57% sobre oportunidades, con
+el `reviewer` y el `pr → pilot` pasando de 0 a activarse— pero descansa en una sola sesión
+por brazo. **Se declara cumplido y se deja abierta la remedición** cuando haya ~15 sesiones
+del brazo "después", que es lo que hace falta para que deje de depender de un caso.
