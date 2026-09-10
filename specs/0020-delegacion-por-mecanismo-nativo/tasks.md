@@ -58,12 +58,21 @@
 
 ## Lote 3 — que la medición cierre el ciclo
 
-- [ ] **T6** (R5) — Escribir la emisión del aviso al log de audit como evento propio,
+- [x] **T6** (R5) — Escribir la emisión del aviso al log de audit como evento propio,
   con el conteo de archivos y el `session_id`, y leerlo en `lib/audit/parse.ts` para
   que el reporte lo muestre. Sin esto el aviso es invisible para la única
   herramienta que puede decir si sirvió. · test:
-  `audit-routing-notice.test.ts`::`el reporte cuenta los avisos de ruteo de la
-  sesión` con `// Covers: R5`
+  `signals.test.ts`::`signal: routing-notice (spec 0020 R5)` con `// Covers: R5`
+
+  > **Dos precisiones de la implementación.** (1) No se inventó un tipo de evento
+  > nuevo: se reusa `navori_audit_log` con `verdict: "notify"`, porque ese partial
+  > es fuente única a propósito —cuatro copias a mano es el drift de #225/#261— y
+  > `parse.ts` ya lee `verdict`/`reason` genéricamente. (2) Solo registra el camino
+  > que AVISA. El hook dispara en cada herramienta de escritura de cada sesión;
+  > registrar cada disparo llenaría el log con el único veredicto que nadie pidió.
+  > Una línea por sesión, sobre el evento que importa. Y el test vive en
+  > `signals.test.ts` en vez de un archivo nuevo: ahí están los fixtures de sesión,
+  > agente y catálogo, y duplicarlos era la otra copia que se desincroniza.
 
 ## Lote 4 — devolverle adherencia al CLAUDE.md
 

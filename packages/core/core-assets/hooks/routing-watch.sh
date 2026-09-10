@@ -70,6 +70,27 @@ set -uo pipefail
 # not care about must not pay to locate a stamp it will never open.
 # navori:include extract-cmd
 
+# R5 (spec 0020): the notice has to be COUNTABLE, not just visible. A hook is
+# invisible to the transcript unless it blocks or injects, and this one injects
+# exactly once per session — so without a record in the audit log there is no
+# way to ask "how often did the ladder actually fire, and did delegation follow?"
+# That question is the whole success criterion of the spec, and #623 is the
+# standing proof that "the hook emitted it" and "the model got it" are different
+# claims: the log is what lets the transcript be read back against the emission.
+#
+# ONLY the notify path records. This hook fires on every write tool of every
+# session; recording each firing would bloat the log with the one verdict nobody
+# asked about. One line per session, on the event that matters.
+navori_audit_name="routing-watch"
+navori_audit_phase="PostToolUse"
+# Fallback no-ops, overwritten by the real definitions the include brings in.
+# Same reason as in `managed-drift-watch`: a raw, unexpanded copy of this asset
+# must degrade to silence, never to exit 127.
+navori_audit_begin() { :; }
+navori_audit_log() { :; }
+# navori:include audit-log
+navori_audit_begin
+
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
 
 # The objective half of R2 (see the header). Changing this number changes when
@@ -78,6 +99,7 @@ threshold=4
 
 tool=$(payload_field tool_name)
 [ -n "$tool" ] || exit 0
+navori_audit_tool=$tool
 
 # The cheap discriminator, and the only thing read so far. Anything this hook has
 # no business with leaves here, having spawned exactly once.
@@ -153,6 +175,7 @@ count=$(grep -c '^path:' "$stamp" 2>/dev/null) || count=0
 [ "${count:-0}" -ge "$threshold" ] 2>/dev/null || exit 0
 
 mark "#notified"
+navori_audit_log "notify" "$count archivos del hilo principal, sin subagente"
 
 # Written with no `"` and no `\` on purpose: that is what makes the JSON
 # escaping below exact without a JSON encoder (see the awk join).
