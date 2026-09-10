@@ -443,11 +443,25 @@ export function renderClaudeEngine(
      * loop in `render`; absent at the root (the root reads `config.monorepo`).
      */
     monorepoContext?: MonorepoRenderContext;
+    /**
+     * How much harness this render writes (spec 0018). `"full"` — the default,
+     * and what the ROOT render always uses — writes everything. `"minimal"`,
+     * passed only by the workspace loop, writes `CLAUDE.md` and
+     * `.claude/skills/` and nothing else: from a session started at the repo
+     * root, `agents/` (discovered walking UP), `hooks/`+`scripts/` (registered
+     * as `$CLAUDE_PROJECT_DIR/...`, which resolves to the root), `settings.json`
+     * (no nested precedence level), `.mcp.json` (project-scoped) and `context/`
+     * (nothing reads it) are all unreachable in a workspace.
+     */
+    harnessScope?: "minimal" | "full";
   } = {},
 ): ClaudeEngineResult {
   // Fill in render-only derived defaults (e.g. prTarget ?? branchBase) so
   // templates interpolate against a complete config without persisting it.
   const config = effectiveConfig(inputConfig);
+  // Spec 0018. Default `full`: this function is called by the root render with
+  // no scope at all, and the root must never be trimmed.
+  const minimalHarness = options.harnessScope === "minimal";
   const lang = resolveLang(config.language);
   const dryRun = options.dryRun === true;
   const force = options.force === true;
@@ -511,6 +525,9 @@ export function renderClaudeEngine(
   // is how a translated sibling reaches the writer unchanged.
   for (const entry of claudeMdPlan.entries) {
     if (entry.asset.audience !== "orchestrator") continue;
+    // `.claude/context/` is read by the SessionStart hook, and that hook only
+    // ever runs from the repo root — nothing reads a workspace copy (0018 R2).
+    if (minimalHarness) continue;
     const destRelPath = `${ORCHESTRATOR_CONTEXT_DIR}/${orchestratorContextFileName(entry.asset.id)}`;
     inspected += 1;
     // Migration (spec 0019 R2): whatever a pre-prefix navori left under the
@@ -586,7 +603,8 @@ export function renderClaudeEngine(
   // agent) can spawn, referenced by the "## Rol: orquestador" block. Claude-only
   // (subagents are a Claude Code capability); the agents-md engine drops it.
   const agentsIndexBody = buildAgentsIndexBody(config, lang);
-  if (agentsIndexBody !== null) {
+  // Same channel as the audience blocks, same reason (0018 R2).
+  if (agentsIndexBody !== null && !minimalHarness) {
     // Orchestrator-only, like the doctrine that references it (#572): it is the
     // catalog of agents you can SPAWN, and no subagent can spawn one — none of
     // them declares the `Agent` tool. So it goes to the context dir, not into
@@ -723,9 +741,12 @@ export function renderClaudeEngine(
   // here via planSettings and again for scripts/skills (issue #10).
   const enabledPlugins = loadEnabledPlugins(config.plugins).loaded;
 
-  // 2. .claude/settings.json
-  const settingsResult = planSettings(cwd, config, enabledPlugins, force);
-  inspected += 1;
+  // 2. .claude/settings.json — skipped under `minimal`: Claude Code's settings
+  // precedence has no nested level, so a workspace copy is never read (0018 R2).
+  const settingsResult = minimalHarness
+    ? ({ kind: "noop" } as const)
+    : planSettings(cwd, config, enabledPlugins, force);
+  if (!minimalHarness) inspected += 1;
   if (settingsResult.kind === "skip") {
     skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
   } else if (settingsResult.kind === "write") {
@@ -745,13 +766,18 @@ export function renderClaudeEngine(
   // servers Codex gets into `.mcp.json`, reconciling disabled plugins and
   // preserving any servers the user added under their own keys.
   const disabledPlugins = loadDisabledPlugins(config.plugins).loaded;
-  const mcpResult = planMcpRegistration(cwd, enabledPlugins, disabledPlugins, config, force);
+  // Project-scoped registry, read at the repo root — a workspace copy is dead
+  // weight under `minimal` (0018 R2).
+  const mcpResult = minimalHarness
+    ? ({ kind: "noop" } as const)
+    : planMcpRegistration(cwd, enabledPlugins, disabledPlugins, config, force);
   // Count `.mcp.json` as an inspected destination only when there's one to
   // manage — an enabled plugin declaring a server, or an existing file to
   // reconcile. A repo with no MCP plugins and no `.mcp.json` has no destination
   // here (unlike settings.json, which navori always owns), so it isn't counted.
   const hasMcpDestination =
-    enabledPlugins.some((pl) => pl.manifest.mcpServer) || existsSync(join(cwd, ".mcp.json"));
+    !minimalHarness &&
+    (enabledPlugins.some((pl) => pl.manifest.mcpServer) || existsSync(join(cwd, ".mcp.json")));
   if (hasMcpDestination) inspected += 1;
   if (mcpResult.kind === "skip") {
     skipped.push({ path: relative(cwd, mcpResult.path), reason: mcpResult.reason });
@@ -770,7 +796,13 @@ export function renderClaudeEngine(
   // injectInto/preset-hooks/reconciliation below) shares that pending and one
   // commitWrites. `includeLeader` because Claude DOES emit leader.md.
   const preset = loadActivePreset(config, repoRoot, warnings);
-  const harnessPlan = resolveHarnessPlan(config, coreAssets, preset, { includeLeader: true });
+  const fullHarnessPlan = resolveHarnessPlan(config, coreAssets, preset, { includeLeader: true });
+  // Under `minimal` only skills survive: they DO load in a workspace (lazily,
+  // the first time Claude reads a file in that subdirectory), which is exactly
+  // the behavior a monorepo wants. Agents and hooks do not (0018 R2).
+  const harnessPlan = minimalHarness
+    ? { ...fullHarnessPlan, agents: [], hooks: [] }
+    : fullHarnessPlan;
   // A `project.libraries` id this registry doesn't know is silently skipped by
   // the plan AND its managed skill is pruned from disk below (§8.6) — a repo
   // upgraded without `navori update` would lose its guidance with zero signal
@@ -835,6 +867,7 @@ export function renderClaudeEngine(
   // no-op today — kept Claude-only until a real preset needs it (then lift into
   // the plan). The preset was loaded (with its warnings) by loadActivePreset.
   for (const extra of preset?.def.extras.hooks ?? []) {
+    if (minimalHarness) break; // hooks resolve from the root (0018 R2)
     if (!extraConditionMet(extra, config)) continue;
     inspected += 1;
     applyManagedFilePlan(
@@ -853,8 +886,10 @@ export function renderClaudeEngine(
     );
   }
 
-  // 7. Plugin scripts (copy + interpolate to .claude/scripts/)
-  for (const plugin of enabledPlugins) {
+  // 7. Plugin scripts (copy + interpolate to .claude/scripts/). Skipped under
+  // `minimal`: every hook that invokes them resolves `$CLAUDE_PROJECT_DIR`, so
+  // only the root's copy is ever executed (0018 R2).
+  for (const plugin of minimalHarness ? [] : enabledPlugins) {
     for (const script of plugin.scriptAssets) {
       inspected += 1;
       const plan = planPluginScript(cwd, script, config);

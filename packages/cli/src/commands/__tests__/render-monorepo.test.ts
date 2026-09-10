@@ -28,6 +28,13 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
       monorepo: {
         enabled: true,
         tool: "turbo",
+        // `full` explícito (spec 0018): lo que este caso fija —que el
+        // qualityGate por workspace llegue al hook DE ese workspace— solo
+        // existe cuando el workspace recibe hooks y settings. Bajo `minimal`,
+        // que es el default nuevo, el hook es el de la raíz y el override por
+        // workspace no tiene dónde aterrizar. La garantía de #70 no se pierde:
+        // se conserva para quien la pide.
+        workspaceHarness: "full",
         workspaces: [
           {
             name: "backend",

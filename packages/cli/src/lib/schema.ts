@@ -90,6 +90,32 @@ const MonorepoSchema = z.object({
   enabled: z.boolean(),
   tool: z.enum(["pnpm", "turbo", "nx", "rush", "lerna", "npm"]).optional(),
   workspaces: z.array(MonorepoWorkspaceSchema).default([]),
+  /**
+   * How much harness each workspace gets (spec 0018).
+   *
+   * `minimal` (default) writes only `CLAUDE.md` and `.claude/skills/` — the two
+   * pieces Claude Code actually reaches from a session started at the repo root.
+   * Everything else it used to copy is unreachable from there and was measured
+   * as such: `agents/` are discovered by walking UP from the cwd, never down;
+   * every hook is registered as `$CLAUDE_PROJECT_DIR/.claude/hooks/…`, which
+   * resolves to the root; `settings.json` has no nested precedence level; and
+   * nothing references `context/`. The proof is on disk rather than in the docs:
+   * `managed-drift-watch` writes a stamp on every PostToolUse, and both field
+   * monorepos carry exactly ONE stamp — the root's — after months of use.
+   *
+   * `full` keeps the previous behavior byte for byte. It exists because
+   * "unreachable" means *from the repo root*: someone who runs
+   * `cd apps/api && claude` does activate those files. Under `minimal` that
+   * person loses no capability — the upward discovery still finds the root's
+   * agents, hooks and settings — only the ability to OVERRIDE them per
+   * workspace, which no repo in the measured park uses.
+   *
+   * The default describes the measured case, not the hypothetical one, and the
+   * asymmetry of being wrong points the same way: under `minimal` the rare
+   * workspace-first user still has a working harness, while under `full`
+   * everyone keeps paying ~43-48% of every bump PR for files nothing can load.
+   */
+  workspaceHarness: z.enum(["minimal", "full"]).default("minimal"),
 });
 
 const SddSchema = z.object({

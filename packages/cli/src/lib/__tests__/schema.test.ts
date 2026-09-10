@@ -61,6 +61,36 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
     });
   });
 
+  it("defaults monorepo.workspaceHarness to 'minimal' when omitted (spec 0018)", () => {
+    // Covers: R1
+    // El default describe el caso medido: de los archivos que hoy se copian a
+    // cada workspace, los de agents/hooks/scripts/context/settings/.mcp.json
+    // son inalcanzables desde una sesión abierta en la raíz — que es el 100% de
+    // las sesiones registradas en el parque.
+    const c = NavoriConfigSchema.parse({ ...MINIMAL, monorepo: { enabled: true } });
+    expect(c.monorepo?.workspaceHarness).toBe("minimal");
+  });
+
+  it("acepta 'full' para quien trabaje desde adentro de un workspace", () => {
+    // Covers: R1
+    const c = NavoriConfigSchema.parse({
+      ...MINIMAL,
+      monorepo: { enabled: true, workspaceHarness: "full" },
+    });
+    expect(c.monorepo?.workspaceHarness).toBe("full");
+  });
+
+  it("rechaza cualquier otro valor de workspaceHarness", () => {
+    // Covers: R1
+    // Un typo silencioso aquí decidiría el harness de todo un monorepo.
+    expect(
+      NavoriConfigSchema.safeParse({
+        ...MINIMAL,
+        monorepo: { enabled: true, workspaceHarness: "none" },
+      }).success,
+    ).toBe(false);
+  });
+
   it("defaults monorepo.workspaces to [] when omitted", () => {
     const c = NavoriConfigSchema.parse({ ...MINIMAL, monorepo: { enabled: true } });
     expect(c.monorepo?.workspaces).toEqual([]);

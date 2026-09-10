@@ -349,6 +349,9 @@ export function runRender(
           force: forceFlag,
           repoRoot: cwd,
           monorepoContext: buildMonorepoContext(config, match),
+          // Spec 0018: the WORKSPACE render honors the scope; the root call
+          // below never passes it, so the root is never trimmed.
+          harnessScope: config.monorepo?.workspaceHarness,
         })
       : undefined;
     // #77: --workspace must also render the non-Claude engines for that
@@ -413,6 +416,7 @@ export function runRender(
           force: forceFlag,
           repoRoot: cwd,
           monorepoContext: buildMonorepoContext(config, ws),
+          harnessScope: config.monorepo?.workspaceHarness,
         })
       : undefined;
     // #77: non-Claude engines (AGENTS.md) render per workspace too. The root
