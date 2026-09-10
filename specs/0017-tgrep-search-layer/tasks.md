@@ -120,8 +120,14 @@ paralelizables salvo nota.
   con la doctrina puesta), eso es un hallazgo de la clase #597 y se reporta en el PR — no
   se maquilla ajustando el escenario.
 
-- [ ] **T10** — release + rollout (fuera del gate de la spec, proceso estándar 0.7.x):
+- [x] **T10** — release + rollout (fuera del gate de la spec, proceso estándar 0.7.x):
   bump, publish (OTP de Ulises), `navori add tgrep && navori render --apply` en los 5
   repos propios (commit) y los 15 Bonum (solo render, harness gitignored). En máquinas sin
   tgrep el fallback del wrapper es el comportamiento esperado — no instalar tgrep como
   parte del rollout salvo pedido explícito.
+
+  **Hecho.** Se cerró con el release **0.8.0** (rollout verificado en 18 repos, no asumido:
+  `settings.json` y `.mcp.json` en versión, `alwaysLoad: true` presente, cero bloques
+  sobrantes). Desde entonces el parque pasó dos veces más por el mismo camino —0.8.1 y
+  0.8.2, ambos con rollout 20/20 y 0 conflictos—, así que el wrapper de tgrep lleva tres
+  rollouts encima. Quedó sin marcar por descuido, no por trabajo pendiente.
