@@ -773,6 +773,8 @@ interface DoctorCmdStrings {
   gitHygieneSpecsIgnored: (dir: string) => string;
   /** An ephemeral agent path git doesn't ignore. */
   gitHygieneEphemeralNotIgnored: (path: string) => string;
+  /** An ephemeral agent path the index still tracks (#646). */
+  gitHygieneEphemeralTracked: (path: string) => string;
   /** Note title for the workspace config-drift section (#326). */
   workspaceDriftTitle: (workspace: string, siblings: number) => string;
   /** A key diverging from the workspace manifest's declared default. */
@@ -1774,6 +1776,8 @@ const CMD_ES: CmdStrings = {
       `'${dir}/' está en .gitignore pero el bloque 'sdd' está activo — las specs se pierden al cambiar de rama y la traza R<n>↔test nunca llega al PR; quítalo del .gitignore o desactiva el SDD ("sdd": { "enabled": false })`,
     gitHygieneEphemeralNotIgnored: (path) =>
       `'${path}' no está ignorado — son artefactos efímeros de agentes; agrégalo al .gitignore (o usa gitignoreHarness)`,
+    gitHygieneEphemeralTracked: (path) =>
+      `'${path}' sigue trackeado por git — el .gitignore no destrackea lo que el índice ya tenía, así que el árbol queda sucio en cada sesión y el archivo se cuela en commits ajenos; destráckealo con 'git rm --cached' (agrega '-r' si es un directorio) y commitea`,
     workspaceDriftTitle: (workspace, siblings) =>
       `Drift respecto al workspace '${workspace}'${siblings > 0 ? ` (${siblings} repos hermanos)` : ""}:`,
     workspaceDriftDefaultRow: (key, local, expected) =>
@@ -2844,6 +2848,8 @@ const CMD_EN: CmdStrings = {
       `'${dir}/' is in .gitignore but the 'sdd' block is active — specs are lost on a branch switch and the R<n>↔test trace never reaches the PR; remove it from .gitignore or turn SDD off ("sdd": { "enabled": false })`,
     gitHygieneEphemeralNotIgnored: (path) =>
       `'${path}' is not ignored — these are ephemeral agent artifacts; add it to .gitignore (or use gitignoreHarness)`,
+    gitHygieneEphemeralTracked: (path) =>
+      `'${path}' is still tracked by git — .gitignore never untracks what the index already held, so the tree is dirty every session and the file rides into unrelated commits; untrack it with 'git rm --cached' (add '-r' for a directory) and commit`,
     workspaceDriftTitle: (workspace, siblings) =>
       `Drift from workspace '${workspace}'${siblings > 0 ? ` (${siblings} sibling repos)` : ""}:`,
     workspaceDriftDefaultRow: (key, local, expected) =>

@@ -768,6 +768,9 @@ export const doctorCommand = defineCommand({
       for (const path of gitHygiene.ephemeralNotIgnored) {
         gh.push(`  ${color.yellow(sym.update)} ${td.gitHygieneEphemeralNotIgnored(path)}`);
       }
+      for (const path of gitHygiene.ephemeralTracked) {
+        gh.push(`  ${color.yellow(sym.update)} ${td.gitHygieneEphemeralTracked(path)}`);
+      }
       if (gh.length > 0) p.note(gh.join("\n"), td.gitHygieneTitle);
     }
 
@@ -1629,10 +1632,21 @@ function isTrackedByGit(cwd: string, relPath: string): boolean {
   }
 }
 
-/** True when git ignores `relPath` (relative to `cwd`). Exit 0 ⇒ ignored. */
+/**
+ * True when git's exclude rules cover `relPath` (relative to `cwd`). Exit 0 ⇒
+ * ignored.
+ *
+ * `--no-index` is load-bearing (#646): without it `check-ignore` refuses to call
+ * a TRACKED path ignored, no matter what `.gitignore` says. That turned the
+ * ephemeral scan below into a false diagnosis — doctor told this very repo to
+ * add `.claude/.managed-drift-stamp` to a `.gitignore` that had listed it for
+ * months, so the advice was a no-op and the real cause (the path sitting in the
+ * index) went unnamed. The question this helper answers is about the RULES; who
+ * tracks what is `gitTracksPath`'s question, and they are reported separately.
+ */
 function isIgnoredByGit(cwd: string, relPath: string): boolean {
   try {
-    execFileSync("git", ["-C", cwd, "check-ignore", "-q", relPath], {
+    execFileSync("git", ["-C", cwd, "check-ignore", "-q", "--no-index", relPath], {
       stdio: ["ignore", "ignore", "ignore"],
     });
     return true;
@@ -1670,6 +1684,8 @@ export interface GitHygieneReport {
   specsIgnored: string | null;
   /** Ephemeral agent paths present on disk that git does NOT ignore. */
   ephemeralNotIgnored: string[];
+  /** Ephemeral agent paths git still tracks — `.gitignore` never untracks. */
+  ephemeralTracked: string[];
 }
 
 /**
@@ -1709,7 +1725,19 @@ export function scanGitHygiene(cwd: string, config: NavoriConfig): GitHygieneRep
     return !isIgnoredByGit(cwd, probe);
   });
 
-  return { specsIgnored, ephemeralNotIgnored };
+  // (c) #646: `.gitignore` does not untrack what the index already holds, so a
+  // path added to EPHEMERAL_HARNESS_PATHS after a repo was onboarded stays
+  // tracked forever and nothing says so. Measured cost on the drift stamp, which
+  // the watcher rewrites on every PostToolUse: a dirty tree every session, a
+  // `git pull --rebase` that refuses to run, and the file riding into unrelated
+  // commits via `git add -A`. Checked INDEPENDENTLY of (b) — ignored-and-tracked
+  // is precisely this residue, and each half needs its own fix. Disk presence is
+  // not required here: the defect lives in the index, not in the working tree.
+  const ephemeralTracked = EPHEMERAL_AGENT_PATHS.filter((rel) =>
+    gitTracksPath(cwd, trimSlash(rel)),
+  );
+
+  return { specsIgnored, ephemeralNotIgnored, ephemeralTracked };
 }
 
 /** Drop a trailing slash so a configured `specsDir` works with or without one. */

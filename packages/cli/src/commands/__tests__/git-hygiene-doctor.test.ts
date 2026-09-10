@@ -28,6 +28,16 @@ function makeDir(cwd: string, rel: string): void {
   writeFileSync(join(cwd, rel, "note.md"), "x\n");
 }
 
+/** Stage `rel` into the index — `-f` so an already-ignored path still lands. */
+function track(cwd: string, rel: string): void {
+  execFileSync("git", ["-C", cwd, "add", "-f", "--", rel], { stdio: "ignore" });
+}
+
+function makeFile(cwd: string, rel: string): void {
+  mkdirSync(join(cwd, rel, ".."), { recursive: true });
+  writeFileSync(join(cwd, rel), "x\n");
+}
+
 // Overrides are typed against the schema's INPUT (not `NavoriConfig`, its parse
 // output): they are merged before `.parse()`, so a nested block whose fields all
 // carry `.default()` — `sdd`, say — may legitimately be given partially.
@@ -109,5 +119,49 @@ describe("scanGitHygiene (#325)", () => {
     const cwd = tempRepo();
     makeDir(cwd, "progress");
     expect(scanGitHygiene(cwd, config())?.ephemeralNotIgnored).toEqual([]);
+  });
+
+  /**
+   * #646 — the residue `.gitignore` cannot clean. A path added to
+   * EPHEMERAL_HARNESS_PATHS after a repo was onboarded stays in that repo's
+   * index, and the ignore rule does nothing about it: the harness rewrites the
+   * file every session, so the tree is permanently dirty and the file rides into
+   * unrelated commits. Ignored-and-tracked is the shape the bug actually had.
+   */
+  it("flags an ephemeral path the index still tracks despite being ignored", () => {
+    const cwd = tempRepo();
+    makeFile(cwd, ".claude/.managed-drift-stamp");
+    track(cwd, ".claude/.managed-drift-stamp");
+    gitignore(cwd, ".claude/.managed-drift-stamp");
+    const report = scanGitHygiene(cwd, config());
+    expect(report?.ephemeralTracked).toEqual([".claude/.managed-drift-stamp"]);
+    // Being ignored is exactly why the other list stays empty: the two findings
+    // are independent, and this pair needs the untrack, not a .gitignore edit.
+    expect(report?.ephemeralNotIgnored).toEqual([]);
+  });
+
+  it("flags a tracked ephemeral directory (the trailing slash is a pathspec)", () => {
+    const cwd = tempRepo();
+    makeDir(cwd, ".claude/progress");
+    track(cwd, ".claude/progress");
+    gitignore(cwd, ".claude/progress/");
+    expect(scanGitHygiene(cwd, config())?.ephemeralTracked).toEqual([".claude/progress/"]);
+  });
+
+  it("reports both halves when a tracked path is not ignored either", () => {
+    const cwd = tempRepo();
+    makeDir(cwd, ".claude/progress");
+    track(cwd, ".claude/progress");
+    gitignore(cwd, "node_modules/");
+    const report = scanGitHygiene(cwd, config());
+    expect(report?.ephemeralTracked).toEqual([".claude/progress/"]);
+    expect(report?.ephemeralNotIgnored).toEqual([".claude/progress/"]);
+  });
+
+  it("stays quiet when no ephemeral path is tracked", () => {
+    const cwd = tempRepo();
+    makeDir(cwd, ".claude/progress");
+    gitignore(cwd, ".claude/");
+    expect(scanGitHygiene(cwd, config())?.ephemeralTracked).toEqual([]);
   });
 });
