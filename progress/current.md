@@ -1,7 +1,8 @@
 # Sesión actual
 
-**Estado:** branch `fix/audit-cifras-y-sellado` en `4205a63`, **PR #669 abierto** contra `main`
-(check `quality` recién lanzado al cerrar). **1 issue**: #661 (tool-mix), abierto a propósito.
+**Estado:** **#669 mergeado** en `main` como `9232093` (CI verde), y sus cuatro fixes verificados
+**por contenido** ahí, no solo por el título del commit. Queda abierto **#670** (esta bitácora).
+**1 issue**: #661 (tool-mix), abierto a propósito.
 
 ## Dónde quedó todo
 
@@ -12,13 +13,11 @@ mentían están corregidos en #669, y la auditoría dejó 16 hallazgos más prio
 
 ## Lo primero al retomar
 
-1. **Verificar el check de #669 y mergearlo.** Si salió rojo, el sospechoso NO es la suite
-   —el gate corrió verde sobre esos bytes exactos— sino `check:assets:ci`, el único paso
-   exento del gate porque su `--strict` depende de tags que CI trae y un clon fresco no tiene.
+1. **Mergear #670** (esta bitácora) y seguir con el lote de abajo. El código ya está en `main`.
 
 2. **El working tree quedó sucio a propósito y NO se parqueó en `main`.** `docs/inspiration.md`
-   (+110) y los dos untracked de `docs/research/` son de otro ciclo y quedaron fuera del commit
-   por diseño. Decidir qué se hace con ellos antes de cambiar de branch.
+   (+110) y los dos untracked de `docs/research/` son de otro ciclo y quedaron fuera de todo
+   commit por diseño. Decidir qué se hace con ellos antes de cambiar de branch.
 
 3. **Los reportes de la auditoría viven en `.claude/progress/` (gitignored)**, así que no
    viajan en git: `audit_consolidado_navori-audit.md` (síntesis), `audit_deep_navori-audit.md`
