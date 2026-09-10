@@ -17,14 +17,15 @@ import { splitFrontmatter, getFrontmatterField } from "./frontmatter.ts";
 export const SKILL_DIR_ENTRY = "SKILL.md";
 
 /**
- * Resolve where a project-local skill lives on disk. navori supports two shapes:
- *   - a single file:     `.claude/skills/<id>.md`
- *   - a skill DIRECTORY: `.claude/skills/<id>/SKILL.md` (with sibling refs/assets)
+ * Resolve where a project-local skill lives on disk. ONE shape is supported,
+ * because one shape is what the host loads: a skill DIRECTORY holding a
+ * `SKILL.md` (plus whatever `references/` tree it wants next to it). See
+ * `host-contracts.ts`, contract `skills-load-shape`.
  *
- * The directory form lets a repo keep a large, curated skill (a SKILL.md plus a
- * `references/` tree) as a project-local skill without flattening it into one
- * file. Returns the repo-relative path that exists, preferring the flat file,
- * or null when neither is present.
+ * This comment used to claim navori also supported a flat single file, which
+ * #626 had already stopped being true one screen below — the exact shape of
+ * defect #647 is about, inside the file that defines the convention. Returns
+ * the repo-relative path when the directory form exists, or null.
  *
  * A skill id is a flat slug: any path separator or `..` traversal is rejected up
  * front so a config-supplied id can never resolve outside `.claude/skills/`.
@@ -39,16 +40,16 @@ export function resolveLocalSkillPath(cwd: string, id: string): string | null {
   ) {
     return null;
   }
-  // DIRECTORY FORM ONLY (#626). A flat `.claude/skills/<id>.md` used to resolve
-  // here, and win over the directory — so navori read its description and
-  // published the skill in CLAUDE.md's index, advertising something Claude Code
-  // never loads. The host's table ("Choose where skills load") lists five
-  // locations and every one of them is `<skill-name>/SKILL.md`; the flat shape
+  // DIRECTORY FORM ONLY (#626). A loose `<id>.md` in that skills root used to
+  // resolve here, and win over the directory — so navori read its description
+  // and published the skill in CLAUDE.md's index, advertising something Claude
+  // Code never loads. The host's table ("Choose where skills load") lists five
+  // locations and every one of them is `<skill-name>/SKILL.md`; the loose shape
   // belongs to `.claude/commands/`, which is a different feature. Every
-  // comparable project agrees: gentle-ai's registry scans `<root>/<skill>/SKILL.md`
-  // ("the Agent Skills layout") and obra/superpowers ships zero loose `.md` in
-  // its skills root. `doctor` reports a flat file so the user learns WHY their
-  // skill went quiet instead of just losing its row.
+  // comparable project agrees: gentle-ai's registry scans
+  // `<root>/<skill>/SKILL.md` ("the Agent Skills layout") and obra/superpowers
+  // ships zero loose `.md` in its skills root. `doctor` reports one so the user
+  // learns WHY their skill went quiet instead of just losing its row.
   const dirRel = `.claude/skills/${id}/${SKILL_DIR_ENTRY}`;
   if (existsSync(join(cwd, dirRel))) return dirRel;
   return null;

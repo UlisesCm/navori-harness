@@ -113,7 +113,7 @@ export const adoptCommand = defineCommand({
   args: {
     path: {
       type: "positional",
-      description: "File to adopt, relative to the repo (e.g. .claude/skills/mia.md)",
+      description: "File to adopt, relative to the repo (e.g. .claude/agents/mia.md)",
       required: true,
     },
     apply: { type: "boolean", description: "Write to disk. Without it, adopt only previews." },
