@@ -2780,6 +2780,34 @@ segments_rm=$(printf '%s' "$segments" | sed -E \
   -e 's/(^|[[:space:]])--recursive([[:space:]]|$)/\1-r\2/g' \
   -e 's/(^|[[:space:]])--force([[:space:]]|$)/\1-f\2/g' \
   -e 's/(^|[[:space:]])--dir([[:space:]]|$)/\1-d\2/g')
+#    `git rm --cached` is not a deletion (#655). It rewrites the INDEX and leaves
+#    the file on disk — and it is the exact fix `doctor` prescribes for an
+#    ephemeral that stayed tracked (#646), so the harness was blocking its own
+#    advice the moment the path came from a variable. The `rm` VERB is renamed in
+#    that ONE shape so `rm_run` stops seeing it; nothing else about the segment
+#    changes.
+#
+#    Why not anchor `rm` to the start of the segment instead, which is the
+#    tempting general fix: `xargs rm -rf /usr` and `find … -exec rm -rf {} +` put
+#    the verb mid-segment and are genuinely destructive, so anchoring would let
+#    them through. The verb has to stay reachable mid-segment; only this one
+#    non-deleting spelling gets exempted.
+#
+#    It cannot be used to disarm a real deletion. The rewrite needs `git` before
+#    the verb AND `--cached` in the SAME segment, and segments split on `;`,
+#    `&&`, `||` and `|` — so a real recursive delete chained after a `git rm
+#    --cached` still blocks on its own segment, and one that merely trails a
+#    `--cached` token has no `git` and is untouched. Both are pinned in the
+#    verdict table.
+#
+#    `_git_opt` lets git's own global options sit between the wrapper and the
+#    verb, values included (`git -c k=v rm --cached`). That token run is the
+#    widest part of the exemption and stays bounded by the three conditions
+#    above: a segment beginning with `git` cannot hold a second command, and no
+#    single `git` invocation deletes outside the repo.
+_git_opt='-[^[:space:]]+[[:space:]]+([^-][^[:space:]]*[[:space:]]+)?'
+segments_rm=$(printf '%s' "$segments_rm" | sed -E \
+  -e "/--cached/ s/(^|[[:space:]])git([[:space:]]+(${_git_opt})*)rm([[:space:]])/\1git\2git-rm\4/g")
 rm_arg='[^<>&[:space:]]+[[:space:]]+'           # any option OR operand token
 rm_kill='-[a-zA-Z]*[rRf][a-zA-Z]*[[:space:]]+'  # a short option carrying r/R/f
 rm_run="(^|[[:space:]])rm[[:space:]]+(${rm_arg})*${rm_kill}(${rm_arg})*"
