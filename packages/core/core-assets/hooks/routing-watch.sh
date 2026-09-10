@@ -53,11 +53,20 @@ set -uo pipefail
 # Payload extraction (stdin → `payload` + `payload_field`). Shared body, single
 # source of truth: the jq → node → sed cascade exists because jq is NOT
 # preinstalled on macOS, and four hand-synced copies of it is how #225/#261
-# drifted. The `cmd` the partial also computes is unused here and harmless.
+# drifted. The partial defines `extract_cmd` but does NOT call it: this hook
+# never reads `tool_input.command`, and a spawn it cannot use would be charged to
+# every tool call in every session.
 #
-# ORDER BELOW IS A COST DECISION: every `payload_field` call may spawn node, so
-# the cheapest discriminator (`tool_name`) is read first and most invocations
-# leave after it. Only an edit that is still under the threshold pays all three.
+# ORDER BELOW IS A COST DECISION, and these are the counts it buys. Every
+# `payload_field` call may spawn a process, so nothing is read before the field
+# that can end the run:
+#   1 spawn  — any tool that is not Edit/Write/NotebookEdit/Agent: `tool_name`
+#              alone, and the discard `case` exits.
+#   2 spawns — a session already `#delegated` or `#notified`: + `session_id`,
+#              which is what names the stamp, and the stamp check exits.
+#   3 spawns — an edit that actually counts: + the file path.
+# The discard `case` therefore comes BEFORE `session_id`: a tool this hook does
+# not care about must not pay to locate a stamp it will never open.
 # navori:include extract-cmd
 
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
@@ -68,6 +77,13 @@ threshold=4
 
 tool=$(payload_field tool_name)
 [ -n "$tool" ] || exit 0
+
+# The cheap discriminator, and the only thing read so far. Anything this hook has
+# no business with leaves here, having spawned exactly once.
+case "$tool" in
+  Agent | Task | Edit | Write | NotebookEdit) ;;
+  *) exit 0 ;;
+esac
 
 # One stamp per session, so two concurrent sessions never overwrite each other's
 # count. Sanitised because the value lands in a path: anything that is not a
@@ -94,8 +110,6 @@ case "$tool" in
     mark "#delegated"
     exit 0
     ;;
-  Edit | Write | NotebookEdit) ;;
-  *) exit 0 ;;
 esac
 
 # Delegated, or already warned: there is nothing left to decide this session.

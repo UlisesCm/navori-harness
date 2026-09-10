@@ -134,9 +134,10 @@ export function resolveHarnessPlan(
       managedId: "precompact-session-summary-base",
     },
     // #530. The first PostToolUse hook, and the exception to the "never
-    // PostToolUse" note in build-settings: it costs a single `find` against a
-    // stamp file in the common case (~10ms measured, nothing changed → no
-    // hashing at all). It is unconditional on purpose — an opt-in defense
+    // PostToolUse" note in build-settings: it costs one `shasum` pass over the
+    // managed files (~25ms). It was a find/mtime probe at ~10ms until that
+    // proved unreliable in CI and was redesigned — see the twin comment in
+    // `build-settings.ts`, which is the other copy of this fact. It is unconditional on purpose — an opt-in defense
     // protects nobody by default, and the freeze it detects is silent.
     {
       id: "managed-drift-watch",

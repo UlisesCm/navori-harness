@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="a27698fa" version="0.8.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="52ec1b13" version="0.8.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -62,6 +62,10 @@ payload_field() {
 extract_cmd() {
   payload_field tool_input.command '.*'
 }
+# NOT called here on purpose. `payload_field` may spawn a process, and
+# `routing-watch.sh` — which includes this partial and runs after EVERY tool call
+# in every session — never reads `cmd`. Each consumer that wants it calls
+# `extract_cmd` itself, at the point where it already knows it needs it.
 cmd=$(extract_cmd)
 
 navori_audit_name="guard-destructive"

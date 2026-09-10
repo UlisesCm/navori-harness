@@ -16,7 +16,7 @@
   `agent-descriptions.test.ts`::`la convención no se revierte en silencio` con
   `// Covers: R1`
 
-- [ ] **T2b** (R1) — Reescribir las entradas de `blocks.agentsIndex.when` en las dos
+- [x] **T2b** (R1) — Reescribir las entradas de `blocks.agentsIndex.when` en las dos
   tablas de idioma de `lib/i18n.ts` para que declaren la condición de disparo,
   coherentes con el frontmatter. `leader` queda fuera: `buildAgentsIndexBody` lo
   excluye a propósito. El bloque viaja en el contexto de arranque, así que el margen

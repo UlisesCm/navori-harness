@@ -443,9 +443,10 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
     expect(first.inspected).toBe(44);
     // Written counts files actually emitted. engram-leader-extension is a
-    // sub-block injected into leader.md, not a separate file, so written = 39
-    // (the 29 files + the .mcp.json + both audit-mode hooks + the drift watcher
-    // + the worktree-reclaim hook + the routing watcher of spec 0020).
+    // sub-block injected into leader.md, not a separate file. The arithmetic:
+    // 44 inspected − the 5 engram sub-blocks = 39 files actually emitted (the 33
+    // base files + the .mcp.json + both audit-mode hooks + the drift watcher +
+    // the worktree-reclaim hook + the routing watcher of spec 0020).
     expect(first.written.length).toBe(39);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
