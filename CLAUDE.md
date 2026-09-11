@@ -219,7 +219,7 @@ It carries an `allow` rule, so it runs with no permission prompt in any mode and
 The routing table, the portable flag set and why the index is rebuilt before every query: Rung 1 of the `structural-search` skill.
 <!-- /navori:managed id="tgrep-protocol" -->
 
-<!-- navori:managed id="skills-index" hash="ac41a3c2" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="skills-index" hash="96c3af0e" version="0.8.5" source="@navori/core" -->
 ## Skills disponibles
 
 Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. La nota tras el `·` dice cuándo usar cada una.
@@ -229,7 +229,7 @@ Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido
 - `loop-back-debug` — navori · Use when a fix doesn't work the first time
 - `review-diff` — navori · Use when reviewing a diff (staged, branch or PR)
 - `security-guidance` — navori · Use when running /security-review or auditing security
-- `debug-error` — navori · Use when a command (tsc, lint, build, test) or the runtime spews a wall of errors
+- `debug-error` — navori · Use when a command fails or the runtime misbehaves and you don't have a root cause yet
 - `structural-search` — navori · Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site)
 - `ticket-intake` — navori (workflow) · Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial
 - `solution-design` — navori (workflow) · Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, co…
