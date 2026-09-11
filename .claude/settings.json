@@ -32,6 +32,12 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/check-semgrep.sh\"",
             "timeout": 180,
             "statusMessage": "navori/semgrep: security scan"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/guard-search-routing.sh\"",
+            "timeout": 10,
+            "statusMessage": "navori/tgrep: routing guard"
           }
         ]
       }
