@@ -624,7 +624,140 @@ distingue nada.
 
 ## Veredicto
 
+> ⚠️ **SUPERADO por la remedición del 2026-09-11** (sección siguiente). El 57% era artefacto
+> de n=5 y queda retirado; la cifra vigente es **24%** sobre 16 sesiones. Esta sección se
+> conserva sin editar porque su propia condición de revisión es la que disparó la remedición.
+
 El criterio de éxito se cumple en dirección y magnitud —4% → 57% sobre oportunidades, con
 el `reviewer` y el `pr → pilot` pasando de 0 a activarse— pero descansa en una sola sesión
 por brazo. **Se declara cumplido y se deja abierta la remedición** cuando haya ~15 sesiones
 del brazo "después", que es lo que hace falta para que deje de depender de un caso.
+
+# La remedición (2026-09-11, n=16): el 57% no se sostiene
+
+> El veredicto de arriba dejó escrita su propia condición de revisión: *"se deja abierta la
+> remedición cuando haya ~15 sesiones del brazo 'después'"*. Ya hay **16**. Esto es esa
+> remedición, con el mismo método y los mismos dos scripts.
+
+## Los números
+
+| Brazo | Sesiones | Oportunidades | Activadas | Tasa |
+|---|---|---|---|---|
+| antes | 14 | 72 | 3 | **4%** |
+| después — lo publicado | 5 | 21 | 12 | **57%** |
+| **después — remedido** | **16** | **107** | **26** | **24%** |
+
+Por disparador cae todo al quintuplicar la muestra:
+
+| Disparador | n=5 | n=16 |
+|---|---|---|
+| `implementer` | 4/4 (100%) | 8/26 (**30%**) |
+| `reviewer` | 4/4 (100%) | 8/23 (**34%**) |
+| `pr → review-diff/pilot` | 4/13 (30%) | 10/55 (**18%**) |
+| `loop-back-debug` | — | 0/2 |
+| `verify-before-done` | — | 0/1 |
+
+Los dos 100% eran **cuatro de cuatro**. La sección "Lo que estos números NO dicen" ya lo había
+advertido —"una sesión más o menos mueve la tasa decenas de puntos"— y es exactamente lo que
+pasó.
+
+## La versión del harness no es la variable
+
+Las 16 sesiones abarcan cinco releases, y el resultado no es monótono:
+
+| Versión renderizada | Activadas / oportunidades | |
+|---|---|---|
+| 0.8.0 | 0/26 | 0% |
+| 0.8.1 | 0/5 | 0% |
+| 0.8.2 | 21/32 | **66%** |
+| 0.8.3 | 2/33 | 6% |
+| 0.8.4 | 0/2 | n insuficiente |
+| sin log de audit | 3/9 | 33% |
+
+El pico está en 0.8.2 y 0.8.3 se desploma. Cuando la variable que se cree explicativa no ordena
+el resultado, no es la variable.
+
+## Lo que sí ordena: el repo
+
+| Repo | Activadas / oportunidades | |
+|---|---|---|
+| navori-health | 21/33 | **64%** |
+| navori-harness | 5/60 | 8% |
+| moonar-medusa-monorepo | **0/14** | 0% en cinco sesiones |
+
+Mismo harness, versiones solapadas, tres regímenes. `moonar` no ha delegado **nunca**, de 0.8.1
+a 0.8.4. Y el caso extremo vive en navori-harness: `53c8808a`, la sesión más grande del brazo
+(46 turnos, `auto:190`), con **26 oportunidades y cero activaciones**.
+
+Versión y repo están confundidos por construcción: cada sesión corrió la versión que su repo
+tenía ese día. **Este diseño observacional no puede atribuir un cambio de conducta a un
+release**, ni al 0.8.4 ni a ninguno.
+
+## Los tres eslabones, y cuál falló
+
+El programa del 0.8 encadenaba tres condiciones antes de la conducta. Las cuatro están medidas:
+
+| Eslabón | Estado | Evidencia |
+|---|---|---|
+| La doctrina **llega** | ✅ | 7,448–8,657 bytes inyectados como cuerpo, no puntero (desde 0.8.2) |
+| Se **entiende** | ✅ | la sesión que produjo el mejor análisis de tgrep del parque siguió yéndose por shell en 9 de cada 10 búsquedas (#668) |
+| Se **nota** | ✅ | `routing-watch` emitió `notify — "4 archivos del hilo principal, sin subagente"` (0.8.4, sesión `8701ecd8`) |
+| **Cambia la conducta** | ❌ | tras ese aviso: 219 eventos, todos `Bash`, y **cero eventos de subagente** en toda la sesión |
+
+**La hipótesis "no delega porque la doctrina no le llega o no la nota" queda refutada.**
+Recibió, entendió, fue avisado, y no cambió.
+
+Que la ausencia de subagente sea un hecho y no una falla de instrumento lo prueba el control:
+en `8719afdd`, mismo hook y misma versión, el `SubagentStop` sí quedó registrado.
+
+## El A/B controlado apunta igual
+
+El 2026-09-11, dos sesiones simultáneas sobre la misma tarea — una con harness `--full`
+(7 plugins) y otra sin nada:
+
+| Brazo | Turnos | Bash | Skills | Subagentes |
+|---|---|---|---|---|
+| `con-harness` | 155 | 108 | **0** | **0** |
+| `sin-harness` | 121 | 104 | **0** | **0** |
+
+No es concluyente y no debe citarse como si lo fuera: el harness llevaba menos de una hora
+instalado, está en su forma más débil (greenfield, sin stack detectado ni quality gate), y la
+tarea era de browser, que legítimamente puede no merecer delegación. Pero la dirección coincide
+con lo observacional.
+
+## El instrumento está roto, y eso acota todo lo anterior
+
+Tres defectos encontrados el 2026-09-11, los tres con issue abierto:
+
+1. **`subagent-stop-handoff` infla ~10×**: 518 disparos contra 49 `Task` reales en 48 h. En
+   `4935c4d7`, 112 disparos con 111 `agentId` distintos para 4 subagentes reales. Cualquier
+   conteo de agentes derivado de ese hook está inflado.
+2. **La heurística de oportunidades no distingue trabajo generado de trabajo de lógica.**
+   Cuenta por archivos tocados + commit, así que las 46 rutas que reescribe un `render --apply`
+   puntúan igual que 46 archivos de lógica. El propio release de 0.8.4 es ese caso, y es R1
+   legítimo.
+3. **Los dos instrumentos se contradicen sobre la misma sesión**: `mine-activation.py` puntúa
+   `8719afdd` como 0/1, el hook registró un `SubagentStop`, y el transcript no tiene ni un
+   `Task` ni un sidechain. El hook mintió.
+
+Por el punto 2, **el 24% es un piso y no una medición**: una parte desconocida de esas 81
+no-activaciones era la ruta correcta. Calibrarlo exige auditar a mano una muestra, y hasta
+entonces el número no distingue deuda de acierto.
+
+## Veredicto corregido
+
+- **En dirección el efecto se sostiene**: 24% sigue siendo 6× el 4% del brazo "antes".
+- **En magnitud, el 57% era artefacto de n=5** y queda retirado.
+- **La entrega de doctrina está resuelta y agotada como palanca.** Los tres eslabones se
+  cumplen y la conducta no cambia: seguir escribiendo mejor prosa no tiene mecanismo de acción
+  disponible.
+- **La pregunta abierta ya no es "cómo hacer que la doctrina llegue"**, sino por qué un repo
+  delega el 64% y otro el 0% con el mismo harness — y si la respuesta es el tipo de trabajo
+  (feature-ticket contra release-ops), entonces la métrica está mal definida y el 24% no es
+  deuda.
+
+Lo que sigue no es otra iteración de prosa: es **convertir en mecanismo lo que hoy se sugiere**
+—el patrón que en este harness funciona 14/14 (`guard-destructive`) y 7/7
+(`quality-gate-pre-commit`), contra 0/1 del aviso— y reparar el instrumento antes de volver a
+confiar en un número. La regla de este documento —*"si el número no se mueve, la respuesta no
+es escribir más prosa"*— se aplica por segunda vez, ahora a sí misma.
