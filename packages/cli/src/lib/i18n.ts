@@ -717,6 +717,11 @@ interface DoctorCmdStrings {
   externalToolFallbackHow: string;
   optionalTools: (n: number, lines: string) => string;
   optionalToolRow: (binaries: string, how: string) => string;
+  /** #697 — the OTel receiver, only asked about when the repo audits always. */
+  otelReceiverOk: (port: number) => string;
+  otelReceiverDead: (port: number) => string;
+  otelReceiverAbsent: string;
+  otelReceiverManual: string;
   /** #368 — the declared quality gate can't run on this machine. */
   gateNotRunnable: (n: number, lines: string) => string;
   gateMissingBinaryRow: (binary: string) => string;
@@ -1224,6 +1229,15 @@ interface GlobalCmdStrings {
   hooksDisabledHint: string;
   uninstallNothing: string;
   uninstallDone: (dir: string) => string;
+  /** #697 — the launchd agent that keeps `audit --collect` up. */
+  collectUnsupported: (platform: string) => string;
+  collectInstalled: (path: string) => string;
+  collectReplaced: string;
+  collectCommand: (argv: string) => string;
+  collectLoadFailed: (message: string) => string;
+  collectDevBinaryWarn: (entry: string) => string;
+  collectUninstalled: (path: string) => string;
+  collectNothingInstalled: string;
   uninstallSettingsUnreadable: (path: string) => string;
   /**
    * #497 — the machine-wide settings.json exists but cannot be merged into.
@@ -1678,6 +1692,19 @@ const CMD_ES: CmdStrings = {
       `pero pierde precisión en estos flujos:\n${lines}`,
     optionalToolRow: (binaries, how) =>
       `— falta ${binaries} en PATH; ${how}. Mientras tanto, structural-search cae a Grep`,
+    otelReceiverOk: (port) => `receptor OTel escuchando en 127.0.0.1:${port}`,
+    otelReceiverDead: (port) =>
+      `El LaunchAgent del receptor está cargado pero nadie responde en 127.0.0.1:${port}. ` +
+      `Las sesiones de este repo (audit.mode: always) están exportando eventos que se pierden. ` +
+      `Revisa ~/.navori/logs/collect.err.log y reinstala con 'navori global collect install'.`,
+    otelReceiverManual:
+      `Este repo audita siempre pero el receptor de eventos OTel no está corriendo, así que las ` +
+      `sesiones pierden la tercera fuente (quién aprobó cada permiso, qué skill declaró el host). ` +
+      `Levántalo con 'navori audit --collect', o déjalo supervisado con 'navori global collect install'.`,
+    otelReceiverAbsent:
+      `Este repo audita siempre pero el receptor de eventos OTel no tiene supervisor: si se cae o ` +
+      `reinicias la máquina, las sesiones de ese rato pierden la tercera fuente sin aviso. ` +
+      `Instálalo con 'navori global collect install'.`,
     gateNotRunnable: (n, lines) =>
       `Quality gate declarado pero no ejecutable (${n}) — el gate es lo que sostiene ` +
       `el cierre de cada tarea; si no corre, las fases que dependen de él quedan sin red:\n${lines}`,
@@ -2276,6 +2303,20 @@ const CMD_ES: CmdStrings = {
       "recuerda: si deshabilitaste los hooks de Claude Code, el baseline no se inyecta",
     uninstallNothing: "No hay harness global que desinstalar.",
     uninstallDone: (dir) => `Harness global desinstalado de ${dir}.`,
+    collectUnsupported: (platform) =>
+      `El supervisor del receptor solo está implementado para launchd (macOS); esta máquina es '${platform}'. ` +
+      `Mientras tanto, levanta 'navori audit --collect' a mano o bájalo con el supervisor que ya uses.`,
+    collectInstalled: (path) => `LaunchAgent escrito en ${path}`,
+    collectReplaced: "había uno instalado — se reemplazó y se recargó",
+    collectCommand: (argv) => `launchd va a correr: ${argv}`,
+    collectLoadFailed: (message) =>
+      `El archivo quedó escrito pero launchctl no lo cargó: ${message || "sin mensaje"}. ` +
+      `Cárgalo a mano con 'launchctl bootstrap gui/$(id -u) <ruta>'.`,
+    collectDevBinaryWarn: (entry) =>
+      `Ojo: el binario que se fijó vive en un build de desarrollo (${entry}). ` +
+      `Un 'pnpm build' lo reescribe y un repo movido lo deja colgando; para uso diario, instala navori global y reinstala el agente.`,
+    collectUninstalled: (path) => `LaunchAgent descargado y borrado de ${path}`,
+    collectNothingInstalled: "No había LaunchAgent del receptor que desinstalar.",
     uninstallSettingsUnreadable: (path) =>
       `No se pudo parsear ${path}, así que quedó intacto: se borró el archivo del hook, ` +
       `pero su registro sigue en settings.json. Arregla el JSON y vuelve a correr 'navori global uninstall'.`,
@@ -2755,6 +2796,19 @@ const CMD_EN: CmdStrings = {
       `but loses precision in these flows:\n${lines}`,
     optionalToolRow: (binaries, how) =>
       `— missing ${binaries} in PATH; ${how}. Until then, structural-search falls back to Grep`,
+    otelReceiverOk: (port) => `OTel receiver listening on 127.0.0.1:${port}`,
+    otelReceiverDead: (port) =>
+      `The receiver's LaunchAgent is loaded but nothing answers on 127.0.0.1:${port}. ` +
+      `This repo's sessions (audit.mode: always) are exporting events that go nowhere. ` +
+      `Check ~/.navori/logs/collect.err.log and reinstall with 'navori global collect install'.`,
+    otelReceiverManual:
+      `This repo audits every session but the OTel receiver is not running, so those sessions ` +
+      `lose the third source (who approved each permission, which skill the host declared). ` +
+      `Start it with 'navori audit --collect', or keep it supervised with 'navori global collect install'.`,
+    otelReceiverAbsent:
+      `This repo audits every session but the OTel receiver has no supervisor: if it dies or the ` +
+      `machine reboots, the sessions in between lose the third source with no warning. ` +
+      `Install it with 'navori global collect install'.`,
     gateNotRunnable: (n, lines) =>
       `Quality gate declared but not runnable (${n}) — the gate is what closes every ` +
       `task; if it can't run, the phases that lean on it have no net:\n${lines}`,
@@ -3347,6 +3401,20 @@ const CMD_EN: CmdStrings = {
     hooksDisabledHint: "note: if you disabled Claude Code hooks, the baseline won't be injected",
     uninstallNothing: "No global harness to uninstall.",
     uninstallDone: (dir) => `Global harness uninstalled from ${dir}.`,
+    collectUnsupported: (platform) =>
+      `The receiver's supervisor is only implemented for launchd (macOS); this machine is '${platform}'. ` +
+      `For now, run 'navori audit --collect' by hand or keep it up with the supervisor you already use.`,
+    collectInstalled: (path) => `LaunchAgent written to ${path}`,
+    collectReplaced: "one was already installed — replaced and reloaded",
+    collectCommand: (argv) => `launchd will run: ${argv}`,
+    collectLoadFailed: (message) =>
+      `The file was written but launchctl did not load it: ${message || "no message"}. ` +
+      `Load it by hand with 'launchctl bootstrap gui/$(id -u) <path>'.`,
+    collectDevBinaryWarn: (entry) =>
+      `Heads-up: the pinned binary lives in a development build (${entry}). ` +
+      `A 'pnpm build' rewrites it and a moved repo leaves it dangling; for daily use, install navori globally and reinstall the agent.`,
+    collectUninstalled: (path) => `LaunchAgent unloaded and removed from ${path}`,
+    collectNothingInstalled: "There was no receiver LaunchAgent to uninstall.",
     uninstallSettingsUnreadable: (path) =>
       `Could not parse ${path}, so it was left untouched: the hook file is gone, but its ` +
       `registration is still in settings.json. Fix the JSON and run 'navori global uninstall' again.`,

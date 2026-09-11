@@ -222,7 +222,7 @@ const es: Record<string, CommandDoc> = {
     summary:
       "Instala un harness base por máquina en ~/.claude, para las sesiones que arrancan fuera de un repo con navori. Opt-in y de huella cero: sin 'navori global init' no existe, y navori no tocó nada de tu máquina.",
     usage:
-      "navori global init [--apply] [--recommended] [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global uninstall",
+      "navori global init [--apply] [--recommended] [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global collect install|uninstall\nnavori global uninstall",
     flags: [
       {
         flag: "init",
@@ -248,6 +248,14 @@ const es: Record<string, CommandDoc> = {
       {
         flag: "doctor",
         desc: "Audita la capa: drift del hook, el gate ejecutado de verdad, el plugin al día, permisos y versión. Si no está instalada, lo dice y ya.",
+      },
+      {
+        flag: "collect install",
+        desc: "Instala el LaunchAgent (macOS) que mantiene arriba 'navori audit --collect', el receptor de la tercera fuente de audit. Con KeepAlive y RunAtLoad: launchd lo revive si se cae y lo levanta al arrancar la máquina. navori escribe el plist; launchd lo ejecuta.",
+      },
+      {
+        flag: "collect uninstall",
+        desc: "Descarga el LaunchAgent y borra el plist. Igual que el resto de 'global': todo lo que navori escribió fuera del repo sabe deshacerse.",
       },
       {
         flag: "uninstall",
@@ -943,7 +951,7 @@ const en: Record<string, CommandDoc> = {
     summary:
       "Installs a machine-wide harness baseline into ~/.claude, for sessions that start outside a navori repo. Opt-in and zero-footprint: without 'navori global init' it doesn't exist, and navori touched nothing on your machine.",
     usage:
-      "navori global init [--apply] [--recommended] [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global uninstall",
+      "navori global init [--apply] [--recommended] [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global collect install|uninstall\nnavori global uninstall",
     flags: [
       {
         flag: "init",
@@ -969,6 +977,14 @@ const en: Record<string, CommandDoc> = {
       {
         flag: "doctor",
         desc: "Audits the layer: hook drift, the gate actually executed, plugin up to date, permissions and version. If it isn't installed, it says so and stops.",
+      },
+      {
+        flag: "collect install",
+        desc: "Installs the LaunchAgent (macOS) that keeps 'navori audit --collect' up — the receiver behind audit's third source. With KeepAlive and RunAtLoad: launchd revives it when it dies and starts it at login. navori writes the plist; launchd runs it.",
+      },
+      {
+        flag: "collect uninstall",
+        desc: "Unloads the LaunchAgent and deletes the plist. Like the rest of 'global': everything navori wrote outside the repo knows how to undo itself.",
       },
       {
         flag: "uninstall",
