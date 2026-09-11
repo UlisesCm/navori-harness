@@ -85,6 +85,11 @@ describe.runIf(runsBash)("guard-search-routing", () => {
         'echo hi && grep -n "a" f.ts && grep -rn "b" src/',
         "one offending segment is enough, even after a legitimate one",
       ],
+      [
+        'grep -rn "pkg.json" src/',
+        "the PATTERN is not a target — what it names is what it looks FOR",
+      ],
+      ['grep -rn "x" --include=*.ts src/', "a glob inside a flag is not a concrete file"],
     ] as const;
     for (const [cmd, why] of blocked) {
       it(`blocks \`${cmd}\` — ${why}`, () => {
@@ -111,6 +116,14 @@ describe.runIf(runsBash)("guard-search-routing", () => {
       ],
       ['grep -E "Found', "an unbalanced quote cannot be parsed — unsure means allow"],
       ['grep --color=never -n "x" file.ts', "a long flag with no r/R in its name"],
+      [
+        'grep -rn "oxlint" apps/a/package.json apps/b/package.json',
+        "-r is inert once you hand grep concrete files — this exact shape cost a live session a round-trip",
+      ],
+      [
+        'grep -rn "types:" node_modules/@keystone-6/core/dist/system.js',
+        "reading one file under node_modules, the most common shape of the -r habit",
+      ],
     ] as const;
     for (const [cmd, why] of allowed) {
       it(`allows \`${cmd}\` — ${why}`, () => {
@@ -121,6 +134,14 @@ describe.runIf(runsBash)("guard-search-routing", () => {
 
   it("waves through an empty payload instead of dying on it", () => {
     expect(runGuard("")).toBe(0);
+  });
+
+  it("treats a heredoc body as data, not as a call", () => {
+    // Not hypothetical: this fired on the very session adding these tests,
+    // because one of the cases above IS the string `grep -rn "..." src/`. A
+    // guard that cannot be written about is a guard nobody can maintain.
+    const writingAboutASearch = ["python3 - <<PY", 'x = "grep -rn foo src/"', "PY"].join("\n");
+    expect(runGuard(writingAboutASearch)).toBe(0);
   });
 
   it("names the replacement command, not just the rule that fired", () => {
