@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { readHarnessCatalog, renderedHarnessVersion } from "../lib/audit/harness.ts";
-import { findMarkedSessions } from "../lib/audit/discovery.ts";
+import { findMarkedSessions, resolveTranscript } from "../lib/audit/discovery.ts";
 import { attachHookEvents, parseSession } from "../lib/audit/parse.ts";
 import { detectSignals, type Lang } from "../lib/audit/signals.ts";
 import { billable, buildReport, renderJson, renderMarkdown } from "../lib/audit/report.ts";
@@ -352,6 +352,25 @@ export const auditCommand = defineCommand({
         })}\n`,
         "utf-8",
       );
+      // #675: the id is only checked for SHAPE (`SESSION_ID_RE`, which exists
+      // to stop traversal and does that well). Nothing checked that it names a
+      // real session, so a typo — `--start p` — answered "audit-mode active"
+      // and left a log that can never produce a report, while the repo it sits
+      // in starts counting as audited.
+      //
+      // A WARNING and not a failure, on measured grounds: across this repo's
+      // own store the transcript exists by the time `--start` runs (same second
+      // for a fresh session, earlier for a resumed one), so this does not fire
+      // on the hook flow — but the margin is one second, and refusing to mark a
+      // session because a file is late would be a worse trade than one line of
+      // noise.
+      if (!resolveTranscript(startId, cwd)) {
+        p.log.warn(
+          isEs
+            ? `No encontré transcript para '${startId}'. Si la sesión acabó de abrir puede que aún no exista; si fue un typo, este log nunca va a producir reporte y hay que borrarlo a mano: ${logFile}`
+            : `No transcript found for '${startId}'. If the session just opened it may not exist yet; if it was a typo, this log can never produce a report and has to be deleted by hand: ${logFile}`,
+        );
+      }
       p.outro(
         isEs
           ? `${color.green("audit-mode activo")} ${dim(logFile)}`
@@ -428,12 +447,26 @@ export const auditCommand = defineCommand({
       const msg = isEs
         ? `Se encontraron ${marked.length} sesiones marcadas pero ningún transcript localizable.`
         : `Found ${marked.length} marked sessions but no locatable transcript.`;
-      if (json) console.log(JSON.stringify({ ok: false, error: "no-transcripts", repo }));
+      // Naming them is the difference between "something is wrong with this
+      // repo" and "these three logs are orphans": the ids are what a caller
+      // needs to go delete, and the previous payload made the reader re-derive
+      // them from the store by hand.
+      if (json)
+        console.log(
+          JSON.stringify({ ok: false, error: "no-transcripts", repo, orphanSessions: missing }),
+        );
       else p.cancel(msg);
       process.exit(2);
     }
 
-    const report = buildReport(parsed, { repo, version: readCliVersion(), catalog });
+    const report = buildReport(parsed, {
+      repo,
+      version: readCliVersion(),
+      catalog,
+      // #675: the human note already printed these; `--json` could not see them
+      // at all, which is the half a CI or an agent reads.
+      orphanSessions: missing,
+    });
 
     if (json) {
       process.stdout.write(renderJson(report));

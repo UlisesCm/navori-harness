@@ -306,13 +306,26 @@ describe("time: sum vs wall clock (#0013)", () => {
 
 describe("schema (#0013)", () => {
   // Covers: R17
-  it("declares schemaVersion 5", () => {
+  it("declares schemaVersion 6", () => {
     const report = buildReport([session([])], {
       repo: "demo",
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.schemaVersion).toBe(5);
+    expect(report.schemaVersion).toBe(6);
+    // The bump is what the field below is FOR: a consumer pinned to 5 must be
+    // able to tell that `orphanSessions` exists without probing for it.
+    expect(report.orphanSessions).toEqual([]);
+  });
+
+  it("carries the marked logs whose transcript never resolved (#675)", () => {
+    const report = buildReport([session([])], {
+      repo: "demo",
+      version: "0.6.5",
+      catalog: CATALOG,
+      orphanSessions: ["sess-gho"],
+    });
+    expect(report.orphanSessions).toEqual(["sess-gho"]);
   });
 
   it("stamps when it was built, which `generatedBy` never said", () => {

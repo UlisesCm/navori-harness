@@ -807,7 +807,14 @@ export function renderJson(report: AuditReport): string {
 /** Aggregates parsed sessions into the report envelope. */
 export function buildReport(
   sessions: SessionAudit[],
-  opts: { repo: string; version: string; catalog: HarnessCatalog; now?: Date },
+  opts: {
+    repo: string;
+    version: string;
+    catalog: HarnessCatalog;
+    now?: Date;
+    /** Marked logs whose transcript did not resolve (#675). */
+    orphanSessions?: string[];
+  },
 ): AuditReport {
   const byAgentType: AuditReport["totals"]["byAgentType"] = {};
   const byModel: Record<string, number> = {};
@@ -856,7 +863,7 @@ export function buildReport(
     .sort();
 
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     generatedBy: `navori@${opts.version}`,
     generatedAt: (opts.now ?? new Date()).toISOString(),
     repo: opts.repo,
@@ -880,5 +887,6 @@ export function buildReport(
       agentWallClockMs: sessions.reduce((sum, sess) => sum + wallClockOf(sess.agents), 0),
     },
     signals: sessions.flatMap((s) => s.signals),
+    orphanSessions: opts.orphanSessions ?? [],
   };
 }

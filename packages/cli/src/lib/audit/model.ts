@@ -466,8 +466,11 @@ export interface AuditReport {
    *  `navoriAtStop`. Bumped to 5 with each session's `endReason` and
    *  `prompts.queuedSystem` — the same family of field as the bump to 4, and
    *  published by `renderJson`, which serializes whole sessions.
+   *  Bumped to 6 with `orphanSessions` (#675): logs that were marked and whose
+   *  transcript no longer resolves. They were already printed to the human and
+   *  invisible to `--json`, which is the half a CI or an agent reads.
    *  A reader can tell the shapes apart by this number alone. */
-  schemaVersion: 5;
+  schemaVersion: 6;
   generatedBy: string;
   /**
    * When this report was built, ISO-8601.
@@ -498,4 +501,14 @@ export interface AuditReport {
     agentWallClockMs: number;
   };
   signals: Signal[];
+  /**
+   * Marked sessions whose transcript could not be located, by short id.
+   *
+   * Not an error and not empty-by-default noise: a log with no transcript is
+   * either a typo'd `--start` (the defect in #675, where a one-letter id made a
+   * repo count as audited on two lines of nothing) or a transcript that was
+   * pruned. Either way it produces no report, so a reader counting audited
+   * sessions has to be able to subtract them.
+   */
+  orphanSessions: string[];
 }

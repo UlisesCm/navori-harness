@@ -628,3 +628,62 @@ describe("audit --stop resolves a prefix, like --session (A1)", () => {
     expect(stopEvents("sess-only")).toHaveLength(1);
   });
 });
+
+/**
+ * #675 — `--start` accepted any id the traversal guard allowed and answered
+ * "audit-mode active" for all of them.
+ *
+ * The case found in the real store was `session-p.log`: a one-letter id, two
+ * lines, no transcript that could ever resolve — and the ONLY session of that
+ * repo, so `bonum-nexus` counted as audited on nothing at all.
+ */
+describe("audit --start over an id that names no session (#675)", () => {
+  /** A transcript where `resolveTranscript`'s directory scan will find it. */
+  function transcriptFor(id: string): void {
+    const dir = join(home, ".claude", "projects", "enc");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${id}.jsonl`), "", "utf-8");
+  }
+
+  it("warns, without refusing to mark the session", () => {
+    const res = runAudit(["--start", "p"]);
+
+    // Still marked: a session whose transcript is one second late is a real
+    // session, and refusing it would be a worse failure than a warning.
+    expect(res.status).toBe(0);
+    expect(existsSync(join(auditDir, "session-p.log"))).toBe(true);
+    expect(res.combined).toMatch(/transcript/i);
+    // The remedy has to be the true one: `--disarm` clears a pending `--arm`,
+    // it does not undo a `--start`, so the message names the file to delete.
+    expect(res.combined).toContain(join(auditDir, "session-p.log"));
+  });
+
+  it("says nothing when the id does resolve a transcript", () => {
+    transcriptFor("sess-real");
+    const res = runAudit(["--start", "sess-real"]);
+    expect(res.status).toBe(0);
+    expect(res.combined).not.toMatch(/No transcript found|No encontré transcript/);
+  });
+
+  it("names the orphans in --json instead of only in the human note", () => {
+    // The human path already printed "sin transcript <ids>"; `--json` — the
+    // half a CI or an agent reads — could not see them at all.
+    markedSessionWithTranscript("sess-good", "2026-08-25");
+    runAudit(["--start", "sess-orphan"]);
+
+    const res = runAudit(["--json"]);
+    expect(res.status).toBe(0);
+    const report = JSON.parse(res.combined) as { schemaVersion: number; orphanSessions: string[] };
+    expect(report.schemaVersion).toBe(6);
+    expect(report.orphanSessions).toEqual(["sess-orp"]);
+  });
+
+  it("names them too when NO session has a transcript", () => {
+    runAudit(["--start", "sess-ghost"]);
+    const res = runAudit(["--json"]);
+    expect(res.status).toBe(2);
+    const payload = JSON.parse(res.combined) as { error: string; orphanSessions: string[] };
+    expect(payload.error).toBe("no-transcripts");
+    expect(payload.orphanSessions).toEqual(["sess-gho"]);
+  });
+});
