@@ -666,6 +666,10 @@ const es: Record<string, CommandDoc> = {
         desc: "Arma el audit-mode: si ya hay una sesión abierta en el repo, arranca en su siguiente mensaje (sirve `! navori audit --arm` desde dentro); si no, arranca al abrir la próxima. El hook hace el --start solo (una sesión exacta; --disarm lo cancela).",
       },
       { flag: "--stop <id>", desc: "Sella el log de la sesión y reporta sobre ella." },
+      {
+        flag: "--collect",
+        desc: "Levanta el receptor de eventos OTel en 127.0.0.1:4318 hasta que lo cortes: la tercera fuente, la que sabe qué decidió el host (quién aprobó cada permiso, qué skill estaba activa). Imprime la dirección, el directorio de salida y las variables que hay que exportar en la terminal de la sesión auditada.",
+      },
       { flag: "--cwd <dir>", desc: "Repo a auditar (default: actual)." },
     ],
     example: [
@@ -1384,6 +1388,10 @@ const en: Record<string, CommandDoc> = {
         desc: "Arm audit-mode: an open session in the repo activates on its next message (works in-session via `! navori audit --arm`); otherwise the next session opened does. The hook issues --start itself (exactly one session; --disarm cancels).",
       },
       { flag: "--stop <id>", desc: "Seal the session's log and report on it." },
+      {
+        flag: "--collect",
+        desc: "Run the OTel events receiver on 127.0.0.1:4318 until you stop it: the third source, the one that knows what the host decided (who approved each permission, which skill was active). Prints the address, the output directory and the variables to export in the audited session's terminal.",
+      },
       { flag: "--cwd <dir>", desc: "Repo to audit (default: current)." },
     ],
     example: [
