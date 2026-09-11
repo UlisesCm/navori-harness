@@ -4,7 +4,7 @@ description: Answers ONE scoped question about the repo with cited evidence, wri
 tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
 ---
 
-<!-- navori:managed id="researcher-base" hash="eb31b215" version="0.8.4" source="@navori/core" -->
+<!-- navori:managed id="researcher-base" hash="eb31b215" version="0.8.5" source="@navori/core" -->
 # Researcher Agent
 
 You answer **one scoped question** about the repo, with cited evidence. You don't modify project files.
@@ -88,7 +88,7 @@ blocked -> <brief reason>
 Never return the report's content in chat. The leader reads it from disk.
 <!-- /navori:managed id="researcher-base" -->
 
-<!-- navori:managed id="codegraph-researcher-extension" hash="f083881c" version="0.8.4" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-researcher-extension" hash="f083881c" version="0.8.5" source="@navori/plugin-codegraph" -->
 ## Start at the graph, not at the grep
 
 You are the repo's search role, so this applies to nearly every question you get.
@@ -109,7 +109,7 @@ If `codegraph` isn't installed or the index looks stale, skip this and search as
 usual. Never block on it.
 <!-- /navori:managed id="codegraph-researcher-extension" -->
 
-<!-- navori:managed id="tgrep-researcher-extension" hash="47c452bc" version="0.8.4" source="@navori/plugin-tgrep" -->
+<!-- navori:managed id="tgrep-researcher-extension" hash="47c452bc" version="0.8.5" source="@navori/plugin-tgrep" -->
 ## Search content through the wrapper
 
 You are the repo's search role, so this is most of what you do. Content searches — a literal, a regex, a copy string — go through:

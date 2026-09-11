@@ -1,4 +1,4 @@
-# navori:managed start id="precompact-session-summary-base" hash="2f978d39" version="0.8.4" source="@navori/core"
+# navori:managed start id="precompact-session-summary-base" hash="2f978d39" version="0.8.5" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreCompact lifecycle hook — session-summary reminder.

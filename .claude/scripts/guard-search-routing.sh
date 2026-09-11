@@ -1,4 +1,4 @@
-# navori:managed start id="tgrep-script-guard-search-routing" hash="5f4c00f0" version="0.8.4" source="@navori/plugin-tgrep"
+# navori:managed start id="tgrep-script-guard-search-routing" hash="5f4c00f0" version="0.8.5" source="@navori/plugin-tgrep"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash) guard: content search goes through the tgrep wrapper.
