@@ -423,5 +423,13 @@
       "Bash(sudo rm *)",
       "Bash(mkfs*)"
     ]
+  },
+  "env": {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_METRICS_EXPORTER": "none",
+    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/json",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://127.0.0.1:4318/v1/logs",
+    "OTEL_LOGS_EXPORT_INTERVAL": "1000"
   }
 }

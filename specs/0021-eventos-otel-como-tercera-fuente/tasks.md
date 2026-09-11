@@ -40,7 +40,7 @@
   puede romper en silencio. · test: `collect.test.ts`::`solo el receptor escucha en un puerto` con
   `// Covers: R9`.
 
-- [ ] **T5** (R10, R11) — Emitir el bloque de entorno del contrato en el fragmento de `settings.json`
+- [x] **T5** (R10, R11) — Emitir el bloque de entorno del contrato en el fragmento de `settings.json`
   únicamente cuando el repo declara `audit.mode: always`, sin habilitar métricas ni cuerpos crudos.
   En cualquier otro modo, no emitir nada. Actualizar los golden snapshots de render. · tests:
   `render-engine.test.ts`::`emite el entorno OTel con audit.mode always` y `render-engine.test.ts`::

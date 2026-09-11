@@ -23,6 +23,16 @@ const CONFIG_NO_QG = {
   qualityGate: undefined,
 } as unknown as NavoriConfig;
 
+const CONFIG_AUDIT_ALWAYS = {
+  ...CONFIG_FULL,
+  audit: { mode: "always" },
+} as unknown as NavoriConfig;
+
+const CONFIG_AUDIT_OPT_IN = {
+  ...CONFIG_FULL,
+  audit: { mode: "opt-in" },
+} as unknown as NavoriConfig;
+
 const CONFIG_HARNESS_FILTERED = {
   ...CONFIG_FULL,
   harness: {
@@ -1036,5 +1046,35 @@ describe("renderClaudeEngine — Codex cross-model review advisory (#168)", () =
     renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
     const second = renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
     expect(second.written.some((w) => w.path === ".claude/agents/leader.md")).toBe(false);
+  });
+
+  // Covers: R10, R11
+  it("emite el entorno OTel con audit.mode always", () => {
+    renderClaudeEngine(cwd, CONFIG_AUDIT_ALWAYS);
+    const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
+    expect(settings.env).toEqual({
+      CLAUDE_CODE_ENABLE_TELEMETRY: "1",
+      OTEL_LOGS_EXPORTER: "otlp",
+      OTEL_METRICS_EXPORTER: "none",
+      OTEL_EXPORTER_OTLP_LOGS_PROTOCOL: "http/json",
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "http://127.0.0.1:4318/v1/logs",
+      OTEL_LOGS_EXPORT_INTERVAL: "1000",
+    });
+    // toEqual above already pins the set, and that is the point: metrics and
+    // raw API bodies are a separate signal with a separate default, and the
+    // variables that would turn the prompt's text into telemetry
+    // (OTEL_LOG_USER_PROMPTS, OTEL_LOG_RAW_API_BODIES) must never appear here.
+    const keys = Object.keys(settings.env as Record<string, string>);
+    expect(keys.some((k) => k.startsWith("OTEL_LOG_"))).toBe(false);
+  });
+
+  // Covers: R10, R11
+  it("no emite el entorno OTel en audit.mode opt-in", () => {
+    renderClaudeEngine(cwd, CONFIG_AUDIT_OPT_IN);
+    const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
+    // A repo that audits per session must not pay an export attempt every
+    // second in the sessions it never asked to record. Not an empty object:
+    // absent.
+    expect(settings.env).toBeUndefined();
   });
 });

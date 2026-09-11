@@ -119,6 +119,38 @@ export function buildClaudeSettings(
     },
   });
 
+  // The OTel events environment (#0021, R10/R11) — the third audit source.
+  //
+  // Tied to `audit.mode`, not to a per-session flag, because of WHEN the host
+  // reads it: the OTel environment is read when the Claude Code process starts,
+  // and `--arm`'s central case (#599) is arming the session ALREADY RUNNING.
+  // A flag therefore cannot turn exporting on for a live session, so the only
+  // honest place for this is a declaration the repo makes before the session
+  // opens.
+  //
+  // `opt-in` emits NOTHING: there, most sessions are not audited, and a repo
+  // that audits by session must not pay an export attempt every second in the
+  // ones it did not ask to record.
+  //
+  // Metrics and raw API bodies stay OFF — `OTEL_METRICS_EXPORTER=none` says so
+  // explicitly rather than by omission, since the metrics exporter is a
+  // separate signal with a separate default, and this spec reads events only.
+  // The protocol and endpoint variables are the PER-SIGNAL ones (`_LOGS_`) so
+  // enabling this never drags along traces or metrics for an operator who
+  // already configured OTel for something else.
+  if (config.audit?.mode === "always") {
+    settings = deepMerge(settings, {
+      env: {
+        CLAUDE_CODE_ENABLE_TELEMETRY: "1",
+        OTEL_LOGS_EXPORTER: "otlp",
+        OTEL_METRICS_EXPORTER: "none",
+        OTEL_EXPORTER_OTLP_LOGS_PROTOCOL: "http/json",
+        OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "http://127.0.0.1:4318/v1/logs",
+        OTEL_LOGS_EXPORT_INTERVAL: "1000",
+      },
+    });
+  }
+
   // #530: the drift watcher, the first of the harness's two PostToolUse hooks
   // (the routing watcher below is the other). The guard
   // above decides by the SHAPE of the command, so it covers the write verbs
