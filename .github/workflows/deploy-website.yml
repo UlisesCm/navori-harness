@@ -6,6 +6,11 @@ on:
     paths:
       - "apps/website/**"
       - ".github/workflows/deploy-website.yml"
+      # The footer prints the released version by importing the CLI manifest
+      # (apps/website/src/components/Footer.astro). Without this path a release
+      # never redeploys the site, and the footer keeps showing the previous
+      # version until some unrelated website change happens to trigger a build.
+      - "packages/cli/package.json"
   workflow_dispatch:
 
 permissions:

@@ -121,7 +121,10 @@ node dist/index.js init --cwd /ruta/a/un/repo
 
 ## Releases
 
-Releases manuales, **en este orden**:
+Releases manuales, **en este orden**. Desde 0.8.2 el commit del paso 3 va **por PR a
+`main`**, no en push directo: el README documentaba el release directo y en la misma
+línea advertía que así no hay PR donde verlo antes — o sea, CI no valida el árbol del
+release hasta que ya aterrizó.
 
 1. Bump de la versión en `packages/cli/package.json`.
 2. **Re-render obligatorio del espejo** (no es opcional ni un detalle):
@@ -132,12 +135,19 @@ Releases manuales, **en este orden**:
    desfasa el espejo renderizado de este repo **entero**: medido en 0.6.0 → 0.6.1, **30 archivos**
    entre `.claude/` y `CLAUDE.md`. Saltarte este paso deja el tag puesto sobre un árbol
    inconsistente y pone en rojo el primer CI de `main` posterior al release (`pnpm check:render`,
-   #421) — y como el release va directo a `main`, no hay PR donde verlo antes.
+   #421). Yendo por PR eso se ve antes de aterrizar; era justo el punto ciego del push directo.
 3. Commit `chore(release): navori vX.Y.Z` — incluye el bump **y** el re-render del paso 2.
-4. Tag `vX.Y.Z` (después del re-render, nunca antes).
+4. Tag `vX.Y.Z` (después del re-render, nunca antes) **y púshalo**:
+   `git tag -a vX.Y.Z <commit del paso 3> && git push origin vX.Y.Z`. El tag apunta al
+   commit `chore(release)`, como `v0.8.2` → `285fa51` y `v0.8.3` → `6f32a00`. Sin push
+   nadie más lo ve y `check:assets` sigue comparando contra el release anterior.
 5. `npm publish` desde `packages/cli`.
 
-El website lee la versión del `package.json` del CLI y se redespliega vía GitHub Actions.
+El footer del website imprime la versión importando el `package.json` del CLI
+(`apps/website/src/components/Footer.astro`), y `deploy-website.yml` vigila ese archivo en
+su filtro de `paths`, así que el bump del paso 1 redespliega el sitio. **Si el sitio muestra
+una versión vieja, ese filtro es el primer sospechoso**: hasta 0.8.4 no incluía el manifest
+del CLI y el sitio se quedó dos releases atrás, mostrando `v0.8.2` con `0.8.4` ya en npm.
 
 ## Créditos e inspiración
 
