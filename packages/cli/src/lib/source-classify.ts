@@ -175,9 +175,14 @@ export const CLASSIFY_RULES: readonly ClassifyRule[] = [
   },
 ];
 
-/** Extensions that carry behavior when nothing above claimed the path. */
-const SOURCE_EXT =
-  /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|swift|sh|bash|zsh|sql|vue|svelte|astro)$/;
+/** Extensions that carry behavior when nothing above claimed the path.
+ *
+ * `.ipynb` is in the list because a notebook IS executable, and this harness
+ * treats it as such elsewhere: `routing-watch` reads `tool_input.notebook_path`
+ * precisely so a notebook edit is not invisible to it. Leaving it out made the
+ * two disagree — which is the whole failure mode this module exists to end. */
+export const SOURCE_EXT =
+  /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|swift|sh|bash|zsh|sql|vue|svelte|astro|ipynb)$/;
 
 /**
  * Harness prose an agent OBEYS — behavior by clause (a), even though it is `.md`.
@@ -188,7 +193,8 @@ const SOURCE_EXT =
  * already excluded above as generated output; what this admits is the SOURCE
  * asset it is rendered from.
  */
-const HARNESS_PROSE = /(^|\/)(core-assets|plugins)\/(.*\/)?(agents|skills|managed)\/[^/]+\.md$/;
+export const HARNESS_PROSE =
+  /(^|\/)(core-assets|plugins)\/(.*\/)?(agents|skills|managed)\/[^/]+\.md$/;
 
 /** Normalizes to a repo-relative POSIX path, or null when it is outside the repo. */
 export function toRepoRelative(filePath: string, repoRoot: string): string | null {

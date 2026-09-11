@@ -130,12 +130,7 @@ function contextOf(run: HookRun): string {
 describe.runIf(runsBash)("routing-watch.sh — the notice fires (spec 0020)", () => {
   // Covers: R2
   it("emite al cruzar el umbral", () => {
-    const runs = play([
-      edit("/repo/a.ts"),
-      edit("/repo/b.ts"),
-      edit("/repo/c.ts"),
-      edit("/repo/d.ts"),
-    ]);
+    const runs = play([edit("src/a.ts"), edit("src/b.ts"), edit("src/c.ts"), edit("src/d.ts")]);
 
     const emitted = notices(runs);
     expect(emitted).toHaveLength(1);
@@ -162,12 +157,7 @@ describe.runIf(runsBash)("routing-watch.sh — the notice fires (spec 0020)", ()
     // shape there is, and R2 is about four DISTINCT files. Counting rewrites
     // would fire the note on the safest session in the repo, and a hook that
     // guesses is the noise this design refuses to ship.
-    const runs = play([
-      edit("/repo/a.ts"),
-      edit("/repo/a.ts"),
-      edit("/repo/a.ts"),
-      edit("/repo/a.ts"),
-    ]);
+    const runs = play([edit("src/a.ts"), edit("src/a.ts"), edit("src/a.ts"), edit("src/a.ts")]);
 
     expect(notices(runs)).toHaveLength(0);
   });
@@ -175,13 +165,81 @@ describe.runIf(runsBash)("routing-watch.sh — the notice fires (spec 0020)", ()
   // Covers: R2
   it("cuenta Write y NotebookEdit, no solo Edit", () => {
     const runs = play([
-      edit("/repo/a.ts", "Write"),
-      edit("/repo/b.ipynb", "NotebookEdit"),
-      edit("/repo/c.ts", "Write"),
-      edit("/repo/d.ts"),
+      edit("src/a.ts", "Write"),
+      edit("src/b.ipynb", "NotebookEdit"),
+      edit("src/c.ts", "Write"),
+      edit("src/d.ts"),
     ]);
 
     expect(notices(runs)).toHaveLength(1);
+  });
+});
+
+describe.runIf(runsBash)("routing-watch.sh — solo cuenta lo que es del cambio", () => {
+  /**
+   * El hook contaba `tool_input.file_path` tal cual: sin filtrar por repo y sin
+   * mirar qué clase de archivo era. Medido sobre el parque, el 13.4% de lo que
+   * el minero llamaba "escrituras de fuente" eran archivos fuera del repo, y un
+   * `render --apply` que reescribe 45 rutas de espejo cruzaba el umbral cuatro
+   * veces sin que nadie hubiera escrito una línea de lógica.
+   *
+   * Las dos condiciones salen de la MISMA definición que usan el minero y el
+   * pilot (`lib/source-classify.ts`), inlineada aquí como partial generado.
+   */
+
+  it("no cuenta un archivo fuera del repo", () => {
+    // Cuatro escrituras absolutas bajo otro árbol: ninguna llega a un diff.
+    const runs = play([
+      edit("/tmp/scratch/a.ts"),
+      edit("/tmp/scratch/b.ts"),
+      edit("/tmp/scratch/c.ts"),
+      edit("/tmp/scratch/d.ts"),
+    ]);
+    expect(notices(runs)).toHaveLength(0);
+  });
+
+  it("no cuenta el espejo renderizado — un release no es una delegación", () => {
+    const runs = play([
+      edit(".claude/agents/reviewer.md"),
+      edit(".claude/hooks/guard-destructive.sh"),
+      edit("CLAUDE.md"),
+      edit(".mcp.json"),
+    ]);
+    expect(notices(runs)).toHaveLength(0);
+  });
+
+  it("no cuenta tests, lockfiles ni docs", () => {
+    const runs = play([
+      edit("src/__tests__/a.test.ts"),
+      edit("pnpm-lock.yaml"),
+      edit("docs/research/x.md"),
+      edit("package.json"),
+    ]);
+    expect(notices(runs)).toHaveLength(0);
+  });
+
+  it("sí cuenta la prosa del harness que un agente obedece", () => {
+    // Clause (a) la llama comportamiento: un agente la lee y actúa sobre ella.
+    const runs = play([
+      edit("packages/core/core-assets/agents/reviewer.md"),
+      edit("packages/core/core-assets/skills/review-diff.md"),
+      edit("packages/plugins/tgrep/skills/tgrep-rung.md"),
+      edit("packages/core/core-assets/managed/sdd.md"),
+    ]);
+    expect(notices(runs)).toHaveLength(1);
+  });
+
+  it("mezcla: solo las de fuente suman hacia el umbral", () => {
+    // Tres fuentes y tres descartadas: no alcanza.
+    const runs = play([
+      edit("src/a.ts"),
+      edit("pnpm-lock.yaml"),
+      edit("src/b.ts"),
+      edit(".claude/settings.json"),
+      edit("src/c.ts"),
+      edit("/tmp/x/d.ts"),
+    ]);
+    expect(notices(runs)).toHaveLength(0);
   });
 });
 
@@ -189,17 +247,17 @@ describe.runIf(runsBash)("routing-watch.sh — and never becomes noise (spec 002
   // Covers: R3
   it("una sola vez", () => {
     const runs = play([
-      edit("/repo/a.ts"),
-      edit("/repo/b.ts"),
-      edit("/repo/c.ts"),
-      edit("/repo/d.ts"),
+      edit("src/a.ts"),
+      edit("src/b.ts"),
+      edit("src/c.ts"),
+      edit("src/d.ts"),
       // The session carries on writing — which is exactly when a re-firing hook
       // turns into wallpaper. The stamp is what makes this at-most-once, and it
       // survives a compaction on purpose: repeating is what erodes.
-      edit("/repo/e.ts"),
-      edit("/repo/f.ts"),
-      edit("/repo/g.ts"),
-      edit("/repo/h.ts"),
+      edit("src/e.ts"),
+      edit("src/f.ts"),
+      edit("src/g.ts"),
+      edit("src/h.ts"),
     ]);
 
     expect(notices(runs)).toHaveLength(1);
@@ -208,16 +266,16 @@ describe.runIf(runsBash)("routing-watch.sh — and never becomes noise (spec 002
   // Covers: R3
   it("no avisa si ya delegó", () => {
     const runs = play([
-      edit("/repo/a.ts"),
-      edit("/repo/b.ts"),
+      edit("src/a.ts"),
+      edit("src/b.ts"),
       // Delegation before the threshold: R2's condition is "N files AND zero
       // delegation", so its second half is already false and the note would be
       // advice against something that already happened.
       delegation(),
-      edit("/repo/c.ts"),
-      edit("/repo/d.ts"),
-      edit("/repo/e.ts"),
-      edit("/repo/f.ts"),
+      edit("src/c.ts"),
+      edit("src/d.ts"),
+      edit("src/e.ts"),
+      edit("src/f.ts"),
     ]);
 
     expect(notices(runs)).toHaveLength(0);
@@ -226,14 +284,12 @@ describe.runIf(runsBash)("routing-watch.sh — and never becomes noise (spec 002
   // Covers: R3
   it("nunca bloquea", () => {
     const runs = play([
-      edit("/repo/a.ts"),
-      edit("/repo/b.ts"),
+      edit("src/a.ts"),
+      edit("src/b.ts"),
       delegation(),
-      edit("/repo/c.ts"),
-      edit("/repo/d.ts"),
-    ]).concat(
-      play([edit("/repo/a.ts"), edit("/repo/b.ts"), edit("/repo/c.ts"), edit("/repo/d.ts")]),
-    );
+      edit("src/c.ts"),
+      edit("src/d.ts"),
+    ]).concat(play([edit("src/a.ts"), edit("src/b.ts"), edit("src/c.ts"), edit("src/d.ts")]));
 
     for (const run of runs) {
       // A PostToolUse hook stops nothing by exiting 0, and says nothing about
@@ -258,12 +314,9 @@ describe.runIf(runsBash)("routing-watch.sh — and never becomes noise (spec 002
       const cwd = mkdtempSync(join(tmpdir(), "navori-routing-ro-"));
       mkdirSync(join(cwd, ".claude"), { recursive: true });
       chmodSync(join(cwd, ".claude"), 0o500);
-      const out = [
-        edit("/repo/a.ts"),
-        edit("/repo/b.ts"),
-        edit("/repo/c.ts"),
-        edit("/repo/d.ts"),
-      ].map((p) => runHook(shell, cwd, p));
+      const out = [edit("src/a.ts"), edit("src/b.ts"), edit("src/c.ts"), edit("src/d.ts")].map(
+        (p) => runHook(shell, cwd, p),
+      );
       chmodSync(join(cwd, ".claude"), 0o700);
       return out;
     });
@@ -317,7 +370,7 @@ describe("routing-watch — wiring (spec 0020)", () => {
     const declared = ".claude/.routing-watch/";
     const cwd = mkdtempSync(join(tmpdir(), "navori-routing-stamp-"));
     mkdirSync(join(cwd, ".claude"), { recursive: true });
-    runHook("bash", cwd, edit("/repo/a.ts"));
+    runHook("bash", cwd, edit("src/a.ts"));
 
     expect(existsSync(join(cwd, declared, SESSION))).toBe(true);
   });
@@ -371,7 +424,7 @@ describe("stamp hygiene (one file per session, forever, unless someone sweeps)",
       const eightDaysAgo = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
       utimesSync(stale, eightDaysAgo, eightDaysAgo);
 
-      const r = runHook(shell, cwd, edit("/repo/a.ts"));
+      const r = runHook(shell, cwd, edit("src/a.ts"));
       expect(r.code).toBe(0);
 
       expect(existsSync(stale)).toBe(false); // swept

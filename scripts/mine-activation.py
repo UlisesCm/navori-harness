@@ -46,12 +46,14 @@ CD_PREFIX = re.compile(r'^\s*cd\s+("[^"]*"|\S+)\s*&&\s*')
 _RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "source-classify.rules.json")
 with open(_RULES_FILE, encoding="utf-8") as _fh:
-    RULES = [(r["kind"], re.compile(r["pattern"])) for r in json.load(_fh)["rules"]]
+    _SPEC = json.load(_fh)
+RULES = [(r["kind"], re.compile(r["pattern"])) for r in _SPEC["rules"]]
 
-SOURCE_EXT = re.compile(
-    r"\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|swift"
-    r"|sh|bash|zsh|sql|vue|svelte|astro)$")
-HARNESS_PROSE = re.compile(r"(^|/)(core-assets|plugins)/(.*/)?(agents|skills|managed)/[^/]+\.md$")
+# También estas dos: tenerlas copiadas a mano aquí es como se quedaron atrás en
+# cuanto el módulo ganó una extensión (`.ipynb`) — el defecto exacto que el
+# archivo compartido existe para cerrar.
+SOURCE_EXT = re.compile(_SPEC["sourceExt"])
+HARNESS_PROSE = re.compile(_SPEC["harnessProse"])
 
 AUDITS = os.path.expanduser("~/.navori/audits")
 

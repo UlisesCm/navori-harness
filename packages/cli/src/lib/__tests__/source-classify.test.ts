@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CLASSIFY_RULES_PATH, serializeClassifyRules } from "../../../scripts/gen-schemas.mjs";
+import {
+  CLASSIFY_PARTIAL_PATH,
+  CLASSIFY_RULES_PATH,
+  serializeClassifyPartial,
+  serializeClassifyRules,
+} from "../../../scripts/gen-schemas.mjs";
 import {
   CLASSIFY_RULES,
   classifyPath,
@@ -197,6 +202,16 @@ describe("el JSON que lee Python no puede quedarse atrás del módulo", () => {
     const onDisk = readFileSync(resolve(CLASSIFY_RULES_PATH), "utf-8");
     expect(onDisk, "el JSON quedó atrás del módulo — corre 'pnpm gen:schemas'").toBe(
       serializeClassifyRules(),
+    );
+  });
+
+  it("el partial de shell que inlinea el hook tampoco", () => {
+    // El tercer consumidor. Se generó con la lista de extensiones copiada a mano
+    // y se quedó atrás en cuanto el módulo ganó `.ipynb` — este test es lo que
+    // lo habría dicho, en vez de un notebook contando como documentación.
+    const onDisk = readFileSync(resolve(CLASSIFY_PARTIAL_PATH), "utf-8");
+    expect(onDisk, "el partial quedó atrás del módulo — corre 'pnpm gen:schemas'").toBe(
+      serializeClassifyPartial(),
     );
   });
 });
