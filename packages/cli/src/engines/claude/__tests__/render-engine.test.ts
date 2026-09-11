@@ -441,13 +441,13 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
     //   the two session ceremonies and the agents index (#572) = 44.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(44);
+    expect(first.inspected).toBe(43);
     // Written counts files actually emitted. engram-leader-extension is a
     // sub-block injected into leader.md, not a separate file. The arithmetic:
     // 44 inspected − the 5 engram sub-blocks = 39 files actually emitted (the 33
     // base files + the .mcp.json + both audit-mode hooks + the drift watcher +
     // the worktree-reclaim hook + the routing watcher of spec 0020).
-    expect(first.written.length).toBe(39);
+    expect(first.written.length).toBe(38);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -550,7 +550,7 @@ describe("renderClaudeEngine — dry-run", () => {
     // managed-drift watcher (#530), the worktree-reclaim hook (#527), the
     // routing watcher (spec 0020) and the orchestrator block routed to
     // `.claude/context/` (#573).
-    expect(r.written).toHaveLength(39);
+    expect(r.written).toHaveLength(38);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

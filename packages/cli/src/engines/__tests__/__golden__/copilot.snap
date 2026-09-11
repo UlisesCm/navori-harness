@@ -129,7 +129,6 @@ The `ticket-intake` skill runs this as a pipeline; the `ticket-audit` agent prod
 - `structural-search` — navori · Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site)
 - `ticket-intake` — navori (workflow) · Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial
 - `solution-design` — navori (workflow) · Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, co…
-- `pr-create` — navori (workflow) · Use when closing a cycle's PR (e.g
 - `spec-bootstrap` — navori (workflow) · Use when starting a real-scope feature before writing code
 - `dominio` — navori (workflow) · Use when you discover a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cr…
 - `babysit-prs` — navori (workflow) · Use when you resume a session with open PRs of yours, or when a check went red after a push

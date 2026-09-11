@@ -4,7 +4,7 @@ description: Drafts Conventional commits and opens the PR with the repo's title 
 tools: Read, Glob, Grep, Bash
 ---
 
-<!-- navori:managed id="commit-pr-pilot-base" hash="6e25e71e" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="commit-pr-pilot-base" hash="c23a13ed" version="0.8.5" source="@navori/core" -->
 # Commit & PR Pilot Agent
 
 You own the **end of the cycle**: well-structured Conventional commits and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -57,7 +57,7 @@ If the harness is active, identify THIS feature's review: `.claude/progress/revi
 
 Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. The verdict only counts if the review **covers the whole shipping diff**: the reviewer's content receipt (below) is the authoritative list of the files it actually reviewed, so every file in the shipping diff above must appear there. A touched file the review never saw → the `APPROVED` doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on. The coverage check is mechanical — see the receipt block.
 
-<!-- This file-coverage rule lives here only; `.claude/skills/pr-create/SKILL.md` is a pointer to this agent (single owner of the PR flow). -->
+<!-- This file-coverage rule lives here only; the commit+PR flow has no second home to this agent (single owner of the PR flow). -->
 
 
 An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.

@@ -20,7 +20,9 @@ describe("buildSkillRows (shared skills index) — C4", () => {
   it("always lists the core + workflow skills", () => {
     const rows = buildSkillRows(cfg(), process.cwd(), coreAssets);
     expect(rows.some((r) => r.startsWith("- `verify-before-done` — navori"))).toBe(true);
-    expect(rows.some((r) => r.startsWith("- `pr-create` — navori (workflow)"))).toBe(true);
+    // `pr-create` se retiró: era un puntero al `commit-pr-pilot` cuya propia
+    // justificación —que `ticket-intake` lo referenciaba— ya no era cierta.
+    expect(rows.some((r) => r.startsWith("- `pr-create`"))).toBe(false);
   });
 
   it("appends project-local rows only when localSkills are passed", () => {

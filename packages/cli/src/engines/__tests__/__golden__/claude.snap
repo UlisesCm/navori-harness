@@ -236,7 +236,7 @@ If the harness is active, identify THIS feature's review: `.claude/progress/revi
 
 Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. The verdict only counts if the review **covers the whole shipping diff**: the reviewer's content receipt (below) is the authoritative list of the files it actually reviewed, so every file in the shipping diff above must appear there. A touched file the review never saw → the `APPROVED` doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on. The coverage check is mechanical — see the receipt block.
 
-<!-- This file-coverage rule lives here only; `.claude/skills/pr-create/SKILL.md` is a pointer to this agent (single owner of the PR flow). -->
+<!-- This file-coverage rule lives here only; the commit+PR flow has no second home to this agent (single owner of the PR flow). -->
 
 
 An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
@@ -8277,30 +8277,6 @@ When applying this skill, the output to the user includes:
 -->
 
 
-===== FILE: .claude/skills/pr-create/SKILL.md =====
----
-name: pr-create
-description: Use when closing a cycle's PR (e.g. Phase 8 of ticket-intake). Superseded by the commit-pr-pilot agent — this skill just points there so the commit+PR flow has a single owner.
-type: reference
----
-
-<!-- navori:managed id="pr-create" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
-# pr-create — superseded by `commit-pr-pilot`
-
-The commit + PR flow has **one owner**: the `commit-pr-pilot` agent
-(`.claude/agents/commit-pr-pilot.md`). It owns the pre-flight, the PR gate
-(`pnpm test && pnpm lint` green), the review handling, the body template and the
-commit/PR language (per `conventional-es`).
-
-**To close a cycle, invoke `commit-pr-pilot`.** Don't draft the PR from a separate
-template here — a second flow drifts from the pilot (that's why this skill was
-collapsed into it).
-
-This pointer stays so flows that reference `pr-create` (e.g. `ticket-intake`
-Phase 8) resolve to the pilot instead of a duplicate implementation.
-<!-- /navori:managed id="pr-create" -->
-
-
 ===== FILE: .claude/skills/review-diff/SKILL.md =====
 ---
 name: review-diff
@@ -9381,7 +9357,6 @@ Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/S
 - `structural-search` — navori · Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site)
 - `ticket-intake` — navori (workflow) · Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial
 - `solution-design` — navori (workflow) · Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, co…
-- `pr-create` — navori (workflow) · Use when closing a cycle's PR (e.g
 - `spec-bootstrap` — navori (workflow) · Use when starting a real-scope feature before writing code
 - `dominio` — navori (workflow) · Use when you discover a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cr…
 - `babysit-prs` — navori (workflow) · Use when you resume a session with open PRs of yours, or when a check went red after a push
@@ -9428,4 +9403,4 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 -->
 
 
-===== END: 43 files =====
+===== END: 42 files =====

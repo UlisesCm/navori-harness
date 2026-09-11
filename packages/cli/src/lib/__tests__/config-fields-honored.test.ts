@@ -40,7 +40,6 @@ describe("#604 — `commits` reaches the doctrine that cites it", () => {
   const SURFACES = [
     ".claude/agents/commit-pr-pilot.md",
     ".claude/agents/implementer.md",
-    ".claude/skills/pr-create/SKILL.md",
     "CLAUDE.md",
   ];
 
