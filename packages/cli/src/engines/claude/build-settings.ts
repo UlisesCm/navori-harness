@@ -68,6 +68,7 @@ const AUDIT_CLOSE_HOOK_DEST = ".claude/hooks/audit-mode-close.sh";
 const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
 const MANAGED_DRIFT_HOOK_DEST = ".claude/hooks/managed-drift-watch.sh";
 const ROUTING_WATCH_HOOK_DEST = ".claude/hooks/routing-watch.sh";
+const PR_PILOT_HOOK_DEST = ".claude/hooks/pr-pilot-confirm.sh";
 const WORKTREE_RECLAIM_HOOK_DEST = ".claude/hooks/worktree-reclaim.sh";
 const PRECOMPACT_HOOK_DEST = ".claude/hooks/precompact-session-summary.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
@@ -112,6 +113,29 @@ export function buildClaudeSettings(
               command: `bash "$CLAUDE_PROJECT_DIR/${GUARD_HOOK_DEST}"`,
               timeout: 10,
               statusMessage: "navori: guard-destructive",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  // PR routing hook — always registered, same as the guard (#705). It does not
+  // block: it answers `ask`, which routes the call to the user. A session where
+  // the operator forbids subagents cannot reach the pilot at all, and a hook
+  // that made PRs impossible there would cost more than the deviation it
+  // corrects.
+  settings = deepMerge(settings, {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "Bash",
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${PR_PILOT_HOOK_DEST}"`,
+              timeout: 10,
+              statusMessage: "navori: pr-pilot-confirm",
             },
           ],
         },

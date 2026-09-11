@@ -89,15 +89,21 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         .sort(),
     ).toEqual([skRel("medusa-api-routes"), skRel("medusa-modules")]);
     // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 8 agents + 6 core
-    // skills + 6 workflow skills (ticket-intake, solution-design, pr-create,
-    // spec-bootstrap, dominio, babysit-prs) + 2 progress files + 2 medusa skills
+    // skills + 5 workflow skills (ticket-intake, solution-design, spec-bootstrap,
+    // dominio, babysit-prs) + 2 progress files + 2 medusa skills
     // + 2 CLAUDE.md managed blocks counted independently of the file + 1 guard
     // hook + 1 session-start hook + 2 lifecycle hooks (subagent-stop,
     // precompact) + 2 audit-mode hooks (trigger, close) + 1 managed-drift
     // watcher (#530) + 1 worktree-reclaim hook (#527) + 1 routing watcher
-    // (spec 0020) + 1 orchestrator block routed to `.claude/context/` (#573) +
-    // 2 session ceremonies + 1 agents index, same channel (#572) = 40.
-    expect(r.inspected).toBe(39);
+    // (spec 0020) + 1 PR routing hook (#705) + 1 orchestrator block routed to
+    // `.claude/context/` (#573) + 2 session ceremonies + 1 agents index, same
+    // channel (#572) = 40.
+    //
+    // La prosa venia enumerando `pr-create` —retirada en #703— y por eso sumaba
+    // 40 contra una asercion de 39. Un conteo a mano en cinco sitios es justo lo
+    // que #703 dejo anotado como deuda; mientras siga a mano, la enumeracion
+    // tiene que cerrar con el numero.
+    expect(r.inspected).toBe(40);
   });
 
   describe("bundled stack presets (B4)", () => {
