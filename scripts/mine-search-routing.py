@@ -49,10 +49,14 @@ se pueden cruzar entre sí.
 
 LÍNEA BASE CORREGIDA (2026-09-11, 10 repos auditados):
 
-    búsquedas reales 2,885  →  wrapper 180 · nativo 6 · shell 2,699
-    bueno% = 6.4%
+    búsquedas reales 2,761  →  wrapper 197 · nativo 6 · shell 2,558
+    bueno% = 7.4%
 
-    (fuera del cociente: 3,956 filtros y 1,907 extracciones)
+    (fuera del cociente: 3,958 filtros y 2,053 extracciones)
+
+    Contra el 4.0% que publicaba la v1 sobre el denominador inflado. Y por repo,
+    donde el plugin tgrep está activo: moonar 25.6%, navori-health 18.8%,
+    navori-harness 17.3% — el triple de lo que se creía.
 
     Y el desglose importa más que el total: donde el plugin tgrep ESTÁ activo el
     wrapper llega a dos dígitos; donde no está instalado es 0%, que es
@@ -85,6 +89,13 @@ SCORED = ("wrapper", "nativo", "shell")
 # es el ÚNICO que cambia la naturaleza de lo que sigue: tras un pipe, grep lee
 # stdin y por definición no está buscando en el repo.
 _SPLIT = re.compile(r"(\|\||\||&&|;|\n)")
+
+# Redirecciones. Sin quitarlas, `grep -n x file.yaml 2>/dev/null` pone
+# `2>/dev/null` entre los OPERANDOS: tiene `/` y no tiene extensión, así que la
+# heurística de "target es un directorio" lo lee como búsqueda recursiva y
+# asciende una extracción a búsqueda. Medido: 145 casos del parque.
+_REDIR = re.compile(r"^([0-9]?>>?|&>|<|[0-9]?>&)")
+_REDIR_BARE = re.compile(r"^([0-9]?>>?|&>|<|[0-9]?>&[0-9]?)$")
 
 
 def audited_sessions():
@@ -120,8 +131,19 @@ def classify_segment(seg, piped_into):
     if piped_into:
         return "filtro"
 
-    flags = [t for t in toks[1:] if t.startswith("-")]
-    operands = [t for t in toks[1:] if not t.startswith("-")]
+    flags = []
+    operands = []
+    skip_next = False
+    for t in toks[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if _REDIR.match(t):
+            # `> out.txt` trae el destino en el token siguiente; `2>/dev/null`
+            # lo trae pegado y se descarta entero.
+            skip_next = bool(_REDIR_BARE.match(t))
+            continue
+        (flags if t.startswith("-") else operands).append(t)
     # `rg` es recursivo por defecto; `grep` necesita que se lo pidan.
     recursive = toks[0] == "rg" or any(
         re.match(r"^-[a-zA-Z]*[rR]", f) or f == "--recursive" for f in flags
@@ -142,6 +164,10 @@ def classify_command(cmd):
     if WRAPPER in cmd:
         out["wrapper"] += 1
         return out
+    # Una continuación de línea NO separa comandos: sin unirla, el `\\` + salto
+    # parte el segmento a mitad de un patrón entrecomillado y el fragmento
+    # resultante queda sin target, que la heurística lee como búsqueda recursiva.
+    cmd = re.sub(r"\\\n", " ", cmd)
     piped = False
     for part in _SPLIT.split(cmd):
         if part == "|":
