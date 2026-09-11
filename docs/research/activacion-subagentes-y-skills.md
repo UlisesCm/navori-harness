@@ -729,9 +729,14 @@ con lo observacional.
 
 Tres defectos encontrados el 2026-09-11, los tres con issue abierto:
 
-1. **`subagent-stop-handoff` infla ~10×**: 518 disparos contra 49 `Task` reales en 48 h. En
-   `4935c4d7`, 112 disparos con 111 `agentId` distintos para 4 subagentes reales. Cualquier
-   conteo de agentes derivado de ese hook está inflado.
+1. ~~**`subagent-stop-handoff` infla ~10×**~~ — **RETIRADO el 2026-09-11: era falso, y el error
+   era del conteo que lo reportó.** El producto dice `4 agentes` para esa sesión, que son los
+   cuatro `Task` reales; lo contado eran disparos del hook, que es otra cosa. `ownerOf` ya los
+   trata como dato inválido desde #669, y `_partials/audit-log.sh` lo documentaba con los mismos
+   números antes de que se abriera el issue. Sobrevive solo un problema de presentación (#693):
+   la línea del desglose se lee como un conteo de subagentes sin serlo. Se deja tachado y no
+   borrado porque el fallo es del mismo tipo que esta sección denuncia — un contador que mide una
+   cosa leído como si midiera otra— y esta vez fue propio.
 2. **La heurística de oportunidades no distingue trabajo generado de trabajo de lógica.**
    Cuenta por archivos tocados + commit, así que las 46 rutas que reescribe un `render --apply`
    puntúan igual que 46 archivos de lógica. El propio release de 0.8.4 es ese caso, y es R1
