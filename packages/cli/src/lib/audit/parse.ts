@@ -62,6 +62,33 @@ const FRICTION_PATTERNS = [
 ];
 
 /**
+ * Openings that mark a queued message as the HOST's, not the human's.
+ *
+ * The queue carries both through the identical record
+ * (`queue-operation` / `enqueue`), so counting them all as "what the human
+ * said" is what `prompts.queued` did: of 551 enqueues across this project's
+ * transcripts, 415 opened with `<task-notification>` and 9 with
+ * `<cross-session-message`, against roughly 127 real messages. The counter was
+ * not skewed — it was mostly machine traffic.
+ *
+ * An explicit list, deliberately, and NOT "starts with `<`": that heuristic
+ * would delete a human asking about `<div>`. The trade is stated on purpose —
+ * a prefix the host adds later is over-counted as human until it is added
+ * here, which errs toward crediting the human, never toward erasing them.
+ *
+ * `<cross-session-message` has no closing bracket because the real tag carries
+ * attributes (`from="uds:/tmp/cc-socks/54464.sock" …`).
+ */
+const HOST_ENQUEUE_PREFIXES = ["<task-notification>", "<cross-session-message"];
+
+/** Whether a queued message was written by the host rather than by the human. */
+function isHostEnqueue(content: string | null): boolean {
+  if (content === null) return false;
+  const head = content.trimStart();
+  return HOST_ENQUEUE_PREFIXES.some((prefix) => head.startsWith(prefix));
+}
+
+/**
  * Matches a skill file however it was opened: tool `Skill`, `cat`, `Read`.
  *
  * Captures only the directory segment immediately before `SKILL.md` — that is
@@ -592,15 +619,19 @@ export function parseSession(mainJsonl: string): SessionAudit {
    * The transcript has both, so the count is recovered here rather than
    * chased in the hook, which structurally cannot see them.
    *
-   * `enqueue` only: every queued message also emits a matching `remove` when
-   * it is consumed, so counting both would double every figure.
+   * `enqueue` only: a queued message leaves a SECOND record when the turn is
+   * done with it — `dequeue` where it was consumed, `remove` where it was
+   * dropped (551 / 331 / 219 across this project's transcripts) — so counting
+   * anything but the enqueue would inflate every figure.
    */
   const typedPrompts = lines.filter(
     (l) => str(l.type) === "user" && str(l.promptSource) === "typed",
   ).length;
-  const queuedPrompts = lines.filter(
+  const enqueued = lines.filter(
     (l) => str(l.type) === "queue-operation" && str(l.operation) === "enqueue",
-  ).length;
+  );
+  const queuedPrompts = enqueued.filter((l) => !isHostEnqueue(str(l.content))).length;
+  const queuedSystemPrompts = enqueued.length - queuedPrompts;
 
   // The human's own words: `promptSource: "typed"` separates them from
   // hook injections and task notifications (`system`, `isMeta`).
@@ -647,7 +678,11 @@ export function parseSession(mainJsonl: string): SessionAudit {
     endedAt: last,
     wallClockMs: durationMs(first, last),
     initialPrompt,
-    prompts: { typed: typedPrompts, queued: queuedPrompts },
+    prompts: {
+      typed: typedPrompts,
+      queued: queuedPrompts,
+      queuedSystem: queuedSystemPrompts,
+    },
     gitBranch: str(lines.find((l) => str(l.gitBranch))?.gitBranch),
     cwd: str(lines.find((l) => str(l.cwd))?.cwd),
     ccVersions,
@@ -656,6 +691,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
     navori: { rendered: null, cli: null },
     navoriAtStop: null,
     sealed: false,
+    endReason: null,
     permissionModes,
     prs,
     orchestrator: {
@@ -730,11 +766,12 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
       };
       continue;
     }
-    // `stop` seals the log. It also carries a SECOND reading of the versions,
-    // kept only when one moved: a harness updated mid-session is a fact about
-    // the run, and the `start` stamp alone cannot express it. Older logs wrote
-    // the record without the fields, which reads as "nothing moved" — the same
-    // conclusion the reader would draw from their absence.
+    // `stop` — written by an explicit `audit --stop` — seals the log. It also
+    // carries a SECOND reading of the versions, kept only when one moved: a
+    // harness updated mid-session is a fact about the run, and the `start`
+    // stamp alone cannot express it. Older logs wrote the record without the
+    // fields, which reads as "nothing moved" — the same conclusion the reader
+    // would draw from their absence.
     if (str(rec.event) === "stop") {
       session.sealed = true;
       const rendered = str(rec.navoriRendered);
@@ -742,6 +779,23 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
       if (rendered !== session.navori.rendered || cli !== session.navori.cli) {
         if (rendered !== null || cli !== null) session.navoriAtStop = { rendered, cli };
       }
+      continue;
+    }
+    // `session-end` seals it too, and is how sessions normally finish: the
+    // `SessionEnd` hook appends it when the run ends on its own, without anyone
+    // typing `audit --stop`. Reading only `stop` is why `sealed` was false on
+    // sessions that were plainly over — 4 of 25 logs here were marked sealed —
+    // and a report that calls a finished run a snapshot mistrusts its own
+    // figures.
+    //
+    // It leaves `navoriAtStop` alone: that field is a SECOND READING of the
+    // versions, and this record carries none. Null there keeps meaning "nothing
+    // moved, or nobody looked again", never "the versions were blanked".
+    // Both records can land in one log, in either order; the seal is a latch,
+    // so taking both is idempotent.
+    if (str(rec.event) === "session-end") {
+      session.sealed = true;
+      session.endReason = str(rec.reason);
       continue;
     }
     if (str(rec.event) !== "hook") continue;

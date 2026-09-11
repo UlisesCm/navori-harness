@@ -10,6 +10,67 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-10 17:00 — claude — La spec 0020 cierra 9/9, el contrato de tgrep, y un squash que dejó un CRÍTICO en `main`
+
+- Cambios: `packages/core/core-assets/` (managed, agents, skills, presets), `packages/plugins/tgrep/`, `packages/cli/src/lib/audit/`, `commands/{render,doctor}.ts`, `scripts/mine-search-routing.py` y `scripts/classify-activation-arm.py`, `specs/0020-delegacion-por-mecanismo-nativo/`. 92 archivos, +4800/−420.
+- Quality gate: ✅ verde en cada PR.
+- Commits / PRs: #650, #651, #652, #654, #657, #658, #659, #660, #663, #664, #665, #666, #667, #668 · issue #661 abierto a propósito.
+
+> Entrada escrita al resolver el conflicto de #670: esta jornada cerró su bitácora **solo en
+> `current.md`** y nunca pasó a `history.md`, así que el siguiente rewrite de `current.md` la
+> habría borrado del registro. El contenido viene de ahí.
+
+**El 0.8 entregaba la escalera de ruteo y la delegación seguía sin ocurrir.** La 0020 conectó las
+tres palancas que el host sí evalúa, y ahora el efecto es medible: la señal `routing-notice` del
+audit (R5) distingue "el aviso salió y la sesión delegó" de "salió y terminó sin delegar", que es
+la medición que la spec existía para producir.
+
+**El squash del #660 dejó un bug CRÍTICO en `main` con el PR diciendo "merged" y "CI pass".**
+GitHub no procesó los pushes posteriores —el ref remoto avanzó, el PR siguió reportando el head
+viejo y no hubo runs nuevos—, así que el merge tomó solo hasta donde el PR creía estar y dejó
+fuera `4bfc4b8`, los arreglos de un review en frío. Se recuperó con #663. Dos reglas que salen de
+ahí: **verificar `main` por contenido antes de confiar en cualquier PR mergeado**, y **un commit
+vacío no destraba a GitHub; cerrar y reabrir el PR sí**.
+
+**El contrato de tgrep no era `0 = match / 1 = no match` (#667).** Apareció revisando un reporte
+del wrapper escrito por otra sesión en `moonar-medusa-monorepo` —exacto en todo lo técnico,
+verificado contra el script— que **repetía fielmente una promesa que los assets de navori hacían y
+el script no cumple**: `tgrep-search.sh` sale **2** cuando en la rama `grep -rn` no queda patrón
+tras descartar flags, y eso significa *no se buscó nada*. Leerlo como "no match" es el falso
+negativo silencioso que el reindex-por-búsqueda existe para prevenir. Corregido en los dos assets
+y fijado con un test. De paso, la trampa de método que faltaba: verificar QUÉ motor corrió se hace
+por stderr vacío, pero aislarlo con `2>&1 1>/dev/null | head` devuelve stdout bajo MULTIOS de zsh
+— un falso "corrió tgrep" del comando que debía probarlo.
+
+**Y el dato que descarta una dirección entera de #661:** ese reporte, el mejor entendimiento de
+tgrep que se ha producido, se escribió en moonar — donde el wrapper está instalado y funcionando.
+Moonar lo usa en **33 de 362 búsquedas (9.1%)**. La sesión que entendió tgrep a fondo siguió
+yéndose por shell 9 de cada 10 veces: **el cuello de botella no es documentación ni comprensión**,
+así que "escribir mejor la doctrina" queda descartado con evidencia. Queda la palanca mecánica o
+aceptar el número.
+
+**#661 tampoco se cierra activando tgrep "barato".** El issue decía 7 repos; son 24. Los auditados
+que se pueden tocar sin commit son justo los de volumen casi nulo (5, 31 y 47 búsquedas): activar
+ahí no da señal. Los dos que moverían la aguja —`alertaciudadana_app` y `alertaciudadana_backend`,
+2,094 búsquedas y 0% wrapper— exigen PR en cada repo. Se decidió **no activar nada todavía**; el
+alcance quedó documentado en el issue. Un dato del mismo issue que no arregla ningún plugin:
+**`Grep` nativo es 6 llamadas de 4,566 (0.1%)** estando en `allow` en todos los repos.
+
+**Instrumental que quedó listo**, y existe porque una medición que no se puede repetir es una
+anécdota:
+
+- `scripts/mine-search-routing.py` — wrapper / nativo / shell por repo, con la línea base en su
+  docstring (3.7% global; 7–10% donde tgrep está activo, 0% donde no está instalado).
+- `scripts/classify-activation-arm.py` + `mine-activation.py` — el brazo antes/después de
+  activación, clasificando por lo que el host **inyectó**, no por lo que el hook imprimió.
+- La señal `routing-notice` del audit (0020 R5).
+
+Además, en la misma jornada: un registro citado de lo que el host hace y dos detectores nuevos
+(#652), el "después" medido de activación —4% → 57% sobre oportunidades— (#651), un efímero
+trackeado que se reporta como tal en vez de "falta ignorarlo" (#650), el destino declarado de una
+skill como el que el host carga (#654), el guard de aislamiento ignorando los logs de audit de
+OTRO repo (#657), y `git rm --cached` dejando de tratarse como borrado (#658).
+
 ## 2026-09-10 15:40 — claude — auditoría en frío del propio `audit`, y los cuatro números que mentían
 
 - Cambios: `packages/cli/src/lib/audit/{model,parse,report}.ts`, `packages/cli/src/commands/audit.ts` y sus 4 suites. 8 archivos, +651/−87.

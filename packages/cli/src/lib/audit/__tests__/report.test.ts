@@ -47,13 +47,14 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
     endedAt: "2026-08-25T11:00:00Z",
     wallClockMs: 3_600_000,
     initialPrompt: "haz X",
-    prompts: { typed: 1, queued: 0 },
+    prompts: { typed: 1, queued: 0, queuedSystem: 0 },
     gitBranch: "main",
     cwd: "/repo",
     ccVersions: ["2.1.231"],
     navori: { rendered: "0.7.1", cli: "0.7.1" },
     navoriAtStop: null,
     sealed: false,
+    endReason: null,
     permissionModes: {},
     prs: [],
     orchestrator: {
@@ -294,13 +295,13 @@ describe("time: sum vs wall clock (#0013)", () => {
 
 describe("schema (#0013)", () => {
   // Covers: R17
-  it("declares schemaVersion 4", () => {
+  it("declares schemaVersion 5", () => {
     const report = buildReport([session([])], {
       repo: "demo",
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.schemaVersion).toBe(4);
+    expect(report.schemaVersion).toBe(5);
   });
 
   it("stamps when it was built, which `generatedBy` never said", () => {
@@ -569,9 +570,10 @@ describe("session header: a run that is still going (#607)", () => {
   });
 
   it("stays silent for an old unsealed session, which is the common case", () => {
-    // Sealing is manual and almost nobody does it: 4 of 25 logs on the machine
-    // this was written on. Treating "unsealed" as "running" would fire the
-    // warning on nearly every report ever produced.
+    // A session that ends normally seals itself now, but a killed run never
+    // does, and neither does one whose close hook took a fail-open exit.
+    // Those logs never gain a seal, so treating "unsealed" as "running" would
+    // fire the warning on them forever.
     const out = mdAt("2026-08-28T11:00:00Z", { sealed: false });
     expect(out).not.toContain("Sesión en curso");
   });
@@ -625,5 +627,113 @@ describe("orchestrator card: which model spent the tokens (#607)", () => {
 
   it("drops the segment when the transcript declared no model", () => {
     expect(withModels({})).toContain("1h 0m · 1 mensajes del usuario");
+  });
+});
+
+/**
+ * Audit finding A3 — thinking is a SUBSET of output, not a bucket beside it.
+ *
+ * Measured over the 1028 assistant messages of the reference transcript
+ * (`4935c4d7`, CC 2.1.236): `output_tokens_details.thinking_tokens <=
+ * output_tokens` in 100% of them. Both cards printed `output + thinking` as
+ * "razonamiento", so every thinking token was counted twice — and `contexto`,
+ * which is whatever is LEFT of the billable total, was understated by exactly
+ * the same amount. In a report whose entire product is the number, that is the
+ * most expensive kind of defect.
+ */
+describe("thinking counts once, inside output (A3)", () => {
+  // Round values so `k()` is exact and the card's three lines add up by hand:
+  // 17k startup + 2k reasoning + 83k context = 102k billable.
+  const thinker = (over: Partial<AgentRun> = {}): AgentRun =>
+    agent({
+      startupTokens: 17_000,
+      tokens: { ...emptyTokens(), output: 2000, thinking: 1000, cacheCreation: 100_000 },
+      ...over,
+    });
+
+  it("prints the agent's reasoning as output alone", () => {
+    // 2k, not the 3k the old `output + thinking` produced.
+    expect(md([thinker()])).toMatch(/razonamiento\s+2k/);
+  });
+
+  it("names the thinking share as a sub-line, not as an addend", () => {
+    expect(md([thinker()])).toContain("de los cuales ~1k thinking");
+  });
+
+  it("says nothing about thinking when there was none", () => {
+    const out = md([
+      thinker({ tokens: { ...emptyTokens(), output: 2000, cacheCreation: 100_000 } }),
+    ]);
+    expect(out).not.toContain("de los cuales");
+  });
+
+  it("does the same on the orchestrator's card", () => {
+    const out = md([], {
+      orchestrator: {
+        ...session([]).orchestrator,
+        startupTokens: 5000,
+        tokens: { ...emptyTokens(), output: 4000, thinking: 3000, cacheCreation: 50_000 },
+      },
+    });
+    expect(out).toMatch(/razonamiento\s+4k/);
+    expect(out).toContain("de los cuales ~3k thinking");
+  });
+
+  it("keeps the card's three lines inside the billable total of the body", () => {
+    const out = md([thinker()]);
+    // The headline and the card describe the same money: 17 + 2 + 83 = 102.
+    expect(out).toContain("TOTAL facturable 102k tokens");
+    expect(out).toMatch(/arranque\s+17k/);
+    expect(out).toMatch(/razonamiento\s+2k/);
+    expect(out).toMatch(/contexto\s+83k/);
+  });
+
+  it("labels the headline row with the arithmetic it actually does", () => {
+    const out = md([thinker()]);
+    // The row always summed `total.output` alone; only its label claimed
+    // otherwise, which is how the wrong formula looked authoritative.
+    expect(out).not.toContain("razonamiento (output + thinking)");
+    expect(out).toContain("razonamiento (output)");
+  });
+
+  it("renders the sub-line in English too", () => {
+    const report = buildReport([session([thinker()])], {
+      repo: "demo",
+      version: "0.6.5",
+      catalog: CATALOG,
+    });
+    const out = renderMarkdown(report, "en");
+    expect(out).toContain("of which ~1k thinking");
+    expect(out).toContain("reasoning (output)");
+  });
+});
+
+describe("the host's own queued messages are stated, not silently dropped (A4)", () => {
+  it("reports the discard beside the human count", () => {
+    const out = md([], { prompts: { typed: 2, queued: 1, queuedSystem: 415 } });
+    expect(out).toContain("**Mensajes del usuario:** 3");
+    expect(out).toContain("el host encoló 415 mensajes suyos");
+  });
+
+  it("states it even when no human message was queued, which is the common case", () => {
+    // 415 host notifications against zero queued human messages is what a real
+    // session looks like here; the old counter read all 415 as things the
+    // human said.
+    const out = md([], { prompts: { typed: 2, queued: 0, queuedSystem: 415 } });
+    expect(out).toContain("**Mensajes del usuario:** 2, todos al inicio de un turno.");
+    expect(out).toContain("el host encoló 415 mensajes suyos");
+  });
+
+  it("says nothing when the host queued nothing", () => {
+    const out = md([], { prompts: { typed: 2, queued: 1, queuedSystem: 0 } });
+    expect(out).not.toContain("el host encoló");
+  });
+
+  it("renders in English too", () => {
+    const report = buildReport(
+      [session([], { prompts: { typed: 2, queued: 1, queuedSystem: 9 } })],
+      { repo: "demo", version: "0.6.5", catalog: CATALOG },
+    );
+    expect(renderMarkdown(report, "en")).toContain("the host queued 9 messages of its own");
   });
 });

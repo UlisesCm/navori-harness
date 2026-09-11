@@ -14,7 +14,7 @@ import { readHarnessCatalog, renderedHarnessVersion } from "../lib/audit/harness
 import { findMarkedSessions } from "../lib/audit/discovery.ts";
 import { attachHookEvents, parseSession } from "../lib/audit/parse.ts";
 import { detectSignals, type Lang } from "../lib/audit/signals.ts";
-import { buildReport, renderJson, renderMarkdown } from "../lib/audit/report.ts";
+import { billable, buildReport, renderJson, renderMarkdown } from "../lib/audit/report.ts";
 import {
   rangeReportDir,
   repoAuditDir,
@@ -102,6 +102,61 @@ function emptyFlagOrExit(value: unknown, flag: string, json: boolean, isEs: bool
   process.exit(2);
 }
 
+/**
+ * Which marked session `--stop` should seal, when no log is named exactly.
+ *
+ * The report tells the reader to seal with `navori audit --stop <id8>` — the
+ * truncated id it prints in its own header — and that advice could never work
+ * while `--stop` composed the log name from the literal value: the file carries
+ * the FULL uuid, so an 8-char prefix named nothing and the command exited 2
+ * every single time (finding A1). `--session` had accepted prefixes since it
+ * shipped; resolution goes through the same `findMarkedSessions` so the two
+ * flags cannot drift apart on what an id means.
+ *
+ * A prefix matching several sessions is an ERROR, never a pick: `stop` is an
+ * append to an append-only log, so sealing the wrong session is a write nobody
+ * can take back. Both failure paths exit 2 — this function never returns
+ * normally unless the match was unique.
+ */
+function resolveStopTarget(
+  repo: string,
+  stopId: string,
+  json: boolean,
+  isEs: boolean,
+): { logFile: string; sessionId: string } {
+  const matches = findMarkedSessions(repo, { session: stopId });
+  const [only] = matches;
+  if (only && matches.length === 1) return { logFile: only.logFile, sessionId: only.sessionId };
+
+  if (matches.length === 0) {
+    if (json) {
+      console.log(JSON.stringify({ ok: false, error: "session-not-marked", session: stopId }));
+    } else {
+      p.cancel(isEs ? "Esa sesión no está marcada." : "That session is not marked.");
+    }
+    process.exit(2);
+  }
+
+  const ids = matches.map((m) => m.sessionId);
+  if (json) {
+    console.log(
+      JSON.stringify({
+        ok: false,
+        error: "ambiguous-session-prefix",
+        prefix: stopId,
+        matches: ids,
+      }),
+    );
+  } else {
+    p.cancel(
+      isEs
+        ? `El prefijo '${stopId}' es ambiguo: casa con ${ids.length} sesiones marcadas (${ids.join(", ")}). No sello ninguna — pasa suficientes caracteres para nombrar una sola.`
+        : `The prefix '${stopId}' is ambiguous: it matches ${ids.length} marked sessions (${ids.join(", ")}). Nothing was sealed — pass enough characters to name exactly one.`,
+    );
+  }
+  process.exit(2);
+}
+
 export const auditCommand = defineCommand({
   meta: {
     name: "audit",
@@ -116,7 +171,10 @@ export const auditCommand = defineCommand({
     json: { type: "boolean", description: "Print the JSON report to stdout without writing files" },
     out: { type: "string", description: "Override the output directory" },
     start: { type: "string", description: "Mark a session id as audited (used by the hook flow)" },
-    stop: { type: "string", description: "Seal a session's log and report on it" },
+    stop: {
+      type: "string",
+      description: "Seal a session's log by id, unique prefix, or 'latest', and report on it",
+    },
     arm: {
       type: "boolean",
       description:
@@ -233,17 +291,21 @@ export const auditCommand = defineCommand({
 
     const stopId = args.stop;
     if (typeof stopId === "string" && stopId) {
-      const logFile = auditPathOrExit(() => sessionLogPath(repo, stopId), json);
-      if (!existsSync(logFile)) {
-        p.cancel(isEs ? "Esa sesión no está marcada." : "That session is not marked.");
-        process.exit(2);
-      }
+      // The shape guard runs FIRST, on the raw value: it is what keeps a
+      // path-shaped id out of a filename (#503), and the prefix resolution
+      // below would soften that rejection into a plain "not marked".
+      const exact = auditPathOrExit(() => sessionLogPath(repo, stopId), json);
+      // A full id keeps naming its log directly; anything else — starting with
+      // the 8-char id the report itself prints — is resolved as a prefix.
+      const target = existsSync(exact)
+        ? { logFile: exact, sessionId: stopId }
+        : resolveStopTarget(repo, stopId, json, isEs);
       // The versions are re-read HERE, not copied from `start`: a rollout
       // merged mid-session moves the harness under a run already in flight, and
       // a single stamp cannot say so. The parser keeps this pair only when one
       // of the two moved.
       appendFileSync(
-        logFile,
+        target.logFile,
         `${JSON.stringify({
           ts: new Date().toISOString(),
           event: "stop",
@@ -252,7 +314,9 @@ export const auditCommand = defineCommand({
         })}\n`,
         "utf-8",
       );
-      args.session = stopId;
+      // The RESOLVED id, not the prefix: the report that follows must describe
+      // the session that was just sealed and no other.
+      args.session = target.sessionId;
     }
 
     const days = args.days === undefined ? undefined : Number(args.days);
@@ -366,17 +430,20 @@ export const auditCommand = defineCommand({
     // numbers in the report: a run showing "346k" in the terminal had 2.3M
     // billable and 137.5M of cache_read in its body. Billable leads now, and
     // startup stays as the share it actually is.
-    const billable =
-      report.totals.tokens.input +
-      report.totals.tokens.output +
-      report.totals.tokens.cacheCreation +
-      report.totals.tokens.thinking;
+    //
+    // The figure comes from `report.ts` rather than from a second sum written
+    // here: this one added `thinking` as a fourth addend, and thinking is a
+    // SUBSET of output (`thinking_tokens <= output_tokens` in 100% of the 1028
+    // assistant messages of transcript 4935c4d7, CC 2.1.236). So the same run
+    // printed one billable in the terminal and a smaller one in the report it
+    // had just written (finding A3).
+    const billableTotal = billable(report.totals.tokens);
     const k = (n: number): string =>
       n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`;
     p.note(
       [
         `${report.totals.sessions} ${isEs ? "sesiones" : "sessions"} · ${report.totals.agents} ${isEs ? "agentes" : "agents"}`,
-        `${isEs ? "facturable" : "billable"}  ${k(billable)} tok`,
+        `${isEs ? "facturable" : "billable"}  ${k(billableTotal)} tok`,
         `${isEs ? "arranque" : "startup"}  ${k(report.totals.startupTokens)} tok`,
         `cache_read  ${k(report.totals.tokens.cacheRead)} tok`,
         `${isEs ? "hallazgos" : "findings"}  ${high} ${isEs ? "alto" : "high"} · ${warn} ${isEs ? "medio" : "warn"}`,

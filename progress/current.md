@@ -1,23 +1,31 @@
 # Sesión actual
 
-**Estado:** **#669 mergeado** en `main` como `9232093` (CI verde), y sus cuatro fixes verificados
-**por contenido** ahí, no solo por el título del commit. Queda abierto **#670** (esta bitácora).
-**1 issue**: #661 (tool-mix), abierto a propósito.
+**Estado:** **0.8.4 preparado y verde en el PR #671**, sin mergear. El código de #669 ya está
+en `main` (`9232093`), con sus cuatro fixes verificados **por contenido**, no solo por el
+título del commit. **1 issue**: #661 (tool-mix), abierto a propósito.
 
 ## Dónde quedó todo
 
-Ver `progress/history.md`, entrada del 2026-09-10 15:40. No se repite aquí.
+Ver `progress/history.md`, entradas del 2026-09-10. No se repite aquí.
 
 Resumen de una línea: **el `audit` registraba bien y sumaba mal**; los cuatro números que
 mentían están corregidos en #669, y la auditoría dejó 16 hallazgos más priorizados.
 
 ## Lo primero al retomar
 
-1. **Mergear #670** (esta bitácora) y seguir con el lote de abajo. El código ya está en `main`.
+1. **Cerrar el release 0.8.4.** El PR #671 está verde (`quality pass`, 1m42s) y el tarball
+   verificado con `npm pack --dry-run`: `navori-0.8.4.tgz`, 161 archivos, 158 assets, el
+   binario reporta `0.8.4`. Faltan tres pasos **en este orden**: merge de #671 → tag `v0.8.4`
+   sobre el merge commit → `npm publish` desde `packages/cli`. El re-render del espejo ya va
+   dentro del PR (46 archivos, +74/−74, pura estampa de versión).
 
-2. **El working tree quedó sucio a propósito y NO se parqueó en `main`.** `docs/inspiration.md`
-   (+110) y los dos untracked de `docs/research/` son de otro ciclo y quedaron fuera de todo
-   commit por diseño. Decidir qué se hace con ellos antes de cambiar de branch.
+   **`npm whoami` devuelve 401**: la sesión de npm está deslogueada y `npm login` es
+   interactivo, así que ese paso lo corre Ulises.
+
+2. **El working tree quedó sucio a propósito.** `docs/inspiration.md` (+109) está en un stash
+   —`docs/inspiration.md fuera de ciclo (pre-release 0.8.4)`— para poder cambiar de branch
+   durante el release; los dos untracked de `docs/research/` siguen en disco. Los tres son de
+   otro ciclo y quedaron fuera de todo commit por diseño. Decidir qué se hace con ellos.
 
 3. **Los reportes de la auditoría viven en `.claude/progress/` (gitignored)**, así que no
    viajan en git: `audit_consolidado_navori-audit.md` (síntesis), `audit_deep_navori-audit.md`

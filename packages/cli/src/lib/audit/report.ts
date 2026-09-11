@@ -40,14 +40,22 @@ function t(lang: Lang, es: string, en: string): string {
 }
 
 /**
- * Tokens that were actually purchased for a session.
+ * Tokens that were actually purchased for a session. The ONE definition.
  *
  * `cache_read` is deliberately excluded: it accumulates per turn (every turn
  * re-reads the whole cached context) and reaches hundreds of millions, which
  * would drown every other figure while representing re-reads of context
  * already paid for. It is reported separately, with that caveat stated.
+ *
+ * `thinking` is excluded for the opposite reason — it is already IN `output`,
+ * not a fourth addend. Measured over the 1028 assistant messages of transcript
+ * `4935c4d7` (CC 2.1.236): `output_tokens_details.thinking_tokens <=
+ * output_tokens` in 100% of them. Exported because the command's terminal
+ * summary used to carry its own arithmetic and added thinking on top, so one
+ * run printed two different "billable" totals — in a tool whose product IS the
+ * number (finding A3).
  */
-function billable(t: TokenTotals): number {
+export function billable(t: TokenTotals): number {
   return t.input + t.output + t.cacheCreation;
 }
 
@@ -66,7 +74,9 @@ function spendBreakdown(s: SessionAudit, lang: Lang): string {
 
   const rows = [
     [t(lang, "arranque de agentes", "agent startup"), startup],
-    [t(lang, "razonamiento (output + thinking)", "reasoning (output + thinking)"), reasoning],
+    // The row always summed `total.output` alone; only the label claimed a sum
+    // with `thinking`, which is a subset of output and would be counted twice.
+    [t(lang, "razonamiento (output)", "reasoning (output)"), reasoning],
     [t(lang, "contexto de trabajo", "working context"), rest],
   ] as const;
 
@@ -177,16 +187,41 @@ function modelsLabel(models: Record<string, number>): string {
   return entries.map(([id, n]) => `${id}:${n}`).join(", ");
 }
 
+/**
+ * The reasoning line of a card, plus the thinking sub-line when there is one.
+ *
+ * `reasoning` is `output`, full stop. Both cards used to print
+ * `output + thinking`, which counts every thinking token twice: thinking is a
+ * SUBSET of output, measured over the 1028 assistant messages of transcript
+ * `4935c4d7` (CC 2.1.236) — `thinking_tokens <= output_tokens` in 100% of them.
+ * The double count also understated `context` by the same amount, since
+ * context is whatever the billable total has LEFT after startup and reasoning.
+ *
+ * So thinking is rendered as an informative breakdown of the line above it,
+ * never as an addend — and only when there is some, because a card that
+ * announces "0 thinking" is noise.
+ */
+function reasoningRows(tokens: TokenTotals, lang: Lang): string[] {
+  const rows = [`  ${t(lang, "razonamiento", "reasoning").padEnd(14)}${k(tokens.output)}`];
+  if (tokens.thinking > 0) {
+    // Indented to the value column of the block (the same 14 its labels pad
+    // to), so it reads as a detail of the line above and not as a fourth row.
+    rows.push(
+      `  ${" ".repeat(14)}${t(lang, `de los cuales ~${k(tokens.thinking)} thinking`, `of which ~${k(tokens.thinking)} thinking`)}`,
+    );
+  }
+  return rows;
+}
+
 function orchestratorCard(s: SessionAudit, lang: Lang): string {
   const o = s.orchestrator;
-  const reasoning = o.tokens.output + o.tokens.thinking;
-  const context = Math.max(0, billable(o.tokens) - o.startupTokens - reasoning);
+  const context = Math.max(0, billable(o.tokens) - o.startupTokens - o.tokens.output);
   const model = modelsLabel(o.models ?? {});
   const rows = [
     `${model ? `${model} · ` : ""}${minutes(s.wallClockMs)} · ${s.prompts.typed + s.prompts.queued} ${t(lang, "mensajes del usuario", "user messages")}`,
     "",
     `  ${t(lang, "arranque", "startup").padEnd(14)}${k(o.startupTokens)}`,
-    `  ${t(lang, "razonamiento", "reasoning").padEnd(14)}${k(reasoning)}`,
+    ...reasoningRows(o.tokens, lang),
     `  ${t(lang, "contexto", "context").padEnd(14)}${k(context)}`,
     `  ${"cache_read".padEnd(14)}${k(o.tokens.cacheRead)}`,
     "",
@@ -280,14 +315,13 @@ const LABEL = 11;
 
 function agentCard(a: AgentRun, hookLogFrom: string | null, lang: Lang): string {
   const head = `### ${a.agentType} · "${a.description}"`;
-  const reasoning = a.tokens.output + a.tokens.thinking;
-  const context = Math.max(0, billable(a.tokens) - a.startupTokens - reasoning);
+  const context = Math.max(0, billable(a.tokens) - a.startupTokens - a.tokens.output);
 
   const rows: string[] = [
     `${a.model ?? "?"} · ${minutes(a.durationMs)}${a.overlapsWith.length > 0 ? t(lang, ` · en paralelo con ${a.overlapsWith.length}`, ` · in parallel with ${a.overlapsWith.length}`) : ""}`,
     "",
     `  ${t(lang, "arranque", "startup").padEnd(14)}${k(a.startupTokens)}`,
-    `  ${t(lang, "razonamiento", "reasoning").padEnd(14)}${k(reasoning)}`,
+    ...reasoningRows(a.tokens, lang),
     `  ${t(lang, "contexto", "context").padEnd(14)}${k(context)}`,
     `  ${"cache_read".padEnd(14)}${k(a.tokens.cacheRead)}`,
     "",
@@ -520,11 +554,14 @@ function sessionNavori(s: SessionAudit, lang: Lang): string {
 /**
  * Minutes of silence after which a session is treated as over, sealed or not.
  *
- * Sealing is manual (`audit --stop`) and almost nobody does it — 4 of 25 logs
- * on the machine this was written on. So "unsealed" cannot mean "running", or
- * the warning would fire on every report ever written, including sessions that
- * ended weeks ago. Recent activity is the evidence that the figures will still
- * move; the seal alone is not.
+ * A session that ends normally now seals itself — the `SessionEnd` hook writes
+ * `session-end` and the parser reads it — but "unsealed" still cannot mean
+ * "running". Two classes of log never get a seal at all: a run killed with its
+ * log mid-write, and one whose close hook took a fail-open exit (no `jq`, an
+ * empty payload, a log that was not there). Neither ever gains one afterwards,
+ * so reading an absent seal as "running" would warn on them forever. Recent
+ * activity is the evidence that the figures will still move; the missing seal
+ * alone is not.
  */
 const LIVE_WINDOW_MIN = 30;
 
@@ -591,9 +628,8 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
     // written while the agent works never fires `UserPromptSubmit`, so the log
     // is blind to it by construction; the transcript is not. Saying so beats a
     // silently partial count in a report whose whole point is attribution.
-    const { typed, queued } = s.prompts;
-    out.push(
-      "",
+    const { typed, queued, queuedSystem } = s.prompts;
+    const userMessages =
       queued > 0
         ? t(
             lang,
@@ -604,8 +640,21 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
             lang,
             `**Mensajes del usuario:** ${typed}, todos al inicio de un turno.`,
             `**User messages:** ${typed}, all starting a turn.`,
-          ),
-    );
+          );
+    // The same queue carries the host's own traffic — task notifications,
+    // cross-session messages — through an identical record, and counting it as
+    // human is what made this figure mostly machine (finding A4). The discard
+    // is stated rather than applied in silence: a number that shrinks with no
+    // explanation is one nobody can audit.
+    const hostQueued =
+      queuedSystem > 0
+        ? t(
+            lang,
+            ` Aparte, el host encoló ${queuedSystem} mensajes suyos (notificaciones de tareas, mensajes entre sesiones) que no cuentan como humanos.`,
+            ` Separately, the host queued ${queuedSystem} messages of its own (task notifications, cross-session messages), which do not count as human.`,
+          )
+        : "";
+    out.push("", userMessages + hostQueued);
 
     out.push(
       "",
@@ -749,7 +798,7 @@ export function buildReport(
     .sort();
 
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     generatedBy: `navori@${opts.version}`,
     generatedAt: (opts.now ?? new Date()).toISOString(),
     repo: opts.repo,
