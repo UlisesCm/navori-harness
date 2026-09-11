@@ -97,7 +97,7 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // watcher (#530) + 1 worktree-reclaim hook (#527) + 1 routing watcher
     // (spec 0020) + 1 orchestrator block routed to `.claude/context/` (#573) +
     // 2 session ceremonies + 1 agents index, same channel (#572) = 40.
-    expect(r.inspected).toBe(40);
+    expect(r.inspected).toBe(39);
   });
 
   describe("bundled stack presets (B4)", () => {
@@ -151,7 +151,6 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
           ".claude/skills/new-resource.md",
           ".claude/skills/new-endpoint.md",
           ".claude/skills/ticket-intake.md",
-          ".claude/skills/pr-create.md",
         ],
       },
     ];

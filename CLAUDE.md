@@ -219,7 +219,7 @@ It carries an `allow` rule, so it runs with no permission prompt in any mode and
 The routing table, the portable flag set and why the index is rebuilt before every query: Rung 1 of the `structural-search` skill.
 <!-- /navori:managed id="tgrep-protocol" -->
 
-<!-- navori:managed id="skills-index" hash="2f19af5d" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="skills-index" hash="ac41a3c2" version="0.8.5" source="@navori/core" -->
 ## Skills disponibles
 
 Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. La nota tras el `·` dice cuándo usar cada una.
@@ -233,7 +233,6 @@ Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido
 - `structural-search` — navori · Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site)
 - `ticket-intake` — navori (workflow) · Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial
 - `solution-design` — navori (workflow) · Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, co…
-- `pr-create` — navori (workflow) · Use when closing a cycle's PR (e.g
 - `spec-bootstrap` — navori (workflow) · Use when starting a real-scope feature before writing code
 - `dominio` — navori (workflow) · Use when you discover a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cr…
 - `babysit-prs` — navori (workflow) · Use when you resume a session with open PRs of yours, or when a check went red after a push
