@@ -3,6 +3,7 @@ import { buildReport, renderMarkdown } from "../report.ts";
 import type { HarnessCatalog } from "../harness.ts";
 import {
   type AgentRun,
+  type HookEvent,
   type SessionAudit,
   emptyPermissionDecisions,
   emptyTokens,
@@ -301,6 +302,55 @@ describe("time: sum vs wall clock (#0013)", () => {
       catalog: CATALOG,
     });
     expect(report.totals.agentWallClockMs).toBe(20 * 60 * 1000);
+  });
+});
+
+/**
+ * #693 — the firing count of `SubagentStop` reads as a count of subagents, and
+ * that misreading has a receipt: it produced #673, an issue that #694 had to
+ * refute after a full investigation. The attribution was never wrong; the label
+ * was.
+ */
+describe("hooks del host vs conteo de subagentes (#693)", () => {
+  function hookEvent(over: Partial<HookEvent> = {}): HookEvent {
+    return {
+      ts: "2026-08-25T10:05:00Z",
+      tsMs: Date.parse("2026-08-25T10:05:00Z"),
+      name: "subagent-stop-handoff",
+      phase: "SubagentStop",
+      verdict: "skip",
+      ms: 8,
+      source: "core",
+      ...over,
+    };
+  }
+
+  it("anota la línea con lo que el número significa, y con cuántos agentes hubo", () => {
+    const agents = [agent({ agentId: "a1" }), agent({ agentId: "a2" })];
+    const out = md(agents, {
+      orchestrator: {
+        ...session([]).orchestrator,
+        hookEvents: [hookEvent(), hookEvent(), hookEvent()],
+      },
+    });
+    // The count stays — it is correct as "times the hook fired", and hiding it
+    // would trade one wrong reading for a missing one.
+    expect(out).toContain("subagent-stop-handoff 3×");
+    // What changes is that it can no longer be read as delegation.
+    expect(out).toContain("disparos del host, no subagentes (agentes: 2)");
+  });
+
+  it("no anota los hooks que dispara el harness", () => {
+    const out = md([], {
+      orchestrator: {
+        ...session([]).orchestrator,
+        hookEvents: [hookEvent({ name: "guard-destructive", phase: "PreToolUse" })],
+      },
+    });
+    expect(out).toContain("guard-destructive 1×");
+    // Keyed on the phase, so a hook navori itself fires carries no caveat: an
+    // unconditional note is noise, and noise is what makes the next one skimmed.
+    expect(out).not.toContain("disparos del host");
   });
 });
 
