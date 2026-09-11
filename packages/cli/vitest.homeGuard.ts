@@ -278,6 +278,33 @@ function isForeignAudit(path: string, selfRepo: string | null): boolean {
   return top === "audits" && repo !== undefined && repo !== selfRepo;
 }
 
+/**
+ * An APPEND to this repo's OWN audit log, mid-run.
+ *
+ * #656 filtered another repo's logs and deliberately kept this repo's strict:
+ * a spec writing under the repo under test was a real leak. `audit.mode`
+ * (#688) changed the premise — with `always`, a second session open on THIS
+ * repo appends to its own log on every prompt, and the guard started failing
+ * deterministically instead of occasionally.
+ *
+ * The distinction that still holds is CREATE vs APPEND. The audit log is
+ * append-only by construction (the hooks write O_APPEND and never re-read to
+ * rewrite), and a session's log is created when that session starts — before
+ * this run began. So a modification is the neighbour; a file that appears
+ * mid-run is not, and stays a leak.
+ *
+ * The gap, stated rather than hidden: a spec that appends to a log that already
+ * existed slips through. That shape has never occurred — specs point at a
+ * throwaway root — and it is the narrow price of a guard that is red only when
+ * it means something.
+ */
+function isOwnAuditAppend(path: string, selfRepo: string | null): boolean {
+  if (selfRepo === null) return false;
+  const [top, repo, file, ...rest] = path.split("/");
+  if (top !== "audits" || repo !== selfRepo || file === undefined || rest.length > 0) return false;
+  return /^session-.+\.log$/.test(file);
+}
+
 /** A snapshot without another repo's audit logs (see `isForeignAudit`). */
 function withoutForeignAudits(snapshot: HomeSnapshot, selfRepo: string | null): HomeSnapshot {
   if (selfRepo === null) return snapshot;
@@ -312,6 +339,11 @@ export function describeNavoriHomeLeak(
     else if (from.get(path) !== fingerprint) modified.push(path);
   }
   const deleted = [...from.keys()].filter((path) => !to.has(path));
+  // Appends to this repo's own audit log are the neighbouring session, not a
+  // leak (see `isOwnAuditAppend`). Filtered HERE and not in the snapshot so the
+  // same path is still reported when it is CREATED or DELETED mid-run.
+  const appended = modified.filter((path) => isOwnAuditAppend(path, selfRepo));
+  for (const path of appended) modified.splice(modified.indexOf(path), 1);
   if (created.length === 0 && modified.length === 0 && deleted.length === 0) return null;
 
   return [
@@ -321,9 +353,9 @@ export function describeNavoriHomeLeak(
     `workspace trash) or set NAVORI_BACKUP_ROOT, which vitest.setup.ts already does`,
     `for every spec. Entry paths are relative to the root, so the fixture label or`,
     `workspace name below names the spec that escaped isolation. Another repo's`,
-    `audit logs are filtered out (they are written by concurrent sessions, not by`,
-    `these tests); a concurrent navori run doing anything ELSE can still land here`,
-    `as a false positive.`,
+    `audit logs are filtered out, and so are appends to this repo's own — both are`,
+    `written by concurrent sessions, not by these tests. A concurrent navori run`,
+    `doing anything ELSE can still land here as a false positive.`,
     ...section("Created", created.sort()),
     ...section("MODIFIED", modified.sort()),
     ...section("DELETED", deleted.sort()),
