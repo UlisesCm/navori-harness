@@ -754,6 +754,34 @@ describe("parse: hook attribution", () => {
     expect(s.navoriAtStop).toEqual({ rendered: "0.7.5", cli: "0.7.5" });
   });
 
+  it("deriva el ts del tsMs cuando el escritor ya no lo manda (#696)", () => {
+    const s = session([]);
+    const at = Date.parse("2026-08-25T10:05:07.412Z");
+    // What the hook writes now: no `ts`, because stamping it cost a `date`
+    // fork per event for a string this number already contains.
+    attachHookEvents(s, log([{ tsMs: at, ...hook({}), ts: undefined }]));
+
+    const event = s.orchestrator.hookEvents[0];
+    // Second resolution, exactly the shape `date -u +%Y-%m-%dT%H:%M:%SZ` gave
+    // for years: two records of one session must not sort by a string that
+    // means two different things.
+    expect(event?.ts).toBe("2026-08-25T10:05:07Z");
+    expect(event?.tsMs).toBe(at);
+    expect(s.hookLogFrom).toBe("2026-08-25T10:05:07Z");
+    expect(s.parseErrors).toBe(0);
+  });
+
+  it("el ts del propio registro gana, para que un log viejo se lea igual (#696)", () => {
+    const s = session([]);
+    // Logs written before #696 are already on disk in every repo that ever ran
+    // audit-mode; reading them must not depend on the derivation above.
+    attachHookEvents(
+      s,
+      log([hook({ ts: "2026-08-25T10:05:00Z", tsMs: Date.parse("2026-08-25T10:05:09.900Z") })]),
+    );
+    expect(s.orchestrator.hookEvents[0]?.ts).toBe("2026-08-25T10:05:00Z");
+  });
+
   it("does not count the session-end record as a malformed hook event", () => {
     const s = session([]);
     attachHookEvents(s, log([sessionEnd()]));

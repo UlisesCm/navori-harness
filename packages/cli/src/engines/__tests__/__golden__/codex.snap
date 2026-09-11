@@ -1738,11 +1738,19 @@ navori_audit_log() {
   # fail and the event would vanish instead of merely losing a field.
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
 
-  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
-  # the auditor itself is being debugged, and an epoch integer is not readable.
-  # Removing it would also remove the `date` fork it costs — a separate call,
-  # with its own measurement, deliberately not bundled here.
-  navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
+  # `ts` is NOT stamped here, and that is the whole point of #696: it was a
+  # `date` fork per event — 46,850 of them across this store — for a string
+  # fully derivable from the `tsMs` above, which `$EPOCHREALTIME` already
+  # produced without spawning anything. The file's own cost doctrine (see
+  # `navori_audit_now`) says spend a process only when there is no other way;
+  # keeping this one made the comment lie four lines under the value that
+  # refutes it.
+  #
+  # Nothing downstream lost a field: `parse.ts` derives the ISO from `tsMs`
+  # when the record carries none, and logs written before this still have
+  # theirs. The lifecycle records — `start`, `stop`, `session-end` — keep a real
+  # `ts`, so a human reading the raw `.log` still has dated anchors; those are
+  # ~3 per session, not one per hook.
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
   # running in parallel their time windows overlap, so attribution by timestamp
@@ -1758,7 +1766,6 @@ navori_audit_log() {
   # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
   printf '%s\n' "$(jq -cn \
-    --arg ts "$navori_audit_ts" \
     --arg name "${navori_audit_name:-unknown}" \
     --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" \
@@ -1768,7 +1775,7 @@ navori_audit_log() {
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
-    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -2787,11 +2794,19 @@ navori_audit_log() {
   # fail and the event would vanish instead of merely losing a field.
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
 
-  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
-  # the auditor itself is being debugged, and an epoch integer is not readable.
-  # Removing it would also remove the `date` fork it costs — a separate call,
-  # with its own measurement, deliberately not bundled here.
-  navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
+  # `ts` is NOT stamped here, and that is the whole point of #696: it was a
+  # `date` fork per event — 46,850 of them across this store — for a string
+  # fully derivable from the `tsMs` above, which `$EPOCHREALTIME` already
+  # produced without spawning anything. The file's own cost doctrine (see
+  # `navori_audit_now`) says spend a process only when there is no other way;
+  # keeping this one made the comment lie four lines under the value that
+  # refutes it.
+  #
+  # Nothing downstream lost a field: `parse.ts` derives the ISO from `tsMs`
+  # when the record carries none, and logs written before this still have
+  # theirs. The lifecycle records — `start`, `stop`, `session-end` — keep a real
+  # `ts`, so a human reading the raw `.log` still has dated anchors; those are
+  # ~3 per session, not one per hook.
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
   # running in parallel their time windows overlap, so attribution by timestamp
@@ -2807,7 +2822,6 @@ navori_audit_log() {
   # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
   printf '%s\n' "$(jq -cn \
-    --arg ts "$navori_audit_ts" \
     --arg name "${navori_audit_name:-unknown}" \
     --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" \
@@ -2817,7 +2831,7 @@ navori_audit_log() {
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
-    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -3146,11 +3160,19 @@ navori_audit_log() {
   # fail and the event would vanish instead of merely losing a field.
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
 
-  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
-  # the auditor itself is being debugged, and an epoch integer is not readable.
-  # Removing it would also remove the `date` fork it costs — a separate call,
-  # with its own measurement, deliberately not bundled here.
-  navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
+  # `ts` is NOT stamped here, and that is the whole point of #696: it was a
+  # `date` fork per event — 46,850 of them across this store — for a string
+  # fully derivable from the `tsMs` above, which `$EPOCHREALTIME` already
+  # produced without spawning anything. The file's own cost doctrine (see
+  # `navori_audit_now`) says spend a process only when there is no other way;
+  # keeping this one made the comment lie four lines under the value that
+  # refutes it.
+  #
+  # Nothing downstream lost a field: `parse.ts` derives the ISO from `tsMs`
+  # when the record carries none, and logs written before this still have
+  # theirs. The lifecycle records — `start`, `stop`, `session-end` — keep a real
+  # `ts`, so a human reading the raw `.log` still has dated anchors; those are
+  # ~3 per session, not one per hook.
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
   # running in parallel their time windows overlap, so attribution by timestamp
@@ -3166,7 +3188,6 @@ navori_audit_log() {
   # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
   printf '%s\n' "$(jq -cn \
-    --arg ts "$navori_audit_ts" \
     --arg name "${navori_audit_name:-unknown}" \
     --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" \
@@ -3176,7 +3197,7 @@ navori_audit_log() {
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
-    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -3448,11 +3469,19 @@ navori_audit_log() {
   # fail and the event would vanish instead of merely losing a field.
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
 
-  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
-  # the auditor itself is being debugged, and an epoch integer is not readable.
-  # Removing it would also remove the `date` fork it costs — a separate call,
-  # with its own measurement, deliberately not bundled here.
-  navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
+  # `ts` is NOT stamped here, and that is the whole point of #696: it was a
+  # `date` fork per event — 46,850 of them across this store — for a string
+  # fully derivable from the `tsMs` above, which `$EPOCHREALTIME` already
+  # produced without spawning anything. The file's own cost doctrine (see
+  # `navori_audit_now`) says spend a process only when there is no other way;
+  # keeping this one made the comment lie four lines under the value that
+  # refutes it.
+  #
+  # Nothing downstream lost a field: `parse.ts` derives the ISO from `tsMs`
+  # when the record carries none, and logs written before this still have
+  # theirs. The lifecycle records — `start`, `stop`, `session-end` — keep a real
+  # `ts`, so a human reading the raw `.log` still has dated anchors; those are
+  # ~3 per session, not one per hook.
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
   # running in parallel their time windows overlap, so attribution by timestamp
@@ -3468,7 +3497,6 @@ navori_audit_log() {
   # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
   printf '%s\n' "$(jq -cn \
-    --arg ts "$navori_audit_ts" \
     --arg name "${navori_audit_name:-unknown}" \
     --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" \
@@ -3478,7 +3506,7 @@ navori_audit_log() {
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
-    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -4163,11 +4191,19 @@ navori_audit_log() {
   # fail and the event would vanish instead of merely losing a field.
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
 
-  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
-  # the auditor itself is being debugged, and an epoch integer is not readable.
-  # Removing it would also remove the `date` fork it costs — a separate call,
-  # with its own measurement, deliberately not bundled here.
-  navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
+  # `ts` is NOT stamped here, and that is the whole point of #696: it was a
+  # `date` fork per event — 46,850 of them across this store — for a string
+  # fully derivable from the `tsMs` above, which `$EPOCHREALTIME` already
+  # produced without spawning anything. The file's own cost doctrine (see
+  # `navori_audit_now`) says spend a process only when there is no other way;
+  # keeping this one made the comment lie four lines under the value that
+  # refutes it.
+  #
+  # Nothing downstream lost a field: `parse.ts` derives the ISO from `tsMs`
+  # when the record carries none, and logs written before this still have
+  # theirs. The lifecycle records — `start`, `stop`, `session-end` — keep a real
+  # `ts`, so a human reading the raw `.log` still has dated anchors; those are
+  # ~3 per session, not one per hook.
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
   # running in parallel their time windows overlap, so attribution by timestamp
@@ -4183,7 +4219,6 @@ navori_audit_log() {
   # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
   printf '%s\n' "$(jq -cn \
-    --arg ts "$navori_audit_ts" \
     --arg name "${navori_audit_name:-unknown}" \
     --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" \
@@ -4193,7 +4228,7 @@ navori_audit_log() {
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
-    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -4608,11 +4643,19 @@ navori_audit_log() {
   # fail and the event would vanish instead of merely losing a field.
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
 
-  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
-  # the auditor itself is being debugged, and an epoch integer is not readable.
-  # Removing it would also remove the `date` fork it costs — a separate call,
-  # with its own measurement, deliberately not bundled here.
-  navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
+  # `ts` is NOT stamped here, and that is the whole point of #696: it was a
+  # `date` fork per event — 46,850 of them across this store — for a string
+  # fully derivable from the `tsMs` above, which `$EPOCHREALTIME` already
+  # produced without spawning anything. The file's own cost doctrine (see
+  # `navori_audit_now`) says spend a process only when there is no other way;
+  # keeping this one made the comment lie four lines under the value that
+  # refutes it.
+  #
+  # Nothing downstream lost a field: `parse.ts` derives the ISO from `tsMs`
+  # when the record carries none, and logs written before this still have
+  # theirs. The lifecycle records — `start`, `stop`, `session-end` — keep a real
+  # `ts`, so a human reading the raw `.log` still has dated anchors; those are
+  # ~3 per session, not one per hook.
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
   # running in parallel their time windows overlap, so attribution by timestamp
@@ -4628,7 +4671,6 @@ navori_audit_log() {
   # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
   printf '%s\n' "$(jq -cn \
-    --arg ts "$navori_audit_ts" \
     --arg name "${navori_audit_name:-unknown}" \
     --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" \
@@ -4638,7 +4680,7 @@ navori_audit_log() {
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
-    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -5142,11 +5184,19 @@ navori_audit_log() {
   # fail and the event would vanish instead of merely losing a field.
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
 
-  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
-  # the auditor itself is being debugged, and an epoch integer is not readable.
-  # Removing it would also remove the `date` fork it costs — a separate call,
-  # with its own measurement, deliberately not bundled here.
-  navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
+  # `ts` is NOT stamped here, and that is the whole point of #696: it was a
+  # `date` fork per event — 46,850 of them across this store — for a string
+  # fully derivable from the `tsMs` above, which `$EPOCHREALTIME` already
+  # produced without spawning anything. The file's own cost doctrine (see
+  # `navori_audit_now`) says spend a process only when there is no other way;
+  # keeping this one made the comment lie four lines under the value that
+  # refutes it.
+  #
+  # Nothing downstream lost a field: `parse.ts` derives the ISO from `tsMs`
+  # when the record carries none, and logs written before this still have
+  # theirs. The lifecycle records — `start`, `stop`, `session-end` — keep a real
+  # `ts`, so a human reading the raw `.log` still has dated anchors; those are
+  # ~3 per session, not one per hook.
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
   # running in parallel their time windows overlap, so attribution by timestamp
@@ -5162,7 +5212,6 @@ navori_audit_log() {
   # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
   printf '%s\n' "$(jq -cn \
-    --arg ts "$navori_audit_ts" \
     --arg name "${navori_audit_name:-unknown}" \
     --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" \
@@ -5172,7 +5221,7 @@ navori_audit_log() {
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
-    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -5528,11 +5577,19 @@ navori_audit_log() {
   # fail and the event would vanish instead of merely losing a field.
   [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
 
-  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
-  # the auditor itself is being debugged, and an epoch integer is not readable.
-  # Removing it would also remove the `date` fork it costs — a separate call,
-  # with its own measurement, deliberately not bundled here.
-  navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
+  # `ts` is NOT stamped here, and that is the whole point of #696: it was a
+  # `date` fork per event — 46,850 of them across this store — for a string
+  # fully derivable from the `tsMs` above, which `$EPOCHREALTIME` already
+  # produced without spawning anything. The file's own cost doctrine (see
+  # `navori_audit_now`) says spend a process only when there is no other way;
+  # keeping this one made the comment lie four lines under the value that
+  # refutes it.
+  #
+  # Nothing downstream lost a field: `parse.ts` derives the ISO from `tsMs`
+  # when the record carries none, and logs written before this still have
+  # theirs. The lifecycle records — `start`, `stop`, `session-end` — keep a real
+  # `ts`, so a human reading the raw `.log` still has dated anchors; those are
+  # ~3 per session, not one per hook.
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
   # running in parallel their time windows overlap, so attribution by timestamp
@@ -5548,7 +5605,6 @@ navori_audit_log() {
   # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
   printf '%s\n' "$(jq -cn \
-    --arg ts "$navori_audit_ts" \
     --arg name "${navori_audit_name:-unknown}" \
     --arg phase "${navori_audit_phase:-unknown}" \
     --arg verdict "${1:-unknown}" \
@@ -5558,7 +5614,7 @@ navori_audit_log() {
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
-    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \

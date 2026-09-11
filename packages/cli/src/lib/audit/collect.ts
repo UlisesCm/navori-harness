@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, readdirSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { NavoriError } from "../errors.ts";
+import { isoSeconds } from "./model.ts";
 import { auditsRoot, sessionLogPath } from "./paths.ts";
 
 /**
@@ -151,7 +152,7 @@ function msFromUnixNano(v: unknown): number | null {
  * `tsMs` is what any ordering actually uses (#685, #689).
  */
 function stamp(ms: number): { ts: string; tsMs: number } {
-  return { ts: `${new Date(ms).toISOString().slice(0, 19)}Z`, tsMs: ms };
+  return { ts: isoSeconds(ms), tsMs: ms };
 }
 
 /**

@@ -496,15 +496,29 @@ describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
   // Covers: R5
   it("records tsMs, the only field that can order two events of one second (#685)", () => {
     activate();
+    const before = Date.now();
     const hook = install(shell, join(HOOKS, "worktree-reclaim.sh"));
     runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
     const event = logEvents().find((e) => e.event === "hook");
     expect(typeof event?.tsMs).toBe("number");
-    // Same clock as `ts`, which is stamped a hair later and floored to the
-    // second — so the two can straddle a second boundary in either direction.
-    // The point of the assertion is that `tsMs` is that instant and not a zero
-    // from the `-ge 0` guard, which is what a broken clock would leave behind.
-    expect(Math.abs(Number(event?.tsMs) - Date.parse(String(event?.ts)))).toBeLessThan(2000);
+    // Checked against this process's clock and no longer against a `ts` in the
+    // record, because there is none: what the assertion has to catch is a zero
+    // left by the `-ge 0` guard, which is what a broken clock produces.
+    expect(Number(event?.tsMs)).toBeGreaterThanOrEqual(before - 2000);
+    expect(Number(event?.tsMs)).toBeLessThanOrEqual(Date.now() + 2000);
+  });
+
+  // Covers: R5
+  it("no gasta un fork de `date` por evento de hook (#696)", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "worktree-reclaim.sh"));
+    runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+    const event = logEvents().find((e) => e.event === "hook");
+    // `ts` is gone from the hot path: 46,850 events in this store, one `date`
+    // fork each, for a string fully derivable from `tsMs`. The file's own cost
+    // doctrine says spend a process only when there is no other way.
+    expect(event).not.toHaveProperty("ts");
+    expect(typeof event?.tsMs).toBe("number");
   });
 
   // Covers: R7
