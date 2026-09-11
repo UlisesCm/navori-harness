@@ -26,8 +26,101 @@ DONE_CLAIM = re.compile(
 ERROR_LINE = re.compile(r"(error TS\d+|^\s*Error:|\bFAIL\b|error\[E\d+\]|Traceback)", re.M)
 PR_CMD = re.compile(r"(?:^|&&\s*|;\s*)gh pr create")
 COMMIT_CMD = re.compile(r"git commit")
-SRC_FILE = re.compile(r"\.(ts|tsx|js|jsx|py|go|rs|java|mjs|cjs)$")
 CD_PREFIX = re.compile(r'^\s*cd\s+("[^"]*"|\S+)\s*&&\s*')
+
+# ─── Qué cuenta como archivo fuente no trivial ──────────────────────────────
+#
+# UNA definición, y vive en TypeScript: `packages/cli/src/lib/source-classify.ts`.
+# Este script no puede importarla, así que lee las reglas materializadas por
+# `pnpm gen:schemas`. Un test de deriva (source-classify.test.ts) falla si el
+# JSON se queda atrás del módulo.
+#
+# La versión anterior era una regex de extensiones, y sobre las 506 escrituras
+# del parque admitía un 43% que no corresponde: 28.7% tests que acompañan
+# (cláusula c), 13.4% archivos fuera del repo —un script de andamiaje bajo /tmp
+# no llega a ningún diff— y una escritura en node_modules. El sesgo va en una
+# sola dirección: infla el denominador de "oportunidades", que es justo por qué
+# la tasa de activación salía baja. Y NO es uniforme entre repos: los tests
+# acompañan al trabajo de feature, así que los repos que más delegan son los que
+# más se penalizan.
+_RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "source-classify.rules.json")
+with open(_RULES_FILE, encoding="utf-8") as _fh:
+    RULES = [(r["kind"], re.compile(r["pattern"])) for r in json.load(_fh)["rules"]]
+
+SOURCE_EXT = re.compile(
+    r"\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|swift"
+    r"|sh|bash|zsh|sql|vue|svelte|astro)$")
+HARNESS_PROSE = re.compile(r"(^|/)(core-assets|plugins)/(.*/)?(agents|skills|managed)/[^/]+\.md$")
+
+AUDITS = os.path.expanduser("~/.navori/audits")
+
+
+def session_cwd(sid):
+    """La raíz del repo de una sesión, desde la cabecera de su log de audit.
+
+    Sin esto no hay forma de decir "fuera del repo", y un script de scratchpad
+    bajo /tmp cuenta como si fuera código del producto.
+    """
+    if not os.path.isdir(AUDITS):
+        return ""
+    for repo in os.listdir(AUDITS):
+        f = os.path.join(AUDITS, repo, f"session-{sid}.log")
+        if not os.path.isfile(f):
+            continue
+        with open(f, errors="replace") as fh:
+            for line in fh:
+                try:
+                    return json.loads(line).get("cwd") or ""
+                except json.JSONDecodeError:
+                    return ""
+    return ""
+
+
+def to_repo_relative(path, root):
+    """Espejo de `toRepoRelative` en el módulo TS."""
+    if not path:
+        return None
+    p = path.replace("\\", "/")
+    root = (root or "").replace("\\", "/").rstrip("/")
+    if not root:
+        return None if p.startswith("/") else p.lstrip("./")
+    if p == root:
+        return ""
+    # Un vecino que solo COMPARTE PREFIJO no está dentro: `/repo-2/x` empieza
+    # por `/repo`.
+    if p.startswith(root + "/"):
+        return p[len(root) + 1:]
+    return None if p.startswith("/") else p.lstrip("./")
+
+
+def classify_path(path, root=""):
+    """Cláusula (a), decidida desde la ruta. Espejo de `classifyPath`."""
+    rel = to_repo_relative(path, root)
+    if rel is None:
+        return "outside-repo"
+    for kind, rx in RULES:
+        if rx.search(rel):
+            return kind
+    if HARNESS_PROSE.search(rel):
+        return "source"
+    return "source" if SOURCE_EXT.search(rel) else "docs"
+
+
+def non_trivial(paths, root=""):
+    """Cláusulas (a)+(c) sobre el conjunto de UN turno. Espejo de `countNonTrivial`.
+
+    Un test cuenta solo cuando ES el cambio: con cualquier fuente no-test
+    presente, los tests acompañan y no suman. Sin ese brazo la regla sería
+    inaplicable en este repo, que pide un test con cada fix.
+
+    Es un TECHO, no un conteo exacto: la cláusula (b) —¿el cambio altera el
+    comportamiento, o solo propaga un rename?— necesita el contenido del diff, y
+    aquí solo hay rutas.
+    """
+    src = [p for p in paths if classify_path(p, root) == "source"]
+    tests = [p for p in paths if classify_path(p, root) == "test"]
+    return src if src else tests
 
 
 def load(prefix):
@@ -101,6 +194,9 @@ def analyze(session, examples):
         return None
     turns, mode = parse(path)
     repo = os.path.basename(os.path.dirname(path)).split("-Docs-")[-1]
+    # La raíz del repo de ESTA sesión, para poder decir "fuera del repo". Sale
+    # de la cabecera de su log de audit, que es donde el hook la registró.
+    root = session_cwd(session)
 
     opp, hit, auto, asked = Counter(), Counter(), Counter(), Counter()
     failed_once = {}
@@ -134,9 +230,13 @@ def analyze(session, examples):
             elif len(examples[key]) < 3:
                 examples[key].append(f"{session} turno {ti+1}: {note[:110]}")
 
-        # O1 — implementer: 2+ archivos fuente tocados por Edit/Write en el turno
-        touched = {str(x["input"].get("file_path", "")) for x in t["tools"]
-                   if x["name"] in ("Edit", "Write") and SRC_FILE.search(str(x["input"].get("file_path", "")))}
+        # O1 — implementer: 2+ archivos fuente NO TRIVIALES tocados en el turno.
+        # "No trivial" sale del clasificador compartido, no de una regex de
+        # extensiones: descarta generados, efímeros, fuera-del-repo, y los tests
+        # que acompañan a un fuente ya contado (cláusula c).
+        written = [str(x["input"].get("file_path", "")) for x in t["tools"]
+                   if x["name"] in ("Edit", "Write") and x["input"].get("file_path")]
+        touched = set(non_trivial(written, root))
         mark("implementer", len(touched) >= 2, agent="implementer",
              note=f"{len(touched)} archivos fuente: {sorted(touched)[:2]}")
 
