@@ -1,31 +1,34 @@
 # Sesión actual
 
-**Estado:** **0.8.4 preparado y verde en el PR #671**, sin mergear. El código de #669 ya está
-en `main` (`9232093`), con sus cuatro fixes verificados **por contenido**, no solo por el
-título del commit. **1 issue**: #661 (tool-mix), abierto a propósito.
+**Estado:** **0.8.4 publicado** — npm `latest: 0.8.4` (161 archivos, 1,568,540 bytes
+desempaquetados, idéntico al `--dry-run`), tag `v0.8.4` sobre `e8b2c54`, `main` en `9dc556f`
+con CI verde. **1 issue**: #661 (tool-mix), abierto a propósito.
+
+Abierto: el PR de este ciclo (trigger del deploy del website + README + esta bitácora).
 
 ## Dónde quedó todo
 
 Ver `progress/history.md`, entradas del 2026-09-10. No se repite aquí.
 
-Resumen de una línea: **el `audit` registraba bien y sumaba mal**; los cuatro números que
-mentían están corregidos en #669, y la auditoría dejó 16 hallazgos más priorizados.
+Resumen de una línea: **el release salió bien y no llegaba al sitio** — el footer del website
+llevaba dos releases mostrando `v0.8.2` porque el filtro de `paths` del deploy no incluía el
+manifest del CLI.
 
 ## Lo primero al retomar
 
-1. **Cerrar el release 0.8.4.** El PR #671 está verde (`quality pass`, 1m42s) y el tarball
-   verificado con `npm pack --dry-run`: `navori-0.8.4.tgz`, 161 archivos, 158 assets, el
-   binario reporta `0.8.4`. Faltan tres pasos **en este orden**: merge de #671 → tag `v0.8.4`
-   sobre el merge commit → `npm publish` desde `packages/cli`. El re-render del espejo ya va
-   dentro del PR (46 archivos, +74/−74, pura estampa de versión).
+1. **Verificar que el sitio quedó en 0.8.4.** Se disparó un `workflow_dispatch` manual del
+   deploy; el arreglo durable (el manifest del CLI en el filtro de `paths`) va en el PR de este
+   ciclo. Comprobación de un comando:
 
-   **`npm whoami` devuelve 401**: la sesión de npm está deslogueada y `npm login` es
-   interactivo, así que ese paso lo corre Ulises.
+   ```bash
+   curl -s https://ulisescm.github.io/navori-harness/ | grep -o 'font-mono">v[0-9.]*'
+   ```
 
-2. **El working tree quedó sucio a propósito.** `docs/inspiration.md` (+109) está en un stash
-   —`docs/inspiration.md fuera de ciclo (pre-release 0.8.4)`— para poder cambiar de branch
-   durante el release; los dos untracked de `docs/research/` siguen en disco. Los tres son de
-   otro ciclo y quedaron fuera de todo commit por diseño. Decidir qué se hace con ellos.
+2. **El working tree sigue sucio a propósito.** `docs/inspiration.md` (+109) está en
+   `stash@{0}` —`docs/inspiration.md fuera de ciclo (pre-release 0.8.4)`— y los dos untracked
+   de `docs/research/` (`awesome-harness-engineering.md`, `claude-code-harness-lessons.md`)
+   siguen en disco. Son de otro ciclo y quedaron fuera de todo commit por diseño. **Es la
+   decisión más vieja pendiente**: ya sobrevivió a dos sesiones.
 
 3. **Los reportes de la auditoría viven en `.claude/progress/` (gitignored)**, así que no
    viajan en git: `audit_consolidado_navori-audit.md` (síntesis), `audit_deep_navori-audit.md`
@@ -34,7 +37,7 @@ mentían están corregidos en #669, y la auditoría dejó 16 hallazgos más prio
 
 ## Lo que la auditoría dejó pendiente
 
-Con los 4 altos ya shippeados, el siguiente lote por orden de valor:
+Con los 4 altos ya shippeados en 0.8.4, el siguiente lote por orden de valor:
 
 - **Quick wins (S/XS)**: M3 separar `logParseErrors` de `parseErrors` —hoy un log corrupto
   dispara `format-drift` del transcript, diagnóstico equivocado—; M4 acumular los parseErrors
@@ -60,6 +63,8 @@ de `.mcp.json` en vez de hardcodear codegraph+engram.
 
 ## Pendiente fuera de este repo
 
-`bonum-webapp` tiene 43 archivos de `.claude/` trackeados, contra la convención de que en
-los repos `/bonum` el harness no se commitea. Puede ser deliberado; conviene decidirlo a
-propósito.
+1. **Rollout de 0.8.4 al parque.** El 0.8.3 se rodó a 20 repos; 0.8.4 no se ha rodado a
+   ninguno.
+2. `bonum-webapp` tiene 43 archivos de `.claude/` trackeados, contra la convención de que en
+   los repos `/bonum` el harness no se commitea. Puede ser deliberado; conviene decidirlo a
+   propósito.
