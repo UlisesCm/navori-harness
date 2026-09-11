@@ -493,6 +493,20 @@ describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
     expect(typeof events[0]?.ms).toBe("number");
   });
 
+  // Covers: R5
+  it("records tsMs, the only field that can order two events of one second (#685)", () => {
+    activate();
+    const hook = install(shell, join(HOOKS, "worktree-reclaim.sh"));
+    runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
+    const event = logEvents().find((e) => e.event === "hook");
+    expect(typeof event?.tsMs).toBe("number");
+    // Same clock as `ts`, which is stamped a hair later and floored to the
+    // second — so the two can straddle a second boundary in either direction.
+    // The point of the assertion is that `tsMs` is that instant and not a zero
+    // from the `-ge 0` guard, which is what a broken clock would leave behind.
+    expect(Math.abs(Number(event?.tsMs) - Date.parse(String(event?.ts)))).toBeLessThan(2000);
+  });
+
   // Covers: R7
   it("keeps the hook working when the log cannot be written", () => {
     activate();

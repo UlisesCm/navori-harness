@@ -107,6 +107,20 @@ export interface SkillUse {
  *  between consecutive events — those can belong to different hooks. */
 export interface HookEvent {
   ts: string;
+  /**
+   * The same instant as `ts`, in epoch milliseconds — the one that can order
+   * events (#685).
+   *
+   * `ts` is stamped by `date` at second resolution, and 9,085 of the 10,769
+   * events measured in this repo's own store (84%) share their second with at
+   * least one other, up to 11 in a single second. File order does not rescue
+   * that either: parallel agents append to one file, so it is arrival order,
+   * not chronological.
+   *
+   * Optional because logs written before the field existed only carry `ts`, and
+   * those stay readable — `eventAt()` in `parse.ts` owns the fallback.
+   */
+  tsMs?: number;
   name: string;
   phase: string;
   verdict: string;
