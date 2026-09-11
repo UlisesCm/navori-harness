@@ -283,6 +283,23 @@ describe("startReceiver (#0021)", () => {
     expect(r.stats()).toEqual({ written: 0, discarded: 3, sessions: 0 });
   });
 
+  it("responde su propia ruta de salud, para que doctor sepa de quién es el puerto", async () => {
+    // #697: a bare connection proves only that SOMETHING holds 4318. The
+    // operator who already runs an OTLP collector there would read a green
+    // check while every navori event went into somebody else's pipeline.
+    const r = await receiver();
+    const res = await fetch(`http://127.0.0.1:${r.port}/healthz`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.service).toBe("navori-audit-collect");
+    expect(body).toEqual({
+      service: "navori-audit-collect",
+      written: 0,
+      discarded: 0,
+      sessions: 0,
+    });
+  });
+
   // Covers: R5, R8
   it("no persiste el texto del prompt aunque el emisor lo mande", async () => {
     markSession("sess-prompt");
