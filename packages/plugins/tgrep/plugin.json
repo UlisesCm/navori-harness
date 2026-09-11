@@ -36,6 +36,11 @@
       "src": "scripts/tgrep-session.sh",
       "dest": "tgrep-session.sh",
       "exec": true
+    },
+    {
+      "src": "scripts/guard-search-routing.sh",
+      "dest": "guard-search-routing.sh",
+      "exec": true
     }
   ],
   "hooks": [
@@ -44,6 +49,13 @@
       "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/tgrep-session.sh\"",
       "timeout": 30,
       "statusMessage": "navori/tgrep: search index"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/guard-search-routing.sh\"",
+      "timeout": 10,
+      "statusMessage": "navori/tgrep: routing guard"
     }
   ],
   "skills": [
@@ -77,5 +89,7 @@
       "injectInto": ".claude/agents/reviewer.md"
     }
   ],
-  "invariants": ["tgrep-search.sh"]
+  "invariants": [
+    "tgrep-search.sh"
+  ]
 }

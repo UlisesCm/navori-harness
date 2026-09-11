@@ -304,13 +304,22 @@ describe("tgrep plugin manifest", () => {
     expect(install.win32).toBeUndefined();
   });
 
-  it("ships both scripts and registers the session hook on SessionStart", () => {
+  it("ships its three scripts and wires a hook per phase it owns", () => {
     const manifest = loadPlugin("tgrep").manifest;
     expect(manifest.scripts?.map((s) => s.dest).sort()).toEqual([
+      "guard-search-routing.sh",
       "tgrep-search.sh",
       "tgrep-session.sh",
     ]);
-    expect(manifest.hooks?.map((h) => h.event)).toEqual(["SessionStart"]);
+    // Two phases, two jobs: SessionStart rebuilds the trigram index, and
+    // PreToolUse(Bash) is the routing guard — content search goes through the
+    // wrapper because a hook says so, not because prose asks. The prose version
+    // shipped in 0.7.8 and measured 7.4% adoption over 2,761 real searches.
+    expect(manifest.hooks?.map((h) => h.event)).toEqual(["SessionStart", "PreToolUse"]);
+    const guard = manifest.hooks?.find((h) => h.event === "PreToolUse");
+    // Without the matcher the guard would run on EVERY tool call, paying its
+    // cost on Read/Edit/Task where it can never fire.
+    expect(guard?.matcher).toBe("Bash");
   });
 });
 
