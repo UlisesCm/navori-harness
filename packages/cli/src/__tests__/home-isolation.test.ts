@@ -259,14 +259,41 @@ describe("describeNavoriHomeLeak", () => {
     expect(describeNavoriHomeLeak(root, before, after, "navori-harness")).toBeNull();
   });
 
-  it("STILL reports this repo's own audit log — that one is a real leak", () => {
-    // The teeth. A spec that forgets its mock writes under the repo under test,
-    // and the filter must not reach it.
+  /**
+   * #656 kept this repo's own logs strict on purpose. `audit.mode` (#688)
+   * changed the premise: with `always`, a second session open on THIS repo
+   * appends to its own log on every prompt, and the guard went from failing
+   * occasionally to failing deterministically — which is the same "red that
+   * means nothing" #656 set out to remove.
+   *
+   * What still separates the two is CREATE vs APPEND: the log is append-only by
+   * construction and a session's file exists before this run starts.
+   */
+  it("ignores an APPEND to this repo's own audit log — the neighbouring session", () => {
     const before = snapshotOf({ "audits/navori-harness/session-a.log": "10:100" });
     const after = snapshotOf({ "audits/navori-harness/session-a.log": "99:200" });
-    const leak = describeNavoriHomeLeak(root, before, after, "navori-harness");
-    expect(leak).toContain("MODIFIED 1 entry");
+    expect(describeNavoriHomeLeak(root, before, after, "navori-harness")).toBeNull();
+  });
+
+  it("STILL reports a log that APPEARS mid-run under this repo — that is a leak", () => {
+    // The teeth. A spec that forgets its mock creates a file that was not there
+    // when the run began, and the filter must not reach it.
+    const leak = describeNavoriHomeLeak(
+      root,
+      new Map(),
+      snapshotOf({ "audits/navori-harness/session-a.log": "10:100" }),
+      "navori-harness",
+    );
+    expect(leak).toContain("Created");
     expect(leak).toContain("audits/navori-harness/session-a.log");
+  });
+
+  it("STILL reports anything else under this repo's audit dir", () => {
+    // El filtro es estrecho a propósito: solo `session-*.log`. Un spec que
+    // escriba cualquier otra cosa ahí sigue siendo fuga.
+    const before = snapshotOf({ "audits/navori-harness/report.json": "10:100" });
+    const after = snapshotOf({ "audits/navori-harness/report.json": "99:200" });
+    expect(describeNavoriHomeLeak(root, before, after, "navori-harness")).toContain("MODIFIED");
   });
 
   it("keeps the top-level `audits` entry watched", () => {

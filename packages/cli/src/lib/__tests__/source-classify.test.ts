@@ -165,20 +165,25 @@ describe("las reglas son portables a otro lenguaje", () => {
     // nombre y backreferences son donde JS y Python divergen, así que una regla
     // que los use rompe al otro consumidor en silencio.
     for (const rule of CLASSIFY_RULES) {
-      expect(rule.pattern, `${rule.kind}: ${rule.pattern}`).not.toMatch(/\(\?<|\\\d/);
+      expect(rule.re.source, `${rule.kind}: ${rule.re.source}`).not.toMatch(/\(\?<|\\\d/);
     }
   });
 
   it("cada regla dice por qué existe", () => {
     // El `why` viaja en el JSON: el otro consumidor no puede leer este archivo.
     for (const rule of CLASSIFY_RULES) {
-      expect(rule.why.length, rule.pattern).toBeGreaterThan(20);
+      expect(rule.why.length, rule.re.source).toBeGreaterThan(20);
     }
   });
 
-  it("cada patrón compila", () => {
+  it("el .source de cada literal sobrevive el viaje a Python", () => {
+    // Los literales compilan por construcción —el parser de TS ya lo garantiza—,
+    // así que lo que hay que fijar es lo otro: que su `.source` no traiga nada
+    // que el otro motor rechace. El escape `\/` que produce un literal JS es
+    // legal en Python; una barra sin escapar dentro de una clase, no siempre.
     for (const rule of CLASSIFY_RULES) {
-      expect(() => new RegExp(rule.pattern)).not.toThrow();
+      expect(rule.re.source.length, rule.kind).toBeGreaterThan(0);
+      expect(rule.re.flags, `${rule.kind}: los flags no viajan en el JSON`).toBe("");
     }
   });
 });

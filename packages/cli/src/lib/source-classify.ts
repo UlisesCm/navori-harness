@@ -59,17 +59,30 @@ export type PathKind =
 /**
  * The rules, in order — FIRST MATCH WINS, so order is part of the definition.
  *
- * Kept as plain strings rather than `RegExp` literals so the exact same list can
- * be handed to a consumer that is not TypeScript. `scripts/mine-activation.py`
- * reads the generated JSON and applies these with Python's `re`; both engines
- * agree on this subset (character classes, alternation, anchors — no lookbehind,
- * no named groups, no backreferences). A rule that needs more than that belongs
- * in the consumer, not here, precisely so the shared list stays portable.
+ * They are LITERALS, and their `.source` is what gets handed to the consumer that
+ * is not TypeScript: `scripts/mine-activation.py` reads the generated JSON and
+ * applies them with Python's `re`. Both engines agree on this subset — character
+ * classes, alternation, anchors, and the `\/` escape a JS literal produces — but
+ * NOT on lookbehind, named groups or backreferences. A rule that needs one of
+ * those belongs in the consumer, not here, so the shared list stays portable;
+ * the suite fails on any that slip in.
  */
 export interface ClassifyRule {
   kind: Exclude<PathKind, "outside-repo" | "source">;
-  /** JS/Python-portable regex, matched against the repo-relative POSIX path. */
-  pattern: string;
+  /**
+   * Matched against the repo-relative POSIX path.
+   *
+   * A LITERAL, deliberately — not a string compiled with `new RegExp`. Two
+   * reasons, and the second is why the first is not enough: a non-literal
+   * `RegExp` is a ReDoS surface the security gate blocks on sight, and a literal
+   * is also checked by the TypeScript parser, so a malformed pattern fails the
+   * build instead of at the first path that reaches it.
+   *
+   * `.source` is what travels to the other consumer. Python's `re` accepts the
+   * escapes a JS literal produces (`\/` among them), so the same string works in
+   * both without a translation step that could drift.
+   */
+  re: RegExp;
   /** Why this rule exists — shipped in the JSON so the other consumer sees it. */
   why: string;
 }
@@ -77,89 +90,87 @@ export interface ClassifyRule {
 export const CLASSIFY_RULES: readonly ClassifyRule[] = [
   {
     kind: "ephemeral",
-    pattern: "(^|/)\\.claude/(progress|worktrees)/",
+    re: /(^|\/)\.claude\/(progress|worktrees)\//,
     why: "agent handoffs and reclaimed worktrees: never versioned, never in a diff",
   },
   {
     kind: "ephemeral",
-    pattern: "(^|/)(scratchpad|\\.scratch)/",
+    re: /(^|\/)(scratchpad|\.scratch)\//,
     why: "throwaway scaffolding; 13.4% of the miner's old 'source' writes were this",
   },
   {
     kind: "dependency",
-    pattern: "(^|/)node_modules/",
+    re: /(^|\/)node_modules\//,
     why: "a vendored dependency is not ours to change, and a write there is an accident",
   },
   {
     kind: "dependency",
-    pattern: "(^|/)(dist|build|out|coverage|\\.next|\\.astro)/",
+    re: /(^|\/)(dist|build|out|coverage|\.next|\.astro)\//,
     why: "build output: regenerated from the source this same change may edit",
   },
   {
     kind: "generated",
-    pattern: "(^|/)\\.claude/",
+    re: /(^|\/)\.claude\//,
     why: "the rendered harness mirror — the change lives in the source asset, not here",
   },
   {
     kind: "generated",
-    pattern: "(^|/)(CLAUDE|AGENTS)\\.md$",
+    re: /(^|\/)(CLAUDE|AGENTS)\.md$/,
     why: "rendered from managed blocks; editing it directly is what the drift guard blocks",
   },
   {
     kind: "generated",
-    pattern: "(^|/)\\.mcp\\.json$",
+    re: /(^|\/)\.mcp\.json$/,
     why: "rendered from the plugin manifests; editing it here is overwritten next render",
   },
   {
     kind: "generated",
-    pattern: "(^|/)__golden__/|\\.snap$",
+    re: /(^|\/)__golden__\/|\.snap$/,
     why: "regenerated from the tree it pins; never hand-authored",
   },
   {
     kind: "lockfile",
-    pattern:
-      "(^|/)(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock|bun\\.lockb?|Cargo\\.lock|poetry\\.lock|Gemfile\\.lock|go\\.sum)$",
+    re: /(^|\/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lockb?|Cargo\.lock|poetry\.lock|Gemfile\.lock|go\.sum)$/,
     why: "resolved by a tool, reviewed as a diff of intent elsewhere",
   },
   {
     kind: "fixture",
-    pattern: "(^|/)(__fixtures__|__mocks__|fixtures)/",
+    re: /(^|\/)(__fixtures__|__mocks__|fixtures)\//,
     why: "data the tests read, not behavior the program runs",
   },
   {
     kind: "test",
-    pattern: "\\.(test|spec)\\.[mc]?[jt]sx?$",
+    re: /\.(test|spec)\.[mc]?[jt]sx?$/,
     why: "clause (c): a test pinning a change counted elsewhere is evidence, not a second file",
   },
   {
     kind: "test",
-    pattern: "(^|/)(__tests__|tests?)/",
+    re: /(^|\/)(__tests__|tests?)\//,
     why: "same clause, for repos that group tests by directory instead of by suffix",
   },
   {
     kind: "test",
-    pattern: "(^|/)(test|tests)_[^/]+\\.py$|(^|/)[^/]+_test\\.(py|go)$",
+    re: /(^|\/)(test|tests)_[^/]+\.py$|(^|\/)[^/]+_test\.(py|go)$/,
     why: "same clause, Python and Go naming",
   },
   {
     kind: "config",
-    pattern:
-      "(^|/)(package\\.json|tsconfig[^/]*\\.json|jsconfig\\.json|biome\\.jsonc?|\\.eslintrc[^/]*|\\.prettierrc[^/]*|\\.editorconfig|\\.gitignore|\\.npmrc|\\.nvmrc)$",
+    re: /(^|\/)(package\.json|tsconfig[^/]*\.json|jsconfig\.json|biome\.jsonc?|\.eslintrc[^/]*|\.prettierrc[^/]*|\.editorconfig|\.gitignore|\.npmrc|\.nvmrc)$/,
     why: "clause (a) excludes config explicitly",
   },
   {
     kind: "config",
-    pattern: "(^|/)navori\\.config\\.json$",
+    re: /(^|\/)navori\.config\.json$/,
     why: "declares what the harness renders; the behavior it changes is navori's, not the repo's",
   },
   {
     kind: "docs",
-    pattern: "(^|/)(docs|specs)/|(^|/)(README|CONTRIBUTING|CHANGELOG|LICENSE)[^/]*$",
+    re: /(^|\/)(docs|specs)\/|(^|\/)(README|CONTRIBUTING|CHANGELOG|LICENSE)[^/]*$/,
     why: "read by humans; no agent obeys it as instruction",
   },
   {
     kind: "docs",
-    pattern: "(^|/)progress/",
+    re: /(^|\/)progress\//,
     why: "the session log, versioned but not behavior",
   },
 ];
@@ -179,10 +190,6 @@ const SOURCE_EXT =
  */
 const HARNESS_PROSE = /(^|\/)(core-assets|plugins)\/(.*\/)?(agents|skills|managed)\/[^/]+\.md$/;
 
-const COMPILED: ReadonlyArray<{ kind: ClassifyRule["kind"]; re: RegExp }> = CLASSIFY_RULES.map(
-  (r) => ({ kind: r.kind, re: new RegExp(r.pattern) }),
-);
-
 /** Normalizes to a repo-relative POSIX path, or null when it is outside the repo. */
 export function toRepoRelative(filePath: string, repoRoot: string): string | null {
   if (!filePath) return null;
@@ -201,7 +208,7 @@ export function toRepoRelative(filePath: string, repoRoot: string): string | nul
 export function classifyPath(filePath: string, repoRoot = ""): PathKind {
   const rel = toRepoRelative(filePath, repoRoot);
   if (rel === null) return "outside-repo";
-  for (const { kind, re } of COMPILED) if (re.test(rel)) return kind;
+  for (const { kind, re } of CLASSIFY_RULES) if (re.test(rel)) return kind;
   if (HARNESS_PROSE.test(rel)) return "source";
   return SOURCE_EXT.test(rel) ? "source" : "docs";
 }

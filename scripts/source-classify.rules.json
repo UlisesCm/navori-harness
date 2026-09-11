@@ -3,52 +3,52 @@
   "rules": [
     {
       "kind": "ephemeral",
-      "pattern": "(^|/)\\.claude/(progress|worktrees)/",
+      "pattern": "(^|\\/)\\.claude\\/(progress|worktrees)\\/",
       "why": "agent handoffs and reclaimed worktrees: never versioned, never in a diff"
     },
     {
       "kind": "ephemeral",
-      "pattern": "(^|/)(scratchpad|\\.scratch)/",
+      "pattern": "(^|\\/)(scratchpad|\\.scratch)\\/",
       "why": "throwaway scaffolding; 13.4% of the miner's old 'source' writes were this"
     },
     {
       "kind": "dependency",
-      "pattern": "(^|/)node_modules/",
+      "pattern": "(^|\\/)node_modules\\/",
       "why": "a vendored dependency is not ours to change, and a write there is an accident"
     },
     {
       "kind": "dependency",
-      "pattern": "(^|/)(dist|build|out|coverage|\\.next|\\.astro)/",
+      "pattern": "(^|\\/)(dist|build|out|coverage|\\.next|\\.astro)\\/",
       "why": "build output: regenerated from the source this same change may edit"
     },
     {
       "kind": "generated",
-      "pattern": "(^|/)\\.claude/",
+      "pattern": "(^|\\/)\\.claude\\/",
       "why": "the rendered harness mirror — the change lives in the source asset, not here"
     },
     {
       "kind": "generated",
-      "pattern": "(^|/)(CLAUDE|AGENTS)\\.md$",
+      "pattern": "(^|\\/)(CLAUDE|AGENTS)\\.md$",
       "why": "rendered from managed blocks; editing it directly is what the drift guard blocks"
     },
     {
       "kind": "generated",
-      "pattern": "(^|/)\\.mcp\\.json$",
+      "pattern": "(^|\\/)\\.mcp\\.json$",
       "why": "rendered from the plugin manifests; editing it here is overwritten next render"
     },
     {
       "kind": "generated",
-      "pattern": "(^|/)__golden__/|\\.snap$",
+      "pattern": "(^|\\/)__golden__\\/|\\.snap$",
       "why": "regenerated from the tree it pins; never hand-authored"
     },
     {
       "kind": "lockfile",
-      "pattern": "(^|/)(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock|bun\\.lockb?|Cargo\\.lock|poetry\\.lock|Gemfile\\.lock|go\\.sum)$",
+      "pattern": "(^|\\/)(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock|bun\\.lockb?|Cargo\\.lock|poetry\\.lock|Gemfile\\.lock|go\\.sum)$",
       "why": "resolved by a tool, reviewed as a diff of intent elsewhere"
     },
     {
       "kind": "fixture",
-      "pattern": "(^|/)(__fixtures__|__mocks__|fixtures)/",
+      "pattern": "(^|\\/)(__fixtures__|__mocks__|fixtures)\\/",
       "why": "data the tests read, not behavior the program runs"
     },
     {
@@ -58,32 +58,32 @@
     },
     {
       "kind": "test",
-      "pattern": "(^|/)(__tests__|tests?)/",
+      "pattern": "(^|\\/)(__tests__|tests?)\\/",
       "why": "same clause, for repos that group tests by directory instead of by suffix"
     },
     {
       "kind": "test",
-      "pattern": "(^|/)(test|tests)_[^/]+\\.py$|(^|/)[^/]+_test\\.(py|go)$",
+      "pattern": "(^|\\/)(test|tests)_[^/]+\\.py$|(^|\\/)[^/]+_test\\.(py|go)$",
       "why": "same clause, Python and Go naming"
     },
     {
       "kind": "config",
-      "pattern": "(^|/)(package\\.json|tsconfig[^/]*\\.json|jsconfig\\.json|biome\\.jsonc?|\\.eslintrc[^/]*|\\.prettierrc[^/]*|\\.editorconfig|\\.gitignore|\\.npmrc|\\.nvmrc)$",
+      "pattern": "(^|\\/)(package\\.json|tsconfig[^/]*\\.json|jsconfig\\.json|biome\\.jsonc?|\\.eslintrc[^/]*|\\.prettierrc[^/]*|\\.editorconfig|\\.gitignore|\\.npmrc|\\.nvmrc)$",
       "why": "clause (a) excludes config explicitly"
     },
     {
       "kind": "config",
-      "pattern": "(^|/)navori\\.config\\.json$",
+      "pattern": "(^|\\/)navori\\.config\\.json$",
       "why": "declares what the harness renders; the behavior it changes is navori's, not the repo's"
     },
     {
       "kind": "docs",
-      "pattern": "(^|/)(docs|specs)/|(^|/)(README|CONTRIBUTING|CHANGELOG|LICENSE)[^/]*$",
+      "pattern": "(^|\\/)(docs|specs)\\/|(^|\\/)(README|CONTRIBUTING|CHANGELOG|LICENSE)[^/]*$",
       "why": "read by humans; no agent obeys it as instruction"
     },
     {
       "kind": "docs",
-      "pattern": "(^|/)progress/",
+      "pattern": "(^|\\/)progress\\/",
       "why": "the session log, versioned but not behavior"
     }
   ]
