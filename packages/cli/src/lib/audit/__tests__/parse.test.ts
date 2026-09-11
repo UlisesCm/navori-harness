@@ -499,6 +499,66 @@ describe("parse: hook attribution", () => {
     expect(s.hookLogFrom).toBe("2026-08-25T09:30:00Z");
   });
 
+  it("orders two events of the same second by tsMs (#685)", () => {
+    // `ts` truncates, so both of these read `10:05:00Z` and only the file order
+    // separates them — and under parallel agents that is arrival order, not
+    // chronology. `tsMs` is what makes the pair orderable at all.
+    const base = Date.parse("2026-08-25T10:05:00Z");
+    const s = session([]);
+    attachHookEvents(
+      s,
+      log([hook({ name: "second", tsMs: base + 800 }), hook({ name: "first", tsMs: base + 100 })]),
+    );
+    expect(s.orchestrator.hookEvents.map((e) => e.name)).toEqual(["first", "second"]);
+  });
+
+  it("uses tsMs at the window boundary, where a truncated ts falls short (#685)", () => {
+    // The agent starts mid-second. The event followed that start by 200 ms, but
+    // `ts` reads the whole second and so lands 500 ms BEFORE the agent existed.
+    const base = Date.parse("2026-08-25T10:05:00Z");
+    const bounds = { startedAt: "2026-08-25T10:05:00.500Z", endedAt: "2026-08-25T10:06:00.000Z" };
+
+    const withMs = session([agent(bounds)]);
+    attachHookEvents(withMs, log([hook({ tsMs: base + 700 })]));
+    expect(withMs.agents[0]?.hookEvents).toHaveLength(1);
+
+    const withoutMs = session([agent(bounds)]);
+    attachHookEvents(withoutMs, log([hook({})]));
+    expect(withoutMs.agents[0]?.hookEvents).toHaveLength(0);
+    expect(withoutMs.orchestrator.hookEvents).toHaveLength(1);
+  });
+
+  it("still orders a log written before tsMs existed (#685)", () => {
+    // Backward compatibility is the reason `ts` stays: these logs are already on
+    // disk in every repo that has ever run audit-mode.
+    const s = session([]);
+    attachHookEvents(
+      s,
+      log([
+        hook({ name: "second", ts: "2026-08-25T10:05:00Z" }),
+        hook({ name: "first", ts: "2026-08-25T10:04:00Z" }),
+      ]),
+    );
+    expect(s.orchestrator.hookEvents.map((e) => e.name)).toEqual(["first", "second"]);
+    expect(s.orchestrator.hookEvents.every((e) => e.tsMs === undefined)).toBe(true);
+  });
+
+  it("leaves an event with no readable time where the file put it (#685)", () => {
+    // A `NaN` in the comparator makes the sort order-dependent and its output
+    // meaningless, so an unreadable time inherits the last known one instead.
+    const base = Date.parse("2026-08-25T10:05:00Z");
+    const s = session([]);
+    attachHookEvents(
+      s,
+      log([
+        hook({ name: "first", tsMs: base + 100 }),
+        hook({ name: "unreadable", ts: "" }),
+        hook({ name: "third", tsMs: base + 900 }),
+      ]),
+    );
+    expect(s.orchestrator.hookEvents.map((e) => e.name)).toEqual(["first", "unreadable", "third"]);
+  });
+
   it("leaves the horizon null when the log recorded no hook at all", () => {
     const s = session([]);
     attachHookEvents(s, log([{ ts: "2026-08-25T09:00:00Z", event: "start" }]));
