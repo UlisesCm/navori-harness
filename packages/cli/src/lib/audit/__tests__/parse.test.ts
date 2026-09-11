@@ -12,7 +12,20 @@ import {
   sumTokens,
 } from "../parse.ts";
 import type { AgentRun, SessionAudit } from "../model.ts";
-import { emptyToolErrors } from "../model.ts";
+import { emptyPermissionDecisions, emptyToolErrors } from "../model.ts";
+import { buildReport, renderMarkdown } from "../report.ts";
+import type { HarnessCatalog } from "../harness.ts";
+
+/** The catalog is not what these specs are about: an empty one keeps the
+ *  report renderable without pinning a harness shape they never read. */
+const EMPTY_CATALOG: HarnessCatalog = {
+  agents: [],
+  skills: [],
+  managedSkills: [],
+  sections: [],
+  claudeMdTokens: 0,
+  mcpFamilies: [],
+};
 
 const FIXTURE = join(
   fileURLToPath(new URL("../../../__tests__/fixtures/audit/", import.meta.url)),
@@ -477,6 +490,9 @@ describe("parse: hook attribution", () => {
       agents,
       signals: [],
       hookLogFrom: null,
+      otelFrom: null,
+      permissions: emptyPermissionDecisions(),
+      hostSkills: [],
       parseErrors: 0,
       linesRead: 0,
     };
@@ -743,6 +759,159 @@ describe("parse: hook attribution", () => {
     attachHookEvents(s, log([sessionEnd()]));
     expect(s.parseErrors).toBe(0);
     expect(s.orchestrator.hookEvents).toHaveLength(0);
+  });
+
+  /**
+   * The third source (#0021): events the OTel receiver appends to this same
+   * log. They are read HERE, by the reader that already walks the file — the
+   * reason the spec needs no ingestion module.
+   */
+  describe("tercera fuente (#0021)", () => {
+    const otelStart = (over: Record<string, unknown> = {}) => ({
+      ts: "2026-08-25T10:00:00Z",
+      tsMs: Date.parse("2026-08-25T10:00:00Z"),
+      event: "otel-start",
+      endpoint: "127.0.0.1:4318",
+      ...over,
+    });
+    const decision = (source: string, over: Record<string, unknown> = {}) => ({
+      ts: "2026-08-25T10:05:00Z",
+      tsMs: Date.parse("2026-08-25T10:05:00Z"),
+      event: "tool_decision",
+      tool: "Bash",
+      decision: source.startsWith("user_re") || source === "user_abort" ? "reject" : "accept",
+      source,
+      ...over,
+    });
+    const apiRequest = (over: Record<string, unknown>) => ({
+      ts: "2026-08-25T10:06:00Z",
+      tsMs: Date.parse("2026-08-25T10:06:00Z"),
+      event: "api_request",
+      model: "claude-opus-5",
+      ...over,
+    });
+
+    // Covers: R12
+    it("separa la aprobación humana de la automática", () => {
+      const s = session([]);
+      attachHookEvents(
+        s,
+        log([
+          otelStart(),
+          decision("user_temporary"),
+          decision("user_permanent"),
+          decision("user_reject"),
+          decision("config"),
+          decision("config"),
+          decision("hook"),
+          // A source this version does not classify still happened: it lands
+          // in `bySource` and in `total`, never silently dropped.
+          decision("something_new"),
+        ]),
+      );
+
+      // This is the count the transcript could never produce: a granted prompt
+      // and a pre-approved tool leave the same result there.
+      expect(s.permissions.human).toBe(3);
+      expect(s.permissions.automatic).toBe(3);
+      expect(s.permissions.total).toBe(7);
+      expect(s.permissions.bySource).toEqual({
+        user_temporary: 1,
+        user_permanent: 1,
+        user_reject: 1,
+        config: 2,
+        hook: 1,
+        something_new: 1,
+      });
+      // The horizon, from the record — not a boolean derived at report time.
+      expect(s.otelFrom).toBe("2026-08-25T10:00:00Z");
+      // None of the three is a malformed hook event.
+      expect(s.parseErrors).toBe(0);
+      expect(s.orchestrator.hookEvents).toHaveLength(0);
+    });
+
+    // Covers: R13, R14
+    it("la skill declarada por el host gana a la inferida del transcript", () => {
+      const s = session([
+        agent({ agentId: "a1", agentType: "researcher", skills: [], skillsRead: [] }),
+      ]);
+      // What the transcript heuristic concluded for the orchestrator: the file
+      // was opened, which is the weakest of the three signals.
+      s.orchestrator.skills = [{ slug: "structural-search", source: "skill-md" }];
+      s.orchestrator.skillsRead = ["structural-search"];
+
+      attachHookEvents(
+        s,
+        log([
+          otelStart(),
+          apiRequest({ skill: "structural-search" }),
+          apiRequest({ skill: "vitest", agent: "researcher" }),
+        ]),
+      );
+
+      // `host` wins: it is the only one of the three that is a statement
+      // rather than an inference.
+      expect(s.orchestrator.skills).toEqual([{ slug: "structural-search", source: "host" }]);
+      // Attributed to the agent the event names, because exactly one run
+      // carries that type.
+      expect(s.agents[0]?.skills).toEqual([{ slug: "vitest", source: "host" }]);
+      expect(s.hostSkills).toEqual([
+        { slug: "structural-search", source: "host" },
+        { slug: "vitest", source: "host" },
+      ]);
+    });
+
+    // Covers: R13, R14
+    it("sin marca de tercera fuente, la heurística de skills no cambia y el reporte declara la ausencia", () => {
+      const s = session([]);
+      s.orchestrator.skills = [{ slug: "structural-search", source: "skill-md" }];
+      attachHookEvents(s, log([hook({})]));
+
+      // Untouched: the new source ADDS evidence, it never replaces the two
+      // that read sessions with nobody listening.
+      expect(s.orchestrator.skills).toEqual([{ slug: "structural-search", source: "skill-md" }]);
+      expect(s.hostSkills).toEqual([]);
+      expect(s.otelFrom).toBeNull();
+      expect(s.permissions.total).toBe(0);
+
+      // "Zero manual approvals" and "nobody was listening" must not render
+      // alike — which is the whole reason `otelFrom` is a field.
+      const md = renderMarkdown(
+        buildReport([s], { repo: "demo", version: "0.0.0", catalog: EMPTY_CATALOG }),
+        "es",
+      );
+      expect(md).toContain("La tercera fuente no estuvo presente");
+      expect(md).not.toContain("humanas");
+    });
+
+    // Covers: R2, R12, R13
+    it("ordena eventos de hook y de OTel en un mismo log", () => {
+      // The OTel exporter batches once a second, so its records land in the
+      // file well after the hook events they interleave with. Writing to the
+      // SAME file only holds up because #689 made `tsMs` the ordering key —
+      // file order here is deliberately wrong.
+      const s = session([]);
+      attachHookEvents(
+        s,
+        log([
+          otelStart({ tsMs: Date.parse("2026-08-25T10:00:00Z") }),
+          hook({ name: "tercero", tsMs: Date.parse("2026-08-25T10:00:03Z") }),
+          hook({ name: "primero", tsMs: Date.parse("2026-08-25T10:00:01Z") }),
+          decision("user_temporary", { tsMs: Date.parse("2026-08-25T10:00:02Z") }),
+          hook({ name: "segundo", tsMs: Date.parse("2026-08-25T10:00:02Z") }),
+        ]),
+      );
+
+      expect(s.orchestrator.hookEvents.map((e) => e.name)).toEqual([
+        "primero",
+        "segundo",
+        "tercero",
+      ]);
+      // The OTel records interleaved without disturbing the hook ordering, and
+      // without being counted as malformed hook events.
+      expect(s.permissions.human).toBe(1);
+      expect(s.parseErrors).toBe(0);
+    });
   });
 });
 

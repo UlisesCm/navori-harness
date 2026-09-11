@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { buildReport, renderMarkdown } from "../report.ts";
 import type { HarnessCatalog } from "../harness.ts";
-import { type AgentRun, type SessionAudit, emptyTokens, emptyToolErrors } from "../model.ts";
+import {
+  type AgentRun,
+  type SessionAudit,
+  emptyPermissionDecisions,
+  emptyTokens,
+  emptyToolErrors,
+} from "../model.ts";
 
 /**
  * Spec 0013 — the report's job changed from "one line per agent" to "one card
@@ -77,6 +83,9 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
     agents,
     signals: [],
     hookLogFrom: null,
+    otelFrom: null,
+    permissions: emptyPermissionDecisions(),
+    hostSkills: [],
     parseErrors: 0,
     linesRead: 10,
     ...over,

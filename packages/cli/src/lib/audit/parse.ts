@@ -3,12 +3,16 @@ import { basename, join } from "node:path";
 import {
   type AgentRun,
   type HookEvent,
+  type PermissionDecisions,
   type SessionAudit,
   type SkillSource,
   type SkillUse,
   type TokenTotals,
   type ToolErrors,
+  AUTOMATIC_PERMISSION_SOURCES,
+  HUMAN_PERMISSION_SOURCES,
   addTokens,
+  emptyPermissionDecisions,
   emptyTokens,
   emptyToolErrors,
 } from "./model.ts";
@@ -52,9 +56,14 @@ function path(rec: Rec, ...keys: string[]): unknown {
 
 /**
  * Canonical strings that mark a tool result the harness blocked or the user
- * refused. Successful manual approvals are NOT detectable — a granted prompt
- * is indistinguishable from a pre-approved tool — and the report says so
- * rather than implying full coverage.
+ * refused. Successful manual approvals are NOT detectable HERE — in the
+ * transcript a granted prompt is indistinguishable from a pre-approved tool.
+ *
+ * That is a limit of this source, not of the report: since #0021 the session
+ * log can carry the host's own `tool_decision` events, whose `source` says
+ * which one it was, and `permissionsBlock` in `report.ts` counts them when the
+ * `otel-start` mark is there. When it is not, the sentence above still holds
+ * in full and the report says so rather than implying coverage it lacks.
  *
  * `<tool_use_error>Blocked:` is here because it was MISSING: the guard emits
  * that spelling and the list only knew `BLOCKED by guard`, so two real blocks
@@ -760,8 +769,11 @@ export function parseSession(mainJsonl: string): SessionAudit {
     },
     agents,
     signals: [],
-    // Filled by `attachHookEvents`: it lives in the session log, not here.
+    // Filled by `attachHookEvents`: they live in the session log, not here.
     hookLogFrom: null,
+    otelFrom: null,
+    permissions: emptyPermissionDecisions(),
+    hostSkills: [],
     parseErrors,
     linesRead,
   };
@@ -785,6 +797,8 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
   if (!existsSync(logFile)) return;
 
   const events: HookEvent[] = [];
+  /** `api_request` skills, held until the loop ends: attribution needs the cards. */
+  const hostSkills: Array<{ skill: string; agent: string | null }> = [];
   let raw: string;
   try {
     raw = readFileSync(logFile, "utf-8");
@@ -847,6 +861,32 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
       session.endReason = str(rec.reason);
       continue;
     }
+    // The third source (#0021). These three records are written by the OTel
+    // receiver into this same log, which is why no ingestion module exists:
+    // they arrive with everything else, already flat, already carrying `tsMs`.
+    //
+    // `otel-start` is its horizon, and the reason it is a RECORD and not a
+    // boolean computed at report time: the answer to "was anybody listening"
+    // has to survive the run that asked.
+    if (str(rec.event) === "otel-start") {
+      session.otelFrom = str(rec.ts);
+      continue;
+    }
+    // The permission blind spot, closed: the transcript can see a refusal but
+    // never a grant, because a granted prompt and a pre-approved tool leave
+    // the identical result. `source` is the host saying which one it was.
+    if (str(rec.event) === "tool_decision") {
+      countPermissionDecision(session.permissions, str(rec.source));
+      continue;
+    }
+    // The skills blind spot: `skill` here is DECLARED, not inferred from
+    // whoever opened a `SKILL.md`. Attribution happens after the loop, once
+    // every card is known.
+    if (str(rec.event) === "api_request") {
+      const skill = str(rec.skill);
+      if (skill) hostSkills.push({ skill, agent: str(rec.agent) });
+      continue;
+    }
     if (str(rec.event) !== "hook") continue;
 
     const name = str(rec.name);
@@ -896,6 +936,65 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     earliest = at;
     session.hookLogFrom = event.ts;
   }
+
+  applyHostSkills(session, hostSkills);
+}
+
+/** Counts one `tool_decision` into the session's tally (#0021, R12). */
+function countPermissionDecision(into: PermissionDecisions, source: string | null): void {
+  // A decision whose source the host did not send still happened: it is
+  // counted under its own key rather than dropped, so `total` never disagrees
+  // with the sum of `bySource`.
+  const key = source ?? UNKNOWN_PERMISSION_SOURCE;
+  into.bySource[key] = (into.bySource[key] ?? 0) + 1;
+  into.total++;
+  if (HUMAN_PERMISSION_SOURCES.includes(key)) into.human++;
+  else if (AUTOMATIC_PERMISSION_SOURCES.includes(key)) into.automatic++;
+}
+
+/** What a `tool_decision` with no `source` is filed under. */
+const UNKNOWN_PERMISSION_SOURCE = "(unknown)";
+
+/**
+ * Places the host-declared skills on the cards, and on the session (#0021, R13).
+ *
+ * `host` OVERWRITES whatever the transcript heuristics concluded for the same
+ * slug: it is the only one of the three that is a statement rather than an
+ * inference.
+ *
+ * Attribution is by `agent.name`, and only when that name resolves to ONE run.
+ * Two `researcher`s in a session are the same name on the event, and putting
+ * the skill on either card would be a claim the data does not support — so it
+ * stays at session level, where `hostSkills` reports it without inventing an
+ * owner. A run-less event (no `agent`) belongs to the orchestrator, which is
+ * the one card that is always exactly one.
+ */
+function applyHostSkills(
+  session: SessionAudit,
+  declared: Array<{ skill: string; agent: string | null }>,
+): void {
+  if (declared.length === 0) return;
+
+  const bySlug = new Map<string, SkillUse>();
+  for (const { skill, agent } of declared) {
+    bySlug.set(skill, { slug: skill, source: "host" });
+
+    const target = agent === null ? session.orchestrator : onlyRunOfType(session.agents, agent);
+    if (!target) continue;
+    const existing = target.skills.findIndex((s) => s.slug === skill);
+    if (existing >= 0) target.skills[existing] = { slug: skill, source: "host" };
+    else target.skills.push({ slug: skill, source: "host" });
+    if (!target.skillsRead.includes(skill)) target.skillsRead.push(skill);
+    target.skills.sort((a, b) => a.slug.localeCompare(b.slug));
+  }
+
+  session.hostSkills = [...bySlug.values()].sort((a, b) => a.slug.localeCompare(b.slug));
+}
+
+/** The single run of `agentType`, or null when zero or several match. */
+function onlyRunOfType(agents: AgentRun[], agentType: string): AgentRun | null {
+  const matches = agents.filter((a) => a.agentType === agentType);
+  return matches.length === 1 ? (matches[0] ?? null) : null;
 }
 
 /**

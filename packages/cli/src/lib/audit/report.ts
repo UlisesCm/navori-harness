@@ -709,6 +709,9 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
     out.push(byAgentType(s));
     out.push("```");
 
+    out.push("", `### ${t(lang, "Decisiones de permiso", "Permission decisions")}`, "");
+    out.push(permissionsBlock(s, lang));
+
     const skills = [
       ...new Set([...s.orchestrator.skillsRead, ...s.agents.flatMap((a) => a.skillsRead)]),
     ];
@@ -717,6 +720,19 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
       skills.length > 0 ? skills.join(", ") : t(lang, "(ninguna detectada)", "(none detected)"),
     );
     out.push("");
+    if (s.hostSkills.length > 0) {
+      // Stated separately rather than merged into the list above: these are the
+      // ones that are NOT a heuristic, and flattening the two into one line
+      // would throw away the only distinction the reader needs (R13).
+      out.push(
+        t(
+          lang,
+          `**Declaradas por el host:** ${s.hostSkills.map((sk) => sk.slug).join(", ")} — el host las nombró en \`api_request\`, así que estas no son inferencia.`,
+          `**Declared by the host:** ${s.hostSkills.map((sk) => sk.slug).join(", ")} — the host named them on \`api_request\`, so these are not inferred.`,
+        ),
+        "",
+      );
+    }
     out.push(
       t(
         lang,
@@ -742,6 +758,48 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
 }
 
 /** Machine-facing artifact: the stable comparison contract. */
+/**
+ * The permission decisions of a session — or the statement that nobody was
+ * listening (#0021, R12/R14).
+ *
+ * The two cases must not render alike, which is the whole reason `otelFrom`
+ * is a field: "0 manual approvals" and "no third source" are opposite claims,
+ * and before this the report could only ever produce the second one while
+ * looking like the first.
+ */
+function permissionsBlock(s: SessionAudit, lang: Lang): string {
+  if (!s.otelFrom) {
+    return t(
+      lang,
+      "> **La tercera fuente no estuvo presente.** Nadie recibía los eventos OTel de esta sesión, así que no hay decisiones de permiso que contar — que NO es lo mismo que cero aprobaciones manuales. En el transcript una aprobación concedida es indistinguible de una tool pre-aprobada; lo único observable son los rechazos, y esos ya están en los errores de tool. Para medirlas, levanta `navori audit --collect` antes de abrir la sesión.",
+      "> **The third source was not present.** Nobody was receiving this session's OTel events, so there are no permission decisions to count — which is NOT the same as zero manual approvals. In the transcript a granted prompt is indistinguishable from a pre-approved tool; only refusals are observable, and those are already in the tool errors. To measure them, start `navori audit --collect` before opening the session.",
+    );
+  }
+
+  const bySource = Object.entries(s.permissions.bySource)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([source, n]) => `${source} ${n}`)
+    .join(" · ");
+  // Wider than LABEL: "automáticas" is itself 11 characters, so the shared
+  // width would leave the column with no gap at all.
+  const width = 14;
+  const rows = [
+    "```",
+    `${t(lang, "humanas", "human").padEnd(width)}${s.permissions.human}`,
+    `${t(lang, "automáticas", "automatic").padEnd(width)}${s.permissions.automatic}`,
+    `${t(lang, "total", "total").padEnd(width)}${s.permissions.total}`,
+    bySource ? `${t(lang, "por source", "by source").padEnd(width)}${bySource}` : "",
+    "```",
+    "",
+    t(
+      lang,
+      `> Contadas desde \`${s.otelFrom}\`, el instante en que el receptor empezó a escribir en este log: lo anterior a esa marca no lo vio nadie. "Humanas" son las que alguien respondió en un prompt (\`user_*\`); "automáticas" las que resolvieron la config o un hook.`,
+      `> Counted from \`${s.otelFrom}\`, the instant the receiver started writing into this log: anything before that mark nobody saw. "Human" are the ones somebody answered in a prompt (\`user_*\`); "automatic" the ones config or a hook resolved.`,
+    ),
+  ].filter((line) => line !== "");
+  return rows.join("\n");
+}
+
 export function renderJson(report: AuditReport): string {
   return `${JSON.stringify(report, null, 2)}\n`;
 }

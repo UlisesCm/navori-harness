@@ -48,7 +48,7 @@
 
 ## Lote 3 — los dos puntos ciegos
 
-- [ ] **T6** (R12) — Reconocer el evento `tool_decision` en el lector del log de sesión, agregar
+- [x] **T6** (R12) — Reconocer el evento `tool_decision` en el lector del log de sesión, agregar
   `PermissionDecisions` al modelo y contarlas por `source`, separando las humanas
   (`user_permanent`, `user_temporary`, `user_reject`, `user_abort`) de las automáticas (`config`,
   `hook`). Renderearlo en el reporte y **retirar de `parse.ts` la nota que declara indetectables las
@@ -56,7 +56,7 @@
   porque ahí sigue siendo cierta. · test: `parse.test.ts`::`separa la aprobación humana de la
   automática` con `// Covers: R12`.
 
-- [ ] **T7** (R13, R14) — Reconocer el evento `api_request`, agregar la variante `host` a
+- [x] **T7** (R13, R14) — Reconocer el evento `api_request`, agregar la variante `host` a
   `SkillSource`, hacerla ganar sobre `skill-tool` y `skill-md` al resolver la procedencia de una
   skill, y atribuirla al agente que nombra el campo `agent`. Agregar `otelFrom` al modelo desde la
   marca de R4 y que el reporte declare la ausencia cuando no está. Sin marca, la detección
@@ -64,7 +64,7 @@
   inferida del transcript` y `parse.test.ts`::`sin marca de tercera fuente, la heurística de skills
   no cambia y el reporte declara la ausencia` con `// Covers: R13, R14`.
 
-- [ ] **T8** (R2, R12, R13) — Test de integración del orden mezclado: un log que intercala eventos de
+- [x] **T8** (R2, R12, R13) — Test de integración del orden mezclado: un log que intercala eventos de
   hook y eventos OTel con `tsMs` desordenado respecto al orden de archivo, afirmando que el reporte
   los presenta en orden real. Es lo que verifica que escribir en el mismo archivo —en vez de un
   sidecar— se sostiene, y depende del `chronological()` que entró en #689. · test:
