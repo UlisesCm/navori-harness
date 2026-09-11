@@ -113,7 +113,7 @@ describe("global-render — composeBaseline", () => {
    */
   it("renders orquestacion with derived repo-truths, not a baked command", () => {
     const body = composeBaseline(defaultGlobalConfig("0.5.0"));
-    expect(body).toContain("R1 · Inline");
+    expect(body).toContain("Every change to source goes through");
     expect(body).not.toContain("{{qualityGate.full}}");
     expect(body).not.toContain("<not configured:");
     expect(body).toContain("el quality gate que el proyecto declare");

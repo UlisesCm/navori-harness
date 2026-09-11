@@ -32,8 +32,8 @@ describe("cierre-sesion.md — quality-gate step reuses cycle evidence (#398)", 
   it("offers the evidence-reuse clause in the same step as the gate", () => {
     expect(step1).toMatch(/or cite this cycle's green run/);
     // The clause must name both sources of authoritative evidence.
-    expect(step1).toMatch(/Pass-2 in R2/);
-    expect(step1).toMatch(/pre-flight in R1/);
+    expect(step1).toMatch(/reviewer's Pass-2/);
+    expect(step1).toMatch(/pilot's pre-flight/);
   });
 
   it("does not mandate an unconditional run (old wording)", () => {

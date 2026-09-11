@@ -168,12 +168,13 @@ describe("globalSafe is the audit, executed (#541, Spec 0010 §4)", () => {
     expect(asset?.globalSafe).toBe(true);
     expect(disqualifiers(asset as CoreManagedAsset)).toEqual([]);
     const body = bodies(asset as CoreManagedAsset)[0] as string;
-    // `{{qualityGate.full}}` left with §Synthesis (spec 0019); `fast` stayed, in
-    // the R1 row. The claim under test is the same one FB made: the block ships
-    // globally BECAUSE its placeholders resolve through the global fallbacks.
-    expect(body).toContain("{{qualityGate.fast}}");
+    // Con la escalera retirada el bloque ya no cita el gate rápido —la fila R1
+    // que lo usaba desapareció—, pero sigue citando el completo, que es el que
+    // corre el reviewer. La afirmación bajo prueba es la misma: el bloque viaja
+    // globalmente PORQUE sus placeholders resuelven por los fallbacks globales.
+    expect(body).toContain("{{qualityGate.full}}");
     expect(interpolate(body, GLOBAL_CONFIG, { fallbackScope: "global" })).not.toContain(
-      "{{qualityGate.fast}}",
+      "{{qualityGate.full}}",
     );
   });
 });

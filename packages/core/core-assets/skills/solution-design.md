@@ -9,10 +9,10 @@ maxWords: 1050
 
 ## When to use this skill
 
-When a task inside R2 shows any architectural signal (see R2-architectural in the
+When a task shows any architectural signal (see the architectural pass in the
 orchestration block), or a ticket audit came back `proceed-differently`. NOT for a
 change following an exact existing pattern with local blast radius and trivial
-rollback — that is plain R1/R2 and this skill is pure overhead.
+rollback — that needs no design pass and this skill is pure overhead.
 
 This answers **what to build and why** — not the implementation plan (*what files,
 in what order*), not code review (*did the code do what we agreed*). Design before

@@ -218,7 +218,7 @@ gh auth status                                        # gh authenticated
 
 ### The shipping diff — the one set every count in this pre-flight comes from
 
-Coverage of the review, the receipt's fingerprints, and the R1 waiver's file count are three questions about the SAME set of files. Write it once, read it everywhere:
+Coverage of the review and the receipt's fingerprints are two questions about the SAME set of files. Write it once, read it everywhere:
 
 ```bash
 shipping=$({ git -c core.quotepath=false diff --name-only "origin/main"; \
@@ -241,13 +241,13 @@ Open that specific file and confirm its verdict is `APPROVED` and that its scope
 
 An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
-**Content receipt (R2+): the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`, one `<blob-sha>  <path>` line per reviewed file, or `deleted  <path>` for a removed one). Before committing, the approval has to cover the diff in **both** directions — coverage (every shipping file was reviewed) and no drift (no reviewed file changed its bytes):
+**Content receipt: the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`, one `<blob-sha>  <path>` line per reviewed file, or `deleted  <path>` for a removed one). Before committing, the approval has to cover the diff in **both** directions — coverage (every shipping file was reviewed) and no drift (no reviewed file changed its bytes):
 
 ```bash
 # 1) COVERAGE: `$shipping` is THE SHIPPING DIFF above — assign it in this same
 #    call. Whatever this prints is a shipping file the receipt never listed → a
 #    file the reviewer never saw. Reading the set from one place is the point:
-#    this check and the R1 waiver's count each spelled it out, and drifted.
+#    this check and the withdrawn waiver's count each spelled it out, and drifted.
 #    `grep .` drops the blank line an empty $shipping would otherwise feed comm.
 comm -23 <(printf '%s\n' "$shipping" | grep .) \
   <(grep -v '^#' .claude/progress/receipt.txt | sed 's/^[^ ]*  //' | sort -u)
@@ -276,7 +276,7 @@ while IFS= read -r line; do
 done < .claude/progress/receipt.txt
 ```
 
-Any file printed by (1) is uncovered; any `DRIFT` line from (2) is stale — either one, or a missing `receipt.txt` for a reviewed (R2+) change, means the approval no longer covers the current diff. Abort and don't commit. It's not enough to mention the gap and carry on.
+Any file printed by (1) is uncovered; any `DRIFT` line from (2) is stale — either one, or a missing `receipt.txt` for a reviewed change, means the approval no longer covers the current diff. Abort and don't commit. It's not enough to mention the gap and carry on.
 
 **Report the drift with its diff, not just its name.** The reviewer signs with `git hash-object -w`, so the approved bytes are in the object store: for each drifted file, run `git diff <blob-sha> <file>` (the sha is the receipt's own line; `git cat-file -p <blob-sha>` prints the approved content in full) and hand that over. A `DRIFT` reported as a bare filename forces whoever picks it up to reconstruct the change from prose.
 
@@ -287,28 +287,24 @@ Then route by cause, in the same message:
 
 An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wrong cwd, unreadable file) — fix the environment and re-run the check; sending it to the `reviewer` can never resolve it. **This check is the only one that runs** — no hook re-verifies the receipt behind you (#365), so skipping it skips it for everyone.
 
-<!-- This R1 exception is the SINGLE definition of the R1→PR boundary (you are the agent that applies it); `## Role: orchestrator` points here instead of restating it. -->
+<!-- The orchestrator block states the rule (every change goes through implementer -> reviewer); this is where the PR side of it is enforced. -->
 
-**R1 exception (no reviewer):** a change done inline, without a reviewer, per `## Role: orchestrator` has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `pnpm test && pnpm lint` green yourself before the PR (see Gate below).
+**A review is required.** `## Role: orchestrator` routes every change to source through `implementer` → `reviewer`, with no inline route and no file-count threshold. So a diff that reaches you with no `review_<feature>.md`, or with one that is not `APPROVED` over this same content, is a deviation — **abort and send it to the `reviewer`**.
 
-**What makes that waiver genuine — one criterion, and it is countable.** A file in the shipping diff is **non-trivial** when all three of these hold:
+**The one exception: delegation was genuinely impossible, and it was DECLARED.** The operator forbade subagents for the session, or the `Agent` tool was unavailable. The orchestrator must have said so explicitly, naming the reason. Then, and only then:
 
-- **(a) it carries behavior** — executable source, or the harness prose an agent obeys — as opposed to config, fixtures, data, lockfiles, copy, docs or generated output;
-- **(b) this diff changes that behavior**, rather than propagating an edit the diff settles on its own, with no reasoning about what the program then does: a rename applied across its call sites, an import path updated because a file moved, a pure move, a formatting pass. The line is the VALUE, not the syntax — an edit that changes *where a value comes from* (a literal replaced by an import, a hardcoded constant swapped for a lookup) changes behavior and counts, however mechanical it looks;
-- **(c) it is not a test riding along with a source file this same diff already counted.** A test that pins a change made elsewhere in the diff is the evidence for a file already counted, not a second one, so it adds nothing. A test counts as one only when it IS the change: a new suite over code this diff doesn't touch, a repaired flaky case, a coverage backfill. Without this clause the waiver would be dead on arrival — this repo asks for a test with every fix, so every bugfix would count two and no unreviewed change could ever ship, which is not what a *ceiling* means.
+- you do NOT abort for the missing review;
+- you MUST run `pnpm test && pnpm lint` green yourself in pre-flight (see Gate below) — there is no review evidence to trust;
+- the **PR body must state it**, in one line: what was done inline and why delegation was not possible. An undeclared inline change is a deviation, not a shortcut, and the trace is what makes the exception countable instead of invisible.
 
-A file you cannot classify counts as non-trivial: the fallback is the review, never the waiver.
-
-**Worked example — the shape that decides.** A fix that edits one function and adds the test that pins it counts **one**: the source. The test rides along under (c), so the waiver applies. Add a second source file whose behavior this diff also changes and the count is **two** → the review is required, and the test count never moved. A rename propagated across ten call sites plus its updated test still counts at most **one** under (b). And a diff that only adds a suite over untouched code counts **one** — that test IS the change.
-
-Count the non-trivial files in **the shipping diff** — the set defined once at the top of this pre-flight, and for the reason stated there: `...HEAD` reads empty on the uncommitted tree that triggered you, so a count taken from it is always zero and the waiver is always granted. **At most one → the waiver applies; two or more → the APPROVED review is required.** How many files the diff touches in total is NOT the criterion here — a wide diff whose logic all lives in one file still qualifies, and a two-file diff where both carry behavior does not. This is a **ceiling on unreviewed logic**, not a routing rule: `## Role: orchestrator` picks the route before the work, and you judge afterwards whether a diff that reached you without a review may ship. When the two disagree, the ceiling wins — abort and send it to the `reviewer`.
+**No count, no judgement about the diff's content.** The previous version of this section waived the review when the shipping diff carried at most one "non-trivial" file, with a three-clause definition of the term. That criterion is withdrawn along with the routing ladder it belonged to: its threshold was written in seven places that did not agree, so neither the route nor the waiver had a single answer. It returns when the ruling does, stated once and in one place. Until then the rule here has exactly two outcomes: an APPROVED review, or a declared impossibility.
 
 ### Gate: `pnpm test && pnpm lint` green before the PR
 
 The PR gate is the FULL one, `pnpm test && pnpm lint` — **not** the fast one, `pnpm lint`. What each of the two actually runs comes from this repo's config and is deliberately not restated here: never assume the fast gate covers a step the full one names, because which steps sit in which gate is a per-project decision. `full` must be green over the diff that ships. Two paths:
 
-- **R2+ (reviewed):** the `reviewer` already ran `pnpm test && pnpm lint` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which is what the content receipt check above is for — YOU run it; no hook repeats it. The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `pnpm lint` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
-- **R1 (no reviewer):** there's no review evidence to trust — YOU run `pnpm test && pnpm lint` green in pre-flight before `gh pr create`.
+- **Reviewed (the normal path):** the `reviewer` already ran `pnpm test && pnpm lint` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which is what the content receipt check above is for — YOU run it; no hook repeats it. The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `pnpm lint` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
+- **Declared inline (no reviewer):** there's no review evidence to trust — YOU run `pnpm test && pnpm lint` green in pre-flight before `gh pr create`.
 - ▶️ **Re-run `pnpm test && pnpm lint` by hand** whenever the diff changed since the review (rebase/merge/follow-up edit) or there's no fresh evidence over the diff being committed — stale evidence doesn't count.
 
 Never open the PR with the gate red.
@@ -816,7 +812,11 @@ tools: Read, Glob, Grep, Bash, Agent, mcp__engram__*
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: leader)`.
 
-Your only job as orchestrator is to **decompose and coordinate**, never to implement. Note: this applies **when you orchestrate** (R2+ routes of the organic routing). At **R1** (1–3 files, mechanical change or bugfix with a clear cause) you implement **inline yourself**, without opening subagents — see "## Role: orchestrator (organic routing)" in `CLAUDE.md`.
+Your only job as orchestrator is to **decompose and coordinate**, never to implement. There is no size at which you write the code yourself: every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
+
+**Why there is no ladder right now, and what has to be true to bring it back.** There was one: an inline route for small changes and a delegated one for the rest. Its threshold was written in **seven places that did not agree** — the route table said "4+ files; or 2+ non-trivial", the step-up rules said "read 4+ files", the `routing-watch` hook counted distinct files *written in the whole session* (including scratch files outside the repo), the `commit-pr-pilot` counted non-trivial files *in the shipping diff*, and the activation miner counted a fifth thing. So "is this inline?" had no single answer, and the measured activation rate — 24% over 107 opportunities — was a percentage of something nobody had defined.
+
+One route removes the decision entirely. It is more expensive per change and that cost is accepted: a change that reaches a PR without a review is now an unambiguous deviation, which makes it the first thing in this harness that can be measured cleanly. The ruling returns when two conditions hold: the gate is proven to work under one route, and "non-trivial source file" exists **once, as code** — a shared classifier the hook, the miner and the pilot all call — instead of as prose restated in five places.
 
 ## Startup protocol
 
@@ -836,8 +836,7 @@ Your only job as orchestrator is to **decompose and coordinate**, never to imple
 
 | Complexity | Parallel subagents |
 |---|---|
-| R1 · 1–3 files, mechanical | **inline — you do it**, no subagent (see organic routing) |
-| Medium / R2 (4+ files or 2+ non-trivial) | 1 `implementer` → 1 `reviewer` |
+| Any change to source — one line or forty files | 1 `implementer` → 1 `reviewer` |
 | Multi-bug independent (N bugs with no shared state) | N `implementer` in parallel (1 per bug, isolated scopes) → 1 `reviewer` that validates the N diffs together |
 | Complex (structural migration, multi-layer refactor) | `ticket-audit` → 2–3 `researcher` or `explorer` in parallel → 1 `implementer` → 1 `reviewer` → `commit-pr-pilot` |
 | Very complex | Split into sub-tasks and re-apply the table |
@@ -869,11 +868,11 @@ When the `done -> file` come back, **gather and analyze deeply YOURSELF**: read 
 
 Researchers are leaves (they don't have `Agent`): you open the fan-out. Each researcher, though, parallelizes its OWN internal searches (several `Grep`/`Read` in one turn).
 
-## Frugal delegation (shape a lean R2 encargo)
+## Frugal delegation (shape a lean encargo)
 
 Fan-out is a lever, not a toll — so when you do delegate, hand the smallest encargo that covers the work:
 
-- **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → do them yourself in R1 or send them to a low-tier agent; never bundle them into an `implementer`'s encargo, where they inflate its context and its run without raising quality.
+- **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → send them to a low-tier agent in their own encargo; never bundle them into the `implementer`'s, where they inflate its context and its run without raising quality.
 - **One encargo = one unit.** A pre-existing bug the `implementer` hits outside its scope → it reports and stops there (a trivial one-liner is the exception); **you** decide whether to open a separate unit. Scope doesn't self-expand mid-run.
 - **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
 - **One-pass review on small/medium diffs.** Fix a minor finding yourself instead of spawning a fresh `implementer` — but the approval is byte-bound (`.claude/progress/receipt.txt`), so an edit after `APPROVED` needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
@@ -929,7 +928,7 @@ Expected files:
 When `.claude/progress/review_<feature>.md` contains `APPROVED`:
 
 1. Invoke `commit-pr-pilot` to draft the title + body following the repo's format and open the PR.
-2. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `main`, `gh auth status` ok. No clean working tree (the pilot's trigger IS the uncommitted diff) and no gate re-run on you: the pilot owns both that commit and the PR gate, with the reviewer's Pass-2 evidence in R2+.
+2. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `main`, `gh auth status` ok. No clean working tree (the pilot's trigger IS the uncommitted diff) and no gate re-run on you: the pilot owns both that commit and the PR gate, with the reviewer's Pass-2 evidence behind it.
 3. Return to the user only the PR URL + title.
 
 If the review returned `CHANGES_REQUESTED`, do NOT invoke `commit-pr-pilot`: launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
@@ -958,7 +957,7 @@ If the repo has no test suite, the `implementer` still can't claim "done" withou
 
 ## What you do NOT do
 
-- ❌ Edit project code **when you orchestrate (R2+)** — that's the `implementer`'s. (At **R1**, 1–3 mechanical files, you do edit inline yourself; see organic routing.)
+- ❌ Edit project code — that's the `implementer`'s, always. The only exception is a delegation the orchestrator declared impossible (operator forbade subagents, or the tool is unavailable), and it is declared out loud, not assumed.
 - ❌ Make commits (that's `commit-pr-pilot` after the `reviewer`'s approval).
 - ❌ Accept subagent results in chat without a file reference.
 - ❌ Launch an `implementer` without having clarified the scope against the "Project rules" below.
@@ -979,7 +978,7 @@ Before decomposing work: **search for context** with `mem_search` using keywords
 
 After each architectural decision, new plugin or convention established in the session: a proactive `mem_save` with a `title`, the appropriate type (`decision`, `convention`, `pattern`, `bugfix`) and a stable `topic_key`. Reuse the key to evolve the topic without piling up snapshots. Save durable pointers; lines, signatures and call sites are verified in code and not persisted.
 
-Before closing the session: a mandatory `mem_session_summary` — exempt only under **R1 lean close** (see the session closeout block) — with:
+Before closing the session: a mandatory `mem_session_summary` — exempt only under **lean close** (see the session closeout block) — with:
 
 - `goal` — what was attempted.
 - `discoveries` — gotchas, critical files, intermediate decisions.
@@ -987,7 +986,7 @@ Before closing the session: a mandatory `mem_session_summary` — exempt only un
 - `next_steps` — what's left (with concrete paths).
 - `relevant_files` — paths a future agent should read first.
 
-In the same turn as the summary, curate the session: consolidate duplicates, fix contradicted memories and delete only clearly volatile or redundant content. Never aggressively prune durable decisions. Under **R1 lean close** the curation is exempt too; `mem_save` never is.
+In the same turn as the summary, curate the session: consolidate duplicates, fix contradicted memories and delete only clearly volatile or redundant content. Never aggressively prune durable decisions. Under **lean close** the curation is exempt too; `mem_save` never is.
 <!-- /navori:managed id="engram-leader-extension" -->
 
 <!-- navori:managed id="codex-cross-review" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -1592,52 +1591,62 @@ If a memory contradicts what the code says, the code wins — fix the memory.
 
 ===== FILE: .claude/context/10-orquestacion.md =====
 <!-- navori:managed id="orquestacion" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
-## Role: orchestrator (organic routing)
+## Role: orchestrator (every change goes through the harness)
 
-You are the main agent. For any task, **pick the smallest route that covers it**; step up only when you cross an objective threshold. Fan-out (subagents) is a **lever** for complex or parallelizable work, not a toll every task pays. Review the candidate **after** implementing, not before. You **embody** the orchestrator role: when a task reaches R2, **you act as the orchestrator** (decompose and coordinate) — but **NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
+You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
 
-### The routes (pick the smallest that applies)
+There used to be a ladder (inline for small changes, delegate for the rest). It was withdrawn on purpose and it comes back once the gate is proven — the reason is in `leader.md`.
 
-| Route | When | How |
-|---|---|---|
-| **R1 · Inline** (default) | 1–3 files and a mechanical change or bugfix with a clear cause; reading / conceptual question | **You do it directly** (Edit/Write/Bash) — **yes, you touch source**. Run `pnpm lint` yourself + `verify-before-done`; read the minimum (`structural-search`). No subagent, no `reviewer`; if it ends in a PR, straight to the pilot under its **R1 exception** |
-| **R2 · Delegate 1 writer** | 4+ files; or the change touches 2+ non-trivial files; or the reading sets up a broad write | 1 focused `implementer` (explicit scope, no SDD state) → 1 `reviewer` |
-| **R2-fan · Analytical fan-out** | Genuinely independent sub-questions or sub-bugs (no shared state) | N `researcher`/`explorer`, or N `implementer` on **disjoint files**, in PARALLEL (same turn) → your synthesis |
-| **R3 · SDD** (opt-in) | Durable artifacts cut ambiguity substantially **and** there was an explicit request / accepted proposal | `spec-bootstrap` → `tasks.md`; see the **SDD** block (don't duplicate its criteria) |
+### What the rule binds, and what it does not
+
+**Delegation is about WRITING, not about answering** — the distinction is what keeps the rule usable:
+
+| You are about to… | Route |
+|---|---|
+| change **source** — code, tests, config the program reads, or the harness prose an agent obeys | `implementer` → `reviewer`. Always. No file count, no triviality judgement |
+| **answer, explain, investigate, review, or plan** | you do it. Nothing is written, so there is nothing to review. Delegate only as a **lever for scale** (see the signal table) |
+| write an **ephemeral** file — `.claude/progress/*`, a scratch script, a throwaway probe | you do it. It ships nothing and reaches no diff |
+| run commands, read files, inspect state | you do it |
+
+
+### The mechanics
+
+- **1 focused `implementer`** with an explicit scope (no SDD state), then **1 fresh `reviewer`**. Serial — the reviewer depends on the implementer's output.
+- **Review AFTER implementing, never before.**
+- **Parallel `implementer`s only on disjoint files** (when in doubt, serial).
+- **`pnpm test && pnpm lint` green** is the reviewer's Pass 2, over the diff that ships.
 
 ### How much analysis does this task deserve (signal → mechanism)
 
-Look the signal up instead of reconstructing the boundary; the mechanisms themselves are unchanged.
+The write is delegated unconditionally; this table is about how much **reading** the task earns first.
 
 | Signal (verifiable, in the task or the ticket) | Mechanism |
 |---|---|
 | A non-trivial ticket arrives (ID, URL, pasted text) | `ticket-intake` — the pipeline that chains the rest |
 | …and it hits a critical area (`auth, permissions, payments, data integrity`), a structural migration, >3 layers, or has no clear location | `ticket-audit` → `audit_ticket_<ID>.md`, before decomposing |
 | …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `ticket-audit` PER AREA, all calls in the SAME turn; you synthesize (`ticket-intake`, phase 2) |
-| New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the R2-architectural pass (below) |
-| Real scope, by the threshold the **SDD** block owns | propose `spec-bootstrap` — opt-in, never self-assigned |
+| New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
+| Real scope, by the threshold the **SDD** block owns | propose `spec-bootstrap` — opt-in, never self-assigned; don't duplicate its criteria |
 | No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` → `audit_deep_<scope>.md` + prioritized plan |
 | A scoped question (does Y happen? what consumes X?) | `researcher` |
 | Where does X live? — a broad map of an area | `explorer` |
-| Already audited in this session, or trivial (typo, copy, color) | none — reuse the artifact, don't re-audit |
-| Nothing above fires | none — R1 inline; analysis is a lever, not a toll |
+| Genuinely independent sub-questions or sub-bugs (no shared state) | N `researcher`/`explorer` in PARALLEL (same turn) → your synthesis |
+| Already audited in this session, or trivial (typo, copy, color) | none extra — reuse the artifact, don't re-audit. **The change still goes through `implementer` → `reviewer`** |
+| Nothing above fires | none extra — go straight to the `implementer` |
 
-**R2-architectural — design before you decompose.** When the table's architectural row fires inside R2, the task earns a solution pass first. File count is a hint, never the definition — an exact existing pattern with a local change and a trivial rollback stays plain R2. The pass is: `solution-design` skill → ONE fresh-context challenge (a `researcher`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks.
-
-### Thresholds that make you STEP UP a route
-
-- **4-file rule:** if you need to read 4+ files to understand the flow → delegate the exploration (R2 / R2-fan).
-- **Multi-file write:** if the change touches 2+ non-trivial files → 1 `implementer` + a fresh `reviewer`. **non-trivial** is defined once, in the `commit-pr-pilot`'s **R1 exception** — a file that carries behavior AND whose behavior this diff changes; don't re-define it here. Routing reads it as a hint (you pick the route before the work); the pilot reads the same term as a ceiling on unreviewed logic (it judges afterwards). Same definition, two moments.
-- **PR rule:** before commit/push/PR after code changes → go through `reviewer`, except a genuine R1 diff — as defined once by the `commit-pr-pilot`'s **R1 exception** (the agent that applies it); don't re-decide it here.
-- **Long-session rule (qualitative):** if the session grows without closing —several non-mechanical edits of rising complexity, or long broad exploration— **stop, re-evaluate, step up to R2**. Don't let "inline" degenerate into a mis-routed monster session.
+**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `solution-design` skill → ONE fresh-context challenge (a `researcher`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
-Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so parallelism has to be requested explicitly, in one message. **Independent** sub-tasks (no shared state, none depends on another's output) → same turn; serialize only on a real dependency (`implementer` → `reviewer`). **`implementer` in parallel ONLY on disjoint files** (when in doubt, serial). Assign explicit scope before fanning out; synthesis is **never** delegated — when the `done -> file` reports return, you read the N files together and cross-check them yourself.
+Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so parallelism has to be requested explicitly, in one message. **Independent** sub-tasks (no shared state, none depends on another's output) → same turn; serialize only on a real dependency (`implementer` → `reviewer`). Assign explicit scope before fanning out; synthesis is **never** delegated — when the `done -> file` reports return, you read the N files together and cross-check them yourself.
+
+### When delegation is genuinely impossible
+
+Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` tool is unavailable. Then you do the work and **say so in your reply, naming the reason** — the `commit-pr-pilot` will require `pnpm test && pnpm lint` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
 
 ### Where the depth lives (read it when the moment asks)
 
-This block is the ladder. The depth sits with whoever owns the moment — open it then: **`.claude/agents/leader.md`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.claude/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/ticket-intake/SKILL.md`** (a ticket arrived: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).
+The depth sits with whoever owns the moment — open it then: **`.claude/agents/leader.md`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.claude/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/ticket-intake/SKILL.md`** (a ticket arrived: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).
 <!-- /navori:managed id="orquestacion" -->
 
 
@@ -1676,7 +1685,7 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 
 Before closing the session:
 
-1. **Quality gate**: pnpm test && pnpm lint — confirm it passes, **or cite this cycle's green run** (reviewer's Pass-2 in R2, pilot's pre-flight in R1) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
+1. **Quality gate**: pnpm test && pnpm lint — confirm it passes, **or cite this cycle's green run** (normally the reviewer's Pass-2; on a declared-inline change, the pilot's pre-flight) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
 2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
@@ -1687,7 +1696,7 @@ Before closing the session:
    - `--ff-only`, always: the base must never receive a surprise merge from a parking step. If it doesn't fast-forward, report it instead of resolving it here.
    - If another session may be alive on this same working tree (a second terminal on this repo), switching yanks the branch out from under it — when in doubt, skip and say so.
 
-**R1 lean close** — the three conditions are verifiable, so this is not a judgment call: the session ran the **R1** route, it covered **one** user task, and its diff touches no critical area (`auth, permissions, payments, data integrity`). All three hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.
+**Lean close** — the conditions are verifiable, so this is not a judgment call: the session covered **one** user task and touched no critical area (`auth, permissions, payments, data integrity`). Both hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.
 <!-- /navori:managed id="cierre-sesion" -->
 
 
@@ -4274,13 +4283,13 @@ fi
 # navori:managed start id="routing-watch-base" hash="<HASH>" version="<VERSION>" source="@navori/core"
 #!/usr/bin/env bash
 #
-# PostToolUse routing watcher (spec 0020, R2/R3).
+# PostToolUse routing watcher (spec 0020).
 #
 # WHY THIS EXISTS. The routing ladder ships as CLAUDE.md context, and the host's
 # own documentation says what that buys: "Claude treats them as context, NOT
 # enforced configuration... If the instruction is something that must run at a
 # specific point, write it as a hook instead." Measured over 48 audited
-# sessions, 21 crossed the R2 threshold and 12 of those (57%) delegated nothing
+# sessions, 21 crossed the delegation threshold of the day and 12 of those (57%) delegated nothing
 # — including a session in this very repo that wrote 26 files with zero
 # subagents while carrying the ladder in its context. Prose was not the missing
 # piece; a mechanism at the moment of the decision is.
@@ -4301,11 +4310,18 @@ fi
 # which is the moment of the decision; `UserPromptSubmit` fires before the model
 # has done anything that turn, i.e. at the wrong time.
 #
-# WHY THE THRESHOLD IS "4 DISTINCT FILES" AND NOT THE FULL R2 RULE. R2 reads
-# "4+ files; or the change touches 2+ non-trivial files". "Non-trivial" is a
-# judgement about the CONTENT of a diff, and a hook cannot make it without
-# guessing. So this takes the objective half. A hook that guesses is noise, and
-# noise is what erodes.
+# WHY THE THRESHOLD IS STILL "4 DISTINCT FILES". It was the objective half of a
+# routing rule that has since been withdrawn — the ladder it belonged to had its
+# threshold written in seven places that did not agree, so it was collapsed to a
+# single route: every change to source goes through implementer -> reviewer.
+#
+# Under one route the honest threshold is ONE file, not four. It is deliberately
+# NOT lowered yet: this hook counts `tool_input.file_path` without filtering it
+# against the repo, so a scratch script under /tmp counts like source, and at a
+# threshold of one that would fire on nearly every session. Both are fixed
+# together when the ruling returns. Meanwhile 4-and-no-delegation still catches
+# the worst deviations and stays quiet on the rest, which is the right way for a
+# stale threshold to fail.
 #
 # WHY IT DOES NOT TRY TO TELL THE MAIN THREAD FROM A SUBAGENT — this is what
 # keeps the script small. The condition is "N files AND zero delegation": if a
@@ -4595,7 +4611,7 @@ navori_audit_begin
 
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
 
-# The objective half of R2 (see the header). Changing this number changes when
+# See the header for why this is still 4 and not 1. Changing this number changes when
 # the note fires and nothing else.
 threshold=4
 
@@ -4684,7 +4700,7 @@ navori_audit_log "notify" "$count archivos del hilo principal, sin subagente"
 notice=$(cat <<MSG
 navori: routing check. ${count} distinct files written in this session, and no subagent has been invoked.
 
-R2 of the routing ladder fires at 4+ files: 1 focused implementer (explicit scope) then 1 reviewer, instead of writing them all inline.
+Every change to source goes through 1 focused implementer (explicit scope) then 1 reviewer — there is no inline route and no file count that exempts one.
 
 If inline IS the right call here (the operator ruled delegation out, the edits are one mechanical change, the context is already paid for), say so explicitly in your next message and carry on. The point of this note is that the override stops being silent - today it leaves no trace at all.
 
@@ -8199,7 +8215,7 @@ type: reference
 
 The commit + PR flow has **one owner**: the `commit-pr-pilot` agent
 (`.claude/agents/commit-pr-pilot.md`). It owns the pre-flight, the PR gate
-(`pnpm test && pnpm lint` green), the review/R1 handling, the body template and the
+(`pnpm test && pnpm lint` green), the review handling, the body template and the
 commit/PR language (per `conventional-es`).
 
 **To close a cycle, invoke `commit-pr-pilot`.** Don't draft the PR from a separate
@@ -8467,10 +8483,10 @@ maxWords: 1050
 
 ## When to use this skill
 
-When a task inside R2 shows any architectural signal (see R2-architectural in the
+When a task shows any architectural signal (see the architectural pass in the
 orchestration block), or a ticket audit came back `proceed-differently`. NOT for a
 change following an exact existing pattern with local blast radius and trivial
-rollback — that is plain R1/R2 and this skill is pure overhead.
+rollback — that needs no design pass and this skill is pure overhead.
 
 This answers **what to build and why** — not the implementation plan (*what files,
 in what order*), not code review (*did the code do what we agreed*). Design before
@@ -8779,7 +8795,7 @@ navori agents and skills chained by objective gates: what one phase pays for in 
 
 | Phase | Who covers it | Artifact / Gate |
 |---|---|---|
-| 0 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → resolve it **inline (R1)**, without `implementer`. If `progress/current.md` is not idle and holds ANOTHER ticket, ask; never two in parallel. |
+| 0 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper analysis; it still goes through `implementer`. If `progress/current.md` is not idle and holds ANOTHER ticket, ask; never two in parallel. |
 | 1 · Context (opt.) | you: the tracker CLI (`acli` / `jira` / `gh issue view`) | If there's only pasted text, jump to 2 with it. |
 | 2 · AUDIT | `ticket-audit` — ONE, or one per area (fan-out below) | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. |
 | 3 · EXPLORE (opt.) | 2-3 `explorer` agents in a single message | One `explore_<dim>.md` per dimension (handler, schema, side-effects, caller). **Gate: the audit's approach is still alive.** |
@@ -8798,7 +8814,7 @@ Only when the orchestration table's fan-out row fires, never on "it feels separa
 - **Phase 2 is not skipped on a non-trivial task** because you "already understood the ticket": the audit is for the implementer, and for you in 3 days.
 - **No PR without `APPROVED`.**
 - **A verdict that opens no work doesn't wait for approval:** report it with its evidence, leave `progress/current.md` at `idle`, stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
-- **Trivial** = an R1 inline change (orchestration block).
+- **Trivial** = earns no `ticket-audit` and no design pass. It never means skipping the `implementer`/`reviewer` cycle — nothing does.
 
 ## Before declaring done
 
@@ -8862,7 +8878,7 @@ Skipping any step = a lie, not verification.
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed", "the diff covers the case" |
 | Filter / feature works | Real click + description of the result | "the handler is well written" |
 | Structural migration complete | Read AND write go to the same destination in the affected flow, validated in browser or test | "I changed the service, it should work" |
-| PR creatable | Pre-flight THIS TURN: not on `main`, `gh auth status` ok, and fresh gate evidence over the shipping diff (R2+: the reviewer's Pass-2 run, bound by a receipt with no drift; R1: your own run). No clean working tree required — the uncommitted diff IS the trigger | "the branch has commits, we can create it" |
+| PR creatable | Pre-flight THIS TURN: not on `main`, `gh auth status` ok, and fresh gate evidence over the shipping diff (normally the reviewer's Pass-2 run, bound by a receipt with no drift; on a declared-inline change, your own run). No clean working tree required — the uncommitted diff IS the trigger | "the branch has commits, we can create it" |
 | Tests pass | Suite run fresh with exit 0 this turn + test count | "we didn't touch tests", "they should still be green" |
 | Type-check clean | `tsc --noEmit` (or the runtime's equivalent) exit 0 this turn | "TS didn't complain when I saved it" |
 | A shell edit landed (`sed -i`, a `>` redirect) | Re-read the span you changed, this turn | The exit code. `sed -i` exits 0 when its pattern matches nothing, and a misdirected `>` truncates the file — both look like success |
@@ -9192,7 +9208,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, stora
 |---|---|---|
 | `default` | reads only | every edit and every command prompts: batch them and explain before asking |
 | `acceptEdits` | reads, edits, common FS commands | edit freely; the shell still prompts outside the read-only set |
-| `plan` | reads, plus classifier-approved commands | **you do not write**: the R2-architectural pass, `ticket-audit` and an SDD spec ARE this mode's work; leave the mode to execute |
+| `plan` | reads, plus classifier-approved commands | **you do not write**: the architectural pass, `ticket-audit` and an SDD spec ARE this mode's work; leave the mode to execute |
 | `auto` | everything, classifier-reviewed | every shell command pays a classifier round-trip; reads, in-workspace edits and `allow`-covered MCP calls don't, so `cmd1 && cmd2` in one call beats two |
 | `dontAsk` | only what is pre-approved | `Edit`/`Write` are NOT in navori's `allow` and the mode denies `AskUserQuestion` outright: the implement/review cycle cannot run. The one mode navori does not support today — use `default`, `acceptEdits`, `plan` or `auto` |
 | `bypassPermissions` | everything | the docs do not say whether the harness's `deny` rules still apply, so do not rely on them; what does block is the hook (`exit 2` blocks in any mode). Isolated environments only |
@@ -9260,7 +9276,7 @@ How to use it in practice — the full ladder, the monorepo caveat and the index
 - **Write-back:** if the code contradicts a memory, fix it with `mem_update`/`mem_save` right away. Treat `needs_review` as stale context.
 - `mem_session_summary` is mandatory before "done" for the agent that owns the session (see who this block is addressed to): Goal · Discoveries · Accomplished · Next Steps · Relevant Files. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
 - **Curation at close:** in the SAME turn as the summary, never a separate pass, review what the session created. Consolidate duplicates under their `topic_key`, promote what's durable, and delete only volatile observations or ones already covered by the summary. Never aggressive deletion, never delete a durable decision.
-- **R1 lean close** (the closeout block's three conditions): the summary and the curation step are exempt. `mem_save` is not — that one is what lets you reconstruct in six months why a commit exists.
+- **Lean close** (the closeout block's conditions): the summary and the curation step are exempt. `mem_save` is not — that one is what lets you reconstruct in six months why a commit exists.
 <!-- /navori:managed id="engram-protocol" -->
 
 <!-- navori:managed id="gh-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-gh" -->

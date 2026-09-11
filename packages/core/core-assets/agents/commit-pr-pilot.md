@@ -40,7 +40,7 @@ gh auth status                                        # gh authenticated
 
 ### The shipping diff — the one set every count in this pre-flight comes from
 
-Coverage of the review, the receipt's fingerprints, and the R1 waiver's file count are three questions about the SAME set of files. Write it once, read it everywhere:
+Coverage of the review and the receipt's fingerprints are two questions about the SAME set of files. Write it once, read it everywhere:
 
 ```bash
 shipping=$({ git -c core.quotepath=false diff --name-only "origin/{{prTarget}}"; \
@@ -63,13 +63,13 @@ Open that specific file and confirm its verdict is `APPROVED` and that its scope
 
 An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
-**Content receipt (R2+): the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`, one `<blob-sha>  <path>` line per reviewed file, or `deleted  <path>` for a removed one). Before committing, the approval has to cover the diff in **both** directions — coverage (every shipping file was reviewed) and no drift (no reviewed file changed its bytes):
+**Content receipt: the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`, one `<blob-sha>  <path>` line per reviewed file, or `deleted  <path>` for a removed one). Before committing, the approval has to cover the diff in **both** directions — coverage (every shipping file was reviewed) and no drift (no reviewed file changed its bytes):
 
 ```bash
 # 1) COVERAGE: `$shipping` is THE SHIPPING DIFF above — assign it in this same
 #    call. Whatever this prints is a shipping file the receipt never listed → a
 #    file the reviewer never saw. Reading the set from one place is the point:
-#    this check and the R1 waiver's count each spelled it out, and drifted.
+#    this check and the withdrawn waiver's count each spelled it out, and drifted.
 #    `grep .` drops the blank line an empty $shipping would otherwise feed comm.
 comm -23 <(printf '%s\n' "$shipping" | grep .) \
   <(grep -v '^#' .claude/progress/receipt.txt | sed 's/^[^ ]*  //' | sort -u)
@@ -98,7 +98,7 @@ while IFS= read -r line; do
 done < .claude/progress/receipt.txt
 ```
 
-Any file printed by (1) is uncovered; any `DRIFT` line from (2) is stale — either one, or a missing `receipt.txt` for a reviewed (R2+) change, means the approval no longer covers the current diff. Abort and don't commit. It's not enough to mention the gap and carry on.
+Any file printed by (1) is uncovered; any `DRIFT` line from (2) is stale — either one, or a missing `receipt.txt` for a reviewed change, means the approval no longer covers the current diff. Abort and don't commit. It's not enough to mention the gap and carry on.
 
 **Report the drift with its diff, not just its name.** The reviewer signs with `git hash-object -w`, so the approved bytes are in the object store: for each drifted file, run `git diff <blob-sha> <file>` (the sha is the receipt's own line; `git cat-file -p <blob-sha>` prints the approved content in full) and hand that over. A `DRIFT` reported as a bare filename forces whoever picks it up to reconstruct the change from prose.
 
@@ -109,28 +109,24 @@ Then route by cause, in the same message:
 
 An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wrong cwd, unreadable file) — fix the environment and re-run the check; sending it to the `reviewer` can never resolve it. **This check is the only one that runs** — no hook re-verifies the receipt behind you (#365), so skipping it skips it for everyone.
 
-<!-- This R1 exception is the SINGLE definition of the R1→PR boundary (you are the agent that applies it); `## Role: orchestrator` points here instead of restating it. -->
+<!-- The orchestrator block states the rule (every change goes through implementer -> reviewer); this is where the PR side of it is enforced. -->
 
-**R1 exception (no reviewer):** a change done inline, without a reviewer, per `## Role: orchestrator` has no `review_<feature>.md` and none is required. In that case you do NOT abort for a missing review — instead you MUST run `{{qualityGate.full}}` green yourself before the PR (see Gate below).
+**A review is required.** `## Role: orchestrator` routes every change to source through `implementer` → `reviewer`, with no inline route and no file-count threshold. So a diff that reaches you with no `review_<feature>.md`, or with one that is not `APPROVED` over this same content, is a deviation — **abort and send it to the `reviewer`**.
 
-**What makes that waiver genuine — one criterion, and it is countable.** A file in the shipping diff is **non-trivial** when all three of these hold:
+**The one exception: delegation was genuinely impossible, and it was DECLARED.** The operator forbade subagents for the session, or the `Agent` tool was unavailable. The orchestrator must have said so explicitly, naming the reason. Then, and only then:
 
-- **(a) it carries behavior** — executable source, or the harness prose an agent obeys — as opposed to config, fixtures, data, lockfiles, copy, docs or generated output;
-- **(b) this diff changes that behavior**, rather than propagating an edit the diff settles on its own, with no reasoning about what the program then does: a rename applied across its call sites, an import path updated because a file moved, a pure move, a formatting pass. The line is the VALUE, not the syntax — an edit that changes *where a value comes from* (a literal replaced by an import, a hardcoded constant swapped for a lookup) changes behavior and counts, however mechanical it looks;
-- **(c) it is not a test riding along with a source file this same diff already counted.** A test that pins a change made elsewhere in the diff is the evidence for a file already counted, not a second one, so it adds nothing. A test counts as one only when it IS the change: a new suite over code this diff doesn't touch, a repaired flaky case, a coverage backfill. Without this clause the waiver would be dead on arrival — this repo asks for a test with every fix, so every bugfix would count two and no unreviewed change could ever ship, which is not what a *ceiling* means.
+- you do NOT abort for the missing review;
+- you MUST run `{{qualityGate.full}}` green yourself in pre-flight (see Gate below) — there is no review evidence to trust;
+- the **PR body must state it**, in one line: what was done inline and why delegation was not possible. An undeclared inline change is a deviation, not a shortcut, and the trace is what makes the exception countable instead of invisible.
 
-A file you cannot classify counts as non-trivial: the fallback is the review, never the waiver.
-
-**Worked example — the shape that decides.** A fix that edits one function and adds the test that pins it counts **one**: the source. The test rides along under (c), so the waiver applies. Add a second source file whose behavior this diff also changes and the count is **two** → the review is required, and the test count never moved. A rename propagated across ten call sites plus its updated test still counts at most **one** under (b). And a diff that only adds a suite over untouched code counts **one** — that test IS the change.
-
-Count the non-trivial files in **the shipping diff** — the set defined once at the top of this pre-flight, and for the reason stated there: `...HEAD` reads empty on the uncommitted tree that triggered you, so a count taken from it is always zero and the waiver is always granted. **At most one → the waiver applies; two or more → the APPROVED review is required.** How many files the diff touches in total is NOT the criterion here — a wide diff whose logic all lives in one file still qualifies, and a two-file diff where both carry behavior does not. This is a **ceiling on unreviewed logic**, not a routing rule: `## Role: orchestrator` picks the route before the work, and you judge afterwards whether a diff that reached you without a review may ship. When the two disagree, the ceiling wins — abort and send it to the `reviewer`.
+**No count, no judgement about the diff's content.** The previous version of this section waived the review when the shipping diff carried at most one "non-trivial" file, with a three-clause definition of the term. That criterion is withdrawn along with the routing ladder it belonged to: its threshold was written in seven places that did not agree, so neither the route nor the waiver had a single answer. It returns when the ruling does, stated once and in one place. Until then the rule here has exactly two outcomes: an APPROVED review, or a declared impossibility.
 
 ### Gate: `{{qualityGate.full}}` green before the PR
 
 The PR gate is the FULL one, `{{qualityGate.full}}` — **not** the fast one, `{{qualityGate.fast}}`. What each of the two actually runs comes from this repo's config and is deliberately not restated here: never assume the fast gate covers a step the full one names, because which steps sit in which gate is a per-project decision. `full` must be green over the diff that ships. Two paths:
 
-- **R2+ (reviewed):** the `reviewer` already ran `{{qualityGate.full}}` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which is what the content receipt check above is for — YOU run it; no hook repeats it. The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `{{qualityGate.fast}}` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
-- **R1 (no reviewer):** there's no review evidence to trust — YOU run `{{qualityGate.full}}` green in pre-flight before `gh pr create`.
+- **Reviewed (the normal path):** the `reviewer` already ran `{{qualityGate.full}}` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which is what the content receipt check above is for — YOU run it; no hook repeats it. The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `{{qualityGate.fast}}` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
+- **Declared inline (no reviewer):** there's no review evidence to trust — YOU run `{{qualityGate.full}}` green in pre-flight before `gh pr create`.
 - ▶️ **Re-run `{{qualityGate.full}}` by hand** whenever the diff changed since the review (rebase/merge/follow-up edit) or there's no fresh evidence over the diff being committed — stale evidence doesn't count.
 
 Never open the PR with the gate red.

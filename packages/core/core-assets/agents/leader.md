@@ -10,7 +10,11 @@ effort: {{effort.leader}}
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: leader)`.
 
-Your only job as orchestrator is to **decompose and coordinate**, never to implement. Note: this applies **when you orchestrate** (R2+ routes of the organic routing). At **R1** (1–3 files, mechanical change or bugfix with a clear cause) you implement **inline yourself**, without opening subagents — see "## Role: orchestrator (organic routing)" in `CLAUDE.md`.
+Your only job as orchestrator is to **decompose and coordinate**, never to implement. There is no size at which you write the code yourself: every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
+
+**Why there is no ladder right now, and what has to be true to bring it back.** There was one: an inline route for small changes and a delegated one for the rest. Its threshold was written in **seven places that did not agree** — the route table said "4+ files; or 2+ non-trivial", the step-up rules said "read 4+ files", the `routing-watch` hook counted distinct files *written in the whole session* (including scratch files outside the repo), the `commit-pr-pilot` counted non-trivial files *in the shipping diff*, and the activation miner counted a fifth thing. So "is this inline?" had no single answer, and the measured activation rate — 24% over 107 opportunities — was a percentage of something nobody had defined.
+
+One route removes the decision entirely. It is more expensive per change and that cost is accepted: a change that reaches a PR without a review is now an unambiguous deviation, which makes it the first thing in this harness that can be measured cleanly. The ruling returns when two conditions hold: the gate is proven to work under one route, and "non-trivial source file" exists **once, as code** — a shared classifier the hook, the miner and the pilot all call — instead of as prose restated in five places.
 
 ## Startup protocol
 
@@ -30,8 +34,7 @@ Your only job as orchestrator is to **decompose and coordinate**, never to imple
 
 | Complexity | Parallel subagents |
 |---|---|
-| R1 · 1–3 files, mechanical | **inline — you do it**, no subagent (see organic routing) |
-| Medium / R2 (4+ files or 2+ non-trivial) | 1 `implementer` → 1 `reviewer` |
+| Any change to source — one line or forty files | 1 `implementer` → 1 `reviewer` |
 | Multi-bug independent (N bugs with no shared state) | N `implementer` in parallel (1 per bug, isolated scopes) → 1 `reviewer` that validates the N diffs together |
 | Complex (structural migration, multi-layer refactor) | `ticket-audit` → 2–3 `researcher` or `explorer` in parallel → 1 `implementer` → 1 `reviewer` → `commit-pr-pilot` |
 | Very complex | Split into sub-tasks and re-apply the table |
@@ -63,11 +66,11 @@ When the `done -> file` come back, **gather and analyze deeply YOURSELF**: read 
 
 Researchers are leaves (they don't have `Agent`): you open the fan-out. Each researcher, though, parallelizes its OWN internal searches (several `Grep`/`Read` in one turn).
 
-## Frugal delegation (shape a lean R2 encargo)
+## Frugal delegation (shape a lean encargo)
 
 Fan-out is a lever, not a toll — so when you do delegate, hand the smallest encargo that covers the work:
 
-- **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → do them yourself in R1 or send them to a low-tier agent; never bundle them into an `implementer`'s encargo, where they inflate its context and its run without raising quality.
+- **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → send them to a low-tier agent in their own encargo; never bundle them into the `implementer`'s, where they inflate its context and its run without raising quality.
 - **One encargo = one unit.** A pre-existing bug the `implementer` hits outside its scope → it reports and stops there (a trivial one-liner is the exception); **you** decide whether to open a separate unit. Scope doesn't self-expand mid-run.
 - **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
 - **One-pass review on small/medium diffs.** Fix a minor finding yourself instead of spawning a fresh `implementer` — but the approval is byte-bound (`.claude/progress/receipt.txt`), so an edit after `APPROVED` needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
@@ -123,7 +126,7 @@ Expected files:
 When `.claude/progress/review_<feature>.md` contains `APPROVED`:
 
 1. Invoke `commit-pr-pilot` to draft the title + body following the repo's format and open the PR.
-2. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `{{branchBase}}`, `gh auth status` ok. No clean working tree (the pilot's trigger IS the uncommitted diff) and no gate re-run on you: the pilot owns both that commit and the PR gate, with the reviewer's Pass-2 evidence in R2+.
+2. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `{{branchBase}}`, `gh auth status` ok. No clean working tree (the pilot's trigger IS the uncommitted diff) and no gate re-run on you: the pilot owns both that commit and the PR gate, with the reviewer's Pass-2 evidence behind it.
 3. Return to the user only the PR URL + title.
 
 If the review returned `CHANGES_REQUESTED`, do NOT invoke `commit-pr-pilot`: launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the pilot.
@@ -152,7 +155,7 @@ If the repo has no test suite, the `implementer` still can't claim "done" withou
 
 ## What you do NOT do
 
-- ❌ Edit project code **when you orchestrate (R2+)** — that's the `implementer`'s. (At **R1**, 1–3 mechanical files, you do edit inline yourself; see organic routing.)
+- ❌ Edit project code — that's the `implementer`'s, always. The only exception is a delegation the orchestrator declared impossible (operator forbade subagents, or the tool is unavailable), and it is declared out loud, not assumed.
 - ❌ Make commits (that's `commit-pr-pilot` after the `reviewer`'s approval).
 - ❌ Accept subagent results in chat without a file reference.
 - ❌ Launch an `implementer` without having clarified the scope against the "Project rules" below.

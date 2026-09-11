@@ -121,20 +121,21 @@ describe("session close — one redaction serves every destination (#401)", () =
   });
 });
 
-describe("#401 leaves #378's R1 lean close lane intact", () => {
+describe("#401 leaves #378's lean close lane intact", () => {
   const closeout = readCore("managed/cierre-sesion.md");
   const protocol = readEngram("managed/engram-protocol.md");
 
-  it("the closeout still owns the lane's three verifiable conditions", () => {
-    const lane = lineWith(closeout, "**R1 lean close**", "cierre-sesion.md");
-    expect(lane).toMatch(/\*\*R1\*\* route/);
+  it("the closeout still owns the lane's verifiable conditions", () => {
+    const lane = lineWith(closeout, "**Lean close**", "cierre-sesion.md");
+    // Eran tres; la condición de ruta se cayó con la escalera retirada. Las dos
+    // que quedan siguen siendo comprobables sin juicio, que es el punto del carril.
     expect(lane).toMatch(/\*\*one\*\* user task/);
     expect(lane).toContain("{{project.criticalAreas}}");
     expect(lane).toMatch(/skip step 2 when nothing was committed/i);
   });
 
   it("the memory protocol still exempts the summary and the curation under it", () => {
-    const lane = lineWith(protocol, "**R1 lean close**", "engram-protocol.md");
+    const lane = lineWith(protocol, "**Lean close**", "engram-protocol.md");
     expect(lane).toMatch(/summary and the curation step are exempt/i);
     expect(lane).toMatch(/`mem_save` is not/i);
     const { invariants } = JSON.parse(readEngram("plugin.json")) as { invariants: string[] };

@@ -2,7 +2,7 @@
 
 Before closing the session:
 
-1. **Quality gate**: {{qualityGate.full}} — confirm it passes, **or cite this cycle's green run** (reviewer's Pass-2 in R2, pilot's pre-flight in R1) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
+1. **Quality gate**: {{qualityGate.full}} — confirm it passes, **or cite this cycle's green run** (normally the reviewer's Pass-2; on a declared-inline change, the pilot's pre-flight) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
 2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
@@ -13,4 +13,4 @@ Before closing the session:
    - `--ff-only`, always: the base must never receive a surprise merge from a parking step. If it doesn't fast-forward, report it instead of resolving it here.
    - If another session may be alive on this same working tree (a second terminal on this repo), switching yanks the branch out from under it — when in doubt, skip and say so.
 
-**R1 lean close** — the three conditions are verifiable, so this is not a judgment call: the session ran the **R1** route, it covered **one** user task, and its diff touches no critical area (`{{project.criticalAreas}}`). All three hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.
+**Lean close** — the conditions are verifiable, so this is not a judgment call: the session covered **one** user task and touched no critical area (`{{project.criticalAreas}}`). Both hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
  * #378 — ceremony proportional to risk, with the exemption bound to the DIFF.
  *
  * The closeout and memory protocols are flat-rate: a typo pays the same ritual
- * as a migration. The R1 lean close lane cuts that, but the issue's original
+ * as a migration. The lean close lane cuts that, but the issue's original
  * condition ("no durable finding") was rejected on purpose — the agent judges
  * that at the very moment of closing, and an agent that exempts itself because
  * "nothing durable came up" is exactly how the context the ceremony exists to
@@ -32,20 +32,20 @@ const engram = resolve(packages, "plugins", "engram");
 const readCore = (rel: string): string => readFileSync(resolve(coreAssets, rel), "utf-8");
 const readEngram = (rel: string): string => readFileSync(resolve(engram, rel), "utf-8");
 
-/** The R1 lean close paragraph of the closeout block, which owns the conditions. */
+/** The lean close paragraph of the closeout block, which owns the conditions. */
 function expressLane(): string {
   const block = readCore("managed/cierre-sesion.md");
-  const line = block.split("\n").find((l) => l.includes("**R1 lean close**"));
-  expect(line, "the closeout block lost the R1 lean close lane").toBeDefined();
+  const line = block.split("\n").find((l) => l.includes("**Lean close**"));
+  expect(line, "the closeout block lost the lean close lane").toBeDefined();
   return line!;
 }
 
-describe("R1 lean close — the exemption is bound to the diff (#378)", () => {
+describe("lean close — the exemption is bound to the diff (#378)", () => {
   it("the closeout block owns the three checkable conditions", () => {
     const lane = expressLane();
     expect(lane).toMatch(/not a judgment call/i);
     // 1. route, 2. a single user task, 3. a diff outside the critical areas.
-    expect(lane).toMatch(/\*\*R1\*\* route/);
+    expect(lane).toMatch(/covered \*\*one\*\* user task/);
     expect(lane).toMatch(/\*\*one\*\* user task/);
     expect(lane).toContain("{{project.criticalAreas}}");
   });
@@ -74,7 +74,7 @@ describe("R1 lean close — the exemption is bound to the diff (#378)", () => {
 
   it("the memory protocol exempts its own steps under the same name, and keeps mem_save", () => {
     const block = readEngram("managed/engram-protocol.md");
-    expect(block).toContain("**R1 lean close**");
+    expect(block).toContain("**Lean close**");
     // The two steps the decision exempts.
     expect(block).toMatch(/summary and the curation step are exempt/i);
     // The one it does not — plus both doctor invariants of the plugin, which the
@@ -90,7 +90,7 @@ describe("R1 lean close — the exemption is bound to the diff (#378)", () => {
     // This skill is injected into `.claude/agents/leader.md`: a surviving
     // unconditional "mandatory" there overrides the lane at the moment of closing.
     const skill = readEngram("skills/engram-leader.md");
-    expect(skill).toMatch(/mem_session_summary` — exempt only under \*\*R1 lean close\*\*/);
+    expect(skill).toMatch(/mem_session_summary` — exempt only under \*\*lean close\*\*/i);
     expect(skill).toMatch(/curation is exempt too; `mem_save` never is/i);
   });
 });

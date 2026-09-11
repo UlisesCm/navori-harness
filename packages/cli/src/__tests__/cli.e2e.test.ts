@@ -828,13 +828,13 @@ describe("CLI e2e — happy paths", () => {
     // The orchestration mechanics are inlined here (self-contained, auto-loaded)
     // and the main agent is told to embody the role, never delegate it — so a
     // spawned `leader` subagent can't recreate the serialized-work regression.
-    expect(doctrine).toContain("you act as the orchestrator");
+    expect(doctrine).toContain("you decompose, you coordinate");
     expect(doctrine).toContain("Agent(subagent_type: leader)");
     // Organic routing (M1): the block leads with the smallest-route model, so a
     // 1–3 file mechanical change is done inline — not funneled through a
     // subagent as the old "Trivial (1 archivo) → 1 implementer" floor did.
-    expect(doctrine).toContain("R1 · Inline");
-    expect(doctrine).toContain("4-file rule");
+    expect(doctrine).toContain("Every change to source goes through");
+    expect(doctrine).toContain("Delegation is about WRITING");
     expect(doctrine).not.toContain("Trivial (1 archivo)");
 
     // The agents index lists the spawnable leaf agents — but NOT the leader,

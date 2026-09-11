@@ -110,7 +110,7 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 Exception: `// any justified: <reason>` — last resort, not a shortcut. If there's no clear reason, it's not justified.
 <!-- /navori:managed id="tipado-fuerte" -->
 
-<!-- navori:managed id="operaciones-seguras" hash="3e4346cc" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="operaciones-seguras" hash="90d08f18" version="0.8.5" source="@navori/core" -->
 ## Operations on data and infrastructure
 
 Read-only by default. Before mutating data, schema, or infrastructure (DB, storage, deploys, cloud resources), read and propose; don't mutate without the user's explicit opt-in for THIS task.
@@ -130,7 +130,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, stora
 |---|---|---|
 | `default` | reads only | every edit and every command prompts: batch them and explain before asking |
 | `acceptEdits` | reads, edits, common FS commands | edit freely; the shell still prompts outside the read-only set |
-| `plan` | reads, plus classifier-approved commands | **you do not write**: the R2-architectural pass, `ticket-audit` and an SDD spec ARE this mode's work; leave the mode to execute |
+| `plan` | reads, plus classifier-approved commands | **you do not write**: the architectural pass, `ticket-audit` and an SDD spec ARE this mode's work; leave the mode to execute |
 | `auto` | everything, classifier-reviewed | every shell command pays a classifier round-trip; reads, in-workspace edits and `allow`-covered MCP calls don't, so `cmd1 && cmd2` in one call beats two |
 | `dontAsk` | only what is pre-approved | `Edit`/`Write` are NOT in navori's `allow` and the mode denies `AskUserQuestion` outright: the implement/review cycle cannot run. The one mode navori does not support today — use `default`, `acceptEdits`, `plan` or `auto` |
 | `bypassPermissions` | everything | the docs do not say whether the harness's `deny` rules still apply, so do not rely on them; what does block is the hook (`exit 2` blocks in any mode). Isolated environments only |
@@ -161,7 +161,7 @@ A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a 
 The `ticket-intake` skill runs this as a pipeline; the `ticket-audit` agent produces the verdict with evidence.
 <!-- /navori:managed id="intake-tickets" -->
 
-<!-- navori:managed id="engram-protocol" hash="963a7a35" version="0.8.5" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-protocol" hash="701d9b5f" version="0.8.5" source="@navori/plugin-engram" -->
 ## Engram
 
 **Who this block is addressed to.** Whoever holds the `mcp__engram__*` tools: the orchestrator (main agent) and any subagent whose `tools:` lists them. This text ships in `CLAUDE.md`, which every subagent receives — so if your toolset has no `mem_*` call, the block is not yours and nothing below applies; skip it instead of spending a turn discovering the tool is absent. The **session ceremonies** (`mem_session_summary` and the curation that follows it) belong to the agent that owns the session; a subagent closing with `done -> <file>` is not ending a session and never runs them.
@@ -173,7 +173,7 @@ The `ticket-intake` skill runs this as a pipeline; the `ticket-audit` agent prod
 - **Write-back:** if the code contradicts a memory, fix it with `mem_update`/`mem_save` right away. Treat `needs_review` as stale context.
 - `mem_session_summary` is mandatory before "done" for the agent that owns the session (see who this block is addressed to): Goal · Discoveries · Accomplished · Next Steps · Relevant Files. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
 - **Curation at close:** in the SAME turn as the summary, never a separate pass, review what the session created. Consolidate duplicates under their `topic_key`, promote what's durable, and delete only volatile observations or ones already covered by the summary. Never aggressive deletion, never delete a durable decision.
-- **R1 lean close** (the closeout block's three conditions): the summary and the curation step are exempt. `mem_save` is not — that one is what lets you reconstruct in six months why a commit exists.
+- **Lean close** (the closeout block's conditions): the summary and the curation step are exempt. `mem_save` is not — that one is what lets you reconstruct in six months why a commit exists.
 <!-- /navori:managed id="engram-protocol" -->
 
 <!-- navori:managed id="gh-protocol" hash="b2d02c0b" version="0.8.5" source="@navori/plugin-gh" -->
