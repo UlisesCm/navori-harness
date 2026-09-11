@@ -102,6 +102,26 @@
       ],
       "additionalProperties": false
     },
+    "audit": {
+      "default": {
+        "mode": "opt-in"
+      },
+      "type": "object",
+      "properties": {
+        "mode": {
+          "default": "opt-in",
+          "type": "string",
+          "enum": [
+            "opt-in",
+            "always"
+          ]
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false
+    },
     "packageManager": {
       "type": "string",
       "enum": [
@@ -646,7 +666,8 @@
     "language",
     "branchBase",
     "gitignoreHarness",
-    "commits"
+    "commits",
+    "audit"
   ],
   "additionalProperties": {}
 }
