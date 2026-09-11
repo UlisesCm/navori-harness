@@ -138,12 +138,58 @@ export function emptyToolErrors(): ToolErrors {
 
 /** How a skill was detected, which is not the same as how much it is worth.
  *  `skill-tool` is an explicit invocation; `skill-md` is the file being opened,
- *  which is how skills are used in practice but also how a stray `cat` looks. */
-export type SkillSource = "skill-tool" | "skill-md";
+ *  which is how skills are used in practice but also how a stray `cat` looks.
+ *
+ *  `host` is the only one of the three that is not an inference: Claude Code
+ *  states it on the `api_request` event (`skill.name`), so it wins over both
+ *  (#0021, R13). The other two stay exactly as they were — a session with no
+ *  third source is read the same way it always was (R14). */
+export type SkillSource = "host" | "skill-tool" | "skill-md";
 
 export interface SkillUse {
   slug: string;
   source: SkillSource;
+}
+
+/**
+ * Permission decisions the HOST resolved, grouped by who resolved them.
+ *
+ * This is the blind spot the third source exists for. `parse.ts` states it in
+ * its own comment: a granted prompt is indistinguishable from a pre-approved
+ * tool in the transcript, so the report could count REFUSALS
+ * (`ToolErrors.permissionDenied`) and nothing about the grants. The host's
+ * `tool_decision` event carries `source`, which says exactly that.
+ *
+ * `human` vs `automatic` is the split that answers the question the harness is
+ * tuned against: how often the configuration got out of the operator's way,
+ * versus how often it stopped to ask. `bySource` keeps the raw grouping —
+ * including any value this version does not classify — because a total that
+ * silently drops an unknown source is one nobody can audit.
+ */
+export interface PermissionDecisions {
+  /** Every `source` seen → how many decisions it resolved. */
+  bySource: Record<string, number>;
+  /** `user_permanent`, `user_temporary`, `user_reject`, `user_abort`. */
+  human: number;
+  /** `config`, `hook`. */
+  automatic: number;
+  /** Every decision counted, classified or not. */
+  total: number;
+}
+
+/** The `source` values a person produced by answering a prompt. */
+export const HUMAN_PERMISSION_SOURCES = [
+  "user_permanent",
+  "user_temporary",
+  "user_reject",
+  "user_abort",
+];
+
+/** The `source` values resolved with nobody watching. */
+export const AUTOMATIC_PERMISSION_SOURCES = ["config", "hook"];
+
+export function emptyPermissionDecisions(): PermissionDecisions {
+  return { bySource: {}, human: 0, automatic: 0, total: 0 };
 }
 
 /** One hook execution, as the hook itself recorded it (see the `audit-log`
@@ -328,6 +374,30 @@ export interface SessionAudit {
    * report claims something it cannot know.
    */
   hookLogFrom: string | null;
+  /**
+   * When the OTel receiver started writing into THIS session's log, from the
+   * `otel-start` record it appends on its first write (#0021, R4).
+   *
+   * Null means the third source was not there — which is not the same
+   * statement as "no manual approvals happened", and the report must not
+   * render them alike. Same reason `hookLogFrom` exists one line up.
+   */
+  otelFrom: string | null;
+  /**
+   * Permission decisions read from this session's `tool_decision` events.
+   * All zeros when `otelFrom` is null: nobody was listening, so nothing was
+   * counted — read it together with that field, never on its own.
+   */
+  permissions: PermissionDecisions;
+  /**
+   * Skills the HOST declared for this session, over all of its agents.
+   *
+   * Kept at session level as well as on the cards because attribution can be
+   * ambiguous — two runs of the same `agentType` are one name on the event —
+   * and a skill that cannot be placed on a card must still be reported. The
+   * alternative is a filter that shrinks the list in silence.
+   */
+  hostSkills: SkillUse[];
   /** Unparseable or unknown lines, counted instead of thrown. */
   parseErrors: number;
   /** Total lines seen, so `parseErrors` can be read as a ratio. */

@@ -16,11 +16,13 @@ import { attachHookEvents, parseSession } from "../lib/audit/parse.ts";
 import { detectSignals, type Lang } from "../lib/audit/signals.ts";
 import { billable, buildReport, renderJson, renderMarkdown } from "../lib/audit/report.ts";
 import {
+  auditsRoot,
   rangeReportDir,
   repoAuditDir,
   sessionLogPath,
   sessionReportDir,
 } from "../lib/audit/paths.ts";
+import { startReceiver, type OtelReceiver } from "../lib/audit/collect.ts";
 import { NavoriError } from "../lib/errors.ts";
 import { resolveLang } from "../lib/i18n.ts";
 import { readGlobalConfig } from "../lib/global-config.ts";
@@ -184,6 +186,11 @@ export const auditCommand = defineCommand({
       type: "boolean",
       description: "Remove a pending --arm flag without starting anything",
     },
+    collect: {
+      type: "boolean",
+      description:
+        "Run the OTel events receiver until interrupted: the third audit source, the one that carries what the HOST decided (permission source, active skill). Prints the address, the output directory and the environment the audited session must export.",
+    },
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
@@ -239,6 +246,70 @@ export const auditCommand = defineCommand({
       } else {
         p.outro(isEs ? "no había nada armado" : "nothing was armed");
       }
+      return;
+    }
+
+    // --collect goes BEFORE every other flag because it does not produce a
+    // report: it holds the process open until the operator interrupts it, so
+    // nothing below would ever run. It is the receiver half of spec 0021 —
+    // navori PROVIDES it, the operator RUNS it (invariant 9).
+    if (args.collect === true) {
+      let receiver: OtelReceiver;
+      try {
+        receiver = await startReceiver({});
+      } catch (err) {
+        // R5: the address was taken. Exit naming it, with nothing written —
+        // the usual cause is a previous --collect still alive, and truncating
+        // its output would destroy the session it is recording.
+        if (err instanceof NavoriError) {
+          p.cancel(err.message);
+          process.exit(1);
+        }
+        throw err;
+      }
+
+      // R1: the address AND the store. The store is not decoration — events
+      // are appended to the log of the session each one names, in whichever
+      // repo that session belongs to, so what the operator has to see is the
+      // root the scan covers, not this repo's directory.
+      p.log.success(
+        isEs
+          ? `escuchando en ${color.cyan(receiver.url)}`
+          : `listening on ${color.cyan(receiver.url)}`,
+      );
+      p.log.message(
+        (isEs
+          ? "los eventos se agregan al log de cada sesión marcada bajo "
+          : "events are appended to each marked session's log under ") + dim(auditsRoot()),
+      );
+      p.note(
+        [
+          "export CLAUDE_CODE_ENABLE_TELEMETRY=1",
+          "export OTEL_LOGS_EXPORTER=otlp",
+          "export OTEL_METRICS_EXPORTER=none",
+          "export OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/json",
+          `export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${receiver.url}`,
+          "export OTEL_LOGS_EXPORT_INTERVAL=1000",
+        ].join("\n"),
+        isEs
+          ? "exporta esto en la terminal donde abres claude (el receptor solo habla http/json)"
+          : "export this in the terminal where you open claude (the receiver only speaks http/json)",
+      );
+      p.log.message(isEs ? "Ctrl-C para cortar" : "Ctrl-C to stop");
+
+      await new Promise<void>((done) => {
+        const stop = (): void => done();
+        process.once("SIGINT", stop);
+        process.once("SIGTERM", stop);
+      });
+      await receiver.close();
+
+      const stats = receiver.stats();
+      p.outro(
+        isEs
+          ? `${stats.written} eventos de ${stats.sessions} sesión(es), ${stats.discarded} descartados`
+          : `${stats.written} events from ${stats.sessions} session(s), ${stats.discarded} discarded`,
+      );
       return;
     }
 

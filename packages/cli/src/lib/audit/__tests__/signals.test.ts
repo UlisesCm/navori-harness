@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { HarnessCatalog } from "../harness.ts";
 import type { AgentRun, SessionAudit } from "../model.ts";
-import { emptyTokens, emptyToolErrors } from "../model.ts";
+import { emptyPermissionDecisions, emptyTokens, emptyToolErrors } from "../model.ts";
 import { detectSignals } from "../signals.ts";
 
 function agent(over: Partial<AgentRun> = {}): AgentRun {
@@ -70,6 +70,9 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
     agents: [],
     signals: [],
     hookLogFrom: null,
+    otelFrom: null,
+    permissions: emptyPermissionDecisions(),
+    hostSkills: [],
     parseErrors: 0,
     linesRead: 100,
     ...over,
@@ -560,6 +563,9 @@ describe("signal: hook-log-coverage", () => {
   it("stays silent when the log holds no hook to draw a horizon from", () => {
     const s = session({
       hookLogFrom: null,
+      otelFrom: null,
+      permissions: emptyPermissionDecisions(),
+      hostSkills: [],
       agents: [agent({ endedAt: "2026-08-25T10:10:00.000Z" })],
     });
     expect(kinds(s, catalog())).not.toContain("hook-log-coverage");
