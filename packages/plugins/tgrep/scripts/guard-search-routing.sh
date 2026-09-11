@@ -80,6 +80,32 @@ case "$cmd" in
     ;;
 esac
 
+# INERT CONTENT: a heredoc body is DATA, not a call.
+#
+# Every rule below reads the command as TEXT, so a script or a test file written
+# with `python3 - <<'PY' … PY` that merely QUOTES a search was blocked even
+# though nothing ran. That is not hypothetical: it fired on the very session that
+# was adding this guard's own regression tests, because one of the test cases IS
+# the string `grep -rn "..." src/`.
+#
+# `guard-destructive` solves this properly, with a ~60-line pass that tells a
+# documentation heredoc from a write-then-execute one. This guard does NOT copy
+# it, and the asymmetry is the point: that guard defends against data loss and
+# must resist an adversary, while this one redirects a search and fails open by
+# design. Measured on the park, only 2.9% of its blocks (25 of 852) involve a
+# heredoc at all, so giving them up costs almost nothing and removes an entire
+# false-positive class in three lines instead of sixty.
+#
+# Yes, this means `… <<EOF` is an escape hatch. That is acceptable here: this
+# guard is a mechanism against habit, not a sandbox.
+case "$cmd" in
+  *"<<"*)
+    navori_audit_verdict="skip"
+    navori_audit_reason="heredoc: el cuerpo es dato, no una llamada"
+    exit 0
+    ;;
+esac
+
 # BOUNDED WORK: the guard runs under a wall-clock timeout it does not control,
 # and being killed is indistinguishable from approving. Every pass below is one
 # linear `sed`/`grep` over the command; a command past the ceiling is ALLOWED
@@ -113,6 +139,40 @@ segments=$(printf '%s' "$cmd" \
 @C@/g' -e 's/|/\
 @P@/g')
 
+# Does this segment name at least ONE concrete file among its TARGET operands?
+#
+# This is the difference between searching the repo and reading files you have
+# already found, and it cannot be read off the flags: `grep -rn "oxlint"
+# apps/a/package.json apps/b/package.json` carries `-r` and is pure extraction —
+# grep ignores recursion once you hand it files. Blocking that shape cost a real
+# session a round-trip for nothing, and it is 9.3% of every recursive grep in the
+# park (124 of 1,328), concentrated on reading single files under `node_modules/`.
+#
+# ONE file is enough to allow, not all of them: this guard fails open by design,
+# and a mixed `src/ extra.ts` is more likely a reader being sloppy than a search
+# worth a round-trip.
+#
+# The first non-flag operand is the PATTERN and is skipped — otherwise
+# `grep -rn "config.json" src/` would look like it names a file when what it
+# names is what it is looking FOR.
+names_a_file() {
+  printf '%s' "$1" | awk '
+    {
+      seen_pattern = 0
+      for (i = 2; i <= NF; i++) {
+        t = $i
+        if (substr(t, 1, 1) == "-") continue
+        if (!seen_pattern) { seen_pattern = 1; continue }
+        gsub(/^["'"'"']+|["'"'"']+$/, "", t)
+        if (t ~ /\*/) continue
+        if (t ~ /\/$/) continue
+        if (t ~ /\.[A-Za-z0-9]+$/) found = 1
+      }
+    }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
 block() {
   echo "[navori] BLOCKED by guard-search-routing: $1" >&2
   echo "[navori] route content search through the indexed wrapper:" >&2
@@ -144,7 +204,8 @@ while IFS= read -r seg; do
   # `--include` or `--color`, because after the leading `-` the class does not
   # accept another `-`.
   if printf '%s' "$seg" | grep -qE '^[[:space:]]*(grep|egrep|fgrep)([[:space:]]|$)' \
-    && printf '%s' "$seg" | grep -qE '(^|[[:space:]])(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)([[:space:]]|=|$)'; then
+    && printf '%s' "$seg" | grep -qE '(^|[[:space:]])(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)([[:space:]]|=|$)' \
+    && ! names_a_file "$seg"; then
     block "busqueda de contenido recursiva por shell"
   fi
 
@@ -154,7 +215,7 @@ while IFS= read -r seg; do
   # errors is not symmetric. Missing a search costs one unmeasured call; blocking
   # a legitimate extraction teaches the model to work around the guard.
   if printf '%s' "$seg" | grep -qE '^[[:space:]]*rg([[:space:]]|$)' \
-    && ! printf '%s' "$seg" | grep -qE '(^|[[:space:]])[^[:space:]]*\.[A-Za-z0-9]+([[:space:]]|$)'; then
+    && ! names_a_file "$seg"; then
     block "busqueda de contenido por shell (rg es recursivo por defecto)"
   fi
 done <<EOF
