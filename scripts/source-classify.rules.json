@@ -86,5 +86,7 @@
       "pattern": "(^|\\/)progress\\/",
       "why": "the session log, versioned but not behavior"
     }
-  ]
+  ],
+  "sourceExt": "\\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|swift|sh|bash|zsh|sql|vue|svelte|astro|ipynb)$",
+  "harnessProse": "(^|\\/)(core-assets|plugins)\\/(.*\\/)?(agents|skills|managed)\\/[^/]+\\.md$"
 }

@@ -32,13 +32,12 @@
 # threshold written in seven places that did not agree, so it was collapsed to a
 # single route: every change to source goes through implementer -> reviewer.
 #
-# Under one route the honest threshold is ONE file, not four. It is deliberately
-# NOT lowered yet: this hook counts `tool_input.file_path` without filtering it
-# against the repo, so a scratch script under /tmp counts like source, and at a
-# threshold of one that would fire on nearly every session. Both are fixed
-# together when the ruling returns. Meanwhile 4-and-no-delegation still catches
-# the worst deviations and stays quiet on the rest, which is the right way for a
-# stale threshold to fail.
+# Under one route the honest threshold is ONE file, not four. What it counts is
+# now right — repo-relative, and only paths that carry behavior, from the same
+# definition the miner and the pilot use — but the NUMBER stays at four until the
+# ruling returns, because lowering it is a decision about how loud this should
+# be, not about what it measures. Meanwhile 4-and-no-delegation catches the worst
+# deviations and stays quiet on the rest.
 #
 # WHY IT DOES NOT TRY TO TELL THE MAIN THREAD FROM A SUBAGENT — this is what
 # keeps the script small. The condition is "N files AND zero delegation": if a
@@ -170,11 +169,35 @@ if [ -n "$agent" ]; then
   exit 0
 fi
 
+# Clause (a) of "non-trivial source file", generated from the single TypeScript
+# definition (`lib/source-classify.ts`). Inlined rather than called: this hook
+# runs on EVERY PostToolUse, and `navori_is_source` is `[[ =~ ]]` — a builtin, so
+# classifying a path costs no process.
+# navori:include classify-source
+
 file=$(payload_field tool_input.file_path)
 # NotebookEdit has carried its target under `notebook_path` in some host
 # versions; without this the tool would contribute nothing and never say so.
 [ -n "$file" ] || file=$(payload_field tool_input.notebook_path)
 [ -n "$file" ] || exit 0
+
+# Repo-relative, or not counted at all. The hook `cd`s to CLAUDE_PROJECT_DIR
+# above, so $PWD is the repo root.
+#
+# Without this the count included files that reach no diff: a scratch script
+# under /tmp, another repo's file opened in the same session. Measured on the
+# park, 13.4% of what the activation miner called "source writes" were exactly
+# that — and this hook had the same hole, so its notice could fire on a session
+# that had written nothing but scaffolding.
+case $file in
+  "$PWD"/*) file=${file#"$PWD"/} ;;
+  /*) exit 0 ;;
+esac
+
+# And only what carries behavior. A render that rewrites 45 mirror files is not
+# a change anyone should delegate, and counting it as four was how this notice
+# could fire on a release.
+navori_is_source "$file" || exit 0
 
 mark "path:$file"
 
