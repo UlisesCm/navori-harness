@@ -5,7 +5,7 @@ type: reference
 maxWords: 1200
 ---
 
-<!-- navori:managed id="security-guidance-base" hash="ede59789" version="0.8.3" source="@navori/core" -->
+<!-- navori:managed id="security-guidance-base" hash="ede59789" version="0.8.4" source="@navori/core" -->
 # Security guidance — the business security layer
 
 Feeds the `/security-review` flow. The generic web vuln patterns (XSS, SSRF, hardcoded secrets, insecure deserialization, injection) are already covered by semgrep and the built-in reviewer. What goes here is what the model **can't infer from code alone**: the authorization and trust invariants that depend on the domain.
@@ -53,7 +53,7 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 3. Cross-check with the **rules specific to your stack** (below): the concrete names of your guards, error codes and env prefixes live there — without that, the review only covers the universal layer.
 <!-- /navori:managed id="security-guidance-base" -->
 
-<!-- navori:managed id="semgrep-review-extension" hash="d5aa04ca" version="0.8.3" source="@navori/plugin-semgrep" -->
+<!-- navori:managed id="semgrep-review-extension" hash="d5aa04ca" version="0.8.4" source="@navori/plugin-semgrep" -->
 ## Local security gate (semgrep)
 
 Before closing a relevant change (auth, RBAC, secrets, input validation), run semgrep over the diff.
