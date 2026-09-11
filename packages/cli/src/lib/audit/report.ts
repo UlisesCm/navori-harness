@@ -159,7 +159,7 @@ function agentCards(s: SessionAudit, lang: Lang): string {
   cards.push(
     ...[...s.agents]
       .sort((a, b) => billable(b.tokens) - billable(a.tokens))
-      .map((a) => agentCard(a, s.hookLogFrom, lang)),
+      .map((a) => agentCard(a, s.hookLogFrom, lang, s.agents.length)),
   );
   return cards.join("\n\n");
 }
@@ -248,7 +248,7 @@ function orchestratorCard(s: SessionAudit, lang: Lang): string {
  * concludes this one is complete.
  */
 function orchestratorHooksLine(s: SessionAudit, lang: Lang): string {
-  const events = hooksLine(s.orchestrator.hookEvents, lang);
+  const events = hooksLine(s.orchestrator.hookEvents, lang, s.agents.length);
   const window = recorderWindow(s);
   // A gap that rounds away is not a caveat. Announcing "partial … covers 100%"
   // in one breath contradicts itself, and a reader who sees a warning that
@@ -313,7 +313,12 @@ function orchestratorMcp(calls: Record<string, Record<string, number>>, lang: La
 /** Width of a card's label column. Must exceed the longest label. */
 const LABEL = 11;
 
-function agentCard(a: AgentRun, hookLogFrom: string | null, lang: Lang): string {
+function agentCard(
+  a: AgentRun,
+  hookLogFrom: string | null,
+  lang: Lang,
+  agentCount: number,
+): string {
   const head = `### ${a.agentType} · "${a.description}"`;
   const context = Math.max(0, billable(a.tokens) - a.startupTokens - a.tokens.output);
 
@@ -332,7 +337,7 @@ function agentCard(a: AgentRun, hookLogFrom: string | null, lang: Lang): string 
   rows.push(`  ${t(lang, "skills", "skills").padEnd(LABEL)}${skillsLine(a, lang)}`);
   rows.push(`  ${t(lang, "tools", "tools").padEnd(LABEL)}${toolsLine(a.toolCounts)}`);
   rows.push(`  ${"mcp".padEnd(LABEL)}${mcpLines(a, lang)}`);
-  rows.push(`  ${"hooks".padEnd(LABEL)}${agentHooksLine(a, hookLogFrom, lang)}`);
+  rows.push(`  ${"hooks".padEnd(LABEL)}${agentHooksLine(a, hookLogFrom, lang, agentCount)}`);
   if (a.verdict) rows.push(`  ${t(lang, "veredicto", "verdict").padEnd(LABEL)}${a.verdict}`);
 
   return `${head}\n\n\`\`\`\n${rows.join("\n")}\n\`\`\``;
@@ -424,12 +429,17 @@ function barredCost(a: AgentRun, server: string, lang: Lang): string {
  * nothing to do with hooks — in the reference session the first nine agents
  * of nineteen looked hook-free because the recorder landed an hour in.
  */
-function agentHooksLine(a: AgentRun, hookLogFrom: string | null, lang: Lang): string {
-  if (a.hookEvents.length > 0 || !hookLogFrom) return hooksLine(a.hookEvents, lang);
+function agentHooksLine(
+  a: AgentRun,
+  hookLogFrom: string | null,
+  lang: Lang,
+  agentCount: number,
+): string {
+  if (a.hookEvents.length > 0 || !hookLogFrom) return hooksLine(a.hookEvents, lang, agentCount);
   const from = Date.parse(hookLogFrom);
   const ended = Date.parse(a.endedAt);
   if (!Number.isFinite(from) || !Number.isFinite(ended) || ended >= from) {
-    return hooksLine(a.hookEvents, lang);
+    return hooksLine(a.hookEvents, lang, agentCount);
   }
   const at = hookLogFrom.slice(11, 19);
   return t(
@@ -463,13 +473,33 @@ function median(sorted: number[]): number {
   return Math.round((lo + hi) / 2);
 }
 
-function hooksLine(events: HookEvent[], lang: Lang): string {
+/**
+ * The phase whose firing count is NOT a count of subagents (#693).
+ *
+ * `SubagentStop` fires in the parent once a child has already died, and the
+ * host sends a FRESH `agent_id` on every firing: 112 distinct ids for 117
+ * firings in the reference session, 102 of them matching nothing under
+ * `~/.claude`. `ownerOf` already handles that correctly — an id that names
+ * nobody is invalid data, not missing data, so the event goes to the
+ * orchestrator instead of inventing an owner (#669).
+ *
+ * The attribution was right; the PRESENTATION was not. `subagent-stop-handoff
+ * 112×` next to a header saying 4 agents invites exactly one conclusion, and it
+ * is the wrong one — it cost a whole investigation (#673, refuted in #694)
+ * before anyone questioned the label. If it fooled the person who wrote the
+ * parser, it will fool an operator, and delegation is the metric this harness
+ * exists to move.
+ */
+const HOST_FIRED_PHASE = "SubagentStop";
+
+function hooksLine(events: HookEvent[], lang: Lang, agentCount: number): string {
   if (events.length === 0) return t(lang, "—", "—");
-  const by = new Map<string, { ms: number[]; blocked: number }>();
+  const by = new Map<string, { ms: number[]; blocked: number; phases: Set<string> }>();
   for (const e of events) {
-    const cur = by.get(e.name) ?? { ms: [], blocked: 0 };
+    const cur = by.get(e.name) ?? { ms: [], blocked: 0, phases: new Set<string>() };
     cur.ms.push(e.ms);
     cur.blocked += e.verdict === "block" ? 1 : 0;
+    cur.phases.add(e.phase);
     by.set(e.name, cur);
   }
   return (
@@ -494,7 +524,17 @@ function hooksLine(events: HookEvent[], lang: Lang): string {
                 ` · ${work.length} runs >1s = ${(sumMs(work) / 1000).toFixed(1)}s`,
               )
             : "";
-        return `${name} ${v.ms.length}× ${(total / 1000).toFixed(1)}s · ${t(lang, "mediana", "median")} ${p50}ms${split}${blocked}`;
+        // Keyed on the PHASE and not on the hook's name: the name is a navori
+        // asset that can be renamed, while the phase is the host's contract.
+        const hostFired =
+          v.phases.size === 1 && v.phases.has(HOST_FIRED_PHASE)
+            ? t(
+                lang,
+                ` · disparos del host, no subagentes (agentes: ${agentCount})`,
+                ` · host firings, not subagents (agents: ${agentCount})`,
+              )
+            : "";
+        return `${name} ${v.ms.length}× ${(total / 1000).toFixed(1)}s · ${t(lang, "mediana", "median")} ${p50}ms${split}${blocked}${hostFired}`;
       })
       .join(`\n  ${" ".repeat(LABEL)}`)
   );
