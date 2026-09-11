@@ -55,6 +55,28 @@ const HooksSchema = z.object({
   verifyOnStop: z.boolean().default(false),
 });
 
+/**
+ * Audit-mode activation policy.
+ *
+ * `opt-in` (default, and the behaviour every repo had before this field) records
+ * a session only when someone runs `navori audit --start|--arm`. `always` starts
+ * the recorder on the session's first prompt, with no one to remember it.
+ *
+ * The field exists because of a measurement, not a preference: across 187 real
+ * sessions only 54 carried an audit log — the instrument observed 39% of the
+ * work (15,362 tool calls of 39,065), and the two arms of a controlled A/B were
+ * at 0%. The failure mode is the same one that skipped the release tag twice:
+ * a step that depends on a human remembering it.
+ *
+ * Default stays `opt-in` deliberately. `always` means every prompt of every
+ * session is archived under `~/.navori/audits/`, in plain text, forever — that
+ * is a decision each repo makes with its eyes open, not one a version bump makes
+ * for it.
+ */
+const AuditSchema = z.object({
+  mode: z.enum(["opt-in", "always"]).default("opt-in"),
+});
+
 const MonorepoWorkspaceSchema = z.object({
   // Defense in depth for #264: this name is interpolated into the managed
   // `contexto-monorepo` block. The emission-side `sanitizeProjectValue` is the
@@ -366,6 +388,15 @@ export const NavoriConfigSchema = z
      * for the Stop verify-before-done reminder); the other lifecycle hooks are
      * unconditional. See HooksSchema. */
     hooks: HooksSchema.optional(),
+    /** When audit-mode activates itself. See AuditSchema — `always` trades
+     * privacy and disk for coverage, so it is opt-in per repo.
+     *
+     * DEFAULTED, not optional, unlike its neighbours: this one is interpolated
+     * into a rendered hook (`{{shq:audit.mode}}`), and an unresolved placeholder
+     * lands in the shell script as the "not configured" fallback string — which
+     * `doctor` then reports as a frozen interpolation token (#440). A default
+     * makes every config resolve it, including the ones that never declare it. */
+    audit: AuditSchema.default({ mode: "opt-in" }),
     /** Package manager detected in the repo (pnpm/npm/yarn/bun). Persisted so
      * `render` derives the `<pm> run …` permission allowlist from config alone
      * (source of truth), not by re-scanning the filesystem. Configs written

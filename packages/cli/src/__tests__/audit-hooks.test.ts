@@ -73,11 +73,12 @@ function logFile(sessionId = "sess1"): string {
  * `# navori:include` lines are resolved at render time, so testing the raw file
  * would exercise something that exists in no repo.
  */
-function install(_shell: string, assetPath: string): string {
-  const raw = expandHookIncludes(readFileSync(assetPath, "utf-8")).replace(
-    "{{shq:branchBase}}",
-    "'main'",
-  );
+function install(_shell: string, assetPath: string, auditMode = "opt-in"): string {
+  const raw = expandHookIncludes(readFileSync(assetPath, "utf-8"))
+    .replace("{{shq:branchBase}}", "'main'")
+    // The default mirrors the schema's: a repo that never declares `audit.mode`
+    // must behave exactly as it did before the field existed.
+    .replace("{{shq:audit.mode}}", `'${auditMode}'`);
   const path = join(root, `installed-${assetPath.split("/").pop()}`);
   writeFileSync(path, raw, "utf-8");
   chmodSync(path, 0o755);
@@ -997,5 +998,98 @@ describe.each(SHELLS)("armed audit-mode on the RUNNING session under %s", (shell
     expect(code).toBe(0);
     expect(existsSync(armedFile())).toBe(false);
     expect(out).not.toContain("audit-mode ACTIVE");
+  });
+});
+
+/**
+ * `audit.mode = "always"` — coverage that does not wait on anyone remembering.
+ *
+ * The field exists because opt-in coverage was measured and it is thin: of 187
+ * real sessions only 54 carried a log, so the instrument observed 39% of the
+ * work (15,362 tool calls of 39,065). The two arms of a controlled A/B sat at
+ * 0% — the one place the measurement was supposed to decide something.
+ *
+ * These tests pin the three properties that make it safe to turn on: it starts
+ * without a flag, it starts ONCE, and it never becomes the reason a prompt
+ * fails.
+ */
+describe.each(SHELLS)("audit.mode = always under %s", (shell) => {
+  let navoriCalls: string;
+  let shimDir: string;
+
+  function installNavoriShim(exitCode = 0): void {
+    shimDir = join(root, "shim-bin");
+    mkdirSync(shimDir, { recursive: true });
+    navoriCalls = join(root, "navori-calls.log");
+    writeFileSync(
+      join(shimDir, "navori"),
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> "${navoriCalls}"\nexit ${exitCode}\n`,
+      "utf-8",
+    );
+    chmodSync(join(shimDir, "navori"), 0o755);
+  }
+
+  function runTrigger(sessionId: string, mode: string): { out: string; code: number } {
+    const hook = install(shell, TRIGGER, mode);
+    const input = JSON.stringify({ user_prompt: "arranca el ticket", session_id: sessionId, cwd });
+    try {
+      const out = execFileSync(shell, [hook], {
+        input,
+        encoding: "utf-8",
+        cwd: root,
+        env: {
+          ...process.env,
+          NAVORI_AUDITS_ROOT: root,
+          TMPDIR: root,
+          PATH: `${shimDir}:${dirname(process.execPath)}:/usr/bin:/bin`,
+        },
+      });
+      return { out, code: 0 };
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; status?: number };
+      return { out: (e.stdout ?? "") + (e.stderr ?? ""), code: e.status ?? -1 };
+    }
+  }
+
+  const startCalls = () =>
+    (existsSync(navoriCalls) ? readFileSync(navoriCalls, "utf-8") : "")
+      .split("\n")
+      .filter((l) => l.includes("audit --start"));
+
+  it("starts the recorder on the first prompt, with no flag armed", () => {
+    installNavoriShim();
+    const { out, code } = runTrigger("sess-always-1", "always");
+    expect(code).toBe(0);
+    expect(startCalls().join("\n")).toContain("audit --start sess-always-1");
+    // stdout is injected as context, so the model learns it is being recorded.
+    expect(out).toContain("audit-mode ACTIVE");
+  });
+
+  it("starts ONCE — a session already recording is not re-started every prompt", () => {
+    installNavoriShim();
+    activate("sess-always-2");
+    const { out, code } = runTrigger("sess-always-2", "always");
+    expect(code).toBe(0);
+    // The `! -f "$log_file"` guard is what makes this idempotent: without it the
+    // hook would shell out to `navori` on every single prompt of every session.
+    expect(startCalls()).toEqual([]);
+    expect(out).toBe("");
+  });
+
+  it("opt-in behaves exactly as before the field existed", () => {
+    installNavoriShim();
+    const { out, code } = runTrigger("sess-optin-1", "opt-in");
+    expect(code).toBe(0);
+    expect(startCalls()).toEqual([]);
+    expect(out).toBe("");
+  });
+
+  it("a failed start leaves the session unrecorded, and the prompt still succeeds", () => {
+    installNavoriShim(1);
+    const { code, out } = runTrigger("sess-always-3", "always");
+    // FAIL-OPEN ABSOLUTE: a recorder may never be the reason a prompt fails.
+    expect(code).toBe(0);
+    expect(out).not.toContain("audit-mode ACTIVE");
+    expect(logEvents("sess-always-3")).toEqual([]);
   });
 });

@@ -52,5 +52,8 @@
       "clack"
     ],
     "libraryMigrations": []
+  },
+  "audit": {
+    "mode": "always"
   }
 }

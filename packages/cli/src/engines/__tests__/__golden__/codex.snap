@@ -1480,6 +1480,30 @@ if navori_audit_consume_armed "$session_id" "$cwd" "$audits_root"; then
   printf 'navori: audit-mode ACTIVE from this message on (armed via navori audit --arm; the hook ran --start %s).\n' "$session_id"
 fi
 
+# ─── audit.mode = always (cobertura sin acordarse) ───────────────────────────
+# `opt-in` keeps the historical behaviour: nothing is recorded until someone runs
+# `navori audit --start|--arm`. `always` starts the recorder on this session's
+# first prompt instead.
+#
+# It exists because opt-in coverage was measured and it is thin: of 187 real
+# sessions only 54 carried a log, so the instrument saw 39% of the work — and the
+# two arms of a controlled A/B sat at 0%, which is the one place the measurement
+# was supposed to decide something. Same failure mode as the release tag that got
+# skipped twice: a step that waits on a human remembering it.
+#
+# The `! -f` guard is what makes this idempotent AND free: once the log exists
+# the branch is never taken again, and in `opt-in` repos the string compare costs
+# nothing. Failure to start is silent and leaves the session unrecorded, exactly
+# as if the mode were off — a recorder may never be the reason a prompt fails.
+audit_mode='opt-in'
+if [ ! -f "$log_file" ] && [ "$audit_mode" = "always" ] && command -v navori >/dev/null 2>&1; then
+  if navori audit --start "$session_id" --cwd "$cwd" >/dev/null 2>&1; then
+    # Same reasoning as the armed branch: a UserPromptSubmit hook's stdout is
+    # injected as context, so the model learns it is being recorded as it starts.
+    printf 'navori: audit-mode ACTIVE from this message on (audit.mode=always; no --arm needed).\n'
+  fi
+fi
+
 # Not marked → not recording. This is also what makes the hook free outside
 # audit-mode: one stat and out.
 [ -f "$log_file" ] || exit 0
