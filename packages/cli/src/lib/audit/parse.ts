@@ -15,6 +15,7 @@ import {
   emptyPermissionDecisions,
   emptyTokens,
   emptyToolErrors,
+  isoSeconds,
 } from "./model.ts";
 
 /**
@@ -900,8 +901,13 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
       continue;
     }
 
+    const tsMs = typeof rec.tsMs === "number" && Number.isFinite(rec.tsMs) ? rec.tsMs : null;
     const event: HookEvent = {
-      ts: str(rec.ts) ?? "",
+      // Derived when the writer sent none (#696): the hook stopped forking
+      // `date` for a string `tsMs` already contains. Records written before
+      // that still carry their own `ts`, and it wins — reading an old log must
+      // not depend on this.
+      ts: str(rec.ts) ?? (tsMs === null ? "" : isoSeconds(tsMs)),
       name,
       phase,
       verdict,
@@ -914,7 +920,7 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     if (reason) event.reason = reason;
     const agentId = str(rec.agentId);
     if (agentId) event.agentId = agentId;
-    if (typeof rec.tsMs === "number" && Number.isFinite(rec.tsMs)) event.tsMs = rec.tsMs;
+    if (tsMs !== null) event.tsMs = tsMs;
     events.push(event);
   }
 

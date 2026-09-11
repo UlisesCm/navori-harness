@@ -188,6 +188,19 @@ export const HUMAN_PERMISSION_SOURCES = [
 /** The `source` values resolved with nobody watching. */
 export const AUTOMATIC_PERMISSION_SOURCES = ["config", "hook"];
 
+/**
+ * Epoch milliseconds → the second-resolution ISO the audit log speaks.
+ *
+ * ONE definition, because three writers reach for it: the OTel receiver stamps
+ * it, the reader derives it for hook records that no longer carry one (#696),
+ * and anything that formats an instant for this store has to agree with the
+ * `date -u +%Y-%m-%dT%H:%M:%SZ` that shell hooks stamped for years — otherwise
+ * two records of the same session sort by a string that means two things.
+ */
+export function isoSeconds(ms: number): string {
+  return `${new Date(ms).toISOString().slice(0, 19)}Z`;
+}
+
 export function emptyPermissionDecisions(): PermissionDecisions {
   return { bySource: {}, human: 0, automatic: 0, total: 0 };
 }
