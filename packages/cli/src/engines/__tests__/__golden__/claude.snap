@@ -8358,6 +8358,7 @@ name: review-diff
 description: Use when reviewing a diff (staged, branch or PR). A code-review checklist across stack-agnostic dimensions — types, data layer, errors, security, hardcode, naming, dead code, quality gate — with CRITICAL/HIGH/MEDIUM severities. Repo-specific rules go in the user-section.
 type: behavior
 maxWords: 1200
+maxWordsComposed: 1450
 ---
 
 <!-- navori:managed id="review-diff-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -8810,6 +8811,7 @@ name: structural-search
 description: Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — find the right region and open only the confirmed span instead of reading whole files; escalate from engram to Grep to ast-grep per the trigger.
 type: reference
 maxWords: 600
+maxWordsComposed: 1400
 ---
 
 <!-- navori:managed id="structural-search-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -8909,6 +8911,7 @@ name: ticket-intake
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 8-phase pipeline to process it with objective gates.
 type: reference
 maxWords: 600
+maxWordsComposed: 650
 ---
 
 <!-- navori:managed id="ticket-intake" hash="<HASH>" version="<VERSION>" source="@navori/core" -->

@@ -3,6 +3,10 @@ name: ticket-intake
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 8-phase pipeline to process it with objective gates.
 type: reference
 maxWords: 600
+# Compuesto (#683): ningún plugin extiende esta skill, así que los 50 sobre el
+# cap del asset son exactamente el margen de interpolación. Se declara porque
+# medido daba 601 contra 600: un solo valor del proyecto la pasaba de largo.
+maxWordsComposed: 650
 ---
 
 # ticket-intake — 8-phase pipeline

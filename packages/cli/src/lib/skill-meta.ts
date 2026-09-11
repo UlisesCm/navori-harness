@@ -73,6 +73,21 @@ export interface SkillMeta {
   type: SkillType | null;
   /** Explicit cap override from frontmatter, or null. */
   maxWords: number | null;
+  /**
+   * Ceiling for the COMPOSED file — the `SKILL.md` the agent actually loads,
+   * with every plugin extension appended and the project's values already
+   * interpolated (#683).
+   *
+   * A separate number from `maxWords` because they answer different questions.
+   * `maxWords` is the budget of the asset's AUTHOR: `structural-search` argues
+   * its 600 in a comment citing spec 0020 R4, and that reasoning should not
+   * evaporate because a plugin appended a rung. This one is what the SESSION
+   * pays, and it is the only number that describes what gets loaded.
+   *
+   * Null when the skill is never extended — there the composed file is the
+   * asset, so `maxWords` already measures the right artifact.
+   */
+  maxWordsComposed: number | null;
 }
 
 /** Split a SKILL.md into its frontmatter metadata and its body. */
@@ -84,8 +99,13 @@ export function parseSkillFrontmatter(raw: string): { meta: SkillMeta; body: str
   const type = typeRaw && typeRaw in SKILL_TYPE_CAPS ? (typeRaw as SkillType) : null;
   const maxRaw = get("maxWords");
   const maxWords = maxRaw && /^\d+$/.test(maxRaw) ? Number(maxRaw) : null;
+  const composedRaw = get("maxWordsComposed");
+  const maxWordsComposed = composedRaw && /^\d+$/.test(composedRaw) ? Number(composedRaw) : null;
 
-  return { meta: { name: get("name"), description: get("description"), type, maxWords }, body };
+  return {
+    meta: { name: get("name"), description: get("description"), type, maxWords, maxWordsComposed },
+    body,
+  };
 }
 
 /** Count words in a skill body the way the cap check measures them. */
@@ -99,6 +119,18 @@ export function countWords(body: string): number {
  * wins, else the per-type default. Returns null when no type is declared (the
  * caller treats that as a violation — every skill must declare a type).
  */
+/**
+ * The cap the RENDERED file answers to.
+ *
+ * Falls back to the asset's own cap, which is the right answer for a skill no
+ * plugin extends: there the composed file IS the asset. The fallback is what
+ * keeps this check covering every skill instead of only the ones someone
+ * remembered to annotate.
+ */
+export function skillComposedCap(meta: SkillMeta): number | null {
+  return meta.maxWordsComposed ?? skillWordCap(meta);
+}
+
 export function skillWordCap(meta: SkillMeta): number | null {
   if (meta.maxWords !== null) return meta.maxWords;
   if (meta.type !== null) return SKILL_TYPE_CAPS[meta.type];
