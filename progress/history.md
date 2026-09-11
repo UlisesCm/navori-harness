@@ -10,6 +10,53 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-10 20:45 — claude — 0.8.4 publicado, y el descubrimiento de que el release no llegaba al sitio desde el 0.8.2
+
+- Cambios: `packages/cli/package.json` (bump) + 45 archivos de espejo re-renderizados (#671), resolución del conflicto de bitácora de #670, `.github/workflows/deploy-website.yml` y `README.md` § Releases.
+- Quality gate: ✅ `pnpm check` exit 0 — 206 archivos / 3529 tests, espejo sin drift, bundle 913.7KB/1000KB. Corrido dos veces: sobre el árbol del release y de nuevo sobre `main` ya mergeado.
+- Commits / PRs: #671 (release), #670 (bitácora) · tag `v0.8.4` → `e8b2c54` · npm `latest: 0.8.4`.
+
+**El release en sí fue rutinario**: bump, re-render obligatorio del espejo (46 archivos,
++74/−74, pura estampa de versión), gate verde, PR, tag y publish. El golden **no se movió**,
+que es exactamente lo que la normalización del `version=` en el snapshot existe para garantizar.
+Verificado contra el registry, no contra la intención: `npm pack navori@0.8.4` desde un
+directorio limpio instala, corre y responde los 21 subcomandos.
+
+**Dos PRs mergearon con 10 segundos de diferencia y en orden inverso al sugerido** (#671 antes
+que #670). No hubo daño porque no se solapaban —el release toca el espejo, la bitácora toca
+`progress/`— pero se verificó `main` **por contenido** antes de publicar, que es la regla que
+salió del incidente del #660: cero marcadores en `0.8.3` (exit 1 del wrapper con stderr vacío,
+no un pipe que lee el exit de `head`), 71 marcadores en `0.8.4`, `render --json` con 0 cambios
+pendientes.
+
+**El hallazgo de la jornada no estaba en el release, sino después de él: el sitio en
+producción mostraba `v0.8.2` con `0.8.4` ya en npm.** El footer imprime la versión importando
+el manifest del CLI (`apps/website/src/components/Footer.astro:5`), pero
+`deploy-website.yml` solo se dispara con `paths: apps/website/**`. Un release toca
+`packages/cli/package.json`, que no estaba en el filtro — así que el sitio solo se actualizaba
+cuando alguien tocaba el website por otra razón. El último deploy era del #638 (01:59); el
+0.8.3 se publicó a las 03:37 y nunca llegó. **Dos releases invisibles para cualquiera que
+entrara al sitio.** Arreglado agregando el manifest al filtro, con un `workflow_dispatch`
+manual para no dejar el sitio mintiendo mientras el PR aterriza.
+
+**Y el tag `v0.8.4` no existía** tras el publish — npm ya tenía `latest` y el repo no tenía
+tag. Creado apuntando a `e8b2c54`, el commit `chore(release)`, como `v0.8.2` → `285fa51` y
+`v0.8.3` → `6f32a00`. Efecto colateral que lo hace visible: `check:assets` compara contra el
+último tag, así que sin él seguía diciendo "existe en v0.8.3" para un parque ya en 0.8.4.
+
+**El `README` § Releases quedó corregido en las tres cosas donde no coincidía con la
+práctica**: el release va por PR desde 0.8.2 (el propio commit del 0.8.3 lo decía, el README
+no), el tag hay que **pushearlo** y apunta al commit del paso 3, y la línea del website pasa de
+una promesa ("se redespliega vía GitHub Actions") a decir de dónde sale la versión y cuál es el
+primer sospechoso cuando el sitio muestra una vieja.
+
+**Al resolver el conflicto de #670 se rescataron cuatro bloques de bitácora** que existían solo
+en el `current.md` de `main` y que el merge habría borrado: el incidente del squash de #660, el
+contrato de exit code de tgrep, la decisión de alcance de #661 con el dato del 9.1% de moonar,
+y las tres piezas de instrumental de medición. Están en la entrada de las 17:00, marcada como
+migración. **La causa raíz es de proceso**: dos jornadas seguidas cerraron su bitácora solo en
+`current.md`, que por definición se sobrescribe.
+
 ## 2026-09-10 17:00 — claude — La spec 0020 cierra 9/9, el contrato de tgrep, y un squash que dejó un CRÍTICO en `main`
 
 - Cambios: `packages/core/core-assets/` (managed, agents, skills, presets), `packages/plugins/tgrep/`, `packages/cli/src/lib/audit/`, `commands/{render,doctor}.ts`, `scripts/mine-search-routing.py` y `scripts/classify-activation-arm.py`, `specs/0020-delegacion-por-mecanismo-nativo/`. 92 archivos, +4800/−420.
