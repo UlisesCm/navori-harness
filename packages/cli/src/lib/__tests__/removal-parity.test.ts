@@ -354,6 +354,10 @@ describe("the inventory of delete paths is complete (#496)", () => {
 
     // ── Paths that are navori's OWN, not the user's content. ──
     "lib/atomic.ts": "removes the `.tmp` file it just wrote, when the rename fails",
+    "lib/audit/launchd.ts":
+      "removes the LaunchAgent plist it wrote itself (~/Library/LaunchAgents), on an explicit " +
+      "'global collect uninstall'. One fixed path composed from the label — never a user file, " +
+      "and never a directory",
     "lib/backup.ts": "prunes navori's own backup store (~/.navori/backups) by age and size",
     "lib/lockfile.ts": "removes its own lock file",
     "lib/global-config.ts": "deletes ~/.navori/global.json on an explicit command",

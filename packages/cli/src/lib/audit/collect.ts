@@ -39,8 +39,23 @@ const HOST = "127.0.0.1";
 /** The port the env contract in `design.md` tells the operator to export. */
 export const DEFAULT_PORT = 4318;
 
-/** The only route the receiver answers; everything else gets a 404. */
+/** The only route that ingests; everything but this and `/healthz` gets a 404. */
 const LOGS_PATH = "/v1/logs";
+
+/**
+ * A liveness route, and the reason it exists rather than letting a caller
+ * infer health from a socket that accepts.
+ *
+ * `doctor` has to tell three states apart: nobody on the port, THIS receiver
+ * on the port, and somebody else's collector on the port. The first two a bare
+ * connection can separate; the third it cannot, and an operator who already
+ * runs an OTLP collector on 4318 would read a green check while every navori
+ * event went into somebody else's pipeline.
+ */
+const HEALTH_PATH = "/healthz";
+
+/** What `/healthz` answers with, so a caller can tell whose receiver this is. */
+export const SERVICE_ID = "navori-audit-collect";
 
 /**
  * Bodies past this are dropped instead of buffered. The exporter batches once
@@ -401,6 +416,14 @@ export function startReceiver(opts: { port?: number }): Promise<OtelReceiver> {
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const path = (req.url ?? "").split("?")[0];
+    if (req.method === "GET" && path === HEALTH_PATH) {
+      // Counts only. The store's path would hand the home directory to any
+      // local process that can reach an unauthenticated loopback port.
+      res
+        .writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ service: SERVICE_ID, written, discarded, sessions: marked.size }));
+      return;
+    }
     if (req.method !== "POST" || path !== LOGS_PATH) {
       res.writeHead(404, { "content-type": "application/json" }).end("{}");
       return;

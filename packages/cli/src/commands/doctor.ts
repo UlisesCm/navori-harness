@@ -18,6 +18,8 @@ import { unknownLibraries } from "../lib/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanPrettierIgnore } from "../engines/shared/prettierignore-harness.ts";
+import { isLaunchdPlatform, launchAgentLoaded, probeReceiver } from "../lib/audit/launchd.ts";
+import { DEFAULT_PORT as OTEL_RECEIVER_PORT } from "../lib/audit/collect.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace-drift.ts";
@@ -148,6 +150,8 @@ export const doctorCommand = defineCommand({
     const malformedMarkers = scanMalformedMarkers(cwd, config);
     const missingExternalTools = scanMissingExternalTools(config);
     const missingOptionalTools = scanMissingOptionalTools();
+    // #697: only asked of a repo that audits every session — see the scanner.
+    const otelReceiver = await scanOtelReceiver(config);
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     const workspaceLink = scanWorkspaceLink(cwd, config);
     // #368: the gate the whole pipeline leans on, checked statically — a gate
@@ -270,6 +274,7 @@ export const doctorCommand = defineCommand({
       duplicateMarkers,
       missingExternalTools,
       missingOptionalTools,
+      otelReceiver,
       // The four warning-level checks below are serialized verbatim, in the
       // order the human output prints them: a CI pipeline (or an agent) reading
       // `--json` was blind to all of them, which defeats the purpose of #368 and
@@ -572,6 +577,19 @@ export const doctorCommand = defineCommand({
           )}`,
       );
       p.log.warn(td.optionalTools(missingOptionalTools.length, lines.join("\n")));
+    }
+
+    if (otelReceiver) {
+      if (otelReceiver.responding) {
+        p.log.info(`${check} ${td.otelReceiverOk(otelReceiver.port)}`);
+      } else if (otelReceiver.supervised) {
+        // Loaded and dead: the only state that looks healthy from the outside.
+        p.log.warn(td.otelReceiverDead(otelReceiver.port));
+      } else if (otelReceiver.supportsSupervisor) {
+        p.log.warn(td.otelReceiverAbsent);
+      } else {
+        p.log.warn(td.otelReceiverManual);
+      }
     }
 
     if (gateReadiness.length > 0) {
@@ -1276,6 +1294,46 @@ export interface MissingOptionalTool {
  * Homebrew, cargo) ships the canonical `ast-grep` name, so dropping the alias
  * costs no true positive; it only stops trusting a name that means two things.
  */
+/**
+ * Whether the OTel receiver is there for a repo that audits every session
+ * (#697).
+ *
+ * Only asked when `audit.mode` is `always`. A repo that audits per session does
+ * not need a receiver standing by, and painting that red would be noise — which
+ * is why this never feeds `computeHealthVerdict` either: informative, always.
+ *
+ * The two questions are separate on purpose. "Is the agent loaded" is what
+ * launchd knows; "does the receiver answer" is what the operator actually
+ * needs, and the gap between them is the ugly case the issue names — loaded,
+ * dead, and silent, while every session exports into nothing.
+ */
+export async function scanOtelReceiver(
+  config: NavoriConfig,
+  // `port` is a test seam and nothing else: the contract fixes 4318, and a
+  // suite that probed it would answer differently depending on whether the
+  // developer happens to have a real receiver up.
+  opts: { port?: number } = {},
+): Promise<OtelReceiverReport | null> {
+  if (config.audit?.mode !== "always") return null;
+  const port = opts.port ?? OTEL_RECEIVER_PORT;
+  return {
+    port,
+    supervised: isLaunchdPlatform() && launchAgentLoaded(),
+    supportsSupervisor: isLaunchdPlatform(),
+    responding: await probeReceiver(port),
+  };
+}
+
+interface OtelReceiverReport {
+  port: number;
+  /** launchd holds the agent (macOS only). */
+  supervised: boolean;
+  /** This platform has a supervisor implementation at all. */
+  supportsSupervisor: boolean;
+  /** The receiver answered its own health route. */
+  responding: boolean;
+}
+
 export function scanMissingOptionalTools(): MissingOptionalTool[] {
   const binaries = ["ast-grep"];
   if (binaries.some((binary) => hasBinary(binary))) return [];

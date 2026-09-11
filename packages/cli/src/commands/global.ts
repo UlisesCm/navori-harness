@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { brand, check, color, dim as grey, sym } from "../lib/style.ts";
 import { t, tc, resolveLang } from "../lib/i18n.ts";
 import {
@@ -31,6 +31,11 @@ import {
   type GlobalRenderPlan,
 } from "../engines/claude/global-render.ts";
 import { pickGlobalBlocks, pickGlobalPermissions } from "./global-prompts.ts";
+import {
+  installLaunchAgent,
+  isLaunchdPlatform,
+  uninstallLaunchAgent,
+} from "../lib/audit/launchd.ts";
 import {
   applyGlobalPlugin,
   globalPluginDir,
@@ -474,6 +479,88 @@ const uninstallSubCommand = defineCommand({
   },
 });
 
+/**
+ * `global collect` — the supervisor for the OTel receiver (#697).
+ *
+ * It lives under `global` and not under `audit` because what it touches is the
+ * MACHINE, not a repo: same scope as the rest of this command, same shape
+ * (explicit install, explicit uninstall), same promise that navori can undo
+ * everything it put outside the repo.
+ *
+ * The receiver itself is still never started by navori. This writes a
+ * declaration and hands it to launchd, exactly like the hooks it writes for the
+ * host to run.
+ */
+const collectInstallSubCommand = defineCommand({
+  meta: {
+    name: "install",
+    description: "Install the launchd agent that keeps 'navori audit --collect' running (macOS)",
+  },
+  run() {
+    p.intro(brand("global collect install"));
+    const g = tc(resolveLang(readGlobalConfig()?.language)).global;
+
+    if (!isLaunchdPlatform()) {
+      p.cancel(g.collectUnsupported(process.platform));
+      process.exit(1);
+    }
+
+    const result = installLaunchAgent();
+    if (result.replaced) p.log.info(g.collectReplaced);
+    p.log.success(g.collectInstalled(result.plistPath));
+    p.log.message(grey(g.collectCommand(result.argv.join(" "))));
+
+    // The dev build is a real foot-gun and the only one worth stopping for: a
+    // plist pinned to `packages/cli/dist/index.js` keeps working until someone
+    // rebuilds or moves the repo, and then fails as silently as the gap this
+    // whole issue is about.
+    const entry = result.argv[1] ?? "";
+    if (entry.includes(`${sep}dist${sep}`) || entry.endsWith(`${sep}dist${sep}index.js`)) {
+      p.log.warn(g.collectDevBinaryWarn(entry));
+    }
+
+    if (!result.loaded) {
+      p.log.warn(g.collectLoadFailed(result.message));
+      process.exit(1);
+    }
+    p.outro(color.green(`${check} 127.0.0.1:${result.port}`));
+  },
+});
+
+const collectUninstallSubCommand = defineCommand({
+  meta: {
+    name: "uninstall",
+    description: "Unload and remove the launchd agent for 'navori audit --collect'",
+  },
+  run() {
+    p.intro(brand("global collect uninstall"));
+    const g = tc(resolveLang(readGlobalConfig()?.language)).global;
+
+    if (!isLaunchdPlatform()) {
+      p.cancel(g.collectUnsupported(process.platform));
+      process.exit(1);
+    }
+
+    const result = uninstallLaunchAgent();
+    if (!result.removed && !result.unloaded) {
+      p.outro(g.collectNothingInstalled);
+      return;
+    }
+    p.outro(color.green(g.collectUninstalled(result.plistPath)));
+  },
+});
+
+const collectSubCommand = defineCommand({
+  meta: {
+    name: "collect",
+    description: "Supervise the OTel receiver that feeds audit's third source",
+  },
+  subCommands: {
+    install: collectInstallSubCommand,
+    uninstall: collectUninstallSubCommand,
+  },
+});
+
 export const globalCommand = defineCommand({
   meta: {
     name: "global",
@@ -483,6 +570,7 @@ export const globalCommand = defineCommand({
     init: initSubCommand,
     render: renderSubCommand,
     doctor: doctorSubCommand,
+    collect: collectSubCommand,
     uninstall: uninstallSubCommand,
   },
 });
