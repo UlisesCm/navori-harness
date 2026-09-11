@@ -10,6 +10,55 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-11 00:15 — claude — La hipótesis de cuatro releases queda refutada, y la primera doctrina pasa a mecanismo
+
+- Cambios: `docs/research/activacion-subagentes-y-skills.md`, `progress/`, `scripts/mine-search-routing.py`, `packages/plugins/tgrep/{plugin.json,scripts/guard-search-routing.sh}`, `packages/cli/src/lib/__tests__/{guard-search-routing,plugins}.test.ts`, espejo. Más `~/.claude/skills/` y los dos repos de alertaciudadana.
+- Quality gate: ✅ `pnpm check` exit 0 — 207 archivos / 3,551 tests, espejo sin drift, bundle 913.7KB/1000KB. CI verde en los tres PRs.
+- PRs: #677 (Fase 0), #678 (instrumento), #679 (Fase 1) · issues #673, #674, #675, #676.
+
+**El programa del 0.8 encadenaba tres condiciones y las tres se cumplen: la doctrina
+llega (7,448–8,657 bytes como cuerpo), se entiende (#668) y se nota (`routing-watch`
+emitió su aviso). La conducta no cambió** — tras ese aviso, 219 eventos, todos Bash,
+cero subagentes. Cuatro releases atacaron una hipótesis que resultó falsa: no es que
+el modelo no reciba la doctrina.
+
+**La remedición retira el 57%.** El veredicto del brazo "después" dejó escrita su
+propia cláusula de revisión —remedir al llegar a ~15 sesiones— y ya hay 16: la tasa
+real es **24%** (26/107), no 57%. Los dos 100% de `implementer` y `reviewer` eran
+cuatro de cuatro. Y la versión del harness no es la variable: 0.8.2 pica en 66% y
+0.8.3 se desploma a 6%. Lo que ordena es el repo —navori-health 64%, navori-harness
+8%, moonar 0/14— con el mismo harness.
+
+**Tres instrumentos rotos, los tres documentados con issue.** `subagent-stop-handoff`
+reporta 518 subagentes donde hubo 49 (#673). La heurística de oportunidades cuenta
+archivos generados por `render --apply` como lógica, así que el 24% es un piso y no
+una medición (#674). Y el minero de búsqueda metía pipes y extracciones en el
+denominador: publicaba 4.0% donde el número real es 7.4%, y fijaba un techo imposible
+—un hook jamás convierte un pipe— que haría parecer fracaso a cualquier intervención.
+
+**El diagnóstico que ordena el plan:** en este harness lo que bloquea aguanta
+(`guard-destructive` 14/14, `quality-gate-pre-commit` 7/7) y lo que sugiere no (aviso
+0/1, ruteo 7.4%, activación 24%). La línea divisoria es exacta. Queda una moratoria
+escrita en `current.md`: no más prosa para mover conducta.
+
+**Fase 1 shippeada**: `guard-search-routing.sh`, hook `PreToolUse(Bash)` que bloquea
+con exit 2 y redirige al wrapper. Validado **corriendo el hook** contra los 5,544
+comandos distintos del parque: **91.7% de cobertura, 0 falsos positivos** sobre 1,373
+extracciones, 2,038 filtros y 93 usos del wrapper. Lo que deja pasar es tan
+deliberado como lo que bloquea — un bloqueo falso enseña al modelo a rodear el guard.
+
+**Y la acción más barata resultó la más grande**: 1,545 de las 2,761 búsquedas reales
+del parque (54%) viven en los dos repos de alertaciudadana, que estaban al 0.3% porque
+el plugin no estaba instalado. `navori add tgrep` + render + commit en ambos, con el
+wrapper verificado corriendo en disco (exit 0, stderr vacío = tgrep, no el fallback).
+
+**Limpieza global**: `~/.claude/skills/` tenía tres skills ajenas —voseo rioplatense,
+mtime del 26 de mayo en dos minutos: copiadas, no escritas. Dos duplicaban `leader.md`
+y `reviewer.md` de navori, y la de `continuous-execution` era la versión inferior (sin
+el circuit-breaker de permisos). Borradas con respaldo en
+`~/.claude/backups/cleanup-20260910/`. Queda `systematic-debug`, la única que aporta
+algo que navori no cubre.
+
 ## 2026-09-10 20:45 — claude — 0.8.4 publicado, y el descubrimiento de que el release no llegaba al sitio desde el 0.8.2
 
 - Cambios: `packages/cli/package.json` (bump) + 45 archivos de espejo re-renderizados (#671), resolución del conflicto de bitácora de #670, `.github/workflows/deploy-website.yml` y `README.md` § Releases.
