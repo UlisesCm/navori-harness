@@ -81,7 +81,10 @@ function region(marker: string, until: RegExp): string {
 const PRE_FLIGHT = region("## Mandatory pre-flight", /^## /m);
 const PR_FLOW = region("## PR flow", /^## /m);
 const WORKTREE = region("## Worktree left behind", /^## /m);
-const R1_WAIVER = region("**R1 exception (no reviewer):**", /^#{3} /m);
+const DECLARED_EXCEPTION = region(
+  "**The one exception: delegation was genuinely impossible, and it was DECLARED.**",
+  /^#{3} /m,
+);
 
 describe("commit-pr-pilot — the PR flow publishes the branch (#499)", () => {
   // ---- anti-false-green ---------------------------------------------------
@@ -275,7 +278,9 @@ describe("commit-pr-pilot — the pre-flight measures the tree it was triggered 
   it("reads the pre-flight, and it carries the set definition", () => {
     expect(PRE_FLIGHT.length, "the pre-flight section came back empty").toBeGreaterThan(1000);
     expect(PRE_FLIGHT, "the anchor no longer covers the receipt check").toContain("receipt.txt");
-    expect(PRE_FLIGHT, "the anchor no longer covers the R1 waiver").toContain("R1 exception");
+    expect(PRE_FLIGHT, "the anchor no longer covers the declared exception").toContain(
+      "delegation was genuinely impossible",
+    );
   });
 
   it("the three-dot detector matches the ref expression, not the prose", () => {
@@ -329,14 +334,13 @@ describe("commit-pr-pilot — the pre-flight measures the tree it was triggered 
     expect(PRE_FLIGHT, "the set has no name to reference").toContain("shipping diff");
   });
 
-  it("the waiver counts that named set instead of rolling its own listing", () => {
+  it("the exception does not roll its own listing — there is nothing to count", () => {
+    // El waiver por conteo se retiró con la escalera: su umbral estaba escrito
+    // en siete sitios que no coincidían. Lo que queda no mira el diff, así que
+    // no puede volver a describir un listado propio que se desincronice.
     expect(
-      R1_WAIVER,
-      "the waiver must point at the shipping diff defined in the pre-flight, not describe a listing of its own",
-    ).toContain("shipping diff");
-    expect(
-      R1_WAIVER.includes("--name-only"),
-      "the waiver spells out a listing command again — that is the duplication that drifted",
+      DECLARED_EXCEPTION.includes("--name-only"),
+      "the exception spells out a listing command — it decides on declared impossibility, not on the diff",
     ).toBe(false);
   });
 });
@@ -425,96 +429,52 @@ describe("no template line renders the fork point and the PR target together (#5
   });
 });
 
-describe("commit-pr-pilot — `non-trivial` is defined where it decides (#502.3)", () => {
-  /** What a non-trivial file is NOT: the definition-by-contrast vocabulary. */
-  const EXCLUSIONS = ["config", "fixture", "lockfile", "copy", "docs", "generated", "scaffolding"];
+describe("commit-pr-pilot — la única excepción es la imposibilidad declarada", () => {
+  /**
+   * Este describe reemplaza al de `non-trivial` (#502.3), que protegía la
+   * definición por conteo del waiver: "¿cuántos archivos con comportamiento
+   * trae el diff?". Esa definición se retiró junto con la escalera de rutas,
+   * porque su umbral estaba escrito en siete sitios que no coincidían — la
+   * tabla de rutas, los umbrales de escalamiento, el hook `routing-watch`, el
+   * propio pilot y el minero de activación contaban cinco cosas distintas.
+   *
+   * Vuelve cuando vuelva el ruling, y la condición para eso está escrita en
+   * `leader.md`: "archivo fuente no trivial" tiene que existir UNA vez como
+   * código compartido, no como prosa repetida. Mientras tanto el pilot tiene
+   * exactamente dos salidas, y esto las fija.
+   */
 
   // ---- anti-false-green ---------------------------------------------------
-  it("reads the waiver that uses the term", () => {
-    expect(R1_WAIVER.length, "the R1 exception region came back empty").toBeGreaterThan(600);
-    expect(R1_WAIVER).toContain("waiver");
-    expect(R1_WAIVER, "the term is not even used here any more").toContain("non-trivial");
+  it("lee la región de la excepción", () => {
+    expect(
+      DECLARED_EXCEPTION.length,
+      "the declared-exception region came back empty",
+    ).toBeGreaterThan(600);
   });
 
-  // ---- the contract -------------------------------------------------------
-  it("marks the term as defined here, not borrowed from elsewhere", () => {
-    // `CLAUDE.md` points AT this paragraph ("as defined once by the
-    // commit-pr-pilot's R1 exception"), so if the definiendum is not here it
-    // exists nowhere.
-    expect(
-      R1_WAIVER,
-      "`non-trivial` decides whether a diff ships unreviewed and no asset defines it (#502.3)",
-    ).toMatch(/\*\*non-trivial\*\*/);
+  // ---- el contrato --------------------------------------------------------
+  it("nombra los dos casos de imposibilidad, no una categoría vaga", () => {
+    // "Delegación imposible" sin ejemplos se lee como "cuando me parezca".
+    expect(DECLARED_EXCEPTION).toMatch(/operator forbade subagents/i);
+    expect(DECLARED_EXCEPTION).toMatch(/`Agent` tool was unavailable/i);
   });
 
-  it("defines it by contrast — names what does not count", () => {
-    const named = EXCLUSIONS.filter((word) => R1_WAIVER.includes(word));
-    expect(
-      named.length,
-      `a definition needs its counter-examples; the waiver names only: ${named.join(", ") || "none"}`,
-    ).toBeGreaterThanOrEqual(3);
+  it("exige el gate completo al pilot, porque no hay review en que confiar", () => {
+    expect(DECLARED_EXCEPTION).toContain("{{qualityGate.full}}");
+    expect(DECLARED_EXCEPTION).toMatch(/no review evidence to trust/i);
   });
 
-  /**
-   * The two forks the definition left open, each phrased as the question a
-   * reader has to answer before it can count anything. Both were measured on
-   * real commits of this repo: `9ae6eee` (source + its test) and `18f945e`
-   * (three sources whose hardcoded literal became an import) came out with a
-   * different number depending on which way the reader leaned — and both of
-   * them are the 2-file shape, i.e. exactly where the count decides something.
-   */
-  const OPEN_QUESTIONS: ReadonlyArray<{ question: string; answered: RegExp }> = [
-    {
-      question:
-        "does a test file count? (this repo asks for a test with every fix, so if it does, every bugfix counts two and the waiver is dead)",
-      answered: /\btests?\b/i,
-    },
-    {
-      question:
-        "is replacing a hardcoded literal with an import mechanical, or a behavior change? ('an import path' as a bare example reads both ways)",
-      answered: /where a value comes from/i,
-    },
-  ];
-
-  it("answers the questions a reader must settle before counting", () => {
-    const unanswered = OPEN_QUESTIONS.filter((q) => !q.answered.test(R1_WAIVER)).map(
-      (q) => `  - ${q.question}`,
-    );
-    expect(
-      unanswered,
-      [
-        "",
-        "  The waiver leaves a classification question open. Two agents reading",
-        "  the same diff then get different counts, and the count is what decides",
-        "  whether a change ships unreviewed — which is #502.3 again, with more",
-        "  words. Answer it in the definition, not in the reader's head:",
-        "",
-        unanswered.join("\n"),
-        "",
-      ].join("\n"),
-    ).toEqual([]);
+  it("exige la traza en el PR — es lo que la vuelve contable", () => {
+    // Sin esto la excepción es invisible: nadie puede medir cuántas veces se
+    // usó, que es justo el fallo que la escalera anterior tenía.
+    expect(DECLARED_EXCEPTION).toMatch(/PR body must state it/i);
   });
 
-  it("shows the count worked through, not just stated", () => {
-    // A rule this repo's own history bifurcates on needs the 2-file case
-    // resolved out loud; the abstract clause is what produced two readings.
+  it("declara explícitamente que no hay conteo, para que no vuelva en silencio", () => {
     expect(
-      R1_WAIVER,
-      "the waiver states the criterion but never applies it to a concrete diff — the source+test shape is the one that decides",
-    ).toMatch(/worked example/i);
-  });
-
-  it("leaves ONE operative criterion — no bare file count competing with it", () => {
-    // "1–3 files" and "4+ files" are the two shapes that made a 2-file diff
-    // satisfy R1 and R2 at the same time. A count qualified as "non-trivial" is
-    // the criterion itself and stays legal.
-    const bare = [...R1_WAIVER.matchAll(/(?:\d+\s*[–-]\s*\d+|\d+\s*\+)\s+files?\b/g)].map(
-      (m) => m[0],
-    );
-    expect(
-      bare,
-      `a second, unqualified file-count threshold is back in the waiver: ${bare.join(", ")}. Two criteria in one sentence is what #502.3 was.`,
-    ).toEqual([]);
+      DECLARED_EXCEPTION,
+      "sin esta frase, un futuro editor reintroduce el umbral por conteo sin que nada lo note",
+    ).toMatch(/No count, no judgement about the diff's content/i);
   });
 });
 

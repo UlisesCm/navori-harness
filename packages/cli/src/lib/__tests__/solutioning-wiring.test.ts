@@ -62,13 +62,16 @@ describe("solutioning — content invariants (spec 0012)", () => {
 
   it("the orchestration block routes into the skill and stays within budget", () => {
     const block = read("managed/orquestacion.md");
-    expect(block).toContain("R2-architectural");
+    expect(block).toContain("architectural pass");
     expect(block).toContain("solution-design");
     // File count must stay a hint, never the definition of complexity.
-    expect(block).toMatch(/File count is a hint, never the definition/i);
+    // La escalera se retiró, así que ya no hay conteo del que advertir. Lo que
+    // sigue importando es que un patrón existente con rollback trivial no
+    // gaste una pasada de diseño.
+    expect(block).toMatch(/trivial rollback does not need it/i);
     // Always-on text is paid on every session of every repo: keep the routing
     // paragraph lean and let the skill carry the depth (spec 0012 R21).
-    const paragraph = block.split("\n").find((l) => l.includes("R2-architectural")) ?? "";
+    const paragraph = block.split("\n").find((l) => l.includes("architectural pass")) ?? "";
     expect(paragraph.split(/\s+/).length).toBeLessThanOrEqual(150);
   });
 

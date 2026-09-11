@@ -17,7 +17,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, stora
 |---|---|---|
 | `default` | reads only | every edit and every command prompts: batch them and explain before asking |
 | `acceptEdits` | reads, edits, common FS commands | edit freely; the shell still prompts outside the read-only set |
-| `plan` | reads, plus classifier-approved commands | **you do not write**: the R2-architectural pass, `ticket-audit` and an SDD spec ARE this mode's work; leave the mode to execute |
+| `plan` | reads, plus classifier-approved commands | **you do not write**: the architectural pass, `ticket-audit` and an SDD spec ARE this mode's work; leave the mode to execute |
 | `auto` | everything, classifier-reviewed | every shell command pays a classifier round-trip; reads, in-workspace edits and `allow`-covered MCP calls don't, so `cmd1 && cmd2` in one call beats two |
 | `dontAsk` | only what is pre-approved | `Edit`/`Write` are NOT in navori's `allow` and the mode denies `AskUserQuestion` outright: the implement/review cycle cannot run. The one mode navori does not support today — use `default`, `acceptEdits`, `plan` or `auto` |
 | `bypassPermissions` | everything | the docs do not say whether the harness's `deny` rules still apply, so do not rely on them; what does block is the hook (`exit 2` blocks in any mode). Isolated environments only |

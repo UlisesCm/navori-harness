@@ -29,19 +29,55 @@ const read = (rel: string): string => readFileSync(resolve(CORE_ASSETS, rel), "u
 const BLOCK = "managed/orquestacion.md";
 const LEADER = "agents/leader.md";
 
-describe("spec 0019 — el bloque conserva la escalera (R4)", () => {
+describe("el bloque conserva la regla operativa (R4)", () => {
   const block = read(BLOCK);
 
   // Covers: R4
+  //
+  // Las marcas cambiaron con la retirada de la escalera: el bloque ya no
+  // enumera rutas (R1 inline / R2 delegar) porque su umbral estaba escrito en
+  // siete sitios que no coincidían. Lo que se fija ahora es la regla única y,
+  // sobre todo, la distinción que la vuelve usable — delegar es sobre ESCRIBIR,
+  // no sobre responder. Sin esa fila, "todo pasa por el harness" se lee como
+  // "delega hasta para contestar una pregunta" y se ignora entera.
   it.each([
-    ["el rol y la prohibición de delegar leader", "NEVER delegate it"],
-    ["la tabla de rutas", "R2-fan · Analytical fan-out"],
+    ["el rol y la prohibición de delegar leader", "NEVER delegate that role"],
+    ["la regla única", "Every change to source goes through"],
+    ["la distinción escribir vs responder", "Delegation is about WRITING, not about answering"],
     ["la tabla señal→mecanismo (#379)", "### How much analysis does this task deserve"],
-    ["el párrafo R2-architectural (#379)", "**R2-architectural — design before you decompose.**"],
-    ["los umbrales de escalamiento", "4-file rule"],
+    [
+      "el párrafo de la pasada arquitectónica (#379)",
+      "**The architectural pass — design before you decompose.**",
+    ],
     ["la mecánica de un solo turno", "ALL `Agent` calls in a SINGLE turn"],
+    ["la salida declarada", "### When delegation is genuinely impossible"],
   ])("conserva %s", (_piece, mark) => {
     expect(block).toContain(mark);
+  });
+});
+
+describe("la escalera retirada no vuelve sola", () => {
+  const block = read(BLOCK);
+
+  // La retirada es deliberada y tiene condiciones de regreso escritas en
+  // `leader.md`: el gate probado bajo una sola ruta, y "archivo fuente no
+  // trivial" existiendo UNA vez como código compartido en vez de como prosa
+  // repetida en cinco sitios. Hasta entonces, un umbral que reaparezca en el
+  // bloque recrea exactamente la ambigüedad que se quitó — y lo haría en
+  // silencio, porque nada más lo mira.
+  it.each([
+    ["la fila de ruta inline", "R1 · Inline"],
+    ["la fila de delegación por conteo", "R2 · Delegate"],
+    ["el umbral de lectura", "4-file rule"],
+    ["el umbral de escritura", "2+ non-trivial files"],
+  ])("%s no reaparece en el bloque", (_piece, mark) => {
+    expect(block, `la escalera volvió al bloque: "${mark}"`).not.toContain(mark);
+  });
+
+  it("leader.md explica por qué se retiró y qué hace falta para reponerla", () => {
+    const leader = read(LEADER);
+    expect(leader).toContain("seven places that did not agree");
+    expect(leader).toContain("shared classifier");
   });
 });
 
@@ -77,9 +113,9 @@ describe("spec 0019 — la profundidad es alcanzable y no se duplica (R9, R11)",
   it("la escalera no se repite en leader.md", () => {
     // Covers: R11
     for (const mark of [
-      "R2-fan · Analytical fan-out",
+      "Delegation is about WRITING, not about answering",
       "### How much analysis does this task deserve",
-      "4-file rule",
+      "### When delegation is genuinely impossible",
     ]) {
       expect(leader, `la marca del núcleo "${mark}" reapareció en leader.md`).not.toContain(mark);
     }

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
  * A coherence audit plus a measured run on a real ticket found the same fact
  * written in several assets, with the copies drifted: a ticket touching auth
  * fired both "start from a spec" and "R3 is opt-in", the PR pre-flight demanded
- * a clean tree the pilot's own trigger contradicts, and the R1→PR boundary had
+ * a clean tree the pilot's own trigger contradicts, and the PR side of the delegation rule had
  * three wordings. Every drift cost a re-read or a re-decision at runtime.
  *
  * The rule these tests pin: when two documents state the same fact, ONE is
@@ -94,7 +94,7 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
     // Fresh evidence over the shipping diff, by route: reviewer's Pass 2 (bound
     // by the receipt) in R2+, your own run in R1.
     expect(row()).toMatch(/receipt/i);
-    expect(row()).toMatch(/R1: your own run/i);
+    expect(row()).toMatch(/declared-inline change, your own run/i);
   });
 
   it("the pilot's own trigger list demands no clean tree either", () => {
@@ -118,25 +118,28 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
 });
 
 describe("R1 → PR boundary — defined once, by the agent that applies it (M6)", () => {
-  it("the pilot marks its R1 exception as the single definition", () => {
+  it("the pilot owns the PR side of the delegation rule", () => {
     const pilot = read("agents/commit-pr-pilot.md");
-    expect(pilot).toMatch(/SINGLE definition of the R1→PR boundary/);
+    expect(pilot).toMatch(/this is where the PR side of it is enforced/);
     // The criterion itself stays here — and since #502.3 there is exactly ONE
     // of them (the non-trivial-file count), defined in that same paragraph
     // instead of borrowed. `commit-pr-pilot-contract.test.ts` owns the shape of
     // the definition; what this line pins is that it lives in the pilot.
-    expect(pilot).toContain("**non-trivial**");
-    expect(pilot).toMatch(/the waiver applies/);
+    // El definiendum "non-trivial" se retiró con la escalera: decidía un waiver
+    // por conteo que ya no existe. Vuelve cuando vuelva el ruling, como código
+    // compartido y no como prosa (ver leader.md).
+    expect(pilot).toContain("delegation was genuinely impossible");
+    expect(pilot).toMatch(/an APPROVED review, or a declared impossibility/);
   });
 
-  it("orquestacion points at that exception from both places, with one wording", () => {
-    const block = read("managed/orquestacion.md");
-    expect(lineWith("managed/orquestacion.md", "**PR rule:**")).toContain("R1 exception");
-    expect(lineWith("managed/orquestacion.md", "R1 · Inline")).toContain("R1 exception");
-    // "trivial R1" was the third, narrower wording: a genuine-but-not-trivial R1
-    // fell in the gap between the two documents.
-    expect(block).not.toMatch(/trivial R1/i);
-    expect(block).toContain("don't re-decide it here");
+  it("orquestacion apunta a esa excepción con una sola redacción", () => {
+    // La escalera se retiró: el bloque ya no enumera rutas ni nombra una
+    // excepción por conteo. Lo que debe seguir apuntando al pilot es la
+    // salida declarada, que es la única que deja pasar un diff sin review.
+    expect(
+      lineWith("managed/orquestacion.md", "When delegation is genuinely impossible"),
+    ).toBeTruthy();
+    expect(read("managed/orquestacion.md")).toContain("`commit-pr-pilot` will require");
   });
 });
 

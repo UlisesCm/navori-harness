@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
  * by reconstructing a boundary spread over four blocks of prose. It is now one
  * signal→mechanism table in the always-on orchestration block; the five
  * mechanisms (`ticket-intake`, `ticket-audit`, `solution-design` + the
- * R2-architectural gate, SDD/`spec-bootstrap`, `auditor`) are untouched — only
+ * architectural pass gate, SDD/`spec-bootstrap`, `auditor`) are untouched — only
  * the explanation of WHEN each fires was replaced.
  *
  * Prose that changes address silently stops being read, so this file pins both
@@ -32,13 +32,15 @@ const coreAssets = resolve(here, "..", "..", "..", "..", "core", "core-assets");
 
 const read = (rel: string): string => readFileSync(resolve(coreAssets, rel), "utf-8");
 
-/** Body of the signal→mechanism lookup, from its heading to the R2-architectural paragraph. */
+/** Body of the signal→mechanism lookup, from its heading to the architectural pass paragraph. */
 function cascadeSection(): string {
   const block = read("managed/orquestacion.md");
   const start = block.indexOf("### How much analysis");
   expect(start, "the orchestration block lost its signal→mechanism lookup").toBeGreaterThan(-1);
-  const end = block.indexOf("**R2-architectural", start);
-  expect(end, "the R2-architectural paragraph no longer follows the lookup").toBeGreaterThan(start);
+  const end = block.indexOf("**The architectural pass", start);
+  expect(end, "the architectural pass paragraph no longer follows the lookup").toBeGreaterThan(
+    start,
+  );
   return block.slice(start, end);
 }
 
@@ -56,11 +58,11 @@ function row(needle: string): string {
   return matches[0]!;
 }
 
-/** The R2-architectural paragraph of the orchestration block. */
+/** The architectural pass paragraph of the orchestration block. */
 function architecturalParagraph(): string {
   const block = read("managed/orquestacion.md");
-  const start = block.indexOf("**R2-architectural");
-  expect(start, "the R2-architectural paragraph is gone").toBeGreaterThan(-1);
+  const start = block.indexOf("**The architectural pass");
+  expect(start, "the architectural pass paragraph is gone").toBeGreaterThan(-1);
   return block.slice(start).split("\n")[0]!;
 }
 
@@ -101,7 +103,7 @@ describe("analysis cascade — one lookup instead of four blocks (#379 B)", () =
   });
 
   it("the architectural signals moved into the table and are not restated below it", () => {
-    const architectural = row("R2-architectural pass");
+    const architectural = row("architectural pass");
     for (const signal of [
       "state ownership change",
       "shared contract",

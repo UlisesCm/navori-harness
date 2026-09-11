@@ -67,7 +67,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, stora
 |---|---|---|
 | `default` | reads only | every edit and every command prompts: batch them and explain before asking |
 | `acceptEdits` | reads, edits, common FS commands | edit freely; the shell still prompts outside the read-only set |
-| `plan` | reads, plus classifier-approved commands | **you do not write**: the R2-architectural pass, `ticket-audit` and an SDD spec ARE this mode's work; leave the mode to execute |
+| `plan` | reads, plus classifier-approved commands | **you do not write**: the architectural pass, `ticket-audit` and an SDD spec ARE this mode's work; leave the mode to execute |
 | `auto` | everything, classifier-reviewed | every shell command pays a classifier round-trip; reads, in-workspace edits and `allow`-covered MCP calls don't, so `cmd1 && cmd2` in one call beats two |
 | `dontAsk` | only what is pre-approved | `Edit`/`Write` are NOT in navori's `allow` and the mode denies `AskUserQuestion` outright: the implement/review cycle cannot run. The one mode navori does not support today — use `default`, `acceptEdits`, `plan` or `auto` |
 | `bypassPermissions` | everything | the docs do not say whether the harness's `deny` rules still apply, so do not rely on them; what does block is the hook (`exit 2` blocks in any mode). Isolated environments only |
@@ -85,7 +85,7 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 
 Before closing the session:
 
-1. **Quality gate**: pnpm test && pnpm lint — confirm it passes, **or cite this cycle's green run** (reviewer's Pass-2 in R2, pilot's pre-flight in R1) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
+1. **Quality gate**: pnpm test && pnpm lint — confirm it passes, **or cite this cycle's green run** (normally the reviewer's Pass-2; on a declared-inline change, the pilot's pre-flight) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
 2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
@@ -96,7 +96,7 @@ Before closing the session:
    - `--ff-only`, always: the base must never receive a surprise merge from a parking step. If it doesn't fast-forward, report it instead of resolving it here.
    - If another session may be alive on this same working tree (a second terminal on this repo), switching yanks the branch out from under it — when in doubt, skip and say so.
 
-**R1 lean close** — the three conditions are verifiable, so this is not a judgment call: the session ran the **R1** route, it covered **one** user task, and its diff touches no critical area (`auth, permissions, payments, data integrity`). All three hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.
+**Lean close** — the conditions are verifiable, so this is not a judgment call: the session covered **one** user task and touched no critical area (`auth, permissions, payments, data integrity`). Both hold → skip step 2 when nothing was committed, and whatever ceremony another block exempts under this same name. It never exempts the quality gate, nor the `history.md` entry whenever there WAS a commit: a change that shipped leaves a trace, however trivial.
 
 ## Spec Driven Development (SDD)
 

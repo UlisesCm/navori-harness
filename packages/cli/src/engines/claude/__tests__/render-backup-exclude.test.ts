@@ -84,10 +84,15 @@ describe("renderCodexEngine — backup excludes never-versioned state (audit A2)
     writeFileSync(join(cwd, ".codex/progress/impl_x.md"), "handoff");
 
     // A config change so the second render rewrites existing files → backup.
+    // Se cambia `full` y no `fast`: con la escalera retirada el bloque de
+    // orquestación ya no cita el gate rápido —la fila inline que lo usaba
+    // desapareció—, así que tocar `fast` ya no reescribe AGENTS.md y el
+    // segundo render no produciría backup alguno. El disparador tiene que ser
+    // un valor que el documento realmente interpole.
     const second = renderCodexEngine(cwd, {
       ...CONFIG,
       engines: ["codex"],
-      qualityGate: { fast: "pnpm check", full: "pnpm test" },
+      qualityGate: { fast: "pnpm typecheck", full: "pnpm check && pnpm test" },
     } as unknown as NavoriConfig);
 
     expect(second.backupPath).not.toBeNull();

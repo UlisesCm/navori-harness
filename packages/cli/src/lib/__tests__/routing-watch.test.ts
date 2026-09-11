@@ -147,7 +147,7 @@ describe.runIf(runsBash)("routing-watch.sh — the notice fires (spec 0020)", ()
     // The real count, so the note is evidence and not a slogan.
     expect(context).toMatch(/\b4 distinct files\b/);
     // R2's actual rule, named: 1 implementer -> 1 reviewer.
-    expect(context).toMatch(/\bR2\b/);
+    expect(context).toMatch(/implementer.*reviewer/);
     expect(context).toMatch(/implementer/);
     expect(context).toMatch(/reviewer/);
     // The heart of the design: today the override happens in silence, so the
