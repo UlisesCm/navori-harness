@@ -27,6 +27,10 @@ ERROR_LINE = re.compile(r"(error TS\d+|^\s*Error:|\bFAIL\b|error\[E\d+\]|Traceba
 PR_CMD = re.compile(r"(?:^|&&\s*|;\s*)gh pr create")
 COMMIT_CMD = re.compile(r"git commit")
 CD_PREFIX = re.compile(r'^\s*cd\s+("[^"]*"|\S+)\s*&&\s*')
+# Los dos fallos que NO son un bug: el harness bloqueando y el usuario negando.
+# Juntos son el 29.1% de las 281 llamadas fallidas del parque.
+HOOK_BLOCK = re.compile(r"PreToolUse:|PostToolUse:|hook error")
+DENIED = re.compile(r"requested permissions|user doesn't want|denied|rejected", re.I)
 
 # ─── Qué cuenta como archivo fuente no trivial ──────────────────────────────
 #
@@ -145,6 +149,16 @@ def sig(cmd):
     return " ".join(CD_PREFIX.sub("", cmd or "").split()[:4])
 
 
+def is_debuggable(x):
+    """¿Este fallo pide diagnóstico, o trae su causa escrita?"""
+    if not x["error"]:
+        return False
+    out = x["out"] or ""
+    if HOOK_BLOCK.search(out[:200]) or DENIED.search(out[:300]):
+        return False
+    return bool(VERIFY_CMD.search(str(x["input"].get("command", "")))) or bool(ERROR_LINE.search(out))
+
+
 def parse(path):
     """Devuelve turnos del hilo principal. Cada tool_use lleva su is_error."""
     turns, cur, mode = [], None, Counter()
@@ -248,9 +262,26 @@ def analyze(session, examples):
              bool(touched) and bool(DONE_CLAIM.search(final)) and not VERIFY_CMD.search(cmds),
              skill="verify-before-done", note=t["user"][:60])
 
-        # O3 — debug-error: comando que FALLA con pared de errores
-        wall = any(x["error"] and len(ERROR_LINE.findall(x["out"])) >= 5 for x in t["tools"])
-        mark("debug-error", wall, skill="debug-error", note=t["user"][:60])
+        # O3 — debug-error: un fallo que hay que DIAGNOSTICAR.
+        #
+        # La versión anterior pedía >=5 líneas de error ("pared de errores") y
+        # daba 0 oportunidades en 58 sesiones. No era una heurística estrecha:
+        # la condición no ocurre. Sobre 281 llamadas fallidas, NINGUNA llega a 3
+        # líneas de error —ni siquiera las 67 que no llevan truncado explícito,
+        # una de ellas con 387 líneas de salida—. El gate corre como hook ANTES
+        # del commit, así que una suite roja se manifiesta como UN `git commit`
+        # bloqueado, no como cuarenta líneas que triagear; y el 89.2% de los
+        # comandos de verificación pasan por `| tail`/`| head`, con mediana de
+        # salida de 7 líneas.
+        #
+        # El disparador de la skill se reapuntó a "falló y no sé por qué", así
+        # que esto mide eso: un fallo que pide diagnóstico. Se excluyen los dos
+        # que NO lo piden —un bloqueo de hook y un permiso denegado son el
+        # harness funcionando, y su causa viene escrita en la propia salida—.
+        # Es un PISO, no un techo: un fallo auto-explicativo (ruta inexistente)
+        # que traiga una línea de error reconocible entra igual.
+        debuggable = any(is_debuggable(x) for x in t["tools"])
+        mark("debug-error", debuggable, skill="debug-error", note=t["user"][:60])
 
         # O4 — se abre PR
         mark("pr → review-diff/pilot", bool(PR_CMD.search(cmds)),
