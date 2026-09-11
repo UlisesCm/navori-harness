@@ -2133,6 +2133,20 @@ navori_audit_log() {
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
+  # the auditor itself is being debugged, and an epoch integer is not readable.
+  # Removing it would also remove the `date` fork it costs — a separate call,
+  # with its own measurement, deliberately not bundled here.
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
@@ -2158,7 +2172,8 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
-    '{ts:$ts,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    --argjson tsMs "$navori_audit_end" \
+    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -3167,6 +3182,20 @@ navori_audit_log() {
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
+  # the auditor itself is being debugged, and an epoch integer is not readable.
+  # Removing it would also remove the `date` fork it costs — a separate call,
+  # with its own measurement, deliberately not bundled here.
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
@@ -3192,7 +3221,8 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
-    '{ts:$ts,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    --argjson tsMs "$navori_audit_end" \
+    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -3511,6 +3541,20 @@ navori_audit_log() {
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
+  # the auditor itself is being debugged, and an epoch integer is not readable.
+  # Removing it would also remove the `date` fork it costs — a separate call,
+  # with its own measurement, deliberately not bundled here.
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
@@ -3536,7 +3580,8 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
-    '{ts:$ts,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    --argjson tsMs "$navori_audit_end" \
+    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -3798,6 +3843,20 @@ navori_audit_log() {
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
+  # the auditor itself is being debugged, and an epoch integer is not readable.
+  # Removing it would also remove the `date` fork it costs — a separate call,
+  # with its own measurement, deliberately not bundled here.
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
@@ -3823,7 +3882,8 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
-    '{ts:$ts,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    --argjson tsMs "$navori_audit_end" \
+    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -4499,6 +4559,20 @@ navori_audit_log() {
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
+  # the auditor itself is being debugged, and an epoch integer is not readable.
+  # Removing it would also remove the `date` fork it costs — a separate call,
+  # with its own measurement, deliberately not bundled here.
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
@@ -4524,7 +4598,8 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
-    '{ts:$ts,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    --argjson tsMs "$navori_audit_end" \
+    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -4854,6 +4929,20 @@ navori_audit_log() {
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
+  # the auditor itself is being debugged, and an epoch integer is not readable.
+  # Removing it would also remove the `date` fork it costs — a separate call,
+  # with its own measurement, deliberately not bundled here.
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
@@ -4879,7 +4968,8 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
-    '{ts:$ts,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    --argjson tsMs "$navori_audit_end" \
+    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -5373,6 +5463,20 @@ navori_audit_log() {
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
+  # the auditor itself is being debugged, and an epoch integer is not readable.
+  # Removing it would also remove the `date` fork it costs — a separate call,
+  # with its own measurement, deliberately not bundled here.
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
@@ -5398,7 +5502,8 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
-    '{ts:$ts,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    --argjson tsMs "$navori_audit_end" \
+    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -5744,6 +5849,20 @@ navori_audit_log() {
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
+  # the auditor itself is being debugged, and an epoch integer is not readable.
+  # Removing it would also remove the `date` fork it costs — a separate call,
+  # with its own measurement, deliberately not bundled here.
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
@@ -5769,7 +5888,8 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
-    '{ts:$ts,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    --argjson tsMs "$navori_audit_end" \
+    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -6120,6 +6240,20 @@ navori_audit_log() {
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
+  # the auditor itself is being debugged, and an epoch integer is not readable.
+  # Removing it would also remove the `date` fork it costs — a separate call,
+  # with its own measurement, deliberately not bundled here.
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
@@ -6145,7 +6279,8 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
-    '{ts:$ts,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    --argjson tsMs "$navori_audit_end" \
+    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -6788,6 +6923,20 @@ navori_audit_log() {
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
+  # the auditor itself is being debugged, and an epoch integer is not readable.
+  # Removing it would also remove the `date` fork it costs — a separate call,
+  # with its own measurement, deliberately not bundled here.
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
@@ -6813,7 +6962,8 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
-    '{ts:$ts,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    --argjson tsMs "$navori_audit_end" \
+    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \

@@ -1,13 +1,13 @@
-# navori:managed start id="routing-watch-base" hash="a4ec6834" version="0.8.5" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="a8f7c573" version="0.8.5" source="@navori/core"
 #!/usr/bin/env bash
 #
-# PostToolUse routing watcher (spec 0020).
+# PostToolUse routing watcher (spec 0020, R2/R3).
 #
 # WHY THIS EXISTS. The routing ladder ships as CLAUDE.md context, and the host's
 # own documentation says what that buys: "Claude treats them as context, NOT
 # enforced configuration... If the instruction is something that must run at a
 # specific point, write it as a hook instead." Measured over 48 audited
-# sessions, 21 crossed the delegation threshold of the day and 12 of those (57%) delegated nothing
+# sessions, 21 crossed the R2 threshold and 12 of those (57%) delegated nothing
 # — including a session in this very repo that wrote 26 files with zero
 # subagents while carrying the ladder in its context. Prose was not the missing
 # piece; a mechanism at the moment of the decision is.
@@ -28,18 +28,11 @@
 # which is the moment of the decision; `UserPromptSubmit` fires before the model
 # has done anything that turn, i.e. at the wrong time.
 #
-# WHY THE THRESHOLD IS STILL "4 DISTINCT FILES". It was the objective half of a
-# routing rule that has since been withdrawn — the ladder it belonged to had its
-# threshold written in seven places that did not agree, so it was collapsed to a
-# single route: every change to source goes through implementer -> reviewer.
-#
-# Under one route the honest threshold is ONE file, not four. It is deliberately
-# NOT lowered yet: this hook counts `tool_input.file_path` without filtering it
-# against the repo, so a scratch script under /tmp counts like source, and at a
-# threshold of one that would fire on nearly every session. Both are fixed
-# together when the ruling returns. Meanwhile 4-and-no-delegation still catches
-# the worst deviations and stays quiet on the rest, which is the right way for a
-# stale threshold to fail.
+# WHY THE THRESHOLD IS "4 DISTINCT FILES" AND NOT THE FULL R2 RULE. R2 reads
+# "4+ files; or the change touches 2+ non-trivial files". "Non-trivial" is a
+# judgement about the CONTENT of a diff, and a hook cannot make it without
+# guessing. So this takes the objective half. A hook that guesses is noise, and
+# noise is what erodes.
 #
 # WHY IT DOES NOT TRY TO TELL THE MAIN THREAD FROM A SUBAGENT — this is what
 # keeps the script small. The condition is "N files AND zero delegation": if a
@@ -277,6 +270,20 @@ navori_audit_log() {
   navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
   [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
 
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` stays, second resolution and all: the raw `.log` is read by hand when
+  # the auditor itself is being debugged, and an epoch integer is not readable.
+  # Removing it would also remove the `date` fork it costs — a separate call,
+  # with its own measurement, deliberately not bundled here.
   navori_audit_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || navori_audit_ts=""
   # `navori_audit_agent` came out of the same single jq above. It is what lets
   # the report attribute a hook to a subagent WITHOUT guessing: with agents
@@ -302,7 +309,8 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --argjson ms "$navori_audit_ms" \
-    '{ts:$ts,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+    --argjson tsMs "$navori_audit_end" \
+    '{ts:$ts,tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
@@ -314,7 +322,7 @@ navori_audit_begin
 
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
 
-# See the header for why this is still 4 and not 1. Changing this number changes when
+# The objective half of R2 (see the header). Changing this number changes when
 # the note fires and nothing else.
 threshold=4
 
@@ -403,7 +411,7 @@ navori_audit_log "notify" "$count archivos del hilo principal, sin subagente"
 notice=$(cat <<MSG
 navori: routing check. ${count} distinct files written in this session, and no subagent has been invoked.
 
-Every change to source goes through 1 focused implementer (explicit scope) then 1 reviewer — there is no inline route and no file count that exempts one.
+R2 of the routing ladder fires at 4+ files: 1 focused implementer (explicit scope) then 1 reviewer, instead of writing them all inline.
 
 If inline IS the right call here (the operator ruled delegation out, the edits are one mechanical change, the context is already paid for), say so explicitly in your next message and carry on. The point of this note is that the override stops being silent - today it leaves no trace at all.
 

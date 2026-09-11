@@ -12,6 +12,7 @@ import {
   sumTokens,
 } from "../parse.ts";
 import type { AgentRun, SessionAudit } from "../model.ts";
+import { emptyToolErrors } from "../model.ts";
 
 const FIXTURE = join(
   fileURLToPath(new URL("../../../__tests__/fixtures/audit/", import.meta.url)),
@@ -77,6 +78,72 @@ describe("parse: session shape", () => {
 
   it("flags a command repeated 3+ times", () => {
     expect(s.orchestrator.repeatedCommands).toEqual({ "pnpm test": 3 });
+  });
+});
+
+describe("parse: tool error taxonomy (#686)", () => {
+  /** A transcript that is nothing but error results, one per line. */
+  function errors(contents: string[]): string {
+    const dir = mkdtempSync(join(tmpdir(), "navori-errors-"));
+    const file = join(dir, "sess-err.jsonl");
+    const lines = contents.map((content) => ({
+      type: "user",
+      message: { content: [{ type: "tool_result", is_error: true, content }] },
+    }));
+    writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n"), "utf-8");
+    return file;
+  }
+
+  it("classifies every error instead of keeping four literals and dropping the rest", () => {
+    const s = parseSession(
+      errors([
+        "[navori] BLOCKED by guard-search-routing: busqueda recursiva por shell",
+        "<tool_use_error>Blocked: sleep 45 followed by: tail -30 /tmp/out",
+        "Permission for this action was denied",
+        "Exit code 1\n  M packages/cli/src/index.ts",
+        "<tool_use_error>Error: No such tool available: Grep.",
+        "<tool_use_error>String to replace not found in file. String: 3. **Rebi",
+        "content is required for mem_session_summary",
+      ]),
+    );
+    expect(s.orchestrator.toolErrors).toEqual({
+      harnessBlock: 2,
+      permissionDenied: 1,
+      shellFailure: 1,
+      toolUnavailable: 1,
+      editMiss: 1,
+      other: 1,
+    });
+  });
+
+  it("counts the guard's `Blocked:` spelling, which the old list missed", () => {
+    // Two real blocks in this repo's transcripts went uncounted: the list knew
+    // only `BLOCKED by guard`. A false negative whose whole output is one
+    // integer is invisible by construction.
+    const s = parseSession(errors(["<tool_use_error>Blocked: rm -rf /tmp/x"]));
+    expect(s.orchestrator.toolErrors.harnessBlock).toBe(1);
+    expect(s.orchestrator.frictionEvents).toBe(1);
+  });
+
+  it("keeps frictionEvents meaning blocks and denials, not every error", () => {
+    // The breakdown widens what is RECORDED. It must not silently redefine the
+    // number the existing signal and the already-published JSON stand on.
+    const s = parseSession(
+      errors([
+        "BLOCKED by guard-destructive",
+        "Permission for this action was denied",
+        "Exit code 2",
+        "Exit code 1",
+      ]),
+    );
+    expect(s.orchestrator.frictionEvents).toBe(2);
+    expect(s.orchestrator.toolErrors.shellFailure).toBe(2);
+  });
+
+  it("tests `Exit code` as a prefix, so printing the words is not failing", () => {
+    const s = parseSession(errors(['no match for "Exit code 1" in docs/troubleshooting.md']));
+    expect(s.orchestrator.toolErrors.shellFailure).toBe(0);
+    expect(s.orchestrator.toolErrors.other).toBe(1);
   });
 });
 
@@ -367,6 +434,7 @@ describe("parse: hook attribution", () => {
       mcpBarredTokens: {},
       hookEvents: [],
       frictionEvents: 0,
+      toolErrors: emptyToolErrors(),
       repeatedCommands: {},
       verdict: null,
       ...over,
@@ -403,6 +471,7 @@ describe("parse: hook attribution", () => {
         mcpCalls: {},
         hookEvents: [],
         frictionEvents: 0,
+        toolErrors: emptyToolErrors(),
         repeatedCommands: {},
       },
       agents,
@@ -497,6 +566,66 @@ describe("parse: hook attribution", () => {
       log([hook({ ts: "2026-08-25T10:05:00Z" }), hook({ ts: "2026-08-25T09:30:00Z" })]),
     );
     expect(s.hookLogFrom).toBe("2026-08-25T09:30:00Z");
+  });
+
+  it("orders two events of the same second by tsMs (#685)", () => {
+    // `ts` truncates, so both of these read `10:05:00Z` and only the file order
+    // separates them — and under parallel agents that is arrival order, not
+    // chronology. `tsMs` is what makes the pair orderable at all.
+    const base = Date.parse("2026-08-25T10:05:00Z");
+    const s = session([]);
+    attachHookEvents(
+      s,
+      log([hook({ name: "second", tsMs: base + 800 }), hook({ name: "first", tsMs: base + 100 })]),
+    );
+    expect(s.orchestrator.hookEvents.map((e) => e.name)).toEqual(["first", "second"]);
+  });
+
+  it("uses tsMs at the window boundary, where a truncated ts falls short (#685)", () => {
+    // The agent starts mid-second. The event followed that start by 200 ms, but
+    // `ts` reads the whole second and so lands 500 ms BEFORE the agent existed.
+    const base = Date.parse("2026-08-25T10:05:00Z");
+    const bounds = { startedAt: "2026-08-25T10:05:00.500Z", endedAt: "2026-08-25T10:06:00.000Z" };
+
+    const withMs = session([agent(bounds)]);
+    attachHookEvents(withMs, log([hook({ tsMs: base + 700 })]));
+    expect(withMs.agents[0]?.hookEvents).toHaveLength(1);
+
+    const withoutMs = session([agent(bounds)]);
+    attachHookEvents(withoutMs, log([hook({})]));
+    expect(withoutMs.agents[0]?.hookEvents).toHaveLength(0);
+    expect(withoutMs.orchestrator.hookEvents).toHaveLength(1);
+  });
+
+  it("still orders a log written before tsMs existed (#685)", () => {
+    // Backward compatibility is the reason `ts` stays: these logs are already on
+    // disk in every repo that has ever run audit-mode.
+    const s = session([]);
+    attachHookEvents(
+      s,
+      log([
+        hook({ name: "second", ts: "2026-08-25T10:05:00Z" }),
+        hook({ name: "first", ts: "2026-08-25T10:04:00Z" }),
+      ]),
+    );
+    expect(s.orchestrator.hookEvents.map((e) => e.name)).toEqual(["first", "second"]);
+    expect(s.orchestrator.hookEvents.every((e) => e.tsMs === undefined)).toBe(true);
+  });
+
+  it("leaves an event with no readable time where the file put it (#685)", () => {
+    // A `NaN` in the comparator makes the sort order-dependent and its output
+    // meaningless, so an unreadable time inherits the last known one instead.
+    const base = Date.parse("2026-08-25T10:05:00Z");
+    const s = session([]);
+    attachHookEvents(
+      s,
+      log([
+        hook({ name: "first", tsMs: base + 100 }),
+        hook({ name: "unreadable", ts: "" }),
+        hook({ name: "third", tsMs: base + 900 }),
+      ]),
+    );
+    expect(s.orchestrator.hookEvents.map((e) => e.name)).toEqual(["first", "unreadable", "third"]);
   });
 
   it("leaves the horizon null when the log recorded no hook at all", () => {

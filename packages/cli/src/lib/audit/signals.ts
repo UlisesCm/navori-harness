@@ -242,6 +242,55 @@ function friction(session: SessionAudit, lang: Lang): Signal[] {
   ];
 }
 
+/**
+ * Tool errors that are NOT the harness refusing something — the classes the
+ * friction count used to visit and discard (#686).
+ *
+ * Reported separately from `friction` because the two say different things: a
+ * block is the harness working as designed, while a failed command is the agent
+ * getting it wrong and paying context to find out. Across this repo's
+ * transcripts the second was 89 of 117 discarded errors, and worth exactly zero
+ * until now.
+ */
+function toolErrorRate(session: SessionAudit, lang: Lang): Signal[] {
+  const cards = [session.orchestrator, ...session.agents];
+  const sum = (k: "shellFailure" | "toolUnavailable" | "editMiss" | "other"): number =>
+    cards.reduce((n, c) => n + c.toolErrors[k], 0);
+
+  const shellFailure = sum("shellFailure");
+  const toolUnavailable = sum("toolUnavailable");
+  const editMiss = sum("editMiss");
+  const other = sum("other");
+  const total = shellFailure + toolUnavailable + editMiss + other;
+  if (total === 0) return [];
+
+  const parts: string[] = [];
+  if (shellFailure) parts.push(pick(lang, `${shellFailure} shell`, `${shellFailure} shell`));
+  if (toolUnavailable)
+    parts.push(
+      pick(lang, `${toolUnavailable} tool no disponible`, `${toolUnavailable} tool unavailable`),
+    );
+  if (editMiss) parts.push(pick(lang, `${editMiss} edit sin match`, `${editMiss} edit miss`));
+  if (other) parts.push(pick(lang, `${other} otros`, `${other} other`));
+
+  return [
+    {
+      kind: "tool-errors",
+      severity: total >= 20 ? "warn" : "info",
+      summary: pick(
+        lang,
+        `${total} errores de tool llegaron al contexto (${parts.join(", ")})`,
+        `${total} tool errors reached the context (${parts.join(", ")})`,
+      ),
+      evidence: pick(
+        lang,
+        "Cada error entra al contexto y cuesta tokens. Los de shell son la clase grande: un agente que falla comandos está haciendo rework que `repeatedCommands` solo ve si además repite el comando idéntico 3+ veces.",
+        "Each error enters the context and costs tokens. Shell failures are the big class: an agent failing commands is doing rework that `repeatedCommands` only sees when it also repeats the identical command 3+ times.",
+      ),
+    },
+  ];
+}
+
 /** Read-only agents that ran back-to-back when they could have overlapped. */
 function serialFanout(session: SessionAudit, lang: Lang): Signal[] {
   const readOnly = session.agents
@@ -639,6 +688,7 @@ export function detectSignals(
     ...reviewCycles(session, lang),
     ...serialFanout(session, lang),
     ...friction(session, lang),
+    ...toolErrorRate(session, lang),
     ...deadCatalog(session, catalog, lang),
     ...permissionContext(session, lang),
     ...classifierRoundTrips(session, lang),

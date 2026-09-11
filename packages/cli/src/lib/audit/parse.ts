@@ -7,8 +7,10 @@ import {
   type SkillSource,
   type SkillUse,
   type TokenTotals,
+  type ToolErrors,
   addTokens,
   emptyTokens,
+  emptyToolErrors,
 } from "./model.ts";
 
 /**
@@ -53,11 +55,16 @@ function path(rec: Rec, ...keys: string[]): unknown {
  * refused. Successful manual approvals are NOT detectable — a granted prompt
  * is indistinguishable from a pre-approved tool — and the report says so
  * rather than implying full coverage.
+ *
+ * `<tool_use_error>Blocked:` is here because it was MISSING: the guard emits
+ * that spelling and the list only knew `BLOCKED by guard`, so two real blocks
+ * in this repo's transcripts went uncounted. A false negative in a list whose
+ * output is a single integer is invisible by construction (#686).
  */
-const FRICTION_PATTERNS = [
-  "BLOCKED by guard",
+const HARNESS_BLOCK_PATTERNS = ["BLOCKED by guard", "<tool_use_error>Blocked:", "hook error"];
+
+const PERMISSION_DENIED_PATTERNS = [
   "Permission for this action was denied",
-  "hook error",
   "The user doesn't want to proceed",
 ];
 
@@ -430,19 +437,61 @@ function collectMcpCalls(uses: Rec[]): Record<string, Record<string, number>> {
   return servers;
 }
 
-/** Blocks and denials that reached the model's context (and so cost tokens). */
-function countFriction(lines: Rec[]): number {
-  let n = 0;
+/**
+ * What caused ONE error result, by the only part of it that is stable.
+ *
+ * Order matters where a message could satisfy two rules: a guard block is
+ * reported as a block, not as the `<tool_use_error>` it happens to arrive in.
+ */
+function classifyToolError(text: string): keyof ToolErrors {
+  if (HARNESS_BLOCK_PATTERNS.some((p) => text.includes(p))) return "harnessBlock";
+  if (PERMISSION_DENIED_PATTERNS.some((p) => text.includes(p))) return "permissionDenied";
+  if (text.includes("No such tool available")) return "toolUnavailable";
+  if (text.includes("String to replace not found")) return "editMiss";
+  // The shell's own failures arrive as the tool result's first line, so the
+  // prefix is the test — `includes` would also match a command that merely
+  // PRINTED the words while succeeding at something else.
+  if (text.trimStart().startsWith("Exit code ")) return "shellFailure";
+  return "other";
+}
+
+/**
+ * Every error result that reached the model's context (and so cost tokens),
+ * grouped by cause.
+ *
+ * This loop already visited each of these blocks; until #686 it returned a
+ * single integer and dropped 70% of what it had read.
+ */
+function countToolErrors(lines: Rec[]): ToolErrors {
+  const errors = emptyToolErrors();
   for (const l of lines) {
     if (str(l.type) !== "user") continue;
     for (const block of arr(path(l, "message", "content"))) {
       if (!isRec(block) || block.is_error !== true) continue;
       const text =
         typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-      if (FRICTION_PATTERNS.some((p) => text.includes(p))) n++;
+      errors[classifyToolError(text)]++;
     }
   }
-  return n;
+  return errors;
+}
+
+/**
+ * Blocks and denials, which is what `frictionEvents` has always meant.
+ *
+ * Deriving it keeps the existing signal and the published JSON on the same axis
+ * they were on — the breakdown widens what is RECORDED, not what this number
+ * counts. It does move by the two blocks the pattern list used to miss, and
+ * that difference is the bug being fixed.
+ */
+function frictionOf(errors: ToolErrors): number {
+  return errors.harnessBlock + errors.permissionDenied;
+}
+
+/** Both error fields of a card, from a single pass over the transcript. */
+function errorFields(lines: Rec[]): { frictionEvents: number; toolErrors: ToolErrors } {
+  const toolErrors = countToolErrors(lines);
+  return { frictionEvents: frictionOf(toolErrors), toolErrors };
 }
 
 /**
@@ -560,7 +609,7 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
     // Filled by `attachHookEvents` once the session log has been read: the
     // events live in the harness's own log, not in the transcript.
     hookEvents: [],
-    frictionEvents: countFriction(lines),
+    ...errorFields(lines),
     repeatedCommands: repeatedCommands(uses),
     verdict: findVerdict(lines),
   };
@@ -706,7 +755,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
       skillsDiscarded: skills.discarded,
       mcpCalls: collectMcpCalls(uses),
       hookEvents: [],
-      frictionEvents: countFriction(lines),
+      ...errorFields(lines),
       repeatedCommands: repeatedCommands(uses),
     },
     agents,
@@ -825,10 +874,11 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     if (reason) event.reason = reason;
     const agentId = str(rec.agentId);
     if (agentId) event.agentId = agentId;
+    if (typeof rec.tsMs === "number" && Number.isFinite(rec.tsMs)) event.tsMs = rec.tsMs;
     events.push(event);
   }
 
-  for (const event of events) {
+  for (const event of chronological(events)) {
     const owner = ownerOf(event, session);
     owner.push(event);
   }
@@ -836,13 +886,54 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
   // The recorder's horizon. Taken as a MINIMUM rather than the first line
   // because the log is appended to by hooks of parallel agents, and two writes
   // racing on the same append leave the file ordered by arrival, not by `ts`.
+  // Still a minimum over the UNSORTED events, not `chronological(events)[0]`:
+  // a log written before `tsMs` existed can only be ordered as well as its
+  // second-resolution `ts` allows, and the minimum does not depend on that.
   let earliest = Number.POSITIVE_INFINITY;
   for (const event of events) {
-    const at = Date.parse(event.ts);
+    const at = eventAt(event);
     if (!Number.isFinite(at) || at >= earliest) continue;
     earliest = at;
     session.hookLogFrom = event.ts;
   }
+}
+
+/**
+ * When an event happened, in epoch milliseconds.
+ *
+ * `tsMs` wins whenever the writer recorded it (#685). `ts` is stamped by `date`
+ * at second resolution and TRUNCATES, so it reads up to 999 ms early — always
+ * in the same direction, which is what makes it unsafe at a window boundary.
+ * The `ts` fallback is what keeps logs written before the field parseable.
+ */
+function eventAt(event: HookEvent): number {
+  if (event.tsMs !== undefined) return event.tsMs;
+  return Date.parse(event.ts);
+}
+
+/**
+ * The events in the order they actually happened.
+ *
+ * File order is ARRIVAL order — parallel agents append to one log — so it was
+ * never the chronology, and `ts` alone could not repair it: 84% of a measured
+ * session's events share their second with another. `tsMs` can, so a card now
+ * lists its hooks in the order they ran.
+ *
+ * An event whose time cannot be read inherits the last known one instead of
+ * becoming `NaN`. That keeps the comparator total (a `NaN` makes `sort`
+ * order-dependent and its result meaningless) and leaves such events exactly
+ * where the file put them, which is the only information left about them.
+ */
+function chronological(events: HookEvent[]): HookEvent[] {
+  let last = 0;
+  return events
+    .map((event, index) => {
+      const at = eventAt(event);
+      if (Number.isFinite(at)) last = at;
+      return { event, index, at: last };
+    })
+    .sort((a, b) => a.at - b.at || a.index - b.index)
+    .map((keyed) => keyed.event);
 }
 
 /** Which run's card an event belongs on. */
@@ -892,8 +983,11 @@ function ownerOf(event: HookEvent, session: SessionAudit): HookEvent[] {
     return byId ? byId.hookEvents : session.orchestrator.hookEvents;
   }
 
-  if (event.ts) {
-    const at = Date.parse(event.ts);
+  if (event.tsMs !== undefined || event.ts) {
+    // `eventAt` prefers `tsMs`, and the window is exactly where that matters:
+    // the transcript states an agent's bounds in milliseconds, so a `ts`
+    // truncated to the second can fall short of a start it actually followed.
+    const at = eventAt(event);
     if (Number.isFinite(at)) {
       const inWindow = session.agents.filter((a) => {
         const from = Date.parse(a.startedAt);
