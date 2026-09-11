@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { HarnessCatalog } from "../harness.ts";
 import type { AgentRun, SessionAudit } from "../model.ts";
-import { emptyTokens } from "../model.ts";
+import { emptyTokens, emptyToolErrors } from "../model.ts";
 import { detectSignals } from "../signals.ts";
 
 function agent(over: Partial<AgentRun> = {}): AgentRun {
@@ -26,6 +26,7 @@ function agent(over: Partial<AgentRun> = {}): AgentRun {
     mcpBarredTokens: {},
     hookEvents: [],
     frictionEvents: 0,
+    toolErrors: emptyToolErrors(),
     repeatedCommands: {},
     verdict: null,
     ...over,
@@ -63,6 +64,7 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
       mcpCalls: {},
       hookEvents: [],
       frictionEvents: 0,
+      toolErrors: emptyToolErrors(),
       repeatedCommands: {},
     },
     agents: [],
@@ -166,6 +168,38 @@ describe("signal: unreachable-instructions", () => {
     });
     const found = detectSignals(s, c, "es").find((x) => x.kind === "unreachable-instructions");
     expect(found?.tokens).toBe(1100);
+  });
+});
+
+describe("signal: tool-errors (#686)", () => {
+  const withErrors = (over: Partial<AgentRun["toolErrors"]>): SessionAudit =>
+    session({ agents: [agent({ toolErrors: { ...emptyToolErrors(), ...over } })] });
+
+  it("stays quiet when nothing failed", () => {
+    expect(kinds(session({ agents: [agent()] }), catalog())).not.toContain("tool-errors");
+  });
+
+  it("reports the classes the friction count used to discard", () => {
+    const found = detectSignals(withErrors({ shellFailure: 7, editMiss: 1 }), catalog(), "es").find(
+      (x) => x.kind === "tool-errors",
+    );
+    expect(found?.summary).toContain("8 errores de tool");
+    expect(found?.summary).toContain("7 shell");
+    expect(found?.severity).toBe("info");
+  });
+
+  it("does not double-count what `friction` already reports", () => {
+    // A block is the harness working as designed; a failed command is the agent
+    // getting it wrong. Reporting the first in both places would inflate both.
+    const s = withErrors({ harnessBlock: 5, permissionDenied: 5 });
+    expect(kinds(s, catalog())).not.toContain("tool-errors");
+  });
+
+  it("escalates to warn at the same threshold as friction", () => {
+    const found = detectSignals(withErrors({ shellFailure: 20 }), catalog(), "es").find(
+      (x) => x.kind === "tool-errors",
+    );
+    expect(found?.severity).toBe("warn");
   });
 });
 
