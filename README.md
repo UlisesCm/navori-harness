@@ -137,10 +137,18 @@ release hasta que ya aterrizó.
    inconsistente y pone en rojo el primer CI de `main` posterior al release (`pnpm check:render`,
    #421). Yendo por PR eso se ve antes de aterrizar; era justo el punto ciego del push directo.
 3. Commit `chore(release): navori vX.Y.Z` — incluye el bump **y** el re-render del paso 2.
-4. Tag `vX.Y.Z` (después del re-render, nunca antes) **y púshalo**:
-   `git tag -a vX.Y.Z <commit del paso 3> && git push origin vX.Y.Z`. El tag apunta al
-   commit `chore(release)`, como `v0.8.2` → `285fa51` y `v0.8.3` → `6f32a00`. Sin push
-   nadie más lo ve y `check:assets` sigue comparando contra el release anterior.
+4. Tag `vX.Y.Z` — **automático desde 0.8.6**. `release-tag.yml` se dispara cuando
+   `packages/cli/package.json` cambia en `main`, y crea y pushea el tag anotado sobre ese
+   commit si no existe ya. Es idempotente, así que re-correrlo no hace nada.
+
+   Está automatizado porque el paso se saltó en **0.8.4 y en 0.8.5**, y el segundo fue
+   *después* de escribir aquí el comando exacto. El daño es diferido y silencioso:
+   `check-asset-commands.mjs` compara contra el tag más nuevo, así que un release sin tag
+   lo deja validando contra el anterior — sigue diciendo "existe en v0.8.3" para un parque
+   que ya va en 0.8.4, y no falla nada.
+
+   Si hace falta a mano: `git tag -a vX.Y.Z <commit del paso 3> && git push origin vX.Y.Z`.
+   El tag apunta al commit `chore(release)`, como `v0.8.2` → `285fa51` y `v0.8.3` → `6f32a00`.
 5. `npm publish` desde `packages/cli`.
 
 El footer del website imprime la versión importando el `package.json` del CLI

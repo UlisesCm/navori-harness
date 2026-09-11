@@ -1,0 +1,64 @@
+# Tags a release the moment its commit lands on `main`.
+#
+# WHY THIS IS A WORKFLOW AND NOT A LINE IN THE README. The tag step is written
+# in `README.md` § Releases — step 4, with the exact command — and it was still
+# skipped in BOTH 0.8.4 and 0.8.5. The 0.8.5 miss happened *after* the README
+# was corrected to spell it out, so the documentation is not the gap.
+#
+# Skipping it is silent and the damage is deferred: `check-asset-commands.mjs`
+# compares the working tree against the NEWEST TAG, so an untagged release makes
+# it validate against the previous one — it keeps saying "exists in v0.8.3" for a
+# park already on 0.8.4. Nothing fails; the check just answers a question nobody
+# asked any more.
+#
+# Idempotent by construction: it only creates `v<version>` when that tag does not
+# already exist, so re-running it, or a `packages/cli/package.json` touched for
+# any other reason, is a no-op.
+name: Tag release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # The manifest is the single source of the published version, so its
+      # change is the only reliable signal that a release landed. Matching on
+      # the commit message instead would depend on the squash title surviving,
+      # which is not something this repo should bet a release artifact on.
+      - "packages/cli/package.json"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags must be present to tell "already tagged" from "not yet".
+          fetch-depth: 0
+
+      - id: version
+        run: echo "v=$(node -p "require('./packages/cli/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push the tag when it is missing
+        env:
+          TAG: v${{ steps.version.outputs.v }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists — nothing to do."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Annotated, like every tag this repo has: `git describe` and the
+          # asset check both read the tag list, and a lightweight tag would sort
+          # differently under `--sort=-creatordate`.
+          git tag -a "$TAG" -m "navori ${TAG#v}"
+          git push origin "$TAG"
+          echo "tagged $TAG at $(git rev-parse --short HEAD)"
