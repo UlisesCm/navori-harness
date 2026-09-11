@@ -84,12 +84,56 @@ export interface AgentRun {
    *  only ever sees a hook that blocked or injected, so this is the sole
    *  evidence that a hook ran and let the action through. */
   hookEvents: HookEvent[];
-  /** Hook blocks and permission denials that reached this agent's context. */
+  /** Hook blocks and permission denials that reached this agent's context.
+   *  DERIVED from `toolErrors` (`harnessBlock + permissionDenied`) so the number
+   *  keeps the meaning it has always had while the breakdown carries the rest. */
   frictionEvents: number;
+  /** The same errors in full, by cause — including the classes the old count
+   *  visited and threw away (#686). */
+  toolErrors: ToolErrors;
   /** Normalized Bash commands run 3+ times, and how often. Repetition = rework. */
   repeatedCommands: Record<string, number>;
   /** Verdict string found in the run's output, when the agent emits one. */
   verdict: "APPROVED" | "CHANGES_REQUESTED" | null;
+}
+
+/**
+ * Every `is_error` tool result that reached the model's context, by cause.
+ *
+ * The parser already had to visit each of these to find the four literals it
+ * kept, so the classification costs nothing new — and what it used to discard
+ * was most of the file: 117 of 168 error blocks across this repo's transcripts
+ * (70%), of which 89 were shell commands that failed (#686).
+ *
+ * Classified by PREFIX, never by parsing a tool's free-form message: `Exit
+ * code`, `<tool_use_error>` and the guard's own literal are stable, and a
+ * heuristic over arbitrary tool prose ages badly.
+ */
+export interface ToolErrors {
+  /** A navori hook refused the action (the guard's block, or a hook error). */
+  harnessBlock: number;
+  /** The permission layer or the user refused it. */
+  permissionDenied: number;
+  /** A shell command came back non-zero. The largest class, and the one that
+   *  used to be worth nothing: an agent failing commands is doing rework. */
+  shellFailure: number;
+  /** The agent called a tool its own `tools:` does not grant. */
+  toolUnavailable: number;
+  /** An `Edit` whose target string was not in the file. */
+  editMiss: number;
+  /** Everything else that came back `is_error`. */
+  other: number;
+}
+
+export function emptyToolErrors(): ToolErrors {
+  return {
+    harnessBlock: 0,
+    permissionDenied: 0,
+    shellFailure: 0,
+    toolUnavailable: 0,
+    editMiss: 0,
+    other: 0,
+  };
 }
 
 /** How a skill was detected, which is not the same as how much it is worth.
@@ -270,6 +314,7 @@ export interface SessionAudit {
     mcpCalls: Record<string, Record<string, number>>;
     hookEvents: HookEvent[];
     frictionEvents: number;
+    toolErrors: ToolErrors;
     repeatedCommands: Record<string, number>;
   };
   agents: AgentRun[];

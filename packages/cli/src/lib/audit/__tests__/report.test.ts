@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildReport, renderMarkdown } from "../report.ts";
 import type { HarnessCatalog } from "../harness.ts";
-import { type AgentRun, type SessionAudit, emptyTokens } from "../model.ts";
+import { type AgentRun, type SessionAudit, emptyTokens, emptyToolErrors } from "../model.ts";
 
 /**
  * Spec 0013 — the report's job changed from "one line per agent" to "one card
@@ -34,6 +34,7 @@ function agent(over: Partial<AgentRun> = {}): AgentRun {
     mcpBarredTokens: {},
     hookEvents: [],
     frictionEvents: 0,
+    toolErrors: emptyToolErrors(),
     repeatedCommands: {},
     verdict: null,
     ...over,
@@ -70,6 +71,7 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
       mcpCalls: {},
       hookEvents: [],
       frictionEvents: 0,
+      toolErrors: emptyToolErrors(),
       repeatedCommands: {},
     },
     agents,
