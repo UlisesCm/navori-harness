@@ -49,6 +49,34 @@ export const WORKFLOW_SKILLS: ReadonlyArray<string> = [
   "babysit-prs",
 ];
 
+/**
+ * Skill ids navori USED to ship and no longer does. Append-only: an entry is a
+ * historical fact, so it is never removed once added.
+ *
+ * Without it a retired skill lives forever in every already-onboarded repo
+ * (#702). `render` only ever visits what it currently renders, `--prune` covers
+ * outputs of DISABLED ENGINES, and `doctor` says nothing — so the file stays on
+ * disk, and Claude Code keeps loading it because it discovers skills by walking
+ * the directory, not by reading the index navori renders. A retired skill is not
+ * an inert file: it is doctrine the agent still reads, and if it was retired for
+ * being wrong, the repo keeps exactly the version somebody wanted gone.
+ *
+ * A LIST rather than a directory scan, for the reason §8.7 of the Claude engine
+ * already gives about library skills: the set of valid destinations is only
+ * complete when the render fully succeeded, so a scan would hard-delete still
+ * valid managed files whenever a preset failed to load. These ids are known to
+ * be retired independently of any config, so they carry no such failure mode.
+ *
+ * Removal stays marker-gated and version-gated on top of this (a user's own
+ * `<id>/SKILL.md` at the same path is never touched), so the list decides WHICH
+ * ids to consider, never whether a given file may be deleted.
+ */
+export const RETIRED_SKILLS: ReadonlyArray<string> = [
+  // #703: pointed at `commit-pr-pilot` to keep one owner for commit+PR, and
+  // justified itself with a reference `ticket-intake` never had. 0 invocations.
+  "pr-create",
+];
+
 export function isAgentEnabled(
   config: NavoriConfig,
   key: keyof NonNullable<NavoriConfig["harness"]>,
