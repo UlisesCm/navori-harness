@@ -78,14 +78,29 @@ import shlex
 import sys
 from collections import Counter, defaultdict
 
-AUDITS = os.path.expanduser("~/.navori/audits")
-PROJECTS = os.path.expanduser("~/.claude/projects")
+# Redirigibles por entorno para que un test pueda apuntarlos a un sandbox — las
+# mismas variables que respeta el CLI (`NAVORI_AUDITS_ROOT`,
+# `NAVORI_TRANSCRIPTS_ROOT`), porque un segundo nombre para el mismo store es un
+# segundo lugar donde se desincroniza.
+AUDITS = os.environ.get("NAVORI_AUDITS_ROOT") or os.path.expanduser("~/.navori/audits")
+PROJECTS = os.environ.get("NAVORI_TRANSCRIPTS_ROOT") or os.path.expanduser("~/.claude/projects")
 
 WRAPPER = "tgrep-search.sh"
 VERBS = ("grep", "egrep", "fgrep", "rg")
 
-# Las que entran al cociente de #661. Las otras dos se reportan y no suman.
+# Las que entran al cociente de #661. Las demás se reportan y no suman.
 SCORED = ("wrapper", "nativo", "shell")
+
+# #720 — las vías que el guard NO ancla y que por eso son la migración de
+# mínima fricción: se cuentan aparte para que esa migración sea visible, y no
+# puntúan porque su estatus no es el mismo que el de un `grep -rn`.
+#
+#   git-grep   legítimo solo para dot-dirs (ahí `--hidden` degrada a scan
+#              bruto); el guard lo redirige en cualquier otro caso.
+#   indirecta  `xargs grep`, `find -exec grep`: el mismo trabajo, un nivel de
+#              indirección después. El guard las deja pasar y el minero las
+#              leía como "filtro" o no las veía en absoluto.
+UNSCORED_ROUTES = ("git-grep", "indirecta")
 
 # Separadores de shell que terminan un comando. El `|` se trata aparte porque
 # es el ÚNICO que cambia la naturaleza de lo que sigue: tras un pipe, grep lee
@@ -128,7 +143,29 @@ def classify_segment(seg, piped_into):
         # Comillas sin cerrar: cae al split ingenuo en vez de descartar el
         # segmento. Un comando raro debe contarse mal, no desaparecer.
         toks = seg.split()
-    if not toks or toks[0] not in VERBS:
+    if not toks:
+        return None
+
+    # `git grep` — invisible para las tres capas a la vez hasta #720. Se cuenta
+    # SIEMPRE, con pipe o sin él: no es un filtro de stdin, es una búsqueda del
+    # árbol trackeado.
+    if toks[0] == "git":
+        i = 1
+        while i < len(toks) and toks[i].startswith("-"):
+            # Una opción global de git puede traer su valor en el token siguiente.
+            i += 2 if "=" not in toks[i] and i + 1 < len(toks) and not toks[i + 1].startswith("-") else 1
+        return "git-grep" if i < len(toks) and toks[i] == "grep" else None
+
+    # `xargs grep` y `find … -exec grep`: el mismo trabajo con un nivel de
+    # indirección. El guard tampoco las ancla (ver #720), así que contarlas como
+    # "filtro" —o no contarlas— escondía justo la forma a la que el hábito puede
+    # migrar cuando la directa se bloquea.
+    if toks[0] == "xargs":
+        return "indirecta" if any(t in VERBS for t in toks[1:]) else None
+    if toks[0] == "find":
+        return "indirecta" if any(t in VERBS for t in toks[1:]) else None
+
+    if toks[0] not in VERBS:
         return None
     if piped_into:
         return "filtro"
@@ -199,6 +236,18 @@ def scan():
             repo = session_repo.get(fn[: -len(".jsonl")])
             if repo is None:
                 continue
+            # DOS PASADAS, y la razón es #720/M4: un comando que el guard
+            # bloqueó NUNCA CORRIÓ, pero su `tool_use` está en el transcript
+            # igual — así que sumaba a "shell" y su reintento por el wrapper
+            # sumaba aparte. Cada búsqueda convertida por el guard quedaba a la
+            # mitad en la métrica, y el antes/después de #661 nacía sesgado.
+            #
+            # El veredicto se lee del PROPIO transcript: el bloqueo llega como
+            # `tool_result` con `is_error` y el texto del hook. Eso es exacto y
+            # no necesita cruzar con `~/.navori/audits/` ni correlacionar por
+            # reloj — la lección de #560 y de `ownerOf`.
+            pending = {}
+            blocked = set()
             with open(os.path.join(pdir, fn), errors="replace") as fh:
                 for line in fh:
                     try:
@@ -212,17 +261,34 @@ def scan():
                     if not isinstance(content, list):
                         continue
                     for block in content:
-                        if not isinstance(block, dict) or block.get("type") != "tool_use":
+                        if not isinstance(block, dict):
                             continue
-                        name = block.get("name")
-                        if name == "Grep":
-                            per_repo[repo]["nativo"] += 1
-                            continue
-                        if name != "Bash":
-                            continue
-                        cmd = (block.get("input") or {}).get("command")
-                        if isinstance(cmd, str):
-                            per_repo[repo].update(classify_command(cmd))
+                        kind = block.get("type")
+                        if kind == "tool_use":
+                            name = block.get("name")
+                            if name == "Grep":
+                                per_repo[repo]["nativo"] += 1
+                                continue
+                            if name != "Bash":
+                                continue
+                            cmd = (block.get("input") or {}).get("command")
+                            if isinstance(cmd, str):
+                                pending[block.get("id")] = cmd
+                        elif kind == "tool_result":
+                            # Las DOS condiciones: hay contenido que solo CITA
+                            # la cadena (un archivo del propio guard leído en
+                            # sesión), y sin `is_error` se contarían lecturas
+                            # como bloqueos.
+                            if not block.get("is_error"):
+                                continue
+                            if "BLOCKED by guard-" in json.dumps(block.get("content")):
+                                blocked.add(block.get("tool_use_id"))
+
+            for use_id, cmd in pending.items():
+                if use_id in blocked:
+                    per_repo[repo]["bloqueado"] += 1
+                    continue
+                per_repo[repo].update(classify_command(cmd))
     return per_repo
 
 
@@ -235,7 +301,7 @@ def main(argv):
         return
 
     head = f"{'repo':30s} {'busq':>6s} {'wrapper':>8s} {'nativo':>7s} {'shell':>7s} {'bueno%':>7s}"
-    head += f" {'|filtro':>8s} {'|extrac':>8s}"
+    head += f" {'|filtro':>8s} {'|extrac':>8s} {'|gitgrep':>9s} {'|indir':>7s} {'|blq':>5s}"
     print(head)
     grand = Counter()
     for repo in sorted(per_repo):
@@ -246,19 +312,26 @@ def main(argv):
         pct = (100 * good / total) if total else 0
         print(
             f"{repo[:30]:30s} {total:6d} {c['wrapper']:8d} {c['nativo']:7d} "
-            f"{c['shell']:7d} {pct:6.1f}% {c['filtro']:8d} {c['extraccion']:8d}"
+            f"{c['shell']:7d} {pct:6.1f}% {c['filtro']:8d} {c['extraccion']:8d} "
+            f"{c['git-grep']:9d} {c['indirecta']:7d} {c['bloqueado']:5d}"
         )
     total = sum(grand[k] for k in SCORED)
     good = grand["wrapper"] + grand["nativo"]
     print(
         f"{'TOTAL':30s} {total:6d} {grand['wrapper']:8d} {grand['nativo']:7d} "
         f"{grand['shell']:7d} {(100 * good / total) if total else 0:6.1f}% "
-        f"{grand['filtro']:8d} {grand['extraccion']:8d}"
+        f"{grand['filtro']:8d} {grand['extraccion']:8d} "
+        f"{grand['git-grep']:9d} {grand['indirecta']:7d} {grand['bloqueado']:5d}"
     )
     print()
     print("'bueno%' = (wrapper + nativo) / busq. Es la cifra que #661 mide antes/después.")
-    print("Las dos últimas columnas NO entran al cociente: un pipe no se puede convertir en")
-    print("wrapper, y extraer de un archivo ya conocido es la jugada que la doctrina prefiere.")
+    print("'filtro' y 'extrac' NO entran al cociente: un pipe no se puede convertir en wrapper,")
+    print("y extraer de un archivo ya conocido es la jugada que la doctrina prefiere.")
+    print()
+    print("'gitgrep' e 'indir' tampoco puntúan, y se muestran porque son las vías a las que el")
+    print("hábito puede migrar cuando la directa se bloquea (#720): si suben mientras 'bueno%'")
+    print("sube, la mejora es de forma y no de fondo. 'blq' son comandos que el guard bloqueó —")
+    print("nunca corrieron, así que no suman a 'shell'; su reintento por el wrapper sí cuenta.")
 
 
 if __name__ == "__main__":

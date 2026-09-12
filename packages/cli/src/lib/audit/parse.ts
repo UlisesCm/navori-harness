@@ -261,6 +261,13 @@ function countToolsByMode(lines: Rec[]): Record<string, Record<string, number>> 
  * `git`, `gh`, package managers, `docker` — because those have no native lane
  * to switch to, and counting them would measure how much shell work the task
  * needed rather than which lane the reader chose.
+ *
+ * `git grep` is the exception, and the rationale above is exactly why (#720):
+ * its native lane IS `Grep`. Excluding it with the rest of `git` left the one
+ * shell search that no layer could see — the guard anchored four verbs, the
+ * miner scored the same four, and this set excluded the whole binary — so after
+ * the guard shipped it was the minimum-friction way to keep the habit and drop
+ * out of every measurement at once. The rest of `git` stays out.
  */
 const READ_LANE_BINARIES = new Set([
   "cat",
@@ -315,6 +322,10 @@ function leadingBinary(command: string): string {
 export function isReadLaneCommand(command: string): boolean {
   const bin = leadingBinary(command);
   if (bin === "sed") return /\bsed\s+-n\b/.test(command);
+  // The `git(… -opt …)*` middle is the shape the guards use for `git -C … commit`:
+  // a global option may carry its value glued with `=` or as the next token.
+  if (bin === "git")
+    return /^\s*git(\s+-[a-zA-Z-]+(=\S+)?(\s+[^-]\S*)?)*\s+grep(\s|$)/.test(command);
   return READ_LANE_BINARIES.has(bin);
 }
 

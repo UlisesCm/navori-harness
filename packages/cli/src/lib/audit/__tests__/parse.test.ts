@@ -1011,6 +1011,24 @@ describe("orchestrator model (#607)", () => {
  * leading binary, not a shell parse — so the cases that decide the edges are
  * pinned here.
  */
+describe("git grep is read-lane work (#720)", () => {
+  // The exclusion of `git` was argued as "no native lane to switch to", and for
+  // this subcommand that is false: its native lane IS `Grep`. Leaving it out
+  // was the third of the three blind spots that made `git grep` the
+  // minimum-friction migration after the guard shipped.
+  it("counts it, with or without git global options", () => {
+    expect(isReadLaneCommand("git grep patron")).toBe(true);
+    expect(isReadLaneCommand("git -C /repo grep patron")).toBe(true);
+    expect(isReadLaneCommand("git -c core.x=1 grep patron")).toBe(true);
+  });
+
+  it("leaves the rest of git out, which is what the exclusion was for", () => {
+    expect(isReadLaneCommand("git log --oneline")).toBe(false);
+    expect(isReadLaneCommand("git commit -m 'grep algo'")).toBe(false);
+    expect(isReadLaneCommand("git diff --stat")).toBe(false);
+  });
+});
+
 describe("write-lane classification (#722)", () => {
   /**
    * The forms are the ones `guard-destructive` rule 6 already recognizes, and
