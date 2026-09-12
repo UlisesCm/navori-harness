@@ -84,6 +84,11 @@ function subagentEdit(filePath: string): Record<string, unknown> {
   };
 }
 
+/** A `PostToolUse` payload for a shell command (#722). */
+function bash(command: string): Record<string, unknown> {
+  return { session_id: SESSION, tool_name: "Bash", tool_input: { command } };
+}
+
 function runHook(shell: HookShell, cwd: string, payload: Record<string, unknown>): HookRun {
   const r = spawnSync(shell, [hookPath], {
     input: JSON.stringify(payload),
@@ -431,5 +436,67 @@ describe("stamp hygiene (one file per session, forever, unless someone sweeps)",
       expect(existsSync(recent)).toBe(true); // a live session's stamp survives
       expect(existsSync(join(dir, SESSION))).toBe(true);
     });
+  });
+});
+
+/**
+ * #722 A4 — the threshold only ever accumulated through the NATIVE lane, the
+ * one the dominant mode abandons: Bash is 84.9% of all calls in the measured
+ * park. A `sed -i`, a `tee` or a `>` redirect left no mark, so in the sessions
+ * this notice exists for it was structurally unreachable, and its "2 firings, 1
+ * notice" on day one was not calibration — it was blindness to the input.
+ *
+ * The write forms are the ones `guard-destructive` rule 6 recognizes, and its
+ * table states each exclusion as load-bearing: `>>` appends after the managed
+ * blocks and invalidates no hash, `tee -a` appends too.
+ */
+describe("shell writes reach the threshold too (#722)", () => {
+  it("fires the notice on four files written through the shell", () => {
+    const runs = play([
+      bash("echo x > src/a.ts"),
+      bash("sed -i '' 's/a/b/' src/b.ts"),
+      bash("cat plantilla | tee src/c.ts"),
+      bash("printf '%s' y > src/d.ts"),
+    ]);
+    expect(runs.slice(0, 3).every((r) => r.stdout === "")).toBe(true);
+    expect(runs[3]?.stdout).toContain("routing check");
+    expect(runs[3]?.stdout).toContain("4 distinct files");
+  });
+
+  it("mixes the two lanes, because the session does", () => {
+    // Two edits and two shell writes are four files. Counting only one lane is
+    // what made the threshold unreachable in the mode that matters.
+    const runs = play([
+      edit("src/a.ts"),
+      bash("echo x > src/b.ts"),
+      edit("src/c.ts"),
+      bash("sed -i '' 's/x/y/' src/d.ts"),
+    ]);
+    expect(runs[3]?.stdout).toContain("routing check");
+  });
+
+  it("does not count an append, a read, or a redirect between streams", () => {
+    const runs = play([
+      bash("echo linea >> registro.log"),
+      bash("cat x | tee -a registro.log"),
+      bash("sed -n '1,5p' src/a.ts"),
+      bash("grep -n foo src/a.ts"),
+      bash("pnpm test 2>&1 | tail -5"),
+      bash("ls -la"),
+    ]);
+    expect(runs.every((r) => r.stdout === "")).toBe(true);
+  });
+
+  it("keeps the two filters that already applied to the native lane", () => {
+    // Non-source targets and paths outside the repo were excluded for the
+    // native tools and must stay excluded here: a render that rewrites the
+    // mirror is not a change anyone should delegate.
+    const runs = play([
+      bash("echo x > .claude/settings.json"),
+      bash("echo x > /tmp/afuera.ts"),
+      bash("echo x > progress/current.md"),
+      bash("echo x > pnpm-lock.yaml"),
+    ]);
+    expect(runs.every((r) => r.stdout === "")).toBe(true);
   });
 });

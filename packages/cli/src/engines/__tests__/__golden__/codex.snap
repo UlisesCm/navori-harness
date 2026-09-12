@@ -4947,6 +4947,12 @@ navori_audit_tool=$tool
 # no business with leaves here, having spawned exactly once.
 case "$tool" in
   Agent | Task | Edit | Write | NotebookEdit) ;;
+  # #722 A4: a `Bash` that WRITES counts too. Without it the threshold only ever
+  # accumulated through the native lane — the one the dominant mode abandons
+  # (84.9% of calls are Bash) — so in the sessions this notice exists for it was
+  # structurally unreachable. The extra work is gated twice below: only for
+  # Bash, and only when the payload even contains a write token.
+  Bash) ;;
   *) exit 0 ;;
 esac
 
@@ -5062,31 +5068,70 @@ navori_is_source() {
   return 1
 }
 
-file=$(payload_field tool_input.file_path)
-# NotebookEdit has carried its target under `notebook_path` in some host
-# versions; without this the tool would contribute nothing and never say so.
-[ -n "$file" ] || file=$(payload_field tool_input.notebook_path)
-[ -n "$file" ] || exit 0
+# The candidate targets: one for a native tool, possibly several for a shell
+# command that writes more than once.
+if [ "$tool" = "Bash" ]; then
+  # Fork-free gate first, on the payload navori already holds: no write token,
+  # nothing to extract. This hook fires on EVERY tool call and Bash is most of
+  # them, so the second payload read has to be earned (same discipline as #716).
+  case "${payload:-}" in
+    *">"* | *sed* | *tee*) ;;
+    *) exit 0 ;;
+  esac
+  navori_cmd=$(extract_cmd)
+  [ -n "$navori_cmd" ] || exit 0
+  # The three forms `guard-destructive` rule 6 recognizes, and only those:
+  # `>>` and `tee -a` append, which is why neither appears here. One `grep -oE`
+  # pass, because a shell-level parse of every redirect is not worth a fork per
+  # operand — and this is a counter, not a gate.
+  files=$(printf '%s' "$navori_cmd" | grep -oE '(>\|?[[:space:]]*|(^|[[:space:]])tee[[:space:]]+)[^[:space:]|&;<>]+' 2>/dev/null \
+    | sed -E -e 's/^[[:space:]]*//' -e 's/^>\|?[[:space:]]*//' -e 's/^tee[[:space:]]+//' -e 's/^[[:space:]]*//' \
+    | grep -v '^-' || true)
+  # `sed -i` names its target last, and the redirect pass above cannot see it.
+  case "$navori_cmd" in
+    *"sed "*-i*)
+      navori_last=${navori_cmd##* }
+      case "$navori_last" in
+        -*) ;;
+        *) files=$(printf '%s\n%s' "$files" "$navori_last") ;;
+      esac
+      ;;
+  esac
+else
+  files=$(payload_field tool_input.file_path)
+  # NotebookEdit has carried its target under `notebook_path` in some host
+  # versions; without this the tool would contribute nothing and never say so.
+  [ -n "$files" ] || files=$(payload_field tool_input.notebook_path)
+fi
+[ -n "$files" ] || exit 0
 
-# Repo-relative, or not counted at all. The hook `cd`s to CLAUDE_PROJECT_DIR
-# above, so $PWD is the repo root.
-#
-# Without this the count included files that reach no diff: a scratch script
-# under /tmp, another repo's file opened in the same session. Measured on the
-# park, 13.4% of what the activation miner called "source writes" were exactly
-# that — and this hook had the same hole, so its notice could fire on a session
-# that had written nothing but scaffolding.
-case $file in
-  "$PWD"/*) file=${file#"$PWD"/} ;;
-  /*) exit 0 ;;
-esac
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  # Quotes survive the extraction above; a path is what is inside them.
+  file=$(printf '%s' "$file" | tr -d "\"'")
 
-# And only what carries behavior. A render that rewrites 45 mirror files is not
-# a change anyone should delegate, and counting it as four was how this notice
-# could fire on a release.
-navori_is_source "$file" || exit 0
+  # Repo-relative, or not counted at all. The hook `cd`s to CLAUDE_PROJECT_DIR
+  # above, so $PWD is the repo root.
+  #
+  # Without this the count included files that reach no diff: a scratch script
+  # under /tmp, another repo's file opened in the same session. Measured on the
+  # park, 13.4% of what the activation miner called "source writes" were exactly
+  # that — and this hook had the same hole, so its notice could fire on a session
+  # that had written nothing but scaffolding.
+  case $file in
+    "$PWD"/*) file=${file#"$PWD"/} ;;
+    /*) continue ;;
+  esac
 
-mark "path:$file"
+  # And only what carries behavior. A render that rewrites 45 mirror files is not
+  # a change anyone should delegate, and counting it as four was how this notice
+  # could fire on a release.
+  navori_is_source "$file" || continue
+
+  mark "path:$file"
+done <<NAVORI_FILES
+$files
+NAVORI_FILES
 
 count=$(grep -c '^path:' "$stamp" 2>/dev/null) || count=0
 [ "${count:-0}" -ge "$threshold" ] 2>/dev/null || exit 0
