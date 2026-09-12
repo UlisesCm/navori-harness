@@ -4,6 +4,7 @@ import {
   type AuditReport,
   type HookEvent,
   type SessionAudit,
+  type SkillSource,
   type TokenTotals,
   addTokens,
   emptyTokens,
@@ -343,13 +344,41 @@ function agentCard(
   return `${head}\n\n\`\`\`\n${rows.join("\n")}\n\`\`\``;
 }
 
+/**
+ * The label for each `SkillSource`.
+ *
+ * A ternary covered two of what were three values, so `host` — the ONE source
+ * that is not an inference — printed with the label of the weakest one (#725,
+ * B1). It was latent only because the OTel channel it comes from has never
+ * carried a real event. Exhaustive now, so the next source added has to answer
+ * this question at the compiler rather than inherit the wrong answer.
+ */
+function skillSourceLabel(source: SkillSource, lang: Lang): string {
+  switch (source) {
+    case "host":
+      return t(lang, "declarada por el host", "declared by the host");
+    case "skill-tool":
+      return t(lang, "tool Skill", "Skill tool");
+    case "attribution":
+      return t(lang, "tramo atribuido", "attributed span");
+    case "skill-md":
+      return t(lang, "SKILL.md leído", "SKILL.md read");
+  }
+}
+
 function skillsLine(a: AgentRun, lang: Lang): string {
   if (a.skills.length === 0 && a.skillsDiscarded === 0) return t(lang, "—", "—");
   const used = a.skills
-    .map(
-      (sk) =>
-        `${sk.slug} (${sk.source === "skill-tool" ? t(lang, "tool Skill", "Skill tool") : t(lang, "SKILL.md leído", "SKILL.md read")})`,
-    )
+    .map((sk) => {
+      // The span is what attribution adds over every other source: not "it was
+      // invoked" but "this much work happened under it, and it cost this much".
+      const span =
+        sk.attributedRecords !== undefined
+          ? `, ${sk.attributedRecords} ${t(lang, "msj", "msg")}` +
+            (sk.attributedOutputTokens ? ` / ${k(sk.attributedOutputTokens)} tok` : "")
+          : "";
+      return `${sk.slug} (${skillSourceLabel(sk.source, lang)}${span})`;
+    })
     .join(", ");
   // The discard is stated, never silent: it is the difference between "used no
   // skills" and "walked past eleven of them while listing the index".
