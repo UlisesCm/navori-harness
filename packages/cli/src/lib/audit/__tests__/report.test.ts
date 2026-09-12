@@ -71,6 +71,7 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
       startupTokens: 0,
       models: {},
       shellReads: 0,
+      shellWrites: 0,
       toolCounts: {},
       toolCountsByMode: {},
       skillsRead: [],

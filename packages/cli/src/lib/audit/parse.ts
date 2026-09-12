@@ -318,6 +318,46 @@ export function isReadLaneCommand(command: string): boolean {
   return READ_LANE_BINARIES.has(bin);
 }
 
+/**
+ * Is this Bash call WRITING a file? (#722)
+ *
+ * The three forms are not invented here: they are the ones `guard-destructive`
+ * rule 6 already recognizes, and its table states each exclusion as
+ * load-bearing — `>>` appends after the blocks and invalidates no hash, `tee -a`
+ * is an append too. Mirroring that list instead of writing a fourth definition
+ * is the same choice #699 made for "source file": one definition, several
+ * consumers, or they drift and the gap is exactly what nobody measures.
+ *
+ * What this is FOR is the half nobody could size. Rule 6 only blocks writes to
+ * MANAGED targets, and `signals.ts` keeps writes out of the read-lane ratio on
+ * purpose, so a `sed -i` over `src/foo.ts` touched no layer and entered no
+ * number. The lane where 84.9% of the calls live had no instrument at all.
+ *
+ * Approximate by construction, and in the safe direction: it reads the command
+ * text, so a write hidden behind `sh -c` or a variable does not count. An
+ * undercount of a habit is a floor; inventing writes would be worse.
+ */
+export function isWriteLaneCommand(command: string): boolean {
+  // `>>` and `>|` differ by one character and mean opposite things, so the
+  // redirect test runs on the raw text rather than through the binary.
+  if (/(^|[^>\d])>(?![>])\|?\s*[^\s|&;]/.test(command)) return true;
+  if (/\bsed\s+(-[A-Za-z]*\s+)*-[A-Za-z]*i\b/.test(command)) return true;
+  // `tee -a` appends; bare `tee` overwrites.
+  if (/\btee\b(?![^|&;]*\s-a\b)/.test(command)) return true;
+  return false;
+}
+
+/** How many of these Bash calls wrote a file (#722). */
+function countShellWrites(uses: Rec[]): number {
+  let n = 0;
+  for (const u of uses) {
+    if (str(u.name) !== "Bash") continue;
+    const cmd = str(path(u, "input", "command"));
+    if (cmd && isWriteLaneCommand(cmd)) n++;
+  }
+  return n;
+}
+
 /** How many of these Bash calls read or searched files. */
 function countShellReads(uses: Rec[]): number {
   let n = 0;
@@ -804,6 +844,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
       startupTokens: startupTokensOf(lines),
       models: countModels(lines),
       shellReads: countShellReads(uses),
+      shellWrites: countShellWrites(uses),
       toolCounts: countTools(uses),
       toolCountsByMode: countToolsByMode(lines),
       skillsRead: skills.skills.map((sk) => sk.slug),
