@@ -222,6 +222,14 @@ lee sin romper en una anterior.
   hace con la heurística de skills — cambiar inferencia por dato declarado. Es el tercer punto ciego
   natural, y la razón de dejarlo fuera es de secuencia, no de valor.
 
+  **Entró en #698**, cumplida esa condición. Con una diferencia respecto a lo previsto aquí: NO
+  reemplaza la taxonomía de #686 ni se mapea sobre ella. Las seis clases de navori y las cadenas
+  del host responden la misma pregunta desde fuentes distintas, y forzar la equivalencia habría
+  inventado justo la inferencia que el dato declarado viene a quitar — así que el reporte muestra
+  las dos y el lector compara. Se persisten solo los `tool_result` que fallaron: el host lo emite
+  en cada llamada de herramienta, y es el mismo argumento de volumen que mantiene a `api_request`
+  fuera salvo que nombre una skill.
+
 - **Las métricas de OTel.** Son otra señal, otro exportador y otro consumidor. navori ya deriva de
   tokens lo que las métricas darían agregado.
 

@@ -300,6 +300,54 @@ describe("startReceiver (#0021)", () => {
     });
   });
 
+  it("persiste el tool_result que falló, y descarta el que no (#698)", async () => {
+    markSession("sess-err");
+    const r = await receiver();
+    await post(
+      r.url,
+      otlpBatch([
+        {
+          "event.name": "tool_result",
+          "event.timestamp": "2026-09-12T18:30:00.000Z",
+          "session.id": "sess-err",
+          tool_name: "Bash",
+          success: "false",
+          error_type: "ShellError",
+          duration_ms: "1240",
+          // Only reaches the wire with OTEL_LOG_TOOL_DETAILS=1, and the
+          // allowlist persists categories, never content (R8).
+          error: "fatal: not a git repository",
+        },
+        {
+          "event.name": "tool_result",
+          "event.timestamp": "2026-09-12T18:30:01.000Z",
+          "session.id": "sess-err",
+          tool_name: "Read",
+          success: "true",
+          duration_ms: "12",
+        },
+      ]),
+    );
+
+    const raw = readFileSync(sessionLogPath(REPO, "sess-err"), "utf-8");
+    expect(raw).not.toContain("not a git repository");
+
+    const lines = linesOf("sess-err");
+    expect(lines[2]).toEqual({
+      ts: "2026-09-12T18:30:00Z",
+      tsMs: Date.parse("2026-09-12T18:30:00.000Z"),
+      event: "tool_result",
+      tool: "Bash",
+      errorType: "ShellError",
+      ms: 1240,
+    });
+    // The successful one is volume with no reader: the host emits this once per
+    // tool call, and the session log already runs to thousands of lines — the
+    // same argument that keeps `api_request` out unless it names a skill.
+    expect(lines).toHaveLength(3);
+    expect(r.stats()).toEqual({ written: 1, discarded: 1, sessions: 1 });
+  });
+
   // Covers: R5, R8
   it("no persiste el texto del prompt aunque el emisor lo mande", async () => {
     markSession("sess-prompt");

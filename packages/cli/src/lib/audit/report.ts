@@ -860,6 +860,22 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
     out.push("", `### ${t(lang, "Decisiones de permiso", "Permission decisions")}`, "");
     out.push(permissionsBlock(s, lang));
 
+    // #698 — the two taxonomies side by side, which is the whole point: one is
+    // what navori could infer from a free-text result, the other is what the
+    // host declared about the same failure. Showing both is what makes the
+    // comparison possible; mapping one onto the other would have destroyed it.
+    const declared = Object.entries(s.toolErrorTypes).sort((a, b) => b[1] - a[1]);
+    if (declared.length > 0) {
+      out.push(
+        "",
+        t(
+          lang,
+          `**Errores declarados por el host:** ${declared.map(([k, n]) => `${k} ${n}`).join(" · ")}. La taxonomía de arriba se infiere de la primera línea del resultado y envejece cada vez que una herramienta reescribe su mensaje; ésta es la categoría que el host mismo puso. No se mapean entre sí a propósito — inventar esa equivalencia sería la inferencia que este dato viene a quitar.`,
+          `**Error categories declared by the host:** ${declared.map(([k, n]) => `${k} ${n}`).join(" · ")}. The taxonomy above is inferred from the first line of a result and ages every time a tool rewrites its message; this one is the category the host itself set. They are deliberately not mapped onto each other — inventing that equivalence is the inference this data removes.`,
+        ),
+      );
+    }
+
     const skills = [
       ...new Set([...s.orchestrator.skillsRead, ...s.agents.flatMap((a) => a.skillsRead)]),
     ];

@@ -89,6 +89,7 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
     hookLogFrom: null,
     otelFrom: null,
     permissions: emptyPermissionDecisions(),
+    toolErrorTypes: {},
     hostSkills: [],
     parseErrors: 0,
     linesRead: 10,
