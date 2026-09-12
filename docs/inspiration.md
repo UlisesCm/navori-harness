@@ -17,6 +17,7 @@
 |----------|-----------|----------------------------|
 | [gstack](#gstack) | Factory de skills + roles | Skills encadenadas por rol; multi-host; cross-model review |
 | [gentle-ai](#gentle-ai) | Configurador de ecosistema | SDD + memoria persistente + routing por fase (muy cercano a navori) |
+| [claude-code-harness](#claude-code-harness-cch) | Harness multi-engine + guardrails | Un motor de políticas para N hosts; guardrail con veredicto "indeterminado"; contratos JSON entre agentes |
 | [codegraph](#codegraph) | Code intelligence (MCP) | Contexto quirúrgico vía grafo; eficiencia de tokens (con contraparte) |
 | [graphify](#graphify) | Code intelligence (MCP) | Knowledge graph multi-fuente (código+docs); extracción determinista sin LLM |
 | [ponytail](#ponytail) | Ruleset anti-over-engineering | Escalera de decisión "lazy senior" (paralelo a structural-search) |
@@ -26,6 +27,7 @@
 | [caveman](#caveman) | Compresión de output | Eficiencia de tokens vía skill de brevedad |
 | [Goose](#goose) | Agente open source | MCP/ACP profundo; recipes YAML; subagentes |
 | [Pi](#pi) | Harness minimalista | "Primitivas, no features"; skills on-demand; extensibilidad |
+| [awesome-harness-engineering](#awesome-harness-engineering) | Índice del campo (meta) | Taxonomía por problema, no por vendor; bibliografía sobre activación de skills y permisos |
 
 ---
 
@@ -100,6 +102,56 @@
   nativos de Pi (conecta dos entradas de este mismo documento). La matriz de agentes
   es Claude Code, OpenCode, Kilo Code, Cursor, Codex, Pi y Hermes. Supersede a
   *Agent Teams Lite*, ya archivado.
+
+## claude-code-harness (CCH)
+- **URL**: https://github.com/Chachamaru127/claude-code-harness — MIT. Revisado
+  2026-09-10 sobre v5.15.0 (el resto de este documento es de 2026-08-19).
+- **Análisis completo**: [`docs/research/claude-code-harness-lessons.md`](research/claude-code-harness-lessons.md).
+  Lo de abajo es sólo el resumen.
+- **Qué es**: harness de ciclo completo (`plan` → `work` → `review` → `sync` →
+  `release`) para Claude Code, Codex CLI, Cursor y Grok, con un motor de guardrails
+  en Go. El humano aprueba el contrato (`spec.md` + `Plans.md`), no lo escribe.
+- **Problema**: mismo que navori en la capa multi-engine, pero resuelto desde el
+  lado del producto: CCH **es** el harness; navori **genera** harnesses. No compiten
+  en distribución.
+- **Stack**: Go nativo (403 `.go`, ~55 paquetes), 430 scripts shell, 23 skills, 5
+  agentes, 282 tests. Cuatro binarios de ~13 MB commiteados (no requiere Node.js).
+- **Cableado (lo central)**:
+  - Un binario Go es el **dispatcher único de hooks**: `hooks.json` declara 43 grupos
+    de eventos y todos llaman `bin/harness hook <name>` (58 handlers). El JSON no
+    tiene lógica; el bootstrap inline valida el plugin root y hace fail-open.
+  - **`hosts.toml` = capacidades por host como dato** (evento, path, matcher,
+    mecanismo de deny `exit2`/`permissionDecision`/`permission`, transport). `harness
+    gen` materializa el hook nativo de cada host apuntando al **mismo** motor de
+    políticas, y `gen --check` es el drift gate.
+  - Skills con **metadata de diseño** (`kind`/`shape`/`role`/`base`/`pair`) y un gate
+    de CI sobre el grafo: `wrap` obliga `base`, y **`role: evaluator` no puede tener
+    tools de escritura**. Anti-triggers (`Do NOT load for: …`) dentro del propio
+    `description`, que es el SSOT de ruteo.
+  - Agentes con `disallowedTools` además de `tools`, `isolation: worktree`,
+    `maxTurns`, y **contratos JSON versionados** entre ellos (`worker-report.v1`,
+    `advisor-response.v1`, `test-wiring-audit.v1`).
+- **Conceptos notables para navori** (detalle y prioridad en el análisis completo):
+  - **Tercer veredicto "indeterminado"** en el guard de comandos: si no puede probar
+    estáticamente el blanco de un `rm -rf`, no adivina — rutea a `ask`. Aplica directo
+    al issue #655.
+  - **Cola de operaciones diferidas**: el deny no mata el run; encola, devuelve al
+    agente un contrato de conducta y el operador aprueba fuera de banda (un solo uso).
+    Una regla impide que el agente se auto-apruebe.
+  - **Ratchet del set de `deny`**: hash canónico contra baseline versionado; si encoge,
+    el harness no arranca. Más detección de hooks inyectados en `settings.local.json`,
+    que está gitignored y nunca pasa por review.
+  - **Doctrina de blast radius por capa** (`permissions` y hooks alcanzan sólo al
+    agente; `sandbox` lo impone el OS a todo el árbol de procesos) con checklist de
+    5 puntos, y el asimétrico "las restricciones se heredan, las exenciones no".
+  - **Paridad medida, no asumida**: tabla con fecha de medición de qué hace realmente
+    cada capa por regla, admitiendo dónde la "doble defensa" es mito.
+  - Self-review con evidencia y rebote automático sin gastar reviewer; red-log de TDD;
+    auditor de red de tests con apelación acotada y lista literal de propuestas
+    prohibidas; telemetría local de activación de skills.
+- **Qué NO copiar**: 355 MB de repo con binarios versionados, CHANGELOG de 545 KB,
+  `ARCHITECTURE.md` que describe una arquitectura que ya no existe, y doc core
+  bilingüe sin contrato de idioma.
 
 ## codegraph
 - **URL**: https://github.com/colbymchenry/codegraph — MIT.
@@ -404,6 +456,48 @@ tiene que cargar las dos.
   de primera clase — superpowers se instala con `pi install`, y gentle-ai empaqueta el
   harness `gentle-pi`.
 
+## awesome-harness-engineering
+- **URL**: https://github.com/ai-boost/awesome-harness-engineering — CC0. Revisado
+  2026-09-10 (el resto de este documento, salvo CCH, es de 2026-08-19).
+- **Análisis completo**: [`docs/research/awesome-harness-engineering.md`](research/awesome-harness-engineering.md).
+- **Qué es**: no es un proyecto sino un **índice curado** de 477 recursos sobre
+  harness engineering. Entra a este documento por excepción: no nos inspiró un
+  patrón, nos da el mapa del campo y la bibliografía.
+- **Verificado por nosotros**: 463 URLs únicas sobre 477 entradas (14 duplicadas);
+  19/19 repos de una muestra existen; `everything-claude-code` y `ECC` son el mismo
+  repo listado dos veces en la misma sección, con la cifra de estrellas de la nota
+  desactualizada. Índice usable como mapa, no como fuente de cifras sin verificar.
+- **Conceptos notables para navori**:
+  - **Taxonomía por problema, no por vendor** (12 primitivas de diseño). Usada como
+    lente de auditoría, deja tres huecos nuestros a la vista: **observabilidad**,
+    **evals de skills** y **runner/cola de tareas**.
+  - Gate de PR que copiaría: nota obligatoria por entrada, **ninguna sección con más
+    de ~10 entradas sin razón clara**, y un verificador de links en CI.
+  - **Bibliografía sobre nuestro 2% → 57% de activación**: Stripe *"You can't whisper
+    at an AI agent"* (*si tu guía no estaba en el contexto cargado, no ocurrió* —
+    confirma nuestra causa raíz de forma independiente), LangChain *Evaluating Skills*
+    (82% vs 9% con skills curadas; **≤12 skills** rinde más que un catálogo extenso),
+    OpenAI *Testing Agent Skills with Evals*, y `mgechev/skillgrade` (CLI que mide si
+    el agente **descubre e invoca** una skill, con umbral para CI).
+  - **Dos papers sobre permisos que hay que responder**: *When "Do Not" Is Not Deny*
+    (481 `CLAUDE.md` públicos, sólo ~4% de las reglas tienen un control que las
+    respalde — la mejor evidencia externa **a favor** de la arquitectura de navori) y
+    *Do User-Authored Permission Policies…* (las políticas pre-escritas bloquearon
+    ~20 pp **menos** overreach que la aprobación por acción — evidencia **en contra**
+    de parte de lo que generamos).
+  - **`isolated` vs `forked`** para subagentes (LangChain): forkear workers que
+    continúan una investigación, aislar verificadores que deben juzgar solos. navori
+    lo hace implícito; ellos publicaron la regla.
+  - **`INCONCLUSIVE` como veredicto de eval** (AgentAssay): converge con el
+    "indeterminado" de `shellscan` en [CCH](#claude-code-harness-cch) — no forzar un
+    binario cuando la evidencia no lo sostiene.
+  - De sus templates, la idea que vale: una tabla **"componente / existe porque / se
+    puede quitar cuando"**. El harness tiene que poder encoger, no sólo crecer.
+- **Dato de posicionamiento**: navori **no está listado**, y la sección donde encajaría
+  (*Generators & Meta-Harnesses*) está dominada por harnesses que se auto-optimizan
+  contra un benchmark. `ruvnet/metaharness` es ahí el competidor descrito más cercano
+  a navori y queda pendiente de auditar.
+
 ---
 
 ## Temas transversales (para el análisis de reestructuración)
@@ -432,7 +526,21 @@ reestructurar navori:
    sobre el mismo diff, confianza derivada de gates y no de narración.
 7. **Extensibilidad vs. opinión** (Pi "primitivas, no features" vs. gstack/superpowers
    opinados): decisión de diseño clave para el rumbo de navori.
-8. **Licencias y brazo comercial** (nuevo en esta revisión): caveman ya no es MIT limpia
+8. **Guardrails y capas de defensa** (claude-code-harness, gstack/`gstack-egress`): motor
+   de reglas con ID por regla, un tercer veredicto para lo que no se puede probar
+   estáticamente, deny que encola en vez de matar el run, ratchet sobre la superficie de
+   `deny`, y doctrina escrita de blast radius por capa (`permissions` y hooks alcanzan
+   sólo al agente; `sandbox` lo impone el OS a todo el árbol de procesos). Es el eje
+   donde navori tiene más que aprender de una sola fuente — ver
+   [`docs/research/claude-code-harness-lessons.md`](research/claude-code-harness-lessons.md).
+9. **Medir el harness, no sólo construirlo** (awesome-harness-engineering, y por
+   contraste claude-code-harness): evals de skills con umbral en CI, observabilidad de
+   lo que el harness provoca, veredictos no binarios para flujos no deterministas, y
+   reportar capacidad a nivel **modelo-harness** y no del modelo solo. Es el eje donde
+   el campo se movió más y donde navori tiene los tres huecos declarados
+   (observabilidad, evals de skills, runner). Conecta con `navori bench` y con
+   `docs/research/activacion-subagentes-y-skills.md`.
+10. **Licencias y brazo comercial** (nuevo en esta revisión): caveman ya no es MIT limpia
    (núcleo BSL-1.1), los dos repos de betta-tech no tienen licencia, y codegraph y
    graphify tienen producto comercial activo. Para citar y enlazar no hay problema en
    ningún caso; para **copiar código o presentarlos como "todo open source MIT"**, sí.
