@@ -1592,3 +1592,54 @@ la tensión mandato-del-host vs costo, no asumir que el mandato desapareció.
   desde 0.7.4 (#588), pero es diff de config.
 - 4 worktrees de webapp en 0.5.1 a propósito (heredan al rebasear).
 - Spec 0015 T8 abierto: la medición de arranque por subagente nunca se registró.
+
+## 2026-09-12 15:04 orchestrator — la spec 0021 entera, la auditoría de ruteo cerrada, y la medición que probó que el guard funciona
+
+**Cerrado**: la spec 0021 completa (8 tareas, #701), los seis hijos de la auditoría #717 —#719,
+#727, #729, #733, #735+#737, #739— más #698, #675, #683, #693, #696 y #661. Trece PRs propios
+mergeados; el paraguas #717 cerrado con su evidencia.
+
+**La tercera fuente existe y se une por id, no por reloj.** `navori audit --collect` levanta un
+receptor OTLP en loopback y agrega los eventos al log de sesión que ya escriben los hooks — sin
+sidecar y sin paso de volcado. Cierra los dos puntos ciegos que el propio `parse.ts` declaraba en
+sus comentarios: quién aprobó cada permiso (una aprobación concedida era indistinguible de una tool
+pre-aprobada) y qué skill estaba activa (se infería de quién abría un `SKILL.md`). Después entró el
+tercero, `tool_result.error_type` (#698). En los tres el patrón fue el mismo y es deliberado: **la
+fuente nueva agrega evidencia y no borra la heurística** — forzar la equivalencia entre las seis
+clases de navori y las cadenas del host habría inventado justo la inferencia que el dato declarado
+viene a quitar.
+
+**El agujero de seguridad era real y estaba a un nivel de indirección.** El wrapper de tgrep está
+allow-listado —corre sin prompt y sin clasificador en cualquier modo— y sin tgrep instalado termina
+en `exec rg "$@"`, verbatim. `rg --pre CMD` ejecuta un comando por archivo: probado punta a punta
+antes de tocar nada. El fix es allowlist y no denylist porque `--pre` **no era el único**:
+`--hostname-bin` también ejecuta, y una denylist lo habría dejado pasar (#719).
+
+**Y el patrón transversal de la auditoría se cumplió, medido.** #742 remidió antes/después del
+guard con el mismo instrumento en los dos lados: el parque pasó de **6.6% a 40.7%** de búsquedas
+por la vía buena. En la misma ventana `git grep` pasó de 0.85% a 8.20% — **9.6× la tasa**. El
+hábito migró a la vía que ninguna capa veía, exactamente como advertía #720, y era invisible hasta
+que el minero aprendió a contarla. La capa que bloquea funciona; la que sugiere no; y una métrica
+que no ve las vías de escape se pone verde por la razón equivocada.
+
+**Tres veces el fix propuesto por un issue no era el correcto, y el dato lo dijo:**
+
+- #724/M3 recetaba `$CLAUDE_PROJECT_DIR` para el remedio del guard. Esa variable existe en el
+  entorno de un hook, **no en el shell del agente**: habría convertido un exit 127 ocasional en uno
+  permanente.
+- #722/A4 pedía que el hook loguee al audit las escrituras por shell. No hace falta: el transcript
+  ya las contiene íntegras, y hacerlo en el hook cuesta un fork por cada llamada Bash.
+- #723 planteaba retirar `Bash(grep:*)` del allow **o** corregir cinco redacciones. Medido contra
+  el guard, la búsqueda recursiva ya sale con exit 2 —no paga clasificador porque no corre— y lo
+  único que la regla exime es la extracción, que la doctrina bendice. Retirarla le cobraría a lo
+  que recomienda.
+
+**Lo que la sesión dejó abierto**: #743, con el experimento natural que reescribe el rollout del
+parque. `alertaciudadana_app` (972 búsquedas) y `_backend` (523) **ya tienen tgrep** y siguen en
+~0.3%, porque se rindieron con 0.8.4 —un día antes del guard— y tienen el wrapper sin la capa que
+lo hace valer. Mismo plugin, misma doctrina, 0.2–0.4% contra 20–28% en los repos con 0.8.5. La
+palanca no es `navori add tgrep`, es `render --apply`.
+
+**Gate**: verde en el último ciclo (#742) — 218 archivos, 3,773 tests, bundle 939.9KB de 1000,
+coverage floor con 69 módulos. Sin código editado después de esa corrida.
+

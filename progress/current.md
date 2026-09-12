@@ -1,9 +1,21 @@
 # Sesión actual
 
-**Estado:** **0.8.4 publicado y rodado**, y el plan de mecanización con **Fase 0 y Fase 1
-mergeadas en `main`** (#677, #678, #679; CI verde, `main` en `cb60914`). **El guard de ruteo ya
-está vivo en el espejo de este repo.** Abierto: el rollout de 0.8.4 en moonar (#137) y
-navori-health (#55). 5 issues: #661, #673, #674, #675, #676.
+**Estado:** **jornada del 2026-09-12 cerrada.** La spec 0021 entera mergeada (#701) y la
+auditoría de ruteo #717 cerrada con sus seis hijos (#719, #727, #729, #733, #735+#737, #739).
+Además #698, #675, #683, #693, #696 y #661. Cero PRs abiertos; `main` en `fd7287f`, CI verde.
+
+**La Fase 1 tiene su medición**, y es la que faltaba para decidir: con el corte en el día que entró
+el guard, el parque pasó de **6.6% a 40.7%** de búsquedas por la vía buena — mismo instrumento en
+los dos lados (`mine-search-routing.py --desde|--hasta`). En la misma ventana `git grep` subió
+**9.6× su tasa**: el hábito migró a la vía que ninguna capa veía, ya redirigida por #739. La
+próxima ventana dirá si cierra.
+
+**Siguiente paso explícito:** #743 — el rollout del parque, con la premisa reescrita por el dato.
+`alertaciudadana_app` (972 búsquedas) y `_backend` (523) YA tienen tgrep y siguen en ~0.3%, porque
+se rindieron con 0.8.4 y tienen el wrapper sin el guard. La palanca es `render --apply` a 0.8.5, no
+`navori add tgrep`, y son dos PRs fuera de este repo.
+
+Issues abiertos que NO son de este carril: #705, #728, #730, #736 (otra sesión).
 
 ## ⛔ MORATORIA DE DOCTRINA — vigente hasta que cierre la Fase 5
 
