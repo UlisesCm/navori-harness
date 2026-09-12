@@ -146,4 +146,71 @@ describe.runIf(hasPython)("mine-search-routing — las vías que nadie contaba (
     expect(out.demo?.bloqueado).toBe(1);
     expect(out.demo?.shell).toBe(1);
   });
+
+  it("acota por día de sesión, que es lo que permite el antes/después", () => {
+    // El criterio de éxito de #661 es "antes contra después, mismos repos, con
+    // el agregador que ya existe". Sin el corte, la única comparación posible
+    // era contra una línea base calculada con el minero VIEJO — que mediría el
+    // cambio del instrumento junto con el del hábito.
+    const root = mkdtempSync(join(tmpdir(), "navori-miner-fecha-"));
+    const audits = join(root, "audits", "demo");
+    const projects = join(root, "projects", "enc");
+    mkdirSync(audits, { recursive: true });
+    mkdirSync(projects, { recursive: true });
+
+    for (const [sid, day] of [
+      ["sess-vieja", "2026-09-10"],
+      ["sess-nueva", "2026-09-12"],
+    ]) {
+      writeFileSync(
+        join(audits, `session-${sid}.log`),
+        `${JSON.stringify({ ts: `${day}T10:00:00Z`, event: "start", repo: "demo" })}\n`,
+      );
+      writeFileSync(
+        join(projects, `${sid}.jsonl`),
+        `${JSON.stringify({
+          message: {
+            content: [
+              {
+                type: "tool_use",
+                id: `t-${sid}`,
+                name: "Bash",
+                input: { command: "grep -rn foo src/" },
+              },
+            ],
+          },
+        })}\n`,
+      );
+    }
+
+    const run = (args: string): Record<string, Record<string, number>> => {
+      const program = [
+        "import importlib.util, json, sys",
+        `spec = importlib.util.spec_from_file_location('m', ${JSON.stringify(MINER)})`,
+        "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
+        // `-` viaja como None: pasar la cadena "None" haría que la comparación
+        // de fechas filtrara por accidente y el test pasaría por el motivo
+        // equivocado, que es peor que no tenerlo.
+        "a = [None if x == '-' else x for x in sys.argv[1:]]",
+        "print(json.dumps({k: dict(v) for k, v in m.scan(*a).items()}))",
+      ].join("\n");
+      const r = spawnSync("python3", ["-c", program, ...args.split(" ").filter(Boolean)], {
+        encoding: "utf-8",
+        env: {
+          ...process.env,
+          NAVORI_AUDITS_ROOT: join(root, "audits"),
+          NAVORI_TRANSCRIPTS_ROOT: join(root, "projects"),
+        },
+      });
+      return JSON.parse(r.stdout || "{}") as Record<string, Record<string, number>>;
+    };
+
+    expect(run("").demo?.shell).toBe(2);
+    // `since` toma la sesión del 12 y deja fuera la del 10.
+    expect(run("2026-09-11").demo?.shell).toBe(1);
+    // `until` es exclusivo, así que toma solo la del 10.
+    expect(run("- 2026-09-11").demo?.shell).toBe(1);
+    // Y las dos juntas acotan una ventana que no contiene ninguna.
+    expect(run("2026-09-11 2026-09-12")).toEqual({});
+  });
 });
