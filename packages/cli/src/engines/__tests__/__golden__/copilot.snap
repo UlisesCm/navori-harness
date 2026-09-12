@@ -132,7 +132,7 @@ The `ticket-intake` skill runs this as a pipeline; the `ticket-audit` agent prod
 - `spec-bootstrap` — navori (workflow) · Use when starting a real-scope feature before writing code
 - `dominio` — navori (workflow) · Use when you discover a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cr…
 - `babysit-prs` — navori (workflow) · Use when you resume a session with open PRs of yours, or when a check went red after a push
-- `zod-validation` — library (detected) · Use when creating schemas or touching input validation of body/query/params
+- `zod-validation` — library (detected) · Use when creating a Zod schema or validating input at a trust boundary
 - `vitest` — library (detected) · Use when writing or fixing unit/integration tests with Vitest
 
 

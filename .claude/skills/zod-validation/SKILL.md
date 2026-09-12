@@ -1,17 +1,19 @@
 ---
 name: zod-validation
-description: Use when creating schemas or touching input validation of body/query/params — input validation with Zod at the API boundary: per-resource schemas, generic validate middleware, inferred DTOs.
+description: Use when creating a Zod schema or validating input at a trust boundary — an HTTP body/query/params, but equally a config file, CLI args or env. Per-resource schemas, a generic validate middleware, inferred DTOs.
 type: reference
 ---
 
-<!-- navori:managed id="zod-validation" hash="088df5ee" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="zod-validation" hash="4fe628f6" version="0.8.5" source="@navori/core" -->
 # Zod Validation — the canonical pattern
 
 One schema per resource (`<resource>.schema.ts`), a generic validate middleware, and the DTO from `z.infer`.
 
 ## When to use this skill
 
-When creating a schema, adding validation to an endpoint, inferring a DTO, or touching body/query/params input.
+Creating a schema, validating an endpoint, inferring a DTO — and equally with
+**no HTTP boundary**: a config file, CLI flags or `process.env` are the same
+problem. Only the middleware below is Express-specific.
 
 **Check the installed major** (`package.json`): snippets are **Zod 4**, with the v3 form annotated inline where they differ.
 
@@ -72,8 +74,7 @@ if (!parsed.success) return res.status(400).json({ error: z.prettifyError(parsed
 
 ## Before declaring done
 
-- Schema in `<resource>.schema.ts`, DTO from `z.infer`, endpoint wired with `validate(schema, target)` — no inline validation in the controller.
-- Ids validated by shape, not a bare `z.string()`; query fields with `z.coerce`.
+- Every hard rule above holds for the code you touched.
 - APIs match the installed major — no `z.nativeEnum` on v4, no `z.prettifyError` on v3.
 - `cd packages/cli && pnpm lint` green.
 <!-- /navori:managed id="zod-validation" -->

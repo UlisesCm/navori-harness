@@ -814,3 +814,101 @@ describe("the host's own queued messages are stated, not silently dropped (A4)",
     expect(renderMarkdown(report, "en")).toContain("the host queued 9 messages of its own");
   });
 });
+
+/**
+ * El agregado de skills del rango (#725, A5).
+ *
+ * "¿se están usando las skills?" es una pregunta de PARQUE y el pipeline la
+ * respondía por sesión, así que se respondió a mano una vez —"8 de 12 nunca
+ * invocadas en 48h"— y ese número fijó una moratoria. Esta tabla es ese número,
+ * calculado en vez de ensamblado.
+ */
+describe("totals.skills — el histograma del rango", () => {
+  const build = (sessions: SessionAudit[], skills: string[]) =>
+    buildReport(sessions, {
+      repo: "demo",
+      version: "0.6.5",
+      catalog: { ...CATALOG, skills, managedSkills: skills },
+    });
+
+  const withSkills = (
+    list: Array<{
+      slug: string;
+      source: "skill-tool" | "attribution" | "skill-md";
+      records?: number;
+      tokens?: number;
+    }>,
+  ) =>
+    session([], {
+      orchestrator: {
+        ...session([]).orchestrator,
+        skills: list.map((s) => ({
+          slug: s.slug,
+          source: s.source,
+          ...(s.records !== undefined ? { attributedRecords: s.records } : {}),
+          ...(s.tokens !== undefined ? { attributedOutputTokens: s.tokens } : {}),
+        })),
+        skillsRead: list.map((s) => s.slug),
+      },
+    });
+
+  it("cuenta las tres vías por separado y NO las suma", () => {
+    const r = build(
+      [
+        withSkills([{ slug: "a", source: "skill-tool" }]),
+        withSkills([{ slug: "a", source: "attribution", records: 20, tokens: 5000 }]),
+        withSkills([{ slug: "a", source: "skill-md" }]),
+      ],
+      ["a"],
+    );
+    expect(r.totals.skills).toEqual([
+      { slug: "a", invoked: 1, inherited: 1, browsed: 1, records: 20, outputTokens: 5000 },
+    ]);
+  });
+
+  it("cuenta SESIONES, no detecciones: el mismo slug en varias corridas es una", () => {
+    const s = session([agent({ skills: [{ slug: "a", source: "skill-tool" }] })], {
+      orchestrator: {
+        ...session([]).orchestrator,
+        skills: [{ slug: "a", source: "skill-tool" }],
+        skillsRead: ["a"],
+      },
+    });
+    expect(build([s], ["a"]).totals.skills[0]?.invoked).toBe(1);
+  });
+
+  it("da fila a una skill declarada que no hizo nada", () => {
+    // La mitad de la pregunta que decide si una skill se queda en el catálogo.
+    const r = build([withSkills([])], ["nunca-usada"]);
+    expect(r.totals.skills).toEqual([
+      { slug: "nunca-usada", invoked: 0, inherited: 0, browsed: 0, records: 0, outputTokens: 0 },
+    ]);
+  });
+
+  it("descarta el ruido de la heurística: solo-abierta y no declarada", () => {
+    // `SKILL_PATH_RE` casa `<palabra>/SKILL.md` en cualquier comando, así que una
+    // ruta escrita en prosa o un patrón de grep producen un slug. En este repo
+    // aparecieron `bare`, `buena`, `dup`, `real` y `memory`. Por sesión era
+    // sobrevivible; en una tabla que dice listar las skills del repo, se lee
+    // como un hecho.
+    const r = build([withSkills([{ slug: "buena", source: "skill-md" }])], ["real-skill"]);
+    expect(r.totals.skills.map((s) => s.slug)).toEqual(["real-skill"]);
+  });
+
+  it("pero conserva una NO declarada que sí se invocó", () => {
+    // El filtro es sobre la EVIDENCIA, no sobre el catálogo: algo que corrió y
+    // este repo no declara es un hallazgo, no ruido.
+    const r = build([withSkills([{ slug: "de-otro-lado", source: "skill-tool" }])], ["real-skill"]);
+    expect(r.totals.skills.map((s) => s.slug)).toContain("de-otro-lado");
+  });
+
+  it("la sección dice cuántas no hicieron nada", () => {
+    const r = build(
+      [withSkills([{ slug: "usada", source: "skill-tool" }])],
+      ["usada", "dormida", "otra-dormida"],
+    );
+    const out = renderMarkdown(r, "es");
+    expect(out).toContain("## Skills en el rango");
+    expect(out).toContain("**2 de 3** no se invocaron ni se heredaron");
+  });
+});
