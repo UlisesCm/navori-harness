@@ -153,6 +153,64 @@ describe.runIf(runsBash)("pr-pilot-confirm.sh — y se calla en todo lo demás",
   });
 });
 
+/**
+ * The cheap gate (#705 follow-up).
+ *
+ * The hook fires on EVERY Bash call and does real work on almost none of them.
+ * Until this gate it paid twice for that: `extract_cmd` forks jq (or node) to
+ * read the command, and the `skip` record forks jq again to write "I ran and it
+ * was not a PR". Measured on a `git status` payload: 16.7 ms per Bash call,
+ * against 4.8 ms with the gate — and the first sample of the old shape was
+ * 24.8 ms, half of the ~48 ms that already forced `audit-log.sh` to be redesigned.
+ *
+ * The property under test is not the timing, which is a machine's opinion. It is
+ * that the shortcut is SAFE: it may only skip work for a payload that provably
+ * carries no gated command, and every case that matters still reaches the same
+ * verdict it did before.
+ */
+describe.runIf(runsBash && hasJq)("pr-pilot-confirm — el portón barato (#705)", () => {
+  it("sigue disparando sobre un compuesto, que es donde el atajo podría equivocarse", () => {
+    // `git push && gh pr create` is the shape the issue measured: the PR opens
+    // as a continuation of what was already being done by hand. The token scan
+    // runs over the WHOLE payload, so the segment split still has to happen.
+    const r = run(bash('git push -u origin HEAD && gh pr create --title "x" --body "y"'));
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('"permissionDecision":"ask"');
+  });
+
+  it("no se deja engañar por el token suelto en el payload", () => {
+    // `create` appears — in another field, and in a command that is not opening
+    // a PR. The fast path is a NECESSARY condition, never a sufficient one: the
+    // segment matcher still has the last word.
+    const r = run({
+      ...bash("pnpm create vite my-app"),
+      prompt: "create the PR when you finish",
+    });
+    expect(r.code).toBe(0);
+    expect(r.stdout.trim()).toBe("");
+  });
+
+  it("calla —y no registra nada— cuando el payload no puede contener un PR", () => {
+    // What is given up: the `skip` record for these calls, which said "the hook
+    // ran and the command was not a PR" and cost two forks to produce. Every
+    // record that carries information (`ask`, `allow`) is still written.
+    const auditsRoot = mkdtempSync(join(tmpdir(), "navori-prpilot-audits-"));
+    const repo = mkdtempSync(join(tmpdir(), "navori-prpilot-repo-"));
+    mkdirSync(join(auditsRoot, "demo"), { recursive: true });
+    const log = join(auditsRoot, "demo", `session-${SESSION}.log`);
+    writeFileSync(log, "", "utf-8");
+
+    const r = spawnSync("bash", [hookPath], {
+      input: JSON.stringify({ ...bash("git status --short"), cwd: repo }),
+      encoding: "utf-8",
+      env: { ...process.env, CLAUDE_PROJECT_DIR: repo, NAVORI_AUDITS_ROOT: auditsRoot },
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe("");
+    expect(readFileSync(log, "utf-8")).toBe("");
+  });
+});
+
 const MINIMAL_CONFIG = {
   name: "test",
   engines: ["claude"],
