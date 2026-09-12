@@ -178,6 +178,15 @@ block() {
   echo "[navori] route content search through the indexed wrapper:" >&2
   echo "[navori]   bash .claude/scripts/tgrep-search.sh <same ripgrep flags>" >&2
   echo "[navori] it carries its own 'allow' rule: no prompt, no classifier round-trip." >&2
+  # The path is relative BECAUSE the allow rule is a literal
+  # (`Bash(bash .claude/scripts/tgrep-search.sh *)`): any other spelling —
+  # absolute, `cd … &&`, `$CLAUDE_PROJECT_DIR` (which is NOT set in the agent's
+  # shell, only in a hook's) — stops matching it and buys a prompt. So the cwd
+  # is a real constraint of the remedy, and saying so beats an exit 127 the
+  # caller has to diagnose after already obeying (#724).
+  echo "[navori] run it from the repo root: the path is relative because the" >&2
+  echo "[navori] 'allow' rule is literal, and the shell keeps whatever cwd the" >&2
+  echo "[navori] last 'cd' left." >&2
   echo "[navori] exit contract: 0 = match, 1 = no match, 2 = NOTHING WAS SEARCHED." >&2
   echo "[navori] this does NOT apply to '| grep' (filtering output) nor to" >&2
   echo "[navori] 'grep -n x known-file' (extracting from a file you already found):" >&2
@@ -196,6 +205,28 @@ block() {
 starts=$(printf '%s\n' "$segments" | sed -n -e 's/^@C@//p' -e '1{/^@[CP]@/!p;}')
 
 while IFS= read -r seg; do
+  [ -n "$seg" ] || continue
+
+  # Peel `VAR=value` prefixes so the verb anchor below sees the real command
+  # (#724 B2). `LC_ALL=C grep -rn foo src/` evaded every rule here by sitting
+  # one token to the right of the anchor — verified: exit 0 against exit 2 for
+  # the same command without the prefix.
+  #
+  # Parameter expansion, not a `sed` fork: this runs once per segment next to
+  # two `grep -qE` forks that are already there, and a heredoc is many segments.
+  # The idiom is the one `gate-trigger.sh` uses (its FIX C) and it is the third
+  # place this peel lives — `guard-destructive.sh` does it with a sed loop and
+  # `parse.ts`'s `leadingBinary` in TypeScript. A fourth earns a shared partial.
+  seg="${seg#"${seg%%[![:space:]]*}"}"
+  while [[ "$seg" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do
+    case "$seg" in
+      *[[:space:]]*)
+        seg="${seg#*[[:space:]]}"
+        seg="${seg#"${seg%%[![:space:]]*}"}"
+        ;;
+      *) seg=""; break ;;
+    esac
+  done
   [ -n "$seg" ] || continue
 
   # Recursive grep: the flag may sit anywhere among the options, so the verb is

@@ -161,4 +161,55 @@ describe.runIf(runsBash)("guard-search-routing", () => {
     // search, so failing open costs a single unmeasured call.
     expect(runGuard(`grep -rn "${"x".repeat(25_000)}" src/`)).toBe(0);
   });
+
+  /**
+   * #724 B2 — an environment prefix sat one token to the right of the verb
+   * anchor, and every rule anchors the verb at the segment start. Verified
+   * before the fix: `LC_ALL=C grep -rn foo src/` exited 0 while the same
+   * command without the prefix exited 2.
+   *
+   * Inside the guard's own "seatbelt, not sandbox" philosophy this is not an
+   * adversary case — it is the shape a real command takes when someone pins a
+   * locale — but the peel was already written twice in this repo
+   * (`guard-destructive.sh`, `parse.ts`'s `leadingBinary`), so the gap was in
+   * this file and nowhere else.
+   */
+  describe("sees through an environment prefix (#724)", () => {
+    const blocked = [
+      "LC_ALL=C grep -rn foo src/",
+      "LC_ALL=C rg patron",
+      "FOO=1 BAR=2 rg patron",
+      "  GIT_PAGER=cat grep -R needle lib/",
+    ];
+    for (const command of blocked) {
+      it(`blocks ${command}`, () => {
+        expect(runGuard(command)).toBe(2);
+      });
+    }
+
+    // The peel may not invent a verb where there is none, and it may not reach
+    // inside a quoted span: both would be the false block this guard's own
+    // header calls worse than the search it stops.
+    const allowed = [
+      "LC_ALL=C grep -n x known-file.ts",
+      "LC_ALL=C echo hola",
+      "git commit -m 'LC_ALL=C grep -rn algo'",
+      "FOO=bar",
+    ];
+    for (const command of allowed) {
+      it(`allows ${command}`, () => {
+        expect(runGuard(command)).toBe(0);
+      });
+    }
+  });
+
+  it("says that the remedy's path is relative to the repo root (#724)", () => {
+    // The path in the message is relative BECAUSE the allow rule is a literal;
+    // any other spelling buys a prompt. `$CLAUDE_PROJECT_DIR` is NOT set in the
+    // agent's shell — only in a hook's — so the obvious "make it absolute" fix
+    // would expand to empty and turn an occasional exit 127 into a permanent
+    // one. Naming the constraint is what removes the surprise.
+    const err = stderrOf('grep -rn "foo" src/');
+    expect(err).toContain("repo root");
+  });
 });

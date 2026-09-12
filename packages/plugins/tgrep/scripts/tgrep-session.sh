@@ -17,7 +17,13 @@ INSTALL_HINT="brew install tgrep"
 WRAPPER_REL=".claude/scripts/tgrep-search.sh"
 
 if ! command -v tgrep >/dev/null 2>&1; then
-  echo "navori/tgrep: tgrep NOT installed ($INSTALL_HINT) — content search stays on the native Grep, and $WRAPPER_REL falls back to rg or grep."
+  # The regime WITHOUT the binary is not "native Grep" (#724 B1): the guard is
+  # rendered by the plugin, not by the binary, so it keeps blocking shell
+  # `grep -r`/`rg` and keeps prescribing the wrapper — which then falls back.
+  # The session's only notice used to describe a regime that was not in force,
+  # and a notice that contradicts the layer the agent will actually hit is worse
+  # than no notice: it is the first thing the agent stops believing.
+  echo "navori/tgrep: tgrep NOT installed ($INSTALL_HINT) — $WRAPPER_REL still routes content search and falls back to rg, then grep. Shell 'grep -r'/'rg' stay blocked by the guard; use the wrapper (or the native Grep tool)."
   exit 0
 fi
 
