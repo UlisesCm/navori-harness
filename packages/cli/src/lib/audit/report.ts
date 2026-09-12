@@ -725,6 +725,28 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
         : "";
     out.push("", userMessages + hostQueued);
 
+    // #722 — the write lane, stated because it had no instrument at all.
+    // `guard-destructive` rule 6 only blocks writes to MANAGED targets and the
+    // read-lane ratio excludes writes on purpose (#603), so a `sed -i` over
+    // ordinary source touched no layer and entered no number. Reported as a
+    // count and NOT folded into a ratio: deciding what to do about it comes
+    // after seeing it, and a ratio invented today would be the decision.
+    const nativeWrites =
+      (s.orchestrator.toolCounts.Edit ?? 0) +
+      (s.orchestrator.toolCounts.Write ?? 0) +
+      (s.orchestrator.toolCounts.NotebookEdit ?? 0);
+    const shellWrites = s.orchestrator.shellWrites ?? 0;
+    if (nativeWrites + shellWrites > 0) {
+      out.push(
+        "",
+        t(
+          lang,
+          `**Escrituras del orquestador:** ${nativeWrites} nativas (Edit/Write) · ${shellWrites} por shell (\`>\`, \`sed -i\`, \`tee\`). Las de shell no pasan por el guard salvo que el destino sea un archivo managed, y quedan fuera del cociente de lectura a propósito — se cuentan aquí porque esa vía no tenía instrumento.`,
+          `**Orchestrator writes:** ${nativeWrites} native (Edit/Write) · ${shellWrites} through the shell (\`>\`, \`sed -i\`, \`tee\`). Shell writes only meet the guard when the target is a managed file, and they are deliberately out of the read-lane ratio — counted here because that lane had no instrument.`,
+        ),
+      );
+    }
+
     out.push(
       "",
       `### ${t(lang, "En qué se fueron los tokens", "Where the tokens went")}`,

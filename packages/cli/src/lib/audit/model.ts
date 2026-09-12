@@ -387,6 +387,16 @@ export interface SessionAudit {
      * not a parse of the command — and the report says so.
      */
     shellReads: number;
+    /**
+     * Bash calls that WROTE a file (#722): `> path`, `sed -i`, `tee`.
+     *
+     * The counterpart of `shellReads` for the lane that had no instrument.
+     * `guard-destructive` rule 6 only blocks writes to MANAGED targets and the
+     * read-lane ratio excludes writes on purpose, so a `sed -i` over ordinary
+     * source touched no layer and entered no number — the risk could not even
+     * be sized. Measuring comes before deciding a layer.
+     */
+    shellWrites: number;
     toolCounts: Record<string, number>;
     /**
      * The same calls, split by the permission mode in force when each ran

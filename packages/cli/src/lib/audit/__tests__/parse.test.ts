@@ -7,6 +7,7 @@ import {
   ORCHESTRATOR_OWNER,
   attachHookEvents,
   isReadLaneCommand,
+  isWriteLaneCommand,
   parseAgentRun,
   parseSession,
   readJsonl,
@@ -478,6 +479,7 @@ describe("parse: hook attribution", () => {
         startupTokens: 0,
         models: {},
         shellReads: 0,
+        shellWrites: 0,
         toolCounts: {},
         toolCountsByMode: {},
         skillsRead: [],
@@ -1009,6 +1011,36 @@ describe("orchestrator model (#607)", () => {
  * leading binary, not a shell parse — so the cases that decide the edges are
  * pinned here.
  */
+describe("write-lane classification (#722)", () => {
+  /**
+   * The forms are the ones `guard-destructive` rule 6 already recognizes, and
+   * its own table states each exclusion as load-bearing: `>>` appends after the
+   * managed blocks and invalidates no hash, `tee -a` is an append too. Mirroring
+   * that list rather than writing a fourth definition is what keeps the layer
+   * and the measurement from drifting apart — the defect #720 is about.
+   */
+  it("counts the three write forms", () => {
+    expect(isWriteLaneCommand("echo hola > archivo.txt")).toBe(true);
+    expect(isWriteLaneCommand("cat plantilla >| destino.ts")).toBe(true);
+    expect(isWriteLaneCommand("sed -i '' 's/a/b/' src/app.ts")).toBe(true);
+    expect(isWriteLaneCommand("sed -i.bak 's/a/b/' src/app.ts")).toBe(true);
+    expect(isWriteLaneCommand("cat x | tee destino.txt")).toBe(true);
+  });
+
+  it("does not count an append, which invalidates no hash", () => {
+    expect(isWriteLaneCommand("echo linea >> registro.log")).toBe(false);
+    expect(isWriteLaneCommand("cat x | tee -a registro.log")).toBe(false);
+  });
+
+  it("does not count a read that merely mentions a redirect target", () => {
+    expect(isWriteLaneCommand("sed -n '10,40p' src/app.ts")).toBe(false);
+    expect(isWriteLaneCommand("grep -n foo archivo.ts")).toBe(false);
+    expect(isWriteLaneCommand("ls -la")).toBe(false);
+    // `2>&1` redirects a stream to another stream, not to a file.
+    expect(isWriteLaneCommand("pnpm test 2>&1 | tail -5")).toBe(false);
+  });
+});
+
 describe("read-lane classification (#603)", () => {
   it("counts the file readers and searchers", () => {
     for (const cmd of [

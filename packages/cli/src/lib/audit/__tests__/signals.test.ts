@@ -56,6 +56,7 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
       startupTokens: 0,
       models: {},
       shellReads: 0,
+      shellWrites: 0,
       toolCounts: {},
       toolCountsByMode: {},
 
