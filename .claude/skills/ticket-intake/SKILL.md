@@ -3,6 +3,7 @@ name: ticket-intake
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 8-phase pipeline to process it with objective gates.
 type: reference
 maxWords: 600
+maxWordsComposed: 650
 ---
 
 <!-- navori:managed id="ticket-intake" hash="8267bbcb" version="0.8.5" source="@navori/core" -->

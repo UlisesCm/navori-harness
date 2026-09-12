@@ -6,6 +6,12 @@ type: reference
 # 835 round-trips del clasificador, que salieron de `operaciones-seguras`. Misma razón
 # que en `tgrep-rung`: se cambia costo por sesión por costo por uso.
 maxWords: 600
+# El techo del archivo COMPUESTO, que es lo que el agente carga (#683): 600 del
+# núcleo + 200 de `codegraph-rung` + 550 de `tgrep-rung` = 1350, más 50 de margen
+# para lo que el render interpola dentro del bloque managed. El `maxWords` de
+# arriba sigue siendo el presupuesto de ESTE asset y su razonamiento: que un
+# plugin le agregue una rung no debe borrarlo.
+maxWordsComposed: 1400
 ---
 
 # structural-search — read the minimum correct amount

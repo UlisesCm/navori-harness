@@ -3,6 +3,7 @@ name: review-diff
 description: Use when reviewing a diff (staged, branch or PR). A code-review checklist across stack-agnostic dimensions — types, data layer, errors, security, hardcode, naming, dead code, quality gate — with CRITICAL/HIGH/MEDIUM severities. Repo-specific rules go in the user-section.
 type: behavior
 maxWords: 1200
+maxWordsComposed: 1450
 ---
 
 <!-- navori:managed id="review-diff-base" hash="9c64f042" version="0.8.5" source="@navori/core" -->

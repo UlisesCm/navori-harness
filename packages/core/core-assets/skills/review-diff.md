@@ -3,6 +3,10 @@ name: review-diff
 description: Use when reviewing a diff (staged, branch or PR). A code-review checklist across stack-agnostic dimensions — types, data layer, errors, security, hardcode, naming, dead code, quality gate — with CRITICAL/HIGH/MEDIUM severities. Repo-specific rules go in the user-section.
 type: behavior
 maxWords: 1200
+# Compuesto (#683): 1200 del núcleo + 200 de `jscpd-review` = 1400, más 50 de
+# margen para los `project.criticalAreas` que el render interpola DENTRO del
+# bloque managed — de ahí salía el exceso sin que ningún plugin participara.
+maxWordsComposed: 1450
 ---
 
 # Code review — checklist for a diff
