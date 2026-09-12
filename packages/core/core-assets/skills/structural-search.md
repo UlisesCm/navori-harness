@@ -30,7 +30,7 @@ Confirm every pointer with a cheap search. If the code contradicts memory, corre
 
 Use it when you know a literal token: name, import, config key, error string.
 
-Native `Grep` first — it IS ripgrep, pre-approved, ~0.08s vs ~0.20s (p75 1.83s) by shell, which in auto mode also pays a classifier round-trip. Shell `rg` is the fallback (git history, context flags), not the default.
+Native `Grep` first — it IS ripgrep, pre-approved, ~0.08s vs ~0.20s (p75 1.83s) by shell. In auto mode the shell also pays a classifier round-trip unless a narrow allow rule covers that exact command; those resolve before the classifier. Shell `rg` is the fallback (git history, context flags), not the default.
 
 1. Start narrow: file, directory or type obtained in Rung 0.
 2. Ask first for files (`Grep` files mode; `rg -l` via shell) or `file:line` with at most two lines of context.

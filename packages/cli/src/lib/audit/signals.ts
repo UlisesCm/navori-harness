@@ -423,6 +423,15 @@ function laneTotal(counts: Record<string, number>, lane: ReturnType<typeof toolL
  * No `tokens` figure on purpose. Each check sends "a portion of the transcript"
  * whose size this report cannot see, and inventing one would put a made-up
  * number next to measured ones.
+ *
+ * THE COUNT IS AN UPPER BOUND, and says so (#723). Narrow Bash allow rules stay
+ * in effect in auto mode and the host resolves them BEFORE the classifier runs
+ * — only the broad ones that grant arbitrary execution (`Bash(*)`, wildcarded
+ * interpreters) get suspended. So every command this session ran that matched a
+ * narrow `allow` rule cost nothing here, and this figure counted it anyway.
+ * Subtracting them needs the repo's allow list AND the host's own rule matcher;
+ * until that exists, the honest move is to name the ceiling rather than publish
+ * a total that reads as measured.
  */
 function classifierRoundTrips(session: SessionAudit, lang: Lang): Signal[] {
   const autoBash = session.orchestrator.toolCountsByMode.auto?.Bash ?? 0;
@@ -436,10 +445,10 @@ function classifierRoundTrips(session: SessionAudit, lang: Lang): Signal[] {
   const share = pick(
     lang,
     autoOnly
-      ? `${autoBash} del orquestador y ${agentBash} de subagentes (la sesión nunca salió de auto, así que sus comandos también pagaron).`
+      ? `${autoBash} del orquestador y ${agentBash} de subagentes (la sesión nunca salió de auto, así que sus comandos también cuentan). Es un TECHO, no un total: las reglas 'allow' estrechas se resuelven antes que el clasificador, así que cada comando cubierto por una no pagó nada.`
       : `${autoBash} del orquestador, contados solo en los tramos en modo auto de una sesión que usó ${modes.length} modos (${modes.join(", ")}). Los ${agentBash} comandos de subagentes quedan fuera: su transcript no declara modo, así que atribuirlos sería inventar.`,
     autoOnly
-      ? `${autoBash} from the orchestrator and ${agentBash} from subagents (the session never left auto, so theirs paid too).`
+      ? `${autoBash} from the orchestrator and ${agentBash} from subagents (the session never left auto, so theirs count too). It is a CEILING, not a total: narrow 'allow' rules resolve before the classifier, so every command covered by one paid nothing.`
       : `${autoBash} from the orchestrator, counted only across the auto stretches of a session that used ${modes.length} modes (${modes.join(", ")}). The ${agentBash} subagent commands are excluded: their transcript declares no mode, so attributing them would be invention.`,
   );
 

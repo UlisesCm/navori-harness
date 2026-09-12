@@ -9707,7 +9707,7 @@ Confirm every pointer with a cheap search. If the code contradicts memory, corre
 
 Use it when you know a literal token: name, import, config key, error string.
 
-Native `Grep` first — it IS ripgrep, pre-approved, ~0.08s vs ~0.20s (p75 1.83s) by shell, which in auto mode also pays a classifier round-trip. Shell `rg` is the fallback (git history, context flags), not the default.
+Native `Grep` first — it IS ripgrep, pre-approved, ~0.08s vs ~0.20s (p75 1.83s) by shell. In auto mode the shell also pays a classifier round-trip unless a narrow allow rule covers that exact command; those resolve before the classifier. Shell `rg` is the fallback (git history, context flags), not the default.
 
 1. Start narrow: file, directory or type obtained in Rung 0.
 2. Ask first for files (`Grep` files mode; `rg -l` via shell) or `file:line` with at most two lines of context.
@@ -10261,7 +10261,7 @@ The Atlassian/Rovo MCP remains the fallback if `acli` fails or is unavailable.
 
 This repo has a pre-built AST code graph exposed over MCP (`codegraph`). To locate code or size a change's blast-radius, call `codegraph_explore` **before** a grep/read crawl: one call returns the source span, call paths and impact.
 
-**In auto mode this is the cheapest move available, not a luxury the shell preference overrides.** The host asks you to work through Bash instead of `Read`/`Edit`/`Write`; an MCP call is neither, and `mcp__codegraph__*` carries an `allow` rule, so it resolves without the classifier round-trip every shell command pays. One `codegraph_explore` costs less than the grep crawl it replaces — measured sessions in this harness ran hundreds of shell searches and zero graph queries, which is the expensive way round.
+**In auto mode this is the cheapest move available, not a luxury the shell preference overrides.** The host asks you to work through Bash instead of `Read`/`Edit`/`Write`; an MCP call is neither, and `mcp__codegraph__*` carries an `allow` rule, so it resolves without a classifier round-trip. A shell command pays that round-trip unless a narrow allow rule covers it — those resolve first — so the saving is real against the shell you actually reach for, which is most of it. One `codegraph_explore` costs less than the grep crawl it replaces — measured sessions in this harness ran hundreds of shell searches and zero graph queries, which is the expensive way round.
 
 It forms the hypothesis; it does not settle it. codegraph is beta and can return the wrong symbol while claiming it's exact, so **confirm the span with `Grep`/`Read` before writing** — and never treat its "tests found" as a coverage gate.
 
