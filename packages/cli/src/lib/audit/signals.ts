@@ -164,6 +164,24 @@ function deadCatalog(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Si
       .filter(Boolean)
       .join(" · ");
 
+    // "Unused" is a FLOOR whenever the host marked no record with a skill
+    // (#725). The two facts print identically otherwise — a release that
+    // renames or drops `attributionSkill` would read as a harness nobody uses,
+    // and the transcript format is documented as internal and free to change on
+    // any release. So the caveat is attached to the number, not left to the
+    // reader: the instrument says when it was blind.
+    const attributed =
+      session.orchestrator.skillAttributionRecords +
+      session.agents.reduce((sum, a) => sum + a.skillAttributionRecords, 0);
+    const caveat =
+      attributed === 0
+        ? pick(
+            lang,
+            " · el host no atribuyó ningún mensaje a una skill en esta sesión, así que este conteo es un piso: una skill aplicada sin invocarse no deja rastro aquí",
+            " · the host attributed no message to a skill in this session, so this count is a floor: a skill applied without being invoked leaves no trace here",
+          )
+        : "";
+
     out.push({
       kind: "unused-skills",
       severity: "info",
@@ -172,7 +190,7 @@ function deadCatalog(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Si
         `${unused.length} de ${cat.skills.length} skills declaradas no se usaron`,
         `${unused.length} of ${cat.skills.length} declared skills went unused`,
       ),
-      evidence: evidence || unused.join(", "),
+      evidence: `${evidence || unused.join(", ")}${caveat}`,
     });
   }
 

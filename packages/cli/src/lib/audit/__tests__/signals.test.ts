@@ -21,6 +21,7 @@ function agent(over: Partial<AgentRun> = {}): AgentRun {
     skillsRead: [],
     skills: [],
     skillsDiscarded: 0,
+    skillAttributionRecords: 0,
     mcpCalls: {},
     mcpReach: {},
     mcpBarredTokens: {},
@@ -61,6 +62,7 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
       skillsRead: [],
       skills: [],
       skillsDiscarded: 0,
+      skillAttributionRecords: 0,
       mcpCalls: {},
       hookEvents: [],
       frictionEvents: 0,
@@ -615,7 +617,12 @@ describe("signal: unused-skills splits by provenance", () => {
     });
     const found = detectSignals(s(), c, "es").find((x) => x.kind === "unused-skills");
     expect(found?.summary).toContain("3 de 4");
-    expect(found?.evidence).toBe(
+    // `toContain`, not `toBe`: what this test sostiene es el DESGLOSE por
+    // procedencia, y la evidencia gana además el caveat de #725 cuando el host
+    // no atribuyó nada — que es el caso de este fixture. Fijar la cadena entera
+    // hacía que cualquier añadido honesto al mensaje rompiera el test por el
+    // motivo equivocado.
+    expect(found?.evidence).toContain(
       "tuyas (2): tamagui-v1, zod-validation-expert · de navori (1): review-diff",
     );
   });
@@ -626,7 +633,33 @@ describe("signal: unused-skills splits by provenance", () => {
       managedSkills: ["dominio", "review-diff"],
     });
     const found = detectSignals(s(), c, "es").find((x) => x.kind === "unused-skills");
-    expect(found?.evidence).toBe("de navori (1): review-diff");
+    expect(found?.evidence).toContain("de navori (1): review-diff");
+    expect(found?.evidence).not.toContain("tuyas");
+  });
+
+  /**
+   * "No se usaron" y "el instrumento no vio nada" son hechos distintos que
+   * imprimían igual (#725). El campo `attributionSkill` no está documentado y
+   * la doc del host dice que el formato del transcript "is internal to Claude
+   * Code and changes between versions", así que un release que lo renombre
+   * convertiría cada sesión en "las skills no se usan". El conteo declara
+   * cuándo es un piso.
+   */
+  it("declara que el conteo es un piso cuando el host no atribuyó nada", () => {
+    const c = catalog({ skills: ["dominio", "review-diff"], managedSkills: ["review-diff"] });
+    const found = detectSignals(s(), c, "es").find((x) => x.kind === "unused-skills");
+    expect(found?.evidence).toContain("piso");
+  });
+
+  it("se calla cuando SÍ hubo atribución — el conteo ya no es ciego", () => {
+    const base = s();
+    const withSpan = {
+      ...base,
+      orchestrator: { ...base.orchestrator, skillAttributionRecords: 12 },
+    };
+    const c = catalog({ skills: ["dominio", "review-diff"], managedSkills: ["review-diff"] });
+    const found = detectSignals(withSpan, c, "es").find((x) => x.kind === "unused-skills");
+    expect(found?.evidence).not.toContain("piso");
   });
 });
 

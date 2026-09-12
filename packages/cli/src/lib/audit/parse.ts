@@ -370,14 +370,42 @@ function countTools(uses: Rec[]): Record<string, number> {
  * the reference session shows 0 `Skill` calls and 34 `SKILL.md` files opened
  * through Read/Bash. Counting only the tool would report "no skills" — false.
  */
-function collectSkills(uses: Rec[]): {
+function collectSkills(
+  uses: Rec[],
+  lines: Rec[] = [],
+): {
   skills: SkillUse[];
   discarded: number;
+  attributionRecords: number;
 } {
-  /** slug → how we learned about it. `skill-tool` wins: an explicit invocation
-   *  is stronger evidence than the file having been opened. */
+  /** slug → how we learned about it. Stronger sources overwrite weaker ones,
+   *  in the order `SkillSource` documents. */
   const found = new Map<string, SkillSource>();
   let discarded = 0;
+
+  /**
+   * The span the host attributed to a skill (#725).
+   *
+   * Read from the RECORDS, not the tool uses: `attributionSkill` is a top-level
+   * field of each `assistant` record while a skill is active, so it is the only
+   * source that survives a subagent — which inherits the attribution without
+   * ever calling the `Skill` tool itself.
+   *
+   * Defensive on every access, like the rest of this parser: the field is
+   * undocumented and the host's docs say the format changes between versions.
+   * `attributionRecords` comes back so the caller can tell "the host marked
+   * nothing" apart from "no skill was worked under".
+   */
+  const attributed = new Map<string, { records: number; outputTokens: number }>();
+  for (const line of lines) {
+    if (str(line.type) !== "assistant") continue;
+    const slug = str(line.attributionSkill);
+    if (slug === null || slug === "") continue;
+    const entry = attributed.get(slug) ?? { records: 0, outputTokens: 0 };
+    entry.records += 1;
+    entry.outputTokens += num(path(line, "message", "usage", "output_tokens"));
+    attributed.set(slug, entry);
+  }
 
   for (const u of uses) {
     const name = str(u.name);
@@ -412,10 +440,27 @@ function collectSkills(uses: Rec[]): {
     }
   }
 
+  // Attribution outranks a file having been opened, and is outranked by an
+  // explicit invocation in THIS transcript — see `SkillSource`.
+  for (const slug of attributed.keys()) {
+    if (found.get(slug) !== "skill-tool") found.set(slug, "attribution");
+  }
+
   const skills = [...found.entries()]
-    .map(([slug, source]) => ({ slug, source }))
+    .map(([slug, source]) => {
+      const span = attributed.get(slug);
+      return span
+        ? {
+            slug,
+            source,
+            attributedRecords: span.records,
+            attributedOutputTokens: span.outputTokens,
+          }
+        : { slug, source };
+    })
     .sort((a, b) => a.slug.localeCompare(b.slug));
-  return { skills, discarded };
+  const attributionRecords = [...attributed.values()].reduce((sum, e) => sum + e.records, 0);
+  return { skills, discarded, attributionRecords };
 }
 
 /** Commands that ENUMERATE rather than read: `ls`, `find`, `tree`, `glob`. The
@@ -595,7 +640,7 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
     .map((l) => str(path(l, "message", "model")))
     .find((m): m is string => m !== null);
 
-  const skills = collectSkills(uses);
+  const skills = collectSkills(uses, lines);
   return {
     agentId,
     agentType,
@@ -612,6 +657,7 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
     skillsRead: skills.skills.map((sk) => sk.slug),
     skills: skills.skills,
     skillsDiscarded: skills.discarded,
+    skillAttributionRecords: skills.attributionRecords,
     mcpCalls: collectMcpCalls(uses),
     // Filled by `buildReport`, which is where the harness catalog lives.
     mcpReach: {},
@@ -730,7 +776,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
     }
   }
 
-  const skills = collectSkills(uses);
+  const skills = collectSkills(uses, lines);
   return {
     sessionId,
     startedAt: first,
@@ -763,6 +809,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
       skillsRead: skills.skills.map((sk) => sk.slug),
       skills: skills.skills,
       skillsDiscarded: skills.discarded,
+      skillAttributionRecords: skills.attributionRecords,
       mcpCalls: collectMcpCalls(uses),
       hookEvents: [],
       ...errorFields(lines),

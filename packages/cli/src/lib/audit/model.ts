@@ -67,6 +67,18 @@ export interface AgentRun {
   /** Skill files seen through a directory listing or a glob, and therefore NOT
    *  counted as used. Reported so the discard is visible instead of silent. */
   skillsDiscarded: number;
+  /**
+   * `assistant` records that carried an `attributionSkill` at all.
+   *
+   * Recorded because ZERO of them and "no skill was used" are different facts
+   * and would otherwise print the same. The field is undocumented, and the
+   * host's own docs say the transcript format "is internal to Claude Code and
+   * changes between versions", so a release that renames or drops it would
+   * silently turn every session into "skills unused" — the exact shape of
+   * misreading #673 and #674 already cost. A reader that sees 0 here knows the
+   * instrument was blind, not that the harness was idle.
+   */
+  skillAttributionRecords: number;
   /** MCP server → the operations called on it, with counts. The transcript
    *  records these as flat `mcp__<server>__<op>` tool names; grouping is what
    *  turns them into "did this agent reach engram at all?". */
@@ -140,15 +152,33 @@ export function emptyToolErrors(): ToolErrors {
  *  `skill-tool` is an explicit invocation; `skill-md` is the file being opened,
  *  which is how skills are used in practice but also how a stray `cat` looks.
  *
- *  `host` is the only one of the three that is not an inference: Claude Code
- *  states it on the `api_request` event (`skill.name`), so it wins over both
- *  (#0021, R13). The other two stay exactly as they were — a session with no
- *  third source is read the same way it always was (R14). */
-export type SkillSource = "host" | "skill-tool" | "skill-md";
+ *  `host` is not an inference: Claude Code states it on the `api_request` event
+ *  (`skill.name`), so it wins over the rest (#0021, R13).
+ *
+ *  `attribution` is not an inference either, and it answers a question no other
+ *  source can (#725). While a skill is active the host stamps
+ *  `attributionSkill` on each `assistant` record, so it marks the SPAN the
+ *  skill was worked under rather than the moment it was invoked — and it is
+ *  INHERITED BY SUBAGENTS, which is where the other sources go blind: measured
+ *  on this repo, 249 subagent records worked under `solution-design` with only
+ *  two `Skill` tool calls to show for it. Each attributed record carries its own
+ *  `message.usage`, so it is also the only source that can price a skill.
+ *
+ *  It ranks BELOW `skill-tool` on purpose: an invocation in this transcript is
+ *  direct evidence that this run reached for the skill, while an inherited span
+ *  says the parent did. Both are stronger than a file having been opened. A
+ *  session with no attributed record is read exactly as it always was. */
+export type SkillSource = "host" | "skill-tool" | "attribution" | "skill-md";
 
 export interface SkillUse {
   slug: string;
   source: SkillSource;
+  /** `assistant` records the host stamped with this skill. Absent when the
+   *  skill was not detected through attribution. */
+  attributedRecords?: number;
+  /** Output tokens produced while those records were attributed to this skill —
+   *  what working under it actually cost. Same absence rule. */
+  attributedOutputTokens?: number;
 }
 
 /**
@@ -370,6 +400,18 @@ export interface SessionAudit {
     skillsRead: string[];
     skills: SkillUse[];
     skillsDiscarded: number;
+    /**
+     * `assistant` records that carried an `attributionSkill` at all.
+     *
+     * Recorded because ZERO of them and "no skill was used" are different facts
+     * and would otherwise print the same. The field is undocumented, and the
+     * host's own docs say the transcript format "is internal to Claude Code and
+     * changes between versions", so a release that renames or drops it would
+     * silently turn every session into "skills unused" — the exact shape of
+     * misreading #673 and #674 already cost. A reader that sees 0 here knows the
+     * instrument was blind, not that the harness was idle.
+     */
+    skillAttributionRecords: number;
     mcpCalls: Record<string, Record<string, number>>;
     hookEvents: HookEvent[];
     frictionEvents: number;
