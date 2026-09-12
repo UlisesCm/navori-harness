@@ -10,7 +10,7 @@ type: behavior
 maxWords: 550
 ---
 
-## Rung 1 — the executor is the wrapper
+## Rung 1, executor override — the wrapper replaces the shell route above
 
 The executor is `bash .claude/scripts/tgrep-search.sh <args…>`, never a bare
 `grep`/`rg`. The CLAUDE.md protocol block carries that rule and its `allow`; this is

@@ -6,7 +6,7 @@ maxWords: 600
 maxWordsComposed: 1400
 ---
 
-<!-- navori:managed id="structural-search-base" hash="9b832948" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="structural-search-base" hash="9c00a69e" version="0.8.5" source="@navori/core" -->
 # structural-search — read the minimum correct amount
 
 Find the right region first and open only the confirmed span. Precision tools verify a hypothesis; they don't form it.
@@ -23,7 +23,7 @@ Confirm every pointer with a cheap search. If the code contradicts memory, corre
 
 Use it when you know a literal token: name, import, config key, error string.
 
-Native `Grep` first — it IS ripgrep, pre-approved, ~0.08s vs ~0.20s (p75 1.83s) by shell. In auto mode the shell also pays a classifier round-trip unless a narrow allow rule covers that exact command; those resolve before the classifier. Shell `rg` is the fallback (git history, context flags), not the default.
+Native `Grep` first — it IS ripgrep, pre-approved, ~0.08s vs ~0.20s (p75 1.83s) by shell. In auto mode the shell also pays a classifier round-trip unless a narrow allow rule covers it. Shell `rg` is the fallback (git history, context flags), not the default. **A rung below may override this executor; if one does, it wins.**
 
 1. Start narrow: file, directory or type obtained in Rung 0.
 2. Ask first for files (`Grep` files mode; `rg -l` via shell) or `file:line` with at most two lines of context.
@@ -92,8 +92,8 @@ The graph **forms the hypothesis**; the rungs above still **verify** it:
 **Never commit the index:** `.codegraph/` is local SQLite that churns on every sync — it belongs in `.gitignore`.
 <!-- /navori:managed id="codegraph-search-extension" -->
 
-<!-- navori:managed id="tgrep-search-extension" hash="e0b59402" version="0.8.5" source="@navori/plugin-tgrep" -->
-## Rung 1 — the executor is the wrapper
+<!-- navori:managed id="tgrep-search-extension" hash="2e6eaa16" version="0.8.5" source="@navori/plugin-tgrep" -->
+## Rung 1, executor override — the wrapper replaces the shell route above
 
 The executor is `bash .claude/scripts/tgrep-search.sh <args…>`, never a bare
 `grep`/`rg`. The CLAUDE.md protocol block carries that rule and its `allow`; this is
