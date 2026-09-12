@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="5ad2808e" version="0.8.5" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="5ad2808e" version="0.8.6" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).

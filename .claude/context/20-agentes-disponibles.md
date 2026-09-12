@@ -1,4 +1,4 @@
-<!-- navori:managed id="agentes-disponibles" hash="4ea3fbfa" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="agentes-disponibles" hash="4ea3fbfa" version="0.8.6" source="@navori/core" -->
 ## Agentes disponibles
 
 Subagentes que puedes lanzar con la herramienta `Agent` (tú eres el orquestador; ve "## Role: orchestrator"). La investigación y la revisión son de solo lectura → paraleliza sin miedo.

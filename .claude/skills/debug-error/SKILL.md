@@ -5,7 +5,7 @@ type: behavior
 maxWords: 600
 ---
 
-<!-- navori:managed id="debug-error-base" hash="dba8bb0d" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="debug-error-base" hash="dba8bb0d" version="0.8.6" source="@navori/core" -->
 # Debug error — diagnose before fixing
 
 A failure is not a mandate to change code. This skill forces the diagnosis step first.

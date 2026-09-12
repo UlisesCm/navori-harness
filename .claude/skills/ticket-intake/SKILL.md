@@ -6,7 +6,7 @@ maxWords: 600
 maxWordsComposed: 650
 ---
 
-<!-- navori:managed id="ticket-intake" hash="8267bbcb" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="ticket-intake" hash="8267bbcb" version="0.8.6" source="@navori/core" -->
 # ticket-intake — 8-phase pipeline
 
 ## Pipeline
