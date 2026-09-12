@@ -974,6 +974,7 @@ export function renderClaudeEngine(
         pending,
         skipped,
         warnings,
+        minimalHarness,
         // #215: register version drift so `navori update` reports a plugin
         // sub-block whose version bumped, instead of silently correcting it on
         // render. Reuses the CLAUDE.md plan's buckets so it flows out via the
@@ -1559,8 +1560,10 @@ function applyBootstrapPlan(
  * the base block (e.g. `leader-base`) and is regenerated independently.
  *
  * If the target file isn't being touched this render and doesn't exist on
- * disk (e.g. the corresponding agent is disabled in config.harness), the
- * inject is skipped silently — there's nothing to inject into.
+ * disk, the inject is skipped — there's nothing to inject into. It is reported
+ * only when the target's absence means the contribution was LOST (the agent is
+ * disabled in `config.harness`), never when it means the workspace is trimmed
+ * and the target lives at the root (#676).
  */
 function applySubBlockInject(input: {
   cwd: string;
@@ -1572,6 +1575,9 @@ function applySubBlockInject(input: {
   warnings: string[];
   updatesAvailable: UpdateAvailable[];
   downgrades: UpdateAvailable[];
+  /** Spec 0018 scope of THIS render. Decides whether an absent target is a
+   *  finding or the trim working as designed — see the branch below. */
+  minimalHarness: boolean;
 }): void {
   const targetAbs = join(input.cwd, input.skill.injectInto!);
 
@@ -1582,16 +1588,30 @@ function applySubBlockInject(input: {
   } else if (existsSync(targetAbs)) {
     currentContent = readFileSync(targetAbs, "utf-8");
   } else {
-    // Target absent — typically because the agent (`leader.md` and friends)
-    // is disabled in `config.harness`. Surface this so the user knows the
-    // plugin contribution was dropped silently, not lost to a bug.
-    input.warnings.push(
-      tc(resolveLang(input.config.language)).engine.pluginSkillNotInjected(
-        input.skill.id,
-        input.plugin.manifest.id,
-        input.skill.injectInto ?? "?",
-      ),
-    );
+    // Target absent. Two causes, and only one of them is worth a word (#676).
+    //
+    // Under `workspaceHarness: "minimal"` (spec 0018) a workspace HAS no
+    // `.claude/agents/` by design — that is the whole trim, and its argument is
+    // that Claude Code finds agents by walking up, so the workspace does not
+    // need its own copy. The root render, which never carries a scope, wrote
+    // the agent AND injected this sub-block into it. So nothing was dropped:
+    // the contribution is one directory up, doing its job.
+    //
+    // Saying otherwise was not merely a misattributed hint, it was FALSE, and
+    // it cost 13 lines per workspace on every render of a real monorepo — 26
+    // lines pointing at a config that is correct. That is how a reader learns
+    // to skip these, including the day one of them is real.
+    if (!input.minimalHarness) {
+      // The real case: the agent (`leader.md` and friends) is disabled in
+      // `config.harness`, so the contribution IS lost and the user should know.
+      input.warnings.push(
+        tc(resolveLang(input.config.language)).engine.pluginSkillNotInjected(
+          input.skill.id,
+          input.plugin.manifest.id,
+          input.skill.injectInto ?? "?",
+        ),
+      );
+    }
     return;
   }
 
