@@ -143,11 +143,33 @@ function startupOverhead(session: SessionAudit, cat: HarnessCatalog, lang: Lang)
 /** Declared but never loaded in this session — dead weight in every context. */
 function deadCatalog(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Signal[] {
   const out: Signal[] = [];
-  const usedSkills = new Set([
-    ...session.orchestrator.skillsRead,
-    ...session.agents.flatMap((a) => a.skillsRead),
+
+  // "Used" is not one fact but two, and merging them made this signal report the
+  // weaker one (#725, A5). `skillsRead` carries every slug however it was
+  // detected, and `skill-md` — the file having been OPENED — is 92 of the 135
+  // detections across the audited park. One session detected thirteen skills
+  // and all thirteen were that: it would have reported almost nothing unused
+  // while invoking none of them. An auditor reading the catalog is the limit
+  // case, and it is not hypothetical: it is what this repo's own sessions do.
+  //
+  // So the question the number answers is now INVOCATION (the `Skill` tool, the
+  // host's own declaration, or an attributed span), and what was merely opened
+  // is reported next to it instead of inside it.
+  const runs = [session.orchestrator, ...session.agents];
+  const invoked = new Set([
+    ...runs.flatMap((r) => r.skills.filter((sk) => sk.source !== "skill-md").map((sk) => sk.slug)),
+    // A host-declared skill the parser could not pin to ONE run lands only on
+    // the session (`applyHostSkills` refuses to guess between two `researcher`s
+    // and leaves it there). Nothing read it back, which was harmless while the
+    // headline was "went unused" — but reading "never invoked" off a set that
+    // omits the host's own statement would contradict the strongest source the
+    // audit has.
+    ...session.hostSkills.map((sk) => sk.slug),
   ]);
-  const unused = cat.skills.filter((s) => !usedSkills.has(s));
+  const browsed = new Set(
+    runs.flatMap((r) => r.skills.filter((sk) => sk.source === "skill-md").map((sk) => sk.slug)),
+  );
+  const unused = cat.skills.filter((s) => !invoked.has(s));
   if (unused.length > 0 && cat.skills.length > 0) {
     // Split by provenance (#607): the two halves lead to different decisions —
     // the user owns theirs, the preset ships navori's — and one merged list of
@@ -157,6 +179,20 @@ function deadCatalog(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Si
     const fromNavori = unused.filter((s) => managed.has(s));
     const part = (label: string, list: string[]): string =>
       list.length > 0 ? `${label} (${list.length}): ${list.join(", ")}` : "";
+    // Of the never-invoked ones, the ones whose FILE was opened are a different
+    // case from the ones nothing ever touched: one says the skill was within
+    // reach and did not get used, the other that it was never in play at all.
+    const onlyBrowsed = unused.filter((s) => browsed.has(s));
+    const browsedLine =
+      onlyBrowsed.length > 0
+        ? "\n" +
+          pick(
+            lang,
+            `de esas, ${onlyBrowsed.length} sí se abrieron como archivo pero nunca se invocaron: ${onlyBrowsed.join(", ")}`,
+            `of those, ${onlyBrowsed.length} had their file opened but were never invoked: ${onlyBrowsed.join(", ")}`,
+          )
+        : "";
+
     const evidence = [
       part(pick(lang, "tuyas", "yours"), own),
       part(pick(lang, "de navori", "navori's"), fromNavori),
@@ -187,10 +223,10 @@ function deadCatalog(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Si
       severity: "info",
       summary: pick(
         lang,
-        `${unused.length} de ${cat.skills.length} skills declaradas no se usaron`,
-        `${unused.length} of ${cat.skills.length} declared skills went unused`,
+        `${unused.length} de ${cat.skills.length} skills declaradas nunca se invocaron`,
+        `${unused.length} of ${cat.skills.length} declared skills were never invoked`,
       ),
-      evidence: `${evidence || unused.join(", ")}${caveat}`,
+      evidence: `${evidence || unused.join(", ")}${browsedLine}${caveat}`,
     });
   }
 

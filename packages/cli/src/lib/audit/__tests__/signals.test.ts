@@ -608,7 +608,18 @@ describe("signal: hook-log-coverage stays quiet on a gap that rounds away (#584)
  * decisions (#607).
  */
 describe("signal: unused-skills splits by provenance", () => {
-  const s = () => session({ orchestrator: { ...session().orchestrator, skillsRead: ["dominio"] } });
+  // `skills` Y `skillsRead`, como los deja el parser: los dos salen de la misma
+  // pasada, y un fixture que solo poblara el segundo probaría un estado que no
+  // existe. Desde #725/A5 la señal lee `skills` —necesita la FUENTE, no solo el
+  // slug— así que la inconsistencia habría pasado por un cambio de conducta.
+  const s = () =>
+    session({
+      orchestrator: {
+        ...session().orchestrator,
+        skillsRead: ["dominio"],
+        skills: [{ slug: "dominio", source: "skill-tool" as const }],
+      },
+    });
 
   it("separates the user's skills from navori's", () => {
     const c = catalog({
@@ -649,6 +660,55 @@ describe("signal: unused-skills splits by provenance", () => {
     const c = catalog({ skills: ["dominio", "review-diff"], managedSkills: ["review-diff"] });
     const found = detectSignals(s(), c, "es").find((x) => x.kind === "unused-skills");
     expect(found?.evidence).toContain("piso");
+  });
+
+  /**
+   * Abrir el archivo de una skill no es usarla (#725, A5).
+   *
+   * `skillsRead` no distingue CÓMO se detectó, y `skill-md` —el archivo abierto—
+   * es 92 de las 135 detecciones del parque auditado. Una sesión detectó trece
+   * skills y las trece eran eso: habría reportado casi nada sin usar mientras no
+   * invocaba ninguna. El caso límite es un auditor leyendo el catálogo, y no es
+   * hipotético: es lo que hacen las sesiones de este repo.
+   */
+  it("una skill solo ABIERTA sigue contando como nunca invocada", () => {
+    const base = session();
+    const onlyRead = {
+      ...base,
+      orchestrator: {
+        ...base.orchestrator,
+        skillsRead: ["dominio", "review-diff"],
+        skills: [
+          { slug: "dominio", source: "skill-md" as const },
+          { slug: "review-diff", source: "skill-md" as const },
+        ],
+      },
+    };
+    const c = catalog({ skills: ["dominio", "review-diff"], managedSkills: ["review-diff"] });
+    const found = detectSignals(onlyRead, c, "es").find((x) => x.kind === "unused-skills");
+    expect(found?.summary).toContain("2 de 2");
+    // Y lo dice: abierta y no invocada es un caso distinto de nunca tocada.
+    expect(found?.evidence).toContain("se abrieron como archivo pero nunca se invocaron");
+    expect(found?.evidence).toContain("dominio, review-diff");
+  });
+
+  it("no llama 'abierta' a la que nadie tocó", () => {
+    const c = catalog({ skills: ["dominio", "review-diff"], managedSkills: [] });
+    const found = detectSignals(session(), c, "es").find((x) => x.kind === "unused-skills");
+    expect(found?.evidence).not.toContain("se abrieron como archivo");
+  });
+
+  it("una skill declarada por el host cuenta como invocada aunque no se pueda atribuir", () => {
+    // `applyHostSkills` se niega a adivinar entre dos `researcher`, así que deja
+    // la skill solo en la sesión. Nadie la leía de vuelta: inofensivo mientras el
+    // titular era "no se usaron", contradictorio ahora que es "nunca se invocaron"
+    // —sería negar la fuente más fuerte que tiene la auditoría—.
+    const base = session();
+    const declared = { ...base, hostSkills: [{ slug: "review-diff", source: "host" as const }] };
+    const c = catalog({ skills: ["dominio", "review-diff"], managedSkills: ["review-diff"] });
+    const found = detectSignals(declared, c, "es").find((x) => x.kind === "unused-skills");
+    expect(found?.summary).toContain("1 de 2");
+    expect(found?.evidence).not.toContain("review-diff");
   });
 
   it("se calla cuando SÍ hubo atribución — el conteo ya no es ciego", () => {
