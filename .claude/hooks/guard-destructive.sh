@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="62ae2087" version="0.8.5" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="62ae2087" version="0.8.6" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.

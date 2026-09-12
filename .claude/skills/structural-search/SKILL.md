@@ -6,7 +6,7 @@ maxWords: 600
 maxWordsComposed: 1400
 ---
 
-<!-- navori:managed id="structural-search-base" hash="9c00a69e" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="structural-search-base" hash="9c00a69e" version="0.8.6" source="@navori/core" -->
 # structural-search — read the minimum correct amount
 
 Find the right region first and open only the confirmed span. Precision tools verify a hypothesis; they don't form it.
@@ -73,7 +73,7 @@ If it isn't installed, fall back to Grep and targeted reading: **don't block the
 - Don't set up LSP/Serena; this harness ends at Rung 2.
 <!-- /navori:managed id="structural-search-base" -->
 
-<!-- navori:managed id="codegraph-search-extension" hash="dd662711" version="0.8.5" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-search-extension" hash="dd662711" version="0.8.6" source="@navori/plugin-codegraph" -->
 ## Rung -1 — query the code graph first (codegraph)
 
 Before the grep/ast-grep ladder above, if `codegraph` is available, ask the AST graph where the code lives. Its `allow` rule skips the classifier check every shell command pays in auto mode:
@@ -92,7 +92,7 @@ The graph **forms the hypothesis**; the rungs above still **verify** it:
 **Never commit the index:** `.codegraph/` is local SQLite that churns on every sync — it belongs in `.gitignore`.
 <!-- /navori:managed id="codegraph-search-extension" -->
 
-<!-- navori:managed id="tgrep-search-extension" hash="c5276d9b" version="0.8.5" source="@navori/plugin-tgrep" -->
+<!-- navori:managed id="tgrep-search-extension" hash="c5276d9b" version="0.8.6" source="@navori/plugin-tgrep" -->
 ## Rung 1, executor override — the wrapper replaces the shell route above
 
 The executor is `bash .claude/scripts/tgrep-search.sh <args…>`, never a bare

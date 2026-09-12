@@ -4,7 +4,7 @@ description: Use when creating a Zod schema or validating input at a trust bound
 type: reference
 ---
 
-<!-- navori:managed id="zod-validation" hash="4fe628f6" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="zod-validation" hash="4fe628f6" version="0.8.6" source="@navori/core" -->
 # Zod Validation — the canonical pattern
 
 One schema per resource (`<resource>.schema.ts`), a generic validate middleware, and the DTO from `z.infer`.
