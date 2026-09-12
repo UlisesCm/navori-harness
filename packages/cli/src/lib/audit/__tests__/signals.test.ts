@@ -696,3 +696,30 @@ describe("signal: routing-notice (spec 0020 R5)", () => {
     expect(routing(ran)).toEqual([]);
   });
 });
+
+/**
+ * #723 — the figure counted every Bash call in auto mode as a classifier
+ * round-trip, and the host's own documentation says otherwise: *"narrow Bash
+ * and PowerShell allow rules such as `Bash(npm test)` stay in effect in auto
+ * mode, and Claude Code resolves them before the classifier runs"*. Only the
+ * broad rules that grant arbitrary execution get suspended.
+ *
+ * Subtracting the covered commands needs the repo's allow list and the host's
+ * own rule matcher, which is its own work. What this test pins is the part that
+ * costs nothing and was the actual defect: a number that reads as measured when
+ * it is a ceiling.
+ */
+describe("classifier round-trips are a ceiling, not a total (#723)", () => {
+  it("says so in the evidence, in both languages", () => {
+    const s = session({ permissionModes: { auto: 10 } });
+    s.orchestrator.toolCountsByMode = { auto: { Bash: 7 } };
+    const c = catalog({});
+
+    const es = detectSignals(s, c, "es").find((x) => x.kind === "classifier-round-trips");
+    expect(es?.evidence).toContain("TECHO");
+    expect(es?.evidence).toContain("allow");
+
+    const en = detectSignals(s, c, "en").find((x) => x.kind === "classifier-round-trips");
+    expect(en?.evidence).toContain("CEILING");
+  });
+});

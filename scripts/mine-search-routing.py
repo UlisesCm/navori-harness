@@ -31,10 +31,12 @@ Las categorías, entonces:
                con `allow` propio: sin prompt y sin round-trip de clasificador.
   nativo       la tool `Grep` (ripgrep por debajo, también en `allow`).
   shell        `grep`/`rg` de BÚSQUEDA lanzados por Bash: recursivos, con
-               directorio como target, o sin target. Pagan clasificador en auto
-               mode, arrastran la batería de hooks y meten su salida completa al
-               contexto. Es lo que el wrapper reemplaza, y el único shell que
-               entra al cociente.
+               directorio como target, o sin target. Arrastran la batería de
+               hooks y meten su salida completa al contexto — y `rg`, que no
+               está allow-listado, paga además clasificador en auto mode
+               (`grep` sí lo está, y las reglas estrechas resuelven antes que
+               el clasificador). Es lo que el wrapper reemplaza, y el único
+               shell que entra al cociente.
 
   filtro       `… | grep`. Se reporta aparte y NO entra al cociente.
   extraccion   `grep -n x archivo-conocido`. La propia doctrina la prefiere al
