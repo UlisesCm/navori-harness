@@ -522,6 +522,32 @@ export interface Signal {
 }
 
 /** Aggregate across the audited range. */
+/**
+ * What one skill did across the audited range.
+ *
+ * The three counters answer three different questions and are deliberately not
+ * added up:
+ *   - `invoked`   — somebody asked for it (the `Skill` tool, or the host said so)
+ *   - `inherited` — a subagent worked under it without asking (attributed span)
+ *   - `browsed`   — its file was opened and nothing else. Not use; the shelf.
+ *
+ * A skill can land in more than one column across sessions, which is why they
+ * are counts rather than a single classification.
+ */
+export interface SkillTally {
+  slug: string;
+  /** Sessions where it was invoked outright. */
+  invoked: number;
+  /** Sessions where a run worked under it through an attributed span. */
+  inherited: number;
+  /** Sessions where only its file was opened. */
+  browsed: number;
+  /** `assistant` records the host attributed to it, summed over the range. */
+  records: number;
+  /** Output tokens produced under it — what the skill actually cost. */
+  outputTokens: number;
+}
+
 export interface AuditReport {
   /** Bumped to 2 by spec 0013: reports now carry per-agent cards (skills with
    *  provenance, MCP by server, recorded hook executions). Bumped to 3 when
@@ -564,6 +590,18 @@ export interface AuditReport {
      *  five agents of 20 minutes running in parallel cost 30 minutes of clock,
      *  not 100. Reporting only the sum reads as time nobody spent. */
     agentWallClockMs: number;
+    /**
+     * Skill use across EVERY session in the range, by slug (#725, A5).
+     *
+     * The question "are the skills being used" is asked of a park and the
+     * pipeline only ever answered it per session — so it was answered by hand,
+     * once, and the number that came out ("8 of 12 never invoked in 48h") set a
+     * moratorium. This is that number, computed instead of assembled.
+     *
+     * Three counts, never summed into one: they are different evidence and a
+     * total would hide which. See `SkillTally`.
+     */
+    skills: SkillTally[];
   };
   signals: Signal[];
   /**

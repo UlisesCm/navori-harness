@@ -219,7 +219,7 @@ It carries an `allow` rule, so it runs with no permission prompt in any mode. Th
 The routing table, the portable flag set and why the index is rebuilt before every query: Rung 1 of the `structural-search` skill.
 <!-- /navori:managed id="tgrep-protocol" -->
 
-<!-- navori:managed id="skills-index" hash="96c3af0e" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="skills-index" hash="36d7b93c" version="0.8.5" source="@navori/core" -->
 ## Skills disponibles
 
 Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. La nota tras el `·` dice cuándo usar cada una.
@@ -236,7 +236,7 @@ Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido
 - `spec-bootstrap` — navori (workflow) · Use when starting a real-scope feature before writing code
 - `dominio` — navori (workflow) · Use when you discover a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cr…
 - `babysit-prs` — navori (workflow) · Use when you resume a session with open PRs of yours, or when a check went red after a push
-- `zod-validation` — library (detected) · Use when creating schemas or touching input validation of body/query/params
+- `zod-validation` — library (detected) · Use when creating a Zod schema or validating input at a trust boundary
 - `vitest` — library (detected) · Use when writing or fixing unit/integration tests with Vitest
 - `citty` — library (detected) · Use when adding or editing a CLI command with citty
 - `clack` — library (detected) · Use when building interactive CLI prompts with @clack/prompts
