@@ -17,6 +17,99 @@ set -euo pipefail
 
 INSTALL_HINT="brew install tgrep"
 
+# ── Flag admission (#717 C1) ──────────────────────────────────────────────────
+#
+# This wrapper is ALLOW-LISTED (`Bash(bash .claude/scripts/tgrep-search.sh *)`),
+# so it runs with no permission prompt and no classifier round-trip, in every
+# mode. That is the point of it — and it means its argv is a privileged
+# surface: whatever this script hands an engine, it hands it unprompted.
+#
+# ripgrep can execute caller-supplied commands. `--pre CMD` runs CMD once per
+# file; `--hostname-bin CMD` runs CMD too. The harness's own doctrine already
+# says why `rg` is not pre-approved — "`rg --pre <cmd>` runs an arbitrary
+# command per file" — and until this gate, the allow-listed wrapper was exactly
+# that surface one level of indirection later: with no tgrep installed the
+# fallback is `exec rg "$@"`, verbatim. Verified end to end: `rg --pre` executes,
+# and the wrapper passed `--pre` straight through.
+#
+# ALLOWLIST, not a denylist of the executing flags. A denylist has to be right
+# about every flag ripgrep adds later; this fails toward refusing, which is the
+# correct direction for a surface that runs without a prompt. The cost of that
+# choice is a false block, and a false block teaches the caller to route around
+# the wrapper — so the set is not invented here: it is the portable subset the
+# tgrep rung documents, plus the flags it explicitly calls "avoid" (legal, just
+# slower), plus the ones the grep translation below already enumerates.
+# `flag-doctrine.test.ts` reads that prose and fails if the two drift.
+#
+# Refusal is exit 2 — "nothing was searched", the contract's third code — and
+# never exit 1, which would read as "no match": a false negative is the one
+# outcome this wrapper exists to prevent.
+SAFE_SHORT_FLAGS="iIlcnFwegABCmohvxsSatTuzrEfL"
+SAFE_LONG_FLAGS="
+ignore-case case-sensitive smart-case fixed-strings word-regexp line-regexp
+files-with-matches files-without-match count count-matches line-number
+no-line-number only-matching invert-match no-filename with-filename heading
+no-heading column byte-offset regexp glob iglob type type-not type-list
+type-add max-count after-context before-context context file replace
+encoding engine color colors sort sortr hidden text no-ignore no-ignore-vcs
+no-ignore-parent no-ignore-global no-ignore-dot no-ignore-files unrestricted
+follow max-filesize max-depth maxdepth regex-size-limit dfa-size-limit
+multiline multiline-dotall crlf null null-data trim search-zip
+ignore-file ignore-file-case-insensitive no-max-filesize threads mmap no-mmap
+binary no-config one-file-system stats quiet no-messages
+index-path no-index
+"
+
+reject_flag() {
+  echo "✗ tgrep-search: '$1' is not in this wrapper's supported flag set — nothing was searched." >&2
+  echo "  The wrapper runs allow-listed (no prompt), so it only forwards flags that cannot make" >&2
+  echo "  an engine execute a command. \`--pre\` and \`--hostname-bin\` are refused by design." >&2
+  echo "  Supported: the portable subset (-i -l -c -n -F -w -e -g -A/-B/-C -m) plus --hidden," >&2
+  echo "  --no-ignore*, -a and -t. For anything else use the native Grep tool." >&2
+  exit 2
+}
+
+check_long_flag() {
+  # `--flag=value` and `--flag` alike: only the NAME is admitted here.
+  navori_flag="${1#--}"
+  navori_flag="${navori_flag%%=*}"
+  case "
+$SAFE_LONG_FLAGS" in
+    *"
+$navori_flag "* | *" $navori_flag "* | *" $navori_flag
+"*) return 0 ;;
+  esac
+  reject_flag "--$navori_flag"
+}
+
+check_short_flags() {
+  # Bundled shorts (`-in`, `-uuu`, `-A3`) are admitted character by character;
+  # a digit is a value glued to the flag before it, never a flag itself.
+  navori_bundle="${1#-}"
+  while [ -n "$navori_bundle" ]; do
+    navori_char="${navori_bundle%"${navori_bundle#?}"}"
+    navori_bundle="${navori_bundle#?}"
+    case "$navori_char" in
+      [0-9]) continue ;;
+    esac
+    case "$SAFE_SHORT_FLAGS" in
+      *"$navori_char"*) ;;
+      *) reject_flag "-$navori_char" ;;
+    esac
+  done
+}
+
+navori_end_of_flags=0
+for navori_arg in "$@"; do
+  [ "$navori_end_of_flags" -eq 0 ] || break
+  case "$navori_arg" in
+    --) navori_end_of_flags=1 ;;
+    --*) check_long_flag "$navori_arg" ;;
+    -) ;;
+    -*) check_short_flags "$navori_arg" ;;
+  esac
+done
+
 # The tree to index. tgrep indexes a directory, and the index has to be keyed to
 # the same tree from any cwd inside it — hence the repo root, not $PWD. Outside
 # a git repo the cwd IS the tree. An agent worktree resolves to itself and gets

@@ -320,3 +320,123 @@ describe.runIf(runsBash)("tgrep-search.sh — the fallbacks (spec 0017)", () => 
     expect(r.stdout).toContain("token_uno");
   });
 });
+
+/**
+ * #717 C1 — the wrapper is ALLOW-LISTED, so its argv is a privileged surface.
+ *
+ * `Bash(bash .claude/scripts/tgrep-search.sh *)` runs with no permission prompt
+ * and no classifier round-trip, in every mode. ripgrep can execute
+ * caller-supplied commands (`--pre CMD` per file, `--hostname-bin CMD`), and
+ * the harness's own doctrine says exactly why `rg` is not pre-approved for that
+ * reason. Until the admission gate, the wrapper WAS that surface one level of
+ * indirection later: with no tgrep installed it ends in `exec rg "$@"`,
+ * verbatim. Verified end to end before the fix — `rg --pre` executes, and the
+ * wrapper forwarded `--pre` untouched.
+ *
+ * The property under test is not "the flag is rejected". It is that the
+ * rejection happens BEFORE any engine is chosen, so no branch of the dispatch
+ * can be the one that forwards it.
+ */
+describe.runIf(runsBash)("tgrep-search.sh — flag admission (#717 C1)", () => {
+  const REFUSAL = "not in this wrapper's supported flag set";
+
+  /** A PATH whose `$name` is a stub that records being called and nothing else. */
+  function shimWithEngine(
+    fx: Fixture,
+    name: "tgrep" | "rg" | "none",
+  ): { path: string; trace: string } {
+    const bin = makeShim(fx, `engine-${name}`);
+    const trace = join(fx.base, `trace-${name}.txt`);
+    if (name !== "none") {
+      const stub = join(bin, name);
+      writeFileSync(
+        stub,
+        `#!/bin/sh
+printf '%s\n' "$*" >> ${JSON.stringify(trace)}
+exit 0
+`,
+      );
+      chmodSync(stub, 0o755);
+    }
+    return { path: bin, trace };
+  }
+
+  // One row per branch of the dispatch. The gate sits before the engine choice,
+  // so every branch must refuse identically — and the stub proves the engine was
+  // never handed the argument, which is the whole claim.
+  for (const engine of ["tgrep", "rg", "none"] as const) {
+    it(`refuses --pre before reaching the ${engine} branch`, () => {
+      const fx = makeFixture();
+      const { path, trace } = shimWithEngine(fx, engine);
+      const r = run(fx, { args: ["--pre", "/bin/sh", "token_uno", "."], path });
+      // Exit 2 is the contract's "nothing was searched" — never 1, which reads
+      // as "no match" and would be a silent false negative.
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain(REFUSAL);
+      expect(existsSync(trace)).toBe(false);
+    });
+  }
+
+  it("refuses the --flag=value spelling too", () => {
+    const fx = makeFixture();
+    const r = run(fx, { args: ["--pre=/bin/sh", "token_uno", "."] });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(REFUSAL);
+  });
+
+  it("refuses --hostname-bin, the other flag that runs a command", () => {
+    // A denylist of one would have missed it. The set is an allowlist for
+    // exactly this reason: it does not have to be right about every flag
+    // ripgrep adds later.
+    const fx = makeFixture();
+    const r = run(fx, { args: ["--hostname-bin", "/bin/sh", "token_uno", "."] });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(REFUSAL);
+  });
+
+  it("stops inspecting after `--`, where a dash is data and not a flag", () => {
+    const fx = makeFixture();
+    const r = run(fx, { args: ["--", "--pre", "."] });
+    expect(r.stderr).not.toContain(REFUSAL);
+  });
+
+  /**
+   * The drift guard, and the reason this file reads the rung's prose instead of
+   * repeating a list: an allowlist that refuses a flag the doctrine recommends
+   * is the failure #717 itself calls worse than the gap — a false block teaches
+   * the caller to route around the wrapper.
+   */
+  it("admits every flag the tgrep rung tells an agent to use", () => {
+    const rung = readFileSync(resolve(getPluginPath("tgrep"), "skills/tgrep-rung.md"), "utf-8");
+    const portable = /Portable across the engines the wrapper may pick: (.+)/.exec(rung)?.[1] ?? "";
+    expect(portable).not.toBe("");
+
+    const flags = [...portable.matchAll(/`([^`]+)`/g)]
+      .flatMap((m) => (m[1] ?? "").split(/\s+/))
+      .flatMap((f) => f.split("/"))
+      .filter((f) => f.startsWith("-"));
+    // Plus the ones the same section calls "avoid" — slower, never refused.
+    flags.push("--hidden", "--no-ignore", "-a", "-t");
+    expect(flags).toContain("-i");
+    expect(flags).toContain("-m");
+
+    /** Flags that take a value; a bare one would be read as the pattern. */
+    const VALUE: Record<string, string> = {
+      "-e": "token_uno",
+      "-g": "*.txt",
+      "-A": "1",
+      "-B": "1",
+      "-C": "1",
+      "-m": "1",
+      "-t": "txt",
+    };
+    const fx = makeFixture();
+    const refused: string[] = [];
+    for (const flag of flags) {
+      const value = VALUE[flag];
+      const args = value ? [flag, value, "token_uno", "."] : [flag, "token_uno", "."];
+      if (run(fx, { args }).stderr.includes(REFUSAL)) refused.push(flag);
+    }
+    expect(refused).toEqual([]);
+  });
+});
