@@ -62,6 +62,29 @@ HARNESS_PROSE = re.compile(_SPEC["harnessProse"])
 AUDITS = os.path.expanduser("~/.navori/audits")
 
 
+def session_version(sid):
+    """La versión de navori RENDERIZADA cuando corrió la sesión.
+
+    Sale del registro `start` que el hook escribe al armar audit-mode, no del
+    repo: lo que el repo tenga hoy no es la doctrina que estuvo vigente
+    entonces. Sin esto, un cambio de doctrina y su medición no se pueden atar.
+    """
+    if not os.path.isdir(AUDITS):
+        return None
+    for repo in os.listdir(AUDITS):
+        f = os.path.join(AUDITS, repo, f"session-{sid}.log")
+        if not os.path.isfile(f):
+            continue
+        try:
+            with open(f, errors="replace") as fh:
+                for line in fh:
+                    d = json.loads(line)
+                    return d.get("navoriRendered") if d.get("event") == "start" else None
+        except Exception:
+            return None
+    return None
+
+
 def session_cwd(sid):
     """La raíz del repo de una sesión, desde la cabecera de su log de audit.
 
@@ -404,6 +427,50 @@ for k in sorted(TO, key=lambda x: -TO[x]):
     print(f"{k:<26}{o:>15}{h:>12}{(100*h//o if o else 0):>7}%")
 to, th = sum(TO.values()), sum(TH.values())
 print(f"{'TOTAL':<26}{to:>15}{th:>12}{(100*th//to if to else 0):>7}%")
+
+# ─── La distribución, no solo el agregado ───────────────────────────────────
+#
+# Una tasa agregada invita a leer una propiedad donde solo hay una media, y esa
+# lectura ya costó una investigación entera (#705). El agregado por repo daba
+# "cuatro repos donde el harness está inerte"; medida la distribución, dos
+# tercios de TODAS las sesiones no delegan nada —en los repos que "sí delegan"
+# también—, y que las pocas sesiones de un repo caigan todas de ese lado es lo
+# que se espera por azar, no una propiedad suya.
+#
+# Se exige un mínimo de oportunidades por sesión: una sesión con una sola
+# oportunidad es 0% o 100% y solo agrega varianza al histograma.
+MIN_OPP = 3
+buckets = Counter()
+graded = 0
+for r in rows:
+    o, h = sum(r["opp"].values()), sum(r["hit"].values())
+    if o < MIN_OPP:
+        continue
+    graded += 1
+    rate = 100 * h / o
+    buckets["0%" if rate == 0 else "1-24%" if rate < 25 else "25-74%" if rate < 75 else "75-100%"] += 1
+
+print("\n" + "=" * 104)
+print(f"DISTRIBUCIÓN POR SESIÓN — {graded} sesiones con >= {MIN_OPP} oportunidades")
+print("=" * 104)
+if graded:
+    for k in ["0%", "1-24%", "25-74%", "75-100%"]:
+        n = buckets[k]
+        print(f"  {k:>8}{n:>5}  ({100*n/graded:4.1f}%)  {'#' * round(40 * n / graded)}")
+    base = buckets["0%"] / graded
+    # La doctrina vigente DURANTE la medición, que es lo único que este número
+    # describe. Sin ella, una tasa base se lee como una propiedad del harness en
+    # vez de como una foto de la versión que estaba puesta.
+    vers = sorted({v for v in (session_version(r["session"]) for r in rows) if v})
+    if vers:
+        span = vers[0] if len(vers) == 1 else f"{vers[0]} … {vers[-1]}"
+        print(f"\n  Versiones renderizadas durante estas sesiones: {span}")
+    print(f"\n  Tasa base de sesiones que NO delegan nada: {100*base:.1f}%.")
+    print("  Con esa base, que las N sesiones de un repo salgan todas en cero tiene")
+    print(f"  probabilidad {100*base:.0f}%^N — con 3 sesiones, {100*base**3:.0f}%. Antes de")
+    print("  leer una propiedad del repo en un agregado, contar cuántas sesiones lo forman.")
+else:
+    print(f"  (ninguna sesión llegó a {MIN_OPP} oportunidades)")
 
 print("\n" + "=" * 104)
 print("INVOCACIONES REALES — automáticas vs pedidas por el usuario")
