@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="758702b5" version="0.8.5" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="ba29468d" version="0.8.5" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -379,6 +379,36 @@ TRIGGER_TOKENS='commit'
 # the gate silently). Matching a segment START means a quoted `echo "git commit"`
 # does NOT trigger it. Known limitation: it cannot see through `sh -c`, `eval`,
 # or obfuscation — a seatbelt, not a sandbox.
+# The fast path on its own, so a caller can apply it EARLIER than the segment
+# scan — before it has even paid to extract the command from the payload.
+#
+# Returns 0 when $1 may contain a gated operation, 1 when it provably cannot.
+# The argument is the one the block below spells out: no $TRIGGER_RE can match
+# without one of the caller's literal TOKENS appearing in the segment it
+# matches, and every segment is a substring of the input. So the absence of
+# every token is proof that no segment can match — and the same proof holds one
+# level up, over the raw PAYLOAD the command was extracted from: JSON escaping
+# touches `"`, `\` and control characters, never the letters of a token.
+#
+# Disarms when $TRIGGER_TOKENS is unset: with no tokens declared there is
+# nothing to prove absent, so it answers "maybe" and the caller does the work.
+# Fail-open to the SLOW path, never to a skip.
+has_trigger_token() {
+  [ -n "${TRIGGER_TOKENS:-}" ] || return 0
+  # Token iteration goes through newline-split + `read`, NOT `for _tok in
+  # $TRIGGER_TOKENS`: zsh does not word-split an unquoted expansion, so the
+  # `for` form iterated ONCE with the whole list as a single token there — and
+  # a token that can never match is a gate that never fires. Caught by the
+  # bash×zsh differential suite.
+  local _input="$1" _tok _nl=$'\n'
+  local _toks="${TRIGGER_TOKENS// /$_nl}"
+  while IFS= read -r _tok; do
+    [ -n "$_tok" ] || continue
+    case "$_input" in *"$_tok"*) return 0 ;; esac
+  done <<< "$_toks"
+  return 1
+}
+
 is_scan_trigger() {
   # Pre-expanded newline: zsh does NOT expand $'\n' in the REPLACEMENT of
   # ${var//pat/repl} (it inserts the literal characters), so an inline $'\n'
@@ -409,18 +439,7 @@ is_scan_trigger() {
   # `for` form iterated ONCE with the whole list as a single token there — and
   # a token that can never match is a gate that never fires. Caught by the
   # bash×zsh differential suite; same class as the $'\n' pitfall above.
-  if [ -n "${TRIGGER_TOKENS:-}" ]; then
-    local _tok _hit="" _toks="${TRIGGER_TOKENS// /$nl}"
-    while IFS= read -r _tok; do
-      [ -n "$_tok" ] || continue
-      case "$input" in *"$_tok"*)
-        _hit=1
-        break
-        ;;
-      esac
-    done <<< "$_toks"
-    [ -n "$_hit" ] || return 1
-  fi
+  has_trigger_token "$input" || return 1
   # FIX B: join `\<newline>` continuations into a space FIRST, so a command
   # split across lines with a trailing backslash stays ONE logical segment
   # (otherwise the subcommand/flag lands in a segment not starting with git).

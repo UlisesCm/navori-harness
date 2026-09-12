@@ -20,6 +20,40 @@ set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # navori:include extract-cmd
+
+# Gate to `gh pr create` only. $TRIGGER_RE is consumed by the shared detector
+# inlined below, which splits compound commands on && || ; | and matches at a
+# segment START — so `git push … && gh pr create …` is caught and an
+# `echo "gh pr create"` is not.
+TRIGGER_RE='^gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
+# Literal substring every branch of $TRIGGER_RE needs, read by the fast path in
+# the shared detector (spec 0016). `create` rather than `gh`: both are necessary
+# conditions, and the rarer one skips the fork on more commands. Keep NEXT to
+# the regex — a branch added there without its token here loses the shortcut.
+TRIGGER_TOKENS='create'
+# navori:include gate-trigger
+
+# THE CHEAP GATE, and it comes before everything that costs a process.
+#
+# This hook fires on EVERY Bash call and does real work on almost none of them,
+# and until this line it paid for that privilege twice: `extract_cmd` forks jq
+# (or node) to read the command, and the `skip` record forks jq again to write
+# "I ran and it was not a PR". Measured on a `git status` payload: 24.8 ms per
+# Bash call, half of the ~48 ms that already forced `audit-log.sh` to be
+# redesigned.
+#
+# `has_trigger_token` answers from the payload navori already has in memory,
+# with no fork at all, and its answer is a proof rather than a guess: the
+# command is a substring of the payload, and JSON escaping cannot break a token
+# apart. No token in the payload → no segment can match → nothing here concerns
+# this hook.
+#
+# WHAT IS GIVEN UP: the `skip` record for those calls. It says "the hook ran and
+# the command was not a PR" — 99.9% of its firings — and it cost two forks to
+# produce. Every record that carries information (`ask`, `allow`) is still
+# written below. Same trade as #696, for the same reason.
+has_trigger_token "${payload:-}" || exit 0
+
 cmd=$(extract_cmd)
 
 navori_audit_name="pr-pilot-confirm"
@@ -41,18 +75,6 @@ navori_audit_on_exit() {
   return 0
 }
 trap navori_audit_on_exit EXIT
-
-# Gate to `gh pr create` only. $TRIGGER_RE is consumed by the shared detector
-# inlined below, which splits compound commands on && || ; | and matches at a
-# segment START — so `git push … && gh pr create …` is caught and an
-# `echo "gh pr create"` is not.
-TRIGGER_RE='^gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
-# Literal substring every branch of $TRIGGER_RE needs, read by the fast path in
-# the shared detector (spec 0016). `create` rather than `gh`: both are necessary
-# conditions, and the rarer one skips the fork on more commands. Keep NEXT to
-# the regex — a branch added there without its token here loses the shortcut.
-TRIGGER_TOKENS='create'
-# navori:include gate-trigger
 
 # An EMPTY $cmd means nothing could be read from the tool input, not "some
 # command that isn't a PR". Unlike the quality gate, the fail-open direction

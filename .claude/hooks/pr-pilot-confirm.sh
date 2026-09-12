@@ -1,4 +1,4 @@
-# navori:managed start id="pr-pilot-confirm-base" hash="237213e4" version="0.8.5" source="@navori/core"
+# navori:managed start id="pr-pilot-confirm-base" hash="6477fb14" version="0.8.5" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a `gh pr create` that did NOT come from the
@@ -56,6 +56,157 @@ extract_cmd() {
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
 # in every session — never reads `cmd`. Each consumer that wants it calls
 # `extract_cmd` itself, at the point where it already knows it needs it.
+
+# Gate to `gh pr create` only. $TRIGGER_RE is consumed by the shared detector
+# inlined below, which splits compound commands on && || ; | and matches at a
+# segment START — so `git push … && gh pr create …` is caught and an
+# `echo "gh pr create"` is not.
+TRIGGER_RE='^gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
+# Literal substring every branch of $TRIGGER_RE needs, read by the fast path in
+# the shared detector (spec 0016). `create` rather than `gh`: both are necessary
+# conditions, and the rarer one skips the fork on more commands. Keep NEXT to
+# the regex — a branch added there without its token here loses the shortcut.
+TRIGGER_TOKENS='create'
+# Shared gate detector — inlined into each hook at render time (see the include
+# directive in the source scripts + lib/hook-includes.ts). The caller MUST set
+# $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
+# gates. Single source of truth for the FIX B/C wrapper-peeling logic; DO NOT
+# copy this body into a hook by hand.
+#
+# Detect whether $1 (a possibly-compound command) invokes a gated operation.
+# Splits $1 on the shell separators && || ; | and newlines, strips leading
+# whitespace plus wrapper words (`(`, `\`, `command `) and `VAR=value` env
+# prefixes from each segment, and returns 0 if ANY segment STARTS with a gated
+# `git …` invocation on a word boundary (matched by $TRIGGER_RE). Replaces
+# literal-prefix `case` matching, which silently skipped the gate for
+# `cd x && git commit`, `echo y; git push`, or a leading space (#88: NEVER skip
+# the gate silently). Matching a segment START means a quoted `echo "git commit"`
+# does NOT trigger it. Known limitation: it cannot see through `sh -c`, `eval`,
+# or obfuscation — a seatbelt, not a sandbox.
+# The fast path on its own, so a caller can apply it EARLIER than the segment
+# scan — before it has even paid to extract the command from the payload.
+#
+# Returns 0 when $1 may contain a gated operation, 1 when it provably cannot.
+# The argument is the one the block below spells out: no $TRIGGER_RE can match
+# without one of the caller's literal TOKENS appearing in the segment it
+# matches, and every segment is a substring of the input. So the absence of
+# every token is proof that no segment can match — and the same proof holds one
+# level up, over the raw PAYLOAD the command was extracted from: JSON escaping
+# touches `"`, `\` and control characters, never the letters of a token.
+#
+# Disarms when $TRIGGER_TOKENS is unset: with no tokens declared there is
+# nothing to prove absent, so it answers "maybe" and the caller does the work.
+# Fail-open to the SLOW path, never to a skip.
+has_trigger_token() {
+  [ -n "${TRIGGER_TOKENS:-}" ] || return 0
+  # Token iteration goes through newline-split + `read`, NOT `for _tok in
+  # $TRIGGER_TOKENS`: zsh does not word-split an unquoted expansion, so the
+  # `for` form iterated ONCE with the whole list as a single token there — and
+  # a token that can never match is a gate that never fires. Caught by the
+  # bash×zsh differential suite.
+  local _input="$1" _tok _nl=$'\n'
+  local _toks="${TRIGGER_TOKENS// /$_nl}"
+  while IFS= read -r _tok; do
+    [ -n "$_tok" ] || continue
+    case "$_input" in *"$_tok"*) return 0 ;; esac
+  done <<< "$_toks"
+  return 1
+}
+
+is_scan_trigger() {
+  # Pre-expanded newline: zsh does NOT expand $'\n' in the REPLACEMENT of
+  # ${var//pat/repl} (it inserts the literal characters), so an inline $'\n'
+  # left compound commands unsplit there and the gate silently skipped
+  # `cd x && git commit` (#391). A plain variable expands identically in
+  # bash and zsh. ($'\n' in PATTERN position expands fine in both.)
+  local input="$1" segment nl=$'\n'
+
+  # ─── Fast path (spec 0016 T3.2, second pass): the loop below pays one
+  # `grep -qE` FORK per segment — and a heredoc body or a 40-step compound
+  # is 40 segments, so the field cost scaled with command length (measured:
+  # 2.8 ms trivial, 14.8 ms for a 199-char heredoc, 95.8 ms for 40 segments;
+  # p50 across one real session's commands was 40 ms per hook, not the
+  # trivial floor). No $TRIGGER_RE can match without one of the caller's
+  # literal TOKENS appearing in the segment it matches — and every segment is
+  # a substring of the input, transformed only by insertions (`\<NL>` → space,
+  # separators → newline) and prefix-peeling, none of which can CREATE a
+  # token. So a single in-process substring scan of the raw input is a strict
+  # superset of the segment matches: if no token is present, no segment can
+  # match, and the gate answers "not for me" without a single fork. Same
+  # argument, same safe direction, as the guard's own fast path.
+  #
+  # $TRIGGER_TOKENS is set by the including hook NEXT TO its $TRIGGER_RE, so
+  # the pair travels together; when unset the fast path disarms and the loop
+  # runs exactly as before (fail-open to the SLOW path, never to a skip).
+  # Token iteration goes through newline-split + `read`, NOT `for _tok in
+  # $TRIGGER_TOKENS`: zsh does not word-split an unquoted expansion, so the
+  # `for` form iterated ONCE with the whole list as a single token there — and
+  # a token that can never match is a gate that never fires. Caught by the
+  # bash×zsh differential suite; same class as the $'\n' pitfall above.
+  has_trigger_token "$input" || return 1
+  # FIX B: join `\<newline>` continuations into a space FIRST, so a command
+  # split across lines with a trailing backslash stays ONE logical segment
+  # (otherwise the subcommand/flag lands in a segment not starting with git).
+  input="${input//\\$'\n'/ }"
+  input="${input//&&/$nl}"
+  input="${input//||/$nl}"
+  input="${input//;/$nl}"
+  input="${input//|/$nl}"
+  # `<<<` feeds the already-expanded value as data — no re-evaluation — so a
+  # command that contains backticks/$() is inspected, never executed.
+  while IFS= read -r segment; do
+    segment="${segment#"${segment%%[![:space:]]*}"}"        # strip leading ws
+    # FIX C: peel wrappers so `(git …`, `\git`, `command git …` and
+    # `VAR=val git …` all reduce to a plain `git …` before matching.
+    while [[ "$segment" == \(* ]]; do                       # strip leading ( runs
+      segment="${segment#\(}"
+      segment="${segment#"${segment%%[![:space:]]*}"}"
+    done
+    segment="${segment#\\}"                                 # strip a leading backslash (\git)
+    while [[ "$segment" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do  # strip VAR=val prefixes
+      case "$segment" in
+        *[[:space:]]*)
+          segment="${segment#*[[:space:]]}"
+          segment="${segment#"${segment%%[![:space:]]*}"}"
+          ;;
+        *) segment=""; break ;;
+      esac
+    done
+    if [[ "$segment" == command\ * ]]; then                 # strip a leading `command ` word
+      segment="${segment#command }"
+      segment="${segment#"${segment%%[![:space:]]*}"}"
+    fi
+    # FIX C: allow git global options between `git` and the subcommand
+    # (`git -c k=v commit`, `git -C /repo push`). $TRIGGER_RE's trailing boundary
+    # keeps `git commitgraph` / `git config …` from matching.
+    if printf '%s' "$segment" | grep -qE "$TRIGGER_RE"; then
+      return 0
+    fi
+  done <<< "$input"
+  return 1
+}
+
+# THE CHEAP GATE, and it comes before everything that costs a process.
+#
+# This hook fires on EVERY Bash call and does real work on almost none of them,
+# and until this line it paid for that privilege twice: `extract_cmd` forks jq
+# (or node) to read the command, and the `skip` record forks jq again to write
+# "I ran and it was not a PR". Measured on a `git status` payload: 24.8 ms per
+# Bash call, half of the ~48 ms that already forced `audit-log.sh` to be
+# redesigned.
+#
+# `has_trigger_token` answers from the payload navori already has in memory,
+# with no fork at all, and its answer is a proof rather than a guess: the
+# command is a substring of the payload, and JSON escaping cannot break a token
+# apart. No token in the payload → no segment can match → nothing here concerns
+# this hook.
+#
+# WHAT IS GIVEN UP: the `skip` record for those calls. It says "the hook ran and
+# the command was not a PR" — 99.9% of its firings — and it cost two forks to
+# produce. Every record that carries information (`ask`, `allow`) is still
+# written below. Same trade as #696, for the same reason.
+has_trigger_token "${payload:-}" || exit 0
+
 cmd=$(extract_cmd)
 
 navori_audit_name="pr-pilot-confirm"
@@ -306,116 +457,6 @@ navori_audit_on_exit() {
   return 0
 }
 trap navori_audit_on_exit EXIT
-
-# Gate to `gh pr create` only. $TRIGGER_RE is consumed by the shared detector
-# inlined below, which splits compound commands on && || ; | and matches at a
-# segment START — so `git push … && gh pr create …` is caught and an
-# `echo "gh pr create"` is not.
-TRIGGER_RE='^gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
-# Literal substring every branch of $TRIGGER_RE needs, read by the fast path in
-# the shared detector (spec 0016). `create` rather than `gh`: both are necessary
-# conditions, and the rarer one skips the fork on more commands. Keep NEXT to
-# the regex — a branch added there without its token here loses the shortcut.
-TRIGGER_TOKENS='create'
-# Shared gate detector — inlined into each hook at render time (see the include
-# directive in the source scripts + lib/hook-includes.ts). The caller MUST set
-# $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
-# gates. Single source of truth for the FIX B/C wrapper-peeling logic; DO NOT
-# copy this body into a hook by hand.
-#
-# Detect whether $1 (a possibly-compound command) invokes a gated operation.
-# Splits $1 on the shell separators && || ; | and newlines, strips leading
-# whitespace plus wrapper words (`(`, `\`, `command `) and `VAR=value` env
-# prefixes from each segment, and returns 0 if ANY segment STARTS with a gated
-# `git …` invocation on a word boundary (matched by $TRIGGER_RE). Replaces
-# literal-prefix `case` matching, which silently skipped the gate for
-# `cd x && git commit`, `echo y; git push`, or a leading space (#88: NEVER skip
-# the gate silently). Matching a segment START means a quoted `echo "git commit"`
-# does NOT trigger it. Known limitation: it cannot see through `sh -c`, `eval`,
-# or obfuscation — a seatbelt, not a sandbox.
-is_scan_trigger() {
-  # Pre-expanded newline: zsh does NOT expand $'\n' in the REPLACEMENT of
-  # ${var//pat/repl} (it inserts the literal characters), so an inline $'\n'
-  # left compound commands unsplit there and the gate silently skipped
-  # `cd x && git commit` (#391). A plain variable expands identically in
-  # bash and zsh. ($'\n' in PATTERN position expands fine in both.)
-  local input="$1" segment nl=$'\n'
-
-  # ─── Fast path (spec 0016 T3.2, second pass): the loop below pays one
-  # `grep -qE` FORK per segment — and a heredoc body or a 40-step compound
-  # is 40 segments, so the field cost scaled with command length (measured:
-  # 2.8 ms trivial, 14.8 ms for a 199-char heredoc, 95.8 ms for 40 segments;
-  # p50 across one real session's commands was 40 ms per hook, not the
-  # trivial floor). No $TRIGGER_RE can match without one of the caller's
-  # literal TOKENS appearing in the segment it matches — and every segment is
-  # a substring of the input, transformed only by insertions (`\<NL>` → space,
-  # separators → newline) and prefix-peeling, none of which can CREATE a
-  # token. So a single in-process substring scan of the raw input is a strict
-  # superset of the segment matches: if no token is present, no segment can
-  # match, and the gate answers "not for me" without a single fork. Same
-  # argument, same safe direction, as the guard's own fast path.
-  #
-  # $TRIGGER_TOKENS is set by the including hook NEXT TO its $TRIGGER_RE, so
-  # the pair travels together; when unset the fast path disarms and the loop
-  # runs exactly as before (fail-open to the SLOW path, never to a skip).
-  # Token iteration goes through newline-split + `read`, NOT `for _tok in
-  # $TRIGGER_TOKENS`: zsh does not word-split an unquoted expansion, so the
-  # `for` form iterated ONCE with the whole list as a single token there — and
-  # a token that can never match is a gate that never fires. Caught by the
-  # bash×zsh differential suite; same class as the $'\n' pitfall above.
-  if [ -n "${TRIGGER_TOKENS:-}" ]; then
-    local _tok _hit="" _toks="${TRIGGER_TOKENS// /$nl}"
-    while IFS= read -r _tok; do
-      [ -n "$_tok" ] || continue
-      case "$input" in *"$_tok"*)
-        _hit=1
-        break
-        ;;
-      esac
-    done <<< "$_toks"
-    [ -n "$_hit" ] || return 1
-  fi
-  # FIX B: join `\<newline>` continuations into a space FIRST, so a command
-  # split across lines with a trailing backslash stays ONE logical segment
-  # (otherwise the subcommand/flag lands in a segment not starting with git).
-  input="${input//\\$'\n'/ }"
-  input="${input//&&/$nl}"
-  input="${input//||/$nl}"
-  input="${input//;/$nl}"
-  input="${input//|/$nl}"
-  # `<<<` feeds the already-expanded value as data — no re-evaluation — so a
-  # command that contains backticks/$() is inspected, never executed.
-  while IFS= read -r segment; do
-    segment="${segment#"${segment%%[![:space:]]*}"}"        # strip leading ws
-    # FIX C: peel wrappers so `(git …`, `\git`, `command git …` and
-    # `VAR=val git …` all reduce to a plain `git …` before matching.
-    while [[ "$segment" == \(* ]]; do                       # strip leading ( runs
-      segment="${segment#\(}"
-      segment="${segment#"${segment%%[![:space:]]*}"}"
-    done
-    segment="${segment#\\}"                                 # strip a leading backslash (\git)
-    while [[ "$segment" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do  # strip VAR=val prefixes
-      case "$segment" in
-        *[[:space:]]*)
-          segment="${segment#*[[:space:]]}"
-          segment="${segment#"${segment%%[![:space:]]*}"}"
-          ;;
-        *) segment=""; break ;;
-      esac
-    done
-    if [[ "$segment" == command\ * ]]; then                 # strip a leading `command ` word
-      segment="${segment#command }"
-      segment="${segment#"${segment%%[![:space:]]*}"}"
-    fi
-    # FIX C: allow git global options between `git` and the subcommand
-    # (`git -c k=v commit`, `git -C /repo push`). $TRIGGER_RE's trailing boundary
-    # keeps `git commitgraph` / `git config …` from matching.
-    if printf '%s' "$segment" | grep -qE "$TRIGGER_RE"; then
-      return 0
-    fi
-  done <<< "$input"
-  return 1
-}
 
 # An EMPTY $cmd means nothing could be read from the tool input, not "some
 # command that isn't a PR". Unlike the quality gate, the fail-open direction
