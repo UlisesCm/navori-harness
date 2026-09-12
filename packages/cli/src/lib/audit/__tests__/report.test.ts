@@ -44,6 +44,7 @@ function agent(over: Partial<AgentRun> = {}): AgentRun {
     frictionEvents: 0,
     toolErrors: emptyToolErrors(),
     repeatedCommands: {},
+    classifierExemptBash: 0,
     verdict: null,
     ...over,
   };
@@ -74,6 +75,7 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
       shellWrites: 0,
       toolCounts: {},
       toolCountsByMode: {},
+      classifierExemptBashByMode: {},
       skillsRead: [],
       skills: [],
       skillsDiscarded: 0,

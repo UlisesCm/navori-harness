@@ -273,7 +273,8 @@ function orchestratorHooksLine(s: SessionAudit, lang: Lang): string {
  * A session that switches modes had ONE histogram and a note saying which mode
  * dominated — which describes no moment of it. The modes are not
  * interchangeable: `auto` tells the model to work through the shell and charges
- * a classifier round-trip per command, `plan` forbids writing outright. Reading
+ * a classifier round-trip for all but the commands its built-in read-only set
+ * resolves on its own (#730), `plan` forbids writing outright. Reading
  * "Bash 217" without knowing which mode it happened under answers nothing.
  *
  * Silent for a single-mode session: the card above already IS that histogram,
