@@ -136,6 +136,73 @@ def load(prefix):
     return None
 
 
+def subagent_transcripts(main_path, session):
+    """Los transcripts de los subagentes de ESTA sesión.
+
+    `load()` devuelve solo el `<session>.jsonl` del hilo principal, y el trabajo
+    de los subagentes vive aparte, en `<proyecto>/<session>/subagents/`. Nunca se
+    abrían: 652 archivos en el parque, invisibles para toda medición de este
+    script. El sesgo va en una sola dirección —penaliza justo a las sesiones que
+    delegan, que son las que el harness quiere premiar—, el mismo defecto
+    direccional que #674 documentó en el clasificador de archivos.
+    """
+    if not main_path:
+        return []
+    return sorted(glob.glob(
+        os.path.join(os.path.dirname(main_path), session, "subagents", "agent-*.jsonl")))
+
+
+def subagent_skills(main_path, session):
+    """Uso de skills dentro de los subagentes, por las DOS vías, separadas.
+
+    Separadas porque miden cosas distintas y una de las dos resultó ser casi
+    toda la señal. Medido sobre los 652 transcripts de subagente del parque:
+
+      - invocación explícita (`Skill` tool_use) dentro de un subagente: **2**
+      - records con `attributionSkill` heredado del padre:          **~1,400**
+
+    Un subagente casi nunca invoca una skill: la HEREDA. Sumar solo los tool_use
+    —el remedio que pedía el issue— habría agregado dos llamadas en todo el
+    parque y dejado fuera el resto. El campo es el mismo que `lib/audit` consume
+    desde #725; aquí se lee con la misma cautela, porque el formato del
+    transcript es interno al host y puede cambiar en cualquier release.
+    """
+    invoked, inherited = Counter(), Counter()
+    for f in subagent_transcripts(main_path, session):
+        try:
+            fh = open(f, errors="replace")
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                # Filtro barato antes de parsear: la inmensa mayoría de los
+                # records no dice nada de skills y este bucle corre sobre cientos
+                # de archivos.
+                if '"Skill"' not in line and "attributionSkill" not in line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    continue
+                if d.get("type") != "assistant":
+                    continue
+                a = d.get("attributionSkill")
+                if isinstance(a, str) and a:
+                    inherited[a] += 1
+                c = (d.get("message") or {}).get("content")
+                if not isinstance(c, list):
+                    continue
+                for b in c:
+                    if not isinstance(b, dict) or b.get("type") != "tool_use":
+                        continue
+                    if b.get("name") != "Skill":
+                        continue
+                    sk = (b.get("input") or {}).get("skill")
+                    if isinstance(sk, str) and sk:
+                        invoked[sk] += 1
+    return invoked, inherited
+
+
 def text_of(msg):
     c = (msg or {}).get("content")
     if isinstance(c, str):
@@ -302,12 +369,16 @@ def analyze(session, examples):
                 mark("loop-back-debug", True, skill="loop-back-debug", note=k)
             failed_once[k] = True
 
+    sub_invoked, sub_inherited = subagent_skills(path, session)
+
     first = turns[0]["user"][:60].replace("\n", " ") if turns else ""
     broad = bool(re.search(r"implementa|construye|crea |feature|migra|refactor|spec", first, re.I))
     return dict(session=session, repo=repo, turns=len(turns), first=first,
                 mode="+".join(f"{k}:{v}" for k, v in mode.most_common(2)) or "?",
                 scope="amplio" if broad else "incremental",
-                opp=opp, hit=hit, auto=auto, asked=asked)
+                opp=opp, hit=hit, auto=auto, asked=asked,
+                sub_invoked=sub_invoked, sub_inherited=sub_inherited,
+                sub_files=len(subagent_transcripts(path, session)))
 
 
 examples = {k: [] for k in ["implementer", "verify-before-done", "debug-error",
@@ -339,6 +410,31 @@ print("INVOCACIONES REALES — automáticas vs pedidas por el usuario")
 print("=" * 104)
 for k in sorted(set(AUTO) | set(ASKED)):
     print(f"  {k:<24} automática={AUTO[k]:<4} pedida={ASKED[k]}")
+
+# ─── Lo que ocurre DENTRO de los subagentes ─────────────────────────────────
+#
+# Aparte y no sumado al bloque de arriba, a propósito: ese cuenta invocaciones
+# del hilo principal, y mezclarle records de trabajo heredado convertiría una
+# tabla de "cuántas veces se pidió" en un híbrido que no responde ninguna de las
+# dos preguntas. Es la trampa que este archivo ya pagó dos veces (#673, #674):
+# un contador leído como si midiera otra cosa.
+SUB_INV, SUB_INH = Counter(), Counter()
+sub_files = 0
+for r in rows:
+    SUB_INV += r["sub_invoked"]; SUB_INH += r["sub_inherited"]; sub_files += r["sub_files"]
+print("\n" + "=" * 104)
+print(f"DENTRO DE LOS SUBAGENTES — {sub_files} transcripts que este script no abría")
+print("=" * 104)
+if sub_files == 0:
+    print("  (ninguna sesión analizada delegó)")
+else:
+    print(f"  {'skill':<26}{'invocada':>10}{'heredada':>10}")
+    for k in sorted(set(SUB_INV) | set(SUB_INH), key=lambda x: -(SUB_INH[x] + SUB_INV[x])):
+        print(f"  {k[:24]:<26}{SUB_INV[k]:>10}{SUB_INH[k]:>10}")
+    print(f"  {'TOTAL':<26}{sum(SUB_INV.values()):>10}{sum(SUB_INH.values()):>10}")
+    print("\n  'invocada' = tool Skill dentro del subagente. 'heredada' = records que el")
+    print("  host marcó con attributionSkill del padre. Un subagente casi nunca invoca")
+    print("  una skill: la hereda, y esa columna es la que estaba perdida entera.")
 
 print("\n" + "=" * 104)
 print("EJEMPLOS de oportunidad NO activada (para auditar la heurística a mano)")
