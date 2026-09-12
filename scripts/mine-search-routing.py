@@ -66,8 +66,33 @@ LÍNEA BASE CORREGIDA (2026-09-11, 10 repos auditados):
     `navori add tgrep` en un problema de doctrina, y este repo ya se quemó dos
     veces con esa conclusión fácil.
 
+REMEDICIÓN ANTES/DESPUÉS DEL GUARD (2026-09-12, mismo instrumento en los dos
+lados — que es la parte que importa: comparar contra una línea base calculada
+con el minero viejo mediría el cambio del INSTRUMENTO junto con el del hábito):
+
+    corte en 2026-09-11, el día que entró `guard-search-routing` (#679)
+
+    repo               antes    después
+    navori-harness     15.7%  →  58.1%
+    navori-health      17.5%  →  53.3%
+    moonar             26.2%  →  35.5%
+    TOTAL parque        6.6%  →  40.7%
+
+    La capa que bloquea funciona, otra vez, y con el tamaño del efecto medido.
+
+    Y el hallazgo que sale del mismo corte: `git grep` pasó de 0.85% a 8.20% de
+    las búsquedas — **9.6× la tasa**, 23 llamadas contra 35 en una ventana 6.3×
+    más chica. El hábito MIGRÓ a la vía que ninguna capa veía, exactamente como
+    #720 predijo. Era invisible hasta que este minero aprendió a contarla, y
+    #739 ya la redirige; la próxima ventana dirá si cierra.
+
+    Esa es la razón de que `gitgrep` e `indir` se reporten aunque no puntúen: sin
+    ellas, este antes/después se habría leído como un triunfo limpio.
+
 Uso:
     python3 scripts/mine-search-routing.py            # todos los repos auditados
+    python3 scripts/mine-search-routing.py --desde 2026-09-11   # antes/después
+    python3 scripts/mine-search-routing.py --hasta 2026-09-11
     python3 scripts/mine-search-routing.py <repo> ... # solo esos
 """
 
@@ -116,7 +141,12 @@ _REDIR_BARE = re.compile(r"^([0-9]?>>?|&>|<|[0-9]?>&[0-9]?)$")
 
 
 def audited_sessions():
-    """session id → repo, para toda sesión con log de audit."""
+    """session id → (repo, día de la sesión), para toda sesión con log de audit.
+
+    El día sale del registro `start`, que el propio `audit --start` escribe con
+    el instante de marcado. Se lee del log y no del mtime del archivo: un log se
+    copia al directorio del reporte, y la fecha de copia no es la de la sesión.
+    """
     out = {}
     if not os.path.isdir(AUDITS):
         return out
@@ -125,8 +155,22 @@ def audited_sessions():
         if not os.path.isdir(d):
             continue
         for f in os.listdir(d):
-            if f.startswith("session-") and f.endswith(".log"):
-                out[f[len("session-") : -len(".log")]] = repo
+            if not (f.startswith("session-") and f.endswith(".log")):
+                continue
+            day = ""
+            try:
+                with open(os.path.join(d, f), errors="replace") as fh:
+                    for line in fh:
+                        try:
+                            rec = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if rec.get("event") == "start":
+                            day = str(rec.get("ts", ""))[:10]
+                            break
+            except OSError:
+                pass
+            out[f[len("session-") : -len(".log")]] = (repo, day)
     return out
 
 
@@ -221,7 +265,7 @@ def classify_command(cmd):
     return out
 
 
-def scan():
+def scan(since=None, until=None):
     session_repo = audited_sessions()
     per_repo = defaultdict(Counter)
     if not os.path.isdir(PROJECTS):
@@ -233,8 +277,18 @@ def scan():
         for fn in os.listdir(pdir):
             if not fn.endswith(".jsonl"):
                 continue
-            repo = session_repo.get(fn[: -len(".jsonl")])
-            if repo is None:
+            meta = session_repo.get(fn[: -len(".jsonl")])
+            if meta is None:
+                continue
+            repo, day = meta
+            # `--desde` parte el parque en antes/después de una intervención,
+            # medido con ESTE instrumento en los dos lados. Comparar la cifra de
+            # hoy contra una línea base calculada con el minero viejo mediría el
+            # cambio del instrumento junto con el del hábito, que es justamente
+            # lo que #720 acaba de quitar del camino.
+            if since and day and day < since:
+                continue
+            if until and day and day >= until:
                 continue
             # DOS PASADAS, y la razón es #720/M4: un comando que el guard
             # bloqueó NUNCA CORRIÓ, pero su `tool_use` está en el transcript
@@ -293,12 +347,32 @@ def scan():
 
 
 def main(argv):
-    per_repo = scan()
-    if argv:
-        per_repo = {k: v for k, v in per_repo.items() if k in argv}
+    # `--desde YYYY-MM-DD` / `--hasta YYYY-MM-DD` acotan por día de sesión. Sin
+    # ellos el comportamiento es el de siempre: todo el parque.
+    since = until = None
+    repos = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--desde" and i + 1 < len(argv):
+            since = argv[i + 1]
+            i += 2
+        elif argv[i] == "--hasta" and i + 1 < len(argv):
+            until = argv[i + 1]
+            i += 2
+        else:
+            repos.append(argv[i])
+            i += 1
+    per_repo = scan(since, until)
+    if repos:
+        per_repo = {k: v for k, v in per_repo.items() if k in repos}
     if not per_repo:
         print("sin sesiones auditadas con búsquedas")
         return
+    rango = ""
+    if since or until:
+        rango = f"  [sesiones {since or '…'} → {until or '…'})"
+    if rango:
+        print(rango.strip())
 
     head = f"{'repo':30s} {'busq':>6s} {'wrapper':>8s} {'nativo':>7s} {'shell':>7s} {'bueno%':>7s}"
     head += f" {'|filtro':>8s} {'|extrac':>8s} {'|gitgrep':>9s} {'|indir':>7s} {'|blq':>5s}"
