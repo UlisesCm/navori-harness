@@ -43,4 +43,4 @@ Portable across the engines the wrapper may pick: `-i -l -c -n -F -w -e -g -A/-B
 
 Avoid through the wrapper: `--hidden`, `--no-ignore*` and `-a/--text` each turn the search into a brute-force scan (verified with `--stats`), which is the cost the index exists to avoid; `-t/--type` doesn't name the same type sets in both engines. On the `grep -rn` path only the pattern and the paths survive the translation — the wrapper says on stderr when it drops flags.
 
-**Dot-directories** (the block states the rule): the full scan is the price of `--hidden`, and `git grep` is the other way to reach tracked files there.
+**Dot-directories** (the block states the rule): `--hidden` pays a full scan; `git grep` reaches tracked files there, and the guard allows it only for a dot-path.

@@ -272,4 +272,50 @@ describe.runIf(runsBash)("guard-search-routing", () => {
       });
     }
   });
+
+  /**
+   * #720 A1 — `git grep` was invisible to three layers AT ONCE: the guard
+   * anchored `grep|egrep|fgrep|rg`, the miner scored the same four verbs, and
+   * `READ_LANE_BINARIES` excluded `git` wholesale. After the guard shipped it
+   * was therefore the minimum-friction migration: no prompt, no index, and
+   * outside every measurement. Measured on the park before the fix: 58 calls
+   * that entered no number at all.
+   *
+   * The status is decided ONCE and the three layers implement the same
+   * decision — legitimate for tracked files under a dot-directory, where
+   * `--hidden` degrades into the brute-force scan the index exists to avoid,
+   * and redirected everywhere else.
+   */
+  describe("git grep is redirected except for its documented niche (#720)", () => {
+    const blocked = [
+      "git grep -rn patron",
+      "git grep patron",
+      "git grep patron -- '*.ts'",
+      "git -C /repo grep patron",
+      "git -c core.x=1 grep patron",
+    ];
+    for (const command of blocked) {
+      it(`blocks ${command}`, () => {
+        expect(runGuard(command)).toBe(2);
+      });
+    }
+
+    // The exception the doctrine documents, and keeping it is what stops this
+    // rule from recreating the contradiction #721 removed — the core
+    // prescribing what the guard blocks.
+    const allowed = ["git grep patron -- .claude/", "git grep patron .github"];
+    for (const command of allowed) {
+      it(`allows ${command}`, () => {
+        expect(runGuard(command)).toBe(0);
+      });
+    }
+
+    // And no other git subcommand becomes a search by carrying the word.
+    const untouched = ["git log --oneline", "git commit -m 'grep algo'", "git diff --stat"];
+    for (const command of untouched) {
+      it(`leaves ${command} alone`, () => {
+        expect(runGuard(command)).toBe(0);
+      });
+    }
+  });
 });

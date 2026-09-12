@@ -92,7 +92,7 @@ The graph **forms the hypothesis**; the rungs above still **verify** it:
 **Never commit the index:** `.codegraph/` is local SQLite that churns on every sync — it belongs in `.gitignore`.
 <!-- /navori:managed id="codegraph-search-extension" -->
 
-<!-- navori:managed id="tgrep-search-extension" hash="2e6eaa16" version="0.8.5" source="@navori/plugin-tgrep" -->
+<!-- navori:managed id="tgrep-search-extension" hash="c5276d9b" version="0.8.5" source="@navori/plugin-tgrep" -->
 ## Rung 1, executor override — the wrapper replaces the shell route above
 
 The executor is `bash .claude/scripts/tgrep-search.sh <args…>`, never a bare
@@ -126,7 +126,7 @@ Portable across the engines the wrapper may pick: `-i -l -c -n -F -w -e -g -A/-B
 
 Avoid through the wrapper: `--hidden`, `--no-ignore*` and `-a/--text` each turn the search into a brute-force scan (verified with `--stats`), which is the cost the index exists to avoid; `-t/--type` doesn't name the same type sets in both engines. On the `grep -rn` path only the pattern and the paths survive the translation — the wrapper says on stderr when it drops flags.
 
-**Dot-directories** (the block states the rule): the full scan is the price of `--hidden`, and `git grep` is the other way to reach tracked files there.
+**Dot-directories** (the block states the rule): `--hidden` pays a full scan; `git grep` reaches tracked files there, and the guard allows it only for a dot-path.
 <!-- /navori:managed id="tgrep-search-extension" -->
 
 ## The project's structural patterns

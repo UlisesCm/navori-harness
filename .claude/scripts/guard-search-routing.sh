@@ -1,4 +1,4 @@
-# navori:managed start id="tgrep-script-guard-search-routing" hash="e89ab627" version="0.8.5" source="@navori/plugin-tgrep"
+# navori:managed start id="tgrep-script-guard-search-routing" hash="702b3aef" version="0.8.5" source="@navori/plugin-tgrep"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash) guard: content search goes through the tgrep wrapper.
@@ -590,6 +590,30 @@ while IFS= read -r seg; do
   if printf '%s' "$seg" | grep -qE '^[[:space:]]*rg([[:space:]]|$)' \
     && ! names_a_file "$seg"; then
     block "busqueda de contenido por shell (rg es recursivo por defecto)"
+  fi
+
+  # `git grep` — the route that was invisible to all three layers at once
+  # (#720). The guard anchored only `grep|egrep|fgrep|rg`, the miner scored the
+  # same four verbs, and `READ_LANE_BINARIES` excluded `git` wholesale with a
+  # rationale ("no native lane to switch to") that is false for exactly this
+  # subcommand: its native lane IS `Grep`. So after the guard shipped, `git
+  # grep` was the minimum-friction migration — no prompt, no index, and outside
+  # every measurement.
+  #
+  # ONE exception, and it is the one the doctrine already documents: tracked
+  # files under a dot-directory, where the wrapper's `--hidden` degrades into
+  # the brute-force scan the index exists to avoid. Naming a dot-path is what
+  # makes that case legible, so it is what the guard reads — and keeping the
+  # exception is what stops this rule from becoming the contradiction #721 just
+  # removed, where the core prescribed what the guard blocked.
+  # The `git(… -opt …)*` middle is the shape `guard-destructive` already uses for
+  # `git -C … commit` (its `git_cp`): a global option may carry its value glued
+  # with `=` or as the next token, and without that `git -C /repo grep` slips
+  # through the anchor.
+  if printf '%s' "$seg" | grep -qE '^[[:space:]]*git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+grep([[:space:]]|$)'; then
+    if ! printf '%s' "$seg" | grep -qE '(^|[[:space:]])['"'"'"]?\.[A-Za-z]'; then
+      block "busqueda de contenido por shell (git grep; el wrapper cubre el mismo arbol)"
+    fi
   fi
 done <<EOF
 $starts
