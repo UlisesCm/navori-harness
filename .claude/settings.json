@@ -17,6 +17,12 @@
           },
           {
             "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pr-pilot-confirm.sh\"",
+            "timeout": 10,
+            "statusMessage": "navori: pr-pilot-confirm"
+          },
+          {
+            "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh\"",
             "timeout": 180,
             "statusMessage": "navori: quality-gate fast"
