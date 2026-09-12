@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
+  ORCHESTRATOR_OWNER,
   attachHookEvents,
   isReadLaneCommand,
   parseAgentRun,
@@ -524,11 +525,32 @@ describe("parse: hook attribution", () => {
   });
 
   it("gives an id that names nobody to the orchestrator, never to the window", () => {
-    // The orchestrator's own events carry the repo `cwd` as their id, which
-    // matches no agent by construction. Falling through to the time window put
-    // ~294 of them inside subagent cards in the reference session.
+    // Logs written BEFORE #709 carry the repo `cwd` as the owner — a shell bug
+    // in the recorder, not something the host sends. It matches no agent by
+    // construction, and falling through to the time window put ~294 of them
+    // inside subagent cards in the reference session. This is the branch that
+    // keeps every already-recorded log reading correctly.
     const s = session([agent({ agentId: "a1" })]);
     attachHookEvents(s, log([hook({ agentId: "/Users/x/repo" })]));
+    expect(s.agents[0]?.hookEvents).toHaveLength(0);
+    expect(s.orchestrator.hookEvents).toHaveLength(1);
+  });
+
+  it("gives the main thread's own marker to the orchestrator (#709)", () => {
+    // What the recorder writes NOW when the hook did not fire inside a
+    // subagent. Same destination as the legacy path above — the point of the
+    // change is that the record stops claiming a directory is an agent.
+    const s = session([agent({ agentId: "a1" })]);
+    attachHookEvents(s, log([hook({ agentId: ORCHESTRATOR_OWNER })]));
+    expect(s.agents[0]?.hookEvents).toHaveLength(0);
+    expect(s.orchestrator.hookEvents).toHaveLength(1);
+  });
+
+  it("no deja que el marcador se lo quede un agente que se llame igual", () => {
+    // Si algún día un `agent_id` real fuera la palabra, el marcador gana: el
+    // hilo principal es quien lo escribe, y un agente no puede reclamarlo.
+    const s = session([agent({ agentId: ORCHESTRATOR_OWNER })]);
+    attachHookEvents(s, log([hook({ agentId: ORCHESTRATOR_OWNER })]));
     expect(s.agents[0]?.hookEvents).toHaveLength(0);
     expect(s.orchestrator.hookEvents).toHaveLength(1);
   });

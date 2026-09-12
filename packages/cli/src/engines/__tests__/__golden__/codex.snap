@@ -1687,15 +1687,44 @@ navori_audit_log() {
   # ONE jq for every field, not one per field: this runs on each hook of each
   # Bash call, and a fork is the most expensive thing in it. Newline-separated,
   # read back positionally.
-  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", .agent_id // .subagent_id // ""] | .[]' 2>/dev/null) || return 0
+  # The third field is the OWNER, and it is never empty: inside a subagent the
+  # host sends a real `agent_id`; on the main thread it sends none and the
+  # literal below names the orchestrator explicitly.
+  #
+  # It used to be `// ""`, and the empty case did not stay empty — it came out
+  # as the `cwd`. Command substitution strips trailing newlines, so an empty
+  # third field left `$navori_audit_fields` with only two lines; then
+  # `${rest#*<NL>}` found no newline in `"cwd"` and POSIX says a `#` pattern
+  # that does not match returns the string UNCHANGED. 41,581 of the park's
+  # 52,460 recorded owners (79%) were a filesystem path for that reason.
+  #
+  # The consumer's behaviour does not change — `ownerOf` looks the value up
+  # among the session's agents and sends anything that names nobody to the
+  # orchestrator, which is where a path already went — but the record stops
+  # claiming the repo directory is an agent. Old logs keep working through the
+  # same "names nobody" branch.
+  #
+  # The trailing "." is a sentinel, not data: with it the third field is always
+  # followed by a newline, so the `%%` below cannot fall into the same trap if
+  # a future field is ever empty.
+  #
+  # The owner is picked with an explicit "first non-empty string", NOT with
+  # `.agent_id // .subagent_id // "orchestrator"`. In jq only `null` and `false`
+  # are falsy, so a host that sends the key with an EMPTY string satisfies `//`
+  # and the chain yields `""` — the field then disappears from the record and
+  # `ownerOf` falls back to the time window, which is the guess this field
+  # exists to avoid. Caught by a test, not by review.
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
 }
   navori_audit_cwd=${navori_audit_rest%%
 *}
-  navori_audit_agent=${navori_audit_rest#*
+  navori_audit_rest=${navori_audit_rest#*
 }
+  navori_audit_agent=${navori_audit_rest%%
+*}
   [ -n "$navori_audit_session" ] || return 0
   # Same character class the CLI enforces (#503): the id composes a path, so
   # anything path-shaped means the payload is not what we think it is.
@@ -2743,15 +2772,44 @@ navori_audit_log() {
   # ONE jq for every field, not one per field: this runs on each hook of each
   # Bash call, and a fork is the most expensive thing in it. Newline-separated,
   # read back positionally.
-  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", .agent_id // .subagent_id // ""] | .[]' 2>/dev/null) || return 0
+  # The third field is the OWNER, and it is never empty: inside a subagent the
+  # host sends a real `agent_id`; on the main thread it sends none and the
+  # literal below names the orchestrator explicitly.
+  #
+  # It used to be `// ""`, and the empty case did not stay empty — it came out
+  # as the `cwd`. Command substitution strips trailing newlines, so an empty
+  # third field left `$navori_audit_fields` with only two lines; then
+  # `${rest#*<NL>}` found no newline in `"cwd"` and POSIX says a `#` pattern
+  # that does not match returns the string UNCHANGED. 41,581 of the park's
+  # 52,460 recorded owners (79%) were a filesystem path for that reason.
+  #
+  # The consumer's behaviour does not change — `ownerOf` looks the value up
+  # among the session's agents and sends anything that names nobody to the
+  # orchestrator, which is where a path already went — but the record stops
+  # claiming the repo directory is an agent. Old logs keep working through the
+  # same "names nobody" branch.
+  #
+  # The trailing "." is a sentinel, not data: with it the third field is always
+  # followed by a newline, so the `%%` below cannot fall into the same trap if
+  # a future field is ever empty.
+  #
+  # The owner is picked with an explicit "first non-empty string", NOT with
+  # `.agent_id // .subagent_id // "orchestrator"`. In jq only `null` and `false`
+  # are falsy, so a host that sends the key with an EMPTY string satisfies `//`
+  # and the chain yields `""` — the field then disappears from the record and
+  # `ownerOf` falls back to the time window, which is the guess this field
+  # exists to avoid. Caught by a test, not by review.
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
 }
   navori_audit_cwd=${navori_audit_rest%%
 *}
-  navori_audit_agent=${navori_audit_rest#*
+  navori_audit_rest=${navori_audit_rest#*
 }
+  navori_audit_agent=${navori_audit_rest%%
+*}
   [ -n "$navori_audit_session" ] || return 0
   # Same character class the CLI enforces (#503): the id composes a path, so
   # anything path-shaped means the payload is not what we think it is.
@@ -3555,15 +3613,44 @@ navori_audit_log() {
   # ONE jq for every field, not one per field: this runs on each hook of each
   # Bash call, and a fork is the most expensive thing in it. Newline-separated,
   # read back positionally.
-  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", .agent_id // .subagent_id // ""] | .[]' 2>/dev/null) || return 0
+  # The third field is the OWNER, and it is never empty: inside a subagent the
+  # host sends a real `agent_id`; on the main thread it sends none and the
+  # literal below names the orchestrator explicitly.
+  #
+  # It used to be `// ""`, and the empty case did not stay empty — it came out
+  # as the `cwd`. Command substitution strips trailing newlines, so an empty
+  # third field left `$navori_audit_fields` with only two lines; then
+  # `${rest#*<NL>}` found no newline in `"cwd"` and POSIX says a `#` pattern
+  # that does not match returns the string UNCHANGED. 41,581 of the park's
+  # 52,460 recorded owners (79%) were a filesystem path for that reason.
+  #
+  # The consumer's behaviour does not change — `ownerOf` looks the value up
+  # among the session's agents and sends anything that names nobody to the
+  # orchestrator, which is where a path already went — but the record stops
+  # claiming the repo directory is an agent. Old logs keep working through the
+  # same "names nobody" branch.
+  #
+  # The trailing "." is a sentinel, not data: with it the third field is always
+  # followed by a newline, so the `%%` below cannot fall into the same trap if
+  # a future field is ever empty.
+  #
+  # The owner is picked with an explicit "first non-empty string", NOT with
+  # `.agent_id // .subagent_id // "orchestrator"`. In jq only `null` and `false`
+  # are falsy, so a host that sends the key with an EMPTY string satisfies `//`
+  # and the chain yields `""` — the field then disappears from the record and
+  # `ownerOf` falls back to the time window, which is the guess this field
+  # exists to avoid. Caught by a test, not by review.
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
 }
   navori_audit_cwd=${navori_audit_rest%%
 *}
-  navori_audit_agent=${navori_audit_rest#*
+  navori_audit_rest=${navori_audit_rest#*
 }
+  navori_audit_agent=${navori_audit_rest%%
+*}
   [ -n "$navori_audit_session" ] || return 0
   # Same character class the CLI enforces (#503): the id composes a path, so
   # anything path-shaped means the payload is not what we think it is.
@@ -3864,15 +3951,44 @@ navori_audit_log() {
   # ONE jq for every field, not one per field: this runs on each hook of each
   # Bash call, and a fork is the most expensive thing in it. Newline-separated,
   # read back positionally.
-  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", .agent_id // .subagent_id // ""] | .[]' 2>/dev/null) || return 0
+  # The third field is the OWNER, and it is never empty: inside a subagent the
+  # host sends a real `agent_id`; on the main thread it sends none and the
+  # literal below names the orchestrator explicitly.
+  #
+  # It used to be `// ""`, and the empty case did not stay empty — it came out
+  # as the `cwd`. Command substitution strips trailing newlines, so an empty
+  # third field left `$navori_audit_fields` with only two lines; then
+  # `${rest#*<NL>}` found no newline in `"cwd"` and POSIX says a `#` pattern
+  # that does not match returns the string UNCHANGED. 41,581 of the park's
+  # 52,460 recorded owners (79%) were a filesystem path for that reason.
+  #
+  # The consumer's behaviour does not change — `ownerOf` looks the value up
+  # among the session's agents and sends anything that names nobody to the
+  # orchestrator, which is where a path already went — but the record stops
+  # claiming the repo directory is an agent. Old logs keep working through the
+  # same "names nobody" branch.
+  #
+  # The trailing "." is a sentinel, not data: with it the third field is always
+  # followed by a newline, so the `%%` below cannot fall into the same trap if
+  # a future field is ever empty.
+  #
+  # The owner is picked with an explicit "first non-empty string", NOT with
+  # `.agent_id // .subagent_id // "orchestrator"`. In jq only `null` and `false`
+  # are falsy, so a host that sends the key with an EMPTY string satisfies `//`
+  # and the chain yields `""` — the field then disappears from the record and
+  # `ownerOf` falls back to the time window, which is the guess this field
+  # exists to avoid. Caught by a test, not by review.
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
 }
   navori_audit_cwd=${navori_audit_rest%%
 *}
-  navori_audit_agent=${navori_audit_rest#*
+  navori_audit_rest=${navori_audit_rest#*
 }
+  navori_audit_agent=${navori_audit_rest%%
+*}
   [ -n "$navori_audit_session" ] || return 0
   # Same character class the CLI enforces (#503): the id composes a path, so
   # anything path-shaped means the payload is not what we think it is.
@@ -4586,15 +4702,44 @@ navori_audit_log() {
   # ONE jq for every field, not one per field: this runs on each hook of each
   # Bash call, and a fork is the most expensive thing in it. Newline-separated,
   # read back positionally.
-  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", .agent_id // .subagent_id // ""] | .[]' 2>/dev/null) || return 0
+  # The third field is the OWNER, and it is never empty: inside a subagent the
+  # host sends a real `agent_id`; on the main thread it sends none and the
+  # literal below names the orchestrator explicitly.
+  #
+  # It used to be `// ""`, and the empty case did not stay empty — it came out
+  # as the `cwd`. Command substitution strips trailing newlines, so an empty
+  # third field left `$navori_audit_fields` with only two lines; then
+  # `${rest#*<NL>}` found no newline in `"cwd"` and POSIX says a `#` pattern
+  # that does not match returns the string UNCHANGED. 41,581 of the park's
+  # 52,460 recorded owners (79%) were a filesystem path for that reason.
+  #
+  # The consumer's behaviour does not change — `ownerOf` looks the value up
+  # among the session's agents and sends anything that names nobody to the
+  # orchestrator, which is where a path already went — but the record stops
+  # claiming the repo directory is an agent. Old logs keep working through the
+  # same "names nobody" branch.
+  #
+  # The trailing "." is a sentinel, not data: with it the third field is always
+  # followed by a newline, so the `%%` below cannot fall into the same trap if
+  # a future field is ever empty.
+  #
+  # The owner is picked with an explicit "first non-empty string", NOT with
+  # `.agent_id // .subagent_id // "orchestrator"`. In jq only `null` and `false`
+  # are falsy, so a host that sends the key with an EMPTY string satisfies `//`
+  # and the chain yields `""` — the field then disappears from the record and
+  # `ownerOf` falls back to the time window, which is the guess this field
+  # exists to avoid. Caught by a test, not by review.
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
 }
   navori_audit_cwd=${navori_audit_rest%%
 *}
-  navori_audit_agent=${navori_audit_rest#*
+  navori_audit_rest=${navori_audit_rest#*
 }
+  navori_audit_agent=${navori_audit_rest%%
+*}
   [ -n "$navori_audit_session" ] || return 0
   # Same character class the CLI enforces (#503): the id composes a path, so
   # anything path-shaped means the payload is not what we think it is.
@@ -5038,15 +5183,44 @@ navori_audit_log() {
   # ONE jq for every field, not one per field: this runs on each hook of each
   # Bash call, and a fork is the most expensive thing in it. Newline-separated,
   # read back positionally.
-  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", .agent_id // .subagent_id // ""] | .[]' 2>/dev/null) || return 0
+  # The third field is the OWNER, and it is never empty: inside a subagent the
+  # host sends a real `agent_id`; on the main thread it sends none and the
+  # literal below names the orchestrator explicitly.
+  #
+  # It used to be `// ""`, and the empty case did not stay empty — it came out
+  # as the `cwd`. Command substitution strips trailing newlines, so an empty
+  # third field left `$navori_audit_fields` with only two lines; then
+  # `${rest#*<NL>}` found no newline in `"cwd"` and POSIX says a `#` pattern
+  # that does not match returns the string UNCHANGED. 41,581 of the park's
+  # 52,460 recorded owners (79%) were a filesystem path for that reason.
+  #
+  # The consumer's behaviour does not change — `ownerOf` looks the value up
+  # among the session's agents and sends anything that names nobody to the
+  # orchestrator, which is where a path already went — but the record stops
+  # claiming the repo directory is an agent. Old logs keep working through the
+  # same "names nobody" branch.
+  #
+  # The trailing "." is a sentinel, not data: with it the third field is always
+  # followed by a newline, so the `%%` below cannot fall into the same trap if
+  # a future field is ever empty.
+  #
+  # The owner is picked with an explicit "first non-empty string", NOT with
+  # `.agent_id // .subagent_id // "orchestrator"`. In jq only `null` and `false`
+  # are falsy, so a host that sends the key with an EMPTY string satisfies `//`
+  # and the chain yields `""` — the field then disappears from the record and
+  # `ownerOf` falls back to the time window, which is the guess this field
+  # exists to avoid. Caught by a test, not by review.
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
 }
   navori_audit_cwd=${navori_audit_rest%%
 *}
-  navori_audit_agent=${navori_audit_rest#*
+  navori_audit_rest=${navori_audit_rest#*
 }
+  navori_audit_agent=${navori_audit_rest%%
+*}
   [ -n "$navori_audit_session" ] || return 0
   # Same character class the CLI enforces (#503): the id composes a path, so
   # anything path-shaped means the payload is not what we think it is.
@@ -5579,15 +5753,44 @@ navori_audit_log() {
   # ONE jq for every field, not one per field: this runs on each hook of each
   # Bash call, and a fork is the most expensive thing in it. Newline-separated,
   # read back positionally.
-  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", .agent_id // .subagent_id // ""] | .[]' 2>/dev/null) || return 0
+  # The third field is the OWNER, and it is never empty: inside a subagent the
+  # host sends a real `agent_id`; on the main thread it sends none and the
+  # literal below names the orchestrator explicitly.
+  #
+  # It used to be `// ""`, and the empty case did not stay empty — it came out
+  # as the `cwd`. Command substitution strips trailing newlines, so an empty
+  # third field left `$navori_audit_fields` with only two lines; then
+  # `${rest#*<NL>}` found no newline in `"cwd"` and POSIX says a `#` pattern
+  # that does not match returns the string UNCHANGED. 41,581 of the park's
+  # 52,460 recorded owners (79%) were a filesystem path for that reason.
+  #
+  # The consumer's behaviour does not change — `ownerOf` looks the value up
+  # among the session's agents and sends anything that names nobody to the
+  # orchestrator, which is where a path already went — but the record stops
+  # claiming the repo directory is an agent. Old logs keep working through the
+  # same "names nobody" branch.
+  #
+  # The trailing "." is a sentinel, not data: with it the third field is always
+  # followed by a newline, so the `%%` below cannot fall into the same trap if
+  # a future field is ever empty.
+  #
+  # The owner is picked with an explicit "first non-empty string", NOT with
+  # `.agent_id // .subagent_id // "orchestrator"`. In jq only `null` and `false`
+  # are falsy, so a host that sends the key with an EMPTY string satisfies `//`
+  # and the chain yields `""` — the field then disappears from the record and
+  # `ownerOf` falls back to the time window, which is the guess this field
+  # exists to avoid. Caught by a test, not by review.
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
 }
   navori_audit_cwd=${navori_audit_rest%%
 *}
-  navori_audit_agent=${navori_audit_rest#*
+  navori_audit_rest=${navori_audit_rest#*
 }
+  navori_audit_agent=${navori_audit_rest%%
+*}
   [ -n "$navori_audit_session" ] || return 0
   # Same character class the CLI enforces (#503): the id composes a path, so
   # anything path-shaped means the payload is not what we think it is.
@@ -5972,15 +6175,44 @@ navori_audit_log() {
   # ONE jq for every field, not one per field: this runs on each hook of each
   # Bash call, and a fork is the most expensive thing in it. Newline-separated,
   # read back positionally.
-  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", .agent_id // .subagent_id // ""] | .[]' 2>/dev/null) || return 0
+  # The third field is the OWNER, and it is never empty: inside a subagent the
+  # host sends a real `agent_id`; on the main thread it sends none and the
+  # literal below names the orchestrator explicitly.
+  #
+  # It used to be `// ""`, and the empty case did not stay empty — it came out
+  # as the `cwd`. Command substitution strips trailing newlines, so an empty
+  # third field left `$navori_audit_fields` with only two lines; then
+  # `${rest#*<NL>}` found no newline in `"cwd"` and POSIX says a `#` pattern
+  # that does not match returns the string UNCHANGED. 41,581 of the park's
+  # 52,460 recorded owners (79%) were a filesystem path for that reason.
+  #
+  # The consumer's behaviour does not change — `ownerOf` looks the value up
+  # among the session's agents and sends anything that names nobody to the
+  # orchestrator, which is where a path already went — but the record stops
+  # claiming the repo directory is an agent. Old logs keep working through the
+  # same "names nobody" branch.
+  #
+  # The trailing "." is a sentinel, not data: with it the third field is always
+  # followed by a newline, so the `%%` below cannot fall into the same trap if
+  # a future field is ever empty.
+  #
+  # The owner is picked with an explicit "first non-empty string", NOT with
+  # `.agent_id // .subagent_id // "orchestrator"`. In jq only `null` and `false`
+  # are falsy, so a host that sends the key with an EMPTY string satisfies `//`
+  # and the chain yields `""` — the field then disappears from the record and
+  # `ownerOf` falls back to the time window, which is the guess this field
+  # exists to avoid. Caught by a test, not by review.
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
 }
   navori_audit_cwd=${navori_audit_rest%%
 *}
-  navori_audit_agent=${navori_audit_rest#*
+  navori_audit_rest=${navori_audit_rest#*
 }
+  navori_audit_agent=${navori_audit_rest%%
+*}
   [ -n "$navori_audit_session" ] || return 0
   # Same character class the CLI enforces (#503): the id composes a path, so
   # anything path-shaped means the payload is not what we think it is.
