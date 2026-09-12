@@ -40,7 +40,12 @@ import { expandHookIncludes } from "../../lib/hook-includes.ts";
 import { benchMark } from "../../lib/bench.ts";
 import { stripFrontmatter } from "../../lib/frontmatter.ts";
 import { tc, resolveLang, type Lang } from "../../lib/i18n.ts";
-import { CORE_AGENTS, extraConditionMet, isAgentEnabled } from "../shared/harness-assets.ts";
+import {
+  CORE_AGENTS,
+  RETIRED_SKILLS,
+  extraConditionMet,
+  isAgentEnabled,
+} from "../shared/harness-assets.ts";
 import { resolveHarnessPlan } from "../shared/harness-plan.ts";
 import { buildSkillRows } from "../shared/skills-index.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
@@ -1082,6 +1087,29 @@ export function renderClaudeEngine(
     // Sweep both shapes: the legacy FLAT `<id>.md` and the current DIRECTORY
     // `<id>/SKILL.md`. A deselected lib rendered by this version orphans as a
     // directory; one rendered by an older version orphans as a flat file.
+    for (const removal of [planFlatSkillRemoval(cwd, id, id), planDirSkillRemoval(cwd, id, id)]) {
+      if (!removal) continue;
+      inspected += 1;
+      removals.push(removal);
+    }
+  }
+
+  // 8.7b. Skills navori RETIRED from the core catalog (#702). Same shape as
+  // §8.7 and the same reason for it: a static registry, never a directory scan.
+  // The difference is which registry — a deselected library is still IN
+  // `LIBRARY_SKILLS`, while a retired skill is gone from `CORE_SKILLS` /
+  // `WORKFLOW_SKILLS` entirely, so nothing above can ever name it.
+  //
+  // Verified live when `pr-create` was retired: `render --apply`,
+  // `render --prune --apply` and `doctor` all left it on disk, and the session
+  // that removed it kept listing it among its available skills — Claude Code
+  // discovers skills by walking the directory, not by reading the index navori
+  // renders. Codex never had the gap: its adapter declares a `skill-dir` orphan
+  // scan, so the same retirement prunes there. This closes the parity.
+  for (const id of RETIRED_SKILLS) {
+    // The user may have reclaimed the id as their own skill — then it is theirs,
+    // not a leftover. Same escape hatch §8.7 gives a deselected library.
+    if (localSkillIds.has(id)) continue;
     for (const removal of [planFlatSkillRemoval(cwd, id, id), planDirSkillRemoval(cwd, id, id)]) {
       if (!removal) continue;
       inspected += 1;
