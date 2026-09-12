@@ -1072,19 +1072,36 @@ const PARENT_ONLY_PHASES = new Set([
   "Notification",
 ]);
 
+/**
+ * What the `audit-log` partial writes as the owner when the hook fired on the
+ * main thread rather than inside a subagent (#709).
+ *
+ * It is a literal shared with a shell script that cannot import it, so
+ * `audit-log-owner.test.ts` pins the pairing — the same drift a generated
+ * partial closes elsewhere, guarded here by a test because it is one word.
+ */
+export const ORCHESTRATOR_OWNER = "orchestrator";
+
 function ownerOf(event: HookEvent, session: SessionAudit): HookEvent[] {
   if (PARENT_ONLY_PHASES.has(event.phase)) return session.orchestrator.hookEvents;
 
   if (event.agentId) {
+    // The main thread says so outright. Before #709 the recorder emitted the
+    // repo's `cwd` here — not because the host sends it (it sends nothing at
+    // all off a subagent) but because of a shell bug in the `audit-log`
+    // partial, which is why 79% of the park's recorded owners are a path. Both
+    // spellings resolve the same way below; this branch only makes the intent
+    // legible instead of leaving it to the "names nobody" fallback.
+    if (event.agentId === ORCHESTRATOR_OWNER) return session.orchestrator.hookEvents;
+
     const byId = session.agents.find((a) => a.agentId === event.agentId);
     // An id naming nobody is INVALID data, not missing data, and the difference
-    // decides the owner. The host states an identity on every event: for the
-    // orchestrator it states the repo's `cwd`, which matches no agent by
-    // construction. Falling through to the window then re-attributed those to
+    // decides the owner. Falling through to the window re-attributed those to
     // whichever agent happened to be alive — ~294 of the reference session's
     // events, on top of the 99 stray `SubagentStop`s. When the payload names
     // someone we cannot find, the one thing we know is that the window's answer
-    // would be a different someone.
+    // would be a different someone. This is also what keeps logs written BEFORE
+    // #709 reading correctly: a `cwd` matches no agent, so it lands here.
     return byId ? byId.hookEvents : session.orchestrator.hookEvents;
   }
 
