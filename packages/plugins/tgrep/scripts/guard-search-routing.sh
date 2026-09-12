@@ -131,13 +131,51 @@ fi
 # splits a quoted pattern in half and the fragment lands with no target, which
 # every heuristic below reads as a recursive search. Measured on the park: that
 # alone mislabelled over a thousand extractions.
+#
+# QUOTES. The split walks the command character by character and only cuts on a
+# separator that is OUTSIDE a quoted span (#721 A3). The two blind `sed`
+# substitutions it replaces cut inside quotes too, so a command that merely
+# QUOTED a search — `git commit -m "arregla el guard && rg ya no bloquea"` —
+# produced a fake segment starting with the verb and got blocked. Verified: with
+# a separator inside the quotes it blocked, without one it passed, and the
+# difference was never about what the command does.
+#
+# That class is the guard's own stated worst failure ("a false block teaches the
+# model to route AROUND the guard"), and it is not hypothetical: it fired on the
+# session that was writing the test for it.
+#
+# One awk pass over a command already capped at 20k characters, replacing two
+# `sed` passes — same order of work, and the escaping stays in awk where a
+# backslash means one thing instead of three.
 segments=$(printf '%s' "$cmd" \
   | sed -e ':a' -e '$!N' -e 's/\\\n/ /' -e 'ta' -e 'P' -e 'D' \
-  | sed -e 's/||/\
-@C@/g' -e 's/&&/\
-@C@/g' -e 's/;/\
-@C@/g' -e 's/|/\
-@P@/g')
+  | awk '
+    {
+      line = $0
+      out = ""
+      inq = ""      # "", "\047" (single) or "\042" (double)
+      n = length(line)
+      for (i = 1; i <= n; i++) {
+        c = substr(line, i, 1)
+        if (inq == "") {
+          if (c == "\047" || c == "\042") { inq = c; out = out c; continue }
+          # `||` before `|`, or the first pipe of a `||` starts a bogus segment.
+          if (c == "|" && substr(line, i + 1, 1) == "|") { out = out "\n@C@"; i++; continue }
+          if (c == "&" && substr(line, i + 1, 1) == "&") { out = out "\n@C@"; i++; continue }
+          if (c == ";") { out = out "\n@C@"; continue }
+          if (c == "|") { out = out "\n@P@"; continue }
+          out = out c
+          continue
+        }
+        # Inside a quoted span every separator is DATA. The span ends only on
+        # its own quote character, which is what keeps `"a ; b"` whole while
+        # `'"'"'a'"'"' ; b` still splits.
+        if (c == inq) inq = ""
+        out = out c
+      }
+      printf "%s", out
+    }
+  ')
 
 # Does this segment name at least ONE concrete file among its TARGET operands?
 #
@@ -155,8 +193,15 @@ segments=$(printf '%s' "$cmd" \
 # The first non-flag operand is the PATTERN and is skipped — otherwise
 # `grep -rn "config.json" src/` would look like it names a file when what it
 # names is what it is looking FOR.
+#
+# An extension is NOT what makes something a file (#721 A3). Defining it that way
+# blocked `rg foo Makefile`, `rg TODO Dockerfile`, `grep -rn foo LICENSE` and
+# `grep -rn x CODEOWNERS` — all verified, all pure extraction from one named
+# file, all exactly the shape this function exists to let through. So the awk
+# below no longer decides: it PRINTS the target operands and the shell answers
+# with three signals, cheapest first.
 names_a_file() {
-  printf '%s' "$1" | awk '
+  navori_operands=$(printf '%s' "$1" | awk '
     {
       seen_pattern = 0
       for (i = 2; i <= NF; i++) {
@@ -166,11 +211,43 @@ names_a_file() {
         gsub(/^["'"'"']+|["'"'"']+$/, "", t)
         if (t ~ /\*/) continue
         if (t ~ /\/$/) continue
-        if (t ~ /\.[A-Za-z0-9]+$/) found = 1
+        print t
       }
     }
-    END { exit(found ? 0 : 1) }
-  '
+  ')
+  [ -n "$navori_operands" ] || return 1
+
+  while IFS= read -r navori_operand; do
+    [ -n "$navori_operand" ] || continue
+
+    # 1. An extension still answers most of them, and costs nothing.
+    case "$navori_operand" in
+      *.[A-Za-z0-9] | *.[A-Za-z0-9][A-Za-z0-9] | *.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9] | \
+        *.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) return 0 ;;
+    esac
+
+    # 2. The files a repo keeps without one. Not a taste list: these are the
+    #    names that appear at a repo root, so a search naming one is naming a
+    #    file and not a tree.
+    navori_base=${navori_operand##*/}
+    case "$navori_base" in
+      Makefile | makefile | GNUmakefile | Dockerfile | dockerfile | Containerfile | \
+        LICENSE | LICENCE | COPYING | NOTICE | AUTHORS | CONTRIBUTORS | CODEOWNERS | \
+        README | CHANGELOG | TODO | VERSION | Procfile | Gemfile | Rakefile | Brewfile | \
+        Jenkinsfile | Vagrantfile | Caddyfile | Justfile | justfile | Taskfile | Podfile)
+        return 0
+        ;;
+    esac
+
+    # 3. Whatever is left, ask the filesystem — the only signal that settles
+    #    `bin/deploy` (a script) against `src` (a tree) without guessing from
+    #    the shape. A stat per operand, and there are at most a handful.
+    [ -f "$navori_operand" ] && return 0
+  done <<NAVORI_OPERANDS
+$navori_operands
+NAVORI_OPERANDS
+
+  return 1
 }
 
 block() {

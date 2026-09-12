@@ -212,4 +212,64 @@ describe.runIf(runsBash)("guard-search-routing", () => {
     const err = stderrOf('grep -rn "foo" src/');
     expect(err).toContain("repo root");
   });
+
+  /**
+   * #721 A3 — the two false-positive classes, both verified in the wild before
+   * the fix. The guard's own header calls this the worst failure it can have:
+   * "a false block teaches the model to route AROUND the guard — which is
+   * worse". The suite claimed ZERO false positives, which was true of its
+   * corpus and false as a property.
+   */
+  describe("does not block an extraction from a file with no extension (#721)", () => {
+    // `rg foo Makefile` and friends were blocked because "file" was defined as
+    // "has an extension". Every one of these names ONE file and searches
+    // nothing.
+    const allowed = [
+      "rg foo Makefile",
+      "rg TODO Dockerfile",
+      'grep -rn "foo" LICENSE',
+      "grep -rn x CODEOWNERS",
+      "rg patron Gemfile",
+    ];
+    for (const command of allowed) {
+      it(`allows ${command}`, () => {
+        expect(runGuard(command)).toBe(0);
+      });
+    }
+
+    // The line the fix may not cross: a directory is still a search, with or
+    // without its trailing slash.
+    const blocked = ["rg foo src/", "rg foo src", "grep -rn foo .", "rg patron"];
+    for (const command of blocked) {
+      it(`still blocks ${command}`, () => {
+        expect(runGuard(command)).toBe(2);
+      });
+    }
+  });
+
+  describe("does not split on a separator inside quotes (#721)", () => {
+    // The segment splitter cut on `&&`/`;`/`|` anywhere, so a command that
+    // merely QUOTED a search produced a fake segment starting with the verb.
+    // This fired on the session that was writing this very test.
+    const allowed = [
+      'git commit -m "arregla el guard && rg ya no bloquea"',
+      'git commit -m "a && rg y"',
+      "git commit -m 'a ; rg y'",
+      'echo "usa rg -l foo src/" ; echo fin',
+    ];
+    for (const command of allowed) {
+      it(`allows ${command}`, () => {
+        expect(runGuard(command)).toBe(0);
+      });
+    }
+
+    // And a real separator OUTSIDE the quotes still splits, which is the whole
+    // reason the splitter exists.
+    const blocked = ["grep -rn foo src/ && echo listo", "cd x ; grep -rn foo src/"];
+    for (const command of blocked) {
+      it(`still blocks ${command}`, () => {
+        expect(runGuard(command)).toBe(2);
+      });
+    }
+  });
 });
