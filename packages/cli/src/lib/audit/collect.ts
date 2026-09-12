@@ -101,6 +101,10 @@ export interface OtelRecord {
   agent?: string;
   /** `api_request` only. */
   model?: string;
+  /** `tool_result` only: the host's own error category, e.g. `Error:ENOENT`. */
+  errorType?: string;
+  /** `tool_result` only: what the call took, in milliseconds. */
+  ms?: number;
 }
 
 export interface ReceiverStats {
@@ -264,6 +268,26 @@ export function flattenOtlp(body: unknown): { events: RoutedEvent[]; discarded: 
           if (tool) flat.tool = tool;
           if (decision) flat.decision = decision;
           if (source) flat.source = source;
+        } else if (event === "tool_result") {
+          // FAILURES ONLY (#698). The host emits this once per tool call, and a
+          // session log already runs to thousands of lines — the same volume
+          // argument that keeps `api_request` out unless it names a skill. What
+          // a reader needs here is the error the host DECLARED, which #686 can
+          // only infer from the first line of a free-text result.
+          //
+          // `error` (the full message) is deliberately not read even when the
+          // operator enabled `OTEL_LOG_TOOL_DETAILS`: the allowlist persists
+          // categories, never content (R8).
+          const errorType = attrs.get("error_type");
+          if (attrs.get("success") !== "false" || !errorType) {
+            discarded++;
+            continue;
+          }
+          const tool = attrs.get("tool_name");
+          const ms = Number(attrs.get("duration_ms"));
+          flat.errorType = errorType;
+          if (tool) flat.tool = tool;
+          if (Number.isFinite(ms)) flat.ms = ms;
         } else if (event === "api_request") {
           const skill = attrs.get("skill.name");
           // `api_request` fires on EVERY request and the session log already

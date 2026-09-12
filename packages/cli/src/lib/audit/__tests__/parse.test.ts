@@ -497,6 +497,7 @@ describe("parse: hook attribution", () => {
       hookLogFrom: null,
       otelFrom: null,
       permissions: emptyPermissionDecisions(),
+      toolErrorTypes: {},
       hostSkills: [],
       parseErrors: 0,
       linesRead: 0,
@@ -882,6 +883,54 @@ describe("parse: hook attribution", () => {
       // None of the three is a malformed hook event.
       expect(s.parseErrors).toBe(0);
       expect(s.orchestrator.hookEvents).toHaveLength(0);
+    });
+
+    it("cuenta la categoría de error que el host declaró, sin tocar la inferida (#698)", () => {
+      const s = session([]);
+      // What #686 concluded from the free text stays exactly as it was.
+      s.orchestrator.toolErrors = { ...emptyToolErrors(), shellFailure: 2 };
+
+      attachHookEvents(
+        s,
+        log([
+          otelStart(),
+          {
+            ts: "2026-09-12T10:00:01Z",
+            event: "tool_result",
+            tool: "Bash",
+            errorType: "ShellError",
+            ms: 1240,
+          },
+          {
+            ts: "2026-09-12T10:00:02Z",
+            event: "tool_result",
+            tool: "Read",
+            errorType: "Error:ENOENT",
+            ms: 8,
+          },
+          {
+            ts: "2026-09-12T10:00:03Z",
+            event: "tool_result",
+            tool: "Bash",
+            errorType: "ShellError",
+            ms: 90,
+          },
+        ]),
+      );
+
+      expect(s.toolErrorTypes).toEqual({ ShellError: 2, "Error:ENOENT": 1 });
+      // Not folded in, and not mapped: forcing the host's strings onto these six
+      // classes would invent the equivalence this data exists to remove.
+      expect(s.orchestrator.toolErrors.shellFailure).toBe(2);
+      expect(s.parseErrors).toBe(0);
+    });
+
+    it("sin tercera fuente, la taxonomía inferida sigue siendo la única (#698)", () => {
+      const s = session([]);
+      s.orchestrator.toolErrors = { ...emptyToolErrors(), shellFailure: 2 };
+      attachHookEvents(s, log([hook({})]));
+      expect(s.toolErrorTypes).toEqual({});
+      expect(s.orchestrator.toolErrors.shellFailure).toBe(2);
     });
 
     // Covers: R13, R14

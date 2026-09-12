@@ -75,6 +75,7 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
     hookLogFrom: null,
     otelFrom: null,
     permissions: emptyPermissionDecisions(),
+    toolErrorTypes: {},
     hostSkills: [],
     parseErrors: 0,
     linesRead: 100,

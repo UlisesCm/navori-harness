@@ -873,6 +873,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
     hookLogFrom: null,
     otelFrom: null,
     permissions: emptyPermissionDecisions(),
+    toolErrorTypes: {},
     hostSkills: [],
     parseErrors,
     linesRead,
@@ -977,6 +978,17 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     // the identical result. `source` is the host saying which one it was.
     if (str(rec.event) === "tool_decision") {
       countPermissionDecision(session.permissions, str(rec.source));
+      continue;
+    }
+    // The third blind spot (#698): the host's own error category. #686 reads
+    // the first line of a free-text result, which is what it could do; this is
+    // what the host says the failure WAS. Counted under its own key, never
+    // folded into `toolErrors` — see the model's note on why.
+    if (str(rec.event) === "tool_result") {
+      const errorType = str(rec.errorType);
+      if (errorType) {
+        session.toolErrorTypes[errorType] = (session.toolErrorTypes[errorType] ?? 0) + 1;
+      }
       continue;
     }
     // The skills blind spot: `skill` here is DECLARED, not inferred from

@@ -455,6 +455,20 @@ export interface SessionAudit {
    */
   permissions: PermissionDecisions;
   /**
+   * Error categories the HOST declared, by its own `error_type` string (#698).
+   *
+   * NOT a replacement for `toolErrors` and deliberately not mapped onto it.
+   * #686 classifies from the first line of a free-text result — real, measured,
+   * and ageing every time a tool rewrites its message. This is the host's own
+   * category for the same failure. Forcing one onto the other would invent the
+   * equivalence that the whole point was to stop inventing, so both are
+   * reported and the reader compares them.
+   *
+   * Empty when the session carried no third source, where `toolErrors` is still
+   * the only answer there is (the R14 pattern of spec 0021).
+   */
+  toolErrorTypes: Record<string, number>;
+  /**
    * Skills the HOST declared for this session, over all of its agents.
    *
    * Kept at session level as well as on the cards because attribution can be
