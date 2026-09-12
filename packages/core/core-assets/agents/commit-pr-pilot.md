@@ -117,7 +117,7 @@ An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wron
 
 - you do NOT abort for the missing review;
 - you MUST run `{{qualityGate.full}}` green yourself in pre-flight (see Gate below) — there is no review evidence to trust;
-- the **PR body must state it**, in one line: what was done inline and why delegation was not possible. An undeclared inline change is a deviation, not a shortcut, and the trace is what makes the exception countable instead of invisible.
+- the **PR body must state it**, in one line that STARTS with the literal token `navori:no-pilot` — e.g. `navori:no-pilot — the operator forbade subagents in this session`. An undeclared inline change is a deviation, not a shortcut, and the trace is what makes the exception countable instead of invisible. The token is what makes it countable BY A MACHINE: `guard-pr-pilot` blocks a `gh pr create` that carries neither a pilot nor this line (#705), and free prose is exactly what a hook cannot verify.
 
 **No count, no judgement about the diff's content.** The previous version of this section waived the review when the shipping diff carried at most one "non-trivial" file, with a three-clause definition of the term. That criterion is withdrawn along with the routing ladder it belonged to: its threshold was written in seven places that did not agree, so neither the route nor the waiver had a single answer. It returns when the ruling does, stated once and in one place. Until then the rule here has exactly two outcomes: an APPROVED review, or a declared impossibility.
 

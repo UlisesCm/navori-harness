@@ -62,6 +62,7 @@ import { deepMerge } from "./deep-merge.ts";
 
 const QG_HOOK_DEST = ".claude/hooks/quality-gate-pre-commit.sh";
 const GUARD_HOOK_DEST = ".claude/hooks/guard-destructive.sh";
+const PR_PILOT_HOOK_DEST = ".claude/hooks/guard-pr-pilot.sh";
 const SESSION_START_HOOK_DEST = ".claude/hooks/session-start-context.sh";
 const AUDIT_TRIGGER_HOOK_DEST = ".claude/hooks/audit-mode-trigger.sh";
 const AUDIT_CLOSE_HOOK_DEST = ".claude/hooks/audit-mode-close.sh";
@@ -150,6 +151,31 @@ export function buildClaudeSettings(
       },
     });
   }
+
+  // #705: the gate on `gh pr create`. Registered next to the guard and for the
+  // same reason — both are PreToolUse(Bash) with exit 2, which is evaluated
+  // BEFORE permission rules and is the only layer this harness has measured as
+  // actually holding. It differs from the guard in what it protects: not the
+  // repo from a destructive command, but a process step from being skipped
+  // silently. Its escape (`navori:no-pilot` in the PR body) is the one the
+  // orchestration block already demands in prose, made checkable.
+  settings = deepMerge(settings, {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "Bash",
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${PR_PILOT_HOOK_DEST}"`,
+              timeout: 10,
+              statusMessage: "navori: guard-pr-pilot",
+            },
+          ],
+        },
+      ],
+    },
+  });
 
   // #530: the drift watcher, the first of the harness's two PostToolUse hooks
   // (the routing watcher below is the other). The guard

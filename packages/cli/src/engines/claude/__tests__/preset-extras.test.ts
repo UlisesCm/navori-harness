@@ -92,12 +92,12 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // skills + 6 workflow skills (ticket-intake, solution-design, pr-create,
     // spec-bootstrap, dominio, babysit-prs) + 2 progress files + 2 medusa skills
     // + 2 CLAUDE.md managed blocks counted independently of the file + 1 guard
-    // hook + 1 session-start hook + 2 lifecycle hooks (subagent-stop,
+    // hook + 1 PR-pilot gate (#705) + 1 session-start hook + 2 lifecycle hooks (subagent-stop,
     // precompact) + 2 audit-mode hooks (trigger, close) + 1 managed-drift
     // watcher (#530) + 1 worktree-reclaim hook (#527) + 1 routing watcher
     // (spec 0020) + 1 orchestrator block routed to `.claude/context/` (#573) +
     // 2 session ceremonies + 1 agents index, same channel (#572) = 40.
-    expect(r.inspected).toBe(39);
+    expect(r.inspected).toBe(40);
   });
 
   describe("bundled stack presets (B4)", () => {

@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="c3640bea" version="0.8.5" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="65c1cd84" version="0.8.5" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -51,6 +51,8 @@ Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so
 ### When delegation is genuinely impossible
 
 Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` tool is unavailable. Then you do the work and **say so in your reply, naming the reason** — the `commit-pr-pilot` will require `pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
+
+And when that cycle ends in a PR you open yourself, the body carries one line starting with the literal token `navori:no-pilot` — `navori:no-pilot — the operator forbade subagents in this session`. `guard-pr-pilot` blocks a `gh pr create` that comes from neither the pilot nor that line (#705): the measurement that put it there is 37 pilot invocations against 232 PRs opened, 0 of 101 in navori's own repo, and the pilot was never being skipped — its antechamber was never entered.
 
 ### Where the depth lives (read it when the moment asks)
 

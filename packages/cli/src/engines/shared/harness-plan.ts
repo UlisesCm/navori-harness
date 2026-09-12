@@ -121,6 +121,18 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/session-start-context.sh"),
       managedId: "session-start-context-base",
     },
+    // #705. The pilot is the doctrine's single owner of commit+PR and gets
+    // invoked on 15% of the PRs opened — 0 of 101 in this very repo. It is not
+    // skipped, its antechamber is never entered: the doctrine names it "after
+    // the reviewer approves" and nothing intercepts `gh pr create`. Every layer
+    // this harness measured that BLOCKS works; every one that SUGGESTS does
+    // not. Unconditional, like its two neighbours: a gate nobody turns on
+    // gates nothing.
+    {
+      id: "guard-pr-pilot",
+      assetPath: join(coreAssets, "hooks/guard-pr-pilot.sh"),
+      managedId: "guard-pr-pilot-base",
+    },
     // Lifecycle hooks (N1). SubagentStop + PreCompact are unconditional: both
     // are advisory and near-silent, so there's no reason to gate them.
     {

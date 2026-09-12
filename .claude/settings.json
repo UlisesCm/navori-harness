@@ -17,6 +17,12 @@
           },
           {
             "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-pr-pilot.sh\"",
+            "timeout": 10,
+            "statusMessage": "navori: guard-pr-pilot"
+          },
+          {
+            "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh\"",
             "timeout": 180,
             "statusMessage": "navori: quality-gate fast"

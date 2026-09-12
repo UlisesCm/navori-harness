@@ -577,7 +577,8 @@ describe("buildClaudeSettings — hook matcher coalescing (no double PreToolUse[
     const pre = preOf(buildClaudeSettings(withQG(), [plugin]));
     const bashBuckets = pre.filter((b) => b.matcher === "Bash");
     expect(bashBuckets).toHaveLength(1);
-    expect(bashBuckets.flatMap((b) => b.hooks)).toHaveLength(3); // guard + qg + plugin
+    // guard-destructive + guard-pr-pilot (#705) + quality gate + the plugin's.
+    expect(bashBuckets.flatMap((b) => b.hooks)).toHaveLength(4);
   });
 
   it("keeps distinct matchers in separate buckets", () => {

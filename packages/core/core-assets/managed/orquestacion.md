@@ -51,6 +51,8 @@ Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so
 
 Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` tool is unavailable. Then you do the work and **say so in your reply, naming the reason** — the `commit-pr-pilot` will require `{{qualityGate.full}}` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
 
+And when that cycle ends in a PR you open yourself, the body carries one line starting with the literal token `navori:no-pilot` — `navori:no-pilot — the operator forbade subagents in this session`. `guard-pr-pilot` blocks a `gh pr create` that comes from neither the pilot nor that line (#705): the measurement that put it there is 37 pilot invocations against 232 PRs opened, 0 of 101 in navori's own repo, and the pilot was never being skipped — its antechamber was never entered.
+
 ### Where the depth lives (read it when the moment asks)
 
 The depth sits with whoever owns the moment — open it then: **`.claude/agents/leader.md`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.claude/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/ticket-intake/SKILL.md`** (a ticket arrived: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).
