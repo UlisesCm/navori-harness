@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   ORCHESTRATOR_OWNER,
   attachHookEvents,
+  isClassifierExemptCommand,
   isReadLaneCommand,
   isWriteLaneCommand,
   parseAgentRun,
@@ -452,6 +453,7 @@ describe("parse: hook attribution", () => {
       frictionEvents: 0,
       toolErrors: emptyToolErrors(),
       repeatedCommands: {},
+      classifierExemptBash: 0,
       verdict: null,
       ...over,
     };
@@ -482,6 +484,7 @@ describe("parse: hook attribution", () => {
         shellWrites: 0,
         toolCounts: {},
         toolCountsByMode: {},
+        classifierExemptBashByMode: {},
         skillsRead: [],
         skills: [],
         skillsDiscarded: 0,
@@ -1156,5 +1159,154 @@ describe("read-lane classification (#603)", () => {
 
   it("matches on the basename, so an absolute path still counts", () => {
     expect(isReadLaneCommand("/usr/bin/cat /etc/hosts")).toBe(true);
+  });
+});
+
+/**
+ * The discount behind `classifier-round-trips` (#730): which Bash calls can be
+ * PROVEN to have skipped auto mode's classifier, because the host's built-in
+ * read-only set resolves them with no prompt in every mode. A false positive
+ * here deletes a real cost from the report, so every edge is pinned.
+ */
+describe("classifier-exempt commands (#730)", () => {
+  it("exempts a command made only of host read-only binaries", () => {
+    expect(isClassifierExemptCommand("cat foo.ts")).toBe(true);
+    expect(isClassifierExemptCommand("ls -la packages/cli")).toBe(true);
+    expect(isClassifierExemptCommand("grep -n foo archivo.ts")).toBe(true);
+    expect(isClassifierExemptCommand("/usr/bin/wc -l src/index.ts")).toBe(true);
+  });
+
+  it("does not exempt a binary outside the set", () => {
+    expect(isClassifierExemptCommand('python3 -c "print(1)"')).toBe(false);
+    expect(isClassifierExemptCommand("pnpm test")).toBe(false);
+  });
+
+  it("exempts a compound only when every segment qualifies", () => {
+    expect(isClassifierExemptCommand("cd packages/cli && ls")).toBe(true);
+    expect(isClassifierExemptCommand("cd packages/cli && pnpm build")).toBe(false);
+    expect(isClassifierExemptCommand("cat foo.ts | head -20")).toBe(true);
+  });
+
+  // The canary of this issue: neither binary appears in any permission rule of
+  // this repo nor in the host's read-only set, so only the classifier could have
+  // approved it — and the OTel event still reported `source: "config"`. The
+  // measurement cannot see that approval, so the command must keep being counted.
+  it("does not exempt the canary that proved the OTel channel blind", () => {
+    expect(isClassifierExemptCommand("uname -s && seq 1 3")).toBe(false);
+  });
+
+  // A newline separates commands exactly like `&&` does, and leaving it out of
+  // the split judged a multi-line call by its FIRST line — `pnpm build` is a
+  // command auto mode charges for with certainty, since it suspends precisely
+  // those package-manager `allow` rules. Measured on this repo's transcripts the
+  // published figure does not move (every multi-line call was already charged by
+  // another guard, usually the heredoc), which is the point: the rule has to
+  // hold by rule, not by correlation with how commands happen to be written.
+  it("splits on a newline, so a second line cannot ride on the first", () => {
+    expect(isClassifierExemptCommand("cat package.json\npnpm build")).toBe(false);
+    expect(isClassifierExemptCommand("cd packages/cli\npnpm test")).toBe(false);
+    expect(isClassifierExemptCommand("grep -n foo src/a.ts\ngit commit -m x")).toBe(false);
+    expect(isClassifierExemptCommand("ls\r\nrm -rf dist")).toBe(false);
+  });
+
+  it("treats a blank segment as punctuation, not as a command", () => {
+    // A trailing newline or `;` must not charge for whitespace…
+    expect(isClassifierExemptCommand("ls\n")).toBe(true);
+    expect(isClassifierExemptCommand("ls;\r\n")).toBe(true);
+    expect(isClassifierExemptCommand("cat a.ts\nls -la\n")).toBe(true);
+    // …and a command with no command in it is not exempt by vacuity.
+    expect(isClassifierExemptCommand("")).toBe(false);
+    expect(isClassifierExemptCommand("  \n ")).toBe(false);
+    // A segment that names only an env assignment still disqualifies.
+    expect(isClassifierExemptCommand("ls\nFOO=bar")).toBe(false);
+  });
+
+  it("does not exempt a redirect, a substitution or a heredoc", () => {
+    expect(isClassifierExemptCommand("ls > out.txt")).toBe(false);
+    expect(isClassifierExemptCommand("cat $(ls) ")).toBe(false);
+    expect(isClassifierExemptCommand("cat <<'EOF'")).toBe(false);
+    // A lone `&` backgrounds the left side and runs the right one.
+    expect(isClassifierExemptCommand("ls & rm -rf /tmp/x")).toBe(false);
+  });
+
+  it("does not exempt `cd` next to `git`, which the host documents as prompting", () => {
+    expect(isClassifierExemptCommand("cd otro-dir && git status")).toBe(false);
+    expect(isClassifierExemptCommand("cd otro-dir && git grep foo")).toBe(false);
+  });
+
+  // THE TEST THAT KEEPS THE TWO SETS APART. `rg` is in `READ_LANE_BINARIES`
+  // because its native lane is `Grep`, but the host never pre-approved it, so it
+  // DOES pay a classifier round-trip. Merging the two lists — they answer
+  // different questions — would silently discount `rg`, `awk`, `cut`, `nl`,
+  // `tree`, `less`, `ag` and `ack`, and break the ceiling.
+  it("does not exempt a read-lane binary the host never pre-approved", () => {
+    expect(isReadLaneCommand("rg foo")).toBe(true);
+    expect(isClassifierExemptCommand("rg foo")).toBe(false);
+    // The full list the set's JSDoc names, so a partial merge cannot pass green.
+    for (const cmd of [
+      "awk '{print $1}' x",
+      "cut -d, -f1 x",
+      "nl x",
+      "tree src",
+      "less x",
+      "ag foo",
+      "ack foo",
+    ]) {
+      expect(isClassifierExemptCommand(cmd)).toBe(false);
+    }
+  });
+
+  // `find` is in the HOST's documented read-only list and is left out of ours on
+  // purpose: this predicate decides by the binary leading a segment, and `find`
+  // changes nature with its flags — `-exec` runs an arbitrary command, `-delete`
+  // writes. A flag denylist would have to stay exhaustive forever, and one
+  // missed predicate breaks the ceiling; a looser ceiling is the safe error.
+  // If someone "fixes" the set by adding `find`, this test must fail.
+  it("does not exempt find, whose flags decide what it is", () => {
+    expect(isClassifierExemptCommand("find . -name '*.ts' -exec npx prettier --write {} +")).toBe(
+      false,
+    );
+    expect(isClassifierExemptCommand("find packages -name '*.snap' -delete")).toBe(false);
+    // Not even the plain read form: the omission is by binary, not by flag.
+    expect(isClassifierExemptCommand("find . -name x")).toBe(false);
+    // It stays read-lane work, which is a different question (#603).
+    expect(isReadLaneCommand("find . -name x")).toBe(true);
+  });
+
+  it("does not exempt a command longer than the host parses", () => {
+    expect(isClassifierExemptCommand(`cat ${"a".repeat(10_001)}`)).toBe(false);
+  });
+
+  it("attributes the exempt calls to the mode segment they ran under", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-exempt-"));
+    const file = join(dir, "sess-e1.jsonl");
+    const bash = (id: string, command: string): string =>
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-08-25T10:00:00Z",
+        message: {
+          id,
+          model: "claude-opus-5",
+          usage: { input_tokens: 1, output_tokens: 1 },
+          content: [{ type: "tool_use", name: "Bash", input: { command } }],
+        },
+      });
+    writeFileSync(
+      file,
+      `${[
+        JSON.stringify({ type: "permission-mode", mode: "auto" }),
+        bash("m1", "cat foo.ts"),
+        bash("m2", "pnpm test"),
+        JSON.stringify({ type: "permission-mode", mode: "plan" }),
+        bash("m3", "ls -la"),
+      ].join("\n")}\n`,
+      "utf-8",
+    );
+
+    const s = parseSession(file);
+    expect(s.orchestrator.toolCountsByMode).toEqual({ auto: { Bash: 2 }, plan: { Bash: 1 } });
+    // The `plan` exempt call stays in `plan`: folding it into auto would be the
+    // misattribution #723 corrected.
+    expect(s.orchestrator.classifierExemptBashByMode).toEqual({ auto: 1, plan: 1 });
   });
 });

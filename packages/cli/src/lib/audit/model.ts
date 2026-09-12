@@ -105,6 +105,16 @@ export interface AgentRun {
   toolErrors: ToolErrors;
   /** Normalized Bash commands run 3+ times, and how often. Repetition = rework. */
   repeatedCommands: Record<string, number>;
+  /**
+   * Bash calls the host's built-in read-only set resolves WITHOUT the
+   * classifier, so the round-trip count can stop charging for them (#730).
+   *
+   * A flat number, unlike the orchestrator's per-mode map, because a subagent
+   * transcript declares no permission mode: the signal only subtracts these
+   * when the whole session stayed in `auto`, which is the same condition under
+   * which it adds the subagent's Bash calls in the first place.
+   */
+  classifierExemptBash: number;
   /** Verdict string found in the run's output, when the agent emits one. */
   verdict: "APPROVED" | "CHANGES_REQUESTED" | null;
 }
@@ -407,6 +417,22 @@ export interface SessionAudit {
      * histogram over a session that switched modes describes no moment of it.
      */
     toolCountsByMode: Record<string, Record<string, number>>;
+    /**
+     * permission mode → Bash calls the host's built-in read-only set resolved
+     * without ever reaching the classifier (#730).
+     *
+     * Exists so the round-trip count can stop charging for commands that
+     * demonstrably cost nothing: the host documents that set as running with no
+     * prompt in every mode, which puts it ahead of the classifier by
+     * construction, and nothing else in the report could tell those calls apart
+     * from the ones that do pay.
+     *
+     * Split BY MODE for the same reason `toolCountsByMode` is (spec 0016 T4.1):
+     * the discount has to come off the auto stretch it belongs to. Subtracting
+     * exempt calls made under `plan` from the auto segment would be the same
+     * misattribution #723 corrected.
+     */
+    classifierExemptBashByMode: Record<string, number>;
     skillsRead: string[];
     skills: SkillUse[];
     skillsDiscarded: number;

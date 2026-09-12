@@ -230,9 +230,20 @@ export const MODE_UNDECLARED = "(undeclared)";
  * Main thread only. A subagent's transcript carries no `permission-mode` line,
  * and inferring its mode from the parent's position at spawn time would be a
  * guess dressed as a measurement.
+ *
+ * It also counts, per segment, the Bash calls the host's built-in read-only set
+ * resolved without the classifier (#730): same walk, same attribution, so the
+ * discount can never land on a mode the call did not run under.
  */
-function countToolsByMode(lines: Rec[]): Record<string, Record<string, number>> {
+function countByMode(lines: Rec[]): {
+  toolCountsByMode: Record<string, Record<string, number>>;
+  classifierExemptBashByMode: Record<string, number>;
+} {
   const byMode: Record<string, Record<string, number>> = {};
+  /** The exempt Bash calls (#730), attributed to the same segment as the call
+   *  itself — one walk, because a second one would be the same walk with a
+   *  chance to disagree about which mode a line fell under. */
+  const exemptByMode: Record<string, number> = {};
   let mode = MODE_UNDECLARED;
   for (const l of lines) {
     const type = str(l.type);
@@ -247,9 +258,14 @@ function countToolsByMode(lines: Rec[]): Record<string, Record<string, number>> 
       if (!name) continue;
       const bucket = (byMode[mode] ??= {});
       bucket[name] = (bucket[name] ?? 0) + 1;
+      if (name !== "Bash") continue;
+      const cmd = str(path(block, "input", "command"));
+      if (cmd && isClassifierExemptCommand(cmd)) {
+        exemptByMode[mode] = (exemptByMode[mode] ?? 0) + 1;
+      }
     }
   }
-  return byMode;
+  return { toolCountsByMode: byMode, classifierExemptBashByMode: exemptByMode };
 }
 
 /**
@@ -291,6 +307,42 @@ const READ_LANE_BINARIES = new Set([
 ]);
 
 /**
+ * The executable ONE segment of a command runs, or `""` when it names none.
+ *
+ * Extracted from `leadingBinary` rather than duplicated: that one names a whole
+ * command by its first segment, while `isClassifierExemptCommand` has to clear
+ * EVERY segment, and two spellings of "which binary is this" would drift.
+ */
+function segmentBinary(segment: string): string {
+  for (const token of segment.trim().split(/\s+/)) {
+    if (!token) continue;
+    // `FOO=bar cmd` — the assignments prefix the real command, so skip them
+    // WITHIN the segment. Skipping to the next segment instead read
+    // `LC_ALL=C grep foo` as having no command at all.
+    if (token.includes("=") && !token.startsWith("/")) continue;
+    return token.split("/").pop() ?? "";
+  }
+  return "";
+}
+
+/**
+ * Where one command ends and the next begins: `&&`, `||`, `;`, `|`, and a
+ * NEWLINE.
+ *
+ * The `||` alternative precedes `|` on purpose — reversed, every `||` would
+ * split into two empty segments.
+ *
+ * `\r?\n` is a separator like any other and leaving it out was a real hole:
+ * `isClassifierExemptCommand` saw `"cat package.json\npnpm build"` as ONE
+ * segment and judged the whole call by its first line, so a `pnpm build` — a
+ * command auto mode charges for with certainty, since it suspends exactly those
+ * package-manager `allow` rules — was discounted. `leadingBinary` is unmoved by
+ * this: it already tokenized on `/\s+/`, which crosses the newline, so
+ * `"ls\nrm"` named `ls` before and names `ls` now.
+ */
+const SEGMENT_SEPARATORS = /&&|\|\||;|\||\r?\n/;
+
+/**
  * The leading executable of a command: the one that decides what it IS.
  *
  * Skips a leading `cd <dir> &&` (a prefix, not the work) and env assignments.
@@ -299,15 +351,9 @@ const READ_LANE_BINARIES = new Set([
  */
 function leadingBinary(command: string): string {
   const withoutCd = command.trim().replace(/^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*&&\s*/, "");
-  for (const part of withoutCd.split(/&&|\|\||;|\|/)) {
-    for (const token of part.trim().split(/\s+/)) {
-      if (!token) continue;
-      // `FOO=bar cmd` — the assignments prefix the real command, so skip them
-      // WITHIN the segment. Skipping to the next segment instead read
-      // `LC_ALL=C grep foo` as having no command at all.
-      if (token.includes("=") && !token.startsWith("/")) continue;
-      return token.split("/").pop() ?? "";
-    }
+  for (const part of withoutCd.split(SEGMENT_SEPARATORS)) {
+    const bin = segmentBinary(part);
+    if (bin) return bin;
   }
   return "";
 }
@@ -322,11 +368,133 @@ function leadingBinary(command: string): string {
 export function isReadLaneCommand(command: string): boolean {
   const bin = leadingBinary(command);
   if (bin === "sed") return /\bsed\s+-n\b/.test(command);
-  // The `git(… -opt …)*` middle is the shape the guards use for `git -C … commit`:
-  // a global option may carry its value glued with `=` or as the next token.
-  if (bin === "git")
-    return /^\s*git(\s+-[a-zA-Z-]+(=\S+)?(\s+[^-]\S*)?)*\s+grep(\s|$)/.test(command);
+  if (bin === "git") return isReadOnlyGitCommand(command);
   return READ_LANE_BINARIES.has(bin);
+}
+
+/**
+ * The one `git` form this module recognizes as a pure read: `git grep`.
+ *
+ * Deliberately not a list of every read-only verb. The host documents its
+ * built-in set as including "read-only forms of `git`" without saying WHICH, so
+ * anything beyond what the repo already distinguishes would be a guess — and a
+ * guess here inflates the discount and breaks the ceiling (see
+ * `isClassifierExemptCommand`). `git status` and friends keep paying.
+ *
+ * The `git(… -opt …)*` middle is the shape the guards use for `git -C … commit`:
+ * a global option may carry its value glued with `=` or as the next token.
+ */
+function isReadOnlyGitCommand(segment: string): boolean {
+  return /^\s*git(\s+-[a-zA-Z-]+(=\S+)?(\s+[^-]\S*)?)*\s+grep(\s|$)/.test(segment);
+}
+
+/**
+ * The host's OWN built-in read-only shell set, as its permissions doc
+ * enumerates it — the commands Claude Code "runs without a permission prompt in
+ * every mode", which is what puts them ahead of auto mode's classifier.
+ *
+ * NOT the same list as `READ_LANE_BINARIES`, and merging the two would corrupt
+ * both numbers. That set answers "did this command do work a native `Read`/
+ * `Grep` would have done", so it includes tools the host never pre-approved —
+ * `rg`, `awk`, `cut`, `nl`, `tree`, `less`, `ag`, `ack` — and those DO pay a
+ * classifier round-trip. This set answers a different question: "can we prove
+ * the host resolved this before the classifier saw it". The overlap is a
+ * coincidence of subject matter, not a shared definition.
+ *
+ * The doc's verb is "includes", not "consists of", so the real set is at least
+ * this large. Being short here only under-counts the discount, which keeps the
+ * published figure a valid ceiling; being long would break it.
+ *
+ * `find` IS in the host's list and is deliberately left out of this one. The
+ * decision here is made by the binary that leads a segment, and `find` changes
+ * nature with its flags: `-exec`/`-execdir`/`-ok`/`-okdir` run an arbitrary
+ * command, `-delete`/`-fprint`/`-fls` write. `find . -name '*.ts' -exec npx
+ * prettier --write {} +` is not a read by any reading, and a set keyed on the
+ * binary cannot say so without a flag parser somebody has to keep exhaustive
+ * forever — one missed predicate and the ceiling is broken again. Omitting it
+ * costs a slightly looser ceiling, which is the safe direction of the error.
+ *
+ * The same question was put to the thirteen that remain and none has that
+ * shape: none of them gains an "execute this" or "write that" flag, and the
+ * only way they touch a file is a redirect, which the predicate already
+ * rejects. The searcher that DOES take one — `rg --pre <cmd>`, a command per
+ * file — is the very reason `rg` was never pre-approved, and it is not here.
+ */
+const HOST_READ_ONLY_BINARIES = new Set([
+  "ls",
+  "cat",
+  "echo",
+  "pwd",
+  "head",
+  "tail",
+  "grep",
+  "wc",
+  "which",
+  "diff",
+  "stat",
+  "du",
+  "cd",
+]);
+
+/** Past this length the host states it stops parsing and prompts instead, so
+ *  nothing about such a command can be proven exempt. */
+const HOST_PARSE_LIMIT = 10_000;
+
+/**
+ * Can we PROVE this Bash call skipped auto mode's classifier? (#730)
+ *
+ * The host resolves its built-in read-only set with no prompt in every mode,
+ * and its decision order puts that step before the classifier — so a command
+ * made only of those binaries demonstrably cost no round-trip. Everything else
+ * is charged, including commands that probably were free: this returns the
+ * subset we can defend, which is what keeps the signal's figure a ceiling.
+ *
+ * Conservative at every fork, because a false positive here silently deletes a
+ * real cost from the report:
+ *  - EVERY segment must lead with a set binary — separated by `&&`, `||`, `;`,
+ *    `|` or a NEWLINE — so one `pnpm build` anywhere in the call disqualifies
+ *    it, which is what the host does too;
+ *  - a redirect, a heredoc, a command substitution or a bare `&` means the text
+ *    no longer describes what will run;
+ *  - `cd` + `git` is excluded by name — the doc lists that exact pairing as
+ *    prompting even though each half is read-only on its own;
+ *  - past `HOST_PARSE_LIMIT` characters the host does not parse at all.
+ */
+export function isClassifierExemptCommand(command: string): boolean {
+  if (command.length > HOST_PARSE_LIMIT) return false;
+  // Redirects and heredocs add a check on the target; `$(…)`/backticks hide a
+  // second command entirely. Either way the leading binaries stop being
+  // evidence of what the call does.
+  if (/[<>]/.test(command)) return false;
+  if (/\$\(|`/.test(command)) return false;
+  // A lone `&` backgrounds the left side and runs the right one — a separator
+  // this parser does not split on, so `ls & rm -rf /` would read as an `ls`.
+  if (/(^|[^&])&($|[^&])/.test(command)) return false;
+
+  let sawCd = false;
+  let sawGit = false;
+  let commands = 0;
+  for (const segment of command.split(SEGMENT_SEPARATORS)) {
+    // A blank segment is punctuation, not a command: `ls;` and a trailing
+    // newline both leave one behind, and charging for it would be charging for
+    // whitespace. A segment that HAS text but names no binary (`FOO=bar` on its
+    // own) is a different thing and still disqualifies.
+    if (segment.trim() === "") continue;
+    const bin = segmentBinary(segment);
+    if (!bin) return false;
+    commands++;
+    if (bin === "git") {
+      if (!isReadOnlyGitCommand(segment)) return false;
+      sawGit = true;
+      continue;
+    }
+    if (!HOST_READ_ONLY_BINARIES.has(bin)) return false;
+    if (bin === "cd") sawCd = true;
+  }
+  // Nothing but whitespace and separators proves nothing — an empty command
+  // must not come out exempt by vacuity.
+  if (commands === 0) return false;
+  return !(sawCd && sawGit);
 }
 
 /**
@@ -365,6 +533,19 @@ function countShellWrites(uses: Rec[]): number {
     if (str(u.name) !== "Bash") continue;
     const cmd = str(path(u, "input", "command"));
     if (cmd && isWriteLaneCommand(cmd)) n++;
+  }
+  return n;
+}
+
+/** How many of these Bash calls the host's read-only set resolved before the
+ *  classifier could see them (#730). Flat, for a subagent whose transcript
+ *  declares no permission mode. */
+function countClassifierExemptBash(uses: Rec[]): number {
+  let n = 0;
+  for (const u of uses) {
+    if (str(u.name) !== "Bash") continue;
+    const cmd = str(path(u, "input", "command"));
+    if (cmd && isClassifierExemptCommand(cmd)) n++;
   }
   return n;
 }
@@ -718,6 +899,7 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
     hookEvents: [],
     ...errorFields(lines),
     repeatedCommands: repeatedCommands(uses),
+    classifierExemptBash: countClassifierExemptBash(uses),
     verdict: findVerdict(lines),
   };
 }
@@ -828,6 +1010,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
   }
 
   const skills = collectSkills(uses, lines);
+  const byMode = countByMode(lines);
   return {
     sessionId,
     startedAt: first,
@@ -857,7 +1040,8 @@ export function parseSession(mainJsonl: string): SessionAudit {
       shellReads: countShellReads(uses),
       shellWrites: countShellWrites(uses),
       toolCounts: countTools(uses),
-      toolCountsByMode: countToolsByMode(lines),
+      toolCountsByMode: byMode.toolCountsByMode,
+      classifierExemptBashByMode: byMode.classifierExemptBashByMode,
       skillsRead: skills.skills.map((sk) => sk.slug),
       skills: skills.skills,
       skillsDiscarded: skills.discarded,

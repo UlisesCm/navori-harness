@@ -29,6 +29,7 @@ function agent(over: Partial<AgentRun> = {}): AgentRun {
     frictionEvents: 0,
     toolErrors: emptyToolErrors(),
     repeatedCommands: {},
+    classifierExemptBash: 0,
     verdict: null,
     ...over,
   };
@@ -59,6 +60,7 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
       shellWrites: 0,
       toolCounts: {},
       toolCountsByMode: {},
+      classifierExemptBashByMode: {},
 
       skillsRead: [],
       skills: [],
@@ -816,5 +818,77 @@ describe("classifier round-trips are a ceiling, not a total (#723)", () => {
 
     const en = detectSignals(s, c, "en").find((x) => x.kind === "classifier-round-trips");
     expect(en?.evidence).toContain("CEILING");
+  });
+});
+
+/**
+ * #730 — the ceiling, tightened. The host's built-in read-only set runs with no
+ * prompt in every mode and resolves ahead of the classifier, so those calls are
+ * the one subset that can be discounted without reading repo state or
+ * re-implementing the host's rule matcher. The framing does not change: what is
+ * published is still a TECHO.
+ */
+describe("classifier round-trips discount the host's read-only set (#730)", () => {
+  const found = (s: SessionAudit, lang: "es" | "en" = "es") =>
+    detectSignals(s, catalog({}), lang).find((x) => x.kind === "classifier-round-trips");
+
+  it("subtracts the exempt calls of the auto segment from the total", () => {
+    const s = session({ permissionModes: { auto: 10 } });
+    s.orchestrator.toolCountsByMode = { auto: { Bash: 20 } };
+    s.orchestrator.classifierExemptBashByMode = { auto: 8 };
+
+    expect(found(s)?.summary).toContain("12 comandos");
+    expect(found(s)?.evidence).toContain("menos 8");
+    // The frame survives the discount: what is left is still a ceiling.
+    expect(found(s)?.evidence).toContain("TECHO");
+    expect(found(s, "en")?.evidence).toContain("CEILING");
+  });
+
+  it("names the allow-rule suspension, which is why the rest cannot be subtracted", () => {
+    const s = session({ permissionModes: { auto: 10 } });
+    s.orchestrator.toolCountsByMode = { auto: { Bash: 5 } };
+
+    expect(found(s)?.evidence).toContain("SUSPENDE");
+    expect(found(s)?.evidence).toContain("pnpm test:*");
+    expect(found(s, "en")?.evidence).toContain("SUSPENDS");
+  });
+
+  it("subtracts a subagent's exempt calls only when the session never left auto", () => {
+    const agents = [agent({ toolCounts: { Bash: 10 }, classifierExemptBash: 4 })];
+    const autoOnly = session({ permissionModes: { auto: 3 }, agents });
+    autoOnly.orchestrator.toolCountsByMode = { auto: { Bash: 6 } };
+    autoOnly.orchestrator.classifierExemptBashByMode = { auto: 1 };
+    // 6 + 10 − (1 + 4)
+    expect(found(autoOnly)?.summary).toContain("11 comandos");
+
+    const mixed = session({ permissionModes: { auto: 3, plan: 1 }, agents });
+    mixed.orchestrator.toolCountsByMode = { auto: { Bash: 6 } };
+    mixed.orchestrator.classifierExemptBashByMode = { auto: 1 };
+    // The subagent's Bash calls were never in the total, so neither is its
+    // discount: 6 − 1.
+    expect(found(mixed)?.summary).toContain("5 comandos");
+  });
+
+  it("ignores exempt calls attributed to another mode segment", () => {
+    const s = session({ permissionModes: { auto: 3, plan: 1 } });
+    s.orchestrator.toolCountsByMode = { auto: { Bash: 4 }, plan: { Bash: 9 } };
+    s.orchestrator.classifierExemptBashByMode = { auto: 1, plan: 9 };
+    // Discounting `plan`'s exempt calls against the auto stretch would be the
+    // same misattribution #723 corrected: 4 − 1, never 4 − 10.
+    expect(found(s)?.summary).toContain("3 comandos");
+  });
+
+  it("emits nothing when every auto command was exempt", () => {
+    const s = session({ permissionModes: { auto: 10 } });
+    s.orchestrator.toolCountsByMode = { auto: { Bash: 5 } };
+    s.orchestrator.classifierExemptBashByMode = { auto: 5 };
+    expect(found(s)).toBeUndefined();
+  });
+
+  it("still says nothing about a session with no auto stretch", () => {
+    const s = session({ permissionModes: { plan: 4 } });
+    s.orchestrator.toolCountsByMode = { plan: { Bash: 30 } };
+    s.orchestrator.classifierExemptBashByMode = { plan: 12 };
+    expect(found(s)).toBeUndefined();
   });
 });

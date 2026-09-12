@@ -478,14 +478,27 @@ function laneTotal(counts: Record<string, number>, lane: ReturnType<typeof toolL
  * whose size this report cannot see, and inventing one would put a made-up
  * number next to measured ones.
  *
- * THE COUNT IS AN UPPER BOUND, and says so (#723). Narrow Bash allow rules stay
- * in effect in auto mode and the host resolves them BEFORE the classifier runs
- * — only the broad ones that grant arbitrary execution (`Bash(*)`, wildcarded
- * interpreters) get suspended. So every command this session ran that matched a
- * narrow `allow` rule cost nothing here, and this figure counted it anyway.
- * Subtracting them needs the repo's allow list AND the host's own rule matcher;
- * until that exists, the honest move is to name the ceiling rather than publish
- * a total that reads as measured.
+ * THE COUNT IS AN UPPER BOUND, and says so (#723). What it no longer charges
+ * for is the part that can be PROVEN free: the host's built-in read-only set
+ * runs with no prompt in every mode, ahead of the classifier in its decision
+ * order, so `isClassifierExemptCommand` subtracts those calls per mode segment
+ * (#730). The bound holds because that predicate is conservative — it clears
+ * only what it can defend.
+ *
+ * What stays uncountable is the narrow `allow` rules, which the host also
+ * resolves before the classifier, and three verified facts say why no version
+ * of this report can subtract them:
+ *  - the OTel channel cannot answer it. `tool_decision.source` has no value for
+ *    "the classifier approved": a controlled canary of two binaries covered by
+ *    no rule anywhere and absent from the read-only set — the only possible
+ *    approver being the classifier — was recorded as `source: "config"`, the
+ *    same string an `allow` rule produces;
+ *  - re-implementing the host's matcher would also have to model auto mode
+ *    SUSPENDING part of the repo's own rules (blanket `Bash(*)`, wildcarded
+ *    interpreters, package-manager run rules), which is why that route yields a
+ *    different figure that is just as false;
+ *  - and the allow list is repo state AT REPORT TIME, not what the session ran
+ *    under.
  */
 function classifierRoundTrips(session: SessionAudit, lang: Lang): Signal[] {
   const autoBash = session.orchestrator.toolCountsByMode.auto?.Bash ?? 0;
@@ -494,16 +507,24 @@ function classifierRoundTrips(session: SessionAudit, lang: Lang): Signal[] {
   const modes = Object.keys(session.permissionModes);
   const autoOnly = modes.length === 1 && modes[0] === "auto";
   const agentBash = session.agents.reduce((sum, a) => sum + (a.toolCounts.Bash ?? 0), 0);
-  const total = autoOnly ? autoBash + agentBash : autoBash;
+  // Only the auto segment's exempt calls, and only the subagents' when the
+  // session never left auto — the same attribution rule the totals follow.
+  const autoExempt = session.orchestrator.classifierExemptBashByMode?.auto ?? 0;
+  const agentExempt = session.agents.reduce((sum, a) => sum + (a.classifierExemptBash ?? 0), 0);
+  const exempt = autoOnly ? autoExempt + agentExempt : autoExempt;
+  const total = (autoOnly ? autoBash + agentBash : autoBash) - exempt;
+  // Every command proved free is not a finding: the same criterion as the
+  // `autoBash === 0` above, applied to what is left after the discount.
+  if (total <= 0) return [];
 
   const share = pick(
     lang,
     autoOnly
-      ? `${autoBash} del orquestador y ${agentBash} de subagentes (la sesión nunca salió de auto, así que sus comandos también cuentan). Es un TECHO, no un total: las reglas 'allow' estrechas se resuelven antes que el clasificador, así que cada comando cubierto por una no pagó nada.`
-      : `${autoBash} del orquestador, contados solo en los tramos en modo auto de una sesión que usó ${modes.length} modos (${modes.join(", ")}). Los ${agentBash} comandos de subagentes quedan fuera: su transcript no declara modo, así que atribuirlos sería inventar.`,
+      ? `${autoBash} del orquestador y ${agentBash} de subagentes (la sesión nunca salió de auto, así que sus comandos también cuentan), menos ${exempt} que el set read-only integrado del host resuelve sin prompt en cualquier modo y, por tanto, antes del clasificador. Lo que queda sigue siendo un TECHO, no un total: las reglas 'allow' estrechas también se resuelven antes que el clasificador, así que cada comando cubierto por una tampoco pagó nada.`
+      : `${autoBash} del orquestador, contados solo en los tramos en modo auto de una sesión que usó ${modes.length} modos (${modes.join(", ")}), menos ${exempt} exentos por el set read-only integrado del host en esos mismos tramos. Los ${agentBash} comandos de subagentes quedan fuera: su transcript no declara modo, así que atribuirlos sería inventar. Lo que queda sigue siendo un TECHO: las reglas 'allow' estrechas también se resuelven antes que el clasificador.`,
     autoOnly
-      ? `${autoBash} from the orchestrator and ${agentBash} from subagents (the session never left auto, so theirs count too). It is a CEILING, not a total: narrow 'allow' rules resolve before the classifier, so every command covered by one paid nothing.`
-      : `${autoBash} from the orchestrator, counted only across the auto stretches of a session that used ${modes.length} modes (${modes.join(", ")}). The ${agentBash} subagent commands are excluded: their transcript declares no mode, so attributing them would be invention.`,
+      ? `${autoBash} from the orchestrator and ${agentBash} from subagents (the session never left auto, so theirs count too), minus ${exempt} that the host's built-in read-only set runs with no prompt in every mode, and therefore ahead of the classifier. What remains is still a CEILING, not a total: narrow 'allow' rules also resolve before the classifier, so every command covered by one paid nothing either.`
+      : `${autoBash} from the orchestrator, counted only across the auto stretches of a session that used ${modes.length} modes (${modes.join(", ")}), minus ${exempt} exempted by the host's built-in read-only set within those same stretches. The ${agentBash} subagent commands are excluded: their transcript declares no mode, so attributing them would be invention. What remains is still a CEILING: narrow 'allow' rules also resolve before the classifier.`,
   );
 
   return [
@@ -517,8 +538,8 @@ function classifierRoundTrips(session: SessionAudit, lang: Lang): Signal[] {
       ),
       evidence: pick(
         lang,
-        `${share} Cada uno agrega un viaje al clasificador ANTES de ejecutarse, con una porción del transcript. Las lecturas, las ediciones dentro del workspace y las llamadas MCP con regla 'allow' no pagan ese viaje. Lo que más lo baja es cambiar de vía —\`Grep\`/\`Read\` nativos y MCP resuelven en ~0.08–0.13s contra ~0.20s (p75 1.83s) de una búsqueda por shell—; para lo que de verdad deba ser shell, agrupar (\`a && b\`) y acotar.`,
-        `${share} Each adds a classifier round-trip BEFORE it runs, carrying a slice of the transcript. Reads, in-workspace edits and MCP calls covered by an 'allow' rule pay no such trip. What lowers it most is switching lane — native \`Grep\`/\`Read\` and MCP answer in ~0.08–0.13s against ~0.20s (p75 1.83s) for the same search through the shell; for whatever must stay shell, batch (\`a && b\`) and scope it.`,
+        `${share} El descuento es seguro porque solo cubre comandos cuyos segmentos encabezan TODOS con un binario de ese set documentado (ls, cat, head, grep, wc, stat, cd…), y la lista usada aquí es a propósito más corta que la del host: \`find\` queda fuera porque cambia de naturaleza con sus flags (\`-exec\` ejecuta, \`-delete\` borra). Ante cualquier duda —redirección, sustitución de comando, 'cd' junto a 'git', un binario fuera del set— el comando se sigue contando. Lo que impide un total exacto son las reglas 'allow', no las lecturas, y no hay forma de descontarlas: en modo auto el host SUSPENDE las 'allow' de intérprete comodín (\`Bash(python3 *)\`) y de package-manager run (\`Bash(pnpm test:*)\`), así que reimplementar su matcher daría una cifra distinta e igual de falsa. Cada viaje restante se paga ANTES de ejecutar el comando, con una porción del transcript. Las lecturas, las ediciones dentro del workspace y las llamadas MCP con regla 'allow' no pagan ese viaje. Lo que más lo baja es cambiar de vía —\`Grep\`/\`Read\` nativos y MCP resuelven en ~0.08–0.13s contra ~0.20s (p75 1.83s) de una búsqueda por shell—; para lo que de verdad deba ser shell, agrupar (\`a && b\`) y acotar.`,
+        `${share} The discount is safe because it only covers commands whose segments ALL lead with a binary from that documented set (ls, cat, head, grep, wc, stat, cd…), and the list used here is deliberately shorter than the host's: \`find\` is left out because its flags change what it is (\`-exec\` runs, \`-delete\` removes). At any doubt — a redirect, a command substitution, 'cd' next to 'git', a binary outside the set — the command keeps being counted. What blocks an exact total is the 'allow' rules, not the reads, and there is no way to subtract them: in auto mode the host SUSPENDS the wildcarded-interpreter (\`Bash(python3 *)\`) and package-manager-run (\`Bash(pnpm test:*)\`) allow rules, so re-implementing its matcher would yield a different figure that is just as false. Each remaining trip is paid BEFORE the command runs, carrying a slice of the transcript. Reads, in-workspace edits and MCP calls covered by an 'allow' rule pay no such trip. What lowers it most is switching lane — native \`Grep\`/\`Read\` and MCP answer in ~0.08–0.13s against ~0.20s (p75 1.83s) for the same search through the shell; for whatever must stay shell, batch (\`a && b\`) and scope it.`,
       ),
     },
   ];
