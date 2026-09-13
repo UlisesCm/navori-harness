@@ -39,37 +39,75 @@ export const ui = {
     "hero.cta.secondary": "Ver en GitHub",
     "hero.install.label": "Instalación",
 
-    // ── el grafo: qué hace un harness, para quien no lo sabe ──────────
-    "graph.eyebrow": "Qué es un harness",
-    "graph.title": "Una sesión de IA, paso a paso",
+    // ── el recorrido: un prompt entrando al harness ───────────────────
+    "graph.eyebrow": "Anatomía de una sesión",
+    "graph.title": "Sigue un prompt por dentro del harness",
     "graph.subtitle":
-      "Sin harness, el agente arranca en blanco y decide solo. Esto es lo que navori pone alrededor de cada sesión — el recorrido completo, de las reglas al commit.",
+      "Sin harness, tu frase llega sola a un modelo que decide por su cuenta. Esto es todo lo que navori pone en el camino — ocho paradas, de la frase al commit, y de vuelta a la memoria.",
     "graph.aria":
-      "Diagrama de una sesión: el contexto entra al leader, el leader reparte el trabajo entre subagentes, los hooks se disparan en momentos fijos y el reviewer con el quality gate deciden si el cambio avanza.",
-    "graph.hint":
-      "El recorrido avanza solo. Haz click en un paso para fijarlo; el diagrama completo siempre está a la vista.",
-    "graph.col.context": "1 · Contexto",
-    "graph.col.orchestration": "2 · Orquestación",
-    "graph.col.work": "3 · Trabajo",
-    "graph.col.gate": "4 · Gate",
-    "graph.col.hooks": "Hooks · automatismos",
-    "graph.leader.tag": "tú hablas con él",
-    "graph.p1.label": "Contexto",
-    "graph.p1.title": "La sesión arranca sabiendo dónde está",
-    "graph.p1.body":
-      "Antes de que escribas nada entran las reglas del repo (CLAUDE.md), las guías de tarea (skills), los hechos que cruzan repos (Dominio) y lo que se decidió en sesiones pasadas (memoria). Sin esto, el agente re-pregunta cada mañana lo que ya sabías.",
-    "graph.p2.label": "Reparto",
-    "graph.p2.title": "El agente principal no hace todo",
-    "graph.p2.body":
-      "Parte la tarea y la reparte entre subagentes con un rol claro. Cada uno corre en su propia ventana de contexto y devuelve la conclusión, no el volcado de los archivos que leyó.",
-    "graph.p3.label": "Trabajo",
-    "graph.p3.title": "Los especialistas corren en paralelo",
-    "graph.p3.body":
-      "Explorar, investigar, implementar y auditar son trabajos distintos y no se estorban. Mientras tanto los hooks se disparan en momentos fijos: bloquear un comando destructivo, recordar la verificación, guardar el resumen.",
-    "graph.p4.label": "Gate",
-    "graph.p4.title": "Nada se da por terminado sin revisión",
-    "graph.p4.body":
-      "Un reviewer con contexto fresco aprueba o rechaza con motivos, y el quality gate del repo —lint, tests, formato— corre de verdad. Recién entonces el cambio avanza al commit.",
+      "Diagrama del recorrido de un prompt: entra, se le carga el contexto del repo, el leader lo descompone, las herramientas de búsqueda lo ubican en el código, los subagentes trabajan en paralelo, los guardas y los gates de calidad lo filtran, y termina en un commit cuya decisión vuelve a la memoria.",
+    "graph.hint": "El recorrido avanza solo. Toca una parada para saltar a ella.",
+    "graph.pause": "Pausar",
+    "graph.play": "Reanudar",
+    "graph.replay": "Volver a empezar",
+    "graph.prompt": "arregla el bug del login que reportó soporte",
+    "graph.promptLabel": "tu prompt",
+    "graph.stationOf": "Parada {n} de {total}",
+
+    "graph.s1.name": "Entra",
+    "graph.s1.title": "Escribes una frase. Todavía no piensa nadie.",
+    "graph.s1.body":
+      "Antes de que el modelo lea tu prompt, un hook de arranque ya corrió. Es la diferencia entre un asistente que empieza en blanco cada mañana y uno que abre la sesión sabiendo dónde está parado.",
+    "graph.s2.name": "Contexto",
+    "graph.s2.title": "Cuatro fuentes entran antes que tu frase",
+    "graph.s2.body":
+      "Las reglas de este repo, la guía de esta tarea, los hechos que valen para todo el workspace y lo que ya se decidió en sesiones pasadas. Nada de esto se lo tienes que contar tú otra vez.",
+    "graph.s3.name": "Orquesta",
+    "graph.s3.title": "El agente con el que hablas no hace el trabajo",
+    "graph.s3.body":
+      "Lee, decide en cuántas piezas se parte y a quién le toca cada una. Es el único que ve la tarea completa — y el único que corre en el modelo caro, porque su trabajo es juzgar, no leer archivos.",
+    "graph.s4.name": "Ubica",
+    "graph.s4.title": "Primero encontrar, después leer",
+    "graph.s4.body":
+      "Dos preguntas distintas con dos herramientas distintas: dónde vive un símbolo y qué se rompe si lo tocas, contra qué archivos contienen esta cadena. Sin esto, un agente abre veinte archivos para encontrar uno.",
+    "graph.s5.name": "Trabaja",
+    "graph.s5.title": "Cuatro especialistas, en paralelo, sin estorbarse",
+    "graph.s5.body":
+      "Cada uno corre en su propia ventana de contexto y devuelve la conclusión, no el volcado de lo que leyó. Por eso el hilo principal no se llena de ruido y por eso el modelo caro no paga por leer.",
+    "graph.s6.name": "Protege",
+    "graph.s6.title": "Lo que el agente NO puede hacer",
+    "graph.s6.body":
+      "Un hook intercepta cada herramienta antes de que corra, y los permisos declaran qué pasa sin preguntar, qué pregunta y qué está prohibido. El `rm -rf` con una variable se bloquea aquí, no después.",
+    "graph.s7.name": "Filtra",
+    "graph.s7.title": "Nada se da por terminado porque alguien lo diga",
+    "graph.s7.body":
+      "Seguridad y duplicación sobre el diff, el quality gate del repo corriendo de verdad, y un reviewer con contexto fresco que aprueba o rechaza con motivos. Cuatro filtros que no son opiniones.",
+    "graph.s8.name": "Cierra",
+    "graph.s8.title": "El commit no es el final: la decisión se guarda",
+    "graph.s8.body":
+      "Sale el commit con el formato del repo y su PR. Y lo que se decidió —y por qué— vuelve a la memoria, que es de donde saldrá el contexto de la sesión del lunes. El ciclo se cierra solo.",
+
+    "graph.chip.sessionstart": "arranca el harness",
+    "graph.chip.claudemd": "las reglas de este repo",
+    "graph.chip.skills": "la guía de esta tarea",
+    "graph.chip.dominio": "hechos de todo el workspace",
+    "graph.chip.engram": "lo que ya se decidió",
+    "graph.chip.leader": "descompone y reparte",
+    "graph.chip.codegraph": "dónde vive · quién lo llama",
+    "graph.chip.tgrep": "qué archivos lo contienen",
+    "graph.chip.explorer": "mapea el área",
+    "graph.chip.researcher": "responde una pregunta",
+    "graph.chip.implementer": "escribe el código",
+    "graph.chip.auditor": "busca lo que duele",
+    "graph.chip.guard": "bloquea lo destructivo",
+    "graph.chip.permissions": "allow · ask · deny",
+    "graph.chip.semgrep": "seguridad en el diff",
+    "graph.chip.jscpd": "duplicación",
+    "graph.chip.gate": "lint · tests · formato",
+    "graph.chip.reviewer": "aprueba o rechaza",
+    "graph.chip.commit": "commit + PR",
+    "graph.chip.memory": "guarda la decisión",
+    "graph.loop": "y vuelve al contexto de la próxima sesión",
 
     "problem.eyebrow": "El problema",
     "problem.title": "Cada repo reinventa lo mismo",
@@ -300,36 +338,75 @@ export const ui = {
     "hero.cta.secondary": "View on GitHub",
     "hero.install.label": "Install",
 
-    "graph.eyebrow": "What a harness is",
-    "graph.title": "One AI session, step by step",
+    // ── the walkthrough: a prompt entering the harness ────────────────
+    "graph.eyebrow": "Anatomy of a session",
+    "graph.title": "Follow one prompt through the harness",
     "graph.subtitle":
-      "With no harness, the agent starts blank and decides alone. This is what navori puts around every session — the whole path, from the rules to the commit.",
+      "With no harness, your sentence reaches a model that decides alone. This is everything navori puts in its path — eight stops, from the sentence to the commit, and back into memory.",
     "graph.aria":
-      "Diagram of a session: context flows into the leader, the leader fans work out to subagents, hooks fire at fixed moments, and the reviewer plus the quality gate decide whether the change ships.",
-    "graph.hint":
-      "The walkthrough advances on its own. Click a step to pin it; the full diagram stays in view either way.",
-    "graph.col.context": "1 · Context",
-    "graph.col.orchestration": "2 · Orchestration",
-    "graph.col.work": "3 · Work",
-    "graph.col.gate": "4 · Gate",
-    "graph.col.hooks": "Hooks · automation",
-    "graph.leader.tag": "you talk to this one",
-    "graph.p1.label": "Context",
-    "graph.p1.title": "The session starts knowing where it is",
-    "graph.p1.body":
-      "Before you type anything, in come the repo's rules (CLAUDE.md), the task guides (skills), the facts that span repos (Dominio) and what past sessions decided (memory). Without it, the agent re-asks every morning what you already knew.",
-    "graph.p2.label": "Fan-out",
-    "graph.p2.title": "The main agent doesn't do everything",
-    "graph.p2.body":
-      "It splits the task and hands the pieces to subagents with one clear role each. Every one runs in its own context window and returns the conclusion — not a dump of the files it read.",
-    "graph.p3.label": "Work",
-    "graph.p3.title": "Specialists run in parallel",
-    "graph.p3.body":
-      "Exploring, researching, implementing and auditing are different jobs and they don't block each other. Meanwhile hooks fire at fixed moments: block a destructive command, force the verification, save the summary.",
-    "graph.p4.label": "Gate",
-    "graph.p4.title": "Nothing is done until something reviews it",
-    "graph.p4.body":
-      "A reviewer with fresh context approves or rejects with reasons, and the repo's quality gate — lint, tests, format — actually runs. Only then does the change reach the commit.",
+      "Diagram of a prompt's journey: it arrives, the repo's context is loaded around it, the leader breaks it down, search tools locate it in the code, subagents work in parallel, guards and quality gates filter the result, and it ends in a commit whose decision returns to memory.",
+    "graph.hint": "The walkthrough runs on its own. Tap a stop to jump to it.",
+    "graph.pause": "Pause",
+    "graph.play": "Resume",
+    "graph.replay": "Start over",
+    "graph.prompt": "fix the login bug support reported",
+    "graph.promptLabel": "your prompt",
+    "graph.stationOf": "Stop {n} of {total}",
+
+    "graph.s1.name": "Arrives",
+    "graph.s1.title": "You type a sentence. Nobody has thought yet.",
+    "graph.s1.body":
+      "Before the model reads your prompt, a startup hook has already run. That's the difference between an assistant that starts blank every morning and one that opens the session knowing where it stands.",
+    "graph.s2.name": "Context",
+    "graph.s2.title": "Four sources load ahead of your sentence",
+    "graph.s2.body":
+      "This repo's rules, this task's guide, the facts that hold across the workspace, and what past sessions already settled. None of it is yours to explain again.",
+    "graph.s3.name": "Orchestrates",
+    "graph.s3.title": "The agent you talk to doesn't do the work",
+    "graph.s3.body":
+      "It reads, decides how many pieces the task splits into and who gets each one. It's the only one seeing the whole task — and the only one on the expensive model, because its job is judgment, not reading files.",
+    "graph.s4.name": "Locates",
+    "graph.s4.title": "Find first, read second",
+    "graph.s4.body":
+      "Two different questions, two different tools: where a symbol lives and what breaks if you touch it, versus which files hold this string. Without them, an agent opens twenty files to find one.",
+    "graph.s5.name": "Works",
+    "graph.s5.title": "Four specialists, in parallel, not blocking each other",
+    "graph.s5.body":
+      "Each runs in its own context window and returns the conclusion, not a dump of what it read. That's why the main thread doesn't fill with noise, and why the expensive model never pays to read.",
+    "graph.s6.name": "Guards",
+    "graph.s6.title": "What the agent is NOT allowed to do",
+    "graph.s6.body":
+      "A hook intercepts every tool before it runs, and permissions declare what passes silently, what asks, and what is forbidden outright. An `rm -rf` behind a variable is blocked here, not afterwards.",
+    "graph.s7.name": "Filters",
+    "graph.s7.title": "Nothing is done just because someone says so",
+    "graph.s7.body":
+      "Security and duplication over the diff, the repo's quality gate actually running, and a reviewer with fresh context that approves or rejects with reasons. Four filters that aren't opinions.",
+    "graph.s8.name": "Closes",
+    "graph.s8.title": "The commit isn't the end: the decision is kept",
+    "graph.s8.body":
+      "Out comes the commit in the repo's format, with its PR. And what was decided — and why — returns to memory, which is where Monday's session will get its context. The loop closes itself.",
+
+    "graph.chip.sessionstart": "boots the harness",
+    "graph.chip.claudemd": "this repo's rules",
+    "graph.chip.skills": "this task's guide",
+    "graph.chip.dominio": "workspace-wide facts",
+    "graph.chip.engram": "what was already settled",
+    "graph.chip.leader": "splits and delegates",
+    "graph.chip.codegraph": "where it lives · who calls it",
+    "graph.chip.tgrep": "which files hold it",
+    "graph.chip.explorer": "maps the area",
+    "graph.chip.researcher": "answers one question",
+    "graph.chip.implementer": "writes the code",
+    "graph.chip.auditor": "hunts what hurts",
+    "graph.chip.guard": "blocks the destructive",
+    "graph.chip.permissions": "allow · ask · deny",
+    "graph.chip.semgrep": "security on the diff",
+    "graph.chip.jscpd": "duplication",
+    "graph.chip.gate": "lint · tests · format",
+    "graph.chip.reviewer": "approves or rejects",
+    "graph.chip.commit": "commit + PR",
+    "graph.chip.memory": "saves the decision",
+    "graph.loop": "and back into the next session's context",
 
     "problem.eyebrow": "The problem",
     "problem.title": "Every repo reinvents the same thing",
