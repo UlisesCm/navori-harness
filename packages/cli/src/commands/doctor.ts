@@ -28,6 +28,7 @@ import { scanFlatSkills } from "../lib/flat-skills.ts";
 import { scanStaleHarness } from "../lib/stale-harness.ts";
 import { scanQualityGateReadiness } from "../lib/gate-readiness.ts";
 import { scanEmptyUserSections } from "../lib/skill-user-section.ts";
+import { scanTriggerlessLocalSkills } from "../lib/skill-triggers.ts";
 import { scanInterpolationArtifacts } from "../lib/interpolation-artifacts.ts";
 import { scanDiskUsage, humanBytes } from "../lib/disk-usage.ts";
 import { scanNestedWorktrees } from "../lib/nested-worktrees.ts";
@@ -219,6 +220,11 @@ export const doctorCommand = defineCommand({
     // `<name>/SKILL.md`. It fails silently, which is why nobody notices for
     // months, and why doctor is the only place this can ever surface.
     const flatSkills = scanFlatSkills(cwd);
+    // #736: a project-local skill whose `description` states no condition. The
+    // host routes to a skill by matching that line, so one without a trigger is
+    // installed and indexed but never chosen. Warning-level and project-local
+    // only — navori doesn't own those files, so it points and the owner decides.
+    const triggerlessSkills = scanTriggerlessLocalSkills(cwd, config.project?.localSkills ?? []);
     // Spec 0018 R6: harness that no render will refresh again. Advisory and
     // read-only — reporting is the whole contract, navori never touches these.
     const staleHarness = scanStaleHarness(cwd, config);
@@ -283,6 +289,7 @@ export const doctorCommand = defineCommand({
       // so the exit code is unchanged.
       gateReadiness,
       emptyUserSections,
+      triggerlessSkills,
       // Uncapped on purpose: MAX_ARTIFACT_ROWS is a readability cap for the
       // terminal ("… and N more"), and a machine consumer needs every row.
       interpolationArtifacts,
@@ -611,6 +618,14 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${accent(skill.id)}  ${grey(td.emptyUserSectionRow(skill.path))}`,
       );
       p.log.warn(td.emptyUserSections(emptyUserSections.length, lines.join("\n")));
+    }
+
+    if (triggerlessSkills.length > 0) {
+      const lines = triggerlessSkills.map(
+        (skill) =>
+          `  ${color.yellow(sym.update)} ${accent(skill.id)}  ${grey(td.triggerlessSkillRow(skill.path))}`,
+      );
+      p.log.warn(td.triggerlessSkills(triggerlessSkills.length, lines.join("\n")));
     }
 
     if (interpolationArtifacts.length > 0) {
