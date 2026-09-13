@@ -1,0 +1,107 @@
+---
+/**
+ * The agent's toolbox — what each plugin teaches the agent to reach for.
+ *
+ * The old landing mentioned plugins once, as a parenthetical list of ids inside
+ * the `add` command description. That undersells the part of navori that
+ * changed most: the plugins ARE the doctrine about which tool answers which
+ * question. Presented as capabilities ("search by structure"), not as package
+ * names, because the package name explains nothing to someone new.
+ *
+ * PLUGIN_IDS drives the order and the count; the inventory test asserts that
+ * list against `packages/plugins/`, so a new plugin that ships without a card
+ * here fails the suite instead of quietly going unmentioned.
+ */
+import SectionHeader from "../SectionHeader.astro";
+import { useTranslations } from "../../i18n/utils";
+import type { Lang } from "../../i18n/ui";
+import { PLUGIN_IDS } from "../../consts";
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+/** Visual grouping: what question the tool answers. */
+const kind = {
+  search: { label: "búsqueda", en: "search", color: "var(--color-sky-500)" },
+  quality: { label: "calidad", en: "quality", color: "var(--color-violet-500)" },
+  context: { label: "contexto", en: "context", color: "var(--color-violet-600)" },
+  external: { label: "externo", en: "external", color: "var(--color-sky-600)" },
+} as const;
+
+const meta: Record<
+  (typeof PLUGIN_IDS)[number],
+  { kind: keyof typeof kind; titleKey: string; bodyKey: string }
+> = {
+  codegraph: { kind: "search", titleKey: "toolbox.codegraph.title", bodyKey: "toolbox.codegraph.body" },
+  tgrep: { kind: "search", titleKey: "toolbox.tgrep.title", bodyKey: "toolbox.tgrep.body" },
+  semgrep: { kind: "quality", titleKey: "toolbox.semgrep.title", bodyKey: "toolbox.semgrep.body" },
+  jscpd: { kind: "quality", titleKey: "toolbox.jscpd.title", bodyKey: "toolbox.jscpd.body" },
+  engram: { kind: "context", titleKey: "toolbox.engram.title", bodyKey: "toolbox.engram.body" },
+  gh: { kind: "external", titleKey: "toolbox.gh.title", bodyKey: "toolbox.gh.body" },
+  acli: { kind: "external", titleKey: "toolbox.acli.title", bodyKey: "toolbox.acli.body" },
+};
+
+const tools = PLUGIN_IDS.map((id) => {
+  const m = meta[id];
+  const k = kind[m.kind];
+  return {
+    id,
+    kindLabel: lang === "es" ? k.label : k.en,
+    color: k.color,
+    // The keys are declared in `ui.ts` for both languages; the cast keeps the
+    // lookup typed without restating the whole union here.
+    title: t(m.titleKey as Parameters<typeof t>[0]),
+    body: t(m.bodyKey as Parameters<typeof t>[0]),
+  };
+});
+---
+
+<section
+  class="relative py-24 sm:py-28 border-y"
+  style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 55%);"
+>
+  <div class="container-prose">
+    <SectionHeader
+      eyebrow={t("toolbox.eyebrow")}
+      title={t("toolbox.title")}
+      subtitle={t("toolbox.subtitle")}
+    />
+
+    <div class="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        tools.map((tool) => (
+          <article class="card flex flex-col">
+            <div class="flex items-center justify-between gap-3">
+              <code
+                class="font-mono text-sm font-medium"
+                style={`color:${tool.color};`}
+              >
+                {tool.id}
+              </code>
+              <span class="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+                {tool.kindLabel}
+              </span>
+            </div>
+            <h3 class="mt-3 text-base font-semibold tracking-tight">{tool.title}</h3>
+            <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+              {tool.body}
+            </p>
+          </article>
+        ))
+      }
+
+      {/* the closing statement gets a tile of its own, not a footnote */}
+      <article
+        class="rounded-xl border p-6 flex items-center"
+        style="border-color: var(--color-violet-500); background: color-mix(in oklab, var(--color-violet-600), transparent 93%);"
+      >
+        <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+          {t("toolbox.note")}
+        </p>
+      </article>
+    </div>
+  </div>
+</section>

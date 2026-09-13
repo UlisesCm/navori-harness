@@ -1,97 +1,37 @@
 ---
+/**
+ * All 21 subcommands, grouped by the moment you need them.
+ *
+ * The previous version showed 8 of 21 as a flat tab strip — and the 13 missing
+ * ones included `audit`, `global` and `dominio`, i.e. everything that changed
+ * about navori since the page was written. A flat list of 21 tabs would be
+ * unreadable, so the fix is grouping: five lifecycle stages, the command names
+ * linking to their reference page.
+ *
+ * `commandOrder` from `content/commands.ts` is the registry this must cover.
+ * The inventory test asserts that every id listed here exists there and that
+ * none is missing, so the next command can't ship unmentioned.
+ */
 import SectionHeader from "../SectionHeader.astro";
-import { useTranslations } from "../../i18n/utils";
+import { useTranslations, localizedPath } from "../../i18n/utils";
 import type { Lang } from "../../i18n/ui";
+import { COMMAND_GROUPS } from "../../content/command-groups";
 
-interface Props { lang: Lang }
+interface Props {
+  lang: Lang;
+}
 const { lang } = Astro.props;
 const t = useTranslations(lang);
 
-const commands = [
-  {
-    id: "init",
-    desc: t("commands.init.desc"),
-    output: [
-      "$ npx navori init --recommended",
-      "→ stack: Next.js · pnpm",
-      "→ preset: nextjs · plugins: engram",
-      "✓ navori.config.json",
-      "✓ Done — 5 created",
-    ],
-  },
-  {
-    id: "add",
-    desc: t("commands.add.desc"),
-    output: [
-      "$ navori add engram",
-      "✓ Added 'engram' to navori.config.json",
-      "Done — run 'navori render --apply' to apply",
-    ],
-  },
-  {
-    id: "preset init",
-    desc: t("commands.preset.desc"),
-    output: [
-      "$ navori preset init express-fastify",
-      "✓ .navori/presets/express-fastify/",
-      "✓ navori.config.json → preset: express-fastify",
-      "→ run 'navori render --apply'",
-    ],
-  },
-  {
-    id: "render",
-    desc: t("commands.render.desc"),
-    output: [
-      "$ navori render",
-      "  + CLAUDE.md  (created)",
-      "  + .claude/settings.json  (created)",
-      "  + .claude/agents/  (5)",
-      "Preview — 5 created · run 'navori render --apply' to write",
-    ],
-  },
-  {
-    id: "sync",
-    desc: t("commands.sync.desc"),
-    output: [
-      "$ navori sync --interactive",
-      "Conflict CLAUDE.md:idioma-rol",
-      "  - your edit",
-      "  + new rendered version",
-      "? keep mine / accept new",
-    ],
-  },
-  {
-    id: "doctor",
-    desc: t("commands.doctor.desc"),
-    output: [
-      "$ navori doctor",
-      "Config · navori.config.json",
-      "Managed blocks · 5",
-      "! drift: .claude/agents/leader.md edited by hand",
-      "Next steps · run 'navori sync --interactive'",
-    ],
-  },
-  {
-    id: "status",
-    desc: t("commands.status.desc"),
-    output: [
-      "$ navori status",
-      "name · my-app    preset · nextjs",
-      "plugins · engram    drift · 0",
-      "Next steps · All clear",
-    ],
-  },
-  {
-    id: "bench",
-    desc: t("commands.bench.desc"),
-    output: [
-      "$ navori bench --runs 20",
-      "render (dry-run)",
-      "  p50  1.3ms",
-      "  p95  1.6ms",
-    ],
-  },
-];
+
+const groups = COMMAND_GROUPS.map((g) => ({
+  ...g,
+  label: t(g.labelKey as Parameters<typeof t>[0]),
+  items: g.commands.map((id) => ({
+    id,
+    desc: t(`commands.${id}.desc` as Parameters<typeof t>[0]),
+  })),
+}));
 ---
 
 <section class="py-24 sm:py-28">
@@ -99,112 +39,63 @@ const commands = [
     <SectionHeader
       eyebrow={t("commands.eyebrow")}
       title={t("commands.title")}
+      subtitle={t("commands.subtitle")}
     />
 
-    <div
-      class="mt-14 grid gap-6 lg:grid-cols-[280px_1fr]"
-      data-commands
-    >
-      {/* tabs */}
-      <div
-        role="tablist"
-        aria-label="commands"
-        class="flex flex-row overflow-x-auto lg:flex-col lg:overflow-visible gap-1 border-l-0 lg:border-l"
-        style="border-color: var(--color-border-soft);"
-      >
-        {
-          commands.map((c, i) => (
-            <button
-              type="button"
-              role="tab"
-              data-cmd={c.id}
-              aria-selected={i === 0 ? "true" : "false"}
-              class:list={[
-                "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors rounded-md lg:rounded-none lg:border-l-2 lg:-ml-px",
-                i === 0
-                  ? "bg-white dark:bg-night-2 lg:bg-transparent lg:border-sky-500"
-                  : "lg:border-transparent text-slate-600 dark:text-slate-400 hover:text-ink dark:hover:text-slate-100",
-              ]}
-              style={i === 0 ? "border-color: var(--color-sky-500);" : ""}
-            >
-              <span class="font-mono text-xs text-slate-400 mt-0.5">/</span>
-              <span class="flex-1 min-w-0">
-                <span class="font-mono text-sm font-medium">{c.id}</span>
-                <span class="block mt-0.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
-                  {c.desc}
-                </span>
-              </span>
-            </button>
-          ))
-        }
-      </div>
-
-      {/* panel — terminal output */}
-      <div class="min-h-[320px]">
-        {
-          commands.map((c, i) => (
-            <div
-              data-panel={c.id}
-              class:list={["terminal", i === 0 ? "block" : "hidden"]}
-            >
-              <div class="terminal-titlebar">
-                <span class="terminal-dot" style="background: #ef4444aa;"></span>
-                <span class="terminal-dot" style="background: #f59e0baa;"></span>
-                <span class="terminal-dot" style="background: #10b981aa;"></span>
-                <span class="ml-3 text-[11px] uppercase tracking-wider text-slate-400">
-                  navori {c.id}
-                </span>
-              </div>
-              <pre class="overflow-x-auto px-3 sm:px-5 py-3 sm:py-4 text-[12px] sm:text-[13px] leading-[1.7]">
-{c.output.map((line) => {
-                  const isCmd = line.startsWith("$ ");
-                  const isOk = line.startsWith("✓");
-                  const isWarn = line.startsWith("!");
-                  const isArrow = line.startsWith("→") || line.startsWith("↑");
-                  const cls = isCmd
-                    ? "text-slate-100"
-                    : isOk
-                    ? "text-emerald-300"
-                    : isWarn
-                    ? "text-amber-300"
-                    : isArrow
-                    ? "text-violet-300"
-                    : "text-slate-300";
-                  return <div class={cls}>{line}</div>;
-                })}
-              </pre>
+    <div class="mt-14 space-y-10">
+      {
+        groups.map((g) => (
+          <div class="grid gap-5 lg:grid-cols-[200px_1fr]">
+            <div class="lg:pt-1">
+              <h3 class="flex items-center gap-2.5 text-xs font-mono uppercase tracking-[0.18em]">
+                <span
+                  class="h-2 w-2 rounded-full shrink-0"
+                  style={`background:${g.accent};`}
+                  aria-hidden="true"
+                />
+                <span style={`color:${g.accent};`}>{g.label}</span>
+              </h3>
             </div>
-          ))
-        }
-      </div>
+
+            <ul class="grid gap-px sm:grid-cols-2 xl:grid-cols-3">
+              {g.items.map((c) => (
+                <li>
+                  <a
+                    href={localizedPath(lang, `/docs/${c.id}`)}
+                    class="group block h-full rounded-lg border border-transparent p-4 transition-colors hover:border-[var(--color-border-soft)] hover:bg-white/60 dark:hover:bg-white/5"
+                  >
+                    <span class="flex items-baseline gap-1.5">
+                      <span class="font-mono text-[11px] text-slate-400 select-none">navori</span>
+                      <span class="font-mono text-sm font-medium">{c.id}</span>
+                    </span>
+                    <span class="mt-1.5 block text-xs leading-snug text-slate-500 dark:text-slate-400">
+                      {c.desc}
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="mt-12 flex justify-center">
+      <a class="btn btn-ghost" href={localizedPath(lang, "/docs/init")}>
+        {t("commands.docsCta")}
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M5 12h14M13 5l7 7-7 7"></path>
+        </svg>
+      </a>
     </div>
   </div>
 </section>
-
-<script>
-  document.querySelectorAll<HTMLElement>("[data-commands]").forEach((root) => {
-    const tabs = root.querySelectorAll<HTMLButtonElement>("[data-cmd]");
-    const panels = root.querySelectorAll<HTMLElement>("[data-panel]");
-
-    tabs.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const target = btn.dataset.cmd;
-        tabs.forEach((t) => {
-          const on = t.dataset.cmd === target;
-          t.setAttribute("aria-selected", on ? "true" : "false");
-          t.classList.toggle("bg-white", on);
-          t.classList.toggle("dark:bg-night-2", on);
-          t.classList.toggle("lg:bg-transparent", on);
-          t.classList.toggle("lg:border-sky-500", on);
-          t.classList.toggle("lg:border-transparent", !on);
-          t.classList.toggle("text-slate-600", !on);
-          t.classList.toggle("dark:text-slate-400", !on);
-        });
-        panels.forEach((p) => {
-          p.classList.toggle("hidden", p.dataset.panel !== target);
-          p.classList.toggle("block", p.dataset.panel === target);
-        });
-      });
-    });
-  });
-</script>

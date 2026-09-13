@@ -2,9 +2,13 @@
 import BaseLayout from "../layouts/BaseLayout.astro";
 import Hero from "../components/Hero.astro";
 import Trustband from "../components/sections/Trustband.astro";
+import HarnessGraph from "../components/sections/HarnessGraph.astro";
 import Problem from "../components/sections/Problem.astro";
+import Scopes from "../components/sections/Scopes.astro";
 import Layers from "../components/sections/Layers.astro";
 import Flow from "../components/sections/Flow.astro";
+import Toolbox from "../components/sections/Toolbox.astro";
+import Audit from "../components/sections/Audit.astro";
 import Commands from "../components/sections/Commands.astro";
 import Engines from "../components/sections/Engines.astro";
 import Quickstart from "../components/sections/Quickstart.astro";
@@ -16,9 +20,14 @@ const lang = "es" as const;
 <BaseLayout lang={lang}>
   <Hero lang={lang} />
   <Trustband lang={lang} />
+  {/* the explainer comes before the pitch: what a harness IS, then why */}
+  <HarnessGraph lang={lang} />
   <Problem lang={lang} />
+  <Scopes lang={lang} />
   <Layers lang={lang} />
   <Flow lang={lang} />
+  <Toolbox lang={lang} />
+  <Audit lang={lang} />
   <Commands lang={lang} />
   <Engines lang={lang} />
   <Quickstart lang={lang} />

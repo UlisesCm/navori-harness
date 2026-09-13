@@ -16,8 +16,8 @@ const steps = [
     n: "02",
     title: "Responde el wizard",
     body:
-      "init detecta tu stack y te hace unas preguntas. En menos de un minuto tienes navori.config.json + el harness managed de Claude Code. ¿Tu stack no trae preset oficial? Créalo local con `navori preset init <id>` y queda conectado al config.",
-    code: "? Wizard › Español\n→ stack: Next.js · pnpm\n? Preset › nextjs\n? Plugins › engram\n\n✓ navori.config.json\n✓ rendered:\n   CLAUDE.md\n   .claude/  ·  agents · skills · settings\n✓ Done — 5 created",
+      "init detecta tu stack y te hace unas preguntas. En menos de un minuto tienes navori.config.json + el harness managed de los engines que elegiste. ¿Tu stack no trae preset oficial? Créalo local con `navori preset init <id>` y queda conectado al config.",
+    code: "? Wizard › Español\n→ stack: Next.js · pnpm\n? Engines › claude, codex\n? Preset › nextjs\n? Plugins › engram, codegraph, tgrep\n\n✓ navori.config.json\n✓ rendered:\n   CLAUDE.md · AGENTS.md\n   .claude/  ·  agents · skills · hooks · settings\n✓ Done — 34 created",
   },
   {
     n: "03",
@@ -31,14 +31,15 @@ const steps = [
     title: "Cuando cambies algo, vuelve a renderizar",
     body:
       "Agrega plugins o actualiza la versión. render por default hace preview; --apply escribe. sync solo toca los bloques managed, tu código personalizado queda intacto.",
-    code: "# Agregar un plugin\n$ npx navori add engram\n$ npx navori render --apply\n\n# Actualizar a la última versión\n$ npx navori@latest sync",
+    code: "# Agregar un plugin\n$ npx navori add codegraph\n$ npx navori render --apply\n\n# Actualizar a la última versión\n$ npx navori update\n$ npx navori@latest sync\n\n# ¿Algo se salió de lugar?\n$ npx navori doctor",
   },
 ];
 
 const checklist = [
   "Tienes Node.js 20 o superior instalado.",
   "Estás dentro de un repo git (init no toca .git, pero asume que existe).",
-  "navori hoy genera tu harness de Claude Code (.claude/ + CLAUDE.md).",
+  "navori renderiza a cinco engines: Claude Code, Codex, AGENTS.md, Cursor y Copilot. Eliges cuáles en el wizard.",
+  "render hace preview por default: nada se escribe hasta que pasas --apply.",
 ];
 ---
 

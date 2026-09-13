@@ -15,41 +15,36 @@ const engines = [
   {
     name: "Claude Code",
     path: ".claude/",
-    detail: "agents · skills · hooks · settings.json",
+    detail: t("engines.claude.detail"),
     color: "from-sky-400 to-sky-600",
-    status: "disponible",
     logo: claudeSvg,
   },
   {
     name: "Codex",
     path: ".codex/ + .agents/skills/",
-    detail: "custom agents · skills · hooks · MCP",
+    detail: t("engines.codex.detail"),
     color: "from-emerald-400 to-sky-600",
-    status: "disponible",
     logo: agentsSvg,
   },
   {
     name: "AGENTS.md",
     path: "AGENTS.md",
-    detail: "universal spec · read by Cursor, Codex, Gemini & Copilot",
+    detail: t("engines.agentsmd.detail"),
     color: "from-violet-500 to-sky-500",
-    status: "disponible",
     logo: agentsSvg,
   },
   {
     name: "Cursor",
     path: ".cursor/rules/",
-    detail: ".mdc rules · project context",
+    detail: t("engines.cursor.detail"),
     color: "from-violet-400 to-violet-600",
-    status: "disponible",
     logo: cursorSvg,
   },
   {
     name: "Copilot",
     path: ".github/copilot-instructions.md",
-    detail: "workspace instructions",
+    detail: t("engines.copilot.detail"),
     color: "from-sky-400 to-violet-500",
-    status: "disponible",
     logo: copilotSvg,
   },
 ];
@@ -92,7 +87,7 @@ const renderLogo = (svg: string): string =>
                 class="rounded-full px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider"
                 style="border:1px solid var(--color-border-soft); color: var(--color-slate-500);"
               >
-                {e.status}
+                {t("engines.status")}
               </span>
             </div>
             <h3 class="mt-5 text-lg font-semibold tracking-tight">{e.name}</h3>
