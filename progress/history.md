@@ -10,6 +10,60 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-13 09:05 — orchestrator — guía de extensión y READMEs al día con el repo real
+
+- **Cambios**: `docs/EXTENDING.md` (nuevo, 216 líneas) · `docs/recipes/skill-authoring.md` ·
+  `README.md` · `packages/cli/README.md` · `CONTRIBUTING.md` · `docs/DIRECTION.md`.
+- **Quality gate**: ✅ verde — `quality` del PR #752 en 2m5s. Cambio doc-only (los seis son docs
+  del repo, ninguno es asset), así que no dispara re-render del espejo ni golden.
+- **Commit / PR**: [#752](https://github.com/UlisesCm/navori-harness/pull/752) → `220388c`,
+  squash a `main`.
+
+**Qué resolvió.** Faltaba el doc que responde *dónde poner lo que uno quiere agregar*. Sin él, lo
+que llegaba se proponía en la capa más cara: reglas de un solo repo hacia el core, bundles sin
+herramienta externa como plugin, y skills nuevas para temas que ya cubría una existente.
+`docs/EXTENDING.md` ordena los cinco destinos de más barato a más caro (user-section → skill
+project-local → preset local → plugin → core) y deja las cuatro preguntas que hacen fuerte a una
+propuesta, con números verificables: los 8000 bytes de `NAVORI_CTX_BUDGET`, los caps por tipo, y
+el patrón que comparten los siete plugins (todos declaran `externalTool.checkBinary`).
+
+**Hallazgos que motivaron el resto del PR.**
+
+- `docs/recipes/skill-authoring.md` existía desde la spec 0003 con el contrato del `SKILL.md` y
+  tenía **cero links entrantes**. Ésa era la causa real de que llegaran skills fuera de contrato:
+  la convención existía sin que nadie la encontrara. Ahora se enlaza desde la guía y los dos
+  README, y cubre `maxWordsComposed` (#683) y las skills project-local.
+- **El quality gate estaba transcrito a mano en tres archivos y los tres habían divergido**
+  (`cd packages/cli && pnpm test`, sin `check:assets`, sin build del website, sin `check:size`,
+  sin `typecheck`, y `pnpm test` en vez de `test:coverage`). Los tres dicen ahora `pnpm check` y
+  nombran `qualityGate.full` como el único lugar donde vive.
+- Deriva menor confirmada contra código: faltaban `adopt` y `audit` (21 subcomandos), faltaba
+  `tgrep` (7 plugins), Node ≥20 vs `>=22` real, "12 skills" del plugin global vs 11 (`pr-create`
+  retirado), specs enumeradas hasta 0012 cuando van a 0021.
+- **Los `Status` de las specs no son confiables**: 11 de 22 no lo declaran, y 0001/0002 siguen en
+  `proposed` con su contenido en producción. `CONTRIBUTING` y `DIRECTION` ordenaban "respeta el
+  `Status`" sin esa salvedad; ahora dicen cómo leerlo con confianza (declara la intención con la
+  que se escribió; el código dice dónde acabó).
+
+**Notas.**
+
+- **No toca la moratoria de doctrina.** Nada de lo escrito vive en `core-assets/managed/`,
+  `agents/` ni `skills/`: son docs del repo para humanos, y el objetivo no era mover conducta del
+  modelo.
+- Dos correcciones de rumbo del usuario, ambas durables y guardadas en memoria: (1) lo que está en
+  un issue se asume resuelto al documentar, y lo que sólo existe como spec futura se comenta con
+  transparencia; (2) **tono motivador** — liderar con lo que se gana, sin sacrificar números ni
+  hechos. La guía se reescribió entera por (2): "Los cuatro rechazos" pasó a "Las cuatro preguntas
+  que hacen fuerte a una propuesta", y los avisos de `doctor` se presentan como oportunidades.
+- `apps/website/README.md` quedó **fuera del PR a pedido**: lo edita otra sesión en paralelo, que
+  durante esta jornada le agregó la sección sobre `consts.ts` y `landing-inventory.test.ts`.
+- El primer `gh pr merge` devolvió un error de GraphQL pero **sí había mergeado**; se verificó el
+  estado del PR antes de reintentar, así que no hubo merge duplicado.
+
+**Sin subagentes.** El operador de la sesión los tenía deshabilitados, así que el ciclo
+`implementer`/`reviewer` y el `commit-pr-pilot` corrieron inline, con el gate verificado de este
+lado — la válvula que el propio bloque de orquestación define para ese caso.
+
 ## 2026-09-11 00:15 — claude — La hipótesis de cuatro releases queda refutada, y la primera doctrina pasa a mecanismo
 
 - Cambios: `docs/research/activacion-subagentes-y-skills.md`, `progress/`, `scripts/mine-search-routing.py`, `packages/plugins/tgrep/{plugin.json,scripts/guard-search-routing.sh}`, `packages/cli/src/lib/__tests__/{guard-search-routing,plugins}.test.ts`, espejo. Más `~/.claude/skills/` y los dos repos de alertaciudadana.
