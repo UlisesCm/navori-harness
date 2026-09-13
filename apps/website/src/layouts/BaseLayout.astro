@@ -4,39 +4,72 @@ import Header from "../components/Header.astro";
 import Footer from "../components/Footer.astro";
 import { useTranslations, alternateLang, localizedPath } from "../i18n/utils";
 import type { Lang } from "../i18n/ui";
+import { REPO_URL } from "../consts";
+import cliPkg from "../../../../packages/cli/package.json";
 
 interface Props {
   lang: Lang;
   title?: string;
   description?: string;
   pathname?: string;
+  /** Share image, relative to the site base. Defaults to the per-language OG card. */
+  image?: string;
 }
 
-const {
-  lang,
-  title,
-  description,
-  pathname = Astro.url.pathname,
-} = Astro.props;
+const { lang, title, description, pathname = Astro.url.pathname, image } = Astro.props;
 const t = useTranslations(lang);
 const altLang = alternateLang(lang);
 
-const pageTitle = title
-  ? `${title} — navori`
-  : `navori — ${t("site.tagline")}`;
-const pageDescription = description ?? t("site.tagline");
+const pageTitle = title ? `${title} — navori` : `navori — ${t("site.tagline")}`;
+const pageDescription = description ?? t("site.description");
 
-const siteOrigin = Astro.site ?? new URL("https://navori.github.io");
+const siteOrigin = Astro.site ?? new URL("https://ulisescm.github.io");
 const canonicalUrl = new URL(pathname, siteOrigin).toString();
 
 // Strip both the base path and any /en locale prefix to get the canonical
 // path, then localize it into the alternate language.
 const baseTrimmed = import.meta.env.BASE_URL.replace(/\/$/, "");
-const pathnameNoBase = baseTrimmed && pathname.startsWith(baseTrimmed)
-  ? pathname.slice(baseTrimmed.length)
-  : pathname;
+const pathnameNoBase =
+  baseTrimmed && pathname.startsWith(baseTrimmed) ? pathname.slice(baseTrimmed.length) : pathname;
 const altPath = pathnameNoBase.replace(/^\/en(?=\/|$)/, "") || "/";
 const altHref = new URL(localizedPath(altLang, altPath), siteOrigin).toString();
+
+// The site declared `summary_large_image` with no image behind it, so every
+// share rendered an empty card. `scripts/gen-og.mjs` builds these.
+const ogFile = image ?? (lang === "es" ? "og.png" : "og-en.png");
+const ogImage = new URL(`${import.meta.env.BASE_URL}${ogFile}`, siteOrigin).toString();
+
+const llmsUrl = new URL(`${import.meta.env.BASE_URL}llms.txt`, siteOrigin).toString();
+
+/**
+ * Structured data. Agents and search crawlers both read this; it states in one
+ * machine-readable place what the prose says in two languages.
+ */
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "navori",
+  description: pageDescription,
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS, Linux, Windows",
+  softwareVersion: cliPkg.version,
+  url: canonicalUrl,
+  license: "https://opensource.org/licenses/MIT",
+  codeRepository: REPO_URL,
+  downloadUrl: "https://www.npmjs.com/package/navori",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  keywords: [
+    "AI harness",
+    "multi-agent",
+    "spec-driven development",
+    "Claude Code",
+    "Codex",
+    "Cursor",
+    "GitHub Copilot",
+    "AGENTS.md",
+    "scaffolder",
+  ],
+};
 ---
 
 <!doctype html>
@@ -45,17 +78,43 @@ const altHref = new URL(localizedPath(altLang, altPath), siteOrigin).toString();
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="generator" content={Astro.generator} />
+
     <title>{pageTitle}</title>
     <meta name="description" content={pageDescription} />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#fafaf7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0f1f" media="(prefers-color-scheme: dark)" />
+
     <link rel="canonical" href={canonicalUrl} />
     <link rel="alternate" hreflang={altLang} href={altHref} />
     <link rel="alternate" hreflang={lang} href={canonicalUrl} />
+    <link rel="alternate" hreflang="x-default" href={new URL(localizedPath("es", altPath), siteOrigin).toString()} />
+
+    {/* Agent-readable index of the site, per the emerging llms.txt convention. */}
+    <link rel="alternate" type="text/markdown" href={llmsUrl} title="llms.txt" />
+
+    <meta property="og:site_name" content="navori" />
     <meta property="og:title" content={pageTitle} />
     <meta property="og:description" content={pageDescription} />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:locale" content={lang === "es" ? "es_MX" : "en_US"} />
+    <meta property="og:locale:alternate" content={altLang === "es" ? "es_MX" : "en_US"} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={`navori — ${t("site.tagline")}`} />
+
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content={`navori — ${t("site.tagline")}`} />
+
     <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}favicon.svg`} />
+
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} is:inline />
   </head>
   <body>
     <Header lang={lang} />

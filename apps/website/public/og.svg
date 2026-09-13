@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="word" x1="0" y1="0" x2="1" y2="0.4">
+      <stop offset="0%" stop-color="#0369a1"/>
+      <stop offset="60%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#a78bfa"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0.12" cy="0.1" r="0.6">
+      <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#0ea5e9" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0.88" cy="0.3" r="0.55">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse">
+      <path d="M 56 0 L 0 0 0 56" fill="none" stroke="#0f172a" stroke-opacity="0.045" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="#fafaf7"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect width="1200" height="630" fill="url(#glowA)"/>
+  <rect width="1200" height="630" fill="url(#glowB)"/>
+
+  <!-- left column: wordmark + tagline + stats -->
+  <g transform="translate(76, 0)">
+    <g transform="translate(0, 132)">
+      <circle cx="9" cy="-9" r="5" fill="#0ea5e9"/>
+      <text x="26" y="-3" font-family="ui-monospace, monospace" font-size="18"
+            letter-spacing="3.4" fill="#64748b">OPEN SOURCE · 5 ENGINES</text>
+    </g>
+
+    <text x="0" y="268" font-family="Georgia, 'Times New Roman', serif" font-style="italic"
+          font-size="132" fill="url(#word)">navori</text>
+
+    <g font-family="Helvetica, Arial, sans-serif" font-size="31" font-weight="500" fill="#0f172a">
+      <text x="4" y="332">El harness multi-agente</text>
+      <text x="4" y="374">para cualquier repo.</text>
+    </g>
+
+    <rect x="4" y="416" width="118" height="3" rx="1.5" fill="url(#word)"/>
+  </g>
+
+  <!-- right column: a terminal, the site's recurring motif -->
+  <g transform="translate(716, 148)">
+    <rect x="0" y="0" width="430" height="258" rx="16" fill="#0a0f1f"/>
+    <rect x="0" y="0" width="430" height="42" rx="16" fill="#ffffff" fill-opacity="0.03"/>
+    <rect x="0" y="26" width="430" height="16" fill="#0a0f1f"/>
+    <line x1="0" y1="42" x2="430" y2="42" stroke="#ffffff" stroke-opacity="0.07"/>
+    <circle cx="26" cy="21" r="6" fill="#ef4444" fill-opacity="0.7"/>
+    <circle cx="48" cy="21" r="6" fill="#f59e0b" fill-opacity="0.7"/>
+    <circle cx="70" cy="21" r="6" fill="#10b981" fill-opacity="0.7"/>
+    <g font-family="ui-monospace, monospace" font-size="17">
+      <text x="26" y="86" fill="#e2e8f0">$ navori init --recommended</text>
+      <text x="26" y="120" fill="#7dd3fc">✓ engines: claude · codex</text>
+      <text x="26" y="154" fill="#7dd3fc">✓ plugins: engram · codegraph</text>
+      <text x="26" y="188" fill="#a78bfa">→ rendering managed assets</text>
+      <text x="26" y="222" fill="#6ee7b7">✓ Done — 34 created</text>
+    </g>
+  </g>
+
+  <!-- stats: full width, below the terminal so nothing overlaps -->
+  <g transform="translate(80, 502)" font-family="ui-monospace, monospace" font-size="21"
+     fill="#64748b">
+    <text x="0" y="0">21 comandos</text><circle cx="154" cy="-6" r="2.5" fill="#a78bfa"/>
+    <text x="186" y="0">12 presets</text><circle cx="340" cy="-6" r="2.5" fill="#a78bfa"/>
+    <text x="372" y="0">7 plugins</text><circle cx="526" cy="-6" r="2.5" fill="#a78bfa"/>
+    <text x="558" y="0">5 engines</text>
+  </g>
+
+  <!-- footer rule + domain -->
+  <line x1="76" y1="566" x2="1124" y2="566" stroke="#e6e4d8"/>
+  <text x="76" y="600" font-family="ui-monospace, monospace" font-size="18" fill="#64748b">
+    github.com/UlisesCm/navori-harness
+  </text>
+  <text x="1124" y="600" text-anchor="end" font-family="ui-monospace, monospace"
+        font-size="18" fill="#64748b">MIT · Node ≥ 20</text>
+</svg>
