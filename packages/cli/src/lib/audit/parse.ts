@@ -3,6 +3,7 @@ import { basename, join } from "node:path";
 import {
   type AgentRun,
   type HookEvent,
+  type InjectedContext,
   type PermissionDecisions,
   type SessionAudit,
   type SkillSource,
@@ -725,6 +726,61 @@ function collectMcpCalls(uses: Rec[]): Record<string, Record<string, number>> {
 }
 
 /**
+ * The heading engram's `/context` endpoint puts at the top of what it returns.
+ *
+ * Detection hangs on this literal, so it is worth saying what it is: the string
+ * comes from the engram binary rendering the project's memory, and the plugin's
+ * `session-start.sh` prints that body verbatim to stdout, where the host reads
+ * it as `additionalContext`. It is NOT prose from the plugin's own protocol
+ * block — that block is printed above it and is doctrine, not a read.
+ */
+const ENGRAM_CONTEXT_MARKER = "## Memory from Previous Sessions";
+
+/**
+ * Memory a `SessionStart` hook injected into this session without a tool call.
+ *
+ * The read this finds is the one the whole issue is about (#728): the plugin's
+ * hook fetches the project's memory at startup and the host splices it into the
+ * context, so the largest engram read of the session is invisible to every
+ * count of `mem_search`. Measured over the 196 transcripts on the machine this
+ * was written from: 195 carry it, 207 injections in all (a session can get a
+ * second one from `SessionStart:compact`), median 7.8k characters against a max
+ * of 11k.
+ *
+ * Two conditions, and both are load-bearing:
+ *  - `hookEvent === "SessionStart"`, which is what separates the injection from
+ *    an explicit `mem_context` call. That call's `tool_result` carries the same
+ *    marker, and counting it here would double it against `mcpCalls`: 13 such
+ *    lines across those same transcripts.
+ *  - the marker inside the hook's own `stdout`. `attachment.content` is where
+ *    the host puts a `<persisted-output>` placeholder when the payload is
+ *    large, and the marker sits ~7k characters in — past the 2KB preview — so
+ *    `content` is the field that can silently under-report. `stdout` carried
+ *    the full payload in 207 of 207 occurrences.
+ *
+ * The size is measured FROM the marker: everything above it is the plugin's
+ * protocol text, which is instruction rather than memory. Folding it in would
+ * inflate every read by the doctrine that ships with it — measured at 1,974
+ * characters in 195 of those 207 injections, and 2,114-2,136 in the other 12.
+ */
+function collectInjectedContext(lines: Rec[]): Record<string, InjectedContext> {
+  const injected: Record<string, InjectedContext> = {};
+  for (const l of lines) {
+    if (str(l.type) !== "attachment") continue;
+    const a = l.attachment;
+    if (!isRec(a) || str(a.hookEvent) !== "SessionStart") continue;
+    const payload = str(a.stdout);
+    if (payload === null) continue;
+    const at = payload.indexOf(ENGRAM_CONTEXT_MARKER);
+    if (at < 0) continue;
+    const entry = (injected.engram ??= { count: 0, chars: 0 });
+    entry.count++;
+    entry.chars += payload.length - at;
+  }
+  return injected;
+}
+
+/**
  * What caused ONE error result, by the only part of it that is stable.
  *
  * Order matters where a message could satisfy two rules: a guard block is
@@ -1047,6 +1103,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
       skillsDiscarded: skills.discarded,
       skillAttributionRecords: skills.attributionRecords,
       mcpCalls: collectMcpCalls(uses),
+      mcpInjectedContext: collectInjectedContext(lines),
       hookEvents: [],
       ...errorFields(lines),
       repeatedCommands: repeatedCommands(uses),

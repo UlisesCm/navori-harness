@@ -364,6 +364,82 @@ describe("MCP calls grouped by server (#0013)", () => {
   });
 });
 
+/**
+ * #728 — the read that makes no call.
+ *
+ * The engram plugin's `SessionStart` hook fetches the project's memory and
+ * prints it; the host splices that stdout into the context as
+ * `additionalContext`. So the largest engram read of a session is invisible to
+ * every count of `mem_search`, which is half of what made "268 saves against 56
+ * searches" read as a verdict on how the memory is used.
+ */
+describe("context injected by a SessionStart hook (#728)", () => {
+  const MARKER = "## Memory from Previous Sessions";
+  /** The plugin prints its protocol block ABOVE the memory: instruction, not a
+   *  read, and folding it in would inflate the figure by its own length. */
+  const PROTOCOL = "## Engram Persistent Memory — ACTIVE PROTOCOL\ncall mem_save often.\n";
+  const MEMORY = `${MARKER}\n### Recent Sessions\n- sess-a: shipped the audit\n`;
+
+  function injection(stdout: string, hookName = "SessionStart:startup"): Record<string, unknown> {
+    return {
+      type: "attachment",
+      timestamp: "2026-08-25T10:00:00.000Z",
+      attachment: { type: "hook_success", hookName, hookEvent: "SessionStart", stdout },
+    };
+  }
+
+  function sessionWith(lines: Array<Record<string, unknown>>): string {
+    const dir = mkdtempSync(join(tmpdir(), "navori-inject-"));
+    const file = join(dir, "sess-inject.jsonl");
+    writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n"), "utf-8");
+    return file;
+  }
+
+  it("counts the injection and sizes it from the memory heading down", () => {
+    const s = parseSession(sessionWith([injection(PROTOCOL + MEMORY)]));
+    expect(s.orchestrator.mcpInjectedContext).toEqual({
+      engram: { count: 1, chars: MEMORY.length },
+    });
+  });
+
+  it("counts a post-compaction recovery as a second injection", () => {
+    // `SessionStart` fires again on `compact` and on `clear`, and each one
+    // hands the model the whole memory again — 207 injections across 195
+    // transcripts on the machine this was written from.
+    const s = parseSession(
+      sessionWith([injection(PROTOCOL + MEMORY), injection(MEMORY, "SessionStart:compact")]),
+    );
+    expect(s.orchestrator.mcpInjectedContext.engram).toEqual({
+      count: 2,
+      chars: MEMORY.length * 2,
+    });
+  });
+
+  it("does not count an explicit mem_context result carrying the same heading", () => {
+    // The tool result of a real `mem_context` call quotes the same body. It is
+    // already in `mcpCalls`, so counting it here would report one read twice —
+    // and it is a requested read, which is the opposite of what this measures.
+    const s = parseSession(
+      sessionWith([
+        {
+          type: "user",
+          timestamp: "2026-08-25T10:00:00.000Z",
+          message: {
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "t1", content: MEMORY }],
+          },
+        },
+      ]),
+    );
+    expect(s.orchestrator.mcpInjectedContext).toEqual({});
+  });
+
+  it("reports nothing when no SessionStart hook injected memory", () => {
+    const s = parseSession(sessionWith([injection("navori/tgrep: tgrep ACTIVE")]));
+    expect(s.orchestrator.mcpInjectedContext).toEqual({});
+  });
+});
+
 describe("skills carry how they were detected (#0013)", () => {
   // Covers: R10
   it("marks an explicit Skill invocation apart from a SKILL.md read", () => {
@@ -490,6 +566,7 @@ describe("parse: hook attribution", () => {
         skillsDiscarded: 0,
         skillAttributionRecords: 0,
         mcpCalls: {},
+        mcpInjectedContext: {},
         hookEvents: [],
         frictionEvents: 0,
         toolErrors: emptyToolErrors(),

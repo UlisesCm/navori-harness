@@ -277,6 +277,22 @@ export interface HookEvent {
   agentId?: string;
 }
 
+/**
+ * Context an MCP server's `SessionStart` hook pushed into the session, unasked.
+ *
+ * Two numbers rather than one because they answer different questions: a
+ * session can be handed memory twice (startup plus a post-compaction recovery)
+ * and the volume is what makes the read matter — ~7.8k characters is the
+ * median across this machine's transcripts, an order of magnitude more text
+ * than the `mem_search` calls that were being counted instead.
+ */
+export interface InjectedContext {
+  /** Injections detected in the transcript. */
+  count: number;
+  /** Characters of injected context, summed over those injections. */
+  chars: number;
+}
+
 /** One audited session: the orchestrator plus every subagent it spawned. */
 export interface SessionAudit {
   sessionId: string;
@@ -449,6 +465,26 @@ export interface SessionAudit {
      */
     skillAttributionRecords: number;
     mcpCalls: Record<string, Record<string, number>>;
+    /**
+     * MCP server → context a `SessionStart` hook injected on its behalf (#728).
+     *
+     * The main thread's largest READ from an MCP server is not a tool call and
+     * therefore appears in no call count: the engram plugin's `SessionStart`
+     * hook fetches the project's memory and prints it, which the host takes as
+     * `additionalContext`. Comparing raw `mem_save` against raw `mem_search`
+     * without it produced the reading this field exists to stop — "engram
+     * writes four times more than it reads" — while the heaviest read of the
+     * session sat outside both numbers.
+     *
+     * Orchestrator-only by construction: `SessionStart` does not fire for a
+     * subagent, so `AgentRun` has no counterpart and an agent card that printed
+     * one would be inventing it.
+     *
+     * A server absent from this map had no injection detected IN THE
+     * TRANSCRIPT, which is the only claim the parser can make — see
+     * `collectInjectedContext` for what detection rests on.
+     */
+    mcpInjectedContext: Record<string, InjectedContext>;
     hookEvents: HookEvent[];
     frictionEvents: number;
     toolErrors: ToolErrors;
@@ -600,8 +636,11 @@ export interface AuditReport {
    *  Bumped to 6 with `orphanSessions` (#675): logs that were marked and whose
    *  transcript no longer resolves. They were already printed to the human and
    *  invisible to `--json`, which is the half a CI or an agent reads.
+   *  Bumped to 7 with `orchestrator.mcpInjectedContext` (#728): the context an
+   *  MCP server's `SessionStart` hook pushed in without a tool call, which is
+   *  a READ the call counts could never show.
    *  A reader can tell the shapes apart by this number alone. */
-  schemaVersion: 6;
+  schemaVersion: 7;
   generatedBy: string;
   /**
    * When this report was built, ISO-8601.
