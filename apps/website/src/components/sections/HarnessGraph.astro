@@ -49,7 +49,7 @@ const tr = (k: string): string => t(k as Key);
 // eight chips across three stations, so 128px is the widest that fits 1220px of
 // usable canvas with breathing room between stations. That is why the chip
 // description wraps to two lines instead of sitting on one.
-const VB = { w: 1260, h: 770 };
+const VB = { w: 1260, h: 760 };
 const ROW = { a: 130, b: 350, c: 570 };
 const CHIP = { w: 128, h: 58, gap: 12 };
 /** Gap between two stations' chip groups on the same row. */
@@ -57,7 +57,7 @@ const GROUP_GAP = 46;
 
 /** The route: left→right, down, right→left, down, left→right. */
 const ROUTE = [
-  `M 70 ${ROW.a}`,
+  `M 120 ${ROW.a}`,
   `H 1150 Q 1196 ${ROW.a} 1196 ${ROW.a + 46}`,
   `V ${ROW.b - 46} Q 1196 ${ROW.b} 1150 ${ROW.b}`,
   `H 110 Q 64 ${ROW.b} 64 ${ROW.b + 46}`,
@@ -115,7 +115,7 @@ const STATIONS: Station[] = [
   },
   {
     n: 6,
-    x: 175,
+    x: 190,
     y: ROW.c,
     chips: [
       { id: "guard", label: "PreToolUse", tone: "guard" },
@@ -245,13 +245,13 @@ const labelsJson = JSON.stringify({
           <marker
             id="wk-back"
             viewBox="0 0 10 10"
-            refX="5"
-            refY="9"
-            markerWidth="5"
-            markerHeight="5"
+            refX="9"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
             orient="auto"
           >
-            <path d="M 0 10 L 5 0 L 10 10" fill="none" stroke="var(--color-violet-400)" stroke-width="2"></path>
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-violet-400)"></path>
           </marker>
           <filter id="wk-glow" x="-120%" y="-120%" width="340%" height="340%">
             <feGaussianBlur stdDeviation="7" result="b"></feGaussianBlur>
@@ -263,12 +263,25 @@ const labelsJson = JSON.stringify({
         </defs>
 
         {/* the loop-back arrow: stop 8 writes memory, stop 2 reads it */}
+        {/* out of stop 8's engram: the decision is written */}
         <path
           class="wk-loop"
-          d={`M 1190 ${ROW.c + 26} Q 1232 ${ROW.c + 40} 1232 ${VB.h - 42} H 150 Q 108 ${VB.h - 42} 108 ${VB.h - 72}`}
+          d={`M 1145 ${ROW.c + 112} V ${ROW.c + 136} Q 1145 ${ROW.c + 150} 1131 ${ROW.c + 150} H 1016`}
           marker-end="url(#wk-back)"
         ></path>
-        <text class="wk-loop-label" x="690" y={VB.h - 26}>{t("graph.loop")}</text>
+        <text class="wk-loop-label wk-loop-out" x="1000" y={ROW.c + 154}>
+          {t("graph.loop")}
+        </text>
+
+        {/* into stop 2's engram: the same memory, read back */}
+        <path
+          class="wk-loop"
+          d={`M 790 ${ROW.a + 168} V ${ROW.a + 116}`}
+          marker-end="url(#wk-back)"
+        ></path>
+        <text class="wk-loop-label wk-loop-in" x="790" y={ROW.a + 186}>
+          {t("graph.loopIn")}
+        </text>
 
         {/* route: the unvisited track, then the trail that draws itself */}
         <path class="wk-track" d={ROUTE}></path>
@@ -443,13 +456,21 @@ const labelsJson = JSON.stringify({
   .wk-loop-label {
     font-family: var(--font-mono);
     font-size: 11px;
-    text-anchor: middle;
     fill: var(--color-violet-700);
     opacity: 0.85;
   }
 
   :global(html.dark) .wk-loop-label {
     fill: var(--color-violet-300);
+  }
+
+  /* the outgoing label sits left of its arrow; the incoming one centres */
+  .wk-loop-out {
+    text-anchor: end;
+  }
+
+  .wk-loop-in {
+    text-anchor: middle;
   }
 
   /* ── stations ───────────────────────────────────────────────────── */

@@ -107,7 +107,8 @@ export const ui = {
     "graph.chip.reviewer": "aprueba o rechaza",
     "graph.chip.commit": "commit + PR",
     "graph.chip.memory": "guarda la decisión",
-    "graph.loop": "y vuelve al contexto de la próxima sesión",
+    "graph.loop": "lo guardado vuelve al contexto de la próxima sesión",
+    "graph.loopIn": "de la sesión anterior",
 
     "problem.eyebrow": "El problema",
     "problem.title": "Cada repo reinventa lo mismo",
@@ -406,7 +407,8 @@ export const ui = {
     "graph.chip.reviewer": "approves or rejects",
     "graph.chip.commit": "commit + PR",
     "graph.chip.memory": "saves the decision",
-    "graph.loop": "and back into the next session's context",
+    "graph.loop": "what is saved returns as the next session's context",
+    "graph.loopIn": "from the previous session",
 
     "problem.eyebrow": "The problem",
     "problem.title": "Every repo reinvents the same thing",
