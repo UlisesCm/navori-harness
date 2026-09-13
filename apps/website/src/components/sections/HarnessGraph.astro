@@ -1,17 +1,32 @@
 ---
 /**
- * "What a harness actually does", as a diagram that moves.
+ * The walkthrough — a prompt travelling through the whole harness.
  *
- * The landing explained navori to people who already knew what a harness was.
- * This section is for the ones who don't: four phases of a real session, walked
- * one at a time — context loads, the leader fans the work out, hooks fire at
- * fixed moments, the gate decides. The graph is the explanation, not decoration.
+ * This is the landing's centrepiece, and it answers the question everything
+ * else on the page assumes you already answered: what does navori actually put
+ * between your sentence and the model? So it is not a diagram of concepts, it
+ * is a ROUTE: one prompt enters at stop 1 and comes out a commit at stop 8,
+ * lighting up every piece it passes through — hooks, the four context sources,
+ * the leader, codegraph and tgrep, the four subagents, the guard and the
+ * permission rules, semgrep/jscpd/gate/reviewer, and the memory write that
+ * closes the loop back into stop 2.
  *
- * Built as one inline SVG on a fixed viewBox so it scales without reflowing:
- * node coordinates are constants below, edges are derived from them, and the
- * phase highlight is pure CSS driven by `data-phase` on the root. The script
- * only advances that attribute — with JS off, or `prefers-reduced-motion` set,
- * every phase renders lit and the diagram still reads.
+ * MECHANICS. One `<path>` is the route. A travelling token is positioned with
+ * `getPointAtLength()` on every frame, and a second copy of the same path is
+ * revealed behind it with `stroke-dashoffset` so the trail draws itself. Stop
+ * positions are NOT hardcoded as fractions: `measureStops()` samples the path
+ * once and finds the nearest length to each station's centre, so moving a node
+ * in the layout constants below cannot desynchronise the animation from the
+ * drawing.
+ *
+ * The motion is deliberately not linear — it travels between stops, then dwells
+ * on one so you can read it. That rhythm is the whole point: a constant-speed
+ * loop reads as decoration, a stop-and-explain loop reads as an explanation.
+ *
+ * DEGRADES. With no JS, or under `prefers-reduced-motion`, every stop renders
+ * lit and the panel shows the first one; the stop buttons still navigate. The
+ * diagram is legible as a static image — the animation is an enhancement, never
+ * the only way to read it.
  */
 import SectionHeader from "../SectionHeader.astro";
 import { useTranslations } from "../../i18n/utils";
@@ -23,52 +38,160 @@ interface Props {
 const { lang } = Astro.props;
 const t = useTranslations(lang);
 
-/** Layout constants. One coordinate system, four columns left to right. */
-const NODE_H = 34;
-const COL = { ctx: 26, leader: 286, work: 566, gate: 822 } as const;
-const W = { ctx: 156, leader: 176, work: 158, gate: 152 } as const;
+/** Shorthand for the generated chip/station keys, which are typed in `ui.ts`. */
+type Key = Parameters<typeof t>[0];
+const tr = (k: string): string => t(k as Key);
 
-/** Column 1 — what gets loaded into the session before anyone types. */
-const context = [
-  { id: "claude-md", label: "CLAUDE.md", y: 54 },
-  { id: "skills", label: "skills", y: 100 },
-  { id: "dominio", label: "Dominio", y: 146 },
-  { id: "memoria", label: "engram", y: 192 },
+// ── layout ────────────────────────────────────────────────────────────
+// One coordinate system, three rows, serpentine. Everything else derives.
+//
+// Chip width is the binding constraint, not an aesthetic choice: row C carries
+// eight chips across three stations, so 128px is the widest that fits 1220px of
+// usable canvas with breathing room between stations. That is why the chip
+// description wraps to two lines instead of sitting on one.
+const VB = { w: 1260, h: 770 };
+const ROW = { a: 130, b: 350, c: 570 };
+const CHIP = { w: 128, h: 58, gap: 12 };
+/** Gap between two stations' chip groups on the same row. */
+const GROUP_GAP = 46;
+
+/** The route: left→right, down, right→left, down, left→right. */
+const ROUTE = [
+  `M 70 ${ROW.a}`,
+  `H 1150 Q 1196 ${ROW.a} 1196 ${ROW.a + 46}`,
+  `V ${ROW.b - 46} Q 1196 ${ROW.b} 1150 ${ROW.b}`,
+  `H 110 Q 64 ${ROW.b} 64 ${ROW.b + 46}`,
+  `V ${ROW.c - 46} Q 64 ${ROW.c} 110 ${ROW.c}`,
+  `H 1190`,
+].join(" ");
+
+interface Chip {
+  id: string;
+  label: string;
+  /** Tool-family colour, matching the toolbox section's grouping. */
+  tone: "ctx" | "agent" | "search" | "guard" | "quality" | "out";
+}
+
+interface Station {
+  n: number;
+  x: number;
+  y: number;
+  chips: Chip[];
+}
+
+const STATIONS: Station[] = [
+  { n: 1, x: 120, y: ROW.a, chips: [{ id: "sessionstart", label: "SessionStart", tone: "guard" }] },
+  {
+    n: 2,
+    x: 580,
+    y: ROW.a,
+    chips: [
+      { id: "claudemd", label: "CLAUDE.md", tone: "ctx" },
+      { id: "skills", label: "skills", tone: "ctx" },
+      { id: "dominio", label: "Dominio", tone: "ctx" },
+      { id: "engram", label: "engram", tone: "ctx" },
+    ],
+  },
+  { n: 3, x: 1030, y: ROW.a, chips: [{ id: "leader", label: "leader", tone: "agent" }] },
+  {
+    n: 4,
+    x: 1000,
+    y: ROW.b,
+    chips: [
+      { id: "codegraph", label: "codegraph", tone: "search" },
+      { id: "tgrep", label: "tgrep", tone: "search" },
+    ],
+  },
+  {
+    n: 5,
+    x: 420,
+    y: ROW.b,
+    chips: [
+      { id: "explorer", label: "explorer", tone: "agent" },
+      { id: "researcher", label: "researcher", tone: "agent" },
+      { id: "implementer", label: "implementer", tone: "agent" },
+      { id: "auditor", label: "auditor", tone: "agent" },
+    ],
+  },
+  {
+    n: 6,
+    x: 175,
+    y: ROW.c,
+    chips: [
+      { id: "guard", label: "PreToolUse", tone: "guard" },
+      { id: "permissions", label: "permissions", tone: "guard" },
+    ],
+  },
+  {
+    n: 7,
+    x: 620,
+    y: ROW.c,
+    chips: [
+      { id: "semgrep", label: "semgrep", tone: "quality" },
+      { id: "jscpd", label: "jscpd", tone: "quality" },
+      { id: "gate", label: "quality gate", tone: "quality" },
+      { id: "reviewer", label: "reviewer", tone: "quality" },
+    ],
+  },
+  {
+    n: 8,
+    x: 1075,
+    y: ROW.c,
+    chips: [
+      { id: "commit", label: "commit + PR", tone: "out" },
+      { id: "memory", label: "engram", tone: "out" },
+    ],
+  },
 ];
 
-/** Column 3 — the subagents the leader can fan work out to. */
-const workers = [
-  { id: "explorer", label: "explorer", y: 40 },
-  { id: "researcher", label: "researcher", y: 86 },
-  { id: "implementer", label: "implementer", y: 132 },
-  { id: "auditor", label: "auditor", y: 178 },
-];
-
-/** The hooks band — automation pinned to fixed moments in the session. */
-const hooks = [
-  { id: "session-start", label: "SessionStart", x: 60, target: COL.ctx + W.ctx / 2 },
-  { id: "pre-tool-use", label: "PreToolUse", x: 330, target: COL.leader + W.leader / 2 },
-  { id: "subagent-stop", label: "SubagentStop", x: 580, target: COL.work + W.work / 2 },
-  { id: "stop", label: "Stop", x: 830, target: COL.gate + W.gate / 2 },
-];
-
-const LEADER_Y = 116;
-const GATE_Y = 96;
-const REVIEW_Y = 158;
-
-/** The four narrated phases. `phase` maps to the `data-phase` values in CSS. */
-const phases = [
-  { n: 1, label: t("graph.p1.label"), title: t("graph.p1.title"), body: t("graph.p1.body") },
-  { n: 2, label: t("graph.p2.label"), title: t("graph.p2.title"), body: t("graph.p2.body") },
-  { n: 3, label: t("graph.p3.label"), title: t("graph.p3.title"), body: t("graph.p3.body") },
-  { n: 4, label: t("graph.p4.label"), title: t("graph.p4.title"), body: t("graph.p4.body") },
-];
-
-/** Elbow connector: out of `x1`, across a midpoint gutter, into `x2`. */
-const elbow = (x1: number, y1: number, x2: number, y2: number): string => {
-  const mid = x1 + (x2 - x1) / 2;
-  return `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}`;
+/** Chip row geometry: always below its station, centred on it. */
+const chipX = (st: Station, i: number): number => {
+  const total = st.chips.length * CHIP.w + (st.chips.length - 1) * CHIP.gap;
+  return st.x - total / 2 + i * (CHIP.w + CHIP.gap);
 };
+const chipY = (st: Station): number => st.y + 52;
+
+/**
+ * Split a chip's description across two lines at the most balanced word break.
+ * 128px of chip holds roughly 19 characters at 11px, and these descriptions are
+ * the part that makes the diagram readable — shortening them to fit one line
+ * would trade the explanation for the layout.
+ */
+const wrap = (text: string): [string, string] => {
+  const words = text.split(" ");
+  let best = 1;
+  let bestDelta = Number.POSITIVE_INFINITY;
+  for (let i = 1; i < words.length; i++) {
+    const a = words.slice(0, i).join(" ").length;
+    const b = words.slice(i).join(" ").length;
+    if (Math.abs(a - b) < bestDelta) {
+      bestDelta = Math.abs(a - b);
+      best = i;
+    }
+  }
+  return [words.slice(0, best).join(" "), words.slice(best).join(" ")];
+};
+
+const stops = STATIONS.map((st) => ({
+  ...st,
+  name: tr(`graph.s${st.n}.name`),
+  title: tr(`graph.s${st.n}.title`),
+  body: tr(`graph.s${st.n}.body`),
+}));
+
+/**
+ * The narrator copy travels to the client as data attributes rather than being
+ * re-rendered per stop: the panel swaps text on every step, and shipping the
+ * eight strings once beats eight hidden DOM subtrees.
+ */
+const copyJson = JSON.stringify(
+  Object.fromEntries(stops.map((st) => [st.n, { title: st.title, body: st.body }])),
+);
+const labelsJson = JSON.stringify({
+  pause: t("graph.pause"),
+  play: t("graph.play"),
+  counter: t("graph.stationOf"),
+});
 ---
 
 <section
@@ -76,6 +199,7 @@ const elbow = (x1: number, y1: number, x2: number, y2: number): string => {
   style="border-color: var(--color-border-soft);"
 >
   <div class="absolute inset-0 grid-bg pointer-events-none opacity-50"></div>
+  <div class="absolute inset-0 glow-hero pointer-events-none opacity-60"></div>
 
   <div class="container-prose relative">
     <SectionHeader
@@ -83,514 +207,697 @@ const elbow = (x1: number, y1: number, x2: number, y2: number): string => {
       title={t("graph.title")}
       subtitle={t("graph.subtitle")}
     />
+  </div>
 
-    <div class="mt-14 grid gap-8 lg:grid-cols-12 lg:gap-10" data-graph data-phase="1">
-      {/* the diagram */}
-      <div class="lg:col-span-8 min-w-0">
-        <div
-          class="rounded-xl border p-3 sm:p-5 overflow-x-auto"
-          style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory), transparent 25%);"
-        >
-          <svg
-            viewBox="0 0 990 300"
-            class="w-full min-w-[640px] h-auto"
-            role="img"
-            aria-label={t("graph.aria")}
+  <div
+    class="relative mt-12"
+    data-walk
+    data-stop="1"
+    data-copy={copyJson}
+    data-labels={labelsJson}
+  >
+    {/* the prompt, entering */}
+    <div class="container-prose">
+      <div class="mx-auto max-w-2xl">
+        <div class="wk-prompt">
+          <span class="wk-prompt-label">{t("graph.promptLabel")}</span>
+          <div class="wk-prompt-box">
+            <span class="wk-caret" aria-hidden="true">❯</span>
+            <span class="wk-prompt-text">{t("graph.prompt")}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* the route */}
+    <div class="mt-8 overflow-x-auto px-6 sm:px-8 pb-2">
+      <svg
+        viewBox={`0 0 ${VB.w} ${VB.h}`}
+        class="mx-auto w-full min-w-[1000px] max-w-[1260px] h-auto"
+        role="img"
+        aria-label={t("graph.aria")}
+      >
+        <defs>
+          <linearGradient id="wk-trail" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="var(--color-sky-500)"></stop>
+            <stop offset="100%" stop-color="var(--color-violet-600)"></stop>
+          </linearGradient>
+          <marker
+            id="wk-back"
+            viewBox="0 0 10 10"
+            refX="5"
+            refY="9"
+            markerWidth="5"
+            markerHeight="5"
+            orient="auto"
           >
-            <defs>
-              <linearGradient id="hg-flow" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stop-color="var(--color-sky-500)"></stop>
-                <stop offset="100%" stop-color="var(--color-violet-600)"></stop>
-              </linearGradient>
-              <marker
-                id="hg-arrow"
-                viewBox="0 0 10 10"
-                refX="9"
-                refY="5"
-                markerWidth="5"
-                markerHeight="5"
-                orient="auto-start-reverse"
-              >
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path>
-              </marker>
-            </defs>
+            <path d="M 0 10 L 5 0 L 10 10" fill="none" stroke="var(--color-violet-400)" stroke-width="2"></path>
+          </marker>
+          <filter id="wk-glow" x="-120%" y="-120%" width="340%" height="340%">
+            <feGaussianBlur stdDeviation="7" result="b"></feGaussianBlur>
+            <feMerge>
+              <feMergeNode in="b"></feMergeNode>
+              <feMergeNode in="SourceGraphic"></feMergeNode>
+            </feMerge>
+          </filter>
+        </defs>
 
-            {/* column captions */}
-            <g class="hg-caption" aria-hidden="true">
-              <text x={COL.ctx} y="22">{t("graph.col.context")}</text>
-              <text x={COL.leader} y="22">{t("graph.col.orchestration")}</text>
-              <text x={COL.work} y="22">{t("graph.col.work")}</text>
-              <text x={COL.gate} y="22">{t("graph.col.gate")}</text>
-            </g>
+        {/* the loop-back arrow: stop 8 writes memory, stop 2 reads it */}
+        <path
+          class="wk-loop"
+          d={`M 1190 ${ROW.c + 26} Q 1232 ${ROW.c + 40} 1232 ${VB.h - 42} H 150 Q 108 ${VB.h - 42} 108 ${VB.h - 72}`}
+          marker-end="url(#wk-back)"
+        ></path>
+        <text class="wk-loop-label" x="690" y={VB.h - 26}>{t("graph.loop")}</text>
 
-            {/* ── phase 1 · context flows into the session ───────────── */}
-            <g class="hg-edges hg-p1">
-              {
-                context.map((c) => (
-                  <path
-                    class="hg-edge"
-                    d={elbow(
-                      COL.ctx + W.ctx,
-                      c.y + NODE_H / 2,
-                      COL.leader,
-                      LEADER_Y + NODE_H + 8,
-                    )}
-                    marker-end="url(#hg-arrow)"
-                  />
-                ))
-              }
-            </g>
-            <g class="hg-nodes hg-p1">
-              {
-                context.map((c) => (
-                  <>
-                    <rect
-                      class="hg-node hg-node-ctx"
-                      x={COL.ctx}
-                      y={c.y}
-                      width={W.ctx}
-                      height={NODE_H}
-                      rx="8"
-                    />
-                    <text class="hg-label" x={COL.ctx + 14} y={c.y + 22}>
-                      {c.label}
-                    </text>
-                  </>
-                ))
-              }
-            </g>
+        {/* route: the unvisited track, then the trail that draws itself */}
+        <path class="wk-track" d={ROUTE}></path>
+        <path class="wk-trail" d={ROUTE} data-trail></path>
 
-            {/* ── phase 2 · the leader fans the work out ─────────────── */}
-            <g class="hg-edges hg-p2">
-              {
-                workers.map((w) => (
-                  <path
-                    class="hg-edge"
-                    d={elbow(
-                      COL.leader + W.leader,
-                      LEADER_Y + NODE_H / 2,
-                      COL.work,
-                      w.y + NODE_H / 2,
-                    )}
-                    marker-end="url(#hg-arrow)"
-                  />
-                ))
-              }
-            </g>
-            <g class="hg-nodes hg-p2">
-              <rect
-                class="hg-node hg-node-leader"
-                x={COL.leader}
-                y={LEADER_Y}
-                width={W.leader}
-                height={NODE_H + 8}
-                rx="10"
-              />
-              <text class="hg-label hg-label-leader" x={COL.leader + 16} y={LEADER_Y + 26}>
-                leader
+        {/* chips — every tool the prompt passes through */}
+        {
+          stops.map((st) =>
+            st.chips.map((c, i) => (
+              <g class="wk-chip" data-chip-of={st.n}>
+                <rect
+                  class={`wk-chip-box wk-tone-${c.tone}`}
+                  x={chipX(st, i)}
+                  y={chipY(st)}
+                  width={CHIP.w}
+                  height={CHIP.h}
+                  rx="10"
+                />
+                <text class="wk-chip-name" x={chipX(st, i) + 10} y={chipY(st) + 19}>
+                  {c.label}
+                </text>
+                <text class="wk-chip-desc" x={chipX(st, i) + 10} y={chipY(st) + 34}>
+                  {wrap(tr(`graph.chip.${c.id}`))[0]}
+                </text>
+                <text class="wk-chip-desc" x={chipX(st, i) + 10} y={chipY(st) + 47}>
+                  {wrap(tr(`graph.chip.${c.id}`))[1]}
+                </text>
+                <line
+                  class="wk-chip-tie"
+                  x1={chipX(st, i) + CHIP.w / 2}
+                  y1={chipY(st)}
+                  x2={st.x}
+                  y2={st.y + 20}
+                />
+              </g>
+            )),
+          )
+        }
+
+        {/* stations */}
+        {
+          stops.map((st) => (
+            <g class="wk-station" data-station={st.n} tabindex="0" role="button">
+              <circle class="wk-halo" cx={st.x} cy={st.y} r="30" />
+              <circle class="wk-dot" cx={st.x} cy={st.y} r="19" />
+              <text class="wk-dot-n" x={st.x} y={st.y + 5}>
+                {st.n}
               </text>
-              <text class="hg-sub" x={COL.leader + 78} y={LEADER_Y + 26}>
-                {t("graph.leader.tag")}
+              <text class="wk-st-name" x={st.x} y={st.y - 32}>
+                {st.name}
               </text>
             </g>
+          ))
+        }
 
-            {/* ── phase 3 · the workers run, in parallel ─────────────── */}
-            <g class="hg-nodes hg-p3">
-              {
-                workers.map((w) => (
-                  <>
-                    <rect
-                      class="hg-node hg-node-work"
-                      x={COL.work}
-                      y={w.y}
-                      width={W.work}
-                      height={NODE_H}
-                      rx="8"
-                    />
-                    <text class="hg-label" x={COL.work + 14} y={w.y + 22}>
-                      {w.label}
-                    </text>
-                  </>
-                ))
-              }
-            </g>
+        {/* the prompt token, travelling */}
+        <g data-token class="wk-token">
+          <circle r="9" filter="url(#wk-glow)"></circle>
+        </g>
+      </svg>
+    </div>
 
-            {/* ── phase 4 · the gate decides ─────────────────────────── */}
-            <g class="hg-edges hg-p4">
-              {
-                workers.map((w) => (
-                  <path
-                    class="hg-edge"
-                    d={elbow(COL.work + W.work, w.y + NODE_H / 2, COL.gate, REVIEW_Y + NODE_H / 2)}
-                    marker-end="url(#hg-arrow)"
-                  />
-                ))
-              }
-              <path
-                class="hg-edge"
-                d={`M ${COL.gate + W.gate / 2} ${REVIEW_Y} V ${GATE_Y + NODE_H}`}
-                marker-end="url(#hg-arrow)"
-              />
-            </g>
-            <g class="hg-nodes hg-p4">
-              <rect
-                class="hg-node hg-node-gate"
-                x={COL.gate}
-                y={GATE_Y}
-                width={W.gate}
-                height={NODE_H}
-                rx="8"
-              />
-              <text class="hg-label" x={COL.gate + 14} y={GATE_Y + 22}>
-                quality gate
-              </text>
-              <rect
-                class="hg-node hg-node-review"
-                x={COL.gate}
-                y={REVIEW_Y}
-                width={W.gate}
-                height={NODE_H}
-                rx="8"
-              />
-              <text class="hg-label" x={COL.gate + 14} y={REVIEW_Y + 22}>
-                reviewer
-              </text>
-            </g>
-
-            {/* ── the hooks band — fires across every phase ──────────── */}
-            <g class="hg-hooks hg-p3" aria-hidden="true">
-              {
-                hooks.map((h) => (
-                  <>
-                    <path class="hg-hook-line" d={`M ${h.target} 244 V 258`} />
-                    <rect class="hg-hook" x={h.x} y={258} width="120" height="26" rx="13" />
-                    <text class="hg-hook-label" x={h.x + 60} y={275}>
-                      {h.label}
-                    </text>
-                  </>
-                ))
-              }
-              <text class="hg-caption-hooks" x={COL.ctx} y="240">{t("graph.col.hooks")}</text>
-            </g>
-          </svg>
+    {/* narrator */}
+    <div class="container-prose mt-10">
+      <div class="grid gap-8 lg:grid-cols-12 lg:gap-10 items-start">
+        <div class="lg:col-span-7">
+          <p class="wk-counter" data-counter></p>
+          <h3 class="mt-2 text-xl sm:text-2xl font-semibold tracking-tight" data-title>
+            {stops[0]?.title}
+          </h3>
+          <p
+            class="mt-3 text-base leading-relaxed text-slate-600 dark:text-slate-400 max-w-2xl"
+            data-body
+          >
+            {stops[0]?.body}
+          </p>
         </div>
 
-        <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">
-          {t("graph.hint")}
-        </p>
-      </div>
+        <div class="lg:col-span-5">
+          <ol class="flex flex-wrap gap-1.5">
+            {
+              stops.map((st) => (
+                <li>
+                  <button
+                    type="button"
+                    data-goto={st.n}
+                    aria-pressed={st.n === 1 ? "true" : "false"}
+                    class="wk-pill"
+                  >
+                    <span class="wk-pill-n">{st.n}</span>
+                    {st.name}
+                  </button>
+                </li>
+              ))
+            }
+          </ol>
 
-      {/* the narrator */}
-      <div class="lg:col-span-4">
-        <ol class="flex flex-col gap-2">
-          {
-            phases.map((p) => (
-              <li>
-                <button
-                  type="button"
-                  data-phase-btn={p.n}
-                  aria-pressed={p.n === 1 ? "true" : "false"}
-                  class="hg-step w-full text-left rounded-lg border p-4 transition-all"
-                >
-                  <span class="flex items-center gap-2.5">
-                    <span class="hg-step-n display-italic text-2xl leading-none tabular-nums">
-                      {String(p.n).padStart(2, "0")}
-                    </span>
-                    <span class="hg-step-label text-[10px] font-mono uppercase tracking-[0.18em]">
-                      {p.label}
-                    </span>
-                  </span>
-                  <span class="mt-2 block text-sm font-semibold tracking-tight">{p.title}</span>
-                  <span class="mt-1 block text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-                    {p.body}
-                  </span>
-                </button>
-              </li>
-            ))
-          }
-        </ol>
+          <div class="mt-5 flex items-center gap-3">
+            <button type="button" class="btn btn-ghost !py-2 !px-3 text-xs" data-toggle>
+              <span data-toggle-label>{t("graph.pause")}</span>
+            </button>
+            <span class="text-xs text-slate-500 dark:text-slate-400">{t("graph.hint")}</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
 <style>
-  /* ── static styling ─────────────────────────────────────────────── */
-  .hg-caption {
+  /* ── the prompt box ─────────────────────────────────────────────── */
+  .wk-prompt-label {
     font-family: var(--font-mono);
     font-size: 10px;
-    letter-spacing: 0.18em;
     text-transform: uppercase;
-    fill: color-mix(in oklab, var(--color-ink), transparent 60%);
+    letter-spacing: 0.2em;
+    color: var(--color-violet-700);
   }
 
-  .hg-caption-hooks {
+  :global(html.dark) .wk-prompt-label {
+    color: var(--color-violet-300);
+  }
+
+  .wk-prompt-box {
+    margin-top: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    background: var(--color-night);
+    color: rgb(226 232 240);
     font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    fill: color-mix(in oklab, var(--color-ink), transparent 60%);
+    font-size: 14px;
+    box-shadow:
+      0 18px 50px -24px rgba(14, 165, 233, 0.5),
+      0 24px 60px -30px rgba(124, 58, 237, 0.55);
   }
 
-  :global(html.dark) .hg-caption,
-  :global(html.dark) .hg-caption-hooks {
-    fill: rgb(148 163 184);
+  .wk-caret {
+    color: var(--color-violet-400);
   }
 
-  .hg-node {
-    fill: color-mix(in oklab, var(--color-ivory), transparent 15%);
+  [data-walk][data-stop="1"] .wk-prompt-box {
+    outline: 2px solid var(--color-violet-500);
+    outline-offset: 2px;
+  }
+
+  /* ── route ──────────────────────────────────────────────────────── */
+  .wk-track {
+    fill: none;
     stroke: var(--color-border-soft);
-    stroke-width: 1;
+    stroke-width: 2.5;
+    stroke-linecap: round;
   }
 
-  .hg-node-leader {
-    fill: color-mix(in oklab, var(--color-violet-600), transparent 88%);
-    stroke: var(--color-violet-500);
+  .wk-trail {
+    fill: none;
+    stroke: url(#wk-trail);
+    stroke-width: 3.5;
+    stroke-linecap: round;
   }
 
-  .hg-node-gate {
-    fill: color-mix(in oklab, var(--color-sky-500), transparent 90%);
-    stroke: var(--color-sky-500);
+  .wk-loop {
+    fill: none;
+    stroke: var(--color-violet-400);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 6;
+    opacity: 0.55;
   }
 
-  .hg-label {
+  .wk-loop-label {
     font-family: var(--font-mono);
-    font-size: 12px;
-    fill: var(--color-ink);
-  }
-
-  :global(html.dark) .hg-label {
-    fill: rgb(226 232 240);
-  }
-
-  .hg-label-leader {
-    font-weight: 600;
-  }
-
-  .hg-sub {
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    font-size: 11px;
+    text-anchor: middle;
     fill: var(--color-violet-700);
+    opacity: 0.85;
   }
 
-  :global(html.dark) .hg-sub {
+  :global(html.dark) .wk-loop-label {
     fill: var(--color-violet-300);
   }
 
-  .hg-edge {
-    fill: none;
-    stroke: url(#hg-flow);
-    stroke-width: 1.5;
-    color: var(--color-violet-500);
-    stroke-dasharray: 5 5;
+  /* ── stations ───────────────────────────────────────────────────── */
+  .wk-station {
+    cursor: pointer;
   }
 
-  .hg-hook {
-    fill: color-mix(in oklab, var(--color-ivory-2), transparent 10%);
+  .wk-dot {
+    fill: var(--color-ivory);
     stroke: var(--color-border-soft);
-    stroke-width: 1;
-    stroke-dasharray: 3 3;
+    stroke-width: 2;
+    transition:
+      fill 0.3s ease,
+      stroke 0.3s ease;
   }
 
-  .hg-hook-label {
+  .wk-dot-n {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 13px;
+    font-weight: 600;
     text-anchor: middle;
-    fill: color-mix(in oklab, var(--color-ink), transparent 30%);
+    fill: color-mix(in oklab, var(--color-ink), transparent 45%);
+    transition: fill 0.3s ease;
   }
 
-  :global(html.dark) .hg-hook-label {
+  :global(html.dark) .wk-dot-n {
     fill: rgb(148 163 184);
   }
 
-  .hg-hook-line {
+  .wk-st-name {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    text-anchor: middle;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    fill: color-mix(in oklab, var(--color-ink), transparent 45%);
+    transition: fill 0.3s ease;
+  }
+
+  :global(html.dark) .wk-st-name {
+    fill: rgb(148 163 184);
+  }
+
+  .wk-halo {
+    fill: none;
+    stroke: var(--color-violet-500);
+    stroke-width: 2;
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  /* visited stations keep their colour; the active one pulses */
+  .wk-station.is-visited .wk-dot {
+    fill: color-mix(in oklab, var(--color-sky-500), transparent 88%);
+    stroke: var(--color-sky-500);
+  }
+
+  .wk-station.is-active .wk-dot {
+    fill: color-mix(in oklab, var(--color-violet-600), transparent 82%);
+    stroke: var(--color-violet-500);
+  }
+
+  .wk-station.is-active .wk-dot-n,
+  .wk-station.is-active .wk-st-name {
+    fill: var(--color-violet-700);
+  }
+
+  :global(html.dark) .wk-station.is-active .wk-dot-n,
+  :global(html.dark) .wk-station.is-active .wk-st-name {
+    fill: var(--color-violet-300);
+  }
+
+  .wk-station.is-active .wk-halo {
+    opacity: 0.85;
+    animation: wkHalo 1.9s ease-out infinite;
+  }
+
+  .wk-station:focus-visible .wk-dot {
+    stroke: var(--color-sky-500);
+  }
+
+  @keyframes wkHalo {
+    0% {
+      transform: scale(0.72);
+      opacity: 0.8;
+    }
+    100% {
+      transform: scale(1.32);
+      opacity: 0;
+    }
+  }
+
+  /* ── chips ──────────────────────────────────────────────────────── */
+  .wk-chip {
+    opacity: 0.25;
+    transition: opacity 0.4s ease;
+  }
+
+  .wk-chip.is-on {
+    opacity: 1;
+  }
+
+  .wk-chip-box {
+    fill: color-mix(in oklab, var(--color-ivory), transparent 8%);
+    stroke: var(--color-border-soft);
+    stroke-width: 1.25;
+  }
+
+  .wk-chip.is-on .wk-tone-ctx {
+    stroke: var(--color-sky-500);
+  }
+  .wk-chip.is-on .wk-tone-agent {
+    stroke: var(--color-violet-500);
+  }
+  .wk-chip.is-on .wk-tone-search {
+    stroke: var(--color-sky-600);
+  }
+  .wk-chip.is-on .wk-tone-guard {
+    stroke: #f59e0b;
+  }
+  .wk-chip.is-on .wk-tone-quality {
+    stroke: #10b981;
+  }
+  .wk-chip.is-on .wk-tone-out {
+    stroke: var(--color-violet-600);
+  }
+
+  .wk-chip-name {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 500;
+    fill: var(--color-ink);
+  }
+
+  :global(html.dark) .wk-chip-name {
+    fill: rgb(226 232 240);
+  }
+
+  .wk-chip-desc {
+    font-size: 11px;
+    fill: color-mix(in oklab, var(--color-ink), transparent 42%);
+  }
+
+  :global(html.dark) .wk-chip-desc {
+    fill: rgb(148 163 184);
+  }
+
+  .wk-chip-tie {
     stroke: var(--color-border-soft);
     stroke-width: 1;
     stroke-dasharray: 2 3;
   }
 
-  /* ── phase dimming ──────────────────────────────────────────────
-   * Everything stays visible — the diagram is one system, not four
-   * slides. The inactive parts recede; the active phase gains contrast
-   * and its edges start flowing. */
-  .hg-p1,
-  .hg-p2,
-  .hg-p3,
-  .hg-p4 {
-    opacity: 0.32;
-    transition:
-      opacity 0.45s ease,
-      filter 0.45s ease;
+  /* ── the travelling token ───────────────────────────────────────── */
+  .wk-token circle {
+    fill: var(--color-violet-500);
   }
 
-  [data-phase="1"] .hg-p1,
-  [data-phase="2"] .hg-p1,
-  [data-phase="2"] .hg-p2,
-  [data-phase="3"] .hg-p1,
-  [data-phase="3"] .hg-p2,
-  [data-phase="3"] .hg-p3,
-  [data-phase="4"] .hg-p1,
-  [data-phase="4"] .hg-p2,
-  [data-phase="4"] .hg-p3,
-  [data-phase="4"] .hg-p4 {
-    opacity: 1;
-  }
-
-  /* the active phase's edges animate; earlier ones stay lit but still */
-  [data-phase="1"] .hg-p1 .hg-edge,
-  [data-phase="2"] .hg-p2 .hg-edge,
-  [data-phase="4"] .hg-p4 .hg-edge {
-    animation: hgFlow 0.9s linear infinite;
-    stroke-width: 2;
-  }
-
-  [data-phase="3"] .hg-p3 .hg-node-work {
-    stroke: var(--color-sky-500);
-    animation: hgPulse 1.6s ease-in-out infinite;
-  }
-
-  [data-phase="3"] .hg-p3 .hg-node-work:nth-of-type(2) {
-    animation-delay: 0.2s;
-  }
-
-  [data-phase="4"] .hg-p4 .hg-node-review {
-    stroke: var(--color-violet-500);
-    stroke-width: 1.6;
-  }
-
-  @keyframes hgFlow {
-    to {
-      stroke-dashoffset: -20;
-    }
-  }
-
-  @keyframes hgPulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.55;
-    }
-  }
-
-  /* ── the narrator steps ─────────────────────────────────────────── */
-  .hg-step {
-    border-color: var(--color-border-soft);
-    background: transparent;
-  }
-
-  .hg-step:hover {
-    border-color: var(--color-sky-500);
-  }
-
-  .hg-step[aria-pressed="true"] {
-    background: color-mix(in oklab, var(--color-ivory), transparent 20%);
-    border-color: var(--color-violet-500);
-  }
-
-  .hg-step-n {
-    color: var(--color-slate-300, #cbd5e1);
-  }
-
-  .hg-step[aria-pressed="true"] .hg-step-n {
-    background: linear-gradient(120deg, var(--color-sky-600) 0%, var(--color-violet-600) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  .hg-step-label {
-    color: color-mix(in oklab, var(--color-ink), transparent 55%);
-  }
-
-  .hg-step[aria-pressed="true"] .hg-step-label {
+  /* ── narrator ───────────────────────────────────────────────────── */
+  .wk-counter {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
     color: var(--color-violet-700);
   }
 
-  :global(html.dark) .hg-step-label {
-    color: rgb(148 163 184);
-  }
-
-  :global(html.dark) .hg-step[aria-pressed="true"] .hg-step-label {
+  :global(html.dark) .wk-counter {
     color: var(--color-violet-300);
   }
 
-  /* ── reduced motion: no flow, no auto-advance, everything lit ───── */
-  @media (prefers-reduced-motion: reduce) {
-    .hg-p1,
-    .hg-p2,
-    .hg-p3,
-    .hg-p4 {
-      opacity: 1;
-      transition: none;
-    }
+  .wk-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-border-soft);
+    padding: 0.3rem 0.7rem;
+    font-size: 12px;
+    transition: all 0.2s ease;
+  }
 
-    .hg-edge,
-    .hg-node-work {
-      animation: none !important;
+  .wk-pill:hover {
+    border-color: var(--color-sky-500);
+  }
+
+  .wk-pill-n {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    opacity: 0.55;
+  }
+
+  .wk-pill[aria-pressed="true"] {
+    border-color: var(--color-violet-500);
+    background: color-mix(in oklab, var(--color-violet-600), transparent 90%);
+    color: var(--color-violet-700);
+  }
+
+  :global(html.dark) .wk-pill[aria-pressed="true"] {
+    color: var(--color-violet-300);
+  }
+
+  /* ── reduced motion: no travel, everything readable ─────────────── */
+  @media (prefers-reduced-motion: reduce) {
+    .wk-chip {
+      opacity: 1;
+    }
+    .wk-station.is-active .wk-halo {
+      animation: none;
+      opacity: 0;
+    }
+    .wk-token {
+      display: none;
+    }
+    .wk-trail {
+      stroke-dasharray: none !important;
+      stroke-dashoffset: 0 !important;
     }
   }
 </style>
 
 <script>
-  document.querySelectorAll<HTMLElement>("[data-graph]").forEach((root) => {
-    const buttons = root.querySelectorAll<HTMLButtonElement>("[data-phase-btn]");
-    if (buttons.length === 0) return;
+  interface Stop {
+    n: number;
+    /** Length along the route where this station sits. */
+    at: number;
+    el: SVGGElement;
+    chips: SVGGElement[];
+    pill: HTMLButtonElement | null;
+  }
 
-    const PHASES = buttons.length;
-    const DWELL_MS = 3600;
+  document.querySelectorAll<HTMLElement>("[data-walk]").forEach((root) => {
+    const svg = root.querySelector("svg");
+    const trail = root.querySelector<SVGPathElement>("[data-trail]");
+    const token = root.querySelector<SVGGElement>("[data-token]");
+    const counter = root.querySelector<HTMLElement>("[data-counter]");
+    const titleEl = root.querySelector<HTMLElement>("[data-title]");
+    const bodyEl = root.querySelector<HTMLElement>("[data-body]");
+    const toggle = root.querySelector<HTMLButtonElement>("[data-toggle]");
+    const toggleLabel = root.querySelector<HTMLElement>("[data-toggle-label]");
+    if (!svg || !trail || !token) return;
 
-    const show = (phase: number): void => {
-      root.dataset.phase = String(phase);
-      buttons.forEach((b) => {
-        b.setAttribute("aria-pressed", b.dataset.phaseBtn === String(phase) ? "true" : "false");
+    const copy = JSON.parse(root.dataset.copy ?? "{}") as Record<
+      string,
+      { title: string; body: string }
+    >;
+    const labels = JSON.parse(root.dataset.labels ?? "{}") as {
+      pause?: string;
+      play?: string;
+      counter?: string;
+    };
+
+    const routeLength = trail.getTotalLength();
+    trail.style.strokeDasharray = String(routeLength);
+    trail.style.strokeDashoffset = String(routeLength);
+
+    /**
+     * Find where each station sits along the route by sampling, rather than
+     * trusting a hand-written fraction: the layout constants and the animation
+     * then cannot drift apart.
+     */
+    const measureStops = (): Stop[] => {
+      const SAMPLES = 900;
+      const pts: { len: number; x: number; y: number }[] = [];
+      for (let i = 0; i <= SAMPLES; i++) {
+        const len = (routeLength * i) / SAMPLES;
+        const p = trail.getPointAtLength(len);
+        pts.push({ len, x: p.x, y: p.y });
+      }
+
+      return [...root.querySelectorAll<SVGGElement>("[data-station]")].map((el) => {
+        const n = Number(el.dataset.station);
+        const dot = el.querySelector("circle");
+        const cx = Number(dot?.getAttribute("cx") ?? 0);
+        const cy = Number(dot?.getAttribute("cy") ?? 0);
+        let best = pts[0] ?? { len: 0, x: 0, y: 0 };
+        let bestD = Infinity;
+        for (const p of pts) {
+          const d = (p.x - cx) ** 2 + (p.y - cy) ** 2;
+          if (d < bestD) {
+            bestD = d;
+            best = p;
+          }
+        }
+        return {
+          n,
+          at: best.len,
+          el,
+          chips: [...root.querySelectorAll<SVGGElement>(`[data-chip-of="${n}"]`)],
+          pill: root.querySelector<HTMLButtonElement>(`[data-goto="${n}"]`),
+        };
       });
     };
 
-    // A visitor who never touches the diagram still sees all four phases; one
-    // who does takes over, and the tour does not fight them for control.
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let timer: ReturnType<typeof setInterval> | undefined;
-    let current = 1;
+    const stops = measureStops().sort((a, b) => a.n - b.n);
+    if (stops.length === 0) return;
 
-    const stop = (): void => {
-      if (timer !== undefined) clearInterval(timer);
-      timer = undefined;
+    const place = (len: number): void => {
+      const p = trail.getPointAtLength(Math.max(0, Math.min(len, routeLength)));
+      token.setAttribute("transform", `translate(${p.x} ${p.y})`);
+      trail.style.strokeDashoffset = String(routeLength - len);
+    };
+
+    const render = (n: number): void => {
+      root.dataset.stop = String(n);
+      for (const s of stops) {
+        s.el.classList.toggle("is-active", s.n === n);
+        s.el.classList.toggle("is-visited", s.n < n);
+        for (const c of s.chips) c.classList.toggle("is-on", s.n <= n);
+        s.pill?.setAttribute("aria-pressed", s.n === n ? "true" : "false");
+      }
+      const text = copy[String(n)];
+      if (titleEl && text) titleEl.textContent = text.title;
+      if (bodyEl && text) bodyEl.textContent = text.body;
+      if (counter && labels.counter) {
+        counter.textContent = labels.counter
+          .replace("{n}", String(n))
+          .replace("{total}", String(stops.length));
+      }
+    };
+
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // Static fallback: everything lit, no travel, buttons still navigate.
+    if (reduced) {
+      trail.style.strokeDashoffset = "0";
+      for (const s of stops) for (const c of s.chips) c.classList.add("is-on");
+      render(1);
+      for (const s of stops) {
+        s.pill?.addEventListener("click", () => render(s.n));
+        s.el.addEventListener("click", () => render(s.n));
+      }
+      toggle?.setAttribute("hidden", "");
+      return;
+    }
+
+    const TRAVEL_MS = 900;
+    const DWELL_MS = 3400;
+    const easeInOut = (x: number): number =>
+      x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
+
+    let index = 0;
+    let phase: "dwell" | "travel" = "dwell";
+    let phaseStart = 0;
+    let running = false;
+    let raf = 0;
+
+    const frame = (now: number): void => {
+      if (!running) return;
+      if (phaseStart === 0) phaseStart = now;
+      const elapsed = now - phaseStart;
+
+      if (phase === "dwell") {
+        if (elapsed >= DWELL_MS) {
+          phase = "travel";
+          phaseStart = now;
+        }
+      } else {
+        const from = stops[index]?.at ?? 0;
+        const nextIndex = (index + 1) % stops.length;
+        const to = stops[nextIndex]?.at ?? 0;
+        const k = Math.min(1, elapsed / TRAVEL_MS);
+
+        // Wrapping from the last stop back to the first would drag the token
+        // backwards across the whole route; reset instead, which reads as the
+        // loop-back arrow the diagram already draws.
+        if (nextIndex === 0) {
+          if (k >= 1) {
+            index = 0;
+            place(stops[0]?.at ?? 0);
+            render(stops[0]?.n ?? 1);
+            for (const s of stops) {
+              s.el.classList.remove("is-visited");
+              for (const c of s.chips) c.classList.remove("is-on");
+            }
+            render(stops[0]?.n ?? 1);
+            phase = "dwell";
+            phaseStart = now;
+          } else {
+            token.setAttribute("opacity", String(1 - k));
+          }
+        } else {
+          place(from + (to - from) * easeInOut(k));
+          if (k >= 1) {
+            index = nextIndex;
+            render(stops[index]?.n ?? 1);
+            phase = "dwell";
+            phaseStart = now;
+          }
+        }
+      }
+      raf = requestAnimationFrame(frame);
     };
 
     const start = (): void => {
-      if (reduced || timer !== undefined) return;
-      timer = setInterval(() => {
-        current = (current % PHASES) + 1;
-        show(current);
-      }, DWELL_MS);
+      if (running) return;
+      running = true;
+      token.setAttribute("opacity", "1");
+      phaseStart = 0;
+      raf = requestAnimationFrame(frame);
+      toggle?.setAttribute("aria-pressed", "false");
+      if (toggleLabel && labels.pause) toggleLabel.textContent = labels.pause;
     };
 
-    buttons.forEach((btn) => {
-      const go = (): void => {
-        stop();
-        current = Number(btn.dataset.phaseBtn ?? "1");
-        show(current);
-      };
-      btn.addEventListener("click", go);
-      btn.addEventListener("focus", go);
-    });
+    const stop = (): void => {
+      running = false;
+      cancelAnimationFrame(raf);
+      toggle?.setAttribute("aria-pressed", "true");
+      if (toggleLabel && labels.play) toggleLabel.textContent = labels.play;
+    };
 
-    root.addEventListener("mouseenter", stop);
-    root.addEventListener("mouseleave", start);
+    const jumpTo = (n: number): void => {
+      stop();
+      index = stops.findIndex((s) => s.n === n);
+      if (index < 0) index = 0;
+      const target = stops[index];
+      if (!target) return;
+      token.setAttribute("opacity", "1");
+      place(target.at);
+      render(target.n);
+    };
 
-    // Don't animate a diagram nobody is looking at.
+    for (const s of stops) {
+      s.pill?.addEventListener("click", () => jumpTo(s.n));
+      s.el.addEventListener("click", () => jumpTo(s.n));
+      s.el.addEventListener("keydown", (e) => {
+        if (e instanceof KeyboardEvent && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          jumpTo(s.n);
+        }
+      });
+    }
+
+    toggle?.addEventListener("click", () => (running ? stop() : start()));
+
+    place(stops[0]?.at ?? 0);
+    render(stops[0]?.n ?? 1);
+
+    // Never animate a diagram nobody is looking at.
     const io = new IntersectionObserver(
       (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) start();
+        for (const e of entries) {
+          if (e.isIntersecting) start();
           else stop();
         }
       },
-      { threshold: 0.25 },
+      { threshold: 0.2 },
     );
     io.observe(root);
   });
