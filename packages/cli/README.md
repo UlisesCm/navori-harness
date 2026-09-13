@@ -67,6 +67,7 @@ Y genera:
 | `add <plugin>` | Activa un plugin y opcionalmente instala la tool externa |
 | `remove <plugin>` | Desactiva un plugin y limpia sus bloques managed, sub-bloques y scripts |
 | `configure <section>` | Ajusta una sección del config sin re-correr el wizard |
+| `adopt <path>` | Toma un archivo de `.claude/` que escribiste a mano bajo gestión de navori: lo envuelve en un bloque managed sin reescribir su contenido (preview por default) |
 | `update` | Re-detecta el repo, refresca config y corre sync en un paso |
 | `render` | Genera los archivos nativos de cada engine configurado (preview por default; `--apply` escribe). `--all` renderea todos los repos del registro global; `--prune` limpia los que ya no existen |
 | `registry <sub>` | Registro global de tus repos con navori, para `render --all` (`ls`, `scan <dir>`, `add`, `remove`, `prune`) |
@@ -75,6 +76,7 @@ Y genera:
 | `scan` | Detecta workspaces nuevos en monorepos (`pnpm-workspace.yaml` / `package.json#workspaces`) |
 | `doctor` | Audita el config + drift de cada managed block (CLAUDE.md **y AGENTS.md**), orden canónico, markers malformados, desincronización de monorepo y tools externas faltantes (`--strict` para CI) |
 | `status` | Snapshot rápido: config, plugins activos, conteo de drift y próximos pasos |
+| `audit` | Reporta cómo corrió el harness de verdad: atribución de tokens y huecos de adherencia en tus sesiones |
 | `bench` | Corre `render` en dry-run N veces y reporta latencias (detecta regresiones locales) |
 | `workspace <sub>` | Gestiona workspaces cross-repo (`init`, `ls`, `show`, `rm`) |
 | `ticket <sub>` | Gestiona tickets-as-files en un workspace (`new`, `list`, `show`, `archive`, `delete`) |
@@ -125,6 +127,7 @@ La resolución es **local → bundled**: si tienes un preset local con el mismo 
 |---|---|---|
 | `engram` | Memoria persistente entre sesiones | `engram` binary |
 | `codegraph` | Grafo AST del repo vía MCP: símbolos, call paths y blast-radius en una llamada | `codegraph` |
+| `tgrep` | Búsqueda de contenido indexada por trigramas (flags de ripgrep), con fallback automático si falta el binario | `tgrep` |
 | `acli` | Leer tickets de Jira desde la terminal | `acli` |
 | `gh` | GitHub Issues, PRs y workflow runs | `gh` |
 | `jscpd` | Detección de duplicación en el diff | `jscpd` (opt-in) |
@@ -245,7 +248,7 @@ del baseline y de los prompts.
 Qué escribe el `init --apply`, y nada más:
 
 - `~/.navori/global.json` — el manifest: idioma, bloques del baseline y tus permisos globales.
-- `~/.claude/skills/navori/` — el plugin `navori@skills-dir` con los 8 agentes, las 12 skills y el
+- `~/.claude/skills/navori/` — el plugin `navori@skills-dir` con los 8 agentes, las 11 skills y el
   hook del baseline. Claude Code lo carga sin marketplace ni paso de instalación; las skills globales
   se invocan `/navori:<nombre>` (tras un render, `/reload-plugins` o sesión nueva).
 - `~/.claude/settings.json` — **solo** la clave `permissions`, y solo si declaraste permisos globales
@@ -300,6 +303,47 @@ navori configure branch-base main     # punto de fork / rama protegida
 navori configure pr-target develop    # rama destino del PR (gh pr create --base)
 navori configure workspace bonum      # asociar a un workspace
 ```
+
+## Extender el harness en tu repo
+
+navori instala un baseline; lo que lo vuelve valioso en **tu** repo es el conocimiento que sólo
+tú tienes. Hay cuatro destinos, ordenados de más barato a más caro en archivos, revisión y tokens
+por sesión. Empieza arriba de la tabla: el escalón más barato suele ser además el más efectivo.
+
+| Lo que tienes | Dónde va |
+|---|---|
+| Una regla de tu repo (un patrón propio, la convención de tu data layer) | la **user-section** de la skill que ya cubre el tema |
+| Conocimiento que ninguna skill instalada cubre | **skill project-local** |
+| Conocimiento de un stack, reusable entre repos | **preset local** (`navori preset init <id>`) |
+| Envoltura de un binario o servidor MCP | **plugin** (va a navori, no a tu repo) |
+
+**La user-section es el default.** Cada skill que navori renderiza trae un sentinel
+`<!-- navori:user-section -->`; todo lo que escribas después es tuyo y `render`/`sync` no lo tocan
+nunca. Cero archivos nuevos, cero config, y la regla queda donde el agente ya iba a mirar.
+
+**Una skill project-local** son dos pasos:
+
+```bash
+# 1. la forma DIRECTORIO es la única que el host descubre.
+#    Un `<id>.md` suelto en .claude/skills/ no se carga nunca.
+mkdir -p .claude/skills/mi-skill && $EDITOR .claude/skills/mi-skill/SKILL.md
+
+# 2. declara el id en navori.config.json:
+#    "project": { "localSkills": ["mi-skill"] }
+navori doctor   # valida que el archivo exista y que su description diga CUÁNDO usarla
+```
+
+Su frontmatter necesita `name`, `type` (`behavior` \| `reference` \| `tool`) y una `description`
+con **trigger de activación**. El host carga las skills on-demand leyendo esa línea, así que un
+*"Usar cuando…"* es lo que la pone a trabajar sola en el momento justo. `navori doctor` te avisa
+cuando a una le falta, que suele ser el arreglo de mayor retorno: el contenido ya está escrito.
+
+navori **nunca escribe dentro** de una skill project-local: no lleva bloque managed ni
+user-section, es tuya entera.
+
+→ Guía completa (con las cuatro preguntas que hacen fuerte a una propuesta):
+[`docs/EXTENDING.md`](https://github.com/UlisesCm/navori-harness/blob/main/docs/EXTENDING.md).
+Contrato del `SKILL.md`: [`docs/recipes/skill-authoring.md`](https://github.com/UlisesCm/navori-harness/blob/main/docs/recipes/skill-authoring.md).
 
 ## Filosofía
 

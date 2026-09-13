@@ -9,19 +9,40 @@ código; no la metas en un PR suelto.
 
 1. Lee `docs/DIRECTION.md`, luego `docs/architecture.md` (cómo funciona el render y las 5 capas)
    y la(s) spec(s) del área que vas a tocar (`specs/000X-*.md`). Respeta el `Status` de cada
-   spec (`proposed` / `planning only — NO implementar` / `EJECUTADA`).
-2. Pregúntate: ¿es lo más simple? ¿legible en 6 meses? ¿mantiene el patrón existente?
+   spec (`proposed` / `planning only — NO implementar` / `EJECUTADA`), y **confírmalo contra el
+   código**, que es la fuente más fresca: varias specs se escribieron antes de aterrizar y su
+   header quedó en la intención original —0001 y 0002 dicen `proposed` con su contenido ya en
+   producción—, y once todavía no declaran uno. Un vistazo al código y a `git log` te da el estado
+   real en un minuto; y lo que sigue pendiente de decidir lo dice sin ambigüedad
+   (`planning only — NO implementar hasta aprobación`).
+2. **Ubica en qué capa rinde más tu cambio antes de escribirlo** —
+   [`docs/EXTENDING.md`](docs/EXTENDING.md). Hay cinco destinos ordenados de más barato a más
+   caro, y el más barato suele ser el más efectivo: si el tema ya lo cubre una skill, sumar ahí
+   (user-section o `injectInto`) llega más rápido y con la autoridad ya establecida. Ese doc trae
+   además las cuatro preguntas que hacen fuerte a una propuesta — respóndelas y tu PR entra con
+   muy poca fricción.
+3. Pregúntate: ¿es lo más simple? ¿legible en 6 meses? ¿mantiene el patrón existente?
    Simplicidad > cleverness.
 
 ## Quality gate (obligatorio antes de cerrar cambios en `packages/cli`)
 
 Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
 
-1. `cd packages/cli && pnpm test` — suite vitest.
-2. `cd packages/cli && pnpm lint` — oxlint.
-3. **Desde la raíz del monorepo**: `pnpm format:check` — biome (el paso que más se olvida; NO
-   está bajo `packages/cli`). Si falla, corre `pnpm format` antes de commitear.
-4. **Si tocaste cualquier cosa que alimente el render**: `pnpm check:render` desde la raíz. Este
+1. **`pnpm check` desde la raíz del monorepo.** Es un alias de `qualityGate.full` en
+   `navori.config.json`, que es **el único lugar** donde vive el gate: de ahí salen los bloques
+   managed de `CLAUDE.md` y el comando que corre el `commit-pr-pilot`. No lo transcribas aquí ni
+   en ningún otro archivo — una segunda copia es una copia que se desincroniza, y ya pasó
+   (`repo-config-gate.test.ts` existe por eso, y sostiene el gate contra `ci.yml`: si el workflow
+   gana un paso de verificación que el gate no declara, la suite falla y dice cuál).
+
+   Dos trampas dentro de ese comando:
+   - **`pnpm test:coverage`, no `pnpm test`.** Corre la misma suite más
+     `check-coverage-floor.mjs`, que además del umbral caza una entrada obsoleta en `KNOWN_ZERO`
+     (los módulos que navori envía sin tests). Correr sólo `pnpm test` lo deja pasar, y ya costó
+     un CI rojo con el gate verde.
+   - **`pnpm format:check` (biome) NO está bajo `packages/cli`**: corre en la raíz, y es el paso
+     que más se olvida. Se arregla con `pnpm format`.
+2. **Si tocaste cualquier cosa que alimente el render**: `pnpm check:render` desde la raíz. Este
    repo se auto-hospeda —`.claude/` y `CLAUDE.md` son salida de `navori render`—, así que el PR
    debe incluir el re-render del espejo (`pnpm render:apply` desde la raíz, que es exactamente
    `pnpm --filter navori build && node packages/cli/dist/index.js render --apply`) o el
@@ -58,22 +79,28 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
      que ya solo arregla `navori sync`. Es la trampa fácil: ante un conflicto de git el reflejo
      es editar, y aquí ese reflejo convierte un problema de un comando en uno que exige entender
      el modelo de marcadores.
-5. **Si el paso 4 aplicó, el golden snapshot del árbol renderizado también se mueve**:
+3. **Si el paso 2 aplicó, el golden snapshot del árbol renderizado también se mueve**:
    regenéralo con `cd packages/cli && pnpm test:golden` (~1 s) y **lee el diff** antes de
    commitearlo. Son cinco fixtures, uno por engine, en
    `packages/cli/src/engines/__tests__/__golden__/<engine>.snap`; existen porque los ~11 tests de
    wiring apuntan a tokens sueltos y nadie ve el output completo (#394). Un cambio que no sepas
    explicar en ese diff es el hallazgo, no ruido a aplanar con `-u`.
 
-   Un disparador del paso 4 que **no** aplica aquí: el bump de versión. El snapshot normaliza el
+   Un disparador del paso 2 que **no** aplica aquí: el bump de versión. El snapshot normaliza el
    `version=` y el `hash=` del marcador, así que subir la versión mueve 30 archivos del espejo y
    **cero** líneas del golden. Es a propósito: sin esa normalización se invalidaría en cada
    release y dejaría de tener señal.
 
-CI corre además `pnpm --filter navori build` y `check:size` (guard de bundle size). Cambios
-**doc-only** (.md): basta `pnpm lint` + `pnpm format:check`; no necesitas la suite completa.
+El único paso que CI corre y el gate local **no** repite es `check:assets:ci`: es la misma
+verificación que `check:assets` con `--strict`, y lo estricto depende de tags que CI trae a
+propósito y un clon fresco no tiene — en el gate fallaría por una causa ambiental, no por el
+fondo. La razón está escrita en `repo-config-gate.test.ts`, que es también quien exige que
+cualquier otro paso nuevo de CI entre al gate.
+
+Cambios **doc-only** (.md): basta `pnpm lint` + `pnpm format:check`; no necesitas la suite
+completa.
 **"Doc-only" son los docs del repo, no los assets**: un `.md` bajo `packages/core/core-assets/`
-o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara los pasos 4 y 5
+o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara los pasos 2 y 3
 (espejo y golden) aunque su extensión diga lo contrario.
 
 ## Commits y PRs
