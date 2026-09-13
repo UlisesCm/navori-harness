@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getCoreRoot } from "../bundled-assets.ts";
+import { getFrontmatterField, splitFrontmatter } from "../frontmatter.ts";
 import { isInvokable, listAgentAssets } from "./helpers/agent-assets.ts";
 
 /**
@@ -257,6 +258,99 @@ describe("the roles that are told to use memory can reach it (#575)", () => {
     // locate, no decision worth remembering. The Engram block already exempts a
     // toolset with no `mem_*` call by name, so the prose it receives is honest.
     expect(familiesFor("commit-pr-pilot")).toEqual([]);
+  });
+});
+
+/**
+ * #761 — the two roles that read the most code finally reach memory, and reach
+ * only the read half of it.
+ *
+ * `researcher` and `explorer` were the only agents with no `mem_*` call at all,
+ * so every invocation re-derived from files what an earlier session had already
+ * settled. They now hold the two read tools by name.
+ *
+ * The half worth pinning is the absence. Both are read-only BY CONTRACT — one
+ * answers a scoped question, the other maps an area, neither edits code — so a
+ * writer would contradict their own protocol. And the measured problem with the
+ * write channel is quality, not scarcity: 784 `mem_save` against 273
+ * `mem_search` across the transcripts (#728). Fanning writes out over every
+ * subagent running in parallel makes that worse, not better. So if a later edit
+ * "completes" this toolset with `mem_save`, it is undoing a decision, not
+ * filling a gap — this suite is where it finds that out.
+ *
+ * Granted by NAME rather than through the `mcp__engram__*` family that
+ * `withAgentMcpTools` derives: that pattern is server-wide and would hand them
+ * every writer with it. The price is that the entries also ship to repos with
+ * engram disabled, where they name a tool that does not exist and resolve to
+ * nothing — inert, and cheaper than teaching the plugin schema a per-injection
+ * tool subset.
+ *
+ * The matching carve-out in engram's always-on block is phrased by TOOLSET, not
+ * by agent id, and the reason is worth keeping out of it: that block is paid on
+ * every subagent launch, so its prose earns its bytes or it goes. A list of
+ * names there would also be hand-maintained forever, would name an agent that
+ * does not exist in a repo running `harness.explorer: false`, and would go
+ * stale the day a third read-only role appears. `tools:` already answers the
+ * question the prose is asking. So the block keeps only the clause that
+ * reassigns the write bullets; the framing and the why live here, where they
+ * cost nothing per launch.
+ */
+describe("researcher and explorer read memory, and only read it (#761)", () => {
+  const READ_ONLY_AGENTS = ["researcher", "explorer"] as const;
+  const READ_TOOLS = ["mcp__engram__mem_search", "mcp__engram__mem_get_observation"] as const;
+  /** Every mutating tool, plus the family pattern that would grant them all. */
+  const WRITE_TOOLS = [
+    "mcp__engram__*",
+    "mcp__engram__mem_save",
+    "mcp__engram__mem_update",
+    "mcp__engram__mem_delete",
+    "mcp__engram__mem_session_summary",
+  ] as const;
+
+  /** The `tools:` allowlist an agent asset declares, split into entries. */
+  function declaredTools(agent: string): string[] {
+    const asset = listAgentAssets().find((a) => a.id === agent);
+    if (asset === undefined) throw new Error(`no core agent asset named ${agent}`);
+    const { frontmatter } = splitFrontmatter(asset.content);
+    const tools = getFrontmatterField(frontmatter, "tools");
+    if (tools === null) throw new Error(`${agent} declares no tools: allowlist`);
+    return tools
+      .split(",")
+      .map((t) => t.trim())
+      .filter((t) => t !== "");
+  }
+
+  it("reads the allowlist it is about to assert on (a mute audit is not a pass)", () => {
+    // Anti-vacuity: a `declaredTools` that silently returned [] would make every
+    // absence below pass on air.
+    expect(declaredTools("researcher")).toContain("Read");
+    expect(declaredTools("explorer")).toContain("Grep");
+  });
+
+  it.each(READ_ONLY_AGENTS)("%s can search memory and open what it finds", (agent) => {
+    expect(declaredTools(agent)).toEqual(expect.arrayContaining([...READ_TOOLS]));
+  });
+
+  it.each(READ_ONLY_AGENTS)("%s holds no tool that writes to memory", (agent) => {
+    const declared = declaredTools(agent);
+    for (const writer of WRITE_TOOLS) {
+      expect(
+        declared,
+        `${agent} is read-only by contract and was given memory on that basis (#761): it answers ` +
+          "or maps, it never edits code, so it has nothing of its own to persist. Adding " +
+          `${writer} reverses a deliberate decision — take it to the issue, not to this line`,
+      ).not.toContain(writer);
+    }
+  });
+
+  it("engram injects into neither, which is what keeps the family off their tools:", () => {
+    // `withAgentMcpTools` widens an agent to `mcp__engram__*` as soon as engram
+    // injects prose into it — the write tools would arrive as a side effect of
+    // an injection nobody read as a permission change.
+    const engram = MCP_PLUGINS.find((p) => p.manifest.id === "engram");
+    const targets = (engram?.manifest.skills ?? []).map((skill) => skill.injectInto);
+    expect(targets).not.toContain(".claude/agents/researcher.md");
+    expect(targets).not.toContain(".claude/agents/explorer.md");
   });
 });
 

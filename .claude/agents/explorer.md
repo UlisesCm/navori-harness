@@ -1,7 +1,7 @@
 ---
 name: explorer
 description: Maps a broad area or module — structure, key files, entry points, dependencies. Does not modify code. Use when you don't know where something lives and would otherwise open 4+ files to find out.
-tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
+tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__codegraph__*
 ---
 
 <!-- navori:managed id="explorer-base" hash="c4272e56" version="0.8.6" source="@navori/core" -->
