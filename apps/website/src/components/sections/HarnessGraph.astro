@@ -321,6 +321,11 @@ const labelsJson = JSON.stringify({
           )
         }
 
+        {/* the prompt token, travelling */}
+        <g data-token class="wk-token">
+          <circle r="9" filter="url(#wk-glow)"></circle>
+        </g>
+
         {/* stations */}
         {
           stops.map((st) => (
@@ -337,10 +342,7 @@ const labelsJson = JSON.stringify({
           ))
         }
 
-        {/* the prompt token, travelling */}
-        <g data-token class="wk-token">
-          <circle r="9" filter="url(#wk-glow)"></circle>
-        </g>
+
       </svg>
     </div>
 
@@ -493,7 +495,7 @@ const labelsJson = JSON.stringify({
     font-weight: 600;
     text-anchor: middle;
     fill: color-mix(in oklab, var(--color-ink), transparent 45%);
-    transition: fill 0.3s ease;
+    transition: fill 0.25s ease;
   }
 
   :global(html.dark) .wk-dot-n {
@@ -525,21 +527,26 @@ const labelsJson = JSON.stringify({
 
   /* visited stations keep their colour; the active one pulses */
   .wk-station.is-visited .wk-dot {
-    fill: color-mix(in oklab, var(--color-sky-500), transparent 88%);
+    fill: color-mix(in oklab, var(--color-sky-500), var(--color-ivory) 86%);
     stroke: var(--color-sky-500);
   }
 
   .wk-station.is-active .wk-dot {
-    fill: color-mix(in oklab, var(--color-violet-600), transparent 82%);
-    stroke: var(--color-violet-500);
+    fill: var(--color-violet-500);
+    stroke: var(--color-violet-600);
+    stroke-width: 2.5;
+    filter: drop-shadow(0 0 12px color-mix(in oklab, var(--color-violet-500), transparent 45%));
   }
 
-  .wk-station.is-active .wk-dot-n,
+  /* on a solid violet disc the digit reads white, not violet-on-violet */
+  .wk-station.is-active .wk-dot-n {
+    fill: #fff;
+  }
+
   .wk-station.is-active .wk-st-name {
     fill: var(--color-violet-700);
   }
 
-  :global(html.dark) .wk-station.is-active .wk-dot-n,
   :global(html.dark) .wk-station.is-active .wk-st-name {
     fill: var(--color-violet-300);
   }
@@ -626,8 +633,17 @@ const labelsJson = JSON.stringify({
   }
 
   /* ── the travelling token ───────────────────────────────────────── */
+  .wk-token {
+    transition: opacity 0.25s ease;
+  }
+
   .wk-token circle {
     fill: var(--color-violet-500);
+  }
+
+  /* parked on a station: the node itself carries the light */
+  [data-walk][data-moving="no"] .wk-token {
+    opacity: 0;
   }
 
   /* ── narrator ───────────────────────────────────────────────────── */
@@ -775,6 +791,11 @@ const labelsJson = JSON.stringify({
       trail.style.strokeDashoffset = String(routeLength - len);
     };
 
+    /** Whether the token is between stations; CSS hides it when parked. */
+    const setMoving = (moving: boolean): void => {
+      root.dataset.moving = moving ? "yes" : "no";
+    };
+
     const render = (n: number): void => {
       root.dataset.stop = String(n);
       for (const s of stops) {
@@ -798,6 +819,7 @@ const labelsJson = JSON.stringify({
     // Static fallback: everything lit, no travel, buttons still navigate.
     if (reduced) {
       trail.style.strokeDashoffset = "0";
+      setMoving(false);
       for (const s of stops) for (const c of s.chips) c.classList.add("is-on");
       render(1);
       for (const s of stops) {
@@ -828,6 +850,7 @@ const labelsJson = JSON.stringify({
         if (elapsed >= DWELL_MS) {
           phase = "travel";
           phaseStart = now;
+          setMoving(true);
         }
       } else {
         const from = stops[index]?.at ?? 0;
@@ -850,6 +873,7 @@ const labelsJson = JSON.stringify({
             render(stops[0]?.n ?? 1);
             phase = "dwell";
             phaseStart = now;
+            setMoving(false);
           } else {
             token.setAttribute("opacity", String(1 - k));
           }
@@ -860,6 +884,7 @@ const labelsJson = JSON.stringify({
             render(stops[index]?.n ?? 1);
             phase = "dwell";
             phaseStart = now;
+            setMoving(false);
           }
         }
       }
@@ -890,6 +915,7 @@ const labelsJson = JSON.stringify({
       const target = stops[index];
       if (!target) return;
       token.setAttribute("opacity", "1");
+      setMoving(false);
       place(target.at);
       render(target.n);
     };
@@ -907,6 +933,7 @@ const labelsJson = JSON.stringify({
 
     toggle?.addEventListener("click", () => (running ? stop() : start()));
 
+    setMoving(false);
     place(stops[0]?.at ?? 0);
     render(stops[0]?.n ?? 1);
 
