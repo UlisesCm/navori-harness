@@ -5,8 +5,31 @@ auditoría de ruteo #717 cerrada con sus seis hijos (#719, #727, #729, #733, #73
 Además #698, #675, #683, #693, #696 y #661.
 
 **2026-09-13**: mergeados #751 (aviso de `doctor` para skills project-local sin trigger, otra
-sesión) y #752 (guía de extensión `docs/EXTENDING.md` + READMEs al día). `main` en `220388c`.
-Cero PRs abiertos.
+sesión), #752 (guía de extensión `docs/EXTENDING.md` + READMEs al día) y los dos del website
+(#756, #762, otra sesión). `main` en `4147f76`.
+
+**2026-09-13 (tarde) — revisión de los logs de 0.8.6.** Solo **4 sesiones** corrieron con
+`navoriRendered=0.8.6`, y 2 puntúan con el corte del minero (>= 3 oportunidades). La línea base
+(`docs/research/linea-base-delegacion-0.8.5.md`) pide **20 sesiones** antes de concluir, así que
+no hay comparación posible todavía — decirlo es el punto, porque leer la muestra chica es el
+error exacto que produjo el hallazgo falso de #705. La forma sí se repite: una sesión 17/17 con
+20 agentes, y dos sesiones con CERO agentes que abrieron 5 PRs entre las dos.
+
+**Dos bugs del instrumento, abiertos hoy.** Los dos bloquean el "después" del experimento:
+
+1. **#763** (`bug`, `priority:high`) — la caché negativa de `resolveSessionLog`
+   (`packages/cli/src/lib/audit/collect.ts:330`) deja sin tercera fuente a toda sesión que
+   arranque con el receptor ya vivo. Tras 18h de uptime el healthz canta
+   `{"written":5796,"discarded":5119,"sessions":1}`: escribió en UNA sesión de 70. El comentario
+   del código asume que el log nace en `SessionStart`; nace en `UserPromptSubmit`, y los hooks de
+   `SessionStart` ya exportaron antes. **Mientras no se arregle, las sesiones nuevas siguen sin
+   eventos OTel**, así que R12/R13 de la spec 0021 quedan vacías en la práctica.
+2. **#764** (`bug`, `priority:medium`) — `repo=$(basename "$cwd")` parte el log de una sesión en
+   un repo fantasma cuando el cwd es un worktree de agente (`.claude/worktrees/<id>`). Además
+   puede desviar los eventos OTel al archivo que el reporte no lee, por el orden de `readdir`.
+
+El reporte de rango de esa revisión:
+`~/.navori/audits/navori-harness/ranges/2026-09-12--2026-09-13/report.md`.
 
 **La Fase 1 tiene su medición**, y es la que faltaba para decidir: con el corte en el día que entró
 el guard, el parque pasó de **6.6% a 40.7%** de búsquedas por la vía buena — mismo instrumento en
@@ -18,6 +41,9 @@ próxima ventana dirá si cierra.
 `alertaciudadana_app` (972 búsquedas) y `_backend` (523) YA tienen tgrep y siguen en ~0.3%, porque
 se rindieron con 0.8.4 y tienen el wrapper sin el guard. La palanca es `render --apply` a 0.8.5, no
 `navori add tgrep`, y son dos PRs fuera de este repo.
+
+Y **#763 antes de volver a medir 0.8.6**: cada sesión que pasa con el bug vivo es una sesión sin
+tercera fuente, y no se recupera — los eventos emitidos mientras nadie los escribe se pierden.
 
 Issues abiertos que NO son de este carril: #705, #728, #730. (#736 cerró con #751.)
 
