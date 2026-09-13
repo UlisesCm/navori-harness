@@ -505,7 +505,7 @@ proof the work is safe: what makes it recoverable is the branch being pushed.
 ---
 name: explorer
 description: Maps a broad area or module — structure, key files, entry points, dependencies. Does not modify code. Use when you don't know where something lives and would otherwise open 4+ files to find out.
-tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
+tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__codegraph__*
 ---
 
 <!-- navori:managed id="explorer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -1023,7 +1023,7 @@ Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user 
 ---
 name: researcher
 description: Answers ONE scoped question about the repo with cited evidence, written to a file. Does not modify code. Use when answering would take reading 4+ files, or to challenge a design decision with fresh context.
-tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
+tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__codegraph__*
 ---
 
 <!-- navori:managed id="researcher-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10317,7 +10317,7 @@ How to use it in practice — the full ladder, the monorepo caveat and the index
 <!-- navori:managed id="engram-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
 ## Engram
 
-**Who this block is addressed to.** Whoever holds the `mcp__engram__*` tools: the orchestrator (main agent) and any subagent whose `tools:` lists them. This text ships in `CLAUDE.md`, which every subagent receives — so if your toolset has no `mem_*` call, the block is not yours and nothing below applies; skip it instead of spending a turn discovering the tool is absent. The **session ceremonies** (`mem_session_summary` and the curation that follows it) belong to the agent that owns the session; a subagent closing with `done -> <file>` is not ending a session and never runs them.
+**Who this block is addressed to.** Whoever holds the `mcp__engram__*` tools: the orchestrator (main agent) and any subagent whose `tools:` lists them. This text ships in `CLAUDE.md`, which every subagent receives — so if your toolset has no `mem_*` call, the block is not yours and nothing below applies; skip it instead of spending a turn discovering the tool is absent. If your `tools:` lists a reader (`mem_search`, `mem_get_observation`) and no writer, the pre-flight below is the whole block: every bullet naming `mem_save`, `mem_update` or a ceremony is addressed to whoever holds the write tool. The **session ceremonies** (`mem_session_summary` and the curation that follows it) belong to the agent that owns the session; a subagent closing with `done -> <file>` is not ending a session and never runs them.
 
 - **Session start (only where no hook did it):** if a startup hook already injected the memory context (on Claude the engram plugin ships its own `SessionStart`), work with what's injected — calling `mem_context` only re-fetches it. On hosts with no startup hook (e.g. Codex), that explicit call IS the memory startup and it's the mandatory first step; don't skip it.
 - **Pre-flight:** `mem_search` with the task's keywords before searching code — it gives a region and a hypothesis; confirm signature, line, and call sites with Grep/structural-search before acting.
