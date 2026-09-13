@@ -472,6 +472,52 @@ if graded:
 else:
     print(f"  (ninguna sesión llegó a {MIN_OPP} oportunidades)")
 
+# ─── El desglose por repo, con su denominador al lado ───────────────────────
+#
+# El agregado escondía que un repo aporta la mayoría de los fallos y otro está
+# cinco veces por encima de la media (#705), así que la tabla se imprime. Pero
+# se imprime CON la columna de sesiones y con la nota de abajo: sin ellas, una
+# fila en cero se lee como una propiedad del repo, que es exactamente la lectura
+# que el bloque de distribución de arriba existe para corregir.
+#
+# Se detalla aparte el disparador que motivó el issue —`pr → review-diff/pilot`,
+# el de mayor volumen— porque el total por repo mezcla seis disparadores con
+# tasas muy distintas, y esa media tampoco es una propiedad del repo.
+PILOT = "pr → review-diff/pilot"
+by_repo = {}
+for r in rows:
+    a = by_repo.setdefault(r["repo"], dict(sessions=0, opp=0, hit=0, popp=0, phit=0))
+    a["sessions"] += 1
+    a["opp"] += sum(r["opp"].values())
+    a["hit"] += sum(r["hit"].values())
+    a["popp"] += r["opp"][PILOT]
+    a["phit"] += r["hit"][PILOT]
+
+print("\n" + "=" * 104)
+print("POR REPO — omite los repos sin oportunidades; el TOTAL cuadra con POR DISPARADOR")
+print("=" * 104)
+print(f"{'repo':<34}{'sesiones':>9}{'opp':>7}{'activadas':>11}{'tasa':>7}"
+      f"{'pr-opp':>9}{'pr-act':>9}{'tasa':>7}")
+for k in sorted((k for k, v in by_repo.items() if v["opp"]),
+                key=lambda x: (-by_repo[x]["opp"], x)):
+    a = by_repo[k]
+    print(f"{k[:33]:<34}{a['sessions']:>9}{a['opp']:>7}{a['hit']:>11}"
+          f"{(100*a['hit']//a['opp']):>6}%"
+          f"{a['popp']:>9}{a['phit']:>9}{(100*a['phit']//a['popp'] if a['popp'] else 0):>6}%")
+po, ph = TO[PILOT], TH[PILOT]
+print(f"{'TOTAL':<34}{len(rows):>9}{to:>7}{th:>11}{(100*th//to if to else 0):>6}%"
+      f"{po:>9}{ph:>9}{(100*ph//po if po else 0):>6}%")
+print("\n  'sesiones' es el denominador real de la fila, y la fila no se puede leer sin él:")
+if graded:
+    print(f"  con una tasa base de {100*base:.1f}% de sesiones que NO delegan nada, un repo de")
+    print("  pocas sesiones saliendo en cero es lo esperable por azar, no una propiedad suya.")
+else:
+    print("  con la tasa base de sesiones que no delegan nada, un repo de pocas sesiones")
+    print("  saliendo en cero es lo esperable por azar, no una propiedad suya.")
+print("  Solo una fila con muchas oportunidades sostiene una lectura sobre ESE repo.")
+print("  El TOTAL cuenta las sesiones de todos los repos, también los omitidos por no")
+print("  tener ninguna oportunidad.")
+
 print("\n" + "=" * 104)
 print("INVOCACIONES REALES — automáticas vs pedidas por el usuario")
 print("=" * 104)
