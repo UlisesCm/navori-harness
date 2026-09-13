@@ -3,6 +3,7 @@ import { useTranslations, localizedPath } from "../i18n/utils";
 import type { Lang } from "../i18n/ui";
 import InstallTabs from "./InstallTabs.astro";
 import HeroTerminal from "./HeroTerminal.astro";
+import { REPO_URL } from "../consts";
 
 interface Props {
   lang: Lang;
@@ -62,7 +63,7 @@ const t = useTranslations(lang);
         </a>
         <a
           class="btn btn-ghost"
-          href="https://github.com/navori/navori"
+          href={REPO_URL}
           target="_blank"
           rel="noreferrer"
         >
