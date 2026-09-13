@@ -789,6 +789,23 @@ interface DoctorCmdStrings {
   gitHygieneEphemeralNotIgnored: (path: string) => string;
   /** An ephemeral agent path the index still tracks (#646). */
   gitHygieneEphemeralTracked: (path: string) => string;
+  /** Note title for the distribution section (#778). */
+  distributionTitle: string;
+  /** Harness files rendered on disk that were never committed. */
+  distributionUncommitted: (files: number, sample: string) => string;
+  /** Harness commits that exist only in this clone. */
+  distributionUnpushed: (commits: number, upstream: string) => string;
+  /** The base branch publishes a different harness than the one on disk. */
+  distributionVsBase: (
+    ref: string,
+    files: number,
+    localVersion: string,
+    baseVersion: string,
+  ) => string;
+  /** The base branch moved the harness and this checkout stayed behind. */
+  distributionBehindBase: (ref: string, commits: number) => string;
+  /** Closing line: what this section is and is not. */
+  distributionHint: string;
   /** Note title for the workspace config-drift section (#326). */
   workspaceDriftTitle: (workspace: string, siblings: number) => string;
   /** A key diverging from the workspace manifest's declared default. */
@@ -1158,6 +1175,16 @@ interface StatusCmdStrings {
   nextStepsTitle: string;
   issuesFound: string;
   ok: string;
+  /** The `distribución` row: the git-side divergences, in one line (#778). */
+  distributionRow: (parts: string) => string;
+  /** "N sin commitear" — the working tree half of that row. */
+  distributionRowUncommitted: (files: number) => string;
+  /** "N sin pushear" — the local-commits half. */
+  distributionRowUnpushed: (commits: number) => string;
+  /** "N difieren vs origin/main" — the base-branch half. */
+  distributionRowVsBase: (files: number, ref: string) => string;
+  /** "N commits detrás de origin/main" — the stale-checkout half. */
+  distributionRowBehind: (commits: number, ref: string) => string;
 }
 
 interface GlobalCmdStrings {
@@ -1822,6 +1849,17 @@ const CMD_ES: CmdStrings = {
       `'${path}' no está ignorado — son artefactos efímeros de agentes; agrégalo al .gitignore (o usa gitignoreHarness)`,
     gitHygieneEphemeralTracked: (path) =>
       `'${path}' sigue trackeado por git — el .gitignore no destrackea lo que el índice ya tenía, así que el árbol queda sucio en cada sesión y el archivo se cuela en commits ajenos; destráckealo con 'git rm --cached' (agrega '-r' si es un directorio) y commitea`,
+    distributionTitle: "Distribución (lo que git comparte vs lo que hay en disco)",
+    distributionUncommitted: (files, sample) =>
+      `${files} archivo(s) del harness con cambios sin commitear (${sample}) — el render existe solo en esta máquina: quien clone, y el CI, reciben el harness anterior`,
+    distributionUnpushed: (commits, upstream) =>
+      `${commits} commit(s) del harness sin pushear a '${upstream}' — están commiteados pero nadie más los tiene`,
+    distributionVsBase: (ref, files, localVersion, baseVersion) =>
+      `la rama base '${ref}' comparte un harness distinto del que tienes en disco: ${files} archivo(s) difieren, versión ${localVersion} aquí contra ${baseVersion} allá — revísalo con 'git diff --stat ${ref} -- .claude CLAUDE.md navori.config.json'`,
+    distributionBehindBase: (ref, commits) =>
+      `'${ref}' tiene ${commits} commit(s) sobre archivos del harness que este checkout no tiene — la sesión está corriendo con un harness más viejo que el de la base; actualiza con 'git merge --ff-only ${ref}' (o el pull que uses)`,
+    distributionHint:
+      "Informativo: navori no commitea, pushea ni mergea por ti, y una rama de trabajo con cambios de harness que la base aún no tiene es un estado normal. Se reporta porque ninguna otra verificación mira git, y medir una sesión sobre un harness que solo existe en esta máquina es el error que esta sección existe para evitar.",
     workspaceDriftTitle: (workspace, siblings) =>
       `Drift respecto al workspace '${workspace}'${siblings > 0 ? ` (${siblings} repos hermanos)` : ""}:`,
     workspaceDriftDefaultRow: (key, local, expected) =>
@@ -2104,6 +2142,11 @@ const CMD_ES: CmdStrings = {
     nextStepsTitle: "Próximos pasos",
     issuesFound: "Se encontraron problemas",
     ok: "OK",
+    distributionRow: (parts) => `${parts} — detalle en 'navori doctor'`,
+    distributionRowUncommitted: (files) => `${files} sin commitear`,
+    distributionRowUnpushed: (commits) => `${commits} sin pushear`,
+    distributionRowVsBase: (files, ref) => `${files} difieren vs ${ref}`,
+    distributionRowBehind: (commits, ref) => `${commits} commit(s) detrás de ${ref}`,
   },
   engine: {
     managedBlockEditedByHand:
@@ -2933,6 +2976,17 @@ const CMD_EN: CmdStrings = {
       `'${path}' is not ignored — these are ephemeral agent artifacts; add it to .gitignore (or use gitignoreHarness)`,
     gitHygieneEphemeralTracked: (path) =>
       `'${path}' is still tracked by git — .gitignore never untracks what the index already held, so the tree is dirty every session and the file rides into unrelated commits; untrack it with 'git rm --cached' (add '-r' for a directory) and commit`,
+    distributionTitle: "Distribution (what git shares vs what is on disk)",
+    distributionUncommitted: (files, sample) =>
+      `${files} harness file(s) with uncommitted changes (${sample}) — the render exists only on this machine: whoever clones, and CI, get the previous harness`,
+    distributionUnpushed: (commits, upstream) =>
+      `${commits} harness commit(s) not pushed to '${upstream}' — they are committed, but nobody else has them`,
+    distributionVsBase: (ref, files, localVersion, baseVersion) =>
+      `the base branch '${ref}' shares a different harness than the one on disk: ${files} file(s) differ, version ${localVersion} here against ${baseVersion} there — inspect it with 'git diff --stat ${ref} -- .claude CLAUDE.md navori.config.json'`,
+    distributionBehindBase: (ref, commits) =>
+      `'${ref}' has ${commits} commit(s) on harness files this checkout does not have — the session is running an older harness than the base ships; catch up with 'git merge --ff-only ${ref}' (or your usual pull)`,
+    distributionHint:
+      "Informational: navori does not commit, push or merge for you, and a working branch carrying harness changes the base has not merged yet is a normal state. It is reported because no other check looks at git, and measuring a session against a harness that exists only on this machine is the mistake this section exists to prevent.",
     workspaceDriftTitle: (workspace, siblings) =>
       `Drift from workspace '${workspace}'${siblings > 0 ? ` (${siblings} sibling repos)` : ""}:`,
     workspaceDriftDefaultRow: (key, local, expected) =>
@@ -3210,6 +3264,11 @@ const CMD_EN: CmdStrings = {
     nextStepsTitle: "Next steps",
     issuesFound: "Issues found",
     ok: "OK",
+    distributionRow: (parts) => `${parts} — details in 'navori doctor'`,
+    distributionRowUncommitted: (files) => `${files} uncommitted`,
+    distributionRowUnpushed: (commits) => `${commits} unpushed`,
+    distributionRowVsBase: (files, ref) => `${files} differ vs ${ref}`,
+    distributionRowBehind: (commits, ref) => `${commits} commit(s) behind ${ref}`,
   },
   engine: {
     managedBlockEditedByHand:

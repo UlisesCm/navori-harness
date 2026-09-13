@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="c13ce90c" version="0.8.6" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="fb5abaa6" version="0.8.6" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse(Bash) watcher for managed-block drift (#530).
@@ -207,7 +207,42 @@ navori_audit_log() {
   # The session may not be the marked one even in a repo that has been audited
   # before. Also the writability check — a log that cannot be appended to is not
   # an error, it is simply not recording.
-  [ -f "$navori_audit_file" ] || return 0
+  if [ ! -f "$navori_audit_file" ]; then
+    # SPOOL for the phase that CANNOT have a log yet (#778).
+    #
+    # `navori audit --start` is what creates the session log, and it runs from
+    # the UserPromptSubmit hook — i.e. after the first prompt. Every SessionStart
+    # hook therefore fires BEFORE the file exists, and the check above threw its
+    # record away every single time: measured, `session-start-context` recorded 1
+    # of ~20 startups in this repo, and the only survivor was a resume onto an
+    # already-open log. "Did the session load the harness?" had no witness at all,
+    # which is exactly the question the recorder exists to answer.
+    #
+    # So those records go to a side file that `--start` absorbs. Two deliberate
+    # limits keep this from becoming a leak:
+    #
+    #   1. SessionStart ONLY. Every other phase runs after a prompt, so a missing
+    #      log there means the session is genuinely not marked — and spooling
+    #      those would write four lines per Bash call, for every session of every
+    #      repo, forever. That is thousands of writes to buy nothing.
+    #   2. Only where the repo's audit directory ALREADY exists, which means the
+    #      repo has been audited (or armed) at least once. `mkdir` is never run
+    #      from here: a repo that has never used audit-mode must stay at zero
+    #      files and zero forks, the same contract as the root gate above. The
+    #      cost is that the FIRST audited session of a repo still loses its
+    #      SessionStart records; every one after it has them.
+    #
+    # FAIL-OPEN, and here more than anywhere: this runs while a session is
+    # opening. Every failure path below returns 0 and writes nothing to stdout —
+    # a spool that could abort a hook would make observation the reason a session
+    # does not start, which is the one bug this partial may never have.
+    [ "${navori_audit_phase:-}" = "SessionStart" ] || return 0
+    [ -d "$navori_audit_root/$navori_audit_repo" ] || return 0
+    navori_audit_file=$navori_audit_root/$navori_audit_repo/pending-$navori_audit_session.jsonl
+    if [ ! -e "$navori_audit_file" ]; then
+      : >> "$navori_audit_file" 2>/dev/null || return 0
+    fi
+  fi
   [ -w "$navori_audit_file" ] || return 0
 
   # Volume valve, OFF by default.

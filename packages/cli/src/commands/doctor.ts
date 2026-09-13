@@ -34,6 +34,7 @@ import { scanDiskUsage, humanBytes } from "../lib/disk-usage.ts";
 import { scanNestedWorktrees } from "../lib/nested-worktrees.ts";
 import { scanGlobalScope, type ManagedPolicyKey } from "../lib/global-scope.ts";
 import { scanForeignHarness, type ForeignHarnessReport } from "../lib/foreign-harness.ts";
+import { scanDistribution, type DistributionReport } from "../lib/distribution.ts";
 import { scanPermissionMode } from "../lib/health.ts";
 import {
   listMarkers,
@@ -208,6 +209,12 @@ export const doctorCommand = defineCommand({
     // The other half of #313: what MUST be versioned isn't ignored (specs/) and
     // what's ephemeral is (.claude/progress|worktrees). Null outside git. #325.
     const gitHygiene = scanGitHygiene(cwd, config);
+    // #778: the git axis nothing else looks at — rendered but not committed,
+    // committed but not pushed, pushed onto a branch the base never merged, and
+    // a checkout left behind by the base. Advisory and NETWORK-FREE (local refs
+    // only, no fetch), null — and therefore silent — in a repo that doesn't
+    // version its harness.
+    const distribution = scanDistribution(cwd, config);
     // Config drift against the workspace — its declared defaults and, above all,
     // the mode of its sibling repos. Informational, never auto-applied. #326.
     const workspaceDrift = scanWorkspaceDrift(cwd, config);
@@ -318,6 +325,10 @@ export const doctorCommand = defineCommand({
       gitignoreHealth,
       prettierIgnoreHealth,
       gitHygiene,
+      // Serialized like every other warning-level check (#479): a CI job or an
+      // agent reading `--json` is exactly the reader who can act on "this
+      // harness was never pushed", and it was the only one blind to it.
+      distribution,
       workspaceDrift,
       staleHarness,
       flatSkills,
@@ -807,6 +818,12 @@ export const doctorCommand = defineCommand({
       if (gh.length > 0) p.note(gh.join("\n"), td.gitHygieneTitle);
     }
 
+    // #778: distribution. Advisory on the same terms as git hygiene above — the
+    // remedy is a commit, a push or a merge, which navori never performs.
+    if (distribution) {
+      p.note(distributionLines(distribution, td).join("\n"), td.distributionTitle);
+    }
+
     // #326: config drift against the workspace. Purely informational — the
     // checked-in config stays the source of truth and adoption is an explicit act.
     if (workspaceDrift) {
@@ -989,6 +1006,59 @@ export function foreignHarnessLines(
   for (const id of report.staleAcknowledged) {
     lines.push(`  ${color.yellow(sym.update)} ${td.foreignHarnessStaleAck(id)}`);
   }
+  return lines;
+}
+
+/** How many harness paths the uncommitted row names before it stops (#778). */
+const MAX_DISTRIBUTION_SAMPLE = 3;
+
+/**
+ * The rows doctor prints for a distribution report (#778).
+ *
+ * Exported and pure for the same reason `foreignHarnessLines` is: the SENTENCE
+ * is the product here. "55 files differ" is a number anyone could have counted;
+ * "the base branch shares 0.7.7 while your disk runs 0.8.6" is the claim that
+ * would have ended the two weeks of measuring a harness that existed on one
+ * machine, and it has to be asserted somewhere.
+ */
+export function distributionLines(
+  report: DistributionReport,
+  td: ReturnType<typeof tc>["doctor"],
+): string[] {
+  const lines: string[] = [];
+  if (report.uncommitted.length > 0) {
+    const shown = report.uncommitted.slice(0, MAX_DISTRIBUTION_SAMPLE);
+    const rest = report.uncommitted.length - shown.length;
+    const sample = rest > 0 ? `${shown.join(", ")}, +${rest}` : shown.join(", ");
+    lines.push(
+      `  ${color.yellow(sym.update)} ${td.distributionUncommitted(report.uncommitted.length, sample)}`,
+    );
+  }
+  if (report.unpushed) {
+    lines.push(
+      `  ${color.yellow(sym.update)} ${td.distributionUnpushed(report.unpushed.commits, report.unpushed.upstream)}`,
+    );
+  }
+  const base = report.base;
+  if (base && base.files > 0) {
+    // `?` rather than a guessed version: a side that ships no `$navori` stamp
+    // is unknown, and printing "0.0.0" there would be an invented fact in the
+    // one row whose whole value is that the two numbers are real.
+    lines.push(
+      `  ${color.yellow(sym.update)} ${td.distributionVsBase(
+        accent(base.ref),
+        base.files,
+        base.localVersion ?? "?",
+        base.baseVersion ?? "?",
+      )}`,
+    );
+  }
+  if (base && base.behind > 0) {
+    lines.push(
+      `  ${color.yellow(sym.update)} ${td.distributionBehindBase(accent(base.ref), base.behind)}`,
+    );
+  }
+  lines.push(`  ${color.cyan(sym.bullet)} ${grey(td.distributionHint)}`);
   return lines;
 }
 

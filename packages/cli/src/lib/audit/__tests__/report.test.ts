@@ -128,6 +128,94 @@ function md(agents: AgentRun[], over: Partial<SessionAudit> = {}): string {
 }
 
 /**
+ * #778 — the detector that would have caught alertaciudadana with data the
+ * pipeline already had. The versions were PRINTED per session for releases and
+ * no finding ever read them, so "0.3% adoption" was published about a range in
+ * which the plugin being measured did not exist yet.
+ */
+describe("range finding: the sessions ran under another harness (#778)", () => {
+  /** Sessions with distinct ids so the evidence can name them. */
+  function range(...navori: Array<{ rendered: string | null; cli: string | null }>) {
+    return navori.map((n, i) => session([], { sessionId: `sess${i}0000000`, navori: n }));
+  }
+
+  function report(sessions: SessionAudit[], harnessVersion: string | null) {
+    return buildReport(sessions, {
+      repo: "demo",
+      version: "0.8.6",
+      catalog: CATALOG,
+      harnessVersion,
+      lang: "es",
+    });
+  }
+
+  it("emits nothing when every session ran the harness the repo has today", () => {
+    const r = report(
+      range(
+        { rendered: "0.8.6", cli: "0.8.6" },
+        { rendered: "0.8.6", cli: "0.8.6" },
+        // Newer than the repo's disk: that is an upgrade in flight, not a stale
+        // measurement, and calling it one would fire on every rollout.
+        { rendered: "0.8.7", cli: "0.8.7" },
+      ),
+      "0.8.6",
+    );
+    expect(r.rangeSignals).toEqual([]);
+    expect(renderMarkdown(r, "es")).not.toContain("Hallazgos del rango");
+  });
+
+  it("reports how many sessions and which versions — the alertaciudadana range", () => {
+    // 8 sessions with no version recorded, 2 on 0.7.0, 1 on 0.7.5, repo at 0.8.6.
+    const r = report(
+      range(
+        ...Array.from({ length: 8 }, () => ({ rendered: null, cli: null })),
+        { rendered: "0.7.0", cli: "0.7.0" },
+        { rendered: "0.7.0", cli: "0.7.0" },
+        { rendered: "0.7.5", cli: "0.7.5" },
+      ),
+      "0.8.6",
+    );
+    const sig = r.rangeSignals[0];
+    expect(sig?.kind).toBe("harness-regime");
+    // Not one session ran the current harness: the aggregates describe nothing
+    // that is on disk, which is the severity this case earns.
+    expect(sig?.severity).toBe("high");
+    expect(sig?.summary).toContain("11 de 11 sesiones");
+    expect(sig?.summary).toContain("0.8.6");
+    expect(sig?.evidence).toContain("8 sin versión registrada");
+    expect(sig?.evidence).toContain("0.7.0 ×2");
+    expect(sig?.evidence).toContain("0.7.5 ×1");
+    // The claim that makes the finding actionable rather than trivia.
+    expect(sig?.evidence).toContain("regímenes distintos");
+  });
+
+  it("downgrades to warn when the range merely straddles an upgrade", () => {
+    const r = report(
+      range({ rendered: "0.7.5", cli: "0.7.5" }, { rendered: "0.8.6", cli: "0.8.6" }),
+      "0.8.6",
+    );
+    expect(r.rangeSignals[0]?.severity).toBe("warn");
+    expect(r.rangeSignals[0]?.summary).toContain("1 de 2 sesiones");
+  });
+
+  it("fires on rendered ≠ cli alone — the divergence model.ts already called a finding", () => {
+    const r = report(range({ rendered: "0.8.6", cli: "0.8.7" }), "0.8.6");
+    expect(r.rangeSignals[0]?.evidence).toContain("rendered ≠ cli");
+    // Short id, the same 8 chars every other line of the report names a session by.
+    expect(r.rangeSignals[0]?.evidence).toContain("sess0000 (0.8.6 / CLI 0.8.7)");
+  });
+
+  it("prints the caveat BEFORE the figures it qualifies", () => {
+    const r = report(range({ rendered: null, cli: null }), "0.8.6");
+    const out = renderMarkdown(r, "es");
+    const caveat = out.indexOf("Hallazgos del rango");
+    const firstSession = out.indexOf("## Sesión");
+    expect(caveat).toBeGreaterThan(-1);
+    expect(caveat).toBeLessThan(firstSession);
+  });
+});
+
+/**
  * `generatedBy` describes the file; this describes the session. A report built
  * after an upgrade used to state only the former, so every cross-release
  * comparison read the generator's version as if it were the harness's.
@@ -438,13 +526,17 @@ describe("hooks del host vs conteo de subagentes (#693)", () => {
 
 describe("schema (#0013)", () => {
   // Covers: R17
-  it("declares schemaVersion 7", () => {
+  it("declares schemaVersion 8", () => {
     const report = buildReport([session([])], {
       repo: "demo",
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.schemaVersion).toBe(7);
+    expect(report.schemaVersion).toBe(8);
+    // Same contract for the bump to 8 (#778): `rangeSignals` is a scope the
+    // payload never carried, so a consumer must be able to tell it exists
+    // rather than read its absence as "the range has no caveat".
+    expect(report.rangeSignals).toEqual([]);
     // The bump is what the field below is FOR: a consumer pinned to 5 must be
     // able to tell that `orphanSessions` exists without probing for it.
     expect(report.orphanSessions).toEqual([]);

@@ -8,6 +8,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -168,6 +169,77 @@ describe("audit --arm / --disarm (#597)", () => {
     runAudit(["--arm"]);
     const entries = readdirSync(auditDir).filter((f) => f.startsWith("session-"));
     expect(entries).toEqual([]);
+  });
+});
+
+/**
+ * #778 — the SessionStart records that had nowhere to land.
+ *
+ * `--start` creates the session log and runs from UserPromptSubmit, so every
+ * SessionStart hook fires before the file exists and the recorder threw its
+ * record away: measured, `session-start-context` was written down in 1 of ~20
+ * startups. The hook now parks those lines in `pending-<session>.jsonl`; this is
+ * the CLI half that folds them in — and reclaims the ones nobody ever marked.
+ */
+describe("audit --start: the SessionStart spool (#778)", () => {
+  const spool = (id: string) => join(auditDir, `pending-${id}.jsonl`);
+
+  function writeSpool(id: string, ...names: string[]): void {
+    mkdirSync(auditDir, { recursive: true });
+    writeFileSync(
+      spool(id),
+      `${names
+        .map((name) =>
+          JSON.stringify({
+            tsMs: 1,
+            event: "hook",
+            name,
+            phase: "SessionStart",
+            verdict: "inject",
+          }),
+        )
+        .join("\n")}\n`,
+      "utf-8",
+    );
+  }
+
+  it("folds the spooled SessionStart records into the log it just created", () => {
+    writeSpool("sess-spool", "session-start-context", "tgrep-session");
+    expect(runAudit(["--start", "sess-spool"]).status).toBe(0);
+
+    const log = readFileSync(join(auditDir, "session-sess-spool.log"), "utf-8");
+    expect(log).toContain('"name":"session-start-context"');
+    expect(log).toContain('"name":"tgrep-session"');
+    // The `start` record still leads: nothing about absorbing may cost the
+    // stamp that makes the log a marked session.
+    expect(log.split("\n")[0]).toContain('"event":"start"');
+    // Absorbed means MOVED: leaving it would double every record on a re-run.
+    expect(existsSync(spool("sess-spool"))).toBe(false);
+  });
+
+  it("marks the session normally when there is no spool at all", () => {
+    expect(runAudit(["--start", "sess-plain"]).status).toBe(0);
+    expect(existsSync(join(auditDir, "session-sess-plain.log"))).toBe(true);
+  });
+
+  it("sweeps spools of sessions nobody ever marked, and keeps the recent ones", () => {
+    writeSpool("sess-old", "session-start-context");
+    writeSpool("sess-new", "session-start-context");
+    const ancient = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    utimesSync(spool("sess-old"), ancient, ancient);
+
+    runAudit(["--start", "sess-other"]);
+
+    // A couple of lines per unmarked session is small; forever is not, and the
+    // recorder may not leak.
+    expect(existsSync(spool("sess-old"))).toBe(false);
+    expect(existsSync(spool("sess-new"))).toBe(true);
+  });
+
+  it("never leaves the audit root, even for a path-shaped id", () => {
+    const res = runAudit(["--start", "../../outside/evil"]);
+    expect(res.status).not.toBe(0);
+    expect(existsSync(join(sandbox, "nested", "store", "outside", "evil.jsonl"))).toBe(false);
   });
 });
 
@@ -674,7 +746,7 @@ describe("audit --start over an id that names no session (#675)", () => {
     const res = runAudit(["--json"]);
     expect(res.status).toBe(0);
     const report = JSON.parse(res.combined) as { schemaVersion: number; orphanSessions: string[] };
-    expect(report.schemaVersion).toBe(7);
+    expect(report.schemaVersion).toBe(8);
     expect(report.orphanSessions).toEqual(["sess-orp"]);
   });
 

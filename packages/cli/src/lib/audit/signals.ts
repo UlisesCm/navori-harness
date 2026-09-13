@@ -1,6 +1,7 @@
 import { type HarnessCatalog, barredMcpTokens } from "./harness.ts";
 import type { AgentRun, SessionAudit, Signal } from "./model.ts";
 import { recorderWindow } from "./model.ts";
+import { compareSemver } from "../semver.ts";
 
 /**
  * Findings, as pure functions over one parsed session plus the harness it ran
@@ -754,6 +755,111 @@ function routingNotice(session: SessionAudit, lang: Lang): Signal[] {
         lang,
         `${detail}. El aviso es consultivo: inline puede ser lo correcto —el host puede haberlo vedado, o el cambio ser mecánico—, pero entonces la razón debería estar escrita en la sesión. Esta línea existe para que la decisión sea contable, no para reprocharla.`,
         `${detail}. The note is advisory: inline can be right — the host may have ruled delegation out, or the change may be mechanical — but then the reason belongs in the session. This line exists to make the decision countable, not to scold it.`,
+      ),
+    },
+  ];
+}
+
+/**
+ * Did the sessions in this range run under the harness the repo has TODAY? (#778)
+ *
+ * `report.ts` has printed the per-session `rendered/cli` pair for releases, and
+ * nothing ever evaluated it — `model.ts` even documents that `rendered ≠ cli`
+ * "is itself a finding" without emitting one. That gap has a measured price: a
+ * repo was audited for two weeks on "1,495 searches with tgrep at 0.3%" while
+ * its logs said 8 sessions with no version recorded and 3 on 0.7.x, against a
+ * repo whose harness read 0.8.6. Not one of the measured sessions had the plugin
+ * whose adoption was being measured. Every number in that report was true and
+ * described a harness that no longer existed.
+ *
+ * This is that check, over data the pipeline already had. RANGE-level because
+ * the defect is: the aggregate figures — tokens, skills, routing — sum sessions
+ * from different regimes, and a per-session note cannot say that about a total.
+ *
+ * `high` only when NO session ran the current harness: that is the state that
+ * invalidates the aggregates outright. A range that merely straddles an upgrade
+ * is `warn` — normal, and still worth knowing before reading a trend off it.
+ */
+export function harnessRegime(
+  sessions: SessionAudit[],
+  harnessVersion: string | null,
+  lang: Lang,
+): Signal[] {
+  if (sessions.length === 0) return [];
+
+  const unknown: SessionAudit[] = [];
+  const older = new Map<string, number>();
+  const cliDrift: string[] = [];
+  let current = 0;
+
+  for (const s of sessions) {
+    const { rendered, cli } = s.navori;
+    // The CLI moved without a `render`: the machine had one version and the
+    // session ran under another. Counted independently of the age question —
+    // a session can be current AND have been marked by a newer binary.
+    if (rendered !== null && cli !== null && rendered !== cli) {
+      cliDrift.push(`${s.sessionId.slice(0, 8)} (${rendered} / CLI ${cli})`);
+    }
+    if (rendered === null) {
+      unknown.push(s);
+      continue;
+    }
+    if (compareSemver(rendered, harnessVersion) === -1) {
+      older.set(rendered, (older.get(rendered) ?? 0) + 1);
+      continue;
+    }
+    current++;
+  }
+
+  const offRegime = unknown.length + [...older.values()].reduce((n, v) => n + v, 0);
+  if (offRegime === 0 && cliDrift.length === 0) return [];
+
+  const olderRows = [...older.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([version, n]) => `${version} ×${n}`)
+    .join(", ");
+  const today = harnessVersion ?? pick(lang, "desconocido", "unknown");
+  const parts: string[] = [];
+  if (unknown.length > 0) {
+    parts.push(
+      pick(
+        lang,
+        `${unknown.length} sin versión registrada (marcadas antes de que el campo existiera)`,
+        `${unknown.length} with no version recorded (marked before the field existed)`,
+      ),
+    );
+  }
+  if (olderRows) {
+    parts.push(
+      pick(lang, `en versiones anteriores: ${olderRows}`, `on older versions: ${olderRows}`),
+    );
+  }
+  if (cliDrift.length > 0) {
+    parts.push(
+      pick(
+        lang,
+        `${cliDrift.length} con rendered ≠ cli (el binario se actualizó sin correr 'render'): ${cliDrift.join(", ")}`,
+        `${cliDrift.length} with rendered ≠ cli (the binary was updated without a 'render'): ${cliDrift.join(", ")}`,
+      ),
+    );
+  }
+
+  return [
+    {
+      kind: "harness-regime",
+      // Nothing ran the harness this repo has now: the aggregates below do not
+      // describe it at all, which is a different claim from "the range spans an
+      // upgrade" and has to read differently.
+      severity: offRegime === sessions.length && sessions.length > 0 ? "high" : "warn",
+      summary: pick(
+        lang,
+        `${offRegime} de ${sessions.length} sesiones del rango corrieron bajo un harness distinto del que este repo tiene hoy (${today})`,
+        `${offRegime} of ${sessions.length} sessions in the range ran under a harness other than the one this repo has today (${today})`,
+      ),
+      evidence: pick(
+        lang,
+        `${parts.join("; ")}. ${current} sesión(es) corrieron el harness actual. Las cifras agregadas de este reporte —tokens, skills, ruteo, permisos— suman sesiones de regímenes distintos, así que una adopción baja puede estar describiendo un harness que ya no está en disco: un plugin agregado después de esas sesiones no podía usarse en ellas. Acota el rango a las sesiones bajo el harness actual antes de leer una tendencia.`,
+        `${parts.join("; ")}. ${current} session(s) ran the current harness. This report's aggregate figures — tokens, skills, routing, permissions — sum sessions from different regimes, so a low adoption number may be describing a harness that is no longer on disk: a plugin added after those sessions could not have been used in them. Narrow the range to the sessions under the current harness before reading a trend off it.`,
       ),
     },
   ];
