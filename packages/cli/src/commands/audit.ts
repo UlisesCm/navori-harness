@@ -6,6 +6,8 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  statSync,
   writeFileSync,
   rmSync,
 } from "node:fs";
@@ -17,10 +19,12 @@ import { detectSignals, type Lang } from "../lib/audit/signals.ts";
 import { billable, buildReport, renderJson, renderMarkdown } from "../lib/audit/report.ts";
 import {
   auditsRoot,
+  pendingSpoolPath,
   rangeReportDir,
   repoAuditDir,
   sessionLogPath,
   sessionReportDir,
+  PENDING_SPOOL_RE,
 } from "../lib/audit/paths.ts";
 import { startReceiver, type OtelReceiver } from "../lib/audit/collect.ts";
 import { NavoriError } from "../lib/errors.ts";
@@ -120,6 +124,72 @@ function emptyFlagOrExit(value: unknown, flag: string, json: boolean, isEs: bool
  * can take back. Both failure paths exit 2 — this function never returns
  * normally unless the match was unique.
  */
+/** Days a spool survives without its session ever being marked (#778). */
+const SPOOL_TTL_DAYS = 7;
+
+/**
+ * Fold this session's spooled SessionStart records into its brand-new log (#778).
+ *
+ * The records are already in the log's own line format — the partial writes
+ * them with the same `jq` — so absorbing is a concatenation, not a translation.
+ * Order does not matter: `attachHookEvents` sorts by `tsMs` and derives the
+ * recorder's horizon as a MINIMUM over the unsorted events, precisely because
+ * parallel agents already race on that append.
+ *
+ * Best-effort by design. A spool that cannot be read or deleted must not stop
+ * `--start` from marking the session: the recording is the product, the spool
+ * is an optimisation on its coverage.
+ */
+function absorbSpool(repo: string, sessionId: string, logFile: string): void {
+  let spool: string;
+  try {
+    spool = pendingSpoolPath(repo, sessionId);
+  } catch {
+    return; // An id that cannot name a path cannot name a spool either.
+  }
+  if (!existsSync(spool)) return;
+  try {
+    const body = readFileSync(spool, "utf-8");
+    if (body.trim() !== "") appendFileSync(logFile, body.endsWith("\n") ? body : `${body}\n`);
+  } catch {
+    return; // Leave the spool in place; the sweep below will reclaim it.
+  }
+  try {
+    rmSync(spool, { force: true });
+  } catch {
+    /* the file stays; it is ~2 lines and the sweep will take it */
+  }
+}
+
+/**
+ * Drop spools of sessions that were never marked (#778).
+ *
+ * A spool only exists in a repo that has used audit-mode, and only SessionStart
+ * writes one, so this is a couple of lines per unmarked session — but "a couple
+ * of lines, forever" is still a leak, and the recorder may not create one.
+ * `--start` is the natural sweeper: it is the only command that runs often
+ * enough to matter and cheap enough to afford a `readdir`.
+ */
+function sweepStaleSpools(auditDir: string, keepSessionId: string): void {
+  const cutoff = Date.now() - SPOOL_TTL_DAYS * 24 * 60 * 60 * 1000;
+  let entries: string[];
+  try {
+    entries = readdirSync(auditDir);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    if (!PENDING_SPOOL_RE.test(name)) continue;
+    if (name === `pending-${keepSessionId}.jsonl`) continue;
+    const path = join(auditDir, name);
+    try {
+      if (statSync(path).mtimeMs < cutoff) rmSync(path, { force: true });
+    } catch {
+      /* unreadable or already gone: nothing to reclaim */
+    }
+  }
+}
+
 function resolveStopTarget(
   repo: string,
   stopId: string,
@@ -352,6 +422,11 @@ export const auditCommand = defineCommand({
         })}\n`,
         "utf-8",
       );
+      // #778: fold in whatever the SessionStart hooks parked before this file
+      // existed, and sweep the spools of sessions nobody ever marked. Both run
+      // here because `--start` is the one moment that knows the answer.
+      absorbSpool(repo, startId, logFile);
+      sweepStaleSpools(auditDir, startId);
       // #675: the id is only checked for SHAPE (`SESSION_ID_RE`, which exists
       // to stop traversal and does that well). Nothing checked that it names a
       // real session, so a typo — `--start p` — answered "audit-mode active"
@@ -466,6 +541,11 @@ export const auditCommand = defineCommand({
       // #675: the human note already printed these; `--json` could not see them
       // at all, which is the half a CI or an agent reads.
       orphanSessions: missing,
+      // #778: the harness ON DISK now, against which every session's own stamp
+      // is judged. Read here — the same `cwd` `--start` stamps from — so the
+      // report module stays pure over parsed sessions.
+      harnessVersion: renderedHarnessVersion(cwd),
+      lang,
     });
 
     if (json) {

@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { scanManagedDrift, suggestNextSteps } from "../lib/health.ts";
+import { scanDistribution, type DistributionReport } from "../lib/distribution.ts";
 import { computeHealthVerdict } from "./doctor.ts";
 import { brand, dim as grey, color, sym, kv, accent } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
@@ -36,6 +37,32 @@ export function readRenderedVersion(cwd: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The distribution row's body: the counts that are non-zero, joined (#778).
+ *
+ * Counts only — the sentence, the versions on each side and the remediation
+ * command live in `doctor`, which is the verbose half of the pair. What `status`
+ * owes the reader is that the question EXISTS, since it is the command run
+ * casually and the one that reported a repo as healthy for two weeks.
+ */
+export function distributionSummary(
+  report: DistributionReport,
+  ts: ReturnType<typeof tc>["status"],
+): string {
+  const parts: string[] = [];
+  if (report.uncommitted.length > 0) {
+    parts.push(ts.distributionRowUncommitted(report.uncommitted.length));
+  }
+  if (report.unpushed) parts.push(ts.distributionRowUnpushed(report.unpushed.commits));
+  if (report.base && report.base.files > 0) {
+    parts.push(ts.distributionRowVsBase(report.base.files, report.base.ref));
+  }
+  if (report.base && report.base.behind > 0) {
+    parts.push(ts.distributionRowBehind(report.base.behind, report.base.ref));
+  }
+  return parts.join(" · ");
 }
 
 export const statusCommand = defineCommand({
@@ -84,6 +111,10 @@ export const statusCommand = defineCommand({
     const verdict = computeHealthVerdict(cwd, config);
     const missingPlugins = verdict.missingPlugins;
     const drifts = scanManagedDrift(cwd, config);
+    // #778: the git axis, summarized to one row. `status` is the at-a-glance
+    // view, so it says HOW MANY and defers the sentence to `doctor` — but it
+    // says it at all, which is the whole point: this is the command people run.
+    const distribution = scanDistribution(cwd, config);
     const enabledPlugins = Object.entries(config.plugins ?? {})
       .filter(([, v]) => v.enabled === true)
       .map(([k]) => k);
@@ -103,6 +134,7 @@ export const statusCommand = defineCommand({
             enabledPlugins,
             claudeMdExists,
             drift: drifts.length,
+            distribution,
             missingPlugins: missingPlugins.map((m) => m.id),
             // Machine-readable contract: the prose stays stable in English so a
             // consumer never has to branch on config.language.
@@ -133,6 +165,16 @@ export const statusCommand = defineCommand({
         ["plugins", enabledPlugins.length > 0 ? enabledPlugins.join(", ") : grey(ts.none)],
         ["CLAUDE.md", claudeMdExists ? color.green(ts.present) : color.red(ts.missing)],
         ["drift", drifts.length > 0 ? color.yellow(`${drifts.length}`) : color.green("0")],
+        // Absent — not "0" — when there is nothing to say, so a repo that does
+        // not version its harness gains no row at all (#778).
+        ...(distribution
+          ? ([
+              [
+                "distribution",
+                color.yellow(ts.distributionRow(distributionSummary(distribution, ts))),
+              ],
+            ] as Array<[string, string]>)
+          : []),
       ]),
       ts.statusTitle(grey(cwd)),
     );

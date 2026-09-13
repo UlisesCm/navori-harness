@@ -639,8 +639,13 @@ export interface AuditReport {
    *  Bumped to 7 with `orchestrator.mcpInjectedContext` (#728): the context an
    *  MCP server's `SessionStart` hook pushed in without a tool call, which is
    *  a READ the call counts could never show.
+   *  Bumped to 8 with `rangeSignals` (#778): findings about the RANGE rather
+   *  than about one session. They are a separate field and not appended to
+   *  `signals` because their scope is different — the first one qualifies every
+   *  aggregate in the report, and a consumer has to be able to tell "this
+   *  session did X" from "these totals mix harness versions".
    *  A reader can tell the shapes apart by this number alone. */
-  schemaVersion: 7;
+  schemaVersion: 8;
   generatedBy: string;
   /**
    * When this report was built, ISO-8601.
@@ -683,6 +688,15 @@ export interface AuditReport {
     skills: SkillTally[];
   };
   signals: Signal[];
+  /**
+   * Findings about the RANGE, not about any single session (#778).
+   *
+   * They are printed before every figure they qualify, which is the whole point:
+   * "these sessions ran under a harness this repo no longer has" is not a note
+   * on one session, it is a caveat on every total below it — and a report that
+   * states it afterwards has already been read.
+   */
+  rangeSignals: Signal[];
   /**
    * Marked sessions whose transcript could not be located, by short id.
    *

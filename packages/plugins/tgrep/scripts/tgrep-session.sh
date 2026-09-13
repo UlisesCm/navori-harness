@@ -13,6 +13,41 @@
 
 set -uo pipefail
 
+# The payload is drained and kept: draining matters on its own (an undrained
+# stdin can leave the host writing into a closed pipe), and the audit recorder
+# below reads `session_id`/`cwd` out of it.
+payload=$(cat 2>/dev/null) || payload=""
+
+# ─── Audit recorder (#778). This hook was the ONLY one of the fifteen the
+# harness registers without the include, so it had ZERO recorded executions in
+# every log of every repo — a hook that loses its `+x` bit, or whose path moves,
+# would look exactly like one that ran and decided to do nothing. That is the
+# #767 class, and the fix is the same instrumentation its thirteen siblings
+# already carry.
+navori_audit_name="tgrep-session"
+navori_audit_phase="SessionStart"
+navori_audit_source="plugin:tgrep"
+# Fallback no-ops, overwritten by the real definitions the include brings in.
+# They exist because this hook is FAIL-OPEN: if the file ever runs WITHOUT its
+# includes expanded — a raw copy of the asset, a render that half-finished — an
+# undefined function would be exit 127 and would kill the hook.
+navori_audit_begin() { :; }
+navori_audit_log() { :; }
+# navori:include audit-log
+navori_audit_begin
+
+# The verdict is a VARIABLE resolved in a trap, not a call per branch: this hook
+# has four exit points and wiring a call into each is how the set drifts the next
+# time somebody adds one. `skip` is the right default — it means "ran, had
+# nothing to do", which is what an unhandled early exit is.
+navori_audit_verdict="skip"
+navori_audit_reason=""
+navori_audit_on_exit() {
+  navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
+  return 0
+}
+trap navori_audit_on_exit EXIT
+
 INSTALL_HINT="brew install tgrep"
 WRAPPER_REL=".claude/scripts/tgrep-search.sh"
 
@@ -24,12 +59,16 @@ if ! command -v tgrep >/dev/null 2>&1; then
   # and a notice that contradicts the layer the agent will actually hit is worse
   # than no notice: it is the first thing the agent stops believing.
   echo "navori/tgrep: tgrep NOT installed ($INSTALL_HINT) — $WRAPPER_REL still routes content search and falls back to rg, then grep. Shell 'grep -r'/'rg' stay blocked by the guard; use the wrapper (or the native Grep tool)."
+  navori_audit_verdict="inject"
+  navori_audit_reason="tgrep ausente: la sesion corre con fallback"
   exit 0
 fi
 
 # Said BEFORE the warm-up: if the hook hits its timeout on a huge first build,
 # the session still gets the line that matters.
 echo "navori/tgrep: tgrep ACTIVE — content search goes through \`bash $WRAPPER_REL <args>\` (trigram index, rebuilt before each search)."
+navori_audit_verdict="inject"
+navori_audit_reason="tgrep activo"
 
 # Warm the index by driving the wrapper itself, rather than reimplementing the
 # cache-key and --index-path logic here: the session then warms exactly the
@@ -52,5 +91,6 @@ warm() {
   fi
 }
 warm >/dev/null 2>&1 || true
+navori_audit_reason="tgrep activo; indice tibio"
 
 exit 0

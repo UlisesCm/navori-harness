@@ -77,6 +77,32 @@ export function sessionLogPath(repoName: string, sessionId: string): string {
   return join(repoAuditDir(repoName), `session-${sessionId}.log`);
 }
 
+/**
+ * Where `SessionStart` hooks park their records until a log exists (#778).
+ *
+ * `--start` is what creates the session log and it runs from UserPromptSubmit,
+ * so every SessionStart hook fires before there is anywhere to write. Its
+ * records land here and `--start` folds them in; a session that is never marked
+ * leaves a file that the next `--start` in the repo sweeps.
+ *
+ * Same id validation as the log itself, and for the same reason — this is a
+ * second function that turns a session id into a path, which is exactly how
+ * #503 would come back.
+ */
+export function pendingSpoolPath(repoName: string, sessionId: string): string {
+  if (!SESSION_ID_RE.test(sessionId)) {
+    throw new NavoriError(
+      "invalid-session-id",
+      `Invalid session id '${sessionId}': only letters, digits, '-' and '_' are allowed. ` +
+        `The spool file is named after it, and every write must stay under the audit root.`,
+    );
+  }
+  return join(repoAuditDir(repoName), `pending-${sessionId}.jsonl`);
+}
+
+/** Filename shape of a spool file, for the sweep that drops stale ones. */
+export const PENDING_SPOOL_RE = /^pending-[A-Za-z0-9_-]+\.jsonl$/;
+
 /** Root of Claude Code's transcript store. Read-only for navori, always. */
 export function transcriptsRoot(): string {
   const override = process.env.NAVORI_TRANSCRIPTS_ROOT?.trim();
