@@ -67,6 +67,7 @@ function session(over: Partial<SessionAudit> = {}): SessionAudit {
       skillsDiscarded: 0,
       skillAttributionRecords: 0,
       mcpCalls: {},
+      mcpInjectedContext: {},
       hookEvents: [],
       frictionEvents: 0,
       toolErrors: emptyToolErrors(),

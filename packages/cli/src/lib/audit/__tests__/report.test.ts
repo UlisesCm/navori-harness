@@ -4,6 +4,7 @@ import type { HarnessCatalog } from "../harness.ts";
 import {
   type AgentRun,
   type HookEvent,
+  type InjectedContext,
   type SessionAudit,
   emptyPermissionDecisions,
   emptyTokens,
@@ -81,6 +82,7 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
       skillsDiscarded: 0,
       skillAttributionRecords: 0,
       mcpCalls: {},
+      mcpInjectedContext: {},
       hookEvents: [],
       frictionEvents: 0,
       toolErrors: emptyToolErrors(),
@@ -277,6 +279,80 @@ describe("MCP reach: barred vs available (#0013)", () => {
   });
 });
 
+/**
+ * #728 — the engram card used to put raw `mem_save` next to raw `mem_search`,
+ * and that pairing invites a verdict neither counter supports: writes carry a
+ * ceremony the closing protocol demands, and reads exclude the injection the
+ * `SessionStart` hook makes with no call at all.
+ */
+describe("engram: ceremony vs content, requested vs injected reads (#728)", () => {
+  function engramCard(
+    ops: Record<string, number>,
+    injected: Record<string, InjectedContext> = {},
+  ): string {
+    const s = session([]);
+    s.orchestrator.mcpCalls = { engram: ops };
+    s.orchestrator.mcpInjectedContext = injected;
+    const report = buildReport([s], { repo: "demo", version: "0.6.5", catalog: CATALOG });
+    return renderMarkdown(report, "es");
+  }
+
+  it("splits the writes into content and ceremony instead of summing them", () => {
+    const out = engramCard({ mem_save: 9, mem_session_summary: 3, mem_search: 5 });
+    // The per-op detail stays whole — the split explains it, never replaces it.
+    expect(out).toContain("engram     17 (mem_save 9, mem_search 5, mem_session_summary 3)");
+    expect(out).toContain("escrituras  9 de contenido + 3 de ceremonia (mem_session_summary");
+  });
+
+  it("names the ceremony operations it actually counted", () => {
+    // The bucket holds more than `mem_session_summary`; a line that names the
+    // wrong one is the same defect as the count it replaces.
+    const out = engramCard({ mem_save: 1, mem_save_prompt: 2 });
+    expect(out).toContain("1 de contenido + 2 de ceremonia (mem_save_prompt");
+    expect(out).not.toContain("(mem_session_summary");
+  });
+
+  it("says so when every write was content, rather than printing a zero", () => {
+    const out = engramCard({ mem_save: 4, mem_search: 2 });
+    expect(out).toContain("escrituras  4, ninguna de ceremonia");
+  });
+
+  it("reports the SessionStart injection as a read, with its own label", () => {
+    const out = engramCard({ mem_save: 9, mem_search: 5 }, { engram: { count: 2, chars: 16_000 } });
+    // Never folded into `mem_search`: one is asked for, the other arrives on
+    // its own, and merging them would hide the distinction that motivated this.
+    expect(out).toContain(
+      "lecturas    5 pedidas + 2 inyectadas por el hook SessionStart (~16k car)",
+    );
+    expect(out).toContain("mem_search 5");
+  });
+
+  it("surfaces an injection even when the session never called engram", () => {
+    // The worst case for the old card: memory was read and engram appeared
+    // nowhere, because the line was built from call counts alone.
+    const out = engramCard({}, { engram: { count: 1, chars: 8000 } });
+    expect(out).toContain("engram     0 llamadas");
+    expect(out).toContain("0 pedidas + 1 inyectadas por el hook SessionStart (~8k car)");
+  });
+
+  it("states the absence as what the transcript shows, not as zero injections", () => {
+    const out = engramCard({ mem_search: 3 });
+    expect(out).toContain(
+      "lecturas    3 pedidas · el transcript no registra inyección de contexto por SessionStart",
+    );
+  });
+
+  it("invents no breakdown for an agent that cannot reach engram", () => {
+    // `researcher` declares `mcp__codegraph__*` and nothing else, so printing
+    // "0 requested reads" on its card would read as "it did not search" when
+    // the truth is that it could not — the distinction #728 exists to keep.
+    const out = md([agent({ agentType: "researcher" })]);
+    expect(out).toMatch(/engram\s+⚠ vedado por su tools:/);
+    expect(out).not.toContain("lecturas");
+    expect(out).not.toContain("escrituras");
+  });
+});
+
 describe("time: sum vs wall clock (#0013)", () => {
   // Covers: R13
   it("does not add up overlapping agents into clock time", () => {
@@ -362,16 +438,20 @@ describe("hooks del host vs conteo de subagentes (#693)", () => {
 
 describe("schema (#0013)", () => {
   // Covers: R17
-  it("declares schemaVersion 6", () => {
+  it("declares schemaVersion 7", () => {
     const report = buildReport([session([])], {
       repo: "demo",
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.schemaVersion).toBe(6);
+    expect(report.schemaVersion).toBe(7);
     // The bump is what the field below is FOR: a consumer pinned to 5 must be
     // able to tell that `orphanSessions` exists without probing for it.
     expect(report.orphanSessions).toEqual([]);
+    // Same contract for the bump to 7: `mcpInjectedContext` is a whole class of
+    // read the JSON never carried, so a consumer must be able to tell it is
+    // there instead of reading its absence as "nothing was injected" (#728).
+    expect(report.sessions[0]?.orchestrator.mcpInjectedContext).toEqual({});
   });
 
   it("carries the marked logs whose transcript never resolved (#675)", () => {

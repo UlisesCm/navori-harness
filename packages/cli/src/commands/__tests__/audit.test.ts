@@ -674,7 +674,7 @@ describe("audit --start over an id that names no session (#675)", () => {
     const res = runAudit(["--json"]);
     expect(res.status).toBe(0);
     const report = JSON.parse(res.combined) as { schemaVersion: number; orphanSessions: string[] };
-    expect(report.schemaVersion).toBe(6);
+    expect(report.schemaVersion).toBe(7);
     expect(report.orphanSessions).toEqual(["sess-orp"]);
   });
 

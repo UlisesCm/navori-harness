@@ -3,6 +3,7 @@ import {
   type AgentRun,
   type AuditReport,
   type HookEvent,
+  type InjectedContext,
   type SessionAudit,
   type SkillSource,
   type SkillTally,
@@ -229,7 +230,7 @@ function orchestratorCard(s: SessionAudit, lang: Lang): string {
     "",
     `  ${t(lang, "skills", "skills").padEnd(LABEL)}${o.skills.length > 0 ? o.skills.map((sk) => sk.slug).join(", ") : t(lang, "—", "—")}`,
     `  ${t(lang, "tools", "tools").padEnd(LABEL)}${toolsLine(o.toolCounts)}`,
-    `  ${"mcp".padEnd(LABEL)}${orchestratorMcp(o.mcpCalls, lang)}`,
+    `  ${"mcp".padEnd(LABEL)}${orchestratorMcp(o.mcpCalls, o.mcpInjectedContext ?? {}, lang)}`,
     `  ${"hooks".padEnd(LABEL)}${orchestratorHooksLine(s, lang)}`,
     ...modeRows(s, lang),
   ];
@@ -296,21 +297,134 @@ function modeRows(s: SessionAudit, lang: Lang): string[] {
   ];
 }
 
+/**
+ * Engram writes the closing protocol REQUIRES, as opposed to content an agent
+ * chose to keep (#728).
+ *
+ * `mem_session_summary` is the ceremony every session owes at close, and
+ * `mem_save_prompt` is mechanical capture of what the human typed. Neither is
+ * a judgement about what was worth remembering, so summing them with `mem_save`
+ * produces a write count that measures compliance and gets read as hoarding:
+ * across this machine's transcripts the summary alone is 240 of 1,024 writes.
+ */
+const ENGRAM_CEREMONY_WRITES = new Set(["mem_session_summary", "mem_save_prompt"]);
+
+/** Engram writes that persist something the agent decided to keep. */
+const ENGRAM_CONTENT_WRITES = new Set(["mem_save", "mem_update"]);
+
+/** Engram reads the agent ASKED for — the half `mcpInjectedContext` completes. */
+const ENGRAM_REQUESTED_READS = new Set([
+  "mem_search",
+  "mem_context",
+  "mem_get_observation",
+  "mem_timeline",
+]);
+
+function tally(ops: Record<string, number>, names: Set<string>): number {
+  return Object.entries(ops).reduce((sum, [op, n]) => (names.has(op) ? sum + n : sum), 0);
+}
+
+/**
+ * The two lines that stop `mem_save` vs `mem_search` from being read as a
+ * verdict on how engram is used (#728).
+ *
+ * A raw side-by-side of those counters invites one reading — "it writes four
+ * times more than it reads, so it is a diary" — and both halves of it are
+ * artifacts of what the counters happen to cover. Writes include a ceremony the
+ * protocol demands; reads exclude the largest read of the session, which
+ * arrives as injected context and makes no call at all. So the split is stated
+ * here rather than left for the reader to reconstruct.
+ *
+ * Deliberately NOT a sum: these lines break down the detail above them and are
+ * not meant to add up to the server's call total, because operations that are
+ * neither (`mem_judge`, `mem_pin`) belong to neither bucket and are already
+ * listed, verbatim, one line up.
+ *
+ * Orchestrator-only. A subagent gets no `SessionStart`, so the read half has
+ * nothing to say about it, and an agent card that printed "0 injected" would be
+ * reporting an absence that was never possible.
+ */
+function engramRows(
+  ops: Record<string, number>,
+  injected: InjectedContext | undefined,
+  lang: Lang,
+): string[] {
+  const content = tally(ops, ENGRAM_CONTENT_WRITES);
+  const ceremony = tally(ops, ENGRAM_CEREMONY_WRITES);
+  const requested = tally(ops, ENGRAM_REQUESTED_READS);
+  // Indented to the column where each server's figures start, so both read as
+  // a breakdown of the line above and not as two more servers.
+  const pad = " ".repeat(11);
+  const rows: string[] = [];
+
+  if (content + ceremony > 0) {
+    // Named, never assumed: the ceremony bucket holds more than one operation,
+    // and a line that says `mem_session_summary` when the calls were
+    // `mem_save_prompt` is the same class of defect as the count it replaces.
+    const which = [...ENGRAM_CEREMONY_WRITES].filter((op) => (ops[op] ?? 0) > 0).join(", ");
+    rows.push(
+      pad +
+        (ceremony > 0
+          ? t(
+              lang,
+              `escrituras  ${content} de contenido + ${ceremony} de ceremonia (${which}, que el protocolo de cierre exige)`,
+              `writes      ${content} content + ${ceremony} ceremony (${which}, required by the closing protocol)`,
+            )
+          : t(
+              lang,
+              `escrituras  ${content}, ninguna de ceremonia`,
+              `writes      ${content}, none of them ceremony`,
+            )),
+    );
+  }
+
+  if (requested > 0 || injected) {
+    rows.push(
+      pad +
+        (injected
+          ? t(
+              lang,
+              `lecturas    ${requested} pedidas + ${injected.count} inyectadas por el hook SessionStart (~${k(injected.chars)} car), que no son llamadas y ningún conteo de mem_search ve`,
+              `reads       ${requested} requested + ${injected.count} injected by the SessionStart hook (~${k(injected.chars)} chars), which are not calls and no mem_search count sees`,
+            )
+          : t(
+              lang,
+              `lecturas    ${requested} pedidas · el transcript no registra inyección de contexto por SessionStart`,
+              `reads       ${requested} requested · the transcript records no SessionStart context injection`,
+            )),
+    );
+  }
+
+  return rows;
+}
+
 /** The orchestrator inherits every tool, so there is no allowlist to cross. */
-function orchestratorMcp(calls: Record<string, Record<string, number>>, lang: Lang): string {
-  const servers = Object.keys(calls).sort();
+function orchestratorMcp(
+  calls: Record<string, Record<string, number>>,
+  injectedByServer: Record<string, InjectedContext>,
+  lang: Lang,
+): string {
+  // Injections come from the union, not from `calls`: a session handed 8k
+  // characters of memory that then never called engram would otherwise print no
+  // engram line at all — the exact read this card exists to surface.
+  const servers = [...new Set([...Object.keys(calls), ...Object.keys(injectedByServer)])].sort();
   if (servers.length === 0) return t(lang, "—", "—");
-  return servers
-    .map((server) => {
-      const ops = calls[server] ?? {};
-      const total = Object.values(ops).reduce((sum, n) => sum + n, 0);
-      const detail = Object.entries(ops)
-        .sort((x, y) => y[1] - x[1])
-        .map(([op, n]) => `${op} ${n}`)
-        .join(", ");
-      return `${server.padEnd(11)}${total} (${detail})`;
-    })
-    .join(`\n  ${" ".repeat(LABEL)}`);
+  const lines: string[] = [];
+  for (const server of servers) {
+    const ops = calls[server] ?? {};
+    const total = Object.values(ops).reduce((sum, n) => sum + n, 0);
+    const detail = Object.entries(ops)
+      .sort((x, y) => y[1] - x[1])
+      .map(([op, n]) => `${op} ${n}`)
+      .join(", ");
+    lines.push(
+      total > 0
+        ? `${server.padEnd(11)}${total} (${detail})`
+        : `${server.padEnd(11)}${t(lang, "0 llamadas", "0 calls")}`,
+    );
+    if (server === "engram") lines.push(...engramRows(ops, injectedByServer[server], lang));
+  }
+  return lines.join(`\n  ${" ".repeat(LABEL)}`);
 }
 
 /** Width of a card's label column. Must exceed the longest label. */
@@ -1115,7 +1229,7 @@ export function buildReport(
     .sort();
 
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     generatedBy: `navori@${opts.version}`,
     generatedAt: (opts.now ?? new Date()).toISOString(),
     repo: opts.repo,
