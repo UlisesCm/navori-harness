@@ -74,12 +74,34 @@ ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un
 | `registry` | Registro global de tus repos con navori (`ls` / `scan <dir>` / `add` / `remove` / `prune`). `init` y `update` te dan de alta solos; `scan` puebla lo que ya existía |
 | `sync` | Refresca todos los engines configurados con conflict resolution + backups |
 | `add` / `remove` / `configure` | Activa un plugin / lo desactiva limpiando sus bloques y scripts / ajusta una sección del config sin re-init |
-| `doctor` / `status` | Audita config + drift (`--strict` para CI) / snapshot rápido |
+| `doctor` / `status` / `audit` | Audita config + drift (`--strict` para CI) / snapshot rápido / mide cómo se usó el harness en tus sesiones |
+| `adopt` | Toma bajo gestión de navori un archivo del harness que escribiste a mano (envuelve, no reescribe) |
 | `workspace` / `ticket` / `dominio` | Config y tickets cross-repo, y la base de conocimiento durable del workspace |
 | `global` | Harness base de la máquina en `~/.claude` (`init` / `render` / `doctor` / `uninstall`), opt-in explícito y aditivo |
 | `preset` / `scan` / `backup` / `migrations` / `bench` | Presets locales, monorepos, restore, benchmark |
 
 → Tabla completa, presets y plugins en [`packages/cli/README.md`](./packages/cli/README.md).
+
+## Extender navori en tu repo
+
+navori instala un baseline; lo que lo vuelve valioso en **tu** repo es el conocimiento que sólo
+tú tienes. Hay cuatro lugares donde ponerlo, ordenados de más barato a más caro — y el más barato
+suele rendir más, porque deja tu regla justo donde el agente ya iba a mirar.
+
+| Lo que tienes | Dónde va |
+|---|---|
+| Una regla de tu repo (un patrón propio, la convención de tu data layer) | la **user-section** de la skill que ya cubre el tema |
+| Conocimiento que ninguna skill instalada cubre | **skill project-local** en `.claude/skills/<id>/SKILL.md` + `project.localSkills` |
+| Conocimiento de un stack, reusable entre repos | **preset local** (`navori preset init <id>`) |
+| Envoltura de un binario o servidor MCP | **plugin** (va a navori, no a tu repo) |
+
+`navori doctor` acompaña lo que agregues y te señala las oportunidades abiertas: un id declarado
+al que le falta su archivo, una skill que gana activación en cuanto su `description` diga cuándo
+usarla, o una user-section lista para recibir las reglas de tu repo.
+
+→ La guía completa —con las cuatro preguntas que hacen fuerte a una propuesta— está en
+[`docs/EXTENDING.md`](./docs/EXTENDING.md). El contrato del archivo `SKILL.md` (frontmatter, tipos,
+caps, triggers), en [`docs/recipes/skill-authoring.md`](./docs/recipes/skill-authoring.md).
 
 ## Estructura del monorepo
 
@@ -88,7 +110,7 @@ navori-harness/
 ├─ packages/
 │  ├─ cli/            # el CLI `navori` (publicado a npm)
 │  ├─ core/           # @navori/core — managed assets (agentes, skills, presets, hooks), bundleados al CLI
-│  └─ plugins/        # engram · acli · gh · jscpd · semgrep · codegraph
+│  └─ plugins/        # engram · codegraph · tgrep · acli · gh · jscpd · semgrep
 ├─ apps/
 │  └─ website/        # landing + docs (Astro, deploy a GitHub Pages)
 └─ pnpm-workspace.yaml
@@ -98,26 +120,26 @@ navori-harness/
 
 ## Desarrollo
 
-Requiere **Node ≥ 20** y **pnpm**.
+Requiere **Node ≥ 22** y **pnpm**.
 
 ```bash
 pnpm install
 pnpm -r build                 # build de todos los paquetes
 
-cd packages/cli
-pnpm test                     # suite de vitest (quality gate)
-pnpm build                    # bundlea CLI + assets
-pnpm check:size               # guard de tamaño del bundle
+pnpm check                    # quality gate completo (lo mismo que valida CI)
 
-cd ../..
-pnpm check:render             # el espejo .claude/ + CLAUDE.md de este repo está al día
-
-cd packages/cli
 # probar el binario local sin publicar:
-node dist/index.js init --cwd /ruta/a/un/repo
+node packages/cli/dist/index.js init --cwd /ruta/a/un/repo
 ```
 
-**Quality gate** antes de cerrar cambios en el CLI: `cd packages/cli && pnpm test`.
+**Quality gate**: `pnpm check` desde la raíz. Es un alias de `qualityGate.full` en
+`navori.config.json`, que es **el único lugar** donde vive el gate — de ahí salen los bloques
+managed de `CLAUDE.md` y el comando que corre el `commit-pr-pilot`. No lo copies a otro archivo:
+una segunda copia es una copia que se desincroniza.
+
+→ Cómo contribuir, los disparadores del re-render del espejo y las reglas de PR:
+[`CONTRIBUTING.md`](./CONTRIBUTING.md). Qué se acepta y qué no:
+[`docs/DIRECTION.md`](./docs/DIRECTION.md) y [`docs/EXTENDING.md`](./docs/EXTENDING.md).
 
 ## Releases
 

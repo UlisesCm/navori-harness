@@ -131,21 +131,24 @@ una spec** en `specs/` y consíguela aprobada; recién entonces se implementa.
 
 1. **Lee este doc primero**, luego `docs/architecture.md` (cómo funciona el render y las capas)
    y la(s) spec(s) del área que vas a tocar (`specs/000X-*.md`).
+
+   Y antes de escribir nada, **ubica en qué capa rinde más el cambio** — `docs/EXTENDING.md`.
+   Cinco destinos ordenados de más barato a más caro, donde el más barato suele ser el más
+   efectivo: sumar a la skill que ya cubre el tema llega más rápido y con la autoridad ya
+   establecida. Ese doc trae además las cuatro preguntas que hacen fuerte a una propuesta.
 2. **Las decisiones formales viven en `specs/`.** No inventes dirección nueva en un PR: si
-   necesitas una decisión de arquitectura, va en una spec. Los headers de cada spec traen
-   Status/Objetivo; respeta el estado (`proposed` / `planning only — NO implementar` /
-   `EJECUTADA`).
-3. **Quality gate (obligatorio antes de cerrar cambios en `packages/cli`)** — es lo que valida
-   el job `quality` de CI, o el PR falla:
-   - `cd packages/cli && pnpm test` — suite vitest.
-   - `cd packages/cli && pnpm lint` — oxlint.
-   - **Desde la raíz del monorepo**: `pnpm format:check` — biome (el paso que más se olvida; NO
-     está bajo `packages/cli`). Si falla, arréglalo con `pnpm format` antes de commitear.
-   - **Desde la raíz**: `pnpm check:render` si tocaste assets del core o de un plugin, el
-     `navori.config.json`, o la versión del CLI — este repo se auto-hospeda y el espejo
-     renderizado debe ir en el mismo PR (#421). Los disparadores exactos, en `CONTRIBUTING.md`.
-   - CI corre además `pnpm --filter navori build` y `check:size` (guard de bundle size).
-   - Cambios **doc-only** (.md): basta `pnpm lint` + `pnpm format:check`; no necesitas la suite.
+   necesitas una decisión de arquitectura, va en una spec. Respeta el estado que declare su header
+   (`proposed` / `planning only — NO implementar` / `EJECUTADA`) **y confírmalo contra el
+   código**, que es la fuente más fresca (ver "Referencias").
+3. **Quality gate (obligatorio antes de cerrar cambios en `packages/cli`)** — `pnpm check` desde
+   la raíz del monorepo. Es lo que valida el job `quality` de CI, o el PR falla.
+
+   El gate vive en **un solo lugar**: `qualityGate.full` en `navori.config.json`. `pnpm check` es
+   su alias, y de ahí salen también los bloques managed de `CLAUDE.md`. Este doc no lo transcribe
+   a propósito — una segunda copia es una copia que se desincroniza, y ya pasó una vez (#508).
+
+   Lo que no se deduce del comando —los disparadores del re-render del espejo, el golden snapshot,
+   y qué cuenta como cambio doc-only— está en `CONTRIBUTING.md`.
 4. **Commits**: Conventional, español MX, atómicos.
 5. **Branching/PR**: cada ticket en branch nueva con base `main`; **este repo mergea a `main`**
    (excepción a la regla Bonum de mergear a `develop`). Nunca commitees el harness local de un
@@ -156,10 +159,27 @@ una spec** en `specs/` y consíguela aprobada; recién entonces se implementa.
 ## Referencias
 
 - `docs/architecture.md` — cómo funciona el render, las 5 capas y los bloques managed.
-- `specs/` — decisiones de arquitectura formales (0001 render por workspace, 0002 engine
-  Claude, 0003 v0.2 calidad/tokens, 0004 engine Codex, 0005 lectura eficiente, 0006 reducción
-  de contexto, 0007/0008 render-plan unificado, 0009 codegraph, 0010 harness global, 0011
-  Dominio, 0012 capa de solutioning, `gitignore-harness` gestión del `.gitignore`).
+- `docs/EXTENDING.md` — en qué capa rinde más lo que quieres agregar (user-section / skill
+  project-local / preset local / plugin / core) y las cuatro preguntas que hacen fuerte a una
+  propuesta.
+- `docs/recipes/skill-authoring.md` — el contrato de un `SKILL.md`: frontmatter, tipos, caps y
+  triggers.
+- `specs/` — decisiones de arquitectura formales. Al día de hoy van de 0001 a 0021 más
+  `gitignore-harness`: 0001 render por workspace,
+  0002 engine Claude, 0003 v0.2 calidad/tokens, 0004 engine Codex, 0005 lectura eficiente, 0006
+  reducción de contexto, 0007/0008 render-plan unificado, 0009 codegraph, 0010 harness global,
+  0011 Dominio, 0012 capa de solutioning, 0013 redefinición de `audit`, 0014 harness ajeno, 0015
+  orquestación fuera del always-on, 0016 paridad de modos de permiso, 0017 capa de búsqueda tgrep,
+  0018 harness por workspace, 0019 orquestación que cabe en el arranque, 0020 delegación por
+  mecanismo nativo, 0021 eventos OTel como tercera fuente.
+
+  **Cómo leerlas con confianza.** El header de cada spec declara la intención con la que se
+  escribió, y el código dice dónde acabó. Varias se escribieron antes de aterrizar y su header se
+  quedó en ese primer momento —0001 y 0002 siguen diciendo `proposed` con su contenido ya en
+  producción—, y once todavía no declaran `Status`. Combinar ambas fuentes toma un minuto y da el
+  estado real; lo que sí sigue pendiente de decidir lo dice sin ambigüedad (`planning only — NO
+  implementar hasta aprobación`, como 0005 y 0006). Normalizar esos headers es una mejora
+  pendiente con buen retorno: es la primera señal que lee quien llega nuevo.
 - `docs/audit-2026-07.md` — auditoría del harness generado y del CLI.
 - `CLAUDE.md` (raíz) — instrucciones vivas del repo (secciones "Qué es este proyecto",
   "Decisiones ya tomadas", "Quality gate").
