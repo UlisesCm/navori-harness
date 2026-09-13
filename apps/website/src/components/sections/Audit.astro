@@ -1,0 +1,114 @@
+---
+/**
+ * `navori audit` — the differentiator the site never mentioned.
+ *
+ * Everything else on this page is a claim about how the harness behaves. This
+ * section is the one that lets you check the claims, so it gets a terminal:
+ * the real report shape, not prose about it. Output mirrors the example in
+ * `content/commands.ts` under `audit`, which tracks the CLI's actual renderer.
+ */
+import SectionHeader from "../SectionHeader.astro";
+import { useTranslations, localizedPath } from "../../i18n/utils";
+import type { Lang } from "../../i18n/ui";
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+const points = [
+  { n: "01", title: t("audit.point1.title"), body: t("audit.point1.body") },
+  { n: "02", title: t("audit.point2.title"), body: t("audit.point2.body") },
+  { n: "03", title: t("audit.point3.title"), body: t("audit.point3.body") },
+  { n: "04", title: t("audit.point4.title"), body: t("audit.point4.body") },
+];
+
+const report = [
+  "$ navori audit --session latest",
+  "◇  navori-harness · 2026-09-12 ─────────╮",
+  "│  1 sesiones · 19 agentes             │",
+  "│  facturable  2.3M tok                │",
+  "│  arranque      346k tok              │",
+  "│  hallazgos   1 alto · 3 medio        │",
+  "╰──────────────────────────────────────╯",
+  "→ report.md · report.json",
+];
+---
+
+<section class="relative py-24 sm:py-28 overflow-hidden">
+  <div class="absolute inset-0 glow-hero opacity-40 pointer-events-none"></div>
+
+  <div class="container-prose relative">
+    <SectionHeader
+      eyebrow={t("audit.eyebrow")}
+      title={t("audit.title")}
+      subtitle={t("audit.subtitle")}
+    />
+
+    <div class="mt-14 grid gap-10 lg:grid-cols-12 lg:gap-12 items-start">
+      {/* the terminal */}
+      <div class="lg:col-span-5">
+        <div class="terminal">
+          <div class="terminal-titlebar">
+            <span class="terminal-dot" style="background: #ef4444aa;"></span>
+            <span class="terminal-dot" style="background: #f59e0baa;"></span>
+            <span class="terminal-dot" style="background: #10b981aa;"></span>
+            <span class="ml-3 text-[11px] uppercase tracking-wider text-slate-400">
+              navori audit
+            </span>
+          </div>
+          <pre
+            class="overflow-x-auto px-3 sm:px-5 py-4 text-[12px] sm:text-[13px] leading-[1.7]">{
+            report.map((line) => {
+              const cls = line.startsWith("$ ")
+                ? "text-slate-100"
+                : line.startsWith("→")
+                  ? "text-violet-300"
+                  : "text-sky-300";
+              return <div class={cls}>{line}</div>;
+            })
+          }</pre>
+        </div>
+
+        <div class="mt-4">
+          <a class="btn btn-ghost" href={localizedPath(lang, "/docs/audit")}>
+            navori audit
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M5 12h14M13 5l7 7-7 7"></path>
+            </svg>
+          </a>
+        </div>
+      </div>
+
+      {/* the four claims */}
+      <div class="lg:col-span-7 grid gap-5 sm:grid-cols-2">
+        {
+          points.map((p) => (
+            <div>
+              <span
+                class="display-italic text-3xl gradient-text leading-none"
+                aria-hidden="true"
+              >
+                {p.n}
+              </span>
+              <h3 class="mt-2 text-base font-semibold tracking-tight">{p.title}</h3>
+              <p class="mt-1.5 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {p.body}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</section>

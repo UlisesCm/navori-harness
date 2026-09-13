@@ -4,13 +4,13 @@
 const lines = [
   { kind: "cmd", text: "navori init --recommended" },
   { kind: "info", text: "✓ stack: Next.js · pnpm" },
-  { kind: "info", text: "✓ engine: claude" },
-  { kind: "info", text: "✓ preset: nextjs · plugin: engram" },
+  { kind: "info", text: "✓ engines: claude · codex" },
+  { kind: "info", text: "✓ plugins: engram · codegraph · tgrep" },
   { kind: "render", text: "→ rendering managed assets" },
-  { kind: "ok", text: "✓ CLAUDE.md" },
-  { kind: "ok", text: "✓ .claude/agents/leader.md" },
-  { kind: "ok", text: "✓ .claude/settings.json" },
-  { kind: "done", text: "✓ Done — 5 created" },
+  { kind: "ok", text: "✓ CLAUDE.md · AGENTS.md" },
+  { kind: "ok", text: "✓ .claude/  agents · skills · hooks" },
+  { kind: "ok", text: "✓ .claude/settings.json  permisos" },
+  { kind: "done", text: "✓ Done — 34 created · 0 overwritten" },
 ];
 
 const colorByKind: Record<string, string> = {
@@ -45,7 +45,7 @@ const colorByKind: Record<string, string> = {
       style="border-color: var(--color-border-soft); background: var(--color-ivory);"
     >
       <span class="h-1.5 w-1.5 rounded-full bg-violet-500"></span>
-      Cursor
+      Codex
     </div>
   </div>
   <div

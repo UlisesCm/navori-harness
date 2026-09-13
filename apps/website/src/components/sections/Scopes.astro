@@ -1,0 +1,105 @@
+---
+/**
+ * The three scopes — repo, machine, workspace.
+ *
+ * The biggest conceptual shift the old landing never mentioned: navori stopped
+ * being "a thing that writes .claude/ in your repo". `global` (Spec 0010) and
+ * the Dominio (Spec 0011) are additive layers ABOVE and BESIDE the repo, both
+ * opt-in, both zero-footprint until you ask for them by name. The footnote is
+ * load-bearing: it's invariant 8, and it's the reason installing this is safe.
+ */
+import SectionHeader from "../SectionHeader.astro";
+import { useTranslations } from "../../i18n/utils";
+import type { Lang } from "../../i18n/ui";
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+const scopes = [
+  {
+    id: "repo",
+    tag: t("scopes.repo.tag"),
+    title: t("scopes.repo.title"),
+    body: t("scopes.repo.body"),
+    cmd: t("scopes.repo.cmd"),
+    path: "navori.config.json",
+    accent: "var(--color-sky-500)",
+  },
+  {
+    id: "global",
+    tag: t("scopes.global.tag"),
+    title: t("scopes.global.title"),
+    body: t("scopes.global.body"),
+    cmd: t("scopes.global.cmd"),
+    path: "~/.claude · ~/.navori/global.json",
+    accent: "var(--color-violet-500)",
+  },
+  {
+    id: "workspace",
+    tag: t("scopes.workspace.tag"),
+    title: t("scopes.workspace.title"),
+    body: t("scopes.workspace.body"),
+    cmd: t("scopes.workspace.cmd"),
+    path: "~/.navori/workspaces/<org>/",
+    accent: "var(--color-sky-600)",
+  },
+];
+---
+
+<section class="py-24 sm:py-28">
+  <div class="container-prose">
+    <SectionHeader
+      eyebrow={t("scopes.eyebrow")}
+      title={t("scopes.title")}
+      subtitle={t("scopes.subtitle")}
+    />
+
+    <div class="mt-14 grid gap-5 md:grid-cols-3">
+      {
+        scopes.map((s, i) => (
+          <article class="card flex flex-col">
+            <div class="flex items-center justify-between gap-3">
+              <span
+                class="display-italic text-3xl leading-none tabular-nums text-slate-300 dark:text-slate-600"
+                aria-hidden="true"
+              >
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <span
+                class="rounded-full px-2.5 py-0.5 text-[10px] font-mono uppercase tracking-wider"
+                style={`border:1px solid ${s.accent}; color:${s.accent};`}
+              >
+                {s.tag}
+              </span>
+            </div>
+
+            <h3 class="mt-4 text-lg font-semibold tracking-tight">{s.title}</h3>
+            <p class="mt-2 flex-1 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+              {s.body}
+            </p>
+
+            <p class="mt-4 font-mono text-[11px] text-slate-500 dark:text-slate-400">{s.path}</p>
+            <code
+              class="mt-2 block rounded-md px-3 py-2 font-mono text-[12px]"
+              style="background: var(--color-night); color: rgb(226 232 240);"
+            >
+              {s.cmd}
+            </code>
+          </article>
+        ))
+      }
+    </div>
+
+    <p
+      class="mt-8 mx-auto max-w-2xl text-center text-sm text-slate-600 dark:text-slate-400"
+    >
+      <span
+        class="mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle bg-emerald-500"
+        aria-hidden="true"></span>
+      {t("scopes.footnote")}
+    </p>
+  </div>
+</section>

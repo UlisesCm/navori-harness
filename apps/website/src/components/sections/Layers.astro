@@ -18,14 +18,25 @@ const layers = [
 const configJson = `{
   "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json",
   "name": "your-app",
-  "engines": ["claude"],
+  "engines": ["claude", "codex"],
   "preset": "nextjs",
   "branchBase": "main",
   "commits": "conventional-es",
+  "qualityGate": {
+    "full": "pnpm lint && pnpm test"
+  },
   "plugins": {
-    "engram": { "enabled": true },
-    "gh": { "enabled": true }
-  }
+    "engram":    { "enabled": true },
+    "codegraph": { "enabled": true },
+    "tgrep":     { "enabled": true },
+    "semgrep":   { "enabled": true },
+    "gh":        { "enabled": true }
+  },
+  "project": {
+    "criticalAreas": ["auth", "billing"],
+    "legacyPaths": ["src/legacy"]
+  },
+  "audit": { "mode": "always" }
 }`;
 ---
 

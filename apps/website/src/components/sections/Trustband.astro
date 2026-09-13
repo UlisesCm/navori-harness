@@ -1,41 +1,87 @@
 ---
+/**
+ * The band under the hero — what the repo actually ships, in numbers.
+ *
+ * It used to read "Multi-engine roadmap" months after all five engines shipped,
+ * which is the worst kind of stale copy: it undersells finished work. Numbers
+ * now come from `consts.ts`, where the inventory test can check them against
+ * the repo, so this band can't go stale in silence again.
+ */
 import { useTranslations } from "../../i18n/utils";
 import type { Lang } from "../../i18n/ui";
+import { INVENTORY } from "../../consts";
+import cliPkg from "../../../../../packages/cli/package.json";
 
-interface Props { lang: Lang }
+interface Props {
+  lang: Lang;
+}
 const { lang } = Astro.props;
 const t = useTranslations(lang);
 
-const tags = [
-  { label: "MIT License" },
-  { label: "Node 20+" },
-  { label: "Zero runtime deps" },
-  { label: "Read-only by default" },
-  { label: "Works with Claude Code" },
-  { label: "Idempotent renders" },
-  { label: "Multi-engine roadmap" },
+const noun =
+  lang === "es"
+    ? {
+        commands: "comandos",
+        presets: "presets",
+        plugins: "plugins",
+        engines: "engines",
+        agents: "agentes",
+        skills: "skills",
+      }
+    : {
+        commands: "commands",
+        presets: "presets",
+        plugins: "plugins",
+        engines: "engines",
+        agents: "agents",
+        skills: "skills",
+      };
+
+const stats = [
+  { value: INVENTORY.commands, label: noun.commands },
+  { value: INVENTORY.presets, label: noun.presets },
+  { value: INVENTORY.plugins, label: noun.plugins },
+  { value: INVENTORY.engines, label: noun.engines },
+  { value: INVENTORY.agents, label: noun.agents },
+  { value: INVENTORY.skills, label: noun.skills },
 ];
+
+const badges = ["MIT", "Node ≥ 20", lang === "es" ? "0 deps runtime" : "0 runtime deps"];
 ---
 
 <section
-  class="border-y py-6"
+  class="border-y py-7"
   style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 40%);"
 >
-  <div
-    class="container-prose flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-500"
-  >
-    {
-      tags.map((t, i) => (
-        <>
-          <span class="flex items-center gap-2">
-            <span class="h-1 w-1 rounded-full bg-violet-500" />
-            {t.label}
+  <div class="container-prose">
+    <div class="flex flex-wrap items-center justify-center gap-x-9 gap-y-4">
+      {
+        stats.map((s) => (
+          <span class="flex items-baseline gap-1.5">
+            <span class="font-mono text-lg font-medium tabular-nums gradient-text">{s.value}</span>
+            <span class="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+              {s.label}
+            </span>
           </span>
-          {i < tags.length - 1 && (
-            <span class="hidden h-px w-4 bg-slate-300 dark:bg-slate-700 sm:inline-block" />
-          )}
-        </>
-      ))
-    }
+        ))
+      }
+    </div>
+
+    <div
+      class="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500"
+    >
+      {
+        badges.map((b) => (
+          <span class="flex items-center gap-1.5">
+            <span class="h-1 w-1 rounded-full bg-violet-500" />
+            {b}
+          </span>
+        ))
+      }
+      <span class="flex items-center gap-1.5">
+        <span class="h-1 w-1 rounded-full bg-emerald-500"></span>
+        v{cliPkg.version}
+      </span>
+    </div>
   </div>
 </section>
