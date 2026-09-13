@@ -10,6 +10,37 @@ import { distributionSummary } from "../../commands/status.ts";
 import { tc } from "../i18n.ts";
 
 /**
+ * Rendered output with its ANSI colour codes removed, for asserting on the
+ * SENTENCE rather than on the terminal's escape sequences.
+ *
+ * Not a nicety — it is the fix for a green gate that did not predict CI (#780).
+ * picocolors enables colour when `env.CI` is set (its `|| !!env.CI` arm), which
+ * GitHub Actions sets on its own; `ci.yml` exports no `FORCE_COLOR` at all. So
+ * these rows come out uncoloured on a developer's piped stdout and coloured in
+ * CI, and an assert on a raw literal silently depends on which machine runs it.
+ *
+ * What broke was the one assert whose literal STRADDLES a coloured span:
+ * `distributionVsBase` wraps the ref in `accent()`, so `git diff --stat
+ * origin/main` arrives as `git diff --stat <ESC>[36morigin/main<ESC>[39m`. The
+ * neighbouring asserts on `origin/main` alone passed either way — the codes sit
+ * around that substring instead of inside it — which is exactly the accident
+ * this removes: they were right by luck, not by construction.
+ *
+ * Applied to EVERY assert over rendered output in this file, not only the one
+ * that failed. The alternative (asserting on fragments no colour can touch)
+ * would mean giving up on asserting the sentence, and the sentence is the whole
+ * reason `distributionLines` is exported and tested at all.
+ *
+ * Deliberately local to this file: one consumer today, and a shared helper for a
+ * single caller is the speculative kind of abstraction. Promote it to
+ * `helpers/` the day a second suite needs it.
+ */
+const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+function plain(text: string): string {
+  return text.replace(ANSI_RE, "");
+}
+
+/**
  * #778 — the git axis, over REAL repositories.
  *
  * These fixtures build actual repos (a bare "origin" plus clones) rather than
@@ -259,7 +290,7 @@ describe("scanDistribution — the four divergences", () => {
 
     const report = scanDistribution(cwd, config());
     expect(report).not.toBeNull();
-    const rows = distributionLines(report!, tc("es").doctor).join("\n");
+    const rows = plain(distributionLines(report!, tc("es").doctor).join("\n"));
     // The whole product of this section: "0.8.6 here, 0.7.7 there". A row that
     // only counted files is the report alertaciudadana already had.
     expect(rows).toContain("0.8.6");
@@ -267,7 +298,12 @@ describe("scanDistribution — the four divergences", () => {
     expect(rows).toContain("origin/main");
     expect(rows).toContain("git diff --stat origin/main");
     // `status`'s one-liner defers the sentence but must state the question.
-    expect(distributionSummary(report!, tc("es").status)).toContain("difieren vs origin/main");
+    // `plain` here too: `distributionSummary` returns raw text today, and the
+    // colour is added by its caller in `status.ts` — an arrangement no assert
+    // should have to know about, and one nobody would remember to re-check.
+    expect(plain(distributionSummary(report!, tc("es").status))).toContain(
+      "difieren vs origin/main",
+    );
   });
 
   it("caps the uncommitted sample instead of printing 55 paths", () => {
@@ -278,7 +314,7 @@ describe("scanDistribution — the four divergences", () => {
       base: null,
     };
     expect(scanDistribution(cwd, config())).toBeNull(); // fixture sanity
-    const rows = distributionLines(report, tc("en").doctor).join("\n");
+    const rows = plain(distributionLines(report, tc("en").doctor).join("\n"));
     expect(rows).toContain("a, b, c, +2");
     expect(rows).toContain("5 harness file(s)");
   });
