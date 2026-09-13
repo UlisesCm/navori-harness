@@ -10,6 +10,48 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-13 16:45 — orchestrator — revisión de los logs de 0.8.6: la muestra no alcanza, y el instrumento tiene dos bugs
+
+- **Cambios**: `progress/current.md`, `progress/history.md`. Ningún cambio de código: la sesión
+  fue de lectura y produjo dos issues.
+- **Quality gate**: ✅ verde — corrido sobre este diff doc-only.
+- **Commit / PR**: ver el PR de este commit.
+
+**Qué se midió.** Solo **4 sesiones** corrieron con `navoriRendered=0.8.6` (0.8.6 se publicó
+ayer), y 2 puntúan con el corte del minero de >= 3 oportunidades. La línea base pide 20, así que
+el veredicto honesto es "todavía no se puede decir". Los números crudos, con esa advertencia
+encima: 22 oportunidades, 17 activadas; `pr → pilot` 6/10, `reviewer` 6/6, `implementer` 5/5. El
+77% agregado es **una sola sesión** — la forma es la misma bimodal de la línea base: una sesión
+17/17 con 20 agentes, y dos sesiones de 43m y 7h51m que abrieron 5 PRs entre las dos sin lanzar
+un solo subagente.
+
+**#763 — la caché negativa del receptor OTel** (`bug`, `priority:high`). El receptor lleva 18h
+arriba y `curl http://127.0.0.1:4318/healthz` devuelve
+`{"written":5796,"discarded":5119,"sessions":1}`: escribió en el log de UNA sesión de 70.
+`resolveSessionLog` (`packages/cli/src/lib/audit/collect.ts:330`) cachea también el miss, y su
+comentario descarta la consecuencia con una premisa falsa — dice que el log nace en
+`SessionStart`, pero nace en `UserPromptSubmit`, que es donde engancha `audit-mode-trigger.sh`.
+Los hooks de `SessionStart` ya exportaron sus `hook_execution_start` antes de que el log exista →
+`cache.set(id, null)` → la sesión queda muerta para el receptor hasta que el receptor reinicie.
+La evidencia contrastada es exacta: la única sesión con datos (3717 eventos) es la única cuyo log
+existía ANTES de que el receptor arrancara. No es #697 fallando — el supervisor funciona, y es
+justo el uptime largo lo que destapa el defecto. `collect.test.ts` cubre "el log no existe →
+descarta" pero no "el log aparece después"; ese es el test que falta.
+
+**#764 — el worktree parte el log** (`bug`, `priority:medium`). `repo=$(basename "$cwd")` en los
+cuatro sitios que derivan el repo; un worktree de agente vive en `.claude/worktrees/<id>` dentro
+del repo, así que abre un log bajo un repo fantasma con el nombre del agente (238 / 9499
+registros de la misma sesión). Consecuencia no obvia: `resolveSessionLog` se queda con el primer
+repo donde el log exista, y `agent-a2a…` ordena antes que `navori-harness`, así que el split
+puede desviar los eventos OTel al archivo que el reporte no lee.
+
+**Error de método propio, para que no se repita.** Primero reporté "`--collect` nunca recibió un
+evento". Era falso: grepeé `"event":"otel` y los eventos del receptor llevan su propio nombre
+(`tool_decision`, `assistant_response`, `hook_execution_start`…), no un prefijo. Misma clase que
+los tres hallazgos falsos de la sesión del 2026-09-11 — un contador leído como si midiera otra
+cosa. El `healthz` del receptor lo habría resuelto en una llamada, y es la primera fuente que hay
+que mirar antes de afirmar nada sobre la tercera fuente.
+
 ## 2026-09-13 09:05 — orchestrator — guía de extensión y READMEs al día con el repo real
 
 - **Cambios**: `docs/EXTENDING.md` (nuevo, 216 líneas) · `docs/recipes/skill-authoring.md` ·
