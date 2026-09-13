@@ -730,6 +730,9 @@ interface DoctorCmdStrings {
   /** #369 — an installed skill whose user-section is still the template. */
   emptyUserSections: (n: number, lines: string) => string;
   emptyUserSectionRow: (path: string) => string;
+  /** #736 — a project-local skill whose description has no activation trigger. */
+  triggerlessSkills: (n: number, lines: string) => string;
+  triggerlessSkillRow: (path: string) => string;
   /** #440 — interpolation artifacts frozen into the rendered tree. */
   interpolationArtifacts: (n: number, lines: string) => string;
   interpolationArtifactUnresolvedRow: (token: string) => string;
@@ -1717,6 +1720,13 @@ const CMD_ES: CmdStrings = {
       `Skills instaladas con su user-section sin llenar (${n}) — cuestan una lectura ` +
       `y solo cubren la capa universal; lo específico de tu stack va en esa sección:\n${lines}`,
     emptyUserSectionRow: (path) => `— plantilla sin tocar en ${path}`,
+    triggerlessSkills: (n, lines) =>
+      `Skills project-local sin condición de disparo en su 'description' (${n}) — ` +
+      `el host decide si carga una skill leyendo esa línea, y una que solo dice qué ` +
+      `hace no le da con qué comparar: queda instalada pero casi nunca se activa. ` +
+      `Agrégale un "Usar cuando…" (o "Use when…") al inicio. navori no toca el ` +
+      `contenido de tus skills, solo te lo señala:\n${lines}`,
+    triggerlessSkillRow: (path) => `— sin "Usar cuando…" en ${path}`,
     interpolationArtifacts: (n, lines) =>
       `Restos de interpolación en el árbol renderizado (${n}) — 'render' reescribe ` +
       `solo la zona managed, así que lo que cayó en la zona de usuario se queda ahí ` +
@@ -2821,6 +2831,14 @@ const CMD_EN: CmdStrings = {
       `Installed skills with an unfilled user-section (${n}) — they cost a read and ` +
       `only cover the universal layer; your stack's rules belong in that section:\n${lines}`,
     emptyUserSectionRow: (path) => `— untouched template in ${path}`,
+    triggerlessSkills: (n, lines) =>
+      `Project-local skills with no activation trigger in their 'description' (${n}) — ` +
+      `the host decides whether to load a skill by reading that line, and one that ` +
+      `only says what the skill does gives it nothing to match on: the skill is ` +
+      `installed but hardly ever fires. Lead the description with "Use when…" (or ` +
+      `"Usar cuando…"). navori never edits your skills' content, it only points ` +
+      `this out:\n${lines}`,
+    triggerlessSkillRow: (path) => `— no "Use when…" in ${path}`,
     interpolationArtifacts: (n, lines) =>
       `Interpolation leftovers in the rendered tree (${n}) — 'render' only rewrites ` +
       `the managed zone, so whatever landed in the user zone stays there even after ` +
