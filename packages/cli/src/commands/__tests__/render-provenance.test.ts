@@ -52,7 +52,7 @@ interface RunResult {
 function runCli(cliPath: string, args: string[]): RunResult {
   const r = spawnSync("node", [cliPath, ...args], {
     encoding: "utf-8",
-    env: { ...process.env, HOME: E2E_HOME, FORCE_COLOR: "0" },
+    env: { ...process.env, HOME: E2E_HOME, NO_COLOR: "1" },
   });
   return {
     status: r.status ?? -1,

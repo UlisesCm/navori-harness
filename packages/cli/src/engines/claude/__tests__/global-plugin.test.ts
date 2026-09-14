@@ -286,7 +286,7 @@ describe("global-plugin — a repo render is byte-identical with the plugin inst
       const render = (repo: string, configDir: string) =>
         spawnSync("node", [CLI, "init", "--recommended", "--cwd", repo], {
           encoding: "utf-8",
-          env: { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: configDir, FORCE_COLOR: "0" },
+          env: { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: configDir, NO_COLOR: "1" },
         });
 
       expect(render(repoA, emptyClaude).status).toBe(0);

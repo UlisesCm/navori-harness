@@ -147,7 +147,7 @@ describe("uninstall is symmetric with install (#544)", () => {
   function run(argv: string[]): number {
     const r = spawnSync("node", [CLI, "global", ...argv], {
       encoding: "utf-8",
-      env: { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: claudeDir, FORCE_COLOR: "0" },
+      env: { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: claudeDir, NO_COLOR: "1" },
     });
     return r.status ?? -1;
   }

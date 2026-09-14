@@ -48,7 +48,7 @@ interface CliResult {
 function runAudit(args: string[]): CliResult {
   const r = spawnSync("node", [CLI, "audit", "--cwd", repoDir, ...args], {
     encoding: "utf-8",
-    env: { ...process.env, HOME: home, NAVORI_AUDITS_ROOT: auditsRoot, FORCE_COLOR: "0" },
+    env: { ...process.env, HOME: home, NAVORI_AUDITS_ROOT: auditsRoot, NO_COLOR: "1" },
   });
   return { status: r.status ?? -1, combined: (r.stdout ?? "") + (r.stderr ?? "") };
 }

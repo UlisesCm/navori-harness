@@ -48,7 +48,7 @@ interface CliResult {
 function runCli(args: string[], envOverrides: Record<string, string> = {}): CliResult {
   const r = spawnSync("node", [CLI, ...args], {
     encoding: "utf-8",
-    env: { ...process.env, HOME: E2E_HOME, FORCE_COLOR: "0", ...envOverrides },
+    env: { ...process.env, HOME: E2E_HOME, NO_COLOR: "1", ...envOverrides },
   });
   return { status: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
