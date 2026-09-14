@@ -29,7 +29,7 @@ function run(cwd: string = REPO_ROOT, script: string = SCRIPT, ...args: string[]
   return spawnSync("node", [script, ...args], {
     encoding: "utf-8",
     cwd,
-    env: { ...process.env, FORCE_COLOR: "0" },
+    env: { ...process.env, NO_COLOR: "1" },
   });
 }
 

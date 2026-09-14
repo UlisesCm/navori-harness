@@ -549,7 +549,7 @@ describe("global init — end to end against the built CLI (#497)", () => {
         ...process.env,
         HOME: scratch,
         CLAUDE_CONFIG_DIR: claudeDir,
-        FORCE_COLOR: "0",
+        NO_COLOR: "1",
       },
     });
     return { status: r.status ?? -1, combined: (r.stdout ?? "") + (r.stderr ?? "") };
@@ -600,7 +600,7 @@ describe("global init — interactive, preview and re-init (#545)", () => {
   function runGlobalInit(...extra: string[]): { status: number; combined: string } {
     const r = spawnSync("node", [CLI, "global", "init", ...extra], {
       encoding: "utf-8",
-      env: { ...process.env, HOME: scratch, CLAUDE_CONFIG_DIR: claudeDir, FORCE_COLOR: "0" },
+      env: { ...process.env, HOME: scratch, CLAUDE_CONFIG_DIR: claudeDir, NO_COLOR: "1" },
     });
     return { status: r.status ?? -1, combined: (r.stdout ?? "") + (r.stderr ?? "") };
   }
@@ -918,7 +918,7 @@ describe("global doctor — drift and gate reach the report (#542, #543)", () =>
   function run(argv: string[]): { status: number; combined: string } {
     const r = spawnSync("node", [CLI, "global", ...argv], {
       encoding: "utf-8",
-      env: { ...process.env, HOME: scratch, CLAUDE_CONFIG_DIR: claudeDir, FORCE_COLOR: "0" },
+      env: { ...process.env, HOME: scratch, CLAUDE_CONFIG_DIR: claudeDir, NO_COLOR: "1" },
     });
     return { status: r.status ?? -1, combined: (r.stdout ?? "") + (r.stderr ?? "") };
   }
