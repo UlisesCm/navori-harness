@@ -1,8 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync, chmodSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { getCoreRoot } from "../bundled-assets.ts";
 import { shellSingleQuote } from "../shell-escape.ts";
 import { expandHookIncludes } from "../hook-includes.ts";
@@ -83,6 +91,35 @@ describe("quality-gate hook — declared runner present", () => {
     const r = runHook(installHook("pnpm run typecheck"), "ls -la");
     expect(r.status).toBe(0);
     expect(r.stderr).not.toContain("running quality-gate fast");
+  });
+
+  it("extracts a command before cwd when jq and node are unavailable", () => {
+    fakeBin("pnpm", 0);
+    const hook = installHook("pnpm run typecheck");
+    const payload = '{"tool_input":{"command":"git commit -m x"},"cwd":"/tmp/not-last"}';
+    // Deliberately do not inherit /usr/bin: macOS puts jq there, which would
+    // make this test take the preferred parser instead of the sed fallback.
+    const fallbackBin = join(dir, "fallback-bin");
+    mkdirSync(fallbackBin, { recursive: true });
+    for (const command of ["bash", "zsh", "cat", "sed", "head", "grep"]) {
+      const path = execFileSync("sh", ["-c", `command -v ${command}`], {
+        encoding: "utf-8",
+      }).trim();
+      symlinkSync(path, join(fallbackBin, command));
+    }
+    symlinkSync(join(binDir, "pnpm"), join(fallbackBin, "pnpm"));
+    const r = acrossShells((shell) => {
+      const result = spawnSync(shell, [hook], {
+        cwd: dir,
+        input: payload,
+        encoding: "utf-8",
+        env: { PATH: fallbackBin, CLAUDE_PROJECT_DIR: dir },
+      });
+      return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+    });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+    expect(r.stdout).toContain("RAN pnpm run typecheck");
   });
 
   // Segment-based detection: a compound command must NOT skip the gate silently.

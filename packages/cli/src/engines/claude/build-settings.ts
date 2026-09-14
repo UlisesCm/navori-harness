@@ -273,7 +273,10 @@ export function buildClaudeSettings(
               {
                 type: "command",
                 command: `bash "$CLAUDE_PROJECT_DIR/${QG_HOOK_DEST}"`,
-                timeout: 180,
+                // Command hooks fail open when Claude kills them on timeout.
+                // 600s is Claude's documented default and leaves 3.8× the
+                // slowest measured fast gate (158s) before it can bypass us.
+                timeout: 600,
                 statusMessage: "navori: quality-gate fast",
               },
             ],

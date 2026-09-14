@@ -638,9 +638,13 @@ function median(sorted: number[]): number {
 const HOST_FIRED_PHASE = "SubagentStop";
 
 function hooksLine(events: HookEvent[], lang: Lang, agentCount: number): string {
-  if (events.length === 0) return t(lang, "—", "—");
+  // `gate-started` is a durable timeout witness, not a completed hook run. It
+  // shares the invocation with allow/block and would otherwise double-count the
+  // gate while adding only the pre-eval milliseconds to its timing.
+  const completed = events.filter((event) => event.verdict !== "gate-started");
+  if (completed.length === 0) return t(lang, "—", "—");
   const by = new Map<string, { ms: number[]; blocked: number; phases: Set<string> }>();
-  for (const e of events) {
+  for (const e of completed) {
     const cur = by.get(e.name) ?? { ms: [], blocked: 0, phases: new Set<string>() };
     cur.ms.push(e.ms);
     cur.blocked += e.verdict === "block" ? 1 : 0;

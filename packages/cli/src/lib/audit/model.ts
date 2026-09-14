@@ -275,6 +275,8 @@ export interface HookEvent {
   /** Present when the payload stated one; the reason attribution does not have
    *  to fall back to overlapping time windows. */
   agentId?: string;
+  /** Correlates records produced by hooks for the same host tool invocation. */
+  toolUseId?: string;
 }
 
 /**

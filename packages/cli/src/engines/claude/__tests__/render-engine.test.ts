@@ -308,9 +308,10 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     expect(JSON.stringify(settings.hooks?.Stop ?? [])).not.toContain("check-jscpd.sh");
     const pre = settings.hooks.PreToolUse;
     const jscpdHook = pre
-      .flatMap((entry: { hooks: Array<{ command: string }> }) => entry.hooks)
+      .flatMap((entry: { hooks: Array<{ command: string; timeout?: number }> }) => entry.hooks)
       .find((h: { command: string }) => h.command.includes("check-jscpd.sh"));
     expect(jscpdHook?.command).toContain(".claude/scripts/check-jscpd.sh");
+    expect(jscpdHook?.timeout).toBe(600);
   });
 
   it("uses a 10% jscpd threshold for frontend presets", () => {
@@ -334,6 +335,12 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
 
     expect(existsSync(join(cwd, ".claude/scripts/check-jscpd.sh"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/scripts/check-semgrep.sh"))).toBe(true);
+    const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
+    const hooks = (
+      settings.hooks.PreToolUse as Array<{ hooks: Array<{ command: string; timeout?: number }> }>
+    ).flatMap((entry) => entry.hooks);
+    const semgrep = hooks.find((hook) => hook.command.includes("check-semgrep.sh"));
+    expect(semgrep?.timeout).toBe(600);
   });
 
   it("does NOT render plugin scripts when plugin is disabled", () => {

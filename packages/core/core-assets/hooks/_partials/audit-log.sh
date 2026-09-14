@@ -122,7 +122,7 @@ navori_audit_log() {
   # and the chain yields `""` — the field then disappears from the record and
   # `ownerOf` falls back to the time window, which is the guess this field
   # exists to avoid. Caught by a test, not by review.
-  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", .tool_use_id // "", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -132,6 +132,10 @@ navori_audit_log() {
   navori_audit_rest=${navori_audit_rest#*
 }
   navori_audit_agent=${navori_audit_rest%%
+*}
+  navori_audit_rest=${navori_audit_rest#*
+}
+  navori_audit_tool_use_id=${navori_audit_rest%%
 *}
   [ -n "$navori_audit_session" ] || return 0
   # Same character class the CLI enforces (#503): the id composes a path, so
@@ -253,12 +257,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" \
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
+    --arg toolUseId "${navori_audit_tool_use_id:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
     '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
-     + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
+     + (if $agent  == "" then {} else {agentId:$agent}   end)
+     + (if $toolUseId == "" then {} else {toolUseId:$toolUseId} end)' 2>/dev/null)" \
     >> "$navori_audit_file" 2>/dev/null
 
   return 0

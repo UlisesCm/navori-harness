@@ -13,10 +13,10 @@
 # Generic on purpose: `.cwd` feeds the worktree resolver of #454 through the
 # SAME hardened cascade instead of a second copy of it.
 #
-# $2 overrides the sed fallback's capture. `.*` (greedy, to the last quote on the
-# line) is right for `command`, whose value can itself contain escaped quotes and
-# which Claude Code sends LAST. Every other field takes the default `[^"]*` run,
-# so a value with more JSON after it is not swallowed whole.
+# The sed fallback reads a JSON string through its first unescaped quote. JSON
+# object member order is not a host contract: `command` can precede `cwd`, so a
+# greedy capture to the last quote would swallow the rest of the payload when
+# neither jq nor node is available.
 payload=$(cat)
 payload_field() {
   if command -v jq >/dev/null 2>&1; then
@@ -25,10 +25,10 @@ payload_field() {
   if command -v node >/dev/null 2>&1; then
     printf '%s' "$payload" | node -e 'let s="";const p=process.argv[1].split(".");process.stdin.on("data",c=>s+=c).on("end",()=>{try{let v=JSON.parse(s);for(const k of p)v=v?.[k];process.stdout.write(String(v??""))}catch{}})' "$1" 2>/dev/null && return 0
   fi
-  printf '%s' "$payload" | sed -n "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"\(${2:-[^\"]*}\)\".*/\1/p"
+  printf '%s' "$payload" | sed -nE "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"(([^\"\\]|\\.)*)\".*/\\1/p"
 }
 extract_cmd() {
-  payload_field tool_input.command '.*'
+  payload_field tool_input.command
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
