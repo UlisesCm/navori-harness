@@ -50,7 +50,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Edit|Write|NotebookEdit",
         "hooks": [
           {
             "type": "command",
@@ -61,7 +61,7 @@
         ]
       },
       {
-        "matcher": "Edit|Write|NotebookEdit|Agent|Task",
+        "matcher": "Bash|Edit|Write|NotebookEdit|Agent|Task",
         "hooks": [
           {
             "type": "command",

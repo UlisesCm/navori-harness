@@ -5,6 +5,18 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { getCoreRoot } from "../bundled-assets.ts";
 import { computeManagedHash } from "../marker.ts";
+import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
+import type { NavoriConfig } from "../config.ts";
+
+const MINIMAL_CONFIG = {
+  name: "test",
+  engines: ["claude"],
+  preset: "custom",
+  version: "1.0.0",
+  language: "es",
+  branchBase: "main",
+  commits: "conventional-es",
+} as unknown as NavoriConfig;
 
 /**
  * Behavioral tests for core-assets/hooks/managed-drift-watch.sh (#530).
@@ -31,10 +43,11 @@ beforeEach(() => {
 });
 
 /** Run the hook against `cwd`; returns exit code and stderr. */
-function runHook(): { code: number; stderr: string } {
+function runHook(payload?: Record<string, unknown>): { code: number; stderr: string } {
   try {
     execFileSync("bash", [hookPath], {
       env: { ...process.env, CLAUDE_PROJECT_DIR: cwd },
+      input: payload ? JSON.stringify(payload) : "",
       stdio: ["pipe", "pipe", "pipe"],
       encoding: "utf-8",
     });
@@ -43,6 +56,15 @@ function runHook(): { code: number; stderr: string } {
     const e = err as { status?: number; stderr?: string };
     return { code: e.status ?? -1, stderr: e.stderr ?? "" };
   }
+}
+
+/** A `PostToolUse` payload for a native write tool. */
+function nativeWrite(filePath: string, tool = "Edit"): Record<string, unknown> {
+  return {
+    session_id: "sess-drift-1",
+    tool_name: tool,
+    tool_input: { file_path: filePath, old_string: "a", new_string: "b" },
+  };
 }
 
 /** A CLAUDE.md whose managed block carries the hash navori would write. */
@@ -94,6 +116,49 @@ describe.runIf(runsBash)("managed-drift-watch.sh (#530)", () => {
     expect(stderr).toContain(computeManagedHash("Rewritten by a script."));
     // The message has to name the way out, or it is just an alarm.
     expect(stderr).toContain("navori sync");
+  });
+
+  /**
+   * The wiring half (#775), and the reason it belongs in the SAME test as the
+   * behaviour: this script never reads `tool_name`, so its matcher is the only
+   * statement about when it runs and nothing inside the script can contradict a
+   * wrong one. Scoped to `Bash` it was blind to the native lane — in
+   * `default`/`acceptEdits` an `Edit` over CLAUDE.md broke a block's hash and
+   * this said nothing until the next shell command, if one ever came.
+   *
+   * So: the registration must deliver `Edit`, AND an `Edit` payload over a
+   * broken block must produce the report in that same call. Either one alone is
+   * the half that never failed.
+   */
+  it("un Edit sobre un bloque roto dispara el aviso en la misma llamada", () => {
+    const post = (
+      buildClaudeSettings(MINIMAL_CONFIG, []).hooks as {
+        PostToolUse?: Array<{ matcher?: string; hooks: Array<{ command: string }> }>;
+      }
+    ).PostToolUse;
+    const bucket = post?.find((b) =>
+      b.hooks.some((h) => h.command.includes("managed-drift-watch.sh")),
+    );
+    expect(bucket?.matcher?.split("|")).toContain("Edit");
+
+    writeManagedClaudeMd("Managed body.");
+    // Baseline adopted through the native lane too — the stamp must exist after
+    // an Edit, not only after a Bash.
+    expect(runHook(nativeWrite(join(cwd, "CLAUDE.md"))).code).toBe(0);
+
+    writeFileSync(
+      join(cwd, "CLAUDE.md"),
+      readFileSync(join(cwd, "CLAUDE.md"), "utf-8").replace(
+        "Managed body.",
+        "Rewritten through Edit.",
+      ),
+    );
+
+    const { code, stderr } = runHook(nativeWrite(join(cwd, "CLAUDE.md")));
+    expect(code).toBe(2);
+    expect(stderr).toContain("CLAUDE.md");
+    expect(stderr).toContain("demo");
+    expect(stderr).toContain(computeManagedHash("Rewritten through Edit."));
   });
 
   it("agrees with computeManagedHash — the shell and TS algorithms must not part", () => {

@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="7753b8b4" version="0.8.6" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="7c2d01e8" version="0.8.6" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).
@@ -67,14 +67,22 @@ set -uo pipefail
 # ORDER BELOW IS A COST DECISION, and these are the counts it buys. Every
 # `payload_field` call may spawn a process, so nothing is read before the field
 # that can end the run:
-#   1 spawn  — any tool that is not Edit/Write/NotebookEdit/Agent: `tool_name`
-#              alone, and the discard `case` exits.
+#   1 spawn  — any tool that is not Edit/Write/NotebookEdit/Agent/Bash:
+#              `tool_name` alone, and the discard `case` exits.
+#   1 spawn  — a `Bash` carrying no write token at all: the fork-free probe
+#              right after that `case` ends the run before anything locates a
+#              stamp. Measured over the park, 53.8% of Bash calls — and Bash is
+#              80.4% of every tool call — so this is the dominant path.
 #   2 spawns — a session already `#delegated` or `#notified`: + `session_id`,
 #              which is what names the stamp, and the stamp check exits.
 #   4 spawns — an edit that actually counts: + `agent_id` (the subagent guard
 #              below) + the file path.
+#   5 spawns — a `Bash` whose PAYLOAD looked like a write but whose COMMAND is
+#              not one: + `extract_cmd`, and the same probe re-applied to the
+#              command ends it one fork before the extraction pipeline.
 # The discard `case` therefore comes BEFORE `session_id`: a tool this hook does
-# not care about must not pay to locate a stamp it will never open.
+# not care about must not pay to locate a stamp it will never open. The Bash
+# probe is that same argument one level down — see `navori_has_write_token`.
 # Shared hook boilerplate — inlined into each hook at render time (see the
 # include directive in the source scripts + lib/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
@@ -403,6 +411,66 @@ cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
 # the note fires and nothing else.
 threshold=4
 
+# The fork-free write probe, and why the Bash lane needs one at all.
+#
+# BOUNDED WORK, the discipline `guard-destructive` states outright: discard as
+# early as possible, with the cheapest work that can decide. Measured over the
+# park (41,889 tool calls, 33,686 of them Bash), the lane WITHOUT this probe
+# sends 85.9% of Bash calls into the extraction and 2.6% of those contribute a
+# single path — 97.4% of the work counts nothing. The cause is that the old gate
+# tested three bare substrings against the WHOLE payload, and a `PostToolUse`
+# payload carries `tool_response` too: `*sed*` matched every `sed -n` READ and
+# every output containing the word "used", `*">"*` matched `2>/dev/null` and
+# every `-->` in a diff someone happened to print.
+#
+# So this asks a narrower question — "could this text contain a redirect or an
+# in-place edit that NAMES a file?" — with shell builtins only, no fork. It is a
+# strict SUPERSET of what the extraction below can find, which is the one
+# property that makes it safe as a gate: the same argument `has_trigger_token`
+# makes for the gate hooks' fast path. A false positive costs a fork; a false
+# negative is a count that silently stops happening, so the asymmetry decides
+# every judgement call below.
+navori_has_write_token() {
+  # The patterns travel through variables rather than inline: `/` closes the
+  # pattern in `${var//pat/repl}`, and an expansion carries the literal past
+  # that parse identically in bash 3.2 and zsh (pinned by the differential
+  # suite, which runs this hook under both).
+  local probe=$1 devnull='>/dev/null' devnull_spaced='> /dev/null'
+  # The noise that provably names no file. Only two forms qualify, and which
+  # ones was settled AT THE SHELL against the extraction below, not by reading
+  # the regex:
+  #   `>&`  — after it the operand class rejects the next character, so
+  #           `cmd >& src/a.ts` extracts NOTHING. Safe to strip.
+  #   `/dev/null` — the sink a large share of the park's commands redirect to;
+  #           it extracts, but as an absolute path the loop drops it anyway.
+  #
+  # `&>` is NOT here, and that is the whole point of this comment. It reads like
+  # `>&` reversed, but it is a REAL redirect: `cmd &> src/a.ts` extracts
+  # `src/a.ts` and the hook counts it. Stripping it deleted the `>` before the
+  # probe could see it, so four `&>` writes to source left the stamp EMPTY and
+  # the notice silent — this issue's own defect class, reintroduced by the
+  # commit that fixes it. Nothing may be added to this list without a shell
+  # check that the extraction really finds nothing after it.
+  probe=${probe//>&/}
+  probe=${probe//$devnull/}
+  probe=${probe//$devnull_spaced/}
+  case "$probe" in
+    *">"*) return 0 ;;
+  esac
+  # `>>` is deliberately NOT stripped above, for the same reason. The
+  # extraction's `grep -oE` matches the SECOND `>` of an append and counts its
+  # operand, so dropping appends here would silently stop counting
+  # `cat >> src/a.ts`.
+  #
+  # These two mirror the extraction's non-redirect branches, separators and all:
+  # a bare `*tee*` matched "committee" and a bare `*sed*` matched "used".
+  case "$1" in
+    *"tee "*) return 0 ;;
+    *"sed "*-i*) return 0 ;;
+  esac
+  return 1
+}
+
 tool=$(payload_field tool_name)
 [ -n "$tool" ] || exit 0
 navori_audit_tool=$tool
@@ -413,12 +481,27 @@ case "$tool" in
   Agent | Task | Edit | Write | NotebookEdit) ;;
   # #722 A4: a `Bash` that WRITES counts too. Without it the threshold only ever
   # accumulated through the native lane — the one the dominant mode abandons
-  # (84.9% of calls are Bash) — so in the sessions this notice exists for it was
-  # structurally unreachable. The extra work is gated twice below: only for
-  # Bash, and only when the payload even contains a write token.
+  # (80.4% of the park's 41,889 measured tool calls are Bash) — so in the
+  # sessions this notice exists for it was structurally unreachable.
+  #
+  # That branch then shipped INERT for weeks (#775): the matcher this hook is
+  # registered with never gained `Bash`, and the host filters by matcher before
+  # it spawns the script, so a `case` arm alone decides nothing. The number
+  # above used to read 84.9% here and 80.4% in `build-settings.ts`; one
+  # measurement, so now one number.
   Bash) ;;
   *) exit 0 ;;
 esac
+
+# Rung 1 of the Bash lane, and the earliest point at which it can end. No write
+# token anywhere in the payload means no redirect, no `tee` and no `sed -i`, so
+# there is nothing here this hook could ever count. It costs no fork and it runs
+# BEFORE `session_id`: a shell command that writes nothing must not pay to
+# locate a stamp it will never open, for the same reason a `Read` does not pay
+# for the `case` above.
+if [ "$tool" = "Bash" ]; then
+  navori_has_write_token "${payload:-}" || exit 0
+fi
 
 # One stamp per session, so two concurrent sessions never overwrite each other's
 # count. Sanitised because the value lands in a path: anything that is not a
@@ -535,19 +618,33 @@ navori_is_source() {
 # The candidate targets: one for a native tool, possibly several for a shell
 # command that writes more than once.
 if [ "$tool" = "Bash" ]; then
-  # Fork-free gate first, on the payload navori already holds: no write token,
-  # nothing to extract. This hook fires on EVERY tool call and Bash is most of
-  # them, so the second payload read has to be earned (same discipline as #716).
-  case "${payload:-}" in
-    *">"* | *sed* | *tee*) ;;
-    *) exit 0 ;;
-  esac
+  # Rung 1 already ran, way up next to the tool `case`, so reaching here means
+  # the payload carries a write token somewhere. Now it is worth one fork to
+  # find out WHERE.
   navori_cmd=$(extract_cmd)
   [ -n "$navori_cmd" ] || exit 0
-  # The three forms `guard-destructive` rule 6 recognizes, and only those:
-  # `>>` and `tee -a` append, which is why neither appears here. One `grep -oE`
-  # pass, because a shell-level parse of every redirect is not worth a fork per
+  # Rung 2: the same probe, on the COMMAND this time. Rung 1 had to read the
+  # whole payload — which carries `tool_response`, i.e. the command's own
+  # OUTPUT — so all it can answer is "maybe"; this answers "yes". Measured, it
+  # ends a further 25% of the park's Bash calls one fork before the extraction
+  # pipeline below (three more) would have found nothing (same discipline as
+  # #716: the second payload read has to be earned, and so does the third).
+  navori_has_write_token "$navori_cmd" || exit 0
+  # The three forms `guard-destructive` rule 6 recognizes. One `grep -oE` pass,
+  # because a shell-level parse of every redirect is not worth a fork per
   # operand — and this is a counter, not a gate.
+  #
+  # APPENDS ARE COUNTED, and this comment used to claim the opposite ("`>>` and
+  # `tee -a` append, which is why neither appears here"). The pattern below has
+  # no `>>` branch, but it does not need one: scanning left to right, the first
+  # `>` of a `>>` fails (the next character is `>`, which the operand class
+  # excludes) and the SECOND one matches, so `cat >> src/a.ts` yields
+  # `src/a.ts`. Verified at the shell, not read off the regex. Counting it is
+  # the right answer — appending to a source file is writing to it — so the
+  # behaviour stays and the claim goes. `tee -a` genuinely does not count: its
+  # operand is the flag, which the `grep -v '^-'` below drops.
+  # `navori_has_write_token` depends on this being true, which is why it is
+  # written down instead of inferred.
   files=$(printf '%s' "$navori_cmd" | grep -oE '(>\|?[[:space:]]*|(^|[[:space:]])tee[[:space:]]+)[^[:space:]|&;<>]+' 2>/dev/null \
     | sed -E -e 's/^[[:space:]]*//' -e 's/^>\|?[[:space:]]*//' -e 's/^tee[[:space:]]+//' -e 's/^[[:space:]]*//' \
     | grep -v '^-' || true)

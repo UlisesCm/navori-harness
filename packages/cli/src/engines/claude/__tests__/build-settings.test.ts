@@ -129,7 +129,7 @@ describe("buildClaudeSettings — base shape", () => {
     expect(guard?.matcher).toBe("Bash");
   });
 
-  it("always injects the managed-drift PostToolUse(Bash) watcher (#530)", () => {
+  it("always injects the managed-drift PostToolUse watcher, on every write tool (#530, #775)", () => {
     // Unconditional on purpose. The freeze it detects is silent, so a watcher
     // that ships off by default would protect only the repos that already knew
     // to ask for it — the same reason the guard above has no config switch.
@@ -141,9 +141,16 @@ describe("buildClaudeSettings — base shape", () => {
       b.hooks.some((h) => h.command.includes("managed-drift-watch.sh")),
     );
     expect(watcher).toBeDefined();
-    // Scoped to Bash: a managed file cannot be rewritten by a Read or a Glob,
-    // and firing on every tool call would multiply the cost for nothing.
-    expect(watcher?.matcher).toBe("Bash");
+    // Every tool that can WRITE a file, and nothing else: a managed file cannot
+    // be rewritten by a Read or a Glob, so firing on those would multiply the
+    // cost for nothing. `Bash` alone was the #775 hole — this script never
+    // reads `tool_name`, so the matcher is the only statement about when it
+    // runs, and a native `Edit` over CLAUDE.md left it silent.
+    expect(watcher?.matcher).toBe("Bash|Edit|Write|NotebookEdit");
+    for (const write of ["Bash", "Edit", "Write", "NotebookEdit"]) {
+      expect(watcher?.matcher?.split("|")).toContain(write);
+    }
+    expect(watcher?.matcher).not.toContain("Read");
   });
 
   it("always injects the worktree-reclaim SessionEnd hook (#527)", () => {

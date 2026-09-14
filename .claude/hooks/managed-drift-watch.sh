@@ -1,7 +1,38 @@
-# navori:managed start id="managed-drift-watch-base" hash="fb5abaa6" version="0.8.6" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="afa47ae8" version="0.8.6" source="@navori/core"
 #!/usr/bin/env bash
 #
-# PostToolUse(Bash) watcher for managed-block drift (#530).
+# PostToolUse watcher for managed-block drift (#530), on every tool that can
+# write a file: `Bash|Edit|Write|NotebookEdit`.
+#
+# WHY THE MATCHER IS THE WHOLE DECISION, and why it took #775 to widen it. This
+# script audits STATE, never the command, so it has no `case "$tool_name"` to
+# contradict its registration — the matcher alone decides when it runs, which
+# makes a narrow one indistinguishable from a hook that works. It was `Bash`
+# only, and the host's own PostToolUse doc spells out the consequence from the
+# other direction: a hook matching `Edit|Write` does not run when a `Bash`
+# command rewrites the same file. The inverse is the hole this had — in
+# `default`/`acceptEdits`, where the host does NOT push everything through the
+# shell, an `Edit` over `CLAUDE.md` broke a managed block's hash and this stayed
+# quiet until the next Bash call, if one ever came. A session of pure native
+# editing put the #523 freeze back into silence, which is the one thing this
+# hook exists to prevent.
+#
+# WHY NOT `FileChanged`, which the same doc section recommends for exactly this
+# ("to run a hook when a specific file changes on disk, whatever wrote it").
+# Because it would need the watchlist IN the settings, and the managed file set
+# is derived per repo at render time (engine outputs plus every rendered asset,
+# ~60 files here) — so settings.json would carry a second copy of a list this
+# script already derives, and the two would drift. A watchlist that drifts from
+# the managed set is a detector with holes in it, i.e. this hook's own defect
+# class. It is also outside navori's neutral hook vocabulary (`lib/plugins.ts`
+# admits four events, and every engine adapter maps those), so adopting it is a
+# contract change rather than a matcher change.
+#
+# What the widening does NOT buy, stated plainly: a write from outside the
+# session — a formatter in a watch process, another terminal — still surfaces
+# only on the next tool call navori sees. `FileChanged` would catch that one.
+# The cost of what it does buy is one shasum pass (~25ms, quoted below) per
+# native edit.
 #
 # THIS HOOK NEVER READS THE COMMAND. That is the whole design. Its sibling
 # `guard-destructive.sh` decides by the SHAPE of what you typed, so it only ever
@@ -47,7 +78,23 @@ payload=$(cat 2>/dev/null) || payload=""
 
 navori_audit_name="managed-drift-watch"
 navori_audit_phase="PostToolUse"
-navori_audit_tool="Bash"
+# The recorded tool used to be the literal "Bash", which was true while the
+# matcher was. Now that four tools reach here it has to be read — and read
+# without a fork, because this runs after every tool call: `#` and `%%` are
+# builtins, and a tool name carries no quote to escape. Anything the parse does
+# not recognise leaves the field EMPTY (the partial then omits it) rather than
+# guessing, since a wrong label in the audit log is how a lane gets measured as
+# working when it is not — this issue, one level up.
+navori_audit_tool=""
+case "$payload" in
+  *'"tool_name":"'*)
+    navori_audit_tool=${payload#*'"tool_name":"'}
+    navori_audit_tool=${navori_audit_tool%%'"'*}
+    case "$navori_audit_tool" in
+      "" | *[!A-Za-z_]*) navori_audit_tool="" ;;
+    esac
+    ;;
+esac
 # Fallback no-ops, overwritten by the real definitions the include brings in.
 # They exist because this hook is FAIL-OPEN: if the file ever runs WITHOUT its
 # includes expanded — a raw copy of the asset, a render that half-finished — an

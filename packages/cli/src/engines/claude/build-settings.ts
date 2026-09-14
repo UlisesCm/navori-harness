@@ -187,11 +187,22 @@ export function buildClaudeSettings(
   // call; this one costs one shasum pass against a stamp file (~25ms) unless a
   // managed file actually changed. (It was a find/mtime probe at ~10ms until
   // that proved unreliable in CI and was redesigned — managed-drift-watch.sh:28-41.)
+  //
+  // The matcher covers every tool that can write a file, not just `Bash`
+  // (#775). This script audits STATE and never reads `tool_name`, so unlike its
+  // neighbours it has no `case` that could contradict a narrow registration —
+  // the matcher IS the decision about when it runs, and a narrow one is
+  // indistinguishable from a hook that works. Scoped to `Bash` it was blind to
+  // the native lane: in `default`/`acceptEdits` an `Edit` over `CLAUDE.md`
+  // broke a block's hash and nothing fired until the next shell command, if one
+  // ever came. The alternative the host's doc offers for "whatever wrote it" is
+  // `FileChanged`; the script's header carries why a watchlist living in
+  // settings was the wrong trade here.
   settings = deepMerge(settings, {
     hooks: {
       PostToolUse: [
         {
-          matcher: "Bash",
+          matcher: "Bash|Edit|Write|NotebookEdit",
           hooks: [
             {
               type: "command",
@@ -213,13 +224,32 @@ export function buildClaudeSettings(
   //
   // The matcher is the cost control: this is the ONE hook whose question is
   // about writes and delegation, so the host filters the tools before the
-  // script ever spawns. Everything else — Read, Grep, Bash — never reaches it.
+  // script ever spawns. A Read or a Grep never reaches it.
+  //
+  // `Bash` DOES, and it took #775 to get here. The script's own `case` has
+  // accepted `Bash` since #722 A4 — because a `Bash` that writes is a write,
+  // and 80.4% of the park's 41,889 measured tool calls are Bash, so through the
+  // native lane alone the threshold was effectively unreachable — but this
+  // matcher never gained it. The host filters BEFORE spawning, so that branch
+  // shipped and never once executed: the fix was inert from the commit that
+  // introduced it, and the count this hook reported was the native lane only.
+  // Measured across 126 sessions, connecting the lane takes threshold crossings
+  // from 19 to 40 — 21 sessions (52.5%) that were invisible.
+  //
+  // The lane is not free, and the script earns it rather than this matcher
+  // narrowing it back: `routing-watch.sh` gates the Bash lane behind a
+  // fork-free write probe placed before anything that locates a stamp, so a
+  // shell command that writes nothing costs exactly what a `Read` costs today.
+  // `hook-matcher-wiring.test.ts` is what keeps the pair honest from here —
+  // it derives the accepted tools from the script and fails if this matcher
+  // stops delivering one of them.
+  //
   // Advisory by construction (the script has no `exit 2` path).
   settings = deepMerge(settings, {
     hooks: {
       PostToolUse: [
         {
-          matcher: "Edit|Write|NotebookEdit|Agent|Task",
+          matcher: "Bash|Edit|Write|NotebookEdit|Agent|Task",
           hooks: [
             {
               type: "command",

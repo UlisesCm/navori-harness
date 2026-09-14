@@ -511,7 +511,7 @@ export function isClassifierExemptCommand(command: string): boolean {
  * What this is FOR is the half nobody could size. Rule 6 only blocks writes to
  * MANAGED targets, and `signals.ts` keeps writes out of the read-lane ratio on
  * purpose, so a `sed -i` over `src/foo.ts` touched no layer and entered no
- * number. The lane where 84.9% of the calls live had no instrument at all.
+ * number. The lane where 80.4% of the calls live had no instrument at all.
  *
  * Approximate by construction, and in the safe direction: it reads the command
  * text, so a write hidden behind `sh -c` or a variable does not count. An
