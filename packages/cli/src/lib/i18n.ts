@@ -541,7 +541,9 @@ interface CommonCmdStrings {
   aborted: string;
   // lib/config.ts soft warnings (stderr) — localized off config.language.
   unknownConfigValues: (list: string) => string;
+  unknownConfigKeys: (list: string) => string;
   deadProgressKeys: (list: string) => string;
+  deprecatedConfigKeys: (list: string) => string;
   // lib/marker.ts user-zone placeholder (emitted into a fresh CLAUDE.md).
   userSectionPlaceholder: string;
   // lib/placeholders.ts soft fallback for `{{qualityGate.fast|full}}` — published
@@ -746,6 +748,7 @@ interface DoctorCmdStrings {
    *  upward config resolution, so no agent can commit from one. */
   nestedWorktrees: (n: number, eslintConfig: string, lines: string) => string;
   nestedWorktreeRow: string;
+  monorepoDisabled: string;
   monorepoEmptyDeclared: string;
   monorepoAddedRow: string;
   monorepoOrphanRow: string;
@@ -1459,8 +1462,12 @@ const CMD_ES: CmdStrings = {
     aborted: "Abortado",
     unknownConfigValues: (list) =>
       `navori: valores de config desconocidos ignorados (¿config de un navori más nuevo? actualiza el CLI): ${list}`,
+    unknownConfigKeys: (list) =>
+      `navori: claves de config desconocidas (no se rechazan para mantener compatibilidad futura): ${list}`,
     deadProgressKeys: (list) =>
       `navori: claves obsoletas ignoradas en "progress" (puedes borrarlas del navori.config.json): ${list}`,
+    deprecatedConfigKeys: (list) =>
+      `navori: perillas obsoletas sin efecto completo en runtime (puedes borrarlas del navori.config.json): ${list}`,
     userSectionPlaceholder:
       "<!-- Escribe aquí el dominio y las convenciones específicas de tu repo. " +
       "navori preserva intacto todo lo que esté entre estos marcadores en cada render. -->",
@@ -1783,6 +1790,8 @@ const CMD_ES: CmdStrings = {
       `es un worktree abandonado. Cierra el ciclo desde el árbol principal y quita el ` +
       `worktree con 'git worktree remove <ruta>' al terminar:\n${lines}`,
     nestedWorktreeRow: "— checkout anidado con node_modules propio",
+    monorepoDisabled:
+      "monorepo.enabled está en false: navori no renderiza ni inspecciona workspaces.",
     monorepoEmptyDeclared:
       "monorepo declarado pero workspaces[] vacío — corre 'navori scan' para poblarlo",
     monorepoAddedRow: "— en disco, falta en config (corre 'navori scan')",
@@ -2591,8 +2600,12 @@ const CMD_EN: CmdStrings = {
     aborted: "Aborted",
     unknownConfigValues: (list) =>
       `navori: unknown config values ignored (config from a newer navori? update the CLI): ${list}`,
+    unknownConfigKeys: (list) =>
+      `navori: unknown config keys (not rejected to preserve forward compatibility): ${list}`,
     deadProgressKeys: (list) =>
       `navori: obsolete keys ignored in "progress" (you can delete them from navori.config.json): ${list}`,
+    deprecatedConfigKeys: (list) =>
+      `navori: deprecated knobs without a complete runtime effect (you can delete them from navori.config.json): ${list}`,
     userSectionPlaceholder:
       "<!-- Write your repo's domain and specific conventions here. " +
       "navori preserves everything between these markers verbatim on every render. -->",
@@ -2910,6 +2923,7 @@ const CMD_EN: CmdStrings = {
       `worktree. Close the cycle from the main tree and drop the worktree with ` +
       `'git worktree remove <path>' when it's done:\n${lines}`,
     nestedWorktreeRow: "— nested checkout with its own node_modules",
+    monorepoDisabled: "monorepo.enabled is false: navori does not render or inspect workspaces.",
     monorepoEmptyDeclared:
       "monorepo declared but workspaces[] empty — run 'navori scan' to populate it",
     monorepoAddedRow: "— on disk, missing in config (run 'navori scan')",

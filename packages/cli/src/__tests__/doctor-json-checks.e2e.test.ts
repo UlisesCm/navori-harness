@@ -83,7 +83,12 @@ interface DoctorReport {
   interpolationArtifacts: Array<{ path: string; line: number; token: string; reason: string }>;
   diskUsage: Array<{ target: string; path: string; bytes: number; thresholdBytes: number }>;
   nestedWorktrees: { eslintConfig: string; worktrees: string[] } | null;
-  monorepoDrift: { added: string[]; orphan: string[]; emptyDeclared: boolean } | null;
+  monorepoDrift: {
+    disabled: boolean;
+    added: string[];
+    orphan: string[];
+    emptyDeclared: boolean;
+  } | null;
   globalScope: {
     shadowedAgents: Array<{ id: string; globalPath: string; repoPath: string }>;
     permissionConflicts: string[];
@@ -272,7 +277,12 @@ describe("doctor --json over a monorepo (#395)", () => {
     expect(report.ok).toBe(true);
     expect(report.config.monorepo?.workspaces.map((w) => w.path)).toEqual(["apps/backend"]);
     // The workspace is declared AND on disk, so the monorepo shape itself is clean.
-    expect(report.monorepoDrift).toEqual({ added: [], orphan: [], emptyDeclared: false });
+    expect(report.monorepoDrift).toEqual({
+      disabled: false,
+      added: [],
+      orphan: [],
+      emptyDeclared: false,
+    });
 
     // The four checks are computed over the monorepo root too — `emptyUserSections`
     // carries real rows (the freshly rendered skills), which is what makes this a

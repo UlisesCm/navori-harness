@@ -1,8 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { writeFileSync, readFileSync, rmSync, mkdtempSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { writeConfig, readConfig, effectiveConfig, ConfigError } from "../config.ts";
+import {
+  writeConfig,
+  readConfig,
+  effectiveConfig,
+  ConfigError,
+  findUnknownConfigKeys,
+} from "../config.ts";
 import { NavoriConfigSchema } from "../schema.ts";
 import { schemaUrl } from "../schema-url.ts";
 
@@ -471,6 +477,105 @@ describe("readConfig", () => {
         expect(nameIssue?.code).toBe("invalid_type");
       }
     } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});
+
+describe("config key diagnostics (#779)", () => {
+  it("finds typos at each declared level but leaves extension points open", () => {
+    expect(
+      findUnknownConfigKeys({
+        name: "demo",
+        engines: ["claude"],
+        preset: "custom",
+        harnes: {},
+        harness: { "ticket-audit": false },
+        project: {
+          pluginDefinedPrompt: "allowed",
+          foreignHarness: { acknowleged: ["agent:global:other"] },
+        },
+        plugins: { customPlugin: { enabeld: true } },
+      }),
+    ).toEqual([
+      { path: "harnes", suggestion: "harness" },
+      { path: "harness.ticket-audit", suggestion: "ticketAudit" },
+      { path: "plugins.customPlugin.enabeld", suggestion: "enabled" },
+      { path: "project.foreignHarness.acknowleged", suggestion: "acknowledged" },
+    ]);
+  });
+
+  it("warns about unknown keys without rejecting a future config", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    const warnings: string[] = [];
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string) => {
+      warnings.push(chunk);
+      return true;
+    }) as never);
+    try {
+      writeFileSync(
+        path,
+        JSON.stringify({
+          name: "demo",
+          engines: ["claude"],
+          preset: "custom",
+          futureFeature: { enabled: true },
+          harness: { "ticket-audit": false },
+        }),
+      );
+
+      expect(readConfig(path).harness?.ticketAudit).toBe(true);
+      expect(warnings.join("")).toContain("futureFeature");
+      expect(warnings.join("")).toContain("harness.ticket-audit");
+      expect(warnings.join("")).toContain("harness.ticketAudit");
+    } finally {
+      stderr.mockRestore();
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("is silent for a clean config", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    const warnings: string[] = [];
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string) => {
+      warnings.push(chunk);
+      return true;
+    }) as never);
+    try {
+      writeConfig(path, { name: "demo", engines: ["claude"], preset: "custom" });
+      readConfig(path);
+      expect(warnings).toEqual([]);
+    } finally {
+      stderr.mockRestore();
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("warns when a deprecated partial runtime knob is configured", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    const warnings: string[] = [];
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string) => {
+      warnings.push(chunk);
+      return true;
+    }) as never);
+    try {
+      writeConfig(path, {
+        name: "demo",
+        engines: ["claude"],
+        preset: "custom",
+        project: { testRunner: "vitest" },
+        progress: { dir: "docs/state", currentFile: "now.md", historyFile: "then.md" },
+      });
+      readConfig(path);
+      expect(warnings.join("")).toContain("project.testRunner");
+      expect(warnings.join("")).toContain("progress.dir");
+      expect(warnings.join("")).toContain("progress.currentFile");
+      expect(warnings.join("")).toContain("progress.historyFile");
+    } finally {
+      stderr.mockRestore();
       rmSync(dir, { recursive: true });
     }
   });

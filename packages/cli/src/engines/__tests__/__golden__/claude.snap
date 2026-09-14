@@ -179,14 +179,14 @@ If a memory contradicts what the code says, the code wins — fix the memory.
 ===== FILE: .claude/agents/commit-pr-pilot.md =====
 ---
 name: commit-pr-pilot
-description: Drafts Conventional commits and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR.
+description: Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR.
 tools: Read, Glob, Grep, Bash
 ---
 
 <!-- navori:managed id="commit-pr-pilot-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 # Commit & PR Pilot Agent
 
-You own the **end of the cycle**: well-structured Conventional commits and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
+You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
 
 ## When to trigger
 
@@ -313,10 +313,9 @@ Never open the PR with the gate red.
 
 1. Read `.claude/progress/impl_<feature>.md` to understand what changed and why.
 2. Look at `git diff --stat` to confirm the scope.
-3. Draft a Conventional commit message:
-   - Type: `feat | fix | docs | refactor | perf | test | chore | style | build | ci | revert`.
-   - Scope: lowercase, derived from the touched area (module/domain).
-   - Description: imperative, ≤70 chars, no trailing period, language defined by `conventional-es`.
+3. Draft an atomic commit message in the configured style (`conventional-es`).
+   - When the configured style is Conventional, use a lowercase type and scope derived from the touched area.
+   - Keep the description imperative, ≤70 chars and without a trailing period.
    - Optional body with the WHY if the decision isn't obvious.
 4. If you touch potentially sensitive files (`.env*`, credentials, odd lockfiles), **flag the user before staging**.
 5. `git add <files>` (prefer explicit over `git add -A`).
@@ -345,7 +344,7 @@ Never open the PR with the gate red.
    - `.claude/progress/impl_<feature>.md` if it exists — non-obvious decisions.
 
 2. **Draft title and body**:
-   - **Title**: Conventional Commits `type(scope): description`. ≤70 chars. Imperative. No trailing period.
+   - **Title**: follows the configured commit style (`conventional-es`), ≤70 chars, imperative and without a trailing period.
    - **Body**: the repo's exact template (below). No empty sections.
 
 3. **Validate** before firing `gh`:
@@ -440,7 +439,7 @@ wc -c CLAUDE.md                                  # after
 - ❌ Never skip hooks (`--no-verify`) unless the user explicitly asks.
 - ❌ Never ask for a merge / approve the PR yourself. Your job ends with the URL.
 - ❌ Never `gh pr checks --watch`: it takes no timeout and would hang the turn before the URL reaches the user.
-- ✅ Commit and PR message in the language defined by `conventional-es` (`conventional-es` = Spanish MX, `conventional` = English) — except the `Closes #<N>` keyword, which GitHub parses and which stays in English in any language (see the body template).
+- ✅ Commit and PR message follow the configured style (`conventional-es`; `conventional-es` = Spanish MX, `conventional` = English). The `Closes #<N>` keyword is the exception: GitHub parses it and it stays in English (see the body template).
 - ✅ If you introduce a new pattern or non-obvious decision that wasn't already in `impl_<feature>.md`, leave a note in the PR body ("Decisions" section).
 
 ## Anti-patterns
@@ -718,7 +717,7 @@ Write `.claude/progress/impl_<feature>.md`:
 - ...
 
 ## Suggested commit
-`feat(<scope>): ...` (Conventional, atomic, language per `conventional-es`)
+`<configured commit style>` (atomic, language/style per `conventional-es`)
 ```
 
 ## Communication with the leader
@@ -1689,7 +1688,7 @@ Before closing the session:
 2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
-5. **Conventional commit**: `feat|fix|chore|docs(scope): message`, atomic, in the language defined by `conventional-es`.
+5. **Commit**: atomic and in the configured style (`conventional-es`).
 6. **Park on base**: once the cycle's work is committed and its branch pushed (PR opened when the flow calls for one), leave the repo standing on the base branch, synced: `git switch main` then `git pull --ff-only`. The point is where the NEXT session starts from — a repo parked on last week's feature branch breeds branches cut from stale bases. Rules that make it safe:
    - **Never delete the feature branch.** This is position hygiene, not history hygiene; the branch stays for its pending merge and for `babysit-prs`.
    - Only with a **clean working tree** and the cycle's commits pushed. Anything unpushed or uncommitted → do NOT switch; say what was left and leave parking to the user.
@@ -9501,8 +9500,6 @@ esac
       "Bash(navori dominio list:*)",
       "Bash(navori dominio show:*)",
       "Bash(navori dominio doctor:*)",
-      "Bash(jscpd:*)",
-      "Bash(semgrep:*)",
       "Bash(acli jira workitem view*)",
       "Bash(acli jira workitem search*)",
       "Bash(acli jira workitem comment list*)",
@@ -9521,6 +9518,8 @@ esac
       "Bash(gh repo view*)",
       "Bash(gh run list*)",
       "Bash(gh run view*)",
+      "Bash(jscpd:*)",
+      "Bash(semgrep:*)",
       "Bash(pnpm lint:*)",
       "Bash(pnpm test:*)",
       "Bash(pnpm test && pnpm lint)",
@@ -10962,7 +10961,7 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 [MEDIO]   ... # legibilidad, naming
 
 **Generación**: diff si modifica; archivo completo solo si es nuevo.
-**Commits**: Conventional (`feat(scope): ...`), atómicos, en el idioma que define `commits` en la config.
+**Commits**: atómicos y en el estilo configurado por `commits`.
 <!-- /navori:managed id="formato-respuesta" -->
 
 <!-- navori:managed id="tipado-fuerte" hash="<HASH>" version="<VERSION>" source="@navori/core" -->

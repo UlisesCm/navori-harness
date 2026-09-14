@@ -18,7 +18,7 @@ import { detectClaudeInfra } from "./claude-infra.ts";
 import { detectLegacyAgents, type LegacyAgent } from "./legacy-agents.ts";
 import { isDowngrade } from "./semver.ts";
 import type { NavoriConfig } from "./config.ts";
-import { effectiveConfigForWorkspace } from "./monorepo.ts";
+import { effectiveConfigForWorkspace, enabledMonorepoWorkspaces } from "./monorepo.ts";
 import { tc, DEFAULT_LANG, type Lang } from "./i18n.ts";
 
 /**
@@ -458,7 +458,7 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   // Reported paths are prefixed with the workspace path so the diagnostic points
   // at the real file. Plugins aren't workspace-overridable, so `knownSources`
   // (built from the inherited plugin list) is reused.
-  for (const ws of config.monorepo?.workspaces ?? []) {
+  for (const ws of enabledMonorepoWorkspaces(config)) {
     const wsCwd = join(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
     out.push(...scanManagedDriftAt(wsCwd, ws.path, naviVersion, knownSources, engines));
@@ -627,7 +627,7 @@ export function scanManagedOrder(
 ): OrderReport | null {
   const root = orderReportAt(cwd, config, cwd, { computedBlockIds });
   if (root) return root;
-  for (const ws of config.monorepo?.workspaces ?? []) {
+  for (const ws of enabledMonorepoWorkspaces(config)) {
     const wsCwd = join(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
     // repoRoot stays the monorepo root (not wsCwd) so LOCAL presets under
@@ -740,7 +740,7 @@ export function scanMalformedMarkers(cwd: string, config?: NavoriConfig): Malfor
   // Without a config, scan every engine's outputs (back-compat default).
   const engines = config?.engines;
   const out = scanMalformedMarkersAt(cwd, "", engines);
-  for (const ws of config?.monorepo?.workspaces ?? []) {
+  for (const ws of config ? enabledMonorepoWorkspaces(config) : []) {
     const wsCwd = join(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
     out.push(...scanMalformedMarkersAt(wsCwd, ws.path, engines));
@@ -845,7 +845,7 @@ export function scanDuplicateMarkers(cwd: string, config?: NavoriConfig): Duplic
   // duplicate. Without a config, scan every engine's outputs (back-compat).
   const engines = config?.engines;
   const out = scanDuplicateMarkersAt(cwd, "", engines);
-  for (const ws of config?.monorepo?.workspaces ?? []) {
+  for (const ws of config ? enabledMonorepoWorkspaces(config) : []) {
     const wsCwd = join(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
     out.push(...scanDuplicateMarkersAt(wsCwd, ws.path, engines));

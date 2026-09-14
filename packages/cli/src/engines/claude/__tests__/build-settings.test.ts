@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildClaudeSettings } from "../build-settings.ts";
 import type { NavoriConfig } from "../../../lib/config.ts";
-import type { LoadedPlugin } from "../../../lib/plugins.ts";
+import { loadPlugin, type LoadedPlugin } from "../../../lib/plugins.ts";
 import { readCliVersion } from "../../../lib/bundled-assets.ts";
 
 const MINIMAL_CONFIG = {
@@ -1011,10 +1011,20 @@ describe("buildClaudeSettings — commands the harness itself orders (#506)", ()
     expect(allow).toContain("Bash(navori dominio doctor:*)");
   });
 
-  it("pre-approves jscpd and semgrep — gates the prose orders before approving a change", () => {
-    const allow = allowOf(MINIMAL_CONFIG);
-    expect(allow).toContain("Bash(jscpd:*)");
-    expect(allow).toContain("Bash(semgrep:*)");
+  it("pre-approves scanner commands only while their plugins are enabled", () => {
+    const baseAllow = allowOf(MINIMAL_CONFIG);
+    expect(baseAllow).not.toContain("Bash(jscpd:*)");
+    expect(baseAllow).not.toContain("Bash(semgrep:*)");
+
+    const jscpdOnly = buildClaudeSettings(MINIMAL_CONFIG, [loadPlugin("jscpd")]);
+    const jscpdAllow = (jscpdOnly.permissions as { allow: string[] }).allow;
+    expect(jscpdAllow).toContain("Bash(jscpd:*)");
+    expect(jscpdAllow).not.toContain("Bash(semgrep:*)");
+
+    const semgrepOnly = buildClaudeSettings(MINIMAL_CONFIG, [loadPlugin("semgrep")]);
+    const semgrepAllow = (semgrepOnly.permissions as { allow: string[] }).allow;
+    expect(semgrepAllow).toContain("Bash(semgrep:*)");
+    expect(semgrepAllow).not.toContain("Bash(jscpd:*)");
   });
 
   it("pre-approves the read-only git introspection the agents order", () => {

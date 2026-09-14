@@ -4,6 +4,11 @@ export type MonorepoWorkspace = NonNullable<
   NonNullable<NavoriConfig["monorepo"]>["workspaces"]
 >[number];
 
+/** `monorepo.enabled` is the master switch for workspace work. */
+export function enabledMonorepoWorkspaces(config: NavoriConfig): MonorepoWorkspace[] {
+  return config.monorepo?.enabled ? (config.monorepo.workspaces ?? []) : [];
+}
+
 /**
  * Monorepo facts a workspace render needs to describe its place in the tree.
  * Built by `buildMonorepoContext` from the root `config.monorepo`; the root
@@ -30,7 +35,7 @@ export function buildMonorepoContext(
   config: NavoriConfig,
   current: MonorepoWorkspace,
 ): MonorepoRenderContext {
-  const all = config.monorepo?.workspaces ?? [];
+  const all = enabledMonorepoWorkspaces(config);
   return {
     tool: config.monorepo?.tool,
     currentName: current.name,

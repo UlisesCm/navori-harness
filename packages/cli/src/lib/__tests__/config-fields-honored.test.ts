@@ -71,6 +71,13 @@ describe("#604 — `commits` reaches the doctrine that cites it", () => {
       rmSync(other, { recursive: true, force: true });
     }
   });
+
+  it("does not prescribe Conventional commits when the configured style is free", () => {
+    renderClaudeEngine(cwd, { ...BASE, commits: "free" } as unknown as NavoriConfig);
+    const pilot = readFileSync(join(cwd, ".claude/agents/commit-pr-pilot.md"), "utf-8");
+    expect(pilot).toContain("configured style (`free`)");
+    expect(pilot).not.toContain("Conventional commits");
+  });
 });
 
 describe("#604 — `version` no longer answers two questions with one name", () => {

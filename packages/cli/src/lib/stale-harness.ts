@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { NavoriConfig } from "./config.ts";
+import { enabledMonorepoWorkspaces } from "./monorepo.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 
 /**
@@ -151,9 +152,11 @@ function findNestedClaudeDirs(cwd: string, dir: string, depth: number, out: stri
  * single-package repo, or a monorepo whose every `.claude/` is declared.
  */
 export function scanStaleHarness(cwd: string, config: NavoriConfig): StaleHarness[] {
-  const declared = new Set(
-    (config.monorepo?.workspaces ?? []).map((w) => join(w.path, ".claude").replace(/\\/g, "/")),
-  );
+  // `enabled: false` turns the whole monorepo layer off. Do not reinterpret
+  // its declared workspace directories as stale single-repo harnesses.
+  if (config.monorepo && !config.monorepo.enabled) return [];
+  const workspaces = enabledMonorepoWorkspaces(config);
+  const declared = new Set(workspaces.map((w) => join(w.path, ".claude").replace(/\\/g, "/")));
   const out: StaleHarness[] = [];
 
   const nested: string[] = [];
@@ -169,7 +172,7 @@ export function scanStaleHarness(cwd: string, config: NavoriConfig): StaleHarnes
   // The trimmed leftovers live INSIDE a declared workspace, so the loop above
   // skipped them by design.
   if (config.monorepo?.workspaceHarness === "minimal") {
-    for (const ws of config.monorepo.workspaces ?? []) {
+    for (const ws of workspaces) {
       const rel = join(ws.path, ".claude", "scripts").replace(/\\/g, "/");
       if (!existsSync(join(cwd, rel))) continue;
       const survey = surveyDir(join(cwd, rel));

@@ -92,7 +92,7 @@ Protocolo global activo. En este repo:
 - Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones, coloquialismos) en artefactos — eso es exclusivo del chat.
 <!-- /navori:managed id="idioma-rol" -->
 
-<!-- navori:managed id="formato-respuesta" hash="2065a812" version="0.8.6" source="@navori/core" -->
+<!-- navori:managed id="formato-respuesta" hash="3c6c3b24" version="0.8.6" source="@navori/core" -->
 ## Concisión (aplica a todo: chat y subagentes)
 
 - Lidera con el resultado: la primera línea responde "qué pasó / qué encontré", no el preámbulo.
@@ -111,7 +111,7 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 [MEDIO]   ... # legibilidad, naming
 
 **Generación**: diff si modifica; archivo completo solo si es nuevo.
-**Commits**: Conventional (`feat(scope): ...`), atómicos, en el idioma que define `commits` en la config.
+**Commits**: atómicos y en el estilo configurado por `commits`.
 <!-- /navori:managed id="formato-respuesta" -->
 
 <!-- navori:managed id="tipado-fuerte" hash="775c6205" version="0.8.6" source="@navori/core" -->

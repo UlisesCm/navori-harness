@@ -9,6 +9,7 @@ import { renderNonClaudeEngines, type EngineRenderSummary } from "./render.ts";
 import {
   effectiveConfigForWorkspace,
   buildMonorepoContext,
+  enabledMonorepoWorkspaces,
   type MonorepoRenderContext,
 } from "../lib/monorepo.ts";
 import { extractManagedContent } from "../lib/marker.ts";
@@ -386,7 +387,7 @@ export function resolveSyncTargets(
   config: NavoriConfig,
   workspaceFilter: string | null,
 ): SyncTargetsResult {
-  const declared = config.monorepo?.workspaces ?? [];
+  const declared = enabledMonorepoWorkspaces(config);
   const ts = tc(resolveLang(config.language)).sync;
 
   if (workspaceFilter) {

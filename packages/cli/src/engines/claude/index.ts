@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
-import type { MonorepoRenderContext } from "../../lib/monorepo.ts";
+import { enabledMonorepoWorkspaces, type MonorepoRenderContext } from "../../lib/monorepo.ts";
 import {
   loadEnabledPlugins,
   loadDisabledPlugins,
@@ -343,7 +343,7 @@ function buildContextoMonorepoBody(
   }
 
   // Root render: read the workspace list straight off the config.
-  const workspaces = config.monorepo?.workspaces ?? [];
+  const workspaces = enabledMonorepoWorkspaces(config);
   if (workspaces.length === 0) return null;
   // Sanitize `tool` (untrusted config) before it reaches the managed block
   // (#264); each workspace's name/path/preset is sanitized in the loop below.
