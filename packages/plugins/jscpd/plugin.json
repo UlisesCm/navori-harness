@@ -13,6 +13,13 @@
       "win32": "pnpm add -g jscpd"
     }
   },
+  "settingsFragment": {
+    "permissions": {
+      "allow": [
+        "Bash(jscpd:*)"
+      ]
+    }
+  },
   "scripts": [
     {
       "src": "scripts/check-jscpd.sh",

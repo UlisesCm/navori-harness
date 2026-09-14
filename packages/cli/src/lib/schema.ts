@@ -244,6 +244,12 @@ const BlocksSchema = z.object({
 // ever consumed them. Old configs that still carry them keep validating —
 // z.object strips unknown keys by default — and readConfig surfaces a soft
 // warning so users know they're dead config they can delete.
+//
+// `dir` / `currentFile` / `historyFile` are also deprecated (#779). They only
+// affected bootstrap output while the session hook and rendered instructions
+// use fixed runtime paths. Keep accepting them to avoid a breaking config
+// change, but `readConfig` warns that they do not provide a complete runtime
+// knob.
 const ProgressSchema = z.object({
   dir: safeRelPath.default("progress"),
   currentFile: safeRelPath.default("current.md"),
@@ -258,6 +264,9 @@ const ProjectSchema = z
   .object({
     legacyPaths: z.array(z.string()).default([]),
     criticalAreas: z.array(z.string()).default([]),
+    /** @deprecated (#779). Detection may seed this value, but no rendered
+     * instruction consumes it. `readConfig` warns so it is not mistaken for a
+     * runtime policy. */
     testRunner: z.string().optional(),
     /** Repo stage / risk posture: greenfield | production | migration. */
     posture: z.string().optional(),

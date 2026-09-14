@@ -72,6 +72,25 @@ const UNREACHABLE = [
 const rootHas = (piece: string): boolean => existsSync(join(cwd, piece));
 
 describe("render por workspace — `minimal` escribe solo lo alcanzable (spec 0018)", () => {
+  it("respeta monorepo.enabled=false y no toca workspaces declarados", () => {
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "disabled-workspaces",
+      engines: ["claude"],
+      preset: "monorepo-turbopnpm",
+      monorepo: {
+        enabled: false,
+        tool: "turbo",
+        workspaces: [{ name: "backend", path: "apps/backend" }],
+      },
+    });
+
+    const result = runRender(cwd);
+    expect(result.ok).toBe(true);
+    expect(result.workspaces).toEqual([]);
+    expect(existsSync(join(cwd, "apps/backend/CLAUDE.md"))).toBe(false);
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf-8")).not.toContain('id="contexto-monorepo"');
+  });
+
   it("bajo el default, el workspace recibe CLAUDE.md y skills, y nada más", () => {
     // Covers: R2
     writeMonorepoConfig(); // sin declarar nada: el default del schema es `minimal`

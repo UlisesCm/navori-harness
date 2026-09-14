@@ -35,7 +35,11 @@ import {
 } from "../lib/style.ts";
 import { t, tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 import { describeCoreProvenance, type CoreProvenance } from "../lib/bundled-assets.ts";
-import { effectiveConfigForWorkspace, buildMonorepoContext } from "../lib/monorepo.ts";
+import {
+  effectiveConfigForWorkspace,
+  buildMonorepoContext,
+  enabledMonorepoWorkspaces,
+} from "../lib/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
 import {
   listRegistryRepos,
@@ -383,7 +387,7 @@ export function runRender(
 
   // --workspace filter path: skip root, render only the matching workspace.
   if (workspaceFilter) {
-    const declared = config.monorepo?.workspaces ?? [];
+    const declared = enabledMonorepoWorkspaces(config);
     if (declared.length === 0) {
       return {
         ok: false,
@@ -482,7 +486,7 @@ export function runRender(
 
   const workspaces: WorkspaceRenderResult[] = [];
   const orphanedWorkspaces: string[] = [];
-  for (const ws of config.monorepo?.workspaces ?? []) {
+  for (const ws of enabledMonorepoWorkspaces(config)) {
     const wsCwd = resolve(cwd, ws.path);
     // #70: a workspace deleted from disk (or removed from the workspace glob)
     // but still declared in config must NOT be resurrected — renderClaudeEngine

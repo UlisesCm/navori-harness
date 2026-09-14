@@ -4,7 +4,7 @@ description: Implements ONE scoped task with its tests, respects CLAUDE.md conve
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__*, mcp__codegraph__*
 ---
 
-<!-- navori:managed id="implementer-base" hash="fa58f71d" version="0.8.6" source="@navori/core" -->
+<!-- navori:managed id="implementer-base" hash="46753ec6" version="0.8.6" source="@navori/core" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -99,7 +99,7 @@ Write `.claude/progress/impl_<feature>.md`:
 - ...
 
 ## Suggested commit
-`feat(<scope>): ...` (Conventional, atomic, language per `conventional-es`)
+`<configured commit style>` (atomic, language/style per `conventional-es`)
 ```
 
 ## Communication with the leader

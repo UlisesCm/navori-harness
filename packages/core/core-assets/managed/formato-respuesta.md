@@ -16,4 +16,4 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 [MEDIO]   ... # legibilidad, naming
 
 **Generación**: diff si modifica; archivo completo solo si es nuevo.
-**Commits**: Conventional (`feat(scope): ...`), atómicos, en el idioma que define `commits` en la config.
+**Commits**: atómicos y en el estilo configurado por `commits`.

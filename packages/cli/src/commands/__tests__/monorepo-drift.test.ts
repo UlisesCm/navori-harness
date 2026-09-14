@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanMonorepoDrift } from "../doctor.ts";
+import { scanManagedDrift } from "../../lib/health.ts";
 import type { NavoriConfig } from "../../lib/config.ts";
 
 /**
@@ -29,6 +30,39 @@ function config(workspaces: Array<{ name: string; path: string }>): NavoriConfig
 describe("scanMonorepoDrift", () => {
   it("returns null when the config has no monorepo", () => {
     expect(scanMonorepoDrift(cwd, {} as NavoriConfig)).toBeNull();
+  });
+
+  it("explains that a disabled monorepo intentionally skips its workspaces", () => {
+    const disabled = {
+      monorepo: {
+        enabled: false,
+        tool: "pnpm",
+        workspaces: [{ name: "backend", path: "apps/backend" }],
+      },
+    } as unknown as NavoriConfig;
+    expect(scanMonorepoDrift(cwd, disabled)).toEqual({
+      disabled: true,
+      added: [],
+      orphan: [],
+      emptyDeclared: false,
+    });
+  });
+
+  it("does not inspect stale managed markers inside disabled workspaces", () => {
+    mkdirSync(join(cwd, "apps/backend"), { recursive: true });
+    writeFileSync(
+      join(cwd, "apps/backend/CLAUDE.md"),
+      '<!-- navori:managed id="sdd" hash="stale" version="0.0.1" source="@navori/core" -->\nold\n<!-- /navori:managed id="sdd" -->\n',
+    );
+    const disabled = {
+      engines: ["claude"],
+      monorepo: {
+        enabled: false,
+        workspaces: [{ name: "backend", path: "apps/backend" }],
+      },
+    } as unknown as NavoriConfig;
+
+    expect(scanManagedDrift(cwd, disabled)).toEqual([]);
   });
 
   it("flags emptyDeclared + added when workspaces[] is empty but apps exist on disk", () => {

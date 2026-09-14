@@ -10,7 +10,7 @@ import { getCoreRoot } from "../lib/bundled-assets.ts";
 import { isDowngrade } from "../lib/semver.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
 import { loadPlugin, loadEnabledPlugins } from "../lib/plugins.ts";
-import { effectiveConfigForWorkspace } from "../lib/monorepo.ts";
+import { effectiveConfigForWorkspace, enabledMonorepoWorkspaces } from "../lib/monorepo.ts";
 import { hasBinary } from "../lib/which.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
 import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
@@ -686,6 +686,9 @@ export const doctorCommand = defineCommand({
 
     if (monorepoDrift) {
       const lines: string[] = [];
+      if (monorepoDrift.disabled) {
+        lines.push(`  ${color.yellow(sym.update)} ${td.monorepoDisabled}`);
+      }
       if (monorepoDrift.emptyDeclared) {
         lines.push(`  ${color.yellow(sym.update)} ${td.monorepoEmptyDeclared}`);
       }
@@ -1432,6 +1435,8 @@ export function scanMissingOptionalTools(): MissingOptionalTool[] {
 }
 
 interface MonorepoDrift {
+  /** The master switch is off, so no workspace is rendered or scanned. */
+  disabled: boolean;
   /** Workspaces on disk not yet in config (run scan). */
   added: string[];
   /** Config workspaces whose directory is gone (prune config). */
@@ -1448,7 +1453,10 @@ interface MonorepoDrift {
  */
 export function scanMonorepoDrift(cwd: string, config: NavoriConfig): MonorepoDrift | null {
   if (!config.monorepo) return null;
-  const configured = config.monorepo.workspaces ?? [];
+  if (!config.monorepo.enabled) {
+    return { disabled: true, added: [], orphan: [], emptyDeclared: false };
+  }
+  const configured = enabledMonorepoWorkspaces(config);
   let detected;
   try {
     detected = scanMonorepoWorkspaces(cwd);
@@ -1457,6 +1465,7 @@ export function scanMonorepoDrift(cwd: string, config: NavoriConfig): MonorepoDr
   }
   const diff = diffWorkspaces(detected, configured);
   return {
+    disabled: false,
     added: diff.added.map((d) => d.path),
     orphan: diff.orphan.map((o) => o.path),
     emptyDeclared: configured.length === 0 && detected.length > 0,
@@ -1529,7 +1538,7 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
   // overridden) preset, so a load-bearing rule dropped in a workspace was
   // invisible when only the root was checked (#235). The source is tagged with
   // the workspace path so the diagnostic is unambiguous.
-  for (const ws of config.monorepo?.workspaces ?? []) {
+  for (const ws of enabledMonorepoWorkspaces(config)) {
     const wsCwd = resolve(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
     missing.push(...missingInvariantsAt(wsCwd, effectiveConfigForWorkspace(config, ws), ws.path));
@@ -2019,7 +2028,7 @@ export function buildEngineInventory(
   }
 
   const locations: Array<{ cwd: string; config: NavoriConfig }> = [{ cwd, config }];
-  for (const ws of config.monorepo?.workspaces ?? []) {
+  for (const ws of enabledMonorepoWorkspaces(config)) {
     const wsCwd = resolve(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
     locations.push({ cwd: wsCwd, config: effectiveConfigForWorkspace(config, ws) });
