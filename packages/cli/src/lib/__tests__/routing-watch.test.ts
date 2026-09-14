@@ -89,6 +89,21 @@ function bash(command: string): Record<string, unknown> {
   return { session_id: SESSION, tool_name: "Bash", tool_input: { command } };
 }
 
+/**
+ * The same, with the `tool_response` the host really sends — the command's own
+ * output. It exists to drive rung 2 of the write probe: rung 1 can only test
+ * the whole payload, so a `>` printed by `git log --graph` reaches it, and only
+ * the extracted COMMAND can settle the question.
+ */
+function bashWithOutput(command: string, output: string): Record<string, unknown> {
+  return {
+    session_id: SESSION,
+    tool_name: "Bash",
+    tool_input: { command },
+    tool_response: { stdout: output, stderr: "", interrupted: false },
+  };
+}
+
 function runHook(shell: HookShell, cwd: string, payload: Record<string, unknown>): HookRun {
   const r = spawnSync(shell, [hookPath], {
     input: JSON.stringify(payload),
@@ -353,9 +368,13 @@ describe("routing-watch — wiring (spec 0020)", () => {
     expect(bucket).toBeDefined();
     // Confined to the write tools plus the subagent tool: those are the only
     // events that can change the answer, and the matcher is what keeps a Read
-    // or a Grep from spawning a shell at all.
-    for (const tool of ["Edit", "Write", "NotebookEdit", "Agent"]) {
-      expect(bucket?.matcher).toContain(tool);
+    // or a Grep from spawning a shell at all. `Bash` belongs to that set and
+    // was missing until #775 — the script's `case` had accepted it since #722
+    // A4, so the branch shipped inert. The derived, drift-proof version of this
+    // assertion lives in `hook-matcher-wiring.test.ts`; this one stays because
+    // a hand-written list is what a reader of THIS file can check.
+    for (const tool of ["Bash", "Edit", "Write", "NotebookEdit", "Agent"]) {
+      expect(bucket?.matcher?.split("|")).toContain(tool);
     }
 
     // Materialized in every onboarded repo, not just this one.
@@ -441,14 +460,19 @@ describe("stamp hygiene (one file per session, forever, unless someone sweeps)",
 
 /**
  * #722 A4 — the threshold only ever accumulated through the NATIVE lane, the
- * one the dominant mode abandons: Bash is 84.9% of all calls in the measured
- * park. A `sed -i`, a `tee` or a `>` redirect left no mark, so in the sessions
- * this notice exists for it was structurally unreachable, and its "2 firings, 1
- * notice" on day one was not calibration — it was blindness to the input.
+ * one the dominant mode abandons: Bash is 80.4% of the park's 41,889 measured
+ * tool calls. A `sed -i`, a `tee` or a `>` redirect left no mark, so in the
+ * sessions this notice exists for it was structurally unreachable, and its "2
+ * firings, 1 notice" on day one was not calibration — it was blindness to the
+ * input. (#775 then found that the branch had never RUN either, because the
+ * matcher never delivered `Bash`; the wiring assertion lives above.)
  *
- * The write forms are the ones `guard-destructive` rule 6 recognizes, and its
- * table states each exclusion as load-bearing: `>>` appends after the managed
- * blocks and invalidates no hash, `tee -a` appends too.
+ * The write forms are the ones `guard-destructive` rule 6 recognizes. `tee -a`
+ * does not count — its operand is the flag, which the extraction drops — but
+ * `>>` DOES, contrary to what this comment used to claim: the extraction's
+ * pattern matches the second `>` of an append and takes the operand after it.
+ * Appending to a source file is writing to it, so that is the right answer; the
+ * cases below pin it in both directions.
  */
 describe("shell writes reach the threshold too (#722)", () => {
   it("fires the notice on four files written through the shell", () => {
@@ -475,7 +499,11 @@ describe("shell writes reach the threshold too (#722)", () => {
     expect(runs[3]?.stdout).toContain("routing check");
   });
 
-  it("does not count an append, a read, or a redirect between streams", () => {
+  it("does not count a log write, a read, or a redirect between streams", () => {
+    // NOTE on the first two: they are here because their TARGET is a log, not
+    // because they append. `tee -a` would not count either way (its operand is
+    // the flag), but `>> src/a.ts` does count — see the block comment above and
+    // the append case in the ladder tests.
     const runs = play([
       bash("echo linea >> registro.log"),
       bash("cat x | tee -a registro.log"),
@@ -485,6 +513,95 @@ describe("shell writes reach the threshold too (#722)", () => {
       bash("ls -la"),
     ]);
     expect(runs.every((r) => r.stdout === "")).toBe(true);
+  });
+
+  /**
+   * The BOUNDED WORK ladder the lane pays for (#775). Connecting `Bash` to the
+   * matcher multiplies how often this hook spawns by ~10, and measured over the
+   * park only 2.6% of the calls that reached the old gate contributed a single
+   * path. So the gate was rewritten as two rungs — a fork-free probe on the
+   * payload before anything locates a stamp, then the same probe on the
+   * extracted command — and what follows is the executable half of that claim.
+   *
+   * These cases are the noise the OLD gate accepted: `*">"*` matched
+   * `2>/dev/null` and `2>&1`, and bare `*sed*` matched every read.
+   */
+  it("descarta el ruido que la guarda vieja aceptaba, sin tocar el sello", () => {
+    const cwd = freshProject();
+    const noise = [
+      "command -v jq >/dev/null 2>&1",
+      "pnpm test 2>&1 | tail -5",
+      "git log --oneline -5 2>/dev/null",
+      "sed -n '1,20p' packages/cli/src/index.ts",
+      "cat f > /dev/null",
+      "echo 'the value used here'",
+      "printf '%s' hola >&2",
+    ];
+    for (const cmd of noise) expect(runHook("bash", cwd, bash(cmd)).stdout).toBe("");
+    // Nothing reached the stamp: the probe runs BEFORE `session_id` is read, so
+    // a shell command that writes nothing costs what a Read costs.
+    expect(existsSync(join(cwd, ".claude/.routing-watch", SESSION))).toBe(false);
+  });
+
+  it("no cuenta un `>` que solo existe en la SALIDA del comando (rung 2)", () => {
+    // Rung 1 sees the whole payload and says "maybe" — the output really does
+    // carry `>`, `tee` and `sed`. Rung 2 asks the command and says no.
+    const runs = play([
+      bashWithOutput("git diff --stat", "src/a.ts | 4 ++--\n-> renamed\n"),
+      bashWithOutput("git log --graph", "* commit\n|\\\n| > merged sed -i branch\n"),
+      bashWithOutput("cat notas.txt", "usé tee y sed -i para escribir src/b.ts\n"),
+      bashWithOutput("ls -la", "total 8\ndrwxr-xr-x  4 u  s  128 > x\n"),
+    ]);
+    expect(runs.every((r) => r.stdout === "")).toBe(true);
+  });
+
+  it("sigue contando las formas de escritura reales, una por una", () => {
+    // The superset property of the probe, stated as cases: each of these MUST
+    // survive both rungs, because each one names a source file the extraction
+    // can find. An append is included on purpose — the extraction's `grep -oE`
+    // matches the second `>` of a `>>` and counts its operand, so a probe that
+    // stripped appends would silently stop counting this one.
+    const runs = play([
+      bash("printf '%s' y >src/sin-espacio.ts"),
+      bash("cat plantilla | tee src/con-tee.ts"),
+      bash("sed -E -i 's/a/b/' src/con-sed-flags.ts"),
+      bash("cat >> src/anexado.ts <<'EOF'\nconst a = 1;\nEOF"),
+    ]);
+    expect(runs[3]?.stdout).toContain("routing check");
+    expect(runs[3]?.stdout).toContain("4 distinct files");
+  });
+
+  /**
+   * The regression the early exit nearly introduced, as its own case.
+   *
+   * `&>` reads like `>&` reversed but means the opposite: `>&` duplicates a
+   * descriptor and the extraction finds NOTHING after it, while `&> src/a.ts`
+   * is a real redirect whose operand the extraction does take. A first cut of
+   * the probe stripped both as "noise", which deleted the `>` before the probe
+   * could see it — four `&>` writes to source left the stamp EMPTY and the
+   * notice silent. That is this issue's own defect class (a gate quietly
+   * accepting less than the thing behind it), reintroduced by the commit that
+   * fixes it, so it gets a test rather than a comment.
+   */
+  it("cuenta las escrituras con `&>`, que no son un dup de descriptor", () => {
+    const runs = play([
+      bash("pnpm build &> src/f1.ts"),
+      bash("pnpm build &>src/f2.ts"),
+      bash("pnpm build &> src/f3.ts"),
+      bash("pnpm build &> src/f4.ts"),
+    ]);
+    expect(runs[3]?.stdout).toContain("routing check");
+    expect(runs[3]?.stdout).toContain("4 distinct files");
+  });
+
+  it("sigue descartando `>&`, que sí es un dup y no nombra archivo", () => {
+    // The other half of the pair: stripping THIS one is correct, and the proof
+    // is that the extraction finds no operand after it.
+    const cwd = freshProject();
+    for (const cmd of ["cmd >&2", "cmd >& 2", "pnpm test >&2 | tail -5"]) {
+      expect(runHook("bash", cwd, bash(cmd)).stdout).toBe("");
+    }
+    expect(existsSync(join(cwd, ".claude/.routing-watch", SESSION))).toBe(false);
   });
 
   it("keeps the two filters that already applied to the native lane", () => {
