@@ -56,7 +56,9 @@ Público: el operador del harness auditando sus propias sesiones. Issue: #687.
 
 - **R3** — IF la sesión que el evento nombra no tiene log, THEN el receptor SHALL descartar ese
   evento y SHALL NOT crear el log. Es el mismo criterio que aplica el hook: auditar es opt-in por
-  sesión, y el log existente es el índice de las que optaron.
+  sesión, y el log existente es el índice de las que optaron. El receptor SHALL NOT cachear ese
+  miss: un lote posterior debe volver a buscar, porque `UserPromptSubmit` puede crear el log después
+  de que los eventos de `SessionStart` ya llegaron.
 
 - **R4** — WHEN el receptor escribe por primera vez en el log de una sesión, SHALL registrar antes
   un evento que marque el instante desde el cual la tercera fuente estuvo presente para esa

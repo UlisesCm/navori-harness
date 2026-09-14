@@ -318,16 +318,13 @@ export function flattenOtlp(body: unknown): { events: RoutedEvent[]; discarded: 
  *
  * Scanning the store's repo directories is the same fallback `resolveTranscript`
  * uses, and for the same reason: the event names a session, not a repo, so one
- * receiver serves every repo the operator works in. The result — including the
- * miss — is cached per id, so it costs one `readdir` per new session instead of
- * one per event.
- *
- * Caching the miss has a consequence worth naming: a session whose log appears
- * AFTER its first event stays unresolved until the receiver restarts. In the
- * flow this spec designs for, the log exists first — the hook writes it at
- * SessionStart, before any request could be exported.
+ * receiver serves every repo the operator works in. Positive results are
+ * cached per id, so a resolved session costs one scan instead of one per event.
+ * Misses are deliberately not cached: SessionStart events can arrive before
+ * UserPromptSubmit creates the audit log, and the next batch must be able to
+ * discover it without restarting this long-lived receiver (#763).
  */
-function resolveSessionLog(sessionId: string, cache: Map<string, string | null>): string | null {
+function resolveSessionLog(sessionId: string, cache: Map<string, string>): string | null {
   const cached = cache.get(sessionId);
   if (cached !== undefined) return cached;
 
@@ -349,7 +346,7 @@ function resolveSessionLog(sessionId: string, cache: Map<string, string | null>)
       }
     }
   }
-  cache.set(sessionId, found);
+  if (found !== null) cache.set(sessionId, found);
   return found;
 }
 
@@ -364,7 +361,7 @@ function resolveSessionLog(sessionId: string, cache: Map<string, string | null>)
 function appendEvents(
   events: RoutedEvent[],
   endpoint: string,
-  cache: Map<string, string | null>,
+  cache: Map<string, string>,
   marked: Set<string>,
 ): { written: number; discarded: number } {
   const bySession = new Map<string, OtelRecord[]>();
@@ -431,8 +428,8 @@ function readBody(req: IncomingMessage): Promise<string | null> {
  */
 export function startReceiver(opts: { port?: number }): Promise<OtelReceiver> {
   const port = opts.port ?? DEFAULT_PORT;
-  /** Session id → its log, or `null` for "nobody marked it". */
-  const logCache = new Map<string, string | null>();
+  /** Session id → its resolved log. Misses are retried on the next batch. */
+  const logCache = new Map<string, string>();
   /** Sessions whose horizon this receiver already wrote. */
   const marked = new Set<string>();
   let written = 0;

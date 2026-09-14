@@ -228,6 +228,32 @@ describe("startReceiver (#0021)", () => {
     expect(r.stats()).toEqual({ written: 0, discarded: 1, sessions: 0 });
   });
 
+  // Covers: R3, #763
+  it("resuelve una sesión cuyo log aparece después del primer evento", async () => {
+    const r = await receiver();
+    const event = {
+      "event.name": "tool_decision",
+      "event.timestamp": "2026-09-11T18:30:00.000Z",
+      "session.id": "sess-tardia",
+      tool_name: "Bash",
+      decision: "accept",
+      source: "config",
+    };
+
+    await post(r.url, otlpBatch([event]));
+    expect(r.stats()).toEqual({ written: 0, discarded: 1, sessions: 0 });
+
+    markSession("sess-tardia");
+    await post(r.url, otlpBatch([{ ...event, "event.timestamp": "2026-09-11T18:30:01.000Z" }]));
+
+    expect(linesOf("sess-tardia").map((line) => line.event)).toEqual([
+      "start",
+      "otel-start",
+      "tool_decision",
+    ]);
+    expect(r.stats()).toEqual({ written: 1, discarded: 1, sessions: 1 });
+  });
+
   // Covers: R3, R4
   it("marca su horizonte la primera vez que escribe en una sesión", async () => {
     markSession("sess-horizonte");
