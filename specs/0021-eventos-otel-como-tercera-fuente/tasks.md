@@ -6,13 +6,14 @@
   `127.0.0.1`, ruta `POST /v1/logs`, que aplana el sobre OTLP
   (`resourceLogs → scopeLogs → logRecords`, atributos como pares `{key,value}`) y escribe una línea
   JSON por evento con `appendFileSync` en el log de la sesión que el evento nombra en `session.id`.
-  El log se localiza escaneando los directorios del store por `session-<id>.log`, cacheando el
-  resultado por id. Cablear `--collect` en `commands/audit.ts`: imprime dirección, store de salida y
-  el bloque de entorno del contrato; ante `EADDRINUSE` termina con código distinto de 0 nombrando la
-  dirección y sin tocar disco. · tests: `collect.test.ts`::`escribe cada evento del lote en el log
-  de su sesión` (levantando el receptor en puerto efímero y hablándole con `fetch`, no llamando al
-  handler) y `collect.test.ts`::`falla sin crear archivos cuando la dirección está ocupada`, ambos
-  con `// Covers: R1, R2, R6, R7`.
+  El log se localiza escaneando los directorios del store por `session-<id>.log`, cacheando solo los
+  hallazgos positivos por id; un miss se reintenta en el lote siguiente (#763). Cablear `--collect`
+  en `commands/audit.ts`: imprime dirección, store de salida y el bloque de entorno del contrato;
+  ante `EADDRINUSE` termina con código distinto de 0 nombrando la dirección y sin tocar disco. ·
+  tests: `collect.test.ts`::`escribe cada evento del lote en el log de su sesión` (levantando el
+  receptor en puerto efímero y hablándole con `fetch`, no llamando al handler),
+  `collect.test.ts`::`falla sin crear archivos cuando la dirección está ocupada` y
+  `collect.test.ts`::`resuelve una sesión cuyo log aparece después del primer evento`.
 
 - [x] **T2** (R3, R4) — El receptor descarta el evento cuando la sesión que nombra no tiene log, y
   **no lo crea**: crearlo volvería a la tercera fuente un activador de audit-mode por la puerta de

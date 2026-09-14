@@ -99,8 +99,10 @@ No hace falta un módulo de ingesta: los eventos entran por `readJsonl` con el r
 - **Un receptor sirve a todas las sesiones y a todos los repos.** El evento nombra su propia
   `session.id`, así que el destino se resuelve por evento. El receptor localiza el log escaneando
   los directorios del store por `session-<id>.log` — el mismo fallback exacto que usa
-  `resolveTranscript`, y que no depende de que el host incluya `workspace.host_paths`. El resultado
-  se cachea por id: un `readdir` por sesión nueva, no por evento.
+  `resolveTranscript`, y que no depende de que el host incluya `workspace.host_paths`. Solo los
+  hallazgos positivos se cachean por id. Un miss se reintenta en el lote siguiente porque el log
+  nace en `UserPromptSubmit`, después de que los hooks de `SessionStart` ya pudieron exportar; el
+  costo queda acotado a un scan por lote y sesión todavía no marcada.
 
 - **`otel-start` como horizonte (R4), no un booleano en el reporte.** Es el mismo patrón que
   `hookLogFrom`, que existe porque "no hubo hooks" y "no hubo registro" renderizaban igual. Aquí el
