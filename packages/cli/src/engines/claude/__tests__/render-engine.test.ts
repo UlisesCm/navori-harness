@@ -290,7 +290,12 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     const script = readFileSync(scriptPath, "utf-8");
     // {{shq:branchBase}} → base='main' (shell-quoted, #197/#249)
     expect(script).toContain("base='main'");
-    expect(script).toContain('git rev-parse --verify "$base"');
+    // Interpolated AND consumed: the value has to reach a git call, not just an
+    // assignment. Since #777 the baseline is resolved in the shared
+    // `scan-scope` partial, which prefers `origin/<base>` and keeps the local
+    // ref as the fallback — both forms read the same interpolated `$base`.
+    expect(script).toContain('git rev-parse --verify --quiet "origin/$base^{commit}"');
+    expect(script).toContain('git rev-parse --verify --quiet "$base^{commit}"');
     expect(script).not.toContain("{{branchBase}}");
     expect(script).not.toContain("{{shq:branchBase}}");
     // {{shq:jscpdThreshold}} → threshold='5' for a non-frontend preset ("custom")

@@ -57,6 +57,25 @@ TRIGGER_TOKENS='commit'
 # Resolution of the working tree the commit acts on (#454). Shared body.
 # navori:include resolve-worktree
 
+# Baseline resolution + the list of files in scope (#777). Shared body with
+# check-semgrep, so the two scanners can never disagree about what they compare
+# against or about which files they read. `$navori_scan_label` names this hook
+# in its messages.
+#
+# THE UNTRACKED DECISION (#777), written here because it is this hook's whole
+# second chance: jscpd gates `git commit` and nothing else, while semgrep also
+# gates `git push` and `gh pr create`. So a new file that slipped past semgrep
+# at commit time is still caught on the push; one that slips past jscpd is
+# never looked at again, and duplicated new code lands unseen. Two ways to fix
+# it: include untracked files in the scan, or add a push trigger. This hook
+# takes the FIRST — it closes the hole in the layer where it lives (the scan
+# reads what the commit is about to contain), it is symmetric with semgrep so
+# one shared partial serves both, and it does not make a duplication check fire
+# on an operation that adds no code. Revisit only if commits start landing
+# content that is neither tracked nor untracked at hook time.
+navori_scan_label="jscpd"
+# navori:include scan-scope
+
 # No command extracted (empty $cmd) → run unconditionally. A real command that
 # is NOT a git commit → skip. Anything else → fall through and scan.
 if [ -n "$cmd" ] && ! is_scan_trigger "$cmd"; then
@@ -108,36 +127,14 @@ fi
 base={{shq:branchBase}}
 threshold={{shq:jscpdThreshold}}
 
-if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
-  echo "⊘ branch '$base' does not exist in $tree — skip jscpd" >&2
+if ! navori_resolve_base; then
+  echo "⊘ neither 'origin/$base' nor '$base' exists in $tree — skip jscpd" >&2
   exit 0
 fi
 
-# `git diff` runs inside a process substitution, whose exit status the shell
-# never reports, and its stderr used to go to /dev/null — so a diff that FAILED
-# (exit 128: unborn HEAD, a corrupt index, a base that vanished mid-run)
-# produced zero records and was indistinguishable from "nothing changed": the
-# hook printed `0 files to scan` and exited 0 (#511). The sentinel carries the
-# status back out of the subshell. It can never collide with a real record: the
-# pathspec restricts the list to `*.ts`/`*.tsx`.
-diff_sentinel='@navori-diff-status:'
-diff_status=""
-files=()
-while IFS= read -r -d '' f; do
-  case "$f" in
-    "${diff_sentinel}"*) diff_status="${f#"${diff_sentinel}"}"; continue ;;
-  esac
-  files+=("$f")
-done < <(
-  # `|| diff_rc=$?` and not a bare `$?`: the subshell inherits `set -e`, which
-  # would kill it on a failing `git diff` before the sentinel is ever written.
-  diff_rc=0
-  git diff --name-only -z --diff-filter=ACMRT "$base" -- '*.ts' '*.tsx' || diff_rc=$?
-  printf '%s%s\0' "$diff_sentinel" "$diff_rc"
-)
-if [ "$diff_status" != "0" ]; then
-  echo "✗ jscpd: \`git diff\` FAILED (exit ${diff_status:-unknown}) in $tree — NOTHING was scanned" >&2
-  echo "  this is not a duplication verdict: no file was compared against $base" >&2
+if ! navori_collect_scan_files; then
+  echo "✗ jscpd: listing the changed files FAILED (exit ${scan_files_status:-unknown}) in $tree — NOTHING was scanned" >&2
+  echo "  this is not a duplication verdict: no file was compared against $base_ref" >&2
   exit 1
 fi
 
@@ -145,11 +142,11 @@ fi
 # produced it, so "there was nothing to scan" reads differently from "I scanned
 # and found nothing".
 if [ ${#files[@]} -eq 0 ]; then
-  echo "⊘ jscpd: 0 files to scan — no *.ts/*.tsx differ from $base in $tree" >&2
+  echo "⊘ jscpd: 0 files to scan — no *.ts/*.tsx differ from $base_ref in $tree" >&2
   exit 0
 fi
 
-echo "▶ jscpd: ${#files[@]} changed file(s) vs $base in $tree" >&2
+echo "▶ jscpd: ${#files[@]} changed file(s) vs $base_ref in $tree" >&2
 
 tmpdir=$(mktemp -d)
 # COMPOSED, not replaced: bash keeps exactly ONE EXIT trap, so a bare
@@ -184,7 +181,7 @@ scan_status=0
 # jscpd ever gives the two outcomes distinct codes, or if a crash starts firing
 # often enough to teach people to route around the gate.
 if [ "$scan_status" -eq 0 ]; then
-  echo "✓ jscpd: ${#files[@]} file(s) scanned vs $base — duplication under the ${threshold}% threshold" >&2
+  echo "✓ jscpd: ${#files[@]} file(s) scanned vs $base_ref — duplication under the ${threshold}% threshold" >&2
   exit 0
 fi
 if [ "$scan_status" -eq 1 ]; then
