@@ -728,6 +728,78 @@ describe("signal: unused-skills splits by provenance", () => {
   });
 });
 
+describe("signal: quality-gate-aborted (#776)", () => {
+  const started = (toolUseId = "toolu_gate_timeout") => ({
+    ts: "2026-09-14T10:00:00Z",
+    name: "quality-gate-pre-commit",
+    phase: "PreToolUse",
+    verdict: "gate-started",
+    ms: 4,
+    source: "core",
+    toolUseId,
+  });
+  const terminal = (toolUseId = "toolu_gate_timeout", verdict = "allow") => ({
+    ...started(toolUseId),
+    verdict,
+    ms: 600_000,
+  });
+  const finding = (s: SessionAudit) =>
+    detectSignals(s, catalog(), "es").find((signal) => signal.kind === "quality-gate-aborted");
+
+  it("reports a sealed gate start with no terminal record as a high timeout risk", () => {
+    const found = finding(
+      session({
+        sealed: true,
+        orchestrator: { ...session().orchestrator, hookEvents: [started()] },
+      }),
+    );
+    expect(found?.severity).toBe("high");
+    expect(found?.summary).toContain("posiblemente murió por timeout");
+    expect(found?.evidence).toContain("toolu_gate_timeout");
+  });
+
+  it("stays quiet when the same tool invocation reaches allow or block", () => {
+    for (const verdict of ["allow", "block"]) {
+      const s = session({
+        sealed: true,
+        orchestrator: {
+          ...session().orchestrator,
+          hookEvents: [started(), terminal(undefined, verdict)],
+        },
+      });
+      expect(finding(s), verdict).toBeUndefined();
+    }
+  });
+
+  it("does not infer a timeout before the session is sealed", () => {
+    const s = session({
+      sealed: false,
+      orchestrator: { ...session().orchestrator, hookEvents: [started()] },
+    });
+    expect(finding(s)).toBeUndefined();
+  });
+
+  it("requires the terminal record to match the same tool invocation", () => {
+    const s = session({
+      sealed: true,
+      orchestrator: {
+        ...session().orchestrator,
+        hookEvents: [started(), terminal("toolu_other")],
+      },
+    });
+    expect(finding(s)?.severity).toBe("high");
+  });
+
+  it("does not accuse logs written before tool_use_id existed", () => {
+    const legacy = { ...started(), toolUseId: undefined };
+    const s = session({
+      sealed: true,
+      orchestrator: { ...session().orchestrator, hookEvents: [legacy] },
+    });
+    expect(finding(s)).toBeUndefined();
+  });
+});
+
 describe("signal: routing-notice (spec 0020 R5)", () => {
   /**
    * The note has to be COUNTABLE, not merely emitted. `routing-watch` injects

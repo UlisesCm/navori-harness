@@ -83,6 +83,10 @@ is_pm() {
 
 run_gate() {
   navori_audit_ran_gate=1
+  # The host can kill this process at its hook timeout, before our EXIT trap
+  # records allow/block. Persist a start marker first; audit correlates it with
+  # the terminal record by tool_use_id and reports an unfinished gate.
+  navori_audit_log "gate-started" "inicio del quality gate" || true
   echo "[navori] running quality-gate fast: $1" >&2
   eval "$1" || {
     echo "[navori] quality-gate fast failed. Commit aborted." >&2

@@ -125,6 +125,17 @@ describe.runIf(runsBash && hasJq)("audit-log — de quién es el evento (#709)",
     });
     expect(ev.agentId).toBe(ORCHESTRATOR_OWNER);
   });
+
+  it("conserva el tool_use_id para correlacionar el inicio y fin de un gate", () => {
+    const ev = recorded({
+      session_id: SESSION,
+      cwd: CWD,
+      tool_name: "Bash",
+      tool_input: {},
+      tool_use_id: "toolu_gate_timeout",
+    });
+    expect(ev.toolUseId).toBe("toolu_gate_timeout");
+  });
 });
 
 describe("audit-log — el literal viaja entre un .sh y un .ts (#709)", () => {

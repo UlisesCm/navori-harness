@@ -865,6 +865,52 @@ export function harnessRegime(
   ];
 }
 
+/**
+ * A host timeout kills the gate process before its EXIT trap can append the
+ * allow/block record. The start marker is written just before `eval`: a sealed
+ * session with no matching terminal record is evidence of an interrupted gate,
+ * never a guess from unrelated hooks that also run for every Bash call.
+ */
+function abandonedQualityGates(session: SessionAudit, lang: Lang): Signal[] {
+  if (!session.sealed) return [];
+
+  const events = [
+    ...session.orchestrator.hookEvents,
+    ...session.agents.flatMap((agent) => agent.hookEvents),
+  ].filter((event) => event.name === "quality-gate-pre-commit");
+  const terminal = new Set(
+    events
+      .filter(
+        (event) =>
+          (event.verdict === "allow" || event.verdict === "block") && event.toolUseId !== undefined,
+      )
+      .map((event) => event.toolUseId),
+  );
+  const abandoned = events.filter(
+    (event) =>
+      event.verdict === "gate-started" && event.toolUseId && !terminal.has(event.toolUseId),
+  );
+  if (abandoned.length === 0) return [];
+
+  const ids = abandoned.map((event) => event.toolUseId).join(", ");
+  return [
+    {
+      kind: "quality-gate-aborted",
+      severity: "high",
+      summary: pick(
+        lang,
+        `${abandoned.length} quality gate${abandoned.length === 1 ? " posiblemente murió" : "s posiblemente murieron"} por timeout`,
+        `${abandoned.length} quality gate${abandoned.length === 1 ? " may have timed out" : "s may have timed out"}`,
+      ),
+      evidence: pick(
+        lang,
+        `El gate registró inicio pero no allow/block antes de sellarse la sesión (tool_use_id: ${ids}). El timeout del host mata el proceso antes del trap EXIT, por lo que el commit puede continuar sin un veredicto del gate.`,
+        `The gate recorded a start but no allow/block before the session sealed (tool_use_id: ${ids}). The host timeout kills the process before the EXIT trap, so the commit may continue without a gate verdict.`,
+      ),
+    },
+  ];
+}
+
 export function detectSignals(
   session: SessionAudit,
   catalog: HarnessCatalog,
@@ -886,5 +932,6 @@ export function detectSignals(
     ...formatDrift(session, lang),
     ...recorderCoverage(session, lang),
     ...routingNotice(session, lang),
+    ...abandonedQualityGates(session, lang),
   ].sort((a, b) => order[a.severity] - order[b.severity]);
 }

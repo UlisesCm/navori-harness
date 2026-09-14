@@ -558,7 +558,7 @@ describe("buildClaudeSettings — quality-gate hook", () => {
     expect(qg).toBeDefined();
     expect(qg?.matcher).toBe("Bash");
     const qgHook = qg?.hooks.find((h) => h.command.includes("quality-gate-pre-commit.sh"));
-    expect(qgHook?.timeout).toBe(180);
+    expect(qgHook?.timeout).toBe(600);
   });
 });
 

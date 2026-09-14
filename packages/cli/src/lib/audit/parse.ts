@@ -1272,6 +1272,8 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     if (reason) event.reason = reason;
     const agentId = str(rec.agentId);
     if (agentId) event.agentId = agentId;
+    const toolUseId = str(rec.toolUseId);
+    if (toolUseId) event.toolUseId = toolUseId;
     if (tsMs !== null) event.tsMs = tsMs;
     events.push(event);
   }

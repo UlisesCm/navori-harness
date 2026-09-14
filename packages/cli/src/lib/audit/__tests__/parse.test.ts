@@ -878,6 +878,12 @@ describe("parse: hook attribution", () => {
     expect(s.parseErrors).toBe(0);
   });
 
+  it("preserva toolUseId para correlacionar los registros de un gate", () => {
+    const s = session([]);
+    attachHookEvents(s, log([hook({ toolUseId: "toolu_gate_timeout" })]));
+    expect(s.orchestrator.hookEvents[0]?.toolUseId).toBe("toolu_gate_timeout");
+  });
+
   it("el ts del propio registro gana, para que un log viejo se lea igual (#696)", () => {
     const s = session([]);
     // Logs written before #696 are already on disk in every repo that ever ran

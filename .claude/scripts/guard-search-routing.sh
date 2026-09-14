@@ -1,4 +1,4 @@
-# navori:managed start id="tgrep-script-guard-search-routing" hash="f6c266a8" version="0.8.6" source="@navori/plugin-tgrep"
+# navori:managed start id="tgrep-script-guard-search-routing" hash="0ccd089c" version="0.8.6" source="@navori/plugin-tgrep"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash) guard: content search goes through the tgrep wrapper.
@@ -49,10 +49,10 @@ set -euo pipefail
 # Generic on purpose: `.cwd` feeds the worktree resolver of #454 through the
 # SAME hardened cascade instead of a second copy of it.
 #
-# $2 overrides the sed fallback's capture. `.*` (greedy, to the last quote on the
-# line) is right for `command`, whose value can itself contain escaped quotes and
-# which Claude Code sends LAST. Every other field takes the default `[^"]*` run,
-# so a value with more JSON after it is not swallowed whole.
+# The sed fallback reads a JSON string through its first unescaped quote. JSON
+# object member order is not a host contract: `command` can precede `cwd`, so a
+# greedy capture to the last quote would swallow the rest of the payload when
+# neither jq nor node is available.
 payload=$(cat)
 payload_field() {
   if command -v jq >/dev/null 2>&1; then
@@ -61,10 +61,10 @@ payload_field() {
   if command -v node >/dev/null 2>&1; then
     printf '%s' "$payload" | node -e 'let s="";const p=process.argv[1].split(".");process.stdin.on("data",c=>s+=c).on("end",()=>{try{let v=JSON.parse(s);for(const k of p)v=v?.[k];process.stdout.write(String(v??""))}catch{}})' "$1" 2>/dev/null && return 0
   fi
-  printf '%s' "$payload" | sed -n "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"\(${2:-[^\"]*}\)\".*/\1/p"
+  printf '%s' "$payload" | sed -nE "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"(([^\"\\]|\\.)*)\".*/\\1/p"
 }
 extract_cmd() {
-  payload_field tool_input.command '.*'
+  payload_field tool_input.command
 }
 # NOT called here on purpose. `payload_field` may spawn a process, and
 # `routing-watch.sh` — which includes this partial and runs after EVERY tool call
@@ -209,7 +209,7 @@ navori_audit_log() {
   # and the chain yields `""` — the field then disappears from the record and
   # `ownerOf` falls back to the time window, which is the guess this field
   # exists to avoid. Caught by a test, not by review.
-  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", "."] | .[]' 2>/dev/null) || return 0
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", .tool_use_id // "", "."] | .[]' 2>/dev/null) || return 0
   navori_audit_session=${navori_audit_fields%%
 *}
   navori_audit_rest=${navori_audit_fields#*
@@ -219,6 +219,10 @@ navori_audit_log() {
   navori_audit_rest=${navori_audit_rest#*
 }
   navori_audit_agent=${navori_audit_rest%%
+*}
+  navori_audit_rest=${navori_audit_rest#*
+}
+  navori_audit_tool_use_id=${navori_audit_rest%%
 *}
   [ -n "$navori_audit_session" ] || return 0
   # Same character class the CLI enforces (#503): the id composes a path, so
@@ -340,12 +344,14 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" \
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
+    --arg toolUseId "${navori_audit_tool_use_id:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
     '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
-     + (if $agent  == "" then {} else {agentId:$agent}   end)' 2>/dev/null)" \
+     + (if $agent  == "" then {} else {agentId:$agent}   end)
+     + (if $toolUseId == "" then {} else {toolUseId:$toolUseId} end)' 2>/dev/null)" \
     >> "$navori_audit_file" 2>/dev/null
 
   return 0

@@ -291,6 +291,25 @@ describe("hook line: constant toll vs the gate doing its job", () => {
     const out = md([agent({ hookEvents: hookRuns("check-jscpd", 2, 30, 0, 0) })]);
     expect(out).toContain("incluyen el costo del propio recorder");
   });
+
+  it("does not count a gate-started timeout witness as a completed hook run", () => {
+    const out = md([
+      agent({
+        hookEvents: [
+          {
+            ts: "2026-08-25T10:00:00Z",
+            name: "quality-gate-pre-commit",
+            phase: "PreToolUse",
+            verdict: "gate-started",
+            ms: 3,
+            source: "core",
+            toolUseId: "toolu_gate_timeout",
+          },
+        ],
+      }),
+    ]);
+    expect(out).not.toContain("quality-gate-pre-commit");
+  });
 });
 
 describe("per-agent card (#0013)", () => {
