@@ -66,6 +66,13 @@ TRIGGER_TOKENS='commit push create'
 # Resolution of the working tree the commit acts on (#454). Shared body.
 # navori:include resolve-worktree
 
+# Baseline resolution + the list of files in scope (#777). Shared body, so this
+# scanner and check-jscpd can never disagree about what they compare against or
+# about which files they read. `$navori_scan_label` names this hook in its
+# messages.
+navori_scan_label="semgrep"
+# navori:include scan-scope
+
 # No command extracted (empty $cmd) → run unconditionally (defensive fallback). A
 # real command that is NOT a scanned op → skip. Anything else → scan.
 if [ -n "$cmd" ] && ! is_scan_trigger "$cmd"; then
@@ -101,40 +108,15 @@ cd "$tree"
 # every git commit/push via PreToolUse(Bash)).
 base={{shq:branchBase}}
 
-# Resolved to a SHA, not left as a ref: it is BOTH the scan's baseline and part
-# of the cache fingerprint below, so it has to name one immutable commit.
-base_sha=$(git rev-parse --verify --quiet "$base^{commit}" 2>/dev/null || true)
-if [ -z "$base_sha" ]; then
-  echo "⊘ branch '$base' does not exist in $tree — skip semgrep" >&2
+if ! navori_resolve_base; then
+  echo "⊘ neither 'origin/$base' nor '$base' exists in $tree — skip semgrep" >&2
   exit 0
 fi
 base_short=$(git rev-parse --short "$base_sha" 2>/dev/null || printf '%s' "$base_sha")
 
-# `git diff` runs inside a process substitution, whose exit status the shell
-# never reports, and its stderr used to go to /dev/null — so a diff that FAILED
-# (exit 128: unborn HEAD, a corrupt index, a base that vanished mid-run)
-# produced zero records and was indistinguishable from "nothing changed": the
-# hook printed `0 files to scan` and exited 0 (#511). The sentinel carries the
-# status back out of the subshell. It can never collide with a real record: the
-# pathspec restricts the list to `*.ts`/`*.tsx`.
-diff_sentinel='@navori-diff-status:'
-diff_status=""
-files=()
-while IFS= read -r -d '' f; do
-  case "$f" in
-    "${diff_sentinel}"*) diff_status="${f#"${diff_sentinel}"}"; continue ;;
-  esac
-  files+=("$f")
-done < <(
-  # `|| diff_rc=$?` and not a bare `$?`: the subshell inherits `set -e`, which
-  # would kill it on a failing `git diff` before the sentinel is ever written.
-  diff_rc=0
-  git diff --name-only -z --diff-filter=ACMRT "$base_sha" -- '*.ts' '*.tsx' || diff_rc=$?
-  printf '%s%s\0' "$diff_sentinel" "$diff_rc"
-)
-if [ "$diff_status" != "0" ]; then
-  echo "✗ semgrep: \`git diff\` FAILED (exit ${diff_status:-unknown}) in $tree — NOTHING was scanned" >&2
-  echo "  this is not a security verdict: no file was compared against $base ($base_short)" >&2
+if ! navori_collect_scan_files; then
+  echo "✗ semgrep: listing the changed files FAILED (exit ${scan_files_status:-unknown}) in $tree — NOTHING was scanned" >&2
+  echo "  this is not a security verdict: no file was compared against $base_ref ($base_short)" >&2
   exit 1
 fi
 
@@ -143,7 +125,7 @@ fi
 # and found nothing". The two used to be indistinguishable, which is how a gate
 # that never ran passed for a whole day.
 if [ ${#files[@]} -eq 0 ]; then
-  echo "⊘ semgrep: 0 files to scan — no *.ts/*.tsx differ from $base ($base_short) in $tree" >&2
+  echo "⊘ semgrep: 0 files to scan — no *.ts/*.tsx differ from $base_ref ($base_short) in $tree" >&2
   exit 0
 fi
 
@@ -168,13 +150,16 @@ fi
 #      "findings NOT already at $base_sha", so the same bytes legitimately flip
 #      from green to red (or back) when the base branch moves.
 #
-# Untracked files are absent from both the fingerprint and the scan: the file
-# list comes from `git diff`, so an untracked file is never scanned and can
-# never be masked by a hit. Anything the cache cannot establish (no git dir, no
-# `date`, a failing hash) leaves $cache_key empty → full scan. The marker is
-# published only if the fingerprint still matches AFTER the scan, so it can
-# never attest to bytes semgrep did not read. The cache may turn a green into a
-# skip, NEVER an unscanned change into a green.
+# Untracked files are covered by BOTH halves since #777: they are part of the
+# scanned set, so they are part of (1) and (2) like any other path — a
+# fingerprint that ignored them would hand a cache hit to bytes semgrep never
+# read, which is the same silent green from the other direction.
+#
+# Anything the cache cannot establish (no git dir, no `date`, a failing hash)
+# leaves $cache_key empty → full scan. The marker is published only if the
+# fingerprint still matches AFTER the scan, so it can never attest to bytes
+# semgrep did not read. The cache may turn a green into a skip, NEVER an
+# unscanned change into a green.
 #
 # Marker lifetime, in seconds. The fingerprint pins the scanned bytes and the
 # semgrep binary, but NOT the registry rules behind `p/default`, which semgrep
@@ -237,7 +222,7 @@ if [ -n "$cache_key" ] && [ -f "$marker" ]; then
   fi
 fi
 
-echo "▶ semgrep: ${#files[@]} changed file(s) vs $base ($base_short) in $tree" >&2
+echo "▶ semgrep: ${#files[@]} changed file(s) vs $base_ref ($base_short) in $tree" >&2
 
 # `--baseline-commit` makes the gate fail on findings this branch INTRODUCES,
 # not on debt it inherited (#454). Without it, fixing the worktree resolution
@@ -248,7 +233,7 @@ echo "▶ semgrep: ${#files[@]} changed file(s) vs $base ($base_short) in $tree"
 # ancestor relationship (verified on 1.174.0 with unstaged/staged/untracked
 # changes, from a linked worktree, and with a diverged base). The cost is a
 # second scan pass; the content cache above absorbs the repeats within a cycle.
-echo "  baseline: findings already at $base ($base_short) are not blocking" >&2
+echo "  baseline: findings already at $base_ref ($base_short) are not blocking" >&2
 
 # `>&2` is not cosmetic (#510): a PreToolUse hook shows the user its stderr and
 # swallows its stdout, so the findings themselves — the whole point of the gate
@@ -269,9 +254,9 @@ semgrep scan \
 if [ "$scan_status" -gt 1 ]; then
   echo "✗ semgrep: scan FAILED with exit $scan_status (not a findings verdict) — nothing was validated" >&2
 elif [ "$scan_status" -eq 1 ]; then
-  echo "✗ semgrep: new findings vs $base ($base_short) — BLOCKED" >&2
+  echo "✗ semgrep: new findings vs $base_ref ($base_short) — BLOCKED" >&2
 else
-  echo "✓ semgrep: ${#files[@]} file(s) scanned vs $base ($base_short) — no new findings" >&2
+  echo "✓ semgrep: ${#files[@]} file(s) scanned vs $base_ref ($base_short) — no new findings" >&2
 fi
 
 # Only a GREEN scan writes the marker: a red one (or a crashed/interrupted run)

@@ -16,8 +16,10 @@
     "check:render": "pnpm --filter navori build && node scripts/check-render.mjs",
     "check:assets": "node scripts/check-asset-commands.mjs",
     "check:assets:ci": "node scripts/check-asset-commands.mjs --strict",
+    "jscpd:check": "bash .claude/scripts/check-jscpd.sh </dev/null",
+    "semgrep:check": "bash .claude/scripts/check-semgrep.sh </dev/null",
     "render:apply": "pnpm --filter navori build && node packages/cli/dist/index.js render --apply",
-    "check": "pnpm format:check && pnpm check:render && pnpm check:assets && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck"
+    "check": "pnpm format:check && pnpm check:render && pnpm check:assets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.5",
