@@ -33,10 +33,19 @@ Run these checks before drafting anything. If something fails, you stop and repo
 git status --porcelain                                # what's left to commit
 git rev-parse --abbrev-ref HEAD                       # cannot be {{prTarget}}, the fork point, or any protected branch
 git fetch origin {{prTarget}} --quiet
+behind=$(git rev-list --count HEAD..origin/{{prTarget}})
+if [ "$behind" -ne 0 ]; then
+  printf 'ABORT: branch is %s commit(s) behind origin/{{prTarget}}; integrate the target before committing or creating a PR.\n' "$behind" >&2
+  exit 1
+fi
 git log origin/{{prTarget}}..HEAD --oneline           # must have ≥1 commit (or changes to commit)
 git diff origin/{{prTarget}} --stat                   # REAL scope so far (two-dot: see below)
 gh auth status                                        # gh authenticated
 ```
+
+A nonzero `behind` count is a hard stop: do not construct a shipping diff,
+consume a receipt, commit, push, or create a PR. The reviewer would otherwise
+have signed target-only files as phantom deletions from this stale worktree.
 
 ### The shipping diff — the one set every count in this pre-flight comes from
 

@@ -50,6 +50,26 @@ describe("content receipt — inspectable, not just detectable (#342)", () => {
   });
 });
 
+describe("base freshness — no receipt or PR from a stale worktree (#771)", () => {
+  it("makes reviewer and pilot stop after fetching an advanced target", () => {
+    for (const asset of ["agents/reviewer.md", "agents/commit-pr-pilot.md"]) {
+      const content = read(asset);
+      const fetchAt = content.indexOf("git fetch origin {{prTarget}} --quiet");
+      const freshnessAt = content.indexOf("git rev-list --count HEAD..origin/{{prTarget}}");
+
+      expect(fetchAt, `${asset} must fetch the target`).toBeGreaterThan(-1);
+      expect(freshnessAt, `${asset} must reject a stale base`).toBeGreaterThan(fetchAt);
+      expect(content.slice(freshnessAt, freshnessAt + 350)).toContain("exit 1");
+    }
+  });
+
+  it("explains why a stale reviewer must not write a receipt", () => {
+    const reviewer = read("agents/reviewer.md");
+    expect(reviewer).toMatch(/phantom deletion/i);
+    expect(reviewer).toMatch(/do not review, approve, or write a\s+receipt/i);
+  });
+});
+
 describe("delta re-sign — the only path that keeps the byte-gate intact (#341)", () => {
   it("the reviewer defines the mode and bounds it against rubber-stamping", () => {
     const reviewer = read("agents/reviewer.md");

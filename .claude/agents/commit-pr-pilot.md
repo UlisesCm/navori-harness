@@ -4,7 +4,7 @@ description: Drafts commits in the configured style and opens the PR with the re
 tools: Read, Glob, Grep, Bash
 ---
 
-<!-- navori:managed id="commit-pr-pilot-base" hash="6cd8b13b" version="0.8.6" source="@navori/core" -->
+<!-- navori:managed id="commit-pr-pilot-base" hash="9c1905dd" version="0.8.6" source="@navori/core" -->
 # Commit & PR Pilot Agent
 
 You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -32,10 +32,19 @@ Run these checks before drafting anything. If something fails, you stop and repo
 git status --porcelain                                # what's left to commit
 git rev-parse --abbrev-ref HEAD                       # cannot be main, the fork point, or any protected branch
 git fetch origin main --quiet
+behind=$(git rev-list --count HEAD..origin/main)
+if [ "$behind" -ne 0 ]; then
+  printf 'ABORT: branch is %s commit(s) behind origin/main; integrate the target before committing or creating a PR.\n' "$behind" >&2
+  exit 1
+fi
 git log origin/main..HEAD --oneline           # must have ≥1 commit (or changes to commit)
 git diff origin/main --stat                   # REAL scope so far (two-dot: see below)
 gh auth status                                        # gh authenticated
 ```
+
+A nonzero `behind` count is a hard stop: do not construct a shipping diff,
+consume a receipt, commit, push, or create a PR. The reviewer would otherwise
+have signed target-only files as phantom deletions from this stale worktree.
 
 ### The shipping diff — the one set every count in this pre-flight comes from
 
