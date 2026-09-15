@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { getCoreRoot } from "../bundled-assets.ts";
@@ -39,6 +46,7 @@ navori_audit_phase="PreToolUse"
 navori_audit_tool="Bash"
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+# navori:include audit-repo
 # navori:include audit-log
 navori_audit_begin
 navori_audit_log "allow" "probe"
@@ -135,6 +143,30 @@ describe.runIf(runsBash && hasJq)("audit-log — de quién es el evento (#709)",
       tool_use_id: "toolu_gate_timeout",
     });
     expect(ev.toolUseId).toBe("toolu_gate_timeout");
+  });
+
+  it("dentro de un worktree de agente normaliza el repo al repo padre (#764)", () => {
+    const root = mkdtempSync(join(tmpdir(), "navori-owner-root-"));
+    const repo = "navori-owner-repo";
+    mkdirSync(join(root, repo), { recursive: true });
+    const logFile = join(root, repo, `session-${SESSION}.log`);
+    writeFileSync(logFile, "", "utf-8");
+
+    const wtCwd = `${CWD}/.claude/worktrees/agent-a2a999b59fde9ce6c`;
+    spawnSync(runsBash ? "bash" : "sh", [probePath], {
+      input: JSON.stringify({
+        session_id: SESSION,
+        cwd: wtCwd,
+        tool_name: "Bash",
+        tool_input: {},
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, NAVORI_AUDITS_ROOT: root },
+    });
+
+    const lines = readFileSync(logFile, "utf-8").trim().split("\n").filter(Boolean);
+    expect(lines, "el log del repo padre recibió el evento").toHaveLength(1);
+    expect(existsSync(join(root, "agent-a2a999b59fde9ce6c"))).toBe(false);
   });
 });
 

@@ -10,6 +10,8 @@
 
 set +e
 
+# navori:include audit-repo
+
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -20,7 +22,7 @@ reason=$(printf '%s' "$payload" | jq -r '.reason // .matcher // "other"' 2>/dev/
 [ -n "$session_id" ] || exit 0
 [ -n "$cwd" ] || cwd=$PWD
 
-repo=$(basename "$cwd" 2>/dev/null) || exit 0
+repo=$(navori_audit_repo_from_cwd "$cwd") || exit 0
 [ -n "$repo" ] || exit 0
 
 if [ -n "$NAVORI_AUDITS_ROOT" ]; then

@@ -49,6 +49,7 @@ navori_audit_source="plugin:tgrep"
 # undefined function would be exit 127, and under `set -e` that KILLS the hook.
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+# navori:include audit-repo
 # navori:include audit-log
 navori_audit_begin
 

@@ -63,6 +63,7 @@ navori_audit_tool="Bash"
 # Same contract as the sibling gates: a recorder may never kill what it observes.
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+# navori:include audit-repo
 # navori:include audit-log
 navori_audit_begin
 

@@ -1,4 +1,4 @@
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { NavoriError } from "../errors.ts";
 import { safeHomedir } from "../home.ts";
 
@@ -37,10 +37,23 @@ export function auditsRoot(): string {
 }
 
 /**
+ * Resolves the audit repo name from a working directory path.
+ *
+ * If `cwd` is inside an agent worktree (`/.claude/worktrees/<agent-id>`),
+ * the path is truncated at `/.claude/worktrees` to attribute the session
+ * to the parent repository rather than creating a phantom repo directory
+ * named after the agent (#764).
+ */
+export function repoFromCwd(cwd: string): string {
+  const cleanCwd = cwd.replace(/[/\\]\.claude[/\\]worktrees(?:[/\\].*)?$/, "");
+  return basename(resolve(cleanCwd));
+}
+
+/**
  * Per-repo audit directory, e.g. `~/.navori/audits/navori-harness`.
  *
  * `repoName` is ONE path segment, never a path: today's callers derive it from
- * `basename(resolve(cwd))`, so a separator can't reach here — the guard is for
+ * `repoFromCwd(cwd)`, so a separator can't reach here — the guard is for
  * the next caller, since a `..` or a `/` would move the whole per-repo store
  * out of the audit root (same class of defect as #503, one call up).
  */

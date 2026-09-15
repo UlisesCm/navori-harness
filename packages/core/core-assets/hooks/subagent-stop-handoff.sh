@@ -71,6 +71,7 @@ navori_handoff_stamp="${TMPDIR:-/tmp}/navori-handoff-$navori_handoff_repo-$navor
 # never have.
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+# navori:include audit-repo
 # navori:include audit-log
 navori_audit_begin
 

@@ -1,4 +1,4 @@
-# navori:managed start id="audit-mode-trigger-base" hash="76babf5d" version="0.8.6" source="@navori/core"
+# navori:managed start id="audit-mode-trigger-base" hash="eba18316" version="0.8.6" source="@navori/core"
 #!/usr/bin/env bash
 # navori — audit-mode prompt recorder (UserPromptSubmit)
 #
@@ -22,6 +22,24 @@
 # session fails to start.
 
 set +e
+
+# Shared audit repository resolver (#764) — inlined into every audit hook at
+# render time. A nested agent worktree lives below the repository's
+# `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
+#
+# navori_audit_repo_from_cwd <cwd> — prints the stable parent repo name.
+# This only uses shell builtins before the existing `basename` call: audit hooks
+# run often, so discovering the Git common directory would add an avoidable fork
+# per invocation.
+navori_audit_repo_from_cwd() {
+  navori_audit_repo_cwd=$1
+  case "$navori_audit_repo_cwd" in
+    */.claude/worktrees | */.claude/worktrees/*)
+      navori_audit_repo_cwd=${navori_audit_repo_cwd%%/.claude/worktrees*}
+      ;;
+  esac
+  basename "$navori_audit_repo_cwd" 2>/dev/null
+}
 
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
@@ -51,7 +69,7 @@ case "$session_id" in
 esac
 [ -n "$cwd" ] || cwd=$PWD
 
-repo=$(basename "$cwd" 2>/dev/null) || exit 0
+repo=$(navori_audit_repo_from_cwd "$cwd") || exit 0
 [ -n "$repo" ] || exit 0
 
 if [ -n "$NAVORI_AUDITS_ROOT" ]; then
@@ -90,7 +108,7 @@ log_file=$audits_root/$repo/session-$session_id.log
 # charset (#503) — this function trusts it into a command line, so an unvalidated
 # id must never reach here. $2 is the payload's cwd (#454: never
 # CLAUDE_PROJECT_DIR — they differ in worktrees, and --arm wrote the flag under
-# the name basename(cwd) resolves to). $3 is the audits root.
+# the repo name resolved from the cwd). $3 is the audits root.
 #
 # Fail-open and silent: returns 0 ONLY when audit-mode was actually started, so
 # the caller can announce it; every other path returns 1 and changes nothing.
@@ -100,7 +118,7 @@ navori_audit_consume_armed() {
   narm_cwd=$2
   narm_root=$3
   [ -n "$narm_sid" ] && [ -n "$narm_cwd" ] && [ -n "$narm_root" ] || return 1
-  narm_repo=$(basename "$narm_cwd" 2>/dev/null) || return 1
+  narm_repo=$(navori_audit_repo_from_cwd "$narm_cwd") || return 1
   [ -n "$narm_repo" ] || return 1
   narm_file=$narm_root/$narm_repo/.armed
   [ -f "$narm_file" ] || return 1

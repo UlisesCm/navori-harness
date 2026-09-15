@@ -1,4 +1,4 @@
-# navori:managed start id="audit-mode-close-base" hash="e8336087" version="0.8.6" source="@navori/core"
+# navori:managed start id="audit-mode-close-base" hash="95dc820b" version="0.8.6" source="@navori/core"
 #!/usr/bin/env bash
 # navori — audit-mode close (SessionEnd)
 #
@@ -11,6 +11,24 @@
 
 set +e
 
+# Shared audit repository resolver (#764) — inlined into every audit hook at
+# render time. A nested agent worktree lives below the repository's
+# `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
+#
+# navori_audit_repo_from_cwd <cwd> — prints the stable parent repo name.
+# This only uses shell builtins before the existing `basename` call: audit hooks
+# run often, so discovering the Git common directory would add an avoidable fork
+# per invocation.
+navori_audit_repo_from_cwd() {
+  navori_audit_repo_cwd=$1
+  case "$navori_audit_repo_cwd" in
+    */.claude/worktrees | */.claude/worktrees/*)
+      navori_audit_repo_cwd=${navori_audit_repo_cwd%%/.claude/worktrees*}
+      ;;
+  esac
+  basename "$navori_audit_repo_cwd" 2>/dev/null
+}
+
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -21,7 +39,7 @@ reason=$(printf '%s' "$payload" | jq -r '.reason // .matcher // "other"' 2>/dev/
 [ -n "$session_id" ] || exit 0
 [ -n "$cwd" ] || cwd=$PWD
 
-repo=$(basename "$cwd" 2>/dev/null) || exit 0
+repo=$(navori_audit_repo_from_cwd "$cwd") || exit 0
 [ -n "$repo" ] || exit 0
 
 if [ -n "$NAVORI_AUDITS_ROOT" ]; then

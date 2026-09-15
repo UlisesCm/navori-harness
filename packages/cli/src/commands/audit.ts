@@ -11,7 +11,7 @@ import {
   writeFileSync,
   rmSync,
 } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { readHarnessCatalog, renderedHarnessVersion } from "../lib/audit/harness.ts";
 import { findMarkedSessions, resolveTranscript } from "../lib/audit/discovery.ts";
 import { attachHookEvents, parseSession } from "../lib/audit/parse.ts";
@@ -22,6 +22,7 @@ import {
   pendingSpoolPath,
   rangeReportDir,
   repoAuditDir,
+  repoFromCwd,
   sessionLogPath,
   sessionReportDir,
   PENDING_SPOOL_RE,
@@ -264,7 +265,7 @@ export const auditCommand = defineCommand({
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
-    const repo = basename(cwd);
+    const repo = repoFromCwd(cwd);
     const lang = reportLang(cwd);
     const isEs = lang === "es";
     const json = args.json === true;

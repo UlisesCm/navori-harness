@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="d0a2b002" version="0.8.6" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="e967cc18" version="0.8.6" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -68,6 +68,23 @@ navori_audit_tool="Bash"
 # never have.
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+# Shared audit repository resolver (#764) — inlined into every audit hook at
+# render time. A nested agent worktree lives below the repository's
+# `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
+#
+# navori_audit_repo_from_cwd <cwd> — prints the stable parent repo name.
+# This only uses shell builtins before the existing `basename` call: audit hooks
+# run often, so discovering the Git common directory would add an avoidable fork
+# per invocation.
+navori_audit_repo_from_cwd() {
+  navori_audit_repo_cwd=$1
+  case "$navori_audit_repo_cwd" in
+    */.claude/worktrees | */.claude/worktrees/*)
+      navori_audit_repo_cwd=${navori_audit_repo_cwd%%/.claude/worktrees*}
+      ;;
+  esac
+  basename "$navori_audit_repo_cwd" 2>/dev/null
+}
 # Shared audit-mode event recorder — inlined into each managed hook at render
 # time (see the include directive in the source scripts + lib/hook-includes.ts).
 #
@@ -215,7 +232,7 @@ navori_audit_log() {
   esac
 
   [ -n "$navori_audit_cwd" ] || navori_audit_cwd=$PWD
-  navori_audit_repo=$(basename "$navori_audit_cwd" 2>/dev/null) || return 0
+  navori_audit_repo=$(navori_audit_repo_from_cwd "$navori_audit_cwd") || return 0
   [ -n "$navori_audit_repo" ] || return 0
 
   navori_audit_file=$navori_audit_root/$navori_audit_repo/session-$navori_audit_session.log
