@@ -283,6 +283,22 @@ describe("commit-pr-pilot — the pre-flight measures the tree it was triggered 
     );
   });
 
+  it("aborts before building a shipping diff when the target advanced (#771)", () => {
+    const fetchAt = PRE_FLIGHT.indexOf("git fetch origin {{prTarget}} --quiet");
+    const freshnessAt = PRE_FLIGHT.indexOf("git rev-list --count HEAD..origin/{{prTarget}}");
+    const shippingAt = PRE_FLIGHT.indexOf("shipping=$(");
+
+    expect(fetchAt, "the target must be fetched before its freshness is measured").toBeGreaterThan(
+      -1,
+    );
+    expect(freshnessAt, "the pilot must count commits missing from its base").toBeGreaterThan(
+      fetchAt,
+    );
+    expect(shippingAt, "the shipping diff anchor disappeared").toBeGreaterThan(freshnessAt);
+    expect(PRE_FLIGHT.slice(freshnessAt, shippingAt)).toContain("exit 1");
+    expect(PRE_FLIGHT.slice(freshnessAt, shippingAt)).toMatch(/hard stop/i);
+  });
+
   it("the three-dot detector matches the ref expression, not the prose", () => {
     // The line as it shipped: the count that gates the waiver.
     expect(

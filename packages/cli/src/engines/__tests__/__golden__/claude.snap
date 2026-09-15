@@ -211,10 +211,19 @@ Run these checks before drafting anything. If something fails, you stop and repo
 git status --porcelain                                # what's left to commit
 git rev-parse --abbrev-ref HEAD                       # cannot be main, the fork point, or any protected branch
 git fetch origin main --quiet
+behind=$(git rev-list --count HEAD..origin/main)
+if [ "$behind" -ne 0 ]; then
+  printf 'ABORT: branch is %s commit(s) behind origin/main; integrate the target before committing or creating a PR.\n' "$behind" >&2
+  exit 1
+fi
 git log origin/main..HEAD --oneline           # must have ≥1 commit (or changes to commit)
 git diff origin/main --stat                   # REAL scope so far (two-dot: see below)
 gh auth status                                        # gh authenticated
 ```
+
+A nonzero `behind` count is a hard stop: do not construct a shipping diff,
+consume a receipt, commit, push, or create a PR. The reviewer would otherwise
+have signed target-only files as phantom deletions from this stale worktree.
 
 ### The shipping diff — the one set every count in this pre-flight comes from
 
@@ -1166,6 +1175,11 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
    ```bash
    git status --short
    git fetch origin main --quiet
+   behind=$(git rev-list --count HEAD..origin/main)
+   if [ "$behind" -ne 0 ]; then
+     printf 'ABORT: branch is %s commit(s) behind origin/main; integrate the target before reviewing.\n' "$behind" >&2
+     exit 1
+   fi
    git diff --stat
    # two-dot: the FULL working tree vs the target (committed AND uncommitted),
    # the exact set the receipt fingerprints below. Three-dot (`...HEAD`) would show
@@ -1174,6 +1188,10 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
    git diff "origin/main"
    git ls-files --others --exclude-standard   # untracked files (new, not yet staged)
    ```
+
+   A nonzero `behind` count is a hard stop: do not review, approve, or write a
+   receipt. A target-only file would otherwise look like a deletion in this
+   worktree and the receipt would sign that phantom deletion.
 
 3. **Re-review** (if there's already a `.claude/progress/review_<feature>.md` from a previous cycle): focus the *reading* on (a) that the issues listed there are resolved and (b) the files the `implementer` reports having touched in this cycle (`impl_<feature>.md`). Don't re-review from scratch the already-approved code that didn't change; the full quality gate is still run anyway — a change can break something outside the delta. If the previous verdict was already `APPROVED` and the diff only moved because of an edit made after it, that's the **delta re-sign** mode below, not this one.
 4. Apply `.claude/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence. The quality gate is run **this turn, in Pass 2** (not before: a `SPEC_MISS` in Pass 1 doesn't need it — don't spend the gate on a diff you're going to reject on spec). Don't assume from the implementer's cached report.
