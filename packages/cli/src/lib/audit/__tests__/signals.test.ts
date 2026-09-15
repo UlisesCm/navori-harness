@@ -729,19 +729,29 @@ describe("signal: unused-skills splits by provenance", () => {
 });
 
 describe("signal: quality-gate-aborted (#776)", () => {
-  const started = (toolUseId = "toolu_gate_timeout") => ({
+  const started = (toolUseId = "toolu_gate_timeout", name = "quality-gate-pre-commit") => ({
     ts: "2026-09-14T10:00:00Z",
-    name: "quality-gate-pre-commit",
+    name,
     phase: "PreToolUse",
     verdict: "gate-started",
     ms: 4,
     source: "core",
     toolUseId,
   });
-  const terminal = (toolUseId = "toolu_gate_timeout", verdict = "allow") => ({
-    ...started(toolUseId),
+  const terminal = (
+    toolUseId = "toolu_gate_timeout",
+    verdict = "allow",
+    name = "quality-gate-pre-commit",
+  ) => ({
+    ...started(toolUseId, name),
     verdict,
     ms: 600_000,
+  });
+  const killed = (toolUseId = "toolu_gate_timeout", name = "quality-gate-pre-commit") => ({
+    ...started(toolUseId, name),
+    verdict: "gate-killed",
+    ms: 3003,
+    reason: "cancelado por SIGTERM: nada quedo validado",
   });
   const finding = (s: SessionAudit) =>
     detectSignals(s, catalog(), "es").find((signal) => signal.kind === "quality-gate-aborted");
@@ -797,6 +807,78 @@ describe("signal: quality-gate-aborted (#776)", () => {
       orchestrator: { ...session().orchestrator, hookEvents: [legacy] },
     });
     expect(finding(s)).toBeUndefined();
+  });
+
+  /**
+   * #797 — the two kill signatures, and the guarantee that one interrupted gate
+   * is one finding. A handled signal leaves BOTH records (the start, then the
+   * handler's `gate-killed`); SIGKILL leaves only the start.
+   */
+  it("reports a recorded cancellation and counts the killed run once", () => {
+    const found = finding(
+      session({
+        sealed: true,
+        orchestrator: { ...session().orchestrator, hookEvents: [started(), killed()] },
+      }),
+    );
+    expect(found?.summary).toContain("1 quality gate");
+    expect(found?.evidence).toContain("1 con cancelación registrada (gate-killed)");
+    expect(found?.evidence).toContain("0 con inicio sin veredicto");
+  });
+
+  it("separates a recorded cancellation from a start with no verdict", () => {
+    const found = finding(
+      session({
+        sealed: true,
+        orchestrator: {
+          ...session().orchestrator,
+          hookEvents: [started(), killed(), started("toolu_killed_9", "check-semgrep")],
+        },
+      }),
+    );
+    expect(found?.evidence).toContain("1 con cancelación registrada (gate-killed)");
+    expect(found?.evidence).toContain("1 con inicio sin veredicto");
+  });
+
+  // #797 residue 2: the witness used to exist in one gate of three.
+  it.each(["quality-gate-pre-commit", "check-jscpd", "check-semgrep"])(
+    "covers %s, not just the core gate",
+    (name) => {
+      const found = finding(
+        session({
+          sealed: true,
+          orchestrator: {
+            ...session().orchestrator,
+            hookEvents: [started("toolu_x", name)],
+          },
+        }),
+      );
+      expect(found?.severity).toBe("high");
+      expect(found?.evidence).toContain(`${name} (toolu_x)`);
+    },
+  );
+
+  /**
+   * The three gates fire on the SAME Bash call and therefore share its
+   * `tool_use_id`. Correlating on the id alone would let the two that finished
+   * vouch for the one that did not.
+   */
+  it("does not let one gate's allow cover another gate on the same tool call", () => {
+    const found = finding(
+      session({
+        sealed: true,
+        orchestrator: {
+          ...session().orchestrator,
+          hookEvents: [
+            started("toolu_shared", "quality-gate-pre-commit"),
+            terminal("toolu_shared", "allow", "check-jscpd"),
+            terminal("toolu_shared", "allow", "check-semgrep"),
+          ],
+        },
+      }),
+    );
+    expect(found?.evidence).toContain("quality-gate-pre-commit (toolu_shared)");
+    expect(found?.summary).toContain("1 quality gate");
   });
 });
 

@@ -866,10 +866,36 @@ export function harnessRegime(
 }
 
 /**
- * A host timeout kills the gate process before its EXIT trap can append the
- * allow/block record. The start marker is written just before `eval`: a sealed
- * session with no matching terminal record is evidence of an interrupted gate,
- * never a guess from unrelated hooks that also run for every Bash call.
+ * The three PreToolUse(Bash) gates, which are the hooks that do multi-second
+ * work and are therefore the ones a host timeout can reach. Until #797 this was
+ * the single name `quality-gate-pre-commit`, and the other two were outside the
+ * detector even though they run the same trap shape on the same tool call.
+ */
+const GATE_HOOKS = new Set(["quality-gate-pre-commit", "check-jscpd", "check-semgrep"]);
+
+/** `name`+`toolUseId`: the three gates fire on the SAME Bash call and share its
+ *  `tool_use_id`, so keying on the id alone would let one gate's `allow` cover
+ *  for another gate that never finished. */
+function gateKey(event: { name: string; toolUseId?: string }): string {
+  // `\u0000` as the escape, never a raw NUL: the repo keeps its sources
+  // grep-able and diff-able (`no-nul-bytes.test.ts`).
+  return `${event.name}\u0000${event.toolUseId ?? ""}`;
+}
+
+/**
+ * A gate that never delivered a verdict, by either of the two signatures a kill
+ * can leave (#776, #797):
+ *
+ *  - `gate-started` with no matching allow/block. The start marker is written
+ *    just before the scan, so a sealed session missing the terminal record is
+ *    evidence of an interrupted gate — never a guess from unrelated hooks that
+ *    also run for every Bash call. This is the SIGKILL signature: no handler
+ *    can observe that signal, so absence is all there is.
+ *  - `gate-killed`, written by the signal handler itself. Under a handled
+ *    signal the EXIT trap DOES run, with `$?` == 0, and used to record `allow`
+ *    — a false green that satisfied the check above and disarmed this very
+ *    finding. Both signatures are needed because the host's docs never say
+ *    which signal it cancels with.
  */
 function abandonedQualityGates(session: SessionAudit, lang: Lang): Signal[] {
   if (!session.sealed) return [];
@@ -877,35 +903,56 @@ function abandonedQualityGates(session: SessionAudit, lang: Lang): Signal[] {
   const events = [
     ...session.orchestrator.hookEvents,
     ...session.agents.flatMap((agent) => agent.hookEvents),
-  ].filter((event) => event.name === "quality-gate-pre-commit");
+  ].filter((event) => GATE_HOOKS.has(event.name));
   const terminal = new Set(
     events
       .filter(
         (event) =>
           (event.verdict === "allow" || event.verdict === "block") && event.toolUseId !== undefined,
       )
-      .map((event) => event.toolUseId),
+      .map(gateKey),
   );
-  const abandoned = events.filter(
-    (event) =>
-      event.verdict === "gate-started" && event.toolUseId && !terminal.has(event.toolUseId),
-  );
-  if (abandoned.length === 0) return [];
+  // Keyed, not counted: a killed run leaves BOTH a `gate-started` and a
+  // `gate-killed` for the same invocation, and one interrupted gate must be
+  // reported once.
+  const abandoned = new Map<string, { name: string; toolUseId: string; killed: boolean }>();
+  for (const event of events) {
+    if (!event.toolUseId) continue;
+    if (event.verdict !== "gate-started" && event.verdict !== "gate-killed") continue;
+    if (terminal.has(gateKey(event))) continue;
+    const previous = abandoned.get(gateKey(event));
+    abandoned.set(gateKey(event), {
+      name: event.name,
+      toolUseId: event.toolUseId,
+      killed: event.verdict === "gate-killed" || (previous?.killed ?? false),
+    });
+  }
+  if (abandoned.size === 0) return [];
 
-  const ids = abandoned.map((event) => event.toolUseId).join(", ");
+  const entries = [...abandoned.values()];
+  const ids = entries.map((entry) => `${entry.name} (${entry.toolUseId})`).join(", ");
+  const killed = entries.filter((entry) => entry.killed).length;
+  // The two signatures read differently and the evidence has to say which one
+  // fired: `gate-killed` is a recorded cancellation, the bare start is an
+  // inference from an absence.
+  const split = pick(
+    lang,
+    `${killed} con cancelación registrada (gate-killed) y ${entries.length - killed} con inicio sin veredicto.`,
+    `${killed} with a recorded cancellation (gate-killed) and ${entries.length - killed} with a start and no verdict.`,
+  );
   return [
     {
       kind: "quality-gate-aborted",
       severity: "high",
       summary: pick(
         lang,
-        `${abandoned.length} quality gate${abandoned.length === 1 ? " posiblemente murió" : "s posiblemente murieron"} por timeout`,
-        `${abandoned.length} quality gate${abandoned.length === 1 ? " may have timed out" : "s may have timed out"}`,
+        `${entries.length} quality gate${entries.length === 1 ? " posiblemente murió" : "s posiblemente murieron"} por timeout`,
+        `${entries.length} quality gate${entries.length === 1 ? " may have timed out" : "s may have timed out"}`,
       ),
       evidence: pick(
         lang,
-        `El gate registró inicio pero no allow/block antes de sellarse la sesión (tool_use_id: ${ids}). El timeout del host mata el proceso antes del trap EXIT, por lo que el commit puede continuar sin un veredicto del gate.`,
-        `The gate recorded a start but no allow/block before the session sealed (tool_use_id: ${ids}). The host timeout kills the process before the EXIT trap, so the commit may continue without a gate verdict.`,
+        `El gate no registró allow/block antes de sellarse la sesión (${ids}). ${split} El host cancela el hook al agotar su timeout y el commit puede continuar sin un veredicto del gate.`,
+        `The gate recorded no allow/block before the session sealed (${ids}). ${split} The host cancels the hook when it reaches its timeout, so the commit may continue without a gate verdict.`,
       ),
     },
   ];

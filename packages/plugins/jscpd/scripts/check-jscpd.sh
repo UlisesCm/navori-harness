@@ -36,6 +36,12 @@ navori_audit_begin
 # per branch.
 navori_audit_on_exit() {
   navori_audit_code=$?
+  # A cancelled hook reaches this trap with `$?` == 0 (#797), so the exit code
+  # below cannot tell "finished green" from "was killed mid-scan". The signal
+  # handler can, and it already recorded the run.
+  if [ -n "${navori_audit_signal:-}" ]; then
+    return 0
+  fi
   if [ "$navori_audit_code" -eq 0 ]; then
     navori_audit_log "allow" || true
   else
@@ -44,6 +50,10 @@ navori_audit_on_exit() {
   return 0
 }
 trap navori_audit_on_exit EXIT
+# Signal traps (TERM/INT/HUP) + `navori_audit_signal`. Shared body, single
+# source of truth: the three gates are killed the same way and must record it
+# the same way.
+# navori:include audit-signal
 
 # Gate to `git commit` only (this copy runs on commit, not push). $TRIGGER_RE is
 # consumed by the shared detector inlined below.
@@ -156,6 +166,13 @@ tmpdir=$(mktemp -d)
 # which is the one worth recording. The cleanup runs first so the temp dir goes
 # away even if the recorder were ever to hang.
 trap 'rm -rf "$tmpdir"; navori_audit_on_exit' EXIT
+
+# The host can kill this process at its hook timeout, before any trap records a
+# verdict. Persist a start marker first; audit correlates it with the terminal
+# record by tool_use_id and reports an unfinished gate. #797 brought it here
+# from `quality-gate-pre-commit`, the only gate that had one: for the other two
+# a SIGKILL was undetectable, so the detector covered one gate of three.
+navori_audit_log "gate-started" "inicio del escaneo de jscpd" || true
 
 # `>&2` is not cosmetic (#510): a PreToolUse hook shows the user its stderr and
 # swallows its stdout, so the console reporter's clone table — the whole point
