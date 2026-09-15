@@ -1,4 +1,4 @@
-# navori:managed start id="worktree-reclaim-base" hash="40de7a4c" version="0.8.6" source="@navori/core"
+# navori:managed start id="worktree-reclaim-base" hash="40de7a4c" version="0.8.7" source="@navori/core"
 #!/usr/bin/env bash
 # navori — worktree reclaim (SessionEnd) — #527
 #
