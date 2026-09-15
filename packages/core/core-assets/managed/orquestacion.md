@@ -30,18 +30,30 @@ The write is delegated unconditionally; this table is about how much **reading**
 | Signal (verifiable, in the task or the ticket) | Mechanism |
 |---|---|
 | A non-trivial ticket arrives (ID, URL, pasted text) | `ticket-intake` — the pipeline that chains the rest |
+<!-- navori:if ticketAudit -->
 | …and it hits a critical area (`{{project.criticalAreas}}`), a structural migration, >3 layers, or has no clear location | `ticket-audit` → `audit_ticket_<ID>.md`, before decomposing |
 | …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `ticket-audit` PER AREA, all calls in the SAME turn; you synthesize (`ticket-intake`, phase 2) |
+<!-- /navori:if -->
 | New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
+<!-- navori:if sdd -->
 | Real scope, by the threshold the **SDD** block owns | propose `spec-bootstrap` — opt-in, never self-assigned; don't duplicate its criteria |
+<!-- /navori:if -->
+<!-- navori:if auditor -->
 | No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` → `audit_deep_<scope>.md` + prioritized plan |
+<!-- /navori:if -->
+<!-- navori:if researcher -->
 | A scoped question (does Y happen? what consumes X?) | `researcher` |
+<!-- /navori:if -->
+<!-- navori:if explorer -->
 | Where does X live? — a broad map of an area | `explorer` |
+<!-- /navori:if -->
+<!-- navori:if analyticalParallelism -->
 | Genuinely independent sub-questions or sub-bugs (no shared state) | N `researcher`/`explorer` in PARALLEL (same turn) → your synthesis |
+<!-- /navori:if -->
 | Already audited in this session, or trivial (typo, copy, color) | none extra — reuse the artifact, don't re-audit. **The change still goes through `implementer` → `reviewer`** |
 | Nothing above fires | none extra — go straight to the `implementer` |
 
-**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `solution-design` skill → ONE fresh-context challenge (a `researcher`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
+**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `solution-design` skill → ONE fresh-context challenge<!-- navori:if researcher --> (a `researcher`, not a new agent)<!-- /navori:if --><!-- navori:if-not researcher --> using the main agent<!-- /navori:if-not --> → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 

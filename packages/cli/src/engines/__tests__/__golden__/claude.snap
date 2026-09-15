@@ -119,7 +119,7 @@ If the finding depends on a dependency's behavior, **verify its docs with `WebFe
 
 2. **Prioritized plan** — `.claude/progress/plan_<scope>.md`: blockers (CRITICAL) → quick wins (low-effort HIGH/MEDIUM) → SDD features → cleanup (LOW). Each item with severity, files to touch, effort, and originating finding.
 
-3. **SDD drafts (optional)** — for CRITICAL/HIGH findings that are SDD-scope (see the **Spec Driven Development** block in `CLAUDE.md`), write `specs/<feature>/{requirements,tasks}.md.draft`. The `leader` refines them and drops the `.draft`.
+3. **SDD drafts (optional)** — only when SDD is enabled for this repo, for CRITICAL/HIGH findings that are SDD-scope write `specs/<feature>/{requirements,tasks}.md.draft`. The main agent refines them and drops the `.draft`.
 
 ## Hard rules
 
@@ -6090,7 +6090,7 @@ navori_audit_log "notify" "$count archivos del hilo principal, sin subagente"
 notice=$(cat <<MSG
 navori: routing check. ${count} distinct files written in this session, and no subagent has been invoked.
 
-Every change to source goes through 1 focused implementer (explicit scope) then 1 reviewer — there is no inline route and no file count that exempts one.
+Apply the enabled orchestration route for this repo. Do not route to an agent that this repo disabled.
 
 If inline IS the right call here (the operator ruled delegation out, the edits are one mechanical change, the context is already paid for), say so explicitly in your next message and carry on. The point of this note is that the override stops being silent - today it leaves no trace at all.
 
@@ -11350,7 +11350,7 @@ The Atlassian/Rovo MCP remains the fallback if `acli` fails or is unavailable.
 <!-- navori:managed id="codegraph-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-codegraph" -->
 ## CodeGraph (surgical code context)
 
-This repo has a pre-built AST code graph exposed over MCP (`codegraph`). To locate code or size a change's blast-radius, call `codegraph_explore` **before** a grep/read crawl: one call returns the source span, call paths and impact.
+This repo has a pre-built AST code graph exposed over MCP (`codegraph`). This protocol applies only when your toolset exposes `codegraph_explore`; otherwise skip it and use the ordinary search path. To locate code or size a change's blast-radius, call `codegraph_explore` **before** a grep/read crawl: one call returns the source span, call paths and impact.
 
 **In auto mode this is the cheapest move available, not a luxury the shell preference overrides.** The host asks you to work through Bash instead of `Read`/`Edit`/`Write`; an MCP call is neither, and `mcp__codegraph__*` carries an `allow` rule, so it resolves without a classifier round-trip. A shell command pays that round-trip unless a narrow allow rule covers it — those resolve first — so the saving is real against the shell you actually reach for, which is most of it. One `codegraph_explore` costs less than the grep crawl it replaces — measured sessions in this harness ran hundreds of shell searches and zero graph queries, which is the expensive way round.
 

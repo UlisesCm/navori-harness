@@ -109,7 +109,7 @@ If the finding depends on a dependency's behavior, **verify its docs with `WebFe
 
 2. **Prioritized plan** — `.claude/progress/plan_<scope>.md`: blockers (CRITICAL) → quick wins (low-effort HIGH/MEDIUM) → SDD features → cleanup (LOW). Each item with severity, files to touch, effort, and originating finding.
 
-3. **SDD drafts (optional)** — for CRITICAL/HIGH findings that are SDD-scope (see the **Spec Driven Development** block in `CLAUDE.md`), write `{{sdd.specsDir}}/<feature>/{requirements,tasks}.md.draft`. The `leader` refines them and drops the `.draft`.
+3. **SDD drafts (optional)** — only when SDD is enabled for this repo, for CRITICAL/HIGH findings that are SDD-scope write `{{sdd.specsDir}}/<feature>/{requirements,tasks}.md.draft`. The main agent refines them and drops the `.draft`.
 
 ## Hard rules
 
