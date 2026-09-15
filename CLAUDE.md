@@ -205,10 +205,10 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 
 
 
-<!-- navori:managed id="codegraph-protocol" hash="52a1c287" version="0.8.6" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-protocol" hash="51bf41b9" version="0.8.6" source="@navori/plugin-codegraph" -->
 ## CodeGraph (surgical code context)
 
-This repo has a pre-built AST code graph exposed over MCP (`codegraph`). To locate code or size a change's blast-radius, call `codegraph_explore` **before** a grep/read crawl: one call returns the source span, call paths and impact.
+This repo has a pre-built AST code graph exposed over MCP (`codegraph`). This protocol applies only when your toolset exposes `codegraph_explore`; otherwise skip it and use the ordinary search path. To locate code or size a change's blast-radius, call `codegraph_explore` **before** a grep/read crawl: one call returns the source span, call paths and impact.
 
 **In auto mode this is the cheapest move available, not a luxury the shell preference overrides.** The host asks you to work through Bash instead of `Read`/`Edit`/`Write`; an MCP call is neither, and `mcp__codegraph__*` carries an `allow` rule, so it resolves without a classifier round-trip. A shell command pays that round-trip unless a narrow allow rule covers it — those resolve first — so the saving is real against the shell you actually reach for, which is most of it. One `codegraph_explore` costs less than the grep crawl it replaces — measured sessions in this harness ran hundreds of shell searches and zero graph queries, which is the expensive way round.
 

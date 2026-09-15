@@ -60,3 +60,19 @@ describe("resolveHarnessPlan — preset extra id derivation", () => {
     expect(plan.agents.map((a) => a.id)).not.toContain("AGENT");
   });
 });
+
+describe("resolveHarnessPlan — dependent assets follow their feature gate (#769)", () => {
+  it("omits the PR hook and SDD scaffolder when their owners are disabled", () => {
+    const disabled = NavoriConfigSchema.parse({
+      name: "disabled-dependencies",
+      engines: ["claude"],
+      preset: "custom",
+      harness: { commitPrPilot: false },
+      sdd: { enabled: false },
+    });
+    const plan = resolveHarnessPlan(disabled, "/core", null);
+
+    expect(plan.hooks.map((hook) => hook.id)).not.toContain("pr-pilot-confirm");
+    expect(plan.skills.map((skill) => skill.id)).not.toContain("spec-bootstrap");
+  });
+});

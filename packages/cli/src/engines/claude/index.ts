@@ -14,6 +14,7 @@ import {
   canonicalManagedOrder,
   classifyVersionDrift,
   type AssetPlanEntry,
+  conditionOrchestration,
   type UpdateAvailable,
 } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
@@ -570,6 +571,10 @@ export function renderClaudeEngine(
         destRelPath,
         managedId: entry.asset.id,
         config,
+        transform:
+          entry.asset.id === "orquestacion"
+            ? (content) => conditionOrchestration(content, config)
+            : undefined,
       }),
       cwd,
       pending,
@@ -1455,6 +1460,8 @@ interface ManagedFilePlanInput {
   meta?: { source: string; version: string };
   /** Extra interpolation vars (a plugin script may declare its own). */
   extraVars?: Record<string, string>;
+  /** Optional source rewrite before the asset is parsed and interpolated. */
+  transform?: (text: string) => string;
   /**
    * Ignore what is on disk and render as if the file were new (#637).
    *
@@ -1484,6 +1491,7 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
     meta: input.meta ?? CORE_META,
     config: input.config,
     extraVars: input.extraVars,
+    transform: input.transform,
   });
   if (result.status === "unchanged") return { kind: "noop" };
   if (result.status === "user-modified-skipped") {

@@ -7,7 +7,11 @@ import { createBackup } from "../../lib/backup.ts";
 import { createMigrationSnapshot } from "../../lib/migrate.ts";
 import { readCliVersion } from "../../lib/bundled-assets.ts";
 import { safeHomedir } from "../../lib/home.ts";
-import { CORE_MANAGED_ASSETS, resolveAssetPath } from "../../lib/render-plan.ts";
+import {
+  CORE_MANAGED_ASSETS,
+  conditionOrchestration,
+  resolveAssetPath,
+} from "../../lib/render-plan.ts";
 import { interpolate } from "../../lib/interpolate.ts";
 import type { NavoriConfig } from "../../lib/schema.ts";
 import { resolveLang, tc } from "../../lib/i18n.ts";
@@ -131,8 +135,10 @@ export function composeBaseline(config: GlobalConfig): string {
           `baseline (Spec 0010 §4). Remove it from blocks.include.`,
       );
     }
-    const raw = readFileSync(resolveAssetPath(asset, config.language).path, "utf-8").trim();
-    const rendered = interpolate(raw, renderConfig, { fallbackScope: "global" });
+    const rawAsset = readFileSync(resolveAssetPath(asset, config.language).path, "utf-8");
+    const raw =
+      asset.id === "orquestacion" ? conditionOrchestration(rawAsset, renderConfig) : rawAsset;
+    const rendered = interpolate(raw.trim(), renderConfig, { fallbackScope: "global" });
     const unresolved = rendered.match(/<not configured: [^>]+>/g);
     if (unresolved) {
       throw new Error(

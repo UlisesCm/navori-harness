@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="1f4923f3" version="0.8.6" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="759e7cbb" version="0.8.6" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).
@@ -728,7 +728,7 @@ navori_audit_log "notify" "$count archivos del hilo principal, sin subagente"
 notice=$(cat <<MSG
 navori: routing check. ${count} distinct files written in this session, and no subagent has been invoked.
 
-Every change to source goes through 1 focused implementer (explicit scope) then 1 reviewer — there is no inline route and no file count that exempts one.
+Apply the enabled orchestration route for this repo. Do not route to an agent that this repo disabled.
 
 If inline IS the right call here (the operator ruled delegation out, the edits are one mechanical change, the context is already paid for), say so explicitly in your next message and carry on. The point of this note is that the override stops being silent - today it leaves no trace at all.
 

@@ -161,10 +161,8 @@ describe.runIf(runsBash)("routing-watch.sh — the notice fires (spec 0020)", ()
     const context = contextOf(emitted[0]!);
     // The real count, so the note is evidence and not a slogan.
     expect(context).toMatch(/\b4 distinct files\b/);
-    // R2's actual rule, named: 1 implementer -> 1 reviewer.
-    expect(context).toMatch(/implementer.*reviewer/);
-    expect(context).toMatch(/implementer/);
-    expect(context).toMatch(/reviewer/);
+    // #769: the reminder must not route to agents the repo disabled.
+    expect(context).toMatch(/enabled orchestration route/i);
     // The heart of the design: today the override happens in silence, so the
     // note ASKS for it to be stated. A note that only says "you should
     // delegate" invites being ignored quietly, which is the current state.

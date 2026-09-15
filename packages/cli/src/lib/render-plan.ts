@@ -232,6 +232,43 @@ export const EXCLUDABLE_BLOCK_IDS: readonly string[] = ["orquestacion", "sdd"] a
 // share this version; the `source=` attr still distinguishes provenance. (#79)
 const NAVORI_VERSION = readCliVersion();
 
+export function conditionOrchestration(content: string, config: NavoriConfig): string {
+  const enabled = (key: string) => {
+    if (key === "sdd") return config.sdd?.enabled !== false;
+    if (key === "analyticalParallelism") {
+      return config.harness?.researcher !== false || config.harness?.explorer !== false;
+    }
+    return config.harness?.[key as keyof NonNullable<NavoriConfig["harness"]>] !== false;
+  };
+
+  const withoutMarkers = (body: string) =>
+    body.startsWith("\n") && body.endsWith("\n") ? body.slice(1, -1) : body;
+
+  return content
+    .replace(/<!-- navori:if ([\w]+) -->([\s\S]*?)<!-- \/navori:if -->/g, (_match, key, body) => {
+      const rendered = withoutMarkers(body);
+      if (key !== "analyticalParallelism") return enabled(key) ? rendered : "";
+      const researcher = enabled("researcher");
+      const explorer = enabled("explorer");
+      if (researcher && explorer) return rendered;
+      if (researcher) {
+        return rendered
+          .replace("sub-questions or sub-bugs", "scoped questions")
+          .replace("`researcher`/`explorer`", "`researcher`");
+      }
+      if (explorer) {
+        return rendered
+          .replace("sub-questions or sub-bugs", "area maps")
+          .replace("`researcher`/`explorer`", "`explorer`");
+      }
+      return "";
+    })
+    .replace(
+      /<!-- navori:if-not ([\w]+) -->([\s\S]*?)<!-- \/navori:if-not -->/g,
+      (_match, key, body) => (enabled(key) ? "" : withoutMarkers(body)),
+    );
+}
+
 export function resolveAssetPath(
   asset: CoreManagedAsset,
   language: AssetLanguage = "es",
@@ -418,7 +455,9 @@ export function computeRenderPlan(
     const resolved = resolveAssetPath(asset, language);
     if (resolved.fallback) languageFallbacks.push(asset.id);
     const rawContent = readFileSync(resolved.path, "utf-8");
-    const content = interpolate(rawContent, config);
+    const conditionedContent =
+      asset.id === "orquestacion" ? conditionOrchestration(rawContent, config) : rawContent;
+    const content = interpolate(conditionedContent, config);
     if (asset.audience === "orchestrator") {
       // Not part of the always-on file. Stripping it from `working` is what
       // migrates a repo rendered by an earlier navori: the block leaves

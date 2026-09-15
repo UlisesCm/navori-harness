@@ -120,28 +120,27 @@ export function buildClaudeSettings(
     },
   });
 
-  // PR routing hook — always registered, same as the guard (#705). It does not
-  // block: it answers `ask`, which routes the call to the user. A session where
-  // the operator forbids subagents cannot reach the pilot at all, and a hook
-  // that made PRs impossible there would cost more than the deviation it
-  // corrects.
-  settings = deepMerge(settings, {
-    hooks: {
-      PreToolUse: [
-        {
-          matcher: "Bash",
-          hooks: [
-            {
-              type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${PR_PILOT_HOOK_DEST}"`,
-              timeout: 10,
-              statusMessage: "navori: pr-pilot-confirm",
-            },
-          ],
-        },
-      ],
-    },
-  });
+  // The PR-routing hook delegates to commit-pr-pilot, so it must disappear
+  // with that configurable agent rather than leave a dead route (#769).
+  if (config.harness?.commitPrPilot !== false) {
+    settings = deepMerge(settings, {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "Bash",
+            hooks: [
+              {
+                type: "command",
+                command: `bash "$CLAUDE_PROJECT_DIR/${PR_PILOT_HOOK_DEST}"`,
+                timeout: 10,
+                statusMessage: "navori: pr-pilot-confirm",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
 
   // The OTel events environment (#0021, R10/R11) — the third audit source.
   //

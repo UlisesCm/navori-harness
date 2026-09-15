@@ -84,13 +84,17 @@ export function resolveHarnessPlan(
     });
   }
 
+  const workflowSkills =
+    config.sdd?.enabled === false
+      ? WORKFLOW_SKILLS.filter((id) => id !== "spec-bootstrap")
+      : WORKFLOW_SKILLS;
   const skills: PlannedSkill[] = [
     ...CORE_SKILLS.map((id) => ({
       id,
       assetPath: join(coreAssets, `skills/${id}.md`),
       managedId: `${id}-base`,
     })),
-    ...WORKFLOW_SKILLS.map((id) => ({
+    ...workflowSkills.map((id) => ({
       id,
       assetPath: join(coreAssets, `skills/${id}.md`),
       managedId: id,
@@ -179,16 +183,16 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/audit-mode-close.sh"),
       managedId: "audit-mode-close-base",
     },
-    // #705: PreToolUse(Bash) that raises a `gh pr create` opened outside the
-    // `commit-pr-pilot` to a user confirmation. Unconditional, like the guard:
-    // it has no config dependency, and the deviation it corrects was measured
-    // in every repo of the park, not in the ones that configured something.
-    {
+  ];
+  // #705: only a repo that receives commit-pr-pilot receives its dependent
+  // routing hook. The guard stays unconditional; this hook has an owner.
+  if (isAgentEnabled(config, "commitPrPilot")) {
+    hooks.push({
       id: "pr-pilot-confirm",
       assetPath: join(coreAssets, "hooks/pr-pilot-confirm.sh"),
       managedId: "pr-pilot-confirm-base",
-    },
-  ];
+    });
+  }
   if (config.qualityGate?.fast) {
     hooks.push({
       id: "quality-gate-pre-commit",

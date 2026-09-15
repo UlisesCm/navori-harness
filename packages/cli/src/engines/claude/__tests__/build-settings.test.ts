@@ -238,6 +238,23 @@ describe("buildClaudeSettings — base shape", () => {
   });
 });
 
+describe("buildClaudeSettings — dependent PR routing (#769)", () => {
+  it("does not register pr-pilot-confirm when commitPrPilot is disabled", () => {
+    const settings = buildClaudeSettings(
+      { ...MINIMAL_CONFIG, harness: { commitPrPilot: false } } as NavoriConfig,
+      [],
+    );
+    const hooks = settings.hooks as {
+      PreToolUse?: Array<{ hooks: Array<{ command: string }> }>;
+    };
+    const commands = hooks.PreToolUse?.flatMap((bucket) =>
+      bucket.hooks.map((hook) => hook.command),
+    );
+
+    expect(commands).not.toContain('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/pr-pilot-confirm.sh"');
+  });
+});
+
 /**
  * Claude Code matches a Bash pattern by prefix, with a trailing `*` extending
  * it to whatever follows. This models the WIDEST plausible reading (`*` as
