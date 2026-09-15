@@ -1,5 +1,7 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { readConfig } from "../lib/config.ts";
@@ -30,6 +32,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..", "..", "..");
 const CI_WORKFLOW = resolve(REPO_ROOT, ".github", "workflows", "ci.yml");
 const CONFIG_PATH = resolve(REPO_ROOT, "navori.config.json");
+const PRE_PUSH_HOOK = resolve(REPO_ROOT, "scripts", "git-hooks", "pre-push");
+const HOOK_INSTALLER = resolve(REPO_ROOT, "scripts", "install-git-hooks.mjs");
 
 interface RootPackageJson {
   scripts?: Record<string, string>;
@@ -103,6 +107,9 @@ const EXEMPT_FROM_CI = new Map<string, string>([
     "the tool is not a repo dependency and `p/default` is fetched per run; a CI step would skip itself (green over an unscanned diff) or fail on a registry outage",
   ],
 ]);
+
+/** The versioned pre-push delegates to pnpm check, so no gate step is exempt. */
+const EXEMPT_FROM_PRE_PUSH = new Map<string, string>();
 
 /** Checks in `required` that `covered` lacks and no exemption excuses. */
 function uncovered(
@@ -240,6 +247,64 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
       readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"),
     ) as RootPackageJson;
     expect(rootPkg.scripts?.check).toBe(declaredGate);
+  });
+
+  it("the versioned pre-push runs every non-exempt gate step (#777)", () => {
+    const hook = readFileSync(PRE_PUSH_HOOK, "utf-8");
+    const rootPkg = JSON.parse(
+      readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"),
+    ) as RootPackageJson;
+    const prePush = gateChecks(rootPkg.scripts?.check ?? "");
+
+    expect(hook).toContain("exec pnpm check");
+    expect(hook).toContain("NAVORI_PRE_PUSH_RUNNING");
+    expect(
+      uncovered(gate, prePush, EXEMPT_FROM_PRE_PUSH),
+      "add every missing qualityGate.full step to the versioned pre-push, or document its exemption",
+    ).toEqual([]);
+    expect(EXEMPT_FROM_PRE_PUSH).toEqual(new Map());
+  });
+
+  it("installs the tracked pre-push hook", () => {
+    const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-push-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo });
+      const target = execFileSync("git", ["rev-parse", "--git-path", "hooks/pre-push"], {
+        cwd: repo,
+        encoding: "utf-8",
+      }).trim();
+
+      expect(readFileSync(resolve(repo, target), "utf-8")).toBe(
+        readFileSync(PRE_PUSH_HOOK, "utf-8"),
+      );
+      expect(statSync(resolve(repo, target)).mode & 0o111).not.toBe(0);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to overwrite a non-navori pre-push hook", () => {
+    const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-push-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      const target = execFileSync("git", ["rev-parse", "--git-path", "hooks/pre-push"], {
+        cwd: repo,
+        encoding: "utf-8",
+      }).trim();
+      writeFileSync(resolve(repo, target), "#!/usr/bin/env bash\necho custom\n");
+
+      const result = spawnSync(process.execPath, [HOOK_INSTALLER], {
+        cwd: repo,
+        encoding: "utf-8",
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("Refusing to overwrite non-navori hook");
+      expect(readFileSync(resolve(repo, target), "utf-8")).toContain("echo custom");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
 

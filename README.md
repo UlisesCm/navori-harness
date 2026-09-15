@@ -127,6 +127,7 @@ pnpm install
 pnpm -r build                 # build de todos los paquetes
 
 pnpm check                    # quality gate completo (lo mismo que valida CI)
+pnpm hooks:install            # instala el pre-push versionado que corre ese mismo gate
 
 # probar el binario local sin publicar:
 node packages/cli/dist/index.js init --cwd /ruta/a/un/repo
