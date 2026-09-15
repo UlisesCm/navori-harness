@@ -184,9 +184,10 @@ export function buildClaudeSettings(
   // guard: the freeze it detects is silent, and a defense that ships off
   // protects nobody. The "a PostToolUse hook would fire thousands of times"
   // note further down still holds for audit-mode, which does real work per
-  // call; this one costs one shasum pass against a stamp file (~25ms) unless a
-  // managed file actually changed. (It was a find/mtime probe at ~10ms until
-  // that proved unreliable in CI and was redesigned — managed-drift-watch.sh:28-41.)
+  // call; this one costs one shasum pass against a stamp file (~35ms, the
+  // median of 13,692 recorded runs) unless a managed file actually changed.
+  // (It was a find/mtime probe at ~10ms until that proved unreliable in CI and
+  // was redesigned — see the COST section of the script's header.)
   //
   // The matcher covers every tool that can write a file, not just `Bash`
   // (#775). This script audits STATE and never reads `tool_name`, so unlike its
@@ -198,6 +199,11 @@ export function buildClaudeSettings(
   // ever came. The alternative the host's doc offers for "whatever wrote it" is
   // `FileChanged`; the script's header carries why a watchlist living in
   // settings was the wrong trade here.
+  //
+  // This matcher is NOT free to drift from that script: it declares
+  // `$COVERED_TOOLS`, and `hook-matcher-wiring.test.ts` derives from it (#796).
+  // Narrowing the list below fails there, and the only green repair is to
+  // change what the script says it covers.
   settings = deepMerge(settings, {
     hooks: {
       PostToolUse: [
