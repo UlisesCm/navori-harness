@@ -44,6 +44,19 @@ import type { NavoriConfig } from "../lib/config.ts";
  *      suites, and for `check-semgrep` there were NONE: flipping its manifest
  *      matcher to `Edit` passed every one of the 30+ suites while the security
  *      scan never fired again.
+ *   3. By COVERAGE, in a `$COVERED_TOOLS` declaration (#796) — a STATE auditor
+ *      makes neither of the claims above. `managed-drift-watch.sh` hashes the
+ *      managed blocks and asks whether they still match their markers, so it
+ *      has no `case` to contradict its matcher and gates no command, and both
+ *      extractors above return "no claim" for it. Its matcher was therefore
+ *      held up by a HAND-WRITTEN list of four tool names in
+ *      `build-settings.test.ts` — the same artifact this file's opening
+ *      paragraph condemns. The rule cannot be inferred from silence either:
+ *      "no claim ⇒ covers every write tool" falsifies against
+ *      `guard-destructive.sh`, `guard-search-routing.sh` and
+ *      `subagent-stop-handoff.sh` (matcher `Agent|Task`, correct by design).
+ *      So the script DECLARES its coverage, exactly as the gates declare their
+ *      triggers, and the edit point moves back to the script.
  *
  * Sources, plural, for the same reason the accepted set is derived rather than
  * restated: core hooks come from `buildClaudeSettings`, plugin hooks from each
@@ -85,6 +98,45 @@ const MINIMAL_CONFIG = {
  * it were the contract.
  */
 const KNOWN_WIRING_DEFECTS = new Map<string, string>();
+
+/**
+ * Hooks on a tool-matched event that make NO claim of any shape — no
+ * `case "$tool_name"`, no `$TRIGGER_TOKENS`, no `$COVERED_TOOLS` — each with
+ * the reason its silence is CORRECT.
+ *
+ * This map is the close of the set (#796). The three extractors above turn a
+ * claim into an assertion, and a hook that makes none is exempt from all three
+ * — which is fine as a verdict and fatal as a default. `managed-drift-watch`
+ * sat in exactly that exemption from #530 to #775, not because anyone decided
+ * it should, but because nothing asked. A new hook landing tomorrow with no
+ * declaration would inherit the same silence, and this file would report full
+ * coverage of a class it had stopped covering.
+ *
+ * So silence must be SPOKEN. Same contract as `EXEMPT_FROM_LOCAL_GATE` and
+ * `EXEMPT_FROM_CI` in `repo-config-gate.test.ts`, whose shape this borrows
+ * rather than inventing a second convention: every entry needs a reason, an
+ * entry whose hook started claiming something (or left the registration) is
+ * stale and fails, and an undeclared claimless hook fails until someone either
+ * declares a claim in the script or writes down why there is none.
+ *
+ * The reasons are what make this more than a skip list — a rule of "no claim ⇒
+ * covers every write tool" would falsely flag all three below, and each one
+ * says why in its own terms.
+ */
+const CLAIMLESS_HOOKS = new Map<string, string>([
+  [
+    "guard-destructive.sh",
+    "decide por la FORMA del comando (`tool_input.command`), no por la herramienta: un payload de Edit/Write ni siquiera trae campo `command`, así que ampliar su matcher no le daría nada que analizar — `Bash` en PreToolUse es la registración correcta y completa",
+  ],
+  [
+    "guard-search-routing.sh",
+    "mismo caso que `guard-destructive`: inspecciona el string de shell para enrutar la búsqueda al wrapper, y solo `Bash` lleva uno — el carril nativo no tiene búsqueda que reenrutar",
+  ],
+  [
+    "subagent-stop-handoff.sh",
+    "su matcher `Agent|Task` es el claim: valida el handoff DESPUÉS de que un subagente termina (#774), y las herramientas de escritura no terminan subagentes — entregárselas lo haría correr miles de veces sin nada que validar",
+  ],
+]);
 
 interface HookBucket {
   matcher?: string;
@@ -164,6 +216,22 @@ function claimedTriggers(script: string): string[] | null {
   return raw ? raw.split(" ").filter(Boolean) : null;
 }
 
+/**
+ * The tools a hook script DECLARES its matcher must deliver, read off its own
+ * `$COVERED_TOOLS`.
+ *
+ * The third claim shape, and the only one a STATE auditor can make (#796): it
+ * reads no `tool_name` and gates no command, so there is nothing else in the
+ * file for the two extractors above to derive an invariant from. Returns null
+ * when the script makes no such claim — silence stays silence here, because a
+ * rule built on absence would flag three correctly-narrow hooks (see the SCOPE
+ * note at the top).
+ */
+function coveredTools(script: string): string[] | null {
+  const raw = /^COVERED_TOOLS='(.+)'$/m.exec(script)?.[1];
+  return raw ? raw.split(" ").filter(Boolean) : null;
+}
+
 interface WiredHook {
   /** `core`, or `plugin:<id>` — the registration this hook was read from. */
   source: string;
@@ -172,11 +240,18 @@ interface WiredHook {
   matcher?: string;
   accepts: Set<string>;
   triggers: string[] | null;
+  covered: string[] | null;
 }
 
 function describeScript(source: string, path: string, script: string) {
   const body = readFileSync(path, "utf-8");
-  return { source, script, accepts: acceptedTools(body), triggers: claimedTriggers(body) };
+  return {
+    source,
+    script,
+    accepts: acceptedTools(body),
+    triggers: claimedTriggers(body),
+    covered: coveredTools(body),
+  };
 }
 
 /** Every core hook registered on a tool-matched event, paired with its script. */
@@ -245,6 +320,19 @@ function wiredHooks(): WiredHook[] {
   return [...coreWiredHooks(), ...pluginWiredHooks()];
 }
 
+/** Hooks that make none of the three claims, so no assertion above reaches them. */
+function claimlessHooks(hooks: WiredHook[]): WiredHook[] {
+  return hooks.filter((h) => h.accepts.size === 0 && h.triggers === null && h.covered === null);
+}
+
+/** Claimless hooks nobody wrote down — the silent exemptions, i.e. the bug. */
+function undeclaredClaimless(hooks: WiredHook[], exempt: Map<string, string>): string[] {
+  return claimlessHooks(hooks)
+    .map((h) => h.script)
+    .filter((script) => !exempt.has(script))
+    .sort();
+}
+
 describe("hook wiring — matcher vs. what the script accepts (#767, #775)", () => {
   const hooks = wiredHooks();
 
@@ -289,6 +377,21 @@ describe("hook wiring — matcher vs. what the script accepts (#767, #775)", () 
       "push",
       "create",
     ]);
+
+    // The third claim shape (#796), read off the state auditor that declares it.
+    const auditors = hooks.filter((h) => h.covered !== null);
+    expect(auditors.map((h) => h.script)).toContain("managed-drift-watch.sh");
+    expect(hooks.find((h) => h.script === "managed-drift-watch.sh")?.covered).toEqual([
+      "Bash",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+    ]);
+
+    // The hooks that claim NOTHING are a set this file has to see too — a
+    // parser that stopped recognising a claim would move a hook into it and
+    // nothing here would notice. `CLAIMLESS_HOOKS` below owns that check.
+    expect(claimlessHooks(hooks).length).toBeGreaterThan(0);
   });
 
   for (const hook of hooks.filter((h) => h.accepts.size > 0)) {
@@ -349,4 +452,100 @@ describe("gate hooks — un claim por COMANDO exige matcher Bash en PreToolUse",
       ).toBe(true);
     },
   );
+});
+
+/**
+ * The COVERAGE half of the class (#796, audit H4).
+ *
+ * A state auditor is the one hook shape whose matcher cannot be checked against
+ * the script: it reads no `tool_name`, so there is no `case` to contradict a
+ * narrow registration, which makes the matcher the WHOLE decision about when it
+ * runs — and a narrow one indistinguishable from a hook that works.
+ * `managed-drift-watch` shipped scoped to `Bash` for exactly that reason: a
+ * native `Edit` over `CLAUDE.md` broke a managed block's hash, the detector
+ * never fired, and the #523 freeze arrived in silence. #775 widened the matcher,
+ * but what held the fix in place afterwards was a hand-written list of four tool
+ * names in `build-settings.test.ts`: narrowing the matcher again went red there,
+ * and the obvious repair was to edit the literal.
+ *
+ * So the script declares `$COVERED_TOOLS` and this derives from it. Narrowing
+ * the matcher now fails here too, and the only way to green is to change what
+ * the script says it covers — which is a change to the intent, reviewed as one.
+ */
+describe("auditores de estado — el matcher entrega la cobertura declarada (#796)", () => {
+  const auditors = wiredHooks().filter((h) => h.covered !== null);
+
+  it.each(auditors)(
+    "$source/$script: el matcher entrega todo lo que el script declara cubrir",
+    ({ source, script, matcher, covered }) => {
+      const delivered = matchedTools(matcher);
+      if (!delivered) return; // no matcher: every tool reaches the script
+      const missing = (covered ?? []).filter((t) => !delivered.has(t));
+      expect(
+        missing,
+        `${source}/${script} declara cubrir ${covered?.join(", ")} pero el matcher "${matcher}" no entrega ${missing.join(", ")} — el auditor no corre en ese carril`,
+      ).toEqual([]);
+    },
+  );
+});
+
+/**
+ * The close of the set (#796): a hook that claims nothing must SAY so.
+ *
+ * Everything above turns a claim into an assertion. That leaves the hooks with
+ * no claim outside every one of them, and the whole reason this file gained a
+ * third extractor is that `managed-drift-watch` lived in that gap for five
+ * releases — nobody chose to exempt it, the shape of the parser did. The list
+ * of three below is not a skip list: it is the statement that their silence was
+ * reviewed, with the reason each one is right.
+ */
+describe("hooks sin claim — la exención se declara, no se hereda del silencio (#796)", () => {
+  const hooks = wiredHooks();
+
+  it("todo hook cableado sin claim está declarado con su razón", () => {
+    expect(
+      undeclaredClaimless(hooks, CLAIMLESS_HOOKS),
+      "este hook no reclama tools (`case`), ni comandos (`$TRIGGER_TOKENS`), ni cobertura (`$COVERED_TOOLS`), así que ninguna aserción de este archivo lo alcanza — declara el claim que le corresponda en el script, o anótalo en CLAIMLESS_HOOKS con la razón de por qué no tiene ninguno",
+    ).toEqual([]);
+  });
+
+  it("ninguna exención está obsoleta (cada una nombra un hook cableado y todavía mudo)", () => {
+    const silent = new Set(claimlessHooks(hooks).map((h) => h.script));
+    const stale = [...CLAIMLESS_HOOKS.keys()].filter((script) => !silent.has(script)).sort();
+    expect(
+      stale,
+      "o el hook dejó la registración, o ya declara un claim y sus aserciones corren — quita la exención",
+    ).toEqual([]);
+  });
+
+  it("cada entrada lleva una razón, no un placeholder", () => {
+    // Identical contract to `repo-config-gate.test.ts`: an exemption is a
+    // decision, and an unexplained one is how a hook quietly leaves the suite
+    // with nobody able to tell whether that was deliberate.
+    const thin = [...CLAIMLESS_HOOKS]
+      .filter(([, why]) => why.trim().length < 30)
+      .map(([script]) => script);
+    expect(thin, "escribe por qué ese hook no reclama nada, no solo que no lo hace").toEqual([]);
+  });
+
+  it("la detección reporta de verdad un hook sin declarar (test del test)", () => {
+    // Without this, a filter that silently matched nothing would report "every
+    // claimless hook is declared" forever — the vacuous green this whole file
+    // is written against.
+    const fixture: WiredHook = {
+      source: "core",
+      event: "PostToolUse",
+      script: "fixture-no-claim.sh",
+      matcher: "Bash",
+      accepts: new Set<string>(),
+      triggers: null,
+      covered: null,
+    };
+    expect(undeclaredClaimless([...hooks, fixture], CLAIMLESS_HOOKS)).toEqual([
+      "fixture-no-claim.sh",
+    ]);
+    // …and one entry silences exactly that one, nothing else.
+    const withEntry = new Map(CLAIMLESS_HOOKS).set("fixture-no-claim.sh", "fixture");
+    expect(undeclaredClaimless([...hooks, fixture], withEntry)).toEqual([]);
+  });
 });

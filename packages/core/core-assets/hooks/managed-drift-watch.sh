@@ -18,19 +18,39 @@
 #
 # WHY NOT `FileChanged`, which the same doc section recommends for exactly this
 # ("to run a hook when a specific file changes on disk, whatever wrote it").
-# Because it would need the watchlist IN the settings, and the managed file set
-# is derived per repo at render time (engine outputs plus every rendered asset,
-# ~60 files here) — so settings.json would carry a second copy of a list this
-# script already derives, and the two would drift. A watchlist that drifts from
-# the managed set is a detector with holes in it, i.e. this hook's own defect
-# class. It is also outside navori's neutral hook vocabulary (`lib/plugins.ts`
-# admits four events, and every engine adapter maps those), so adopting it is a
-# contract change rather than a matcher change.
+# The CONTRACT is not the reason, and this comment used to say it was: core can
+# register the event today. `lib/plugins.ts:91` admits four events, but that
+# enum is the schema for a PLUGIN MANIFEST and is used nowhere else —
+# `buildClaudeSettings` returns `Record<string, unknown>` and validates no event
+# name at all, which is how core already ships `SessionEnd` and
+# `UserPromptSubmit`. Only a plugin registering `FileChanged` would need the
+# vocabulary widened. Three other things stop it:
+#
+#   1. The watchlist would live IN the settings, and the managed file set is
+#      derived per repo at render time (engine outputs plus every rendered
+#      asset, ~60 files here) — so settings.json would carry a second copy of a
+#      list this script already derives, and the two would drift. A watchlist
+#      that drifts from the managed set is a detector with holes in it, i.e.
+#      this hook's own defect class.
+#   2. It loses the channel to the model. `FileChanged` has no decision
+#      control: the host shows its stderr "to user only", reads `watchPaths`
+#      and `systemMessage` out of the JSON output and discards `continue`, and
+#      that `systemMessage` is a brief terminal notification that "doesn't
+#      reach the SDK message stream". Everything this hook does ends in
+#      `exit 2` → stderr → the MODEL, which is what gets the freeze repaired in
+#      the same turn. Migrating would downgrade the recipient of the warning.
+#   3. Its matcher cannot name these paths. `FileChanged` and `StopFailure` use
+#      a narrower exact-match set — letters, digits, `_` and `|` only — and
+#      every root this watches (`CLAUDE.md`, `.claude/settings.json`,
+#      `.claude/agents/…`) carries a dot, a slash or a hyphen, which drops the
+#      matcher onto the regular-expression path. The one viable route is
+#      `watchPaths` (absolute paths) returned from `SessionStart`, which is
+#      more machinery and still subject to (1) and (2).
 #
 # What the widening does NOT buy, stated plainly: a write from outside the
 # session — a formatter in a watch process, another terminal — still surfaces
 # only on the next tool call navori sees. `FileChanged` would catch that one.
-# The cost of what it does buy is one shasum pass (~25ms, quoted below) per
+# The cost of what it does buy is one shasum pass (~35ms, quoted below) per
 # native edit.
 #
 # THIS HOOK NEVER READS THE COMMAND. That is the whole design. Its sibling
@@ -64,12 +84,33 @@
 # second, which is precisely the failure it exists to prevent. It passed on APFS
 # and failed in CI, so the clock was never a sound basis.
 #
-# So the common case costs one `shasum` pass over the managed files (~25ms
-# measured over 60 files) and compares that list against the previous one. It is
-# exact, it depends on no clock, and per-block hashing — the expensive part, ~3.5s
-# for 53 blocks — runs ONLY for the files whose content actually changed, which
-# in a normal session is none and in a bad one is one.
+# So the common case costs one `shasum` pass over the managed files (~35ms) and
+# compares that list against the previous one. It is exact, it depends on no
+# clock, and per-block hashing — the expensive part, ~3.5s for 53 blocks — runs
+# ONLY for the files whose content actually changed, which in a normal session
+# is none and in a bad one is one. That ~35ms is the MEDIAN of 13,692 recorded
+# runs in `~/.navori/audits` (mean 43.7ms, p95 78ms); the "~25ms measured over
+# 60 files" this used to quote was a single early sample and ran ~40% optimistic.
 set -uo pipefail
+
+# The tools this state auditor must run after, i.e. the matcher it has to be
+# registered with. Read by `hook-matcher-wiring.test.ts` (#796); nothing in this
+# script reads it.
+#
+# It exists because this hook has nothing else the wiring suite can derive an
+# invariant from. A hook that dispatches on `case "$tool_name"` contradicts a
+# narrow matcher by itself, and a gate that declares `$TRIGGER_TOKENS` claims
+# the commands it needs handed to it — this one audits STATE, so it makes
+# neither claim, and its matcher was held up only by a hand-written list of four
+# tool names in `build-settings.test.ts`. Narrowing the matcher went red there
+# and the obvious repair was to edit the literal, which is the drift this
+# declaration removes: the edit point is now the script, where the intent lives.
+#
+# The rule could not be inferred from silence instead. "Every hook with no
+# `case` and no `$TRIGGER_TOKENS` must receive every write tool" falsifies
+# against `guard-destructive.sh`, `guard-search-routing.sh` and
+# `subagent-stop-handoff.sh` (matcher `Agent|Task`, correct by design).
+COVERED_TOOLS='Bash Edit Write NotebookEdit'
 
 # PostToolUse delivers its payload on stdin; this hook never needed it and the
 # audit recorder does (session_id/cwd), so it is captured rather than ignored.
