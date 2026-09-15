@@ -96,6 +96,11 @@ function manifest(version: string): string {
  * The plugin's hook registration. `${CLAUDE_PLUGIN_ROOT}` is how a plugin
  * addresses its own files, and the double quotes around it are the documented
  * form — the plugin dir sits under the user's home, which routinely has spaces.
+ *
+ * The matcher carries ALL FIVE documented SessionStart sources and must stay in
+ * step with the repo layer's (`build-settings.ts`), which carries the argument
+ * for why (#774): this is the baseline a machine gets where no repo config
+ * exists, so a `/clear`ed or forked session losing it loses everything.
  */
 function hooksJson(): string {
   return `${JSON.stringify(
@@ -103,7 +108,7 @@ function hooksJson(): string {
       hooks: {
         SessionStart: [
           {
-            matcher: "startup|resume|compact",
+            matcher: "startup|resume|clear|compact|fork",
             hooks: [
               {
                 type: "command",

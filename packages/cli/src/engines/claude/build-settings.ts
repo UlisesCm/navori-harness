@@ -45,13 +45,15 @@ import { deepMerge } from "./deep-merge.ts";
  *      set. The hook entry references
  *      `$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh`
  *      (rendered separately by the file pipeline).
- *   2b. SessionStart(startup|resume|compact) hook — always registered. References
+ *   2b. SessionStart(startup|resume|clear|compact|fork) hook — always
+ *      registered, on ALL FIVE documented sources. References
  *      `$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.sh`; injects the
  *      live harness context (branch/commits/current.md) so resume is deterministic.
- *   2c. Lifecycle hooks (N1) — all advisory, never blocking. SubagentStop
- *      (handoff validator) and PreCompact (session-summary reminder) always
- *      registered; Stop (verify-before-done reminder) only when
- *      `config.hooks.verifyOnStop` is set.
+ *   2c. Lifecycle hooks (N1) — all advisory, never blocking. The handoff
+ *      validator is registered on PostToolUse(`Agent|Task`), the event whose
+ *      `additionalContext` reaches the PARENT session (#774); Stop
+ *      (verify-before-done reminder) only when `config.hooks.verifyOnStop` is
+ *      set.
  *   3. For each enabled plugin: `settingsFragment` and `hooks[]` translated
  *      from the flat manifest shape into Claude Code's nested
  *      `hooks.<Event>[].{matcher, hooks[]}` shape.
@@ -70,7 +72,6 @@ const MANAGED_DRIFT_HOOK_DEST = ".claude/hooks/managed-drift-watch.sh";
 const ROUTING_WATCH_HOOK_DEST = ".claude/hooks/routing-watch.sh";
 const PR_PILOT_HOOK_DEST = ".claude/hooks/pr-pilot-confirm.sh";
 const WORKTREE_RECLAIM_HOOK_DEST = ".claude/hooks/worktree-reclaim.sh";
-const PRECOMPACT_HOOK_DEST = ".claude/hooks/precompact-session-summary.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
 const SETTINGS_BASE_REL = "core-assets/settings/settings-base.json";
 
@@ -287,14 +288,23 @@ export function buildClaudeSettings(
 
   // SessionStart context hook — always registered (no config dependency, like
   // the guard). Injects the live harness context (branch, recent commits,
-  // progress/current.md) at session start/resume/post-compact so resuming is
+  // progress/current.md) whenever a session opens, so resuming is
   // deterministic. Claude-only: Codex lifecycle hooks are still experimental,
   // so the asset renders under .codex/hooks/ but is not wired there yet.
+  //
+  // ALL FIVE documented sources, and `clear`/`fork` are the two that were
+  // missing (#774). They are not the edge cases — `/clear` ERASES the context,
+  // which makes it the moment that needs the re-injection most, and a forked
+  // session starts from a copy nobody re-primed. The park showed the
+  // incoherence plainly: `tgrep-session` registers with NO matcher, so a
+  // `/clear`ed session got the search-index notice and none of the harness
+  // doctrine. The list is spelled out rather than dropped so that adding a
+  // sixth source is a decision somebody makes, not one that happens.
   settings = deepMerge(settings, {
     hooks: {
       SessionStart: [
         {
-          matcher: "startup|resume|compact",
+          matcher: "startup|resume|clear|compact|fork",
           hooks: [
             {
               type: "command",
@@ -356,37 +366,42 @@ export function buildClaudeSettings(
     },
   });
 
-  // Lifecycle hooks (N1) — all advisory (systemMessage / additionalContext),
-  // never `decision: block`. SubagentStop + PreCompact are always registered
-  // (no config dependency, like the guard/session-start above): SubagentStop
-  // flags empty/broken `impl_*`/`review_*` handoffs; PreCompact reminds the
-  // model to persist a session summary before compaction drops turn detail.
-  // Stop is opt-in (`config.hooks.verifyOnStop`) below. Claude-only: Codex
-  // lifecycle hooks are still experimental, so the assets render under
-  // .codex/hooks/ but aren't wired there yet (same as session-start).
+  // The handoff validator (N1) — advisory, never `decision: block`. Always
+  // registered, no config dependency, like the guard/session-start above: it
+  // flags empty/broken `impl_*`/`review_*` handoffs. Stop is opt-in
+  // (`config.hooks.verifyOnStop`) below. Claude-only: Codex lifecycle hooks are
+  // still experimental, so the assets render under .codex/hooks/ but aren't
+  // wired there yet (same as session-start).
+  //
+  // WHY PostToolUse(`Agent|Task`) AND NOT SubagentStop (#774). The audience of
+  // this note is the LEADER — the session that consolidates the handoff — and
+  // the host's doc draws the line for exactly this case: on SubagentStop the
+  // `additionalContext` goes to the subagent that just stopped (it keeps it
+  // running), and "to inject context into the parent session after a subagent
+  // returns, use a `PostToolUse` hook on the `Agent` tool instead." Registered
+  // on SubagentStop the hook could only ever reach the human, through
+  // `systemMessage` ("Warning message shown to the user"), while its text asked
+  // the model to act.
+  //
+  // The move also fixes the firing rate #560 measured: SubagentStop fired 117
+  // times for 19 subagents in one session, every one of them re-reporting the
+  // same handoff. A PostToolUse on the Agent tool fires exactly once per
+  // return.
+  //
+  // `Agent|Task` and not just `Agent`: matchers are an exact list, and the tool
+  // is named `Task` on the hosts that predate the rename — a one-token matcher
+  // would be a hook that silently never runs on half the park.
   settings = deepMerge(settings, {
     hooks: {
-      SubagentStop: [
+      PostToolUse: [
         {
+          matcher: "Agent|Task",
           hooks: [
             {
               type: "command",
               command: `bash "$CLAUDE_PROJECT_DIR/${SUBAGENT_STOP_HOOK_DEST}"`,
               timeout: 15,
               statusMessage: "navori: handoff check",
-            },
-          ],
-        },
-      ],
-      PreCompact: [
-        {
-          matcher: "manual|auto",
-          hooks: [
-            {
-              type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${PRECOMPACT_HOOK_DEST}"`,
-              timeout: 15,
-              statusMessage: "navori: pre-compact summary",
             },
           ],
         },

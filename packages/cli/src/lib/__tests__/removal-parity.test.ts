@@ -346,7 +346,8 @@ describe("the inventory of delete paths is complete (#496)", () => {
     "commands/render.ts": "route B — planOrphanRemoval → isRemovableNavoriFile, file by file",
     "engines/shared/execute-plan.ts": "route A — collectOrphans → isRemovableNavoriFile",
     "engines/claude/index.ts":
-      "route C — planFlat/planDirSkillRemoval → isRemovableNavoriFile(path, markerId). " +
+      "route C — planFlat/planDirSkillRemoval and planRetiredHookRemoval (#774) → " +
+      "isRemovableNavoriFile(path, markerId). " +
       "Its other two removals (disabled-plugin scripts §8.5, retired-plugin assets §8.5-bis) " +
       "are marker-FREE by construction: a shell script carries no managed block, and the path " +
       "comes from the plugin's own manifest, so navori is its only writer",
@@ -686,5 +687,58 @@ describe("the criterion reads the JSON notation of the marker too (#538)", () =>
     );
     expect(existsSync(path)).toBe(true);
     expect(kept).toContainEqual({ path: ".claude/settings.local.json", reason: "ephemeral" });
+  });
+});
+
+/**
+ * The id-scoped read has to know BOTH marker syntaxes (#774).
+ *
+ * `markerId` narrows the question from "does navori own this file?" to "does
+ * navori own it AS that block", and it did that by looking for the Markdown
+ * spelling (`navori:managed id="…"`) only. Shell files — every hook and every
+ * plugin script navori writes — open with `# navori:managed start id="…"`, so
+ * the search never matched and the guard answered "not ours" for all of them.
+ *
+ * No delete path was broken by it, which is precisely why it survived: the only
+ * callers passing an id were the `.md` skill prunes. The first one that did not
+ * (the retired-hook prune) found its removal silently never firing — a guard
+ * that always says no reads exactly like a repo with nothing to clean.
+ */
+describe("the criterion reads the SHELL notation of the marker too (#774)", () => {
+  function shellFile(id: string, version: string): string {
+    return (
+      `# navori:managed start id="${id}" hash="deadbeef" version="${version}" source="@navori/core"\n` +
+      `#!/usr/bin/env bash\nexit 0\n` +
+      `# navori:managed end id="${id}"\n`
+    );
+  }
+
+  function write(name: string, body: string): string {
+    const path = join(newRepo(), name);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, body, "utf-8");
+    return path;
+  }
+
+  it("claims a shell file navori wrote, when asked about that block's id", () => {
+    const path = write(".claude/hooks/x.sh", shellFile("x-base", readCliVersion()));
+    expect(isRemovableNavoriFile(path, "x-base")).toBe(true);
+  });
+
+  it("still honours the anti-rollback version on that same read", () => {
+    const path = write(".claude/hooks/x.sh", shellFile("x-base", "99.0.0"));
+    expect(isRemovableNavoriFile(path, "x-base")).toBe(false);
+  });
+
+  it("does not claim it under a DIFFERENT block's id", () => {
+    // The whole point of `markerId`: a marker for some other block is not an
+    // answer to "does navori own this file as `x-base`".
+    const path = write(".claude/hooks/x.sh", shellFile("otro-base", readCliVersion()));
+    expect(isRemovableNavoriFile(path, "x-base")).toBe(false);
+  });
+
+  it("does not claim a hand-written script that carries no marker", () => {
+    const path = write(".claude/hooks/x.sh", "#!/usr/bin/env bash\n# mío\n");
+    expect(isRemovableNavoriFile(path, "x-base")).toBe(false);
   });
 });

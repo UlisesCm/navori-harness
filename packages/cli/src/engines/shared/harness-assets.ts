@@ -77,6 +77,35 @@ export const RETIRED_SKILLS: ReadonlyArray<string> = [
   "pr-create",
 ];
 
+/**
+ * Hook ids navori USED to ship and no longer does. Append-only, same contract as
+ * `RETIRED_SKILLS`: an entry is a historical fact and is never removed.
+ *
+ * A retired hook is quieter than a retired skill — nothing invokes a script that
+ * no longer appears in `settings.json`, so it cannot run — but it is not
+ * harmless either. It stays on disk in every already-onboarded repo (the park
+ * was 22 when this list was created), it keeps a managed marker that `doctor`
+ * and `managed-drift-watch` have to account for, and a reader who finds
+ * `.claude/hooks/<id>.sh` has no way to tell a retired hook from a broken
+ * registration. `render` only visits what it currently renders, and `--prune`
+ * covers outputs of DISABLED ENGINES, so without this list nothing would ever
+ * remove it.
+ *
+ * Removal is marker-gated and version-gated (`isRemovableNavoriFile`) on top of
+ * this, so the list decides WHICH ids to consider, never whether a given file
+ * may be deleted: a user's own script at the same path is untouched, and one a
+ * newer navori wrote is not ours to roll back.
+ */
+export const RETIRED_HOOKS: ReadonlyArray<string> = [
+  // #774: PreCompact has no documented channel to the model — the doc's "where
+  // the reminder appears" list omits the event and says outright that Claude
+  // Code discards a PreCompact hook's `systemMessage` and `continue`. The hook
+  // emitted `additionalContext` into that void AND logged verdict `inject`, so
+  // the audit claimed an injection the host had dropped. The reminder now rides
+  // the `SessionStart(compact)` branch of `session-start-context.sh`.
+  "precompact-session-summary",
+];
+
 export function isAgentEnabled(
   config: NavoriConfig,
   key: keyof NonNullable<NavoriConfig["harness"]>,

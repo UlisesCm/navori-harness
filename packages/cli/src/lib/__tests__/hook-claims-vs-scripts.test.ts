@@ -8,8 +8,8 @@ import type { NavoriConfig } from "../config.ts";
 /**
  * Prose that describes a hook, cross-checked against the hook's own script.
  *
- * The defect this exists for: four assets stated that "a `SubagentStop` hook
- * verifies they landed", and `subagent-stop-handoff.sh` cannot do that — it
+ * The defect this exists for: four assets stated that a hook "verifies they
+ * landed", and `subagent-stop-handoff.sh` cannot do that — it
  * iterates `impl_*.md` / `review_*.md` globs, which by construction only ever
  * yield files that are already there, and it has no existence test at all. A
  * missing handoff is invisible to it. Same class as #502.2 (a false claim about
@@ -370,24 +370,34 @@ describe("the capability reader discriminates between the real scripts", () => {
 describe("the cross-check fires on the claims that shipped before the fix", () => {
   /**
    * Positive control on the real regression (review of `fix/bloque-assets`,
-   * finding 4), not on a synthetic string: these are the exact clauses the four
-   * assets carried. A rewrite of the fix that keeps the false attribution has
-   * to fail here.
+   * finding 4), not on a synthetic string: these are the clauses the four assets
+   * carried. A rewrite of the fix that keeps the false attribution has to fail
+   * here.
+   *
+   * ONE substitution against the historical text, and it is forced: the assets
+   * said "a `SubagentStop` hook" and the hook left that event in #774, so the
+   * event name no longer resolves to any script and the clause would be judged
+   * against every hook navori ships — one of which does have the mechanism, so
+   * the control would silently stop controlling. Naming the script is what the
+   * assets themselves now do, for the same reason.
    */
   it.each([
     [
       "implementer.md",
-      "the `reviewer` opens it to judge your diff, and a `SubagentStop` hook checks it landed.",
+      "the `reviewer` opens it to judge your diff, and the `subagent-stop-handoff` hook checks it landed.",
     ],
     [
       "reviewer.md",
-      "the `commit-pr-pilot` reads the verdict and re-hashes the receipt before it commits, and a `SubagentStop` hook checks they landed.",
+      "the `commit-pr-pilot` reads the verdict and re-hashes the receipt before it commits, and the `subagent-stop-handoff` hook checks they landed.",
     ],
     [
       "leader.md",
-      "the `commit-pr-pilot` opens the `reviewer`'s and its `receipt.txt`, and a `SubagentStop` hook verifies they landed.",
+      "the `commit-pr-pilot` opens the `reviewer`'s and its `receipt.txt`, and the `subagent-stop-handoff` hook verifies they landed.",
     ],
-    ["a blocking claim", "the `SubagentStop` hook blocks the turn until the handoff is written."],
+    [
+      "a blocking claim",
+      "the `subagent-stop-handoff` hook blocks the turn until the handoff is written.",
+    ],
     [
       "an absence claim worded some other way",
       "the `subagent-stop-handoff` hook confirms every handoff exists before the leader reads it.",
@@ -399,8 +409,8 @@ describe("the cross-check fires on the claims that shipped before the fix", () =
 
   it.each([
     [
-      "the fixed SubagentStop wording",
-      "a `SubagentStop` hook flags one that lands empty or without its `Status:` line.",
+      "the fixed handoff wording",
+      "the `subagent-stop-handoff` hook flags one that lands empty or without its `Status:` line.",
     ],
     [
       "a true blocking claim",

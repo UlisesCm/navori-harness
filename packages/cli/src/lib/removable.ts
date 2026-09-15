@@ -123,16 +123,28 @@ function writerVersion(content: string, markerId?: string): string | null {
  * several managed blocks: the answer must be "the version of the block that
  * makes this file ours", not whichever `version=` appears first.
  *
+ * BOTH marker syntaxes `lib/marker.ts` emits, and the second one was missing.
+ * Markdown opens with `<!-- navori:managed id="…"` and shell with
+ * `# navori:managed start id="…"` — so a search for the Markdown spelling alone
+ * answered "no such block" for EVERY shell file navori writes, which silently
+ * turned `markerId` into a guard that always says no. It had no live victim
+ * (the only callers passing an id were the `.md` skill prunes) and one waiting:
+ * the first caller to id-gate a hook or a plugin script would have found its
+ * removal quietly never firing (#774).
+ *
  * `indexOf` finds the opening tag before the closing one (`/navori:managed
  * id="…"`, which contains the same substring) simply because it comes first. A
  * file left with only a close tag yields a line with no `version=`, so the
  * caller keeps it — the conservative answer for a mangled file.
  */
 function openingTagFor(content: string, id: string): string | null {
-  const start = content.indexOf(`navori:managed id="${id}"`);
-  if (start === -1) return null;
-  const end = content.indexOf("\n", start);
-  return content.slice(start, end === -1 ? undefined : end);
+  for (const opener of [`navori:managed id="${id}"`, `navori:managed start id="${id}"`]) {
+    const start = content.indexOf(opener);
+    if (start === -1) continue;
+    const end = content.indexOf("\n", start);
+    return content.slice(start, end === -1 ? undefined : end);
+  }
+  return null;
 }
 
 /** Why a path survived the prune. Each reason answers a DIFFERENT question, so

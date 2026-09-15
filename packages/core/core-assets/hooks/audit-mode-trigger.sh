@@ -35,9 +35,15 @@ command -v jq >/dev/null 2>&1 || exit 0
 # field simply wasn't there. An audit whose whole job is attribution cannot
 # silently log blanks, and `jq`'s `//` makes tolerating both names free.
 #
-# Order matters: the more specific `user_prompt` wins when both are present, so
-# a host that ships both never gets the wrong one.
-prompt=$(printf '%s' "$payload" | jq -r '.user_prompt // .prompt // ""' 2>/dev/null) || exit 0
+# Order matters, and it puts the DOCUMENTED key first (#774): "UserPromptSubmit
+# hooks receive the `prompt` field" is the contract, and `user_prompt` appears
+# nowhere in it. Preferring the undocumented spelling meant a host that shipped
+# both would have had navori read the one nobody promises anything about — an
+# inverted precedence with no upside, since the documented key is the one that
+# cannot change out from under us. `user_prompt` stays as the fallback because
+# it is what a real payload turned out to carry, and losing that is the
+# regression above.
+prompt=$(printf '%s' "$payload" | jq -r '.prompt // .user_prompt // ""' 2>/dev/null) || exit 0
 session_id=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
 cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null) || exit 0
 [ -n "$session_id" ] || exit 0

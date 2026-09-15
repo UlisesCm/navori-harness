@@ -1415,6 +1415,13 @@ function chronological(events: HookEvent[]): HookEvent[] {
  * carried an id that resolves. The parent is the honest owner either way — it is
  * the process that ran the hook and paid its milliseconds — and the event keeps
  * its `agentId`, so nothing is lost by not guessing.
+ *
+ * `SubagentStop` stays on this list although navori's own handoff hook left that
+ * phase in #774: the list describes the HOST's phases, not navori's
+ * registrations. Logs already on disk carry those events, and the engram plugin
+ * still registers there. The handoff hook now records `PostToolUse`, which is
+ * NOT parent-only — it lands on the orchestrator through the `ORCHESTRATOR_OWNER`
+ * branch of `ownerOf` instead, which is the same answer by a different route.
  */
 const PARENT_ONLY_PHASES = new Set([
   "SessionStart",

@@ -4,7 +4,7 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__*, mcp__codegraph__*
 ---
 
-<!-- navori:managed id="reviewer-base" hash="5c9a3be3" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="reviewer-base" hash="dd2c527a" version="0.8.7" source="@navori/core" -->
 # Reviewer Agent
 
 You are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.
@@ -197,7 +197,7 @@ or
 CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 ```
 
-`review_<feature>.md` and `receipt.txt` are **input to another tool**, not chat summaries: the `commit-pr-pilot` reads the verdict and re-hashes the receipt before it commits, and a `SubagentStop` hook flags a `review_*.md` that lands empty or without a verdict (that hook never sees one that didn't land at all, and never looks at `receipt.txt`). Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
+`review_<feature>.md` and `receipt.txt` are **input to another tool**, not chat summaries: the `commit-pr-pilot` reads the verdict and re-hashes the receipt before it commits, and the `subagent-stop-handoff` hook flags a `review_*.md` that lands empty or without a verdict (that hook never sees one that didn't land at all, and never looks at `receipt.txt`). Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
 
 ## Hard rules
 

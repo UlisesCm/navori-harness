@@ -177,7 +177,7 @@ describe("buildClaudeSettings — base shape", () => {
     expect(qg).toBeUndefined();
   });
 
-  it("always registers the SessionStart context hook (startup|resume|compact)", () => {
+  it("always registers the SessionStart context hook on all five sources", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
     const ss = (
       s.hooks as {
@@ -188,34 +188,44 @@ describe("buildClaudeSettings — base shape", () => {
       b.hooks.some((h) => h.command.includes("session-start-context.sh")),
     );
     expect(bucket).toBeDefined();
-    expect(bucket?.matcher).toBe("startup|resume|compact");
+    // The FIVE documented sources, `clear` and `fork` included (#774): those two
+    // are the sessions with the least context, so a matcher that skipped them
+    // skipped the case the hook exists for.
+    expect(bucket?.matcher?.split("|").sort()).toEqual([
+      "clear",
+      "compact",
+      "fork",
+      "resume",
+      "startup",
+    ]);
     expect(bucket?.hooks[0]?.command).toContain("$CLAUDE_PROJECT_DIR");
   });
 
-  it("always registers the SubagentStop handoff-validator hook", () => {
+  it("registers the handoff validator on PostToolUse(Agent|Task), not SubagentStop", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
-    const ss = (
-      s.hooks as { SubagentStop?: Array<{ matcher?: string; hooks: Array<{ command: string }> }> }
-    ).SubagentStop;
-    const bucket = ss?.find((b) =>
+    const hooks = s.hooks as {
+      PostToolUse?: Array<{ matcher?: string; hooks: Array<{ command: string }> }>;
+      SubagentStop?: unknown;
+    };
+    const bucket = hooks.PostToolUse?.find((b) =>
       b.hooks.some((h) => h.command.includes("subagent-stop-handoff.sh")),
     );
     expect(bucket).toBeDefined();
-    // No matcher — the validator runs for every subagent, agent-type agnostic.
-    expect(bucket?.matcher).toBeUndefined();
+    // `Agent|Task`: on SubagentStop the additionalContext goes to the SUBAGENT,
+    // and the reader of this note is the leader (#774).
+    expect(bucket?.matcher).toBe("Agent|Task");
     expect(bucket?.hooks[0]?.command).toContain("$CLAUDE_PROJECT_DIR");
+    // …and the old registration is gone, not merely shadowed by the new one.
+    expect(hooks.SubagentStop).toBeUndefined();
   });
 
-  it("always registers the PreCompact session-summary hook (manual|auto)", () => {
+  it("no longer registers anything on PreCompact (#774)", () => {
+    // PreCompact has no documented channel to the model: the host discards that
+    // hook's `systemMessage`/`continue`, and the "where the reminder appears"
+    // list omits the event. The reminder moved to SessionStart(compact).
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
-    const pc = (
-      s.hooks as { PreCompact?: Array<{ matcher?: string; hooks: Array<{ command: string }> }> }
-    ).PreCompact;
-    const bucket = pc?.find((b) =>
-      b.hooks.some((h) => h.command.includes("precompact-session-summary.sh")),
-    );
-    expect(bucket).toBeDefined();
-    expect(bucket?.matcher).toBe("manual|auto");
+    expect((s.hooks as { PreCompact?: unknown }).PreCompact).toBeUndefined();
+    expect(JSON.stringify(s)).not.toContain("precompact-session-summary");
   });
 
   it("does NOT register the Stop hook unless config.hooks.verifyOnStop is set", () => {

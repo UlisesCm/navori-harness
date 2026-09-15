@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync, chmodSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -8,11 +16,16 @@ import { getCoreRoot } from "../bundled-assets.ts";
 import { acrossShells } from "./helpers/shells.ts";
 
 /**
- * Behavioral tests for the Stop / SubagentStop / PreCompact lifecycle hooks
- * (#169 / N1). Each core-asset script is installed into a temp repo and driven
- * with its event JSON on stdin; we assert the JSON it emits. These scripts carry
- * no `{{...}}` placeholders, so install is a plain copy. The real PATH is
- * inherited (node/git/bash resolvable) as in session-start-hook.test.ts.
+ * Behavioral tests for the Stop reminder and the handoff validator (#169 / N1).
+ * Each core-asset script is installed into a temp repo and driven with its event
+ * JSON on stdin; we assert the JSON it emits. These scripts carry no `{{...}}`
+ * placeholders, so install is a plain copy. The real PATH is inherited
+ * (node/git/bash resolvable) as in session-start-hook.test.ts.
+ *
+ * The PreCompact reminder used to have a `describe` here. It was retired in
+ * #774 — PreCompact has no documented channel to the model — and its content now
+ * rides `SessionStart(compact)`, so its behavioural test lives in
+ * `session-start-hook.test.ts` with the rest of that hook's sources.
  */
 const HOOKS_DIR = resolve(getCoreRoot(), "core-assets/hooks");
 
@@ -74,6 +87,18 @@ function systemMessage(stdout: string): string | undefined {
   return (JSON.parse(stdout) as { systemMessage?: string }).systemMessage;
 }
 
+/** The half of the payload that reaches the MODEL, keyed by its event name. */
+function additionalContext(stdout: string): { event?: string; text?: string } {
+  if (!stdout.trim()) return {};
+  const parsed = JSON.parse(stdout) as {
+    hookSpecificOutput?: { hookEventName?: string; additionalContext?: string };
+  };
+  return {
+    event: parsed.hookSpecificOutput?.hookEventName,
+    text: parsed.hookSpecificOutput?.additionalContext,
+  };
+}
+
 describe("stop-verify-reminder hook", () => {
   const run = () => runHook("stop-verify-reminder.sh", { hook_event_name: "Stop" });
 
@@ -108,10 +133,34 @@ describe("stop-verify-reminder hook", () => {
     // advisory: no `decision` field → never forces the model to continue
     expect(JSON.parse(r.stdout)).not.toHaveProperty("decision");
   });
+
+  // The other half of the #774 defect, same shape as the handoff's: the text
+  // tells the MODEL to run the gate and commit, and `systemMessage` is
+  // documented as "Warning message shown to the user" — so on its own it
+  // reached the human and nobody who could act on it. `Stop` does have a
+  // channel to the model ("Stop and SubagentStop also accept
+  // `hookSpecificOutput.additionalContext`"), and this pins that it is used.
+  it("speaks to the agent through additionalContext, not only to the human", () => {
+    seedRepo();
+    writeFileSync(join(dir, "a.txt"), "changed\n");
+    const { stdout } = run();
+    const { event, text } = additionalContext(stdout);
+    expect(event).toBe("Stop");
+    expect(text).toContain("verify-before-done");
+    // …and the human still sees it: both channels, one emission.
+    expect(systemMessage(stdout)).toBe(text);
+  });
 });
 
 describe("subagent-stop-handoff hook", () => {
-  const run = () => runHook("subagent-stop-handoff.sh", { hook_event_name: "SubagentStop" });
+  // PostToolUse on the `Agent` tool since #774: that is the event whose
+  // `additionalContext` lands in the PARENT session, which is the only reader
+  // that can act on a broken handoff.
+  const run = () =>
+    runHook("subagent-stop-handoff.sh", {
+      hook_event_name: "PostToolUse",
+      tool_name: "Agent",
+    });
   const writeProgressIn = (engineDir: string, name: string, body: string) => {
     mkdirSync(join(dir, engineDir, "progress"), { recursive: true });
     writeFileSync(join(dir, engineDir, "progress", name), body);
@@ -153,6 +202,22 @@ describe("subagent-stop-handoff hook", () => {
     expect(JSON.parse(r.stdout)).not.toHaveProperty("decision");
   });
 
+  // The defect #774 fixes, pinned: the note asks the MODEL for an action, so it
+  // has to travel on the channel the model reads. `systemMessage` is documented
+  // as "warning message shown to the user" — on its own it reached the human's
+  // UI and nobody else.
+  it("speaks to the leader through additionalContext, not only to the human", () => {
+    writeProgress("impl_x.md", "# impl\nno terminal marker\n");
+    // ONE run: the hook remembers what it reported, so a second call in the
+    // same case would be the `repeat` path and say nothing.
+    const { stdout } = run();
+    const { event, text } = additionalContext(stdout);
+    expect(event).toBe("PostToolUse");
+    expect(text).toContain("impl_x.md");
+    // …and the human still sees it: both channels, one emission.
+    expect(systemMessage(stdout)).toContain("impl_x.md");
+  });
+
   // #389: `placeHook` copies this body verbatim for every engine, so the hook
   // has to know each engine's progress dir itself. It knew two names Codex
   // never uses, which made it a silent no-op there — the same shape as #352.
@@ -177,22 +242,20 @@ describe("subagent-stop-handoff hook", () => {
   });
 });
 
-describe("precompact-session-summary hook", () => {
-  it("injects a session-summary reminder via additionalContext (never blocks)", () => {
-    const r = runHook("precompact-session-summary.sh", {
-      hook_event_name: "PreCompact",
-      trigger: "auto",
-    });
-    expect(r.status).toBe(0);
-    const parsed = JSON.parse(r.stdout) as {
-      hookSpecificOutput?: { hookEventName?: string; additionalContext?: string };
-      decision?: unknown;
-    };
-    expect(parsed.hookSpecificOutput?.hookEventName).toBe("PreCompact");
-    expect(parsed.hookSpecificOutput?.additionalContext).toContain("resumen de sesión");
-    // Deliberately does NOT hard-code engram's exact tool token — see the hook
-    // header (a doctor invariant the engram plugin owns).
-    expect(parsed.hookSpecificOutput?.additionalContext).not.toContain("mem_session_summary");
-    expect(parsed).not.toHaveProperty("decision");
+/**
+ * The asset ships no `precompact-session-summary.sh` any more, and nothing may
+ * quietly bring it back: PreCompact discards `systemMessage`/`continue` and is
+ * absent from the host's "where the reminder appears" list, so a hook there
+ * emits into a channel that does not deliver while its audit line claims it
+ * did (#774).
+ */
+describe("the retired PreCompact hook", () => {
+  it("ships no hook that emits under the PreCompact event", () => {
+    const files = readdirSync(HOOKS_DIR).filter((f) => f.endsWith(".sh"));
+    expect(files).not.toContain("precompact-session-summary.sh");
+    const offenders = files.filter((f) =>
+      /hookEventName\s*:\s*"PreCompact"/.test(readFileSync(join(HOOKS_DIR, f), "utf-8")),
+    );
+    expect(offenders).toEqual([]);
   });
 });
