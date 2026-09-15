@@ -4,7 +4,7 @@ description: Drafts commits in the configured style and opens the PR with the re
 tools: Read, Glob, Grep, Bash
 ---
 
-<!-- navori:managed id="commit-pr-pilot-base" hash="9c1905dd" version="0.8.6" source="@navori/core" -->
+<!-- navori:managed id="commit-pr-pilot-base" hash="9c1905dd" version="0.8.7" source="@navori/core" -->
 # Commit & PR Pilot Agent
 
 You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.

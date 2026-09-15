@@ -10,6 +10,30 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-13 22:16 — orchestrator — la jornada del cableado: cuatro rondas arreglaron el contenido y lo roto era el entorno
+
+- **Cambios**: 12 PRs mergeados a `main` (#745–#785); en esta sesión de cierre,
+  `packages/cli/package.json` a 0.8.7 + re-render del espejo, `progress/current.md` y
+  `progress/history.md`.
+- **Quality gate**: ✅ verde en cada PR; CI verde en los 12.
+- **Commit / PR**: el del release `chore(release): navori v0.8.7`.
+
+**Goal**: cerrar issues del backlog y, tras el reclamo del dueño ("llevamos 2 semanas dando vueltas, sacamos PRs y no resolvemos nada"), diagnosticar por qué las rondas de auditoría no producían mejora y reorientar el trabajo.
+
+**Discoveries**:
+- **El diagnóstico que reorientó todo**: cada ronda arreglaba el CONTENIDO (el `case` acepta Bash, la skill tiene su cláusula, el hook existe) mientras lo roto era el CABLEADO — el artefacto correcto y el entorno que no lo entrega. Cuatro casos confirmados: #767 (matcher sin Bash, fix inerte desde #722), #769 (hooks materializados aunque la config apague su agente), #771 (worktrees atrasados que abren PRs revirtiendo trabajo), #773 (claves `project.*` ignoradas en silencio).
+- **La tesis del repo estaba contaminada**: "lo mecánico funciona, lo sugerido no" se apoyaba en tres números y dos eran inválidos — el 0/1 de `routing-watch` midió un instrumento desconectado, y el 0/26 de `pr-pilot-confirm` no se puede probar que llegara a un humano.
+- **Cuatro veces una verificación reportó verde sin mirar lo que creía**: `semgrep --baseline-commit` sobre 0 targets, `EXIT=$?` que era del `tail`, un assert que solo rompía con color ANSI, y un harness de superset que validaba 0 casos. Ninguna cambió la conclusión final, pero las cuatro las encontró alguien distinto del autor. Es el argumento empírico más fuerte del ciclo implementer→reviewer: no atrapa errores de código, atrapa evidencia vacía.
+- `tool_decision.source` NO distingue regla allow de aprobación del clasificador (ambas dicen `config`) — refutó la dirección principal de #730.
+- `git branch --merged` no detecta squash-merges: en un repo que mergea con squash, toda lógica de "¿esta rama ya entró?" basada en ascendencia responde mal.
+- `FORCE_COLOR: "0"` enciende el color (`!!"0"` es true); 11 archivos de test lo usan creyendo lo contrario y pasan por suerte.
+
+**Accomplished**: 12 PRs mergeados, 12 issues cerrados. Audit de cableado en 4 dominios paralelos → 6 issues fundamentados con doc oficial, `file:line`, medición "antes" y criterio de cierre re-ejecutable. Entregado: sección de distribución en doctor (5 divergencias disco↔git↔sesión sin check), finding de versión en audit, SessionStart visible, carril Bash de routing-watch conectado y 30% más barato, untracked al scan de seguridad, seguridad antes del APPROVED, anclaje gate↔CI bidireccional. Cuatro specs (0022-0025) mergeadas; la 0025 refuta su propio mecanismo y cierra #758 con moratoria de secuencia.
+
+**Next Steps**: publicar 0.8.7 (sin eso la mitad del trabajo no existe fuera de navori-harness) · mergear PR #254 de alertaciudadana_app y commitear el backend · #774 (tres hooks hablando al vacío, uno inerte) · #776 (gates fail-open con 12% de margen) · #779 (perillas muertas) · decidir el pre-push fantasma de #777.
+
+**Relevant Files**: `.claude/progress/audit_cableado_{hooks,config,distribucion,verificacion}.md` · `packages/cli/src/lib/distribution.ts` · `packages/core/core-assets/hooks/_partials/scan-scope.sh` · `packages/cli/src/__tests__/hook-matcher-wiring.test.ts` · `specs/002{2,3,4,5}-*`
+
 ## 2026-09-13 16:45 — orchestrator — revisión de los logs de 0.8.6: la muestra no alcanza, y el instrumento tiene dos bugs
 
 - **Cambios**: `progress/current.md`, `progress/history.md`. Ningún cambio de código: la sesión

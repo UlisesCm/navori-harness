@@ -1,12 +1,28 @@
 # Sesión actual
 
-**Estado:** **jornada del 2026-09-12 cerrada.** La spec 0021 entera mergeada (#701) y la
-auditoría de ruteo #717 cerrada con sus seis hijos (#719, #727, #729, #733, #735+#737, #739).
-Además #698, #675, #683, #693, #696 y #661.
+**Estado: release 0.8.7 en publicación (2026-09-15).** El bump de
+`packages/cli/package.json` a 0.8.7 y el re-render obligatorio del espejo (paso 2 del README) van
+en la branch `chore/release-0.8.7`, con PR a `main`; el tag lo pone `release-tag.yml` al aterrizar
+y el `npm publish` desde `packages/cli` sigue siendo manual.
 
-**2026-09-13**: mergeados #751 (aviso de `doctor` para skills project-local sin trigger, otra
-sesión), #752 (guía de extensión `docs/EXTENDING.md` + READMEs al día) y los dos del website
-(#756, #762, otra sesión). `main` en `4147f76`.
+**El programa de cableado va 7 de 8 cerrados.** Aterrizaron #775 y #778 el 13, y entre el 14 y el
+15 los siete restantes: #763 (#787), #782 (#788), #779 (#789), #776 (#790), #777 (#791), #764
+(#792), #771 (#793) y #769 (#794). **Queda abierto solo #774** — tres canales de salida que el
+evento no entrega y dos matchers de `SessionStart` que pierden sources; está trazado, sin
+implementar.
+
+**Siguiente paso explícito, en este orden:**
+
+1. **Publicar 0.8.7** — mergear el PR, dejar que `release-tag.yml` ponga el tag, y `npm publish`
+   desde `packages/cli`. Nada del programa de cableado llega al parque hasta que esto salga: ese
+   es justo el defecto que el programa diagnosticó.
+2. **#774** — el último del programa. Y **#760**, el otro issue abierto (search-before-save contra
+   los topic_keys duplicados).
+
+**Fuera de este repo, pendiente de la jornada:**
+
+- **PR #254 de `alertaciudadana_app` sigue abierto.**
+- **`alertaciudadana_backend` tiene 55 archivos staged sin commitear.**
 
 **2026-09-13 (tarde) — revisión de los logs de 0.8.6.** Solo **4 sesiones** corrieron con
 `navoriRendered=0.8.6`, y 2 puntúan con el corte del minero (>= 3 oportunidades). La línea base
@@ -37,7 +53,8 @@ los dos lados (`mine-search-routing.py --desde|--hasta`). En la misma ventana `g
 **9.6× su tasa**: el hábito migró a la vía que ninguna capa veía, ya redirigida por #739. La
 próxima ventana dirá si cierra.
 
-**Siguiente paso explícito:** #743 — el rollout del parque, con la premisa reescrita por el dato.
+**Del carril de ruteo (detrás del release en la cola):** #743 — el rollout del parque, con la
+premisa reescrita por el dato.
 `alertaciudadana_app` (972 búsquedas) y `_backend` (523) YA tienen tgrep y siguen en ~0.3%, porque
 se rindieron con 0.8.4 y tienen el wrapper sin el guard. La palanca es `render --apply` a 0.8.5, no
 `navori add tgrep`, y son dos PRs fuera de este repo.
