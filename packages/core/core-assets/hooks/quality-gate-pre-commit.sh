@@ -47,6 +47,13 @@ navori_audit_begin
 navori_audit_ran_gate=0
 navori_audit_on_exit() {
   navori_audit_code=$?
+  # A cancelled hook reaches this trap with `$?` == 0 (#797), so the exit code
+  # below cannot tell "finished green" from "was killed mid-gate". The signal
+  # handler can, it already recorded the run, and it is the only witness of the
+  # two that saw what happened.
+  if [ -n "${navori_audit_signal:-}" ]; then
+    return 0
+  fi
   if [ "$navori_audit_code" -ne 0 ]; then
     navori_audit_log "block" "el quality gate no paso o no pudo correr" || true
   elif [ "$navori_audit_ran_gate" -eq 1 ]; then
@@ -57,6 +64,10 @@ navori_audit_on_exit() {
   return 0
 }
 trap navori_audit_on_exit EXIT
+# Signal traps (TERM/INT/HUP) + `navori_audit_signal`. Shared body, single
+# source of truth: the three gates are killed the same way and must record it
+# the same way.
+# navori:include audit-signal
 
 # Detect the project's REAL package manager from lockfiles / package.json, so a
 # gate command hardcoded to one PM (e.g. `pnpm run ...`) can still run in a repo

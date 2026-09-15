@@ -44,6 +44,12 @@ navori_audit_begin
 # per branch.
 navori_audit_on_exit() {
   navori_audit_code=$?
+  # A cancelled hook reaches this trap with `$?` == 0 (#797), so the exit code
+  # below cannot tell "finished green" from "was killed mid-scan". The signal
+  # handler can, and it already recorded the run.
+  if [ -n "${navori_audit_signal:-}" ]; then
+    return 0
+  fi
   if [ "$navori_audit_code" -eq 0 ]; then
     navori_audit_log "allow" || true
   else
@@ -52,6 +58,10 @@ navori_audit_on_exit() {
   return 0
 }
 trap navori_audit_on_exit EXIT
+# Signal traps (TERM/INT/HUP) + `navori_audit_signal`. Shared body, single
+# source of truth: the three gates are killed the same way and must record it
+# the same way.
+# navori:include audit-signal
 
 # Gate to `git commit` / `git push` / `gh pr create`: the semgrep copy is the
 # only gate that also fires on push and PR creation (remote-push security
@@ -235,6 +245,14 @@ echo "▶ semgrep: ${#files[@]} changed file(s) vs $base_ref ($base_short) in $t
 # changes, from a linked worktree, and with a diverged base). The cost is a
 # second scan pass; the content cache above absorbs the repeats within a cycle.
 echo "  baseline: findings already at $base_ref ($base_short) are not blocking" >&2
+
+# The host can kill this process at its hook timeout, before any trap records a
+# verdict. Persist a start marker first; audit correlates it with the terminal
+# record by tool_use_id and reports an unfinished gate. #797 brought it here
+# from `quality-gate-pre-commit`, the only gate that had one: for the other two
+# a SIGKILL was undetectable, so the detector covered one gate of three. It goes
+# AFTER the cache lookup on purpose — a cache hit does no work worth a witness.
+navori_audit_log "gate-started" "inicio del escaneo de semgrep" || true
 
 # `>&2` is not cosmetic (#510): a PreToolUse hook shows the user its stderr and
 # swallows its stdout, so the findings themselves — the whole point of the gate
