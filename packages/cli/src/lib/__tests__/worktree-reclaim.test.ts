@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   mkdirSync,
   writeFileSync,
+  readFileSync,
   rmSync,
   existsSync,
   chmodSync,
@@ -31,6 +32,13 @@ const hookPath = resolve(getCoreRoot(), "core-assets/hooks/worktree-reclaim.sh")
 let root: string;
 let repo: string;
 let binDir: string;
+/** Every `gh` invocation the stub saw, one line of arguments each. */
+let ghCalls: string;
+
+/** Where the sweep hands its KEPT notice to the next SessionStart (#774). */
+function keptNotice(): string {
+  return join(repo, ".claude", "worktrees", ".navori-kept-notice");
+}
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, {
@@ -46,20 +54,33 @@ function git(cwd: string, ...args: string[]): string {
   });
 }
 
-/** A `gh` on PATH that reports every branch as merged (or as never merged). */
-function stubGh(merged: boolean): void {
-  const body = merged ? '[{"number":42}]' : "[]";
+/**
+ * A `gh` on PATH answering the ONE batched query the hook makes since #774:
+ * `gh pr list --state merged --json number,headRefName --jq …`, whose output is
+ * a `<branch> <number>` line per merged PR. It also records every invocation,
+ * which is what lets a test assert the call count instead of trusting it.
+ */
+function stubGh(mergedBranches: string[]): void {
+  const lines = mergedBranches.map((b, i) => `${b} ${42 + i}`).join("\n");
   writeFileSync(
     join(binDir, "gh"),
-    `#!/usr/bin/env bash\nif [ "\${*}" = "\${*/--jq/}" ]; then echo '${body}'; else echo '${merged ? "42" : ""}'; fi\n`,
+    `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> '${ghCalls}'\n` +
+      (lines ? `printf '%s\\n' '${lines}'\n` : ""),
     "utf-8",
   );
   chmodSync(join(binDir, "gh"), 0o755);
 }
 
+/** The argument lines the stubbed `gh` recorded, one per invocation. */
+function ghInvocations(): string[] {
+  if (!existsSync(ghCalls)) return [];
+  return readFileSync(ghCalls, "utf-8").trim().split("\n").filter(Boolean);
+}
+
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "navori-wt-"));
   binDir = join(root, "bin");
+  ghCalls = join(root, "gh-calls.log");
   mkdirSync(binDir, { recursive: true });
 
   const origin = join(root, "origin.git");
@@ -126,7 +147,7 @@ function runHook(withGh = true): string {
 describe.runIf(runsBash)("worktree-reclaim.sh (#527)", () => {
   it("removes a worktree that is clean, pushed and whose PR merged", () => {
     const wt = addWorktree("feat/done");
-    stubGh(true);
+    stubGh(["feat/done"]);
 
     const out = runHook();
 
@@ -140,7 +161,7 @@ describe.runIf(runsBash)("worktree-reclaim.sh (#527)", () => {
   it("KEEPS a worktree with uncommitted changes", () => {
     const wt = addWorktree("feat/dirty");
     writeFileSync(join(wt, "wip.txt"), "half a thought", "utf-8");
-    stubGh(true);
+    stubGh(["feat/dirty"]);
 
     const out = runHook();
 
@@ -153,7 +174,7 @@ describe.runIf(runsBash)("worktree-reclaim.sh (#527)", () => {
     // still the only copy of it.
     const wt = addWorktree("feat/untracked");
     writeFileSync(join(wt, "notes.md"), "not staged", "utf-8");
-    stubGh(true);
+    stubGh(["feat/untracked"]);
 
     runHook();
 
@@ -162,7 +183,7 @@ describe.runIf(runsBash)("worktree-reclaim.sh (#527)", () => {
 
   it("KEEPS a branch that was never pushed", () => {
     const wt = addWorktree("feat/local", { push: false });
-    stubGh(true);
+    stubGh(["feat/local"]);
 
     const out = runHook();
 
@@ -175,7 +196,7 @@ describe.runIf(runsBash)("worktree-reclaim.sh (#527)", () => {
     writeFileSync(join(wt, "more.txt"), "extra", "utf-8");
     git(wt, "add", "-A");
     git(wt, "commit", "-m", "unpushed work");
-    stubGh(true);
+    stubGh(["feat/ahead"]);
 
     const out = runHook();
 
@@ -188,7 +209,7 @@ describe.runIf(runsBash)("worktree-reclaim.sh (#527)", () => {
     // base: `git merge-base --is-ancestor` would answer "not merged" for work
     // that shipped days ago. gh is the only cheap source of truth.
     const wt = addWorktree("feat/open-pr");
-    stubGh(false);
+    stubGh([]);
 
     const out = runHook();
 
@@ -209,7 +230,7 @@ describe.runIf(runsBash)("worktree-reclaim.sh (#527)", () => {
     const mine = join(root, "my-own-worktree");
     git(repo, "worktree", "add", "-b", "feat/mine", mine);
     git(mine, "push", "-u", "origin", "feat/mine");
-    stubGh(true);
+    stubGh(["feat/mine"]);
 
     const out = runHook();
 
@@ -218,7 +239,82 @@ describe.runIf(runsBash)("worktree-reclaim.sh (#527)", () => {
   });
 
   it("says nothing when there is nothing to sweep", () => {
-    stubGh(true);
+    stubGh([]);
     expect(runHook().trim()).toBe("");
+  });
+
+  /**
+   * #774: one network call for the whole sweep, not one per worktree.
+   *
+   * SessionEnd hooks share a budget — "the overall budget is automatically
+   * raised to the highest per-hook timeout configured", so audit-close (10s)
+   * and this hook (30s) get 30s TOTAL — and the scenario this hook was written
+   * for is the 27-worktree cleanup of #527. At ~1s per `gh pr list` that sweep
+   * died halfway through with no signal, which is worse than not sweeping:
+   * whoever reads the disk usage believes cleanup ran.
+   */
+  it("consulta gh UNA vez para todo el barrido, no una por worktree", () => {
+    addWorktree("feat/one");
+    addWorktree("feat/two");
+    addWorktree("feat/three");
+    stubGh(["feat/one", "feat/two", "feat/three"]);
+
+    runHook();
+
+    const calls = ghInvocations();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("--state merged");
+    // Batched means the query cannot be per-branch any more.
+    expect(calls[0]).not.toContain("--head");
+  });
+
+  it("no gasta la llamada de red cuando ningún worktree llega al paso del PR", () => {
+    const wt = addWorktree("feat/dirty-only");
+    writeFileSync(join(wt, "wip.txt"), "half a thought", "utf-8");
+    stubGh(["feat/dirty-only"]);
+
+    runHook();
+
+    expect(ghInvocations()).toEqual([]);
+  });
+
+  /**
+   * The KEPT half of the report used to go to stdout with a comment claiming it
+   * reached the transcript. It does not: on SessionEnd "Claude Code writes
+   * stdout to the debug log" and "discards their JSON output fields". So the
+   * one warning that protects live work had no reader. It is persisted for the
+   * next SessionStart instead (#774).
+   */
+  it("deja el aviso KEPT donde el próximo SessionStart lo lee", () => {
+    const wt = addWorktree("feat/dirty");
+    writeFileSync(join(wt, "wip.txt"), "half a thought", "utf-8");
+    stubGh([]);
+
+    runHook();
+
+    // The file carries the LIST only; the sentence that frames it is written by
+    // `session-start-context.sh`, which is the side that knows the repo's
+    // language (this script's runtime strings are fixed English, #422).
+    const notice = readFileSync(keptNotice(), "utf-8");
+    expect(notice).toContain("uncommitted changes");
+    expect(notice).toContain("feat/dirty");
+  });
+
+  it("limpia un aviso pendiente cuando ya no queda nada conservado", () => {
+    writeFileSync(keptNotice(), "navori: aviso viejo de la sesión pasada\n", "utf-8");
+    stubGh([]);
+
+    runHook();
+
+    // Truncated, never deleted: this hook removes the worktrees it was asked to
+    // remove and nothing else. An empty notice is a notice the reader skips.
+    expect(existsSync(keptNotice())).toBe(true);
+    expect(readFileSync(keptNotice(), "utf-8").trim()).toBe("");
+  });
+
+  it("no crea el archivo de aviso cuando nunca hubo nada que conservar", () => {
+    stubGh([]);
+    runHook();
+    expect(existsSync(keptNotice())).toBe(false);
   });
 });

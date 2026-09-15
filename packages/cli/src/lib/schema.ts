@@ -45,12 +45,12 @@ const QualityGateSchema = z.object({
   full: z.string().min(1),
 });
 
-// Lifecycle-hook toggles (Claude Stop/SubagentStop/PreCompact). SubagentStop
-// (handoff validator) and PreCompact (session-summary reminder) are always
-// wired — they're advisory and near-silent. `verifyOnStop` gates the Stop hook
-// (verify-before-done reminder), which fires per-turn while the tree is dirty
-// and so can be noisy — it stays OFF unless a repo opts in. Same gating shape as
-// `qualityGate.fast` gating the quality-gate hook.
+// Lifecycle-hook toggles (Claude Stop). The handoff validator is always wired —
+// it's advisory and near-silent — on PostToolUse(`Agent|Task`) since #774.
+// `verifyOnStop` gates the Stop hook (verify-before-done reminder), which fires
+// per-turn while the tree is dirty and so can be noisy — it stays OFF unless a
+// repo opts in. Same gating shape as `qualityGate.fast` gating the quality-gate
+// hook.
 const HooksSchema = z.object({
   verifyOnStop: z.boolean().default(false),
 });

@@ -125,17 +125,19 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/session-start-context.sh"),
       managedId: "session-start-context-base",
     },
-    // Lifecycle hooks (N1). SubagentStop + PreCompact are unconditional: both
-    // are advisory and near-silent, so there's no reason to gate them.
+    // Lifecycle hook (N1). Unconditional: advisory and near-silent, so there's
+    // no reason to gate it. It rides PostToolUse(`Agent|Task`) since #774 — the
+    // id keeps its original spelling because it is a managed-block id stamped
+    // into every already-rendered repo, not a description of the event.
+    //
+    // `precompact-session-summary` was RETIRED here in #774: PreCompact has no
+    // documented channel to the model, so the reminder moved to the
+    // `SessionStart(compact)` branch of `session-start-context.sh`. Its leftover
+    // copies are pruned through `RETIRED_HOOKS`.
     {
       id: "subagent-stop-handoff",
       assetPath: join(coreAssets, "hooks/subagent-stop-handoff.sh"),
       managedId: "subagent-stop-handoff-base",
-    },
-    {
-      id: "precompact-session-summary",
-      assetPath: join(coreAssets, "hooks/precompact-session-summary.sh"),
-      managedId: "precompact-session-summary-base",
     },
     // #530. The first PostToolUse hook, and the exception to the "never
     // PostToolUse" note in build-settings: it costs one `shasum` pass over the

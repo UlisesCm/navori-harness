@@ -124,6 +124,19 @@ function logEvents(sessionId = "sess1"): Array<Record<string, unknown>> {
     .map((l) => JSON.parse(l) as Record<string, unknown>);
 }
 
+/**
+ * A broken handoff under the dir `runFile` runs in, so `subagent-stop-handoff`
+ * takes its INJECTING path and puts `additionalContext` on stdout.
+ *
+ * The recorder cases below need a hook that emits into the model's channel and
+ * needs no git repo; until #774 that role was played by the PreCompact
+ * reminder, which was retired precisely because its channel never delivered.
+ */
+function seedBrokenHandoff(): void {
+  mkdirSync(join(root, ".claude", "progress"), { recursive: true });
+  writeFileSync(join(root, ".claude", "progress", "impl_x.md"), "# impl\nno terminal marker\n");
+}
+
 function activate(sessionId = "sess1"): void {
   mkdirSync(join(root, REPO), { recursive: true });
   writeFileSync(
@@ -203,17 +216,21 @@ describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
     });
   });
 
-  it("prefers user_prompt when the host sends both", () => {
+  // #774: the preference is on the DOCUMENTED key. `prompt` is the field the
+  // UserPromptSubmit contract names; `user_prompt` is a spelling a real payload
+  // carried and the docs never mention, so it stays a fallback and stops being
+  // the winner.
+  it("prefers the documented .prompt when the host sends both", () => {
     activate();
     const input = JSON.stringify({
-      user_prompt: "el especifico",
-      prompt: "el generico",
+      user_prompt: "el no documentado",
+      prompt: "el documentado",
       session_id: "sess1",
       cwd,
     });
     run(shell, TRIGGER, input);
     const last = readFileSync(logFile(), "utf-8").trim().split("\n").at(-1);
-    expect(JSON.parse(last ?? "{}").prompt).toBe("el especifico");
+    expect(JSON.parse(last ?? "{}").prompt).toBe("el documentado");
   });
 
   it("records transcript_path so the reader never has to guess it", () => {
@@ -485,7 +502,6 @@ describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
       "managed-drift-watch.sh",
       "session-start-context.sh",
       "subagent-stop-handoff.sh",
-      "precompact-session-summary.sh",
       "worktree-reclaim.sh",
       "stop-verify-reminder.sh",
       "check-jscpd.sh",
@@ -499,7 +515,8 @@ describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
   it("writes nothing and stays silent when audit-mode is off", () => {
     // No `activate()`: the log does not exist, which is every session that never
     // opted in. This is the path that must cost nothing.
-    const hook = install(shell, join(HOOKS, "precompact-session-summary.sh"));
+    seedBrokenHandoff();
+    const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
     const { code, out } = runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
     expect(code).toBe(0);
     // The hook's OWN output is untouched — the recorder never writes to stdout,
@@ -556,9 +573,10 @@ describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
   // Covers: R7
   it("keeps the hook working when the log cannot be written", () => {
     activate();
+    seedBrokenHandoff();
     chmodSync(logFile(), 0o444);
     try {
-      const hook = install(shell, join(HOOKS, "precompact-session-summary.sh"));
+      const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
       const { code, out } = runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd }));
       // The hook's contract is fail-open ABSOLUTE. A recorder that can break the
       // thing it observes is the one defect this partial may never have.
@@ -590,11 +608,12 @@ describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
   // Covers: R7
   it("survives being run with its includes UNexpanded", () => {
     activate();
+    seedBrokenHandoff();
     // A raw asset copy, or a render that half-finished: the include directive is
     // still a comment, so the recorder functions do not exist. Under `set -e` an
     // undefined function is exit 127 — which would kill the hook. The fallback
     // no-ops are what keep that from happening.
-    const raw = readFileSync(join(HOOKS, "precompact-session-summary.sh"), "utf-8");
+    const raw = readFileSync(join(HOOKS, "subagent-stop-handoff.sh"), "utf-8");
     const path = join(root, "unexpanded.sh");
     writeFileSync(path, raw, "utf-8");
     chmodSync(path, 0o755);
@@ -684,15 +703,24 @@ describe("recorder calls live inside the managed block", () => {
  * UserPromptSubmit, SessionStart, SessionEnd, Stop, SubagentStop, PreCompact),
  * so identity and duration keep coming from the transcript. What the log can
  * carry is that a subagent finished, and that is what this pins.
+ *
+ * The mark moved from `SubagentStop` to `PostToolUse` on the `Agent` tool in
+ * #774 — the event whose context reaches the parent, and the one that fires
+ * exactly once per return instead of the 117-for-19 #560 measured. The phase
+ * recorded moves with it; what R21 asks for (the END is in the log) does not.
  */
 describe.each(SHELLS)("subagent end is observable under %s", (shell) => {
   // Covers: R21
-  it("records the SubagentStop hook when a subagent finishes", () => {
+  it("records the handoff hook, on PostToolUse, when a subagent returns", () => {
     activate();
     const hook = install(shell, join(HOOKS, "subagent-stop-handoff.sh"));
-    runFile(shell, hook, JSON.stringify({ session_id: "sess1", cwd, agent_id: "ag_42" }));
+    runFile(
+      shell,
+      hook,
+      JSON.stringify({ session_id: "sess1", cwd, agent_id: "ag_42", tool_name: "Agent" }),
+    );
     const event = logEvents().find((e) => e.event === "hook");
-    expect(event).toMatchObject({ name: "subagent-stop-handoff", phase: "SubagentStop" });
+    expect(event).toMatchObject({ name: "subagent-stop-handoff", phase: "PostToolUse" });
     // The agent id rides along, so the end can be tied to the run the
     // transcript reconstructed.
     expect(event?.agentId).toBe("ag_42");

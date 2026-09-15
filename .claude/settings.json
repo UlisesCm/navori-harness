@@ -70,11 +70,22 @@
             "statusMessage": "navori: routing check"
           }
         ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-stop-handoff.sh\"",
+            "timeout": 15,
+            "statusMessage": "navori: handoff check"
+          }
+        ]
       }
     ],
     "SessionStart": [
       {
-        "matcher": "startup|resume|compact",
+        "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
             "type": "command",
@@ -121,31 +132,6 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-reclaim.sh\"",
             "timeout": 30,
             "statusMessage": "navori: reclaim worktrees"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-stop-handoff.sh\"",
-            "timeout": 15,
-            "statusMessage": "navori: handoff check"
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "matcher": "manual|auto",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/precompact-session-summary.sh\"",
-            "timeout": 15,
-            "statusMessage": "navori: pre-compact summary"
           }
         ]
       }

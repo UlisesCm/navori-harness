@@ -432,7 +432,7 @@ describe("plugin hooks — SessionStart (spec 0017)", () => {
 
     // Separate buckets, not one merged blob: the core hook keeps its lifecycle
     // matcher, and the plugin's matcher-less entry neither inherits nor erases it.
-    const core = buckets.find((b) => b.matcher === "startup|resume|compact");
+    const core = buckets.find((b) => b.matcher === "startup|resume|clear|compact|fork");
     expect(core?.hooks.map((h) => h.command)).toEqual([
       expect.stringContaining("session-start-context.sh"),
     ]);

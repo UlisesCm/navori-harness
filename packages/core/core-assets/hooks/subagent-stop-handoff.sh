@@ -1,15 +1,35 @@
 #!/usr/bin/env bash
 #
-# SubagentStop lifecycle hook — handoff validator.
-# Fires when a subagent finishes. The harness contract is that an implementer
-# closes with `impl_<feature>.md` and a reviewer with `review_<feature>.md`
-# under the engine's progress dir — those files ARE the handoff the leader (and the
-# commit-pr-pilot) read. A subagent that returns having left an empty or
-# structurally-broken handoff silently corrupts that chain. This hook catches
-# the obvious failure modes deterministically.
+# PostToolUse(`Agent`|`Task`) lifecycle hook — handoff validator.
+# Fires in the PARENT session the moment a subagent returns. The harness contract
+# is that an implementer closes with `impl_<feature>.md` and a reviewer with
+# `review_<feature>.md` under the engine's progress dir — those files ARE the
+# handoff the leader (and the commit-pr-pilot) read. A subagent that returns
+# having left an empty or structurally-broken handoff silently corrupts that
+# chain. This hook catches the obvious failure modes deterministically.
 #
-# DESIGN — advisory, never blocking. Emits a user-facing `systemMessage` only;
-# it NEVER returns `decision: block`. It has no way to know WHICH subagent just
+# WHY NOT SubagentStop, the event this hook is still NAMED after (#774). The
+# reader of this note is the LEADER, and SubagentStop cannot reach it: there the
+# `additionalContext` goes to the subagent that just stopped — it keeps that
+# child running — and the host's doc names the alternative outright, "to inject
+# context into the parent session after a subagent returns, use a `PostToolUse`
+# hook on the `Agent` tool instead". Registered on SubagentStop the only channel
+# left was `systemMessage`, which the doc defines as a "warning message shown to
+# the user", so a note written in the imperative to the model arrived at the
+# human's UI and nowhere else.
+#
+# The move also settles the firing rate #560 measured: SubagentStop fired 117
+# times for 19 subagents in one session, each firing re-reporting the identical
+# handoff. A PostToolUse on the Agent tool fires exactly once per return.
+#
+# The id and the filename keep the old spelling on purpose: they are a managed
+# marker stamped into every already-rendered repo and the name the audit log has
+# recorded under for a year of sessions. Renaming them would buy tidiness and
+# cost the continuity of the measurement.
+#
+# DESIGN — advisory, never blocking. Emits `hookSpecificOutput.additionalContext`
+# for the leader plus a `systemMessage` so the human sees it too; it NEVER
+# returns `decision: block`. It has no way to know WHICH subagent just
 # stopped (agent identity isn't reliably in scope for a shell hook), so it can't
 # demand a specific file — it only flags handoff files that already exist but
 # look broken:
@@ -31,15 +51,17 @@ set -euo pipefail
 payload=$(cat 2>/dev/null) || payload=""
 
 navori_audit_name="subagent-stop-handoff"
-navori_audit_phase="SubagentStop"
+navori_audit_phase="PostToolUse"
 
 # Where the problem set last REPORTED in this session is remembered (#560).
 #
-# The host fires this phase far more often than subagents finish: 117 executions
-# for 19 subagents in the measured session, every one of them reporting the same
-# broken handoff — the identical `systemMessage` injected 117 times. Running the
-# check again is cheap; re-telling the reader something already told is not, and
-# a note repeated on every firing is a note nobody reads by the third one.
+# The 117-firings-for-19-subagents problem this was written for is gone: on
+# PostToolUse(`Agent`) the host fires once per return (#774). The stamp STAYS,
+# and the move is what makes it matter more rather than less. A broken handoff
+# stays broken until somebody fixes it, so without this every later subagent
+# return in the same session re-reports it — and the note now travels through
+# `additionalContext`, i.e. it is spent out of the leader's context window, not
+# out of a UI line the host draws for free.
 #
 # Parsed with parameter expansion, never jq: this must work whether or not
 # audit-mode is on, and jq may not exist. Keyed by session AND repo so two
@@ -118,8 +140,8 @@ note() { problems="${problems}${problems:+; }$1"; }
 
 # Only handoffs touched inside this window are checked (48h in minutes).
 #
-# The hook fires on SubagentStop, so the handoff it exists to police is the one
-# just written. It used to check the WHOLE directory, which nothing prunes, and
+# The hook fires as a subagent returns, so the handoff it exists to police is
+# the one just written. It used to check the WHOLE directory, which nothing prunes, and
 # that broke it three ways on every repo measured (#606):
 #
 #   1. Handoffs written under an older format failed forever — 44 files in one
@@ -190,8 +212,15 @@ fi
 # as proof that the hook cannot notice a handoff that never landed — a `-f`
 # here, on an unrelated file, would silently license every asset that claims it
 # does.
+#
+# stderr is silenced AROUND THE GROUP, not on the `read`. Redirections are
+# applied left to right, so `read … <"$stamp" 2>/dev/null` opens the input
+# first: when the stamp does not exist yet the shell's "no such file" is
+# written before anything has redirected stderr, which printed one line of noise
+# on the first firing of every session under both bash and zsh.
 navori_handoff_prev=""
-IFS= read -r navori_handoff_prev <"$navori_handoff_stamp" 2>/dev/null || navori_handoff_prev=""
+{ IFS= read -r navori_handoff_prev <"$navori_handoff_stamp"; } 2>/dev/null ||
+  navori_handoff_prev=""
 if [ "$navori_handoff_prev" = "$problems" ]; then
   navori_audit_verdict="repeat"
   navori_audit_reason="$problems"
@@ -201,10 +230,19 @@ printf '%s\n' "$problems" >"$navori_handoff_stamp" 2>/dev/null || true
 
 msg="navori: handoff(s) de subagente incompletos — ${problems}. Revisa que el reporte quedó bien escrito antes de consolidarlo."
 
+# BOTH channels, and they are not redundant: `additionalContext` is the one that
+# reaches the leader — the only reader that can act on this — while
+# `systemMessage` is what puts it in front of the human. The text is imperative
+# because it asks for an action; before #774 it went out on the user channel
+# alone, so it asked the model for something the model never heard.
+#
+# Serialized safely: node (best escaping) → jq → give up (exit 0). `problems`
+# carries file paths from the repo, so neither branch may build the JSON by
+# hand.
 if command -v node >/dev/null 2>&1; then
-  MSG="$msg" node -e 'process.stdout.write(JSON.stringify({systemMessage:process.env.MSG}))'
+  MSG="$msg" node -e 'process.stdout.write(JSON.stringify({systemMessage:process.env.MSG,hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:process.env.MSG}}))'
 elif command -v jq >/dev/null 2>&1; then
-  jq -n --arg m "$msg" '{systemMessage:$m}'
+  jq -n --arg m "$msg" '{systemMessage:$m,hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$m}}'
 fi
 navori_audit_verdict="dirty"
 navori_audit_reason="$problems"

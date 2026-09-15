@@ -198,7 +198,7 @@ or
 CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 ```
 
-`review_<feature>.md` and `receipt.txt` are **input to another tool**, not chat summaries: the `commit-pr-pilot` reads the verdict and re-hashes the receipt before it commits, and a `SubagentStop` hook flags a `review_*.md` that lands empty or without a verdict (that hook never sees one that didn't land at all, and never looks at `receipt.txt`). Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
+`review_<feature>.md` and `receipt.txt` are **input to another tool**, not chat summaries: the `commit-pr-pilot` reads the verdict and re-hashes the receipt before it commits, and the `subagent-stop-handoff` hook flags a `review_*.md` that lands empty or without a verdict (that hook never sees one that didn't land at all, and never looks at `receipt.txt`). Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
 
 ## Hard rules
 

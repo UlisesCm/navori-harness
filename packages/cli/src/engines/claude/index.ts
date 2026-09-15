@@ -43,6 +43,7 @@ import { stripFrontmatter } from "../../lib/frontmatter.ts";
 import { tc, resolveLang, type Lang } from "../../lib/i18n.ts";
 import {
   CORE_AGENTS,
+  RETIRED_HOOKS,
   RETIRED_SKILLS,
   extraConditionMet,
   isAgentEnabled,
@@ -1123,6 +1124,24 @@ export function renderClaudeEngine(
     }
   }
 
+  // 8.7c. Hooks navori RETIRED (#774). Same registry-driven shape as §8.7b and
+  // the same reason: `render` only ever visits what it currently renders, so a
+  // hook dropped from the plan stays on disk in every already-onboarded repo
+  // forever. Unconditional, NOT gated on `--prune`, because `--prune` answers a
+  // different question (outputs of a DISABLED ENGINE) and this file belongs to
+  // an engine that is very much enabled.
+  //
+  // Marker-gated on the hook's own managed id (`<id>-base`, the id
+  // `harness-plan` stamped), so a user's hand-written script at the same path
+  // is never touched, and version-gated so a downgraded CLI does not delete a
+  // newer navori's file.
+  for (const id of RETIRED_HOOKS) {
+    const removal = planRetiredHookRemoval(cwd, id);
+    if (!removal) continue;
+    inspected += 1;
+    removals.push(removal);
+  }
+
   // 8.8. Migrate legacy FLAT skill files to the DIRECTORY form. navori now writes
   // every Claude skill as `.claude/skills/<id>/SKILL.md` (the shape Claude Code
   // auto-discovers); a repo onboarded before this change still carries the stale
@@ -1199,6 +1218,19 @@ function planFlatSkillRemoval(cwd: string, id: string, markerId: string): Pendin
   const flat = join(cwd, ".claude/skills", `${id}.md`);
   if (!isRemovableNavoriFile(flat, markerId)) return null;
   return { path: flat };
+}
+
+/**
+ * Prune a hook script navori no longer ships (`.claude/hooks/<id>.sh`).
+ *
+ * The managed id is derived the same way `harness-plan` builds it (`<id>-base`),
+ * so the verdict is "navori owns this file AS the block it stamped" rather than
+ * "some managed marker is in there" — a user's own `<id>.sh` survives. Returns
+ * null when there is nothing (safe) to remove. (#774)
+ */
+function planRetiredHookRemoval(cwd: string, id: string): PendingRemoval | null {
+  const hookPath = join(cwd, ".claude/hooks", `${id}.sh`);
+  return isRemovableNavoriFile(hookPath, `${id}-base`) ? { path: hookPath } : null;
 }
 
 /**

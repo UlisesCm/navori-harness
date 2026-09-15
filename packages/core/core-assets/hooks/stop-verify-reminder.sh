@@ -5,12 +5,22 @@
 # when the session is winding down with uncommitted work, so "I'm done" isn't
 # claimed before the quality gate ran and the change is committed.
 #
-# DESIGN — advisory, never blocking. It emits a user-facing `systemMessage`
-# only; it NEVER returns `decision: block`, so it can't trap the model in a
-# "keep working" loop or force a turn the user didn't ask for. A hard,
-# deterministic "did the model actually run verify-before-done?" gate is not
-# reliably knowable from a shell hook (the model's intent isn't in the payload),
-# so we intentionally downgrade to a reminder — see the PR for the rationale.
+# DESIGN — advisory, never blocking. It NEVER returns `decision: block`, so it
+# can't trap the model in a "keep working" loop or force a turn the user didn't
+# ask for. A hard, deterministic "did the model actually run
+# verify-before-done?" gate is not reliably knowable from a shell hook (the
+# model's intent isn't in the payload), so we intentionally downgrade to a
+# reminder — see the PR for the rationale.
+#
+# TWO CHANNELS, and they are not redundant (#774). The reminder asks the MODEL
+# for an action ("run the quality gate, then commit"), and `systemMessage` is
+# documented as a "Warning message shown to the user" — on its own it reached
+# the human's UI and nobody else, so the one reader that could act on it never
+# heard it. `Stop` is one of the events that does have a channel to the model:
+# "Stop and SubagentStop also accept `hookSpecificOutput.additionalContext` for
+# non-error feedback that continues the conversation". So both go out in a
+# single emission: `additionalContext` for the agent, `systemMessage` for the
+# human. Neither blocks.
 #
 # OPT-IN. This hook is only wired into settings.json when
 # `hooks.verifyOnStop` is true in navori.config.json (mirrors how
@@ -69,12 +79,13 @@ fi
 
 msg="navori: cambios sin commitear en el árbol. Antes de dar la tarea por terminada, corre el quality gate (evidencia fresca este turno) y haz commit — verify-before-done (P4)."
 
-# Emit the advisory as a user-facing systemMessage. node (Claude Code's own
-# runtime) → jq → give up silently. systemMessage is non-blocking by contract.
+# Emit the advisory on both channels at once (see "TWO CHANNELS" above).
+# node (Claude Code's own runtime) → jq → give up silently. Neither field is a
+# decision, so this stays non-blocking by contract.
 if command -v node >/dev/null 2>&1; then
-  MSG="$msg" node -e 'process.stdout.write(JSON.stringify({systemMessage:process.env.MSG}))'
+  MSG="$msg" node -e 'process.stdout.write(JSON.stringify({systemMessage:process.env.MSG,hookSpecificOutput:{hookEventName:"Stop",additionalContext:process.env.MSG}}))'
 elif command -v jq >/dev/null 2>&1; then
-  jq -n --arg m "$msg" '{systemMessage:$m}'
+  jq -n --arg m "$msg" '{systemMessage:$m,hookSpecificOutput:{hookEventName:"Stop",additionalContext:$m}}'
 fi
 navori_audit_verdict="inject"
 navori_audit_reason="cambios sin commitear"

@@ -93,6 +93,50 @@ wt_root="$cwd/.claude/worktrees"
 removed=""
 kept=""
 
+# ─── The merged-PR answer, in ONE network call for the whole sweep (#774).
+#
+# This used to be `gh pr list --head "$branch"` INSIDE the loop: one round trip
+# per worktree. Measured it was cheap (mean 240 ms, max 2,265 ms, n=48), but
+# SessionEnd hooks share a budget — "the overall budget is automatically raised
+# to the highest per-hook timeout configured", so audit-close (10s) and this
+# hook (30s) get 30s TOTAL, not 40 — and the scenario this hook exists for is
+# the 27-worktree cleanup that motivated #527. At ~1s each that sweep dies
+# halfway through, with no signal that it did.
+#
+# CEILING: the `--limit` most recently merged PRs. A branch whose PR merged
+# further back than that simply gets KEPT — the same conservative direction the
+# hook already takes when `gh` cannot answer at all, never a wrong deletion.
+# TODO(scale): page or fall back to a per-branch query if a repo routinely
+# holds worktrees whose PR merged more than NAVORI_MERGED_PR_LIMIT PRs ago.
+NAVORI_MERGED_PR_LIMIT=${NAVORI_MERGED_PR_LIMIT:-100}
+merged_prs=""
+merged_prs_loaded=""
+
+# Lazy: a sweep where every worktree is dirty or unpushed never reaches step
+# (3), and must not pay a network call to discover that.
+load_merged_prs() {
+  [ -z "$merged_prs_loaded" ] || return 0
+  merged_prs_loaded=1
+  # `</dev/null` because this is called from inside the `while read` loop below,
+  # which is fed by a heredoc on fd 0: a child that read stdin would swallow the
+  # rest of the worktree list and the sweep would end early and silently.
+  merged_prs=$(gh pr list --state merged --limit "$NAVORI_MERGED_PR_LIMIT" \
+    --json number,headRefName --jq '.[] | "\(.headRefName) \(.number)"' \
+    2>/dev/null </dev/null)
+}
+
+# The PR number for a branch, or empty. Branch names cannot contain spaces, so
+# `read` splits the pair unambiguously; matching with `grep` would turn a branch
+# name into a pattern, which is not a thing this hook gets to do.
+merged_pr_for() {
+  printf '%s\n' "$merged_prs" | while IFS=' ' read -r _mb _mn; do
+    if [ "$_mb" = "$1" ]; then
+      printf '%s' "$_mn"
+      break
+    fi
+  done
+}
+
 # `git worktree list --porcelain` emits blank-line-separated records; only the
 # ones under `.claude/worktrees/` are ours to touch. A worktree the user made
 # themselves is not agent scratch and is never considered.
@@ -137,11 +181,11 @@ while IFS= read -r line; do
   ${wt} — gh not available, cannot confirm '${branch}' merged"
     continue
   fi
-  merged=$(gh pr list --head "$branch" --state merged --limit 1 --json number \
-    --jq '.[0].number // ""' 2>/dev/null)
+  load_merged_prs
+  merged=$(merged_pr_for "$branch")
   if [ -z "$merged" ]; then
     kept="${kept}
-  ${wt} — no merged PR found for '${branch}'"
+  ${wt} — no merged PR for '${branch}' among the last ${NAVORI_MERGED_PR_LIMIT} merged"
     continue
   fi
 
@@ -160,13 +204,50 @@ EOF
 
 [ -n "$removed" ] && git worktree prune >/dev/null 2>&1
 
-# SessionEnd has no one to talk to, so this goes to the transcript, never to a
-# blocking prompt. Silence when there was nothing to sweep.
+# ─── Reporting, and what SessionEnd can actually deliver (#774).
+#
+# This block used to claim its stdout "goes to the transcript". It does not:
+# "for most events, Claude Code writes stdout to the debug log and doesn't show
+# it in the transcript", and SessionEnd is not one of the exceptions. Nor is
+# there a JSON way around it — "SessionEnd hooks have no decision control…
+# Claude Code discards their JSON output fields, such as `systemMessage`". So
+# this hook has exactly one audience for prose, the debug log, and nothing it
+# prints here reaches either the user or the model during the session.
+#
+# The `removed` line is fine there: the deletion already happened and the audit
+# log records it. The KEPT line is not — "these hold work that exists nowhere
+# else" is the half that protects live work, and it had no reader at all.
+# It is persisted below instead, for the next SessionStart to re-emit.
 if [ -n "$removed" ]; then
   printf 'navori: reclaimed agent worktrees (clean, pushed, PR merged):%s\n' "$removed"
 fi
 if [ -n "$kept" ]; then
   printf 'navori: agent worktrees KEPT — each holds work that exists nowhere else:%s\n' "$kept"
+fi
+
+# ─── Hand the KEPT notice to the next SessionStart (#774).
+#
+# Inside `.claude/worktrees/`, which every navori repo already gitignores (it is
+# in EPHEMERAL_HARNESS_PATHS) and which must exist for this hook to have gotten
+# this far — so the notice never shows up as an untracked file and needs no new
+# ignore entry. `session-start-context.sh` reads it, injects it, and TRUNCATES
+# it, so the warning is said once per sweep instead of on every startup forever.
+#
+# Truncated, never deleted, in both directions: this hook removes worktrees the
+# user asked it to remove and nothing else, and a stamp file is not one of them.
+# Rewritten unconditionally so a resolved situation clears the pending notice
+# rather than leaving the next session a warning that is no longer true.
+#
+# The file carries the LIST and no prose: the sentence that frames it belongs to
+# the reader, which is also the only side that knows the repo's language. This
+# script is copied verbatim into every repo and never passes through the
+# language layer (#422), so a wording baked in here would ship in one language
+# to all of them.
+kept_notice="$wt_root/.navori-kept-notice"
+if [ -n "$kept" ]; then
+  printf '%s\n' "$kept" >"$kept_notice" 2>/dev/null || true
+elif [ -f "$kept_notice" ]; then
+  : >"$kept_notice" 2>/dev/null || true
 fi
 
 # The verdict says what the sweep DID, which is what an audit needs to answer

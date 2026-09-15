@@ -114,7 +114,16 @@ describe("global-plugin — the @skills-dir layout Claude Code loads", () => {
       hooks: { SessionStart: Array<{ matcher: string; hooks: Array<{ command: string }> }> };
     };
     const entry = hooks.hooks.SessionStart[0];
-    expect(entry?.matcher).toBe("startup|resume|compact");
+    // All five documented SessionStart sources (#774) — the global baseline is
+    // what a machine gets where no repo config exists, so a `/clear`ed or
+    // forked session skipping it is a session with nothing at all.
+    expect(entry?.matcher?.split("|").sort()).toEqual([
+      "clear",
+      "compact",
+      "fork",
+      "resume",
+      "startup",
+    ]);
     // Quoted: the plugin root sits under $HOME, which routinely has spaces.
     expect(entry?.hooks[0]?.command).toBe(`"\${CLAUDE_PLUGIN_ROOT}"/${PLUGIN_HOOK_SCRIPT_REL}`);
     expect(entry?.hooks[0]?.command).not.toContain(claudeDir);

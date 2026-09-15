@@ -91,7 +91,7 @@ cuatro secciones de implementaciones y transversales:
 |---|---|---|
 | Agent Loop | 21 | **Sí** — bloque `orquestacion` (R1/R2/R2-fan/R3), `continuous-execution` |
 | Planning & Task Decomposition | 12 | **Sí** — SDD, `spec-bootstrap`, `tasks.md` con trazabilidad `R<n>` |
-| Context Delivery & Compaction | 30 | **Sí** — specs 0005/0006, `precompact-session-summary`, arranque/cierre de sesión |
+| Context Delivery & Compaction | 30 | **Sí** — specs 0005/0006, `session-start-context` (incluido el recordatorio post-compactación que heredó de `precompact-session-summary`, retirado en #774), arranque/cierre de sesión |
 | Tool Design | 15 | **Parcial** — consumimos tools (MCP, tgrep, codegraph); no diseñamos las nuestras |
 | Skills & MCP | 41 | **Sí** — es el core del producto |
 | Permissions & Authorization | 16 | **Sí** — `settings.json` + `guard-destructive` + doctrina de operaciones seguras |
