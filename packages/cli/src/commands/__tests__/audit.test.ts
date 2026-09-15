@@ -46,7 +46,9 @@ interface CliResult {
 }
 
 function runAudit(args: string[]): CliResult {
-  const r = spawnSync("node", [CLI, "audit", "--cwd", repoDir, ...args], {
+  const hasCwd = args.includes("--cwd");
+  const baseArgs = hasCwd ? [] : ["--cwd", repoDir];
+  const r = spawnSync("node", [CLI, "audit", ...baseArgs, ...args], {
     encoding: "utf-8",
     env: { ...process.env, HOME: home, NAVORI_AUDITS_ROOT: auditsRoot, NO_COLOR: "1" },
   });
@@ -170,6 +172,15 @@ describe("audit --arm / --disarm (#597)", () => {
     const entries = readdirSync(auditDir).filter((f) => f.startsWith("session-"));
     expect(entries).toEqual([]);
   });
+
+  it("arms the parent repo when run inside an agent worktree (#764)", () => {
+    const wtDir = join(repoDir, ".claude", "worktrees", "agent-a2a999b59fde9ce6c");
+    mkdirSync(wtDir, { recursive: true });
+    const res = runAudit(["--arm", "--cwd", wtDir]);
+    expect(res.status).toBe(0);
+    expect(existsSync(armedFile())).toBe(true);
+    expect(existsSync(join(auditsRoot, "agent-a2a999b59fde9ce6c"))).toBe(false);
+  });
 });
 
 /**
@@ -267,6 +278,22 @@ describe("audit --start: valid session id", () => {
     const res = runAudit(["--start", "sess1"]);
     expect(res.status).toBe(0);
     expect(readFileSync(join(auditDir, "session-sess1.log"), "utf-8")).toBe(before);
+  });
+
+  it("normalizes agent worktree cwd to parent repo instead of phantom agent directory (#764)", () => {
+    const wtDir = join(repoDir, ".claude", "worktrees", "agent-a2a999b59fde9ce6c");
+    mkdirSync(wtDir, { recursive: true });
+    const res = runAudit(["--start", "sess-wt", "--cwd", wtDir]);
+    const logFile = join(auditDir, "session-sess-wt.log");
+
+    expect(res.status).toBe(0);
+    expect(existsSync(logFile)).toBe(true);
+    expect(JSON.parse(readFileSync(logFile, "utf-8").trim())).toMatchObject({
+      event: "start",
+      repo: REPO,
+      sessionId: "sess-wt",
+    });
+    expect(existsSync(join(auditsRoot, "agent-a2a999b59fde9ce6c"))).toBe(false);
   });
 });
 

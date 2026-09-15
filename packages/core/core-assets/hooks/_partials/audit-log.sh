@@ -145,7 +145,7 @@ navori_audit_log() {
   esac
 
   [ -n "$navori_audit_cwd" ] || navori_audit_cwd=$PWD
-  navori_audit_repo=$(basename "$navori_audit_cwd" 2>/dev/null) || return 0
+  navori_audit_repo=$(navori_audit_repo_from_cwd "$navori_audit_cwd") || return 0
   [ -n "$navori_audit_repo" ] || return 0
 
   navori_audit_file=$navori_audit_root/$navori_audit_repo/session-$navori_audit_session.log

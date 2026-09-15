@@ -42,7 +42,7 @@ function run(
   pathOverride?: string,
 ): { out: string; code: number } {
   try {
-    const out = execFileSync(shell, [hook], {
+    const out = execFileSync(shell, [install(shell, hook)], {
       input: payload,
       encoding: "utf-8",
       env: { ...process.env, NAVORI_AUDITS_ROOT: root, PATH: pathOverride ?? process.env.PATH },
@@ -256,6 +256,21 @@ describe.each(SHELLS)("audit-mode trigger under %s", (shell) => {
     run(shell, TRIGGER, payload("audit mode"));
     expect(existsSync(join(cwd, "session-sess1.log"))).toBe(false);
   });
+
+  it("normalizes agent worktree cwd to parent repo instead of phantom agent directory (#764)", () => {
+    activate();
+    const wtCwd = join(cwd, ".claude", "worktrees", "agent-a2a999b59fde9ce6c");
+    const input = JSON.stringify({
+      user_prompt: "prompt in worktree",
+      session_id: "sess1",
+      cwd: wtCwd,
+      hook_event_name: "UserPromptSubmit",
+    });
+    run(shell, TRIGGER, input);
+    const last = readFileSync(logFile(), "utf-8").trim().split("\n").at(-1);
+    expect(JSON.parse(last ?? "{}").prompt).toBe("prompt in worktree");
+    expect(existsSync(join(root, "agent-a2a999b59fde9ce6c"))).toBe(false);
+  });
 });
 
 describe.each(SHELLS)("audit-mode fail-open under %s", (shell) => {
@@ -362,7 +377,7 @@ describe.each(SHELLS)("audit-mode fail-open under %s", (shell) => {
   it("exits 0 and writes nothing when HOME is unset", () => {
     let code = 0;
     try {
-      execFileSync(shell, [TRIGGER], {
+      execFileSync(shell, [install(shell, TRIGGER)], {
         input: payload("audit mode"),
         encoding: "utf-8",
         env: { PATH: process.env.PATH ?? "" },
@@ -400,6 +415,23 @@ describe.each(SHELLS)("audit-mode close under %s", (shell) => {
       event: "session-end",
       reason: "clear",
     });
+  });
+
+  it("normalizes agent worktree cwd in close hook (#764)", () => {
+    activate();
+    const wtPayload = JSON.stringify({
+      session_id: "sess1",
+      cwd: join(tmpdir(), REPO, ".claude", "worktrees", "agent-a2a999b59fde9ce6c"),
+      reason: "clear",
+      hook_event_name: "SessionEnd",
+    });
+    run(shell, CLOSE, wtPayload);
+    const after = readFileSync(logFile(), "utf-8");
+    expect(JSON.parse(after.trim().split("\n").pop() ?? "{}")).toMatchObject({
+      event: "session-end",
+      reason: "clear",
+    });
+    expect(existsSync(join(root, "agent-a2a999b59fde9ce6c"))).toBe(false);
   });
 });
 

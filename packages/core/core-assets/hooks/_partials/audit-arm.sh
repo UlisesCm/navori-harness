@@ -17,7 +17,7 @@
 # charset (#503) — this function trusts it into a command line, so an unvalidated
 # id must never reach here. $2 is the payload's cwd (#454: never
 # CLAUDE_PROJECT_DIR — they differ in worktrees, and --arm wrote the flag under
-# the name basename(cwd) resolves to). $3 is the audits root.
+# the repo name resolved from the cwd). $3 is the audits root.
 #
 # Fail-open and silent: returns 0 ONLY when audit-mode was actually started, so
 # the caller can announce it; every other path returns 1 and changes nothing.
@@ -27,7 +27,7 @@ navori_audit_consume_armed() {
   narm_cwd=$2
   narm_root=$3
   [ -n "$narm_sid" ] && [ -n "$narm_cwd" ] && [ -n "$narm_root" ] || return 1
-  narm_repo=$(basename "$narm_cwd" 2>/dev/null) || return 1
+  narm_repo=$(navori_audit_repo_from_cwd "$narm_cwd") || return 1
   [ -n "$narm_repo" ] || return 1
   narm_file=$narm_root/$narm_repo/.armed
   [ -f "$narm_file" ] || return 1

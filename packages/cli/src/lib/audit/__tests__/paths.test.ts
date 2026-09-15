@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rangeReportDir, sessionReportDir } from "../paths.ts";
+import { rangeReportDir, repoFromCwd, sessionReportDir } from "../paths.ts";
 import { NavoriError } from "../../errors.ts";
 
 /**
@@ -63,5 +63,35 @@ describe("rangeReportDir (#0013, R16)", () => {
   it("rejects a malformed day on either end", () => {
     expect(() => rangeReportDir("demo", "..", "2026-08-28")).toThrow(NavoriError);
     expect(() => rangeReportDir("demo", "2026-08-25", "")).toThrow(NavoriError);
+  });
+});
+
+describe("repoFromCwd (#764)", () => {
+  it("derives the basename of a standard repo cwd", () => {
+    expect(repoFromCwd("/Users/u/dev/navori-harness")).toBe("navori-harness");
+  });
+
+  it("truncates at /.claude/worktrees for agent worktree cwd", () => {
+    expect(
+      repoFromCwd("/Users/u/dev/navori-harness/.claude/worktrees/agent-a2a999b59fde9ce6c"),
+    ).toBe("navori-harness");
+  });
+
+  it("truncates at /.claude/worktrees for subdirectories inside an agent worktree", () => {
+    expect(
+      repoFromCwd(
+        "/Users/u/dev/navori-harness/.claude/worktrees/agent-a2a999b59fde9ce6c/packages/cli",
+      ),
+    ).toBe("navori-harness");
+  });
+
+  it("handles the .claude/worktrees root itself", () => {
+    expect(repoFromCwd("/Users/u/dev/navori-harness/.claude/worktrees")).toBe("navori-harness");
+  });
+
+  it("does not truncate a directory that merely starts with worktrees", () => {
+    expect(repoFromCwd("/Users/u/dev/navori-harness/.claude/worktrees-backup")).toBe(
+      "worktrees-backup",
+    );
   });
 });
