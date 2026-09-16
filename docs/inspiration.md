@@ -5,11 +5,25 @@
 > su MVP; el objetivo de este documento es mantener presentes estas fuentes para un
 > análisis comparativo futuro.
 >
-> Última revisión de contenidos: 2026-08-19. Los datos (métricas, versiones,
-> features, licencias) reflejan lo publicado por cada proyecto a esa fecha y
-> conviene re-verificarlos antes de tomar decisiones. Varios de estos proyectos
-> cambian rápido: entre la revisión anterior (2026-07-27) y esta, dos de ellos
-> retiraron o dejaron de publicar cifras que este documento citaba.
+> **Este documento se revisa por tandas, y cada ficha lleva la fecha de la suya.**
+>
+> - **2026-08-19** — el grueso del documento: gstack, gentle-ai, codegraph, graphify,
+>   ponytail, superpowers, los dos repos de betta-tech, caveman, Goose y Pi.
+> - **2026-09-10** — alta de [claude-code-harness](#claude-code-harness-cch) y de
+>   [awesome-harness-engineering](#awesome-harness-engineering), ambos con análisis
+>   completo en `docs/research/`.
+> - **2026-09-15** — alta de [ECC](#ecc-everything-claude-code),
+>   [deepseek-harness](#deepseek-harness-dsh), [revfactory/harness](#revfactoryharness),
+>   [learn-harness-engineering](#learn-harness-engineering) y
+>   [OpenHarness](#openharness), más una re-revisión de CCH que **no** encontró cambios
+>   upstream (detalle en su ficha). Las estrellas, forks, fechas de push y licencias de
+>   esos cinco repos salen de `gh api` ese mismo día.
+>
+> Los datos (métricas, versiones, features, licencias) reflejan lo publicado por cada
+> proyecto **a la fecha de su tanda** y conviene re-verificarlos antes de tomar
+> decisiones. Varios de estos proyectos cambian rápido: entre la revisión de 2026-07-27
+> y la de 2026-08-19, dos de ellos retiraron o dejaron de publicar cifras que este
+> documento citaba.
 
 ## Índice
 
@@ -18,6 +32,8 @@
 | [gstack](#gstack) | Factory de skills + roles | Skills encadenadas por rol; multi-host; cross-model review |
 | [gentle-ai](#gentle-ai) | Configurador de ecosistema | SDD + memoria persistente + routing por fase (muy cercano a navori) |
 | [claude-code-harness](#claude-code-harness-cch) | Harness multi-engine + guardrails | Un motor de políticas para N hosts; guardrail con veredicto "indeterminado"; contratos JSON entre agentes |
+| [ECC](#ecc-everything-claude-code) | Distribución multi-engine a escala | Catálogo congelado de 14 motores; plan/apply con estado sellado; política de admisión de MCP |
+| [deepseek-harness](#deepseek-harness-dsh) | Runtime de agentes + disciplina documental | Presupuesto de palabras por documento con gate; registro central de gates; decisiones como corpus |
 | [codegraph](#codegraph) | Code intelligence (MCP) | Contexto quirúrgico vía grafo; eficiencia de tokens (con contraparte) |
 | [graphify](#graphify) | Code intelligence (MCP) | Knowledge graph multi-fuente (código+docs); extracción determinista sin LLM |
 | [ponytail](#ponytail) | Ruleset anti-over-engineering | Escalera de decisión "lazy senior" (paralelo a structural-search) |
@@ -27,6 +43,9 @@
 | [caveman](#caveman) | Compresión de output | Eficiencia de tokens vía skill de brevedad |
 | [Goose](#goose) | Agente open source | MCP/ACP profundo; recipes YAML; subagentes |
 | [Pi](#pi) | Harness minimalista | "Primitivas, no features"; skills on-demand; extensibilidad |
+| [revfactory/harness](#revfactoryharness) | Meta-factory (competidor directo) | Taxonomía de capas del campo; matriz que decide qué fases correr; skill testing with-skill vs baseline |
+| [learn-harness-engineering](#learn-harness-engineering) | Curso + scorer de harnesses | Framework de cinco subsistemas; `evals/evals.json`; `validate-harness.mjs` con umbral en CI |
+| [OpenHarness](#openharness) | Runtime + doctrina de evaluación | `harness-eval`: nunca evaluar el harness sobre sí mismo; `Key Assertion` por área |
 | [awesome-harness-engineering](#awesome-harness-engineering) | Índice del campo (meta) | Taxonomía por problema, no por vendor; bibliografía sobre activación de skills y permisos |
 
 ---
@@ -105,7 +124,10 @@
 
 ## claude-code-harness (CCH)
 - **URL**: https://github.com/Chachamaru127/claude-code-harness — MIT. Revisado
-  2026-09-10 sobre v5.15.0 (el resto de este documento es de 2026-08-19).
+  2026-09-10 sobre v5.15.0.
+- **Re-revisado el 2026-09-15: el upstream no había cambiado.** HEAD `2b2b748`
+  (2026-09-06), el mismo v5.15.0 que cubre el análisis del 2026-09-10 — no hace falta
+  repetir la pasada hasta que se mueva la versión.
 - **Análisis completo**: [`docs/research/claude-code-harness-lessons.md`](research/claude-code-harness-lessons.md).
   Lo de abajo es sólo el resumen.
 - **Qué es**: harness de ciclo completo (`plan` → `work` → `review` → `sync` →
@@ -152,6 +174,106 @@
 - **Qué NO copiar**: 355 MB de repo con binarios versionados, CHANGELOG de 545 KB,
   `ARCHITECTURE.md` que describe una arquitectura que ya no existe, y doc core
   bilingüe sin contrato de idioma.
+
+## ECC (everything-claude-code)
+- **URL**: https://github.com/affaan-m/ECC — MIT. Revisado 2026-09-15 sobre `8321021`
+  (HEAD 2026-09-12), v2.2.1. **259 409 ★ · 38 802 forks**, último push 2026-09-15: es el
+  mayor del campo. JavaScript, 3 716 archivos, 91 MB. Se publica como `ecc-universal`.
+- **Análisis completo**: [`docs/research/ecc-lessons.md`](research/ecc-lessons.md) — ahí
+  viven las citas y la verificación en frío; los `§` de abajo remiten a ese documento.
+- **Qué es**: un único árbol de contenido —292 skills, 68 agentes, 122 rules, 94
+  commands— repartido a 14 motores.
+- **Problema**: entregar un solo cuerpo de contenido a N hosts sin duplicarlo en el repo
+  — el mismo que navori resuelve con render + managed blocks, resuelto aquí en **tiempo
+  de instalación**.
+- **Enfoque**: el contenido vive una sola vez en la raíz y lo reparten 15 adapters sobre
+  tres manifiestos encadenados (7 perfiles → 37 módulos → 84 componentes). Su taxonomía
+  no la ordena el formato sino **cuándo entra al contexto** —rules always-on, skills
+  on-demand, instincts por relevancia, hooks fuera— y `commands/` es legacy (§3).
+- **Stack**: Node/JavaScript plano — 8 devDependencies, 13 gates de CI encadenados con
+  `&&`, 13 JSON Schema con ajv, ~50 hooks detrás de un runner único.
+- **Conceptos notables para navori**, uno por línea:
+  - **Capacidades por motor como dato congelado**, validado en el import, con el soporte
+    parcial declarado (`guidedReady` en 3 de 14) en vez de escondido en un sí/no (§2.2).
+  - **Plan y apply separados, y el plan ES el estado** (§2.3).
+  - **`retainedPaths`**: sella cada destino al instalar y al desinstalar no borra lo que
+    no coincide — la doctrina anti-rollback, aplicada a la desinstalación (§2.3).
+  - **Política de admisión de MCP**, lo mejor del repo: regla de dos condiciones y una
+    auditoría que retiró 6 connectors por defecto con veredicto por cada uno (§5).
+  - **Instincts**: comportamiento aprendido con confianza, fuera del repo y con
+    presupuesto duro de cuántos se inyectan por sesión (§4.1).
+  - **Memory vault write-once**, sin upsert: el opuesto exacto del `topic_key`-upsert de
+    Engram; vale como contraste, no como copia (§4.2).
+  - **Stale-replay guard tras compactación**: el resumen se reinyecta marcado como
+    referencia histórica, porque el modelo re-ejecutaba slash-commands con él (§7.1).
+  - **Cómo se mide el contexto de verdad**: la suma de los tres contadores de tokens del
+    turno, y lo inferido marcado como inferido (§7.1).
+- **Hallazgo negativo verificado — cero grafo de código, cero capa de búsqueda**: sus
+  3 716 archivos dan **0 hits** para `tree-sitter`, `ast-grep`, `ctags`, `symbol index`,
+  `repo map` y `tgrep`, y ningún hook toca `Grep` ni `Glob` (§6).
+  > **Lectura nuestra, no cita**: **no contradice** la retirada de `tgrep` y `codegraph`
+  > del motor (`7c6930dc`, #803), y tampoco es evidencia en contra: ECC nunca midió el
+  > ruteo de búsqueda y navori sí — **7,4 %** de adopción con la doctrina sola contra
+  > **40,7 %** con el guard mecánico
+  > ([`research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md)). Prueba
+  > que el harness más grande del campo se envía sin esa capa, no que no sirva.
+- **Qué NO copiar**: el mismo bloque de defensa repetido verbatim en 79 archivos sin
+  mecanismo de sincronización —el caso de uso canónico de los managed blocks—; 192
+  archivos duplicados entre dot-dirs con un `catalog:check` que sólo cuenta; **225 de
+  1 468 enlaces relativos rotos (15,3 %)** sin link-check en CI; y **ningún baseline de
+  permisos en todo el árbol** — su guard principal es un gate de atención, no de
+  autorización (§8.5, §10).
+
+## deepseek-harness (dsh)
+- **URL**: https://github.com/deepseek-ai/deepseek-harness — MIT. Revisado 2026-09-15
+  sobre `0d1f500` (HEAD 2026-09-15). **225 561 ★ · 26 858 forks**, último push
+  2026-09-15. TypeScript, monorepo pnpm, 11 228 archivos. Paper: arXiv:2608.25512.
+- **Análisis completo**:
+  [`docs/research/deepseek-harness-lessons.md`](research/deepseek-harness-lessons.md) —
+  ahí viven las citas y la verificación en frío; los `§` remiten a ese documento.
+- **Qué es**: **runtime** de agentes sobre [Cordis](https://github.com/cordiverse/cordis)
+  —*"everything is a plugin"*—, en developer preview. No es un generador de harnesses:
+  entra aquí por su **disciplina documental y de gates**.
+- **Problema**: sostener reglas de prosa y de proceso en un monorepo enorme donde los
+  agentes escriben la documentación, sin que el documento que los gobierna deje de
+  leerse.
+- **Enfoque**: casi todas sus reglas tienen un `verify-*` detrás (60 scripts), y las que
+  no lo tienen lo declaran. El centro es un **presupuesto de palabras por documento**: un
+  manifiesto mapea 8 rutas a un entero y un script de 58 líneas falla si el documento se
+  pasa, si el techo es inválido o si el archivo presupuestado desapareció (§2.1).
+- **Stack**: TypeScript, pnpm, Cordis, lefthook, CI de 9 jobs paralelos más un agregador
+  que falla si alguno salió failure, cancelled **o skipped** (§6.2).
+- **Conceptos notables para navori**, uno por línea:
+  - **El orden de resolución del techo de palabras**: **1. Relocate · 2. Condense ·
+    3. Raise**, con histéresis del 5 % y el diff del manifiesto justificado en el PR
+    (§2.2, §2.3).
+    > **Lectura nuestra, no cita**: navori ya cuenta palabras y falla en CI, pero **sobre
+    > las skills empaquetadas** (`SKILL_TYPE_CAPS` + `skill-caps.test.ts`); lo que dsh
+    > aporta es el manifiesto ruta→techo para **prosa**, no el conteo.
+  - **Listas derivadas, no duplicadas**: el modo `doc-quick` del registro de gates no es
+    una lista propia, es un filtro sobre la canónica (§4).
+  - **Reparto de checks contra el gate monolítico**: su pre-push es `pnpm run typecheck`
+    y nada más, porque CI es el dueño de la cobertura exhaustiva. Es la tesis opuesta al
+    gate único de navori (§6).
+  - **`dsh-trim-cot-leakage`**: nombra y testea la prosa cuyo punto de vista es la sesión
+    que la escribió y no el repositorio, y la repara reformulándola, no borrándola (§10).
+  - **Descripciones de skill que declaran el momento, no el tema**: citan frases del
+    usuario, citan el string ofensor y declaran la no-superposición con la vecina (§9.1).
+  - **Decisiones como corpus** (`.agents/notes/`): estado y clase **en el path**,
+    `git mv` como única transición, sin front-matter y sin índice —eliminado por ser un
+    punto de conflicto de merge previsible— (§8.1, §8.2).
+  - **Anti-atrofia de gates**: un verificador declara un piso numérico de archivos y
+    **falla** si el glob colapsa, en vez de pasar verde sobre cero (§5.4).
+  - **Honestidad sobre lo que un gate prueba**: un verde confirma el par a esos
+    contenidos exactos, no que la confirmación fuera sólida (§7).
+  - **Reglas que deliberadamente no tienen gate**, y lo dicen: la nota de decisión por PR
+    no trivial vive en prosa porque "no trivial" no es decidible por script (§8.4).
+- **Un cable que NO se puede copiar tal cual**: proyectan el contenido a otros motores
+  con symlinks (`.claude/skills -> ../.agents/skills`, `CLAUDE.md -> AGENTS.md`), y la
+  doc oficial de Claude Code no los documenta para `.claude/skills/` (§9.5).
+- **Qué NO copiar**: el tier `archived/` sellado con un manifiesto sólo se paga con sus
+  629 notas archivadas sobre 3 082; el par bilingüe triplica el costo por nota; y de sus
+  6 clases de notas, tres combinaciones están vacías (§12).
 
 ## codegraph
 
@@ -463,9 +585,135 @@ tiene que cargar las dos.
   de primera clase — superpowers se instala con `pi install`, y gentle-ai empaqueta el
   harness `gentle-pi`.
 
+## revfactory/harness
+- **URL**: https://github.com/revfactory/harness — **Apache-2.0**. Revisado 2026-09-15.
+  8 998 ★ · 1 273 forks, último push 2026-07-24. 35 archivos, v1.2.0. Coreano, inglés y
+  japonés.
+- **Qué es**: **una meta-skill, no un CLI**. Todo el proyecto es
+  `skills/harness/SKILL.md` (457 líneas) más 6 `references/` (2 210 líneas en total).
+  **Cero código.** Convierte una frase de dominio en un equipo de agentes con sus skills.
+- **Problema**: el mismo que navori — fabricar el harness en vez de escribirlo a mano.
+  Por eso es el vecino más cercano de este documento: se autoclasifica en el cajón
+  **L3 — Meta-Factory / Team-Architecture Factory**.
+  > **Lectura nuestra, no cita**: la taxonomía es suya y navori **no** aparece en ella.
+  > Ubicarnos en ese mismo cajón es lectura nuestra.
+- **Enfoque**: pipeline de 7 fases — Phase 0 auditoría de estado → 1 análisis de dominio
+  → 2 arquitectura de equipo → 3 generación de agentes → 4 generación de skills → 5
+  integración/orquestación → 6 validación → 7 **evolución del harness**. Pero **nunca lo
+  corre entero**: Phase 0 trae una **matriz de selección de fases** que, según el tipo de
+  cambio (agregar agente / agregar skill / cambio de arquitectura), decide qué fases
+  aplican.
+- **Stack**: markdown puro distribuido como plugin de Claude Code.
+- **Conceptos notables para navori**:
+  - **La taxonomía del campo con sus vecinos**, que vale como mapa de qué auditar después:
+
+    | Capa | Qué hace | Proyecto |
+    |------|----------|----------|
+    | **L3 — Meta-Factory / Team-Architecture Factory** | frase de dominio → equipo de agentes + skills | revfactory/harness (ellos) |
+    | L3 — Meta-Factory / Runtime-Configuration Factory | configuraciones de runtime deterministas | `coleam00/Archon` |
+    | L3 — Meta-Factory / Codex Runtime Port | mismo concepto, runtime Codex | `SaehwanPark/meta-harness` |
+    | L2 — Cross-Harness Workflow | estandarizar skills/rules/hooks entre harnesses | [`affaan-m/ECC`](#ecc-everything-claude-code) |
+
+    Archon y meta-harness quedan **pendientes de auditar**, como `ruvnet/metaharness`.
+  - **Detección de drift en Phase 0 §3**: coteja los agentes y skills que hay en disco
+    contra el registro declarado en `CLAUDE.md`. El inventario declarado y el real son
+    dos fuentes que se separan solas.
+  - **6 patrones de arquitectura de equipo** con nombre: Pipeline · Fan-out/Fan-in ·
+    Expert Pool · Producer-Reviewer · Supervisor · Hierarchical Delegation. Tenerlos
+    nombrados da el vocabulario para discutir cuál toca en cada dominio, en vez de
+    asumir que siempre es el mismo.
+  - **`references/skill-testing-guide.md` §3 — With-skill vs Baseline**: ejecución
+    comparativa del mismo prompt con y sin la skill, capturando timing; §4 puntúa por
+    assertions y advierte contra la **"Non-discriminating assertion"**, la que pasa en
+    ambos brazos y por lo tanto no mide nada.
+  - **`references/qa-agent-guide.md` — "Boundary Mismatch"**: verificación cruzada de
+    API contra hook de frontend con el principio *"lee ambos lados a la vez"*, y el
+    momento del QA: *"QA corre justo después de cada módulo, no después del build."*
+  - Phase 6-4 "trigger verification" y 6-5 dry-run: comprobar que la skill **se dispara**
+    antes de dar por buena la generación.
+- **Qué NO copiar**: con cero código, la validación de Phase 6 y el drift-check de Phase
+  0 son instrucciones al modelo, no gates ejecutables.
+  > **Lectura nuestra, no cita**: el proyecto no se declara así; es lo que se deduce de
+  > que no haya nada que ejecutar.
+
+## learn-harness-engineering
+- **URL**: https://github.com/walkinglabs/learn-harness-engineering — MIT. Revisado
+  2026-09-15. 15 261 ★ · 1 525 forks, último push 2026-08-26. TypeScript.
+- **Qué es**: un **curso** de harness engineering (14 lecciones, 8 proyectos, 15
+  idiomas) que además envía la herramienta para puntuar el harness del alumno. 2 478
+  archivos, 1 913 de ellos en `docs/`.
+- **Problema**: no hay vocabulario compartido para decir qué le falta a un harness, ni
+  forma de puntuarlo sin un juez LLM.
+- **Enfoque**: **framework de cinco subsistemas** — `instructions · tools · environment ·
+  state · feedback`. El scorer usa una variante operativa de los mismos cinco ejes:
+  `instructions, state, verification, scope, lifecycle`.
+- **Stack**: TypeScript y scripts Node (`.mjs`) sin dependencias pesadas; el grueso del
+  repo es documentación.
+- **Conceptos notables para navori**:
+  - **`skills/harness-creator/` es la forma de navori empaquetada como skill**:
+    `metadata.json` con `compatibility.agents: [claude-code, codex-cli, cursor,
+    windsurf, generic]` y 15 `triggers`, más 7 `references/`, 6 `templates/`, 5
+    `scripts/` y un directorio **`evals/`**. Es el contraste directo con las skills de
+    navori, que son un `.md` plano cada una.
+  - **`evals/evals.json`**: cada eval es `{id, name, prompt, expected_output, files[],
+    expectations[]}` — assertions verificables escritas en prosa. La #4, "Verification
+    Workflow Design", arranca con el prompt *"My agent says 'done' but the tests fail"*.
+    Es el material más concreto del campo sobre el eje de **evals de skills** que ya
+    mapea [awesome-harness-engineering](#awesome-harness-engineering).
+  - **`scripts/validate-harness.mjs`** (43 líneas) puntúa **cualquier** repo en los cinco
+    subsistemas y sale 1 si no llega a `--min-score` (default 70): score por subsistema =
+    `max(1, round(passed/total*5))`, overall = `round(total/(5*5)*100)`. Una barra de CI
+    portable, que se puede correr sobre un repo ajeno.
+  - **Honestidad de reporte**: el bottleneck se reporta **sólo si un subsistema es más
+    débil que el resto** — *"When every subsystem already maxes out, reporting one is
+    misleading."*
+  - **`scripts/run-benchmark.mjs` se prueba a sí mismo antes de juzgar**: andamia un
+    harness desechable en un tmpdir y lo valida (*"proves the scripts work"*), luego
+    puntúa el target, luego chequea cobertura de evals. Y declara su límite: *"This is a
+    structural benchmark, not an LLM judge."* Es el contraste útil con `navori bench`,
+    que mide min/p50/p95/max de `runRender` en dry-run — latencia, no estructura.
+  - Sección "Frontier Harness Design Breakdowns" (ago-2026): aplica los cinco subsistemas
+    a Pi, Claude Code, Codex y DeepSeek — análisis comparativo ya hecho de cuatro
+    referencias que este documento cubre por separado.
+  - Lección 14, para la discusión de orquestación: *"A loop is a graph with one node."*
+- **Qué NO copiar**: el volumen documental — 1 913 de 2 478 archivos viven en `docs/` y
+  se publican en 15 idiomas.
+  > **Lectura nuestra, no cita**: para un curso ese volumen ES el producto; en un harness
+  > sería el multiplicador de traducción que ya se le señala a ECC.
+
+## OpenHarness
+- **URL**: https://github.com/HKUDS/OpenHarness — MIT. Revisado 2026-09-15. 15 760 ★ ·
+  2 562 forks, último push **2026-06-04** — el más quieto de los revisados en esta tanda.
+  Python, 479 archivos.
+- **Qué es**: runtime de agentes con un agente personal (`ohmo`) encima: 43 tools y 114
+  tests.
+- **Problema**: cómo probar un harness sin que el sujeto de la prueba sea el repo que lo
+  escribe.
+- **Enfoque**: lo condensa en `.claude/skills/harness-eval/SKILL.md`, cinco principios de
+  evaluación, apoyados por `references/feature-matrix.md`, que tabula `Test | What to
+  Verify | Key Assertion` por área (Engine & Tools, Swarm & Coordinator,
+  Hooks/Skills/Plugins, Memory/Session/Config).
+- **Stack**: Python.
+- **Conceptos notables para navori**:
+  - **El primer principio es el que justifica la ficha**: *"Test on an unfamiliar project
+    — never test on OpenHarness itself (the agent modifies its own code). Clone a real
+    project as the workspace."* navori **se auto-hospeda**: su harness se prueba sobre el
+    repo que lo genera, así que ese sesgo viene de fábrica y hay que nombrarlo antes de
+    leer cualquier resultado propio como evidencia.
+  - Los otros cuatro, citables tal cual: *"Use real API calls — no mocks."* ·
+    *"Multi-turn conversations — always test 2+ turns."* · *"Combine features — test
+    hooks+skills+agent loop together, not in isolation."* · *"Verify tool execution —
+    inspect tool call lists and output files, not just model text."*
+  - **`Key Assertion` como columna obligatoria**: cada prueba de la matriz declara qué
+    afirmación concreta la hace pasar. Es el mismo papel que juegan las `expectations[]`
+    de [learn-harness-engineering](#learn-harness-engineering), y el antídoto contra la
+    "non-discriminating assertion" que advierte
+    [revfactory/harness](#revfactoryharness): tres fuentes independientes convergiendo en
+    que la unidad de un eval es la afirmación, no el escenario.
+
 ## awesome-harness-engineering
 - **URL**: https://github.com/ai-boost/awesome-harness-engineering — CC0. Revisado
-  2026-09-10 (el resto de este documento, salvo CCH, es de 2026-08-19).
+  2026-09-10 (ver las tandas de revisión en la cabecera).
 - **Análisis completo**: [`docs/research/awesome-harness-engineering.md`](research/awesome-harness-engineering.md).
 - **Qué es**: no es un proyecto sino un **índice curado** de 477 recursos sobre
   harness engineering. Entra a este documento por excepción: no nos inspiró un
@@ -514,11 +762,28 @@ reestructurar navori:
 
 1. **Multi-engine / multi-host** (gstack, ponytail, superpowers, caveman): auto-detección
    de host y un config por host. navori ya va por aquí (Claude + Codex + AGENTS.md).
+   **Lo que suma esta revisión**: ECC lleva el modelo al extremo —capacidades de 14
+   motores como array congelado validado en el import, soporte parcial declarado
+   (`guidedReady` en 3 de 14), plan/apply separados y `retainedPaths` que se niega a
+   borrar un destino modificado— y dsh proyecta el mismo contenido por symlink
+   (`.claude/skills -> ../.agents/skills`), cable que habría que verificar contra la doc
+   oficial antes de heredarlo. Contraejemplo en la misma fuente: los dot-dirs que ECC sí
+   commitea como copias ya divergieron (35 de 39, 33 de 33) porque su check sólo cuenta.
 2. **SDD como máquina de estados en disco** (harness-sdd, ejemplo-harness-subagentes,
    gentle-ai, superpowers): specs versionadas, gates de aprobación humana, EARS,
-   traceability requisito↔test.
+   traceability requisito↔test. **Variante de dsh**: las decisiones viven como corpus
+   (`.agents/notes/`) con el estado **en el path** y `git mv` como única transición, sin
+   front-matter y sin índice —eliminado por ser un punto de conflicto de merge
+   previsible—; el tier `archived/` queda congelado y sellado con un manifiesto de
+   hashes.
 3. **Roles/subagentes con estado en filesystem** (harness-sdd, ejemplo-harness-subagentes,
    Goose, superpowers): Leader/Implementer/Reviewer, anti-teléfono-descompuesto.
+   **Nuevo vocabulario**: revfactory nombra **6 patrones de arquitectura de equipo**
+   (Pipeline · Fan-out/Fan-in · Expert Pool · Producer-Reviewer · Supervisor ·
+   Hierarchical Delegation), y ECC pone el freno que falta en el otro extremo:
+   *"Decompose only when the work cannot fit in one context... depth is an outcome, not
+   a plan"*, escrito tras ver agentes de research spawneando hijos y devolviendo
+   "waiting" como respuesta final.
 4. **Eficiencia de tokens / contexto** (codegraph, graphify, ponytail, caveman, Pi):
    contexto quirúrgico, subgrafos acotados, escalera anti-over-engineering, compresión
    de output, skills on-demand. Conecta con specs **0005** y **0006** de navori.
@@ -527,12 +792,35 @@ reestructurar navori:
    contexto residual en sesiones multi-turno, y caveman que su compresión es solo de
    salida y puede ser net-negativa en cargas concisas. Ninguna métrica de ahorro de
    tokens de terceros entra a una decisión de navori sin su contraparte.
+   **ECC añade tres piezas y una advertencia**: la taxonomía cuyo criterio es *cuándo*
+   entra cada capa al contexto (rules always-on, skills on-demand, hooks fuera del
+   contexto), el progressive disclosure movido a **tiempo de instalación** (6 de 37
+   módulos por defecto) y la medición correcta del tamaño de turno
+   (`input + cache_read + cache_creation`, *"their sum is the true context size"*). La
+   advertencia: sus dos skills de presupuesto de tokens son sólo prompt, sin tokenizer,
+   y una lo admite (*"heuristic estimation — no real tokenizer"*). Un "budget advisor"
+   sin tokenizer es prosa, no medición.
 5. **Memoria persistente** (gstack/GBrain, gentle-ai/Engram, caveman/cavemem): navori
    ya usa Engram. Ojo: cavemem está frozen y su core vive dentro de caveman.
+   **ECC es el contraste más fuerte**: su vault es **write-once sin upsert** —evolucionar
+   es enlazar y marcar `superseded`—, con trust fijo en `unreviewed` porque *"Team memory
+   is not trusted merely because it is committed to Git"*, rechazo de secretos en el
+   write path y **sin poda automática** (política de contención, no de curación). Es el
+   opuesto exacto del `topic_key`-upsert de Engram, y sus *instincts* añaden un eje
+   distinto: presupuesto duro de cuántos recuerdos se inyectan por sesión y umbral de
+   confianza para entrar.
 6. **Cross-model review** (gstack, gentle-ai/RDD): revisión independiente entre modelos
-   sobre el mismo diff, confianza derivada de gates y no de narración.
+   sobre el mismo diff, confianza derivada de gates y no de narración. **ECC aporta una
+   variante barata**: `path_instructions` por glob en los revisores automáticos —el
+   prompt del revisor cambia según el path tocado, así que `skills|commands|agents|rules`
+   se revisan contra prompt injection y tool-permission creep, y los workflows contra
+   acciones sin pinear.
 7. **Extensibilidad vs. opinión** (Pi "primitivas, no features" vs. gstack/superpowers
-   opinados): decisión de diseño clave para el rumbo de navori.
+   opinados): decisión de diseño clave para el rumbo de navori. **Los dos extremos
+   nuevos**: dsh/Cordis lleva "todo es un plugin" hasta *"There is no privileged core to
+   patch"*, con registros que son efectos y un disposer exacto por registro; ECC es el
+   polo opinado —292 skills— pero **en cuarentena**: nadie recibe las 292 salvo el perfil
+   `full`, y el núcleo curado real son 47.
 8. **Guardrails y capas de defensa** (claude-code-harness, gstack/`gstack-egress`): motor
    de reglas con ID por regla, un tercer veredicto para lo que no se puede probar
    estáticamente, deny que encola en vez de matar el run, ratchet sobre la superficie de
@@ -540,6 +828,18 @@ reestructurar navori:
    sólo al agente; `sandbox` lo impone el OS a todo el árbol de procesos). Es el eje
    donde navori tiene más que aprender de una sola fuente — ver
    [`docs/research/claude-code-harness-lessons.md`](research/claude-code-harness-lessons.md).
+   **Los dos repos grandes no confirman esa receta, y eso es información**: ECC no tiene
+   baseline de permisos en todo el árbol —su guard principal es un gate de atención, no
+   de autorización, y **publica en cada denegación la variable que lo apaga**— y dsh
+   directamente no usa denylist de comandos: apuesta por confinamiento de OS, fail-closed
+   (*"silent unconfined passthrough is forbidden"*) y un seam de aprobación. Lo que sí
+   comparten es honestidad sobre el límite: *"Sandboxing, approval prompts, and
+   permission controls... do not guarantee isolation or prevent damage"* (dsh), *"The
+   safety boundary is not the system prompt. It is the policy that sits BETWEEN the model
+   and the action"* (ECC). Lo más concreto que deja ECC en este eje es su **sidecar de
+   fingerprints de hooks**: SHA-256 del par `{matcher, hooks}` validado en CI, con
+   `--update-fingerprints` como única ruta declarada para moverlo — cambiar un matcher
+   deja de ser una edición silenciosa.
 9. **Medir el harness, no sólo construirlo** (awesome-harness-engineering, y por
    contraste claude-code-harness): evals de skills con umbral en CI, observabilidad de
    lo que el harness provoca, veredictos no binarios para flujos no deterministas, y
@@ -547,7 +847,32 @@ reestructurar navori:
    el campo se movió más y donde navori tiene los tres huecos declarados
    (observabilidad, evals de skills, runner). Conecta con `navori bench` y con
    `docs/research/activacion-subagentes-y-skills.md`.
-10. **Licencias y brazo comercial** (nuevo en esta revisión): caveman ya no es MIT limpia
+   **Es también el eje que más creció el 2026-09-15**, con tres fuentes que convergen:
+   learn-harness-engineering trae el formato de eval (`{prompt, expected_output, files,
+   expectations}`) y un scorer portable con umbral y exit code que se puede correr sobre
+   cualquier repo; revfactory trae el diseño del experimento (**with-skill vs baseline**)
+   y su trampa (la *"non-discriminating assertion"*, la que pasa en los dos brazos);
+   OpenHarness trae la condición previa a todo lo anterior — *"never test on OpenHarness
+   itself (the agent modifies its own code)"*. navori se auto-hospeda, así que ese sesgo
+   es de fábrica y cualquier eval propio tiene que declararlo. Las tres coinciden además
+   en la unidad de medida: la **afirmación** (`Key Assertion`, `expectations[]`), no el
+   escenario.
+10. **Licencias y brazo comercial** (eje abierto el 2026-08-19): caveman ya no es MIT limpia
    (núcleo BSL-1.1), los dos repos de betta-tech no tienen licencia, y codegraph y
    graphify tienen producto comercial activo. Para citar y enlazar no hay problema en
    ningún caso; para **copiar código o presentarlos como "todo open source MIT"**, sí.
+   De la tanda del 2026-09-15: ECC, deepseek-harness, learn-harness-engineering y
+   OpenHarness son **MIT**; revfactory/harness es **Apache-2.0**.
+11. **Presupuesto documental y anti-duplicación** (deepseek-harness, ECC,
+   learn-harness-engineering — eje nuevo del 2026-09-15): un harness también se degrada
+   por volumen de prosa, y hay mecanismos para medirlo. De dsh, el manifiesto ruta→techo
+   de palabras con gate, el orden **Relocate → Condense → Raise** y la histéresis
+   (*"Ceilings are guardrails, not reduction targets"*), más las listas **derivadas** en
+   vez de duplicadas (`doc-quick` = filtro sobre `doc-sync`) y su vacuna contra la
+   atrofia del gate (si el glob colapsa, falla en vez de pasar verde sobre cero
+   archivos). Del otro lado, ECC muestra la factura de no tenerlo: 15,3 % de enlaces
+   relativos rotos sin link-check, 192 archivos duplicados sin paridad y el mismo bloque
+   de 6 viñetas copiado verbatim en 79 archivos — el caso de uso canónico de los managed
+   blocks, sin resolver. navori ya cuenta palabras y falla en CI **sobre las skills
+   empaquetadas** (`SKILL_TYPE_CAPS` + `skill-caps.test.ts`); lo que estas fuentes
+   agregan es la misma disciplina aplicada a la prosa.
