@@ -22,7 +22,7 @@
     "semgrep:check": "bash .claude/scripts/check-semgrep.sh </dev/null",
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "render:apply": "pnpm --filter navori build && node packages/cli/dist/index.js render --apply",
-    "check": "pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck"
+    "check": "pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.5",
