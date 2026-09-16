@@ -1524,25 +1524,42 @@ function formatWorkspaceLinkWarning(issue: WorkspaceLinkIssue, lang = DEFAULT_LA
  * until the first `navori render --apply`.
  */
 function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvariant[] {
-  const missing = missingInvariantsAt(cwd, config, "");
+  const missing = missingInvariantsAt(cwd, config, "", false);
   // Monorepo: each workspace renders its own tree with its own (possibly
   // overridden) preset, so a load-bearing rule dropped in a workspace was
   // invisible when only the root was checked (#235). The source is tagged with
   // the workspace path so the diagnostic is unambiguous.
+  //
+  // `workspaceMinimalHarness` reads the ROOT config (before `effectiveConfigForWorkspace`
+  // strips `monorepo`) — same field `render`/`sync` read for the identical decision
+  // (spec 0018 R2, default "minimal"). It answers "does THIS workspace's tree even
+  // carry agent files", which an invariant that only lives in an injectInto sub-block
+  // needs to know (#847).
+  const workspaceMinimalHarness = (config.monorepo?.workspaceHarness ?? "minimal") === "minimal";
   for (const ws of enabledMonorepoWorkspaces(config)) {
     const wsCwd = resolve(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
-    missing.push(...missingInvariantsAt(wsCwd, effectiveConfigForWorkspace(config, ws), ws.path));
+    missing.push(
+      ...missingInvariantsAt(
+        wsCwd,
+        effectiveConfigForWorkspace(config, ws),
+        ws.path,
+        workspaceMinimalHarness,
+      ),
+    );
   }
   return missing;
 }
 
 /** Missing invariants for the render under a single directory. `pathPrefix` (the
- *  workspace path) tags the `source` so a monorepo report names the location. */
+ *  workspace path) tags the `source` so a monorepo report names the location.
+ *  `minimalHarness` is only meaningful when `pathPrefix` is set (a workspace scan) —
+ *  see the plugin-skip below. */
 function missingInvariantsAt(
   scanCwd: string,
   config: NavoriConfig,
   pathPrefix: string,
+  minimalHarness: boolean,
 ): MissingInvariant[] {
   const sources: Array<{ source: string; invariants: string[] }> = [];
   const tag = (s: string): string => (pathPrefix ? `${pathPrefix} · ${s}` : s);
@@ -1568,9 +1585,29 @@ function missingInvariantsAt(
     if (!materializesPluginBlocks) continue; // prose-only: block isn't emitted (#269)
     try {
       const plugin = loadPlugin(id);
-      if (plugin.manifest.invariants.length > 0) {
-        sources.push({ source: tag(`plugin:${id}`), invariants: plugin.manifest.invariants });
+      if (plugin.manifest.invariants.length === 0) continue;
+      // A plugin whose ONLY output is `injectInto` sub-blocks (no CLAUDE.md
+      // `managed[]` block, no plain skill file) contributes nothing to a
+      // workspace's own tree under `workspaceHarness: "minimal"`: its sub-blocks
+      // target agent files (leader.md, implementer.md…) that the trim
+      // deliberately does not write there — they land one directory up, at the
+      // root (0018 R2, claude/index.ts `applySubBlockInject`). Checking this
+      // plugin's invariants against a workspace's own render would therefore be
+      // permanently red by design, the exact class #269 already guards against
+      // for prose-only engines. The engram plugin (#841) is the first real case:
+      // it moved its protocol from a `managed[]` CLAUDE.md block to
+      // injectInto-only skills, so its invariants now live only at the root.
+      const allSkillsInjectOnly =
+        plugin.skillAssets.length > 0 && plugin.skillAssets.every((s) => s.injectInto);
+      if (
+        pathPrefix &&
+        minimalHarness &&
+        plugin.manifest.managed.length === 0 &&
+        allSkillsInjectOnly
+      ) {
+        continue;
       }
+      sources.push({ source: tag(`plugin:${id}`), invariants: plugin.manifest.invariants });
     } catch {
       // Missing / broken plugin is reported via missingPlugins.
     }
