@@ -33,7 +33,7 @@
   },
   "qualityGate": {
     "fast": "cd packages/cli && pnpm lint",
-    "full": "pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck"
+    "full": "pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck"
   },
   "plugins": {
     "engram": {
