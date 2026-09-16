@@ -22,9 +22,9 @@ coverage/
 # thread wrote and whether it delegated. Machine-local and per-session.
 .claude/.routing-watch/
 
-# Local Codex state (not committed per workspace convention)
-.codex/
-AGENTS.md
+# Codex session artifacts are machine-local; the managed config, agents and
+# hooks under `.codex/` plus AGENTS.md are versioned with this self-hosted harness.
+.codex/progress/
 
 # navori-ai runtime state in dev/test repos
 .navori/
