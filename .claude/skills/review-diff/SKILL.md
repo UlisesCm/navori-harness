@@ -10,7 +10,7 @@ metadata:
   maxWordsComposed: 1450
 ---
 
-<!-- navori:managed id="review-diff-base" hash="9c64f042" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="review-diff-base" hash="34e06bed" version="0.8.7" source="@navori/core" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
@@ -64,7 +64,7 @@ If it doesn't reach MEDIUM, don't report it. No "nitpick" or "consider also". (M
 - Secrets/tokens/credentials in code (not in config/env) → CRITICAL.
 - Authorization decision only on the client, without backend validation → HIGH.
 - Sensitive data in client storage beyond what's necessary → HIGH.
-- New or modified guard/policy (authorization, licence, rate limit) covering only some of the entry points that mutate the same resource → CRITICAL. Enumerate every one with evidence (`structural-search`) and mark it covered, or justify each exclusion one by one.
+- New or modified guard/policy (authorization, licence, rate limit) covering only some of the entry points that mutate the same resource → CRITICAL. Enumerate every one with evidence — via Code discovery routing's structural provider, or `structural-search` as fallback — and mark it covered, or justify each exclusion one by one. An occurrence count alone doesn't demonstrate the enumeration is complete.
 - Data-mutating script that falls back to a default host or credentials when its env var is missing → CRITICAL: it runs clean against the wrong target. It must refuse to start.
 
 ## 5. No hardcode

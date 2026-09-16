@@ -2304,6 +2304,8 @@ const CMD_ES: CmdStrings = {
       "cierre-sesion": "protocolo de cierre de sesión (quality gate, historial, commit)",
       "intake-tickets":
         "intake de tickets: el problema es el contrato, la solución propuesta es una sugerencia",
+      "code-discovery-routing":
+        "cómo elegir entre leer directo, Glob, búsqueda estructural o textual según lo que falta",
     },
     permsPrompt: "¿Declarar permisos personales para ~/.claude/settings.json?",
     permsRules: (kind) => `Reglas '${kind}' (separadas por coma; vacío = ninguna)`,
@@ -3432,6 +3434,8 @@ const CMD_EN: CmdStrings = {
       "cierre-sesion": "session closeout protocol (quality gate, history, commit)",
       "intake-tickets":
         "ticket intake: the problem is the contract, the proposed solution is a suggestion",
+      "code-discovery-routing":
+        "how to choose direct read, Glob, structural or textual discovery by what's missing",
     },
     permsPrompt: "Declare personal permissions for ~/.claude/settings.json?",
     permsRules: (kind) => `'${kind}' rules (comma-separated; empty = none)`,

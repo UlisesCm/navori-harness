@@ -1,0 +1,60 @@
+{
+  "id": "codegraph",
+  "name": "CodeGraph structural discovery",
+  "description": "Structural code discovery through the CodeGraph MCP server",
+  "version": "0.0.1",
+  "managed": [
+    { "id": "codegraph-search-v2", "file": "managed/codegraph-search-v2.md" }
+  ],
+  "externalTool": {
+    "name": "codegraph",
+    "checkBinary": "codegraph",
+    "install": {
+      "darwin": "npm install -g @colbymchenry/codegraph@1.6.0",
+      "linux": "npm install -g @colbymchenry/codegraph@1.6.0",
+      "win32": "npm install -g @colbymchenry/codegraph@1.6.0"
+    }
+  },
+  "mcpServer": {
+    "command": "codegraph",
+    "args": ["serve", "--mcp"],
+    "env": {
+      "CODEGRAPH_MCP_TOOLS": "explore",
+      "CODEGRAPH_EXPLORE_DEDUP": "0"
+    },
+    "alwaysLoad": true
+  },
+  "settingsFragment": {
+    "permissions": {
+      "allow": ["mcp__codegraph__codegraph_explore"]
+    }
+  },
+  "skills": [
+    {
+      "id": "codegraph-access-v2-leader",
+      "file": "skills/codegraph-access-v2.md",
+      "injectInto": ".claude/agents/leader.md"
+    },
+    {
+      "id": "codegraph-access-v2-implementer",
+      "file": "skills/codegraph-access-v2.md",
+      "injectInto": ".claude/agents/implementer.md"
+    },
+    {
+      "id": "codegraph-access-v2-reviewer",
+      "file": "skills/codegraph-access-v2.md",
+      "injectInto": ".claude/agents/reviewer.md"
+    },
+    {
+      "id": "codegraph-access-v2-auditor",
+      "file": "skills/codegraph-access-v2.md",
+      "injectInto": ".claude/agents/auditor.md"
+    },
+    {
+      "id": "codegraph-access-v2-ticket-audit",
+      "file": "skills/codegraph-access-v2.md",
+      "injectInto": ".claude/agents/ticket-audit.md"
+    }
+  ],
+  "invariants": ["codegraph_explore", "projectPath"]
+}

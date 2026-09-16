@@ -166,3 +166,59 @@ describe("runRender — harness .gitignore (#313)", () => {
     expect(enHeader).toContain("managed by navori");
   });
 });
+
+/**
+ * search-v2.md §6.2/§7 C02 — codegraph/tgrep are opt-in entries of the SAME
+ * managed block (D18), through the real `navori.config.json` → `runRender`
+ * path (not just `buildGitignoreBody` in isolation, see gitignore-harness.test.ts).
+ */
+describe("runRender — harness .gitignore with v2 search plugins active (#313, search-v2 §6.2)", () => {
+  // Covers: C02
+  it("mode off stays byte-identical (no .gitignore at all) even with both plugins active", () => {
+    config({
+      engines: ["claude"],
+      gitignoreHarness: "off",
+      plugins: { codegraph: { enabled: true }, tgrep: { enabled: true } },
+    });
+    const result = runRender(cwd, { dryRun: false });
+    expect(result.gitignore == null).toBe(true);
+    expect(existsSync(join(cwd, ".gitignore"))).toBe(false);
+  });
+
+  // Covers: C02
+  it("mode local adds .codegraph/ and .tgrep/ only for their active plugin", () => {
+    config({
+      engines: ["claude"],
+      gitignoreHarness: "local",
+      plugins: { codegraph: { enabled: true } },
+    });
+    runRender(cwd, { dryRun: false });
+    const lines = gitignoreBlock(cwd)?.split("\n") ?? [];
+    expect(lines).toContain(".codegraph/");
+    expect(lines).not.toContain(".tgrep/");
+  });
+
+  // Covers: C02
+  it("toggling a plugin off removes its entry on the next render, without disturbing the other's", () => {
+    config({
+      engines: ["claude"],
+      gitignoreHarness: "full",
+      plugins: { codegraph: { enabled: true }, tgrep: { enabled: true } },
+    });
+    runRender(cwd, { dryRun: false });
+    expect(gitignoreBlock(cwd)?.split("\n")).toEqual(
+      expect.arrayContaining([".codegraph/", ".tgrep/"]),
+    );
+
+    config({
+      engines: ["claude"],
+      gitignoreHarness: "full",
+      plugins: { codegraph: { enabled: false }, tgrep: { enabled: true } },
+    });
+    const reconciled = runRender(cwd, { dryRun: false });
+    expect(reconciled.gitignore?.status).toBe("updated");
+    const lines = gitignoreBlock(cwd)?.split("\n") ?? [];
+    expect(lines).not.toContain(".codegraph/");
+    expect(lines).toContain(".tgrep/");
+  });
+});

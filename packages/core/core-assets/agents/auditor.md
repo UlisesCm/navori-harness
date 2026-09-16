@@ -38,7 +38,7 @@ If there's a recent audit of the same scope and the code hasn't changed, read it
 `CLAUDE.md` (project rules + the orchestrator block) is already in your context when your host injects it — read it from disk ONLY if your host did not inject it. Read the `user-section` below. Set the scope: **targeted** (1 file/feature/module) or **full** (every source directory the repo has — derive them from its layout, a monorepo has one per package; never assume a single root `src/`).
 
 ### 2. Context gathering
-Explore **yourself** — your `tools:` list has no `Agent`, so you cannot launch subagents (nesting itself is supported, up to 3 levels; this agent just isn't wired for it). For broad scope: `Glob` the structure, `Grep` the risk patterns, and read in full only the candidate files. Don't read generated/lock artifacts or library `ui`.
+Explore **yourself** — your `tools:` list has no `Agent`, so you cannot launch subagents (nesting itself is supported, up to 3 levels; this agent just isn't wired for it). Apply Code discovery routing (project instructions) before collecting evidence: `Glob` the structure, `Grep` the literal risk patterns, and the enabled structural provider for relationships/impact questions. Occurrences from a text search alone don't demonstrate structural impact — confirm call sites and relationships through the routed provider before reading in full only the candidate files it surfaces. Don't read generated/lock artifacts or library `ui`.
 
 ### 3. Analysis — classify each finding by severity
 

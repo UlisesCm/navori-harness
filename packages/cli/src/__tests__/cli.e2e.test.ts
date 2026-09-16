@@ -792,6 +792,7 @@ describe("CLI e2e — happy paths", () => {
       "agentes-disponibles",
       "arranque-sesion",
       "cierre-sesion",
+      "code-discovery-routing",
       "engram-protocol",
       "formato-respuesta",
       "idioma-rol",

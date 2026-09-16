@@ -6,7 +6,7 @@ model: sonnet
 effort: medium
 ---
 
-<!-- navori:managed id="implementer-base" hash="4b6a3b5c" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="implementer-base" hash="40f1d156" version="0.8.7" source="@navori/core" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -27,7 +27,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
      ```
 
    - `Expected files: <list>`
-3. **Implement** following the repo's flow (the leader's "Project rules" define the concrete pattern: layers, libs, paths, naming). To locate the code to touch, apply `.claude/skills/structural-search/SKILL.md`: open only the confirmed span, don't read whole files by reflex.
+3. **Implement** following the repo's flow (the leader's "Project rules" define the concrete pattern: layers, libs, paths, naming). Known file and a bounded local change: Read/Edit directly. Unknown context (where something lives, how pieces relate): follow Code discovery routing (project instructions) to the enabled structural provider; fall back to `.claude/skills/structural-search/SKILL.md` when it's unavailable. Open only the confirmed span, don't read whole files by reflex.
 4. **Quality gate** (mandatory before returning):
 
    ```bash

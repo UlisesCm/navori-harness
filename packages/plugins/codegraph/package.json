@@ -1,0 +1,18 @@
+{
+  "name": "@navori/plugin-codegraph",
+  "version": "0.0.1",
+  "description": "Structural code discovery through the CodeGraph MCP server",
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./plugin.json": "./plugin.json"
+  },
+  "files": [
+    "plugin.json",
+    "managed",
+    "skills"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}

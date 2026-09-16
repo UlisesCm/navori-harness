@@ -97,3 +97,90 @@ describe("buildGitignoreBody", () => {
     expect(a).toBe(b);
   });
 });
+
+/**
+ * search-v2.md §6.2 (D18) — `.codegraph/`/`.tgrep/` are Cubo A entries
+ * (machine-local runtime state), so they show up in BOTH `local` and `full`,
+ * gated only by whether their owning plugin is active in `config.plugins`.
+ */
+describe("buildGitignoreBody — v2 search plugins (§6.2)", () => {
+  it("mode 'local' adds .codegraph/ only when codegraph is active", () => {
+    const off = buildGitignoreBody({ gitignoreHarness: "local", engines: [] });
+    expect(off?.split("\n")).not.toContain(".codegraph/");
+
+    const on = buildGitignoreBody({
+      gitignoreHarness: "local",
+      engines: [],
+      plugins: { codegraph: { enabled: true } },
+    });
+    expect(on?.split("\n")).toContain(".codegraph/");
+  });
+
+  it("mode 'local' adds .tgrep/ only when tgrep is active", () => {
+    const off = buildGitignoreBody({ gitignoreHarness: "local", engines: [] });
+    expect(off?.split("\n")).not.toContain(".tgrep/");
+
+    const on = buildGitignoreBody({
+      gitignoreHarness: "local",
+      engines: [],
+      plugins: { tgrep: { enabled: true } },
+    });
+    expect(on?.split("\n")).toContain(".tgrep/");
+  });
+
+  it("mode 'full' carries both entries alongside Cubo B when both plugins are active", () => {
+    const body = buildGitignoreBody({
+      gitignoreHarness: "full",
+      engines: ["claude"],
+      plugins: { codegraph: { enabled: true }, tgrep: { enabled: true } },
+    });
+    const lines = body?.split("\n") ?? [];
+    expect(lines).toContain(".codegraph/");
+    expect(lines).toContain(".tgrep/");
+    expect(lines).toContain(".claude/");
+    for (const entry of CUBO_A_ENTRIES) expect(lines).toContain(entry);
+  });
+
+  it("a plugin declared but disabled (enabled: false) contributes no entry", () => {
+    const body = buildGitignoreBody({
+      gitignoreHarness: "full",
+      engines: [],
+      plugins: { codegraph: { enabled: false }, tgrep: { enabled: false } },
+    });
+    const lines = body?.split("\n") ?? [];
+    expect(lines).not.toContain(".codegraph/");
+    expect(lines).not.toContain(".tgrep/");
+  });
+
+  it("no duplicates and no entry at all when plugins is absent/empty", () => {
+    for (const plugins of [undefined, {}]) {
+      const body = buildGitignoreBody({ gitignoreHarness: "full", engines: [], plugins });
+      const lines = body?.split("\n") ?? [];
+      expect(lines).not.toContain(".codegraph/");
+      expect(lines).not.toContain(".tgrep/");
+    }
+  });
+
+  it("mode 'off' stays null even with both plugins active", () => {
+    expect(
+      buildGitignoreBody({
+        gitignoreHarness: "off",
+        engines: ["claude"],
+        plugins: { codegraph: { enabled: true }, tgrep: { enabled: true } },
+      }),
+    ).toBeNull();
+  });
+
+  it("is deterministic and free of internal duplicates across repeated calls", () => {
+    const cfg = {
+      gitignoreHarness: "full" as const,
+      engines: ["claude", "codex"],
+      plugins: { codegraph: { enabled: true }, tgrep: { enabled: true } },
+    };
+    const a = buildGitignoreBody(cfg);
+    const b = buildGitignoreBody(cfg);
+    expect(a).toBe(b);
+    const lines = a?.split("\n") ?? [];
+    expect(new Set(lines).size).toBe(lines.length);
+  });
+});

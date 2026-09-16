@@ -194,6 +194,22 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     // `cierre-sesion`: eligible, not shipped by default.
     globalSafe: true,
   },
+  // Search v2: how to choose between direct read, Glob, structural discovery and
+  // textual discovery. No `audience: "orchestrator"` on purpose — subagents that
+  // do their own discovery (explorer, researcher, implementer, reviewer, auditor,
+  // ticket-audit) need this routing too, and only `CLAUDE.md` reaches them.
+  // Appended last for the same reason as `intake-tickets`: inserting mid-array
+  // reorders every already-rendered repo's CLAUDE.md on the next render.
+  {
+    id: "code-discovery-routing",
+    relPath: "core-assets/managed/code-discovery-routing.md",
+    baseLanguage: "en",
+    rootOnly: true,
+    // Names no repo path, no navori agent/skill and no config key; interpolates
+    // nothing. Eligible for the global baseline, not shipped by default (like
+    // `cierre-sesion`/`intake-tickets`) — see DEFAULT_GLOBAL_BLOCKS.
+    globalSafe: true,
+  },
 ] as const;
 
 /** Ids of every hardcoded core managed block. Used to tell a real (but not
