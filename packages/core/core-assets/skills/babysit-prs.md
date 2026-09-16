@@ -1,7 +1,8 @@
 ---
 name: babysit-prs
 description: Use when you resume a session with open PRs of yours, or when a check went red after a push — collect review feedback, inline comments and CI status, and turn each finding into an encargo.
-type: reference
+metadata:
+  type: reference
 ---
 
 # babysit-prs — pick up what happened after the PR

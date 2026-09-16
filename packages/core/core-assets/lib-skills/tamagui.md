@@ -1,7 +1,8 @@
 ---
 name: tamagui
 description: Use when creating styled components, defining the design system, or touching the config/theme — UI with Tamagui v4: styled() + variants, theme tokens, and what keeps the compiler happy.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Tamagui — the canonical pattern

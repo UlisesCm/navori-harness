@@ -1,7 +1,8 @@
 ---
 name: testing-library
 description: Use when querying rendered UI in tests — Testing Library query priority (getByRole first), get/query/find, user-event over fireEvent, React Native variant.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Testing Library — conventions

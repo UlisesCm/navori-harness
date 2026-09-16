@@ -10027,7 +10027,8 @@ esac
 ---
 name: babysit-prs
 description: Use when you resume a session with open PRs of yours, or when a check went red after a push — collect review feedback, inline comments and CI status, and turn each finding into an encargo.
-type: reference
+metadata:
+  type: reference
 ---
 
 <!-- navori:managed id="babysit-prs" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10097,8 +10098,9 @@ nothing here**: the user picks what gets attacked.
 ---
 name: debug-error
 description: Use when a command fails or the runtime misbehaves and you don't have a root cause yet. Before touching code: make sure you actually SAW the error, classify what kind it is, and fix the ROOT CAUSE, not the symptom. Your stack's error patterns go in the user-section.
-type: behavior
-maxWords: 600
+metadata:
+  type: behavior
+  maxWords: 600
 ---
 
 <!-- navori:managed id="debug-error-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10142,7 +10144,8 @@ The trigger is **"I don't know why it failed yet"**, not the size of the output.
 ---
 name: dominio
 description: Use when you discover — or need — a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cross-service contract, shared gotcha). The Dominio is the workspace's canonical knowledge base; read it before assuming a model, and promote such facts into it instead of only saving to session memory.
-type: reference
+metadata:
+  type: reference
 ---
 
 <!-- navori:managed id="dominio" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10214,8 +10217,9 @@ Then run `navori dominio reindex` to refresh the index.
 ---
 name: loop-back-debug
 description: Use when a fix doesn't work the first time. Forces re-reading the original symptom, validating the hypothesis vs the applied diff, and NOT throwing more patches without understanding what failed.
-type: behavior
-maxWords: 1000
+metadata:
+  type: behavior
+  maxWords: 1000
 ---
 
 <!-- navori:managed id="loop-back-debug-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10330,9 +10334,13 @@ When applying this skill, the output to the user includes:
 ---
 name: review-diff
 description: Use when reviewing a diff (staged, branch or PR). A code-review checklist across stack-agnostic dimensions — types, data layer, errors, security, hardcode, naming, dead code, quality gate — with CRITICAL/HIGH/MEDIUM severities. Repo-specific rules go in the user-section.
-type: behavior
-maxWords: 1200
-maxWordsComposed: 1450
+metadata:
+  type: behavior
+  maxWords: 1200
+  # Compuesto (#683): 1200 del núcleo + 200 de `jscpd-review` = 1400, más 50 de
+  # margen para los `project.criticalAreas` que el render interpola DENTRO del
+  # bloque managed — de ahí salía el exceso sin que ningún plugin participara.
+  maxWordsComposed: 1450
 ---
 
 <!-- navori:managed id="review-diff-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10485,8 +10493,9 @@ the reasoning and the manual command — not the mechanism.
 ---
 name: security-guidance
 description: Use when running /security-review or auditing security. Documents the BUSINESS security invariants that the static scanner (semgrep) and the built-in review can't infer from code alone — server-side authorization, object access (IDOR), secrets and env exposed to the client, trust boundaries, PII in logs. The skeleton is universal; your stack's rules go in the user-section.
-type: reference
-maxWords: 1200
+metadata:
+  type: reference
+  maxWords: 1200
 ---
 
 <!-- navori:managed id="security-guidance-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10574,8 +10583,9 @@ reasoning and the manual command — not the mechanism.
 ---
 name: solution-design
 description: Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, concurrency, critical area, hard-to-reverse decision) — decide WHAT to build and challenge it before decomposing into tasks.
-type: reference
-maxWords: 1050
+metadata:
+  type: reference
+  maxWords: 1050
 ---
 
 <!-- navori:managed id="solution-design" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10704,8 +10714,9 @@ optimization, an optional edge case, stylistic architecture taste.
 ---
 name: spec-bootstrap
 description: Use when starting a real-scope feature before writing code — scaffolds a complete SDD spec (requirements/design/tasks) with EARS and R<n>↔test traceability.
-type: reference
-maxWords: 650
+metadata:
+  type: reference
+  maxWords: 650
 ---
 
 <!-- navori:managed id="spec-bootstrap" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10783,9 +10794,20 @@ actually raises them (an empty section is noise, not rigor):
 ---
 name: structural-search
 description: Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — find the right region and open only the confirmed span instead of reading whole files; escalate from engram to Grep to ast-grep per the trigger.
-type: reference
-maxWords: 600
-maxWordsComposed: 650
+metadata:
+  type: reference
+  # 600 y no 500 (spec 0020, R4): recibió el reparto shell/nativo y la medición de los
+  # 835 round-trips del clasificador, que salieron de `operaciones-seguras`. Se cambia
+  # costo por sesión por costo por uso: el bloque always-on adelgaza y esto se paga al
+  # usarse.
+  maxWords: 600
+  # El techo del archivo COMPUESTO, que es lo que el agente carga (#683): hoy solo el
+  # núcleo (600) más 50 de margen para lo que el render interpola dentro del bloque
+  # managed. Un plugin que inyecte su propia rung aquí tiene que SUBIR este techo en
+  # el mismo cambio — ese es el punto: el presupuesto compuesto se negocia una vez,
+  # no se descubre cuando el agente ya paga el archivo entero. El `maxWords` de arriba
+  # sigue siendo el presupuesto de ESTE asset y su razonamiento.
+  maxWordsComposed: 650
 ---
 
 <!-- navori:managed id="structural-search-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10864,9 +10886,13 @@ If it isn't installed, fall back to Grep and targeted reading: **don't block the
 ---
 name: ticket-intake
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 8-phase pipeline to process it with objective gates.
-type: reference
-maxWords: 600
-maxWordsComposed: 650
+metadata:
+  type: reference
+  maxWords: 600
+  # Compuesto (#683): ningún plugin extiende esta skill, así que los 50 sobre el
+  # cap del asset son exactamente el margen de interpolación. Se declara porque
+  # medido daba 601 contra 600: un solo valor del proyecto la pasaba de largo.
+  maxWordsComposed: 650
 ---
 
 <!-- navori:managed id="ticket-intake" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10911,8 +10937,12 @@ Only when the orchestration table's fan-out row fires, never on "it feels separa
 ---
 name: verify-before-done
 description: Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, commit-pr-pilot and any response that declares "done".
-type: behavior
-maxWords: 1050
+metadata:
+  type: behavior
+  # 1050 y no 1000 (spec 0020, R4): entró la fila de `sed -i`, que sale 0 sin haber
+  # matcheado nada — el caso en que el exit code no es evidencia. Salió de
+  # `operaciones-seguras`, donde se pagaba en cada sesión.
+  maxWords: 1050
 ---
 
 <!-- navori:managed id="verify-before-done-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -11036,7 +11066,8 @@ When applying it, the output to the user must include:
 ---
 name: vitest
 description: Use when writing or fixing unit/integration tests with Vitest — describe/it/expect, vi.mock hoisting, jsdom vs node env, coverage, fake timers.
-type: reference
+metadata:
+  type: reference
 ---
 
 <!-- navori:managed id="vitest" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -11117,7 +11148,8 @@ describe('getUser', () => {
 ---
 name: zod-validation
 description: Use when creating a Zod schema or validating input at a trust boundary — an HTTP body/query/params, but equally a config file, CLI args or env. Per-resource schemas, a generic validate middleware, inferred DTOs.
-type: reference
+metadata:
+  type: reference
 ---
 
 <!-- navori:managed id="zod-validation" hash="<HASH>" version="<VERSION>" source="@navori/core" -->

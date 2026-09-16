@@ -1,7 +1,8 @@
 ---
 name: mantine-ui-patterns
 description: Use when creating or modifying React components with Mantine — rules for UI: use the lib's components instead of raw HTML, theming, responsive.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Mantine UI patterns — project conventions

@@ -1,7 +1,8 @@
 ---
 name: engram-leader-extension
 description: Use when the leader agent is orchestrating work — the Engram protocol: search context before decomposing, save decisions proactively, close the session with a summary.
-type: behavior
+metadata:
+  type: behavior
 ---
 
 ## Engram (persistent memory)

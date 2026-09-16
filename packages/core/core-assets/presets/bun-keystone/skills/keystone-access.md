@@ -1,7 +1,8 @@
 ---
 name: keystone-access
 description: Keystone 6 access control in 3 layers (operation / filter / field). allowAll forbidden; null session → restrictive filter. Use when defining or changing the access of any list.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Keystone Access Control — 3 layers

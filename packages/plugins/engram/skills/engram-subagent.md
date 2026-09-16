@@ -1,7 +1,8 @@
 ---
 name: engram-subagent-extension
 description: Use when a subagent starts a scoped task and the repo has the engram MCP tools — search memory for prior context before reading code, and leave the session ceremonies to the agent that owns the session.
-type: behavior
+metadata:
+  type: behavior
 ---
 
 ## Engram, from a subagent

@@ -1,7 +1,8 @@
 ---
 name: vitest
 description: Use when writing or fixing unit/integration tests with Vitest — describe/it/expect, vi.mock hoisting, jsdom vs node env, coverage, fake timers.
-type: reference
+metadata:
+  type: reference
 ---
 
 <!-- navori:managed id="vitest" hash="2279bc63" version="0.8.7" source="@navori/core" -->

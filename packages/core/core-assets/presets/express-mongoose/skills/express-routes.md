@@ -1,7 +1,8 @@
 ---
 name: express-routes
 description: Express routing pattern in a TS service — mandatory asyncHandler, ApiResponse for data, ApiError for errors, validate before the handler, mount under a single prefix. Use when touching presentation/routes or presentation/controllers.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Express Routes — service conventions

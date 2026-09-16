@@ -1,7 +1,8 @@
 ---
 name: medusa-modules
 description: Rules for creating/modifying Medusa v2 modules — entities, services, workflows. Use when creating or modifying files under src/modules/.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Medusa Modules — project conventions

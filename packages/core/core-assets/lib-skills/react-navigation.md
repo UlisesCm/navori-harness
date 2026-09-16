@@ -1,7 +1,8 @@
 ---
 name: react-navigation
 description: Use when adding a screen or navigating in React Native — typed routes (ParamList), serializable params, useFocusEffect, and deep linking.
-type: reference
+metadata:
+  type: reference
 ---
 
 # React Navigation — conventions

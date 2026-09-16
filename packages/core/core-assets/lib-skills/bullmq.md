@@ -1,7 +1,8 @@
 ---
 name: bullmq
 description: Use when creating/touching a job or worker, or enqueueing async work — jobs and queues with BullMQ over Redis: Queue/Worker/QueueEvents, idempotent jobs, retries with backoff, concurrency, and graceful shutdown.
-type: reference
+metadata:
+  type: reference
 ---
 
 # BullMQ — jobs & queues

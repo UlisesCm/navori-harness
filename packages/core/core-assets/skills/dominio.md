@@ -1,7 +1,8 @@
 ---
 name: dominio
 description: Use when you discover — or need — a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cross-service contract, shared gotcha). The Dominio is the workspace's canonical knowledge base; read it before assuming a model, and promote such facts into it instead of only saving to session memory.
-type: reference
+metadata:
+  type: reference
 ---
 
 # dominio — the workspace knowledge base

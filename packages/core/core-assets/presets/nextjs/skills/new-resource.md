@@ -1,8 +1,9 @@
 ---
 name: new-resource
 description: Use when adding a brand-new resource/feature end-to-end in Next.js App Router (type → validation → data → adapter → UI → route). For modifying an existing one, mirror its pattern instead of rebuilding it.
-type: reference
-maxWords: 800
+metadata:
+  type: reference
+  maxWords: 800
 ---
 
 # new-resource — end-to-end resource/feature (Next.js App Router)

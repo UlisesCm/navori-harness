@@ -1,7 +1,8 @@
 ---
 name: job-scheduling
 description: Define and schedule jobs in a worker (agenda / bullmq) — idempotency, retries with backoff, concurrency. Use when creating or touching a scheduled or recurring job.
-type: reference
+metadata:
+  type: reference
 ---
 
 # job-scheduling — idempotent, retryable jobs

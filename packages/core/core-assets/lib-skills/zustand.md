@@ -1,7 +1,8 @@
 ---
 name: zustand
 description: Use when creating a store, reading state in a component, or moving shared state out of Context — global state with Zustand v5: selectors to avoid re-renders, actions in the store, slices.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Zustand — the canonical pattern

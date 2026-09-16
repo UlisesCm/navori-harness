@@ -1,7 +1,8 @@
 ---
 name: nestjs-modules
 description: Use when creating or modifying src/<feature>/ in NestJS — rules for modules: controllers, services, providers, DI scopes.
-type: reference
+metadata:
+  type: reference
 ---
 
 # NestJS Modules — project conventions

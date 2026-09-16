@@ -1,7 +1,8 @@
 ---
 name: nextjs-data-fetching
 description: Use when touching pages with fetch or server-side queries in Next.js App Router (Next 15+) — rules for data fetching: cache opt-in, revalidate, dedup, parallel loading, Suspense.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Next.js Data Fetching — conventions (Next 15+)

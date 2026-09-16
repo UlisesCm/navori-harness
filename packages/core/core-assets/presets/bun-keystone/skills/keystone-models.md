@@ -1,7 +1,8 @@
 ---
 name: keystone-models
 description: Conventions for Keystone 6 lists — list({ access, hooks, fields }) structure, hooks contract (resolveInput/validate/afterOperation) and use of context.sudo(). Use when creating or modifying a model.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Keystone Models — project conventions

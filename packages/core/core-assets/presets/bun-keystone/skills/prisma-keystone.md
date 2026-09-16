@@ -1,7 +1,8 @@
 ---
 name: prisma-keystone
 description: Prisma under Keystone — generated schema.prisma (don't edit by hand), the Prisma 7 driver adapter and generated client, migrations via the Prisma CLI. Use when changing the data shape, wiring a DB connection or running migrations.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Prisma under Keystone

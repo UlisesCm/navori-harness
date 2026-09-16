@@ -1,7 +1,8 @@
 ---
 name: playwright
 description: Use when writing browser E2E tests with Playwright — @playwright/test runner, web-first assertions with auto-wait, role locators, projects, traces on failure.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Playwright — conventions

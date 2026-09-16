@@ -1,7 +1,8 @@
 ---
 name: cypress
 description: Use when writing or fixing Cypress tests — component vs. e2e, resilient selectors, cy.intercept with aliases instead of waits, and spec independence.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Cypress — conventions

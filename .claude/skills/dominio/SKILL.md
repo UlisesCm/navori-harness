@@ -1,7 +1,8 @@
 ---
 name: dominio
 description: Use when you discover — or need — a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cross-service contract, shared gotcha). The Dominio is the workspace's canonical knowledge base; read it before assuming a model, and promote such facts into it instead of only saving to session memory.
-type: reference
+metadata:
+  type: reference
 ---
 
 <!-- navori:managed id="dominio" hash="a2c1ab5c" version="0.8.7" source="@navori/core" -->

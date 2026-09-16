@@ -1,7 +1,8 @@
 ---
 name: supertest
 description: Use when integration-testing HTTP APIs — supertest against a Node HTTP app (Express, Nest, Fastify…) without binding a port, status/body/header assertions, auth headers.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Supertest — conventions

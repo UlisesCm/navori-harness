@@ -1,7 +1,8 @@
 ---
 name: nextjs-app-router
 description: Use when touching app/ or components/ in Next.js App Router — rules for Server vs Client Components, Server Actions, layouts.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Next.js App Router — project conventions

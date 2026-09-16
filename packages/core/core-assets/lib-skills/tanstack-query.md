@@ -1,7 +1,8 @@
 ---
 name: tanstack-query
 description: Use when touching fetching, server cache, or remote data mutations — TanStack Query (React Query) patterns: query keys, mutations, invalidation, staleTime.
-type: reference
+metadata:
+  type: reference
 ---
 
 # TanStack Query — conventions

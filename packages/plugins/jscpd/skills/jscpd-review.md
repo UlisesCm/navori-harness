@@ -1,7 +1,8 @@
 ---
 name: jscpd-duplication-gate
 description: Use when reviewing a diff and the repo renders the jscpd plugin — scan the changed files for duplication before approving, and treat clones over the threshold as a blocker.
-type: behavior
+metadata:
+  type: behavior
 ---
 
 ## Code duplication (jscpd)

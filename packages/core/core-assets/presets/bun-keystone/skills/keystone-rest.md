@@ -1,7 +1,8 @@
 ---
 name: keystone-rest
 description: REST/Express endpoints over Keystone 6 — the controller validates input with Zod safeParse and delegates to a service that uses context.sudo().db. Use when creating or touching a route, a controller or a REST service.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Keystone REST — thin controller, service holds the logic

@@ -1,7 +1,8 @@
 ---
 name: react-router
 description: Use when creating routes, reading params, redirecting, or protecting views — React Router (v6/v7) patterns: nested routes, loaders, navigation, params, and guards.
-type: reference
+metadata:
+  type: reference
 ---
 
 # React Router — conventions

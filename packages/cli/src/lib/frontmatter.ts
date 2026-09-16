@@ -46,27 +46,110 @@ export function splitFrontmatter(raw: string): SplitResult {
   return { frontmatter: m[1]!, body: raw.slice(m[0].length) };
 }
 
-/** Parse simple `key: value` lines into a record (last write wins). Splitting on
- * `\r?\n` keeps a trailing CR off each line so CRLF-saved files parse. */
+/**
+ * Parse `key: value` lines into a record (last write wins). Splitting on
+ * `\r?\n` keeps a trailing CR off each line so CRLF-saved files parse.
+ *
+ * A key with NO inline value (e.g. `metadata:`) absorbs every following
+ * INDENTED line as part of its value, verbatim, prefixed with a leading `\n`
+ * — that is the one nested shape navori's own frontmatter needs (the host's
+ * `metadata:` map, #810), and it is what lets a block-style map survive this
+ * flat `Record<string, string>` model instead of being silently dropped: the
+ * nested lines never matched `FIELD_RE` on their own (they don't start a line
+ * with a bare key), so without this they were invisible to every reader and
+ * every re-serialize.
+ *
+ * The leading `\n` is deliberate, not decorative: an inline scalar's value
+ * (`kv[2]!.trim()`) can never start with one, so it is what tells
+ * `formatFrontmatterField` a value came from a block even when that block has
+ * exactly ONE line — `metadata:\n  type: reference` must not collapse into
+ * `metadata:   type: reference` on the next render just because there was
+ * nothing to distinguish it from a plain inline value once joined.
+ */
 export function parseFrontmatterFields(frontmatter: string): Record<string, string> {
   const out: Record<string, string> = {};
+  let currentKey: string | null = null;
+  let currentLines: string[] = [];
+  let currentIsBlock = false;
+
+  const flush = (): void => {
+    if (currentKey === null) return;
+    const joined = currentLines.join("\n");
+    out[currentKey] = currentIsBlock ? `\n${joined}` : joined;
+  };
+
   for (const line of frontmatter.split(/\r?\n/)) {
     const kv = line.match(FIELD_RE);
-    if (kv) out[kv[1]!] = kv[2]!.trim();
+    if (kv) {
+      flush();
+      currentKey = kv[1]!;
+      const inline = kv[2]!.trim();
+      currentIsBlock = inline === "";
+      currentLines = currentIsBlock ? [] : [inline];
+    } else if (currentKey !== null && /^[ \t]/.test(line)) {
+      currentLines.push(line);
+    }
+    // A blank/comment/unindented line outside any key's block is decoration
+    // (or a horizontal rule) — not part of any field, so it's dropped rather
+    // than misfiled onto whichever key came before it.
   }
+  flush();
   return out;
 }
 
 /** Read a single frontmatter field, or null when absent. The value capture stops
  * at the line's CR/LF so a CRLF frontmatter reads the same as LF (`.trim()`
- * cleans any residual whitespace). */
+ * cleans any residual whitespace). For a key with a nested block value (see
+ * `parseFrontmatterFields`), this returns only the inline part — empty string
+ * for `metadata:` — since a single line is exactly what a caller asking for
+ * "the value on this line" wants; the full block reads through
+ * `parseFrontmatterFields` instead. */
 export function getFrontmatterField(frontmatter: string, key: string): string | null {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const line = frontmatter.match(new RegExp(`^${escaped}:[ \\t]*([^\\r\\n]*)`, "m"));
   return line ? line[1]!.trim() : null;
 }
 
+/**
+ * Serialize one `key: value` frontmatter line, the counterpart to
+ * `parseFrontmatterFields`'s block-value read: a value that starts with `\n`
+ * (a nested map, e.g. `metadata` — see the leading-`\n` marker documented
+ * there) is written as `key:` followed by its lines verbatim, never squashed
+ * onto one line with the key.
+ */
+export function formatFrontmatterField(key: string, value: string): string {
+  return value.startsWith("\n") ? `${key}:${value}` : `${key}: ${value}`;
+}
+
 /** Strip the frontmatter and return the trimmed body. */
 export function stripFrontmatter(raw: string): string {
   return splitFrontmatter(raw).body.trim();
+}
+
+/**
+ * Read a scalar out of a nested map field, e.g. `metadata:` followed by
+ * indented `key: value` lines — the shape navori's own skill fields
+ * (`type`/`maxWords`/`maxWordsComposed`) use under the host's `metadata` map
+ * (#810). Plain string ops rather than a `fieldKey`-derived `new RegExp`
+ * (flagged by `detect-non-literal-regexp`, rightly — a caller-supplied key
+ * reaching the regex engine unescaped is exactly that shape) — the block has
+ * few, flat entries, so a split-and-compare is just as simple.
+ *
+ * Returns null when the map key is absent or the field isn't inside it.
+ */
+export function getFrontmatterMapField(
+  frontmatter: string,
+  mapKey: string,
+  fieldKey: string,
+): string | null {
+  const block = parseFrontmatterFields(frontmatter)[mapKey];
+  if (block === undefined) return null;
+  for (const line of block.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#")) continue;
+    const colon = trimmed.indexOf(":");
+    if (colon === -1) continue;
+    if (trimmed.slice(0, colon).trim() === fieldKey) return trimmed.slice(colon + 1).trim();
+  }
+  return null;
 }

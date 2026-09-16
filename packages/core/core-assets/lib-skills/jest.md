@@ -1,7 +1,8 @@
 ---
 name: jest
 description: Use when writing or fixing tests with Jest — config and transforms, jest.mock hoisting, clearMocks, fake timers, and the jest-expo preset for React Native.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Jest — conventions

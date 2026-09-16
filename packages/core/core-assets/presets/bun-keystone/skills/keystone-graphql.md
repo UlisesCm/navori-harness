@@ -1,7 +1,8 @@
 ---
 name: keystone-graphql
 description: Custom GraphQL in Keystone 6 — extendGraphqlSchema, the project-scoped gWithContext<Context>() builder, and the access guard every custom resolver must open with. Use when adding or touching a custom mutation, query or resolver.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Keystone Custom GraphQL — extendGraphqlSchema

@@ -8,6 +8,8 @@
  * can plug it back into the destination file without an extra pass.
  */
 
+import { formatFrontmatterField } from "../../lib/frontmatter.ts";
+
 export interface MergeFrontmatterResult {
   merged: Record<string, string>;
   serialized: string;
@@ -50,6 +52,6 @@ function serialize(merged: Record<string, string>, assetFm: Record<string, strin
   const assetKeys = Object.keys(assetFm);
   const extras = Object.keys(merged).filter((k) => !assetKeys.includes(k));
   const ordered = [...assetKeys, ...extras];
-  const lines = ordered.map((k) => `${k}: ${merged[k]}`);
+  const lines = ordered.map((k) => formatFrontmatterField(k, merged[k]!));
   return ["---", ...lines, "---"].join("\n");
 }

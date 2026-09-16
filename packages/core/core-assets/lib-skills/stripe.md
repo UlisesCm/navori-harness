@@ -1,7 +1,8 @@
 ---
 name: stripe
 description: Use when creating charges, checkout, subscriptions, or Stripe webhook handlers — Stripe payments integration: API selection (Checkout/Payment/Setup Intents), restricted keys, idempotency, and webhook verification.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Stripe — the canonical pattern

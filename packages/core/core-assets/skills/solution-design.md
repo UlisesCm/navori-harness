@@ -1,8 +1,9 @@
 ---
 name: solution-design
 description: Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, concurrency, critical area, hard-to-reverse decision) — decide WHAT to build and challenge it before decomposing into tasks.
-type: reference
-maxWords: 1050
+metadata:
+  type: reference
+  maxWords: 1050
 ---
 
 # solution-design — decide what to build, then try to break it

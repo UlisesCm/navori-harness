@@ -1,7 +1,8 @@
 ---
 name: maestro
 description: Use when writing or fixing Maestro E2E flows for a mobile app — YAML flows, testID selectors over localized text, clearState between flows, runFlow for shared steps, CI vs. local runs.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Maestro — conventions

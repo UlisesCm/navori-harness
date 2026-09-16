@@ -1,7 +1,8 @@
 ---
 name: citty
 description: Use when adding or editing a CLI command with citty — defineCommand, runMain, typed args (positional/string/boolean/enum), subCommands, and run/setup/cleanup hooks.
-type: reference
+metadata:
+  type: reference
 ---
 
 <!-- navori:managed id="citty" hash="68d15811" version="0.8.7" source="@navori/core" -->

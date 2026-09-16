@@ -1,8 +1,9 @@
 ---
 name: debug-error
 description: Use when a command fails or the runtime misbehaves and you don't have a root cause yet. Before touching code: make sure you actually SAW the error, classify what kind it is, and fix the ROOT CAUSE, not the symptom. Your stack's error patterns go in the user-section.
-type: behavior
-maxWords: 600
+metadata:
+  type: behavior
+  maxWords: 600
 ---
 
 # Debug error — diagnose before fixing

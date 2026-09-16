@@ -6,6 +6,7 @@ import { interpolate } from "../../lib/interpolate.ts";
 import type { FallbackScope } from "../../lib/placeholders.ts";
 import { expandHookIncludes } from "../../lib/hook-includes.ts";
 import { mergeFrontmatter } from "../claude/frontmatter-merge.ts";
+import { parseFrontmatterFields, formatFrontmatterField } from "../../lib/frontmatter.ts";
 
 /**
  * Render one bundled asset against the current destination file. Pure-ish:
@@ -117,6 +118,13 @@ function inferCommentStyle(path: string): CommentStyle {
  * Interpolate the asset frontmatter with omitUnresolvedKeyLines and parse
  * the result back into a map. We serialize → interpolate → parse so the
  * `omitUnresolvedKeyLines` rule (which operates on string lines) can fire.
+ * Serialize/parse delegate to `lib/frontmatter.ts` (#810) so a nested-map
+ * value (the host's `metadata:`, e.g. `type`/`maxWords`) round-trips through
+ * this pass instead of being flattened onto one line or dropped — that shared
+ * module is the one place both the block-continuation read and its paired
+ * write live, so this pass and the destination-frontmatter pass below can't
+ * drift apart on the shape they parse (#662's original hyphenated-key concern
+ * applies the same way to this shared implementation).
  */
 function interpolateFrontmatter(
   fm: Record<string, string>,
@@ -126,37 +134,14 @@ function interpolateFrontmatter(
 ): Record<string, string> {
   if (Object.keys(fm).length === 0) return {};
   const serialized = Object.entries(fm)
-    .map(([k, v]) => `${k}: ${v}`)
+    .map(([k, v]) => formatFrontmatterField(k, v))
     .join("\n");
   const interp = interpolate(serialized, config, {
     extraVars,
     omitUnresolvedKeyLines: true,
     fallbackScope,
   });
-  return parseKeyValueLines(interp);
-}
-
-/** Key charset kept in lockstep with `lib/frontmatter.ts` (#662): a
- *  hyphenated key such as the host's `disable-model-invocation` must survive
- *  the serialize → interpolate → parse round trip this module performs, not be
- *  dropped halfway through it. */
-const KEY_VALUE_LINE = /^([a-zA-Z_][a-zA-Z0-9_.-]*):\s*(.*)$/;
-
-/**
- * Parse `key: value` lines into a map; lines that don't match are dropped.
- * Shared by the asset-frontmatter and destination-frontmatter passes, which
- * parse the same shape.
- */
-function parseKeyValueLines(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of text.split("\n")) {
-    // Both groups are mandatory in the pattern, so the guard only ever fires
-    // on a non-matching line — it just also satisfies the index-access type.
-    const [, key, value] = KEY_VALUE_LINE.exec(line) ?? [];
-    if (key === undefined || value === undefined) continue;
-    out[key] = value.trim();
-  }
-  return out;
+  return parseFrontmatterFields(interp);
 }
 
 function assembleFresh(
@@ -186,7 +171,7 @@ function rerender(
   // `afterFm` are both strings (`afterFm` may legitimately be ""), and when it
   // doesn't, both are undefined and the whole file is the body.
   const [, fmBlock, afterFm] = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(existing) ?? [];
-  const destFm = fmBlock === undefined ? {} : parseKeyValueLines(fmBlock);
+  const destFm = fmBlock === undefined ? {} : parseFrontmatterFields(fmBlock);
   const restOfDest = afterFm ?? existing;
 
   // Asset WITH frontmatter: merge (asset wins for its keys). Asset WITHOUT
@@ -225,6 +210,6 @@ function rerender(
 }
 
 function serializeFrontmatter(fm: Record<string, string>): string {
-  const lines = Object.entries(fm).map(([k, v]) => `${k}: ${v}`);
+  const lines = Object.entries(fm).map(([k, v]) => formatFrontmatterField(k, v));
   return ["---", ...lines, "---"].join("\n");
 }

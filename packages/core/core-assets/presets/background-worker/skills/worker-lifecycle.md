@@ -1,7 +1,8 @@
 ---
 name: worker-lifecycle
 description: Lifecycle of a background worker in Node/TS — bootstrap, graceful shutdown, minimal healthcheck, no business HTTP served. Use when touching process startup/shutdown or the DB/broker connection.
-type: reference
+metadata:
+  type: reference
 ---
 
 # worker-lifecycle — start and shut down cleanly

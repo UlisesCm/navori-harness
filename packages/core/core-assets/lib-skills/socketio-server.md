@@ -1,7 +1,8 @@
 ---
 name: socketio-server
 description: Use when touching realtime on the SERVER — gateways or socket handlers in a Node service: namespaces, rooms, auth at the handshake, typed events, cleanup.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Socket.IO server — service conventions

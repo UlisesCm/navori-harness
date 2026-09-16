@@ -1,7 +1,8 @@
 ---
 name: queue-consumers
 description: Consume messages from a queue in a worker (amqplib / bullmq) — ack/nack, dead-letter, prefetch/backpressure, idempotency. Use when creating or touching a queue consumer.
-type: reference
+metadata:
+  type: reference
 ---
 
 # queue-consumers — consume without losing or duplicating

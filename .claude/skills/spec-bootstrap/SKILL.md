@@ -1,8 +1,9 @@
 ---
 name: spec-bootstrap
 description: Use when starting a real-scope feature before writing code — scaffolds a complete SDD spec (requirements/design/tasks) with EARS and R<n>↔test traceability.
-type: reference
-maxWords: 650
+metadata:
+  type: reference
+  maxWords: 650
 ---
 
 <!-- navori:managed id="spec-bootstrap" hash="f4da05fc" version="0.8.7" source="@navori/core" -->

@@ -1,7 +1,8 @@
 ---
 name: mongoose
 description: Use when touching a Mongoose model or running Mongoose ops in a service/controller — Mongoose patterns in TS: safe queries, populate, paginate, soft delete, ObjectId, avoiding N+1.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Mongoose — service conventions
