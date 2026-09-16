@@ -101,11 +101,14 @@ describe("every other mode is left alone (#579)", () => {
 
 /**
  * The prose half: an agent that cannot see the mode plans as if it were in the
- * one it knows. The table is what makes the difference actionable, so it has to
- * name every mode — a table missing one is a table that says "this mode does
- * not exist".
+ * one it knows. #813 pulled the full per-mode table OUT of the always-on
+ * managed block (it was reference lookup, not a standing order) into
+ * `docs/architecture.md`, which navori's own repo ships but does NOT render
+ * into every generated project. So the split is: the asset carries only the
+ * actionable one-liner + a pointer, and the full six-row table — missing one
+ * mode would say "this mode does not exist" — lives in architecture.md.
  */
-describe("the harness names all six modes (#579)", () => {
+describe("the harness names all six modes (#579, relocated by #813)", () => {
   const HERE = resolve(fileURLToPath(import.meta.url), "..");
   const ASSET = resolve(
     HERE,
@@ -120,22 +123,33 @@ describe("the harness names all six modes (#579)", () => {
   );
   const asset = readFileSync(ASSET, "utf-8");
 
+  const DOCS = resolve(HERE, "..", "..", "..", "..", "..", "docs", "architecture.md");
+  const docs = readFileSync(DOCS, "utf-8");
+
   it.each(["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"])(
-    "the permissions block tells the agent what `%s` changes",
+    "the reference table tells the agent what `%s` changes",
     (mode) => {
-      expect(asset).toContain(`| \`${mode}\` |`);
+      expect(docs).toContain(`| \`${mode}\` |`);
     },
   );
 
+  it("points the always-on asset at the official permission-modes doc", () => {
+    expect(asset).toContain("https://code.claude.com/docs/en/permission-modes");
+  });
+
   it("states which modes navori supports, so `dontAsk` is a decision and not a surprise", () => {
-    expect(asset).toContain("does not support");
+    expect(asset).toContain("`dontAsk` isn't supported");
   });
 
   it("states that `deny` rules still block under bypassPermissions, per the official docs (#804)", () => {
     // https://code.claude.com/docs/en/permission-modes: deny rules block in
     // every mode including bypassPermissions; allow rules have no effect there.
-    const row = asset.split("\n").find((line) => line.includes("| `bypassPermissions` |")) ?? "";
+    const row = docs.split("\n").find((line) => line.includes("| `bypassPermissions` |")) ?? "";
     expect(row).toContain("`deny` rules still block");
     expect(row).toContain("exit 2");
+  });
+
+  it("keeps the always-on asset under the 2000 B budget (#813)", () => {
+    expect(Buffer.byteLength(asset, "utf-8")).toBeLessThanOrEqual(2000);
   });
 });

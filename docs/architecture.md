@@ -124,6 +124,21 @@ regeneración es idempotente y nunca pisa lo que está fuera de los markers.
 - **Fuera de los markers** → tuyo, intocable. Ese es el moat: regeneración
   idempotente sin destruir tu trabajo. Ver [marker.ts](../packages/cli/src/lib/marker.ts).
 
+## 5. Modos de permiso de Claude Code — tabla de referencia
+
+Referencia de lookup (no una orden always-on): el bloque managed
+`operaciones-seguras` solo enlaza aquí. El modo lo fija el host, no el agente.
+Doc oficial: https://code.claude.com/docs/en/permission-modes
+
+| Mode | Runs without asking | What it changes for you |
+|---|---|---|
+| `default` | reads only | every edit and every command prompts: batch them and explain before asking |
+| `acceptEdits` | reads, edits, common FS commands | edit freely; the shell still prompts outside the read-only set |
+| `plan` | reads, plus classifier-approved commands | **you do not write**: the architectural pass, `ticket-audit` and an SDD spec ARE this mode's work; leave the mode to execute |
+| `auto` | everything, classifier-reviewed | every shell command pays a classifier round-trip; reads, in-workspace edits and `allow`-covered MCP calls don't, so `cmd1 && cmd2` in one call beats two |
+| `dontAsk` | only what is pre-approved | `Edit`/`Write` are NOT in navori's `allow` and the mode denies `AskUserQuestion` outright: the implement/review cycle cannot run. The one mode navori does not support today — use `default`, `acceptEdits`, `plan` or `auto` |
+| `bypassPermissions` | everything | prompts are skipped and `allow` rules stop having any effect — but `deny` rules still block, in this mode as in every other, and so does the hook (`exit 2` blocks in any mode). Isolated environments only |
+
 ## Archivos clave
 
 | Pieza | Archivo |
