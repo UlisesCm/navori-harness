@@ -455,22 +455,67 @@ describe("adaptHarnessTextForCodex — the vocabulary rules (#443)", () => {
     expect(adaptHarnessTextForCodex(input, config({ language: "en" }))).toBe(input);
   });
 
-  // #823 — Claude's `disable-model-invocation: true` has no confirmed Codex
-  // equivalent (see compat.ts); it is stripped rather than copied raw, since
-  // `placeSkill` otherwise passes frontmatter through unchanged.
-  it("strips disable-model-invocation — no confirmed Codex equivalent", () => {
-    const input = "---\nname: spec-bootstrap\ndisable-model-invocation: true\n---\n\nBODY\n";
-    expect(adaptHarnessTextForCodex(input, config({ language: "en" }))).not.toContain(
-      "disable-model-invocation",
+  // #823 — Codex has no `/` slash commands; a manual-only skill is invoked
+  // with `$<skill>` (https://developers.openai.com/codex/skills).
+  it("rewrites the /spec-bootstrap citation to $spec-bootstrap", () => {
+    expect(adaptHarnessTextForCodex("ask the user to run `/spec-bootstrap`.", config())).toBe(
+      "ask the user to run `$spec-bootstrap`.",
     );
   });
 });
 
-describe("renderCodexEngine — spec-bootstrap (#823)", () => {
+describe("renderCodexEngine — manual-only skill sidecar (#823)", () => {
   it("does not copy disable-model-invocation into the rendered SKILL.md", () => {
     const cwd = tempRepo();
     renderCodexEngine(cwd, config());
     const skill = readFileSync(join(cwd, ".agents/skills/spec-bootstrap/SKILL.md"), "utf-8");
     expect(skill).not.toContain("disable-model-invocation");
+  });
+
+  it("emits agents/openai.yaml for a flagged skill (spec-bootstrap)", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const yaml = readFileSync(
+      join(cwd, ".agents/skills/spec-bootstrap/agents/openai.yaml"),
+      "utf-8",
+    );
+    expect(yaml).toContain("policy:");
+    expect(yaml).toContain("allow_implicit_invocation: false");
+  });
+
+  it("does not emit agents/openai.yaml for an unflagged skill", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    // structural-search has no disable-model-invocation in its source frontmatter.
+    expect(existsSync(join(cwd, ".agents/skills/structural-search/agents/openai.yaml"))).toBe(
+      false,
+    );
+  });
+
+  it("uses Codex's $ invocation, not the slash form, in AGENTS.md", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+    expect(agentsMd).toContain("$spec-bootstrap");
+    expect(agentsMd).not.toContain("/spec-bootstrap");
+  });
+
+  it("prunes a stale openai.yaml once the skill stops declaring disable-model-invocation", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const yamlPath = join(cwd, ".agents/skills/spec-bootstrap/agents/openai.yaml");
+    expect(existsSync(yamlPath)).toBe(true);
+
+    // Simulate the flag being dropped from the source asset between renders by
+    // hand-editing the rendered SKILL.md's disabled state is not representative
+    // (the source asset is what `isManualOnlySkill` reads) — instead, disable
+    // the harness's spec-bootstrap altogether via `sdd.enabled: false`, which
+    // removes the skill from the plan and must prune BOTH its SKILL.md and the
+    // now-orphaned sidecar.
+    const withoutSdd = config({ sdd: { enabled: false } });
+    renderCodexEngine(cwd, withoutSdd);
+
+    expect(existsSync(yamlPath)).toBe(false);
+    expect(existsSync(join(cwd, ".agents/skills/spec-bootstrap/SKILL.md"))).toBe(false);
   });
 });

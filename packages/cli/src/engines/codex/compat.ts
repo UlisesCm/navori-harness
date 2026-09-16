@@ -93,6 +93,12 @@ export const CODEX_VOCABULARY: ReadonlyArray<readonly [from: string, to: string]
   // the operative instruction does not change either way — but do not cite it
   // as evidence of Codex behaviour. (#443)
   ["Claude serializes by default", "Codex serializes by default"],
+  // #823: Codex has no `/`-prefixed slash commands — a manual-only skill is
+  // invoked with `$<skill>` (https://developers.openai.com/codex/skills). Only
+  // this one literal token exists in the harness's own prose today (`sdd.md`,
+  // `orquestacion.md`), so a single entry covers it; a real slash→`$` mechanism
+  // is not worth building for one citation.
+  ["/spec-bootstrap", "$spec-bootstrap"],
 ];
 
 /**
@@ -122,19 +128,15 @@ export const CODEX_VOCABULARY: ReadonlyArray<readonly [from: string, to: string]
  * so the next reader does not re-add a language branch.
  */
 export function adaptHarnessTextForCodex(content: string, _config: NavoriConfig): string {
+  // #823: dropping Claude's `disable-model-invocation` does NOT live here.
+  // This function is a generic prose adapter — it also runs over AGENTS.md and
+  // every agent `.toml` (see `proseSurfaces` in render-codex.test.ts), neither
+  // of which carries skill frontmatter, so a frontmatter-shaped rule has no
+  // business in a pass that isn't scoped to skill files. The strip (plus the
+  // native `agents/openai.yaml` sidecar it's replaced by) lives in
+  // `codex/index.ts`'s `placeSkill`, the one call site that actually places a
+  // skill's frontmatter.
   const retargeted = content
-    // #823: Claude's `disable-model-invocation: true` (a real host field,
-    // https://code.claude.com/docs/en/skills) opts a skill out of automatic
-    // loading. `placeSkill` copies frontmatter raw, so left alone this line
-    // would leak into `.agents/skills/<id>/SKILL.md` unexplained. No primary
-    // Codex doc for an equivalent could be reached from this repo; a THIRD
-    // PARTY harness's own research notes (docs/research/deepseek-harness-
-    // lessons.md §9.4) describe a candidate — a sibling `agents/openai.yaml`
-    // with `allow_implicit_invocation: false` — but that is secondhand and
-    // unverified against OpenAI's docs, not a confirmed Codex mechanism. Strip
-    // the Claude-only line rather than ship an unverified guess; revisit once
-    // the Codex docs are confirmed.
-    .replace(/^disable-model-invocation:[ \t]*.*\r?\n/m, "")
     .replaceAll(".claude/agents/leader.md", "AGENTS.md")
     // Any OTHER agent citation points at the file Codex actually reads: a
     // standalone TOML under `.codex/agents/`. `leader` is the exception above
