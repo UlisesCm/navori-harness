@@ -172,4 +172,25 @@ describe("render .gitignore — pre-write backup (#458)", () => {
     expect(gitignore()).toBe(USER_RULES);
     expect(backupIds()).toEqual(before);
   });
+
+  // Covers: C03 — the pre-write snapshot/restore path is unaffected by which
+  // entries the body carries; a v2 plugin being active only changes the body,
+  // never the backup plumbing.
+  it("still snapshots the user's file before injecting, with codegraph/tgrep active", () => {
+    config({
+      engines: ["claude", "codex"],
+      gitignoreHarness: "full",
+      plugins: { codegraph: { enabled: true }, tgrep: { enabled: true } },
+    });
+    writeFileSync(join(cwd, ".gitignore"), USER_RULES);
+
+    const result = runRender(cwd, { dryRun: false });
+
+    expect(result.gitignore?.status).toBe("created");
+    const backup = result.gitignore?.backupPath;
+    expect(backup).toBeTruthy();
+    expect(readFileSync(join(backup as string, ".gitignore"), "utf-8")).toBe(USER_RULES);
+    expect(gitignore()).toContain(".codegraph/");
+    expect(gitignore()).toContain(".tgrep/");
+  });
 });
