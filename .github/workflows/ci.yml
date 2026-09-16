@@ -92,6 +92,11 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      # #819 — nothing else in this job walks the repo's `.md` files;
+      # `format:check` above covers only `packages/cli/src` and `apps/website/src`.
+      - name: Dead link check
+        run: pnpm check:links
+
       # The hook suites run under bash AND zsh (#391) — the hooks execute with
       # whatever shell the host wires in — and ubuntu-latest ships without zsh.
       # The tests skip the zsh rows cleanly when the binary is missing, so this
