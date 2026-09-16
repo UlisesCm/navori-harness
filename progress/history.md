@@ -10,6 +10,73 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-16 13:45 — orchestrator — programa de 22 issues de la auditoría: 15/22 cerrados, dos rebases con conflicto real resueltos en vivo
+
+- **Cambios**: 15 issues resueltos vía `implementer → reviewer → commit-pr-pilot`, 1 PR por issue.
+  11 mergeados (#827–#830, #831–#834, #835–#837, #841), 3 abiertos y aprobados esperando merge
+  (#842, #843, #844). `progress/current.md` reescrito con el mapeo completo y el backlog restante.
+- **Quality gate**: ✅ verde en cada PR (gate completo corrido de forma independiente por el
+  reviewer en cada ciclo, dos veces en los que necesitaron rebase). Un flake preexistente y no
+  relacionado (`doctor-json-checks.e2e.test.ts`) confirmado en aislamiento múltiples veces, nunca
+  atribuido a este trabajo.
+- **Commit / PR**: #827, #828, #829, #830, #831, #832, #833, #834, #835, #836, #837, #841 (mergeados) ·
+  #842, #843, #844 (abiertos, aprobados).
+
+**Goal**: implementar el plan de PRs (1 por issue) sobre los 22 issues abiertos por la auditoría de
+6 harnesses de referencia (2026-09-15), empezando por las correcciones de seguridad/doctrina en
+área crítica, siguiendo con higiene barata, y terminando la poda de `CLAUDE.md`.
+
+**Discoveries**:
+- **`main` se movió más rápido que el propio ciclo de trabajo**: 4 de los 15 issues necesitaron
+  rebase a mitad de ciclo por PRs externos mergeándose en paralelo; dos de ellos (#810/#824,
+  #814) tuvieron conflicto REAL de merge, resuelto siempre por el `implementer` con criterio —
+  nunca por el orquestador a mano. El patrón "rebase → delta re-sign del reviewer → commit"
+  demostró ser robusto en las 4 ocasiones.
+- **`PR #838` revirtió la retirada de tgrep/codegraph de #803** a mitad de esta sesión, dejando
+  desactualizados dos PRs ya mergeados de este mismo programa: #822 (`DIRECTION.md`, tabla de
+  "retirados") y #824 (`structural-search.md`, doctrina escrita asumiendo su ausencia). Sin
+  resolver, fuera de alcance — queda como issue de seguimiento recomendado.
+- **Riesgo de concurrencia real, no teórico**: los subagentes comparten el working directory con
+  la sesión principal. Durante #814, un `git stash`/`reset --hard` de un subagente casi pisa el
+  trabajo de otro (recuperado sin pérdida vía `git stash list`/reflog). Además había OTRA sesión
+  activa en el mismo repo dejando un archivo sin trackear — el `commit-pr-pilot` debe agregar
+  archivos EXPLÍCITOS del receipt, nunca `git add -A`/`.`, para no commitear contenido ajeno por
+  accidente.
+- **`CLAUDE.md` de este repo self-hosted mezcla bloques managed y prosa manual** sin aviso — la
+  sección `## Quality gate`, por ejemplo, NO tiene markers `navori:managed` y se edita
+  directamente, a diferencia de `operaciones-seguras` o `engram-protocol`, que sí lo son. Hay que
+  verificar con `grep -n "navori:managed"` antes de decidir cómo editar cualquier sección.
+- **`pnpm test:golden` es obligatorio tras tocar cualquier core-asset**, no solo suites "targeted"
+  — un reviewer rechazó el primer intento de #806 exactamente por esto, y se volvió instrucción
+  estándar del resto del programa.
+- **El binario `navori` global instalado es v0.8.7 obsoleto** — usar el build local
+  (`pnpm --filter navori build && node packages/cli/dist/index.js <cmd>`) para cambios
+  self-hosted en este repo.
+- **Auto-verificación de #814 y #818**: ambos issues modificaban la doctrina de los agentes que
+  el propio ciclo de esa sesión usa (`engram-subagent`/`explorer`/`researcher` en #814;
+  `reviewer`/`commit-pr-pilot` en #818) — el hecho de que sus propios ciclos se completaran sin
+  encontrar carencias fue la evidencia en vivo que sus criterios de aceptación pedían, no una
+  suposición.
+
+**Accomplished**: 12 PRs mergeados + 3 abiertos y aprobados. Fase 0 y Fase 1 completas (8 issues).
+Fase 2 (poda de `CLAUDE.md`) completa salvo #815 (que debe ir después, ya desbloqueado): `CLAUDE.md`
+bajó de 240 a 199 líneas; el bloque `engram-protocol` se retiró por completo (movido a skills vía
+`injectInto` + core-assets directos, sin ensanchar el grant de tools de `explorer`/`researcher`);
+`operaciones-seguras` bajó de ~3.9KB a 1999B; `commit-pr-pilot`/`leader`/`reviewer` bajaron de
+tamaño de-duplicando doctrina ya entregada por otra vía.
+
+**Next Steps**: mergear #842/#843/#844 · seguir con #815 (gate de techo de palabras) · Fase 3
+(#820 partir el gate por superficie, #819 gate de enlaces muertos) · Fase 4 (#809 decisión de
+usuario sobre Auto Memory vs engram, #823 spec 0025, #821 registro de capacidades por motor, #825
+política de retiro de `.claude/progress/`) · decidir si se abre issue de seguimiento por el
+hallazgo de #838 vs #822/#824.
+
+**Relevant Files**: `progress/current.md` (mapeo completo issue→PR) · `docs/DIRECTION.md`
+(convención de #816, criterio de admisión de #822) · `CLAUDE.md` · `CONTRIBUTING.md` (rationale
+del quality gate movido ahí por #811) · `docs/architecture.md` (tabla de permisos movida ahí por
+#813) · `packages/plugins/engram/skills/{engram-leader,engram-subagent}.md` (#814) ·
+`packages/core/core-assets/agents/{commit-pr-pilot,leader,reviewer}.md` (#818).
+
 ## 2026-09-13 22:16 — orchestrator — la jornada del cableado: cuatro rondas arreglaron el contenido y lo roto era el entorno
 
 - **Cambios**: 12 PRs mergeados a `main` (#745–#785); en esta sesión de cierre,
