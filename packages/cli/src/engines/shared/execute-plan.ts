@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
 import { writeFileAtomic } from "../../lib/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
@@ -58,8 +58,17 @@ export interface OrphanScan {
   match: (name: string) => boolean;
   /** Desired rel paths that must NOT be removed. */
   desired: ReadonlySet<string>;
-  /** "file" removes the file; "skill-dir" removes `<dir>/<name>` when SKILL.md is its only child. */
-  shape: "file" | "skill-dir";
+  /**
+   * "file" removes the file; "skill-dir" removes `<dir>/<name>` when SKILL.md
+   * is its only child; "skill-nested-file" removes `<dir>/<name>/<nestedRelPath>`
+   * when a skill keeps existing but stops wanting that one nested file (e.g. a
+   * skill's `agents/openai.yaml` sidecar after `disable-model-invocation` is
+   * dropped, #823) — same "delete only when now-orphaned" rule as "skill-dir",
+   * scoped one level deeper so the skill directory itself survives.
+   */
+  shape: "file" | "skill-dir" | "skill-nested-file";
+  /** Path from the skill dir to the nested file. Required when shape is "skill-nested-file". */
+  nestedRelPath?: string;
 }
 
 export interface AdapterCtx {
@@ -272,6 +281,19 @@ function collectOrphans(scans: readonly OrphanScan[], cwd: string): PendingRemov
         if (!scan.desired.has(relPath) && isRemovableNavoriFile(absPath)) {
           removals.push({ path: absPath });
         }
+        continue;
+      }
+      if (scan.shape === "skill-nested-file") {
+        if (!entry.isDirectory() || !scan.match(entry.name)) continue;
+        const nestedRelPath = scan.nestedRelPath;
+        if (nestedRelPath === undefined) continue; // misconfigured scan — nothing to check
+        const relPath = `${scan.dir}/${entry.name}/${nestedRelPath}`;
+        const nestedAbs = join(dirAbs, entry.name, nestedRelPath);
+        if (scan.desired.has(relPath) || !isRemovableNavoriFile(nestedAbs)) continue;
+        const parentDir = dirname(nestedAbs);
+        const children = readDirSafe(parentDir);
+        const onlyNested = children.length === 1 && children[0]?.name === basename(nestedRelPath);
+        removals.push({ path: onlyNested ? parentDir : nestedAbs, recursive: onlyNested });
         continue;
       }
       // skill-dir
