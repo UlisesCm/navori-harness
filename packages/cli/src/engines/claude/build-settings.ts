@@ -358,8 +358,16 @@ export function buildClaudeSettings(
             // #527: sweep agent worktrees whose work provably survived. It
             // shares this event because the answer only exists at the end —
             // when a subagent stops its PR usually does not exist yet, so
-            // nothing could prove the branch was safe to drop. `gh` calls make
-            // it slower than its neighbour, hence the wider timeout.
+            // nothing could prove the branch was safe to drop.
+            //
+            // #805: the two `timeout` values below are NOT independent lanes.
+            // Per the official docs, SessionEnd hooks share a single execution
+            // budget (1.5s by default) that Claude Code raises to match the
+            // highest per-hook `timeout` declared here, capped at 60s — so
+            // `audit-mode-close` (10) and this hook (30) share 30s TOTAL, not
+            // 10+30 in series. The 30 exists to raise that shared ceiling high
+            // enough for this hook's `gh` calls; `audit-mode-close` free-rides
+            // on it and does not get 10 extra seconds of its own.
             {
               type: "command",
               command: `bash "$CLAUDE_PROJECT_DIR/${WORKTREE_RECLAIM_HOOK_DEST}"`,
