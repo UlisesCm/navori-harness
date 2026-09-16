@@ -143,8 +143,8 @@ describe("renderCodexEngine", () => {
     const result = renderCodexEngine(cwd, config());
     const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
 
-    // A phrase unique to the leader extension (absent from the base engram protocol).
-    expect(agentsMd).toContain("decomposing work");
+    // A phrase unique to the leader extension.
+    expect(agentsMd).toContain("Before decomposing");
     // Marked as a managed sub-block owned by the engram plugin.
     expect(agentsMd).toContain('id="engram-leader-extension"');
     expect(agentsMd).toContain('source="@navori/plugin-engram"');

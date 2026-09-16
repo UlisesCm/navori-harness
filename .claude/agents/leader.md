@@ -171,22 +171,15 @@ If the task is:
 - A single trivial line in a known file → may not be worth the overhead.
 <!-- /navori:managed id="leader-base" -->
 
-<!-- navori:managed id="engram-leader-extension" hash="8586d1d9" version="0.8.7" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-leader-extension" hash="fd101e19" version="0.8.7" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
-Before decomposing work: **search for context** with `mem_search` using keywords from the ticket. If you find a previous audit of the same area or a related architectural decision, read it before dispatching the `implementer`. Don't re-discover what's already saved.
-
-After each architectural decision, new plugin or convention established in the session: a proactive `mem_save` with a `title`, the appropriate type (`decision`, `convention`, `pattern`, `bugfix`) and a stable `topic_key`. Reuse the key to evolve the topic without piling up snapshots. Save durable pointers; lines, signatures and call sites are verified in code and not persisted.
-
-Before closing the session: a mandatory `mem_session_summary` — exempt only under **lean close** (see the session closeout block) — with:
-
-- `goal` — what was attempted.
-- `discoveries` — gotchas, critical files, intermediate decisions.
-- `accomplished` — what got done.
-- `next_steps` — what's left (with concrete paths).
-- `relevant_files` — paths a future agent should read first.
-
-In the same turn as the summary, curate the session: consolidate duplicates, fix contradicted memories and delete only clearly volatile or redundant content. Never aggressively prune durable decisions. Under **lean close** the curation is exempt too; `mem_save` never is.
+- **Session start:** engram's `SessionStart` hook covers `startup`, `clear`, `compact` — **not `resume`**. Where memory is already injected, work with it — `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.
+- Before decomposing: `mem_search` with the ticket's keywords. Read a prior decision before dispatching the `implementer`.
+- After each decision: `mem_save` with a `title`, a type and a stable `topic_key` — reuse it, don't snapshot. If a memory contradicts the code, fix it with `mem_update`.
+- `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
+- **Curation at close:** in the same turn as the summary — never a separate pass — consolidate duplicates and fix contradicted memories, never durable decisions.
+- **Lean close**: the summary and the curation step are exempt; `mem_save` is not.
 <!-- /navori:managed id="engram-leader-extension" -->
 
 <!-- navori:managed id="codex-cross-review" hash="3b75baab" version="0.8.7" source="@navori/core" -->

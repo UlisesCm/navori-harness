@@ -67,14 +67,17 @@ describe("plugin lifecycle cleanup (#80)", () => {
   });
 
   it("removes a disabled plugin's managed block from CLAUDE.md", () => {
-    writeCfg({ engram: { enabled: true } });
+    // engram carries no CLAUDE.md-wide block anymore (#814; its doctrine is a
+    // skill injected straight into the agents that hold `mem_*` tools) — gh
+    // still does, so it covers this scenario.
+    writeCfg({ gh: { enabled: true } });
     runRender(cwd, false);
     const claudeMd = join(cwd, "CLAUDE.md");
-    expect(readFileSync(claudeMd, "utf-8")).toContain('id="engram-protocol"');
+    expect(readFileSync(claudeMd, "utf-8")).toContain('id="gh-protocol"');
 
-    writeCfg({ engram: { enabled: false } });
+    writeCfg({ gh: { enabled: false } });
     runRender(cwd, false);
-    expect(readFileSync(claudeMd, "utf-8")).not.toContain('id="engram-protocol"');
+    expect(readFileSync(claudeMd, "utf-8")).not.toContain('id="gh-protocol"');
   });
 
   it("cleanup is idempotent: re-rendering a disabled plugin is a no-op", () => {

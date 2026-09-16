@@ -297,9 +297,8 @@ describe("C06 — v2 render doesn't disturb other plugins' settings/MCP/hooks fr
   it("engram, jscpd and semgrep keep their exact fragments with both v2 plugins active", () => {
     renderClaudeEngine(cwd, multiPluginConfig(true, true));
 
-    const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
-    expect(claudeMd).toContain('id="engram-protocol"');
-
+    // engram carries no CLAUDE.md-wide block (#814); its fragment lives in the
+    // leader's own file instead.
     const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
     expect(leader).toContain('id="engram-leader-extension"');
     expect(agentTools(leader)).toEqual(
@@ -325,11 +324,12 @@ describe("C06 — v2 render doesn't disturb other plugins' settings/MCP/hooks fr
     renderClaudeEngine(cwd, multiPluginConfig(false, false));
 
     const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
-    expect(claudeMd).toContain('id="engram-protocol"');
     expect(claudeMd).not.toContain('id="codegraph-search-v2"');
     expect(claudeMd).not.toContain('id="tgrep-search-v2"');
 
     const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    // engram carries no CLAUDE.md-wide block (#814); check its own fragment survives instead.
+    expect(leader).toContain('id="engram-leader-extension"');
     expect(agentTools(leader)).toContain("mcp__engram__*");
     expect(agentTools(leader)).not.toContain("mcp__codegraph__*");
 

@@ -2,14 +2,8 @@
   "id": "engram",
   "name": "Engram persistent memory",
   "description": "Memory persistence across Claude Code sessions via MCP server",
-  "version": "0.0.3",
-  "managed": [
-    {
-      "id": "engram-protocol",
-      "file": "managed/engram-protocol.md",
-      "recommendedAgent": "leader"
-    }
-  ],
+  "version": "0.0.4",
+  "managed": [],
   "externalTool": {
     "name": "engram",
     "checkBinary": "engram",
