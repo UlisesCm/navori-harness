@@ -153,3 +153,30 @@ export function getFrontmatterMapField(
   }
   return null;
 }
+
+/**
+ * Drop one top-level frontmatter field (and its nested block, if it has one),
+ * leaving every other field, order, and the body untouched.
+ *
+ * #823: a field can be real for one rendering surface and meaningless for
+ * another — Claude Code's `disable-model-invocation` has no bearing on the
+ * Codex render, which expresses the same intent through a sidecar file
+ * instead. Rebuilding via `parseFrontmatterFields`/`formatFrontmatterField`
+ * (rather than a line-skip regex) reuses the same block-aware parse the rest
+ * of this module already trusts, so a multi-line value under the dropped key
+ * can never leave orphaned indented lines behind.
+ *
+ * Returns `raw` unchanged when there is no frontmatter or the key is absent —
+ * the common case, so a caller can call this unconditionally per render.
+ */
+export function removeFrontmatterField(raw: string, key: string): string {
+  const { frontmatter, body } = splitFrontmatter(raw);
+  if (frontmatter === "") return raw;
+  const fields = parseFrontmatterFields(frontmatter);
+  if (!(key in fields)) return raw;
+  const rebuilt = Object.entries(fields)
+    .filter(([k]) => k !== key)
+    .map(([k, v]) => formatFrontmatterField(k, v))
+    .join("\n");
+  return `---\n${rebuilt}\n---\n${body}`;
+}

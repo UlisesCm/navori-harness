@@ -6,6 +6,7 @@ import {
   getFrontmatterMapField,
   formatFrontmatterField,
   stripFrontmatter,
+  removeFrontmatterField,
 } from "../frontmatter.ts";
 
 const WITH_FM = "---\nname: foo\ntype: behavior\n---\n# Body\n\ntext\n";
@@ -163,5 +164,30 @@ describe("getFrontmatterMapField — scalars nested under a map key (#810)", () 
       "  maxWords: 500",
     ].join("\n");
     expect(getFrontmatterMapField(withComment, "metadata", "type")).toBe("reference");
+  });
+});
+
+describe("removeFrontmatterField — drop one key, keep everything else (#823)", () => {
+  it("drops a scalar field, preserving the rest and the body", () => {
+    const raw =
+      "---\nname: spec-bootstrap\ndisable-model-invocation: true\ntype: reference\n---\n\nBODY\n";
+    const out = removeFrontmatterField(raw, "disable-model-invocation");
+    expect(out).toBe("---\nname: spec-bootstrap\ntype: reference\n---\n\nBODY\n");
+  });
+
+  it("drops a block-value field (nested map) whole", () => {
+    const raw = "---\nname: foo\nmetadata:\n  type: reference\n  maxWords: 600\n---\n\nBODY\n";
+    const out = removeFrontmatterField(raw, "metadata");
+    expect(out).toBe("---\nname: foo\n---\n\nBODY\n");
+  });
+
+  it("returns the input unchanged when the key is absent", () => {
+    const raw = "---\nname: foo\n---\n\nBODY\n";
+    expect(removeFrontmatterField(raw, "disable-model-invocation")).toBe(raw);
+  });
+
+  it("returns the input unchanged when there is no frontmatter", () => {
+    const raw = "# just a body\n";
+    expect(removeFrontmatterField(raw, "disable-model-invocation")).toBe(raw);
   });
 });
