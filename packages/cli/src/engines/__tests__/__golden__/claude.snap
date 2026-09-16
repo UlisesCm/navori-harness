@@ -9874,6 +9874,9 @@ esac
       "Bash(git checkout -- .)",
       "Bash(git checkout .)",
       "Bash(git branch -D *)",
+      "Bash(git branch --delete*)",
+      "Bash(git stash drop*)",
+      "Bash(git stash clear*)",
       "Bash(chmod -R *)"
     ],
     "deny": [
