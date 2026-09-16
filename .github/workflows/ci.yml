@@ -97,6 +97,13 @@ jobs:
       - name: Dead link check
         run: pnpm check:links
 
+      # #815 — root `CLAUDE.md` and the managed blocks under
+      # `packages/core/core-assets/managed/*.md` render into every session, so
+      # an unbounded one grows by accretion. Extends the `SKILL_TYPE_CAPS`
+      # word-cap primitive to that prose.
+      - name: Doc word budgets
+        run: pnpm check:doc-budgets
+
       # The hook suites run under bash AND zsh (#391) — the hooks execute with
       # whatever shell the host wires in — and ubuntu-latest ships without zsh.
       # The tests skip the zsh rows cleanly when the binary is missing, so this

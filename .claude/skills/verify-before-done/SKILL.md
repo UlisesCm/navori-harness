@@ -9,7 +9,7 @@ metadata:
   maxWords: 1050
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="5fd0a3ef" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="ac53c94e" version="0.8.7" source="@navori/core" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -49,7 +49,7 @@ Skipping any step = a lie, not verification.
 | Claim | Required output | Not sufficient |
 |---|---|---|
 | `cd packages/cli && pnpm lint` green | Full command run this turn with exit 0 | "ran it before", "should be green", "lint passed yesterday" |
-| `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green | Same — fresh exit 0 this turn | "the dev server runs", "build passed a while ago" |
+| `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green | Same — fresh exit 0 this turn | "the dev server runs", "build passed a while ago" |
 | Zero new errors vs baseline | `git stash` → re-run → compare counts → `git stash pop` | "lint said OK" without comparing baseline |
 | UI validated in the browser (only if the user asked) | Observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed", "the diff covers the case" |
@@ -89,7 +89,7 @@ Skipping any step = a lie, not verification.
 - **`commit-pr-pilot`**: in its pre-flight, before touching `gh`.
 - **Any agent**: before telling the user "done" in any code-task response.
 
-`CLAUDE.md` § Session closeout mentions `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green; this skill adds the "fresh evidence" rigor plus the UI / bug-fixed dimensions the quality gate doesn't touch.
+`CLAUDE.md` § Session closeout mentions `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green; this skill adds the "fresh evidence" rigor plus the UI / bug-fixed dimensions the quality gate doesn't touch.
 
 ## Anti-patterns
 

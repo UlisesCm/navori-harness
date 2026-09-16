@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="71360471" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="926a3983" version="0.8.7" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -22,7 +22,7 @@ There used to be a ladder (inline for small changes, delegate for the rest). It 
 - **1 focused `implementer`** with an explicit scope (no SDD state), then **1 fresh `reviewer`**. Serial — the reviewer depends on the implementer's output.
 - **Review AFTER implementing, never before.**
 - **Parallel `implementer`s only on disjoint files** (when in doubt, serial).
-- **`pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green** is the reviewer's Pass 2, over the diff that ships.
+- **`pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green** is the reviewer's Pass 2, over the diff that ships.
 
 ### How much analysis does this task deserve (signal → mechanism)
 
@@ -50,7 +50,7 @@ Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so
 
 ### When delegation is genuinely impossible
 
-Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` tool is unavailable. Then you do the work and **say so in your reply, naming the reason** — the `commit-pr-pilot` will require `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
+Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` tool is unavailable. Then you do the work and **say so in your reply, naming the reason** — the `commit-pr-pilot` will require `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
 
 ### Where the depth lives (read it when the moment asks)
 
