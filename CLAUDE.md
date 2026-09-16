@@ -122,7 +122,7 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 Exception: `// any justified: <reason>` — last resort, not a shortcut. If there's no clear reason, it's not justified.
 <!-- /navori:managed id="tipado-fuerte" -->
 
-<!-- navori:managed id="operaciones-seguras" hash="c1900f32" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="operaciones-seguras" hash="49aeafc8" version="0.8.7" source="@navori/core" -->
 ## Operations on data and infrastructure
 
 Read-only by default. Before mutating data, schema, or infrastructure (DB, storage, deploys, cloud resources), read and propose; don't mutate without the user's explicit opt-in for THIS task.
@@ -145,7 +145,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, stora
 | `plan` | reads, plus classifier-approved commands | **you do not write**: the architectural pass, `ticket-audit` and an SDD spec ARE this mode's work; leave the mode to execute |
 | `auto` | everything, classifier-reviewed | every shell command pays a classifier round-trip; reads, in-workspace edits and `allow`-covered MCP calls don't, so `cmd1 && cmd2` in one call beats two |
 | `dontAsk` | only what is pre-approved | `Edit`/`Write` are NOT in navori's `allow` and the mode denies `AskUserQuestion` outright: the implement/review cycle cannot run. The one mode navori does not support today — use `default`, `acceptEdits`, `plan` or `auto` |
-| `bypassPermissions` | everything | the docs do not say whether the harness's `deny` rules still apply, so do not rely on them; what does block is the hook (`exit 2` blocks in any mode). Isolated environments only |
+| `bypassPermissions` | everything | prompts are skipped and `allow` rules stop having any effect — but `deny` rules still block, in this mode as in every other, and so does the hook (`exit 2` blocks in any mode). Isolated environments only |
 <!-- /navori:managed id="operaciones-seguras" -->
 
 <!-- navori:managed id="sdd" hash="ea9d8726" version="0.8.7" source="@navori/core" -->
