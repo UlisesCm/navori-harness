@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { readFileSync, readdirSync, existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 
 /**
  * Single-copy invariants of the protocol prose.
@@ -166,5 +167,82 @@ describe(".claude/progress/ is created, never assumed (F9)", () => {
       permissions: { allow: string[] };
     };
     expect(settings.permissions.allow).toContain("Bash(mkdir -p:*)");
+  });
+});
+
+/**
+ * #issue agents-background-wait — a gate that outlives the Bash timeout moves
+ * to background (per Claude Code docs), and an agent with no wait primitive
+ * improvises a `pgrep`/`ps | grep` loop. That loop matches its own command
+ * line (it contains the pattern it's polling for) and other sessions'
+ * processes too, so it never exits — the reviewer looked stuck for ~10 min
+ * with 9 orphaned background tasks.
+ *
+ * Fix: the three agents that run a quality gate carry `Monitor`/`TaskStop`,
+ * `verify-before-done` owns the wait rule, and no asset anywhere prescribes
+ * the polling loop.
+ */
+describe("background-gate wait (no orphaned processes)", () => {
+  const GATE_AGENTS = ["reviewer", "implementer", "commit-pr-pilot"];
+
+  it.each(GATE_AGENTS)("%s declares Monitor and TaskStop in its tools", (id) => {
+    const body = read(`agents/${id}.md`);
+    const toolsLine = lineWith(`agents/${id}.md`, "tools:");
+    expect(toolsLine, `${id}.md tools: line missing Monitor`).toContain("Monitor");
+    expect(toolsLine, `${id}.md tools: line missing TaskStop`).toContain("TaskStop");
+    // The agent must also point to the shared wait rule where it runs the gate.
+    expect(body).toContain("verify-before-done/SKILL.md");
+  });
+
+  it("verify-before-done carries the background-wait rule and forbids process polling", () => {
+    const skill = read("skills/verify-before-done.md");
+    expect(skill).toMatch(/run_in_background/);
+    expect(skill).toMatch(/Monitor/);
+    expect(skill).toMatch(/TaskStop/);
+    expect(skill).toMatch(/pgrep/);
+  });
+
+  /**
+   * Detects the exact anti-pattern that caused the bug: a `until`/`while` loop
+   * polling a process table to wait for a command to finish. Scoped to the
+   * loop construct (not a bare `pgrep`/`ps | grep` mention) so the rule text
+   * in `verify-before-done.md` that names the anti-pattern in prose — to
+   * forbid it — doesn't trip its own check.
+   */
+  const PROCESS_POLL_WAIT = /\b(?:until|while)\b[^\n]*\b(?:pgrep|ps\s+(?:\S+\s+)*\|\s*grep)\b/i;
+
+  function markdownFilesUnder(dir: string): string[] {
+    if (!existsSync(dir)) return [];
+    const out: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) out.push(...markdownFilesUnder(full));
+      else if (entry.name.endsWith(".md")) out.push(full);
+    }
+    return out;
+  }
+
+  it("the detector actually flags a pgrep/ps-grep wait loop (seeded violation)", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "navori-poll-check-"));
+    try {
+      const bad = join(tmp, "seeded.md");
+      writeFileSync(bad, "until ! pgrep -f vitest; do sleep 5; done\n");
+      expect(PROCESS_POLL_WAIT.test(readFileSync(bad, "utf-8"))).toBe(true);
+      const alsoBad = join(tmp, "seeded-ps.md");
+      writeFileSync(alsoBad, 'while ps aux | grep -q "pnpm check"; do sleep 5; done\n');
+      expect(PROCESS_POLL_WAIT.test(readFileSync(alsoBad, "utf-8"))).toBe(true);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("no distributed asset prescribes a pgrep/ps-grep wait loop", () => {
+    const pluginsDir = resolve(coreAssets, "..", "..", "plugins");
+    const files = [...markdownFilesUnder(coreAssets), ...markdownFilesUnder(pluginsDir)];
+    expect(files.length).toBeGreaterThan(0);
+    const offenders = files
+      .filter((f) => PROCESS_POLL_WAIT.test(readFileSync(f, "utf-8")))
+      .map((f) => f.replace(resolve(coreAssets, "..", "..", ".."), ""));
+    expect(offenders).toEqual([]);
   });
 });
