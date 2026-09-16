@@ -154,9 +154,10 @@ sites in the code before acting on either.
 
 **Save only what outlives this task**: a root cause with its evidence, a
 convention that got established, a decision and why it beat the alternative. Use
-a stable `topic_key` so the topic evolves instead of piling up snapshots. Never
-persist line numbers, current signatures or call-site lists — those go stale
-between sessions and mislead the next reader.
+a stable `topic_key` so the topic evolves instead of piling up snapshots. Always
+pass a `title` — search results lead with it, so an untitled memory forces the
+next reader to open it just to learn what it's about. Never persist line
+numbers, signatures or call-site lists — those go stale and mislead.
 
 **The session ceremonies are not yours.** `mem_session_summary` and the curation
 that follows belong to the agent that owns the session; you are closing a task,
@@ -535,10 +536,11 @@ If the question is specific ("where is X?"), it's not you — it's `researcher`.
 ## Protocol
 
 1. `CLAUDE.md` carries the repo's conventions — it is already in your context when your host injects it; read it from disk ONLY if your host did not inject it.
-2. Define the scope: a folder, a logical module, a file pattern. The orchestrator should hand it to you precisely; if it arrives ambiguous, return `blocked` naming the options (folder X / module Y / pattern Z) so it re-sends it scoped — don't guess.
-3. Get the map from the enabled structural provider first, per Code discovery routing (project instructions): request the module's structure, entry points and dependencies before reading files by hand. Only when no provider is enabled/available, walk manually from the entry points (routes, module root exports, `index.ts`) toward the leaves; for each level, list files and their brief role. Apply `.claude/skills/structural-search/SKILL.md` for that manual fallback and for locating shapes without reading whole files.
-4. Identify reverse dependencies: which external modules consume this module? That indicates the "blast radius" of changing something here.
-5. Write `.claude/progress/explore_<area>.md`:
+2. Pre-flight: `mem_search` with the task's keywords before opening files. A previous exploration or decision on the same area is a region and a hypothesis you'd otherwise rediscover file by file — confirm it against the code before acting on it. You hold no write tool, so saving and the session ceremonies belong to the agent that owns the session, not to you.
+3. Define the scope: a folder, a logical module, a file pattern. The orchestrator should hand it to you precisely; if it arrives ambiguous, return `blocked` naming the options (folder X / module Y / pattern Z) so it re-sends it scoped — don't guess.
+4. Get the map from the enabled structural provider first, per Code discovery routing (project instructions): request the module's structure, entry points and dependencies before reading files by hand. Only when no provider is enabled/available, walk manually from the entry points (routes, module root exports, `index.ts`) toward the leaves; for each level, list files and their brief role. Apply `.claude/skills/structural-search/SKILL.md` for that manual fallback and for locating shapes without reading whole files.
+5. Identify reverse dependencies: which external modules consume this module? That indicates the "blast radius" of changing something here.
+6. Write `.claude/progress/explore_<area>.md`:
 
    ```markdown
    # Exploration — <area>
@@ -740,9 +742,10 @@ sites in the code before acting on either.
 
 **Save only what outlives this task**: a root cause with its evidence, a
 convention that got established, a decision and why it beat the alternative. Use
-a stable `topic_key` so the topic evolves instead of piling up snapshots. Never
-persist line numbers, current signatures or call-site lists — those go stale
-between sessions and mislead the next reader.
+a stable `topic_key` so the topic evolves instead of piling up snapshots. Always
+pass a `title` — search results lead with it, so an untitled memory forces the
+next reader to open it just to learn what it's about. Never persist line
+numbers, signatures or call-site lists — those go stale and mislead.
 
 **The session ceremonies are not yours.** `mem_session_summary` and the curation
 that follows belong to the agent that owns the session; you are closing a task,
@@ -938,19 +941,12 @@ If the task is:
 <!-- navori:managed id="engram-leader-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
-Before decomposing work: **search for context** with `mem_search` using keywords from the ticket. If you find a previous audit of the same area or a related architectural decision, read it before dispatching the `implementer`. Don't re-discover what's already saved.
-
-After each architectural decision, new plugin or convention established in the session: a proactive `mem_save` with a `title`, the appropriate type (`decision`, `convention`, `pattern`, `bugfix`) and a stable `topic_key`. Reuse the key to evolve the topic without piling up snapshots. Save durable pointers; lines, signatures and call sites are verified in code and not persisted.
-
-Before closing the session: a mandatory `mem_session_summary` — exempt only under **lean close** (see the session closeout block) — with:
-
-- `goal` — what was attempted.
-- `discoveries` — gotchas, critical files, intermediate decisions.
-- `accomplished` — what got done.
-- `next_steps` — what's left (with concrete paths).
-- `relevant_files` — paths a future agent should read first.
-
-In the same turn as the summary, curate the session: consolidate duplicates, fix contradicted memories and delete only clearly volatile or redundant content. Never aggressively prune durable decisions. Under **lean close** the curation is exempt too; `mem_save` never is.
+- **Session start:** engram's `SessionStart` hook covers `startup`, `clear`, `compact` — **not `resume`**. Where memory is already injected, work with it — `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.
+- Before decomposing: `mem_search` with the ticket's keywords. Read a prior decision before dispatching the `implementer`.
+- After each decision: `mem_save` with a `title`, a type and a stable `topic_key` — reuse it, don't snapshot. If a memory contradicts the code, fix it with `mem_update`.
+- `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
+- **Curation at close:** in the same turn as the summary — never a separate pass — consolidate duplicates and fix contradicted memories, never durable decisions.
+- **Lean close**: the summary and the curation step are exempt; `mem_save` is not.
 <!-- /navori:managed id="engram-leader-extension" -->
 
 <!-- navori:managed id="codex-cross-review" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -1020,12 +1016,13 @@ hypothetical future abstractions or optional edge cases as BLOCKER.
 ## Protocol
 
 1. `CLAUDE.md` carries the repo's context — it is already in your context when your host injects it; read it from disk ONLY if your host did not inject it.
-2. Work on ONE scoped question (the orchestrator already handed you the scope). If you discover it's actually >2 independent questions, return them as a list so the orchestrator distributes them across parallel researchers — don't chain them in series yourself.
-3. Run the search:
+2. Pre-flight: `mem_search` with the task's keywords before opening files. A previous decision, audit or root cause someone already found is a region and a hypothesis you'd otherwise rediscover file by file — confirm it against the code before acting on it. You hold no write tool, so saving and the session ceremonies belong to the agent that owns the session, not to you.
+3. Work on ONE scoped question (the orchestrator already handed you the scope). If you discover it's actually >2 independent questions, return them as a list so the orchestrator distributes them across parallel researchers — don't chain them in series yourself.
+4. Run the search:
    - Resolve the scoped question by following Code discovery routing (project instructions): a filename/path pattern is `Glob`; a literal token (name, import, config key, error string) is `Grep`; a behavior, definition, relationship or impact question goes to the enabled structural provider. Don't load `.claude/skills/structural-search/SKILL.md` as a mandatory preflight for every question — apply it only when routing lands you on bounded reading or an AST-shape search.
    - Fallback only for what `Grep`/`Glob`/the structural provider don't cover (git history with `git grep`, FS metadata with `find`): shell commands. Chained with pipes/redirects they ask for confirmation, so reserve the shell for when the routed tool falls short.
-4. Validate each finding: open the file, confirm the match means what it seems (sometimes a `grep` matches comments or strings unrelated to the concept).
-5. Write `.claude/progress/research_<question-slug>.md`:
+5. Validate each finding: open the file, confirm the match means what it seems (sometimes a `grep` matches comments or strings unrelated to the concept).
+6. Write `.claude/progress/research_<question-slug>.md`:
 
    ```markdown
    # Research — <question>
@@ -1312,9 +1309,10 @@ sites in the code before acting on either.
 
 **Save only what outlives this task**: a root cause with its evidence, a
 convention that got established, a decision and why it beat the alternative. Use
-a stable `topic_key` so the topic evolves instead of piling up snapshots. Never
-persist line numbers, current signatures or call-site lists — those go stale
-between sessions and mislead the next reader.
+a stable `topic_key` so the topic evolves instead of piling up snapshots. Always
+pass a `title` — search results lead with it, so an untitled memory forces the
+next reader to open it just to learn what it's about. Never persist line
+numbers, signatures or call-site lists — those go stale and mislead.
 
 **The session ceremonies are not yours.** `mem_session_summary` and the curation
 that follows belong to the agent that owns the session; you are closing a task,
@@ -1497,9 +1495,10 @@ sites in the code before acting on either.
 
 **Save only what outlives this task**: a root cause with its evidence, a
 convention that got established, a decision and why it beat the alternative. Use
-a stable `topic_key` so the topic evolves instead of piling up snapshots. Never
-persist line numbers, current signatures or call-site lists — those go stale
-between sessions and mislead the next reader.
+a stable `topic_key` so the topic evolves instead of piling up snapshots. Always
+pass a `title` — search results lead with it, so an untitled memory forces the
+next reader to open it just to learn what it's about. Never persist line
+numbers, signatures or call-site lists — those go stale and mislead.
 
 **The session ceremonies are not yours.** `mem_session_summary` and the curation
 that follows belong to the agent that owns the session; you are closing a task,
@@ -11351,21 +11350,6 @@ To read Jira tickets use **acli** (not the Atlassian MCP).
 
 The Atlassian/Rovo MCP remains the fallback if `acli` fails or is unavailable.
 <!-- /navori:managed id="acli-protocol" -->
-
-<!-- navori:managed id="engram-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
-## Engram
-
-**Who this block is addressed to.** Whoever holds the `mcp__engram__*` tools: the orchestrator (main agent) and any subagent whose `tools:` lists them. This text ships in `CLAUDE.md`, which every subagent receives — so if your toolset has no `mem_*` call, the block is not yours and nothing below applies; skip it instead of spending a turn discovering the tool is absent. If your `tools:` lists a reader (`mem_search`, `mem_get_observation`) and no writer, the pre-flight below is the whole block: every bullet naming `mem_save`, `mem_update` or a ceremony is addressed to whoever holds the write tool. The **session ceremonies** (`mem_session_summary` and the curation that follows it) belong to the agent that owns the session; a subagent closing with `done -> <file>` is not ending a session and never runs them.
-
-- **Session start — go by what's in front of you, not by the host.** A startup hook covers only SOME openings: on Claude the engram plugin registers its `SessionStart` for `startup`, `clear` and `compact` — **not `resume`** — so a resumed session (`--resume`/`--continue`) opens with no memory at all while looking exactly like one that has it. So: where the memory context is already injected, work with what's injected — calling `mem_context` only re-fetches it. Where it is NOT — a resumed session, or a host with no startup hook (e.g. Codex) — that explicit call IS the memory startup and it's the mandatory first step; don't skip it.
-- **Pre-flight:** `mem_search` with the task's keywords before searching code — it gives a region and a hypothesis; confirm signature, line, and call sites with Grep/structural-search before acting.
-- **Save only what's durable:** decisions, architecture, conventions, root causes, and module pointers. Never persist lines, current signatures, call-site lists, or temporary state.
-- `mem_save` proactively with a stable `topic_key` per topic. Reuse the same key to evolve an observation via upsert, not to create repeated snapshots. **Always pass a `title`.** The API accepts an empty one without complaint, and search results lead with it — so an untitled memory is one every future reader must open in full just to learn what it is about. Write it as the claim itself, not as a label for the claim.
-- **Write-back:** if the code contradicts a memory, fix it with `mem_update`/`mem_save` right away. Treat `needs_review` as stale context.
-- `mem_session_summary` is mandatory before "done" for the agent that owns the session (see who this block is addressed to): Goal · Discoveries · Accomplished · Next Steps · Relevant Files. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
-- **Curation at close:** in the SAME turn as the summary, never a separate pass, review what the session created. Consolidate duplicates under their `topic_key`, promote what's durable, and delete only volatile observations or ones already covered by the summary. Never aggressive deletion, never delete a durable decision.
-- **Lean close** (the closeout block's conditions): the summary and the curation step are exempt. `mem_save` is not — that one is what lets you reconstruct in six months why a commit exists.
-<!-- /navori:managed id="engram-protocol" -->
 
 <!-- navori:managed id="gh-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-gh" -->
 ## GitHub CLI (gh)

@@ -256,6 +256,19 @@ export const RETIRED_PLUGINS: Record<
 export const RETIRED_PLUGIN_BLOCKS: Record<string, { retiredIn: string; blockIds: string[] }> = {
   jscpd: { retiredIn: "#614", blockIds: ["jscpd-protocol"] },
   semgrep: { retiredIn: "#614", blockIds: ["semgrep-protocol"] },
+  // #814: `engram-protocol` shipped ~450 words to every non-fork agent — including
+  // ones with no `mem_*` tool — to spend a paragraph explaining who it wasn't for.
+  // Its content already had per-role homes: `skills/engram-leader.md` (injected
+  // into leader.md, now carries the session-start/lean-close/curation prose too)
+  // and `skills/engram-subagent.md` (implementer/reviewer/ticket-audit/auditor,
+  // now also states the title requirement). The read-only pair (explorer,
+  // researcher) never had an injectInto entry from this plugin — widening their
+  // `tools:` via the plugin's MCP-tool derivation would grant them the whole
+  // `mcp__engram__*` server, past the two read tools baked into their own core
+  // asset — so their pre-flight doctrine went straight into
+  // `core-assets/agents/{explorer,researcher}.md` instead, unconditionally,
+  // matching how those two tools are already granted there.
+  engram: { retiredIn: "#814", blockIds: ["engram-protocol"] },
 };
 
 export class PluginNotFoundError extends NavoriError {

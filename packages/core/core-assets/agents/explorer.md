@@ -24,10 +24,11 @@ If the question is specific ("where is X?"), it's not you — it's `researcher`.
 ## Protocol
 
 1. `CLAUDE.md` carries the repo's conventions — it is already in your context when your host injects it; read it from disk ONLY if your host did not inject it.
-2. Define the scope: a folder, a logical module, a file pattern. The orchestrator should hand it to you precisely; if it arrives ambiguous, return `blocked` naming the options (folder X / module Y / pattern Z) so it re-sends it scoped — don't guess.
-3. Get the map from the enabled structural provider first, per Code discovery routing (project instructions): request the module's structure, entry points and dependencies before reading files by hand. Only when no provider is enabled/available, walk manually from the entry points (routes, module root exports, `index.ts`) toward the leaves; for each level, list files and their brief role. Apply `.claude/skills/structural-search/SKILL.md` for that manual fallback and for locating shapes without reading whole files.
-4. Identify reverse dependencies: which external modules consume this module? That indicates the "blast radius" of changing something here.
-5. Write `.claude/progress/explore_<area>.md`:
+2. Pre-flight: `mem_search` with the task's keywords before opening files. A previous exploration or decision on the same area is a region and a hypothesis you'd otherwise rediscover file by file — confirm it against the code before acting on it. You hold no write tool, so saving and the session ceremonies belong to the agent that owns the session, not to you.
+3. Define the scope: a folder, a logical module, a file pattern. The orchestrator should hand it to you precisely; if it arrives ambiguous, return `blocked` naming the options (folder X / module Y / pattern Z) so it re-sends it scoped — don't guess.
+4. Get the map from the enabled structural provider first, per Code discovery routing (project instructions): request the module's structure, entry points and dependencies before reading files by hand. Only when no provider is enabled/available, walk manually from the entry points (routes, module root exports, `index.ts`) toward the leaves; for each level, list files and their brief role. Apply `.claude/skills/structural-search/SKILL.md` for that manual fallback and for locating shapes without reading whole files.
+5. Identify reverse dependencies: which external modules consume this module? That indicates the "blast radius" of changing something here.
+6. Write `.claude/progress/explore_<area>.md`:
 
    ```markdown
    # Exploration — <area>

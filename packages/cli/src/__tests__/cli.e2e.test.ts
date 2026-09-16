@@ -118,8 +118,12 @@ describe("CLI e2e — happy paths", () => {
 
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
     expect(claudeMd).toContain('navori:managed id="idioma-rol"');
-    expect(claudeMd).toContain('navori:managed id="engram-protocol"');
-    expect(claudeMd).toContain("topic_key");
+    // engram's doctrine ships as a skill injected into the leader's own file
+    // (#814), not a CLAUDE.md-wide block every non-mem_* agent would also pay.
+    expect(readFileSync(join(repo, ".claude/agents/leader.md"), "utf-8")).toContain(
+      'navori:managed id="engram-leader-extension"',
+    );
+    expect(readFileSync(join(repo, ".claude/agents/leader.md"), "utf-8")).toContain("topic_key");
 
     // E1c: .claude/ tree now also exists
     expect(existsSync(join(repo, ".claude/agents/leader.md"))).toBe(true);
@@ -149,8 +153,8 @@ describe("CLI e2e — happy paths", () => {
     expect(
       JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8")).effortLevel,
     ).toBeUndefined();
-    expect(readFileSync(join(repo, "CLAUDE.md"), "utf-8")).toContain(
-      'navori:managed id="engram-protocol"',
+    expect(readFileSync(join(repo, ".claude/agents/leader.md"), "utf-8")).toContain(
+      'navori:managed id="engram-leader-extension"',
     );
   });
 
@@ -764,11 +768,16 @@ describe("CLI e2e — happy paths", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
     runCli(["init", "--recommended", "--cwd", repo]);
+    // engram carries no CLAUDE.md-wide managed block anymore (#814; its doctrine
+    // is a skill injected straight into the agents that hold `mem_*` tools) —
+    // add a plugin that still does, to keep covering the "source: plugin" case.
+    runCli(["add", "gh", "--skip-install", "--yes", "--cwd", repo]);
+    runCli(["render", "--apply", "--cwd", repo]);
 
     const r = runCli(["doctor", "--cwd", repo]);
     expect(r.status).toBe(0);
     expect(r.combined).toMatch(/idioma-rol.*@navori\/core/);
-    expect(r.combined).toMatch(/engram-protocol.*@navori\/plugin-engram/);
+    expect(r.combined).toMatch(/gh-protocol.*@navori\/plugin-gh/);
   });
 
   it("doctor --json outputs valid pipeable JSON", () => {
@@ -785,15 +794,16 @@ describe("CLI e2e — happy paths", () => {
     // The core managed blocks injected into CLAUDE.md by --recommended:
     // orquestacion (rol del orquestador), idioma-rol, formato-respuesta,
     // tipado-fuerte, operaciones-seguras, arranque-sesion, cierre-sesion,
-    // engram-protocol, sdd (enabled by default), intake-tickets, plus the
-    // computed skills-index and agentes-disponibles.
+    // sdd (enabled by default), intake-tickets, code-discovery-routing (#838),
+    // plus the computed skills-index and agentes-disponibles. engram carries
+    // no CLAUDE.md-wide block (#814): its doctrine is a skill injected
+    // straight into the agents that hold `mem_*` tools.
     const blockIds = parsed.managedBlocks.map((m: { id: string }) => m.id).sort();
     expect(blockIds).toEqual([
       "agentes-disponibles",
       "arranque-sesion",
       "cierre-sesion",
       "code-discovery-routing",
-      "engram-protocol",
       "formato-respuesta",
       "idioma-rol",
       "intake-tickets",

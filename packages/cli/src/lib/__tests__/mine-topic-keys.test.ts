@@ -250,8 +250,10 @@ describe.runIf(hasPython)("mine-topic-keys — el minero de higiene de claves (#
     });
 
     it("marca off-convention la clave sin slash", () => {
-      // 146 de 236 claves vivas del repo están así, y es el hueco que
-      // `engram-protocol.md` deja: pide una clave estable y nunca dice qué forma tiene.
+      // 146 de 236 claves vivas del repo están así, y es el hueco que la
+      // doctrina de engram (hoy en `skills/engram-leader.md` y
+      // `skills/engram-subagent.md`, #814) deja: pide una clave estable y
+      // nunca dice qué forma tiene.
       expect(classify("navori-harness-sesion-issues")).toEqual(["sin-slash"]);
     });
 

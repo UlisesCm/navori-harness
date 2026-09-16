@@ -155,7 +155,19 @@ describe("MCP wiring — instruction and capability ship together (#501)", () =>
 
     const engram = MCP_PLUGINS.find((p) => p.manifest.id === "engram");
     expect(toolTokens(engram?.manifest ?? { id: "engram" })).toContain("mem_save");
-    expect(engram?.blockText).toContain("mem_save");
+    // #814 retired engram's always-on `managed[]` block — its `blockText` is
+    // now legitimately empty, so `auditMcpWiring` has nothing to audit (early
+    // return). The instruction surface moved to `skills[].injectInto`, which
+    // this suite deliberately excludes from the always-on audit (on-demand
+    // prose, not unconditional). Anti-vacuity here checks THAT surface instead:
+    // a mute plugin, or one whose skills reach no launchable agent, would make
+    // the "delivers every capability" loop below pass on air too.
+    expect(engram?.blockText).toBe("");
+    expect(injectedInvokableAgents(engram?.manifest ?? { id: "engram" }).length).toBeGreaterThan(0);
+    const skillsText = (engram?.manifest.skills ?? [])
+      .map((skill) => readFileSync(resolve(PLUGINS_DIR, "engram", skill.file), "utf-8"))
+      .join("\n");
+    expect(skillsText).toContain("mem_save");
   });
 
   for (const plugin of MCP_PLUGINS) {

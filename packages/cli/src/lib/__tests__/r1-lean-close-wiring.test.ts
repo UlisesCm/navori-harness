@@ -22,6 +22,11 @@ import { fileURLToPath } from "node:url";
  * is NEVER exempt — the gate, `mem_save`, and the history entry whenever
  * something was committed — because an exemption that quietly grows is
  * indistinguishable from having no protocol at all.
+ *
+ * #814 retired the CLAUDE.md-wide `engram-protocol` managed block: its content
+ * (the leader is the only role that runs the session ceremony) now lives in
+ * `skills/engram-leader.md`, which `skills[].injectInto` writes into
+ * `.claude/agents/leader.md`. The assertions below target that file.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -64,7 +69,7 @@ describe("lean close — the exemption is bound to the diff (#378)", () => {
     // mode the decision replaced with checkable conditions.
     for (const [label, text] of [
       ["managed/cierre-sesion.md", readCore("managed/cierre-sesion.md")],
-      ["engram/managed/engram-protocol.md", readEngram("managed/engram-protocol.md")],
+      ["engram/skills/engram-leader.md", readEngram("skills/engram-leader.md")],
     ] as const) {
       expect(text, `${label} reintroduced a self-judged exemption`).not.toMatch(
         /durable (finding|hallazgo)/i,
@@ -72,25 +77,19 @@ describe("lean close — the exemption is bound to the diff (#378)", () => {
     }
   });
 
-  it("the memory protocol exempts its own steps under the same name, and keeps mem_save", () => {
-    const block = readEngram("managed/engram-protocol.md");
-    expect(block).toContain("**Lean close**");
+  it("the leader-injected protocol exempts its own steps under the same name, and keeps mem_save", () => {
+    // This skill is injected into `.claude/agents/leader.md`: a surviving
+    // unconditional "mandatory" there would override the lane at the moment of closing.
+    const skill = readEngram("skills/engram-leader.md");
+    expect(skill).toContain("**Lean close**");
     // The two steps the decision exempts.
-    expect(block).toMatch(/summary and the curation step are exempt/i);
+    expect(skill).toMatch(/summary and the curation step are exempt/i);
     // The one it does not — plus both doctor invariants of the plugin, which the
     // rendered block must keep carrying.
-    expect(block).toMatch(/`mem_save` is not/i);
+    expect(skill).toMatch(/`mem_save` is not/i);
     const { invariants } = JSON.parse(readEngram("plugin.json")) as { invariants: string[] };
     for (const token of invariants) {
-      expect(block, `the engram block lost the doctor invariant ${token}`).toContain(token);
+      expect(skill, `the engram skill lost the doctor invariant ${token}`).toContain(token);
     }
-  });
-
-  it("the leader-injected copy of the protocol doesn't contradict the lane", () => {
-    // This skill is injected into `.claude/agents/leader.md`: a surviving
-    // unconditional "mandatory" there overrides the lane at the moment of closing.
-    const skill = readEngram("skills/engram-leader.md");
-    expect(skill).toMatch(/mem_session_summary` — exempt only under \*\*lean close\*\*/i);
-    expect(skill).toMatch(/curation is exempt too; `mem_save` never is/i);
   });
 });
