@@ -74,6 +74,13 @@ export type SkillType = keyof typeof SKILL_TYPE_CAPS;
 export interface SkillMeta {
   name: string | null;
   description: string | null;
+  /**
+   * Claude Code's optional `when_to_use` field — none of navori's bundled
+   * skills set it (#823), but the host concatenates it to `description` for
+   * the listing shown to the model, so the length cap below has to cover it
+   * too, not just what navori happens to emit today.
+   */
+  whenToUse: string | null;
   /** Declared `type`, or null when absent/unrecognized. */
   type: SkillType | null;
   /** Explicit cap override from frontmatter, or null. */
@@ -112,9 +119,31 @@ export function parseSkillFrontmatter(raw: string): { meta: SkillMeta; body: str
   const maxWordsComposed = composedRaw && /^\d+$/.test(composedRaw) ? Number(composedRaw) : null;
 
   return {
-    meta: { name: get("name"), description: get("description"), type, maxWords, maxWordsComposed },
+    meta: {
+      name: get("name"),
+      description: get("description"),
+      whenToUse: get("when_to_use"),
+      type,
+      maxWords,
+      maxWordsComposed,
+    },
     body,
   };
+}
+
+/**
+ * Claude Code's official skill listing truncates past this many characters of
+ * `description` (+ `when_to_use`, when set) — see
+ * https://code.claude.com/docs/en/skills. A skill over the cap doesn't error;
+ * it silently loses its tail from the model's context, which is worse than an
+ * error because nothing signals it happened.
+ */
+export const SKILL_LISTING_CHAR_CAP = 1536;
+
+/** Combined length of `description` + `when_to_use`, the two fields Claude Code
+ * concatenates for the skill listing shown to the model. */
+export function skillListingChars(meta: SkillMeta): number {
+  return (meta.description?.length ?? 0) + (meta.whenToUse?.length ?? 0);
 }
 
 /** Count words in a skill body the way the cap check measures them. */
