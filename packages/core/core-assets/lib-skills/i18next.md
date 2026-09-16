@@ -1,7 +1,8 @@
 ---
 name: i18next
 description: Use when touching user-facing copy — i18next: zero hardcoded strings, keys present in every locale, plurals with count, and translating outside components.
-type: reference
+metadata:
+  type: reference
 ---
 
 # i18next — conventions

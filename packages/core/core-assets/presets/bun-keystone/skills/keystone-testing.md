@@ -1,7 +1,8 @@
 ---
 name: keystone-testing
 description: Testing Keystone 6 with Vitest — hooks and access with a mocked context, GraphQL/REST endpoints with Supertest, factories. Use when writing or reviewing tests for models, access, hooks or API.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Keystone Testing — Vitest + Supertest

@@ -1,7 +1,8 @@
 ---
 name: rn-performance
 description: Use when building lists, animations/gestures, or optimizing screens that feel slow in React Native — performance: virtualized lists, re-renders, UI-thread animations.
-type: reference
+metadata:
+  type: reference
 ---
 
 # React Native — performance

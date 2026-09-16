@@ -1,7 +1,8 @@
 ---
 name: socketio-client
 description: Use when a component subscribes to realtime events — Socket.IO on the CLIENT: subscribing inside an effect, named handlers, cleanup, module singletons, and reconnection.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Socket.IO client — conventions

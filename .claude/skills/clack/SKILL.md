@@ -1,7 +1,8 @@
 ---
 name: clack
 description: Use when building interactive CLI prompts with @clack/prompts — intro/outro, text/select/confirm/multiselect, spinner, isCancel, and group flows.
-type: reference
+metadata:
+  type: reference
 ---
 
 <!-- navori:managed id="clack" hash="f97d8d12" version="0.8.7" source="@navori/core" -->

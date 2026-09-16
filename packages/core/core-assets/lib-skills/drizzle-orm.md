@@ -1,7 +1,8 @@
 ---
 name: drizzle-orm
 description: Use when touching the schema, a query or a migration with Drizzle — inferred types, generated migrations, transactions, and the differences between drivers.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Drizzle ORM — conventions

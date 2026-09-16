@@ -1,8 +1,9 @@
 ---
 name: loop-back-debug
 description: Use when a fix doesn't work the first time. Forces re-reading the original symptom, validating the hypothesis vs the applied diff, and NOT throwing more patches without understanding what failed.
-type: behavior
-maxWords: 1000
+metadata:
+  type: behavior
+  maxWords: 1000
 ---
 
 # Loop-Back Debug

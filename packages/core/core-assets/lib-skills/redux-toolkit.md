@@ -1,7 +1,8 @@
 ---
 name: redux-toolkit
 description: Use when touching global state, slices, or the store — Redux Toolkit patterns in React+TS: slices, typed store, typed hooks, async thunks, selectors.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Redux Toolkit — conventions

@@ -1,7 +1,8 @@
 ---
 name: semgrep-security-gate
 description: Use when auditing security or closing a change that touches auth, RBAC, secrets or input validation and the repo renders the semgrep plugin — run the static scan over the diff before closing.
-type: behavior
+metadata:
+  type: behavior
 ---
 
 ## Local security gate (semgrep)

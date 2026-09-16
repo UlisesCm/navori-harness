@@ -1,7 +1,8 @@
 ---
 name: apollo-client
 description: Use when writing queries/mutations, configuring the cache, or wiring the links — GraphQL with Apollo Client: hooks, fetchPolicy, cache normalization, and updating after mutations.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Apollo Client — the canonical pattern

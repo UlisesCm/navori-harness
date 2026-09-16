@@ -1,7 +1,8 @@
 ---
 name: winston-logging
 description: Use when adding logs or auditing a bug's traces — logging with winston: Logger.error/warn/info/debug, correct levels, actionable messages with context, no console.log.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Winston Logging — repo patterns

@@ -1,7 +1,8 @@
 ---
 name: babysit-prs
 description: Use when you resume a session with open PRs of yours, or when a check went red after a push — collect review feedback, inline comments and CI status, and turn each finding into an encargo.
-type: reference
+metadata:
+  type: reference
 ---
 
 <!-- navori:managed id="babysit-prs" hash="2e59d1ac" version="0.8.7" source="@navori/core" -->

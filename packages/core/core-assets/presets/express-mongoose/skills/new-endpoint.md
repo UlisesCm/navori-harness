@@ -1,7 +1,8 @@
 ---
 name: new-endpoint
 description: Add a new endpoint to an existing Express + Mongoose resource (Zod schema + controller method + route). Use when you need to add an endpoint without creating a new Model.
-type: reference
+metadata:
+  type: reference
 ---
 
 # new-endpoint — add an endpoint to an existing resource

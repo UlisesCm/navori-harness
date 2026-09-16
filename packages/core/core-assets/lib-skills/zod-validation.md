@@ -1,7 +1,8 @@
 ---
 name: zod-validation
 description: Use when creating a Zod schema or validating input at a trust boundary — an HTTP body/query/params, but equally a config file, CLI args or env. Per-resource schemas, a generic validate middleware, inferred DTOs.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Zod Validation — the canonical pattern

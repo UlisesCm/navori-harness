@@ -1,7 +1,8 @@
 ---
 name: axios
 description: Use when touching HTTP calls to APIs — Axios patterns in TS: central instance, interceptors, typed responses, error handling, and cancellation.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Axios — conventions

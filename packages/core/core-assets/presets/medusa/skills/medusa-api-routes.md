@@ -1,7 +1,8 @@
 ---
 name: medusa-api-routes
 description: Rules for creating/modifying Medusa v2 API routes — store, admin, middlewares, validation. Use when creating or modifying files under src/api/.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Medusa API Routes — project conventions

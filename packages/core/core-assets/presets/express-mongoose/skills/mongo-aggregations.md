@@ -1,7 +1,8 @@
 ---
 name: mongo-aggregations
 description: Mongoose aggregation pipelines — $lookup, $unwind, $match, $project, $group, $facet. Cast ObjectId with new Types.ObjectId, avoid field leaks. Use when doing joins across collections or statistics.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Mongo Aggregations — repo patterns

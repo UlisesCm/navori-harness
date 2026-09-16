@@ -1,15 +1,20 @@
 /**
  * Skill output discipline — spec 0003 §3.2.1.
  *
- * Every generated SKILL.md declares a `type` in frontmatter. Each type carries
- * a word cap on its body so skills stay lean (tokens are spent every time a
- * skill is loaded). A skill may raise its cap with an explicit `maxWords`
- * override when the length is justified — the override is loud, not silent.
+ * Every generated SKILL.md declares a `type` under frontmatter's `metadata:`
+ * map (#810 — `type`/`maxWords`/`maxWordsComposed` are navori's own fields,
+ * not part of the host's documented SKILL.md contract, so they nest under the
+ * map the host reserves for tool-owned data instead of risking a silent
+ * collision with a future top-level field of the same name). Each type
+ * carries a word cap on its body so skills stay lean (tokens are spent every
+ * time a skill is loaded). A skill may raise its cap with an explicit
+ * `maxWords` override when the length is justified — the override is loud,
+ * not silent.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { splitFrontmatter, getFrontmatterField } from "./frontmatter.ts";
+import { splitFrontmatter, getFrontmatterField, getFrontmatterMapField } from "./frontmatter.ts";
 
 /** File that marks a skill DIRECTORY (`.claude/skills/<id>/SKILL.md`). Shared so
  * `resolveLocalSkillPath` and `claude-infra`'s `listSkillDirs` agree on the
@@ -94,12 +99,16 @@ export interface SkillMeta {
 export function parseSkillFrontmatter(raw: string): { meta: SkillMeta; body: string } {
   const { frontmatter, body } = splitFrontmatter(raw);
   const get = (key: string): string | null => getFrontmatterField(frontmatter, key);
+  // navori's own fields nest under the host's `metadata:` map (#810) rather
+  // than living top-level.
+  const getMeta = (key: string): string | null =>
+    getFrontmatterMapField(frontmatter, "metadata", key);
 
-  const typeRaw = get("type");
+  const typeRaw = getMeta("type");
   const type = typeRaw && typeRaw in SKILL_TYPE_CAPS ? (typeRaw as SkillType) : null;
-  const maxRaw = get("maxWords");
+  const maxRaw = getMeta("maxWords");
   const maxWords = maxRaw && /^\d+$/.test(maxRaw) ? Number(maxRaw) : null;
-  const composedRaw = get("maxWordsComposed");
+  const composedRaw = getMeta("maxWordsComposed");
   const maxWordsComposed = composedRaw && /^\d+$/.test(composedRaw) ? Number(composedRaw) : null;
 
   return {

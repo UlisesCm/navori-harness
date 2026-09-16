@@ -1,7 +1,8 @@
 ---
 name: nestjs-dtos-validation
 description: Use when defining or modifying input/output HTTP contracts in NestJS — rules for DTOs and validation: class-validator, ValidationPipe, transform.
-type: reference
+metadata:
+  type: reference
 ---
 
 # NestJS DTOs + Validation — project conventions

@@ -1,7 +1,8 @@
 ---
 name: react-hook-form
 description: Use when creating or touching forms with RHF — React Hook Form patterns in React+TS: register vs Controller, zodResolver, per-field errors, re-renders.
-type: reference
+metadata:
+  type: reference
 ---
 
 # React Hook Form — conventions

@@ -1,8 +1,9 @@
 ---
 name: astro-islands
 description: Rules for Astro Islands — client directives, framework components, performance. Use when adding interactivity to an Astro site.
-type: reference
-maxWords: 520
+metadata:
+  type: reference
+  maxWords: 520
 ---
 
 # Astro Islands — project conventions

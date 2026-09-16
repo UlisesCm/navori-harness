@@ -1,7 +1,8 @@
 ---
 name: citty
 description: Use when adding or editing a CLI command with citty — defineCommand, runMain, typed args (positional/string/boolean/enum), subCommands, and run/setup/cleanup hooks.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Citty — command definitions

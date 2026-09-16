@@ -1,7 +1,8 @@
 ---
 name: expo-runtime
 description: Use when laying out screens, touching native config (app.config/plugins), or configuring builds in Expo — runtime: safe areas, keyboard, edge-to-edge, prebuild, and EAS.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Expo — native runtime

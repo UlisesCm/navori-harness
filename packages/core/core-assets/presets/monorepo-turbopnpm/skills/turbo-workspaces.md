@@ -1,7 +1,8 @@
 ---
 name: turbo-workspaces
 description: Use when navigating or operating a Turborepo + pnpm monorepo — running scoped tasks, adding deps to the right workspace, sharing code without coupling. Applies before touching turbo.json, pnpm-workspace.yaml, or moving deps.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Turborepo + pnpm — monorepo operation

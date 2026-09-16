@@ -1,8 +1,9 @@
 ---
 name: security-guidance
 description: Use when running /security-review or auditing security. Documents the BUSINESS security invariants that the static scanner (semgrep) and the built-in review can't infer from code alone — server-side authorization, object access (IDOR), secrets and env exposed to the client, trust boundaries, PII in logs. The skeleton is universal; your stack's rules go in the user-section.
-type: reference
-maxWords: 1200
+metadata:
+  type: reference
+  maxWords: 1200
 ---
 
 <!-- navori:managed id="security-guidance-base" hash="ede59789" version="0.8.7" source="@navori/core" -->

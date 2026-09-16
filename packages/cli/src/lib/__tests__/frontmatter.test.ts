@@ -3,6 +3,8 @@ import {
   splitFrontmatter,
   parseFrontmatterFields,
   getFrontmatterField,
+  getFrontmatterMapField,
+  formatFrontmatterField,
   stripFrontmatter,
 } from "../frontmatter.ts";
 
@@ -99,5 +101,67 @@ describe("hyphenated keys — the host's own skill frontmatter (#662)", () => {
   it("still parses the plain keys around them", () => {
     const { frontmatter } = splitFrontmatter(raw);
     expect(getFrontmatterField(frontmatter, "name")).toBe("deploy");
+  });
+});
+
+describe("nested block values under a key with no inline value (#810)", () => {
+  const raw = ["name: debug-error", "metadata:", "  type: behavior", "  maxWords: 600"].join("\n");
+
+  it("absorbs indented lines into the key's value instead of dropping them", () => {
+    const fields = parseFrontmatterFields(raw);
+    // Leading `\n` is the deliberate block marker (see the function's doc) —
+    // it's what lets a ONE-line block still round-trip as a block below.
+    expect(fields.metadata).toBe("\n  type: behavior\n  maxWords: 600");
+    expect(fields.name).toBe("debug-error");
+  });
+
+  it("a plain scalar field with no indented follower keeps its own line", () => {
+    const fields = parseFrontmatterFields("name: foo\ndescription: bar");
+    expect(fields).toEqual({ name: "foo", description: "bar" });
+  });
+
+  it("round-trips through formatFrontmatterField", () => {
+    const fields = parseFrontmatterFields(raw);
+    const line = formatFrontmatterField("metadata", fields.metadata!);
+    expect(line).toBe("metadata:\n  type: behavior\n  maxWords: 600");
+    // And re-parsing that line reproduces the same block.
+    expect(parseFrontmatterFields(line).metadata).toBe(fields.metadata);
+  });
+
+  it("round-trips a ONE-line block without collapsing onto the key's line", () => {
+    const oneEntry = parseFrontmatterFields(["metadata:", "  type: reference"].join("\n"));
+    const line = formatFrontmatterField("metadata", oneEntry.metadata!);
+    expect(line).toBe("metadata:\n  type: reference");
+  });
+
+  it("formats a single-line value inline, unchanged", () => {
+    expect(formatFrontmatterField("name", "foo")).toBe("name: foo");
+  });
+});
+
+describe("getFrontmatterMapField — scalars nested under a map key (#810)", () => {
+  const raw = ["name: debug-error", "metadata:", "  type: behavior", "  maxWords: 600"].join("\n");
+
+  it("reads a scalar out of the nested map", () => {
+    expect(getFrontmatterMapField(raw, "metadata", "type")).toBe("behavior");
+    expect(getFrontmatterMapField(raw, "metadata", "maxWords")).toBe("600");
+  });
+
+  it("returns null when the map key is absent", () => {
+    expect(getFrontmatterMapField("name: foo", "metadata", "type")).toBeNull();
+  });
+
+  it("returns null when the field isn't inside the map", () => {
+    expect(getFrontmatterMapField(raw, "metadata", "missing")).toBeNull();
+  });
+
+  it("ignores a comment line inside the map", () => {
+    const withComment = [
+      "metadata:",
+      "  # explains the cap",
+      "  type: reference",
+      "  maxWords: 500",
+    ].join("\n");
+    expect(getFrontmatterMapField(withComment, "metadata", "type")).toBe("reference");
   });
 });

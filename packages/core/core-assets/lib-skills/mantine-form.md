@@ -1,7 +1,8 @@
 ---
 name: mantine-form
 description: Use when creating or touching forms with Mantine — @mantine/form patterns: useForm, getInputProps, validation with zodResolver, nested fields, and lists.
-type: reference
+metadata:
+  type: reference
 ---
 
 # Mantine Form — conventions

@@ -1,7 +1,8 @@
 ---
 name: new-resource
 description: Create an end-to-end resource in an Express + Mongoose backend (Model + Zod schema + controller + routes + mount). Use when adding a new domain (model + endpoints) end to end.
-type: reference
+metadata:
+  type: reference
 ---
 
 # new-resource — end-to-end resource

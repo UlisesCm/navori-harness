@@ -1,7 +1,8 @@
 ---
 name: new-feature
 description: Use when creating a new resource/feature end-to-end. Defines the strict layer order (interface → service → adapter → component → router) so data flows consistently. Domain-specific templates go in the user-section.
-type: reference
+metadata:
+  type: reference
 ---
 
 # New feature — layer order
