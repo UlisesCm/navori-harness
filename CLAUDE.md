@@ -25,11 +25,9 @@ Otros repos Bonum donde también vive infraestructura similar (referencia):
 - Su `~/.claude/CLAUDE.md` global tiene el diccionario completo del workspace Bonum.
 
 ## Decisiones ya tomadas (no re-litigar sin razón nueva)
-- **5 capas en cascada**: Core → Preset → Workspace → Project config → Engine adapters.
-- **Multi-engine desde día 1**: el core es engine-agnostic aunque al principio solo se renderice a `.claude/`.
-- **Modelo híbrido en `sync`**: marcadores `<!-- navori:managed -->` se sincronizan, el resto es del usuario.
-- **Source of truth**: `navori.config.json` checked-in al repo. `render` reconstruye todo desde ahí.
-- **Plugins como bundles** con 4 piezas opcionales (settings fragment, claude-md block, skill, hook, doctor).
+- **Los invariantes de arquitectura viven en un solo lugar, no aquí**: capas en cascada,
+  multi-engine, source of truth en `navori.config.json`, modelo híbrido de `sync` y plugins
+  como bundles, con su porqué completo ([why](docs/DIRECTION.md)).
 
 ## Próximos pasos
 Revisar engram + `git log` para el contexto vigente. Decisiones nuevas se documentan vía `mem_save`.
@@ -79,7 +77,9 @@ Protocolo global activo. En este repo:
 
 ## Convenciones generales
 - Commits: Conventional, español MX, atómicos.
-- El harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se commitea aquí y en todo repo no-Bonum — navori se auto-hospeda. La regla de "nunca commitear `.claude/`/`CLAUDE.md`" aplica solo a los repos `/bonum`. Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
+- **El harness se auto-hospeda en este repo** (commitea `.claude/` + `CLAUDE.md` +
+  `navori.config.json`; excepción `/bonum`, donde va gitignored) ([why](docs/DIRECTION.md)).
+  Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 - Branch base: definir cuando se inicialice el repo git.
 
 <!-- navori:managed id="idioma-rol" hash="5d83b387" version="0.8.7" source="@navori/core" -->

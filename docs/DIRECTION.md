@@ -198,6 +198,40 @@ una spec** en `specs/` y consíguela aprobada; recién entonces se implementa.
 6. **Memoria (engram)**: `mem_search` al inicio si el mensaje referencia navori; `mem_save`
    proactivo tras una decisión de diseño; `mem_session_summary` antes de cerrar.
 
+## Convención: regla autosuficiente con enlace tipado (issue #816)
+
+Forma para escribir una regla que declara la obligación en la línea y manda su porqué a un
+solo dueño en vez de inlinearlo, tomada del patrón de dsh
+([origen](research/deepseek-harness-lessons.md#32--el-patrón-canónico)):
+
+```
+- **<obligación>**: <condición o excepción, si hace falta> ([<ancla>](<ruta>)).
+```
+
+Vocabulario cerrado de anclas — cuatro, cada una apunta a un tipo de dueño distinto que
+navori ya tiene (no se inventa una casa nueva):
+
+| Ancla | Dueño del otro lado |
+|---|---|
+| `[rule]` | una spec formal en `specs/` que manda el comportamiento |
+| `[why]` | el invariante o la sección de `docs/DIRECTION.md` / `docs/architecture.md` / `docs/research/` que trae el trade-off completo |
+| `[decision]` | el issue o PR de GitHub donde se decidió, cuando todavía no existe spec ni doc |
+| `[scope]` | la skill o la sección de `CLAUDE.md` que define dónde aplica la regla y dónde no |
+
+Reglas del patrón:
+
+- **Un solo dueño por regla.** Si el porqué ya vive en `docs/DIRECTION.md` o en una spec, la
+  regla no lo repite: enlaza y listo. Repetirlo en dos lugares es la deriva que este patrón
+  existe para cortar.
+- **Sin fragmentos de header entre archivos.** Hoy no hay gate que verifique anclas `#slug`
+  (ver el hallazgo en [`deepseek-harness-lessons.md`§3.3](research/deepseek-harness-lessons.md#33--qué-significa-para-navori)); un link a nivel de archivo se
+  verifica con `test -f` y no se rompe si el título del destino cambia de texto. Un fragmento
+  dentro del **mismo** archivo (como los de esta misma sección) es distinto: Markdown lo
+  resuelve sin depender del slugger de otro renderer.
+- **Escalar el patrón a los bloques managed exige el `verify-md-links` primero** — ya
+  señalado como prerrequisito en el mismo `§3.3` citado arriba. Mientras ese gate no exista,
+  el patrón se aplica en puntos puntuales y de bajo riesgo, no de forma masiva.
+
 ## Referencias
 
 - `docs/architecture.md` — cómo funciona el render, las 5 capas y los bloques managed.
