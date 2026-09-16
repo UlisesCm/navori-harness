@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { assert, describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/schema.ts";
-import { scanCodexHealth, buildEngineInventory } from "../doctor.ts";
+import { isCodexVersionTooOld, scanCodexHealth, buildEngineInventory } from "../doctor.ts";
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-codex-doctor-"));
@@ -35,6 +35,12 @@ function config(overrides: Partial<NavoriConfig> = {}): NavoriConfig {
 }
 
 describe("scanCodexHealth (Spec 0007 M5)", () => {
+  it("compares Codex versions numerically instead of treating 0.154 as older than 0.145", () => {
+    expect(isCodexVersionTooOld("0.144.9")).toBe(true);
+    expect(isCodexVersionTooOld("0.145.0")).toBe(false);
+    expect(isCodexVersionTooOld("0.154.0")).toBe(false);
+  });
+
   it("returns null when codex is not a configured engine", () => {
     const cwd = tempRepo();
     expect(scanCodexHealth(cwd, config({ engines: ["claude"] }))).toBeNull();

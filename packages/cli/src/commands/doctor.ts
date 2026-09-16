@@ -1650,6 +1650,11 @@ function collectText(dir: string, parts: string[]): void {
 
 const MIN_CODEX_VERSION = "0.145.0";
 
+/** Whether a parsed Codex CLI version is below the minimum supported release. */
+export function isCodexVersionTooOld(version: string): boolean {
+  return isDowngrade(MIN_CODEX_VERSION, version);
+}
+
 export interface CodexHealth {
   /** `.codex/config.toml` has an unbalanced/malformed navori managed block. */
   configMalformed: boolean;
@@ -1723,7 +1728,7 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
       timeout: 5000, // best-effort external probe must not hang doctor (#268)
     });
     const found = raw.match(/\d+\.\d+\.\d+/)?.[0];
-    if (found && isDowngrade(found, MIN_CODEX_VERSION)) {
+    if (found && isCodexVersionTooOld(found)) {
       versionWarning = { found, min: MIN_CODEX_VERSION };
     }
   } catch {
