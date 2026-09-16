@@ -74,7 +74,7 @@ flowchart TD
     click ENG "../packages/cli/src/engines/claude/index.ts" "Claude engine"
     click P1 "../packages/cli/src/lib/render-plan.ts" "computeRenderPlan"
     click P2 "../packages/cli/src/engines/claude/build-settings.ts" "buildClaudeSettings"
-    click P3 "../packages/cli/src/engines/claude/render-managed-file.ts" "renderManagedFile"
+    click P3 "../packages/cli/src/engines/shared/render-managed-file.ts" "renderManagedFile"
     click WRITE "../packages/cli/src/lib/atomic.ts" "writeFileAtomic"
 ```
 
@@ -148,7 +148,7 @@ Doc oficial: https://code.claude.com/docs/en/permission-modes
 | Markers managed (inject/diff/hash) | [lib/marker.ts](../packages/cli/src/lib/marker.ts) |
 | Engine Claude | [engines/claude/index.ts](../packages/cli/src/engines/claude/index.ts) |
 | Settings deep-merge | [engines/claude/build-settings.ts](../packages/cli/src/engines/claude/build-settings.ts) |
-| Render de agents/skills/hooks | [engines/claude/render-managed-file.ts](../packages/cli/src/engines/claude/render-managed-file.ts) |
+| Render de agents/skills/hooks | [engines/shared/render-managed-file.ts](../packages/cli/src/engines/shared/render-managed-file.ts) |
 | Presets / Plugins | [lib/presets.ts](../packages/cli/src/lib/presets.ts) · [lib/plugins.ts](../packages/cli/src/lib/plugins.ts) |
 | Health-check (doctor/status) | [lib/health.ts](../packages/cli/src/lib/health.ts) |
 | Detección de stack | [lib/detect.ts](../packages/cli/src/lib/detect.ts) |
