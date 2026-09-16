@@ -58,14 +58,25 @@ describe("scanMissingExternalTools", () => {
   });
 });
 
-describe("codegraph externalTool.install platform selection (#270 item 2)", () => {
-  it("declares darwin+linux installers but NOT win32 (WSL prose removed)", () => {
-    const install = loadPlugin("codegraph").manifest.externalTool?.install ?? {};
+describe("externalTool.install platform selection (#270 item 2)", () => {
+  // The shape under test is "a manifest may omit a platform", not any one
+  // plugin: `add.ts` must take the clean `noInstallCommand` path for the absent
+  // key instead of running prose written for another OS as a shell command
+  // (which is what errored on native Windows). `semgrep` is the bundled manifest
+  // that exercises the omission today; `gh` is the one that omits a different
+  // platform, so the pair also proves the check is not reading a constant.
+  it("semgrep declares darwin+linux installers but NOT win32", () => {
+    const install = loadPlugin("semgrep").manifest.externalTool?.install ?? {};
     expect(install.darwin).toBeTruthy();
     expect(install.linux).toBeTruthy();
-    // win32 undefined → add.ts takes the clean `noInstallCommand` path instead of
-    // running the WSL prose as a shell command (which errored on native Windows).
     expect(install.win32).toBeUndefined();
+  });
+
+  it("gh declares darwin+win32 installers but NOT linux", () => {
+    const install = loadPlugin("gh").manifest.externalTool?.install ?? {};
+    expect(install.darwin).toBeTruthy();
+    expect(install.win32).toBeTruthy();
+    expect(install.linux).toBeUndefined();
   });
 });
 

@@ -302,9 +302,9 @@ export function buildClaudeSettings(
   // missing (#774). They are not the edge cases — `/clear` ERASES the context,
   // which makes it the moment that needs the re-injection most, and a forked
   // session starts from a copy nobody re-primed. The park showed the
-  // incoherence plainly: `tgrep-session` registers with NO matcher, so a
-  // `/clear`ed session got the search-index notice and none of the harness
-  // doctrine. The list is spelled out rather than dropped so that adding a
+  // incoherence plainly: a plugin's own `SessionStart` hook registers with NO
+  // matcher, so a `/clear`ed session got that plugin's notice and none of the
+  // harness doctrine. The list is spelled out rather than dropped so that adding a
   // sixth source is a decision somebody makes, not one that happens.
   settings = deepMerge(settings, {
     hooks: {

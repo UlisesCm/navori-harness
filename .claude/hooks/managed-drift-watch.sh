@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="4a3d8ec7" version="0.8.7" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="1011b7b0" version="0.8.7" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse watcher for managed-block drift (#530), on every tool that can
@@ -109,8 +109,8 @@ set -uo pipefail
 #
 # The rule could not be inferred from silence instead. "Every hook with no
 # `case` and no `$TRIGGER_TOKENS` must receive every write tool" falsifies
-# against `guard-destructive.sh`, `guard-search-routing.sh` and
-# `subagent-stop-handoff.sh` (matcher `Agent|Task`, correct by design).
+# against `guard-destructive.sh` and `subagent-stop-handoff.sh` (matcher
+# `Agent|Task`, correct by design).
 COVERED_TOOLS='Bash Edit Write NotebookEdit'
 
 # PostToolUse delivers its payload on stdin; this hook never needed it and the

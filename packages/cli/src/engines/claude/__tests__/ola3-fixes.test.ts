@@ -33,32 +33,22 @@ function config(plugins: NavoriConfig["plugins"]): NavoriConfig {
 describe("#212 — .mcp.json materialization for Claude", () => {
   it("registers an enabled plugin's mcpServer under the mcpServers key", () => {
     const cwd = tempRepo();
-    renderClaudeEngine(cwd, config({ codegraph: { enabled: true } }));
+    renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
 
     const mcpPath = join(cwd, ".mcp.json");
     expect(existsSync(mcpPath)).toBe(true);
     const parsed = JSON.parse(readFileSync(mcpPath, "utf-8"));
-    expect(parsed.mcpServers.codegraph).toEqual({
-      command: "codegraph",
-      args: ["serve", "--mcp"],
-      // Covers: R13 (spec 0017) — the manifest declares `alwaysLoad`, so the
-      // rendered registry carries it. This is the field that decides whether
-      // the agent gets codegraph's tools up front or has to go find them.
-      alwaysLoad: true,
+    expect(parsed.mcpServers.engram).toEqual({
+      command: "engram",
+      args: ["mcp", "--tools=agent"],
     });
     // stdio is the default → no `type` field emitted.
-    expect(parsed.mcpServers.codegraph.type).toBeUndefined();
-  });
-
-  // Covers: R13 — a server that does not declare `alwaysLoad` must not grow the
-  // key. `false` and "absent" mean the same thing to Claude Code, and only one
-  // of them keeps the registry readable.
-  it("omits alwaysLoad for a server whose manifest does not declare it", () => {
-    const cwd = tempRepo();
-    renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
-
-    const parsed = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8"));
-    expect(parsed.mcpServers.engram).toBeDefined();
+    expect(parsed.mcpServers.engram.type).toBeUndefined();
+    // Covers: R13 (spec 0017) — a server that does not declare `alwaysLoad`
+    // must not grow the key. `false` and "absent" mean the same thing to Claude
+    // Code, and only one of them keeps the registry readable. The emitting half
+    // (`alwaysLoad: true`) is pinned in `mcp-always-load.test.ts`: no bundled
+    // manifest declares it today, so only a synthetic plugin can drive it.
     expect("alwaysLoad" in parsed.mcpServers.engram).toBe(false);
   });
 
@@ -76,7 +66,7 @@ describe("#212 — .mcp.json materialization for Claude", () => {
       JSON.stringify(
         {
           mcpServers: {
-            codegraph: { command: "codegraph", args: ["serve", "--mcp"] },
+            engram: { command: "engram", args: ["mcp", "--tools=agent"] },
             "my-server": { command: "my-bin", args: [] },
           },
         },
@@ -85,11 +75,11 @@ describe("#212 — .mcp.json materialization for Claude", () => {
       ) + "\n",
     );
 
-    // Disable codegraph (what `navori remove` does before dropping the key).
-    renderClaudeEngine(cwd, config({ codegraph: { enabled: false } }));
+    // Disable the plugin (what `navori remove` does before dropping the key).
+    renderClaudeEngine(cwd, config({ engram: { enabled: false } }));
 
     const parsed = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8"));
-    expect(parsed.mcpServers.codegraph).toBeUndefined();
+    expect(parsed.mcpServers.engram).toBeUndefined();
     expect(parsed.mcpServers["my-server"]).toEqual({ command: "my-bin", args: [] });
   });
 });
@@ -111,7 +101,7 @@ describe("#557 — `.mcp.json` declares whether navori wrote the whole file", ()
 
   it("stamps the file it created from nothing", () => {
     const cwd = tempRepo();
-    renderClaudeEngine(cwd, config({ codegraph: { enabled: true } }));
+    renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
     expect(stampOf(cwd)?.managed).toBe(true);
     expect(stampOf(cwd)?.version).toBe(readCliVersion());
   });
@@ -122,12 +112,12 @@ describe("#557 — `.mcp.json` declares whether navori wrote the whole file", ()
       join(cwd, ".mcp.json"),
       `${JSON.stringify({ mcpServers: { "my-server": { command: "my-bin", args: [] } } }, null, 2)}\n`,
     );
-    renderClaudeEngine(cwd, config({ codegraph: { enabled: true } }));
+    renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
 
     const parsed = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8"));
     // Registered, as always — and NOT claimed: deleting this file would take the
     // user's server with it.
-    expect(parsed.mcpServers.codegraph).toBeDefined();
+    expect(parsed.mcpServers.engram).toBeDefined();
     expect(parsed.mcpServers["my-server"]).toBeDefined();
     expect(parsed.$navori).toBeUndefined();
   });
@@ -135,7 +125,7 @@ describe("#557 — `.mcp.json` declares whether navori wrote the whole file", ()
   it("does not claim a file that carries a top-level key of the user's", () => {
     const cwd = tempRepo();
     writeFileSync(join(cwd, ".mcp.json"), `${JSON.stringify({ inputs: [] }, null, 2)}\n`);
-    renderClaudeEngine(cwd, config({ codegraph: { enabled: true } }));
+    renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
 
     const parsed = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8"));
     expect(parsed.inputs).toEqual([]);
@@ -144,7 +134,7 @@ describe("#557 — `.mcp.json` declares whether navori wrote the whole file", ()
 
   it("gives the file back the moment the user adds a server of their own", () => {
     const cwd = tempRepo();
-    renderClaudeEngine(cwd, config({ codegraph: { enabled: true } }));
+    renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
     expect(stampOf(cwd)?.managed).toBe(true);
 
     // The user edits the registry navori created.
@@ -154,7 +144,7 @@ describe("#557 — `.mcp.json` declares whether navori wrote the whole file", ()
 
     // Recomputed from the content, not remembered: the claim comes off by
     // itself, with no flag and no migration.
-    renderClaudeEngine(cwd, config({ codegraph: { enabled: true } }));
+    renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
     const after = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf-8"));
     expect(after.$navori).toBeUndefined();
     expect(after.mcpServers["my-server"]).toEqual({ command: "my-bin", args: [] });

@@ -122,14 +122,14 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 Exception: `// any justified: <reason>` — last resort, not a shortcut. If there's no clear reason, it's not justified.
 <!-- /navori:managed id="tipado-fuerte" -->
 
-<!-- navori:managed id="operaciones-seguras" hash="90d08f18" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="operaciones-seguras" hash="c1900f32" version="0.8.7" source="@navori/core" -->
 ## Operations on data and infrastructure
 
 Read-only by default. Before mutating data, schema, or infrastructure (DB, storage, deploys, cloud resources), read and propose; don't mutate without the user's explicit opt-in for THIS task.
 
 - **DB / queries**: read-only by default (`SELECT`, `EXPLAIN`, flags like `onlyRead`). `INSERT/UPDATE/DELETE/DROP/ALTER/TRUNCATE` require the user to ask for it explicitly.
 - **Shell commands**: inspecting is free (`ls`, `cat`, `git status/diff/log`). Destructive ones (`rm -rf`, `git reset --hard`, force-push, `chmod -R`) are routed by the harness to `ask`/`deny`, and the `guard-destructive` hook hard-blocks the subset a static rule can't catch — don't try to bypass that layer.
-- **Code search**: the native `Glob`/`Grep` are read-only and pre-approved, so they never prompt. **When the tgrep plugin is enabled**, content search goes through the wrapper its protocol block names instead. Either way `rg` itself is deliberately NOT pre-approved (`rg --pre <cmd>` runs an arbitrary command per file), and shell `find`/`grep` are reserved for what those tools don't cover. Which call answers which question — and what each one costs — is the `structural-search` skill.
+- **Code search**: the native `Glob`/`Grep` are read-only and pre-approved, so they never prompt — that is the default lane for content search. `rg` itself is deliberately NOT pre-approved (`rg --pre <cmd>` runs an arbitrary command per file), and shell `find`/`grep` are reserved for what those tools don't cover. Which call answers which question — and what each one costs — is the `structural-search` skill.
 - **When the host mandates Bash (auto mode)**: `sed -i` exits 0 when its pattern matches nothing and a misdirected `>` truncates the file, so verify the result — the exit code is not evidence (`verify-before-done`). And a shell rewrite of any file navori generates is BLOCKED by the guard: a direct write invalidates its managed-block hash and navori then stops updating that block. Change the source asset and run `navori render --apply`, or reconcile with `navori sync`.
 - **If a destructive mutation is legitimate and necessary**: explain what it does and why, and let the user confirm or run it. Never disguise it with variables, subshells, or `--no-verify` to skip the gate.
 - **Command blocked by permission/policy → STOP (circuit-breaker)**: a `deny` or a rejection IS the answer — **0 retries**, don't re-issue the command or re-ask for the same permission in a loop. If it only hit a missing pre-approval you get **one** alternative approach, which changes the path and never repeats the command; if that doesn't pass either you stop and tell the user to run it outside the agent.
@@ -205,31 +205,7 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 
 
 
-<!-- navori:managed id="codegraph-protocol" hash="51bf41b9" version="0.8.7" source="@navori/plugin-codegraph" -->
-## CodeGraph (surgical code context)
 
-This repo has a pre-built AST code graph exposed over MCP (`codegraph`). This protocol applies only when your toolset exposes `codegraph_explore`; otherwise skip it and use the ordinary search path. To locate code or size a change's blast-radius, call `codegraph_explore` **before** a grep/read crawl: one call returns the source span, call paths and impact.
-
-**In auto mode this is the cheapest move available, not a luxury the shell preference overrides.** The host asks you to work through Bash instead of `Read`/`Edit`/`Write`; an MCP call is neither, and `mcp__codegraph__*` carries an `allow` rule, so it resolves without a classifier round-trip. A shell command pays that round-trip unless a narrow allow rule covers it — those resolve first — so the saving is real against the shell you actually reach for, which is most of it. One `codegraph_explore` costs less than the grep crawl it replaces — measured sessions in this harness ran hundreds of shell searches and zero graph queries, which is the expensive way round.
-
-It forms the hypothesis; it does not settle it. codegraph is beta and can return the wrong symbol while claiming it's exact, so **confirm the span with `Grep`/`Read` before writing** — and never treat its "tests found" as a coverage gate.
-
-How to use it in practice — the full ladder, the monorepo caveat and the index rules — is Rung -1 of the `structural-search` skill, loaded when you actually go looking for code.
-<!-- /navori:managed id="codegraph-protocol" -->
-
-<!-- navori:managed id="tgrep-protocol" hash="04ea035f" version="0.8.7" source="@navori/plugin-tgrep" -->
-## Content search (the tgrep wrapper)
-
-Content search — a literal, a regex, a copy string — goes through one command: `bash .claude/scripts/tgrep-search.sh <search args…>`.
-
-It carries an `allow` rule, so it runs with no permission prompt in any mode. That rule is narrow, and narrow Bash allow rules resolve BEFORE the classifier in auto mode — so it pays no round-trip either. What it does NOT buy you is an advantage over a shell `grep`, which is allow-listed on the same terms: the reason to come through here is that `guard-search-routing` blocks recursive shell search outright, so this is the route that runs at all. Its flag surface is ripgrep's. Never ask which engine the machine has: the wrapper resolves that and keeps the exit-code contract (0 = match, 1 = no match) whichever one it picks. A third code exists and means something else entirely: **exit 2 is "nothing was searched"** — never read it as "no match".
-
-**Structure is a different question.** *Where is this symbol, who calls it, what breaks if I change it* is `codegraph_explore`; *which files hold this string* is the wrapper. And searching is not extracting — once you know the file, `grep -n "x" that-file` or `Read` is the cheaper call.
-
-**Dot-directories are outside every default search**, here and in the native `Grep`: `.claude/`, `.github/` and friends need `--hidden`, so an empty result without it proves nothing.
-
-The routing table, the portable flag set and why the index is rebuilt before every query: Rung 1 of the `structural-search` skill.
-<!-- /navori:managed id="tgrep-protocol" -->
 
 <!-- navori:managed id="skills-index" hash="36d7b93c" version="0.8.7" source="@navori/core" -->
 ## Skills disponibles

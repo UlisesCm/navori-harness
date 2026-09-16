@@ -3,15 +3,17 @@ name: structural-search
 description: Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — find the right region and open only the confirmed span instead of reading whole files; escalate from engram to Grep to ast-grep per the trigger.
 type: reference
 # 600 y no 500 (spec 0020, R4): recibió el reparto shell/nativo y la medición de los
-# 835 round-trips del clasificador, que salieron de `operaciones-seguras`. Misma razón
-# que en `tgrep-rung`: se cambia costo por sesión por costo por uso.
+# 835 round-trips del clasificador, que salieron de `operaciones-seguras`. Se cambia
+# costo por sesión por costo por uso: el bloque always-on adelgaza y esto se paga al
+# usarse.
 maxWords: 600
-# El techo del archivo COMPUESTO, que es lo que el agente carga (#683): 600 del
-# núcleo + 200 de `codegraph-rung` + 550 de `tgrep-rung` = 1350, más 50 de margen
-# para lo que el render interpola dentro del bloque managed. El `maxWords` de
-# arriba sigue siendo el presupuesto de ESTE asset y su razonamiento: que un
-# plugin le agregue una rung no debe borrarlo.
-maxWordsComposed: 1400
+# El techo del archivo COMPUESTO, que es lo que el agente carga (#683): hoy solo el
+# núcleo (600) más 50 de margen para lo que el render interpola dentro del bloque
+# managed. Un plugin que inyecte su propia rung aquí tiene que SUBIR este techo en
+# el mismo cambio — ese es el punto: el presupuesto compuesto se negocia una vez,
+# no se descubre cuando el agente ya paga el archivo entero. El `maxWords` de arriba
+# sigue siendo el presupuesto de ESTE asset y su razonamiento.
+maxWordsComposed: 650
 ---
 
 # structural-search — read the minimum correct amount

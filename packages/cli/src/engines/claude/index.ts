@@ -61,7 +61,7 @@ import {
   type SkippedFile,
 } from "../shared/execute-plan.ts";
 import { createClaudeAdapter } from "./adapter.ts";
-import { withAgentMcpTools } from "./agent-mcp-tools.ts";
+import { withAgentMcpTools, withoutAgentMcpTools } from "./agent-mcp-tools.ts";
 
 /**
  * Claude keeps its detailed skip prose (with the `navori sync` hint and the
@@ -781,9 +781,9 @@ export function renderClaudeEngine(
   // 2.5. .mcp.json — the project-scoped MCP registry Claude Code reads (#212).
   // Before this, a plugin's `mcpServer` was only ever materialized for Codex
   // (config.toml); on Claude the server relied 100% on `postInstall` side-
-  // effects, which don't run under `add --skip-install`. So `codegraph`'s
-  // `mcp__codegraph__*` permission pointed at a server that was never registered,
-  // and the protocol promised MCP tools that didn't exist. We now write the same
+  // effects, which don't run under `add --skip-install`. So a plugin's
+  // `mcp__<id>__*` permission pointed at a server that was never registered,
+  // and its protocol promised MCP tools that didn't exist. We now write the same
   // servers Codex gets into `.mcp.json`, reconciling disabled plugins and
   // preserving any servers the user added under their own keys.
   const disabledPlugins = loadDisabledPlugins(config.plugins).loaded;
@@ -1009,7 +1009,7 @@ export function renderClaudeEngine(
     for (const skill of plugin.skillAssets) {
       if (!skill.injectInto) continue;
       inspected += 1;
-      removeSubBlock({ cwd, skill, pending });
+      removeSubBlock({ cwd, plugin, skill, pending });
     }
     // Marker-free by construction, so `isRemovableNavoriFile` does NOT gate this
     // one (it would never match and the cleanup would silently stop working): a
@@ -1385,8 +1385,13 @@ type McpPlan =
  * navori's, it stops being navori's whole file and the stamp comes off. So a
  * user who adds their own entry to a navori-created registry takes it back by
  * doing exactly that, with no flag and no migration.
+ *
+ * Exported for `mcp-always-load.test.ts`: `alwaysLoad` emission has no bundled
+ * manifest to drive it, and the whole-engine render can only register servers
+ * that a real plugin package declares. Taking a `LoadedPlugin[]` directly is the
+ * only way to hold that branch to its contract.
  */
-function planMcpRegistration(
+export function planMcpRegistration(
   cwd: string,
   enabledPlugins: LoadedPlugin[],
   disabledPlugins: LoadedPlugin[],
@@ -1741,9 +1746,17 @@ function applySubBlockInject(input: {
  * inverse of applySubBlockInject). Operates on the pending content if the file
  * is being re-rendered this pass, else on the on-disk copy. No-op when the
  * target or the sub-block is absent. (#80)
+ *
+ * The `tools:` grant goes with it. `applySubBlockInject` widens the agent's
+ * allowlist when it writes the prose, so the inverse has to narrow it when it
+ * takes the prose away — otherwise an agent keeps declaring `mcp__<id>__*` for
+ * a server no longer registered anywhere, and a later re-install of the same
+ * plugin starts from inherited state instead of clean. Both halves run through
+ * the plugin's OWN manifest, so neither can touch another server's grant.
  */
 function removeSubBlock(input: {
   cwd: string;
+  plugin: LoadedPlugin;
   skill: LoadedPlugin["skillAssets"][number];
   pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>;
 }): void {
@@ -1759,8 +1772,12 @@ function removeSubBlock(input: {
     return; // target file gone — nothing to strip
   }
 
-  const stripped = removeManagedSection(currentContent, input.skill.id, "html");
-  if (stripped === currentContent) return; // sub-block not present
+  const stripped = withoutAgentMcpTools(
+    removeManagedSection(currentContent, input.skill.id, "html"),
+    input.plugin,
+    input.skill.injectInto!,
+  );
+  if (stripped === currentContent) return; // nothing of this plugin left here
 
   if (pendingEntry) {
     pendingEntry.content = stripped;
@@ -1843,7 +1860,7 @@ const FRONTEND_PRESETS = new Set([
  * render, with no manifest edit and no burden on plugin authors — and an id
  * nobody types is an id nobody can typo into a collision.
  *
- * `tgrep` + `tgrep-search.sh` → `tgrep-script-tgrep-search`.
+ * `jscpd` + `check-jscpd.sh` → `jscpd-script-check-jscpd`.
  */
 function pluginScriptManagedId(pluginId: string, dest: string): string {
   const slug = dest

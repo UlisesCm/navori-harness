@@ -53,8 +53,8 @@ import type { NavoriConfig } from "../lib/config.ts";
  *      `build-settings.test.ts` — the same artifact this file's opening
  *      paragraph condemns. The rule cannot be inferred from silence either:
  *      "no claim ⇒ covers every write tool" falsifies against
- *      `guard-destructive.sh`, `guard-search-routing.sh` and
- *      `subagent-stop-handoff.sh` (matcher `Agent|Task`, correct by design).
+ *      `guard-destructive.sh` and `subagent-stop-handoff.sh` (matcher
+ *      `Agent|Task`, correct by design).
  *      So the script DECLARES its coverage, exactly as the gates declare their
  *      triggers, and the edit point moves back to the script.
  *
@@ -120,17 +120,13 @@ const KNOWN_WIRING_DEFECTS = new Map<string, string>();
  * declares a claim in the script or writes down why there is none.
  *
  * The reasons are what make this more than a skip list — a rule of "no claim ⇒
- * covers every write tool" would falsely flag all three below, and each one
+ * covers every write tool" would falsely flag both entries below, and each one
  * says why in its own terms.
  */
 const CLAIMLESS_HOOKS = new Map<string, string>([
   [
     "guard-destructive.sh",
     "decide por la FORMA del comando (`tool_input.command`), no por la herramienta: un payload de Edit/Write ni siquiera trae campo `command`, así que ampliar su matcher no le daría nada que analizar — `Bash` en PreToolUse es la registración correcta y completa",
-  ],
-  [
-    "guard-search-routing.sh",
-    "mismo caso que `guard-destructive`: inspecciona el string de shell para enrutar la búsqueda al wrapper, y solo `Bash` lleva uno — el carril nativo no tiene búsqueda que reenrutar",
   ],
   [
     "subagent-stop-handoff.sh",

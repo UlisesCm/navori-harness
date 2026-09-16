@@ -100,9 +100,11 @@ describe("every registered hook carries the audit-log include (#778)", () => {
     // A guard on the guard: if the extraction regex ever stops matching, every
     // assertion below would pass over an EMPTY list and the test would go green
     // while checking nothing.
-    expect(scriptNames.length).toBeGreaterThanOrEqual(14);
-    expect(scriptNames).toContain("tgrep-session.sh");
+    expect(scriptNames.length).toBeGreaterThanOrEqual(12);
+    // One from each source, because the include rule applies to both: a core
+    // hook and a plugin-contributed one.
     expect(scriptNames).toContain("guard-destructive.sh");
+    expect(scriptNames).toContain("check-jscpd.sh");
   });
 
   it("resolves every registered hook to a source asset", () => {
@@ -123,7 +125,7 @@ describe("every registered hook carries the audit-log include (#778)", () => {
       missing,
       `these hooks are registered in settings.json but have no '# navori:include audit-log', ` +
         `so they can run for months with zero recorded executions and nothing would notice ` +
-        `(that is exactly how tgrep-session.sh shipped invisible): ${missing.join(", ")}`,
+        `(that is exactly how a plugin's SessionStart hook once shipped invisible): ${missing.join(", ")}`,
     ).toEqual([]);
   });
 

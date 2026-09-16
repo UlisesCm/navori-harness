@@ -29,10 +29,9 @@
  * `gitignoreHarness: "local"` the Codex receipt and every subagent handoff were
  * versionable — the exact omission #348 created this constant to prevent.
  *
- * Deliberately NOT here: `.codegraph/` and `.navori/`. Both belong in the
- * `.gitignore` cubo A but not in this set — `.codegraph/` has its own richer
- * doctor check, and `.navori/` legitimately holds versioned local presets, so
- * neither is "ephemeral state nobody would want back".
+ * Deliberately NOT here: `.navori/`. It belongs in the `.gitignore` cubo A but
+ * not in this set — it legitimately holds versioned local presets, so it is not
+ * "ephemeral state nobody would want back".
  */
 export const EPHEMERAL_HARNESS_PATHS: readonly string[] = [
   ".claude/settings.local.json",

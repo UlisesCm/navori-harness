@@ -33,20 +33,15 @@ const GITIGNORE_COMMENT_STYLE = "shell" as const;
  * derived from `ENGINE_OUTPUTS`.
  *
  * The ephemeral `.claude/` state comes from `EPHEMERAL_HARNESS_PATHS` (shared
- * with the render backup and doctor's git-hygiene scan — #348). The two extras
- * are gitignore-only: `.codegraph/` is a rebuildable local index and `.navori/`
- * holds machine-local presets; neither is "ephemeral agent state", so neither
- * belongs in the shared set.
+ * with the render backup and doctor's git-hygiene scan — #348). The one extra is
+ * gitignore-only: `.navori/` holds machine-local presets, which is not
+ * "ephemeral agent state", so it does not belong in the shared set.
  *
  * IMPORTANT: the ignored progress dir is `.claude/progress/`, never the root
  * `progress/`. The root `progress/` (current.md, history.md) is git-persisted by
  * design and must stay tracked.
  */
-export const CUBO_A_ENTRIES: readonly string[] = [
-  ...EPHEMERAL_HARNESS_PATHS,
-  ".codegraph/",
-  ".navori/",
-];
+export const CUBO_A_ENTRIES: readonly string[] = [...EPHEMERAL_HARNESS_PATHS, ".navori/"];
 
 /**
  * The subset of config that governs the `.gitignore` block body. `gitignoreHarness`

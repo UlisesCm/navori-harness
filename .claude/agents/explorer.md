@@ -1,7 +1,7 @@
 ---
 name: explorer
 description: Maps a broad area or module — structure, key files, entry points, dependencies. Does not modify code. Use when you don't know where something lives and would otherwise open 4+ files to find out.
-tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__codegraph__*
+tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
 ---
 
 <!-- navori:managed id="explorer-base" hash="c4272e56" version="0.8.7" source="@navori/core" -->
@@ -81,42 +81,7 @@ done -> .claude/progress/explore_<area>.md
 `explore_<area>.md` is **input to the next step of the pipeline**, not a chat summary: the leader cross-reads it with the other explorers' files, and the `implementer` opens it as prior context. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
 <!-- /navori:managed id="explorer-base" -->
 
-<!-- navori:managed id="codegraph-explorer-extension" hash="f083881c" version="0.8.7" source="@navori/plugin-codegraph" -->
-## Start at the graph, not at the grep
 
-You are the repo's search role, so this applies to nearly every question you get.
-When the `codegraph` MCP tool is available, ask the pre-built AST graph FIRST:
-`codegraph_explore` takes a symbol name or a natural-language question and returns
-the source span, the call paths and a blast-radius summary in ONE call — the work a
-grep/read crawl spends a dozen calls rebuilding. It also follows dynamic hops
-(callbacks, re-render, JSX children) that a string search cannot.
-
-Then verify. The graph forms the hypothesis; it does not close the question:
-
-- On a stale index or an ambiguous name it can return the WRONG symbol while
-  reporting it as exact. Confirm the concrete span with `Grep`/`Read` before you
-  cite it as evidence — a finding you report becomes someone's edit.
-- Its "impact / tests found" is a hint, never a coverage claim.
-
-If `codegraph` isn't installed or the index looks stale, skip this and search as
-usual. Never block on it.
-<!-- /navori:managed id="codegraph-explorer-extension" -->
-
-<!-- navori:managed id="tgrep-explorer-extension" hash="47c452bc" version="0.8.7" source="@navori/plugin-tgrep" -->
-## Search content through the wrapper
-
-You are the repo's search role, so this is most of what you do. Content searches — a literal, a regex, a copy string — go through:
-
-```
-bash .claude/scripts/tgrep-search.sh <search args…>
-```
-
-An `allow` rule covers that exact invocation, so it costs no prompt and no classifier round-trip; a hand-written `rg …` costs both. Flags are ripgrep's: `-l`, `-n`, `-i`, `-F`, `-w`, `-g`, `-C`.
-
-Never check whether `tgrep` is installed — the wrapper does, on every call. With it, the search runs on a trigram index rebuilt just before the query (a stale index answers "no match" without saying so); without it, the wrapper falls back to `rg`, then `grep -rn`, and warns once on stderr. Exit codes mean the same on all three paths: 0 = match, 1 = no match. `SessionStart` never reaches you, so nothing in your context could have told you which engine this machine has.
-
-**Route before you search.** A symbol, its callers or its blast-radius belongs to `codegraph_explore`; the wrapper answers about text. Confirm the graph's span with the wrapper or `Read` — never with a second graph query.
-<!-- /navori:managed id="tgrep-explorer-extension" -->
 
 ## Project rules
 

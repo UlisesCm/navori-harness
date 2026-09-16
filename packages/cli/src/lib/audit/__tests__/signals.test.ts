@@ -93,7 +93,10 @@ function catalog(over: Partial<HarnessCatalog> = {}): HarnessCatalog {
     managedSkills: [],
     sections: [],
     claudeMdTokens: 8000,
-    mcpFamilies: ["codegraph", "engram"],
+    // Two families, and the second is deliberately not one navori bundles: the
+    // signal crosses section↔server PER SERVER, so a single-family catalogue
+    // could never tell the fixed version from the `hasMcp` boolean it replaced.
+    mcpFamilies: ["engram", "playwright"],
     ...over,
   };
 }
@@ -102,7 +105,7 @@ const kinds = (s: SessionAudit, c: HarnessCatalog): string[] =>
   detectSignals(s, c, "es").map((x) => x.kind);
 
 describe("signal: unreachable-instructions", () => {
-  const mcpSection = { title: "CodeGraph", chars: 2200, tokens: 550, requiresMcp: ["codegraph"] };
+  const mcpSection = { title: "Browser", chars: 2200, tokens: 550, requiresMcp: ["playwright"] };
 
   it("fires when a section orders MCP and the spawned agents cannot reach it", () => {
     const s = session({ agents: [agent({ agentType: "implementer" })] });
@@ -143,20 +146,20 @@ describe("signal: unreachable-instructions", () => {
         mcpSection,
         { title: "Engram", chars: 2712, tokens: 678, requiresMcp: ["engram"] },
       ],
-      // Reaches codegraph, not engram — `hasMcp` says "has MCP" and hides it.
-      agents: [{ name: "researcher", tools: ["Read", "mcp__codegraph__*"], hasMcp: true }],
+      // Reaches playwright, not engram — `hasMcp` says "has MCP" and hides it.
+      agents: [{ name: "researcher", tools: ["Read", "mcp__playwright__*"], hasMcp: true }],
     });
     const found = detectSignals(s, c, "es").find((x) => x.kind === "unreachable-instructions");
     expect(found?.tokens).toBe(678);
     expect(found?.evidence).toContain("engram");
-    expect(found?.evidence).not.toContain("codegraph");
+    expect(found?.evidence).not.toContain("playwright");
   });
 
   it("stays silent when the agent DOES have MCP access", () => {
     const s = session({ agents: [agent({ agentType: "implementer" })] });
     const c = catalog({
       sections: [mcpSection],
-      agents: [{ name: "implementer", tools: ["Read", "mcp__codegraph__explore"], hasMcp: true }],
+      agents: [{ name: "implementer", tools: ["Read", "mcp__playwright__click"], hasMcp: true }],
     });
     expect(kinds(s, c)).not.toContain("unreachable-instructions");
   });
@@ -332,7 +335,7 @@ describe("signal ordering", () => {
       permissionModes: { auto: 10 },
     });
     const c = catalog({
-      sections: [{ title: "CodeGraph", chars: 2200, tokens: 550, requiresMcp: ["codegraph"] }],
+      sections: [{ title: "Browser", chars: 2200, tokens: 550, requiresMcp: ["playwright"] }],
       agents: [{ name: "implementer", tools: ["Bash"], hasMcp: false }],
     });
     const severities = detectSignals(s, c, "es").map((x) => x.severity);
@@ -454,7 +457,7 @@ describe("signal: tool-mix (spec 0016 T4.2, métrica de #603)", () => {
     detectSignals(s, catalog(), "es").find((x) => x.kind === "tool-mix");
 
   it("fires when the reads went through the shell, with the lane breakdown", () => {
-    const signal = found(withMix({ Bash: 90, Read: 3, Grep: 2, mcp__codegraph__explore: 5 }, 45));
+    const signal = found(withMix({ Bash: 90, Read: 3, Grep: 2, mcp__playwright__click: 5 }, 45));
     expect(signal?.severity).toBe("warn");
     // 5 native of 50 reads = 10%.
     expect(signal?.summary).toContain("10%");

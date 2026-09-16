@@ -50,7 +50,7 @@ describe("clause (a) — carries behavior, decided from the path", () => {
       "source",
       "prosa del harness que un agente OBEDECE — clause (a) la llama comportamiento",
     ],
-    ["packages/plugins/tgrep/skills/tgrep-rung.md", "source", "lo mismo, desde un plugin"],
+    ["packages/plugins/engram/skills/engram-subagent.md", "source", "lo mismo, desde un plugin"],
 
     // --- generados: el cambio vive en el asset, no aquí ---
     [".claude/agents/reviewer.md", "generated", "espejo renderizado"],

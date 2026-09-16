@@ -38,12 +38,6 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/check-semgrep.sh\"",
             "timeout": 600,
             "statusMessage": "navori/semgrep: security scan"
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/guard-search-routing.sh\"",
-            "timeout": 10,
-            "statusMessage": "navori/tgrep: routing guard"
           }
         ]
       }
@@ -92,16 +86,6 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.sh\"",
             "timeout": 15,
             "statusMessage": "navori: session context"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/tgrep-session.sh\"",
-            "timeout": 30,
-            "statusMessage": "navori/tgrep: search index"
           }
         ]
       }
@@ -224,9 +208,6 @@
       "Bash(gh run view*)",
       "Bash(jscpd:*)",
       "Bash(semgrep:*)",
-      "mcp__codegraph__*",
-      "Bash(bash .claude/scripts/tgrep-search.sh *)",
-      "Bash(tgrep *)",
       "Bash(cd packages/cli)",
       "Bash(pnpm lint:*)",
       "Bash(cd packages/cli && pnpm lint)",

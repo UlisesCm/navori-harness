@@ -26,12 +26,6 @@
     },
     "semgrep": {
       "enabled": true
-    },
-    "codegraph": {
-      "enabled": true
-    },
-    "tgrep": {
-      "enabled": true
     }
   },
   "project": {

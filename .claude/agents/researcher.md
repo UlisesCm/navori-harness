@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: Answers ONE scoped question about the repo with cited evidence, written to a file. Does not modify code. Use when answering would take reading 4+ files, or to challenge a design decision with fresh context.
-tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__codegraph__*
+tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
 ---
 
 <!-- navori:managed id="researcher-base" hash="eb31b215" version="0.8.7" source="@navori/core" -->
@@ -88,42 +88,7 @@ blocked -> <brief reason>
 Never return the report's content in chat. The leader reads it from disk.
 <!-- /navori:managed id="researcher-base" -->
 
-<!-- navori:managed id="codegraph-researcher-extension" hash="f083881c" version="0.8.7" source="@navori/plugin-codegraph" -->
-## Start at the graph, not at the grep
 
-You are the repo's search role, so this applies to nearly every question you get.
-When the `codegraph` MCP tool is available, ask the pre-built AST graph FIRST:
-`codegraph_explore` takes a symbol name or a natural-language question and returns
-the source span, the call paths and a blast-radius summary in ONE call — the work a
-grep/read crawl spends a dozen calls rebuilding. It also follows dynamic hops
-(callbacks, re-render, JSX children) that a string search cannot.
-
-Then verify. The graph forms the hypothesis; it does not close the question:
-
-- On a stale index or an ambiguous name it can return the WRONG symbol while
-  reporting it as exact. Confirm the concrete span with `Grep`/`Read` before you
-  cite it as evidence — a finding you report becomes someone's edit.
-- Its "impact / tests found" is a hint, never a coverage claim.
-
-If `codegraph` isn't installed or the index looks stale, skip this and search as
-usual. Never block on it.
-<!-- /navori:managed id="codegraph-researcher-extension" -->
-
-<!-- navori:managed id="tgrep-researcher-extension" hash="47c452bc" version="0.8.7" source="@navori/plugin-tgrep" -->
-## Search content through the wrapper
-
-You are the repo's search role, so this is most of what you do. Content searches — a literal, a regex, a copy string — go through:
-
-```
-bash .claude/scripts/tgrep-search.sh <search args…>
-```
-
-An `allow` rule covers that exact invocation, so it costs no prompt and no classifier round-trip; a hand-written `rg …` costs both. Flags are ripgrep's: `-l`, `-n`, `-i`, `-F`, `-w`, `-g`, `-C`.
-
-Never check whether `tgrep` is installed — the wrapper does, on every call. With it, the search runs on a trigram index rebuilt just before the query (a stale index answers "no match" without saying so); without it, the wrapper falls back to `rg`, then `grep -rn`, and warns once on stderr. Exit codes mean the same on all three paths: 0 = match, 1 = no match. `SessionStart` never reaches you, so nothing in your context could have told you which engine this machine has.
-
-**Route before you search.** A symbol, its callers or its blast-radius belongs to `codegraph_explore`; the wrapper answers about text. Confirm the graph's span with the wrapper or `Read` — never with a second graph query.
-<!-- /navori:managed id="tgrep-researcher-extension" -->
 
 ## Project rules
 

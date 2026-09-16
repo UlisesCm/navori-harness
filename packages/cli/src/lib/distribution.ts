@@ -9,7 +9,7 @@
  * INVISIBLE to all of them.
  *
  * The cost of that blind spot is measured, not hypothetical: a repo was audited
- * for two weeks on "1,495 searches with tgrep at 0.3%" while its harness lived
+ * for two weeks on "1,495 searches routed the wrong way" while its harness lived
  * in 55 staged-but-uncommitted files and a branch with no remote counterpart.
  * Every existing check was green the whole time, because every existing check
  * compares the disk against something that also lives on that one machine. The

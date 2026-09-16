@@ -215,12 +215,12 @@ describe("audit --start: the SessionStart spool (#778)", () => {
   }
 
   it("folds the spooled SessionStart records into the log it just created", () => {
-    writeSpool("sess-spool", "session-start-context", "tgrep-session");
+    writeSpool("sess-spool", "session-start-context", "check-jscpd");
     expect(runAudit(["--start", "sess-spool"]).status).toBe(0);
 
     const log = readFileSync(join(auditDir, "session-sess-spool.log"), "utf-8");
     expect(log).toContain('"name":"session-start-context"');
-    expect(log).toContain('"name":"tgrep-session"');
+    expect(log).toContain('"name":"check-jscpd"');
     // The `start` record still leads: nothing about absorbing may cost the
     // stamp that makes the log a marked session.
     expect(log.split("\n")[0]).toContain('"event":"start"');

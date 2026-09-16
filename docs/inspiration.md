@@ -154,6 +154,13 @@
   bilingüe sin contrato de idioma.
 
 ## codegraph
+
+> **Retirado como plugin de navori el 2026-09-15** (Spec 0009). Lo de abajo es el análisis
+> del proyecto upstream, que sigue vigente como referencia; lo que dejó de ser cierto es la
+> frase "el plugin está activo en este repo". Se va a reimplementar junto con `tgrep`, con
+> una integración pensada para que trabajen entre sí — acta del retiro y qué midió cada uno
+> en [`research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md).
+
 - **URL**: https://github.com/colbymchenry/codegraph — MIT.
 - **Qué es**: grafo de conocimiento pre-indexado (símbolos, dependencias, call flows)
   expuesto como servidor MCP para agentes.
@@ -193,8 +200,8 @@ queda en la ventana, mientras que grep-and-read produce muchos resultados chicos
 van desalojando. "Menos tokens procesados" y "mayor huella persistente" son ciertas a
 la vez. Medido por repo en `docs/benchmarks/residual-context-occupancy.md`.
 
-**Esto le pega directo a navori**: el plugin de codegraph está activo en este repo y lo
-citamos como argumento de los specs **0005 (eficiencia de búsqueda)** y **0006
+**Esto le pega directo a navori**: el plugin de codegraph estuvo activo en este repo hasta
+el 2026-09-15 y lo citamos como argumento de los specs **0005 (eficiencia de búsqueda)** y **0006
 (reducción de contexto)**. La mitad favorable (menos tool calls, menos tokens
 procesados) es real; la desfavorable (más contexto residente en sesiones largas)
 también, y afecta justo al eje que 0006 quiere optimizar. Cualquier análisis futuro

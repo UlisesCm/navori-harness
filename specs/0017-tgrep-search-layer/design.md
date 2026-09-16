@@ -1,5 +1,24 @@
 # Capa de búsqueda indexada (tgrep + codegraph) — Design
 
+> **Estado: RETIRADA — 2026-09-15.** El plugin `tgrep` se borró del motor
+> (`packages/plugins/tgrep/`: wrapper, guard de ruteo, hook de sesión, bloque
+> `tgrep-protocol` y las cinco inyecciones de doctrina), junto con `codegraph`
+> (spec 0009). La búsqueda de contenido vuelve a las herramientas nativas
+> `Grep`/`Glob`. Lo que sobrevive del contrato de plugin son piezas genéricas que
+> esta spec abrió y otros plugins usan: `SessionStart` como evento (R7) y
+> `mcpServer.alwaysLoad` (R13).
+>
+> **Qué resultado dio.** La doctrina sola midió **7.4%** de adopción sobre 2,761
+> búsquedas reales; el guard mecánico la movió a **40.7%** en una semana
+> (navori-harness 15.7→58.1%). Ese contraste — lo que bloquea aguanta, lo que
+> sugiere no — es el hallazgo que sobrevive al borrado. Toda la mecánica, los
+> números con su fuente, lo que NO funcionó y el orden de reimplementación están
+> en [`docs/research/tgrep-como-funcionaba.md`](../../docs/research/tgrep-como-funcionaba.md)
+> — en particular §9, *"Si se reimplementa: el orden que importa"*.
+>
+> El usuario va a reimplementar los dos plugins con una integración pensada para
+> que trabajen **entre sí**. Lee esta spec como acta, no como contrato.
+
 > **Para el implementador**: este design incluye TODO lo investigado (líneas exactas,
 > comportamientos verificados empíricamente, contratos de la doc oficial con fecha). No
 > re-investigues estos hechos; sí verifica que las líneas citadas no se hayan movido si

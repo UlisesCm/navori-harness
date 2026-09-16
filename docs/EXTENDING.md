@@ -84,10 +84,16 @@ siguiente repo que lo use. Escríbelo una vez, cóbralo en todos.
 ## 4. Plugin — la envoltura de una herramienta externa
 
 Aquí es donde navori conecta el harness con el mundo: un plugin envuelve un binario o un servidor
-MCP y lo deja instalado, permisado, enganchado y documentado de una sola pieza. Los siete que
-existen —`engram`, `codegraph`, `tgrep`, `acli`, `gh`, `jscpd`, `semgrep`— comparten esa forma:
-todos declaran `externalTool.checkBinary`. Ése es el patrón a seguir, y es lo que hace que
+MCP y lo deja instalado, permisado, enganchado y documentado de una sola pieza. Los cinco que
+existen —`engram`, `acli`, `gh`, `jscpd`, `semgrep`— comparten esa forma: todos declaran
+`externalTool.checkBinary`. Ése es el patrón a seguir, y es lo que hace que
 `navori add <plugin>` pueda ofrecerte la instalación y que `doctor` sepa verificarla.
+
+> **`codegraph` y `tgrep` fueron el sexto y el séptimo, y se retiraron el 2026-09-15** para
+> reimplementarse con una integración que los haga trabajar entre sí. Siguen siendo el mejor
+> ejemplo disponible de hasta dónde llega el formato —binario externo, servidor MCP, guard,
+> hook de sesión y cinco inyecciones de doctrina—, y esa anatomía está documentada pieza por
+> pieza en [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md).
 
 Si lo que traes no tiene herramienta que instalar, tienes buenas noticias: es una skill o un bloque
 managed, y esos escalones son bastante más rápidos de aterrizar.
@@ -105,9 +111,9 @@ Un `plugin.json` te da hasta seis piezas, y usas sólo las que necesites:
 
 **`injectInto` es la pieza más elegante del formato.** Si tu plugin tiene doctrina para un agente
 que ya existe, la inyecta dentro de ese archivo: el agente aprende tu herramienta sin que nadie
-tenga que mantener una copia paralela. `codegraph` llega a cinco destinos (`structural-search`,
-`researcher`, `explorer`, `implementer`, `reviewer`) sin aportar un solo asset nuevo — cinco
-agentes mejores por el precio de tres archivos de extensión.
+tenga que mantener una copia paralela. `engram` llega a cinco destinos (`leader`,
+`implementer`, `reviewer`, `ticket-audit`, `auditor`) sin aportar un solo asset nuevo —
+cinco agentes mejores por el precio de dos archivos de extensión.
 
 Vale la pena medirlo: el archivo **compuesto** es lo que la sesión carga, y tiene su propio techo
 (`maxWordsComposed`). Inyectar sale mucho más barato que duplicar, y ese techo está para que siga

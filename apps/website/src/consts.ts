@@ -36,7 +36,7 @@ export const INVENTORY = {
   /** Stack presets under `packages/core/core-assets/presets/`. */
   presets: 12,
   /** Plugin bundles under `packages/plugins/`. */
-  plugins: 7,
+  plugins: 5,
   /** Engine adapters under `packages/cli/src/engines/`. */
   engines: 5,
   /** Core agents under `packages/core/core-assets/agents/`. */
@@ -48,15 +48,7 @@ export const INVENTORY = {
 } as const;
 
 /** Plugin ids, in the order the toolbox section presents them. */
-export const PLUGIN_IDS = [
-  "codegraph",
-  "tgrep",
-  "semgrep",
-  "jscpd",
-  "engram",
-  "gh",
-  "acli",
-] as const;
+export const PLUGIN_IDS = ["semgrep", "jscpd", "engram", "gh", "acli"] as const;
 
 /** Engine ids, matching the directory names under `src/engines/`. */
 export const ENGINE_IDS = ["claude", "codex", "agents-md", "cursor", "copilot"] as const;

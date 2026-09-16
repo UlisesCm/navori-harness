@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { PluginManifestSchema, loadPlugin } from "../plugins.ts";
+import { assert, describe, it, expect } from "vitest";
+import { PluginManifestSchema } from "../plugins.ts";
 
 /**
  * Schema parser tests. Containment of resolved paths (scripts.src,
@@ -78,9 +78,9 @@ describe("PluginManifestSchema — hooks", () => {
       hooks: [
         {
           event: "SessionStart",
-          command: 'bash "$CLAUDE_PROJECT_DIR/.claude/scripts/tgrep-session.sh"',
+          command: 'bash "$CLAUDE_PROJECT_DIR/.claude/scripts/session-fixture.sh"',
           timeout: 30,
-          statusMessage: "navori/tgrep: search index",
+          statusMessage: "navori/fixture: session notice",
         },
       ],
     });
@@ -282,53 +282,13 @@ describe("PluginManifestSchema — backward compat", () => {
 });
 
 /**
- * Covers: R10 — the tgrep plugin's own manifest (spec 0017). Bundling is
- * automatic (a readdir over packages/plugins), so what is worth pinning is the
- * manifest's shape: it has to load, and its external-tool contract is what
- * `doctor` and `add` read to report and install the binary.
- */
-describe("tgrep plugin manifest", () => {
-  it("loads and validates, declaring tgrep as its external tool", () => {
-    const plugin = loadPlugin("tgrep");
-    expect(plugin.manifest.id).toBe("tgrep");
-    expect(plugin.manifest.externalTool?.checkBinary).toBe("tgrep");
-  });
-
-  it("installs via brew on darwin and linux, and declares nothing for win32", () => {
-    // win32 is omitted deliberately: there is no install command anyone
-    // verified there, and `add.ts` already warns cleanly for a missing platform
-    // — which beats running something unverified on a user's machine.
-    const install = loadPlugin("tgrep").manifest.externalTool?.install ?? {};
-    expect(install.darwin).toBe("brew install tgrep");
-    expect(install.linux).toBe("brew install tgrep");
-    expect(install.win32).toBeUndefined();
-  });
-
-  it("ships its three scripts and wires a hook per phase it owns", () => {
-    const manifest = loadPlugin("tgrep").manifest;
-    expect(manifest.scripts?.map((s) => s.dest).sort()).toEqual([
-      "guard-search-routing.sh",
-      "tgrep-search.sh",
-      "tgrep-session.sh",
-    ]);
-    // Two phases, two jobs: SessionStart rebuilds the trigram index, and
-    // PreToolUse(Bash) is the routing guard — content search goes through the
-    // wrapper because a hook says so, not because prose asks. The prose version
-    // shipped in 0.7.8 and measured 7.4% adoption over 2,761 real searches.
-    expect(manifest.hooks?.map((h) => h.event)).toEqual(["SessionStart", "PreToolUse"]);
-    const guard = manifest.hooks?.find((h) => h.event === "PreToolUse");
-    // Without the matcher the guard would run on EVERY tool call, paying its
-    // cost on Read/Edit/Task where it can never fire.
-    expect(guard?.matcher).toBe("Bash");
-  });
-});
-
-/**
  * Covers: R13 — `mcpServer.alwaysLoad` (spec 0017 T7). The field exists because
- * of a measurement, not a preference: with codegraph deferred, two full sessions
- * in this repo called its tools zero times; declaring `alwaysLoad` dropped the
- * session's deferred-tool count from 68 to 67 and put `codegraph_explore` in the
- * eagerly-loaded set (same Claude Code 2.1.236, 2026-09-09).
+ * of a measurement, not a preference: with an MCP server deferred, two full
+ * sessions in this repo called its tools zero times; declaring `alwaysLoad`
+ * dropped the session's deferred-tool count from 68 to 67 and put the server's
+ * tools in the eagerly-loaded set (Claude Code 2.1.236, 2026-09-09). The numbers
+ * and the server they were measured on are in
+ * `docs/research/tgrep-como-funcionaba.md` §7.
  *
  * Pinned here rather than left to the renderer alone: the whole point is that
  * an optional boolean survives the schema, and `false` stays out of the emitted
@@ -353,7 +313,15 @@ describe("PluginManifestSchema — mcpServer.alwaysLoad", () => {
     expect(withServer({ command: "srv", args: [], alwaysLoad: "yes" }).success).toBe(false);
   });
 
-  it("is declared by the codegraph plugin — the server the experiment was run on", () => {
-    expect(loadPlugin("codegraph").manifest.mcpServer?.alwaysLoad).toBe(true);
+  it("keeps `false` distinguishable from absent, since the emitted registry omits both", () => {
+    const parsed = withServer({ command: "srv", args: [], alwaysLoad: false });
+    // Two steps, not `parsed.success && parsed.data…`: that expression collapses
+    // to `false` when the parse FAILS, so the one-liner form ends in
+    // `.toBe(false)` and goes green against a schema that rejects the field
+    // outright — passing for the exact reason this case exists to rule out.
+    // (The sibling cases above end in `.toBe(true)`/`.toBeUndefined()`, which a
+    // failed parse cannot satisfy, so only this one needed splitting.)
+    assert.isTrue(parsed.success, "the schema must ACCEPT an explicit alwaysLoad: false");
+    expect(parsed.data.mcpServer?.alwaysLoad).toBe(false);
   });
 });

@@ -8,8 +8,8 @@ import { computeHealthVerdict } from "../doctor.ts";
 
 // #269: prose-only engines (agents-md/cursor/copilot) DROP plugin-contributed
 // blocks by design, but doctor required those blocks' invariants against the
-// prose output — turning doctor/CI permanently red with no remedy. codegraph
-// declares `codegraph_explore`, carried only by a Claude-specific managed block.
+// prose output — turning doctor/CI permanently red with no remedy. engram
+// declares `mem_save`, carried only by its own managed block.
 
 function config(overrides: Partial<NavoriConfig> = {}): NavoriConfig {
   return NavoriConfigSchema.parse({
@@ -17,7 +17,7 @@ function config(overrides: Partial<NavoriConfig> = {}): NavoriConfig {
     engines: ["agents-md"],
     preset: "custom",
     branchBase: "main",
-    plugins: { codegraph: { enabled: true } },
+    plugins: { engram: { enabled: true } },
     ...overrides,
   });
 }
@@ -36,13 +36,13 @@ describe("plugin invariants on prose-only engines (#269)", () => {
 
   it("does NOT require a plugin invariant when only prose engines are configured", () => {
     const cwd = tmp();
-    const cfg = config(); // engines: ["agents-md"] + codegraph
-    // Render AGENTS.md: prose drops the codegraph protocol block, so the output is
-    // non-empty yet never contains `codegraph_explore`.
+    const cfg = config(); // engines: ["agents-md"] + engram
+    // Render AGENTS.md: prose drops the engram protocol block, so the output is
+    // non-empty yet never contains `mem_save`.
     renderAgentsMdEngine(cwd, cfg);
 
     const verdict = computeHealthVerdict(cwd, cfg);
-    expect(verdict.missingInvariants.map((m) => m.invariant)).not.toContain("codegraph_explore");
+    expect(verdict.missingInvariants.map((m) => m.invariant)).not.toContain("mem_save");
     expect(verdict.ok).toBe(true);
   });
 
@@ -57,7 +57,7 @@ describe("plugin invariants on prose-only engines (#269)", () => {
     );
 
     const verdict = computeHealthVerdict(cwd, cfg);
-    expect(verdict.missingInvariants.map((m) => m.invariant)).toContain("codegraph_explore");
+    expect(verdict.missingInvariants.map((m) => m.invariant)).toContain("mem_save");
     expect(verdict.ok).toBe(false);
   });
 });

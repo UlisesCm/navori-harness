@@ -241,7 +241,7 @@ describe.runIf(runsBash)("routing-watch.sh — solo cuenta lo que es del cambio"
     const runs = play([
       edit("packages/core/core-assets/agents/reviewer.md"),
       edit("packages/core/core-assets/skills/review-diff.md"),
-      edit("packages/plugins/tgrep/skills/tgrep-rung.md"),
+      edit("packages/plugins/engram/skills/engram-subagent.md"),
       edit("packages/core/core-assets/managed/sdd.md"),
     ]);
     expect(notices(runs)).toHaveLength(1);

@@ -80,7 +80,7 @@ describe("scanStaleHarness — lo que ningún render vuelve a tocar (spec 0018 R
     // lleva marca de autoría, y navori nunca borra lo que no puede probar que
     // escribió. doctor es el único lugar donde el usuario se entera.
     mkdirSync(join(cwd, "apps/api/.claude/scripts"), { recursive: true });
-    writeFileSync(join(cwd, "apps/api/.claude/scripts/tgrep-search.sh"), "#!/usr/bin/env bash\n");
+    writeFileSync(join(cwd, "apps/api/.claude/scripts/check-jscpd.sh"), "#!/usr/bin/env bash\n");
     const minimal = config({
       monorepo: {
         enabled: true,
@@ -101,7 +101,7 @@ describe("scanStaleHarness — lo que ningún render vuelve a tocar (spec 0018 R
   it("bajo `full` esos scripts NO se reportan: el workspace sí los recibe", () => {
     // Covers: R6
     mkdirSync(join(cwd, "apps/api/.claude/scripts"), { recursive: true });
-    writeFileSync(join(cwd, "apps/api/.claude/scripts/tgrep-search.sh"), "#!/usr/bin/env bash\n");
+    writeFileSync(join(cwd, "apps/api/.claude/scripts/check-jscpd.sh"), "#!/usr/bin/env bash\n");
     const full = config({
       monorepo: {
         enabled: true,

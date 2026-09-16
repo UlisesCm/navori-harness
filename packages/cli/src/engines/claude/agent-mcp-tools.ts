@@ -17,10 +17,10 @@ import type { LoadedPlugin } from "../../lib/plugins.ts";
  * registered and the permission granted. A `permissions.allow` only silences
  * the prompt for a tool the agent already holds; it never grants one.
  *
- * The gap was not theoretical. `codegraph` injects CodeGraph instructions into
- * `researcher.md` and `explorer.md`, both of which declare
- * `tools: Read, Glob, Grep, Bash, Write` — so every one of those agents booted
- * carrying prose it was structurally unable to act on.
+ * The gap was not theoretical. A plugin that injects its MCP prose into
+ * `researcher.md` and `explorer.md` — both of which declare
+ * `tools: Read, Glob, Grep, Bash, Write` — had every one of those agents boot
+ * carrying instructions it was structurally unable to act on.
  *
  * Derived rather than configured, deliberately: a new manifest field would be
  * one more thing to remember, and forgetting is exactly how this broke. The
@@ -52,6 +52,45 @@ export function deriveMcpTools(plugin: LoadedPlugin): string[] {
  * render diff.
  */
 export function withAgentMcpTools(content: string, plugin: LoadedPlugin, target: string): string {
+  return rewriteAgentTools(content, plugin, target, (have, tools) => {
+    const missing = tools.filter((t) => !have.includes(t));
+    return missing.length === 0 ? null : [...have, ...missing];
+  });
+}
+
+/**
+ * The inverse: drop a plugin's MCP tools from the `tools:` frontmatter of an
+ * agent it no longer injects into. Returns `content` untouched when the grant
+ * isn't there.
+ *
+ * Without this the widening was one-way. `removeSubBlock` strips a disabled
+ * plugin's prose from the agent, but the `tools:` entry the SAME render added
+ * stayed — so `navori remove <plugin>` left every agent declaring an allowlist
+ * entry for a server nothing registers any more, and a later re-install
+ * inherited it instead of starting clean.
+ */
+export function withoutAgentMcpTools(
+  content: string,
+  plugin: LoadedPlugin,
+  target: string,
+): string {
+  return rewriteAgentTools(content, plugin, target, (have, tools) => {
+    const kept = have.filter((t) => !tools.includes(t));
+    return kept.length === have.length ? null : kept;
+  });
+}
+
+/**
+ * Shared body of the two rewrites above: resolve the agent's declared `tools:`,
+ * hand it to `next`, and splice the result back. `next` returns null when there
+ * is nothing to change.
+ */
+function rewriteAgentTools(
+  content: string,
+  plugin: LoadedPlugin,
+  target: string,
+  next: (have: string[], tools: string[]) => string[] | null,
+): string {
   if (!target.startsWith(AGENTS_DIR)) return content;
 
   const tools = deriveMcpTools(plugin);
@@ -62,20 +101,18 @@ export function withAgentMcpTools(content: string, plugin: LoadedPlugin, target:
 
   const declared = getFrontmatterField(frontmatter, "tools");
   // No `tools:` at all means the agent inherits every tool, MCP included —
-  // already able to call them, so there is nothing to widen.
+  // already able to call them, so there is nothing to widen, and nothing a
+  // narrowing could take away either.
   if (declared === null) return content;
 
   const have = declared
     .split(",")
     .map((t) => t.trim())
     .filter((t) => t !== "");
-  const missing = tools.filter((t) => !have.includes(t));
-  if (missing.length === 0) return content;
+  const result = next(have, tools);
+  if (result === null) return content;
 
-  const updated = frontmatter.replace(
-    /^tools:[ \t]*[^\r\n]*/m,
-    `tools: ${[...have, ...missing].join(", ")}`,
-  );
+  const updated = frontmatter.replace(/^tools:[ \t]*[^\r\n]*/m, `tools: ${result.join(", ")}`);
 
   // Splice by offset instead of a whole-file replace: the frontmatter text
   // could otherwise match again inside the body and corrupt it.

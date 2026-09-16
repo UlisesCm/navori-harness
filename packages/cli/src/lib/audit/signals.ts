@@ -564,7 +564,7 @@ const TOOL_MIX_MIN_READS = 10;
  * Does the search ladder actually start? (spec 0016 T4.2.)
  *
  * The gap #576 and #583 left written down: the harness teaches a ladder that
- * goes engram/codegraph → native Grep/Glob → shell, and nothing measured
+ * goes engram → native Grep/Glob → shell, and nothing measured
  * whether any session climbs it. The corpus behind spec 0016 found sessions at
  * 90.2% Bash with 3.0% native — and, decisively, found the same shape in
  * `default` and `acceptEdits` too. So this signal is deliberately MODE-BLIND:

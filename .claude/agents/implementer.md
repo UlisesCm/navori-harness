@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
-tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__*, mcp__codegraph__*
+tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__*
 ---
 
 <!-- navori:managed id="implementer-base" hash="4b6a3b5c" version="0.8.7" source="@navori/core" -->
@@ -145,45 +145,7 @@ not a session. Ending with `done -> <file>` is your report.
 If a memory contradicts what the code says, the code wins — fix the memory.
 <!-- /navori:managed id="engram-implementer-extension" -->
 
-<!-- navori:managed id="codegraph-implementer-extension" hash="76ce6f81" version="0.8.7" source="@navori/plugin-codegraph" -->
-## Locate before you touch
 
-You act on code someone else wrote, so the first question is always *where*.
-When the `codegraph` MCP tool is available, ask the graph instead of crawling:
-`codegraph_explore` takes a symbol or a plain question and returns the span, the
-call paths and a blast-radius summary in one call. It also follows dynamic hops
-(callbacks, re-render, JSX children) that a string search misses — which is how
-a "small" edit turns out to have thirteen call sites.
-
-It is also the cheapest route in auto mode: `mcp__codegraph__*` carries an
-`allow` rule, so it skips the classifier round-trip every shell command pays.
-
-Then confirm. The graph forms the hypothesis; it never closes it:
-
-- On a stale index or an ambiguous name it returns the WRONG symbol while
-  reporting it as exact. Open the span with `Grep`/`Read` before you edit it or
-  cite it in a review.
-- Its "impact / tests found" is a hint, not a coverage gate.
-
-Not installed, or the index looks stale? Skip it and work as usual — an
-accelerator, never a dependency.
-<!-- /navori:managed id="codegraph-implementer-extension" -->
-
-<!-- navori:managed id="tgrep-implementer-extension" hash="fcf9f325" version="0.8.7" source="@navori/plugin-tgrep" -->
-## Find it with the wrapper before you touch it
-
-Most edits start with a lookup. For anything textual — a literal, a copy string, every place a flag name appears:
-
-```
-bash .claude/scripts/tgrep-search.sh <search args…>
-```
-
-An `allow` rule makes it promptless and classifier-free, and its flags are ripgrep's. It also decides the engine on every call: a trigram index when `tgrep` is installed — rebuilt right before the search, because a stale index reports "no match" without a warning, and a review that misses a call site is worse than a slow one — and `rg`, then `grep -rn`, when it is not. Exit codes hold on all three paths: 0 = match, 1 = no match.
-
-**Structure first, text second.** *Where is this symbol, who calls it, what breaks if I change it* is `codegraph_explore`; *which files hold this string* is the wrapper. Confirming the span the graph proposed is the wrapper's job too (or `Read`) — a second graph query only restates the hypothesis.
-
-Sizing a change is that pair: the graph gives the call paths, the wrapper proves the count.
-<!-- /navori:managed id="tgrep-implementer-extension" -->
 
 ## Project rules
 

@@ -768,10 +768,6 @@ interface DoctorCmdStrings {
   codexVersionWarning: (found: string, min: string) => string;
   codexHookTrustHint: string;
   codexGuardNotVersioned: (guards: string) => string;
-  codegraphNotIgnored: string;
-  codegraphTracked: string;
-  codegraphIndexMissing: string;
-  codegraphStale: string;
   /** Note title for the `.gitignore` harness-block health section. */
   gitignoreTitle: string;
   /** The managed block is absent (file missing or block removed). */
@@ -1831,14 +1827,6 @@ const CMD_ES: CmdStrings = {
       "Codex solo dispara hooks en repos confiables: revísalos y autorízalos con '/hooks'",
     codexGuardNotVersioned: (guards) =>
       `${guards} sin versionar en git — en una sesión Codex abierta dentro de un git worktree el guard no corre; versiona '.codex/hooks/' (o '.codex/')`,
-    codegraphNotIgnored:
-      "'.codegraph/' no está en .gitignore — el índice SQLite genera churn y conflictos de merge; agrégalo a '.gitignore'",
-    codegraphTracked:
-      "'.codegraph/' está versionado en git — el índice binario no debe commitearse; quítalo del árbol ('git rm -r --cached .codegraph') y agrégalo a '.gitignore'",
-    codegraphIndexMissing:
-      "índice de codegraph sin construir — corre 'codegraph init' para generar '.codegraph/'",
-    codegraphStale:
-      "índice de codegraph posiblemente desactualizado (según 'codegraph status') — corre 'codegraph sync'",
     gitignoreTitle: ".gitignore",
     gitignoreMissing:
       "falta el bloque managed del '.gitignore' (gitignoreHarness ≠ off) — corre 'navori render --apply'",
@@ -2964,13 +2952,6 @@ const CMD_EN: CmdStrings = {
       "Codex only fires hooks in trusted repos: review them and authorize with '/hooks'",
     codexGuardNotVersioned: (guards) =>
       `${guards} not versioned in git — in a Codex session opened inside a git worktree the guard won't run; version '.codex/hooks/' (or '.codex/')`,
-    codegraphNotIgnored:
-      "'.codegraph/' is not in .gitignore — the SQLite index churns and causes merge conflicts; add it to '.gitignore'",
-    codegraphTracked:
-      "'.codegraph/' is tracked by git — the binary index must not be committed; remove it ('git rm -r --cached .codegraph') and add it to '.gitignore'",
-    codegraphIndexMissing:
-      "codegraph index not built — run 'codegraph init' to generate '.codegraph/'",
-    codegraphStale: "codegraph index may be stale (per 'codegraph status') — run 'codegraph sync'",
     gitignoreTitle: ".gitignore",
     gitignoreMissing:
       "'.gitignore' managed block is missing (gitignoreHarness ≠ off) — run 'navori render --apply'",

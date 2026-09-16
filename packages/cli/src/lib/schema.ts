@@ -379,7 +379,7 @@ export const NavoriConfigSchema = z
      *   (exact back-compat; hand-written `.gitignore` files stay untouched).
      * - `"local"`: manage only the machine-local / runtime entries (Cubo A) that
      *   must never be committed (`.claude/settings.local.json`, `.claude/worktrees/`,
-     *   `.claude/progress/`, `.codegraph/`, `.navori/`).
+     *   `.claude/progress/`, `.navori/`).
      * - `"full"`: Cubo A plus the versionable harness outputs (Cubo B) derived from
      *   `engines` (e.g. `.claude/`, `CLAUDE.md`, `.codex/`, `AGENTS.md`). For repos
      *   that ignore the whole harness.
