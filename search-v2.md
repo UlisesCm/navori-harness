@@ -26,8 +26,12 @@
 | D14 | Una raíz de índice por checkout Git de Navori; no un índice por paquete. Un worktree es otro checkout, no comparte índices mediante symlinks. |
 | D15 | No activar Git sync hooks ni el prompt hook del instalador de CodeGraph. No ejecutar `codegraph install` desde Navori. |
 | D16 | Tests unitarios/render en CI normal; pruebas de binarios y Claude reales en verificación explícita separada. La entrega no es completa si las pruebas externas requeridas no se ejecutaron. |
+| D17 | Producción conserva el modo por defecto del MCP de CodeGraph: proxy stdio → daemon **desacoplado** (§11.1). No añadir `CODEGRAPH_NO_DAEMON=1` al manifest: el modo directo levanta un watcher y un handle SQLite por sesión de Claude, que es justo lo que el daemon evita. Navori no lo gestiona; el runbook documenta `codegraph daemon` para listarlo y detenerlo, y la herencia de env del primer proxy. |
+| D18 | El `.gitignore` raíz lleva `.codegraph/` y `.tgrep/` siempre que su plugin esté activo, aunque `codegraph init` escriba un `.gitignore` interno. La verificación de cobertura es `git status --porcelain -- .codegraph .tgrep` vacío, no `git check-ignore` de un probe (§6.2, §11.2). |
+| D19 | La política es solo doctrina (D11) **como hipótesis escrita**, no como supuesto: la evidencia previa del repo mide doctrina sola en 7.4% y guard mecánico en 40.7% (§11.4). v2 espera otro resultado porque el provider estructural es un tool MCP cargado desde el primer turno y no un comando Bash compitiendo con el hábito Bash. La métrica de campo y la condición de re-evaluación quedan pre-registradas en §9.5 antes de correr nada. |
+| D20 | La descripción upstream de `codegraph_explore` ("PRIMARY TOOL — call FIRST ... treat the shown source as already Read; do NOT re-open") llega al contexto con el server y Navori no puede editarla. Es doctrina en conflicto con §4.1 y con la precondición Read→Edit del host; se reconoce en §2.2 y se mide en §9 (D, H, J), no se oculta. |
 
-**Versiones observadas al preparar el plan:** macOS arm64, CodeGraph `1.6.0`, tgrep `1.0.8`, Claude Code `2.1.267`. Son la referencia verificable, no una afirmación de compatibilidad con cualquier versión futura. Reusar esas versiones si siguen instaladas. No actualizar ni degradar binarios globales automáticamente. Una versión diferente debe pasar el mismo contrato de pruebas antes de declararse soportada.
+**Versiones observadas al preparar el plan:** macOS arm64, CodeGraph `1.6.0`, tgrep `1.0.8`, Claude Code `2.1.267`. Son la referencia verificable, no una afirmación de compatibilidad con cualquier versión futura. Reusar esas versiones si siguen instaladas. No actualizar ni degradar binarios globales automáticamente. Una versión diferente debe pasar el mismo contrato de pruebas antes de declararse soportada. Últimas publicadas al 2026-09-15: tgrep `1.0.8` (2026-09-12, `main` idéntico al tag), CodeGraph `1.6.0` (npm latest, 2026-08-26; `main` trae cambios no publicados que §11.1 describe), Claude Code `2.1.273`.
 
 ## 2. Hallazgos y fuentes que determinan el diseño
 
@@ -66,8 +70,14 @@ El árbol inspeccionado todavía contiene la integración anterior; otra sesión
 | S12 | [Claude memory](https://code.claude.com/docs/en/memory), [skills](https://code.claude.com/docs/en/skills), [settings](https://code.claude.com/docs/en/settings) | Ubicación de instrucciones y evitar otra copia en rules/skills/hooks. |
 | S13 | [Claude permissions](https://code.claude.com/docs/en/permissions) | Allowlist por subcomando y separación entre tools y permisos. Un permiso de Bash no es sandbox de paths. |
 | S14 | [Claude programático](https://code.claude.com/docs/en/headless) | Captura `stream-json`, tool_use/tool_result y resultados de subagentes. |
-| S15 | [CodeGraph MCP lifecycle](https://github.com/colbymchenry/codegraph/blob/v1.6.0/src/mcp/index.ts) | `CODEGRAPH_NO_DAEMON=1` permite procesos directos controlables en tests; no añadirlo al plugin de producción. |
+| S15 | [CodeGraph MCP lifecycle](https://github.com/colbymchenry/codegraph/blob/v1.6.0/src/mcp/index.ts) | Modos de runtime: directo (`CODEGRAPH_NO_DAEMON=1`, o sin `.codegraph/` alcanzable), proxy y daemon desacoplado. El daemon es el default en producción (D17); el modo directo es para los tests de §8. |
 | S16 | [MCP stdio](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports) | JSON-RPC delimitado por líneas para el smoke de protocolo, no para crear otro MCP. |
+| S17 | [CodeGraph explore-session-state v1.6.0](https://github.com/colbymchenry/codegraph/blob/v1.6.0/src/mcp/explore-session-state.ts), [daemon.ts](https://github.com/colbymchenry/codegraph/blob/v1.6.0/src/mcp/daemon.ts) | El estado de dedup vive en una `MCPSession` por conexión de socket y muere con ella; el daemon comparte un solo `ToolHandler` entre sesiones. La decisión de dedup se ejecuta en el daemon con el env que ese daemon heredó al nacer (§11.1). |
+| S18 | [CodeGraph CHANGELOG `[Unreleased]`](https://github.com/colbymchenry/codegraph/blob/main/CHANGELOG.md) | #1620/#1624: dedup pasa a opt-in (`CODEGRAPH_EXPLORE_DEDUP=1`) porque "an MCP connection is not a reliable conversation boundary: some hosts reuse it for subagents". #1696: `_meta: anthropic/alwaysLoad` en explore. Valida D06/D07; nada de esto está publicado. |
+| S19 | [tgrep README v1.0.8](https://github.com/microsoft/tgrep/blob/v1.0.8/README.md) §CLI flags / §Exit codes, [AGENTS.md](https://github.com/microsoft/tgrep/blob/main/AGENTS.md) | `-n` es default **solo con stdout en terminal**; match más error da `2` salvo `-q`; buscar nunca construye índice, `serve` sí; `-g` positivo fuerza scan y `-t` se mantiene indexado; freshness con server es asíncrona y sin garantía. |
+| S20 | [Claude permissions](https://code.claude.com/docs/en/permissions) §Bash | "The space before a trailing `*` is part of the rule": `Bash(ls *)` no cubre `lsof`, `Bash(ls*)` sí. `Bash(x:*)` equivale a `Bash(x *)`. Sustenta la forma exacta de §3.3. |
+| S21 | [Claude settings](https://code.claude.com/docs/en/settings) | `enabledMcpjsonServers` pre-aprueba servers de `.mcp.json` por nombre. v1 **no** lo pone en el `settingsFragment` (§6.1.7). |
+| S22 | `docs/research/tgrep-como-funcionaba.md` §5.1, §6, §9; `scripts/mine-search-routing.py` | Evidencia local: doctrina sola 7.4%, guard 40.7%; el instrumento de campo con denominador corregido. Sustenta D19 y §9.5. |
 
 Reglas para el implementador:
 
@@ -77,6 +87,9 @@ Reglas para el implementador:
 - `status` de tgrep no certifica que la última edición esté indexada.
 - No fijar una espera de un segundo como garantía de freshness. Los tests esperan una condición observable con deadline.
 - Conservar fuentes/versiones en el reporte de implementación. Ante una incompatibilidad nueva, documentar el fallo de contrato; no inventar flags ni debilitar el test para cerrar.
+- La descripción y las `instructions` que envía el server de CodeGraph son doctrina upstream dentro del contexto (D20). No intentar neutralizarlas con más prosa en los bloques managed; el conflicto se mide en §9.
+- `tgrep` sin `-n` en un pipe no imprime número de línea (S19). Todo comando que un agente emite corre sin TTY: `-n` es parte de la forma canónica, no una opción.
+- El explore de CodeGraph sí tiene una opción oficial de acotado, `maxFiles` (default 12). Se puede usar; lo que no se puede es inventar otras.
 
 ## 3. Contratos de archivos, configuración y ownership
 
@@ -233,7 +246,7 @@ Use `codegraph_explore` for structural discovery when available. Pass the curren
 ```markdown
 ### Textual provider: tgrep
 
-Use `tgrep search [flags] -- PATTERN ROOT`. Prefer `-F` for literals. Scope by directory/type; broad queries start with `-l`, then selected files and `-C 2`. Positive `-g` can bypass indexing. Use `--hidden` only for intended hidden paths. Missing index can fall back to scanning. For edits that must be visible now, use `--no-index`; status is not proof of freshness. Exit 1 means no matches, 2 means error. Preserve stderr. If unavailable, use native Grep. Do not install, start servers or reindex during ordinary discovery.
+Use `tgrep search -n [flags] -- PATTERN ROOT`; without `-n` piped output has no line numbers. Prefer `-F` for literals. Scope by directory or `-t TYPE`; broad queries start with `-l`, then selected files and `-C 2`. Positive `-g` forces a scan. Use `--hidden` only for intended hidden paths. Missing index can fall back to scanning. For edits that must be visible now, use `--no-index`; status is not proof of freshness. Exit 1 means no matches, 2 means error. Preserve stderr. If unavailable, use native Grep. Do not install, start servers or reindex during ordinary discovery.
 ```
 
 No añadir a esos bloques todos los ejemplos, flags o fuentes de este documento. Esos detalles quedan en el runbook.
@@ -287,10 +300,11 @@ tgrep search -n -C 2 -F -- "mensaje exacto" packages/cli/src/lib
 tgrep search -n -F -- "serve" .
 tgrep search --no-index -n -F -- "texto recién agregado" .
 tgrep search --hidden -n -F -- "permissions" .claude
-tgrep search -g '*.md' -n -F -- "AuthService" .
+tgrep search -n -t md -F -- "AuthService" .
+tgrep search -n -g '*.mdx' -F -- "AuthService" docs
 ```
 
-El último ejemplo usa glob positivo por necesidad textual y puede escanear: no venderlo como consulta indexada. Las rutas son ejemplos del runbook; el agente debe usar el scope de su tarea. Quote seguro de los argumentos, sin interpolar texto del usuario como código shell.
+`-n` va en todos los ejemplos que devuelven líneas: sin TTY no es default (S19). El penúltimo usa `-t md`, que sigue indexado; el último usa glob positivo porque el tipo no cubre el caso y **escanea**: no venderlo como consulta indexada. Para el runner de §8 y §9, `--json` emite un objeto por línea en el formato de ripgrep y evita parsear texto. Las rutas son ejemplos del runbook; el agente debe usar el scope de su tarea. Quote seguro de los argumentos, sin interpolar texto del usuario como código shell.
 
 No truncar silenciosamente con `head`. Si una consulta sale truncada, acotar/repetir sólo la parte faltante o entregar un listado de archivos; no llamar al resultado “todas las ocurrencias”. `-m` limita por archivo, no impone un límite global de contexto.
 
@@ -320,8 +334,8 @@ No truncar silenciosamente con `head`. Si una consulta sale truncada, acotar/rep
 3. Verificar `command -v codegraph tgrep claude`, `codegraph --version`, `tgrep --version`, `claude --version`. No instalar si ya existe binario funcional.
 4. Implementar fuentes y pruebas deterministas antes de activar dogfood.
 5. Activar ambos plugins en `navori.config.json` del dogfood. Regenerar y revisar MCP/settings/agents.
-6. Ejecutar explícitamente `codegraph init .` en la raíz del checkout autorizado, sin `--force`. Rechazar ofertas de hooks/configuración de otros hosts. Comprobar `codegraph status .` y revisar el diff de archivos auxiliares.
-7. Abrir Claude desde esa raíz. Aprobar el MCP de proyecto mediante el flujo normal del host; no autoaprobar todos los MCP. Verificar una llamada real a explore.
+6. Ejecutar explícitamente `codegraph init .` en la raíz del checkout autorizado. `--force` solo autoriza inicializar en home o en la raíz del filesystem, no re-inicializa: si ya hay índice, `init` falla y el rebuild es `codegraph index --force`. Rechazar la oferta de git hooks que `init` hace cuando el watcher no está disponible. Comprobar `codegraph status .` y revisar el diff de archivos auxiliares: `init` crea `.codegraph/` con su propio `.gitignore` (`*` + `!.gitignore`) y no toca el `.gitignore` raíz.
+7. Abrir Claude desde esa raíz. Aprobar el MCP de proyecto mediante el flujo normal del host; no autoaprobar todos los MCP ni usar `enabledMcpjsonServers` en el `settingsFragment` (S21): un settings versionado que pre-aprueba un comando declarado en el mismo repo convierte al repo en quien decide qué binario corre. Verificar una llamada real a explore. Tras esa llamada `codegraph daemon` mostrará un daemon para este checkout: es el comportamiento normal de D17, no una fuga.
 8. Para tgrep, consultar `tgrep status .`. Si hay server operativo en esa raíz, reutilizarlo. Si no hay, iniciar **una vez** `tgrep serve .` en terminal dedicada. Si esa terminal no puede persistir, usar `tgrep index .` y documentar el modo disco.
 9. No usar `tgrep serve . &` dentro de un hook ni deducir vida del servidor sólo porque existe `.tgrep/serve.json`. El usuario cierra su terminal para terminar el proceso que inició; Navori no mata procesos externos.
 10. No agregar `codegraph.json` si los defaults bastan. Usar exclusiones existentes; no ignorar carpetas de producto para acelerar artificialmente las pruebas.
@@ -331,8 +345,9 @@ No truncar silenciosamente con `head`. Si una consulta sale truncada, acotar/rep
 - Extender el input `GitignoreConfig` interno con `plugins?: NavoriConfig["plugins"]`.
 - Para `local`/`full`, derivar `.codegraph/` sólo con CodeGraph activo y `.tgrep/` sólo con tgrep activo; quitar la regla incondicional de CodeGraph si sobrevive la limpieza. Mantener los demás entries de Cubo A/B intactos, orden estable y sin duplicados internos.
 - Para `off`, no escribir `.gitignore` en render, aunque los plugins estén activos.
-- En el setup explícito del dogfood con `off`, comprobar cobertura con `git check-ignore --no-index -q -- .codegraph/probe .tgrep/probe` de forma individual por path. Esos paths son probes lógicos: no crear archivos para comprobarlos.
-- Añadir manualmente sólo la regla que falta como cambio explícito del setup autorizado. No repetir una regla equivalente ya vigente. Mantener cualquier regla escrita por `codegraph init` que ya resuelva el caso.
+- `codegraph init` escribe `.codegraph/.gitignore` con `*` y `!.gitignore`. Eso auto-ignora el contenido pero deja ese archivo trackeable, así que `git status` muestra `?? .codegraph/` y un `git check-ignore .codegraph/probe` pasa sin probar nada (§11.2). `tgrep index`/`serve` no escriben ningún ignore. Por eso la regla raíz es necesaria en ambos casos (D18).
+- En el setup explícito del dogfood con `off`, la comprobación es `git status --porcelain -- .codegraph .tgrep` vacío después de indexar. Si sale algo, falta la regla raíz.
+- Añadir manualmente sólo la regla que falta como cambio explícito del setup autorizado. No repetir una regla equivalente ya vigente. El `.gitignore` interno de CodeGraph no cuenta como regla equivalente.
 - Si una negación posterior vuelve a incluir un índice, el check lo detecta; corregirlo en setup con diff visible, no sobrescribir reglas de usuario desde render.
 - Comprobar que `git ls-files -- .codegraph .tgrep` no devuelve archivos. Si ya están trackeados, reportar el hallazgo; no ejecutar una limpieza ajena automáticamente.
 - Desactivar un plugin no borra su índice. Con modos managed, advertir en el runbook que el usuario debe conservar una regla manual si mantiene el directorio tras retirar su regla managed.
@@ -436,7 +451,8 @@ Contrato del runner:
 - Resolver ejecutables antes de aislar HOME. Usar `spawn` con array de argumentos y `shell: false`.
 - Cada suite usa directorio temporal propio y subdirectorios `home`, `repo`, `outside`; inicializar Git en repo para ignore semantics.
 - Usar HOME/XDG_CONFIG_HOME temporales en procesos de las herramientas. No tocar credenciales/config reales.
-- Para CodeGraph del runtime test, env `CODEGRAPH_NO_DAEMON=1`, `CODEGRAPH_EXPLORE_DEDUP=0`, `CODEGRAPH_MCP_TOOLS=explore`, `CODEGRAPH_TELEMETRY=0`. NO agregar NO_DAEMON al manifest de producción.
+- Para CodeGraph del runtime test, env `CODEGRAPH_NO_DAEMON=1`, `CODEGRAPH_EXPLORE_DEDUP=0`, `CODEGRAPH_MCP_TOOLS=explore`, `CODEGRAPH_TELEMETRY=0`, `CODEGRAPH_NO_UPDATE_CHECK=1`. El último apaga el update-check que el server lanza en background contra la red; `mcp/session.ts` lo exige en cualquier test que compare `instructions`. `DO_NOT_TRACK=1` cubre telemetría y update-check a la vez y es una alternativa válida. NO agregar NO_DAEMON al manifest de producción (D17).
+- Para el server tgrep de los tests, `tgrep serve --poll-interval 1 <fixtureRoot>`. El default es 120 s y aplica cuando el watcher nativo cae a polling; con ese default el deadline de 15 s de T05 es flaky en hosts sin notificaciones nativas. Es un flag del server de prueba, no del runbook de producción.
 - Setup de índices con `codegraph init --yes <fixtureRoot>` y `tgrep index <fixtureRoot>`; uso de `--yes` permitido sólo en fixture desechable. No ejecutar `codegraph install`.
 - Timeout init/index: 120 s; request MCP: 30 s; polling watcher: cada 250 ms hasta 15 s. Deadline vencido = fallo con stdout/stderr, nunca sleep fijo y asumir éxito.
 - Capturar stdout, stderr y exit code separados. No ocultar códigos 1 de tgrep como excepción genérica ni aceptar 2 como vacío.
@@ -533,7 +549,7 @@ Crear `package.json` con `{"private":true,"type":"module"}`. Node 24 del proyect
 
 El helper MCP implementa únicamente transporte de test: JSON-RPC 2.0 por líneas, ids correlacionados, `initialize`, `notifications/initialized`, `tools/list`, `tools/call`; responder `roots/list` con URI de la fixture si el servidor lo pide y `ping` con objeto vacío. Proponer protocolVersion `2025-03-26`, registrar la respuesta; fallar con diagnóstico si no se negocia una versión soportada por el helper. No publicar ese helper como producto.
 
-Lanzar `codegraph serve --mcp --path <fixtureRoot>`. Args de explore: únicamente `query` y `projectPath`, sin inventar opciones de truncado. Guardar initialize/tools-list y stderr como evidencia local.
+Lanzar `codegraph serve --mcp --path <fixtureRoot>`. Args de explore: `query`, `projectPath` y, si un caso lo necesita, `maxFiles`, que es la única opción oficial de acotado (default 12; `required` es solo `query`, y `projectPath` se vuelve required cuando el server no tiene proyecto default). No inventar otras. Guardar initialize/tools-list y stderr como evidencia local.
 
 | ID | Acción | Resultado requerido |
 | --- | --- | --- |
@@ -568,7 +584,8 @@ Crear `scripts/search-v2/scenarios.json` y `scripts/search-v2/benchmark.mjs`. El
 - Sólo v2 inicializa índices. Iniciar el server tgrep una vez por clone v2; mantenerlo entre escenarios y registrar esa condición warm. Cada llamada Claude usa sesión nueva. Registrar separadamente el tiempo de indexación/setup para no mezclarlo con latencia warm.
 - Registrar permission_denials. Una negativa por setup incompleto invalida la corrida, no demuestra que una herramienta sea lenta o inútil. Corregir setup legítimo y repetir esa corrida; no saltarse una negativa de seguridad.
 - Las credenciales de Claude permanecen en su mecanismo normal; no copiarlas a fixtures ni al reporte. `--setting-sources project` no se presenta como aislamiento de todos los tipos de memoria. Registrar instrucciones globales que todavía apliquen y mantenerlas iguales entre condiciones.
-- Antes de la primera tarea, comprobar en una sesión separada que MCP, políticas y permisos llegaron al agente. Esta sonda de setup no cuenta como parte de la tarea medida.
+- Antes de la primera tarea, comprobar en una sesión separada que MCP, políticas y permisos llegaron al agente. Esta sonda de setup no cuenta como parte de la tarea medida. En esa misma sonda confirmar el shape del mensaje `result` de `stream-json`: `permission_denials`, `usage` con tokens de cache y `session_id` no están en la referencia de la CLI, sólo en la del Agent SDK; si un campo no viene, la métrica correspondiente queda `null` y se reporta, no se deriva.
+- Los escenarios D, H y J miden D20 de forma explícita: la descripción upstream de explore pide llamarlo antes de editar y tratar su source como ya leído; la política pide Read directo con archivo conocido y el host exige Read antes de Edit. Registrar qué doctrina siguió el agente en cada corrida; una llamada a explore en D o H es routing fallido aunque la respuesta sea correcta.
 - Timeout por corrida: 180 s. Si vence, conservar traza y clasificar timeout. Ejecutar secuencialmente; no sesgar comparación saturando CPU con varios índices/modelos.
 
 ### 9.2 Prompts y oráculos
@@ -635,6 +652,15 @@ permissionDenials, correctness, routingPass, outcome
 - No exigir reducción numérica en todos los escenarios. Reportar medianas y rangos baseline/v2. Si no hay mejora medible, decirlo; no rebajar correctness ni forzar menos tools para fabricar una ganancia.
 - Si una corrida revela doctrina contradictoria, corregir la fuente, regenerar y repetir **todos** los escenarios afectados. Después de dos ciclos sin cumplir criterios, entregar estado NO APROBADO con trazas; no expandir alcance con hooks/routers para disimular el problema.
 
+### 9.5 Métrica de campo pre-registrada (D19)
+
+§9.1–9.4 es laboratorio: tres corridas por escenario en sesiones de un turno con una fixture de diez archivos. Eso prueba que la política **se puede** seguir, no que se sigue. La evidencia previa del repo (S22) midió exactamente esa diferencia: la doctrina de tgrep v1 se entendió, se documentó y se usó en 7.4% de las búsquedas reales; el guard mecánico la llevó a 40.7%. D11 excluye el guard a propósito, así que la hipótesis de v2 tiene que quedar escrita antes de medir, con su instrumento y su condición de salida:
+
+- **Hipótesis:** v1 perdía porque el wrapper era un comando Bash con el mismo costo de descubrimiento que `grep`, y porque un tool MCP diferido tras Tool Search se llamó cero veces en sesiones completas (`plugins.ts`, comentario de `alwaysLoad`). v2 pone el provider estructural como tool cargado desde el primer turno y deja el textual como comando con permiso exacto. Si la hipótesis es correcta, la adopción de campo sube sin guard.
+- **Instrumento:** `scripts/mine-search-routing.py` con el denominador corregido (búsquedas reales; filtros y extracciones fuera del cociente) y `--desde/--hasta` fijados antes de mirar datos. Contar como vía de v2 las llamadas a `codegraph_explore` y a `tgrep search`; contar como escape `Grep` nativo, `rg`, `grep -r` y `git grep`.
+- **Ventana y umbral:** dos semanas de dogfood en navori-harness tras el merge. Umbral pre-registrado: ≥ 25% de búsquedas reales por la vía v2, que es el rango que los repos con plugin activo alcanzaron en v1 sin guard (S22 §5.1: 17–26%). Por debajo, la hipótesis falló.
+- **Condición de re-evaluación escrita:** si el umbral no se cumple, D11 se reabre con una spec nueva y la evidencia de la ventana; no se reabre antes, ni por intuición. Es el mismo mecanismo que spec 0017 dejó escrito y que permitió cambiar de opinión sin re-litigar.
+
 ## 10. Trazabilidad, entrega y definición de terminado
 
 ### Matriz de requisitos → evidencia
@@ -651,6 +677,9 @@ permissionDenials, correctness, routingPass, outcome
 | Monorepo/worktree correcto | R12, G05/G09, smoke de worktree |
 | Degradación no bloqueante | R06, C07, T01/T06/T09, G06 y corrida Claude sin cada provider |
 | Correctness sigue en gates | `pnpm check`, no regresiones, reporte honesto de pruebas externas |
+| Ignores correctos pese al auto-ignore de CodeGraph (D18) | C02, `git status --porcelain` vacío en el setup de §6.2 |
+| Daemon reconocido y no gestionado (D17) | Runbook con `codegraph daemon`; G04 en modo directo y un smoke manual en modo daemon |
+| Hipótesis de doctrina pre-registrada (D19) | §9.5 escrito y congelado antes de la primera corrida; ventana de campo reportada |
 
 ### Entrega de implementación
 
@@ -680,12 +709,80 @@ Rollback de activación: deshabilitar plugins y ejecutar render con el build cor
 - [ ] Reporte distingue rendimiento observado de expectativas.
 - [ ] Ningún índice/config global/archivo ajeno se incluye en el diff.
 - [ ] PR apunta a main; commit atómico Conventional en español MX sólo cuando se solicite.
+- [ ] `git status --porcelain -- .codegraph .tgrep` vacío tras indexar (D18).
+- [ ] §9.5 congelado antes de la primera corrida de §9; ventana de campo agendada.
 
 **Fuera de alcance:** supervisores, auto-index por edición, nuevos MCP/tools, wrappers, agentes de búsqueda dedicados, telemetría permanente, reescritura del pipeline de render, cambiar el modelo de delegación y habilitar Search v2 globalmente en todos los repos. No implementarlos sin una solicitud nueva.
+
+## 11. Actualización 2026-09-15: revisión en frío contra binarios y fuentes
+
+Revisión independiente del plan antes de implementar. Método: cada afirmación se contrastó con el binario instalado (`codegraph 1.6.0` en `~/.codegraph/versions/v1.6.0`, `tgrep 1.0.8`, `claude 2.1.267`), con el código distribuido de CodeGraph, con los tags upstream y con los docs de Claude Code. Las pruebas de tgrep se corrieron en repos temporales. Lo que no se pudo confirmar se marca como tal; nada se dedujo.
+
+### 11.1 CodeGraph: el daemon y el alcance real del dedup
+
+| Hecho | Evidencia | Efecto en el plan |
+| --- | --- | --- |
+| El MCP por defecto es proxy → daemon desacoplado. Orden en `MCPServer.start`: `CODEGRAPH_NO_DAEMON` → directo; `CODEGRAPH_DAEMON_INTERNAL` → somos el daemon; sin `.codegraph/` alcanzable → directo; si no, proxy; fallo del proxy → directo. | `lib/dist/mcp/index.js` v1.6.0, cabecera "Runtime modes" y `start()`; S15 | D17. El plan original no mencionaba el daemon. |
+| El daemon nace con una copia del env del proxy que lo lanzó y "honors the same env it was spawned with". `tools/list` lo responde el proxy con constantes estáticas (`getStaticTools`, `proxy.js:349`), pero `exploreDedupEnabled()` corre en el daemon (`tools.js:3137`). | `mcp/index.js` `spawnDaemon`, `proxy.js`, `tools.js` | Con otro host que haya lanzado el daemon sin `CODEGRAPH_EXPLORE_DEDUP=0`, D07 no aplica a la ejecución aunque el listado sea correcto. Runbook: `codegraph daemon` lista y detiene; el usuario decide. |
+| El estado de dedup es una `ExploreSessionState` por `MCPSession`, es decir por conexión de socket, nunca persistida. | S17 | Dentro de un proceso de Claude que reuse la conexión para subagentes, el dedup sí cruza agentes. Es exactamente el escenario de 9.3 y la razón de D07. |
+| Upstream `main` (sin publicar) invierte el default: dedup opt-in por `CODEGRAPH_EXPLORE_DEDUP=1`, "some hosts reuse [the connection] for subagents, and compaction can discard source while keeping the connection alive" (#1620/#1624). Y agrega `_meta: anthropic/alwaysLoad` en explore (#1696). | S18 | D06 y D07 quedan validados por upstream. Tras el próximo release ambas variables serán redundantes; se conservan porque el manifest fija `1.6.0`. |
+| Sin índice, `resolveProject` lanza `NotIndexedError` con texto "Indexing is the user's decision — they can run 'codegraph init'"; no hay init automático. | `tools.js:1395` | G06 confirmado desde el código; la referencia web (S06) sigue obsoleta. |
+| `init --force` = "Initialize even if the path looks like your home directory or a filesystem root". `init` con índice existente falla; el rebuild es `codegraph index --force`. `--no-watch` de `serve` setea `CODEGRAPH_NO_WATCH=1`. | `codegraph init --help`, `codegraph serve --help`, S01 | §6.1.6 corregido. |
+| `init` escribe `.codegraph/.gitignore` con `*` y `!.gitignore`; no toca el `.gitignore` raíz. | `src/directory.ts` `ensureGitignore`; reproducido en este checkout | §11.2, D18. |
+| Update-check de red en background al arrancar el server; `CODEGRAPH_NO_UPDATE_CHECK=1` o `DO_NOT_TRACK=1` lo apagan. | `mcp/index.js` `start()`, `upgrade/update-check.js:103`, `mcp/session.js:80` | §8.1 corregido. |
+| Schema de explore: `query` required, `maxFiles` default 12, `projectPath` opcional y required sólo sin proyecto default. `DEFAULT_MCP_TOOLS = {explore}`; `CODEGRAPH_MCP_TOOLS` es una allowlist por nombre corto que reemplaza el default. | `tools.js:986-1001`, `:1088-1107` | §8.4 corregido; D07 confirmado. |
+| Descripción del tool: "PRIMARY TOOL — call FIRST for almost any question OR before an edit ... treat the shown source as already Read; do NOT re-open those files". | `tools.js:986` | D20. Compite con §4.1 y con la precondición Read→Edit del host, que no está documentada y se trata empíricamente (G10, J). |
+
+### 11.2 Ignores: por qué el probe no probaba nada
+
+Reproducido en este checkout con `codegraph init` ya ejecutado:
+
+```text
+$ cat .codegraph/.gitignore
+*
+!.gitignore
+$ git check-ignore -v -- .codegraph/probe .codegraph/.gitignore
+.codegraph/.gitignore:4:*	.codegraph/probe
+.codegraph/.gitignore:5:!.gitignore	.codegraph/.gitignore
+$ git status --short -- .codegraph
+?? .codegraph/
+```
+
+El probe está ignorado, el directorio aparece como untracked igual, y `.codegraph/.gitignore` es commiteable. `tgrep index` deja `files-extra.bin`, `files.bin`, `filestamps.json`, `index.bin`, `lookup.bin`, `meta.json` sin ningún ignore; `serve` añade `serve.json` con `{pid, port}` y `serve.lock`. Por eso D18: regla raíz para ambos y verificación con `git status --porcelain`.
+
+### 11.3 tgrep: lo confirmado y lo corregido
+
+| Hecho | Evidencia | Efecto |
+| --- | --- | --- |
+| `search` es un subcomando real que llama al mismo `run_search` que la forma corta; `PATH` es opcional con default `.`; `--` termina flags. AGENTS.md documenta el idioma `tgrep <flags> -- <pattern> <path>` en forma corta; `tgrep search -- …` es válido pero no es el idioma documentado. | S09, S08 | D08 se mantiene: el subcomando es lo que hace posible el permiso exacto. |
+| `-n` "default: on when stdout is a terminal". Con índice y sin `-n` en pipe: `./src/s.ts:export const …`; con `-n`: `./src/s.ts:2:export const …`. | S19; reproducido | §4.3 y §5.2 corregidos: `-n` siempre. |
+| Exit 0/1/2; match más error da 2 salvo `-q`; el warning "no index" sale con 0 o 1. Regex inválida: exit 2 con stderr. | S19 README §Exit codes; reproducido (`a[` → 2) | 5.3 y T09 confirmados; el runner conserva stdout con exit 2 porque puede traer matches parciales. |
+| Buscar sin índice escanea con warning y **no** crea `.tgrep/`; `serve` construye el índice si falta. | S08; reproducido | T01 y T04 confirmados. |
+| `-g` positivo fuerza scan; `-t md` y `-t ts` existen y siguen indexados. | S19 README "Flags that widen…"; `tgrep --type-list` | §5.2: preferir `-t`. |
+| Con server, una edición no es visible al instante (exit 1) y sí ~2 s después con watcher nativo; `--no-index` la ve siempre. Fallback a polling reconcilia cada `--poll-interval`, default 120 s. | Reproducido; `tgrep serve --help` | T05 y §8.1: `--poll-interval 1` sólo en el server de prueba. |
+| `brew install tgrep` es fórmula de homebrew-core (macOS y Linux); no hay tap. Sin MCP upstream; AGENTS.md sólo ofrece un "tool definition sketch" para envolver la CLI. | formulae.brew.sh; S07, S08 | §3.3 confirmado; D05 confirmado. |
+| `1.0.8` es la última release (2026-09-12) y `main` es idéntico al tag para README, AGENTS y CLI. | GitHub releases, Cargo.toml | Sin deltas pendientes. |
+
+### 11.4 Claude Code y la evidencia local
+
+- `Bash(tgrep search *)`: "The space before a trailing `*` is part of the rule" (S20). La forma del manifest es la correcta; `Bash(tgrep search:*)` sería equivalente.
+- `alwaysLoad` está documentado como campo de las entradas MCP (S10). `enabledMcpjsonServers` existe y v1 no lo usa (S21, §6.1.7).
+- `omitClaudeMd` y la ausencia de CLAUDE.md en Explore/Plan nativos: confirmados (S11).
+- `permission_denials` y los campos de cache en `usage` no aparecen en la referencia de la CLI; se confirman en la sonda de §9.1.
+- Evidencia local (S22): doctrina sola 7.4% de adopción sobre 2,761 búsquedas reales; guard mecánico 40.7%. Ese número no invalida D11 para una instalación desde cero, pero obliga a D19 y §9.5.
+
+### 11.5 Lo que la revisión confirmó sin cambios
+
+`-p, --path` y `--no-watch` de `serve`; `CODEGRAPH_TELEMETRY=0`; `init --yes`; `codegraph status`; la discrepancia S06; los caps de palabras (§4.1 151, §4.2 93, §4.3 100 tras la corrección de `-n`; suma 344 ≤ 350; fragmento 33 ≤ 60); `git check-ignore --no-index` como flag válido aunque ya no sea la verificación; los flags de `claude` en §9.1 presentes en `claude --help` de 2.1.267.
 
 ## Key Learnings:
 
 1. El código de CodeGraph v1.6.0 y su referencia MCP discrepan sobre ausencia de índice; el contrato de tools/projectPath debe verificarse con el binario.
-2. Deduplicar source entre llamadas no equivale a compartir contexto entre agentes; v2 desactiva esa deduplicación del servidor.
+2. Deduplicar source entre llamadas no equivale a compartir contexto entre agentes; v2 desactiva esa deduplicación del servidor, y upstream llegó a la misma conclusión en #1620.
 3. Los tests de manifests/render prueban cableado; sólo trazas de Claude real prueban selección de herramientas y ausencia de cascadas.
 4. `gitignoreHarness: off`, las allowlists de agentes y los permisos por subcomando son contratos que la integración debe respetar, no excepciones que pueda omitir.
+5. Un `.gitignore` interno que se auto-ignora no saca el directorio de `git status`; la única verificación honesta de ignores es la que mira el status, no un probe.
+6. Un MCP puede tener procesos que sobreviven a la sesión y heredan el env de quien los lanzó primero; un env en `.mcp.json` describe el proxy, no necesariamente al proceso que ejecuta la tool.
+7. Un comando que un agente emite nunca tiene TTY: cualquier default "cuando stdout es terminal" está apagado para él.
+8. La descripción de un tool upstream es doctrina dentro del contexto. Cuando contradice la política propia, se nombra y se mide; no se tapa con más prosa.
+9. Laboratorio con n=3 prueba que una política es seguible; sólo una ventana de campo con instrumento y umbral pre-registrados prueba que se sigue.
