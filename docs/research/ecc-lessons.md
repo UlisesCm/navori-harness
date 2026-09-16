@@ -1216,7 +1216,7 @@ no se presenta como recomendación.
 | Registrar el hallazgo negativo de ECC como entrada de decisión sobre #803, **sin presentarlo como validación** ([§6](#6-hallazgo-negativo-cero-grafo-de-código-cero-capa-de-búsqueda-)) | P0 | reabrir el tema en seis meses sin los números; este documento ya es el registro | — |
 | La capacidad de cada motor como dato: catálogo con `installMode`/`hooks.mode`/`scopes[]` + `guidedReady` con rechazo explícito ([§2](#2-distribución-multi-engine--el-hallazgo-principal-)) | P1 | condicionales dispersas y ambigüedad de soporte; agrega un archivo de datos | — |
 | Link-check en el gate, con el criterio de conteo escrito ([§9](#9-tests-y-podredumbre--y-por-qué-navori-sale-mejor-parado)) | P1 | podredumbre silenciosa; cuesta un paso más, y `repo-config-gate.test.ts` obliga a declararlo también en `ci.yml` | — |
-| Política de retiro para `.claude/progress/` en `40-cierre-sesion.md` ([§9](#9-tests-y-podredumbre--y-por-qué-navori-sale-mejor-parado)) | P1 | ruido de búsqueda y peso de repo; es higiene, no código | — |
+| Política de retiro para `.claude/progress/` en `40-cierre-sesion.md` ([§9](#9-tests-y-podredumbre--y-por-qué-navori-sale-mejor-parado)) | P1 | ruido de búsqueda y peso de repo; es higiene, no código | [#825](https://github.com/UlisesCm/navori-harness/issues/825) |
 
 La columna **Issue** la llena quien abra el issue. Una fila sin número es un
 ítem verificado que todavía no se trackeó — no es un ítem descartado; los
