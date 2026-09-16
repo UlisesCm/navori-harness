@@ -440,7 +440,8 @@ writer**. Verificado en el árbol al 2026-09-13:
 | La cláusula de toolset de solo lectura en el bloque always-on | `packages/plugins/engram/managed/engram-protocol.md:3` — *"If your `tools:` lists a reader (`mem_search`, `mem_get_observation`) and no writer, the pre-flight below is the whole block"* |
 | Anti-regresión | `packages/cli/src/lib/__tests__/mcp-capability-wiring.test.ts:298` — `describe("researcher and explorer read memory, and only read it (#761)")`, con `WRITE_TOOLS` en `:302` y el mensaje de falla *"reverses a deliberate decision — take it to the issue, not to this line"* en `:341` |
 
-Los dos assets de `.claude/` llevan además `mcp__codegraph__*`, que no es parte de esta decisión.
+Los dos assets de `.claude/` llevan además `mcp__codegraph__codegraph_explore` (tool exacta,
+no family wildcard, desde #838), que no es parte de esta decisión.
 
 **No re-litigar.** Lo único pendiente del lado de la decisión 2 es housekeeping del issue: editar el
 cuerpo de #761 o cerrar esa mitad citando `4dd7a78`. Mientras siga como está, el próximo lector

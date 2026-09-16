@@ -1,11 +1,12 @@
 # Spec 0009 — Integración de codegraph (plugin de contexto quirúrgico vía MCP)
 
-> **Estado: RETIRADO — 2026-09-15.** El plugin `codegraph` se borró del motor
-> (`packages/plugins/codegraph/`, el registro en `KNOWN_PLUGINS`, el check
-> `scanCodegraphHealth` de `doctor` y sus cuatro mensajes i18n, la entrada de
-> `MCP_HINTS` en el audit y `.codegraph/` del cubo A de `gitignore-harness`).
-> Esta spec queda como acta de lo que se construyó y por qué, no como descripción
-> del código vigente.
+> **Estado: RETIRADO 2026-09-15, reintroducido por #838 el 2026-09-16.** El plugin
+> `codegraph` se borró del motor (`packages/plugins/codegraph/`, el registro en
+> `KNOWN_PLUGINS`, el check `scanCodegraphHealth` de `doctor` y sus cuatro mensajes i18n,
+> la entrada de `MCP_HINTS` en el audit y `.codegraph/` del cubo A de `gitignore-harness`),
+> y #838 lo reintrodujo con una integración nueva (routing de *Code discovery* junto con
+> `tgrep`, spec 0017). Esta spec queda como acta de lo que se construyó y por qué en esa
+> primera vuelta, no como descripción del código vigente.
 >
 > **Qué resultado dio.** El cableado fue correcto y el uso, cero: dos sesiones
 > completas auditadas (mismo repo, mismo modelo) no llamaron ni una vez a

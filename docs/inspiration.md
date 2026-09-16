@@ -277,11 +277,11 @@
 
 ## codegraph
 
-> **Retirado como plugin de navori el 2026-09-15** (Spec 0009). Lo de abajo es el análisis
-> del proyecto upstream, que sigue vigente como referencia; lo que dejó de ser cierto es la
-> frase "el plugin está activo en este repo". Se va a reimplementar junto con `tgrep`, con
-> una integración pensada para que trabajen entre sí — acta del retiro y qué midió cada uno
-> en [`research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md).
+> **Retirado como plugin de navori el 2026-09-15** (Spec 0009) y **reintroducido por #838 el
+> 2026-09-16** con una integración nueva junto con `tgrep` (routing de *Code discovery*). Lo
+> de abajo es el análisis del proyecto upstream, que sigue vigente como referencia — acta del
+> retiro y qué midió cada uno en
+> [`research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md).
 
 - **URL**: https://github.com/colbymchenry/codegraph — MIT.
 - **Qué es**: grafo de conocimiento pre-indexado (símbolos, dependencias, call flows)
