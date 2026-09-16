@@ -70,6 +70,7 @@ Researchers are leaves (they don't have `Agent`): you open the fan-out. Each res
 
 Fan-out is a lever, not a toll — so when you do delegate, hand the smallest encargo that covers the work:
 
+- **Don't delegate merely to wrap a lookup.** If what's missing is a Code discovery routing call you can make yourself (project instructions), run it directly — a subagent invocation isn't a proxy for a query you can issue this turn. When delegation is warranted for a real reason, carry over the pending question, the evidence you already gathered, the relevant paths and their freshness in the encargo; never assume the subagent shares this context — it starts isolated.
 - **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → send them to a low-tier agent in their own encargo; never bundle them into the `implementer`'s, where they inflate its context and its run without raising quality.
 - **One encargo = one unit.** A pre-existing bug the `implementer` hits outside its scope → it reports and stops there (a trivial one-liner is the exception); **you** decide whether to open a separate unit. Scope doesn't self-expand mid-run.
 - **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).

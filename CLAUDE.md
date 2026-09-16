@@ -173,6 +173,21 @@ A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a 
 The `ticket-intake` skill runs this as a pipeline; the `ticket-audit` agent produces the verdict with evidence.
 <!-- /navori:managed id="intake-tickets" -->
 
+<!-- navori:managed id="code-discovery-routing" hash="64eb5632" version="0.8.7" source="@navori/core" -->
+## Code discovery routing
+
+Choose by the missing information, not by keywords or a fixed tool sequence.
+- Enough current evidence in this context: do not search.
+- Known file and a bounded local change: Read/Edit directly. Knowing a path does not answer relationship or impact questions.
+- Filename/path patterns: Glob.
+- Behavior, definitions, architecture, relationships or impact: structural discovery.
+- Strings, regex, comments, configuration or literal occurrences: textual discovery.
+- Use the enabled provider below; otherwise use scoped native search and reading.
+- Mixed tasks: locate the literal first when it is the entry clue; understand structure first when the entry clue is a feature. Add the second provider only for the unanswered dimension.
+- Do not repeat successful discovery just to verify it. Read missing, stale or editor-required content only. Stop when evidence is sufficient.
+- Validate changes with the project's compiler, linter and tests; discovery is not validation.
+<!-- /navori:managed id="code-discovery-routing" -->
+
 <!-- navori:managed id="engram-protocol" hash="c020ec8d" version="0.8.7" source="@navori/plugin-engram" -->
 ## Engram
 
@@ -202,10 +217,6 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 
 `gh auth status` shows whether you're authenticated. If it fails, run `gh auth login`.
 <!-- /navori:managed id="gh-protocol" -->
-
-
-
-
 
 <!-- navori:managed id="skills-index" hash="36d7b93c" version="0.8.7" source="@navori/core" -->
 ## Skills disponibles

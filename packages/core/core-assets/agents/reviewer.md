@@ -45,6 +45,7 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
 
 3. **Re-review** (if there's already a `.claude/progress/review_<feature>.md` from a previous cycle): focus the *reading* on (a) that the issues listed there are resolved and (b) the files the `implementer` reports having touched in this cycle (`impl_<feature>.md`). Don't re-review from scratch the already-approved code that didn't change; the full quality gate is still run anyway — a change can break something outside the delta. If the previous verdict was already `APPROVED` and the diff only moved because of an edit made after it, that's the **delta re-sign** mode below, not this one.
 4. Apply `.claude/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence. The quality gate is run **this turn, in Pass 2** (not before: a `SPEC_MISS` in Pass 1 doesn't need it — don't spend the gate on a diff you're going to reject on spec). Don't assume from the implementer's cached report.
+5. When judging scope or an impact claim needs evidence beyond the diff itself, apply Code discovery routing (project instructions) before gathering it: occurrences from a text search don't demonstrate structural impact — confirm relationships and blast radius through the enabled structural provider, or scoped reading when it's unavailable.
 
 ### Pass 1 — Spec compliance
 

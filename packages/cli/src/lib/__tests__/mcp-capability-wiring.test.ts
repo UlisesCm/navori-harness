@@ -108,11 +108,20 @@ function auditMcpWiring(plugin: PluginUnderAudit): string[] {
   const server = `mcp__${manifest.id}__`;
   const violations: string[] = [];
 
-  if (!(manifest.settingsFragment?.permissions?.allow ?? []).includes(`${server}*`)) {
+  // A plugin grants its own tools either with the wildcard family (`mcp__<id>__*`)
+  // or, for a role that means to keep the permission narrow (D07: exact tool,
+  // not family — codegraph is the case), with an exact grant of one of the
+  // tools its prose orders. Either counts; a manifest that grants neither still
+  // fails, same as before.
+  const allow = manifest.settingsFragment?.permissions?.allow ?? [];
+  const hasWildcardGrant = allow.includes(`${server}*`);
+  const hasExactGrant = toolTokens(manifest).some((token) => allow.includes(`${server}${token}`));
+  if (!hasWildcardGrant && !hasExactGrant) {
     violations.push(
-      `${manifest.id} registers an MCP server without a settingsFragment granting \`${server}*\`. ` +
-        "Without it the permission exists only in the gitignored settings.local.json of whoever " +
-        "wired it by hand, and a freshly onboarded repo has no such net.",
+      `${manifest.id} registers an MCP server without a settingsFragment granting \`${server}*\` ` +
+        `or an exact \`${server}<tool>\` for one of its ordered tools. Without it the permission ` +
+        "exists only in the gitignored settings.local.json of whoever wired it by hand, and a " +
+        "freshly onboarded repo has no such net.",
     );
   }
 
@@ -140,7 +149,7 @@ describe("MCP wiring — instruction and capability ship together (#501)", () =>
   it("finds the MCP plugins and their tool tokens (a mute audit is not a pass)", () => {
     // Anti-vacuity on both inputs: an empty plugin scan, or a `toolTokens` that
     // stopped recognizing identifiers, would make every case below pass on air.
-    expect(MCP_PLUGINS.map((p) => p.manifest.id).sort()).toEqual(["engram"]);
+    expect(MCP_PLUGINS.map((p) => p.manifest.id).sort()).toEqual(["codegraph", "engram"]);
     expect(INVOKABLE_AGENTS.has("researcher")).toBe(true);
     expect(INVOKABLE_AGENTS.has("leader")).toBe(false);
 
@@ -197,6 +206,32 @@ describe("the audit reports both halves of the gap (#501)", () => {
         blockText: bare.blockText,
       }),
     ).toEqual([]);
+  });
+
+  it("clears with an exact grant of the ordered tool, no wildcard needed (D07: narrow permission)", () => {
+    expect(
+      auditMcpWiring({
+        manifest: {
+          ...bare.manifest,
+          settingsFragment: { permissions: { allow: ["mcp__demo__demo_search"] } },
+          skills: [{ file: "skills/x.md", injectInto: ".claude/agents/researcher.md" }],
+        },
+        blockText: bare.blockText,
+      }),
+    ).toEqual([]);
+  });
+
+  it("still flags a settingsFragment that grants an unrelated exact tool, not the one ordered", () => {
+    const found = auditMcpWiring({
+      manifest: {
+        ...bare.manifest,
+        settingsFragment: { permissions: { allow: ["mcp__demo__other_tool"] } },
+        skills: [{ file: "skills/x.md", injectInto: ".claude/agents/researcher.md" }],
+      },
+      blockText: bare.blockText,
+    });
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("settingsFragment");
   });
 });
 
@@ -368,13 +403,23 @@ describe("researcher and explorer read memory, and only read it (#761)", () => {
 });
 
 describe("the core never orders a capability only a plugin can grant (#501)", () => {
-  /** Always-on core surfaces: a managed block, and every agent's own protocol. */
+  /**
+   * Always-on core surfaces: a managed block, and every agent's own protocol
+   * PROSE — the body, not the `tools:` frontmatter. `tools:` is a grant, not an
+   * order: researcher/explorer name `mcp__codegraph__codegraph_explore` and
+   * `mcp__engram__mem_search` there by exact tool (#575/#761), which is inert
+   * in a repo without that plugin and never "orders" anything on its own — the
+   * class this check pins is prose that instructs unconditional use.
+   */
   function alwaysOnCoreSurfaces(): Array<{ label: string; text: string }> {
     const managedDir = resolve(CORE_ASSETS, "managed");
     const managed = readdirSync(managedDir)
       .filter((f) => f.endsWith(".md"))
       .map((f) => ({ label: `managed/${f}`, text: readFileSync(resolve(managedDir, f), "utf-8") }));
-    const agents = listAgentAssets().map((a) => ({ label: `agents/${a.id}.md`, text: a.content }));
+    const agents = listAgentAssets().map((a) => ({
+      label: `agents/${a.id}.md`,
+      text: splitFrontmatter(a.content).body,
+    }));
     return [...managed, ...agents];
   }
 

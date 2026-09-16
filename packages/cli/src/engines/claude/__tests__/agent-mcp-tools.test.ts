@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { deriveMcpTools, withAgentMcpTools, withoutAgentMcpTools } from "../agent-mcp-tools.ts";
 import type { LoadedPlugin } from "../../../lib/plugins.ts";
+import { splitFrontmatter, getFrontmatterField } from "../../../lib/frontmatter.ts";
 
 /**
  * A plugin can only make an agent USE its MCP server if the agent's `tools:`
@@ -159,4 +160,33 @@ describe("withoutAgentMcpTools", () => {
     const readOnly = agentFile(`Read, Glob, Grep, Bash, Write, ${BY_NAME}`);
     expect(withoutAgentMcpTools(readOnly, engram, AGENT)).toBe(readOnly);
   });
+
+  // search-v2.md §7 C01 — same grant/revoke machinery, exercised with the real
+  // production ids: retiring the CodeGraph v2 grant must never touch Engram's
+  // (or vice versa). This is the generic layer this suite already pins for
+  // synthetic ids; here it pins it for the two ids that actually ship together.
+  it("C01 — retiring the codegraph grant leaves engram's grant on the same agent untouched", () => {
+    const codegraph = plugin("codegraph", true);
+    const both = withAgentMcpTools(
+      withAgentMcpTools(agentFile("Read"), engram, AGENT),
+      codegraph,
+      AGENT,
+    );
+    expect(agentTools(both)).toEqual(["Read", "mcp__engram__*", "mcp__codegraph__*"]);
+
+    const codegraphOnlyOff = withoutAgentMcpTools(both, codegraph, AGENT);
+    expect(agentTools(codegraphOnlyOff)).toEqual(["Read", "mcp__engram__*"]);
+  });
 });
+
+/** Parses the `tools:` allowlist out of a rendered agent fixture's frontmatter. */
+function agentTools(content: string): string[] {
+  const { frontmatter } = splitFrontmatter(content);
+  const raw = getFrontmatterField(frontmatter, "tools");
+  return raw
+    ? raw
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t) => t !== "")
+    : [];
+}
