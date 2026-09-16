@@ -13,6 +13,7 @@ import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
 import { renderCodexEngine } from "../engines/codex/index.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
+import { ENGINE_CAPABILITIES } from "../engines/shared/engine-capabilities.ts";
 import type { SkippedFile } from "../engines/shared/execute-plan.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import {
@@ -196,7 +197,16 @@ export function renderNonClaudeEngines(
   const out: EngineRenderSummary[] = [];
   for (const eng of engines) {
     if (eng === "claude") continue;
-    if (eng === "agents-md" && engines.includes("codex")) {
+    // `agents-md` is redundant when another configured engine already owns
+    // AGENTS.md (today, `codex`) — read from the capability registry instead
+    // of hardcoding "codex" here (#821, engine-capabilities.ts).
+    const otherOwnerConfigured = engines.some(
+      (other) =>
+        other !== eng &&
+        other in ENGINE_CAPABILITIES &&
+        ENGINE_CAPABILITIES[other as keyof typeof ENGINE_CAPABILITIES].ownsAgentsMd,
+    );
+    if (eng === "agents-md" && otherOwnerConfigured) {
       out.push({
         engine: eng,
         written: [],

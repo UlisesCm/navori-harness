@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { safeRelPath } from "./zod-helpers.ts";
 
-const ENGINES = ["claude", "agents-md", "cursor", "copilot", "codex"] as const;
+// Exported: the single source of truth for valid engine ids, reused by
+// `engines/shared/engine-capabilities.ts` to validate its registry stays in
+// sync with this list instead of duplicating it (#821).
+export const ENGINES = ["claude", "agents-md", "cursor", "copilot", "codex"] as const;
 const MODELS = ["opus", "sonnet", "haiku"] as const;
 const COMMITS = ["conventional", "conventional-es", "free"] as const;
 const LANGUAGES = ["es", "en"] as const;
