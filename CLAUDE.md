@@ -25,9 +25,7 @@ Otros repos Bonum donde también vive infraestructura similar (referencia):
 - Su `~/.claude/CLAUDE.md` global tiene el diccionario completo del workspace Bonum.
 
 ## Decisiones ya tomadas (no re-litigar sin razón nueva)
-- **Los invariantes de arquitectura viven en un solo lugar, no aquí**: capas en cascada,
-  multi-engine, source of truth en `navori.config.json`, modelo híbrido de `sync` y plugins
-  como bundles, con su porqué completo ([why](docs/DIRECTION.md)).
+- **Los invariantes de arquitectura viven en un solo lugar, no aquí**: capas en cascada, multi-engine, source of truth en `navori.config.json`, modelo híbrido de `sync` y plugins como bundles, con su porqué completo ([why](docs/DIRECTION.md)).
 
 ## Próximos pasos
 Revisar engram + `git log` para el contexto vigente. Decisiones nuevas se documentan vía `mem_save`.
@@ -53,9 +51,7 @@ Protocolo global activo. En este repo:
 
 ## Convenciones generales
 - Commits: Conventional, español MX, atómicos.
-- **El harness se auto-hospeda en este repo** (commitea `.claude/` + `CLAUDE.md` +
-  `navori.config.json`; excepción `/bonum`, donde va gitignored) ([why](docs/DIRECTION.md)).
-  Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
+- **El harness se auto-hospeda en este repo** (commitea `.claude/` + `CLAUDE.md` + `navori.config.json`; excepción `/bonum`, donde va gitignored) ([why](docs/DIRECTION.md)). Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 - Branch base: definir cuando se inicialice el repo git.
 
 <!-- navori:managed id="idioma-rol" hash="5d83b387" version="0.8.7" source="@navori/core" -->
@@ -154,7 +150,6 @@ Choose by the missing information, not by keywords or a fixed tool sequence.
 - Do not repeat successful discovery just to verify it. Read missing, stale or editor-required content only. Stop when evidence is sufficient.
 - Validate changes with the project's compiler, linter and tests; discovery is not validation.
 <!-- /navori:managed id="code-discovery-routing" -->
-
 
 <!-- navori:managed id="gh-protocol" hash="b2d02c0b" version="0.8.7" source="@navori/plugin-gh" -->
 ## GitHub CLI (gh)
