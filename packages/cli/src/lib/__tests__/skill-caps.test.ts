@@ -7,7 +7,9 @@ import {
   countWords,
   skillWordCap,
   hasTrigger,
+  skillListingChars,
   SKILL_TYPE_CAPS,
+  SKILL_LISTING_CHAR_CAP,
 } from "../skill-meta.ts";
 import { parseAsset } from "../../engines/claude/parse-asset.ts";
 
@@ -96,6 +98,20 @@ describe("skill output discipline (spec 0003 §3.2.1)", () => {
       expect(
         hasTrigger(meta.description),
         `${file}: description has no activation trigger (e.g. "Aplica al…", "Usar cuando…", "Use when…") — needed for on-demand loading`,
+      ).toBe(true);
+    },
+  );
+
+  // #823 — Claude Code's skill listing truncates past this many chars of
+  // `description` + `when_to_use` combined (https://code.claude.com/docs/en/skills).
+  it.each(files.map((f) => [f.split("/").slice(-1)[0]!, f] as const))(
+    `%s stays within the ${SKILL_LISTING_CHAR_CAP}-char skill listing cap`,
+    (_name, file) => {
+      const { meta } = parseSkillFrontmatter(readFileSync(file, "utf-8"));
+      const chars = skillListingChars(meta);
+      expect(
+        chars <= SKILL_LISTING_CHAR_CAP,
+        `${file}: description+when_to_use is ${chars} chars, exceeds the ${SKILL_LISTING_CHAR_CAP}-char listing cap — Claude Code truncates the rest`,
       ).toBe(true);
     },
   );

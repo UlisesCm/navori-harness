@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="926a3983" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="98da3d61" version="0.8.7" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -34,7 +34,7 @@ The write is delegated unconditionally; this table is about how much **reading**
 | …and it hits a critical area (`render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`), a structural migration, >3 layers, or has no clear location | `ticket-audit` → `audit_ticket_<ID>.md`, before decomposing |
 | …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `ticket-audit` PER AREA, all calls in the SAME turn; you synthesize (`ticket-intake`, phase 2) |
 | New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
-| Real scope, by the threshold the **SDD** block owns | propose `spec-bootstrap` — opt-in, never self-assigned; don't duplicate its criteria |
+| Real scope, by the threshold the **SDD** block owns | propose SDD and ask the user to run `/spec-bootstrap` — opt-in, never self-assigned; don't duplicate its criteria |
 | No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` → `audit_deep_<scope>.md` + prioritized plan |
 | A scoped question (does Y happen? what consumes X?) | `researcher` |
 | Where does X live? — a broad map of an area | `explorer` |

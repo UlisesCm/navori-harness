@@ -1,0 +1,4 @@
+# navori:managed start id="spec-bootstrap-openai-policy" hash="04841ff2" version="0.8.7" source="@navori/core"
+policy:
+  allow_implicit_invocation: false
+# navori:managed end id="spec-bootstrap-openai-policy"
