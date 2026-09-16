@@ -173,7 +173,7 @@ If the task is:
 - A single trivial line in a known file → may not be worth the overhead.
 <!-- /navori:managed id="leader-base" -->
 
-<!-- navori:managed id="engram-leader-extension" hash="fd101e19" version="0.8.7" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-leader-extension" hash="38b4ec7d" version="0.8.7" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
 - **Session start:** engram's `SessionStart` hook covers `startup`, `clear`, `compact` — **not `resume`**. Where memory is already injected, work with it — `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.
@@ -182,6 +182,7 @@ If the task is:
 - `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
 - **Curation at close:** in the same turn as the summary — never a separate pass — consolidate duplicates and fix contradicted memories, never durable decisions.
 - **Lean close**: the summary and the curation step are exempt; `mem_save` is not.
+- **Auto Memory vs. engram**: Claude Code's native Auto Memory (on by default, machine-local — https://code.claude.com/docs/en/memory) is for this user's personal preferences and working-style feedback; engram is for durable engineering knowledge (decisions, bugfixes, architecture, discoveries) shared across engines. Route "remember X" accordingly — never write the same fact to both.
 <!-- /navori:managed id="engram-leader-extension" -->
 
 <!-- navori:managed id="codex-cross-review" hash="3b75baab" version="0.8.7" source="@navori/core" -->

@@ -3,6 +3,7 @@ name: engram-leader-extension
 description: Use when the leader agent is orchestrating work — the Engram protocol: search context before decomposing, save decisions proactively, close the session with a summary.
 metadata:
   type: behavior
+  maxWords: 260
 ---
 
 ## Engram (persistent memory)
@@ -13,3 +14,4 @@ metadata:
 - `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
 - **Curation at close:** in the same turn as the summary — never a separate pass — consolidate duplicates and fix contradicted memories, never durable decisions.
 - **Lean close**: the summary and the curation step are exempt; `mem_save` is not.
+- **Auto Memory vs. engram**: Claude Code's native Auto Memory (on by default, machine-local — https://code.claude.com/docs/en/memory) is for this user's personal preferences and working-style feedback; engram is for durable engineering knowledge (decisions, bugfixes, architecture, discoveries) shared across engines. Route "remember X" accordingly — never write the same fact to both.
