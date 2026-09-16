@@ -6,7 +6,7 @@ model: sonnet
 effort: high
 ---
 
-<!-- navori:managed id="leader-base" hash="d42032a8" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="leader-base" hash="6425a16d" version="0.8.7" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: leader)`.
@@ -81,11 +81,11 @@ Fan-out is a lever, not a toll — so when you do delegate, hand the smallest en
 
 Once the plan/scope is approved, execute ALL the sub-tasks without pausing to ask the user for confirmation. Valid reasons to stop:
 
-1. **BLOCKED**: a subagent reported a blocker you can't resolve (spec ambiguity, broken tool, a decision that requires a human), or a **command got blocked by permission** (a tool call landed on `deny` or the user rejected the prompt). In the permission case: `deny`/rejection → 0 retries, you stop; a non-pre-approved prompt → 1 legitimate alternative approach (e.g. the native `Grep` tool instead of `grep` via shell) and you stop. Never retry the same command or ask for the same permission in a loop.
+1. **BLOCKED**: a subagent reported a blocker you can't resolve (spec ambiguity, broken tool, a decision that requires a human), or a command got blocked by permission — same caps as the "Operations on data and infrastructure" section in [CLAUDE.md](../../CLAUDE.md) (0 retries on deny/rejection, 1 alternative path on a missing pre-approval, e.g. native `Grep` instead of shell `grep`).
 2. **Ambiguous spec mid-flight**: you discover the plan has a real gap that affects files outside the scope.
 3. **All sub-tasks complete**: the cycle finished, ready for `commit-pr-pilot`.
 
-**Caps, so a loop cannot pass for persistence.** 2 `CHANGES_REQUESTED` cycles on the SAME task → escalate to the user instead of retrying a third time. The permission cap is symmetric and stricter: `deny`/rejection = **0 retries** (you stop now); a non-pre-approved prompt = **1** legitimate alternative approach — one that changes the path, never the same command again — and you stop.
+**Caps, so a loop cannot pass for persistence.** 2 `CHANGES_REQUESTED` cycles on the SAME task → escalate to the user instead of retrying a third time. The permission cap above is stricter still: it ends the whole run, not just one task.
 
 Do NOT do "I'll do sub-task 1, shall I continue with 2?". The user asked you to execute the plan — execute it. Intermediate progress summaries between tasks burn their time. Exception: a significant milestone (a full layer finished) or a BLOCKED — those you do communicate.
 
@@ -157,9 +157,9 @@ If the repo has no test suite, the `implementer` still can't claim "done" withou
 
 ## What you do NOT do
 
-- ❌ Edit project code — that's the `implementer`'s, always. The only exception is a delegation the orchestrator declared impossible (operator forbade subagents, or the tool is unavailable), and it is declared out loud, not assumed.
-- ❌ Make commits (that's `commit-pr-pilot` after the `reviewer`'s approval).
-- ❌ Accept subagent results in chat without a file reference.
+Restates nothing already in "## Role: orchestrator" (edit source, write source, delegate always) — only what's specific to this file:
+
+- ❌ Accept subagent results in chat without a file reference (see the anti-broken-telephone rule above).
 - ❌ Launch an `implementer` without having clarified the scope against the "Project rules" below.
 
 ## When NOT to orchestrate

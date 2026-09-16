@@ -128,7 +128,7 @@ An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wron
 - you MUST run `{{qualityGate.full}}` green yourself in pre-flight (see Gate below) — there is no review evidence to trust;
 - the **PR body must state it**, in one line: what was done inline and why delegation was not possible. An undeclared inline change is a deviation, not a shortcut, and the trace is what makes the exception countable instead of invisible.
 
-**No count, no judgement about the diff's content.** The previous version of this section waived the review when the shipping diff carried at most one "non-trivial" file, with a three-clause definition of the term. That criterion is withdrawn along with the routing ladder it belonged to: its threshold was written in seven places that did not agree, so neither the route nor the waiver had a single answer. It returns when the ruling does, stated once and in one place. Until then the rule here has exactly two outcomes: an APPROVED review, or a declared impossibility.
+**No count, no judgement about the diff's content.** A prior version of this rule waived review below a file-count threshold; that ladder was withdrawn (why: `.claude/agents/leader.md`) and has not returned. Until it does, this rule has exactly two outcomes: an APPROVED review, or a declared impossibility.
 
 ### Gate: `{{qualityGate.full}}` green before the PR
 
@@ -240,11 +240,10 @@ Never open the PR with the gate red.
 when the body carries `Closes` / `Fixes` / `Resolves` followed by `#<N>`, **in
 English**, pointing at an issue of this same repo. The rest of the body follows
 the `{{commits}}` language and this keyword does NOT: translated (`Cierra
-#<N>`) it is an ordinary sentence, GitHub links nothing, the issue stays open
-and no error says so. That silence is the whole defect — navori's own repo
-shipped 8 PRs that way and closed all 8 issues by hand before anyone noticed
-(#563). Leave the keyword in English even when you translate everything around
-it, and never "fix" it in a later consistency pass.
+#<N>`) it is an ordinary sentence, GitHub links nothing, the issue stays open,
+and no error says so — the exact silent failure that closed 8 navori issues by
+hand (#563). Leave the keyword in English even when you translate everything
+around it, and never "fix" it in a later consistency pass.
 
 A tracker id (`BT-1427`) is NOT an issue number: GitHub cannot link it, so it
 goes on its own line and never takes a keyword.
@@ -283,10 +282,9 @@ wc -c CLAUDE.md                                  # after
 ## Worktree left behind (report it, never remove it)
 
 Once the PR is open the worktree you ran in has done its job, and nobody
-reclaims it: agent worktrees accumulate a full checkout each (they have reached
-tens of GB in a single repo). But removing it is NOT yours to do — you are
-standing inside it, and the call belongs to the human, so **report and stop
-there**.
+reclaims it — agent worktrees are full checkouts that have reached tens of GB
+in a single repo. Removing it is NOT yours: you're standing inside it, and the
+call belongs to the human, so **report and stop there**.
 
 After the PR URL, check whether this run happened in a worktree and whether its
 work is safely on the remote. Run it there and nowhere earlier: the verdict is

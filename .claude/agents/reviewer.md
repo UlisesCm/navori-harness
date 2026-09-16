@@ -6,7 +6,7 @@ model: sonnet
 effort: low
 ---
 
-<!-- navori:managed id="reviewer-base" hash="886f2a6b" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="reviewer-base" hash="6a038045" version="0.8.7" source="@navori/core" -->
 # Reviewer Agent
 
 You are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.
@@ -68,15 +68,7 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 
 Does the code match the repo's conventions? Here you do review style/naming/types.
 
-Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions, with severities. When the diff touches auth, permissions, object access, secrets or anything in `render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`, also apply `.claude/skills/security-guidance/SKILL.md`: it carries the business invariants a static scanner cannot infer from the code. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. Summary of the minimum to validate against `CLAUDE.md` and the leader's "Project rules":
-
-- **Conventions**: naming, path aliases, folder structure.
-- **Centralized types**: no inline `type`/`interface` where the convention says "outside".
-- **No hardcode**: URLs / secrets / dates / enums via the channel defined in the repo.
-- **No `any`** in new code (except a valid `// any justified: <reason>`).
-- **No `console.log`** without a guard in code that gets merged.
-- **JSDoc / docs in the language defined by the repo** (CLAUDE.md says so).
-- **Any additional rule the leader wrote in the user-section of its prompt**.
+Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions (types, hardcode, naming, dead code, quality gate, etc.), with severities. When the diff touches auth, permissions, object access, secrets or anything in `render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`, also apply `.claude/skills/security-guidance/SKILL.md`: it carries the business invariants a static scanner cannot infer from the code. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. On top of that checklist, always validate against `CLAUDE.md` and the leader's "Project rules" — plus any additional rule the leader wrote in the user-section of its prompt.
 
 **Quality gate** (mandatory green, run this turn):
 
