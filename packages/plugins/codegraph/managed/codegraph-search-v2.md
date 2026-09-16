@@ -1,0 +1,3 @@
+### Structural provider: CodeGraph
+
+Use `codegraph_explore` for structural discovery when available. Pass the current checkout's absolute `projectPath`; do not substitute another worktree's index. Treat sufficient fresh verbatim source returned to this context as already read. Respect stale/disabled-watch warnings and report unresolved relationships; the graph is not proof of completeness. Never initialize an index during ordinary discovery. If this project is unindexed or the provider fails, use scoped native exploration. Do not call tgrep merely to confirm the same symbol. Source unavailable in this context is missing evidence, even if another agent saw it.

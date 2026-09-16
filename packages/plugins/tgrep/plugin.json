@@ -1,0 +1,20 @@
+{
+  "id": "tgrep",
+  "name": "Microsoft tgrep textual discovery",
+  "description": "Textual code discovery through the tgrep CLI",
+  "version": "0.0.1",
+  "managed": [
+    { "id": "tgrep-search-v2", "file": "managed/tgrep-search-v2.md" }
+  ],
+  "externalTool": {
+    "name": "tgrep",
+    "checkBinary": "tgrep",
+    "install": { "darwin": "brew install tgrep" }
+  },
+  "settingsFragment": {
+    "permissions": {
+      "allow": ["Bash(tgrep search *)", "Bash(tgrep status *)", "Bash(tgrep --version)"]
+    }
+  },
+  "invariants": ["tgrep search", "--no-index"]
+}

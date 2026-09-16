@@ -20,7 +20,7 @@
     "multi-agent"
   ],
   "features": {
-    "plugins": 5,
+    "plugins": 7,
     "presets": 12,
     "coreAgents": 8,
     "coreSkills": 11,
@@ -49,10 +49,12 @@
     "@clack/prompts": "^0.10.0",
     "@navori/core": "workspace:*",
     "@navori/plugin-acli": "workspace:*",
+    "@navori/plugin-codegraph": "workspace:*",
     "@navori/plugin-engram": "workspace:*",
     "@navori/plugin-gh": "workspace:*",
     "@navori/plugin-jscpd": "workspace:*",
     "@navori/plugin-semgrep": "workspace:*",
+    "@navori/plugin-tgrep": "workspace:*",
     "@types/node": "^24.0.0",
     "@vitest/coverage-v8": "^4.1.9",
     "citty": "^0.1.6",
