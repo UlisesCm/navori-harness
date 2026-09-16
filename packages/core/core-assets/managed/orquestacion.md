@@ -36,7 +36,7 @@ The write is delegated unconditionally; this table is about how much **reading**
 <!-- /navori:if -->
 | New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
 <!-- navori:if sdd -->
-| Real scope, by the threshold the **SDD** block owns | propose `spec-bootstrap` — opt-in, never self-assigned; don't duplicate its criteria |
+| Real scope, by the threshold the **SDD** block owns | propose SDD and ask the user to run `/spec-bootstrap` — opt-in, never self-assigned; don't duplicate its criteria |
 <!-- /navori:if -->
 <!-- navori:if auditor -->
 | No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` → `audit_deep_<scope>.md` + prioritized plan |
