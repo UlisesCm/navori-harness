@@ -9,7 +9,7 @@ metadata:
   maxWords: 1050
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="a99a2a7a" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="5fd0a3ef" version="0.8.7" source="@navori/core" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -59,6 +59,7 @@ Skipping any step = a lie, not verification.
 | Tests pass | Suite run fresh with exit 0 this turn + test count | "we didn't touch tests", "they should still be green" |
 | Type-check clean | `tsc --noEmit` (or the runtime's equivalent) exit 0 this turn | "TS didn't complain when I saved it" |
 | A shell edit landed (`sed -i`, a `>` redirect) | Re-read the span you changed, this turn | The exit code. `sed -i` exits 0 when its pattern matches nothing, and a misdirected `>` truncates the file — both look like success |
+| A gate that can outlive the Bash timeout | Started via the engine's background-task mechanism (Claude Code: `run_in_background`), waited via its completion notification or `Monitor`; unneeded background tasks stopped (`TaskStop`) before the final response | Polling processes (`pgrep`, `ps \| grep`) — the waiting command's own line matches the pattern, other sessions' too |
 
 ## Red flags (STOP)
 
@@ -83,17 +84,12 @@ Skipping any step = a lie, not verification.
 
 ## When this skill is invoked
 
-- **`implementer`**: before returning `done -> .claude/progress/impl_<feature>.md`. Before handing off to the `reviewer`.
+- **`implementer`**: before returning `done -> .claude/progress/impl_<feature>.md` (its "Evidence-based completion").
 - **`reviewer`**: before marking `APPROVED`.
-- **`commit-pr-pilot`**: before `gh pr create`.
+- **`commit-pr-pilot`**: in its pre-flight, before touching `gh`.
 - **Any agent**: before telling the user "done" in any code-task response.
 
-## Connection with the rest of the harness
-
-- `CLAUDE.md` § Session closeout mentions `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green. This skill adds "fresh evidence" rigor + covers UI / bug-fixed dimensions the quality gate doesn't touch.
-- The `implementer` references this skill in its "Evidence-based completion".
-- The `reviewer` must cite this skill when marking `APPROVED`.
-- The `commit-pr-pilot` applies it in its pre-flight before touching `gh`.
+`CLAUDE.md` § Session closeout mentions `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green; this skill adds the "fresh evidence" rigor plus the UI / bug-fixed dimensions the quality gate doesn't touch.
 
 ## Anti-patterns
 

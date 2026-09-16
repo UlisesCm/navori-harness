@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
-tools: Read, Glob, Grep, Bash, Write
+tools: Read, Glob, Grep, Bash, Write, Monitor, TaskStop
 model: {{models.reviewer}}
 effort: {{effort.reviewer}}
 ---
@@ -75,7 +75,7 @@ Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions
 {{qualityGate.full}}
 ```
 
-Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed.
+Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s background-wait rule — never poll with `pgrep`/`ps | grep`.
 
 Don't gate a screen change on browser validation by default. Only if the user explicitly requested a visual/browser check and it wasn't done do you mark it incomplete — otherwise the diff + the repo's tests are the gate.
 
