@@ -399,6 +399,7 @@
       "Bash(mkfs*)"
     ]
   },
+  "effortLevel": "xhigh",
   "env": {
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
     "OTEL_LOGS_EXPORTER": "otlp",

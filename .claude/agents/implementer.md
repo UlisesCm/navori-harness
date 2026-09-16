@@ -2,6 +2,8 @@
 name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__*
+model: sonnet
+effort: medium
 ---
 
 <!-- navori:managed id="implementer-base" hash="4b6a3b5c" version="0.8.7" source="@navori/core" -->
