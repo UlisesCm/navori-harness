@@ -775,6 +775,13 @@ actually raises them (an empty section is noise, not rigor):
 <!-- /navori:managed id="spec-bootstrap" -->
 
 
+===== FILE: .agents/skills/spec-bootstrap/agents/openai.yaml =====
+# navori:managed start id="spec-bootstrap-openai-policy" hash="<HASH>" version="<VERSION>" source="@navori/core"
+policy:
+  allow_implicit_invocation: false
+# navori:managed end id="spec-bootstrap-openai-policy"
+
+
 ===== FILE: .agents/skills/structural-search/SKILL.md =====
 ---
 name: structural-search
@@ -7287,7 +7294,7 @@ The write is delegated unconditionally; this table is about how much **reading**
 | …and it hits a critical area (`auth, permissions, payments, data integrity`), a structural migration, >3 layers, or has no clear location | `ticket-audit` → `audit_ticket_<ID>.md`, before decomposing |
 | …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `ticket-audit` PER AREA, all calls in the SAME turn; you synthesize (`ticket-intake`, phase 2) |
 | New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
-| Real scope, by the threshold the **SDD** block owns | propose SDD and ask the user to run `/spec-bootstrap` — opt-in, never self-assigned; don't duplicate its criteria |
+| Real scope, by the threshold the **SDD** block owns | propose SDD and ask the user to run `$spec-bootstrap` — opt-in, never self-assigned; don't duplicate its criteria |
 | No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` → `audit_deep_<scope>.md` + prioritized plan |
 | A scoped question (does Y happen? what consumes X?) | `researcher` |
 | Where does X live? — a broad map of an area | `explorer` |
@@ -7392,7 +7399,7 @@ Before closing the session:
 
 **Tracking in the spec, not in the harness:** with `tasks.md`, that's the board — do NOT use `TaskCreate` for those tasks (duplicating it produces drift between the spec and the TaskList); ignoring its reminder in SDD sessions is expected.
 
-Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`leader`→`implementer`→`reviewer`) — lives in `spec-bootstrap`, user-invoked only: propose SDD, ask the user to run `/spec-bootstrap`.
+Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`leader`→`implementer`→`reviewer`) — lives in `spec-bootstrap`, user-invoked only: propose SDD, ask the user to run `$spec-bootstrap`.
 
 ## Tickets: problem first, proposed solution second
 
@@ -7493,4 +7500,4 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 <!-- user: additional rules for Codex -->
 
 
-===== END: 32 files =====
+===== END: 33 files =====
