@@ -60,6 +60,15 @@ const EXEMPT_FROM_LOCAL_GATE = new Map<string, string>([
     // observe by construction.
     "same check as `check:assets`; `--strict` only guards CI's own tag setup, which a local clone cannot observe",
   ],
+  [
+    "@navori/website build",
+    // #820 part A: CI's `quality:` job already runs this (see the "CI builds
+    // the website" test below, `#508.4`) and CI is a strict superset of the
+    // local gate for this step — nothing is skipped, only NOT repeated on
+    // every local `pnpm check`. Measured cost in isolation was ~2.8s (warm
+    // cache), so this is about not paying it twice per push, not about speed.
+    "CI's `quality:` job already builds the website (#508.4); running it again locally repeats a check CI is a strict superset for",
+  ],
 ]);
 
 /**
