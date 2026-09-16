@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="34a2cd35" version="0.8.7" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="3bac7e2e" version="0.8.7" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -412,10 +412,11 @@ block() {
 }
 
 # BOUNDED WORK (#511) — the guard runs under a wall-clock timeout it does NOT
-# control (10s in Claude Code's default wiring), and being KILLED is
-# indistinguishable from approving: the hook says nothing and the tool call
-# proceeds. So a guard cannot defend itself by handling the timeout; it has to
-# never get near it. Two halves, both load-bearing:
+# control (10s, set by navori in build-settings.ts's GUARD_HOOK_DEST config —
+# not a Claude Code default, which is 600s for command hooks), and being
+# KILLED is indistinguishable from approving: the hook says nothing and the
+# tool call proceeds. So a guard cannot defend itself by handling the
+# timeout; it has to never get near it. Two halves, both load-bearing:
 #
 #   1. every pass below is LINEAR in what it reads — `sed`/`grep`, never a bash
 #      `${var//pat/repl}` and never a bash string builder inside a loop. Both

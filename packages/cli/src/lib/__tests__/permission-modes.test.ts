@@ -131,11 +131,11 @@ describe("the harness names all six modes (#579)", () => {
     expect(asset).toContain("does not support");
   });
 
-  it("does not promise a `deny` guarantee it cannot verify under bypassPermissions", () => {
-    // The docs never say whether deny rules survive that mode. What they do say
-    // is that `exit 2` blocks in any mode, so the hook is the half that holds.
+  it("states that `deny` rules still block under bypassPermissions, per the official docs (#804)", () => {
+    // https://code.claude.com/docs/en/permission-modes: deny rules block in
+    // every mode including bypassPermissions; allow rules have no effect there.
     const row = asset.split("\n").find((line) => line.includes("| `bypassPermissions` |")) ?? "";
-    expect(row).toContain("do not rely on them");
+    expect(row).toContain("`deny` rules still block");
     expect(row).toContain("exit 2");
   });
 });
