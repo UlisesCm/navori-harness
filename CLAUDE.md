@@ -33,41 +33,17 @@ Otros repos Bonum donde también vive infraestructura similar (referencia):
 Revisar engram + `git log` para el contexto vigente. Decisiones nuevas se documentan vía `mem_save`.
 
 ## Quality gate
-El gate vive en **un solo lugar**: `qualityGate.full` en `navori.config.json`. De ahí salen los
-bloques managed de este archivo y el que aplica el `commit-pr-pilot`; no lo copies a mano en otro
-sitio, porque una segunda copia es una copia que se desincroniza.
+El comando vive en **un solo lugar**: `qualityGate.full` en `navori.config.json`. No lo copies a
+mano en otro sitio. Corre desde la raíz con `pnpm check`.
 
-Corre desde la raíz del monorepo (o `pnpm check`, que es el mismo comando):
+Dos trampas reales dentro de ese comando:
+- **`pnpm format:check`** (biome) corre en la raíz, no bajo `packages/cli` — es el paso que más se
+  olvida. Se arregla con `pnpm format`.
+- **`pnpm test:coverage`, no `pnpm test`.** Solo la primera corre `check-coverage-floor.mjs`, que
+  caza además una entrada obsoleta en `KNOWN_ZERO`.
 
-```
-pnpm format:check && pnpm check:render && pnpm check:assets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck
-```
-
-**`pnpm format:check`** (biome) NO está bajo `packages/cli`: se corre en la raíz, y es el paso que
-más se olvida. Biome expande objetos de una línea y parte llamadas largas. Se arregla con
-`pnpm format`.
-
-**`pnpm test:coverage`, no `pnpm test`.** Corre la misma suite más `check-coverage-floor.mjs`, que
-—además del umbral— caza una entrada obsoleta en `KNOWN_ZERO`, la lista de módulos que navori envía
-sin tests. Eso no es una barra de merge: es determinista y local, y correr solo `pnpm test` lo deja
-pasar. Ya costó un CI rojo con el gate verde, que es justo lo que el gate existe para evitar.
-
-**`pnpm jscpd:check` y `pnpm semgrep:check`** son los mismos scripts que corren como hook de
-`git commit`, invocados con stdin cerrado. Están en el gate desde #777 para que la revisión prediga
-el commit: antes, el primer contacto del diff con la seguridad era el hook — **después** del
-APPROVED y del receipt firmado. Como comparten receta y cache de contenido (#402), el re-escaneo del
-commit tras un gate verde es un cache-hit, no un segundo escaneo. El hook sigue ahí como backstop.
-Si la herramienta no está instalada, el paso sale `⊘ … not installed` y exit 0 — opcional local, no
-dependencia dura.
-
-`repo-config-gate.test.ts` sostiene el gate contra `ci.yml` **en las dos direcciones**: si el
-workflow gana un paso que el gate no declara, o el gate gana uno que CI no corre, la suite falla y
-dice cuál. Las excepciones viven en dos mapas de ese test, `EXEMPT_FROM_LOCAL_GATE` y
-`EXEMPT_FROM_CI`, con razón obligatoria por entrada y anti-staleness en ambos sentidos. Hoy están
-exentos `check:assets:ci` (su `--strict` depende de tags que CI trae y un clon fresco no tiene) y,
-del otro lado, `check:assets` (CI corre el superset estricto) más `jscpd:check`/`semgrep:check`
-(ninguna de las dos herramientas está en el lockfile, así que un paso de CI se saltaría a sí mismo
-y saldría verde).
+Por qué `jscpd`/`semgrep` están en el gate y cómo funcionan sus excepciones contra `ci.yml`:
+[why](CONTRIBUTING.md).
 
 ## Engram
 Protocolo global activo. En este repo:

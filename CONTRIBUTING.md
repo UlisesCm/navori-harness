@@ -32,8 +32,7 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
    `navori.config.json`, que es **el único lugar** donde vive el gate: de ahí salen los bloques
    managed de `CLAUDE.md` y el comando que corre el `commit-pr-pilot`. No lo transcribas aquí ni
    en ningún otro archivo — una segunda copia es una copia que se desincroniza, y ya pasó
-   (`repo-config-gate.test.ts` existe por eso, y sostiene el gate contra `ci.yml`: si el workflow
-   gana un paso de verificación que el gate no declara, la suite falla y dice cuál).
+   (`repo-config-gate.test.ts` existe por eso; ver el detalle al final de esta sección).
 
    Dos trampas dentro de ese comando:
    - **`pnpm test:coverage`, no `pnpm test`.** Corre la misma suite más
@@ -41,7 +40,15 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
      (los módulos que navori envía sin tests). Correr sólo `pnpm test` lo deja pasar, y ya costó
      un CI rojo con el gate verde.
    - **`pnpm format:check` (biome) NO está bajo `packages/cli`**: corre en la raíz, y es el paso
-     que más se olvida. Se arregla con `pnpm format`.
+     que más se olvida. Biome expande objetos de una línea y parte llamadas largas. Se arregla
+     con `pnpm format`.
+
+   **`jscpd:check` y `semgrep:check`** entraron al gate en #777: son los mismos scripts que corren
+   como hook de `git commit` con stdin cerrado, para que la revisión prediga el commit — antes, el
+   primer contacto del diff con seguridad era el hook, **después** de un APPROVED ya firmado.
+   Comparten receta y cache de contenido con el hook (#402), así que el re-escaneo tras un gate
+   verde es un cache-hit, no un segundo escaneo; el hook queda como backstop. Si la herramienta no
+   está instalada, el paso sale `⊘ … not installed` y exit 0 — opcional local, no dependencia dura.
 2. **Si tocaste cualquier cosa que alimente el render**: `pnpm check:render` desde la raíz. Este
    repo se auto-hospeda —`.claude/` y `CLAUDE.md` son salida de `navori render`—, así que el PR
    debe incluir el re-render del espejo (`pnpm render:apply` desde la raíz, que es exactamente
@@ -91,11 +98,17 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
    **cero** líneas del golden. Es a propósito: sin esa normalización se invalidaría en cada
    release y dejaría de tener señal.
 
-El único paso que CI corre y el gate local **no** repite es `check:assets:ci`: es la misma
-verificación que `check:assets` con `--strict`, y lo estricto depende de tags que CI trae a
-propósito y un clon fresco no tiene — en el gate fallaría por una causa ambiental, no por el
-fondo. La razón está escrita en `repo-config-gate.test.ts`, que es también quien exige que
-cualquier otro paso nuevo de CI entre al gate.
+`repo-config-gate.test.ts` sostiene el gate contra `ci.yml` en las **dos** direcciones: si el
+workflow gana un paso que el gate no declara, o el gate gana uno que CI no corre, la suite falla y
+dice cuál. Las excepciones viven en dos mapas, `EXEMPT_FROM_LOCAL_GATE` y `EXEMPT_FROM_CI`, con
+razón obligatoria por entrada y anti-staleness en ambos sentidos. Hoy están exentos:
+
+- **`check:assets:ci`** (de `EXEMPT_FROM_LOCAL_GATE`): es la misma verificación que `check:assets`
+  con `--strict`, y lo estricto depende de tags que CI trae a propósito y un clon fresco no tiene —
+  en el gate local fallaría por una causa ambiental, no por el fondo.
+- **`check:assets`, `jscpd:check` y `semgrep:check`** (de `EXEMPT_FROM_CI`): CI corre el superset
+  estricto de `check:assets`, y ninguna de las otras dos herramientas está en el lockfile — un paso
+  de CI que las invocara se saltaría a sí mismo y saldría verde en falso.
 
 Cambios **doc-only** (.md): basta `pnpm lint` + `pnpm format:check`; no necesitas la suite
 completa.
