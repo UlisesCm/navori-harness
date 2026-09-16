@@ -109,6 +109,7 @@
       "Bash(chmod -R *)"
     ],
     "deny": [
+      "Agent(leader)",
       "Bash(rm -rf /)",
       "Bash(rm -rf /*)",
       "Bash(rm -rf ~)",
