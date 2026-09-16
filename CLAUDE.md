@@ -155,7 +155,6 @@ Choose by the missing information, not by keywords or a fixed tool sequence.
 - Validate changes with the project's compiler, linter and tests; discovery is not validation.
 <!-- /navori:managed id="code-discovery-routing" -->
 
-
 <!-- navori:managed id="gh-protocol" hash="b2d02c0b" version="0.8.7" source="@navori/plugin-gh" -->
 ## GitHub CLI (gh)
 
