@@ -47,12 +47,35 @@ export const CUBO_A_ENTRIES: readonly string[] = [...EPHEMERAL_HARNESS_PATHS, ".
  * The subset of config that governs the `.gitignore` block body. `gitignoreHarness`
  * is optional here (treated as `"off"`) so configs written before the field existed
  * are handled defensively; a parsed `NavoriConfig` (where it always has its default)
- * satisfies this shape.
+ * satisfies this shape. `plugins` is optional for the same reason (a config with no
+ * `plugins` key at all contributes no plugin-owned entries).
  */
 type GitignoreConfig = {
   gitignoreHarness?: NavoriConfig["gitignoreHarness"];
   engines: readonly string[];
+  plugins?: NavoriConfig["plugins"];
 };
+
+/**
+ * Cubo A entries contributed by the v2 search plugins — CodeGraph's and
+ * tgrep's own runtime state dirs (`.codegraph/`, `.tgrep/`). Same rationale as
+ * `.navori/`: machine-local runtime state, not a harness output, so it can't
+ * be derived from `ENGINE_OUTPUTS`. Only added when the owning plugin is
+ * active, using the exact criterion `loadEnabledPlugins` (lib/plugins.ts)
+ * already uses (`plugins[id].enabled === true`) — not a re-invented check.
+ *
+ * `codegraph init` writes its OWN `.codegraph/.gitignore` (`*` + `!.gitignore`),
+ * which auto-ignores its content but leaves that file itself trackable — so
+ * the root rule below is what actually keeps `.codegraph/` out of `git status`
+ * (search-v2.md §6.2, D18). `tgrep index`/`serve` writes no ignore at all, so
+ * `.tgrep/` depends on the root rule entirely.
+ */
+function pluginEntries(plugins: NavoriConfig["plugins"]): string[] {
+  const entries: string[] = [];
+  if (plugins?.codegraph?.enabled === true) entries.push(".codegraph/");
+  if (plugins?.tgrep?.enabled === true) entries.push(".tgrep/");
+  return entries;
+}
 
 /**
  * Cubo B — the versionable harness outputs (`.claude/`, `CLAUDE.md`, `.codex/`,
@@ -97,8 +120,8 @@ export function engineOutputPaths(engines: readonly string[]): string[] {
  * Build the body (paths only, no managed markers) of the `.gitignore` block for
  * the given config:
  * - `"off"` (or absent) → `null` (navori must not touch `.gitignore`).
- * - `"local"` → Cubo A only.
- * - `"full"` → Cubo A plus Cubo B derived from `config.engines`.
+ * - `"local"` → Cubo A (plus any active v2 plugin's dir — `pluginEntries`).
+ * - `"full"` → the same Cubo A plus Cubo B derived from `config.engines`.
  *
  * Returns a multiline string, one entry per line, in a stable order. The caller
  * wraps this in the managed markers (Ronda 2).
@@ -106,10 +129,8 @@ export function engineOutputPaths(engines: readonly string[]): string[] {
 export function buildGitignoreBody(config: GitignoreConfig): string | null {
   const mode = config.gitignoreHarness ?? "off";
   if (mode === "off") return null;
-  const entries =
-    mode === "full"
-      ? [...CUBO_A_ENTRIES, ...engineOutputPaths(config.engines)]
-      : [...CUBO_A_ENTRIES];
+  const cuboA = [...CUBO_A_ENTRIES, ...pluginEntries(config.plugins)];
+  const entries = mode === "full" ? [...cuboA, ...engineOutputPaths(config.engines)] : cuboA;
   return entries.join("\n");
 }
 
