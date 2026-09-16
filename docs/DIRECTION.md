@@ -116,6 +116,42 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
     commitea en este repo y en todo repo no-Bonum: navori se come su propia comida. (En repos
     `/bonum` el harness va gitignored por convención.)
 
+## Criterio de admisión por superficie
+
+Antes de sumar una superficie nueva (plugin, servidor MCP, bloque managed o skill), el
+orden de admisión por mecanismo es: reglas always-on → skill on-demand → MCP → CLI local
+→ API directa, con sesgo explícito hacia la superficie de runtime más chica, el menor
+overhead de tokens y menos piezas móviles. Es un eje distinto del de `docs/EXTENDING.md`
+(dónde vive conocimiento NUEVO de tu repo, ordenado por quién es dueño: user-section →
+skill project-local → preset local → plugin → core) — ahí el bloque always-on (`core`)
+es el escalón más caro y último, no el primero. Los dos ejes no se mezclan: uno decide
+qué mecanismo usar, el otro dónde vive el conocimiento una vez elegido el mecanismo.
+
+Para un servidor MCP en particular, gana su slot solo si se cumplen **las dos**
+condiciones: (1) **universal** — aplica a prácticamente cualquier sesión, no a un caso
+de nicho; (2) **MCP le gana a un CLI/API envuelto en skill** — el trabajo necesita algo
+que solo MCP da (estado de sesión interactivo, streaming, un handshake de auth, browsing
+estructurado). Trabajo stateless de request/response es una skill, no un servidor.
+
+El argumento de costo con el que otros harnesses (ECC) sostienen esta regla —que cada
+conector default carga sus ~30 esquemas de tools en cada sesión— es un dato de 2026 ya
+superado en Claude Code: [la doc oficial de context window](https://code.claude.com/docs/en/context-window)
+confirma que los esquemas de tools MCP quedan **diferidos por default** y se cargan bajo
+demanda vía tool search; lo que sí carga siempre es el listado de nombres. El criterio
+que se adopta aquí es el **arquitectónico** (stateless → skill, menos piezas móviles), no
+el de costo de tokens de ECC.
+
+`packages/core/core-assets/` no declara ningún `mcpServers` hoy — cero connectors
+default. Esta regla es criterio para lo que venga, no auditoría de lo que ya existe.
+
+**Retirados** (superficie, veredicto y reemplazo — para que nadie los reproponga sin
+saber qué se midió):
+
+| Superficie | Veredicto | Reemplazo |
+|---|---|---|
+| plugin `tgrep` (capa de búsqueda) | doctrina sola dio 7.4% de activación, guard mecánico 40.7% — se retira para reimplementarse con integración real, no por bajo valor medido | `Grep`/`Glob` nativos mientras tanto (`7c6930dc`, #803) |
+| plugin `codegraph` (índice AST local) | cableado correcto y cero llamadas — el acoplamiento con `tgrep` era de ruteo, no de infraestructura | ídem; detalle en [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md) |
+
 ## Qué requiere discusión antes de cambiarse
 
 Estas son "decisiones ya tomadas — no re-litigar sin razón nueva". Cambiarlas exige una
