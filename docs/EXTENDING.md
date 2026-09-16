@@ -89,11 +89,11 @@ existen —`engram`, `acli`, `gh`, `jscpd`, `semgrep`— comparten esa forma: to
 `externalTool.checkBinary`. Ése es el patrón a seguir, y es lo que hace que
 `navori add <plugin>` pueda ofrecerte la instalación y que `doctor` sepa verificarla.
 
-> **`codegraph` y `tgrep` fueron el sexto y el séptimo, y se retiraron el 2026-09-15** para
-> reimplementarse con una integración que los haga trabajar entre sí. Siguen siendo el mejor
-> ejemplo disponible de hasta dónde llega el formato —binario externo, servidor MCP, guard,
-> hook de sesión y cinco inyecciones de doctrina—, y esa anatomía está documentada pieza por
-> pieza en [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md).
+> **`codegraph` y `tgrep` son el sexto y el séptimo.** Se retiraron el 2026-09-15 y #838 los
+> reintrodujo el 2026-09-16 con una integración nueva (routing de *Code discovery* entre
+> discovery estructural y textual). La anatomía del diseño anterior —binario externo, servidor
+> MCP, guard, hook de sesión y cinco inyecciones de doctrina— sigue documentada pieza por pieza
+> en [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md).
 
 Si lo que traes no tiene herramienta que instalar, tienes buenas noticias: es una skill o un bloque
 managed, y esos escalones son bastante más rápidos de aterrizar.

@@ -1,12 +1,14 @@
 # Capa de búsqueda indexada (tgrep + codegraph) — Tasks
 
-> **Estado: RETIRADA — 2026-09-15.** El plugin `tgrep` se borró del motor
-> (`packages/plugins/tgrep/`: wrapper, guard de ruteo, hook de sesión, bloque
-> `tgrep-protocol` y las cinco inyecciones de doctrina), junto con `codegraph`
-> (spec 0009). La búsqueda de contenido vuelve a las herramientas nativas
-> `Grep`/`Glob`. Lo que sobrevive del contrato de plugin son piezas genéricas que
-> esta spec abrió y otros plugins usan: `SessionStart` como evento (R7) y
-> `mcpServer.alwaysLoad` (R13).
+> **Estado: RETIRADA 2026-09-15, reintroducida por #838 el 2026-09-16.** El plugin `tgrep`
+> se borró del motor (`packages/plugins/tgrep/`: wrapper, guard de ruteo, hook de sesión,
+> bloque `tgrep-protocol` y las cinco inyecciones de doctrina), junto con `codegraph`
+> (spec 0009). La búsqueda de contenido volvió a las herramientas nativas `Grep`/`Glob`
+> mientras tanto. #838 reintrodujo ambos plugins con una forma distinta a la que describe
+> esta spec (sin wrapper propio, sin guard mecánico ni hook de sesión) y con el ruteo movido
+> al bloque core `code-discovery-routing`. Esta spec queda como acta de la primera vuelta;
+> lo que sobrevive de su contrato genérico —`SessionStart` como evento (R7) y
+> `mcpServer.alwaysLoad` (R13)— lo siguen usando otros plugins.
 >
 > **Qué resultado dio.** La doctrina sola midió **7.4%** de adopción sobre 2,761
 > búsquedas reales; el guard mecánico la movió a **40.7%** en una semana

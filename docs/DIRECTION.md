@@ -73,11 +73,14 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
   calidad > tokens > velocidad, en ese orden.
 - **LSP / Serena (Rung 3 de la escalera de búsqueda).** Descartado por overhead fijo (~3k
   tok/sesión + language server); la escalera se corta en Rung 2 / ast-grep (Spec 0005).
-  codegraph (Spec 0009) entró como índice AST local barato, no como LSP — y **se retiró del
-  motor el 2026-09-15** junto con `tgrep` (Spec 0017), para reimplementarse desde cero con
-  una integración que los haga trabajar entre sí. Mientras tanto la búsqueda de contenido es
-  `Grep`/`Glob` nativos. Lo medido antes de retirarlos —codegraph con cableado correcto y
-  cero llamadas; tgrep al 7.4% por doctrina y 40.7% con guard mecánico— vive en
+  codegraph (Spec 0009) entró como índice AST local barato, no como LSP. Se retiró del motor
+  el 2026-09-15 junto con `tgrep` (Spec 0017) — retirada **parcial y temporal**: el anuncio
+  era reimplementarlos desde cero con una integración que los hiciera trabajar entre sí, y
+  #838 (2026-09-16) cerró ese ciclo. Hoy ambos son plugins opt-in de nuevo, con el routing de
+  *Code discovery* eligiendo entre discovery estructural (codegraph) y textual (tgrep/nativo)
+  por el tipo de pregunta, no por doctrina en prosa. Lo medido antes de la reimplementación
+  —codegraph con cableado correcto y cero llamadas; tgrep al 7.4% por doctrina y 40.7% con
+  guard mecánico— queda como historia del diseño anterior en
   [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md); el rechazo
   a LSP/Serena no se re-litiga por esto.
 - **Que navori ejecute las herramientas del agente.** navori genera el harness (skills +
@@ -145,12 +148,9 @@ el de costo de tokens de ECC.
 default. Esta regla es criterio para lo que venga, no auditoría de lo que ya existe.
 
 **Retirados** (superficie, veredicto y reemplazo — para que nadie los reproponga sin
-saber qué se midió):
-
-| Superficie | Veredicto | Reemplazo |
-|---|---|---|
-| plugin `tgrep` (capa de búsqueda) | doctrina sola dio 7.4% de activación, guard mecánico 40.7% — se retira para reimplementarse con integración real, no por bajo valor medido | `Grep`/`Glob` nativos mientras tanto (`7c6930dc`, #803) |
-| plugin `codegraph` (índice AST local) | cableado correcto y cero llamadas — el acoplamiento con `tgrep` era de ruteo, no de infraestructura | ídem; detalle en [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md) |
+saber qué se midió): ninguno hoy. `tgrep` y `codegraph` pasaron por esta tabla entre
+2026-09-15 y #838 (2026-09-16); su medición previa y por qué no cuenta como "bajo valor
+descartado" vive en [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md).
 
 ## Qué requiere discusión antes de cambiarse
 
@@ -246,7 +246,8 @@ Reglas del patrón:
   reducción de contexto, 0007/0008 render-plan unificado, 0009 codegraph, 0010 harness global,
   0011 Dominio, 0012 capa de solutioning, 0013 redefinición de `audit`, 0014 harness ajeno, 0015
   orquestación fuera del always-on, 0016 paridad de modos de permiso, 0017 capa de búsqueda tgrep
-  (**retirada**, como la 0009: las dos llevan banner y apuntan a
+  (retirada 2026-09-15, reintroducida por #838 el 2026-09-16 con nueva integración — su banner y
+  la 0009 quedan como acta del diseño de esa primera vuelta, no del código vigente; detalle en
   `docs/research/tgrep-como-funcionaba.md`),
   0018 harness por workspace, 0019 orquestación que cabe en el arranque, 0020 delegación por
   mecanismo nativo, 0021 eventos OTel como tercera fuente.
