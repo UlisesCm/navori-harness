@@ -2,6 +2,8 @@
 name: auditor
 description: Deep read-only audit of an area — bugs, security, performance, SOLID violations, edge cases, missing tests. Writes a report + prioritized plan to disk; never edits production code. Use when the user asks to audit or find bugs in X, or before refactoring an area with no ticket driving the work.
 tools: Read, Glob, Grep, Bash, Write, WebFetch, WebSearch, mcp__engram__*
+model: sonnet
+effort: medium
 ---
 
 <!-- navori:managed id="auditor-base" hash="9703965d" version="0.8.7" source="@navori/core" -->

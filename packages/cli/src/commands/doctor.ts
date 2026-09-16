@@ -30,6 +30,7 @@ import { scanQualityGateReadiness } from "../lib/gate-readiness.ts";
 import { scanEmptyUserSections } from "../lib/skill-user-section.ts";
 import { scanTriggerlessLocalSkills } from "../lib/skill-triggers.ts";
 import { scanInterpolationArtifacts } from "../lib/interpolation-artifacts.ts";
+import { scanMissingModelProfile } from "../lib/model-profile.ts";
 import { scanDiskUsage, humanBytes } from "../lib/disk-usage.ts";
 import { scanNestedWorktrees } from "../lib/nested-worktrees.ts";
 import { scanGlobalScope, type ManagedPolicyKey } from "../lib/global-scope.ts";
@@ -171,6 +172,11 @@ export const doctorCommand = defineCommand({
     // interpolator bug is frozen there — fixing the interpolator never reaches an
     // already-onboarded repo. Warning-level: it never flips `ok`.
     const interpolationArtifacts = scanInterpolationArtifacts(cwd, config);
+    // #817: agents whose template declares `model: {{models.X}}` /
+    // `effort: {{effort.X}}` but whose tier is unset in config — the render
+    // drops the line silently (by design), so this is the only place the gap
+    // surfaces. Warning-level: an unset tier is a valid default.
+    const missingModelProfile = scanMissingModelProfile(config);
     // #393: the two directories that grow with no owner — ~/.navori/backups
     // (bounded only by prune-on-write) and .claude/worktrees (bounded by
     // nobody). Two `du`s so growth is visible before the disk fills; doctor
@@ -299,6 +305,7 @@ export const doctorCommand = defineCommand({
       // Uncapped on purpose: MAX_ARTIFACT_ROWS is a readability cap for the
       // terminal ("… and N more"), and a machine consumer needs every row.
       interpolationArtifacts,
+      missingModelProfile,
       // `path` is absolute because that IS the remediation target, it is not
       // derivable (NAVORI_BACKUP_ROOT can move the store), and the human output
       // already prints the same string — so the JSON leaks nothing extra, and
@@ -656,6 +663,14 @@ export const doctorCommand = defineCommand({
       const hidden = interpolationArtifacts.length - lines.length;
       if (hidden > 0) lines.push(grey(td.interpolationArtifactsMore(hidden)));
       p.log.warn(td.interpolationArtifacts(interpolationArtifacts.length, lines.join("\n")));
+    }
+
+    if (missingModelProfile.length > 0) {
+      const lines = missingModelProfile.map(
+        (m) =>
+          `  ${color.yellow(sym.update)} ${accent(m.agent)}  ${grey(td.missingModelProfileRow(m.missing.join(", ")))}`,
+      );
+      p.log.warn(td.missingModelProfile(missingModelProfile.length, lines.join("\n")));
     }
 
     if (diskUsage.length > 0) {

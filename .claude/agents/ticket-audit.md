@@ -2,6 +2,8 @@
 name: ticket-audit
 description: Deep analysis of a complex ticket before implementing — root cause, affected areas and a decomposition plan in audit_ticket_<ID>.md. Use when a ticket hits a critical area, crosses 3+ layers or has no clear location, before decomposing it.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__*
+model: sonnet
+effort: medium
 ---
 
 <!-- navori:managed id="ticket-audit-base" hash="6abf1cca" version="0.8.7" source="@navori/core" -->

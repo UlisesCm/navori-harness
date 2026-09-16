@@ -740,6 +740,11 @@ interface DoctorCmdStrings {
   interpolationArtifactUnresolvedRow: (token: string) => string;
   interpolationArtifactGateRow: string;
   interpolationArtifactsMore: (n: number) => string;
+  /** #817 — a core agent whose `models.<key>` / `effort.<key>` tier is unset,
+   *  so its rendered frontmatter omits `model:`/`effort:` and inherits the
+   *  session default. Advisory: an unset tier is a valid default. */
+  missingModelProfile: (n: number, lines: string) => string;
+  missingModelProfileRow: (missing: string) => string;
   /** #393 — a growth directory (backups / agent worktrees) over its threshold. */
   diskUsage: (n: number, lines: string) => string;
   diskBackupsRow: (size: string) => string;
@@ -1757,6 +1762,13 @@ const CMD_ES: CmdStrings = {
       `Agrégale un "Usar cuando…" (o "Use when…") al inicio. navori no toca el ` +
       `contenido de tus skills, solo te lo señala:\n${lines}`,
     triggerlessSkillRow: (path) => `— sin "Usar cuando…" en ${path}`,
+    missingModelProfile: (n, lines) =>
+      `Agentes sin perfil de modelo/effort (${n}) — la clave no está en ` +
+      `navori.config.json, así que el render omite la línea en silencio y el ` +
+      `agente hereda el modelo/effort de la sesión. Válido como default, pero ` +
+      `si buscabas el perfil de costo, declara 'models.<agente>' / ` +
+      `'effort.<agente>' (ver RECOMMENDED_MODELS/RECOMMENDED_EFFORT):\n${lines}`,
+    missingModelProfileRow: (missing) => `— falta: ${missing}`,
     interpolationArtifacts: (n, lines) =>
       `Restos de interpolación en el árbol renderizado (${n}) — 'render' reescribe ` +
       `solo la zona managed, así que lo que cayó en la zona de usuario se queda ahí ` +
@@ -2883,6 +2895,13 @@ const CMD_EN: CmdStrings = {
       `"Usar cuando…"). navori never edits your skills' content, it only points ` +
       `this out:\n${lines}`,
     triggerlessSkillRow: (path) => `— no "Use when…" in ${path}`,
+    missingModelProfile: (n, lines) =>
+      `Agents with no model/effort profile (${n}) — the key is absent from ` +
+      `navori.config.json, so render silently drops the line and the agent ` +
+      `inherits the session's model/effort. That's a valid default, but if you ` +
+      `meant to set the cost profile, declare 'models.<agent>' / ` +
+      `'effort.<agent>' (see RECOMMENDED_MODELS/RECOMMENDED_EFFORT):\n${lines}`,
+    missingModelProfileRow: (missing) => `— missing: ${missing}`,
     interpolationArtifacts: (n, lines) =>
       `Interpolation leftovers in the rendered tree (${n}) — 'render' only rewrites ` +
       `the managed zone, so whatever landed in the user zone stays there even after ` +

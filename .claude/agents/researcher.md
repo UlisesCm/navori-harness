@@ -2,6 +2,8 @@
 name: researcher
 description: Answers ONE scoped question about the repo with cited evidence, written to a file. Does not modify code. Use when answering would take reading 4+ files, or to challenge a design decision with fresh context.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
+model: sonnet
+effort: medium
 ---
 
 <!-- navori:managed id="researcher-base" hash="eb31b215" version="0.8.7" source="@navori/core" -->

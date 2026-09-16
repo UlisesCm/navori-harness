@@ -10,6 +10,26 @@
   "branchBase": "main",
   "gitignoreHarness": "off",
   "commits": "conventional-es",
+  "models": {
+    "leader": "opus",
+    "implementer": "sonnet",
+    "reviewer": "sonnet",
+    "researcher": "sonnet",
+    "ticketAudit": "sonnet",
+    "commitPrPilot": "haiku",
+    "explorer": "haiku",
+    "auditor": "sonnet"
+  },
+  "effort": {
+    "leader": "xhigh",
+    "implementer": "medium",
+    "reviewer": "medium",
+    "researcher": "medium",
+    "ticketAudit": "medium",
+    "commitPrPilot": "low",
+    "explorer": "low",
+    "auditor": "medium"
+  },
   "qualityGate": {
     "fast": "cd packages/cli && pnpm lint",
     "full": "pnpm format:check && pnpm check:render && pnpm check:assets && pnpm jscpd:check && pnpm semgrep:check && pnpm --filter @navori/website build && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck"

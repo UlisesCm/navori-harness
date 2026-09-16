@@ -2,6 +2,8 @@
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__*
+model: sonnet
+effort: medium
 ---
 
 <!-- navori:managed id="reviewer-base" hash="dd2c527a" version="0.8.7" source="@navori/core" -->
