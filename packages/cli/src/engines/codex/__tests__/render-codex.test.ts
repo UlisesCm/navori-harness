@@ -454,4 +454,23 @@ describe("adaptHarnessTextForCodex — the vocabulary rules (#443)", () => {
 
     expect(adaptHarnessTextForCodex(input, config({ language: "en" }))).toBe(input);
   });
+
+  // #823 — Claude's `disable-model-invocation: true` has no confirmed Codex
+  // equivalent (see compat.ts); it is stripped rather than copied raw, since
+  // `placeSkill` otherwise passes frontmatter through unchanged.
+  it("strips disable-model-invocation — no confirmed Codex equivalent", () => {
+    const input = "---\nname: spec-bootstrap\ndisable-model-invocation: true\n---\n\nBODY\n";
+    expect(adaptHarnessTextForCodex(input, config({ language: "en" }))).not.toContain(
+      "disable-model-invocation",
+    );
+  });
+});
+
+describe("renderCodexEngine — spec-bootstrap (#823)", () => {
+  it("does not copy disable-model-invocation into the rendered SKILL.md", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const skill = readFileSync(join(cwd, ".agents/skills/spec-bootstrap/SKILL.md"), "utf-8");
+    expect(skill).not.toContain("disable-model-invocation");
+  });
 });

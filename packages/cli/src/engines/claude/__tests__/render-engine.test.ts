@@ -722,6 +722,14 @@ describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
     expect(existsSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"))).toBe(true);
   });
+
+  // #823 — spec-bootstrap is user-invocable only: the model must not be able
+  // to trigger it via natural language, only `/spec-bootstrap`.
+  it("marks spec-bootstrap as disable-model-invocation: true", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const skill = readFileSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"), "utf-8");
+    expect(skill).toContain("disable-model-invocation: true");
+  });
 });
 
 describe("renderClaudeEngine — tests policy exclusions (#529)", () => {

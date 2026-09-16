@@ -123,6 +123,18 @@ export const CODEX_VOCABULARY: ReadonlyArray<readonly [from: string, to: string]
  */
 export function adaptHarnessTextForCodex(content: string, _config: NavoriConfig): string {
   const retargeted = content
+    // #823: Claude's `disable-model-invocation: true` (a real host field,
+    // https://code.claude.com/docs/en/skills) opts a skill out of automatic
+    // loading. `placeSkill` copies frontmatter raw, so left alone this line
+    // would leak into `.agents/skills/<id>/SKILL.md` unexplained. No primary
+    // Codex doc for an equivalent could be reached from this repo; a THIRD
+    // PARTY harness's own research notes (docs/research/deepseek-harness-
+    // lessons.md §9.4) describe a candidate — a sibling `agents/openai.yaml`
+    // with `allow_implicit_invocation: false` — but that is secondhand and
+    // unverified against OpenAI's docs, not a confirmed Codex mechanism. Strip
+    // the Claude-only line rather than ship an unverified guess; revisit once
+    // the Codex docs are confirmed.
+    .replace(/^disable-model-invocation:[ \t]*.*\r?\n/m, "")
     .replaceAll(".claude/agents/leader.md", "AGENTS.md")
     // Any OTHER agent citation points at the file Codex actually reads: a
     // standalone TOML under `.codex/agents/`. `leader` is the exception above

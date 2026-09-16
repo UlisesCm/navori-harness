@@ -1,6 +1,7 @@
 ---
 name: spec-bootstrap
 description: Use when starting a real-scope feature before writing code — scaffolds a complete SDD spec (requirements/design/tasks) with EARS and R<n>↔test traceability.
+disable-model-invocation: true
 metadata:
   type: reference
   maxWords: 650
