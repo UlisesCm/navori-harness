@@ -70,6 +70,12 @@ describe("readHarnessCatalog: an absent harness is empty, never a throw", () => 
   it("exposes the MCP families it knows about, so the report never re-lists them", () => {
     // A server named in two places is a server that will be named in only one
     // of them after the next edit — hence a single source, sorted.
+    //
+    // `codegraph` is here WITHOUT being a bundled plugin any more (retired
+    // 2026-09-15), and that is the table's contract, not an oversight: it
+    // recognizes the prose of the repo being audited, and every repo that has
+    // not re-rendered still ships the `codegraph-protocol` block. See the note
+    // on `MCP_HINTS` for what dropping an entry does to `wasted`/`severity`.
     expect(readHarnessCatalog(root).mcpFamilies).toEqual(["codegraph", "engram"]);
   });
 
@@ -86,10 +92,10 @@ describe("readHarnessCatalog: an absent harness is empty, never a throw", () => 
 
 describe("readHarnessCatalog: `tools:` is an allowlist, and it lives in the frontmatter", () => {
   it("reads an inline list and sees the mcp__ entry", () => {
-    agent("explorer", ["tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*"]);
+    agent("explorer", ["tools: Read, Glob, Grep, Bash, Write, mcp__engram__*"]);
     expect(readHarnessCatalog(root).agents[0]).toEqual({
       name: "explorer",
-      tools: ["Read", "Glob", "Grep", "Bash", "Write", "mcp__codegraph__*"],
+      tools: ["Read", "Glob", "Grep", "Bash", "Write", "mcp__engram__*"],
       hasMcp: true,
     });
   });
@@ -128,10 +134,10 @@ describe("readHarnessCatalog: `tools:` is an allowlist, and it lives in the fron
   });
 
   it("reads a YAML flow sequence", () => {
-    agent("flowseq", ['tools: ["Read", "mcp__codegraph__*"]']);
+    agent("flowseq", ['tools: ["Read", "mcp__engram__*"]']);
     expect(readHarnessCatalog(root).agents[0]).toEqual({
       name: "flowseq",
-      tools: ["Read", "mcp__codegraph__*"],
+      tools: ["Read", "mcp__engram__*"],
       hasMcp: true,
     });
   });
@@ -218,6 +224,9 @@ describe("readHarnessCatalog: CLAUDE.md sections carry the cost of the high sign
       "## CodeGraph",
       "Call codegraph_explore before a grep crawl.",
       "",
+      "## Graph",
+      "Call graph_explore before a grep crawl.",
+      "",
       "## Commits",
       "Conventional, atomic.",
     );
@@ -225,7 +234,17 @@ describe("readHarnessCatalog: CLAUDE.md sections carry the cost of the high sign
       readHarnessCatalog(root).sections.map((s) => [s.title, s.requiresMcp]),
     );
     expect(byTitle.Engram).toEqual(["engram"]);
+    // Attributed even though `codegraph` is no longer a bundled plugin: the
+    // table recognizes prose, and an already-rendered repo still carries this
+    // block. Losing it would quietly shrink `wasted` in the only `high` signal
+    // the audit emits.
     expect(byTitle.CodeGraph).toEqual(["codegraph"]);
+    // And the list is CLOSED, not a `mcp__`/`_explore` heuristic: a section
+    // that orders a tool no entry names requires nothing, exactly like the
+    // section that orders no tool at all. Attributing it would let the report
+    // invent an unreachable-instructions finding for a server whose
+    // reachability the harness has no way to evaluate.
+    expect(byTitle.Graph).toEqual([]);
     expect(byTitle.Commits).toEqual([]);
   });
 

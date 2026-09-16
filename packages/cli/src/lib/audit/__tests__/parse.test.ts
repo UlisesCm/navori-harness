@@ -345,7 +345,7 @@ describe("MCP calls grouped by server (#0013)", () => {
         { name: "mcp__engram__mem_save" },
         { name: "mcp__engram__mem_save" },
         { name: "mcp__engram__mem_search" },
-        { name: "mcp__codegraph__codegraph_explore" },
+        { name: "mcp__playwright__browser_click" },
         { name: "Bash", input: { command: "ls" } },
       ]),
     );
@@ -353,7 +353,7 @@ describe("MCP calls grouped by server (#0013)", () => {
     // there; grouping is what turns it into "did this agent reach engram?".
     expect(run?.mcpCalls).toEqual({
       engram: { mem_save: 2, mem_search: 1 },
-      codegraph: { codegraph_explore: 1 },
+      playwright: { browser_click: 1 },
     });
   });
 
@@ -435,7 +435,7 @@ describe("context injected by a SessionStart hook (#728)", () => {
   });
 
   it("reports nothing when no SessionStart hook injected memory", () => {
-    const s = parseSession(sessionWith([injection("navori/tgrep: tgrep ACTIVE")]));
+    const s = parseSession(sessionWith([injection("navori: session context")]));
     expect(s.orchestrator.mcpInjectedContext).toEqual({});
   });
 });

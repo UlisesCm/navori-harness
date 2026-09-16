@@ -198,7 +198,6 @@ export const doctorCommand = defineCommand({
     // team overrides an official preset) but worth surfacing so it's not silent.
     const presetOverride =
       resolvedPreset?.source === "local" && presetExists(config.preset) ? config.preset : null;
-    const codegraphHealth = scanCodegraphHealth(cwd, config);
     // Harness `.gitignore` block drift (#313). Null in mode "off" — doctor must
     // not evaluate `.gitignore` at all then (R8/R10).
     const gitignoreHealth = scanGitignoreHarness(cwd, config);
@@ -321,7 +320,6 @@ export const doctorCommand = defineCommand({
       excludedBlocks,
       claudeHookScripts,
       codexHealth,
-      codegraphHealth,
       gitignoreHealth,
       prettierIgnoreHealth,
       gitHygiene,
@@ -766,29 +764,7 @@ export const doctorCommand = defineCommand({
       if (cx.length > 0) p.note(cx.join("\n"), "Codex");
     }
 
-    if (codegraphHealth) {
-      const cg: string[] = [];
-      // Committing the SQLite index is the worst of the git-hygiene failures
-      // (constant churn + binary merge conflicts); a merely-unignored dir is a
-      // lighter, preventive warning. They're mutually exclusive by construction.
-      if (codegraphHealth.tracked) {
-        // A yellow warning, not a red ✗: `tracked` never flips the verdict
-        // (codegraph advisories are warnings), so a fail symbol that never fails
-        // was contradictory UX. Aligned with the rest of this section (#270).
-        cg.push(`  ${color.yellow(sym.update)} ${td.codegraphTracked}`);
-      } else if (codegraphHealth.notIgnored) {
-        cg.push(`  ${color.yellow(sym.update)} ${td.codegraphNotIgnored}`);
-      }
-      if (codegraphHealth.indexMissing) {
-        cg.push(`  ${color.yellow(sym.update)} ${td.codegraphIndexMissing}`);
-      }
-      if (codegraphHealth.stale) {
-        cg.push(`  ${color.yellow(sym.update)} ${td.codegraphStale}`);
-      }
-      if (cg.length > 0) p.note(cg.join("\n"), "codegraph");
-    }
-
-    // #313: harness `.gitignore` drift. Advisory (yellow), like codegraph — never
+    // #313: harness `.gitignore` drift. Advisory (yellow) — never
     // flips the verdict; `render --apply` reconciles it. Absent in mode "off".
     if (gitignoreHealth && (gitignoreHealth.missing || gitignoreHealth.drift)) {
       const gi = gitignoreHealth.missing ? td.gitignoreMissing : td.gitignoreDrift;
@@ -885,7 +861,7 @@ export const doctorCommand = defineCommand({
 
     // #547: the machine-global harness seen from this repo. Advisory (yellow),
     // like every section above — it never flips the verdict, and every sub-check
-    // is read-only. Two guards, the codegraph pattern: the null keeps a machine
+    // is read-only. Two guards, the optional-section pattern: the null keeps a machine
     // with no global layer from ever seeing the heading, and the row count keeps
     // an installed-and-healthy one from seeing an empty box.
     if (globalScope) {
@@ -1824,8 +1800,7 @@ function gitTracksPath(cwd: string, relPath: string): boolean {
  * Ephemeral agent artifacts that must never reach a commit: subagent handoffs,
  * agent worktrees, and machine-local settings. Shared with the `.gitignore`
  * cubo A and the render backup's exclusion list (#348) so the three can't drift
- * apart again. It is a SUBSET of `CUBO_A_ENTRIES` on purpose — `.codegraph/`
- * has its own, richer check in `scanCodegraphHealth`, and `.navori/`
+ * apart again. It is a SUBSET of `CUBO_A_ENTRIES` on purpose — `.navori/`
  * legitimately holds versioned local presets, so neither belongs in a "should
  * be ignored" list.
  */
@@ -1866,8 +1841,10 @@ export function scanGitHygiene(cwd: string, config: NavoriConfig): GitHygieneRep
   const sddActive =
     config.sdd?.enabled !== false && !(config.blocks?.exclude ?? []).includes("sdd");
   const specsDir = config.sdd?.specsDir ?? "specs";
-  // Probe a synthetic child so a directory pattern (`specs/`) matches even when
-  // the dir doesn't exist on disk yet — same reason as the codegraph probe (#267).
+  // Probe a synthetic child, not the bare dir: `git check-ignore` matches a
+  // directory pattern (`specs/`) against the PATH STRING it's given, so a bare
+  // `specs` fails to resolve the pattern when the dir doesn't exist on disk yet
+  // — a false "not ignored". Use a literal `/`: git expects it everywhere (#267).
   const specsIgnored =
     sddActive && isIgnoredByGit(cwd, `${trimSlash(specsDir)}/x`) ? specsDir : null;
 
@@ -1895,80 +1872,6 @@ export function scanGitHygiene(cwd: string, config: NavoriConfig): GitHygieneRep
 /** Drop a trailing slash so a configured `specsDir` works with or without one. */
 function trimSlash(path: string): string {
   return path.endsWith("/") ? path.slice(0, -1) : path;
-}
-
-/** The codegraph index directory (SQLite/FTS5 graph), relative to the repo root. */
-const CODEGRAPH_DIR = ".codegraph";
-
-export interface CodegraphHealth {
-  /** `.codegraph/` is not covered by .gitignore (git work tree only). */
-  notIgnored: boolean;
-  /** `.codegraph/` has files tracked by git — the binary index was committed. */
-  tracked: boolean;
-  /** codegraph binary is in PATH but the index (`.codegraph/`) was never built. */
-  indexMissing: boolean;
-  /** Best-effort: `codegraph status` reported the index as stale. */
-  stale: boolean;
-}
-
-/**
- * Codegraph plugin health (Spec 0009 F2). Only meaningful when the `codegraph`
- * plugin is enabled; returns null otherwise so the report omits the section.
- *
- * Scope is deliberately honest — two solid, deterministic checks plus one
- * best-effort:
- * (a) git hygiene (DETERMINISTIC): `.codegraph/` is a churning binary SQLite
- *     index that must never be committed (Spec 0009 §5). We flag it when git
- *     tracks it (already committed → merge conflicts) or when it isn't ignored
- *     (preventive). Only meaningful inside a git work tree.
- * (b) index built (DETERMINISTIC): the binary is in PATH but `.codegraph/`
- *     doesn't exist yet — `codegraph init` never ran. A missing binary is NOT
- *     reported here (scanMissingExternalTools already surfaces it with the
- *     install + `codegraph init` hint).
- * (c) freshness (BEST EFFORT): codegraph is beta and its `status` output wording
- *     is not pinned, so we run it only when the binary AND the index exist, and
- *     flag stale ONLY on an explicit stale signal. If the wording differs, or
- *     `status` errors, freshness degrades to a no-op — never a false "fresh",
- *     never a false "stale" on a normal status line.
- */
-export function scanCodegraphHealth(cwd: string, config: NavoriConfig): CodegraphHealth | null {
-  if (config.plugins?.codegraph?.enabled !== true) return null;
-
-  const dirAbs = join(cwd, CODEGRAPH_DIR);
-  const dirExists = existsSync(dirAbs);
-  const inGit = isGitWorkTree(cwd);
-  const binary = hasBinary("codegraph");
-
-  // (a) git hygiene.
-  const tracked = inGit && gitTracksPath(cwd, CODEGRAPH_DIR);
-  // Probe a synthetic child, not the bare dir: `git check-ignore` matches a
-  // directory pattern (`.codegraph/`) against the PATH STRING it's given, and
-  // `.codegraph` (no slash) fails to resolve the pattern when the dir doesn't
-  // exist on disk yet — a false "not ignored". `.codegraph/x` resolves correctly
-  // in all four states (pattern with/without slash × dir present/absent). Use a
-  // literal forward slash, not join(): git expects `/` on every platform (#267).
-  const notIgnored = inGit && !tracked && !isIgnoredByGit(cwd, `${CODEGRAPH_DIR}/x`);
-
-  // (b) index built (only actionable once the binary exists).
-  const indexMissing = binary && !dirExists;
-
-  // (c) freshness (best effort — see the doc comment).
-  let stale = false;
-  if (binary && dirExists) {
-    try {
-      const out = execFileSync("codegraph", ["status"], {
-        cwd,
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 5000, // codegraph is beta; a hung status must not hang doctor (#268)
-      });
-      stale = /\bstale\b|out[- ]?of[- ]?date|outdated/i.test(out);
-    } catch {
-      // status unsupported / errored — leave freshness undetermined.
-    }
-  }
-
-  return { notIgnored, tracked, indexMissing, stale };
 }
 
 export interface EngineInventory {

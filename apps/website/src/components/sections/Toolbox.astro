@@ -35,8 +35,6 @@ const meta: Record<
   (typeof PLUGIN_IDS)[number],
   { kind: keyof typeof kind; titleKey: string; bodyKey: string }
 > = {
-  codegraph: { kind: "search", titleKey: "toolbox.codegraph.title", bodyKey: "toolbox.codegraph.body" },
-  tgrep: { kind: "search", titleKey: "toolbox.tgrep.title", bodyKey: "toolbox.tgrep.body" },
   semgrep: { kind: "quality", titleKey: "toolbox.semgrep.title", bodyKey: "toolbox.semgrep.body" },
   jscpd: { kind: "quality", titleKey: "toolbox.jscpd.title", bodyKey: "toolbox.jscpd.body" },
   engram: { kind: "context", titleKey: "toolbox.engram.title", bodyKey: "toolbox.engram.body" },

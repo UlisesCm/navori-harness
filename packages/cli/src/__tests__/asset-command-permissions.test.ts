@@ -277,14 +277,6 @@ function renderedPermissions(): RenderedPermissions {
  */
 const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
   [
-    "codegraph init",
-    "belongs to the codegraph plugin's settingsFragment, not to core settings — same class as #506, reported separately",
-  ],
-  [
-    "codegraph sync",
-    "belongs to the codegraph plugin's settingsFragment, not to core settings — same class as #506, reported separately",
-  ],
-  [
     "gh api",
     "the same call POSTs, PATCHes and DELETEs; a prefix rule cannot pin the HTTP method, so arbitrary repo writes would ride along",
   ],

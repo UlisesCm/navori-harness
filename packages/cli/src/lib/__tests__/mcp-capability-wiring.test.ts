@@ -26,7 +26,8 @@ import { isInvokable, listAgentAssets } from "./helpers/agent-assets.ts";
  *      `settingsFragment`. Nothing else versions that permission.
  *   2. A plugin whose always-on managed block ORDERS its tools either puts them
  *      in the hands of a launchable agent, or states the availability condition
- *      in the block — the shape `structural-search`'s Rung -1 already uses.
+ *      in the block ("when the <x> MCP tool is available, …"), so a repo without
+ *      the plugin reads a condition rather than an order it cannot obey.
  *   3. The CORE never orders a plugin's tool from an always-on surface. Core
  *      prose ships to every repo, plugin or no plugin; an on-demand skill may
  *      name one (`ticket-intake` does), because it is read only when invoked.
@@ -139,7 +140,7 @@ describe("MCP wiring — instruction and capability ship together (#501)", () =>
   it("finds the MCP plugins and their tool tokens (a mute audit is not a pass)", () => {
     // Anti-vacuity on both inputs: an empty plugin scan, or a `toolTokens` that
     // stopped recognizing identifiers, would make every case below pass on air.
-    expect(MCP_PLUGINS.map((p) => p.manifest.id).sort()).toEqual(["codegraph", "engram"]);
+    expect(MCP_PLUGINS.map((p) => p.manifest.id).sort()).toEqual(["engram"]);
     expect(INVOKABLE_AGENTS.has("researcher")).toBe(true);
     expect(INVOKABLE_AGENTS.has("leader")).toBe(false);
 
@@ -221,13 +222,28 @@ describe("the audit reports both halves of the gap (#501)", () => {
 describe("the roles that are told to use memory can reach it (#575)", () => {
   /** Agent id -> the MCP families its rendered `tools:` must carry. */
   const EXPECTED: ReadonlyArray<readonly [string, readonly string[]]> = [
-    ["implementer", ["engram", "codegraph"]],
-    ["reviewer", ["engram", "codegraph"]],
+    ["implementer", ["engram"]],
+    ["reviewer", ["engram"]],
     ["auditor", ["engram"]],
     ["ticket-audit", ["engram"]],
-    ["researcher", ["codegraph"]],
-    ["explorer", ["codegraph"]],
     ["leader", ["engram"]],
+  ];
+
+  /**
+   * Roles that receive NO family, each for a stated reason. Listed rather than
+   * omitted: an agent silently absent from both tables is an agent nobody
+   * decided about, which is the state #575 measured.
+   */
+  const NO_FAMILY: ReadonlyArray<readonly [string, string]> = [
+    // Drafts a commit and a PR from the diff and the review file: no code to
+    // locate, no decision worth remembering. The Engram block already exempts a
+    // toolset with no `mem_*` call by name, so the prose it receives is honest.
+    ["commit-pr-pilot", "no code to locate and nothing of its own to persist"],
+    // Read-only by contract. They DO reach memory — by tool name in their own
+    // asset, pinned in the #761 suite below — precisely so no injection hands
+    // them the whole writable family as a side effect.
+    ["researcher", "holds the two engram read tools by name, not by family"],
+    ["explorer", "holds the two engram read tools by name, not by family"],
   ];
 
   /** Plugins that inject into `<agent>.md`, by agent id. */
@@ -253,11 +269,8 @@ describe("the roles that are told to use memory can reach it (#575)", () => {
     },
   );
 
-  it("leaves commit-pr-pilot without MCP, and that is the declared choice", () => {
-    // It drafts a commit and a PR from the diff and the review file: no code to
-    // locate, no decision worth remembering. The Engram block already exempts a
-    // toolset with no `mem_*` call by name, so the prose it receives is honest.
-    expect(familiesFor("commit-pr-pilot")).toEqual([]);
+  it.each(NO_FAMILY)("%s receives no MCP family, and that is the declared choice", (agent, why) => {
+    expect(familiesFor(agent), `${agent}: ${why}`).toEqual([]);
   });
 });
 
@@ -368,7 +381,7 @@ describe("the core never orders a capability only a plugin can grant (#501)", ()
   const ALL_PLUGIN_TOOLS = PLUGINS.flatMap((p) => toolTokens(p.manifest));
 
   it("knows which tokens to look for", () => {
-    expect(ALL_PLUGIN_TOOLS).toEqual(expect.arrayContaining(["mem_save", "codegraph_explore"]));
+    expect(ALL_PLUGIN_TOOLS).toEqual(expect.arrayContaining(["mem_save", "mem_session_summary"]));
     expect(alwaysOnCoreSurfaces().length).toBeGreaterThan(10);
   });
 

@@ -104,7 +104,7 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
 const CATALOG: HarnessCatalog = {
   agents: [
     { name: "implementer", tools: ["Read", "Bash"], hasMcp: false },
-    { name: "researcher", tools: ["Read", "mcp__codegraph__*"], hasMcp: true },
+    { name: "researcher", tools: ["Read", "mcp__playwright__*"], hasMcp: true },
     { name: "claude", tools: null, hasMcp: true },
   ],
   skills: [],
@@ -115,7 +115,12 @@ const CATALOG: HarnessCatalog = {
     { title: "Engram", tokens: 950, chars: 3800, requiresMcp: ["engram"] },
   ],
   claudeMdTokens: 8000,
-  mcpFamilies: ["codegraph", "engram"],
+  // TWO families on purpose, and the second is deliberately not one navori
+  // bundles: what the card has to get right is the CROSSING (this agent reaches
+  // that server), and a catalogue with a single family can only ever exercise
+  // the degenerate case. The real `mcpFamilies` comes from the hint table; this
+  // one comes from the fixture, which is the level the crossing lives at.
+  mcpFamilies: ["engram", "playwright"],
 };
 
 function md(agents: AgentRun[], over: Partial<SessionAudit> = {}): string {
@@ -354,8 +359,8 @@ describe("MCP reach: barred vs available (#0013)", () => {
   // Covers: R19
   it("distinguishes a server barred by tools: from one available and unused", () => {
     const out = md([agent({ agentType: "researcher" })]);
-    // `researcher` declares mcp__codegraph__* and nothing else.
-    expect(out).toMatch(/codegraph\s+disponible · 0 llamadas/);
+    // `researcher` declares mcp__playwright__* and nothing else.
+    expect(out).toMatch(/playwright\s+disponible · 0 llamadas/);
     expect(out).toMatch(/engram\s+⚠ vedado por su tools:/);
   });
 
@@ -382,7 +387,7 @@ describe("MCP reach: barred vs available (#0013)", () => {
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.sessions[0]?.agents[0]?.mcpReach).toEqual({ codegraph: false, engram: false });
+    expect(report.sessions[0]?.agents[0]?.mcpReach).toEqual({ engram: false, playwright: false });
   });
 });
 
@@ -450,7 +455,7 @@ describe("engram: ceremony vs content, requested vs injected reads (#728)", () =
   });
 
   it("invents no breakdown for an agent that cannot reach engram", () => {
-    // `researcher` declares `mcp__codegraph__*` and nothing else, so printing
+    // `researcher` declares `mcp__playwright__*` and nothing else, so printing
     // "0 requested reads" on its card would read as "it did not search" when
     // the truth is that it could not — the distinction #728 exists to keep.
     const out = md([agent({ agentType: "researcher" })]);

@@ -90,8 +90,6 @@ const CONFIG = {
   commits: "conventional-es",
   qualityGate: { fast: "pnpm typecheck", full: "pnpm test" },
   plugins: {
-    codegraph: { enabled: true },
-    tgrep: { enabled: true },
     jscpd: { enabled: true },
     semgrep: { enabled: true },
     engram: { enabled: true },

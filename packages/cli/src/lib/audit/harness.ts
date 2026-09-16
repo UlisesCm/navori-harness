@@ -58,7 +58,32 @@ export interface HarnessCatalog {
   mcpFamilies: string[];
 }
 
-/** MCP tool families the harness may instruct agents to use. */
+/**
+ * MCP tool families the harness may instruct agents to use.
+ *
+ * A RECOGNITION table over the prose of the repo being AUDITED — not a
+ * declaration of which plugins this navori bundles. The two are different
+ * questions and only the first one belongs here: `navori audit` runs against
+ * whatever `CLAUDE.md` a repo has on disk, which is routinely the output of an
+ * older render, of another engine, or of a server the user wired by hand.
+ *
+ * So an entry OUTLIVES its plugin, and `codegraph` is the live case: it was
+ * retired from the engine on 2026-09-15, and every repo that has not
+ * re-rendered still ships the `codegraph-protocol` block in its `CLAUDE.md`.
+ * Dropping the entry does not merely stop naming a server — it silently moves
+ * numbers, which is the failure this whole module exists to prevent. An
+ * unattributed section contributes 0 to `barredMcpTokens`, so in
+ * `unreachableInstructions` (`signals.ts`) the agent is skipped by
+ * `if (perRun === 0) continue` and vanishes from the `affected` count; `wasted`
+ * shrinks by exactly what that section cost; `if (wasted === 0) return []` can
+ * kill the finding outright; and `wasted >= UNREACHABLE_HIGH_TOKENS` can demote
+ * it from `high` to `warn`. Nothing in the output says any of that happened, and
+ * `schemaVersion` does not move for a hint-table edit.
+ *
+ * The rule for appending, then, is "a server some harness in the park names",
+ * not "a plugin this binary ships" — and an entry is only ever removed when no
+ * audited repo can still be carrying that prose.
+ */
 const MCP_HINTS: Array<{ server: string; pattern: RegExp }> = [
   { server: "codegraph", pattern: /codegraph_explore|mcp__codegraph/ },
   { server: "engram", pattern: /mem_search|mem_save|mem_context|mcp__engram/ },
@@ -246,7 +271,7 @@ export function renderedHarnessVersion(repoRoot: string): string | null {
 /**
  * Whether an agent's declared `tools:` lets it reach ONE server.
  *
- * A blanket `mcp__codegraph__*` grants codegraph and nothing else; an absent
+ * A blanket `mcp__engram__*` grants engram and nothing else; an absent
  * `tools:` inherits everything.
  */
 export function reaches(declared: DeclaredAgent | undefined, server: string): boolean {

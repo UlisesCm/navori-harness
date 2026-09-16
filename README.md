@@ -110,7 +110,7 @@ navori-harness/
 ├─ packages/
 │  ├─ cli/            # el CLI `navori` (publicado a npm)
 │  ├─ core/           # @navori/core — managed assets (agentes, skills, presets, hooks), bundleados al CLI
-│  └─ plugins/        # engram · codegraph · tgrep · acli · gh · jscpd · semgrep
+│  └─ plugins/        # engram · acli · gh · jscpd · semgrep
 ├─ apps/
 │  └─ website/        # landing + docs (Astro, deploy a GitHub Pages)
 └─ pnpm-workspace.yaml
@@ -192,7 +192,7 @@ navori no nació en el vacío. Estos son los proyectos de los que tomó ideas �
 | [ejemplo-harness-subagentes](https://github.com/betta-tech/ejemplo-harness-subagentes) | El patrón Leader/Implementer/Reviewer y el anti-teléfono-descompuesto: estado en disco, por chat solo referencias |
 | [superpowers](https://github.com/obra/superpowers) | Subagent-driven development: agente fresco por tarea y specs "para un junior entusiasta" |
 | [ponytail](https://github.com/DietrichGebert/ponytail) | La escalera de decisión anti-over-engineering — "flojo en la solución, nunca en la lectura" |
-| [codegraph](https://github.com/colbymchenry/codegraph) | Contexto quirúrgico vía grafo pre-indexado en vez de loops de grep/read |
+| [codegraph](https://github.com/colbymchenry/codegraph) | Contexto quirúrgico vía grafo pre-indexado en vez de loops de grep/read. Fue plugin de navori hasta el **2026-09-15**; se retiró para reimplementarse junto con `tgrep` — acta en [`docs/research/tgrep-como-funcionaba.md`](./docs/research/tgrep-como-funcionaba.md) |
 | [graphify](https://github.com/Graphify-Labs/graphify) | Knowledge graph determinista (código + docs) commiteado al repo, como los managed assets |
 | [caveman](https://github.com/JuliusBrussee/caveman) | Eficiencia de tokens como skill transversal: disciplina de brevedad sin perder exactitud técnica |
 | [Goose](https://goose-docs.ai/) | Recipes portables en YAML para compartir workflows en equipo y CI/CD |

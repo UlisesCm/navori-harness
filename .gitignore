@@ -38,5 +38,9 @@ AGENTS.md
 .vscode/
 .idea/
 
-# codegraph index (SQLite binario, no commitear)
+# Residuo local del plugin `codegraph`, retirado del motor el 2026-09-15: el
+# binario dejó su índice SQLite en `.codegraph/` y se auto-ignora salvo su
+# propio `.gitignore`, que sin esta línea aparece como `??`. navori ya no
+# gestiona esta entrada (salió de `CUBO_A_ENTRIES`); esta es de este repo, y
+# sobra el día que el directorio se borre.
 .codegraph/

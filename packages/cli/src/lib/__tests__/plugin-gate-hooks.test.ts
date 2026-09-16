@@ -392,7 +392,7 @@ describe("plugin hooks — SessionStart (spec 0017)", () => {
     commits: "conventional-es",
   } as unknown as NavoriConfig;
 
-  const PLUGIN_COMMAND = 'bash "$CLAUDE_PROJECT_DIR/.claude/scripts/tgrep-session.sh"';
+  const PLUGIN_COMMAND = 'bash "$CLAUDE_PROJECT_DIR/.claude/scripts/session-fixture.sh"';
 
   const sessionPlugin: LoadedPlugin = {
     manifest: {
@@ -444,6 +444,6 @@ describe("plugin hooks — SessionStart (spec 0017)", () => {
     const withPlugin = buildCodexConfigToml(CONFIG, [sessionPlugin]);
     const without = buildCodexConfigToml(CONFIG, []);
     expect(withPlugin.body).toBe(without.body);
-    expect(withPlugin.body).not.toContain("tgrep-session.sh");
+    expect(withPlugin.body).not.toContain("session-fixture.sh");
   });
 });

@@ -1,5 +1,25 @@
 # Spec 0009 — Integración de codegraph (plugin de contexto quirúrgico vía MCP)
 
+> **Estado: RETIRADO — 2026-09-15.** El plugin `codegraph` se borró del motor
+> (`packages/plugins/codegraph/`, el registro en `KNOWN_PLUGINS`, el check
+> `scanCodegraphHealth` de `doctor` y sus cuatro mensajes i18n, la entrada de
+> `MCP_HINTS` en el audit y `.codegraph/` del cubo A de `gitignore-harness`).
+> Esta spec queda como acta de lo que se construyó y por qué, no como descripción
+> del código vigente.
+>
+> **Qué resultado dio.** El cableado fue correcto y el uso, cero: dos sesiones
+> completas auditadas (mismo repo, mismo modelo) no llamaron ni una vez a
+> `codegraph_explore` mientras esas mismas sesiones sí usaban un wrapper de Bash
+> que cubría terreno parecido. La diferencia medida no era doctrina sino
+> **fricción de descubrimiento** — de ahí salió `mcpServer.alwaysLoad` (spec 0017
+> T7/R13), que bajó las tools diferidas de 68 a 67 y arrancó el servidor cargado.
+> Los números, la mecánica y el orden en que conviene reimplementar están en
+> [`docs/research/tgrep-como-funcionaba.md`](../docs/research/tgrep-como-funcionaba.md)
+> (§7 y §9).
+>
+> El usuario va a reimplementar codegraph y tgrep con una integración pensada
+> para que trabajen **entre sí**. Lee esta spec como contexto, no como contrato.
+
 > Estado: **F1+F2 implementados** (plugin-bundle + doctor `scanCodegraphHealth`) · 2026-07-30 · El check F2 valida **de forma determinista** la higiene de git de `.codegraph/` (no ignorado / índice commiteado) y, cuando el binario existe, que el índice esté construido; la **frescura vía `codegraph status` es best-effort** (el wording de `status` no está fijado en la beta → degrada a no-op, nunca reporta un falso "fresco"). F3 (prompt opt-in en init) y F4 (validación en repo real con el binario) quedan como follow-ups. Deriva de `docs/audit-2026-07.md` §I2/N4 y de las
 > Specs 0005 (eficiencia de búsqueda) y 0006 (reducción de contexto).
 >

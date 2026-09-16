@@ -73,7 +73,13 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
   calidad > tokens > velocidad, en ese orden.
 - **LSP / Serena (Rung 3 de la escalera de búsqueda).** Descartado por overhead fijo (~3k
   tok/sesión + language server); la escalera se corta en Rung 2 / ast-grep (Spec 0005).
-  codegraph (Spec 0009) entra como índice AST local barato, no como LSP.
+  codegraph (Spec 0009) entró como índice AST local barato, no como LSP — y **se retiró del
+  motor el 2026-09-15** junto con `tgrep` (Spec 0017), para reimplementarse desde cero con
+  una integración que los haga trabajar entre sí. Mientras tanto la búsqueda de contenido es
+  `Grep`/`Glob` nativos. Lo medido antes de retirarlos —codegraph con cableado correcto y
+  cero llamadas; tgrep al 7.4% por doctrina y 40.7% con guard mecánico— vive en
+  [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md); el rechazo
+  a LSP/Serena no se re-litiga por esto.
 - **Que navori ejecute las herramientas del agente.** navori genera el harness (skills +
   allowlists + plugins + protocolo); no corre grep/ast-grep/tests por el agente.
 - **"Voz de navori" / app-builder / review 4R** del harness global — parqueados fuera del
@@ -169,7 +175,9 @@ una spec** en `specs/` y consíguela aprobada; recién entonces se implementa.
   0002 engine Claude, 0003 v0.2 calidad/tokens, 0004 engine Codex, 0005 lectura eficiente, 0006
   reducción de contexto, 0007/0008 render-plan unificado, 0009 codegraph, 0010 harness global,
   0011 Dominio, 0012 capa de solutioning, 0013 redefinición de `audit`, 0014 harness ajeno, 0015
-  orquestación fuera del always-on, 0016 paridad de modos de permiso, 0017 capa de búsqueda tgrep,
+  orquestación fuera del always-on, 0016 paridad de modos de permiso, 0017 capa de búsqueda tgrep
+  (**retirada**, como la 0009: las dos llevan banner y apuntan a
+  `docs/research/tgrep-como-funcionaba.md`),
   0018 harness por workspace, 0019 orquestación que cabe en el arranque, 0020 delegación por
   mecanismo nativo, 0021 eventos OTel como tercera fuente.
 

@@ -49,12 +49,12 @@ const McpServerSchema = z.object({
    * Load this server's tools eagerly instead of behind `ToolSearch`.
    *
    * Claude Code defers most MCP tools: the agent sees only their NAMES and has
-   * to fetch the schema before it can call one. Spec 0017's field measurement
-   * found that step is where a server dies — over two full sessions the
-   * codegraph tools were called ZERO times while the same sessions did reach
-   * for a Bash wrapper covering the same ground, because the wrapper cost
-   * nothing to discover. Doctrine did not move that number; removing the step
-   * did (R13).
+   * to fetch the schema before it can call one. Field measurement found that
+   * step is where a server dies — over two full sessions an MCP server's tools
+   * were called ZERO times while the same sessions did reach for a Bash command
+   * covering the same ground, because the command cost nothing to discover.
+   * Doctrine did not move that number; removing the step did (spec 0017 R13;
+   * the numbers survive in `docs/research/tgrep-como-funcionaba.md` §7).
    *
    * Claude-only, and it needs no guard: the Codex adapter writes `command`,
    * `args` and `env` by name into `config.toml`, so a key it does not know
@@ -200,8 +200,6 @@ export const KNOWN_PLUGINS: Record<string, string> = {
   gh: "@navori/plugin-gh",
   jscpd: "@navori/plugin-jscpd",
   semgrep: "@navori/plugin-semgrep",
-  codegraph: "@navori/plugin-codegraph",
-  tgrep: "@navori/plugin-tgrep",
 };
 
 /**

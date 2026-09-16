@@ -513,7 +513,7 @@ proof the work is safe: what makes it recoverable is the branch being pushed.
 ---
 name: explorer
 description: Maps a broad area or module — structure, key files, entry points, dependencies. Does not modify code. Use when you don't know where something lives and would otherwise open 4+ files to find out.
-tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__codegraph__*
+tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
 ---
 
 <!-- navori:managed id="explorer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -593,27 +593,6 @@ done -> .claude/progress/explore_<area>.md
 `explore_<area>.md` is **input to the next step of the pipeline**, not a chat summary: the leader cross-reads it with the other explorers' files, and the `implementer` opens it as prior context. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
 <!-- /navori:managed id="explorer-base" -->
 
-<!-- navori:managed id="codegraph-explorer-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-codegraph" -->
-## Start at the graph, not at the grep
-
-You are the repo's search role, so this applies to nearly every question you get.
-When the `codegraph` MCP tool is available, ask the pre-built AST graph FIRST:
-`codegraph_explore` takes a symbol name or a natural-language question and returns
-the source span, the call paths and a blast-radius summary in ONE call — the work a
-grep/read crawl spends a dozen calls rebuilding. It also follows dynamic hops
-(callbacks, re-render, JSX children) that a string search cannot.
-
-Then verify. The graph forms the hypothesis; it does not close the question:
-
-- On a stale index or an ambiguous name it can return the WRONG symbol while
-  reporting it as exact. Confirm the concrete span with `Grep`/`Read` before you
-  cite it as evidence — a finding you report becomes someone's edit.
-- Its "impact / tests found" is a hint, never a coverage claim.
-
-If `codegraph` isn't installed or the index looks stale, skip this and search as
-usual. Never block on it.
-<!-- /navori:managed id="codegraph-explorer-extension" -->
-
 ## Project rules
 
 <!-- user: add here what's specific to your repo. Suggestions:
@@ -628,7 +607,7 @@ usual. Never block on it.
 ---
 name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
-tools: Read, Write, Edit, Glob, Grep, Bash, mcp__codegraph__*, mcp__engram__*
+tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__*
 ---
 
 <!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -749,30 +728,6 @@ blocked -> .claude/progress/impl_<feature>.md
 
 Never return the diff in chat. The leader reads it from disk if it needs it.
 <!-- /navori:managed id="implementer-base" -->
-
-<!-- navori:managed id="codegraph-implementer-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-codegraph" -->
-## Locate before you touch
-
-You act on code someone else wrote, so the first question is always *where*.
-When the `codegraph` MCP tool is available, ask the graph instead of crawling:
-`codegraph_explore` takes a symbol or a plain question and returns the span, the
-call paths and a blast-radius summary in one call. It also follows dynamic hops
-(callbacks, re-render, JSX children) that a string search misses — which is how
-a "small" edit turns out to have thirteen call sites.
-
-It is also the cheapest route in auto mode: `mcp__codegraph__*` carries an
-`allow` rule, so it skips the classifier round-trip every shell command pays.
-
-Then confirm. The graph forms the hypothesis; it never closes it:
-
-- On a stale index or an ambiguous name it returns the WRONG symbol while
-  reporting it as exact. Open the span with `Grep`/`Read` before you edit it or
-  cite it in a review.
-- Its "impact / tests found" is a hint, not a coverage gate.
-
-Not installed, or the index looks stale? Skip it and work as usual — an
-accelerator, never a dependency.
-<!-- /navori:managed id="codegraph-implementer-extension" -->
 
 <!-- navori:managed id="engram-implementer-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
 ## Engram, from a subagent
@@ -1031,7 +986,7 @@ Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user 
 ---
 name: researcher
 description: Answers ONE scoped question about the repo with cited evidence, written to a file. Does not modify code. Use when answering would take reading 4+ files, or to challenge a design decision with fresh context.
-tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__codegraph__*
+tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
 ---
 
 <!-- navori:managed id="researcher-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -1118,27 +1073,6 @@ blocked -> <brief reason>
 Never return the report's content in chat. The leader reads it from disk.
 <!-- /navori:managed id="researcher-base" -->
 
-<!-- navori:managed id="codegraph-researcher-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-codegraph" -->
-## Start at the graph, not at the grep
-
-You are the repo's search role, so this applies to nearly every question you get.
-When the `codegraph` MCP tool is available, ask the pre-built AST graph FIRST:
-`codegraph_explore` takes a symbol name or a natural-language question and returns
-the source span, the call paths and a blast-radius summary in ONE call — the work a
-grep/read crawl spends a dozen calls rebuilding. It also follows dynamic hops
-(callbacks, re-render, JSX children) that a string search cannot.
-
-Then verify. The graph forms the hypothesis; it does not close the question:
-
-- On a stale index or an ambiguous name it can return the WRONG symbol while
-  reporting it as exact. Confirm the concrete span with `Grep`/`Read` before you
-  cite it as evidence — a finding you report becomes someone's edit.
-- Its "impact / tests found" is a hint, never a coverage claim.
-
-If `codegraph` isn't installed or the index looks stale, skip this and search as
-usual. Never block on it.
-<!-- /navori:managed id="codegraph-researcher-extension" -->
-
 ## Project rules
 
 <!-- user: add here what's specific to your repo. Suggestions:
@@ -1152,7 +1086,7 @@ usual. Never block on it.
 ---
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
-tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*, mcp__engram__*
+tools: Read, Glob, Grep, Bash, Write, mcp__engram__*
 ---
 
 <!-- navori:managed id="reviewer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -1364,30 +1298,6 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ❌ You never edit the code. You only point out what fails and where.
 - ✅ Be concrete: cite `file:line`. No generic feedback.
 <!-- /navori:managed id="reviewer-base" -->
-
-<!-- navori:managed id="codegraph-reviewer-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-codegraph" -->
-## Locate before you touch
-
-You act on code someone else wrote, so the first question is always *where*.
-When the `codegraph` MCP tool is available, ask the graph instead of crawling:
-`codegraph_explore` takes a symbol or a plain question and returns the span, the
-call paths and a blast-radius summary in one call. It also follows dynamic hops
-(callbacks, re-render, JSX children) that a string search misses — which is how
-a "small" edit turns out to have thirteen call sites.
-
-It is also the cheapest route in auto mode: `mcp__codegraph__*` carries an
-`allow` rule, so it skips the classifier round-trip every shell command pays.
-
-Then confirm. The graph forms the hypothesis; it never closes it:
-
-- On a stale index or an ambiguous name it returns the WRONG symbol while
-  reporting it as exact. Open the span with `Grep`/`Read` before you edit it or
-  cite it in a review.
-- Its "impact / tests found" is a hint, not a coverage gate.
-
-Not installed, or the index looks stale? Skip it and work as usual — an
-accelerator, never a dependency.
-<!-- /navori:managed id="codegraph-reviewer-extension" -->
 
 <!-- navori:managed id="engram-reviewer-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
 ## Engram, from a subagent
@@ -3242,8 +3152,8 @@ set -uo pipefail
 #
 # The rule could not be inferred from silence instead. "Every hook with no
 # `case` and no `$TRIGGER_TOKENS` must receive every write tool" falsifies
-# against `guard-destructive.sh`, `guard-search-routing.sh` and
-# `subagent-stop-handoff.sh` (matcher `Agent|Task`, correct by design).
+# against `guard-destructive.sh` and `subagent-stop-handoff.sh` (matcher
+# `Agent|Task`, correct by design).
 COVERED_TOOLS='Bash Edit Write NotebookEdit'
 
 # PostToolUse delivers its payload on stdin; this hook never needed it and the
@@ -9909,7 +9819,6 @@ esac
       "Bash(acli jira workitem search*)",
       "Bash(acli jira workitem comment list*)",
       "Bash(acli jira workitem transition list*)",
-      "mcp__codegraph__*",
       "mcp__engram__*",
       "Bash(gh auth status*)",
       "Bash(gh issue view*)",
@@ -10871,7 +10780,7 @@ name: structural-search
 description: Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — find the right region and open only the confirmed span instead of reading whole files; escalate from engram to Grep to ast-grep per the trigger.
 type: reference
 maxWords: 600
-maxWordsComposed: 1400
+maxWordsComposed: 650
 ---
 
 <!-- navori:managed id="structural-search-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -10940,25 +10849,6 @@ If it isn't installed, fall back to Grep and targeted reading: **don't block the
 - If the search consumes ~15% of the context, stop: reduce scope or act on the available evidence.
 - Don't set up LSP/Serena; this harness ends at Rung 2.
 <!-- /navori:managed id="structural-search-base" -->
-
-<!-- navori:managed id="codegraph-search-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-codegraph" -->
-## Rung -1 — query the code graph first (codegraph)
-
-Before the grep/ast-grep ladder above, if `codegraph` is available, ask the AST graph where the code lives. Its `allow` rule skips the classifier check every shell command pays in auto mode:
-
-- **Locate a symbol:** `codegraph_explore` with the name or a plain question ("where is the auth token refreshed?"). One call returns the span and call paths.
-- **Trace impact:** ask what calls a function, to size the blast-radius before reading.
-
-The graph **forms the hypothesis**; the rungs above still **verify** it:
-
-- On a stale index or an ambiguous name it can return the **wrong** symbol while claiming it's exact. Confirm the span with `Grep`/`Read` before writing, especially in critical areas.
-- Its blast-radius and "tests found" are hints, not a coverage gate — the repo's real tests decide.
-- Not installed, or the index looks stale? Skip this rung: an accelerator, never a dependency.
-
-**Monorepo:** `projectPath` opens a sub-project **without the file watcher**, so that index goes stale faster. Run `codegraph init` per sub-repo, `codegraph sync` before critical work.
-
-**Never commit the index:** `.codegraph/` is local SQLite that churns on every sync — it belongs in `.gitignore`.
-<!-- /navori:managed id="codegraph-search-extension" -->
 
 ## The project's structural patterns
 
@@ -11317,14 +11207,6 @@ if (!parsed.success) return res.status(400).json({ error: z.prettifyError(parsed
     "version": "<VERSION>"
   },
   "mcpServers": {
-    "codegraph": {
-      "command": "codegraph",
-      "args": [
-        "serve",
-        "--mcp"
-      ],
-      "alwaysLoad": true
-    },
     "engram": {
       "command": "engram",
       "args": [
@@ -11384,7 +11266,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, stora
 
 - **DB / queries**: read-only by default (`SELECT`, `EXPLAIN`, flags like `onlyRead`). `INSERT/UPDATE/DELETE/DROP/ALTER/TRUNCATE` require the user to ask for it explicitly.
 - **Shell commands**: inspecting is free (`ls`, `cat`, `git status/diff/log`). Destructive ones (`rm -rf`, `git reset --hard`, force-push, `chmod -R`) are routed by the harness to `ask`/`deny`, and the `guard-destructive` hook hard-blocks the subset a static rule can't catch — don't try to bypass that layer.
-- **Code search**: the native `Glob`/`Grep` are read-only and pre-approved, so they never prompt. **When the tgrep plugin is enabled**, content search goes through the wrapper its protocol block names instead. Either way `rg` itself is deliberately NOT pre-approved (`rg --pre <cmd>` runs an arbitrary command per file), and shell `find`/`grep` are reserved for what those tools don't cover. Which call answers which question — and what each one costs — is the `structural-search` skill.
+- **Code search**: the native `Glob`/`Grep` are read-only and pre-approved, so they never prompt — that is the default lane for content search. `rg` itself is deliberately NOT pre-approved (`rg --pre <cmd>` runs an arbitrary command per file), and shell `find`/`grep` are reserved for what those tools don't cover. Which call answers which question — and what each one costs — is the `structural-search` skill.
 - **When the host mandates Bash (auto mode)**: `sed -i` exits 0 when its pattern matches nothing and a misdirected `>` truncates the file, so verify the result — the exit code is not evidence (`verify-before-done`). And a shell rewrite of any file navori generates is BLOCKED by the guard: a direct write invalidates its managed-block hash and navori then stops updating that block. Change the source asset and run `navori render --apply`, or reconcile with `navori sync`.
 - **If a destructive mutation is legitimate and necessary**: explain what it does and why, and let the user confirm or run it. Never disguise it with variables, subshells, or `--no-verify` to skip the gate.
 - **Command blocked by permission/policy → STOP (circuit-breaker)**: a `deny` or a rejection IS the answer — **0 retries**, don't re-issue the command or re-ask for the same permission in a loop. If it only hit a missing pre-approval you get **one** alternative approach, which changes the path and never repeats the command; if that doesn't pass either you stop and tell the user to run it outside the agent.
@@ -11440,18 +11322,6 @@ To read Jira tickets use **acli** (not the Atlassian MCP).
 
 The Atlassian/Rovo MCP remains the fallback if `acli` fails or is unavailable.
 <!-- /navori:managed id="acli-protocol" -->
-
-<!-- navori:managed id="codegraph-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-codegraph" -->
-## CodeGraph (surgical code context)
-
-This repo has a pre-built AST code graph exposed over MCP (`codegraph`). This protocol applies only when your toolset exposes `codegraph_explore`; otherwise skip it and use the ordinary search path. To locate code or size a change's blast-radius, call `codegraph_explore` **before** a grep/read crawl: one call returns the source span, call paths and impact.
-
-**In auto mode this is the cheapest move available, not a luxury the shell preference overrides.** The host asks you to work through Bash instead of `Read`/`Edit`/`Write`; an MCP call is neither, and `mcp__codegraph__*` carries an `allow` rule, so it resolves without a classifier round-trip. A shell command pays that round-trip unless a narrow allow rule covers it — those resolve first — so the saving is real against the shell you actually reach for, which is most of it. One `codegraph_explore` costs less than the grep crawl it replaces — measured sessions in this harness ran hundreds of shell searches and zero graph queries, which is the expensive way round.
-
-It forms the hypothesis; it does not settle it. codegraph is beta and can return the wrong symbol while claiming it's exact, so **confirm the span with `Grep`/`Read` before writing** — and never treat its "tests found" as a coverage gate.
-
-How to use it in practice — the full ladder, the monorepo caveat and the index rules — is Rung -1 of the `structural-search` skill, loaded when you actually go looking for code.
-<!-- /navori:managed id="codegraph-protocol" -->
 
 <!-- navori:managed id="engram-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
 ## Engram

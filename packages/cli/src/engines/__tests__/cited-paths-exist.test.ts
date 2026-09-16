@@ -265,7 +265,6 @@ function makeConfig(engines: NavoriConfig["engines"]): NavoriConfig {
     // was a semgrep-block citation, invisible here while only engram shipped).
     plugins: {
       acli: { enabled: true },
-      codegraph: { enabled: true },
       engram: { enabled: true },
       gh: { enabled: true },
       jscpd: { enabled: true },

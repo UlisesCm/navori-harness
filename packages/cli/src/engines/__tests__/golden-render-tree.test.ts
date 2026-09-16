@@ -117,7 +117,6 @@ function goldenConfig(engines: NavoriConfig["engines"]): NavoriConfig {
     qualityGate: { fast: "pnpm lint", full: "pnpm test && pnpm lint" },
     plugins: {
       acli: { enabled: true },
-      codegraph: { enabled: true },
       engram: { enabled: true },
       gh: { enabled: true },
       jscpd: { enabled: true },

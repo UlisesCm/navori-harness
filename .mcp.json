@@ -10,14 +10,6 @@
         "mcp",
         "--tools=agent"
       ]
-    },
-    "codegraph": {
-      "command": "codegraph",
-      "args": [
-        "serve",
-        "--mcp"
-      ],
-      "alwaysLoad": true
     }
   }
 }

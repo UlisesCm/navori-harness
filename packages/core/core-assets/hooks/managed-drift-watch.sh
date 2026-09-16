@@ -108,8 +108,8 @@ set -uo pipefail
 #
 # The rule could not be inferred from silence instead. "Every hook with no
 # `case` and no `$TRIGGER_TOKENS` must receive every write tool" falsifies
-# against `guard-destructive.sh`, `guard-search-routing.sh` and
-# `subagent-stop-handoff.sh` (matcher `Agent|Task`, correct by design).
+# against `guard-destructive.sh` and `subagent-stop-handoff.sh` (matcher
+# `Agent|Task`, correct by design).
 COVERED_TOOLS='Bash Edit Write NotebookEdit'
 
 # PostToolUse delivers its payload on stdin; this hook never needed it and the
