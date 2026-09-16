@@ -10,6 +10,30 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-16 00:03 — orchestrator — auditoría de 6 harnesses de referencia, y la disciplina de verificar en frío que refutó 6 de 6 recomendaciones
+
+- **Cambios**: `docs/research/ecc-lessons.md` (nuevo, 1 382 líneas), `docs/research/deepseek-harness-lessons.md` (nuevo, 1 170), `docs/inspiration.md` (+414/−11). Ningún cambio de código.
+- **Quality gate**: ✅ verde — re-corrido por el reviewer sobre los bytes vivos (`GATE_EXIT=0`; 226 test files, 3 914 passed, bundle 960.8KB/1000KB). `jscpd`/`semgrep` en `0 files to scan`, coherente con un diff 100 % markdown.
+- **Commit / PR**: PR #826 → `main` (`dace1d07`, `e0d36433`, `6ef96c5c`).
+
+**Goal**: auditar los harnesses de referencia del campo —a petición de Ulises, empezando por CCH y ampliando a ECC, deepseek-harness, revfactory/harness, learn-harness-engineering y OpenHarness— bajo la dirección declarada del proyecto: **pulir, simplificar y quitar hasta lo indispensable**.
+
+**Discoveries**:
+- **navori sale mejor parado que los dos harnesses más grandes del campo en varios ejes.** ECC (259k★) repite el mismo bloque de política **verbatim en 79 archivos** sin ningún mecanismo de sincronización — es el caso de uso canónico de los managed blocks, y no lo resuelve. Y llegó a la misma cadena monolítica de 11 `&&` que `qualityGate.full` **sin ancla**, así que tiene el bug exacto que `repo-config-gate.test.ts` previene (`validate-workflow-security` corre en CI y no en el gate local).
+- **Lo único que sobra es prosa.** `CLAUDE.md` gasta **3 355 palabras y 0 enlaces markdown** para gobernar ~1 100 archivos; deepseek-harness gobierna **11 228 con 1 859 palabras y 38 enlaces**, y la longitud media de regla es casi idéntica (25,9 vs 26,1). La diferencia no es escribir más corto: es **enlazar el porqué en vez de inlinearlo**.
+- **La verificación en frío contra doc oficial y código refutó 6 de 6 recomendaciones** que parecían obvias: `remove` como código espejo de `add` (son 111 líneas que apagan un flag y re-renderizan — el render ES el disposer), falta de catálogo de config (`gen-schemas.mjs` lo deriva de zod con test de drift), invariante allow/deny (es nativo: *"An allow rule can't carve an exception out of a deny rule"*), tercer veredicto del guard (`permissionDecision: "ask"` ya existe), falta de techo de palabras (`SKILL_TYPE_CAPS` ya existe para skills), y falta de envoltura de contenido no confiable (`session-start-context.sh` la tiene, y más ancha que ECC).
+- **Un error real que navori propaga a cada repo que genera** → #804: `operaciones-seguras.md:23` afirma que *"the docs do not say whether the harness's `deny` rules still apply"* en `bypassPermissions`. La doc lo dice y dice lo contrario: *"Deny rules block in every mode, including `bypassPermissions`. Allow rules have no effect in `bypassPermissions`."*
+- **Trampa evitada antes de escribirla**: #816 proponía "enlazar en vez de inlinear". Si se implementa con `@path`, el ahorro es **cero** — *"imported files still load and enter the context window at launch"*. Solo funciona con enlaces markdown. Es el mismo modo de fallo que leer el RDD de gentle-ai como comportamiento por defecto cuando era opt-in.
+- **Un tercer destino para el rationale que nadie había considerado**: los comentarios HTML de bloque *"are stripped before the content is injected into Claude's context"* — cuestan cero y se quedan junto a la regla.
+- **ECC no tiene grafo de código ni capa de búsqueda** (0 hits en 3 716 archivos para `tree-sitter|ast-grep|codegraph|repo map|…`). Eso **no valida** la retirada de tgrep/codegraph (#803) —ECC nunca midió el ruteo de búsqueda— pero tampoco es evidencia en contra. La medición local (7,4 % con doctrina sola → 40,7 % con el guard) sigue siendo la evidencia más fuerte que existe sobre esto.
+- **El receipt por bytes funciona.** El `commit-pr-pilot` abortó en pre-flight porque dos archivos habían cambiado tras el APPROVED — correcciones mías, de tres dígitos, y aun así no pasaron. `docs/audit-2026-07.md:129` marcaba eso como *"el mayor hueco de confianza de navori"*; está cerrado.
+
+**Accomplished**: PR #826 con los tres documentos. **22 issues** abiertos o cruzados para la fase de poda: #804 y #811–#825 nuevos, más los seis de Ulises (#805–#810) auditados por solapamiento. Dos paraguas declarados — **#808** para la poda de `CLAUDE.md` (con el orden #816 → #813, #814, #811, #812 → #815) y **#822** para la doctrina de admisión. 17 de los 22 fundamentados con cita a `code.claude.com/docs`; los 5 restantes anotados explicando por qué no hacen ninguna afirmación sobre la plataforma. Cuatro errores propios cazados por la disciplina: hash de ECC copiado de dsh, fecha de dsh mal leída, la sección `## Quality gate` inflada un 56 % (642 → 411 palabras) y llamada "la más pesada" cuando es la tercera.
+
+**Next Steps**: #804 primero (bug que viaja a repos de terceros, área crítica) · luego #816, que es el habilitador — sin una casa a la que enlazar, las cuatro podas no tienen a dónde mover nada · correr `/doctor` sobre `CLAUDE.md` antes de construir el techo de #815, porque propone recortes con criterio propio · vigilar el CI de #826 (run 35059971057).
+
+**Relevant Files**: `docs/research/{ecc,deepseek-harness}-lessons.md` · `docs/inspiration.md` · `docs/research/tgrep-como-funcionaba.md` (la medición que ancla la decisión de búsqueda) · `packages/core/core-assets/managed/operaciones-seguras.md:23` (#804)
+
 ## 2026-09-13 22:16 — orchestrator — la jornada del cableado: cuatro rondas arreglaron el contenido y lo roto era el entorno
 
 - **Cambios**: 12 PRs mergeados a `main` (#745–#785); en esta sesión de cierre,
