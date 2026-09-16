@@ -86,6 +86,17 @@ assets de navori se escriben en inglés, pero una skill tuya se escribe en tu id
 El trigger también es lo que se imprime en el índice "Skills disponibles" de `CLAUDE.md` — se
 condensa a la primera cláusula y se corta a 120 caracteres, así que ponlo al principio.
 
+## Piezas opcionales: fallback declarado
+
+Si tu skill depende de algo que puede faltar en la máquina —un binario externo, un MCP,
+memoria persistente—, escribe en el propio archivo qué hacer cuando no está, no asumas que
+siempre va a estar. Sin eso, la falta de la pieza se reporta como "no encontré nada" en vez
+de "no pude buscar" — el anti-patrón "silent skipping" (#824): un canal caído no es lo mismo
+que cero resultados, y confundirlos produce un falso negativo. `structural-search` es el
+ejemplo: Rung 0 se salta limpio sin memoria persistente y Rung 2 cae a `Grep` si `ast-grep`
+no está instalado — cada rung nombra su propio escalón de degradación en vez de darlo por
+sentado.
+
 ## Skills project-local
 
 Una skill que escribes en tu repo (`project.localSkills`) sigue el **mismo contrato de archivo**,

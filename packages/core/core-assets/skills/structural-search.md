@@ -6,15 +6,16 @@ metadata:
   # 600 y no 500 (spec 0020, R4): recibió el reparto shell/nativo y la medición de los
   # 835 round-trips del clasificador, que salieron de `operaciones-seguras`. Se cambia
   # costo por sesión por costo por uso: el bloque always-on adelgaza y esto se paga al
-  # usarse.
-  maxWords: 600
+  # usarse. Subido a 650 (#824): la doctrina de "silent skipping" — un canal caído no
+  # es cero resultados — no cabía en el margen que quedaba.
+  maxWords: 650
   # El techo del archivo COMPUESTO, que es lo que el agente carga (#683): hoy solo el
-  # núcleo (600) más 50 de margen para lo que el render interpola dentro del bloque
+  # núcleo (650) más 50 de margen para lo que el render interpola dentro del bloque
   # managed. Un plugin que inyecte su propia rung aquí tiene que SUBIR este techo en
   # el mismo cambio — ese es el punto: el presupuesto compuesto se negocia una vez,
   # no se descubre cuando el agente ya paga el archivo entero. El `maxWords` de arriba
   # sigue siendo el presupuesto de ESTE asset y su razonamiento.
-  maxWordsComposed: 650
+  maxWordsComposed: 700
 ---
 
 # structural-search — read the minimum correct amount
@@ -81,6 +82,7 @@ If it isn't installed, fall back to Grep and targeted reading: **don't block the
 - Don't use regex as AST.
 - If the search consumes ~15% of the context, stop: reduce scope or act on the available evidence.
 - Don't set up LSP/Serena; this harness ends at Rung 2.
+- **Silent skipping**: a rung that's unavailable (no memory, no `ast-grep`) is not zero matches. Report the outage, don't fold it into "nothing found" — every optional piece here already states its own fallback (Rung 0 skips cleanly; Rung 2 falls back to Grep), so a new one should too.
 
 <!-- navori:user-section -->
 ## The project's structural patterns
