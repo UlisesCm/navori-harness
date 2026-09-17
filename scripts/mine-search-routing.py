@@ -96,6 +96,7 @@ Uso:
     python3 scripts/mine-search-routing.py <repo> ... # solo esos
 """
 
+import glob
 import json
 import os
 import re
@@ -112,6 +113,20 @@ PROJECTS = os.environ.get("NAVORI_TRANSCRIPTS_ROOT") or os.path.expanduser("~/.c
 
 WRAPPER = "tgrep-search.sh"
 VERBS = ("grep", "egrep", "fgrep", "rg")
+
+# search-v2 D19 (spec 0026 R14/R15): la vía nueva es la CLI oficial (`tgrep
+# search`, no el wrapper v1) y la tool MCP `codegraph_explore`. `WRAPPER` se
+# conserva intacto arriba porque sigue siendo la única vía v1 en transcripts
+# de antes de #838 — este minero mide las dos generaciones sin mezclar sus
+# denominadores.
+CODEGRAPH_TOOL = "mcp__codegraph__codegraph_explore"
+V2_ROUTES = ("tgrep-v2", "codegraph-v2")
+# El instrumento pre-registrado en search-v2.md §9.5: "vía v2" son
+# `codegraph_explore` y `tgrep search`; "escape" es `Grep` nativo, `rg`,
+# `grep -r` y `git grep`. `nativo`/`shell`/`git-grep` ya distinguen esos
+# verbos, así que D19 reusa esas tres categorías como denominador de escape
+# en vez de duplicar la clasificación.
+ESCAPE_ROUTES = ("nativo", "shell", "git-grep")
 
 # Las que entran al cociente de #661. Las demás se reportan y no suman.
 SCORED = ("wrapper", "nativo", "shell")
@@ -174,6 +189,24 @@ def audited_sessions():
     return out
 
 
+def subagent_transcripts(main_path, session):
+    """Los transcripts de los subagentes de ESTA sesión.
+
+    Mismo layout que `mine-activation.py` ya explota: el trabajo de un
+    subagente vive aparte, en `<proyecto>/<session>/subagents/agent-*.jsonl`,
+    no en el `<session>.jsonl` del hilo principal. Sin esto, un `scout`/
+    `researcher` que corre `tgrep search` o `codegraph_explore` en su propio
+    contexto es invisible para D19 — exactamente el sesgo direccional que
+    penaliza a las sesiones que delegan, que son las que el harness quiere
+    premiar.
+    """
+    if not main_path:
+        return []
+    return sorted(
+        glob.glob(os.path.join(os.path.dirname(main_path), session, "subagents", "agent-*.jsonl"))
+    )
+
+
 def classify_segment(seg, piped_into):
     """La categoría de UN segmento que invoca grep/rg, o None si no lo invoca.
 
@@ -189,6 +222,13 @@ def classify_segment(seg, piped_into):
         toks = seg.split()
     if not toks:
         return None
+
+    # `tgrep search` — la CLI oficial de v2 (D19), distinta del wrapper v1 que
+    # `classify_command` ya intercepta por nombre de archivo. Se cuenta SIEMPRE,
+    # con pipe o sin él, igual que `git grep`: es la vía, no un filtro de stdin.
+    # `tgrep status`/`tgrep --version` no son búsquedas y quedan fuera.
+    if toks[0] == "tgrep":
+        return "tgrep-v2" if len(toks) > 1 and toks[1] == "search" else None
 
     # `git grep` — invisible para las tres capas a la vez hasta #720. Se cuenta
     # SIEMPRE, con pipe o sin él: no es un filtro de stdin, es una búsqueda del
@@ -265,84 +305,118 @@ def classify_command(cmd):
     return out
 
 
+def scan_transcript(path, repo, per_repo, skip_sidechain):
+    """Cuenta las búsquedas de UN transcript (hilo principal o subagente).
+
+    `skip_sidechain` descarta los records marcados `isSidechain` en el hilo
+    principal: el propio host los repite ahí ADEMÁS de escribirlos en
+    `<session>/subagents/agent-*.jsonl` (mismo hallazgo que
+    `mine-activation.py:264`), así que contarlos en las dos pasadas duplica
+    cada búsqueda de un subagente. Los archivos de subagente en sí NO llevan
+    ese flag y se procesan completos.
+
+    Una línea que no parsea como JSON se cuenta en `malformado` en vez de
+    desaparecer en silencio: un transcript truncado o corrupto no es lo mismo
+    que una sesión sin búsquedas, y D19 necesita distinguir los dos.
+    """
+    # DOS PASADAS, y la razón es #720/M4: un comando que el guard
+    # bloqueó NUNCA CORRIÓ, pero su `tool_use` está en el transcript
+    # igual — así que sumaba a "shell" y su reintento por el wrapper
+    # sumaba aparte. Cada búsqueda convertida por el guard quedaba a la
+    # mitad en la métrica, y el antes/después de #661 nacía sesgado.
+    #
+    # El veredicto se lee del PROPIO transcript: el bloqueo llega como
+    # `tool_result` con `is_error` y el texto del hook. Eso es exacto y
+    # no necesita cruzar con `~/.navori/audits/` ni correlacionar por
+    # reloj — la lección de #560 y de `ownerOf`.
+    pending = {}
+    blocked = set()
+    with open(path, errors="replace") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                per_repo[repo]["malformado"] += 1
+                continue
+            if skip_sidechain and entry.get("isSidechain"):
+                continue
+            msg = entry.get("message")
+            if not isinstance(msg, dict):
+                continue
+            content = msg.get("content")
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                kind = block.get("type")
+                if kind == "tool_use":
+                    name = block.get("name")
+                    if name == "Grep":
+                        per_repo[repo]["nativo"] += 1
+                        continue
+                    if name == CODEGRAPH_TOOL:
+                        per_repo[repo]["codegraph-v2"] += 1
+                        continue
+                    if name != "Bash":
+                        continue
+                    cmd = (block.get("input") or {}).get("command")
+                    if isinstance(cmd, str):
+                        pending[block.get("id")] = cmd
+                elif kind == "tool_result":
+                    # Las DOS condiciones: hay contenido que solo CITA
+                    # la cadena (un archivo del propio guard leído en
+                    # sesión), y sin `is_error` se contarían lecturas
+                    # como bloqueos.
+                    if not block.get("is_error"):
+                        continue
+                    if "BLOCKED by guard-" in json.dumps(block.get("content")):
+                        blocked.add(block.get("tool_use_id"))
+
+    for use_id, cmd in pending.items():
+        if use_id in blocked:
+            per_repo[repo]["bloqueado"] += 1
+            continue
+        per_repo[repo].update(classify_command(cmd))
+
+
 def scan(since=None, until=None):
     session_repo = audited_sessions()
     per_repo = defaultdict(Counter)
-    if not os.path.isdir(PROJECTS):
-        return per_repo
-    for proj in os.listdir(PROJECTS):
-        pdir = os.path.join(PROJECTS, proj)
-        if not os.path.isdir(pdir):
-            continue
-        for fn in os.listdir(pdir):
-            if not fn.endswith(".jsonl"):
+    # Índice sesión → transcript principal, separado de la iteración por
+    # sesión auditada: así una sesión sin `.jsonl` (rotado, borrado, disco
+    # distinto) se distingue de una sesión CON transcript y cero búsquedas —
+    # antes las dos se veían idénticas, un cero por construcción indistinguible
+    # de un cero real.
+    present = {}
+    if os.path.isdir(PROJECTS):
+        for proj in os.listdir(PROJECTS):
+            pdir = os.path.join(PROJECTS, proj)
+            if not os.path.isdir(pdir):
                 continue
-            meta = session_repo.get(fn[: -len(".jsonl")])
-            if meta is None:
-                continue
-            repo, day = meta
-            # `--desde` parte el parque en antes/después de una intervención,
-            # medido con ESTE instrumento en los dos lados. Comparar la cifra de
-            # hoy contra una línea base calculada con el minero viejo mediría el
-            # cambio del instrumento junto con el del hábito, que es justamente
-            # lo que #720 acaba de quitar del camino.
-            if since and day and day < since:
-                continue
-            if until and day and day >= until:
-                continue
-            # DOS PASADAS, y la razón es #720/M4: un comando que el guard
-            # bloqueó NUNCA CORRIÓ, pero su `tool_use` está en el transcript
-            # igual — así que sumaba a "shell" y su reintento por el wrapper
-            # sumaba aparte. Cada búsqueda convertida por el guard quedaba a la
-            # mitad en la métrica, y el antes/después de #661 nacía sesgado.
-            #
-            # El veredicto se lee del PROPIO transcript: el bloqueo llega como
-            # `tool_result` con `is_error` y el texto del hook. Eso es exacto y
-            # no necesita cruzar con `~/.navori/audits/` ni correlacionar por
-            # reloj — la lección de #560 y de `ownerOf`.
-            pending = {}
-            blocked = set()
-            with open(os.path.join(pdir, fn), errors="replace") as fh:
-                for line in fh:
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    msg = entry.get("message")
-                    if not isinstance(msg, dict):
-                        continue
-                    content = msg.get("content")
-                    if not isinstance(content, list):
-                        continue
-                    for block in content:
-                        if not isinstance(block, dict):
-                            continue
-                        kind = block.get("type")
-                        if kind == "tool_use":
-                            name = block.get("name")
-                            if name == "Grep":
-                                per_repo[repo]["nativo"] += 1
-                                continue
-                            if name != "Bash":
-                                continue
-                            cmd = (block.get("input") or {}).get("command")
-                            if isinstance(cmd, str):
-                                pending[block.get("id")] = cmd
-                        elif kind == "tool_result":
-                            # Las DOS condiciones: hay contenido que solo CITA
-                            # la cadena (un archivo del propio guard leído en
-                            # sesión), y sin `is_error` se contarían lecturas
-                            # como bloqueos.
-                            if not block.get("is_error"):
-                                continue
-                            if "BLOCKED by guard-" in json.dumps(block.get("content")):
-                                blocked.add(block.get("tool_use_id"))
+            for fn in os.listdir(pdir):
+                if fn.endswith(".jsonl"):
+                    present[fn[: -len(".jsonl")]] = os.path.join(pdir, fn)
 
-            for use_id, cmd in pending.items():
-                if use_id in blocked:
-                    per_repo[repo]["bloqueado"] += 1
-                    continue
-                per_repo[repo].update(classify_command(cmd))
+    for sid, (repo, day) in session_repo.items():
+        # `--desde` parte el parque en antes/después de una intervención,
+        # medido con ESTE instrumento en los dos lados. Comparar la cifra de
+        # hoy contra una línea base calculada con el minero viejo mediría el
+        # cambio del instrumento junto con el del hábito, que es justamente
+        # lo que #720 acaba de quitar del camino.
+        if since and day and day < since:
+            continue
+        if until and day and day >= until:
+            continue
+        path = present.get(sid)
+        if path is None:
+            per_repo[repo]["no_disponible"] += 1
+            continue
+        scan_transcript(path, repo, per_repo, skip_sidechain=True)
+        for sub in subagent_transcripts(path, sid):
+            scan_transcript(sub, repo, per_repo, skip_sidechain=False)
     return per_repo
 
 
@@ -406,6 +480,34 @@ def main(argv):
     print("hábito puede migrar cuando la directa se bloquea (#720): si suben mientras 'bueno%'")
     print("sube, la mejora es de forma y no de fondo. 'blq' son comandos que el guard bloqueó —")
     print("nunca corrieron, así que no suman a 'shell'; su reintento por el wrapper sí cuenta.")
+    print()
+    print("D19 (spec 0026 §9.5) — vía v2 (tgrep search + codegraph_explore) contra escape")
+    print("(Grep nativo + shell + git grep). Umbral pre-registrado: >= 25% en dos semanas de")
+    print("dogfood tras habilitar los plugins; por debajo, D11 se reabre con una spec nueva.")
+    head2 = f"{'repo':30s} {'v2':>6s} {'escape':>7s} {'v2%':>7s} {'malform':>8s} {'no_disp':>8s}"
+    print(head2)
+    for repo in sorted(per_repo):
+        c = per_repo[repo]
+        v2 = c["tgrep-v2"] + c["codegraph-v2"]
+        escape = sum(c[k] for k in ESCAPE_ROUTES)
+        den = v2 + escape
+        pct = (100 * v2 / den) if den else 0
+        print(
+            f"{repo[:30]:30s} {v2:6d} {escape:7d} {pct:6.1f}% "
+            f"{c['malformado']:8d} {c['no_disponible']:8d}"
+        )
+    grand_v2 = grand["tgrep-v2"] + grand["codegraph-v2"]
+    grand_escape = sum(grand[k] for k in ESCAPE_ROUTES)
+    grand_den = grand_v2 + grand_escape
+    print(
+        f"{'TOTAL':30s} {grand_v2:6d} {grand_escape:7d} "
+        f"{(100 * grand_v2 / grand_den) if grand_den else 0:6.1f}% "
+        f"{grand['malformado']:8d} {grand['no_disponible']:8d}"
+    )
+    print()
+    print("'malform' son líneas del transcript que no parsearon como JSON — no son cero por")
+    print("construcción, son evidencia perdida; distinto de 'no_disp', una sesión auditada sin")
+    print("transcript en disco (rotado, borrado). Ninguno de los dos suma al cociente v2%.")
 
 
 if __name__ == "__main__":
