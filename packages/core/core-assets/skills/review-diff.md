@@ -30,6 +30,8 @@ One line per finding, ordered CRITICAL → HIGH → MEDIUM:
 
 If it doesn't reach MEDIUM, don't report it. No "nitpick" or "consider also". (Maps to the `reviewer`: CRITICAL/HIGH = confidence ≥80, blocking; MEDIUM = informational observation 50-79.)
 
+**Three-part proof for HIGH or CRITICAL.** Every HIGH or CRITICAL finding names its `file:line`, the concrete failure scenario, and why no existing guard/check catches it. Missing any of the three downgrades it to MEDIUM, or drops it if it doesn't reach MEDIUM either. **Zero findings is a valid verdict** — it needs no excuse or padding to look thorough.
+
 ## 0. Pre-pass (before reading line by line)
 
 - Does the diff touch infra/config (`tsconfig*`, lint/build config, `.env*`, CI, `settings.json`)? Flag → validate the change is intentional.
@@ -60,11 +62,7 @@ If it doesn't reach MEDIUM, don't report it. No "nitpick" or "consider also". (M
 
 ## 4. Security and authorization
 
-- Secrets/tokens/credentials in code (not in config/env) → CRITICAL.
-- Authorization decision only on the client, without backend validation → HIGH.
-- Sensitive data in client storage beyond what's necessary → HIGH.
-- New or modified guard/policy (authorization, licence, rate limit) covering only some of the entry points that mutate the same resource → CRITICAL. Enumerate every one with evidence — via Code discovery routing's structural provider, or `locate-code` as fallback — and mark it covered, or justify each exclusion one by one. An occurrence count alone doesn't demonstrate the enumeration is complete.
-- Data-mutating script that falls back to a default host or credentials when its env var is missing → CRITICAL: it runs clean against the wrong target. It must refuse to start.
+`security-invariants` is the single owner of this checklist — business invariants (server-side authorization, guard coverage across every entry point that mutates a resource, IDOR, secrets, trust boundaries, PII) plus its no-scanner fallback patterns. Apply it here and report with its severities; don't restate its items in this skill.
 
 ## 5. No hardcode
 
@@ -103,7 +101,7 @@ Rule: if removing the abstraction leaves the code **just as correct** and shorte
 
 ## 9. Quality gate (run this turn, not assumed)
 
-- `{{qualityGate.fast}}` passes → CRITICAL if it fails.
+- `{{qualityGate.full}}` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
 - Zero new errors/warnings vs baseline → HIGH if the diff adds them.
 
 ## 10. Commit and PR

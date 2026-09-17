@@ -8,7 +8,7 @@ metadata:
 
 # Security invariants — the business security layer
 
-Feeds the `/security-review` flow. The generic web vuln patterns (XSS, SSRF, hardcoded secrets, insecure deserialization, injection) are already covered by semgrep and the built-in reviewer. What goes here is what the model **can't infer from code alone**: the authorization and trust invariants that depend on the domain.
+Feeds the `/security-review` flow and is the single owner of the security checklist for `reviewer` and `auditor`. `semgrep` is an OPT-IN plugin, not a given, so the business invariants below (authorization, IDOR, trust) sit next to a compact fallback list (§7) for the generic patterns a scanner would otherwise catch.
 
 Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `review-diff`. An authorization bypass or an exposed secret is CRITICAL.
 
@@ -18,7 +18,7 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 - Client guards (conditional render, in-component checks, a `useAuth()`) **are never enough on their own** — they are UX, not enforcement. A protected view that only trusts the client is CRITICAL.
 - Navigation / UI config (menus, an `allowedRoles` in the nav array) filters the UI, it does **not** control access. Adding an entry there without the corresponding server-side guard is a finding.
 - The guard must **fail closed**: no session or backend down → deny / redirect, never "let it through just in case". Don't add a path that cuts on error toward the permissive side.
-- **A guard is worth exactly what its least-covered entry point is worth.** The unit protected is the *resource*, not the handler you happened to open: introducing or changing a guard means enumerating every way that resource is mutated — sibling routes, bulk or admin variants, background jobs, queue consumers, maintenance scripts — and accounting for each one, covered or excluded with the reason written down. An unlisted entry point is not "pending", it's unprotected. A sibling endpoint reachable by the same actor and missing the guard is the very bug the guard was added to fix, still alive and now harder to see, because the diff reads as if the hole were closed.
+- **A guard is worth exactly what its least-covered entry point is worth.** The unit protected is the *resource*, not the handler you happened to open: introducing or changing a guard means enumerating every way that resource is mutated — sibling routes, bulk or admin variants, background jobs, queue consumers, maintenance scripts — and accounting for each one, covered or excluded with the reason written down. An unlisted entry point is not "pending", it's unprotected. A sibling endpoint reachable by the same actor and missing the guard is the very bug the guard was added to fix, still alive and now harder to see, because the diff reads as if the hole were closed. Enumerate with evidence — via Code discovery routing's structural provider, or `locate-code` as fallback — and mark each one covered, or justify each exclusion one by one. An occurrence count alone doesn't demonstrate the enumeration is complete.
 
 ## 2. Object access (IDOR)
 
@@ -35,6 +35,7 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 
 - Zero hardcoded secrets / tokens / internal URLs — **including tests and `.env.example` files** (use placeholders). A secret in code is CRITICAL.
 - Vars that are **bundled into the client** (prefixes like `NEXT_PUBLIC_`, `VITE_`, `PUBLIC_`) MUST be safe to leak: no API keys, tokens or internal URLs behind that prefix. Putting a sensitive value there is CRITICAL.
+- A data-mutating script that falls back to a default host or credentials when its env var is missing is CRITICAL — it runs clean against the wrong target; it must refuse to start.
 
 ## 5. Trust boundaries / data flow
 
@@ -45,6 +46,23 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 ## 6. Logging and PII
 
 - No `console.log` / print of user data, tokens, session cookies or PII (email, phone, documents) on production paths. Debug logs only behind an environment guard (e.g. `NODE_ENV === 'development'`).
+
+## 7. If no scanner is installed
+
+When the repo has no static analyzer (e.g. `semgrep`) wired in, additionally scan the diff by hand for the patterns a scanner would otherwise catch:
+
+1. Hardcoded credentials / API keys / tokens in source.
+2. SQL injection — string-concatenated queries with unsanitized input.
+3. XSS — unescaped user input rendered into HTML/DOM.
+4. Path traversal — unsanitized paths reaching the filesystem.
+5. CSRF — state-changing endpoints with no token/origin check.
+6. Auth bypass — a route reachable without the expected guard.
+7. Vulnerable dependencies — known CVEs in the manifest/lockfile.
+8. Secrets in logs — tokens, passwords or PII printed to a log sink.
+
+Plus, always (scanner or not, since it's a business invariant, not a generic pattern): **session or tokens kept in client storage** (`localStorage`/`sessionStorage`/cookies) beyond what the flow needs — a session token there is CRITICAL, an opaque non-sensitive id is not.
+
+This list is a manual substitute, not a replacement — where a scanner plugin is installed, its rung below supersedes items 1-8 for the diffs it actually runs against.
 
 ## How to use it in the review
 

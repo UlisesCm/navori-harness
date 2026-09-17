@@ -312,3 +312,69 @@ describe("debug-failure escalates through BLOCKED inside a subagent", () => {
     expect(implementer).not.toContain("loop-back-debug/SKILL.md");
   });
 });
+
+/**
+ * Spec 0026 T15 (R31, R32, R33) — single-owner checklists.
+ *
+ * `verify-before-done` owns attribution by file location (never a worktree or
+ * a shared-tree stash), `review-diff` owns the three-part proof for HIGH or
+ * CRITICAL and shares its gate with `reviewer`, and `security-invariants` is
+ * the only place guard-coverage prose lives.
+ */
+describe("checklists with a single owner (T15)", () => {
+  function markdownFilesUnder(dir: string): string[] {
+    if (!existsSync(dir)) return [];
+    const out: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) out.push(...markdownFilesUnder(full));
+      else if (entry.name.endsWith(".md")) out.push(full);
+    }
+    return out;
+  }
+
+  // Covers: R31
+  it("no distributed asset measures the baseline with git stash", () => {
+    const pluginsDir = resolve(coreAssets, "..", "..", "plugins");
+    const files = [...markdownFilesUnder(coreAssets), ...markdownFilesUnder(pluginsDir)];
+    expect(files.length).toBeGreaterThan(0);
+    // Scoped to an actual recipe (`git stash push/pop/apply/save/list`), not a
+    // prose mention — `verify-before-done.md` names `git stash` in order to
+    // forbid it, which must not trip its own check.
+    const offenders = files
+      .filter((f) => /\bgit stash (push|pop|apply|save|list)\b/i.test(readFileSync(f, "utf-8")))
+      .map((f) => f.replace(resolve(coreAssets, "..", "..", ".."), ""));
+    expect(offenders).toEqual([]);
+    // The rule that replaces it must be stated, not merely absent.
+    const skill = read("skills/verify-before-done.md");
+    expect(skill).toMatch(/origin not determined/i);
+    expect(skill).toMatch(/never `git stash`/i);
+  });
+
+  // Covers: R32
+  it("review-diff and reviewer require the same gate", () => {
+    const reviewDiff = read("skills/review-diff.md");
+    const reviewer = read("agents/reviewer.md");
+    expect(reviewDiff).toContain("{{qualityGate.full}}");
+    expect(reviewer).toContain("{{qualityGate.full}}");
+  });
+
+  // Covers: R33
+  it("guard entry-point coverage lives only in security-invariants", () => {
+    const reviewDiff = read("skills/review-diff.md");
+    const security = read("skills/security-invariants.md");
+    expect(reviewDiff).not.toMatch(/enumerating every way that resource is mutated/i);
+    expect(security).toMatch(/enumerating every way that resource is mutated/i);
+    expect(reviewDiff).toMatch(/security-invariants/);
+  });
+
+  // Covers: R32
+  it("review-diff requires file-line, failure scenario and guard gap for HIGH and CRITICAL", () => {
+    const reviewDiff = read("skills/review-diff.md");
+    expect(reviewDiff).toMatch(/file:line/i);
+    expect(reviewDiff).toMatch(/failure scenario/i);
+    expect(reviewDiff).toMatch(/no existing guard/i);
+    expect(reviewDiff).toMatch(/downgrades it to MEDIUM/i);
+    expect(reviewDiff).toMatch(/Zero findings is a valid verdict/i);
+  });
+});

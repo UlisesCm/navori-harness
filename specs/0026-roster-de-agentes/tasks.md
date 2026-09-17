@@ -311,7 +311,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
     `lib/__tests__/global-safe-inventory.test.ts` actualizados.
 
   con `// Covers: R29, R30`
-- [ ] **T15** (R31, R32, R33) — Checklists con dueño único:
+- [x] **T15** (R31, R32, R33) — Checklists con dueño único:
   - **`verify-before-done.md`:**
     - Se condensa y baja `maxWords` de 1050 a 600 en el mismo PR.
     - Atribución: archivo en diff = introducido; fuera sin baseline comparable = origen no

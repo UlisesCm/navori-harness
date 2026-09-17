@@ -187,10 +187,12 @@ describe("occurrence counts alone no longer stand in for structural impact evide
     expect(auditor).toContain("an occurrence count alone doesn't demonstrate structural impact");
   });
 
-  it("review-diff.md's guard/policy enumeration requires more than an occurrence count", () => {
-    const reviewDiff = read(coreSkill("review-diff.md"));
-    expect(reviewDiff).toContain("Code discovery routing's structural provider");
-    expect(reviewDiff).toContain(
+  // Spec 0026 T15 (R32, R33) — the guard/policy enumeration moved from
+  // review-diff §4 to security-invariants, its single owner.
+  it("security-invariants's guard/policy enumeration requires more than an occurrence count", () => {
+    const securityInvariants = read(coreSkill("security-invariants.md"));
+    expect(securityInvariants).toContain("Code discovery routing's structural provider");
+    expect(securityInvariants).toContain(
       "An occurrence count alone doesn't demonstrate the enumeration is complete.",
     );
   });

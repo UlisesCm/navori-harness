@@ -59,27 +59,15 @@ describe("review-diff — the checklist keeps its concrete triggers", () => {
     expect(item).toMatch(/HIGH/);
   });
 
-  it("§4 requires enumerating every entry point a guard must cover (#334)", () => {
+  // Spec 0026 T15 (R32) — §4 stopped restating the security checklist; it
+  // remits to `security-invariants`, the single owner (see the other describe
+  // block below for the guard-coverage and script-fallback assertions, which
+  // moved there with the content).
+  it("§4 remits security to security-invariants instead of restating it (R32)", () => {
     const security = section(read("skills/review-diff.md"), "4. Security");
-    const item = security.split("\n").find((l) => /guard\/policy/i.test(l)) ?? "";
-    expect(item, "the guard-coverage trigger is gone").not.toBe("");
-    expect(item).toMatch(/mutate the same resource/i);
-    // Enumerating is the mechanical part; without evidence it degrades to a vibe.
-    expect(item).toMatch(/enumerate/i);
-    expect(item).toContain("locate-code");
-    // Partial coverage is a live authorization hole, not a nit.
-    expect(item).toMatch(/CRITICAL/);
-    // An unexplained exclusion is the same hole with a nicer diff.
-    expect(item).toMatch(/justify|exclusion/i);
-  });
-
-  it("§4 refuses data-mutating scripts that default their target (#336)", () => {
-    const security = section(read("skills/review-diff.md"), "4. Security");
-    const item = security.split("\n").find((l) => /falls back to a default/i.test(l)) ?? "";
-    expect(item, "the script-fallback trigger is gone").not.toBe("");
-    expect(item).toMatch(/CRITICAL/);
-    // The finding is blast radius (wrong target, clean run), not "there's a literal".
-    expect(item).toMatch(/refuse to start/i);
+    expect(security).toMatch(/security-invariants/);
+    expect(security).not.toMatch(/guard\/policy/i);
+    expect(security).not.toMatch(/falls back to a default/i);
   });
 
   it("§7 flags cognitive complexity over the repo's threshold (#333)", () => {
@@ -107,6 +95,34 @@ describe("the guard-coverage invariant reaches the two agents that act on it", (
     expect(auth).toMatch(/enumerating every way that resource is mutated/i);
     // Silence is not an exclusion.
     expect(auth).toMatch(/excluded with the reason/i);
+  });
+
+  // Spec 0026 T15 (R32, R33) — moved from review-diff §4 when it stopped
+  // restating security content (#336).
+  it("security-invariants §4 refuses data-mutating scripts that default their target (#336)", () => {
+    const env = section(read("skills/security-invariants.md"), "4. Secrets and environment");
+    const item = env.split("\n").find((l) => /falls back to a default/i.test(l)) ?? "";
+    expect(item, "the script-fallback trigger is gone").not.toBe("");
+    expect(item).toMatch(/CRITICAL/);
+    expect(item).toMatch(/refuse to start/i);
+  });
+
+  // Spec 0026 T15 (R33) — the no-scanner fallback section.
+  it("security-invariants §7 lists the 8 patterns and session/tokens on the client", () => {
+    const fallback = section(read("skills/security-invariants.md"), "7. If no scanner");
+    for (const pattern of [
+      "credentials",
+      "SQL injection",
+      "XSS",
+      "Path traversal",
+      "CSRF",
+      "Auth bypass",
+      "Vulnerable dependencies",
+      "Secrets in logs",
+    ]) {
+      expect(fallback, `missing pattern: ${pattern}`).toMatch(new RegExp(pattern, "i"));
+    }
+    expect(fallback).toMatch(/client storage/i);
   });
 
   it("the implementer must hand over the enumeration, not only the diff (#334)", () => {
