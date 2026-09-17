@@ -64,7 +64,7 @@ Every finding carries **root cause + `file:line` + suggested fix**.
 Even if the user asks to focus "only on X", you **always** run both checklists over the scope. If the focus wasn't security/performance, their findings go in as a **NOTE** (root cause + 1 line); if they are **CRITICAL**, they escalate to the CRITICAL section anyway. The report **always** includes the Security and Performance sub-sections (see the skeleton below), even if they say "no findings in this scope".
 
 **SECURITY axis (generic — adapt to the stack in the user-section):**
-- Hardcoded secrets or secrets in logs: grep `Bearer`, `sk_`, `api_key`, `secret`, `password=`, a committed `.env`.
+- Hardcoded secrets or secrets in logs: textual discovery (Code discovery routing) for `Bearer`, `sk_`, `api_key`, `secret`, `password=`, a committed `.env`.
 - AuthZ/RBAC: missing role/permission check on the server; client-only guard with no server-side backing.
 - Injection: unparameterized SQL/NoSQL, `eval`/`new Function`, `JSON.parse` without `try`, regex with backtracking (ReDoS).
 - XSS: `dangerouslySetInnerHTML`/`innerHTML` with unsanitized HTML.
@@ -989,7 +989,7 @@ hypothetical future abstractions or optional edge cases as BLOCKER.
 3. Work on ONE scoped question (the orchestrator already handed you the scope). If you discover it's actually >2 independent questions, return them as a list so the orchestrator distributes them across parallel researchers — don't chain them in series yourself.
 4. Run the search:
    - Resolve the scoped question by following Code discovery routing (project instructions): a filename/path pattern is `Glob`; a literal token (name, import, config key, error string) is `Grep`; a behavior, definition, relationship or impact question goes to the enabled structural provider. Don't load `.claude/skills/structural-search/SKILL.md` as a mandatory preflight for every question — apply it only when routing lands you on bounded reading or an AST-shape search.
-   - Fallback only for what `Grep`/`Glob`/the structural provider don't cover (git history with `git grep`, FS metadata with `find`): shell commands. Chained with pipes/redirects they ask for confirmation, so reserve the shell for when the routed tool falls short.
+   - Fallback only for what `Grep`/`Glob`/the structural provider don't cover (commit history with `git log`/`git blame`, FS metadata with `find`): shell commands. Chained with pipes/redirects they ask for confirmation, so reserve the shell for when the routed tool falls short.
 5. Validate each finding: open the file, confirm the match means what it seems (sometimes a `grep` matches comments or strings unrelated to the concept).
 6. Write `.claude/progress/research_<question-slug>.md`:
 
@@ -1325,8 +1325,8 @@ If you find a recent audit for the same ticket, read it first. Don't re-audit if
 1. **Ground**: `CLAUDE.md` (project rules + the orchestrator's role) — already in your context when your host injects it; read it from disk ONLY if your host did not inject it.
 2. **Curate repo context** for your analysis, applying Code discovery routing (project instructions) before gathering evidence — literal keywords/endpoints go to textual search, relationships and impact go to the enabled structural provider:
    - Literal text of the ticket (don't paraphrase).
-   - Grep for the ticket's keywords → candidate files.
-   - If the ticket mentions an endpoint, grep for the URL.
+   - Textual discovery for the ticket's keywords → candidate files.
+   - If the ticket mentions an endpoint, textual discovery for the URL.
    - List of relevant services / modules, confirmed through the structural provider when the question is relational — a keyword occurrence count alone doesn't demonstrate structural impact.
 3. **Analyze** and produce the audit in `.claude/progress/audit_ticket_<ID>.md`. Hard analysis rules:
    - **Cite `file:line` in EVERY claim.** No line = it's a hunch — mark it "unverified hypothesis".
@@ -10312,7 +10312,7 @@ If it doesn't reach MEDIUM, don't report it. No "nitpick" or "consider also". (M
 ## 0. Pre-pass (before reading line by line)
 
 - Does the diff touch infra/config (`tsconfig*`, lint/build config, `.env*`, CI, `settings.json`)? Flag → validate the change is intentional.
-- Does it delete files? Verify no residual imports remain (`grep -rn "<file>"`).
+- Does it delete files? Verify no residual imports remain via textual discovery.
 - Does it mix unrelated changes (feature + refactor + format-only)? → MEDIUM, ask to split.
 
 ## 1. Types and contracts
@@ -10779,11 +10779,11 @@ This is not a replacement ladder for routing: relationships, definitions and imp
 3. Dedup hits before reading.
 4. Open only the span that confirms the hypothesis.
 
-## Fallback: native search
+## Both lanes defer to the enabled provider
 
-Native `Grep`/`Glob` are pre-approved and read-only — the default lane for a literal token (name, import, config key, error string) or a filename/path pattern. Shell `rg`/`find` are for what those tools don't cover (git history, FS metadata like `-size`/`-mtime`); `find` isn't pre-approved because `-exec`/`-delete` make it non-read-only, so the prompt there is a safety net, not a nuisance.
+Textual and structural discovery both route through Code discovery routing's enabled provider first: the textual lane resolves through tgrep when the plugin is enabled, the structural lane through CodeGraph when its plugin is enabled. Native `Grep`/`Glob` are pre-approved, read-only, and only the fallback for the textual lane and for filename/path patterns; manual reading is the fallback for the structural lane. Both fallbacks apply only when no provider is enabled or available — never as the default lane ahead of it. `find` is for what none of those cover (FS metadata like `-size`/`-mtime`) and isn't pre-approved because `-exec`/`-delete` make it non-read-only, so the prompt there is a safety net, not a nuisance; commit history goes to `git log`/`git blame`, never a content-search shell verb.
 
-**Silent skipping**: an unavailable fallback (no structural provider, no `ast-grep`) is not zero matches. Report the outage instead of folding it into "nothing found" — every optional piece here already states its own fallback (native search covers the absence of a structural provider; targeted `Grep` covers the absence of `ast-grep`), so a new one should too.
+**Silent skipping**: an unavailable fallback (no textual or structural provider, no `ast-grep`) is not zero matches. Report the outage instead of folding it into "nothing found" — every optional piece here already states its own fallback (native search covers the absence of a provider; targeted `Grep` and manual reading cover the absence of `ast-grep`), so a new one should too.
 
 ## ast-grep for AST shapes
 
