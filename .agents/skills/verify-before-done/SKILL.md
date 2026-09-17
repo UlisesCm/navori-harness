@@ -9,7 +9,7 @@ metadata:
   maxWords: 1050
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="e7c86e0c" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="2f532dbc" version="0.8.7" source="@navori/core" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -55,7 +55,7 @@ Skipping any step = a lie, not verification.
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed", "the diff covers the case" |
 | Filter / feature works | Real click + description of the result | "the handler is well written" |
 | Structural migration complete | Read AND write go to the same destination in the affected flow, validated in browser or test | "I changed the service, it should work" |
-| PR creatable | Pre-flight THIS TURN: not on `main`, `gh auth status` ok, fresh gate evidence over the shipping diff (reviewer's Pass-2 run with a no-drift receipt; on a declared-inline change, your own run). No clean working tree required — the uncommitted diff IS the trigger | "the branch has commits, we can create it" |
+| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status` ok, `navori receipt check --feature <feature> --json` reports `"status":"ok"`, fresh gate evidence (reviewer's Pass-2 run; on a declared-inline change, your own run). No clean working tree required — it's the trigger | "the branch has commits, we can create it" |
 | Tests pass | Suite run fresh with exit 0 this turn + test count | "we didn't touch tests", "they should still be green" |
 | Type-check clean | `tsc --noEmit` (or the runtime's equivalent) exit 0 this turn | "TS didn't complain when I saved it" |
 | A shell edit landed (`sed -i`, a `>` redirect) | Re-read the span you changed, this turn | The exit code. `sed -i` exits 0 when its pattern matches nothing, and a misdirected `>` truncates the file — both look like success |
