@@ -96,14 +96,16 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // PreCompact se retiro en #774) + 2 audit-mode hooks (trigger, close) +
     // 1 managed-drift watcher (#530) + 1 worktree-reclaim hook (#527) +
     // 1 routing watcher (spec 0020) + 1 PR routing hook (#705) +
+    // 1 comment-draft-confirm hook (spec 0026 E1) +
     // 1 orchestrator block routed to `.claude/context/` (#573) + 2 session
-    // ceremonies + 1 agents index, same channel (#572) = 39.
+    // ceremonies + 1 agents index, same channel (#572) = 40.
     //
     // La prosa venia enumerando `pr-create` —retirada en #703— y por eso sumaba
-    // 40 contra una asercion de 39. Un conteo a mano en cinco sitios es justo lo
-    // que #703 dejo anotado como deuda; mientras siga a mano, la enumeracion
-    // tiene que cerrar con el numero.
-    expect(r.inspected).toBe(39);
+    // 40 contra una asercion de 39, que ahora es 40 con el hook de spec 0026 E1
+    // sumado. Un conteo a mano en cinco sitios es justo lo que #703 dejo
+    // anotado como deuda; mientras siga a mano, la enumeracion tiene que
+    // cerrar con el numero.
+    expect(r.inspected).toBe(40);
   });
 
   describe("bundled stack presets (B4)", () => {
