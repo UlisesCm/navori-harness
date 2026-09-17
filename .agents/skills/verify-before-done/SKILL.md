@@ -9,7 +9,7 @@ metadata:
   maxWords: 1050
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="cee2b011" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="e7c86e0c" version="0.8.7" source="@navori/core" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -50,16 +50,17 @@ Skipping any step = a lie, not verification.
 |---|---|---|
 | `cd packages/cli && pnpm lint` green | Full command run this turn with exit 0 | "ran it before", "should be green", "lint passed yesterday" |
 | `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` green | Same — fresh exit 0 this turn | "the dev server runs", "build passed a while ago" |
-| Zero new errors vs baseline | `git stash` → re-run → compare counts → `git stash pop` | "lint said OK" without comparing baseline |
+| Zero new errors vs baseline | `git diff --name-only main` — a failure outside that file list predates you | "lint said OK" without comparing baseline |
 | UI validated in the browser (only if the user asked) | Observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed", "the diff covers the case" |
 | Filter / feature works | Real click + description of the result | "the handler is well written" |
 | Structural migration complete | Read AND write go to the same destination in the affected flow, validated in browser or test | "I changed the service, it should work" |
-| PR creatable | Pre-flight THIS TURN: not on `main`, `gh auth status` ok, and fresh gate evidence over the shipping diff (normally the reviewer's Pass-2 run, bound by a receipt with no drift; on a declared-inline change, your own run). No clean working tree required — the uncommitted diff IS the trigger | "the branch has commits, we can create it" |
+| PR creatable | Pre-flight THIS TURN: not on `main`, `gh auth status` ok, fresh gate evidence over the shipping diff (reviewer's Pass-2 run with a no-drift receipt; on a declared-inline change, your own run). No clean working tree required — the uncommitted diff IS the trigger | "the branch has commits, we can create it" |
 | Tests pass | Suite run fresh with exit 0 this turn + test count | "we didn't touch tests", "they should still be green" |
 | Type-check clean | `tsc --noEmit` (or the runtime's equivalent) exit 0 this turn | "TS didn't complain when I saved it" |
 | A shell edit landed (`sed -i`, a `>` redirect) | Re-read the span you changed, this turn | The exit code. `sed -i` exits 0 when its pattern matches nothing, and a misdirected `>` truncates the file — both look like success |
-| A gate that can outlive the Bash timeout | Started via the engine's background-task mechanism (Claude Code: `run_in_background`), waited via its completion notification or `Monitor`; unneeded background tasks stopped (`TaskStop`) before the final response | Polling processes (`pgrep`, `ps \| grep`) — the waiting command's own line matches the pattern, other sessions' too |
+| Gate outlives Bash timeout, **main session** | Background (`run_in_background`), wait on its completion notification or `Monitor`; `TaskStop` unneeded tasks first | Polling (`pgrep`, `ps \| grep`) — matches other sessions' waits too |
+| Gate outlives Bash timeout, **subagent** | Run its `&&` steps one by one, foreground, each under the timeout | Backgrounding — a subagent that ends its turn is never re-woken, so the run orphans |
 
 ## Red flags (STOP)
 
@@ -98,7 +99,7 @@ Skipping any step = a lie, not verification.
 - ❌ "Trust me, runs locally" — not a valid claim without evidence in the chat.
 - ❌ Making the claim BEFORE the command ("I'll run X and it should be green").
 - ❌ Marking a step of the atomic plan `[x]` without having run the verification that backs that step.
-- ❌ Accepting a subagent's report without verifying its load-bearing claims — the scope is defined ONCE in `AGENTS.md` § Anti-broken-telephone: cited `file:line`s plus the diff it touched, never a full re-read of a diff the reviewer already validated.
+- ❌ Accepting a subagent's report without verifying its load-bearing claims — scope defined ONCE in `AGENTS.md` § Anti-broken-telephone: cited `file:line`s plus the diff it touched, never a full re-read of an already-validated diff.
 
 ## Closing
 
