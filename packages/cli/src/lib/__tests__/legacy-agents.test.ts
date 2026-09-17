@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { detectLegacyAgents, LEGACY_AGENT_ALIASES } from "../legacy-agents.ts";
+import { ROSTER_AGENTS } from "../../engines/shared/roster.ts";
 import type { NavoriConfig } from "../config.ts";
 
 const cfg = (harness?: Record<string, boolean>) =>
@@ -60,17 +61,9 @@ describe("detectLegacyAgents", () => {
     ]);
   });
 
-  it("every alias target is a real canonical agent id", () => {
-    const canonicals = new Set([
-      "leader",
-      "implementer",
-      "reviewer",
-      "researcher",
-      "ticket-audit",
-      "commit-pr-pilot",
-      "explorer",
-      "auditor",
-    ]);
+  // Covers: R42
+  it("every alias target is a real canonical agent id (checked against the roster, not a copy)", () => {
+    const canonicals = new Set(ROSTER_AGENTS.map((a) => a.id));
     for (const target of Object.values(LEGACY_AGENT_ALIASES)) {
       expect(canonicals.has(target), `alias target '${target}' is not a canonical agent`).toBe(
         true,

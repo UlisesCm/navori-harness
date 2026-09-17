@@ -9,7 +9,12 @@ import {
 } from "./bundled-assets.ts";
 import { safeRelPath } from "./zod-helpers.ts";
 
-const AGENT_ROLES = [
+/**
+ * Exported (spec 0026 T8, R42) solely so `roster-parity.test.ts` can verify it
+ * against `engines/shared/roster.ts`'s canonical id list without a second
+ * hand-copied set living inside the test file itself.
+ */
+export const AGENT_ROLES = [
   "leader",
   "implementer",
   "reviewer",

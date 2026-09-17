@@ -1,0 +1,165 @@
+import type { NavoriConfig } from "../../lib/config.ts";
+
+/**
+ * Canonical description of one core agent: its filename id, the
+ * `config.harness` boolean key that enables/disables it, and its sandbox
+ * posture (spec 0026 T8, R38/R42).
+ *
+ * THE single source of truth for the roster. Before this, the same id list
+ * was hand-copied into `CORE_AGENTS` (`harness-assets.ts`), `AGENT_ROLE_KEYS`
+ * (`lib/config.ts`), `AGENT_ROLES` (`lib/plugins.ts`),
+ * `CANONICAL_HARNESS_KEY`/`LEGACY_AGENT_ALIASES` targets (`lib/legacy-agents.ts`),
+ * `RECOMMENDED_MODELS`/`RECOMMENDED_EFFORT` keys (`lib/recommended.ts`) and
+ * `agentsIndex.when` keys (`lib/i18n.ts`) — six places to remember on every
+ * rename, none of them tied together by a test. `roster-parity.test.ts` fails
+ * the moment any of those derived lists drifts from `ROSTER_AGENTS` (R42).
+ *
+ * Renaming the roster itself (spec 0026 lote 2, T11+) is NOT this file's job:
+ * today it still lists the pre-rename eight ids, unchanged. It only stops the
+ * duplication; the rename lands as its own batch so `CORE_AGENTS`, the six
+ * derived catalogs above and every asset that names an id move together.
+ */
+export interface RosterAgent {
+  readonly id: string;
+  readonly harnessKey: keyof NonNullable<NavoriConfig["harness"]>;
+  readonly sandbox?: "read-only" | "workspace-write";
+}
+
+export const ROSTER_AGENTS: ReadonlyArray<RosterAgent> = [
+  { id: "leader", harnessKey: "leader" },
+  { id: "implementer", harnessKey: "implementer" },
+  { id: "reviewer", harnessKey: "reviewer", sandbox: "workspace-write" },
+  { id: "researcher", harnessKey: "researcher", sandbox: "workspace-write" },
+  { id: "ticket-audit", harnessKey: "ticketAudit", sandbox: "workspace-write" },
+  { id: "commit-pr-pilot", harnessKey: "commitPrPilot" },
+  { id: "explorer", harnessKey: "explorer", sandbox: "workspace-write" },
+  { id: "auditor", harnessKey: "auditor", sandbox: "workspace-write" },
+];
+
+/**
+ * Agent ids that appear in `agentsIndex.when` (the i18n "when to reach for
+ * each agent" table) — every roster agent except `leader`, whose casing is
+ * described by the embodied "## Role: orchestrator" prose instead of a
+ * subagent entry a session would `Agent(...)` launch.
+ */
+export const ROSTER_INDEXED_AGENT_IDS: ReadonlyArray<string> = ROSTER_AGENTS.map(
+  (agent) => agent.id,
+).filter((id) => id !== "leader");
+
+export const ROSTER_CORE_SKILLS: ReadonlyArray<string> = [
+  "verify-before-done",
+  "loop-back-debug",
+  "review-diff",
+  "security-guidance",
+  "debug-error",
+  "structural-search",
+];
+
+export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
+  "ticket-intake",
+  "solution-design",
+  "spec-bootstrap",
+  "dominio",
+  "babysit-prs",
+];
+
+/** The two adapters that place a managed marker, and so can retire one. */
+export type RetiredAdapter = "claude" | "codex";
+
+/**
+ * One retired id, kept forever (append-only, #702/#774): the id itself, the
+ * successor it was folded into (or `null`), and the REAL managed-marker id
+ * navori stamped into the file it once rendered, per adapter.
+ *
+ * `markerIdByAdapter` matters because the marker is not always the bare id:
+ * Claude core agents and core skills carry `<id>-base`, Codex agents carry
+ * `<id>-codex-base` (`engines/codex/index.ts` stamps a separate namespace to
+ * avoid colliding with Claude's own `<id>-base` on a shared filesystem),
+ * while workflow skills and hooks keep one explicit marker shared by both
+ * adapters (`engines/shared/harness-plan.ts` stamps the same `managedId` for
+ * both). Reconciliation (spec 0026 T10) reads this field instead of
+ * re-deriving a marker from the bare id — passing the bare id straight to
+ * `isRemovableNavoriFile` is exactly the bug this registry exists to close:
+ * a retired CORE skill (marker `<id>-base`) would look "foreign" under its
+ * bare id and never get pruned.
+ */
+export interface Retired {
+  readonly id: string;
+  readonly successor: string | null;
+  readonly markerIdByAdapter: Readonly<Partial<Record<RetiredAdapter, string>>>;
+}
+
+/**
+ * Agents navori USED to ship and no longer does. Empty today: none of
+ * `ROSTER_AGENTS`'s eight ids has been renamed off the active catalog yet —
+ * that lands with the batch that actually stops rendering it (spec 0026
+ * lote 2), in the SAME commit, so an id is never listed here while
+ * `ROSTER_AGENTS` still renders it (that window would make `render --apply`
+ * delete the file it had just written).
+ */
+export const RETIRED_AGENTS: ReadonlyArray<Retired & { readonly harnessKey: string }> = [];
+
+/**
+ * Skills navori USED to ship and no longer does. Append-only (#702): an entry
+ * is a historical fact, so it is never removed once added.
+ *
+ * `pr-create` — folded into `commit-pr-pilot` (#703), no successor recorded
+ * beyond that merge — was a WORKFLOW skill, whose managed marker is the bare
+ * id itself (`engines/shared/harness-plan.ts` stamps `managedId: id` for
+ * workflow skills, not `<id>-base`).
+ */
+export const RETIRED_SKILLS: ReadonlyArray<Retired> = [
+  {
+    id: "pr-create",
+    successor: null,
+    markerIdByAdapter: { claude: "pr-create", codex: "pr-create" },
+  },
+];
+
+/**
+ * Hooks navori USED to ship and no longer does. Append-only, same contract as
+ * `RETIRED_SKILLS`.
+ *
+ * `precompact-session-summary` (#774) — no channel to the model, folded into
+ * `session-start-context.sh`'s `SessionStart(compact)` branch, no distinct
+ * successor id — carries the `<id>-base` marker every hook gets
+ * (`planRetiredHookRemoval` stamps `${id}-base`, shared by both adapters:
+ * Codex's `placeHook` reuses the same `managedId` the shared plan computed).
+ */
+export const RETIRED_HOOKS: ReadonlyArray<Retired> = [
+  {
+    id: "precompact-session-summary",
+    successor: null,
+    markerIdByAdapter: {
+      claude: "precompact-session-summary-base",
+      codex: "precompact-session-summary-base",
+    },
+  },
+];
+
+/**
+ * Assert that `actual` (some other catalog's id list) has exactly the members
+ * of `expected` (the canonical roster list), order-independent. Throws with
+ * both sides on mismatch, naming `catalogName` so the failure points straight
+ * at the drifted file (R42).
+ *
+ * A test helper, not a runtime guard fired on every render: the catalogs it
+ * checks are static TypeScript source, so their drift is a compile-time-shaped
+ * mistake that a single `roster-parity.test.ts` run catches once per CI run —
+ * paying the check on every render would buy nothing a test doesn't already.
+ */
+export function assertRosterIds(
+  catalogName: string,
+  expected: readonly string[],
+  actual: readonly string[],
+): void {
+  const expectedSorted = [...expected].sort();
+  const actualSorted = [...actual].sort();
+  const missing = expectedSorted.filter((id) => !actualSorted.includes(id));
+  const extra = actualSorted.filter((id) => !expectedSorted.includes(id));
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(
+      `${catalogName} diverges from the canonical roster — missing: [${missing.join(", ")}], extra: [${extra.join(", ")}]`,
+    );
+  }
+}

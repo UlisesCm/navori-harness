@@ -21,7 +21,12 @@ type ConfigObjectRule = {
   allowExtensions?: boolean;
 };
 
-const AGENT_ROLE_KEYS = [
+/**
+ * Exported (spec 0026 T8, R42) solely so `roster-parity.test.ts` can verify it
+ * against `engines/shared/roster.ts`'s canonical `harnessKey` list without a
+ * second hand-copied set living inside the test file itself.
+ */
+export const AGENT_ROLE_KEYS = [
   "leader",
   "implementer",
   "reviewer",

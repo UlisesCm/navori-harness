@@ -8,6 +8,7 @@ import {
   RECOMMENDED_EFFORT,
 } from "../recommended.ts";
 import { KNOWN_PLUGINS } from "../plugins.ts";
+import { ROSTER_AGENTS } from "../../engines/shared/roster.ts";
 import type { DetectedProject } from "../detect.ts";
 
 function makeDetected(overrides: Partial<DetectedProject> = {}): DetectedProject {
@@ -238,18 +239,10 @@ describe("RECOMMENDED_MODELS", () => {
     expect(RECOMMENDED_MODELS.commitPrPilot).toBe("haiku");
   });
 
+  // Covers: R42
   it("covers every configurable agent role (no agent silently inherits the session model)", () => {
     expect(Object.keys(RECOMMENDED_MODELS).sort()).toEqual(
-      [
-        "auditor",
-        "commitPrPilot",
-        "explorer",
-        "implementer",
-        "leader",
-        "researcher",
-        "reviewer",
-        "ticketAudit",
-      ].sort(),
+      ROSTER_AGENTS.map((a) => a.harnessKey).sort(),
     );
   });
 

@@ -1113,11 +1113,20 @@ export function renderClaudeEngine(
   // discovers skills by walking the directory, not by reading the index navori
   // renders. Codex never had the gap: its adapter declares a `skill-dir` orphan
   // scan, so the same retirement prunes there. This closes the parity.
-  for (const id of RETIRED_SKILLS) {
+  //
+  // Marker comes from `retired.markerIdByAdapter.claude` (spec 0026 T8), NOT
+  // the bare id: a retired CORE skill's real marker is `<id>-base`
+  // (`harness-plan.ts` stamps that for `CORE_SKILLS`), so matching on the bare
+  // id would see it as foreign and never prune it (`roster.ts` documents why).
+  for (const retired of RETIRED_SKILLS) {
     // The user may have reclaimed the id as their own skill — then it is theirs,
     // not a leftover. Same escape hatch §8.7 gives a deselected library.
-    if (localSkillIds.has(id)) continue;
-    for (const removal of [planFlatSkillRemoval(cwd, id, id), planDirSkillRemoval(cwd, id, id)]) {
+    if (localSkillIds.has(retired.id)) continue;
+    const markerId = retired.markerIdByAdapter.claude ?? retired.id;
+    for (const removal of [
+      planFlatSkillRemoval(cwd, retired.id, markerId),
+      planDirSkillRemoval(cwd, retired.id, markerId),
+    ]) {
       if (!removal) continue;
       inspected += 1;
       removals.push(removal);
@@ -1131,12 +1140,14 @@ export function renderClaudeEngine(
   // different question (outputs of a DISABLED ENGINE) and this file belongs to
   // an engine that is very much enabled.
   //
-  // Marker-gated on the hook's own managed id (`<id>-base`, the id
-  // `harness-plan` stamped), so a user's hand-written script at the same path
-  // is never touched, and version-gated so a downgraded CLI does not delete a
-  // newer navori's file.
-  for (const id of RETIRED_HOOKS) {
-    const removal = planRetiredHookRemoval(cwd, id);
+  // Marker-gated on the hook's own managed id (`retired.markerIdByAdapter.claude`,
+  // spec 0026 T8 — the id `harness-plan` actually stamped, not an assumed
+  // `<id>-base`), so a user's hand-written script at the same path is never
+  // touched, and version-gated so a downgraded CLI does not delete a newer
+  // navori's file.
+  for (const retired of RETIRED_HOOKS) {
+    const markerId = retired.markerIdByAdapter.claude ?? `${retired.id}-base`;
+    const removal = planRetiredHookRemoval(cwd, retired.id, markerId);
     if (!removal) continue;
     inspected += 1;
     removals.push(removal);
@@ -1223,14 +1234,16 @@ function planFlatSkillRemoval(cwd: string, id: string, markerId: string): Pendin
 /**
  * Prune a hook script navori no longer ships (`.claude/hooks/<id>.sh`).
  *
- * The managed id is derived the same way `harness-plan` builds it (`<id>-base`),
- * so the verdict is "navori owns this file AS the block it stamped" rather than
- * "some managed marker is in there" — a user's own `<id>.sh` survives. Returns
- * null when there is nothing (safe) to remove. (#774)
+ * `markerId` is the REAL managed id navori stamped for this hook
+ * (`retired.markerIdByAdapter.claude`, spec 0026 T8) — not assumed to be
+ * `<id>-base`, so the verdict is "navori owns this file AS the block it
+ * stamped" rather than "some managed marker is in there" — a user's own
+ * `<id>.sh` survives. Returns null when there is nothing (safe) to remove.
+ * (#774)
  */
-function planRetiredHookRemoval(cwd: string, id: string): PendingRemoval | null {
+function planRetiredHookRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
   const hookPath = join(cwd, ".claude/hooks", `${id}.sh`);
-  return isRemovableNavoriFile(hookPath, `${id}-base`) ? { path: hookPath } : null;
+  return isRemovableNavoriFile(hookPath, markerId) ? { path: hookPath } : null;
 }
 
 /**

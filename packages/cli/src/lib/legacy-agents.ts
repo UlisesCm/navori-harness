@@ -20,18 +20,23 @@ export const LEGACY_AGENT_ALIASES: Readonly<Record<string, string>> = {
   "deep-auditor": "auditor",
 };
 
-/** Canonical agent id (kebab, = filename) → its `config.harness` key (camel). */
-const CANONICAL_HARNESS_KEY: Readonly<Record<string, keyof NonNullable<NavoriConfig["harness"]>>> =
-  {
-    leader: "leader",
-    implementer: "implementer",
-    reviewer: "reviewer",
-    researcher: "researcher",
-    "ticket-audit": "ticketAudit",
-    "commit-pr-pilot": "commitPrPilot",
-    explorer: "explorer",
-    auditor: "auditor",
-  };
+/**
+ * Canonical agent id (kebab, = filename) → its `config.harness` key (camel).
+ * Exported (spec 0026 T8, R42) so `roster-parity.test.ts` can verify it
+ * against `engines/shared/roster.ts` without a second hand-copied mapping.
+ */
+export const CANONICAL_HARNESS_KEY: Readonly<
+  Record<string, keyof NonNullable<NavoriConfig["harness"]>>
+> = {
+  leader: "leader",
+  implementer: "implementer",
+  reviewer: "reviewer",
+  researcher: "researcher",
+  "ticket-audit": "ticketAudit",
+  "commit-pr-pilot": "commitPrPilot",
+  explorer: "explorer",
+  auditor: "auditor",
+};
 
 /** A legacy agent file whose canonical navori replacement is active. */
 export interface LegacyAgent {

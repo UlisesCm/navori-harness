@@ -39,7 +39,7 @@ const CONFIG = {
   commits: "conventional-es",
 } as unknown as NavoriConfig;
 
-const RETIRED = RETIRED_HOOKS[0] as string;
+const RETIRED = RETIRED_HOOKS[0]!.id;
 
 let cwd: string;
 
@@ -120,15 +120,23 @@ describe("RETIRED_HOOKS — el registro en sí", () => {
         .filter((f) => f.endsWith(".sh"))
         .map((f) => f.slice(0, -".sh".length)),
     );
-    const overlap = RETIRED_HOOKS.filter((id) => shipped.has(id));
-    expect(overlap, `ids en RETIRED_HOOKS cuyo asset navori sigue enviando: ${overlap}`).toEqual(
-      [],
-    );
+    const overlap = RETIRED_HOOKS.filter((retired) => shipped.has(retired.id));
+    expect(
+      overlap,
+      `ids en RETIRED_HOOKS cuyo asset navori sigue enviando: ${overlap.map((r) => r.id)}`,
+    ).toEqual([]);
   });
 
   it("registra el retiro que motivó esto", () => {
     // Anti-falso-verde: con la lista vacía, toda la suite de arriba pasaría sin
     // ejercitar una sola línea del código nuevo.
-    expect(RETIRED_HOOKS).toContain("precompact-session-summary");
+    expect(RETIRED_HOOKS.map((r) => r.id)).toContain("precompact-session-summary");
+  });
+
+  // Covers: R38
+  it("carga el marcador `<id>-base` real, compartido por los dos adapters", () => {
+    const retired = RETIRED_HOOKS.find((r) => r.id === "precompact-session-summary");
+    expect(retired?.markerIdByAdapter.claude).toBe("precompact-session-summary-base");
+    expect(retired?.markerIdByAdapter.codex).toBe("precompact-session-summary-base");
   });
 });
