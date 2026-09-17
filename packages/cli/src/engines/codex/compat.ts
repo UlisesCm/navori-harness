@@ -77,10 +77,11 @@ const CODEX_MIRRORED_DIRS: ReadonlyMap<string, string> = new Map([
  * harmless no-op — that is exactly how the two dead ones survived for months.
  */
 export const CODEX_VOCABULARY: ReadonlyArray<readonly [from: string, to: string]> = [
-  // `leader` is embodied by Codex's main thread (no `.codex/agents/leader.toml`
-  // is rendered), so the citation stays the "do NOT invoke it" instruction it
-  // already is; only the tool's name moves, matching the bare `Agent` rule below.
-  ["`Agent(subagent_type: leader)`", "`spawn_agent(leader)`"],
+  // `orchestrator` is embodied by Codex's main thread (no
+  // `.codex/agents/orchestrator.toml` is rendered), so the citation stays the
+  // "do NOT invoke it" instruction it already is; only the tool's name moves,
+  // matching the bare `Agent` rule below.
+  ["`Agent(subagent_type: orchestrator)`", "`spawn_agent(orchestrator)`"],
   ["`Agent`", "`spawn_agent`"],
   // Names the engine the reader is actually running. The claim it qualifies —
   // "emit ALL the calls in a SINGLE turn" — is the harness's own instruction and
@@ -137,10 +138,10 @@ export function adaptHarnessTextForCodex(content: string, _config: NavoriConfig)
   // `codex/index.ts`'s `placeSkill`, the one call site that actually places a
   // skill's frontmatter.
   const retargeted = content
-    .replaceAll(".claude/agents/leader.md", "AGENTS.md")
+    .replaceAll(".claude/agents/orchestrator.md", "AGENTS.md")
     // Any OTHER agent citation points at the file Codex actually reads: a
-    // standalone TOML under `.codex/agents/`. `leader` is the exception above
-    // because it is embodied by the main agent, not spawned.
+    // standalone TOML under `.codex/agents/`. `orchestrator` is the exception
+    // above because it is embodied by the main agent, not spawned.
     .replace(/\.claude\/agents\/([a-z0-9-]+)\.md/g, ".codex/agents/$1.toml")
     // Both spellings a harness asset uses to cite a skill: the flat
     // `<id>.md` and the directory `<id>/SKILL.md`. #364: only the flat one

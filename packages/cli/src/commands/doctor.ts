@@ -1603,7 +1603,7 @@ function missingInvariantsAt(
       // A plugin whose ONLY output is `injectInto` sub-blocks (no CLAUDE.md
       // `managed[]` block, no plain skill file) contributes nothing to a
       // workspace's own tree under `workspaceHarness: "minimal"`: its sub-blocks
-      // target agent files (leader.md, implementer.md…) that the trim
+      // target agent files (orchestrator.md, implementer.md…) that the trim
       // deliberately does not write there — they land one directory up, at the
       // root (0018 R2, claude/index.ts `applySubBlockInject`). Checking this
       // plugin's invariants against a workspace's own render would therefore be
@@ -1978,7 +1978,7 @@ function pluginInventoryAssets(config: NavoriConfig): {
  * Per-engine harness inventory (Spec 0007 M8) for `doctor --json`, so a repo's
  * CI can assert Claude↔Codex parity after `render --all`. Only the disk engines
  * (claude, codex) carry a distinct agents/skills/scripts/hooks set; prose engines
- * are omitted. Claude includes the leader; Codex embodies it in the main thread.
+ * are omitted. Claude includes the orchestrator; Codex embodies it in the main thread.
  *
  * The result is the UNION across the repo root and every monorepo workspace: a
  * workspace may override the preset (→ different extras), and render materializes
@@ -2020,7 +2020,7 @@ export function buildEngineInventory(
     const pluginAssets = pluginInventoryAssets(loc.config);
     for (const engine of diskEngines) {
       const plan = resolveHarnessPlan(loc.config, coreAssets, preset, {
-        includeLeader: engine === "claude",
+        includeOrchestrator: engine === "claude",
       });
       const bucket = acc[engine]!;
       for (const a of plan.agents) bucket.agents.add(a.id);

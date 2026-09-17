@@ -148,7 +148,7 @@ export function planGlobalPlugin(
   const coreAssets = resolve(getCoreRoot(), "core-assets");
   // `preset` is null on purpose: a preset is a repo's choice, read from its
   // `navori.config.json` — the scope this plugin exists to serve has none.
-  const harness = resolveHarnessPlan(renderConfig, coreAssets, null, { includeLeader: true });
+  const harness = resolveHarnessPlan(renderConfig, coreAssets, null, { includeOrchestrator: true });
 
   const files: GlobalPluginFile[] = [
     { relPath: PLUGIN_MANIFEST_REL, content: manifest(version) },

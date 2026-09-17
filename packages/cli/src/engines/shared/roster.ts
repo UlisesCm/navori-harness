@@ -26,25 +26,23 @@ export interface RosterAgent {
 }
 
 export const ROSTER_AGENTS: ReadonlyArray<RosterAgent> = [
-  { id: "leader", harnessKey: "leader" },
+  { id: "orchestrator", harnessKey: "orchestrator" },
   { id: "implementer", harnessKey: "implementer" },
   { id: "reviewer", harnessKey: "reviewer", sandbox: "workspace-write" },
-  { id: "researcher", harnessKey: "researcher", sandbox: "workspace-write" },
-  { id: "ticket-audit", harnessKey: "ticketAudit", sandbox: "workspace-write" },
-  { id: "commit-pr-pilot", harnessKey: "commitPrPilot" },
-  { id: "explorer", harnessKey: "explorer", sandbox: "workspace-write" },
+  { id: "scout", harnessKey: "scout", sandbox: "workspace-write" },
   { id: "auditor", harnessKey: "auditor", sandbox: "workspace-write" },
+  { id: "publisher", harnessKey: "publisher" },
 ];
 
 /**
  * Agent ids that appear in `agentsIndex.when` (the i18n "when to reach for
- * each agent" table) — every roster agent except `leader`, whose casing is
- * described by the embodied "## Role: orchestrator" prose instead of a
+ * each agent" table) — every roster agent except `orchestrator`, whose casing
+ * is described by the embodied "## Role: orchestrator" prose instead of a
  * subagent entry a session would `Agent(...)` launch.
  */
 export const ROSTER_INDEXED_AGENT_IDS: ReadonlyArray<string> = ROSTER_AGENTS.map(
   (agent) => agent.id,
-).filter((id) => id !== "leader");
+).filter((id) => id !== "orchestrator");
 
 export const ROSTER_CORE_SKILLS: ReadonlyArray<string> = [
   "verify-before-done",
@@ -90,14 +88,46 @@ export interface Retired {
 }
 
 /**
- * Agents navori USED to ship and no longer does. Empty today: none of
- * `ROSTER_AGENTS`'s eight ids has been renamed off the active catalog yet —
- * that lands with the batch that actually stops rendering it (spec 0026
- * lote 2), in the SAME commit, so an id is never listed here while
- * `ROSTER_AGENTS` still renders it (that window would make `render --apply`
- * delete the file it had just written).
+ * Agents navori USED to ship and no longer does (spec 0026 T11, R38/R39):
+ * `leader` → `orchestrator`, `explorer`/`researcher` → `scout`, `ticket-audit`
+ * → `auditor`, `commit-pr-pilot` → `publisher`. Seeded in the SAME commit that
+ * stops `ROSTER_AGENTS` from rendering these five ids — the invariant
+ * `RETIRED_AGENTS` documented while it shipped empty (spec 0026 T8): an entry
+ * never appears here while `ROSTER_AGENTS` still renders it, or `render
+ * --apply` would delete the file it had just written.
  */
-export const RETIRED_AGENTS: ReadonlyArray<Retired & { readonly harnessKey: string }> = [];
+export const RETIRED_AGENTS: ReadonlyArray<Retired & { readonly harnessKey: string }> = [
+  {
+    id: "leader",
+    successor: "orchestrator",
+    harnessKey: "orchestrator",
+    markerIdByAdapter: { claude: "leader-base", codex: "leader-codex-base" },
+  },
+  {
+    id: "explorer",
+    successor: "scout",
+    harnessKey: "scout",
+    markerIdByAdapter: { claude: "explorer-base", codex: "explorer-codex-base" },
+  },
+  {
+    id: "researcher",
+    successor: "scout",
+    harnessKey: "scout",
+    markerIdByAdapter: { claude: "researcher-base", codex: "researcher-codex-base" },
+  },
+  {
+    id: "ticket-audit",
+    successor: "auditor",
+    harnessKey: "auditor",
+    markerIdByAdapter: { claude: "ticket-audit-base", codex: "ticket-audit-codex-base" },
+  },
+  {
+    id: "commit-pr-pilot",
+    successor: "publisher",
+    harnessKey: "publisher",
+    markerIdByAdapter: { claude: "commit-pr-pilot-base", codex: "commit-pr-pilot-codex-base" },
+  },
+];
 
 /**
  * Skills navori USED to ship and no longer does. Append-only (#702): an entry

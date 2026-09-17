@@ -964,7 +964,7 @@ interface BlocksCmdStrings {
   agentsIndex: {
     heading: string;
     intro: string;
-    /** "When to reach for each agent", keyed by CORE_AGENTS id (leader excluded). */
+    /** "When to reach for each agent", keyed by CORE_AGENTS id (orchestrator excluded). */
     when: Record<string, string>;
   };
   monorepo: {
@@ -2244,16 +2244,12 @@ const CMD_ES: CmdStrings = {
           "Escribe código y tests para UNA tarea bien acotada. Úsalo proactivamente cuando el cambio toque 4+ archivos o 2+ no triviales.",
         reviewer:
           "Valida un diff (APPROVED / CHANGES_REQUESTED). Úsalo tras cada implementer y antes de cualquier commit, push o PR con código.",
-        researcher:
-          "Responde una pregunta concreta del repo con evidencia citada. Úsalo cuando responderla exija leer 4+ archivos.",
-        explorer:
-          "Mapea un área o módulo amplio. Úsalo cuando no sepas dónde vive algo y tendrías que abrir 4+ archivos.",
-        "ticket-audit":
-          "Analiza a fondo un ticket complejo. Úsalo cuando toque un área crítica, cruce 3+ capas o no tenga ubicación clara.",
-        "commit-pr-pilot":
-          "Escribe commits Conventional y abre el PR. Úsalo tras la aprobación del reviewer.",
+        scout:
+          "Reconocimiento de solo lectura: mapea un área o responde una pregunta acotada con evidencia citada. Úsalo para sub-preguntas en paralelo o lecturas que conviene aislar del contexto de quien coordina.",
         auditor:
-          "Auditoría profunda de solo lectura (seguridad, rendimiento, SOLID) → reporte + plan en disco. Úsalo cuando pidan auditar un área, o antes de refactorizarla sin ticket.",
+          "Auditoría profunda de solo lectura: área (seguridad, rendimiento, SOLID), ticket complejo o challenge de una propuesta → reporte con evidencia, sin veredicto en el challenge. Úsalo para auditar un área, un ticket que toque zona crítica, cruce 3+ capas o no tenga ubicación clara, o antes de refactorizar sin ticket.",
+        publisher:
+          "Escribe commits Conventional y abre el PR. Úsalo tras la aprobación del reviewer.",
       },
     },
     monorepo: {
@@ -3388,16 +3384,12 @@ const CMD_EN: CmdStrings = {
           "Writes code and tests for ONE well-scoped task. Use proactively when a change touches 4+ files or 2+ non-trivial ones.",
         reviewer:
           "Validates a diff (APPROVED / CHANGES_REQUESTED). Use after every implementer run and before any commit, push or PR.",
-        researcher:
-          "Answers a concrete question about the repo with cited evidence. Use when answering would take reading 4+ files.",
-        explorer:
-          "Maps a broad area or module. Use when you don't know where something lives and would otherwise open 4+ files.",
-        "ticket-audit":
-          "Deeply analyzes a complex ticket. Use when it hits a critical area, crosses 3+ layers or has no clear location.",
-        "commit-pr-pilot":
-          "Writes Conventional commits and opens the PR. Use after the reviewer approves.",
+        scout:
+          "Read-only reconnaissance: maps an area or answers a scoped question with cited evidence. Use for parallel sub-questions or reads worth isolating from the coordinator's context.",
         auditor:
-          "Deep read-only audit (security, performance, SOLID) → report + prioritized plan on disk. Use when asked to audit an area, or before refactoring one with no ticket.",
+          "Deep read-only audit: an area (security, performance, SOLID), a complex ticket, or a challenge of a proposed solution → evidence-backed report, no verdict on a challenge. Use to audit an area, a ticket that hits a critical area, crosses 3+ layers or has no clear location, or before refactoring one with no ticket.",
+        publisher:
+          "Writes Conventional commits and opens the PR. Use after the reviewer approves.",
       },
     },
     monorepo: {

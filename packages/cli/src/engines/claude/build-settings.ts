@@ -91,14 +91,15 @@ export function buildClaudeSettings(
   });
   let settings = JSON.parse(baseInterp) as Record<string, unknown>;
 
-  // The leader role is embodied by the main agent (not spawned as a subagent), so
-  // its effort tier can't take effect via agent frontmatter — it drives the
-  // session-wide default through settings.json `effortLevel`. Each subagent then
-  // overrides it with its own frontmatter `effort`. `max` is valid per-agent but
-  // NOT accepted in settings.json, so it's skipped here (session default stands).
-  const leaderEffort = config.effort?.leader;
-  if (leaderEffort && leaderEffort !== "max") {
-    settings = deepMerge(settings, { effortLevel: leaderEffort });
+  // The orchestrator role is embodied by the main agent (not spawned as a
+  // subagent), so its effort tier can't take effect via agent frontmatter — it
+  // drives the session-wide default through settings.json `effortLevel`. Each
+  // subagent then overrides it with its own frontmatter `effort`. `max` is
+  // valid per-agent but NOT accepted in settings.json, so it's skipped here
+  // (session default stands).
+  const orchestratorEffort = config.effort?.orchestrator;
+  if (orchestratorEffort && orchestratorEffort !== "max") {
+    settings = deepMerge(settings, { effortLevel: orchestratorEffort });
   }
 
   // Defensive guard hook — always registered (unlike the quality gate, it has
@@ -145,9 +146,12 @@ export function buildClaudeSettings(
     },
   });
 
-  // The PR-routing hook delegates to commit-pr-pilot, so it must disappear
+  // The PR-routing hook delegates to publisher, so it must disappear
   // with that configurable agent rather than leave a dead route (#769).
-  if (config.harness?.commitPrPilot !== false) {
+  // Hook id/dest rename (pr-pilot-confirm -> pr-publisher-confirm) is spec
+  // 0026 T13's scope; this is only the harness-key token fix T11 needs to
+  // compile against the renamed schema.
+  if (config.harness?.publisher !== false) {
     settings = deepMerge(settings, {
       hooks: {
         PreToolUse: [

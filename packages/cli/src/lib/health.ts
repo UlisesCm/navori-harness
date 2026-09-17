@@ -981,7 +981,7 @@ function scanDuplicateMarkersAt(
 /**
  * Scan `.claude/agents/` for legacy agent files (from a hand-rolled harness that
  * predates navori) whose canonical navori replacement is active — e.g. a repo
- * shipping `sdd-leader.md` while navori manages `leader.md`. navori never deletes
+ * shipping `sdd-leader.md` while navori manages `orchestrator.md`. navori never deletes
  * them (they carry no navori marker, so they're the user's content); it surfaces
  * them so the user can archive the redundant ones instead of ending up with two
  * parallel rosters. See legacy-agents.ts.

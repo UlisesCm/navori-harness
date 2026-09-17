@@ -232,11 +232,11 @@ describe("buildFullProject", () => {
 describe("RECOMMENDED_MODELS", () => {
   it("keeps judgement roles on opus and drops mechanical roles to cheaper tiers", () => {
     // Orchestration/review keep the top tier; code/synthesis → sonnet; read-only → haiku.
-    expect(RECOMMENDED_MODELS.leader).toBe("opus");
+    expect(RECOMMENDED_MODELS.orchestrator).toBe("opus");
     expect(RECOMMENDED_MODELS.implementer).toBe("sonnet");
     expect(RECOMMENDED_MODELS.reviewer).toBe("sonnet");
-    expect(RECOMMENDED_MODELS.explorer).toBe("haiku");
-    expect(RECOMMENDED_MODELS.commitPrPilot).toBe("haiku");
+    expect(RECOMMENDED_MODELS.scout).toBe("sonnet");
+    expect(RECOMMENDED_MODELS.publisher).toBe("haiku");
   });
 
   // Covers: R42
@@ -254,10 +254,10 @@ describe("RECOMMENDED_MODELS", () => {
 
 describe("RECOMMENDED_EFFORT", () => {
   it("keeps the orchestrator at xhigh and drops mechanical agents to low", () => {
-    expect(RECOMMENDED_EFFORT.leader).toBe("xhigh");
+    expect(RECOMMENDED_EFFORT.orchestrator).toBe("xhigh");
     expect(RECOMMENDED_EFFORT.implementer).toBe("medium");
-    expect(RECOMMENDED_EFFORT.explorer).toBe("low");
-    expect(RECOMMENDED_EFFORT.commitPrPilot).toBe("low");
+    expect(RECOMMENDED_EFFORT.scout).toBe("medium");
+    expect(RECOMMENDED_EFFORT.publisher).toBe("low");
   });
 
   it("covers the same agent roles as the model profile", () => {

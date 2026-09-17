@@ -107,11 +107,11 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
     ownsAgentsMd: true,
     unsupportedSurfaces: [
       {
-        surface: "leader-agent",
+        surface: "orchestrator-agent",
         reason:
-          "The Codex engine deliberately emits no spawnable leader agent — the main " +
-          "Codex thread embodies the leader role instead (engines/__tests__/engine-parity.test.ts, " +
-          "AGENT_KNOWN_DIFFS; engines/shared/harness-plan.ts, resolveHarnessPlan's includeLeader).",
+          "The Codex engine deliberately emits no spawnable orchestrator agent — the main " +
+          "Codex thread embodies the orchestrator role instead (engines/__tests__/engine-parity.test.ts, " +
+          "AGENT_KNOWN_DIFFS; engines/shared/harness-plan.ts, resolveHarnessPlan's includeOrchestrator).",
       },
       {
         surface: "engine-scripts",

@@ -9,7 +9,7 @@ const cfg = (harness?: Record<string, boolean>) =>
 describe("detectLegacyAgents", () => {
   it("maps a known legacy file to its canonical agent", () => {
     expect(detectLegacyAgents(["sdd-leader.md"], cfg())).toEqual([
-      { legacyName: "sdd-leader", canonical: "leader" },
+      { legacyName: "sdd-leader", canonical: "orchestrator" },
     ]);
     expect(detectLegacyAgents(["deep-auditor.md"], cfg())).toEqual([
       { legacyName: "deep-auditor", canonical: "auditor" },
@@ -28,18 +28,18 @@ describe("detectLegacyAgents", () => {
       cfg(),
     );
     expect(found.map((l) => l.canonical)).toEqual([
-      "leader",
+      "orchestrator",
       "implementer",
       "reviewer",
-      "explorer",
+      "scout",
       "auditor",
     ]);
   });
 
   it("ignores canonical/unknown agent files (not legacy)", () => {
-    expect(detectLegacyAgents(["leader.md", "auditor.md", "my-custom-agent.md"], cfg())).toEqual(
-      [],
-    );
+    expect(
+      detectLegacyAgents(["orchestrator.md", "auditor.md", "my-custom-agent.md"], cfg()),
+    ).toEqual([]);
   });
 
   it("accepts filenames with or without the .md extension", () => {
@@ -49,15 +49,15 @@ describe("detectLegacyAgents", () => {
   });
 
   it("does NOT flag a legacy file when its canonical is disabled in harness", () => {
-    // Canonical `auditor` off → deep-auditor is not a redundant duplicate.
+    // Canonical `auditor` off → deep-auditor and sdd-ticket-audit are not
+    // redundant duplicates (both alias into `auditor` post spec-0026 T11).
     expect(detectLegacyAgents(["deep-auditor.md"], cfg({ auditor: false }))).toEqual([]);
-    // ticket-audit uses a camelCase harness key.
-    expect(detectLegacyAgents(["sdd-ticket-audit.md"], cfg({ ticketAudit: false }))).toEqual([]);
+    expect(detectLegacyAgents(["sdd-ticket-audit.md"], cfg({ auditor: false }))).toEqual([]);
   });
 
   it("flags when harness is present but the canonical flag is undefined (defaults on)", () => {
     expect(detectLegacyAgents(["sdd-leader.md"], cfg({ implementer: true }))).toEqual([
-      { legacyName: "sdd-leader", canonical: "leader" },
+      { legacyName: "sdd-leader", canonical: "orchestrator" },
     ]);
   });
 

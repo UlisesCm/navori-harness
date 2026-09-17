@@ -28,24 +28,20 @@ describe("scanMissingModelProfile (#817)", () => {
   it("reports nothing when every enabled agent has both tiers set", () => {
     const cfg = config({
       models: {
-        leader: "opus",
+        orchestrator: "opus",
         implementer: "sonnet",
         reviewer: "sonnet",
-        researcher: "sonnet",
-        ticketAudit: "sonnet",
-        commitPrPilot: "haiku",
-        explorer: "haiku",
+        scout: "sonnet",
         auditor: "sonnet",
+        publisher: "haiku",
       },
       effort: {
-        leader: "xhigh",
+        orchestrator: "xhigh",
         implementer: "medium",
         reviewer: "medium",
-        researcher: "medium",
-        ticketAudit: "medium",
-        commitPrPilot: "low",
-        explorer: "low",
+        scout: "medium",
         auditor: "medium",
+        publisher: "low",
       },
     });
     expect(scanMissingModelProfile(cfg)).toEqual([]);
@@ -54,31 +50,22 @@ describe("scanMissingModelProfile (#817)", () => {
   it("flags every enabled agent as missing both tiers when neither is configured", () => {
     const issues = scanMissingModelProfile(config());
     expect(issues).toContainEqual({
-      agent: "researcher",
-      harnessKey: "researcher",
+      agent: "scout",
+      harnessKey: "scout",
       missing: ["model", "effort"],
     });
-    // The 8 core agents (leader included — it's rendered for Claude).
+    // The 6 core agents (orchestrator included — it's rendered for Claude).
     expect(issues.map((i) => i.agent).sort()).toEqual(
-      [
-        "auditor",
-        "commit-pr-pilot",
-        "explorer",
-        "implementer",
-        "leader",
-        "researcher",
-        "reviewer",
-        "ticket-audit",
-      ].sort(),
+      ["auditor", "implementer", "orchestrator", "publisher", "reviewer", "scout"].sort(),
     );
   });
 
   it("flags only the missing half when one tier is set and the other isn't", () => {
-    const cfg = config({ models: { researcher: "sonnet" } });
-    const researcher = scanMissingModelProfile(cfg).find((i) => i.agent === "researcher");
-    expect(researcher).toEqual({
-      agent: "researcher",
-      harnessKey: "researcher",
+    const cfg = config({ models: { scout: "sonnet" } });
+    const scout = scanMissingModelProfile(cfg).find((i) => i.agent === "scout");
+    expect(scout).toEqual({
+      agent: "scout",
+      harnessKey: "scout",
       missing: ["effort"],
     });
   });

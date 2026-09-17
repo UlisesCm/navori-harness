@@ -493,7 +493,7 @@ describe("config key diagnostics (#779)", () => {
         engines: ["claude"],
         preset: "custom",
         harnes: {},
-        harness: { "ticket-audit": false },
+        "gitignore-harness": "off",
         project: {
           pluginDefinedPrompt: "allowed",
           foreignHarness: { acknowleged: ["agent:global:other"] },
@@ -502,7 +502,7 @@ describe("config key diagnostics (#779)", () => {
       }),
     ).toEqual([
       { path: "harnes", suggestion: "harness" },
-      { path: "harness.ticket-audit", suggestion: "ticketAudit" },
+      { path: "gitignore-harness", suggestion: "gitignoreHarness" },
       { path: "plugins.customPlugin.enabeld", suggestion: "enabled" },
       { path: "project.foreignHarness.acknowleged", suggestion: "acknowledged" },
     ]);
@@ -524,14 +524,14 @@ describe("config key diagnostics (#779)", () => {
           engines: ["claude"],
           preset: "custom",
           futureFeature: { enabled: true },
-          harness: { "ticket-audit": false },
+          "gitignore-harness": "off",
         }),
       );
 
-      expect(readConfig(path).harness?.ticketAudit).toBe(true);
+      expect(readConfig(path).gitignoreHarness).toBe("off");
       expect(warnings.join("")).toContain("futureFeature");
-      expect(warnings.join("")).toContain("harness.ticket-audit");
-      expect(warnings.join("")).toContain("harness.ticketAudit");
+      expect(warnings.join("")).toContain("gitignore-harness");
+      expect(warnings.join("")).toContain("gitignoreHarness");
     } finally {
       stderr.mockRestore();
       rmSync(dir, { recursive: true });
@@ -592,13 +592,17 @@ describe("retired agent keys fail with replacement and conflicting values", () =
     { key: "explorer", replacement: "scout" },
   ];
 
-  it("production registry is empty until the roster rename lands (spec 0026 T11)", () => {
-    // Anti-false-green: with the real registry empty, none of the assertions
-    // below exercise a single line of `checkRetiredConfigKeys` unless a test
-    // seeds its own list — see `RETIRED_CONFIG_KEYS`'s JSDoc for why it must
-    // stay empty in production today (every existing `navori.config.json`
-    // still uses `harness.leader`, which the schema still accepts).
-    expect(RETIRED_CONFIG_KEYS).toEqual([]);
+  it("production registry names all five retired agent keys (spec 0026 T11)", () => {
+    // The roster rename landed in the SAME commit that removed the old keys
+    // from the schema — `RETIRED_CONFIG_KEYS` is populated from here on, not
+    // empty like it shipped in T9 (before the schema accepted the replacements).
+    expect([...RETIRED_CONFIG_KEYS].sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: "commitPrPilot", replacement: "publisher" },
+      { key: "explorer", replacement: "scout" },
+      { key: "leader", replacement: "orchestrator" },
+      { key: "researcher", replacement: "scout" },
+      { key: "ticketAudit", replacement: "auditor" },
+    ]);
   });
 
   it("names the single retired key and its replacement", () => {
@@ -635,7 +639,7 @@ describe("retired agent keys fail with replacement and conflicting values", () =
     expect(() => checkRetiredConfigKeys({ harness: { implementer: true } }, SEED)).not.toThrow();
   });
 
-  it("readConfig rejects a config carrying a seeded retired key", () => {
+  it("readConfig rejects a config carrying a real retired key (spec 0026 T11)", () => {
     const dir = makeTmpDir();
     const path = join(dir, "navori.config.json");
     try {
@@ -649,10 +653,10 @@ describe("retired agent keys fail with replacement and conflicting values", () =
         }),
         "utf-8",
       );
-      // readConfig always calls the exported default (empty) registry — this
-      // proves the wiring lets a config with no retired key through, the
-      // shape every one of the 28 existing repos relies on today.
-      expect(() => readConfig(path)).not.toThrow(ConfigError);
+      // readConfig always calls the exported default (production) registry —
+      // this proves the wiring rejects the pre-rename `harness.leader` shape
+      // every one of the 28 existing repos carried before spec 0026 T11.
+      expect(() => readConfig(path)).toThrowError(ConfigError);
     } finally {
       rmSync(dir, { recursive: true });
     }

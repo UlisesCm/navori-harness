@@ -159,25 +159,21 @@ const SddSchema = z.object({
 });
 
 const HarnessSchema = z.object({
-  leader: z.boolean().default(true),
+  orchestrator: z.boolean().default(true),
   implementer: z.boolean().default(true),
   reviewer: z.boolean().default(true),
-  researcher: z.boolean().default(true),
-  ticketAudit: z.boolean().default(true),
-  commitPrPilot: z.boolean().default(true),
-  explorer: z.boolean().default(true),
+  scout: z.boolean().default(true),
   auditor: z.boolean().default(true),
+  publisher: z.boolean().default(true),
 });
 
 const ModelsSchema = z.object({
-  leader: z.enum(MODELS).optional(),
+  orchestrator: z.enum(MODELS).optional(),
   implementer: z.enum(MODELS).optional(),
   reviewer: z.enum(MODELS).optional(),
-  researcher: z.enum(MODELS).optional(),
-  ticketAudit: z.enum(MODELS).optional(),
-  commitPrPilot: z.enum(MODELS).optional(),
-  explorer: z.enum(MODELS).optional(),
+  scout: z.enum(MODELS).optional(),
   auditor: z.enum(MODELS).optional(),
+  publisher: z.enum(MODELS).optional(),
   // Codex maps each Claude tier to a concrete model id. Override the built-in
   // gpt-5.6-* map here when OpenAI renames faster than a navori release ships
   // (Spec 0007 M3). A missing tier falls back to the built-in default.
@@ -193,20 +189,18 @@ const ModelsSchema = z.object({
 // Reasoning-effort tier per agent, emitted as the `effort:` frontmatter field
 // Claude Code reads on each subagent (overrides the session effort). Lower effort
 // means fewer/consolidated tool calls, less preamble and terser output — so
-// mechanical agents run cheaper. `leader`'s value also seeds `settings.json`'s
-// `effortLevel` (the main-loop/orchestrator default) since the leader role is
+// mechanical agents run cheaper. `orchestrator`'s value also seeds `settings.json`'s
+// `effortLevel` (the main-loop/orchestrator default) since that role is
 // embodied by the main agent, not spawned. `max` is valid per-agent but NOT in
 // settings.json — buildClaudeSettings skips writing effortLevel when it's `max`.
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 const EffortSchema = z.object({
-  leader: z.enum(EFFORTS).optional(),
+  orchestrator: z.enum(EFFORTS).optional(),
   implementer: z.enum(EFFORTS).optional(),
   reviewer: z.enum(EFFORTS).optional(),
-  researcher: z.enum(EFFORTS).optional(),
-  ticketAudit: z.enum(EFFORTS).optional(),
-  commitPrPilot: z.enum(EFFORTS).optional(),
-  explorer: z.enum(EFFORTS).optional(),
+  scout: z.enum(EFFORTS).optional(),
   auditor: z.enum(EFFORTS).optional(),
+  publisher: z.enum(EFFORTS).optional(),
 });
 
 const PluginEntrySchema = z.object({

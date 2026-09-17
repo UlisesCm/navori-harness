@@ -15,14 +15,12 @@ import { safeRelPath } from "./zod-helpers.ts";
  * hand-copied set living inside the test file itself.
  */
 export const AGENT_ROLES = [
-  "leader",
+  "orchestrator",
   "implementer",
   "reviewer",
-  "researcher",
-  "ticket-audit",
-  "commit-pr-pilot",
-  "explorer",
+  "scout",
   "auditor",
+  "publisher",
 ] as const;
 
 export type AgentRole = (typeof AGENT_ROLES)[number];
@@ -121,7 +119,7 @@ const SkillEntrySchema = z.object({
   recommendedAgent: z.enum(AGENT_ROLES).optional(),
   /** If set, inject this skill content as a sub-block (managed marker)
    * inside the target file instead of writing a standalone skill. Used
-   * when a plugin extends an agent (e.g. engram → leader.md). */
+   * when a plugin extends an agent (e.g. engram → orchestrator.md). */
   injectInto: safeRelPath.optional(),
 });
 

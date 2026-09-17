@@ -41,7 +41,7 @@ describe("roster-parity", () => {
     ).not.toThrow();
   });
 
-  it("every active id list matches its canonical catalog", () => {
+  it("core roster is the six agents — every active id list matches its canonical catalog", () => {
     assertRosterIds(
       "harness-assets.CORE_AGENTS",
       rosterIds,

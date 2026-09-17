@@ -81,14 +81,12 @@ export function buildRecommendedProject(
  * matters (the orchestrator and reviewer keep their tier).
  */
 export const RECOMMENDED_MODELS = {
-  leader: "opus",
+  orchestrator: "opus",
   implementer: "sonnet",
   reviewer: "sonnet",
-  researcher: "sonnet",
-  ticketAudit: "sonnet",
+  scout: "sonnet",
   auditor: "sonnet",
-  explorer: "haiku",
-  commitPrPilot: "haiku",
+  publisher: "haiku",
 } as const;
 
 /**
@@ -97,18 +95,16 @@ export const RECOMMENDED_MODELS = {
  * subagent over-deliberates on mechanical work. Judgement roles (the orchestrator)
  * keep `xhigh`; code/synthesis roles drop to `medium` (the quality/cost sweet spot);
  * read-only/mechanical roles drop to `low` (fewest, most-consolidated tool calls,
- * terse output). `leader`'s value also drives `settings.json`'s `effortLevel` so the
+ * terse output). `orchestrator`'s value also drives `settings.json`'s `effortLevel` so the
  * main-loop orchestrator actually runs at that tier — see buildClaudeSettings.
  */
 export const RECOMMENDED_EFFORT = {
-  leader: "xhigh",
+  orchestrator: "xhigh",
   implementer: "medium",
   reviewer: "medium",
-  researcher: "medium",
-  ticketAudit: "medium",
+  scout: "medium",
   auditor: "medium",
-  explorer: "low",
-  commitPrPilot: "low",
+  publisher: "low",
 } as const;
 
 /**

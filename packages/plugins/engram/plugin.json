@@ -31,7 +31,7 @@
     {
       "id": "engram-leader-extension",
       "file": "skills/engram-leader.md",
-      "recommendedAgent": "leader",
+      "recommendedAgent": "orchestrator",
       "injectInto": ".claude/agents/leader.md"
     },
     {
@@ -49,7 +49,7 @@
     {
       "id": "engram-ticket-audit-extension",
       "file": "skills/engram-subagent.md",
-      "recommendedAgent": "ticket-audit",
+      "recommendedAgent": "auditor",
       "injectInto": ".claude/agents/ticket-audit.md"
     },
     {

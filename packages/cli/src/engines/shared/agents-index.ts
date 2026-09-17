@@ -4,7 +4,7 @@ import { tc, type Lang } from "../../lib/i18n.ts";
  * Assemble the "## Available agents" managed block from localized prose + the
  * per-engine agent catalog. Single source for the heading/intro so Claude and
  * Codex never re-hardcode it (#289): the Claude engine feeds rows built from
- * `blocks.agentsIndex.when` (the leader excluded), Codex feeds the agent
+ * `blocks.agentsIndex.when` (the orchestrator excluded), Codex feeds the agent
  * descriptions it collected while placing each `.codex/agents/*.toml`.
  *
  * The row format (`- \`id\` — description`) is identical across engines, so it

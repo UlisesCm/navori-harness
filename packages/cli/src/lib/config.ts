@@ -27,30 +27,34 @@ type ConfigObjectRule = {
  * second hand-copied set living inside the test file itself.
  */
 export const AGENT_ROLE_KEYS = [
-  "leader",
+  "orchestrator",
   "implementer",
   "reviewer",
-  "researcher",
-  "ticketAudit",
-  "commitPrPilot",
-  "explorer",
+  "scout",
   "auditor",
+  "publisher",
 ] as const;
 
 /**
  * A `harness`/`models`/`effort` key navori used to accept and no longer does,
- * with the key that replaces it (spec 0026 T9, R40/R42).
+ * with the key that replaces it (spec 0026 T9/T11, R40/R42).
  *
- * Empty today: none of `AGENT_ROLE_KEYS` has been renamed off the schema yet
- * — populating an entry here before the schema itself accepts the
- * replacement key (spec 0026 T11) would make EVERY existing
- * `navori.config.json` in the park fail `readConfig` for a rename that
- * has not landed. Same invariant `RETIRED_AGENTS` documents
- * (`engines/shared/roster.ts`): an entry lands in the SAME commit that stops
- * accepting the old key.
+ * Populated in the SAME commit that removes the old keys from the schema
+ * (spec 0026 T11): `leader` → `orchestrator`, `researcher`/`explorer` →
+ * `scout` (both map to the same replacement — `checkRetiredConfigKeys`
+ * reports both values when they differ), `ticketAudit` → `auditor`,
+ * `commitPrPilot` → `publisher`. Same invariant `RETIRED_AGENTS` documents
+ * (`engines/shared/roster.ts`): empty until the commit that stops accepting
+ * the old key, never before.
  */
 export type RetiredConfigKey = { readonly key: string; readonly replacement: string };
-export const RETIRED_CONFIG_KEYS: ReadonlyArray<RetiredConfigKey> = [];
+export const RETIRED_CONFIG_KEYS: ReadonlyArray<RetiredConfigKey> = [
+  { key: "leader", replacement: "orchestrator" },
+  { key: "researcher", replacement: "scout" },
+  { key: "explorer", replacement: "scout" },
+  { key: "ticketAudit", replacement: "auditor" },
+  { key: "commitPrPilot", replacement: "publisher" },
+];
 
 /** The three config sections that share `AGENT_ROLE_KEYS`' shape (R40). */
 const CONFIG_ROLE_SECTIONS = ["harness", "models", "effort"] as const;
@@ -88,11 +92,21 @@ export function checkRetiredConfigKeys(
 
   const lines = [...byReplacement.entries()].map(([replacementPath, entries]) => {
     const keys = entries.map((e) => e.path).join(" and ");
-    if (entries.length === 1) return `${keys} is retired — replace it with ${replacementPath}`;
+    // `effort.orchestrator` doubles as the session-wide `effortLevel` default
+    // (build-settings.ts, spec 0026 T11) — the embodied role has no
+    // subagent frontmatter to carry it, so a user fixing this key needs to
+    // know it drives more than its own agent's tier.
+    const note =
+      replacementPath === "effort.orchestrator"
+        ? " (effort.orchestrator also sets the session's default effort level)"
+        : "";
+    if (entries.length === 1) {
+      return `${keys} is retired — replace it with ${replacementPath}${note}`;
+    }
     const values = entries.map((e) => `${e.path}=${JSON.stringify(e.value)}`).join(", ");
     return (
       `${keys} are retired and both map to ${replacementPath} — they carry different values ` +
-      `(${values}); choose one and set ${replacementPath} yourself, it is not inferred`
+      `(${values}); choose one and set ${replacementPath} yourself, it is not inferred${note}`
     );
   });
   throw new ConfigError(`Retired config keys: ${lines.join("; ")}`);
