@@ -39,11 +39,11 @@ This is not a replacement ladder for routing: relationships, definitions and imp
 3. Dedup hits before reading.
 4. Open only the span that confirms the hypothesis.
 
-## Fallback: native search
+## Both lanes defer to the enabled provider
 
-Native `Grep`/`Glob` are pre-approved and read-only — the default lane for a literal token (name, import, config key, error string) or a filename/path pattern. Shell `rg`/`find` are for what those tools don't cover (git history, FS metadata like `-size`/`-mtime`); `find` isn't pre-approved because `-exec`/`-delete` make it non-read-only, so the prompt there is a safety net, not a nuisance.
+Textual and structural discovery both route through Code discovery routing's enabled provider first: the textual lane resolves through tgrep when the plugin is enabled, the structural lane through CodeGraph when its plugin is enabled. Native `Grep`/`Glob` are pre-approved, read-only, and only the fallback for the textual lane and for filename/path patterns; manual reading is the fallback for the structural lane. Both fallbacks apply only when no provider is enabled or available — never as the default lane ahead of it. `find` is for what none of those cover (FS metadata like `-size`/`-mtime`) and isn't pre-approved because `-exec`/`-delete` make it non-read-only, so the prompt there is a safety net, not a nuisance; commit history goes to `git log`/`git blame`, never a content-search shell verb.
 
-**Silent skipping**: an unavailable fallback (no structural provider, no `ast-grep`) is not zero matches. Report the outage instead of folding it into "nothing found" — every optional piece here already states its own fallback (native search covers the absence of a structural provider; targeted `Grep` covers the absence of `ast-grep`), so a new one should too.
+**Silent skipping**: an unavailable fallback (no textual or structural provider, no `ast-grep`) is not zero matches. Report the outage instead of folding it into "nothing found" — every optional piece here already states its own fallback (native search covers the absence of a provider; targeted `Grep` and manual reading cover the absence of `ast-grep`), so a new one should too.
 
 ## ast-grep for AST shapes
 

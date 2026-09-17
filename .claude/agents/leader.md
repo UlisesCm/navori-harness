@@ -1,7 +1,7 @@
 ---
 name: leader
 description: Do NOT invoke as a subagent, never and under no condition. Orchestration playbook that the main agent EMBODIES (the "## Role: orchestrator" block, delivered to the session by the SessionStart hook); open it as a depth reference instead. Delegating it serializes the work and kills parallelism.
-tools: Read, Glob, Grep, Bash, Agent, mcp__engram__*
+tools: Read, Glob, Grep, Bash, Agent, mcp__engram__*, mcp__codegraph__*
 model: sonnet
 effort: high
 ---
@@ -201,6 +201,12 @@ CODEX_HOME=$(pwd)/.codex codex exec --sandbox read-only "revisa el diff origin/m
 
 Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user asks for a cross-check — not on every trivial diff.
 <!-- /navori:managed id="codex-cross-review" -->
+
+<!-- navori:managed id="codegraph-access-v2-leader" hash="41084677" version="0.8.7" source="@navori/plugin-codegraph" -->
+### Structural discovery access
+
+Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.
+<!-- /navori:managed id="codegraph-access-v2-leader" -->
 
 ## Project rules
 

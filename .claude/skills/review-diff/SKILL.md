@@ -10,7 +10,7 @@ metadata:
   maxWordsComposed: 1450
 ---
 
-<!-- navori:managed id="review-diff-base" hash="34e06bed" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="review-diff-base" hash="bb506a65" version="0.8.7" source="@navori/core" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
@@ -34,7 +34,7 @@ If it doesn't reach MEDIUM, don't report it. No "nitpick" or "consider also". (M
 ## 0. Pre-pass (before reading line by line)
 
 - Does the diff touch infra/config (`tsconfig*`, lint/build config, `.env*`, CI, `settings.json`)? Flag → validate the change is intentional.
-- Does it delete files? Verify no residual imports remain (`grep -rn "<file>"`).
+- Does it delete files? Verify no residual imports remain via textual discovery.
 - Does it mix unrelated changes (feature + refactor + format-only)? → MEDIUM, ask to split.
 
 ## 1. Types and contracts

@@ -54,7 +54,7 @@ Every finding carries **root cause + `file:line` + suggested fix**.
 Even if the user asks to focus "only on X", you **always** run both checklists over the scope. If the focus wasn't security/performance, their findings go in as a **NOTE** (root cause + 1 line); if they are **CRITICAL**, they escalate to the CRITICAL section anyway. The report **always** includes the Security and Performance sub-sections (see the skeleton below), even if they say "no findings in this scope".
 
 **SECURITY axis (generic — adapt to the stack in the user-section):**
-- Hardcoded secrets or secrets in logs: grep `Bearer`, `sk_`, `api_key`, `secret`, `password=`, a committed `.env`.
+- Hardcoded secrets or secrets in logs: textual discovery (Code discovery routing) for `Bearer`, `sk_`, `api_key`, `secret`, `password=`, a committed `.env`.
 - AuthZ/RBAC: missing role/permission check on the server; client-only guard with no server-side backing.
 - Injection: unparameterized SQL/NoSQL, `eval`/`new Function`, `JSON.parse` without `try`, regex with backtracking (ReDoS).
 - XSS: `dangerouslySetInnerHTML`/`innerHTML` with unsanitized HTML.

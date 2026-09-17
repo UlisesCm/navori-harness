@@ -48,8 +48,8 @@ If you find a recent audit for the same ticket, read it first. Don't re-audit if
 1. **Ground**: `CLAUDE.md` (project rules + the orchestrator's role) — already in your context when your host injects it; read it from disk ONLY if your host did not inject it.
 2. **Curate repo context** for your analysis, applying Code discovery routing (project instructions) before gathering evidence — literal keywords/endpoints go to textual search, relationships and impact go to the enabled structural provider:
    - Literal text of the ticket (don't paraphrase).
-   - Grep for the ticket's keywords → candidate files.
-   - If the ticket mentions an endpoint, grep for the URL.
+   - Textual discovery for the ticket's keywords → candidate files.
+   - If the ticket mentions an endpoint, textual discovery for the URL.
    - List of relevant services / modules, confirmed through the structural provider when the question is relational — a keyword occurrence count alone doesn't demonstrate structural impact.
 3. **Analyze** and produce the audit in `.claude/progress/audit_ticket_<ID>.md`. Hard analysis rules:
    - **Cite `file:line` in EVERY claim.** No line = it's a hunch — mark it "unverified hypothesis".
