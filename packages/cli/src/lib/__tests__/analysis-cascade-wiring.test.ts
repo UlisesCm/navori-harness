@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
  * Until now, "how much analytical ceremony does this task deserve?" was answered
  * by reconstructing a boundary spread over four blocks of prose. It is now one
  * signal→mechanism table in the always-on orchestration block; the five
- * mechanisms (`ticket-intake`, `ticket-audit`, `solution-design` + the
+ * mechanisms (`resolve-ticket`, `ticket-audit`, `solution-design` + the
  * architectural pass gate, SDD/`spec-bootstrap`, `auditor`) are untouched — only
  * the explanation of WHEN each fires was replaced.
  *
@@ -81,7 +81,7 @@ describe("analysis cascade — one lookup instead of four blocks (#379 B)", () =
     // spec 0026 T12's merge of researcher+explorer) whose routing sentence the
     // table absorbed.
     for (const mechanism of [
-      "ticket-intake",
+      "resolve-ticket",
       "solution-design",
       "spec-bootstrap",
       "auditor",
@@ -95,7 +95,7 @@ describe("analysis cascade — one lookup instead of four blocks (#379 B)", () =
     // And the ones that are a pure lookup answer sit in the table itself.
     // (ticket-audit's own row was folded into `auditor`'s ticket encargo when
     // spec 0026 T12 merged the ticket-audit agent into auditor.)
-    for (const mechanism of ["ticket-intake", "auditor", "spec-bootstrap"]) {
+    for (const mechanism of ["resolve-ticket", "auditor", "spec-bootstrap"]) {
       expect(
         cascadeRows().some((l) => l.includes(mechanism)),
         `${mechanism} dropped out of the lookup table`,

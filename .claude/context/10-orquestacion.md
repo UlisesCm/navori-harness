@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="d0841249" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="861f740b" version="0.8.7" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: orchestrator)`. `.claude/agents/orchestrator.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -30,9 +30,9 @@ The write is delegated unconditionally; this table is about how much **reading**
 
 | Signal (verifiable, in the task or the ticket) | Mechanism |
 |---|---|
-| A non-trivial ticket arrives (ID, URL, pasted text) | `ticket-intake` — the pipeline that chains the rest |
+| A non-trivial ticket arrives (ID, URL, pasted text) | `resolve-ticket` — the pipeline that chains the rest |
 | …and it hits a critical area (`render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`), a structural migration, >3 layers, or has no clear location | `auditor` (ticket encargo) → `audit_ticket_<ID>.md`, before decomposing |
-| …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `auditor` PER AREA, all calls in the SAME turn; you synthesize (`ticket-intake`, phase 2) |
+| …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `auditor` PER AREA, all calls in the SAME turn; you synthesize (`resolve-ticket`, phase 2) |
 | New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
 | Real scope, by the threshold the **SDD** block owns | propose SDD and ask the user to run `/spec-bootstrap` — opt-in, never self-assigned; don't duplicate its criteria |
 | No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` (area encargo) → `audit_deep_<scope>.md` + prioritized plan |
@@ -53,5 +53,5 @@ Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` 
 
 ### Where the depth lives (read it when the moment asks)
 
-The depth sits with whoever owns the moment — open it then: **`.claude/agents/orchestrator.md`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.claude/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/ticket-intake/SKILL.md`** (a ticket arrived: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).
+The depth sits with whoever owns the moment — open it then: **`.claude/agents/orchestrator.md`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.claude/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/resolve-ticket/SKILL.md`** (a ticket arrived: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).
 <!-- /navori:managed id="orquestacion" -->

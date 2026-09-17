@@ -30,7 +30,7 @@ import { isInvokable, listAgentAssets } from "./helpers/agent-assets.ts";
  *      the plugin reads a condition rather than an order it cannot obey.
  *   3. The CORE never orders a plugin's tool from an always-on surface. Core
  *      prose ships to every repo, plugin or no plugin; an on-demand skill may
- *      name one (`ticket-intake` does), because it is read only when invoked.
+ *      name one (`resolve-ticket` does), because it is read only when invoked.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));

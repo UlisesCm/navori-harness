@@ -99,7 +99,7 @@ describe("session close — one redaction serves every destination (#401)", () =
     // line renders ALWAYS-ON into every repo's CLAUDE.md — so naming
     // `mem_session_summary` here would dangle for every repo without engram.
     // The bar is exposure, not the whole core: an on-demand skill may name a
-    // plugin tool (`core-assets/skills/ticket-intake.md` names `mem_search`),
+    // plugin tool (`core-assets/skills/resolve-ticket.md` names `mem_search`),
     // because it is only read when invoked. The rule is phrased over
     // destinations, not over tools.
     const step2 = lineWith(closeout, "2. **History**", "cierre-sesion.md");

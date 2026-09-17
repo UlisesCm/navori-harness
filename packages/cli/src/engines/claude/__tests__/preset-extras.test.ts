@@ -91,7 +91,8 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     ).toEqual([skRel("medusa-api-routes"), skRel("medusa-modules")]);
     // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 6 agents (spec
     // 0026 T12/T13: orchestrator, implementer, reviewer, scout, auditor, publisher)
-    // + 6 core skills + 5 workflow skills (resolve-ticket, solution-design,
+    // + 5 core skills (spec 0026 T14 merges debug-error + loop-back-debug into
+    // one debug-failure) + 5 workflow skills (resolve-ticket, solution-design,
     // spec-bootstrap, dominio, follow-up-prs) + 2 progress files + 2 medusa skills
     // + 2 CLAUDE.md managed blocks counted independently of the file + 1 guard
     // hook + 1 session-start hook + 1 lifecycle hook (subagent-stop; la de
@@ -100,14 +101,15 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // 1 routing watcher (spec 0020) + 1 PR routing hook (#705) +
     // 1 comment-draft-confirm hook (spec 0026 E1) +
     // 1 orchestrator block routed to `.claude/context/` (#573) + 2 session
-    // ceremonies + 1 agents index, same channel (#572) = 38.
+    // ceremonies + 1 agents index, same channel (#572) = 37.
     //
     // La prosa venia enumerando `pr-create` —retirada en #703— y por eso sumaba
-    // 40 contra una asercion de 39, que ahora es 38 con el roster de ocho
-    // agentes reducido a seis (spec 0026 T12). Un conteo a mano en cinco sitios
-    // es justo lo que #703 dejo anotado como deuda; mientras siga a mano, la
-    // enumeracion tiene que cerrar con el numero.
-    expect(r.inspected).toBe(38);
+    // 40 contra una asercion de 39, que ahora es 37 con el roster de ocho
+    // agentes reducido a seis (spec 0026 T12) y debug-error/loop-back-debug
+    // fusionados en debug-failure (spec 0026 T14). Un conteo a mano en cinco
+    // sitios es justo lo que #703 dejo anotado como deuda; mientras siga a
+    // mano, la enumeracion tiene que cerrar con el numero.
+    expect(r.inspected).toBe(37);
   });
 
   describe("bundled stack presets (B4)", () => {

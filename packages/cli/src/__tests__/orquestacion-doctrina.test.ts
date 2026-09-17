@@ -106,7 +106,7 @@ describe("spec 0019 — la profundidad es alcanzable y no se duplica (R9, R11)",
   it("el bloque nombra con ruta literal dónde vive la profundidad", () => {
     // Covers: R9
     expect(block).toContain(".claude/agents/orchestrator.md");
-    expect(block).toContain(".claude/skills/ticket-intake/SKILL.md");
+    expect(block).toContain(".claude/skills/resolve-ticket/SKILL.md");
     expect(block).toContain(".claude/skills/solution-design/SKILL.md");
   });
 
