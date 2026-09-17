@@ -42,6 +42,7 @@ const GATE_SECONDS = 2;
 let root: string;
 let cwd: string;
 let hookPath: string;
+let gateChildWitness: string;
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "navori-kill-"));
@@ -56,11 +57,28 @@ beforeEach(() => {
     "utf-8",
   );
   hookPath = join(root, "quality-gate-pre-commit.sh");
+  // The gate command is itself a CHILD shell (`sh -c '...'`) that writes a
+  // witness before it execs into `sleep`, instead of the hook writing a
+  // witness in its own process before forking the gate. That distinction is
+  // the fix for #867: the hook's own `gate-started` witness lands BEFORE the
+  // `eval` that forks the gate command, so a poller racing to send SIGTERM as
+  // soon as it sees that witness can catch bash still mid-fork/exec, land the
+  // signal before bash enters `waitpid()`, and skip the trap deferral this
+  // suite exists to pin (#797) — that gap is exactly the flake in #867.
+  // Moving the witness into the forked child closes it: by the time the
+  // child can `write()` the witness it has already been `execve`'d into `sh`
+  // (a syscall far slower than the few instructions the parent needs to go
+  // from `fork()` returning to calling `waitpid()`), so the witness being
+  // visible is itself evidence the parent bash is already blocked waiting on
+  // that exact child — the state the deferral depends on.
+  gateChildWitness = join(root, "gate-child-started");
+  const childScript = `printf x > ${shellSingleQuote(gateChildWitness)}; exec sleep ${GATE_SECONDS}`;
+  const gateCommand = `sh -c ${shellSingleQuote(childScript)}`;
   writeFileSync(
     hookPath,
     expandHookIncludes(readFileSync(HOOK_SRC, "utf-8")).replace(
       "{{shq:qualityGate.fast}}",
-      shellSingleQuote(`sleep ${GATE_SECONDS}`),
+      shellSingleQuote(gateCommand),
     ),
     "utf-8",
   );
@@ -123,11 +141,14 @@ async function runAndSignal(shell: HookShell, signal?: NodeJS.Signals): Promise<
   );
 
   if (signal) {
-    // The witness the gate writes just before `eval`: waiting for it is what
-    // makes the kill land mid-gate deterministically, with no fixed sleep.
+    // The witness the gate CHILD writes right after its own `exec`, not the
+    // hook's own `gate-started` marker: waiting for the child's witness is
+    // what makes the kill land mid-gate deterministically — see beforeEach
+    // for why this specific ordering (fork+exec before the write) is what
+    // proves bash is already blocked in `waitpid()` on that child.
     const deadline = Date.now() + 10_000;
-    while (!hookEvents().some((e) => e.verdict === "gate-started")) {
-      if (Date.now() > deadline) throw new Error("the gate never recorded its start");
+    while (!existsSync(gateChildWitness)) {
+      if (Date.now() > deadline) throw new Error("the gate child never wrote its witness");
       await sleep(20);
     }
     child.kill(signal);
