@@ -9,9 +9,9 @@ metadata:
 
 ## When to use this skill
 
-On demand, in the CURRENT repo: you resume a session and have open PRs, or the
-`commit-pr-pilot` just reported a red check. The cycle ends at the PR URL (the pilot's
-*"your job ends with the URL"*); this skill reads what happened after it.
+On demand, in the CURRENT repo: you resume a session with open PRs, or
+`publisher` just reported a red check. The cycle ends at the PR URL; this
+skill reads what happened after it.
 
 ## Procedure
 
@@ -46,7 +46,8 @@ unblocks it, and don't invent a fix in the diff.
 
 **5 · Turn each finding into an encargo:** one line per `CHANGES_REQUESTED` or unanswered
 comment — `file:line`, what it asks, and the smallest change that covers it. **Implement
-nothing here**: the user picks what gets attacked.
+nothing here**: the user picks what gets attacked. **A reply to the comment is `publisher`'s
+job** — hand it the thread and the text; this skill never posts one.
 
 ## Hard rules
 
@@ -63,4 +64,4 @@ nothing here**: the user picks what gets attacked.
 - Every PR reported with its `reviewDecision` and check state — or the reason none could be
   read (`gh` missing, not authenticated, non-GitHub remote): say it and stop, don't guess.
 - Every red check classified `code | infra`, with its literal error line and the run URL.
-- The findings left as encargos the user chooses from; nothing was implemented off them.
+- The findings left as encargos the user chooses from; nothing implemented, no reply posted.

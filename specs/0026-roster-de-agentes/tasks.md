@@ -341,7 +341,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
     `semgrep`.
 
   con `// Covers: R31, R32, R33`
-- [ ] **T16** (R34, R35, R36, R37) — Dueños de fases:
+- [x] **T16** (R34, R35, R36, R37) — Dueños de fases:
   - **`resolve-ticket.md`:** las seis fases de R34.
   - **`spec-bootstrap.md`:** scaffolding del orquestador y challenge de `auditor` en áreas
     críticas; su plantilla de `design.md` remite a `solution-design`.

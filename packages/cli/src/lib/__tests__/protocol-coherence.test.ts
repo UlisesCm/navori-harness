@@ -378,3 +378,53 @@ describe("checklists with a single owner (T15)", () => {
     expect(reviewDiff).toMatch(/Zero findings is a valid verdict/i);
   });
 });
+
+/**
+ * Spec 0026 T16 (R34, R35, R36, R37) — phase owners.
+ *
+ * `resolve-ticket` maps its phases to the six-agent roster (no retired id),
+ * `spec-bootstrap` gates on a fresh `auditor` challenge only on critical
+ * areas, `solution-design` stays the single source of the design dimensions,
+ * and `follow-up-prs` hands a comment reply to `publisher` instead of posting
+ * it.
+ */
+describe("phase owners (T16)", () => {
+  // Covers: R34
+  it("resolve-ticket phases map to the roster", () => {
+    const skill = read("skills/resolve-ticket.md");
+    for (const agent of ["auditor", "implementer", "reviewer", "publisher"]) {
+      expect(skill).toContain(`\`${agent}\``);
+    }
+    for (const retired of ["ticket-audit", "explorer", "researcher", "commit-pr-pilot"]) {
+      expect(skill).not.toContain(retired);
+    }
+    // A tracker comment is opt-in, never a default step of the cycle.
+    expect(skill).toMatch(/only when the user asks/i);
+  });
+
+  // Covers: R35
+  it("spec-bootstrap requires a fresh challenge on critical areas", () => {
+    const skill = read("skills/spec-bootstrap.md");
+    expect(skill).toMatch(/project\.criticalAreas/);
+    expect(skill).toMatch(/fresh-context `auditor`/i);
+    expect(skill).toMatch(/challenge/i);
+  });
+
+  // Covers: R36
+  it("design dimensions live only in solution-design", () => {
+    const bootstrap = read("skills/spec-bootstrap.md");
+    const design = read("skills/solution-design.md");
+    // spec-bootstrap remits the reasoning, it doesn't restate the dimension list.
+    expect(bootstrap).toContain("solution-design");
+    expect(bootstrap).not.toMatch(/boundaries and contracts, failure modes/i);
+    expect(design).toMatch(/boundaries and contracts/i);
+  });
+
+  // Covers: R37
+  it("follow-up-prs hands replies to publisher", () => {
+    const skill = read("skills/follow-up-prs.md");
+    expect(skill).toMatch(/publisher/);
+    expect(skill).toMatch(/reply to the comment is `publisher`'s/i);
+    expect(skill).not.toMatch(/gh (pr|issue) comment/);
+  });
+});
