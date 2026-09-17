@@ -239,7 +239,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
      ```
 
    - `Expected files: <list>`
-3. **Implement** following the repo's flow (the leader's "Project rules" define the concrete pattern: layers, libs, paths, naming). Known file and a bounded local change: Read/Edit directly. Unknown context (where something lives, how pieces relate): follow Code discovery routing (project instructions) to the enabled structural provider; fall back to `.claude/skills/locate-code/SKILL.md` when it's unavailable. Open only the confirmed span, don't read whole files by reflex.
+3. **Implement** following the repo's flow (the orchestrator's "Project rules" define the concrete pattern: layers, libs, paths, naming). Known file and a bounded local change: Read/Edit directly. Unknown context (where something lives, how pieces relate): follow Code discovery routing (project instructions) to the enabled structural provider; fall back to `.claude/skills/locate-code/SKILL.md` when it's unavailable. Open only the confirmed span, don't read whole files by reflex.
 4. **Quality gate** (mandatory before returning):
 
    ```bash
@@ -253,7 +253,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 ## Hard rules (generic, always apply)
 
 - **One task per session.** If you discover your change requires touching something else outside the scope, you stop and report `blocked`.
-- **Never write `progress/current.md` (root).** Session state is consolidated by the leader; you may run in parallel with other implementers and that file is shared. Your only progress file is `.claude/progress/impl_<feature>.md`.
+- **Never write `progress/current.md` (root).** Session state is consolidated by the orchestrator; you may run in parallel with other implementers and that file is shared. Your only progress file is `.claude/progress/impl_<feature>.md`.
 - **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).
 - **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).
@@ -317,7 +317,7 @@ Write `.claude/progress/impl_<feature>.md`:
 `<configured commit style>` (atomic, language/style per `conventional-es`)
 ```
 
-## Communication with the leader
+## Communication with the orchestrator
 
 Your chat reply is **a single line**:
 
@@ -331,11 +331,11 @@ or
 blocked -> .claude/progress/impl_<feature>.md
 ```
 
-(In both cases the file is the same: your report with `Status: DONE | BLOCKED`. The leader consolidates blockers and session state in `progress/current.md`; you don't touch that file.)
+(In both cases the file is the same: your report with `Status: DONE | BLOCKED`. The orchestrator consolidates blockers and session state in `progress/current.md`; you don't touch that file.)
 
 `impl_<feature>.md` is **input to another tool**, not a chat summary: the `reviewer` opens it to judge your diff, and the `subagent-stop-handoff` hook flags it when it lands empty or without its `Status:` line — that hook never sees one that didn't land at all, so nothing else catches a handoff you skip. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.
 
-Never return the diff in chat. The leader reads it from disk if it needs it.
+Never return the diff in chat. The orchestrator reads it from disk if it needs it.
 <!-- /navori:managed id="implementer-base" -->
 
 <!-- navori:managed id="engram-implementer-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
@@ -388,7 +388,7 @@ maxWords: 2850
 
 Your only job as orchestrator is to **decompose and coordinate**, never to implement. There is no size at which you write the code yourself: every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
 
-**Why there is no ladder right now, and what has to be true to bring it back.** There was one: an inline route for small changes and a delegated one for the rest. Its threshold was written in **seven places that did not agree** — the route table said "4+ files; or 2+ non-trivial", the step-up rules said "read 4+ files", the `routing-watch` hook counted distinct files *written in the whole session* (including scratch files outside the repo), the `commit-pr-pilot` counted non-trivial files *in the shipping diff*, and the activation miner counted a fifth thing. So "is this inline?" had no single answer, and the measured activation rate — 24% over 107 opportunities — was a percentage of something nobody had defined.
+**Why there is no ladder right now, and what has to be true to bring it back.** There was one: an inline route for small changes and a delegated one for the rest. Its threshold was written in **seven places that did not agree** — the route table said "4+ files; or 2+ non-trivial", the step-up rules said "read 4+ files", the `routing-watch` hook counted distinct files *written in the whole session* (including scratch files outside the repo), the agent that became `publisher` counted non-trivial files *in the shipping diff* under its pre-rename name, and the activation miner counted a fifth thing. So "is this inline?" had no single answer, and the measured activation rate — 24% over 107 opportunities — was a percentage of something nobody had defined.
 
 One route removes the decision entirely. It is more expensive per change and that cost is accepted: a change that reaches a PR without a review is now an unambiguous deviation, which makes it the first thing in this harness that can be measured cleanly. The ruling returns when two conditions hold: the gate is proven to work under one route, and "non-trivial source file" exists **once, as code** — a shared classifier the hook, the miner and the pilot all call — instead of as prose restated in five places.
 
@@ -899,7 +899,7 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
 1. Ground yourself in `CLAUDE.md` — already in your context when your host injects it; read it from disk ONLY if your host did not inject it. Then read `.claude/progress/impl_<feature>.md`, `.claude/progress/audit_ticket_<ID>.md` and `.claude/progress/solution_<scope>.md` (whichever exist). When there IS a solution artifact, the diff is judged against the approach it records — an implementation that quietly took a different path is a `SPEC_MISS`, even if the code is good. You do NOT re-open the design itself: whether that approach was the right one was settled in its own phase; your question is whether the code did what was agreed.
 2. Identify modified files. Diff against `main` (the PR's target
    branch), **not** against the fork point: it's the EXACT diff GitHub will show and
-   the one commit-pr-pilot reviews. In most repos the branch you forked from and
+   the one publisher reviews. In most repos the branch you forked from and
    the branch the PR targets are the same, and the distinction costs you nothing;
    where they differ, the fork-point diff is NOT the PR's — so the target always
    wins, and you never have to work out which of the two a given name refers to.
@@ -949,7 +949,7 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 
 Does the code match the repo's conventions? Here you do review style/naming/types.
 
-Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions (types, hardcode, naming, dead code, quality gate, etc.), with severities. When the diff touches auth, permissions, object access, secrets or anything in `auth, permissions, payments, data integrity`, also apply `.claude/skills/security-invariants/SKILL.md`: it carries the business invariants a static scanner cannot infer from the code. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. On top of that checklist, always validate against `CLAUDE.md` and the leader's "Project rules" — plus any additional rule the leader wrote in the user-section of its prompt.
+Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions (types, hardcode, naming, dead code, quality gate, etc.), with severities. When the diff touches auth, permissions, object access, secrets or anything in `auth, permissions, payments, data integrity`, also apply `.claude/skills/security-invariants/SKILL.md`: it carries the business invariants a static scanner cannot infer from the code. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. On top of that checklist, always validate against `CLAUDE.md` and the orchestrator's "Project rules" — plus any additional rule the orchestrator wrote in the user-section of its prompt.
 
 **Quality gate** (mandatory green, run this turn):
 
@@ -957,7 +957,7 @@ Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions
 pnpm test && pnpm lint
 ```
 
-Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. You are the single owner of this gate run: the only handle that exists is this Bash call itself, correlated to the diff you're reviewing this turn — never share it with another process, and never poll `pgrep`/`ps` for it (it also matches other sessions' commands and never exits). A timeout is never a success signal. Run it in the foreground with the Bash tool's max `timeout`; if `pnpm test && pnpm lint` can exceed it, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its `&&`-chained steps one by one in the foreground, each under the timeout — never background it (no shell `&`, no `run_in_background`, no `Monitor`), you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait.
+Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `publisher` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. You are the single owner of this gate run: the only handle that exists is this Bash call itself, correlated to the diff you're reviewing this turn — never share it with another process, and never poll `pgrep`/`ps` for it (it also matches other sessions' commands and never exits). A timeout is never a success signal. Run it in the foreground with the Bash tool's max `timeout`; if `pnpm test && pnpm lint` can exceed it, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its `&&`-chained steps one by one in the foreground, each under the timeout — never background it (no shell `&`, no `run_in_background`, no `Monitor`), you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait.
 
 Don't gate a screen change on browser validation by default. Only if the user explicitly requested a visual/browser check and it wasn't done do you mark it incomplete — otherwise the diff + the repo's tests are the gate.
 
@@ -978,7 +978,7 @@ Continue only when its JSON has `"status":"ok"`. Any other output is an error: d
 
 ### Delta re-sign (post-APPROVED)
 
-A second mode, distinct from the re-review of item 3: you already signed this diff, and afterwards someone edited it (typically the orchestrator applying a minor finding of yours), so the `commit-pr-pilot` now reports `DRIFT`. You judge only the **delta**, not the whole diff again:
+A second mode, distinct from the re-review of item 3: you already signed this diff, and afterwards someone edited it (typically the orchestrator applying a minor finding of yours), so the `publisher` now reports `DRIFT`. You judge only the **delta**, not the whole diff again:
 
 1. **The previous `APPROVED` stands.** What didn't change isn't re-opened; you're extending a verdict, not replacing it.
 2. **Measure the delta, never eyeball it.** Per drifted file, the receipt line gives the approved sha: `git diff <blob-sha> <file>` is the exact change since the signature (`git cat-file -p <blob-sha>` for the full approved content). "It looks small" is not evidence.
@@ -1029,7 +1029,7 @@ Write `.claude/progress/review_<feature>.md`:
 | `pnpm test && pnpm lint` | [x] / [ ] | <output or exit code from this turn> |
 | Zero new errors vs baseline | [x] / [ ] | <failing paths cross-checked against `git diff --name-only origin/main`, this turn> |
 
-### Conventions (CLAUDE.md + leader's Project rules)
+### Conventions (CLAUDE.md + orchestrator's Project rules)
 - <repo-specific check>: [x] / [ ]
 
 ### Issues with confidence ≥80 (block APPROVED)
@@ -1054,7 +1054,7 @@ or
 CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 ```
 
-`review_<feature>.md` and `receipt.txt` are **input to another tool**, not chat summaries: the `commit-pr-pilot` reads the verdict and re-hashes the receipt before it commits, and the `subagent-stop-handoff` hook flags a `review_*.md` that lands empty or without a verdict (that hook never sees one that didn't land at all, and never looks at `receipt.txt`). Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
+`review_<feature>.md` and `receipt.txt` are **input to another tool**, not chat summaries: the `publisher` reads the verdict and re-hashes the receipt before it commits, and the `subagent-stop-handoff` hook flags a `review_*.md` that lands empty or without a verdict (that hook never sees one that didn't land at all, and never looks at `receipt.txt`). Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
 
 ## Hard rules
 
@@ -4738,7 +4738,7 @@ exit 0
 # workspace, zsh word-splitting, non-ASCII paths, a truncated singleton receipt)
 # against zero documented catches, and one of its failure modes blocked every
 # PR in the repo. The receipt is a handoff between the `reviewer` and the
-# `commit-pr-pilot`, which verifies it agent-side and re-signs the delta. Don't
+# `publisher`, which verifies it agent-side and re-signs the delta. Don't
 # re-add the check here without a captured case it would have caught.
 #
 # The managed block below is regenerated by `navori render` and must NOT be
@@ -7038,12 +7038,12 @@ exit 0
 # Fires in the PARENT session the moment a subagent returns. The harness contract
 # is that an implementer closes with `impl_<feature>.md` and a reviewer with
 # `review_<feature>.md` under the engine's progress dir — those files ARE the
-# handoff the leader (and the commit-pr-pilot) read. A subagent that returns
+# handoff the orchestrator (and the publisher) read. A subagent that returns
 # having left an empty or structurally-broken handoff silently corrupts that
 # chain. This hook catches the obvious failure modes deterministically.
 #
 # WHY NOT SubagentStop, the event this hook is still NAMED after (#774). The
-# reader of this note is the LEADER, and SubagentStop cannot reach it: there the
+# reader of this note is the ORCHESTRATOR, and SubagentStop cannot reach it: there the
 # `additionalContext` goes to the subagent that just stopped — it keeps that
 # child running — and the host's doc names the alternative outright, "to inject
 # context into the parent session after a subagent returns, use a `PostToolUse`
@@ -7062,7 +7062,7 @@ exit 0
 # cost the continuity of the measurement.
 #
 # DESIGN — advisory, never blocking. Emits `hookSpecificOutput.additionalContext`
-# for the leader plus a `systemMessage` so the human sees it too; it NEVER
+# for the orchestrator plus a `systemMessage` so the human sees it too; it NEVER
 # returns `decision: block`. It has no way to know WHICH subagent just
 # stopped (agent identity isn't reliably in scope for a shell hook), so it can't
 # demand a specific file — it only flags handoff files that already exist but
@@ -7094,7 +7094,7 @@ navori_audit_phase="PostToolUse"
 # and the move is what makes it matter more rather than less. A broken handoff
 # stays broken until somebody fixes it, so without this every later subagent
 # return in the same session re-reports it — and the note now travels through
-# `additionalContext`, i.e. it is spent out of the leader's context window, not
+# `additionalContext`, i.e. it is spent out of the orchestrator's context window, not
 # out of a UI line the host draws for free.
 #
 # Parsed with parameter expansion, never jq: this must work whether or not
@@ -7551,7 +7551,7 @@ printf '%s\n' "$problems" >"$navori_handoff_stamp" 2>/dev/null || true
 msg="navori: handoff(s) de subagente incompletos — ${problems}. Revisa que el reporte quedó bien escrito antes de consolidarlo."
 
 # BOTH channels, and they are not redundant: `additionalContext` is the one that
-# reaches the leader — the only reader that can act on this — while
+# reaches the orchestrator — the only reader that can act on this — while
 # `systemMessage` is what puts it in front of the human. The text is imperative
 # because it asks for an action; before #774 it went out on the user channel
 # alone, so it asked the model for something the model never heard.
@@ -7577,7 +7577,7 @@ exit 0
 #
 # Agent worktrees accumulate a FULL CHECKOUT each and nobody reclaims them: a
 # cleanup in this repo found 27 of them, ~2.6 GB, three carrying unpushed
-# branches. Until now the only path was manual — `commit-pr-pilot` ends its
+# branches. Until now the only path was manual — `publisher` ends its
 # report with a `worktree:` line, the orchestrator reads it and asks the user —
 # so a session that got cut short, an agent that died mid-cycle, or an
 # orchestrator that simply never reached that line left the checkout forever.
@@ -8882,7 +8882,7 @@ navori_scan_label="jscpd"
 # `git commit`, so a `fetch` would put a remote round-trip — and its timeouts,
 # its auth prompts, its outages — in front of every commit in the repo.
 # `origin/<base>` is kept fresh by the pre-flight of the reviewer and the
-# commit-pr-pilot, which both fetch before they work; in that cycle the ref is
+# publisher, which both fetch before they work; in that cycle the ref is
 # already current when the hook reads it. Outside it (an offline clone, a repo
 # with no remote) the fallback keeps the previous behaviour exactly.
 #
@@ -9845,7 +9845,7 @@ navori_scan_label="semgrep"
 # `git commit`, so a `fetch` would put a remote round-trip — and its timeouts,
 # its auth prompts, its outages — in front of every commit in the repo.
 # `origin/<base>` is kept fresh by the pre-flight of the reviewer and the
-# commit-pr-pilot, which both fetch before they work; in that cycle the ref is
+# publisher, which both fetch before they work; in that cycle the ref is
 # already current when the hook reads it. Outside it (an offline clone, a repo
 # with no remote) the fallback keeps the previous behaviour exactly.
 #
@@ -10580,11 +10580,12 @@ description: Use when a command fails or the runtime misbehaves and you don't ha
 metadata:
   type: behavior
   # 850 y no el default de 200 (spec 0026 T14, R30): este asset fusiona tres
-  # fuentes —`debug-error` (600), `loop-back-debug` (1000) y la `systematic-debug`
-  # personal— en un solo ciclo de seis pasos, así que hereda el presupuesto
-  # combinado de las dos primeras, ajustado a la baja porque el ciclo único
-  # elimina la duplicación de "reproducir" y "root cause" que las dos skills
-  # retiradas explicaban por separado.
+  # fuentes —las dos skills retiradas de diagnóstico que precedieron a esta
+  # (600 y 1000 palabras respectivamente) y la `systematic-debug` personal—
+  # en un solo ciclo de seis pasos, así que hereda el presupuesto combinado
+  # de las dos primeras, ajustado a la baja porque el ciclo único elimina la
+  # duplicación de "reproducir" y "root cause" que las dos skills retiradas
+  # explicaban por separado.
   maxWords: 850
 ---
 
@@ -11724,7 +11725,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, deplo
 
 **Tracking in the spec, not in the harness:** with `tasks.md`, that's the board — do NOT use `TaskCreate` for those tasks (duplicating it produces drift between the spec and the TaskList); ignoring its reminder in SDD sessions is expected.
 
-Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`leader`→`implementer`→`reviewer`) — lives in `spec-bootstrap`, user-invoked only: propose SDD, ask the user to run `/spec-bootstrap`.
+Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`orchestrator`→`implementer`→`reviewer`) — lives in `spec-bootstrap`, user-invoked only: propose SDD, ask the user to run `/spec-bootstrap`.
 <!-- /navori:managed id="sdd" -->
 
 <!-- navori:managed id="intake-tickets" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -11737,7 +11738,7 @@ A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a 
 - **Not every ticket proceeds.** Legitimate outcomes besides "implement": already solved, can't reproduce, works as intended, needs splitting into N tickets, blocked on missing info. Saying so early — with evidence — beats a polished PR for the wrong fix. **None of them opens work, so none of them waits for approval:** report the verdict with its evidence and close the cycle. The human gate stays for `proceed` and `proceed-differently`, the two that open the chequebook.
 - **Size is measured, not assumed.** Before calling something small, run the command that proves it (call sites, files touched, layers crossed). A one-line description routinely hides a 13-call-site change.
 
-The `resolve-ticket` skill runs this as a pipeline; the `ticket-audit` agent produces the verdict with evidence.
+The `resolve-ticket` skill runs this as a pipeline; the `auditor` agent produces the verdict with evidence.
 <!-- /navori:managed id="intake-tickets" -->
 
 <!-- navori:managed id="code-discovery-routing" hash="<HASH>" version="<VERSION>" source="@navori/core" -->

@@ -1,10 +1,10 @@
-# navori:managed start id="worktree-reclaim-base" hash="8ff7b4df" version="0.8.7" source="@navori/core"
+# navori:managed start id="worktree-reclaim-base" hash="146b45e1" version="0.8.7" source="@navori/core"
 #!/usr/bin/env bash
 # navori — worktree reclaim (SessionEnd) — #527
 #
 # Agent worktrees accumulate a FULL CHECKOUT each and nobody reclaims them: a
 # cleanup in this repo found 27 of them, ~2.6 GB, three carrying unpushed
-# branches. Until now the only path was manual — `commit-pr-pilot` ends its
+# branches. Until now the only path was manual — `publisher` ends its
 # report with a `worktree:` line, the orchestrator reads it and asks the user —
 # so a session that got cut short, an agent that died mid-cycle, or an
 # orchestrator that simply never reached that line left the checkout forever.

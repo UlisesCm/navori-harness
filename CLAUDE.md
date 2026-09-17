@@ -111,7 +111,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, deplo
 **The permission mode decides what you CAN do — read it before planning how.** The host sets it, you never change it. `dontAsk` isn't supported today (`Edit`/`Write` aren't pre-approved, so the implement/review cycle can't run). Reference: https://code.claude.com/docs/en/permission-modes
 <!-- /navori:managed id="operaciones-seguras" -->
 
-<!-- navori:managed id="sdd" hash="4a8c35f4" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="sdd" hash="e3a0474f" version="0.8.7" source="@navori/core" -->
 ## Spec Driven Development (SDD)
 
 **When to PROPOSE a spec**: real scope — a complete new feature, changes to auth/security/permissions, adapters or models with sensitive data, or scope > ~2 days. UI bugfixes, a new field in a form, isolated refactors, or copy tweaks go straight in. Crossing it makes SDD a **recommendation you put to the user**: the route is opt-in, so the spec starts only on their explicit request or accepted proposal.
@@ -120,10 +120,10 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, deplo
 
 **Tracking in the spec, not in the harness:** with `tasks.md`, that's the board — do NOT use `TaskCreate` for those tasks (duplicating it produces drift between the spec and the TaskList); ignoring its reminder in SDD sessions is expected.
 
-Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`leader`→`implementer`→`reviewer`) — lives in `spec-bootstrap`, user-invoked only: propose SDD, ask the user to run `/spec-bootstrap`.
+Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`orchestrator`→`implementer`→`reviewer`) — lives in `spec-bootstrap`, user-invoked only: propose SDD, ask the user to run `/spec-bootstrap`.
 <!-- /navori:managed id="sdd" -->
 
-<!-- navori:managed id="intake-tickets" hash="1e25d401" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="intake-tickets" hash="071e0101" version="0.8.7" source="@navori/core" -->
 ## Tickets: problem first, proposed solution second
 
 A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a proposed solution. Treat them differently:
@@ -133,7 +133,7 @@ A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a 
 - **Not every ticket proceeds.** Legitimate outcomes besides "implement": already solved, can't reproduce, works as intended, needs splitting into N tickets, blocked on missing info. Saying so early — with evidence — beats a polished PR for the wrong fix. **None of them opens work, so none of them waits for approval:** report the verdict with its evidence and close the cycle. The human gate stays for `proceed` and `proceed-differently`, the two that open the chequebook.
 - **Size is measured, not assumed.** Before calling something small, run the command that proves it (call sites, files touched, layers crossed). A one-line description routinely hides a 13-call-site change.
 
-The `resolve-ticket` skill runs this as a pipeline; the `ticket-audit` agent produces the verdict with evidence.
+The `resolve-ticket` skill runs this as a pipeline; the `auditor` agent produces the verdict with evidence.
 <!-- /navori:managed id="intake-tickets" -->
 
 <!-- navori:managed id="code-discovery-routing" hash="64eb5632" version="0.8.7" source="@navori/core" -->
