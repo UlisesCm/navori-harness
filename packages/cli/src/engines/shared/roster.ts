@@ -44,21 +44,30 @@ export const ROSTER_INDEXED_AGENT_IDS: ReadonlyArray<string> = ROSTER_AGENTS.map
   (agent) => agent.id,
 ).filter((id) => id !== "orchestrator");
 
+/**
+ * spec 0026 T14 (R29): `debug-error` + `loop-back-debug` merged into
+ * `debug-failure`, `structural-search` → `locate-code`, `security-guidance` →
+ * `security-invariants`. `RETIRED_SKILLS` below carries the old ids so an
+ * already-onboarded repo gets them pruned (R38/R39).
+ */
 export const ROSTER_CORE_SKILLS: ReadonlyArray<string> = [
   "verify-before-done",
-  "loop-back-debug",
+  "debug-failure",
   "review-diff",
-  "security-guidance",
-  "debug-error",
-  "structural-search",
+  "security-invariants",
+  "locate-code",
 ];
 
+/**
+ * spec 0026 T14 (R29): `ticket-intake` → `resolve-ticket`, `babysit-prs` →
+ * `follow-up-prs`. Same rename contract as `ROSTER_CORE_SKILLS` above.
+ */
 export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
-  "ticket-intake",
+  "resolve-ticket",
   "solution-design",
   "spec-bootstrap",
   "dominio",
-  "babysit-prs",
+  "follow-up-prs",
 ];
 
 /** The two adapters that place a managed marker, and so can retire one. */
@@ -137,12 +146,51 @@ export const RETIRED_AGENTS: ReadonlyArray<Retired & { readonly harnessKey: stri
  * beyond that merge — was a WORKFLOW skill, whose managed marker is the bare
  * id itself (`engines/shared/harness-plan.ts` stamps `managedId: id` for
  * workflow skills, not `<id>-base`).
+ *
+ * spec 0026 T14 (R29/R30/R38): `debug-error` and `loop-back-debug` merged
+ * into `debug-failure`; `structural-search` → `locate-code`; `security-guidance`
+ * → `security-invariants` — all three were CORE skills, so their real marker
+ * is `<id>-base` (both adapters, `harness-plan.ts` stamps `managedId: \`${id}-base\``
+ * for `CORE_SKILLS`). `ticket-intake` → `resolve-ticket` and `babysit-prs` →
+ * `follow-up-prs` were WORKFLOW skills, whose marker is the bare id, same as
+ * `pr-create` above. Seeded in the SAME commit that stops `ROSTER_CORE_SKILLS`
+ * / `ROSTER_WORKFLOW_SKILLS` from rendering these six ids.
  */
 export const RETIRED_SKILLS: ReadonlyArray<Retired> = [
   {
     id: "pr-create",
     successor: null,
     markerIdByAdapter: { claude: "pr-create", codex: "pr-create" },
+  },
+  {
+    id: "debug-error",
+    successor: "debug-failure",
+    markerIdByAdapter: { claude: "debug-error-base", codex: "debug-error-base" },
+  },
+  {
+    id: "loop-back-debug",
+    successor: "debug-failure",
+    markerIdByAdapter: { claude: "loop-back-debug-base", codex: "loop-back-debug-base" },
+  },
+  {
+    id: "structural-search",
+    successor: "locate-code",
+    markerIdByAdapter: { claude: "structural-search-base", codex: "structural-search-base" },
+  },
+  {
+    id: "security-guidance",
+    successor: "security-invariants",
+    markerIdByAdapter: { claude: "security-guidance-base", codex: "security-guidance-base" },
+  },
+  {
+    id: "ticket-intake",
+    successor: "resolve-ticket",
+    markerIdByAdapter: { claude: "ticket-intake", codex: "ticket-intake" },
+  },
+  {
+    id: "babysit-prs",
+    successor: "follow-up-prs",
+    markerIdByAdapter: { claude: "babysit-prs", codex: "babysit-prs" },
   },
 ];
 

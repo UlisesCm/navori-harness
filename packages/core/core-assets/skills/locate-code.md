@@ -1,5 +1,5 @@
 ---
-name: structural-search
+name: locate-code
 description: Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — bounded reading, a native-search fallback, and ast-grep for AST shapes. Not the entry point for relationships or impact: that's Code discovery routing's structural provider.
 metadata:
   type: reference
@@ -18,7 +18,7 @@ metadata:
   maxWordsComposed: 700
 ---
 
-# structural-search — bounded reading and AST shapes
+# locate-code — bounded reading and AST shapes
 
 Read the minimum correct amount: confirm the region before opening it, and use `ast-grep` only for genuine syntactic shapes — it is not a call-graph.
 
