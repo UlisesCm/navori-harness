@@ -238,6 +238,21 @@ describe("no distributed asset prescribes shell search as discovery", () => {
     expect(Buffer.byteLength(seguras, "utf-8")).toBeLessThanOrEqual(2000);
   });
 
+  // Covers: R43, R44
+  it("operaciones-seguras keeps its 2,000-byte cap AFTER the retired-names NFKC sweep", () => {
+    // spec 0026 T17 DoD: this file sits at 1,993 of 2,000 bytes and is inside
+    // the retired-names sweep's area (`core-assets/managed`), which
+    // NFKC-normalizes content before matching. Measure both sides explicitly
+    // instead of assuming normalization is a byte-for-byte no-op — a composed
+    // vs. decomposed accent, or a look-alike Unicode punctuation mark, can
+    // change length even with no visible edit.
+    const raw = read(coreManaged("operaciones-seguras.md"));
+    const before = Buffer.byteLength(raw, "utf-8");
+    const after = Buffer.byteLength(raw.normalize("NFKC"), "utf-8");
+    expect(before).toBeLessThanOrEqual(2000);
+    expect(after).toBeLessThanOrEqual(2000);
+  });
+
   it("locate-code defers both lanes to the enabled provider", () => {
     // Covers: R18
     const skill = read(coreSkill("locate-code.md"));
