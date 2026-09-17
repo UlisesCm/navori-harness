@@ -92,6 +92,15 @@ describe("render — poda una skill retirada del catálogo (#702)", () => {
     expect(readFileSync(join(dir, "SKILL.md"), "utf-8")).toBe("# la mía, escrita a mano\n");
   });
 
+  // Covers: R39, R41
+  it("una skill ajena se conserva y se reporta con su motivo", () => {
+    const dir = join(cwd, ".claude/skills", RETIRED);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), "# la mía, escrita a mano\n", "utf-8");
+    const r = renderClaudeEngine(cwd, CONFIG);
+    expect(r.warnings.some((w) => w.includes("foreign") && w.includes(RETIRED))).toBe(true);
+  });
+
   it("NO la toca si el usuario reclamó el id como skill local", () => {
     const dir = seedManaged(RETIRED);
     renderClaudeEngine(cwd, {

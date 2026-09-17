@@ -673,6 +673,8 @@ interface DoctorCmdStrings {
   nameMismatch: (configName: string, dirName: string, suggestedName: string) => string;
   orphanedEngineOutputsTitle: (n: number) => string;
   orphanedEngineOutputRow: (engine: string) => string;
+  retiredAssetsTitle: (n: number) => string;
+  retiredAssetRow: (successor: string | null, reason?: "foreign" | "newer") => string;
   missingPresetFiles: (preset: string, n: number, lines: string) => string;
   missingPresetFileRow: (path: string) => string;
   missingLocalSkills: (n: number, lines: string) => string;
@@ -1657,6 +1659,14 @@ const CMD_ES: CmdStrings = {
     // ruta y qué hará el prune — la decisión archivo por archivo la toma él.
     orphanedEngineOutputRow: (engine) =>
       `— del engine '${engine}' (no está en engines); el prune solo borra lo que lleve marcador de navori`,
+    retiredAssetsTitle: (n) =>
+      `Archivos de ids retirados en disco · ${n} ('navori render --apply' borra los que sean de ` +
+      `navori; los ajenos o de una versión más nueva se conservan)`,
+    retiredAssetRow: (successor, reason) =>
+      `— sucesor: ${successor ?? "ninguno"}` +
+      (reason
+        ? ` (se conserva: ${reason === "newer" ? "escrito por una versión más nueva" : "ajeno, sin marcador de navori"})`
+        : " (se borra en el próximo 'render --apply')"),
     missingPresetFiles: (preset, n, lines) =>
       `Extras del preset '${preset}' sin archivo (${n}) — el render ` +
       `fallará al leerlos; créalos o quítalos del manifest:\n${lines}`,
@@ -2789,6 +2799,14 @@ const CMD_EN: CmdStrings = {
     // file-by-file decision to the prune.
     orphanedEngineOutputRow: (engine) =>
       `— from disabled engine '${engine}' (not in engines); the prune only deletes what carries navori's marker`,
+    retiredAssetsTitle: (n) =>
+      `Retired-id files still on disk · ${n} ('navori render --apply' deletes the ones navori ` +
+      `wrote; foreign ones or ones from a newer version are kept)`,
+    retiredAssetRow: (successor, reason) =>
+      `— successor: ${successor ?? "none"}` +
+      (reason
+        ? ` (kept: ${reason === "newer" ? "written by a newer version" : "foreign, no navori marker"})`
+        : " (removed on the next 'render --apply')"),
     missingPresetFiles: (preset, n, lines) =>
       `Extras of preset '${preset}' with no file (${n}) — render ` +
       `will fail reading them; create or remove them from the manifest:\n${lines}`,

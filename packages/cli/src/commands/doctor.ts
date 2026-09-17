@@ -36,7 +36,7 @@ import { scanNestedWorktrees } from "../lib/nested-worktrees.ts";
 import { scanGlobalScope, type ManagedPolicyKey } from "../lib/global-scope.ts";
 import { scanForeignHarness, type ForeignHarnessReport } from "../lib/foreign-harness.ts";
 import { scanDistribution, type DistributionReport } from "../lib/distribution.ts";
-import { scanPermissionMode } from "../lib/health.ts";
+import { scanPermissionMode, scanRetiredAssets } from "../lib/health.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -264,6 +264,11 @@ export const doctorCommand = defineCommand({
     // stale AGENTS.md/.codex after narrowing to claude). Informational — never
     // flips `ok`; `render --prune` removes them. #312.
     const orphanedEngineOutputs = scanOrphanedEngineOutputs(cwd, config);
+    // R41 (spec 0026 T10): an agent/skill/hook file left over from a retired
+    // id, named with its successor — the same criterion `render --apply`'s own
+    // reconciliation reports (§8.7b–d), so `doctor` never says "clean" while a
+    // render still finds one.
+    const retiredAssets = scanRetiredAssets(cwd);
     // AGENTS.md is only a first-class filesystem check when an engine that emits
     // it is configured; otherwise a leftover file is surfaced as an orphan below
     // instead of a bare ✓, which contradicted the drift/orphan report (#312).
@@ -323,6 +328,7 @@ export const doctorCommand = defineCommand({
       placeholderName,
       nameMismatch,
       orphanedEngineOutputs,
+      retiredAssets,
       legacyAgents,
       excludedBlocks,
       claudeHookScripts,
@@ -393,6 +399,14 @@ export const doctorCommand = defineCommand({
         ),
       );
       p.note(lines.join("\n"), td.orphanedEngineOutputsTitle(total));
+    }
+
+    if (retiredAssets.length > 0) {
+      const lines = retiredAssets.map(
+        (r) =>
+          `  ${color.yellow(sym.update)} ${accent(r.path)}  ${grey(td.retiredAssetRow(r.successor, r.reason))}`,
+      );
+      p.note(lines.join("\n"), td.retiredAssetsTitle(retiredAssets.length));
     }
 
     if (markers.length > 0) {

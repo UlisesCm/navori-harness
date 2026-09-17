@@ -5,6 +5,7 @@ import {
   ROSTER_AGENTS,
   ROSTER_CORE_SKILLS,
   ROSTER_WORKFLOW_SKILLS,
+  RETIRED_AGENTS as ROSTER_RETIRED_AGENTS,
   RETIRED_SKILLS as ROSTER_RETIRED_SKILLS,
   RETIRED_HOOKS as ROSTER_RETIRED_HOOKS,
   type Retired,
@@ -41,6 +42,17 @@ export const CORE_SKILLS: ReadonlyArray<string> = ROSTER_CORE_SKILLS;
 
 /** Re-exported from `roster.ts` (spec 0026 T8) — see that file for the rationale. */
 export const WORKFLOW_SKILLS: ReadonlyArray<string> = ROSTER_WORKFLOW_SKILLS;
+
+/**
+ * Agent ids navori USED to ship and no longer does. Append-only, same contract
+ * as `RETIRED_SKILLS`. Empty today (spec 0026 T8): none of `CORE_AGENTS`'s
+ * eight ids has been renamed off the active catalog yet — an entry lands in
+ * the SAME commit that stops rendering it (spec 0026, lote 2).
+ *
+ * Re-exported from `roster.ts` (spec 0026 T8) — see that file.
+ */
+export const RETIRED_AGENTS: ReadonlyArray<Retired & { readonly harnessKey: string }> =
+  ROSTER_RETIRED_AGENTS;
 
 /**
  * Skill ids navori USED to ship and no longer does. Append-only: an entry is a

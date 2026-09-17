@@ -11,6 +11,7 @@ import {
   scanDuplicateMarkers,
   scanExcludedBlocks,
   scanOrphanedEngineOutputs,
+  scanRetiredAssets,
   listMarkers,
   type DriftReport,
 } from "../health.ts";
@@ -20,6 +21,8 @@ import { computeManagedHash, injectManagedSection } from "../marker.ts";
 import { computeRenderPlan } from "../render-plan.ts";
 import { effectiveConfigForWorkspace } from "../monorepo.ts";
 import { CLAUDE_COMPUTED_BLOCK_IDS, renderClaudeEngine } from "../../engines/claude/index.ts";
+import { RETIRED_SKILLS, RETIRED_HOOKS } from "../../engines/shared/harness-assets.ts";
+import { readCliVersion } from "../bundled-assets.ts";
 
 const contentDrift: DriftReport = {
   filePath: ".claude/agents/leader.md",
@@ -1166,5 +1169,81 @@ describe("scanExcludedBlocks (feature: blocks.exclude)", () => {
     expect(report?.excluded).toEqual(["orquestacion"]);
     expect(report?.nonExcludable).toEqual(["operaciones-seguras"]);
     expect(report?.unknown).toEqual([]);
+  });
+});
+
+describe("scanRetiredAssets — reports retired files with successor (spec 0026 T10, R41)", () => {
+  let cwd: string;
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "navori-scan-retired-"));
+  });
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  const RETIRED_SKILL = RETIRED_SKILLS[0]!; // pr-create, no successor
+  const RETIRED_HOOK = RETIRED_HOOKS[0]!; // precompact-session-summary, no successor
+
+  it("reports empty on a repo with nothing retired left on disk", () => {
+    expect(scanRetiredAssets(cwd)).toEqual([]);
+  });
+
+  // Covers: R41
+  it("names the retired id and its successor for a navori-owned leftover", () => {
+    const markerId = RETIRED_HOOK.markerIdByAdapter.claude ?? `${RETIRED_HOOK.id}-base`;
+    mkdirSync(join(cwd, ".claude/hooks"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".claude/hooks", `${RETIRED_HOOK.id}.sh`),
+      `# navori:managed start id="${markerId}" hash="deadbeef" version="${readCliVersion()}" source="@navori/core"\n` +
+        `#!/usr/bin/env bash\nexit 0\n` +
+        `# navori:managed end id="${markerId}"\n`,
+      "utf-8",
+    );
+
+    const report = scanRetiredAssets(cwd);
+    expect(report).toContainEqual({
+      path: `.claude/hooks/${RETIRED_HOOK.id}.sh`,
+      id: RETIRED_HOOK.id,
+      successor: RETIRED_HOOK.successor,
+    });
+  });
+
+  // Covers: R39, R41
+  it("reports a foreign leftover with its reason, not just presence", () => {
+    const dir = join(cwd, ".claude/skills", RETIRED_SKILL.id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), "# la mía, escrita a mano\n", "utf-8");
+
+    const report = scanRetiredAssets(cwd);
+    expect(report).toContainEqual({
+      path: `.claude/skills/${RETIRED_SKILL.id}/SKILL.md`,
+      id: RETIRED_SKILL.id,
+      successor: RETIRED_SKILL.successor,
+      reason: "foreign",
+    });
+  });
+
+  it("reports a leftover from a newer navori as 'newer', not 'foreign'", () => {
+    const markerId = RETIRED_SKILL.markerIdByAdapter.claude ?? RETIRED_SKILL.id;
+    const dir = join(cwd, ".claude/skills", RETIRED_SKILL.id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      injectManagedSection("", markerId, "body\n", {
+        version: "99.0.0",
+        source: "@navori/core",
+      }).output,
+      "utf-8",
+    );
+
+    const report = scanRetiredAssets(cwd);
+    expect(report).toContainEqual({
+      path: `.claude/skills/${RETIRED_SKILL.id}/SKILL.md`,
+      id: RETIRED_SKILL.id,
+      successor: RETIRED_SKILL.successor,
+      reason: "newer",
+    });
   });
 });

@@ -23,7 +23,7 @@ import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 // The authorship test every delete path in the product shares — see
 // lib/removable.ts. The skill prunes below pass their managed id so it answers
 // "did navori write this file AS that block?" (#496).
-import { isRemovableNavoriFile } from "../../lib/removable.ts";
+import { isRemovableNavoriFile, navoriAuthorship } from "../../lib/removable.ts";
 import {
   injectManagedSection,
   removeManagedSection,
@@ -43,6 +43,7 @@ import { stripFrontmatter } from "../../lib/frontmatter.ts";
 import { tc, resolveLang, type Lang } from "../../lib/i18n.ts";
 import {
   CORE_AGENTS,
+  RETIRED_AGENTS,
   RETIRED_HOOKS,
   RETIRED_SKILLS,
   extraConditionMet,
@@ -1131,6 +1132,18 @@ export function renderClaudeEngine(
       inspected += 1;
       removals.push(removal);
     }
+    // R39/R41 (spec 0026 T10): whichever shape survives (foreign or a newer
+    // navori's) is reported, not silently left.
+    reportKeptRetired(
+      warnings,
+      cwd,
+      [
+        join(cwd, ".claude/skills", `${retired.id}.md`),
+        join(cwd, ".claude/skills", retired.id, "SKILL.md"),
+      ],
+      markerId,
+      retired,
+    );
   }
 
   // 8.7c. Hooks navori RETIRED (#774). Same registry-driven shape as §8.7b and
@@ -1148,9 +1161,39 @@ export function renderClaudeEngine(
   for (const retired of RETIRED_HOOKS) {
     const markerId = retired.markerIdByAdapter.claude ?? `${retired.id}-base`;
     const removal = planRetiredHookRemoval(cwd, retired.id, markerId);
-    if (!removal) continue;
-    inspected += 1;
-    removals.push(removal);
+    if (removal) {
+      inspected += 1;
+      removals.push(removal);
+    }
+    reportKeptRetired(
+      warnings,
+      cwd,
+      [join(cwd, ".claude/hooks", `${retired.id}.sh`)],
+      markerId,
+      retired,
+    );
+  }
+
+  // 8.7d. Agents navori RETIRED from the core roster (spec 0026 T10, R39/R41).
+  // Same registry-driven shape as §8.7b/c. `RETIRED_AGENTS` ships empty until
+  // the roster rename lands (spec 0026 T11), in the SAME commit that stops
+  // rendering the old id — see `roster.ts`'s JSDoc on `RETIRED_AGENTS` for why
+  // seeding it earlier would self-delete a file this same render just wrote.
+  // This loop is inert today and starts pruning the moment T11 populates it.
+  for (const retired of RETIRED_AGENTS) {
+    const markerId = retired.markerIdByAdapter.claude ?? `${retired.id}-base`;
+    const removal = planRetiredAgentRemoval(cwd, retired.id, markerId);
+    if (removal) {
+      inspected += 1;
+      removals.push(removal);
+    }
+    reportKeptRetired(
+      warnings,
+      cwd,
+      [join(cwd, ".claude/agents", `${retired.id}.md`)],
+      markerId,
+      retired,
+    );
   }
 
   // 8.8. Migrate legacy FLAT skill files to the DIRECTORY form. navori now writes
@@ -1244,6 +1287,45 @@ function planFlatSkillRemoval(cwd: string, id: string, markerId: string): Pendin
 function planRetiredHookRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
   const hookPath = join(cwd, ".claude/hooks", `${id}.sh`);
   return isRemovableNavoriFile(hookPath, markerId) ? { path: hookPath } : null;
+}
+
+/**
+ * Prune an agent file navori no longer ships (`.claude/agents/<id>.md`), once
+ * `RETIRED_AGENTS` names it (spec 0026 T10, R39). Same contract as
+ * `planRetiredHookRemoval`: `markerId` is the REAL managed id navori stamped
+ * (`retired.markerIdByAdapter.claude`), not assumed — a user's own
+ * `<id>.md` at the same path is never touched.
+ */
+function planRetiredAgentRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
+  const agentPath = join(cwd, ".claude/agents", `${id}.md`);
+  return isRemovableNavoriFile(agentPath, markerId) ? { path: agentPath } : null;
+}
+
+/**
+ * R39/R41 (spec 0026 T10): a retired agent/skill/hook file that survives the
+ * removal loops above (`navoriAuthorship` says `foreign` or `newer`, not
+ * `ours`) is not silently left — the run says which path, why, and the
+ * successor id to move to. Skipped for any path already queued in
+ * `removals` (its authorship is `ours`, so `navoriAuthorship` returns that
+ * and the loop below moves past it without a warning).
+ */
+function reportKeptRetired(
+  warnings: string[],
+  cwd: string,
+  candidatePaths: readonly string[],
+  markerId: string,
+  retired: { readonly id: string; readonly successor: string | null },
+): void {
+  for (const path of candidatePaths) {
+    if (!existsSync(path)) continue;
+    const authorship = navoriAuthorship(path, markerId);
+    if (authorship === "ours") continue;
+    const successor = retired.successor ?? "none";
+    warnings.push(
+      `kept ${relative(cwd, path)} — retired id "${retired.id}" (successor: ${successor}), ` +
+        `${authorship} file, not navori's to remove`,
+    );
+  }
 }
 
 /**

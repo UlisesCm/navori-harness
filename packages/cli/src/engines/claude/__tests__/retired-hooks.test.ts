@@ -97,10 +97,26 @@ describe("render — poda un hook retirado (#774)", () => {
     expect(readFileSync(path, "utf-8")).toContain("escrito a mano");
   });
 
+  // Covers: R39, R41
+  it("un hook ajeno se conserva y se reporta con su motivo", () => {
+    const path = hookPath(RETIRED);
+    mkdirSync(join(cwd, ".claude/hooks"), { recursive: true });
+    writeFileSync(path, "#!/usr/bin/env bash\n# el mío, escrito a mano\n", "utf-8");
+    const r = renderClaudeEngine(cwd, CONFIG);
+    expect(r.warnings.some((w) => w.includes("foreign") && w.includes(RETIRED))).toBe(true);
+  });
+
   it("NO borra el que escribió un navori más nuevo (anti-rollback)", () => {
     const path = seedManaged(RETIRED, "99.0.0");
     renderClaudeEngine(cwd, CONFIG);
     expect(existsSync(path)).toBe(true);
+  });
+
+  // Covers: R39, R41
+  it("un hook de un navori más nuevo se conserva y se reporta con su motivo", () => {
+    seedManaged(RETIRED, "99.0.0");
+    const r = renderClaudeEngine(cwd, CONFIG);
+    expect(r.warnings.some((w) => w.includes("newer") && w.includes(RETIRED))).toBe(true);
   });
 
   it("no reporta nada cuando el repo nunca lo tuvo", () => {
