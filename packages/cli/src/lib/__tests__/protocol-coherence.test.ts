@@ -253,6 +253,7 @@ describe("background-gate wait (no orphaned processes)", () => {
  * contradicts `solution-design`'s (the orchestrator owns the verdict there,
  * not the user).
  */
+// Covers: R24, R25
 describe("orchestrator playbook has no inline-edit route and one design gate", () => {
   const playbook = read("agents/orchestrator.md");
 

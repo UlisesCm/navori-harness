@@ -215,6 +215,7 @@ describe("core agent assets — no assignment to a zsh-special variable (#344)",
  * missing `maxWords:` or a body that exceeds it fails here, not in a repo
  * that onboards a silently-growing agent.
  */
+// Covers: R51
 describe("core agent assets — declare and respect a word cap (spec 0026 T12, R51)", () => {
   for (const id of AGENT_IDS) {
     it(`${id} declares maxWords and stays under it`, () => {
@@ -249,6 +250,7 @@ describe("core agent assets — declare and respect a word cap (spec 0026 T12, R
  * could recurse into launching further subagents, which none of the roster's
  * prose contracts for.
  */
+// Covers: R21
 describe("core agent assets — no subagent declares the Agent tool (spec 0026 T12, R21)", () => {
   for (const id of AGENT_IDS.filter((i) => i !== "orchestrator")) {
     it(`${id} does not list Agent in tools:`, () => {
@@ -267,6 +269,7 @@ describe("core agent assets — no subagent declares the Agent tool (spec 0026 T
  * writes, so a reader (or a later grep for the path) finds where each shape
  * lands without guessing.
  */
+// Covers: R22, R23
 describe("core agent assets — scout and auditor declare each brief with its output file (spec 0026 T12)", () => {
   it("scout declares both the map and the question output paths", () => {
     const body = readAgent("scout");

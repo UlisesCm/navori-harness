@@ -463,6 +463,7 @@ describe("the core never orders a capability only a plugin can grant (#501)", ()
  * auditor) via `injectInto`, and never `publisher` (it drafts from handoff
  * artifacts only, no code exploration).
  */
+// Covers: R17
 describe("codegraph reaches the reading roster and not publisher (spec 0026 T12, R17)", () => {
   it("injects into orchestrator/implementer/reviewer/auditor and not publisher", () => {
     const codegraph = MCP_PLUGINS.find((p) => p.manifest.id === "codegraph");
