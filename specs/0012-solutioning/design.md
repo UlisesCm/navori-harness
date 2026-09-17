@@ -200,3 +200,43 @@ no un segundo sistema SDD.
    es portable; "researcher fresco" depende de que el engine tenga subagentes. En
    Codex, que encarna los roles inline, el challenge degrada a una pasada explícita
    con contexto recortado — se documenta, no se resuelve en esta spec.
+
+## Enmienda — spec 0026 F (`architect`)
+
+**Estado:** ✅ ejecutada como parte de spec 0026 fase F (T19/T20).
+
+La arquitectura D de esta spec se evaluó con un `researcher` sin agente de diseño
+dedicado, por dos razones (`design.md:14-17` de la versión original): el costo de
+un agente nuevo (`CORE_AGENTS` + tres schemas + i18n + paridad Codex) no estaba
+pagado, y un `solution-architect` competiría con el orquestador, que ya posee la
+síntesis. Spec 0026 revierte ambas:
+
+- **La paridad de Codex existe** (spec 0004) y spec 0026 construye el catálogo
+  canónico (`engines/shared/roster.ts`, R42) del que un rol nuevo se cuelga sin
+  re-litigar seis listas hand-copiadas.
+- **`architect` no compite con el orquestador**: redacta la propuesta
+  (`solution_<scope>.md`), pero el veredicto y la descomposición siguen siendo del
+  orquestador (R48) — la síntesis sigue sin delegarse, solo la redacción cambia de
+  manos.
+
+**Lo que cambió en el reparto de responsabilidades:**
+
+```
+architect (nuevo, harness.architect)  → propone (aplica solution-design, escribe el artefacto)
+  — si harness.architect es false, el orquestador propone directamente (flujo original de esta spec)
+auditor (sucesor de researcher)       → aporta el challenge en contexto fresco
+orquestador                           → emite el veredicto y descompone (nunca se delega)
+```
+
+`researcher` (el rol de challenge original de esta spec) es hoy `auditor`, en su
+encargo *challenge* — spec 0026 T11/T12 lo fusionó junto con `explorer` en `scout`
+para lectura pura, y separó el veredicto/challenge en `auditor`; el challenge de
+`solution-design` sigue con la misma semántica ("falsificar, no pulir, no emite
+veredicto"), solo el nombre del ejecutor cambió.
+
+`managed/orquestacion.md` resuelve el proponente con `navori:if architect` /
+`navori:if-not architect`, independiente de la condición `navori:if auditor` /
+`navori:if-not auditor` que ya resolvía el challenge — un repo puede tener
+`architect` habilitado y `auditor` deshabilitado, o viceversa, y cada rama se lee
+sola. Detalle completo en `specs/0026-roster-de-agentes/design.md` §"`architect`:
+enmienda a la spec 0012".

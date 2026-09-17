@@ -50,7 +50,7 @@ The write is delegated unconditionally; this table is about how much **reading**
 | Already audited in this session, or trivial (typo, copy, color) | none extra — reuse the artifact, don't re-audit. **The change still goes through `implementer` → `reviewer`** |
 | Nothing above fires | none extra — go straight to the `implementer` |
 
-**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `solution-design` skill → ONE fresh-context challenge<!-- navori:if auditor --> (an `auditor`, not a new agent)<!-- /navori:if --><!-- navori:if-not auditor --> using the main agent<!-- /navori:if-not --> → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
+**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: <!-- navori:if architect -->`architect` applies `solution-design` and writes `solution_<scope>.md`<!-- /navori:if --><!-- navori:if-not architect -->`solution-design` skill, applied by you<!-- /navori:if-not --> → ONE fresh-context challenge<!-- navori:if auditor --> (an `auditor`, not a new agent)<!-- /navori:if --><!-- navori:if-not auditor --> using the main agent<!-- /navori:if-not --> → your verdict READY / CONCERNS / BLOCKED — always yours, proposer and challenger never decide it. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
