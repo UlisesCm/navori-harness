@@ -86,32 +86,13 @@ Don't gate a screen change on browser validation by default. Only if the user ex
 
 ### Content receipt (write ONLY on APPROVED)
 
-Your APPROVED verdict is bound to the exact bytes you reviewed. Before handing off, fingerprint every reviewed file with `git hash-object -w` and write a receipt. The `commit-pr-pilot` recomputes it and refuses to commit if any approved file drifted since now (rebase, human tweak, follow-up edit) — so a stale approval can't ship content you never saw. The pilot is the ONLY consumer: the receipt is a handoff between two agents of the same cycle, not a repo-wide gate.
-
-The `-w` is load-bearing: it stores each blob in the object store, so a drift can be **inspected** (`git diff <blob-sha> <file>`, `git cat-file -p <blob-sha>`), not merely detected. Without it the sha names content nobody can recover, and the delta re-sign below has no diff to measure — worst of all for a file that is new in this diff, whose bytes exist nowhere else.
+Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. It owns the publish-set calculation and receipt format; do not reproduce either in shell.
 
 ```bash
-mkdir -p .claude/progress   # nothing in a fresh clone creates it; without this the redirect below dies
-printf '# navori-receipt v1 feature=<feature>\n' > .claude/progress/receipt.txt
-# quotepath=false on both listings: git C-quotes a non-ASCII path by default
-# ("caf\303\251.ts"), and a path signed quoted never matches the pilot's
-# unquoted lookup — the file would slip through unverified.
-{ git -c core.quotepath=false diff --name-only "origin/{{prTarget}}"; \
-  git -c core.quotepath=false ls-files --others --exclude-standard; } \
-  | sort -u \
-  | grep -vE '^(\.claude/progress/|progress/)' \
-  | while IFS= read -r f; do
-      if [ -f "$f" ]; then
-        printf '%s  %s\n' "$(git hash-object -w "$f")" "$f"   # live file → blob sha (stored)
-      else
-        printf 'deleted  %s\n' "$f"                        # removed file → deletion marker
-      fi
-    done >> .claude/progress/receipt.txt
+navori receipt sign --feature <feature> --target {{prTarget}} --dir .claude/progress --json
 ```
 
-It captures the working-tree bytes under review (committed **and** uncommitted). The `grep -v` drops the harness's own ephemeral progress files (the receipt, `impl_*`, `review_*`) — they never get committed, so fingerprinting them would be self-referential noise. Skip the whole step for `CHANGES_REQUESTED` — a rejected diff has nothing to bind.
-
-A **removed** file has no bytes to hash, so it's recorded as `deleted  <path>` instead of a blob sha. Keeping the deletion **in** the receipt is what closes the RDD cycle: the `commit-pr-pilot` coverage check is path-based, so it still sees the path (a deletion can't ship unreviewed), and its drift check reads the `deleted` marker as "must stay absent" — flagging drift only if the file reappears. The shipping set the pilot compares against is then byte-for-byte the set you signed here (same `grep -vE`, deletions included), so a git-persisted `progress/` update or a removed file never shows up as "uncovered" and livelocks the close.
+Continue only when its JSON has `"status":"ok"`. Any other output is an error: do not hand off a receipt. `CHANGES_REQUESTED` never signs.
 
 ### Delta re-sign (post-APPROVED)
 
@@ -120,7 +101,7 @@ A second mode, distinct from the re-review of item 3: you already signed this di
 1. **The previous `APPROVED` stands.** What didn't change isn't re-opened; you're extending a verdict, not replacing it.
 2. **Measure the delta, never eyeball it.** Per drifted file, the receipt line gives the approved sha: `git diff <blob-sha> <file>` is the exact change since the signature (`git cat-file -p <blob-sha>` for the full approved content). "It looks small" is not evidence.
 3. **Re-run `{{qualityGate.full}}` anyway**, over the live bytes. The previous green expired the moment the bytes changed, and that evidence is what the pilot reuses.
-4. **Rewrite the receipt** over the final bytes (same recipe above). A delta re-sign that doesn't re-sign leaves the pilot blocked on the same drift.
+4. **Rewrite the receipt** over the final bytes with `navori receipt sign --feature <feature> --target {{prTarget}} --dir .claude/progress --json`, and continue only on `"status":"ok"`. A delta re-sign that doesn't re-sign leaves the pilot blocked on the same drift.
 5. **Append** to the existing `.claude/progress/review_<feature>.md` — your own heading, observations continuing the original numbering — never overwrite it. The chain of what was approved when has to stay readable.
 6. **Limit (anti-rubber-stamp):** this mode only covers a delta that stays inside the change that was suggested. If it alters logic beyond that hunk, touches shared machinery, or lands in `{{project.criticalAreas}}`, it is NOT a delta re-sign — do the full review. Same if the drift has no known author (a rebase, another session, a stray checkout): with no explanation there's no delta to bound.
 

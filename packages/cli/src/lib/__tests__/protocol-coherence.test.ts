@@ -90,7 +90,7 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
   });
 
   it("verify-before-done's row is the harness's pre-flight, gate evidence included", () => {
-    expect(row()).toContain("{{branchBase}}");
+    expect(row()).toContain("protected base branch");
     expect(row()).toContain("gh auth status");
     // Fresh evidence over the shipping diff, by route: reviewer's Pass 2 (bound
     // by the receipt) in R2+, your own run in R1.
@@ -145,12 +145,12 @@ describe("R1 → PR boundary — defined once, by the agent that applies it (M6)
 });
 
 describe(".claude/progress/ is created, never assumed (F9)", () => {
-  it("the receipt recipe creates the directory before redirecting into it", () => {
+  // Covers: R6, R7, R8, R9
+  it("delegates receipt directory creation to the receipt command", () => {
     const reviewer = read("agents/reviewer.md");
-    const mkdirAt = reviewer.indexOf("mkdir -p .claude/progress");
-    const redirectAt = reviewer.indexOf("> .claude/progress/receipt.txt");
-    expect(mkdirAt, "the receipt recipe lost its mkdir").toBeGreaterThan(-1);
-    expect(mkdirAt).toBeLessThan(redirectAt);
+    expect(reviewer).toContain("navori receipt sign");
+    expect(reviewer).toContain("--dir .claude/progress");
+    expect(reviewer).not.toContain("> .claude/progress/receipt.txt");
   });
 
   it("the audit pre-flights tolerate an absent directory", () => {

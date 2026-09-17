@@ -47,6 +47,9 @@ A nonzero `behind` count is a hard stop: do not construct a shipping diff,
 consume a receipt, commit, push, or create a PR. The reviewer would otherwise
 have signed target-only files as phantom deletions from this stale worktree.
 
+The later `receipt.txt` check is also a hard stop: it must report JSON
+`"status":"ok"` before this branch can publish.
+
 ### The shipping diff — the one set every count in this pre-flight comes from
 
 Coverage of the review and the receipt's fingerprints are two questions about the SAME set of files. Write it once, read it everywhere:
@@ -72,51 +75,15 @@ Open that specific file and confirm its verdict is `APPROVED` and that its scope
 
 An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
 
-**Content receipt: the diff must still match what was approved.** The APPROVED verdict is bound to the reviewed bytes via `.claude/progress/receipt.txt` (written by the `reviewer`, one `<blob-sha>  <path>` line per reviewed file, or `deleted  <path>` for a removed one). Before committing, the approval has to cover the diff in **both** directions — coverage (every shipping file was reviewed) and no drift (no reviewed file changed its bytes):
+**Content receipt: the diff must still match what was approved.** Before committing, run the receipt command with the feature id from `review_<feature>.md`. It owns coverage and drift detection; do not reproduce its algorithm in shell.
 
 ```bash
-# 1) COVERAGE: `$shipping` is THE SHIPPING DIFF above — assign it in this same
-#    call. Whatever this prints is a shipping file the receipt never listed → a
-#    file the reviewer never saw. Reading the set from one place is the point:
-#    this check and the withdrawn waiver's count each spelled it out, and drifted.
-#    `grep .` drops the blank line an empty $shipping would otherwise feed comm.
-comm -23 <(printf '%s\n' "$shipping" | grep .) \
-  <(grep -v '^#' .claude/progress/receipt.txt | sed 's/^[^ ]*  //' | sort -u)
-
-# 2) DRIFT: a reviewed file whose bytes changed since the review. A `deleted`
-#    marker means the reviewer signed off on the removal → drift only if the file
-#    came back.
-#    NEVER name the loop variable `path`: in zsh it is tied to $PATH
-#    (typeset -T PATH path), so assigning to it WIPES the PATH and every command
-#    below dies with "command not found" — which used to surface as DRIFT on
-#    every file (#344). Same trap with fpath / cdpath / manpath / module_path.
-#    And a failed `git hash-object` is an ERROR (missing binary, wrong cwd,
-#    unreadable file), never evidence of drift — the two verdicts are separate.
-while IFS= read -r line; do
-  case "$line" in ''|'#'*) continue ;; esac
-  blob=${line%%  *}; file=${line#*  }
-  if [ "$blob" = deleted ]; then
-    [ -e "$file" ] && echo "DRIFT: $file (reappeared since review)"
-  elif [ ! -e "$file" ]; then
-    echo "DRIFT: $file (missing since review)"
-  elif ! now=$(git hash-object "$file"); then
-    echo "ERROR: could not verify $file"
-  elif [ "$now" != "$blob" ]; then
-    echo "DRIFT: $file"
-  fi
-done < .claude/progress/receipt.txt
+navori receipt check --feature <feature> --target {{prTarget}} --dir .claude/progress --json
 ```
 
-Any file printed by (1) is uncovered; any `DRIFT` line from (2) is stale — either one, or a missing `receipt.txt` for a reviewed change, means the approval no longer covers the current diff. Abort and don't commit. It's not enough to mention the gap and carry on.
+Continue only when the JSON has `"status":"ok"`. A missing `navori`, absent receipt, non-zero command, malformed JSON, `ERROR`, `UNCOVERED`, or `DRIFT` blocks the commit and PR.
 
-**Report the drift with its diff, not just its name.** The reviewer signs with `git hash-object -w`, so the approved bytes are in the object store: for each drifted file, run `git diff <blob-sha> <file>` (the sha is the receipt's own line; `git cat-file -p <blob-sha>` prints the approved content in full) and hand that over. A `DRIFT` reported as a bare filename forces whoever picks it up to reconstruct the change from prose.
-
-Then route by cause, in the same message:
-
-- **Drift explained by an edit made after the review** (a minor finding applied by the orchestrator, a follow-up tweak) → back to the `reviewer` in **delta re-sign** mode: it judges only that delta and rewrites the receipt, no full re-review.
-- **Drift you cannot explain** (rebase, merge, another session, a stray `git checkout`), or an **uncovered** file from (1) → full re-review over the current bytes. Unexplained means unbounded: there's no delta to scope the reading to.
-
-An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wrong cwd, unreadable file) — fix the environment and re-run the check; sending it to the `reviewer` can never resolve it. **This check is the only one that runs** — no hook re-verifies the receipt behind you (#365), so skipping it skips it for everyone.
+For every live-file `DRIFT`, the JSON provides the approved blob and the exact inspection command is `git diff <blob-sha> <file>` (`git cat-file -p <blob-sha>` prints its approved content). Route explained drift caused by a post-review edit to the reviewer for a **delta re-sign**; route unexplained drift or any uncovered file to a full re-review. If the real PR base differs from `{{prTarget}}`, pass that actual base as `--target` to both receipt commands.
 
 <!-- The orchestrator block states the rule (every change goes through implementer -> reviewer); this is where the PR side of it is enforced. -->
 

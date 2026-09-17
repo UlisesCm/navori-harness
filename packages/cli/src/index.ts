@@ -20,6 +20,7 @@ import { registryCommand } from "./commands/registry.ts";
 import { globalCommand } from "./commands/global.ts";
 import { dominioCommand } from "./commands/dominio.ts";
 import { auditCommand } from "./commands/audit.ts";
+import { receiptCommand } from "./commands/receipt.ts";
 import { readCliVersion } from "./lib/bundled-assets.ts";
 
 const main = defineCommand({
@@ -50,6 +51,7 @@ const main = defineCommand({
     global: globalCommand,
     dominio: dominioCommand,
     audit: auditCommand,
+    receipt: receiptCommand,
   },
 });
 

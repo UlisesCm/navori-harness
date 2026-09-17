@@ -736,6 +736,25 @@ const es: Record<string, CommandDoc> = {
       "Siempre hace backup antes de escribir, y te dice dónde quedó.",
     ],
   },
+  receipt: {
+    id: "receipt",
+    title: "receipt",
+    summary: "Firma o verifica los bytes revisados antes de publicar un cambio.",
+    usage: "navori receipt <sign|check> --feature <id> [--target <ref>] [--dir <path>] [--json]",
+    flags: [
+      { flag: "--feature <id>", desc: "Identificador recibido en el handoff." },
+      { flag: "--target <ref>", desc: "Base real del PR; por defecto prTarget." },
+      { flag: "--dir <path>", desc: "Directorio de progreso; por defecto .claude/progress." },
+      { flag: "--json", desc: "Emite el contrato machine-readable." },
+    ],
+    example: [
+      {
+        title: "Firmar y verificar",
+        code: "navori receipt sign --feature checkout --json\nnavori receipt check --feature checkout --json",
+      },
+    ],
+    notes: ["Solo publica cuando el JSON devuelve status ok."],
+  },
 };
 
 const en: Record<string, CommandDoc> = {
@@ -1466,6 +1485,25 @@ const en: Record<string, CommandDoc> = {
       "It always backs up before writing, and tells you where the backup landed.",
     ],
   },
+  receipt: {
+    id: "receipt",
+    title: "receipt",
+    summary: "Signs or checks the reviewed bytes before publishing a change.",
+    usage: "navori receipt <sign|check> --feature <id> [--target <ref>] [--dir <path>] [--json]",
+    flags: [
+      { flag: "--feature <id>", desc: "Identifier received in the handoff." },
+      { flag: "--target <ref>", desc: "Actual PR base; defaults to prTarget." },
+      { flag: "--dir <path>", desc: "Progress directory; defaults to .claude/progress." },
+      { flag: "--json", desc: "Emit the machine-readable contract." },
+    ],
+    example: [
+      {
+        title: "Sign and check",
+        code: "navori receipt sign --feature checkout --json\nnavori receipt check --feature checkout --json",
+      },
+    ],
+    notes: ["Publish only when JSON returns status ok."],
+  },
 };
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
@@ -1492,4 +1530,5 @@ export const commandOrder = [
   "ticket",
   "dominio",
   "global",
+  "receipt",
 ] as const;
