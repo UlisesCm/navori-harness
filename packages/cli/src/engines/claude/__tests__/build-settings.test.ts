@@ -1170,6 +1170,8 @@ describe("buildClaudeSettings — the PR flow's `git push` is pre-approved, a fo
  * stale `Agent(leader)` entry denies nothing (no agent renders under that id
  * anymore) while a missing `Agent(orchestrator)` entry would leave the new
  * embodied role invokable as a subagent.
+ *
+ * // Covers: R19, R20
  */
 describe("buildClaudeSettings — denies Agent(orchestrator) and not Agent(leader) (spec 0026 T11)", () => {
   it("denies Agent(orchestrator) and carries no Agent(leader) entry", () => {
