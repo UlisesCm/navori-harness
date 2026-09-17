@@ -32,6 +32,10 @@ export const ROSTER_AGENTS: ReadonlyArray<RosterAgent> = [
   { id: "scout", harnessKey: "scout", sandbox: "workspace-write" },
   { id: "auditor", harnessKey: "auditor", sandbox: "workspace-write" },
   { id: "publisher", harnessKey: "publisher" },
+  // Spec 0026 F (T19, R47/R48): design-only, writes solution_<scope>.md to
+  // `.claude/progress/`, so it needs the same workspace-write posture as
+  // scout/auditor/reviewer, not the read-only default.
+  { id: "architect", harnessKey: "architect", sandbox: "workspace-write" },
 ];
 
 /**

@@ -90,7 +90,10 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         .sort(),
     ).toEqual([skRel("medusa-api-routes"), skRel("medusa-modules")]);
     // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 6 agents (spec
-    // 0026 T12/T13: orchestrator, implementer, reviewer, scout, auditor, publisher)
+    // 0026 T12/T13: orchestrator, implementer, reviewer, scout, auditor,
+    // publisher — `architect`, spec 0026 T19, defaults OFF as of the phase F
+    // review 2026-09-17 and BASE_CONFIG carries no `harness.architect: true`,
+    // so it does not add to this count)
     // + 5 core skills (spec 0026 T14 merges debug-error + loop-back-debug into
     // one debug-failure) + 5 workflow skills (resolve-ticket, solution-design,
     // spec-bootstrap, dominio, follow-up-prs) + 2 progress files + 2 medusa skills
@@ -106,9 +109,11 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // La prosa venia enumerando `pr-create` —retirada en #703— y por eso sumaba
     // 40 contra una asercion de 39, que ahora es 37 con el roster de ocho
     // agentes reducido a seis (spec 0026 T12) y debug-error/loop-back-debug
-    // fusionados en debug-failure (spec 0026 T14). Un conteo a mano en cinco
-    // sitios es justo lo que #703 dejo anotado como deuda; mientras siga a
-    // mano, la enumeracion tiene que cerrar con el numero.
+    // fusionados en debug-failure (spec 0026 T14). `architect` (spec 0026 T19)
+    // no suma aqui: default OFF desde la revision de fase F (2026-09-17). Un
+    // conteo a mano en cinco sitios es justo lo que #703 dejo anotado como
+    // deuda; mientras siga a mano, la enumeracion tiene que cerrar con el
+    // numero.
     expect(r.inspected).toBe(37);
   });
 

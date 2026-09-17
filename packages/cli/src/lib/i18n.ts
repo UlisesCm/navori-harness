@@ -2250,6 +2250,8 @@ const CMD_ES: CmdStrings = {
           "Auditoría de solo lectura con veredicto: área (seguridad, rendimiento, SOLID), ticket complejo o challenge de una propuesta, sin veredicto en el challenge. Úsalo cuando toque auditar un área o un ticket crítico, o antes de refactorizar sin ticket.",
         publisher:
           "Escribe commits Conventional y abre el PR. Úsalo tras la aprobación del reviewer.",
+        architect:
+          "Propone qué construir y por qué, aplicando `solution-design`; no emite veredicto ni descompone. Úsalo cuando se dispare la fila arquitectónica, antes de descomponer en tareas.",
       },
     },
     monorepo: {
@@ -3389,6 +3391,8 @@ const CMD_EN: CmdStrings = {
         auditor:
           "Read-only audit with a verdict: an area (security, performance, SOLID), a complex ticket, or a challenge of a proposed solution, no verdict on a challenge. Use when auditing an area or a critical ticket, or before refactoring one with no ticket.",
         publisher: "Writes Conventional commits and opens the PR. Use after the reviewer approves.",
+        architect:
+          "Proposes what to build and why, applying `solution-design`; issues no verdict and doesn't decompose. Use when the architectural row fires, before decomposing into tasks.",
       },
     },
     monorepo: {

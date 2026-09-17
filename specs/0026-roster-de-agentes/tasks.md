@@ -413,7 +413,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
 ## Fase F · Architect (PR 6)
 
-- [ ] **T19** (R47, R48, R51) — `packages/core/core-assets/agents/architect.md` (≤ 400 palabras):
+- [x] **T19** (R47, R48, R51) — `packages/core/core-assets/agents/architect.md` (≤ 400 palabras):
   - Aplica `solution-design` y escribe `solution_<scope>.md`.
   - No emite veredicto, no descompone y no pregunta al usuario.
   - Su `description` dice "qué construir y por qué".
@@ -427,7 +427,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
   - `lib/__tests__/mcp-capability-wiring.test.ts::codegraph reaches architect`.
 
   con `// Covers: R47, R48, R51`
-- [ ] **T20** (R49, R50) — Wiring del paso arquitectónico y nota de enmienda.
+- [x] **T20** (R49, R50) — Wiring del paso arquitectónico y nota de enmienda.
   - `managed/orquestacion.md`: ramas `navori:if architect` y `navori:if-not architect`, dentro de
     6,500 caracteres.
   - `skills/solution-design.md`: quién propone, quién desafía y quién decide.

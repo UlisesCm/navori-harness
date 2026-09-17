@@ -18,6 +18,7 @@ import { getCoreRoot, readCliVersion } from "./bundled-assets.ts";
 import { loadPreset, PresetError } from "./presets.ts";
 import { interpolate } from "./interpolate.ts";
 import { effectiveConfig, type NavoriConfig } from "./config.ts";
+import { HARNESS_DEFAULTS } from "./schema.ts";
 
 export const CORE_SOURCE_ID = "@navori/core" as const;
 
@@ -251,7 +252,13 @@ const NAVORI_VERSION = readCliVersion();
 export function conditionOrchestration(content: string, config: NavoriConfig): string {
   const enabled = (key: string) => {
     if (key === "sdd") return config.sdd?.enabled !== false;
-    return config.harness?.[key as keyof NonNullable<NavoriConfig["harness"]>] !== false;
+    // Explicit value wins; unset (including an entirely absent `harness`
+    // section) falls back to HARNESS_DEFAULTS rather than assuming "unset"
+    // always means "enabled" — see that export's doc for why the old blanket
+    // `!== false` broke the moment `architect` defaulted to `false`.
+    const explicit = config.harness?.[key as keyof NonNullable<NavoriConfig["harness"]>];
+    if (explicit !== undefined) return explicit;
+    return HARNESS_DEFAULTS[key] ?? true;
   };
 
   const withoutMarkers = (body: string) =>

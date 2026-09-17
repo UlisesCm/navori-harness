@@ -462,14 +462,18 @@ describe("the core never orders a capability only a plugin can grant (#501)", ()
  * reaches exactly the reading roster (orchestrator, implementer, reviewer,
  * auditor) via `injectInto`, and never `publisher` (it drafts from handoff
  * artifacts only, no code exploration).
+ *
+ * Spec 0026 T19 (R47) extends the reading roster with `architect`: it needs
+ * "what already exists" before proposing, same rationale as `auditor`.
  */
-// Covers: R17
-describe("codegraph reaches the reading roster and not publisher (spec 0026 T12, R17)", () => {
-  it("injects into orchestrator/implementer/reviewer/auditor and not publisher", () => {
+// Covers: R17, R47
+describe("codegraph reaches the reading roster and not publisher (spec 0026 T12/T19, R17/R47)", () => {
+  it("injects into orchestrator/implementer/reviewer/auditor/architect and not publisher", () => {
     const codegraph = MCP_PLUGINS.find((p) => p.manifest.id === "codegraph");
     const targets = (codegraph?.manifest.skills ?? []).map((skill) => skill.injectInto).sort();
     expect(targets).toEqual(
       [
+        ".claude/agents/architect.md",
         ".claude/agents/auditor.md",
         ".claude/agents/implementer.md",
         ".claude/agents/orchestrator.md",
@@ -477,5 +481,12 @@ describe("codegraph reaches the reading roster and not publisher (spec 0026 T12,
       ].sort(),
     );
     expect(targets).not.toContain(".claude/agents/publisher.md");
+  });
+
+  // codegraph reaches architect (spec 0026 T19, R47)
+  it("codegraph reaches architect", () => {
+    const codegraph = MCP_PLUGINS.find((p) => p.manifest.id === "codegraph");
+    const targets = (codegraph?.manifest.skills ?? []).map((skill) => skill.injectInto);
+    expect(targets).toContain(".claude/agents/architect.md");
   });
 });

@@ -45,6 +45,14 @@ const CONFIG_HARNESS_FILTERED = {
   },
 } as unknown as NavoriConfig;
 
+// Spec 0026 F review (2026-09-17): `harness.architect` defaults to `false`,
+// so `CONFIG_FULL` (no explicit `harness` section) does NOT render it —
+// opting in needs an explicit `harness.architect: true`, exercised below.
+const CONFIG_WITH_ARCHITECT = {
+  ...CONFIG_FULL,
+  harness: { architect: true },
+} as unknown as NavoriConfig;
+
 let cwd: string;
 
 beforeEach(() => {
@@ -84,6 +92,38 @@ describe("renderClaudeEngine — first render with full config", () => {
     expect(claudeMd?.status).toBe("created");
     const settings = r.written.find((w) => w.path === ".claude/settings.json");
     expect(settings?.status).toBe("created");
+    // Spec 0026 F review (2026-09-17): `harness.architect` defaults to false,
+    // so the default render carries the `navori:if-not architect` half of the
+    // architectural-pass doctrine (the orchestrator applies the skill itself).
+    // Spec 0019 routes the orchestration block to `.claude/context/`, not
+    // inline in CLAUDE.md.
+    const orquestacionBody = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
+    expect(orquestacionBody).toContain("`solution-design` skill, applied by you");
+    expect(orquestacionBody).not.toContain("`architect` applies `solution-design` and writes");
+  });
+
+  // Spec 0026 F review (2026-09-17): the opt-in branch. `architect` renders
+  // only once `harness.architect: true` is explicit — this is the
+  // `navori:if architect` half of the doctrine; the default-off render above
+  // is the `navori:if-not architect` half every fresh repo actually gets.
+  it("renders architect.md once harness.architect is explicitly enabled", () => {
+    const r = renderClaudeEngine(cwd, CONFIG_WITH_ARCHITECT);
+    expect(existsSync(join(cwd, ".claude/agents/architect.md"))).toBe(true);
+    const agentPaths = r.written
+      .filter((w) => w.path.startsWith(".claude/agents/"))
+      .map((w) => w.path)
+      .sort();
+    expect(agentPaths).toEqual([
+      ".claude/agents/architect.md",
+      ".claude/agents/auditor.md",
+      ".claude/agents/implementer.md",
+      ".claude/agents/orchestrator.md",
+      ".claude/agents/publisher.md",
+      ".claude/agents/reviewer.md",
+      ".claude/agents/scout.md",
+    ]);
+    const orquestacionBody = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
+    expect(orquestacionBody).toContain("`architect` applies `solution-design` and writes");
   });
 
   it("writes CLAUDE.md last so a mid-loop crash leaves it intact (#71 item 10)", () => {
@@ -448,8 +488,11 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     // Inspected counts every managed asset processed:
     //   1 CLAUDE.md + 1 settings.json + 1 .mcp.json (engram declares an mcpServer,
     //   #212) + 6 agents (spec 0026 T12/T13: orchestrator, implementer, reviewer,
-    //   scout, auditor, publisher) + 5 core skills (spec 0026 T14 merges
-    //   debug-error + loop-back-debug into one debug-failure) + 5 workflow skills
+    //   scout, auditor, publisher — `architect`, spec 0026 T19, defaults OFF as of
+    //   the phase F review 2026-09-17 and CONFIG_FULL carries no explicit
+    //   `harness.architect: true`, so it does not add to this count; see the
+    //   opt-in test below) + 5 core skills (spec 0026 T14 merges debug-error +
+    //   loop-back-debug into one debug-failure) + 5 workflow skills
     //   (resolve-ticket, solution-design, spec-bootstrap, dominio, follow-up-prs) +
     //   1 guard hook + 1 session-start hook + 1 PR routing hook (#705) +
     //   1 comment-draft-confirm hook (spec 0026 E1) +
@@ -579,7 +622,9 @@ describe("renderClaudeEngine — dry-run", () => {
     // routed to `.claude/context/` (#573). One less than before #774 retired
     // the PreCompact reminder. 36, not 39: spec 0026 T12 shrank the roster from
     // eight agents to six, and spec 0026 T14 merges debug-error +
-    // loop-back-debug into one debug-failure.
+    // loop-back-debug into one debug-failure. `architect` (spec 0026 T19)
+    // defaults OFF (phase F review, 2026-09-17) and CONFIG_FULL carries no
+    // explicit `harness.architect: true`, so it stays at six here too.
     expect(r.written).toHaveLength(36);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);

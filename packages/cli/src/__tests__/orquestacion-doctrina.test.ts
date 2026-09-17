@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getCoreRoot } from "../lib/bundled-assets.ts";
+import { conditionOrchestration } from "../lib/render-plan.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../lib/schema.ts";
 
 /**
  * Spec 0019 — the orchestration block was trimmed to the routing ladder so it
@@ -133,6 +135,53 @@ describe("spec 0019 — la profundidad es alcanzable y no se duplica (R9, R11)",
       "a review from a **different provider**",
     ]) {
       expect(block, `la sección retirada "${mark}" volvió al bloque`).not.toContain(mark);
+    }
+  });
+});
+
+/**
+ * Spec 0026 T20 (R49, R50) — the architectural pass names its proposer
+ * conditionally on `harness.architect`, independently of the challenger
+ * (`harness.auditor`, spec 0019/0026's existing branch), and the verdict is
+ * always the orchestrator's regardless of either.
+ */
+describe("architectural pass with and without architect (spec 0026 T20, R49/R50)", () => {
+  const rawBlock = read(BLOCK);
+
+  function config(overrides: { architect?: boolean; auditor?: boolean }): NavoriConfig {
+    return NavoriConfigSchema.parse({
+      name: "doctrina-demo",
+      engines: ["claude"],
+      preset: "custom",
+      harness: overrides,
+    });
+  }
+
+  // Covers: R49
+  it("proposes via `architect` when harness.architect is enabled", () => {
+    const resolved = conditionOrchestration(rawBlock, config({ architect: true, auditor: true }));
+    expect(resolved).toContain("`architect` applies `solution-design` and writes");
+    expect(resolved).not.toContain("`solution-design` skill, applied by you");
+    // The challenge and the verdict stay as documented regardless of the proposer.
+    expect(resolved).toMatch(/an `auditor`, not a new agent/);
+    expect(resolved).toContain("READY / CONCERNS / BLOCKED — always yours");
+  });
+
+  // Covers: R50
+  it("IF harness.architect is false, keeps the spec 0012 flow (you apply the skill)", () => {
+    const resolved = conditionOrchestration(rawBlock, config({ architect: false, auditor: true }));
+    expect(resolved).toContain("`solution-design` skill, applied by you");
+    expect(resolved).not.toContain("`architect` applies `solution-design`");
+    // R50 keeps the challenge in `auditor` — unaffected by the proposer switch.
+    expect(resolved).toMatch(/an `auditor`, not a new agent/);
+  });
+
+  it("the verdict is always the orchestrator's, independent of both switches", () => {
+    for (const architect of [true, false]) {
+      for (const auditor of [true, false]) {
+        const resolved = conditionOrchestration(rawBlock, config({ architect, auditor }));
+        expect(resolved).toContain("READY / CONCERNS / BLOCKED — always yours");
+      }
     }
   });
 });

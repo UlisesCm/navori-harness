@@ -96,6 +96,14 @@ export function globalRenderConfig(config: GlobalConfig): NavoriConfig {
     // resolve through their generic soft fallbacks — the same text a repo that
     // declares none already gets.
     project: {},
+    // Explicit, not absent: the global scope has no per-project harness
+    // section to consult, and its job is to ship the FULL toolkit (every
+    // `CORE_AGENTS` id, `global-plugin.test.ts`'s own invariant) for a project
+    // with no navori config at all — not to inherit a per-repo opt-in default.
+    // `architect` (spec 0026 F review, 2026-09-17) is the only harness key
+    // that now defaults to `false`; everything else already defaults `true`
+    // and needs no override here.
+    harness: { architect: true },
   } as unknown as NavoriConfig;
 }
 

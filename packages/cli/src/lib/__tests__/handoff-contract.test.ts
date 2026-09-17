@@ -94,7 +94,13 @@ describe("handoff contract — the literal path survives in every writer (#500)"
    * line altogether) empties it and every case below would pass on nothing.
    */
   it("derives the writers from disk and finds the full roster", () => {
-    expect([...WRITERS.keys()].sort()).toEqual(["auditor", "implementer", "reviewer", "scout"]);
+    expect([...WRITERS.keys()].sort()).toEqual([
+      "architect",
+      "auditor",
+      "implementer",
+      "reviewer",
+      "scout",
+    ]);
   });
 
   for (const [id, targets] of WRITERS) {

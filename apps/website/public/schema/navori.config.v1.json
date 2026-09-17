@@ -191,6 +191,10 @@
         "publisher": {
           "default": true,
           "type": "boolean"
+        },
+        "architect": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "required": [
@@ -199,7 +203,8 @@
         "reviewer",
         "scout",
         "auditor",
-        "publisher"
+        "publisher",
+        "architect"
       ],
       "additionalProperties": false
     },
@@ -247,6 +252,14 @@
           ]
         },
         "publisher": {
+          "type": "string",
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku"
+          ]
+        },
+        "architect": {
           "type": "string",
           "enum": [
             "opus",
@@ -326,6 +339,16 @@
           ]
         },
         "publisher": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "architect": {
           "type": "string",
           "enum": [
             "low",

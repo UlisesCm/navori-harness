@@ -284,3 +284,50 @@ describe("core agent assets — scout and auditor declare each brief with its ou
     expect(body).toContain(".claude/progress/solution_review_<scope>.md");
   });
 });
+
+/**
+ * Spec 0026 T19 (R47, R48, R51) — `architect` proposes what to build and why
+ * (`solution-design`'s method), but never issues the READY/CONCERNS/BLOCKED
+ * verdict, never decomposes into implementer tasks, and stays within its own
+ * 400-word ceiling (stricter than the generic word-cap check above, which
+ * would pass at any budgeted number — this pins the actual number R51
+ * names for this agent).
+ */
+// Covers: R47, R48, R51
+describe("architect never issues a verdict nor decomposes and stays under 400 words (spec 0026 T19)", () => {
+  const raw = readAgent("architect");
+  const parsed = parseAsset(raw);
+  const idx = parsed.body.indexOf(SENTINEL);
+  const managed = parsed.body.slice(0, idx);
+
+  it("declares a maxWords ceiling of 400", () => {
+    expect(parsed.frontmatter.maxWords).toBe("400");
+  });
+
+  it("stays at or under 400 words in its managed body", () => {
+    const words = managed.trim().split(/\s+/).filter(Boolean).length;
+    expect(words).toBeLessThanOrEqual(400);
+  });
+
+  it("never issues a verdict", () => {
+    expect(managed).toMatch(/never issue a verdict/i);
+    expect(managed).not.toMatch(/you issue|you emit .*verdict/i);
+  });
+
+  it("never decomposes into implementer tasks", () => {
+    expect(managed).toMatch(/never decompose into (implementer )?tasks/i);
+  });
+
+  it("never asks the user directly", () => {
+    expect(managed).toMatch(/never ask the user/i);
+  });
+
+  it("applies solution-design and writes solution_<scope>.md", () => {
+    expect(managed).toContain("solution-design");
+    expect(managed).toContain(".claude/progress/solution_<scope>.md");
+  });
+
+  it("its description says what to build and why", () => {
+    expect(parsed.frontmatter.description).toMatch(/what to build and why/i);
+  });
+});

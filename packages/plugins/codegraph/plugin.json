@@ -49,6 +49,11 @@
       "id": "codegraph-access-v2-auditor",
       "file": "skills/codegraph-access-v2.md",
       "injectInto": ".claude/agents/auditor.md"
+    },
+    {
+      "id": "codegraph-access-v2-architect",
+      "file": "skills/codegraph-access-v2.md",
+      "injectInto": ".claude/agents/architect.md"
     }
   ],
   "invariants": ["codegraph_explore", "projectPath"]

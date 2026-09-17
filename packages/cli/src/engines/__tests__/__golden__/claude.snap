@@ -1338,7 +1338,7 @@ The write is delegated unconditionally; this table is about how much **reading**
 | Already audited in this session, or trivial (typo, copy, color) | none extra — reuse the artifact, don't re-audit. **The change still goes through `implementer` → `reviewer`** |
 | Nothing above fires | none extra — go straight to the `implementer` |
 
-**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `solution-design` skill → ONE fresh-context challenge (an `auditor`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
+**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `solution-design` skill, applied by you → ONE fresh-context challenge (an `auditor`, not a new agent) → your verdict READY / CONCERNS / BLOCKED — always yours, proposer and challenger never decide it. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
@@ -11228,25 +11228,30 @@ metadata:
 When a task shows any architectural signal (see the architectural pass in the
 orchestration block), or a ticket audit came back `proceed-differently`. NOT for a
 change following an exact existing pattern with local blast radius and trivial
-rollback — that needs no design pass and this skill is pure overhead.
+rollback — no design pass needed, this skill is pure overhead.
 
 This answers **what to build and why** — not the implementation plan (*what files,
 in what order*), not code review (*did the code do what we agreed*). Design before
-you decompose: a contract, a state owner or a migration path moves the natural
-task boundaries, so tasks written first get rewritten.
+decomposing: a contract, a state owner or a migration path moves task boundaries,
+so tasks written first get rewritten.
+
+**Who does what (spec 0026 F, R49/R50).** Three roles, never collapsed: `architect`
+**proposes** (applies this skill, writes the artifact) when `harness.architect` is
+on — else the orchestrator proposes directly. `auditor` **challenges** in fresh
+context (or the orchestrator, with `auditor` off) — falsify, never propose or
+polish. The orchestrator **decides**: READY / CONCERNS / BLOCKED, always its call
+regardless of who proposed or challenged — synthesis is never delegated.
 
 ## The three failures this exists to prevent
 
-1. **Inheriting the proposed solution.** A ticket that names a library, a pattern
-   or a refactor has already decided for you. Its diagnosis can be right and its
-   remedy wrong. If your plan's step 0 is "install what the ticket named", you
-   skipped the design.
-2. **Listing costs without weighing them.** Naming three drawbacks of an approach
-   and then proceeding anyway is not analysis — a cost only counts when it is
-   compared against a concrete alternative.
-3. **Filing scope-breaking findings as notes.** If you discover that part of the
-   request is dead code, already fixed, or not solved by what was proposed, that
-   is a **verdict about scope**, not an open question at the bottom.
+1. **Inheriting the proposed solution.** A ticket naming a library, pattern or
+   refactor already decided for you. Its diagnosis can be right and its remedy
+   wrong. If step 0 is "install what the ticket named", you skipped the design.
+2. **Listing costs without weighing them.** Naming three drawbacks and proceeding
+   anyway isn't analysis — a cost only counts against a concrete alternative.
+3. **Filing scope-breaking findings as notes.** Discovering that part of the
+   request is dead code, already fixed, or unsolved by what was proposed is a
+   **verdict about scope**, not an open question at the bottom.
 
 ## Process
 
@@ -11274,8 +11279,8 @@ task boundaries, so tasks written first get rewritten.
 
 ## The challenge (one round, fresh context)
 
-Hand the artifact to a fresh-context `auditor` (its challenge encargo) with a
-falsification brief — its job is to break the design, not to polish it:
+Hand the artifact to a fresh-context `auditor` (challenge encargo) with a
+falsification brief — break the design, don't polish it:
 
 > What assumption is false? · What existing code contradicts it? · Which
 > requirement isn't covered? · What contract breaks? · What happens on partial

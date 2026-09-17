@@ -165,7 +165,32 @@ const HarnessSchema = z.object({
   scout: z.boolean().default(true),
   auditor: z.boolean().default(true),
   publisher: z.boolean().default(true),
+  // Spec 0026 F (R47): default OFF, unlike the rest of the roster. Reviewed
+  // in the phase F review (2026-09-17): enabling a 7th agent on every repo's
+  // next `navori update` would change everyone's harness surface without
+  // their asking. Opt-in via `harness.architect: true`; the default can flip
+  // once usage data (design.md "Criterios pre-registrados" #2) supports it.
+  architect: z.boolean().default(false),
 });
+
+/**
+ * Per-key default when `harness.<key>` is unset — including when the WHOLE
+ * `harness` section is absent from `navori.config.json` (the common case:
+ * most configs, including this repo's own, never write a `harness` block at
+ * all). `HarnessSchema` is `.optional()` at the top level (see
+ * `NavoriConfigSchema`), so `HarnessSchema`'s per-field `.default()` only
+ * fires when the input has an explicit `"harness": {...}` object — a config
+ * that omits the key entirely parses to `config.harness === undefined`, and
+ * `isAgentEnabled` (harness-assets.ts) / `conditionOrchestration`'s
+ * `navori:if <key>` resolver (render-plan.ts) both used to treat that as
+ * "enabled", full stop. That shortcut was safe while every harness key
+ * defaulted to `true` — it stopped being safe the moment `architect`
+ * defaulted to `false` (spec 0026 F review, 2026-09-17): without this export,
+ * a repo with no `harness` section at all would still render `architect`,
+ * silently ignoring the schema default. Both call sites now consult this map
+ * instead of assuming "unset" always means "enabled".
+ */
+export const HARNESS_DEFAULTS: Readonly<Record<string, boolean>> = HarnessSchema.parse({});
 
 const ModelsSchema = z.object({
   orchestrator: z.enum(MODELS).optional(),
@@ -174,6 +199,7 @@ const ModelsSchema = z.object({
   scout: z.enum(MODELS).optional(),
   auditor: z.enum(MODELS).optional(),
   publisher: z.enum(MODELS).optional(),
+  architect: z.enum(MODELS).optional(),
   // Codex maps each Claude tier to a concrete model id. Override the built-in
   // gpt-5.6-* map here when OpenAI renames faster than a navori release ships
   // (Spec 0007 M3). A missing tier falls back to the built-in default.
@@ -201,6 +227,7 @@ const EffortSchema = z.object({
   scout: z.enum(EFFORTS).optional(),
   auditor: z.enum(EFFORTS).optional(),
   publisher: z.enum(EFFORTS).optional(),
+  architect: z.enum(EFFORTS).optional(),
 });
 
 const PluginEntrySchema = z.object({
