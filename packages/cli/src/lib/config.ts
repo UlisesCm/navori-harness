@@ -37,6 +37,67 @@ export const AGENT_ROLE_KEYS = [
   "auditor",
 ] as const;
 
+/**
+ * A `harness`/`models`/`effort` key navori used to accept and no longer does,
+ * with the key that replaces it (spec 0026 T9, R40/R42).
+ *
+ * Empty today: none of `AGENT_ROLE_KEYS` has been renamed off the schema yet
+ * — populating an entry here before the schema itself accepts the
+ * replacement key (spec 0026 T11) would make EVERY existing
+ * `navori.config.json` in the park fail `readConfig` for a rename that
+ * has not landed. Same invariant `RETIRED_AGENTS` documents
+ * (`engines/shared/roster.ts`): an entry lands in the SAME commit that stops
+ * accepting the old key.
+ */
+export type RetiredConfigKey = { readonly key: string; readonly replacement: string };
+export const RETIRED_CONFIG_KEYS: ReadonlyArray<RetiredConfigKey> = [];
+
+/** The three config sections that share `AGENT_ROLE_KEYS`' shape (R40). */
+const CONFIG_ROLE_SECTIONS = ["harness", "models", "effort"] as const;
+
+/**
+ * R40: a `harness`/`models`/`effort` key retired off the schema fails loud
+ * instead of getting silently dropped like a generic unknown key (a plain
+ * `z.object()` strips it, and `warnUnknownConfigKeys` only advises). Groups by
+ * replacement so two retired keys landing on the same one — the documented
+ * case where two agents merge into one role — report both conflicting values
+ * in a single line instead of two separate, harder-to-reconcile errors.
+ *
+ * `retired` is injectable (default `RETIRED_CONFIG_KEYS`) so tests can seed
+ * entries without mutating the production registry — same pattern
+ * `assertRosterIds` uses for `roster-parity.test.ts`.
+ */
+export function checkRetiredConfigKeys(
+  raw: unknown,
+  retired: ReadonlyArray<RetiredConfigKey> = RETIRED_CONFIG_KEYS,
+): void {
+  if (retired.length === 0 || !isRecord(raw)) return;
+  const byReplacement = new Map<string, Array<{ path: string; value: unknown }>>();
+  for (const section of CONFIG_ROLE_SECTIONS) {
+    const sectionValue = raw[section];
+    if (!isRecord(sectionValue)) continue;
+    for (const { key, replacement } of retired) {
+      if (!(key in sectionValue)) continue;
+      const replacementPath = `${section}.${replacement}`;
+      const entries = byReplacement.get(replacementPath) ?? [];
+      entries.push({ path: `${section}.${key}`, value: sectionValue[key] });
+      byReplacement.set(replacementPath, entries);
+    }
+  }
+  if (byReplacement.size === 0) return;
+
+  const lines = [...byReplacement.entries()].map(([replacementPath, entries]) => {
+    const keys = entries.map((e) => e.path).join(" and ");
+    if (entries.length === 1) return `${keys} is retired — replace it with ${replacementPath}`;
+    const values = entries.map((e) => `${e.path}=${JSON.stringify(e.value)}`).join(", ");
+    return (
+      `${keys} are retired and both map to ${replacementPath} — they carry different values ` +
+      `(${values}); choose one and set ${replacementPath} yourself, it is not inferred`
+    );
+  });
+  throw new ConfigError(`Retired config keys: ${lines.join("; ")}`);
+}
+
 const QUALITY_GATE_RULE: ConfigObjectRule = { keys: ["fast", "full"] };
 
 /**
@@ -320,6 +381,10 @@ export function readConfig(path: string): NavoriConfig {
   } catch (err) {
     throw new ConfigError(`Invalid JSON in ${path}: ${(err as Error).message}`);
   }
+
+  // R40: retired keys fail loud, before the tolerant schema has a chance to
+  // silently drop them like any other unknown key.
+  checkRetiredConfigKeys(parsed);
 
   const result = NavoriConfigSchema.safeParse(parsed);
   if (!result.success) {

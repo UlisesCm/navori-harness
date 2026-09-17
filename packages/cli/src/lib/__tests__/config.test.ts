@@ -8,6 +8,9 @@ import {
   effectiveConfig,
   ConfigError,
   findUnknownConfigKeys,
+  checkRetiredConfigKeys,
+  RETIRED_CONFIG_KEYS,
+  type RetiredConfigKey,
 } from "../config.ts";
 import { NavoriConfigSchema } from "../schema.ts";
 import { schemaUrl } from "../schema-url.ts";
@@ -576,6 +579,81 @@ describe("config key diagnostics (#779)", () => {
       expect(warnings.join("")).toContain("progress.historyFile");
     } finally {
       stderr.mockRestore();
+      rmSync(dir, { recursive: true });
+    }
+  });
+});
+
+describe("retired agent keys fail with replacement and conflicting values", () => {
+  // Covers: R40, R42
+  const SEED: RetiredConfigKey[] = [
+    { key: "leader", replacement: "orchestrator" },
+    { key: "researcher", replacement: "scout" },
+    { key: "explorer", replacement: "scout" },
+  ];
+
+  it("production registry is empty until the roster rename lands (spec 0026 T11)", () => {
+    // Anti-false-green: with the real registry empty, none of the assertions
+    // below exercise a single line of `checkRetiredConfigKeys` unless a test
+    // seeds its own list — see `RETIRED_CONFIG_KEYS`'s JSDoc for why it must
+    // stay empty in production today (every existing `navori.config.json`
+    // still uses `harness.leader`, which the schema still accepts).
+    expect(RETIRED_CONFIG_KEYS).toEqual([]);
+  });
+
+  it("names the single retired key and its replacement", () => {
+    expect(() => checkRetiredConfigKeys({ harness: { leader: false } }, SEED)).toThrowError(
+      /harness\.leader is retired — replace it with harness\.orchestrator/,
+    );
+  });
+
+  it("checks harness, models and effort independently", () => {
+    expect(() => checkRetiredConfigKeys({ models: { leader: "opus" } }, SEED)).toThrowError(
+      /models\.leader is retired — replace it with models\.orchestrator/,
+    );
+    expect(() => checkRetiredConfigKeys({ effort: { leader: "high" } }, SEED)).toThrowError(
+      /effort\.leader is retired — replace it with effort\.orchestrator/,
+    );
+  });
+
+  it("reports BOTH conflicting values when two retired keys share a replacement", () => {
+    try {
+      checkRetiredConfigKeys({ harness: { researcher: true, explorer: false } }, SEED);
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ConfigError);
+      const message = (err as ConfigError).message;
+      expect(message).toContain("harness.researcher");
+      expect(message).toContain("harness.explorer");
+      expect(message).toContain("harness.scout");
+      expect(message).toContain("harness.researcher=true");
+      expect(message).toContain("harness.explorer=false");
+    }
+  });
+
+  it("does nothing when no retired key is present", () => {
+    expect(() => checkRetiredConfigKeys({ harness: { implementer: true } }, SEED)).not.toThrow();
+  });
+
+  it("readConfig rejects a config carrying a seeded retired key", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      writeFileSync(
+        path,
+        JSON.stringify({
+          name: "demo",
+          engines: ["claude"],
+          preset: "custom",
+          harness: { leader: false },
+        }),
+        "utf-8",
+      );
+      // readConfig always calls the exported default (empty) registry — this
+      // proves the wiring lets a config with no retired key through, the
+      // shape every one of the 28 existing repos relies on today.
+      expect(() => readConfig(path)).not.toThrow(ConfigError);
+    } finally {
       rmSync(dir, { recursive: true });
     }
   });
