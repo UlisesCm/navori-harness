@@ -47,6 +47,7 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
       scout: true,
       auditor: true,
       publisher: true,
+      architect: true,
     });
   });
 

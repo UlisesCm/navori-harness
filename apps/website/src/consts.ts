@@ -40,7 +40,7 @@ export const INVENTORY = {
   /** Engine adapters under `packages/cli/src/engines/`. */
   engines: 5,
   /** Core agents under `packages/core/core-assets/agents/`. */
-  agents: 6,
+  agents: 7,
   /** Core skills + library skills — what a repo can end up with. */
   skills: 38,
   /** Hooks under `packages/core/core-assets/hooks/`. */

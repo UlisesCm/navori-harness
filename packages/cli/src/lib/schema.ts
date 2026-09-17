@@ -165,6 +165,11 @@ const HarnessSchema = z.object({
   scout: z.boolean().default(true),
   auditor: z.boolean().default(true),
   publisher: z.boolean().default(true),
+  // Spec 0026 F (R47): ships in the core roster like every other agent — the
+  // 60-day usage criterion (design.md "Criterios pre-registrados" #2) needs a
+  // default-on `architect` to measure real cycles before deciding retirement,
+  // not an opt-in nobody would exercise.
+  architect: z.boolean().default(true),
 });
 
 const ModelsSchema = z.object({
@@ -174,6 +179,7 @@ const ModelsSchema = z.object({
   scout: z.enum(MODELS).optional(),
   auditor: z.enum(MODELS).optional(),
   publisher: z.enum(MODELS).optional(),
+  architect: z.enum(MODELS).optional(),
   // Codex maps each Claude tier to a concrete model id. Override the built-in
   // gpt-5.6-* map here when OpenAI renames faster than a navori release ships
   // (Spec 0007 M3). A missing tier falls back to the built-in default.
@@ -201,6 +207,7 @@ const EffortSchema = z.object({
   scout: z.enum(EFFORTS).optional(),
   auditor: z.enum(EFFORTS).optional(),
   publisher: z.enum(EFFORTS).optional(),
+  architect: z.enum(EFFORTS).optional(),
 });
 
 const PluginEntrySchema = z.object({

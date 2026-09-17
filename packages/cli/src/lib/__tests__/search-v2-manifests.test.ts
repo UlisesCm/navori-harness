@@ -78,20 +78,22 @@ describe("M03 — tgrep contract (search-v2.md §3.3)", () => {
   });
 });
 
-describe("M04 — CodeGraph's four skill entries (search-v2.md §3.2, spec 0026 T12)", () => {
+describe("M04 — CodeGraph's five skill entries (search-v2.md §3.2, spec 0026 T12/T19)", () => {
   const skills = codegraph.manifest.skills ?? [];
   const coreAgentsDir = resolve(getCoreRoot(), "core-assets/agents");
   const knownAgentFiles = new Set(readdirSync(coreAgentsDir));
 
   // Spec 0026 T12 (R17): the roster shrank from 8 to 6 and the ticket-audit
   // encargo folded into auditor, which already has its own entry — so the
-  // injection count drops from 5 to 4 (orchestrator, implementer, reviewer,
+  // injection count dropped from 5 to 4 (orchestrator, implementer, reviewer,
   // auditor). `scout` gets the tool by exact name in its own frontmatter, not
   // by injection (unchanged from researcher/explorer's prior treatment).
-  it("declares exactly 4 entries, each with a distinct injectInto target", () => {
-    expect(skills).toHaveLength(4);
+  // Spec 0026 T19 (R47) adds `architect` — it needs "what already exists"
+  // before proposing, same rationale as `auditor` — bringing the count to 5.
+  it("declares exactly 5 entries, each with a distinct injectInto target", () => {
+    expect(skills).toHaveLength(5);
     const targets = skills.map((s) => s.injectInto);
-    expect(new Set(targets).size).toBe(4);
+    expect(new Set(targets).size).toBe(5);
   });
 
   it("all 5 entries share the same source file", () => {

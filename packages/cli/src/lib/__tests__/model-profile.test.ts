@@ -34,6 +34,7 @@ describe("scanMissingModelProfile (#817)", () => {
         scout: "sonnet",
         auditor: "sonnet",
         publisher: "haiku",
+        architect: "opus",
       },
       effort: {
         orchestrator: "xhigh",
@@ -42,6 +43,7 @@ describe("scanMissingModelProfile (#817)", () => {
         scout: "medium",
         auditor: "medium",
         publisher: "low",
+        architect: "high",
       },
     });
     expect(scanMissingModelProfile(cfg)).toEqual([]);
@@ -54,9 +56,18 @@ describe("scanMissingModelProfile (#817)", () => {
       harnessKey: "scout",
       missing: ["model", "effort"],
     });
-    // The 6 core agents (orchestrator included — it's rendered for Claude).
+    // The 7 core agents (orchestrator included — it's rendered for Claude;
+    // spec 0026 T19 adds `architect`, on by default in HarnessSchema).
     expect(issues.map((i) => i.agent).sort()).toEqual(
-      ["auditor", "implementer", "orchestrator", "publisher", "reviewer", "scout"].sort(),
+      [
+        "architect",
+        "auditor",
+        "implementer",
+        "orchestrator",
+        "publisher",
+        "reviewer",
+        "scout",
+      ].sort(),
     );
   });
 
