@@ -1,5 +1,5 @@
 ---
-name: structural-search
+name: locate-code
 description: Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — bounded reading, a native-search fallback, and ast-grep for AST shapes. Not the entry point for relationships or impact: that's Code discovery routing's structural provider.
 metadata:
   type: reference
@@ -16,13 +16,10 @@ metadata:
   # no se descubre cuando el agente ya paga el archivo entero. El `maxWords` de arriba
   # sigue siendo el presupuesto de ESTE asset y su razonamiento.
   maxWordsComposed: 700
-type: reference
-maxWords: 600
-maxWordsComposed: 600
 ---
 
-<!-- navori:managed id="structural-search-base" hash="f1c8448d" version="0.8.7" source="@navori/core" -->
-# structural-search — bounded reading and AST shapes
+<!-- navori:managed id="locate-code-base" hash="ce861fbd" version="0.8.7" source="@navori/core" -->
+# locate-code — bounded reading and AST shapes
 
 Read the minimum correct amount: confirm the region before opening it, and use `ast-grep` only for genuine syntactic shapes — it is not a call-graph.
 
@@ -69,10 +66,8 @@ To rewrite, first test the pattern without `--rewrite`, limit paths/language and
 - Don't use regex as AST.
 - If the search consumes ~15% of the context, stop: reduce scope or act on the available evidence.
 - Don't set up LSP/Serena — the structural provider covers relationships, `ast-grep` covers shapes.
-<!-- /navori:managed id="structural-search-base" -->
-
-
+<!-- /navori:managed id="locate-code-base" -->
 
 ## The project's structural patterns
 
-<!-- user: document here proven sg/ast-grep patterns, frequent languages and paths. Save reusable patterns; don't paste results nor current lines. -->
+<!-- user: document here proven ast-grep patterns, frequent languages and paths. Save reusable patterns; don't paste results nor current lines. -->

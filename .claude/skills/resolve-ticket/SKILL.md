@@ -1,5 +1,5 @@
 ---
-name: ticket-intake
+name: resolve-ticket
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 8-phase pipeline to process it with objective gates.
 metadata:
   type: reference
@@ -10,8 +10,8 @@ metadata:
   maxWordsComposed: 650
 ---
 
-<!-- navori:managed id="ticket-intake" hash="8267bbcb" version="0.8.7" source="@navori/core" -->
-# ticket-intake — 8-phase pipeline
+<!-- navori:managed id="resolve-ticket" hash="faf0eec3" version="0.8.7" source="@navori/core" -->
+# resolve-ticket — 8-phase pipeline
 
 ## Pipeline
 
@@ -45,4 +45,4 @@ Only when the orchestration table's fan-out row fires, never on "it feels separa
 - A cycle that proceeded ends with a PR via `commit-pr-pilot` and its URL to the user.
 - A cycle closed at phase 2 ends with its verdict + evidence and no PR.
 - Either way, `progress/current.md` at `idle`.
-<!-- /navori:managed id="ticket-intake" -->
+<!-- /navori:managed id="resolve-ticket" -->

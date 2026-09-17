@@ -1,12 +1,12 @@
 ---
-name: babysit-prs
+name: follow-up-prs
 description: Use when you resume a session with open PRs of yours, or when a check went red after a push — collect review feedback, inline comments and CI status, and turn each finding into an encargo.
 metadata:
   type: reference
 ---
 
-<!-- navori:managed id="babysit-prs" hash="2e59d1ac" version="0.8.7" source="@navori/core" -->
-# babysit-prs — pick up what happened after the PR
+<!-- navori:managed id="follow-up-prs" hash="7b441f43" version="0.8.7" source="@navori/core" -->
+# follow-up-prs — pick up what happened after the PR
 
 ## When to use this skill
 
@@ -65,4 +65,4 @@ nothing here**: the user picks what gets attacked.
   read (`gh` missing, not authenticated, non-GitHub remote): say it and stop, don't guess.
 - Every red check classified `code | infra`, with its literal error line and the run URL.
 - The findings left as encargos the user chooses from; nothing was implemented off them.
-<!-- /navori:managed id="babysit-prs" -->
+<!-- /navori:managed id="follow-up-prs" -->
