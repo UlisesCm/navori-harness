@@ -586,6 +586,181 @@ export function recorderWindow(session: SessionAudit): RecorderWindow | null {
   };
 }
 
+/**
+ * The three PreToolUse(Bash) hooks that comprise "the gate" for lifecycle
+ * correlation (R53, R54 of spec 0026) — the ones that do multi-second work
+ * and are therefore the ones a host timeout can reach. Shared with
+ * `signals.ts`'s `abandonedQualityGates` (#776, #797), which already treats
+ * them as one unit; kept here so both detectors read the same definition.
+ */
+export const GATE_HOOK_NAMES = new Set(["quality-gate-pre-commit", "check-jscpd", "check-semgrep"]);
+
+/**
+ * `name`+`toolUseId`: the three gates fire on the SAME Bash call and share its
+ * `tool_use_id`, so keying on the id alone would let one gate's `allow` cover
+ * for another gate that never finished (#797's `gateKey`).
+ *
+ * Empty suffix when the event predates `tool_use_id` (#776) or the hook never
+ * propagated it — every such event of one hook name collides into the SAME
+ * key on purpose, so a caller can tell "no id was ever recorded here" from "these
+ * two really share one", by checking `toolUseId` on the source events rather
+ * than trusting the string alone.
+ */
+export function gateHandle(event: Pick<HookEvent, "name" | "toolUseId">): string {
+  // `\u0000` as the escape, never a raw NUL: the repo keeps its sources
+  // grep-able and diff-able (`no-nul-bytes.test.ts`).
+  return `${event.name}\u0000${event.toolUseId ?? ""}`;
+}
+
+/**
+ * How a correlated gate execution resolved (R54):
+ *  - `completed`  — exactly one terminal (`allow`/`block`) event for its handle.
+ *  - `timeout`    — a `gate-started`/`gate-killed` with no terminal event, in a
+ *                   sealed session (an open gate mid-session is not yet a fact).
+ *  - `duplicate`  — more than one terminal event shares a real handle.
+ *  - `unknown`    — the event(s) carry no `toolUseId`, so no real handle exists
+ *                   to correlate ownership or detect duplicates against.
+ */
+export type GateOutcome = "completed" | "timeout" | "duplicate" | "unknown";
+
+/**
+ * One correlated gate execution: a `GATE_HOOK_NAMES` invocation joined to the
+ * run whose OWN `hookEvents` carried it — ownership the parser already
+ * resolved (`ownerOf` in `parse.ts`) from the hook's stated `agentId`, never
+ * re-derived here from a time-window guess (R53's "single owner, stable
+ * handle" contract, read back after the fact).
+ *
+ * Built only from hook events and each run's identity: no command text, no
+ * diff content, no PII.
+ */
+export interface GateExecution {
+  handle: string;
+  /** `AgentRun.agentId` of the run whose `hookEvents` carried this execution.
+   *  Null for the orchestrator (which has no agentId), for a handle whose
+   *  events span more than one owner (ambiguous — never guessed), and for
+   *  `unknown` executions. */
+  ownerAgentId: string | null;
+  /** `"orchestrator"` or an `AgentRun.agentType`, mirroring `ownerAgentId`. */
+  ownerAgentType: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** The terminal hook's own measured `ms` — never a `ts` subtraction, for the
+   *  same reason `HookEvent.ms` documents. Null when there is no terminal
+   *  event to read it from (`timeout`, `unknown`, or an ambiguous `duplicate`). */
+  durationMs: number | null;
+  outcome: GateOutcome;
+}
+
+/**
+ * Correlates one session's `GATE_HOOK_NAMES` events into per-invocation
+ * executions (R54).
+ *
+ * Gated on `session.sealed`, like `abandonedQualityGates`: an open gate in a
+ * still-running session is not yet a timeout, just unfinished.
+ *
+ * `unknown` executions are reported explicitly rather than silently skipped —
+ * the gap `abandonedQualityGates` leaves on purpose, scoped to timeouts only
+ * (its own test pins that a `toolUseId`-less event produces no finding there).
+ * This function is the one place that keeps the count instead of losing it.
+ */
+export function correlateGateExecutions(session: SessionAudit): GateExecution[] {
+  if (!session.sealed) return [];
+
+  const owners: Array<{ ownerKey: string; agentType: string; events: HookEvent[] }> = [
+    {
+      ownerKey: "orchestrator",
+      agentType: "orchestrator",
+      events: session.orchestrator.hookEvents,
+    },
+    ...session.agents.map((a) => ({
+      ownerKey: a.agentId,
+      agentType: a.agentType,
+      events: a.hookEvents,
+    })),
+  ];
+
+  const byHandle = new Map<string, { events: HookEvent[]; owners: Set<string> }>();
+  for (const owner of owners) {
+    for (const event of owner.events) {
+      if (!GATE_HOOK_NAMES.has(event.name)) continue;
+      const handle = gateHandle(event);
+      const bucket = byHandle.get(handle) ?? { events: [], owners: new Set<string>() };
+      bucket.events.push(event);
+      bucket.owners.add(owner.ownerKey);
+      byHandle.set(handle, bucket);
+    }
+  }
+
+  const out: GateExecution[] = [];
+  for (const [handle, bucket] of byHandle) {
+    const hasRealId = bucket.events.some((e) => e.toolUseId !== undefined);
+    const singleOwnerKey = bucket.owners.size === 1 ? [...bucket.owners][0]! : null;
+    const ownerAgentId =
+      singleOwnerKey === null || singleOwnerKey === "orchestrator" ? null : singleOwnerKey;
+    const ownerAgentType =
+      singleOwnerKey === null
+        ? null
+        : (owners.find((o) => o.ownerKey === singleOwnerKey)?.agentType ?? null);
+
+    if (!hasRealId) {
+      out.push({
+        handle,
+        ownerAgentId: null,
+        ownerAgentType: null,
+        startedAt: null,
+        endedAt: null,
+        durationMs: null,
+        outcome: "unknown",
+      });
+      continue;
+    }
+
+    const started = bucket.events.find((e) => e.verdict === "gate-started");
+    const terminal = bucket.events.filter((e) => e.verdict === "allow" || e.verdict === "block");
+    const killed = bucket.events.some((e) => e.verdict === "gate-killed");
+
+    if (terminal.length > 1) {
+      out.push({
+        handle,
+        ownerAgentId,
+        ownerAgentType,
+        startedAt: started?.ts ?? null,
+        endedAt: terminal[terminal.length - 1]!.ts,
+        durationMs: null,
+        outcome: "duplicate",
+      });
+      continue;
+    }
+
+    const one = terminal[0];
+    if (one) {
+      out.push({
+        handle,
+        ownerAgentId,
+        ownerAgentType,
+        startedAt: started?.ts ?? one.ts,
+        endedAt: one.ts,
+        durationMs: one.ms,
+        outcome: "completed",
+      });
+      continue;
+    }
+
+    if (started || killed) {
+      out.push({
+        handle,
+        ownerAgentId,
+        ownerAgentType,
+        startedAt: started?.ts ?? null,
+        endedAt: null,
+        durationMs: null,
+        outcome: "timeout",
+      });
+    }
+  }
+  return out;
+}
+
 export type Severity = "info" | "warn" | "high";
 
 export interface Signal {

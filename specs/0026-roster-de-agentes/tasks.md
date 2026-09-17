@@ -412,7 +412,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
 ## Fase R · Lifecycle y medición del reviewer (dentro del PR 4)
 
-- [ ] **T21** (R53, R54) — Reutilizar #854 (`7da709df`) tras verificar si ya está en la base; no
+- [x] **T21** (R53, R54) — Reutilizar #854 (`7da709df`) tras verificar si ya está en la base; no
   duplicar su fix. `reviewer.md` define un owner único y handle estable por ejecución de gate/diff,
   sin reintento mientras vive, sin `pgrep`/`ps` global; timeout no es éxito y host sin handle async
   usa foreground observable o `BLOCKED`. Extender `lib/audit/model.ts`, `report.ts` y `signals.ts`
