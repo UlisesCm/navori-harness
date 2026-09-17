@@ -37,5 +37,13 @@
       ]
     }
   },
-  "invariants": ["gh issue view", "gh pr create"]
+  "invariants": ["gh issue view", "gh pr create"],
+  "skills": [
+    {
+      "id": "gh-comment-channel-publisher",
+      "file": "skills/gh-comment-channel.md",
+      "recommendedAgent": "publisher",
+      "injectInto": ".claude/agents/publisher.md"
+    }
+  ]
 }

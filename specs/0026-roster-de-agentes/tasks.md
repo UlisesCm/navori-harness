@@ -398,7 +398,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
 ## Fase E2 · Canales de `publisher` (PR 5)
 
-- [ ] **T18** (R45, R46) — `agents/publisher.md` suma el contrato de comentarios:
+- [x] **T18** (R45, R46) — `agents/publisher.md` suma el contrato de comentarios:
   - Cuerpo en un archivo del directorio de progreso.
   - Por canal: `gh pr/issue comment` y review con `--body-file`; `gh api` con `--input` o
     `-F body=@archivo`/campo GraphQL; `acli` con `--body-file` o `--body-adf` ADF.

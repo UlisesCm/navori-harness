@@ -7,7 +7,7 @@ effort: high
 maxWords: 2850
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="9d4c2caa" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="orchestrator-base" hash="20bf2cc1" version="0.8.7" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
@@ -115,8 +115,9 @@ Expected files:
 - `.claude/progress/impl_<feature>.md` — the `implementer`'s report (includes its `Status: DONE | BLOCKED`)
 - `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
 - `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)
+- `.claude/progress/comment_<feature>.md` — the comment/review/ticket body `publisher` drafts before publishing it file-backed (comment contract)
 
-**Path separation (don't mix):** `.claude/progress/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
+**Path separation (don't mix):** `.claude/progress/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
 
 **Retirement:** `.claude/progress/` is gitignored — single-machine, not durable. No doc or argument may cite one of its files as evidence. Delete by hand anything older than **14 days**; nothing here is automated (no command/hook deletes on your behalf). Before deleting, promote whatever is still load-bearing (a decision reconstructable in six months) to `docs/` or engram via the `dominio` skill — otherwise it's lost for good. `progress/current.md` and `progress/history.md` (repo root, versioned) are a different, exempt directory.
 

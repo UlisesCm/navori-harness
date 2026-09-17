@@ -28,5 +28,13 @@
       ]
     }
   },
-  "invariants": ["acli jira workitem view"]
+  "invariants": ["acli jira workitem view"],
+  "skills": [
+    {
+      "id": "acli-comment-channel-publisher",
+      "file": "skills/acli-comment-channel.md",
+      "recommendedAgent": "publisher",
+      "injectInto": ".claude/agents/publisher.md"
+    }
+  ]
 }

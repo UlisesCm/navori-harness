@@ -489,8 +489,9 @@ Expected files:
 - `.claude/progress/impl_<feature>.md` — the `implementer`'s report (includes its `Status: DONE | BLOCKED`)
 - `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
 - `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)
+- `.claude/progress/comment_<feature>.md` — the comment/review/ticket body `publisher` drafts before publishing it file-backed (comment contract)
 
-**Path separation (don't mix):** `.claude/progress/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
+**Path separation (don't mix):** `.claude/progress/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
 
 **Retirement:** `.claude/progress/` is gitignored — single-machine, not durable. No doc or argument may cite one of its files as evidence. Delete by hand anything older than **14 days**; nothing here is automated (no command/hook deletes on your behalf). Before deleting, promote whatever is still load-bearing (a decision reconstructable in six months) to `docs/` or engram via the `dominio` skill — otherwise it's lost for good. `progress/current.md` and `progress/history.md` (repo root, versioned) are a different, exempt directory.
 
@@ -585,7 +586,7 @@ Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user 
 name: publisher
 description: Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR.
 tools: Read, Glob, Grep, Bash, Monitor, TaskStop
-maxWords: 3500
+maxWords: 3800
 ---
 
 <!-- navori:managed id="publisher-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -767,6 +768,26 @@ Never open the PR with the gate red.
 
    An empty list next to a `Closes #<N>` in the body means GitHub linked nothing — the keyword was translated, or the number is not an issue of this repo. Report it in **one extra line**, naming the issue that did not link, and stop: rewriting the body of a PR that is already open, and closing the issue by hand, are both the human's call. Informative only, exactly like the checks above.
 
+## Comment contract
+
+Every comment, review or ticket update you publish — on a PR, an issue or a Jira ticket — follows one rule: **the body lives in a file, never inline.** Bodies inline in a command truncate or mis-render under the shell's own quoting, and an inline `--body` gives the pre-flight nothing to inspect before it fires.
+
+1. Write the text into a file inside the progress directory (e.g. `.claude/progress/comment_<feature>.md`). The content comes ONLY from a handoff artifact already on disk (`impl_<feature>.md`, `review_<feature>.md`, the PR/issue itself) — never invent technical claims that aren't already written down somewhere upstream.
+2. Publish it with the flag that reads the file, per channel:
+
+   | Channel | Command | File flag |
+   |---|---|---|
+   | GitHub PR/issue comment | `gh pr comment`, `gh issue comment` (incl. `--edit-last`) | `--body-file <path>` |
+   | GitHub review | `gh pr review -c/-a/-r` | `--body-file <path>` |
+   | GitHub API | `gh api` on a `/comments` or `/reviews` endpoint | `--input <path>` or `-F body=@<path>` |
+   | GitHub GraphQL | `gh api graphql` (`add*Comment`, `updateIssueComment`, `updateDiscussionComment`, `updatePullRequestReview`, `updatePullRequestReviewComment`) | the `body` variable/field sourced `@<path>`; the `query` string is never the body |
+   | Jira ticket | `acli jira workitem comment create` / `comment update` | `--body-file <path>` (text) or `--body-adf <path>` (ADF) |
+
+3. **In Codex**, you never execute the publish yourself: hand the human the drafted file's path and the exact command to run, and never state a URL or id you did not yourself publish.
+4. **When you DO execute the publish** (Claude, with the tool available), report back the resulting URL or id — not a guess at what it will be.
+
+This is a separate contract from the PR body in the flow above: that one is the PR's description, drafted once at PR-creation time; this one is any comment, review body or ticket update issued afterward.
+
 ## Body template (generic default)
 
 ```markdown
@@ -866,6 +887,27 @@ proof the work is safe: what makes it recoverable is the branch being pushed.
 - If all OK: one line with the PR URL and the title, plus the `worktree:` line.
 - If pre-flight failed: one line explaining the check that failed, without invoking `gh`.
 <!-- /navori:managed id="publisher-base" -->
+
+<!-- navori:managed id="acli-comment-channel-publisher" hash="<HASH>" version="<VERSION>" source="@navori/plugin-acli" -->
+### Jira comments (`acli`)
+
+Comment or update a ticket only through `acli jira workitem comment create` / `comment update`, body from file:
+
+- Plain text: `--body-file <path>`.
+- Any `@mention`: `--body-adf <path>` — a plain-text `@mention` never notifies, ADF is the only format that does.
+
+Never write to Jira through the Atlassian/Rovo MCP: it authenticates as a different account, and it exposes no comment deletion, so a mistaken write there cannot be undone.
+<!-- /navori:managed id="acli-comment-channel-publisher" -->
+
+<!-- navori:managed id="gh-comment-channel-publisher" hash="<HASH>" version="<VERSION>" source="@navori/plugin-gh" -->
+### GitHub comments and reviews (`gh`)
+
+The body always comes from a file, never inline:
+
+- `gh pr comment`, `gh issue comment` (incl. `--edit-last`), `gh pr review -c/-a/-r`: `--body-file <path>`.
+- `gh api` on a `/comments` or `/reviews` endpoint: `--input <path>` or `-F body=@<path>`.
+- `gh api graphql` mutations (`add*Comment`, `updateIssueComment`, `updateDiscussionComment`, `updatePullRequestReview`, `updatePullRequestReviewComment`): the `body` variable/field sourced from `@<path>`; the `query` string never carries the comment text.
+<!-- /navori:managed id="gh-comment-channel-publisher" -->
 
 ## Project rules
 
