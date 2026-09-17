@@ -108,8 +108,11 @@ Lo que queda es lo barato:
   - `engines/claude/index.ts:239`, `:1804` y `:1813`.
   - `engines/shared/harness-plan.ts:68` (`includeLeader`).
   - `engines/claude/build-settings.ts:98-100`.
-  - `engines/codex/index.ts:109` y `:329`.
-  - `engines/codex/compat.ts:79-96` y `:124-130`.
+  - `engines/codex/index.ts:50`, `:126`, `:135`, `:385-388` y `:396` (los 5 sitios reales que
+    tratan `leader` como caso especial; `design.md`/`tasks.md` citaban antes `:109` y `:329`, que
+    hoy caen en `wsSubpath` y `orphanScans` respectivamente y no tienen relación con `leader`).
+  - `engines/codex/compat.ts:79-96` (vigente) y `:140`/`:142`, dentro de
+    `adaptHarnessTextForCodex` (antes se citaba `:124-130`, que hoy no toca `leader`).
   - `engines/claude/global-plugin.ts:151` (`includeLeader: true`).
 
   Más `settings-base.json:115` — R19, R20.
@@ -339,6 +342,11 @@ para que el nombre siga describiendo el contenido principal. El tope compuesto c
 - **Límite aceptado:** un error nuevo fuera del diff puede ser causado por el cambio, pero se
   reporta como origen no determinado hasta medir un baseline comparable. El `reviewer` no lo
   convierte en permiso para aprobar un gate rojo.
+- **La contradicción de `git stash` ya se resolvió fuera de esta spec.** `agents/implementer.md:48`
+  y `agents/reviewer.md:189` ya prohíben explícitamente stashear o descartar el working tree
+  compartido; `skills/verify-before-done.md` no receta `git stash` hoy. El alcance real de T15 en
+  este punto es solo bajar `maxWords` de 1050 a 600 y añadir la regla de atribución por ubicación
+  descrita arriba — no una reescritura de los tres archivos.
 
 ### Lifecycle y medición del reviewer
 
