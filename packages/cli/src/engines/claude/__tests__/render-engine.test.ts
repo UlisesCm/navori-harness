@@ -447,29 +447,32 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
     // Inspected counts every managed asset processed:
     //   1 CLAUDE.md + 1 settings.json + 1 .mcp.json (engram declares an mcpServer,
-    //   #212) + 8 agents + 6 core skills + 5 workflow skills (ticket-intake,
-    //   solution-design, spec-bootstrap, dominio, babysit-prs) +
+    //   #212) + 6 agents (spec 0026 T12: orchestrator, implementer, reviewer,
+    //   scout, auditor, publisher) + 6 core skills + 5 workflow skills
+    //   (ticket-intake, solution-design, spec-bootstrap, dominio, babysit-prs) +
     //   1 guard hook + 1 session-start hook + 1 PR routing hook (#705) +
     //   1 comment-draft-confirm hook (spec 0026 E1) +
     //   1 lifecycle hook (subagent-stop; the PreCompact reminder was retired in
     //   #774 and its content moved into the session-start hook) + 1 qg hook +
     //   2 progress files +
-    //   5 engram sub-blocks (leader + the four subagents that reach memory,
-    //   #575) + 2 audit-mode hooks +
+    //   4 engram sub-blocks (orchestrator + implementer/reviewer/auditor, spec
+    //   0026 T13: the ticket-audit sub-block folded into auditor's, #575) +
+    //   2 audit-mode hooks +
     //   1 managed-drift watcher (#530) + 1 worktree-reclaim hook (#527) +
     //   1 routing watcher (spec 0020: the R2 notice at the moment of the
     //   decision, the second PostToolUse hook) +
     //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
-    //   the two session ceremonies and the agents index (#572) = 44.
+    //   the two session ceremonies and the agents index (#572) = 41.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(44);
-    // Written counts files actually emitted. engram-leader-extension is a
-    // sub-block injected into leader.md, not a separate file. The arithmetic:
-    // 44 inspected − the 5 engram sub-blocks = 39 files actually emitted (the 31
-    // base files + the .mcp.json + both audit-mode hooks + the drift watcher +
-    // the worktree-reclaim hook + the routing watcher of spec 0020 + the PR
-    // routing hook of #705 + the comment-draft-confirm hook of spec 0026 E1).
-    expect(first.written.length).toBe(39);
+    expect(first.inspected).toBe(41);
+    // Written counts files actually emitted. engram-orchestrator-extension is a
+    // sub-block injected into orchestrator.md, not a separate file. The
+    // arithmetic: 41 inspected − the 4 engram sub-blocks = 37 files actually
+    // emitted (the base files + the .mcp.json + both audit-mode hooks + the
+    // drift watcher + the worktree-reclaim hook + the routing watcher of spec
+    // 0020 + the PR routing hook of #705 + the comment-draft-confirm hook of
+    // spec 0026 E1).
+    expect(first.written.length).toBe(37);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -484,18 +487,19 @@ describe("renderClaudeEngine — injectInto warns when target absent (P0-fix U4)
       ...CONFIG_FULL,
       plugins: { engram: { enabled: true } },
       harness: {
-        leader: false, // target disabled
+        orchestrator: false, // target disabled
         implementer: true,
         reviewer: true,
-        researcher: false,
-        ticketAudit: false,
-        commitPrPilot: false,
-        explorer: false,
+        scout: false,
+        auditor: false,
+        publisher: false,
       },
     } as unknown as NavoriConfig;
     const r = renderClaudeEngine(cwd, cfg);
     expect(
-      r.warnings.some((w) => /engram-leader-extension.*\.claude\/agents\/leader\.md/.test(w)),
+      r.warnings.some((w) =>
+        /engram-orchestrator-extension.*\.claude\/agents\/orchestrator\.md/.test(w),
+      ),
     ).toBe(true);
   });
 });
@@ -516,7 +520,7 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
     expect(allow).toContain("Bash(git status*)");
   });
 
-  it("engram plugin injects a managed sub-block into leader.md", () => {
+  it("engram plugin injects a managed sub-block into orchestrator.md", () => {
     const cfg = {
       ...CONFIG_FULL,
       plugins: { engram: { enabled: true } },
@@ -524,11 +528,11 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
     renderClaudeEngine(cwd, cfg);
 
     const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
-    expect(leader).toContain('<!-- navori:managed id="engram-leader-extension"');
+    expect(leader).toContain('<!-- navori:managed id="engram-orchestrator-extension"');
     expect(leader).toContain('source="@navori/plugin-engram"');
     expect(leader).toContain("mem_search");
     // Base block is still there
-    expect(leader).toContain('<!-- navori:managed id="leader-base"');
+    expect(leader).toContain('<!-- navori:managed id="orchestrator-base"');
   });
 
   it("removes nothing when injectInto target is missing (agent disabled in harness)", () => {
@@ -572,8 +576,9 @@ describe("renderClaudeEngine — dry-run", () => {
     // routing watcher (spec 0020), the PR routing hook (#705), the
     // comment-draft-confirm hook (spec 0026 E1) and the orchestrator block
     // routed to `.claude/context/` (#573). One less than before #774 retired
-    // the PreCompact reminder.
-    expect(r.written).toHaveLength(39);
+    // the PreCompact reminder. 37, not 39: spec 0026 T12 shrank the roster from
+    // eight agents to six.
+    expect(r.written).toHaveLength(37);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

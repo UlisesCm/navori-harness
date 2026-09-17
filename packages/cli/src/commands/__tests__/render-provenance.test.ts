@@ -158,12 +158,12 @@ function seedFakeMonorepo(): Fixture {
 
 /** Edit a managed asset at the SOURCE, after the last build. No rebuild. */
 function editSourceAsset(fx: Fixture): string {
-  const rel = join("agents", "commit-pr-pilot.md");
+  const rel = join("agents", "publisher.md");
   const file = join(fx.sourceCore, rel);
   const before = readFileSync(file, "utf-8");
   writeFileSync(
     file,
-    before.replace("# Commit & PR Pilot Agent", "# Commit & PR Pilot Agent\n\nPROVENANCE-V2-LINE"),
+    before.replace("# Publisher Agent", "# Publisher Agent\n\nPROVENANCE-V2-LINE"),
     "utf-8",
   );
   utimesSync(file, T0 / 1000 + 60, T0 / 1000 + 60);

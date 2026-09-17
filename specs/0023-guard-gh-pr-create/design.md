@@ -4,7 +4,7 @@
 
 **Veredicto: construirlo.** La medición del costo lo sostiene —los falsos positivos que
 #705 temía suman 2 de 263 (0.8%), y `revert` en particular es 0— y la capa que ya está
-desplegada tiene su conversión medida en 0 de 26. La pieza no es nueva: `pr-pilot-confirm.sh`
+desplegada tiene su conversión medida en 0 de 26. La pieza no es nueva: `pr-publisher-confirm.sh`
 existe desde #712 y está registrado en `PreToolUse(Bash)` desde entonces. Lo que cambia es
 **el veredicto que emite**, de `permissionDecision: "ask"` a un bloqueo con salida escrita.
 
@@ -31,7 +31,7 @@ Tres piezas, y las tres son necesarias para que la cuarta —la medición— sig
 sin las piezas 2 y 3: un guard sin salida escrita se desactiva solo, y entonces no sirve para
 nada. Las tres piezas viajan juntas o no viaja ninguna.
 
-**Descartado: que el hook invoque al pilot.** Un hook no puede lanzar un subagente; solo el
+**Descartado: que el hook invoque al publisher.** Un hook no puede lanzar un subagente; solo el
 modelo puede. Por eso el mensaje del bloqueo es la pieza de diseño, no un adorno (ver la
 decisión del circuit-breaker, abajo).
 
@@ -41,9 +41,9 @@ commit, a push or a PR" desde la spec 0020 — la prosa ya apunta bien y la cond
 
 ## Components
 
-- `packages/core/core-assets/hooks/pr-pilot-confirm.sh` — el hook existente pasa de `ask` a
+- `packages/core/core-assets/hooks/pr-publisher-confirm.sh` — el hook existente pasa de `ask` a
   bloqueo, gana el repliegue por ausencia de ruta y el override. Cubre R1–R8.
-- `packages/cli/src/lib/__tests__/pr-pilot-confirm.test.ts` — la suite existente; su caso
+- `packages/cli/src/lib/__tests__/pr-publisher-confirm.test.ts` — la suite existente; su caso
   `NUNCA bloquea — el exit es 0 incluso cuando eleva` se **invierte**, no se borra: pasa a
   fijar el contrato nuevo. Cubre R1–R8.
 - `scripts/mine-pr-routing.py` — el instrumento del embudo, calcado de
@@ -54,7 +54,7 @@ commit, a push or a PR" desde la spec 0020 — la prosa ya apunta bien y la cond
 **Lo que NO cambia en bytes emitidos, y es la mitad del valor de que esta pieza ya existiera:**
 el matcher `PreToolUse(Bash)` que invoca el hook, su `timeout: 10` y su `statusMessage` ya
 están en el `settings.json` managed (`build-settings.ts:128-143`), y el plan ya materializa el
-script con `managedId: "pr-pilot-confirm-base"` (`harness-plan.ts:189`). **Ninguno de los dos
+script con `managedId: "pr-publisher-confirm-base"` (`harness-plan.ts:189`). **Ninguno de los dos
 codifica el veredicto**, así que pasar de `ask` a bloqueo no toca el bloque managed de ningún
 repo onboardeado.
 
@@ -82,13 +82,13 @@ crítica de este repo. Van asignados a T9.
   manda al agente a parar, no a delegar — y el embudo mediría 0% por doctrina, no por
   conducta. El mensaje, entonces, se redacta como **esa única vía alterna**, con la forma que
   ya funcionó en `guard-search-routing`: nombra la acción concreta que sí procede
-  (`Agent` con `subagent_type: commit-pr-pilot`), no repite la regla ni regaña. Un bloqueo
+  (`Agent` con `subagent_type: publisher`), no repite la regla ni regaña. Un bloqueo
   que solo dice "no deberías" es un callejón, y un callejón se paga con un override.
 
 - **La frontera es "¿viene de un subagente?", no "¿viene del pilot?".** El payload de
   `PreToolUse` trae `agent_id` estable, y con él se sabe si la llamada nace en un sidechain;
   no se sabe de cuál. Se acepta a propósito: el coste medido de la holgura es 0 (los 6
-  `allow` del store resuelven los 6 al pilot), y cerrarla exigiría leer
+  `allow` del store resuelven los 6 al publisher), y cerrarla exigiría leer
   `~/.claude/projects/*/<session>/subagents/agent-<id>.meta.json`, un archivo interno del
   host que no está documentado y que el propio `audit-log.sh` trata con esa cautela.
   `// TODO(precision): si un subagente que no es el pilot empieza a abrir PRs —el minero lo
@@ -106,7 +106,7 @@ crítica de este repo. Van asignados a T9.
   git* (#454), y lo hace con `git rev-parse --show-toplevel`. Esa es la pregunta correcta para
   **el centinela del override**: el archivo vive en el árbol donde el agente trabaja, y por eso
   R5 lo resuelve así. **No** es la pregunta de R3. Si el repliegue probara
-  `<toplevel-de-git>/.claude/agents/commit-pr-pilot.md`, acertaría desde cualquier
+  `<toplevel-de-git>/.claude/agents/publisher.md`, acertaría desde cualquier
   subdirectorio de cualquier repo onboardeado, el repliegue no dispararía jamás y R3 quedaría
   verde y hueco. Una versión anterior de este diseño tenía exactamente ese defecto.
 
@@ -145,9 +145,9 @@ compartido; no se inventa un tipo de evento nuevo. Los veredictos y su significa
 
 | verdict | cuándo | reason |
 |---|---|---|
-| `block` | R1 | `PR abierto fuera del commit-pr-pilot` |
+| `block` | R1 | `PR abierto fuera del publisher` |
 | `allow` | R2 | `el PR viene de un subagente` |
-| `allow` | R3 | `no hay commit-pr-pilot al que delegar` |
+| `allow` | R3 | `no hay publisher al que delegar` |
 | `override` | R5 | la primera línea del centinela, truncada a 200 caracteres |
 | `override` | R5, borrado fallido | la misma razón + ` (centinela no consumido)` |
 | `block` | R6 | `el centinela de override no declara una razón` |
@@ -184,7 +184,7 @@ Cada caso responde a un riesgo nombrado arriba:
   exit 2 y el nombre del pilot en stderr.
 - *El guard se bloquea a sí mismo dentro del pilot* → payload con `agent_id`, exit 0 y
   registro `allow`.
-- *El guard bloquea donde no hay ruta* → repo sin `commit-pr-pilot.md` en ningún nivel ni en
+- *El guard bloquea donde no hay ruta* → repo sin `publisher.md` en ningún nivel ni en
   `~/.claude/agents/`: exit 0 y registro con la razón del repliegue.
 - *El repliegue se vuelve un agujero* — el riesgo opuesto, y el que una versión anterior de
   este diseño tenía abierto → comando lanzado desde un **subdirectorio** de un repo que sí
@@ -211,9 +211,9 @@ denominador discutible.
 > **De los `gh pr create` que el guard bloquea, ¿qué fracción se reintenta por el pilot en la
 > misma sesión?**
 
-- **Denominador**: registros `pr-pilot-confirm` con `verdict: block` (R1 y R6).
+- **Denominador**: registros `pr-publisher-confirm` con `verdict: block` (R1 y R6).
 - **Numerador A (éxito)**: bloqueos seguidos, en la misma sesión y después de su `tsMs`, de
-  una invocación de `Agent`/`Task` con `subagent_type: commit-pr-pilot`.
+  una invocación de `Agent`/`Task` con `subagent_type: publisher`.
 - **Numerador B (fuga)**: bloqueos seguidos de un `override` en la misma sesión.
 - **Ventana**: los primeros **20 bloqueos** del parque, o **14 días** desde el merge, lo que
   ocurra primero.
@@ -269,7 +269,7 @@ todos los repos onboardeados se queda con el mismo cuerpo y el mismo hash: cero 
 re-consentimiento.
 
 Lo que cambia es el cuerpo del script, que es un bloque managed propio
-(`id="pr-pilot-confirm-base"` en `.claude/hooks/pr-pilot-confirm.sh`). Por lo tanto:
+(`id="pr-publisher-confirm-base"` en `.claude/hooks/pr-publisher-confirm.sh`). Por lo tanto:
 
 - `navori render --apply` reescribe el bloque y el repo queda con el guard nuevo.
 - Un repo cuyo CLI sea anterior conserva su versión: la regla anti-rollback de `marker.ts`

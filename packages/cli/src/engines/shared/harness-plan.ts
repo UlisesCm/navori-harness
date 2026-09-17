@@ -200,14 +200,11 @@ export function resolveHarnessPlan(
   });
   // #705: only a repo that receives publisher receives its dependent
   // routing hook. The guard stays unconditional; this hook has an owner.
-  // Hook id/file rename (pr-pilot-confirm -> pr-publisher-confirm) is spec
-  // 0026 T13's scope; this is only the harness-key token fix T11 needs to
-  // compile against the renamed schema.
   if (isAgentEnabled(config, "publisher")) {
     hooks.push({
-      id: "pr-pilot-confirm",
-      assetPath: join(coreAssets, "hooks/pr-pilot-confirm.sh"),
-      managedId: "pr-pilot-confirm-base",
+      id: "pr-publisher-confirm",
+      assetPath: join(coreAssets, "hooks/pr-publisher-confirm.sh"),
+      managedId: "pr-publisher-confirm-base",
     });
   }
   if (config.qualityGate?.fast) {

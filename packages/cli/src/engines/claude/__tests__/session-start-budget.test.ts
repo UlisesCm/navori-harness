@@ -159,7 +159,7 @@ describe("spec 0019 — la escalera llega, no solo cabe", () => {
   const CEILING = 6500;
 
   it("el bloque de orquestación renderizado cabe bajo su techo", () => {
-    // Covers: R3, R6
+    // Covers: R3, R6, R26
     const cwd = renderedRepo(4600);
     const dir = join(cwd, ".claude/context");
     const file = readdirSync(dir).find((f) => f.endsWith("-orquestacion.md"));

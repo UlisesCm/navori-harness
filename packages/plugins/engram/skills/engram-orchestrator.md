@@ -1,6 +1,6 @@
 ---
-name: engram-leader-extension
-description: Use when the leader agent is orchestrating work — the Engram protocol: search context before decomposing, save decisions proactively, close the session with a summary.
+name: engram-orchestrator-extension
+description: Use when the orchestrator is decomposing and coordinating work — the Engram protocol: search context before decomposing, save decisions proactively, close the session with a summary.
 metadata:
   type: behavior
   maxWords: 260

@@ -25,10 +25,11 @@ import { fileURLToPath } from "node:url";
  * of them).
  *
  * #814 moved this prose out of the CLAUDE.md-wide `engram-protocol` managed
- * block and into `skills/engram-leader.md`, which `skills[].injectInto` writes
- * straight into `.claude/agents/leader.md` — the leader is the session owner,
- * so it is the only role that ever ran this ceremony. The assertions below
- * target that file now; the content they pin didn't change meaning, only home.
+ * block and into `skills/engram-orchestrator.md`, which `skills[].injectInto`
+ * writes straight into `.claude/agents/orchestrator.md` — the orchestrator is
+ * the session owner, so it is the only role that ever ran this ceremony (spec
+ * 0026 T13 renamed the file and its target; the content they pin didn't
+ * change meaning, only home).
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -47,20 +48,20 @@ function lineWith(text: string, needle: string, label: string): string {
 }
 
 describe("memory startup — the call is conditioned on the absence of a hook (#401)", () => {
-  const block = readEngram("skills/engram-leader.md");
+  const block = readEngram("skills/engram-orchestrator.md");
 
   it("keeps the explicit call for hostless engines (Codex renders this prose)", () => {
     // `render-codex.test.ts` asserts AGENTS.md carries `mem_context`: on Codex
     // there is no startup hook, so this in-prose call IS the memory startup.
     expect(block).toContain("mem_context");
-    const line = lineWith(block, "mem_context", "engram-leader.md");
+    const line = lineWith(block, "mem_context", "engram-orchestrator.md");
     expect(line).toMatch(/no startup hook \(e\.g\. Codex\)/i);
     expect(line).toMatch(/IS the memory startup/);
     expect(line).toMatch(/mandatory first step/i);
   });
 
   it("tells the hooked host to work with what was injected instead of re-fetching", () => {
-    const line = lineWith(block, "mem_context", "engram-leader.md");
+    const line = lineWith(block, "mem_context", "engram-orchestrator.md");
     expect(line).toMatch(/already injected/i);
     expect(line).toMatch(/`SessionStart`/);
     expect(line).toMatch(/only re-fetches it/i);
@@ -84,7 +85,7 @@ describe("memory startup — the call is conditioned on the absence of a hook (#
 
 describe("session close — one redaction serves every destination (#401)", () => {
   const closeout = readCore("managed/cierre-sesion.md");
-  const protocol = readEngram("skills/engram-leader.md");
+  const protocol = readEngram("skills/engram-orchestrator.md");
 
   it("the closeout's history step states the single-redaction rule", () => {
     const step2 = lineWith(closeout, "2. **History**", "cierre-sesion.md");
@@ -107,7 +108,11 @@ describe("session close — one redaction serves every destination (#401)", () =
   });
 
   it("the memory protocol reuses that same text instead of re-writing it", () => {
-    const summary = lineWith(protocol, "`mem_session_summary` is mandatory", "engram-leader.md");
+    const summary = lineWith(
+      protocol,
+      "`mem_session_summary` is mandatory",
+      "engram-orchestrator.md",
+    );
     expect(summary).toMatch(/same redaction/i);
     expect(summary).toContain("`history.md`");
     expect(summary).toMatch(/write it once and reuse that text/i);
@@ -116,7 +121,7 @@ describe("session close — one redaction serves every destination (#401)", () =
   });
 
   it("curation folds into the summary's turn instead of being a separate pass", () => {
-    const curation = lineWith(protocol, "**Curation at close:**", "engram-leader.md");
+    const curation = lineWith(protocol, "**Curation at close:**", "engram-orchestrator.md");
     expect(curation).toMatch(/in the same turn as the summary/i);
     expect(curation).toMatch(/never a separate pass/i);
     expect(curation).not.toMatch(/after the summary/i);
@@ -125,7 +130,7 @@ describe("session close — one redaction serves every destination (#401)", () =
 
 describe("#401 leaves #378's lean close lane intact", () => {
   const closeout = readCore("managed/cierre-sesion.md");
-  const protocol = readEngram("skills/engram-leader.md");
+  const protocol = readEngram("skills/engram-orchestrator.md");
 
   it("the closeout still owns the lane's verifiable conditions", () => {
     const lane = lineWith(closeout, "**Lean close**", "cierre-sesion.md");
@@ -137,7 +142,7 @@ describe("#401 leaves #378's lean close lane intact", () => {
   });
 
   it("the memory protocol still exempts the summary and the curation under it", () => {
-    const lane = lineWith(protocol, "**Lean close**", "engram-leader.md");
+    const lane = lineWith(protocol, "**Lean close**", "engram-orchestrator.md");
     expect(lane).toMatch(/summary and the curation step are exempt/i);
     expect(lane).toMatch(/`mem_save` is not/i);
     const { invariants } = JSON.parse(readEngram("plugin.json")) as { invariants: string[] };
@@ -152,7 +157,7 @@ describe("#401 leaves #378's lean close lane intact", () => {
     // denylist is re-asserted here over the new prose.
     for (const [label, text] of [
       ["managed/cierre-sesion.md", closeout],
-      ["engram/skills/engram-leader.md", protocol],
+      ["engram/skills/engram-orchestrator.md", protocol],
     ] as const) {
       expect(text, `${label} reintroduced a self-judged exemption`).not.toMatch(
         /durable (finding|hallazgo)/i,

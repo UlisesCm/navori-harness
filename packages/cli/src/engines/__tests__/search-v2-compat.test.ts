@@ -88,7 +88,7 @@ describe("C01 — grant lifecycle: retire on disable, foreign grants survive, ha
       cwd,
       baseConfig(["claude"], { codegraph: { enabled: true }, engram: { enabled: true } }),
     );
-    const leaderOn = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    const leaderOn = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(agentTools(leaderOn)).toEqual(
       expect.arrayContaining(["mcp__codegraph__*", "mcp__engram__*"]),
     );
@@ -98,7 +98,7 @@ describe("C01 — grant lifecycle: retire on disable, foreign grants survive, ha
       cwd,
       baseConfig(["claude"], { codegraph: { enabled: false }, engram: { enabled: true } }),
     );
-    const leaderOff = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    const leaderOff = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(agentTools(leaderOff)).not.toContain("mcp__codegraph__*");
     // Engram's grant on the SAME agent is untouched by codegraph's retirement.
     expect(agentTools(leaderOff)).toContain("mcp__engram__*");
@@ -112,7 +112,7 @@ describe("C01 — grant lifecycle: retire on disable, foreign grants survive, ha
       cwd,
       baseConfig(["claude"], { codegraph: { enabled: true }, tgrep: { enabled: false } }),
     );
-    const path = join(cwd, ".claude/agents/leader.md");
+    const path = join(cwd, ".claude/agents/orchestrator.md");
     const edited = readFileSync(path, "utf-8").replace(
       "Apply Code discovery routing from the project instructions.",
       "USER-EDIT: keep this exact wording.",
@@ -126,7 +126,7 @@ describe("C01 — grant lifecycle: retire on disable, foreign grants survive, ha
     );
     const after = readFileSync(path, "utf-8");
     expect(after).toContain("USER-EDIT: keep this exact wording.");
-    expect(r.skipped.some((s) => s.path === ".claude/agents/leader.md")).toBe(true);
+    expect(r.skipped.some((s) => s.path === ".claude/agents/orchestrator.md")).toBe(true);
   });
 });
 
@@ -299,8 +299,8 @@ describe("C06 — v2 render doesn't disturb other plugins' settings/MCP/hooks fr
 
     // engram carries no CLAUDE.md-wide block (#814); its fragment lives in the
     // leader's own file instead.
-    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
-    expect(leader).toContain('id="engram-leader-extension"');
+    const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
+    expect(leader).toContain('id="engram-orchestrator-extension"');
     expect(agentTools(leader)).toEqual(
       expect.arrayContaining(["mcp__engram__*", "mcp__codegraph__*"]),
     );
@@ -327,9 +327,9 @@ describe("C06 — v2 render doesn't disturb other plugins' settings/MCP/hooks fr
     expect(claudeMd).not.toContain('id="codegraph-search-v2"');
     expect(claudeMd).not.toContain('id="tgrep-search-v2"');
 
-    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     // engram carries no CLAUDE.md-wide block (#814); check its own fragment survives instead.
-    expect(leader).toContain('id="engram-leader-extension"');
+    expect(leader).toContain('id="engram-orchestrator-extension"');
     expect(agentTools(leader)).toContain("mcp__engram__*");
     expect(agentTools(leader)).not.toContain("mcp__codegraph__*");
 

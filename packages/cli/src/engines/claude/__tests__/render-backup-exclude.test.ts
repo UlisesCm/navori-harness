@@ -65,7 +65,7 @@ describe("renderClaudeEngine — backup excludes never-versioned state (#348)", 
     expect(existsSync(join(backup, ".claude/progress"))).toBe(false);
     expect(existsSync(join(backup, ".claude/settings.local.json"))).toBe(false);
     // …while the versioned harness itself is still snapshotted.
-    expect(existsSync(join(backup, ".claude/agents/leader.md"))).toBe(true);
+    expect(existsSync(join(backup, ".claude/agents/orchestrator.md"))).toBe(true);
   });
 });
 

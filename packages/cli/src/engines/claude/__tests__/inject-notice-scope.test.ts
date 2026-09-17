@@ -50,7 +50,7 @@ describe("render — el aviso de sub-bloque no inyectado (#676)", () => {
   it("se calla en un workspace 'minimal': el agente vive en la raíz", () => {
     const r = renderClaudeEngine(ws, BASE, { repoRoot: root, harnessScope: "minimal" });
     // Precondición del caso: el recorte es real, no hay agentes en el workspace.
-    expect(existsSync(join(ws, ".claude/agents/leader.md"))).toBe(false);
+    expect(existsSync(join(ws, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(injectWarnings(r.warnings)).toEqual([]);
   });
 
@@ -60,11 +60,11 @@ describe("render — el aviso de sub-bloque no inyectado (#676)", () => {
     // cambiado un falso positivo por un falso negativo.
     const r = renderClaudeEngine(root, {
       ...BASE,
-      harness: { leader: false },
+      harness: { orchestrator: false },
     } as unknown as NavoriConfig);
     const w = injectWarnings(r.warnings);
     expect(w.length).toBeGreaterThan(0);
-    expect(w.join("\n")).toContain("leader.md");
+    expect(w.join("\n")).toContain("orchestrator.md");
   });
 
   it("un render de raíz con todo habilitado no avisa nada", () => {
@@ -72,6 +72,6 @@ describe("render — el aviso de sub-bloque no inyectado (#676)", () => {
     // venir del scope, no de que este plugin nunca avise.
     const r = renderClaudeEngine(root, BASE);
     expect(injectWarnings(r.warnings)).toEqual([]);
-    expect(existsSync(join(root, ".claude/agents/leader.md"))).toBe(true);
+    expect(existsSync(join(root, ".claude/agents/orchestrator.md"))).toBe(true);
   });
 });

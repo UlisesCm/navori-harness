@@ -264,7 +264,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
   - `lib/__tests__/protocol-coherence.test.ts::orchestrator playbook has no inline-edit route and one design gate`.
 
   con `// Covers: R17, R21, R22, R23, R24, R25, R51`
-- [ ] **T13** (R26, R27, R28) — Doctrina, hook y plugins:
+- [x] **T13** (R26, R27, R28) — Doctrina, hook y plugins:
   - **Orquestación:** `managed/orquestacion.md` y `lib/render-plan.ts:251-280`
     (`analyticalParallelism` → `navori:if scout`), dentro de 6,500 caracteres.
   - **Hook:** `hooks/pr-pilot-confirm.sh` pasa a `hooks/pr-publisher-confirm.sh`;

@@ -27,7 +27,7 @@ const CORE_ASSETS = resolve(getCoreRoot(), "core-assets");
 const read = (rel: string): string => readFileSync(resolve(CORE_ASSETS, rel), "utf-8");
 
 const BLOCK = "managed/orquestacion.md";
-const LEADER = "agents/leader.md";
+const LEADER = "agents/orchestrator.md";
 
 describe("el bloque conserva la regla operativa (R4)", () => {
   const block = read(BLOCK);
@@ -105,7 +105,7 @@ describe("spec 0019 — la profundidad es alcanzable y no se duplica (R9, R11)",
 
   it("el bloque nombra con ruta literal dónde vive la profundidad", () => {
     // Covers: R9
-    expect(block).toContain(".claude/agents/leader.md");
+    expect(block).toContain(".claude/agents/orchestrator.md");
     expect(block).toContain(".claude/skills/ticket-intake/SKILL.md");
     expect(block).toContain(".claude/skills/solution-design/SKILL.md");
   });
@@ -138,7 +138,7 @@ describe("spec 0019 — la detección del cross-review no se auto-cumple", () =>
   it("leader.md no nombra el id del sub-bloque que navori le inyecta", () => {
     // Covers: R7
     // La doctrina enseñaba a detectar la opción con
-    // `grep -n codex-cross-review .claude/agents/leader.md`. Al mudar ese
+    // `grep -n codex-cross-review .claude/agents/orchestrator.md`. Al mudar ese
     // párrafo DENTRO de leader.md, el grep pasaría a acertar siempre: el
     // agente concluiría que hay cross-review en un repo que solo renderiza
     // Claude. `render-engine.test.ts` usa el mismo token como prueba de que el

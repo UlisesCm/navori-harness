@@ -77,16 +77,15 @@ describe("analysis cascade — one lookup instead of four blocks (#379 B)", () =
 
   it("every mechanism it routes into is still reachable from the always-on layer", () => {
     const block = read("managed/orquestacion.md");
-    // The five mechanisms of the cascade, plus the two read-only agents whose
-    // routing sentence the table absorbed.
+    // The five mechanisms of the cascade, plus the read-only agent (`scout`,
+    // spec 0026 T12's merge of researcher+explorer) whose routing sentence the
+    // table absorbed.
     for (const mechanism of [
       "ticket-intake",
-      "ticket-audit",
       "solution-design",
       "spec-bootstrap",
       "auditor",
-      "researcher",
-      "explorer",
+      "scout",
     ]) {
       expect(
         block,
@@ -94,7 +93,9 @@ describe("analysis cascade — one lookup instead of four blocks (#379 B)", () =
       ).toContain(mechanism);
     }
     // And the ones that are a pure lookup answer sit in the table itself.
-    for (const mechanism of ["ticket-intake", "ticket-audit", "auditor", "spec-bootstrap"]) {
+    // (ticket-audit's own row was folded into `auditor`'s ticket encargo when
+    // spec 0026 T12 merged the ticket-audit agent into auditor.)
+    for (const mechanism of ["ticket-intake", "auditor", "spec-bootstrap"]) {
       expect(
         cascadeRows().some((l) => l.includes(mechanism)),
         `${mechanism} dropped out of the lookup table`,

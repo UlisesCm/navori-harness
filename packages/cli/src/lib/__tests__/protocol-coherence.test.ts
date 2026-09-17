@@ -141,7 +141,7 @@ describe("R1 → PR boundary — defined once, by the agent that applies it (M6)
     expect(
       lineWith("managed/orquestacion.md", "When delegation is genuinely impossible"),
     ).toBeTruthy();
-    expect(read("managed/orquestacion.md")).toContain("`commit-pr-pilot` will require");
+    expect(read("managed/orquestacion.md")).toContain("`publisher` will require");
   });
 });
 

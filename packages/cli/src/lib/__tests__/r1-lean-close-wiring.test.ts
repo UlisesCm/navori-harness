@@ -24,9 +24,10 @@ import { fileURLToPath } from "node:url";
  * indistinguishable from having no protocol at all.
  *
  * #814 retired the CLAUDE.md-wide `engram-protocol` managed block: its content
- * (the leader is the only role that runs the session ceremony) now lives in
- * `skills/engram-leader.md`, which `skills[].injectInto` writes into
- * `.claude/agents/leader.md`. The assertions below target that file.
+ * (the orchestrator is the only role that runs the session ceremony) now
+ * lives in `skills/engram-orchestrator.md`, which `skills[].injectInto`
+ * writes into `.claude/agents/orchestrator.md` (spec 0026 T13 renamed the
+ * file and its target). The assertions below target that file.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -69,7 +70,7 @@ describe("lean close — the exemption is bound to the diff (#378)", () => {
     // mode the decision replaced with checkable conditions.
     for (const [label, text] of [
       ["managed/cierre-sesion.md", readCore("managed/cierre-sesion.md")],
-      ["engram/skills/engram-leader.md", readEngram("skills/engram-leader.md")],
+      ["engram/skills/engram-orchestrator.md", readEngram("skills/engram-orchestrator.md")],
     ] as const) {
       expect(text, `${label} reintroduced a self-judged exemption`).not.toMatch(
         /durable (finding|hallazgo)/i,
@@ -77,10 +78,10 @@ describe("lean close — the exemption is bound to the diff (#378)", () => {
     }
   });
 
-  it("the leader-injected protocol exempts its own steps under the same name, and keeps mem_save", () => {
-    // This skill is injected into `.claude/agents/leader.md`: a surviving
+  it("the orchestrator-injected protocol exempts its own steps under the same name, and keeps mem_save", () => {
+    // This skill is injected into `.claude/agents/orchestrator.md`: a surviving
     // unconditional "mandatory" there would override the lane at the moment of closing.
-    const skill = readEngram("skills/engram-leader.md");
+    const skill = readEngram("skills/engram-orchestrator.md");
     expect(skill).toContain("**Lean close**");
     // The two steps the decision exempts.
     expect(skill).toMatch(/summary and the curation step are exempt/i);

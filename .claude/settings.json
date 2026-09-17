@@ -23,9 +23,9 @@
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pr-pilot-confirm.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pr-publisher-confirm.sh\"",
             "timeout": 10,
-            "statusMessage": "navori: pr-pilot-confirm"
+            "statusMessage": "navori: pr-publisher-confirm"
           },
           {
             "type": "command",

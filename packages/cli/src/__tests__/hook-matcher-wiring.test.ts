@@ -366,7 +366,7 @@ describe("hook wiring — matcher vs. what the script accepts (#767, #775)", () 
       "check-jscpd.sh",
       "check-semgrep.sh",
       "comment-draft-confirm.sh",
-      "pr-pilot-confirm.sh",
+      "pr-publisher-confirm.sh",
       "quality-gate-pre-commit.sh",
     ]);
     expect(hooks.find((h) => h.script === "check-semgrep.sh")?.triggers).toEqual([

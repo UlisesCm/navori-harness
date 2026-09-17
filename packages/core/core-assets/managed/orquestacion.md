@@ -1,8 +1,8 @@
 ## Role: orchestrator (every change goes through the harness)
 
-You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
+You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: orchestrator)`. `.claude/agents/orchestrator.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
 
-There used to be a ladder (inline for small changes, delegate for the rest). It was withdrawn on purpose and it comes back once the gate is proven — the reason is in `leader.md`.
+There used to be a ladder (inline for small changes, delegate for the rest). It was withdrawn on purpose and it comes back once the gate is proven — the reason is in `orchestrator.md`.
 
 ### What the rule binds, and what it does not
 
@@ -30,30 +30,27 @@ The write is delegated unconditionally; this table is about how much **reading**
 | Signal (verifiable, in the task or the ticket) | Mechanism |
 |---|---|
 | A non-trivial ticket arrives (ID, URL, pasted text) | `ticket-intake` — the pipeline that chains the rest |
-<!-- navori:if ticketAudit -->
-| …and it hits a critical area (`{{project.criticalAreas}}`), a structural migration, >3 layers, or has no clear location | `ticket-audit` → `audit_ticket_<ID>.md`, before decomposing |
-| …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `ticket-audit` PER AREA, all calls in the SAME turn; you synthesize (`ticket-intake`, phase 2) |
+<!-- navori:if auditor -->
+| …and it hits a critical area (`{{project.criticalAreas}}`), a structural migration, >3 layers, or has no clear location | `auditor` (ticket encargo) → `audit_ticket_<ID>.md`, before decomposing |
+| …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `auditor` PER AREA, all calls in the SAME turn; you synthesize (`ticket-intake`, phase 2) |
 <!-- /navori:if -->
 | New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
 <!-- navori:if sdd -->
 | Real scope, by the threshold the **SDD** block owns | propose SDD and ask the user to run `/spec-bootstrap` — opt-in, never self-assigned; don't duplicate its criteria |
 <!-- /navori:if -->
 <!-- navori:if auditor -->
-| No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` → `audit_deep_<scope>.md` + prioritized plan |
+| No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` (area encargo) → `audit_deep_<scope>.md` + prioritized plan |
 <!-- /navori:if -->
-<!-- navori:if researcher -->
-| A scoped question (does Y happen? what consumes X?) | `researcher` |
+<!-- navori:if scout -->
+| A scoped question (does Y happen? what consumes X?) or a broad map (where does X live?) | `scout` |
 <!-- /navori:if -->
-<!-- navori:if explorer -->
-| Where does X live? — a broad map of an area | `explorer` |
-<!-- /navori:if -->
-<!-- navori:if analyticalParallelism -->
-| Genuinely independent sub-questions or sub-bugs (no shared state) | N `researcher`/`explorer` in PARALLEL (same turn) → your synthesis |
+<!-- navori:if scout -->
+| Genuinely independent sub-questions or sub-bugs (no shared state) | N `scout` in PARALLEL (same turn) → your synthesis |
 <!-- /navori:if -->
 | Already audited in this session, or trivial (typo, copy, color) | none extra — reuse the artifact, don't re-audit. **The change still goes through `implementer` → `reviewer`** |
 | Nothing above fires | none extra — go straight to the `implementer` |
 
-**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `solution-design` skill → ONE fresh-context challenge<!-- navori:if researcher --> (a `researcher`, not a new agent)<!-- /navori:if --><!-- navori:if-not researcher --> using the main agent<!-- /navori:if-not --> → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
+**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `solution-design` skill → ONE fresh-context challenge<!-- navori:if auditor --> (an `auditor`, not a new agent)<!-- /navori:if --><!-- navori:if-not auditor --> using the main agent<!-- /navori:if-not --> → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
@@ -61,8 +58,8 @@ Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so
 
 ### When delegation is genuinely impossible
 
-Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` tool is unavailable. Then you do the work and **say so in your reply, naming the reason** — the `commit-pr-pilot` will require `{{qualityGate.full}}` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
+Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` tool is unavailable. Then you do the work and **say so in your reply, naming the reason** — the `publisher` will require `{{qualityGate.full}}` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
 
 ### Where the depth lives (read it when the moment asks)
 
-The depth sits with whoever owns the moment — open it then: **`.claude/agents/leader.md`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.claude/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/ticket-intake/SKILL.md`** (a ticket arrived: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).
+The depth sits with whoever owns the moment — open it then: **`.claude/agents/orchestrator.md`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.claude/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/ticket-intake/SKILL.md`** (a ticket arrived: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).

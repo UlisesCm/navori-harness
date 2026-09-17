@@ -1011,7 +1011,7 @@ Skipping any step = a lie, not verification.
 - ❌ "Trust me, runs locally" — not a valid claim without evidence in the chat.
 - ❌ Making the claim BEFORE the command ("I'll run X and it should be green").
 - ❌ Marking a step of the atomic plan `[x]` without having run the verification that backs that step.
-- ❌ Accepting a subagent's report without verifying its load-bearing claims — scope defined ONCE in `.codex/agents/leader.toml` § Anti-broken-telephone: cited `file:line`s plus the diff it touched, never a full re-read of an already-validated diff.
+- ❌ Accepting a subagent's report without verifying its load-bearing claims — scope defined ONCE in `AGENTS.md` § Anti-broken-telephone: cited `file:line`s plus the diff it touched, never a full re-read of an already-validated diff.
 
 ## Closing
 
@@ -1735,7 +1735,7 @@ is_scan_trigger() {
 # Bash call and does real work on almost none of them: `payload_field` forks
 # jq/node to read the command, so proving absence from the in-memory payload
 # first (no fork at all) is what keeps an unrelated `git status` free. Same
-# trade as `pr-pilot-confirm.sh` (#705).
+# trade as `pr-publisher-confirm.sh` (#705).
 has_trigger_token "${payload:-}" || exit 0
 
 cmd=$(extract_cmd)
@@ -2044,7 +2044,7 @@ navori_audit_on_exit() {
 trap navori_audit_on_exit EXIT
 
 # An EMPTY $cmd means nothing could be read from the tool input, not "some
-# command that is not a comment". Same fail-open direction as `pr-pilot-confirm`:
+# command that is not a comment". Same fail-open direction as `pr-publisher-confirm`:
 # the worst case here is a false confirmation prompt on every Bash call.
 [ -n "$cmd" ] || exit 0
 
@@ -4078,23 +4078,23 @@ exit 2
 # navori:managed end id="managed-drift-watch-base"
 
 
-===== FILE: .codex/hooks/pr-pilot-confirm.sh [exec] =====
-# navori:managed start id="pr-pilot-confirm-base" hash="<HASH>" version="<VERSION>" source="@navori/core"
+===== FILE: .codex/hooks/pr-publisher-confirm.sh [exec] =====
+# navori:managed start id="pr-publisher-confirm-base" hash="<HASH>" version="<VERSION>" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a `gh pr create` that did NOT come from the
-# `commit-pr-pilot` is raised to a user confirmation.
+# `publisher` is raised to a user confirmation.
 #
-# WHY (#705): the pilot is the single owner of commit+PR, and it is invoked on
+# WHY (#705): the publisher is the single owner of commit+PR, and it is invoked on
 # 15% of the PRs this harness opens. The rate is not uniform — one park repo
-# runs at 48%, and the repo that PUBLISHES the pilot sat at 0 of 101. The
+# runs at 48%, and the repo that PUBLISHES the publisher sat at 0 of 101. The
 # confound was checked and does not hold: in the sessions where subagents were
-# demonstrably available and used, the pilot was still never called. The pilot
+# demonstrably available and used, the publisher was still never called. The publisher
 # is not skipped; its antechamber is never entered, because `gh pr create` falls
 # out of whatever the main agent was already doing and nothing interrupts it.
 #
 # So this hook interrupts, and does no more than that. It does NOT block: a
-# session where the operator forbids subagents has no way to reach the pilot,
+# session where the operator forbids subagents has no way to reach the publisher,
 # and a hook that made PRs impossible there would be worse than the deviation it
 # corrects. `ask` keeps the decision with the human while removing the one thing
 # measured to fail — a layer that only suggests.
@@ -4290,7 +4290,7 @@ has_trigger_token "${payload:-}" || exit 0
 
 cmd=$(extract_cmd)
 
-navori_audit_name="pr-pilot-confirm"
+navori_audit_name="pr-publisher-confirm"
 navori_audit_phase="PreToolUse"
 navori_audit_tool="Bash"
 # Fail-open no-ops, overwritten by the real definitions the include brings in.
@@ -4612,7 +4612,7 @@ is_scan_trigger "$cmd" || exit 0
 # Read HERE, not at the top: `payload_field` may spawn a process, and by this
 # line we already know the command is the rare one that needs the answer.
 #
-# It names SOME subagent, not specifically the pilot — a `researcher` opening a
+# It names SOME subagent, not specifically the publisher — a `scout` opening a
 # PR would pass. That is deliberate: this is a routing nudge, not a security
 # boundary, and the detector cannot see through `sh -c` either.
 navori_pr_agent=$(payload_field agent_id)
@@ -4624,10 +4624,10 @@ if [ -n "$navori_pr_agent" ]; then
 fi
 
 navori_audit_verdict="ask"
-navori_audit_reason="PR abierto fuera del commit-pr-pilot"
+navori_audit_reason="PR abierto fuera del publisher"
 
 # `ask` routes the call to the user instead of resolving it. The reason is what
-# they read, so it says what the pilot adds and how to get it — a prompt that
+# they read, so it says what the publisher adds and how to get it — a prompt that
 # only says "are you sure" is a tax, not a routing signal.
 #
 # jq builds it: the reason travels inside JSON and a hand-rolled string would
@@ -4643,12 +4643,12 @@ command -v jq >/dev/null 2>&1 || exit 0
 # and the file failed `bash -n` outright. Caught by the syntax check; it would
 # have shipped a hook that cannot run to every repo in the park.
 navori_pr_reason=$(cat <<'MSG'
-[navori] this `gh pr create` does not come from the commit-pr-pilot.
+[navori] this `gh pr create` does not come from the publisher.
 
-The pilot is the single owner of commit+PR: it applies the title/body format
+The publisher is the single owner of commit+PR: it applies the title/body format
 this repo uses and runs the git/gh pre-flight before opening anything.
 
-Delegate it with the Agent tool (subagent_type: commit-pr-pilot), or confirm to
+Delegate it with the Agent tool (subagent_type: publisher), or confirm to
 open this PR by hand — a rollout PR, a revert, or a session where subagents are
 unavailable are all legitimate reasons to do so.
 MSG
@@ -4656,7 +4656,7 @@ MSG
 
 jq -cn --arg reason "$navori_pr_reason" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$reason}}'
 exit 0
-# navori:managed end id="pr-pilot-confirm-base"
+# navori:managed end id="pr-publisher-confirm-base"
 
 
 ===== FILE: .codex/hooks/quality-gate-pre-commit.sh [exec] =====
@@ -8065,9 +8065,9 @@ exit 0
 
 ## Role: orchestrator (every change goes through the harness)
 
-You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: leader)`. `.codex/agents/leader.toml` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
+You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `spawn_agent(orchestrator)`. `AGENTS.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
 
-There used to be a ladder (inline for small changes, delegate for the rest). It was withdrawn on purpose and it comes back once the gate is proven — the reason is in `leader.md`.
+There used to be a ladder (inline for small changes, delegate for the rest). It was withdrawn on purpose and it comes back once the gate is proven — the reason is in `orchestrator.md`.
 
 ### What the rule binds, and what it does not
 
@@ -8095,18 +8095,17 @@ The write is delegated unconditionally; this table is about how much **reading**
 | Signal (verifiable, in the task or the ticket) | Mechanism |
 |---|---|
 | A non-trivial ticket arrives (ID, URL, pasted text) | `ticket-intake` — the pipeline that chains the rest |
-| …and it hits a critical area (`auth, permissions, payments, data integrity`), a structural migration, >3 layers, or has no clear location | `ticket-audit` → `audit_ticket_<ID>.md`, before decomposing |
-| …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `ticket-audit` PER AREA, all calls in the SAME turn; you synthesize (`ticket-intake`, phase 2) |
+| …and it hits a critical area (`auth, permissions, payments, data integrity`), a structural migration, >3 layers, or has no clear location | `auditor` (ticket encargo) → `audit_ticket_<ID>.md`, before decomposing |
+| …**and** it cites evidence in 2+ repos, crosses frontend/backend, or names modules with no dependency between them | one `auditor` PER AREA, all calls in the SAME turn; you synthesize (`ticket-intake`, phase 2) |
 | New shared abstraction · state ownership change · shared contract (API/DTO/schema/event) · migration or schema change · new external dependency · concurrency/state sync · a critical area · hard-to-reverse decision · ≥2 genuinely viable approaches | the architectural pass (below) |
 | Real scope, by the threshold the **SDD** block owns | propose SDD and ask the user to run `$spec-bootstrap` — opt-in, never self-assigned; don't duplicate its criteria |
-| No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` → `audit_deep_<scope>.md` + prioritized plan |
-| A scoped question (does Y happen? what consumes X?) | `researcher` |
-| Where does X live? — a broad map of an area | `explorer` |
-| Genuinely independent sub-questions or sub-bugs (no shared state) | N `researcher`/`explorer` in PARALLEL (same turn) → your synthesis |
+| No ticket: map debt or harden an area before a refactor (security/perf/SOLID/edge-cases) | `auditor` (area encargo) → `audit_deep_<scope>.md` + prioritized plan |
+| A scoped question (does Y happen? what consumes X?) or a broad map (where does X live?) | `scout` |
+| Genuinely independent sub-questions or sub-bugs (no shared state) | N `scout` in PARALLEL (same turn) → your synthesis |
 | Already audited in this session, or trivial (typo, copy, color) | none extra — reuse the artifact, don't re-audit. **The change still goes through `implementer` → `reviewer`** |
 | Nothing above fires | none extra — go straight to the `implementer` |
 
-**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `solution-design` skill → ONE fresh-context challenge (a `researcher`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
+**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `solution-design` skill → ONE fresh-context challenge (an `auditor`, not a new agent) → your verdict READY / CONCERNS / BLOCKED. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
@@ -8114,11 +8113,11 @@ Emit **ALL `spawn_agent` calls in a SINGLE turn** — Codex serializes by defaul
 
 ### When delegation is genuinely impossible
 
-Rare, and it must leave a trace: the operator forbade subagents, or the `spawn_agent` tool is unavailable. Then you do the work and **say so in your reply, naming the reason** — the `commit-pr-pilot` will require `pnpm test && pnpm lint` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
+Rare, and it must leave a trace: the operator forbade subagents, or the `spawn_agent` tool is unavailable. Then you do the work and **say so in your reply, naming the reason** — the `publisher` will require `pnpm test && pnpm lint` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
 
 ### Where the depth lives (read it when the moment asks)
 
-The depth sits with whoever owns the moment — open it then: **`.codex/agents/leader.toml`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.codex/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.agents/skills/ticket-intake/SKILL.md`** (a ticket arrived: the pipeline) · **`.agents/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).
+The depth sits with whoever owns the moment — open it then: **`AGENTS.md`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.codex/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.agents/skills/ticket-intake/SKILL.md`** (a ticket arrived: the pipeline) · **`.agents/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).
 
 ## Idioma y rol
 
@@ -8284,6 +8283,18 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 - `scout` — Read-only reconnaissance — maps a broad area or answers one scoped question, with cited evidence. Does not modify code. Use when a sub-question is worth running in parallel, or a lookup is worth isolating from the coordinator's own context — not a proxy for a Code discovery routing call the coordinator can make itself this turn.
 - `auditor` — Read-only analysis with a verdict — area audit (security/performance/SOLID + plan), ticket audit (root cause + decomposition plan) or challenge (falsify a `solution_<scope>.md`, no verdict). Never edits code. Use when auditing an area or ticket, before refactoring one with no ticket, or to challenge a design.
 - `publisher` — Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR.
+
+<!-- navori:managed id="engram-orchestrator-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
+## Engram (persistent memory)
+
+- **Session start:** engram's `SessionStart` hook covers `startup`, `clear`, `compact` — **not `resume`**. Where memory is already injected, work with it — `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.
+- Before decomposing: `mem_search` with the ticket's keywords. Read a prior decision before dispatching the `implementer`.
+- After each decision: `mem_save` with a `title`, a type and a stable `topic_key` — reuse it, don't snapshot. If a memory contradicts the code, fix it with `mem_update`.
+- `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
+- **Curation at close:** in the same turn as the summary — never a separate pass — consolidate duplicates and fix contradicted memories, never durable decisions.
+- **Lean close**: the summary and the curation step are exempt; `mem_save` is not.
+- **Auto Memory vs. engram**: Claude Code's native Auto Memory (on by default, machine-local — https://code.claude.com/docs/en/memory) is for this user's personal preferences and working-style feedback; engram is for durable engineering knowledge (decisions, bugfixes, architecture, discoveries) shared across engines. Route "remember X" accordingly — never write the same fact to both.
+<!-- /navori:managed id="engram-orchestrator-extension" -->
 <!-- /navori:managed id="navori-agents" -->
 
 <!-- navori:user-section -->

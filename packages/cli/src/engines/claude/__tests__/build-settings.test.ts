@@ -249,7 +249,8 @@ describe("buildClaudeSettings — base shape", () => {
 });
 
 describe("buildClaudeSettings — dependent PR routing (#769)", () => {
-  it("does not register pr-pilot-confirm when publisher is disabled", () => {
+  // Covers: R27
+  it("does not register pr-publisher-confirm when publisher is disabled", () => {
     const settings = buildClaudeSettings(
       { ...MINIMAL_CONFIG, harness: { publisher: false } } as NavoriConfig,
       [],
@@ -261,7 +262,9 @@ describe("buildClaudeSettings — dependent PR routing (#769)", () => {
       bucket.hooks.map((hook) => hook.command),
     );
 
-    expect(commands).not.toContain('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/pr-pilot-confirm.sh"');
+    expect(commands).not.toContain(
+      'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/pr-publisher-confirm.sh"',
+    );
   });
 });
 
@@ -611,7 +614,7 @@ describe("buildClaudeSettings — hook matcher coalescing (no double PreToolUse[
     const pre = preOf(buildClaudeSettings(withQG(), [plugin]));
     const bashBuckets = pre.filter((b) => b.matcher === "Bash");
     expect(bashBuckets).toHaveLength(1);
-    // guard + comment-draft-confirm + pr-pilot-confirm + qg + plugin. Lo que
+    // guard + comment-draft-confirm + pr-publisher-confirm + qg + plugin. Lo que
     // este test sostiene es el COALESCING —un solo bucket `Bash`, arriba—, no
     // el número: cada hook PreToolUse(Bash) que el core agregue suma aquí.
     expect(bashBuckets.flatMap((b) => b.hooks)).toHaveLength(5);

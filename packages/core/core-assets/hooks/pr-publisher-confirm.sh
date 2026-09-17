@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a `gh pr create` that did NOT come from the
-# `commit-pr-pilot` is raised to a user confirmation.
+# `publisher` is raised to a user confirmation.
 #
-# WHY (#705): the pilot is the single owner of commit+PR, and it is invoked on
+# WHY (#705): the publisher is the single owner of commit+PR, and it is invoked on
 # 15% of the PRs this harness opens. The rate is not uniform — one park repo
-# runs at 48%, and the repo that PUBLISHES the pilot sat at 0 of 101. The
+# runs at 48%, and the repo that PUBLISHES the publisher sat at 0 of 101. The
 # confound was checked and does not hold: in the sessions where subagents were
-# demonstrably available and used, the pilot was still never called. The pilot
+# demonstrably available and used, the publisher was still never called. The publisher
 # is not skipped; its antechamber is never entered, because `gh pr create` falls
 # out of whatever the main agent was already doing and nothing interrupts it.
 #
 # So this hook interrupts, and does no more than that. It does NOT block: a
-# session where the operator forbids subagents has no way to reach the pilot,
+# session where the operator forbids subagents has no way to reach the publisher,
 # and a hook that made PRs impossible there would be worse than the deviation it
 # corrects. `ask` keeps the decision with the human while removing the one thing
 # measured to fail — a layer that only suggests.
@@ -56,7 +56,7 @@ has_trigger_token "${payload:-}" || exit 0
 
 cmd=$(extract_cmd)
 
-navori_audit_name="pr-pilot-confirm"
+navori_audit_name="pr-publisher-confirm"
 navori_audit_phase="PreToolUse"
 navori_audit_tool="Bash"
 # Fail-open no-ops, overwritten by the real definitions the include brings in.
@@ -92,7 +92,7 @@ is_scan_trigger "$cmd" || exit 0
 # Read HERE, not at the top: `payload_field` may spawn a process, and by this
 # line we already know the command is the rare one that needs the answer.
 #
-# It names SOME subagent, not specifically the pilot — a `researcher` opening a
+# It names SOME subagent, not specifically the publisher — a `scout` opening a
 # PR would pass. That is deliberate: this is a routing nudge, not a security
 # boundary, and the detector cannot see through `sh -c` either.
 navori_pr_agent=$(payload_field agent_id)
@@ -104,10 +104,10 @@ if [ -n "$navori_pr_agent" ]; then
 fi
 
 navori_audit_verdict="ask"
-navori_audit_reason="PR abierto fuera del commit-pr-pilot"
+navori_audit_reason="PR abierto fuera del publisher"
 
 # `ask` routes the call to the user instead of resolving it. The reason is what
-# they read, so it says what the pilot adds and how to get it — a prompt that
+# they read, so it says what the publisher adds and how to get it — a prompt that
 # only says "are you sure" is a tax, not a routing signal.
 #
 # jq builds it: the reason travels inside JSON and a hand-rolled string would
@@ -123,12 +123,12 @@ command -v jq >/dev/null 2>&1 || exit 0
 # and the file failed `bash -n` outright. Caught by the syntax check; it would
 # have shipped a hook that cannot run to every repo in the park.
 navori_pr_reason=$(cat <<'MSG'
-[navori] this `gh pr create` does not come from the commit-pr-pilot.
+[navori] this `gh pr create` does not come from the publisher.
 
-The pilot is the single owner of commit+PR: it applies the title/body format
+The publisher is the single owner of commit+PR: it applies the title/body format
 this repo uses and runs the git/gh pre-flight before opening anything.
 
-Delegate it with the Agent tool (subagent_type: commit-pr-pilot), or confirm to
+Delegate it with the Agent tool (subagent_type: publisher), or confirm to
 open this PR by hand — a rollout PR, a revert, or a session where subagents are
 unavailable are all legitimate reasons to do so.
 MSG

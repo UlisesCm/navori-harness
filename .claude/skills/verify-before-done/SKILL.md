@@ -9,7 +9,7 @@ metadata:
   maxWords: 1050
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="3214781d" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="2eecaedf" version="0.8.7" source="@navori/core" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -99,7 +99,7 @@ Skipping any step = a lie, not verification.
 - ❌ "Trust me, runs locally" — not a valid claim without evidence in the chat.
 - ❌ Making the claim BEFORE the command ("I'll run X and it should be green").
 - ❌ Marking a step of the atomic plan `[x]` without having run the verification that backs that step.
-- ❌ Accepting a subagent's report without verifying its load-bearing claims — scope defined ONCE in `.claude/agents/leader.md` § Anti-broken-telephone: cited `file:line`s plus the diff it touched, never a full re-read of an already-validated diff.
+- ❌ Accepting a subagent's report without verifying its load-bearing claims — scope defined ONCE in `.claude/agents/orchestrator.md` § Anti-broken-telephone: cited `file:line`s plus the diff it touched, never a full re-read of an already-validated diff.
 
 ## Closing
 

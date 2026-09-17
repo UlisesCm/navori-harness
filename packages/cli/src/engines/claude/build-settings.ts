@@ -70,7 +70,7 @@ const AUDIT_CLOSE_HOOK_DEST = ".claude/hooks/audit-mode-close.sh";
 const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
 const MANAGED_DRIFT_HOOK_DEST = ".claude/hooks/managed-drift-watch.sh";
 const ROUTING_WATCH_HOOK_DEST = ".claude/hooks/routing-watch.sh";
-const PR_PILOT_HOOK_DEST = ".claude/hooks/pr-pilot-confirm.sh";
+const PR_PUBLISHER_HOOK_DEST = ".claude/hooks/pr-publisher-confirm.sh";
 const COMMENT_DRAFT_HOOK_DEST = ".claude/hooks/comment-draft-confirm.sh";
 const WORKTREE_RECLAIM_HOOK_DEST = ".claude/hooks/worktree-reclaim.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
@@ -148,9 +148,6 @@ export function buildClaudeSettings(
 
   // The PR-routing hook delegates to publisher, so it must disappear
   // with that configurable agent rather than leave a dead route (#769).
-  // Hook id/dest rename (pr-pilot-confirm -> pr-publisher-confirm) is spec
-  // 0026 T13's scope; this is only the harness-key token fix T11 needs to
-  // compile against the renamed schema.
   if (config.harness?.publisher !== false) {
     settings = deepMerge(settings, {
       hooks: {
@@ -160,9 +157,9 @@ export function buildClaudeSettings(
             hooks: [
               {
                 type: "command",
-                command: `bash "$CLAUDE_PROJECT_DIR/${PR_PILOT_HOOK_DEST}"`,
+                command: `bash "$CLAUDE_PROJECT_DIR/${PR_PUBLISHER_HOOK_DEST}"`,
                 timeout: 10,
-                statusMessage: "navori: pr-pilot-confirm",
+                statusMessage: "navori: pr-publisher-confirm",
               },
             ],
           },

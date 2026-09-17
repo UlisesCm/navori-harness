@@ -145,14 +145,15 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     expect(claude.scripts).toEqual([]);
   });
 
-  it("folds an enabled plugin's skill into the inventory (engram → leader extension)", () => {
+  it("folds an enabled plugin's skill into the inventory (engram → orchestrator extension)", () => {
     const cwd = tempRepo();
-    // The `config()` helper enables engram, whose skill asset is engram-leader-extension.
+    // The `config()` helper enables engram, whose skill asset is
+    // engram-orchestrator-extension (spec 0026 T13).
     const { claude, codex } = buildEngineInventory(config({ engines: ["claude", "codex"] }), cwd);
     assert.isDefined(claude);
     assert.isDefined(codex);
-    expect(claude.skills).toContain("engram-leader-extension");
-    expect(codex.skills).toContain("engram-leader-extension");
+    expect(claude.skills).toContain("engram-orchestrator-extension");
+    expect(codex.skills).toContain("engram-orchestrator-extension");
   });
 
   it("folds a plugin's scripts and hooks into the inventory (jscpd)", () => {

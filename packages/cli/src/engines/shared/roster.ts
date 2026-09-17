@@ -165,6 +165,14 @@ export const RETIRED_HOOKS: ReadonlyArray<Retired> = [
       codex: "precompact-session-summary-base",
     },
   },
+  {
+    id: "pr-pilot-confirm",
+    successor: "pr-publisher-confirm",
+    markerIdByAdapter: {
+      claude: "pr-pilot-confirm-base",
+      codex: "pr-pilot-confirm-base",
+    },
+  },
 ];
 
 /**

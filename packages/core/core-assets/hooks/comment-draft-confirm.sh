@@ -38,7 +38,7 @@ TRIGGER_TOKENS='comment review api'
 # Bash call and does real work on almost none of them: `payload_field` forks
 # jq/node to read the command, so proving absence from the in-memory payload
 # first (no fork at all) is what keeps an unrelated `git status` free. Same
-# trade as `pr-pilot-confirm.sh` (#705).
+# trade as `pr-publisher-confirm.sh` (#705).
 has_trigger_token "${payload:-}" || exit 0
 
 cmd=$(extract_cmd)
@@ -61,7 +61,7 @@ navori_audit_on_exit() {
 trap navori_audit_on_exit EXIT
 
 # An EMPTY $cmd means nothing could be read from the tool input, not "some
-# command that is not a comment". Same fail-open direction as `pr-pilot-confirm`:
+# command that is not a comment". Same fail-open direction as `pr-publisher-confirm`:
 # the worst case here is a false confirmation prompt on every Bash call.
 [ -n "$cmd" ] || exit 0
 

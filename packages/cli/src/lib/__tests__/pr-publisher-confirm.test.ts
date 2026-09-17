@@ -11,16 +11,16 @@ import { resolveHarnessPlan } from "../../engines/shared/harness-plan.ts";
 import type { NavoriConfig } from "../config.ts";
 
 /**
- * Behavioral tests for core-assets/hooks/pr-pilot-confirm.sh (#705).
+ * Behavioral tests for core-assets/hooks/pr-publisher-confirm.sh (#705).
  *
- * The hook exists because the `commit-pr-pilot` is invoked on 15% of the PRs
+ * The hook exists because the `publisher` is invoked on 15% of the PRs
  * this harness opens, and the repo that publishes it sat at 0 of 101 — while a
- * sibling repo runs at 48%, so the pilot works when it is reached. What was
+ * sibling repo runs at 48%, so the publisher works when it is reached. What was
  * missing is anything that INTERRUPTS `gh pr create`; doctrine alone is the
  * layer measured to fail.
  *
  * So the value under test is not the script's shape: it is that a real payload
- * produces an `ask` for a hand-opened PR, stays silent for the pilot's own, and
+ * produces an `ask` for a hand-opened PR, stays silent for the publisher's own, and
  * — the part that decides whether this can ship at all — never blocks.
  */
 
@@ -32,11 +32,11 @@ const hasJq = spawnSync("jq", ["--version"]).status === 0;
 /** The hook as a RENDERED repo runs it — includes expanded, as `render` does. */
 const hookPath = (() => {
   const dir = mkdtempSync(join(tmpdir(), "navori-prpilot-src-"));
-  const p = join(dir, "pr-pilot-confirm.sh");
+  const p = join(dir, "pr-publisher-confirm.sh");
   writeFileSync(
     p,
     expandHookIncludes(
-      readFileSync(resolve(getCoreRoot(), "core-assets/hooks/pr-pilot-confirm.sh"), "utf-8"),
+      readFileSync(resolve(getCoreRoot(), "core-assets/hooks/pr-publisher-confirm.sh"), "utf-8"),
     ),
   );
   chmodSync(p, 0o755);
@@ -57,7 +57,7 @@ function bash(command: string): Record<string, unknown> {
 
 /** The same command fired from INSIDE a subagent: the host sends a real id. */
 function fromSubagent(command: string): Record<string, unknown> {
-  return { ...bash(command), agent_id: "a1613f237ec433d42", agent_type: "commit-pr-pilot" };
+  return { ...bash(command), agent_id: "a1613f237ec433d42", agent_type: "publisher" };
 }
 
 function runHook(shell: HookShell, payload: Record<string, unknown>): HookRun {
@@ -92,15 +92,15 @@ function verdictOf(r: HookRun): { decision?: string; reason: string } {
   };
 }
 
-describe.runIf(runsBash && hasJq)("pr-pilot-confirm.sh — eleva el PR abierto a mano", () => {
-  it("pide confirmación y nombra al pilot", () => {
+describe.runIf(runsBash && hasJq)("pr-publisher-confirm.sh — eleva el PR abierto a mano", () => {
+  it("pide confirmación y nombra al publisher", () => {
     const r = run(bash('gh pr create --base main --title "fix: x" --body "y"'));
     expect(r.code).toBe(0);
     const v = verdictOf(r);
     expect(v.decision).toBe("ask");
     // El texto ES la señal de ruteo: un "¿estás seguro?" sin el cómo es un
     // impuesto, y el usuario aprende a descartarlo sin leer.
-    expect(v.reason).toContain("commit-pr-pilot");
+    expect(v.reason).toContain("publisher");
     expect(v.reason).toContain("Agent tool");
   });
 
@@ -115,7 +115,7 @@ describe.runIf(runsBash && hasJq)("pr-pilot-confirm.sh — eleva el PR abierto a
 
   it("NUNCA bloquea — el exit es 0 incluso cuando eleva", () => {
     // La condición que decide si esto puede existir. Una sesión donde el
-    // operador prohíbe subagentes no puede alcanzar al pilot, y un hook que
+    // operador prohíbe subagentes no puede alcanzar al publisher, y un hook que
     // ahí impidiera abrir PRs costaría más que la desviación que corrige.
     for (const cmd of ["gh pr create", 'gh pr create --title "x"']) {
       expect(run(bash(cmd)).code).toBe(0);
@@ -123,7 +123,7 @@ describe.runIf(runsBash && hasJq)("pr-pilot-confirm.sh — eleva el PR abierto a
   });
 });
 
-describe.runIf(runsBash)("pr-pilot-confirm.sh — y se calla en todo lo demás", () => {
+describe.runIf(runsBash)("pr-publisher-confirm.sh — y se calla en todo lo demás", () => {
   it("no dice nada cuando el PR viene de un subagente", () => {
     const r = run(fromSubagent('gh pr create --base main --title "t"'));
     expect(r.code).toBe(0);
@@ -168,7 +168,7 @@ describe.runIf(runsBash)("pr-pilot-confirm.sh — y se calla en todo lo demás",
  * carries no gated command, and every case that matters still reaches the same
  * verdict it did before.
  */
-describe.runIf(runsBash && hasJq)("pr-pilot-confirm — el portón barato (#705)", () => {
+describe.runIf(runsBash && hasJq)("pr-publisher-confirm — el portón barato (#705)", () => {
   it("sigue disparando sobre un compuesto, que es donde el atajo podría equivocarse", () => {
     // `git push && gh pr create` is the shape the issue measured: the PR opens
     // as a continuation of what was already being done by hand. The token scan
@@ -221,20 +221,23 @@ const MINIMAL_CONFIG = {
   commits: "conventional-es",
 } as unknown as NavoriConfig;
 
-describe("pr-pilot-confirm — wiring (#705)", () => {
+describe("pr-publisher-confirm — wiring (#705)", () => {
+  // Covers: R27
   it("queda registrado en PreToolUse(Bash) y se materializa en cada repo", () => {
     const pre = (
       buildClaudeSettings(MINIMAL_CONFIG, []).hooks as {
         PreToolUse?: Array<{ matcher?: string; hooks: Array<{ command: string }> }>;
       }
     ).PreToolUse;
-    const bucket = pre?.find((b) => b.hooks.some((h) => h.command.includes("pr-pilot-confirm.sh")));
+    const bucket = pre?.find((b) =>
+      b.hooks.some((h) => h.command.includes("pr-publisher-confirm.sh")),
+    );
     expect(bucket).toBeDefined();
     expect(bucket?.matcher).toBe("Bash");
 
     // Sin condición de config: la desviación se midió en todo el parque, no en
     // los repos que configuraron algo.
     const plan = resolveHarnessPlan(MINIMAL_CONFIG, resolve(getCoreRoot(), "core-assets"), null);
-    expect(plan.hooks.map((h) => h.id)).toContain("pr-pilot-confirm");
+    expect(plan.hooks.map((h) => h.id)).toContain("pr-publisher-confirm");
   });
 });
