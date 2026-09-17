@@ -15,7 +15,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
 ## Fase B · `navori receipt` (PR 1)
 
-- [ ] **T1** (R1, R3, R4) — Cálculo del conjunto a publicar y `sign`.
+- [x] **T1** (R1, R3, R4) — Cálculo del conjunto a publicar y `sign`.
   - **`lib/receipt.ts`:**
     - `git fetch origin <target>`.
     - `git diff --name-only --no-renames -z --no-ext-diff --no-textconv origin/<target>`.
@@ -42,7 +42,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
     sin `DRIFT` ni receipt mutado.
 
   Además, `__tests__/command-docs-inventory.test.ts`, con `// Covers: R1, R3, R4`
-- [ ] **T2** (R2, R3, R5) — `sign --json` y `check --json` comparten schema (`formatVersion`,
+- [x] **T2** (R2, R3, R5) — `sign --json` y `check --json` comparten schema (`formatVersion`,
   target, SHA nullable en error temprano, `status`, findings y `error`) y `check` conserva salida de
   texto y códigos 0, 2 y 1. · test: `lib/__tests__/receipt.test.ts::sign and check json`, con éxito y
   error temprano (SHA nullable y `error`), y `::check`, con estos casos:
@@ -53,7 +53,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
   - El comando de inspección impreso produce el diff.
 
   con `// Covers: R2, R3, R5`
-- [ ] **T3** (R6, R7, R8, R9) — `agents/reviewer.md` y `agents/commit-pr-pilot.md` invocan
+- [x] **T3** (R6, R7, R8, R9) — `agents/reviewer.md` y `agents/commit-pr-pilot.md` invocan
   `navori receipt sign|check --feature <feature> --target {{prTarget}} --dir .claude/progress --json`,
   donde `<feature>` es el id recibido en el handoff de implementer/reviewer, y conservan solo el
   juicio:
@@ -77,7 +77,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
 ## Fase E1 · Borrador de comentarios (PR 2)
 
-- [ ] **T4** (R10, R11, R12, R52) — `packages/core/core-assets/hooks/comment-draft-confirm.sh`:
+- [x] **T4** (R10, R11, R12, R52) — `packages/core/core-assets/hooks/comment-draft-confirm.sh`:
   - Ruta rápida sin forks.
   - Detección de las filas del contrato de `design.md`, incluidos `gh api -F clave=@archivo` y
     los `add*` y `update*` de GraphQL; extrae variable/campo `body`, no el `query`.
@@ -105,7 +105,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
   Además, `engines/__tests__/harness-plan-id.test.ts::comment-draft-confirm is planned without plugin conditions`
   y `lib/__tests__/hook-claims-vs-scripts.test.ts`, con `// Covers: R10, R11, R12, R52`
-- [ ] **T5** (R10, R13) — Registro en `engines/codex/build-config-toml.ts`; el hook decide por `$0`
+- [x] **T5** (R10, R13) — Registro en `engines/codex/build-config-toml.ts`; el hook decide por `$0`
   y bajo `.codex/hooks/` devuelve `deny`: nombra archivo solo si existe, para inline/stdin indica
   que no existe y entrega el comando. El fallback `deny` aplica aun sin `jq`/`node`; se prueban
   Claude `ask` (auto >=2.1.211) y Codex como render/registro vs capa+hash confiados, sin simular
