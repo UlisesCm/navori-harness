@@ -314,7 +314,7 @@ An `ERROR:` line is NOT drift: verification itself failed (git unavailable, wron
 The PR gate is the FULL one, `pnpm test && pnpm lint` — **not** the fast one, `pnpm lint`. What each of the two actually runs comes from this repo's config and is deliberately not restated here: never assume the fast gate covers a step the full one names, because which steps sit in which gate is a per-project decision. `full` must be green over the diff that ships. Two paths:
 
 - **Reviewed (the normal path):** the `reviewer` already ran `pnpm test && pnpm lint` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which is what the content receipt check above is for — YOU run it; no hook repeats it. The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `pnpm lint` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
-- **Declared inline (no reviewer):** there's no review evidence to trust — YOU run `pnpm test && pnpm lint` green in pre-flight before `gh pr create`. If it can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s background-wait rule — never poll with `pgrep`/`ps | grep`.
+- **Declared inline (no reviewer):** there's no review evidence to trust — YOU run `pnpm test && pnpm lint` green in pre-flight before `gh pr create`. If it can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them — you won't be re-woken to read the result.
 - ▶️ **Re-run `pnpm test && pnpm lint` by hand** whenever the diff changed since the review (rebase/merge/follow-up edit) or there's no fresh evidence over the diff being committed — stale evidence doesn't count.
 
 Never open the PR with the gate red.
@@ -638,7 +638,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
    pnpm lint
    ```
 
-   If it fails: fix it and re-run. Don't return with red. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s background-wait rule — never poll with `pgrep`/`ps | grep`. When you can't explain WHY it failed, apply `.claude/skills/debug-error/SKILL.md` before touching anything — the size of the output is not the trigger, the missing root cause is, and a failure whose error stream you truncated away reads the same as one you understand. If your second fix attempt fails the same way, apply `.claude/skills/loop-back-debug/SKILL.md` instead of throwing a third patch.
+   If it fails: fix it and re-run. Don't return with red. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them — you won't be re-woken to read the result. When you can't explain WHY it failed, apply `.claude/skills/debug-error/SKILL.md` before touching anything — the size of the output is not the trigger, the missing root cause is, and a failure whose error stream you truncated away reads the same as one you understand. If your second fix attempt fails the same way, apply `.claude/skills/loop-back-debug/SKILL.md` instead of throwing a third patch.
 5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill). Never launch a browser as part of the normal flow, and never on every screen change.
 6. **No commits** without the `reviewer`'s approval. When you finish, write the report and return the reference.
 
@@ -649,12 +649,13 @@ You execute **a single** task from start to verification. You don't orchestrate,
 - **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).
 - **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).
-- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline). If you doubt the baseline: `git stash` → re-run → `git stash pop` → compare. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
+- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline). If you doubt the baseline: a failure only predates you if its file is absent from `git diff --name-only main` — anything inside that list is yours to fix. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
+- **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely waiting on a prompt no one can answer, and in the repo root they'd destroy other parallel agents' work. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
 - **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see the SDD block in `CLAUDE.md`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `structural-search`; an entry point you didn't list is one the `reviewer` has to rediscover.
 - If a tool fails weirdly (e.g. tsc breaks with no apparent diff), **don't improvise a workaround**: note `Status: BLOCKED` + the reason in `.claude/progress/impl_<feature>.md` and stop.
-- **While iterating, run only the tests of the area you touch** (filter by the runner's path). The full gate in step 4 runs at the end, not on each iteration — saves time and context.
+- **While iterating, run only the tests of the area you touch** (filter by the runner's path). The full gate in step 4 runs at the end, not on each iteration — saves time and context. Never run the full `pnpm test && pnpm lint` suite yourself: that's the `reviewer`'s Pass 2 job, and it commonly outlives Bash's timeout.
 - **Silent reporters on intermediate runs.** Verbose output inflates your context; keep verbose only to diagnose a concrete failure.
 
 ## Restraint (YAGNI)
@@ -683,7 +684,7 @@ Before returning `done -> .claude/progress/impl_<feature>.md`, apply `.claude/sk
 | `pnpm lint` green | Full command run **this turn** with exit 0 | "ran it before", "should be green" |
 | UI validated in the browser (only when the user asked for a visual check) | Repro step + observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in the code" |
 | Bug fixed (if applicable) | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
-| Zero new errors in typecheck/lint | Baseline `git stash` → re-run → compare counts | "lint said OK" with no baseline |
+| Zero new errors in typecheck/lint | `git diff --name-only main` — a failure outside that file list predates you | "lint said OK" with no baseline |
 
 If any claim can't be backed with fresh evidence this turn, declare it EXPLICITLY in the report. Never infer success.
 
@@ -1158,7 +1159,7 @@ Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions
 pnpm test && pnpm lint
 ```
 
-Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s background-wait rule — never poll with `pgrep`/`ps | grep`.
+Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. Run it in the foreground with the Bash tool's max `timeout`; if `pnpm test && pnpm lint` can exceed it, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its `&&`-chained steps one by one in the foreground, each under the timeout — never background it, you won't be re-woken to read the result.
 
 Don't gate a screen change on browser validation by default. Only if the user explicitly requested a visual/browser check and it wasn't done do you mark it incomplete — otherwise the diff + the repo's tests are the gate.
 
@@ -1247,7 +1248,7 @@ Write `.claude/progress/review_<feature>.md`:
 | Check | Status | Evidence |
 |---|---|---|
 | `pnpm test && pnpm lint` | [x] / [ ] | <output or exit code from this turn> |
-| Zero new errors vs baseline | [x] / [ ] | <`git stash` comparison from this turn> |
+| Zero new errors vs baseline | [x] / [ ] | <failing paths cross-checked against `git diff --name-only origin/main`, this turn> |
 
 ### Conventions (CLAUDE.md + leader's Project rules)
 - <repo-specific check>: [x] / [ ]
@@ -1288,6 +1289,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ✅ On APPROVED, write the content receipt (`.claude/progress/receipt.txt`) so the commit is bound to the reviewed bytes.
 - ❌ In SDD features (with `tasks.md`), never approve if some `R<n>` in the batch has no traceable test covering it.
 - ❌ You never edit the code. You only point out what fails and where.
+- ❌ Never run commands that discard or rewrite the shared working tree (stashing, checkout/reset that discards local changes, working-tree clean), and don't clean scratch dirs with a recursive delete — they hit the `ask` permission rule and stall the run indefinitely with no one to answer the prompt.
 - ✅ Be concrete: cite `file:line`. No generic feedback.
 <!-- /navori:managed id="reviewer-base" -->
 
@@ -10965,16 +10967,17 @@ Skipping any step = a lie, not verification.
 |---|---|---|
 | `pnpm lint` green | Full command run this turn with exit 0 | "ran it before", "should be green", "lint passed yesterday" |
 | `pnpm test && pnpm lint` green | Same — fresh exit 0 this turn | "the dev server runs", "build passed a while ago" |
-| Zero new errors vs baseline | `git stash` → re-run → compare counts → `git stash pop` | "lint said OK" without comparing baseline |
+| Zero new errors vs baseline | `git diff --name-only main` — a failure outside that file list predates you | "lint said OK" without comparing baseline |
 | UI validated in the browser (only if the user asked) | Observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed", "the diff covers the case" |
 | Filter / feature works | Real click + description of the result | "the handler is well written" |
 | Structural migration complete | Read AND write go to the same destination in the affected flow, validated in browser or test | "I changed the service, it should work" |
-| PR creatable | Pre-flight THIS TURN: not on `main`, `gh auth status` ok, and fresh gate evidence over the shipping diff (normally the reviewer's Pass-2 run, bound by a receipt with no drift; on a declared-inline change, your own run). No clean working tree required — the uncommitted diff IS the trigger | "the branch has commits, we can create it" |
+| PR creatable | Pre-flight THIS TURN: not on `main`, `gh auth status` ok, fresh gate evidence over the shipping diff (reviewer's Pass-2 run with a no-drift receipt; on a declared-inline change, your own run). No clean working tree required — the uncommitted diff IS the trigger | "the branch has commits, we can create it" |
 | Tests pass | Suite run fresh with exit 0 this turn + test count | "we didn't touch tests", "they should still be green" |
 | Type-check clean | `tsc --noEmit` (or the runtime's equivalent) exit 0 this turn | "TS didn't complain when I saved it" |
 | A shell edit landed (`sed -i`, a `>` redirect) | Re-read the span you changed, this turn | The exit code. `sed -i` exits 0 when its pattern matches nothing, and a misdirected `>` truncates the file — both look like success |
-| A gate that can outlive the Bash timeout | Started via the engine's background-task mechanism (Claude Code: `run_in_background`), waited via its completion notification or `Monitor`; unneeded background tasks stopped (`TaskStop`) before the final response | Polling processes (`pgrep`, `ps \| grep`) — the waiting command's own line matches the pattern, other sessions' too |
+| Gate outlives Bash timeout, **main session** | Background (`run_in_background`), wait on its completion notification or `Monitor`; `TaskStop` unneeded tasks first | Polling (`pgrep`, `ps \| grep`) — matches other sessions' waits too |
+| Gate outlives Bash timeout, **subagent** | Run its `&&` steps one by one, foreground, each under the timeout | Backgrounding — a subagent that ends its turn is never re-woken, so the run orphans |
 
 ## Red flags (STOP)
 
@@ -11013,7 +11016,7 @@ Skipping any step = a lie, not verification.
 - ❌ "Trust me, runs locally" — not a valid claim without evidence in the chat.
 - ❌ Making the claim BEFORE the command ("I'll run X and it should be green").
 - ❌ Marking a step of the atomic plan `[x]` without having run the verification that backs that step.
-- ❌ Accepting a subagent's report without verifying its load-bearing claims — the scope is defined ONCE in `.claude/agents/leader.md` § Anti-broken-telephone: cited `file:line`s plus the diff it touched, never a full re-read of a diff the reviewer already validated.
+- ❌ Accepting a subagent's report without verifying its load-bearing claims — scope defined ONCE in `.claude/agents/leader.md` § Anti-broken-telephone: cited `file:line`s plus the diff it touched, never a full re-read of an already-validated diff.
 
 ## Closing
 

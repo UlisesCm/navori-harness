@@ -75,7 +75,7 @@ Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions
 {{qualityGate.full}}
 ```
 
-Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s background-wait rule — never poll with `pgrep`/`ps | grep`.
+Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. Run it in the foreground with the Bash tool's max `timeout`; if `{{qualityGate.full}}` can exceed it, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its `&&`-chained steps one by one in the foreground, each under the timeout — never background it, you won't be re-woken to read the result.
 
 Don't gate a screen change on browser validation by default. Only if the user explicitly requested a visual/browser check and it wasn't done do you mark it incomplete — otherwise the diff + the repo's tests are the gate.
 
@@ -164,7 +164,7 @@ Write `.claude/progress/review_<feature>.md`:
 | Check | Status | Evidence |
 |---|---|---|
 | `{{qualityGate.full}}` | [x] / [ ] | <output or exit code from this turn> |
-| Zero new errors vs baseline | [x] / [ ] | <`git stash` comparison from this turn> |
+| Zero new errors vs baseline | [x] / [ ] | <failing paths cross-checked against `git diff --name-only origin/{{prTarget}}`, this turn> |
 
 ### Conventions (CLAUDE.md + leader's Project rules)
 - <repo-specific check>: [x] / [ ]
@@ -205,6 +205,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ✅ On APPROVED, write the content receipt (`.claude/progress/receipt.txt`) so the commit is bound to the reviewed bytes.
 - ❌ In SDD features (with `tasks.md`), never approve if some `R<n>` in the batch has no traceable test covering it.
 - ❌ You never edit the code. You only point out what fails and where.
+- ❌ Never run commands that discard or rewrite the shared working tree (stashing, checkout/reset that discards local changes, working-tree clean), and don't clean scratch dirs with a recursive delete — they hit the `ask` permission rule and stall the run indefinitely with no one to answer the prompt.
 - ✅ Be concrete: cite `file:line`. No generic feedback.
 
 <!-- navori:user-section -->
