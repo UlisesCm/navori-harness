@@ -280,6 +280,10 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "gh api",
     "the same call POSTs, PATCHes and DELETEs; a prefix rule cannot pin the HTTP method, so arbitrary repo writes would ride along",
   ],
+  [
+    "gh pr review",
+    "a prefix rule cannot distinguish the body-carrying -c/-a/-r shape the comment-draft-confirm hook gates from a bodyless --approve/--request-changes, which the hook does not intercept — pre-approving the prefix would silently grant a zero-confirmation PR approval (spec 0026 T18)",
+  ],
   ["gh auth login", "interactive credential flow — the prose addresses the human, not the agent"],
   [
     "git worktree remove",
@@ -437,5 +441,45 @@ describe("the rendered allowlist never pre-approves `sg` (#495)", () => {
     const offenders = permissions.allow.filter((rule) => /^Bash\(\s*sg\b/.test(rule));
     expect(offenders, `remove ${offenders.join(", ")} — spell \`ast-grep\` instead`).toEqual([]);
     expect(permissions.allow).toContain("Bash(ast-grep:*)");
+  });
+});
+
+/**
+ * Spec 0026 T18 review finding (CRITICAL) — `Bash(gh pr review*)` in the `gh`
+ * plugin's `allow` once pre-approved ANY `gh pr review`, including a bodyless
+ * `--approve`/`--request-changes`, which `comment-draft-confirm.sh` does NOT
+ * intercept (it only gates the body-carrying `-c/-a/-r` shape the comment
+ * contract needs). That combination ran a PR approval with zero confirmation.
+ * Fixed by keeping `gh pr review` OUT of `allow` and routing it through
+ * `EXPECTED_PROMPTS` instead (the same reasoning `gh api` already uses there:
+ * a prefix rule cannot pin the one safe shape without also covering the unsafe
+ * one). This guards the fix, not just the symptom that motivated it.
+ */
+describe("`gh pr review` is never pre-approved as a bare prefix (spec 0026 T18 review)", () => {
+  it("no allow/ask/deny rule pre-approves a bodyless `gh pr review --approve`", () => {
+    const offenders = permissions.allow.filter((rule) =>
+      ruleMatches("gh pr review --approve", rule),
+    );
+    expect(
+      offenders,
+      `${offenders.join(", ")} pre-approves a bodyless PR approval — comment-draft-confirm.sh ` +
+        "does not intercept it, so the rule would grant it with zero confirmation",
+    ).toEqual([]);
+  });
+
+  it("`gh pr review` is declared in EXPECTED_PROMPTS with a real reason", () => {
+    const entry = EXPECTED_PROMPTS.find(([prefix]) => prefix === "gh pr review");
+    expect(
+      entry,
+      "`gh pr review` must stay an explicit documented prompt, not silently allowed",
+    ).toBeDefined();
+    expect(entry![1].length).toBeGreaterThan(30);
+  });
+
+  it("the body-carrying `gh pr review -c/-a/-r` citation from publisher.md still resolves as an expected prompt, not a silent gap", () => {
+    const command = "gh pr review -c/-a/-r";
+    const preApproved = permissions.allow.some((rule) => ruleMatches(command, rule));
+    expect(preApproved, `${command} must not be pre-approved`).toBe(false);
+    expect(isExpectedPrompt(command)).not.toBeNull();
   });
 });

@@ -4,7 +4,7 @@ description: Drafts commits in the configured style and opens the PR with the re
 tools: Read, Glob, Grep, Bash, Monitor, TaskStop
 model: {{models.publisher}}
 effort: {{effort.publisher}}
-maxWords: 3500
+maxWords: 3800
 ---
 
 # Publisher Agent
@@ -184,6 +184,26 @@ Never open the PR with the gate red.
    ```
 
    An empty list next to a `Closes #<N>` in the body means GitHub linked nothing — the keyword was translated, or the number is not an issue of this repo. Report it in **one extra line**, naming the issue that did not link, and stop: rewriting the body of a PR that is already open, and closing the issue by hand, are both the human's call. Informative only, exactly like the checks above.
+
+## Comment contract
+
+Every comment, review or ticket update you publish — on a PR, an issue or a Jira ticket — follows one rule: **the body lives in a file, never inline.** Bodies inline in a command truncate or mis-render under the shell's own quoting, and an inline `--body` gives the pre-flight nothing to inspect before it fires.
+
+1. Write the text into a file inside the progress directory (e.g. `.claude/progress/comment_<feature>.md`). The content comes ONLY from a handoff artifact already on disk (`impl_<feature>.md`, `review_<feature>.md`, the PR/issue itself) — never invent technical claims that aren't already written down somewhere upstream.
+2. Publish it with the flag that reads the file, per channel:
+
+   | Channel | Command | File flag |
+   |---|---|---|
+   | GitHub PR/issue comment | `gh pr comment`, `gh issue comment` (incl. `--edit-last`) | `--body-file <path>` |
+   | GitHub review | `gh pr review -c/-a/-r` | `--body-file <path>` |
+   | GitHub API | `gh api` on a `/comments` or `/reviews` endpoint | `--input <path>` or `-F body=@<path>` |
+   | GitHub GraphQL | `gh api graphql` (`add*Comment`, `updateIssueComment`, `updateDiscussionComment`, `updatePullRequestReview`, `updatePullRequestReviewComment`) | the `body` variable/field sourced `@<path>`; the `query` string is never the body |
+   | Jira ticket | `acli jira workitem comment create` / `comment update` | `--body-file <path>` (text) or `--body-adf <path>` (ADF) |
+
+3. **In Codex**, you never execute the publish yourself: hand the human the drafted file's path and the exact command to run, and never state a URL or id you did not yourself publish.
+4. **When you DO execute the publish** (Claude, with the tool available), report back the resulting URL or id — not a guess at what it will be.
+
+This is a separate contract from the PR body in the flow above: that one is the PR's description, drafted once at PR-creation time; this one is any comment, review body or ticket update issued afterward.
 
 ## Body template (generic default)
 
