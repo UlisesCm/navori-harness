@@ -2,7 +2,7 @@
 
 **Status:** proposed · **Requirements:** [`requirements.md`](./requirements.md) · **Tareas:**
 [`tasks.md`](./tasks.md) · **Referencias:** [`references.md`](./references.md) · **Base:**
-`5a0bbc34`
+`fbd4450f` (revalidar contra `origin/main`, incluido #854 `7da709df`, antes de ejecutar)
 
 ## Approach
 
@@ -28,7 +28,8 @@ R · roster + skills + reset (un release, luego reset del parque) ─┬─▶ E
   - Alias en audit para los logs históricos.
 - **E2 y F van después de R.** E2 necesita a `publisher` y F necesita que `auditor` haga el
   challenge.
-- **Q no es una fase propia.** R51 viaja con R y F; R52 con E1, G y R.
+- **Q no es una fase propia.** R51 viaja con R y F; R52 con E1, G y R; R53–R54 con R,
+  reutilizando la auditoría existente, no un runner nuevo.
 - **F es separable.** Si la enmienda a la spec 0012 no convence, se corta F y el resto no
   cambia: el bloque de orquestación usa `navori:if architect`, y sin él queda el flujo de R50.
 - **La rama `refactor/814-engram-protocol-to-skill` ya está mergeada** (`faff0324`, #841).
@@ -82,7 +83,8 @@ Lo que queda es lo barato:
 ### G · tgrep y codegraph
 
 - `navori.config.json` del repo — plugins `tgrep` y `codegraph` — R14.
-- `scripts/mine-search-routing.py:113` — `tgrep search` y `codegraph_explore` como vía v2 — R15.
+- `scripts/mine-search-routing.py:113` — `tgrep search` y `codegraph_explore` como vía v2, con
+  transcripts padre+hijo, deduplicación por identidad y estados `unavailable`/malformed — R15, R52.
 - Assets que recetan búsqueda por shell — R16:
   - `skills/review-diff.md:36`.
   - `agents/auditor.md:57`.
@@ -135,7 +137,8 @@ Lo que queda es lo barato:
 
   — R29.
 - **Registros y limpieza:**
-  - `RETIRED_AGENTS` (nuevo); `RETIRED_SKILLS` y `RETIRED_HOOKS` con `{ id, successor, markerId }`
+  - `RETIRED_AGENTS` (nuevo); `RETIRED_SKILLS` y `RETIRED_HOOKS` con `{ id, successor, markerIdByAdapter }`,
+    donde los marcadores son específicos por adapter (`<id>-base` Claude, `<id>-codex-base` Codex)
     — R38.
   - Reconciliación en §8.7b y §8.7c de `engines/claude/index.ts` y en los orphan scans de Codex,
     con reporte de lo conservado mediante `KeepReason` (`lib/removable.ts:157-166`) — R39, R41.
@@ -148,6 +151,8 @@ Lo que queda es lo barato:
 - **Continuidad de medición:** `lib/audit/signals.ts:18` (`READ_ONLY_AGENTS`),
   `scripts/mine-activation.py` y los mineros que leen nombres de hook — R43.
 - **Nombres muertos:** `lib/__tests__/retired-names.test.ts` (nuevo) — R44.
+- **Lifecycle de reviewer:** el asset `reviewer.md` reusa #854 (`7da709df`) si está presente;
+  `lib/audit/{model,report,signals}.ts` correlaciona handle, diff y timing — R53, R54.
 
 ### E2 · Canales de `publisher`
 
@@ -239,8 +244,9 @@ Lo que queda es lo barato:
 - **Codex (R13).**
   - `placeHook` no transforma (`engines/codex/index.ts:254-261`), así que el hook decide por `$0`.
   - `ask` fallaría abierto, así que devuelve `deny`.
-  - Codex salta todo hook nuevo o cambiado hasta que el usuario lo confía en `/hooks`, lo que
-    agrega un paso al reset.
+  - Codex salta hooks de proyecto si la capa `.codex/` no está confiada y también hooks nuevos o
+    cambiados hasta confiar el hash en `/hooks`; el reset verifica ambas condiciones, y las pruebas
+    distinguen render/config de hook efectivamente confiado.
 
 ### Búsqueda: medir D19 antes de cualquier guard
 
@@ -318,20 +324,35 @@ para que el nombre siga describiendo el contenido principal. El tope compuesto c
 
 ### Línea base por atribución de archivo, no por worktree ni stash
 
-- **Elegido (R31):** los errores del gate se atribuyen por archivo.
-  - Los de archivos del conjunto a publicar cuentan como introducidos.
-  - Los demás se listan como previos, advirtiendo que un cambio de tipos puede causarlos.
-  - Sin ubicación por archivo, la línea base se declara no medida.
+- **Elegido (R31):** la ubicación sirve para triage, no prueba antigüedad.
+  - Los errores de archivos del conjunto a publicar cuentan como introducidos.
+  - Fuera del diff y sin baseline comparable son de **origen no determinado**.
+  - Solo evidencia comparable permite llamarlos previos; sin ubicación, la línea base no está medida.
 
   No toca el árbol ni el stash compartidos, no pide permisos y no cuesta una segunda corrida del
-  gate.
+  gate. No relaja `qualityGate.full`: un gate rojo no se aprueba por esta clasificación.
 - **Descartado, worktree desprendido:** sin `node_modules`, el gate no corre en ningún repo JS o TS
   del parque, y `git worktree add` no está preaprobado. Cambiaría una medición riesgosa por
   ninguna.
 - **Descartado, `git stash push -u` con `apply <sha>`:** protege el stash, pero vacía el árbol
   mientras otro agente lo lee.
-- **Límite aceptado:** un error nuevo en un archivo no tocado, causado por un cambio de tipos, se
-  lista como previo con advertencia. El `reviewer` decide.
+- **Límite aceptado:** un error nuevo fuera del diff puede ser causado por el cambio, pero se
+  reporta como origen no determinado hasta medir un baseline comparable. El `reviewer` no lo
+  convierte en permiso para aprobar un gate rojo.
+
+### Lifecycle y medición del reviewer
+
+- **Invariantes existentes:** Pass 1 ocurre antes del gate; un `SPEC_MISS` no llega a Pass 2. El
+  re-review lee delta, pero conserva `qualityGate.full`; el publisher no lo repite sin drift.
+- **Elegido (R53):** un owner emite identidad `run` estable ligada al diff y el monitor espera solo
+  ese handle. La auditoría observa y reporta duplicate/unknown/timeout, no pretende impedir una
+  tool call por sí misma. Sin handle async: foreground observable o `BLOCKED`; timeout nunca es éxito.
+- **#854:** `7da709df` es precondición a revalidar/reusar, no trabajo para duplicar.
+- **Medición (R54):** extender `model`, `report` y `signals` con duración total reviewer, gate,
+  espera, re-reviews y ejecuciones correlacionadas, sin PII. Solapes y ausencia de datos quedan
+  explícitos; no se infiere razonamiento por diferencia.
+- **Descartado:** PID global (`pgrep`/`ps`) por contaminación entre sesiones; relajar gate por tamaño
+  de delta; y gate por superficie (#820), que queda fase futura tras datos.
 
 ### `resolve-ticket`
 
@@ -431,18 +452,25 @@ instalado: [`references.md`](./references.md).
 ### `navori receipt`
 
 ```text
-navori receipt sign  --feature <id> [--target <ref>] [--dir <path>]
+navori receipt sign  --feature <id> [--target <ref>] [--dir <path>] [--json]
 navori receipt check --feature <id> [--target <ref>] [--dir <path>] [--json]
 ```
 
 | Código | Significado |
 |---|---|
 | 0 | Sin hallazgos (`sign`: receipt escrito) |
-| 2 | Al menos un `UNCOVERED` o `DRIFT` |
-| 1 | `ERROR`: git falla, rama detrás de `origin/<target>`, receipt ausente, archivo no hasheable, ruta no representable |
+| 2 | Al menos un `UNCOVERED` o `DRIFT` (`check`) |
+| 1 | `ERROR`: git falla, rama detrás de `origin/<target>`, receipt ausente en `check`, tipo no regular, lectura/hash o ruta fallida |
 
-**`check --json`:**
-`{ "formatVersion": 1, "target": string, "targetSha": string, "headSha": string, "status": "ok" | "findings" | "error", "uncovered": string[], "drift": [{ "path": string, "blob": string | null, "kind": "changed" | "missing" | "reappeared" }], "error": string | null }`.
+`sign --json` y `check --json` comparten:
+`{ "formatVersion": 1, "target": string, "targetSha": string | null, "headSha": string | null, "status": "ok" | "findings" | "error", "uncovered": string[], "drift": [{ "path": string, "blob": string | null, "kind": "changed" | "missing" | "reappeared" }], "error": string | null }`.
+
+En `ERROR` temprano los SHA pueden ser `null`; `sign` inicial crea el receipt y un `sign` fallido
+preserva el anterior. V1 usa `lstat` y acepta solo archivos regulares: symlinks (válidos o rotos),
+gitlinks/submódulos y demás tipos no regulares son `ERROR`, no `deleted` ni contenido dereferenciado.
+El formato no firma modos: un cambio solo de modo es `ERROR`/código 1, sin `DRIFT` ni mutar el
+receipt, en vez de prometer metadatos no firmados. NUL, `--no-renames` y el diff
+inerte se conservan.
 
 ### Hook `comment-draft-confirm`
 
@@ -451,11 +479,11 @@ navori receipt check --feature <id> [--target <ref>] [--dir <path>] [--json]
 | `gh pr comment`, `gh issue comment` (incluido `--edit-last`) | `--body-file` / `-F` |
 | `gh pr review` con `-c`, `-a` o `-r` y cuerpo | `--body-file` / `-F` |
 | `gh api` con `-X`/`--method` `POST\|PATCH\|PUT`, o con `-f`, `-F` o `--input`, sobre una ruta con `/comments` o `/reviews` | `--input <archivo>` o `-F clave=@archivo` |
-| `gh api graphql` con mutación `addComment`, `addDiscussionComment`, `addPullRequestReview`, `addPullRequestReviewComment`, `addPullRequestReviewThread` o `addPullRequestReviewThreadReply` (nombres del schema de GitHub, verificados por introspección) | `-F query=@archivo` o `--input` |
+| `gh api graphql` con creación o edición: los seis `add*` y `updateIssueComment`, `updateDiscussionComment`, `updatePullRequestReview`, `updatePullRequestReviewComment` | variable/campo `body` desde `-F body=@archivo`, `--input` o el payload; `query` solo clasifica, nunca es el cuerpo |
 | `acli jira workitem comment create` (incluidos `--jql` y `--filter`) | `--body-file` / `-F` (texto o ADF) |
 | `acli jira workitem comment update` | `--body-adf` (ADF) o `--body-file` / `-F` (texto) |
 
-- **Sin cuerpo en el comando** (`--editor`, `--web`, `-F -`): aplica R12.
+- **Sin cuerpo en el comando** (`--editor`, `--web`, `-F -`), lectura fallida o parser/herramienta ausente: aplica R12 sin shell ni stdin. En Claude resulta `ask`; en Codex R13 resulta `deny` incluso sin `jq`/`node`. Para inline/stdin no se inventa archivo.
 - **Ruta rápida:** si el comando no puede contener un comentario, sale sin forks ni registro.
 
 ### Registros de retirados
@@ -464,14 +492,15 @@ navori receipt check --feature <id> [--target <ref>] [--dir <path>] [--json]
 type Retired = {
   readonly id: string;
   readonly successor: string | null;
-  readonly markerId: string; // el que navori estampó: "<id>-base" en agentes y skills core, el id pelado en workflow, preset y plugin
+  readonly markerIdByAdapter: Readonly<Partial<Record<"claude" | "codex", string>>>;
+  // agentes: Claude <id>-base, Codex <id>-codex-base; skills/workflow usan sus marcadores reales.
 };
 export const RETIRED_AGENTS: ReadonlyArray<Retired & { readonly harnessKey: string }>;
 export const RETIRED_SKILLS: ReadonlyArray<Retired>; // existente: pasa de string a Retired
 export const RETIRED_HOOKS: ReadonlyArray<Retired>;  // existente: ídem
 ```
 
-**Por qué `markerId`:** §8.7b llama `planFlatSkillRemoval(cwd, id, id)` con el id pelado
+**Por qué `markerIdByAdapter`:** §8.7b llama `planFlatSkillRemoval(cwd, id, id)` con el id pelado
 (`engines/claude/index.ts:1120`). Las skills core llevan `id="debug-error-base"`
 (`.claude/skills/debug-error/SKILL.md`), y `openingTagFor` busca la coincidencia exacta
 (`lib/removable.ts:141`). Sin el marcador registrado, cuatro de las seis skills retiradas quedarían
@@ -489,7 +518,7 @@ como ajenas y se conservarían en silencio.
 | Sin `jq` ni `node` en el hook de comentarios | `ask` con razón fija (R12) |
 | Hook nuevo en Codex sin confiar | Codex lo salta hasta confiarlo en `/hooks`; paso 5 del reset |
 | Comentario desde Codex | `deny`; lo publica el usuario (R13) |
-| Error del gate en un archivo no tocado, causado por el diff | Se lista como previo con advertencia; el `reviewer` decide (R31) |
+| Error del gate fuera del diff, sin baseline comparable | Origen no determinado; no permite aprobar un gate rojo (R31) |
 
 ## Reset del parque
 
@@ -519,18 +548,19 @@ como ajenas y se conservarían en silencio.
    - En repos `/bonum`, donde `.claude/` es gitignored: el backup del render en
      `~/.navori/backups/`.
 4. `navori doctor`, que debe reportar 0 retirados (R41).
-5. En repos con Codex: abrir Codex y confiar los hooks nuevos o cambiados con `/hooks`.
+5. En repos con Codex: confiar la capa de proyecto `.codex/` y después los hooks nuevos o cambiados
+   (hash) con `/hooks`; verificar ambos, no solo que el archivo se renderizó.
 
 ## Testing strategy
 
 | Riesgo | Prueba |
 |---|---|
-| `receipt` calcula otro conjunto que el firmado (#202, #785) | `receipt.test.ts`: nuevos, borrados, renombrados (ruta vieja como `deleted`), no rastreados, espacios y no ASCII, progreso excluido, `diff.external` configurado |
+| `receipt` calcula otro conjunto que el firmado (#202, #785) | `receipt.test.ts`: nuevos, borrados, renombrados (ruta vieja como `deleted`), no rastreados, espacios/no ASCII, progreso excluido, `diff.external`; symlink válido/roto, cambio a symlink y gitlink → `ERROR`, sin dereferencia ni reemplazar el receipt |
 | `ERROR` leído como `DRIFT` (#344) | `receipt.test.ts`: git fuera de `PATH`, archivo ilegible, receipt ausente, ruta con salto de línea → código 1 sin `DRIFT` |
 | Rama vieja firma borrados fantasma (#771, #793) | `receipt.test.ts`: rama detrás de `origin/<target>` → código 1 |
 | Un asset avanza sin evidencia positiva (#485) | `receipt-wiring.test.ts` |
 | Comentario sin prompt o con borrador distinto | `comment-draft-confirm.test.ts`: cada fila del contrato (incluidos `-F body=@archivo` y `graphql`), cuerpo en línea con `;`/`\|`/saltos, ADF, archivo ilegible, sin `jq` ni `node`, más de 1,500 caracteres, instalado en `.codex/hooks/`, comando ajeno |
-| D19 no se puede medir | `search-v2-manifests.test.ts` y config del repo con ambos plugins; fixture de `mine-search-routing.py` con `tgrep search` y `codegraph_explore` que cuenta distinto de cero |
+| D19 no se puede medir o sesga subagentes | `search-v2-manifests.test.ts` y config del repo con ambos plugins; fixtures padre+hijo de `mine-search-routing.py` con conteos exactos, deduplicación y negativos/malformed/unavailable |
 | Un asset receta búsqueda por shell | `search-v2-policy.test.ts`: ningún asset distribuido receta `grep -r`, `rg` o `git grep` para descubrir; la advertencia de `operaciones-seguras` pasa |
 | Un agente del roster sin `codegraph_explore`, o con `Agent` | `mcp-capability-wiring.test.ts` y `agents-assets.test.ts` |
 | Skills core retiradas conservadas por marcador (hallazgo B1 del challenge v2) | `retired-assets.test.ts` con fixtures `id="<id>-base"` para agentes y skills core, e id pelado para `babysit-prs` y `ticket-intake` |
@@ -543,7 +573,8 @@ como ajenas y se conservarían en silencio.
 | Doctrina contradictoria o receta de stash de vuelta | `protocol-coherence.test.ts` |
 | Asset que crece sin control | `agents-assets.test.ts` (R51), `skill-caps.test.ts` (`verify-before-done` en 600) y `skill-caps-composed.test.ts` (`security-invariants` con `semgrep`) |
 | Bloque de orquestación rebasa su techo | `session-start-budget.test.ts` (hoy 6,324 de 6,500) |
-| Un criterio se decide con un minero roto (ECC #2463) | Fixtures de R52 |
+| Un criterio se decide con un minero roto (ECC #2463) | Fixtures exactos positivos, negativos, malformed y unavailable de R52 |
+| Gate huérfano o espera del reviewer mal atribuida | `audit` model/report/signals: handle único por diff, estados terminales, solapes y datos faltantes; sin PID global |
 
 ## Criterios pre-registrados
 
@@ -551,14 +582,18 @@ Se escriben antes de implementar y no se mueven después de ver los datos.
 
 1. **Reset.** Tras el procedimiento, `navori doctor` reporta 0 retirados en cada repo, o cada resto
    aparece conservado con motivo (R39). Cualquier otro caso es un bug del release.
-2. **`architect`.** A los 60 días del release de F, contando `subagent_type` en los transcripts:
-   - 0 invocaciones → se retira por `RETIRED_AGENTS`.
-   - Más de la mitad de los ciclos que llegan a `implementer` → el disparador es demasiado amplio
-     y se abre un issue.
+2. **`architect`.** A los 60 días del release de F, en transcripts Claude medibles: un ciclo es un
+   `feature` o handoff id explícito; re-reviews no crean ciclo. Las invocaciones no equivalen a
+   ciclos. Con muestra/datos insuficientes no se concluye ni se retira; con datos suficientes, 0
+   ciclos → se evalúa retiro por `RETIRED_AGENTS`, y más de la mitad de ciclos que llegan a
+   `implementer` → se abre un issue por disparador amplio.
 3. **Comentarios.** En Claude Code, cada comando de la tabla del hook presente en el log de audit
    tiene un veredicto del hook, y un comentario sin veredicto es un bug. En Codex el criterio aplica
    solo a hooks ya confiados.
-4. **Búsqueda.** Es el de `search-v2.md` D19, no uno nuevo: ≥ 25% de búsquedas reales por
+4. **Reviewer.** Antes de cambiar el gate, usar mínimo 10 gates completados sobre >=3 diffs y medir
+   reloj total, espera, gate y re-reviews. Solapes y datos incompletos son inconclusos;
+   no se atribuye el tiempo restante a razonamiento ni se promete ahorro.
+5. **Búsqueda.** Es el de `search-v2.md` D19, no uno nuevo: ≥ 25% de búsquedas reales por
    `tgrep search` o `codegraph_explore`, tras dos semanas de dogfood en navori-harness contadas
    desde que R14 y R15 están en `main`. Si falla, la spec del guard (ver "Búsqueda: medir D19
    antes de cualquier guard") es el siguiente paso.
@@ -570,13 +605,13 @@ Se escriben antes de implementar y no se mueven después de ver los datos.
 | Revisión | Hallazgos | Qué cambió |
 |---|---|---|
 | v1 (`.claude/progress/solution_review_0026.md`) | 3 BLOCKER, 12 CONCERN, 10 NOTE | La migración se reemplazó por reset |
-| v2 (`.claude/progress/solution_review_0026_v2.md`) | 2 BLOCKER, 15 CONCERN, 10 NOTE | B1: `markerId` en los registros. B2: el guard de búsqueda sale y queda condicionado a D19. Además: config con valores en conflicto, reset global con `--apply` y backup, reporte de lo conservado, confianza de hooks en Codex, `gh api` con `@archivo` y `graphql`, `architect` movido a F, `security-invariants` con lista de respaldo, base actualizada a `5a0bbc34`, línea base por atribución de archivo, target contra `origin/`, recetas de shell completas, tests y docs que faltaban |
+| v2 (`.claude/progress/solution_review_0026_v2.md`) | 2 BLOCKER, 15 CONCERN, 10 NOTE | B1: `markerId` en los registros. B2: el guard de búsqueda queda fuera y condicionado a D19. Además: config con valores en conflicto, reset global con `--apply` y backup, reporte de lo conservado, confianza de hooks en Codex, `gh api` con `@archivo` y `graphql`, `architect` movido a F, `security-invariants` con lista de respaldo, base actualizada a `5a0bbc34`, línea base por atribución de archivo, target contra `origin/`, recetas de shell completas, tests y docs que faltaban |
 
 Riesgos abiertos, registrados y sin bloquear:
 - La enmienda a 0012 y el challenge obligatorio en `spec-bootstrap` agregan delegación por
   decisión del usuario; el criterio 2 mide `architect`.
-- En Codex, "borrador primero" se cumple negando y exige confiar el hook.
-- La línea base por atribución puede listar como previo un error causado en otro archivo.
+- En Codex, "borrador primero" se cumple negando y exige confiar la capa `.codex/` y el hash del hook.
+- Sin baseline comparable, la ubicación fuera del diff solo permite decir origen no determinado.
 - El hook de comentarios no ve herramientas MCP, `curl` directo ni comandos envueltos en `sh -c`.
 
 ## NOT in scope

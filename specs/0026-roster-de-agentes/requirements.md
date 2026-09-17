@@ -1,6 +1,7 @@
 # Roster de agentes y skills — Requirements
 
-**Status:** proposed · **Fecha:** 2026-09-16 · **Base:** `origin/main` en `5a0bbc34`
+**Status:** proposed · **Fecha:** 2026-09-16 · **Base revisada:** `fbd4450f` (revalidar contra
+`origin/main`, incluido #854 `7da709df`, antes de implementar)
 
 - **Origen:** propuesta en `docs/research/propuesta-simplificacion-agentes.md` (sin versionar),
   su evaluación y las decisiones del usuario del 2026-09-16.
@@ -31,7 +32,7 @@ incorporar, y lo hace con un reset del harness en lugar de una migración.
 | `ticket-intake` | Cubre del ticket a su cierre, no solo la entrada |
 
 **Descartados por colisión:**
-- `planner`: Claude trae `Plan`.
+- `planner`: se descarta por cercanía semántica con el built-in `Plan` de Claude; no es una colisión literal.
 - `worker`: integrado de Codex.
 - `operator`: en el harness significa "el humano" (`managed/orquestacion.md:64`).
 - `debug`, `verify`, `review` y `code-review`: skills integradas de Claude Code. Una skill de
@@ -197,19 +198,25 @@ Público: el operador del harness. Áreas críticas tocadas:
   - No detecta renombres, separa las rutas por NUL, no usa drivers externos de diff ni textconv,
     y no toma locks opcionales de git.
   - Escribe `receipt.txt` en el directorio de progreso, con un blob almacenado por archivo vivo y
-    un marcador `deleted` por archivo borrado.
+    un marcador `deleted` por archivo borrado. V1 admite únicamente archivos regulares: SHALL usar
+    `lstat`, rechazar symlinks válidos o rotos, gitlinks/submódulos y cualquier otro tipo no regular
+    como `ERROR`, sin dereferenciarlos ni representarlos como `deleted`. Un diff solo de modo SHALL
+    terminar en `ERROR`/código 1, sin `DRIFT` y sin sobrescribir el receipt; V1 no firma modos.
 - **R2** — El sistema SHALL proveer `navori receipt check`, que reporta por archivo `UNCOVERED` y
   `DRIFT`, con salida `--json` que incluye `formatVersion`, el target, su SHA, el SHA de `HEAD` y
   un `status` que es `ok`, `findings` o `error`, y SHALL salir con código 0 sin hallazgos y 2 con
-  al menos uno.
-- **R3** — IF git falla, el receipt no existe, un archivo no se puede hashear o una ruta no se
-  puede representar en el formato de línea del receipt, THEN `sign` y `check` SHALL salir con
-  código 1 y reportar `ERROR`; un `ERROR` SHALL NOT reportarse como `DRIFT`.
+  al menos uno. `sign --json` y `check --json` SHALL usar el mismo schema: en éxito incluyen
+  `formatVersion`, `target`, `targetSha`, `headSha` y `status`; en error temprano los SHA pueden ser
+  `null` y SHALL incluir `error`. `check` ausente es `ERROR`; `sign` inicial crea el receipt.
+- **R3** — IF git falla, el receipt no existe en `check`, un archivo no se puede hashear, su lectura
+  falla, su tipo no es regular, hay un diff solo de modo o una ruta no se puede representar en el formato de línea, THEN
+  `sign` y `check` SHALL salir con código 1 y reportar `ERROR`; un `ERROR` SHALL NOT reportarse como
+  `DRIFT`. Un `sign` fallido SHALL preservar el receipt anterior.
 - **R4** — IF la rama está detrás de `origin/<target>`, THEN `sign` y `check` SHALL salir con
   código 1 sin escribir ni validar el receipt.
 - **R5** — WHEN `check` reporta `DRIFT` sobre un archivo vivo, SHALL imprimir el blob aprobado y el
   comando exacto para inspeccionar la diferencia.
-- **R6** — Los assets que firman y verifican receipts SHALL invocar `navori receipt` con `--target`
+- **R6** — Los assets que firman y verifican receipts SHALL invocar `navori receipt` con `--feature`, `--target`
   y `--json`, y SHALL NOT contener el algoritmo en shell.
 - **R7** — Esos assets SHALL continuar solo ante un JSON con `"status": "ok"`, y ante cualquier otra
   salida, incluido un `navori` ausente o sin `receipt`, SHALL detenerse.
@@ -225,16 +232,24 @@ Público: el operador del harness. Áreas críticas tocadas:
   - `gh pr comment` y `gh issue comment`.
   - `gh pr review` con cuerpo.
   - `gh api` con escritura sobre un endpoint de comentarios o reviews, o sobre `graphql` con una
-    mutación de comentario o review.
+    mutación de creación o edición de comentario o review: `addComment`, `addDiscussionComment`,
+    `addPullRequestReview`, `addPullRequestReviewComment`, `addPullRequestReviewThread`,
+    `addPullRequestReviewThreadReply`, `updateIssueComment`, `updateDiscussionComment`,
+    `updatePullRequestReview` o `updatePullRequestReviewComment`. Borrados quedan fuera de alcance.
   - `acli jira workitem comment create|update`.
 - **R11** — WHEN el cuerpo viene de un archivo (`--body-file`, `-F <archivo>`, `--body-adf`,
   `--input`, o un campo `-F clave=@archivo` de `gh api`), el hook SHALL mostrar su texto (el de sus
   nodos si es ADF) truncado a 1,500 caracteres, con el conteo de lo omitido y la ruta del archivo;
-  WHEN va en línea, la razón SHALL decir que el cuerpo está en el comando del prompt.
+  WHEN va en línea, la razón SHALL decir que el cuerpo está en el comando del prompt. Para GraphQL
+  SHALL mostrar la variable o campo `body` extraído, nunca confundir el documento `query` con el cuerpo.
 - **R12** — IF el hook no puede leer el cuerpo o no hay herramienta para construir su JSON, THEN
-  SHALL devolver `ask` con una razón que diga que no pudo mostrar el borrador.
+  SHALL devolver `ask` con una razón que diga que no pudo mostrar el borrador, sin ejecutar shell ni
+  leer stdin. Este fallback prevalece sobre cualquier parser parcial.
 - **R13** — WHEN el hook corre instalado en `.codex/hooks/`, SHALL devolver `deny` con una razón
-  que nombre el archivo del borrador y el comando para que el usuario lo publique.
+  que nombre el archivo del borrador si existe; para cuerpo inline o stdin SHALL indicar que no hay
+  archivo y repetir el comando/flag de publicación. El `deny` prevalece aun sin `jq` o `node`; la
+  garantía de `ask` de Claude requiere versión auto >= 2.1.211, y Codex requiere confiar la capa
+  de proyecto y el hash del hook en `/hooks`.
 
 ### G · tgrep y codegraph en los flujos
 
@@ -242,6 +257,9 @@ Público: el operador del harness. Áreas críticas tocadas:
   `codegraph`, para que corra la métrica de campo D19 de `search-v2.md`.
 - **R15** — `scripts/mine-search-routing.py` SHALL contar `tgrep search` y `codegraph_explore` como
   la vía v2, y `Grep` nativo, `rg`, `grep -r` y `git grep` como escape, según el instrumento de D19.
+  SHALL incluir transcripts de subagentes vinculados a la sesión auditada, deduplicar eventos por
+  identidad consistente y distinguir `unavailable`/malformed de conteo cero. El alcance medido es
+  Claude mientras el minero no soporte otro engine.
 - **R16** — Los assets distribuidos SHALL NOT recetar búsqueda por shell (`grep -r`, `rg`,
   `git grep`) como método de descubrimiento, y SHALL referirse a descubrimiento textual o
   estructural según Code discovery routing.
@@ -297,9 +315,10 @@ Público: el operador del harness. Áreas críticas tocadas:
   6. Tras dos intentos fallidos, reportar `BLOCKED` si corre en un subagente o preguntar al
      usuario si corre en el agente principal.
 - **R31** — `verify-before-done` SHALL declarar `maxWords: 600`, SHALL NOT recetar `git stash`, y
-  SHALL atribuir los errores del gate por archivo: los de archivos del conjunto a publicar cuentan
-  como introducidos, los demás se listan como previos con la advertencia de que un cambio de tipos
-  puede causarlos, y sin ubicación por archivo la línea base se declara no medida.
+  SHALL usar la ubicación solo como triage: los de archivos del conjunto a publicar cuentan como
+  introducidos; fuera del diff sin baseline comparable son de origen no determinado; solo evidencia
+  comparable permite llamarlos previos. Sin ubicación la línea base no está medida. Esta
+  clasificación no exime el gate verde ni la revisión.
 - **R32** — `review-diff` SHALL:
   - Exigir `{{qualityGate.full}}`.
   - Remitir la seguridad a `security-invariants`.
@@ -330,7 +349,9 @@ Público: el operador del harness. Áreas críticas tocadas:
 #### Reset
 
 - **R38** — El sistema SHALL mantener registros append-only de ids retirados, cada uno con su
-  sucesor (o sin sucesor) y el id de marcador que navori estampó:
+  sucesor (o sin sucesor) y el id de marcador por destino que navori estampó: Claude usa `<id>-base`;
+  Codex usa `<id>-codex-base` para assets base. Los registros o contrato de cada adapter SHALL
+  distinguirlos explícitamente, sin asumir que el orphan scan actual tenga un bug:
   - Agentes: `leader`, `explorer`, `researcher`, `ticket-audit` y `commit-pr-pilot`.
   - Skills: `debug-error`, `loop-back-debug`, `structural-search`, `security-guidance`,
     `babysit-prs` y `ticket-intake`.
@@ -354,8 +375,11 @@ Público: el operador del harness. Áreas críticas tocadas:
 ### E2 · Canales de `publisher`
 
 - **R45** — El asset `publisher` SHALL escribir el cuerpo de un comentario en un archivo del
-  directorio de progreso, publicarlo solo con `--body-file` (o `--body-adf` en
-  `acli jira workitem comment update`), reportar la URL o el id resultante, y SHALL NOT incluir
+  directorio de progreso, publicarlo por canal file-backed: `gh pr/issue comment` y `gh pr review` con `--body-file`; `gh api`
+  con `--input` o `-F body=@archivo` (o campo GraphQL equivalente); `acli` con `--body-file` y
+  `--body-adf` en update ADF. SHALL prohibir cuerpos inline. En Codex SHALL entregar borrador y
+  comando para el humano, sin declarar URL o id no publicado; en una publicación ejecutada SHALL
+  reportar la URL o id resultante, y SHALL NOT incluir
   contenido técnico que no provenga de un artefacto de handoff existente.
 - **R46** — Los plugins `acli` y `gh` SHALL inyectar en `publisher` el protocolo de su canal, y el
   de `acli` SHALL prohibir escribir en Jira por el MCP de Atlassian.
@@ -377,5 +401,16 @@ Público: el operador del harness. Áreas críticas tocadas:
 - **R51** — Cada asset de agente del roster SHALL declarar un techo de palabras sobre su cuerpo,
   fijado al tamaño con el que aterriza la reescritura (y `architect` como máximo 400), y una prueba
   SHALL fallar si un asset lo excede o si un asset presupuestado no existe.
-- **R52** — Cada minero o consulta de log que decide un criterio pre-registrado SHALL tener un
-  fixture que produzca un conteo distinto de cero, y una prueba SHALL fallar si produce cero.
+- **R52** — Cada minero o consulta de log que decide un criterio pre-registrado SHALL tener fixtures
+  positivos con conteos exactos y negativos, malformed y unavailable; una falta de datos SHALL NOT
+  ser cero ni habilitar una conclusión.
+- **R53** — Cada ejecución del `qualityGate.full` del reviewer SHALL tener un único owner y un handle
+  estable correlacionado al diff, emitido por el owner; el monitor SHALL observar solo ese handle,
+  no `pgrep`/`ps` global. Un timeout no equivale a exit 0; sin handle async del host SHALL ejecutar
+  foreground con terminal observable o reportar `BLOCKED`.
+- **R54** — La auditoría SHALL extender `lib/audit/{model,report,signals}.ts` para medir, sin PII,
+  duración total del reviewer, gate, espera y número de reviews/ejecuciones correlacionadas; SHALL
+  distinguir intervalos solapados, duplicate/unknown/timeout y datos faltantes, sin atribuir el
+  resto a razonamiento. Todo criterio de latencia SHALL usar mínimo 10 gates completados sobre >=3
+  diffs y tratar datos incompletos como inconclusos; no cambia `qualityGate.full` ni la revisión
+  independiente.

@@ -5,7 +5,7 @@
 
 Todo lo que la spec afirma sobre herramientas externas, el código o el uso real sale de una de
 las fuentes de este archivo. Cada entrada dice dónde está y cómo volver a encontrarla o medirla.
-Consultas y mediciones hechas el **2026-09-16**. Las anclas de código se re-verificaron sobre `origin/main` en `5a0bbc34` (la primera versión citaba `3f0fceb0`).
+Consultas y mediciones hechas el **2026-09-16**. La base histórica de la primera versión fue `3f0fceb0`; la revisión previa usó `5a0bbc34` y la auditoría adicional usó `fbd4450f`, que debe revalidarse contra `origin/main` antes de implementar.
 
 **Cómo buscar una cita.** Las páginas de documentación cambian y los números de línea se
 mueven, así que cada cita trae su texto literal y su sección. Para encontrarla, descarga la
@@ -24,7 +24,7 @@ curl -sL <url>.md | grep -n "<frase literal>"
 | Página | Sección | Cita literal | Sostiene |
 |---|---|---|---|
 | <https://code.claude.com/docs/en/hooks> | PreToolUse decision control | *"For `"allow"` and `"ask"`, shown to the user but not Claude. For `"deny"`, shown to Claude."* | R10, R11 |
-| <https://code.claude.com/docs/en/hooks> | PreToolUse decision control | *"A hook's `"ask"` also forces a permission prompt in auto mode: the classifier can still deny the tool call, but it can't approve the call silently."* | R10 |
+| <https://code.claude.com/docs/en/hooks#pretooluse-decision-control> | PreToolUse decision control | `ask` fuerza prompt en auto mode; aplicar la garantía solo a Claude auto >= 2.1.211 | R10, R13 |
 | <https://code.claude.com/docs/en/hooks> | PreToolUse decision control | *"Deny and ask rules are still evaluated regardless of what the hook returns"* | R10 |
 | <https://code.claude.com/docs/en/hooks> | Hook locations | *"When a subagent calls a tool, tool events such as `PreToolUse` and `PostToolUse` fire the same configured hooks as in the main conversation, and the input carries the `agent_id` and `agent_type`"* | R10, NOT in scope (0023) |
 | <https://code.claude.com/docs/en/sub-agents> | Available tools | *"The first filter removes these tools, even when listed in the `tools` field"* (la lista incluye `AskUserQuestion`) | R30, `design.md` (handoff de dos pasos descartado) |
@@ -49,6 +49,15 @@ completo: <https://learn.chatgpt.com/llms.txt>.
 | <https://learn.chatgpt.com/docs/hooks> | PreToolUse | *"`permissionDecision: "ask"`, legacy `decision: "approve"`, `continue: false`, `stopReason`, and `suppressOutput` are parsed but not supported yet. Codex marks the hook run as failed, reports the error, and continues the tool call."* | R13 |
 | <https://learn.chatgpt.com/docs/hooks> | Review and trust hooks | *"Codex records trust against the hook's current hash, so new or changed hooks are marked for review and skipped until trusted."* y *"Use `/hooks` in the CLI to inspect hook sources, review new or changed hooks, trust hooks"* | Reset del parque, criterio 3 |
 | <https://learn.chatgpt.com/docs/build-skills> | Where Codex loads local skills | *"If two skills share the same `name`, Codex doesn't merge them; both can appear in skill selectors."* y *"such as the skill-creator and plan skills"* | R29 |
+
+### GitHub CLI y GraphQL (documentación oficial)
+
+| Fuente | Evidencia | Sostiene |
+|---|---|---|
+| <https://cli.github.com/manual/gh_api> | `gh api` usa `--input` y `-F/--field`; `@<path>` lee archivo, no existe `--body-file` universal | R10, R11, R45 |
+| <https://docs.github.com/en/graphql/reference/issues#updateissuecomment> | `updateIssueComment` actualiza cuerpo de comentario | R10 |
+| <https://docs.github.com/en/graphql/reference/pulls#updatepullrequestreviewcomment> | `updatePullRequestReviewComment` actualiza cuerpo de review | R10 |
+| <https://git-scm.com/docs/git-hash-object> | `hash-object` hashea contenido; no sustituye el tipo/ruta/mode del objeto a publicar | R1, R3 |
 
 ### tgrep
 
@@ -173,6 +182,19 @@ Para contar los commits del receipt: `git log --oneline | grep -ciE "receipt|dri
 
 ## 5. Mediciones locales y cómo reproducirlas
 
+**Base revisada:** `fbd4450f`; #854 (`7da709df`) estaba en `origin/main` pero no en esa base y se
+trata como precondición a revalidar, no como fix duplicado. La base histórica de la propuesta se
+conserva arriba.
+
+**Probes locales de la auditoría en frío (no son tests que ya pasen):**
+- Cambiar un symlink entre destinos de contenido idéntico conserva el hash de contenido; por eso R1
+  rechaza tipos no regulares en V1.
+- Un evento `Grep` solo en transcript de subagente no era contado por el minero actual; el fixture
+  padre+hijo de T6 queda pendiente de implementar.
+- El audit existente ya contiene `AgentRun`/`HookEvent` y `toolUseId`; T21 lo extiende, no crea
+  otro logger.
+
+
 Las ventanas por `mtime` se mueven con el tiempo: re-ejecutar hoy no da el mismo número exacto,
 pero sí la misma forma.
 
@@ -260,7 +282,11 @@ está en la spec):
 - `research_0026_publisher.md`: permisos y hooks de canales.
 - `research_0026_prior_decisions.md`: specs previas y moratoria.
 - `solution_review_0026.md`: challenge en contexto fresco de la versión con migración.
-- `solution_review_0026_v2.md`: challenge en contexto fresco de la versión con reset (2 BLOCKER: marcador `-base` de retirados y guard contra `search-v2.md`).
+- `solution_review_0026_v2.md`: challenge en contexto fresco de la versión con reset.
+- `/tmp/solution_review_0026_latency.md`: challenge de latencia; propone medir lifecycle antes de
+  alterar el full gate.
+- `.codex/progress/audit_0026_docs.md`: auditoría en frío de contratos oficiales; sus pruebas son
+  futuras, no evidencia de implementación.
 
 **Memorias de engram** del proyecto `navori-harness`. Se recuperan con `mem_search` o con
 `engram search "<consulta>"`:
