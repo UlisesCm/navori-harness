@@ -45,7 +45,7 @@ export const ui = {
     "graph.subtitle":
       "Sin harness, tu frase llega sola a un modelo que decide por su cuenta. Esto es todo lo que navori pone en el camino — ocho paradas, de la frase al commit, y de vuelta a la memoria.",
     "graph.aria":
-      "Diagrama del recorrido de un prompt: entra, se le carga el contexto del repo, el leader lo descompone, las herramientas de búsqueda lo ubican en el código, los subagentes trabajan en paralelo, los guardas y los gates de calidad lo filtran, y termina en un commit cuya decisión vuelve a la memoria.",
+      "Diagrama del recorrido de un prompt: entra, se le carga el contexto del repo, el orchestrator lo descompone, las herramientas de búsqueda lo ubican en el código, los subagentes trabajan en paralelo, los guardas y los gates de calidad lo filtran, y termina en un commit cuya decisión vuelve a la memoria.",
     "graph.hint": "El recorrido avanza solo. Toca una parada para saltar a ella.",
     "graph.pause": "Pausar",
     "graph.play": "Reanudar",
@@ -71,7 +71,7 @@ export const ui = {
     "graph.s4.body":
       "Dos preguntas distintas con dos herramientas distintas: dónde vive un símbolo y qué se rompe si lo tocas, contra qué archivos contienen esta cadena. Sin esto, un agente abre veinte archivos para encontrar uno.",
     "graph.s5.name": "Trabaja",
-    "graph.s5.title": "Cuatro especialistas, en paralelo, sin estorbarse",
+    "graph.s5.title": "Tres especialistas, en paralelo, sin estorbarse",
     "graph.s5.body":
       "Cada uno corre en su propia ventana de contexto y devuelve la conclusión, no el volcado de lo que leyó. Por eso el hilo principal no se llena de ruido y por eso el modelo caro no paga por leer.",
     "graph.s6.name": "Protege",
@@ -92,11 +92,10 @@ export const ui = {
     "graph.chip.skills": "la guía de esta tarea",
     "graph.chip.dominio": "hechos de todo el workspace",
     "graph.chip.engram": "lo que ya se decidió",
-    "graph.chip.leader": "descompone y reparte",
+    "graph.chip.orchestrator": "descompone y reparte",
     "graph.chip.codegraph": "dónde vive · quién lo llama",
     "graph.chip.tgrep": "qué archivos lo contienen",
-    "graph.chip.explorer": "mapea el área",
-    "graph.chip.researcher": "responde una pregunta",
+    "graph.chip.scout": "mapea o investiga",
     "graph.chip.implementer": "escribe el código",
     "graph.chip.auditor": "busca lo que duele",
     "graph.chip.guard": "bloquea lo destructivo",
@@ -345,7 +344,7 @@ export const ui = {
     "graph.subtitle":
       "With no harness, your sentence reaches a model that decides alone. This is everything navori puts in its path — eight stops, from the sentence to the commit, and back into memory.",
     "graph.aria":
-      "Diagram of a prompt's journey: it arrives, the repo's context is loaded around it, the leader breaks it down, search tools locate it in the code, subagents work in parallel, guards and quality gates filter the result, and it ends in a commit whose decision returns to memory.",
+      "Diagram of a prompt's journey: it arrives, the repo's context is loaded around it, the orchestrator breaks it down, search tools locate it in the code, subagents work in parallel, guards and quality gates filter the result, and it ends in a commit whose decision returns to memory.",
     "graph.hint": "The walkthrough runs on its own. Tap a stop to jump to it.",
     "graph.pause": "Pause",
     "graph.play": "Resume",
@@ -371,7 +370,7 @@ export const ui = {
     "graph.s4.body":
       "Two different questions, two different tools: where a symbol lives and what breaks if you touch it, versus which files hold this string. Without them, an agent opens twenty files to find one.",
     "graph.s5.name": "Works",
-    "graph.s5.title": "Four specialists, in parallel, not blocking each other",
+    "graph.s5.title": "Three specialists, in parallel, not blocking each other",
     "graph.s5.body":
       "Each runs in its own context window and returns the conclusion, not a dump of what it read. That's why the main thread doesn't fill with noise, and why the expensive model never pays to read.",
     "graph.s6.name": "Guards",
@@ -392,11 +391,10 @@ export const ui = {
     "graph.chip.skills": "this task's guide",
     "graph.chip.dominio": "workspace-wide facts",
     "graph.chip.engram": "what was already settled",
-    "graph.chip.leader": "splits and delegates",
+    "graph.chip.orchestrator": "splits and delegates",
     "graph.chip.codegraph": "where it lives · who calls it",
     "graph.chip.tgrep": "which files hold it",
-    "graph.chip.explorer": "maps the area",
-    "graph.chip.researcher": "answers one question",
+    "graph.chip.scout": "maps or investigates",
     "graph.chip.implementer": "writes the code",
     "graph.chip.auditor": "hunts what hurts",
     "graph.chip.guard": "blocks the destructive",

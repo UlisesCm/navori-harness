@@ -360,7 +360,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
 ### Lote 4 · Continuidad, nombres muertos y documentación
 
-- [ ] **T17** (R43, R44, R52) — Continuidad, nombres muertos y documentación.
+- [x] **T17** (R43, R44, R52) — Continuidad, nombres muertos y documentación.
   - **Clasificación de logs:** `lib/audit/signals.ts` clasifica los agentes retirados como su
     sucesor.
   - **Mineros de `scripts/`:** cuentan `commit-pr-pilot` y `publisher`, y `pr-pilot-confirm` y

@@ -9,7 +9,7 @@ const lang = "es" as const;
 // (opus | sonnet | haiku, todas configurables por proyecto).
 const agents = [
   {
-    role: "Leader",
+    role: "Orchestrator",
     tag: "orquestador",
     model: "opus",
     lead: true,
@@ -18,36 +18,20 @@ const agents = [
       "Lo encarna el agente principal, no un subagente aparte — es el centro de gravedad de la sesión. Lee el ticket, decide en cuántas subtareas se parte, lanza a los trabajadores en paralelo y al final integra sus resultados en una sola solución coherente. Usa el modelo más capaz (opus) porque su trabajo es razonar y decidir, no leer archivos.",
   },
   {
-    role: "Explorer",
-    tag: "read-only",
-    model: "haiku",
-    body: "El que hace el mapa: recorre un área del código y dice qué hay y dónde.",
-    detail:
-      "Antes de un refactor o una feature grande, el leader lo manda a mapear un módulo: qué archivos existen, cómo se conectan y por dónde entra el flujo. Lee solo extractos —no archivos enteros— y devuelve un mapa, no un volcado. Corre en un modelo ligero (haiku) porque leer y resumir es barato: el mapa cuesta pocos tokens y llega rápido.",
-  },
-  {
-    role: "Researcher",
+    role: "Scout",
     tag: "read-only",
     model: "sonnet",
-    body: "El que responde una pregunta concreta buscando en el código.",
+    body: "El que mapea un área o responde una pregunta puntual buscando en el código.",
     detail:
-      "Cuando el leader necesita un dato para decidir —'¿cómo se valida hoy el login?'— manda al researcher a investigarlo en el repo. Escribe sus hallazgos en un archivo aparte en vez de llenar el hilo principal. Devuelve respuestas puntuales, no exploración abierta.",
-  },
-  {
-    role: "Ticket audit",
-    tag: "análisis",
-    model: "opus",
-    body: "El que estudia un ticket difícil antes de que nadie toque código.",
-    detail:
-      "Ante un bug en una feature crítica o una migración estructural, diseca el ticket: causa raíz, qué áreas se afectan y cómo partir el trabajo. Produce un documento de auditoría que orienta toda la implementación posterior, para que el implementer no arranque a ciegas.",
+      "Antes de un refactor o una feature grande, el orchestrator lo manda a mapear un módulo —qué archivos existen, cómo se conectan y por dónde entra el flujo— o a investigar un dato puntual —'¿cómo se valida hoy el login?'—. Lee solo extractos —no archivos enteros— y escribe sus hallazgos en un archivo aparte en vez de llenar el hilo principal: un mapa o una respuesta puntual, nunca exploración abierta ni un volcado.",
   },
   {
     role: "Auditor",
-    tag: "read-only",
+    tag: "análisis / read-only",
     model: "sonnet",
-    body: "El que audita a fondo un módulo sin ticket de por medio: qué está mal y qué tan grave es.",
+    body: "El que estudia un ticket difícil o audita a fondo un módulo antes de que nadie toque código.",
     detail:
-      "Cuando quieres saber qué deuda arrastra un área antes de refactorizarla, recorre el código buscando bugs, huecos de seguridad, problemas de rendimiento, violaciones de arquitectura y casos borde sin cubrir. Nunca edita código de producción: entrega un reporte con un plan priorizado en disco. Seguridad y rendimiento son ejes obligatorios de su revisión.",
+      "Cubre tres encargos: auditar un ticket (causa raíz, áreas afectadas, plan de partición) antes de implementar; auditar un área sin ticket de por medio (bugs, huecos de seguridad, rendimiento, violaciones de arquitectura, casos borde) antes de refactorizarla; o desafiar (\"challenge\") el diseño de una spec en contexto fresco. Nunca edita código de producción: entrega un reporte o veredicto en disco para que el implementer no arranque a ciegas.",
   },
   {
     role: "Implementer",
@@ -55,23 +39,23 @@ const agents = [
     model: "sonnet",
     body: "El que escribe el código: toma UNA tarea acotada y la deja lista.",
     detail:
-      "Recibe una subtarea bien definida del leader, la implementa respetando las reglas del repo (CLAUDE.md) y no la da por terminada hasta dejar el quality gate en verde: lint y tests pasando. Un modelo intermedio (sonnet) equilibra calidad de código y costo.",
+      "Recibe una subtarea bien definida del orchestrator, la implementa respetando las reglas del repo (CLAUDE.md) y no la da por terminada hasta dejar el quality gate en verde: lint y tests pasando. Un modelo intermedio (sonnet) equilibra calidad de código y costo.",
   },
   {
     role: "Reviewer",
     tag: "gate",
-    model: "opus",
+    model: "sonnet",
     body: "El que revisa y aprueba o rechaza. No edita: juzga.",
     detail:
       "Revisa el trabajo del implementer contra las reglas del proyecto y los gates (seguridad con semgrep, duplicación con jscpd). Aprueba o rechaza con motivos concretos. Es una segunda opinión estricta antes de que el código avance — por eso usa un modelo capaz de juzgar con criterio.",
   },
   {
-    role: "Commit & PR pilot",
+    role: "Publisher",
     tag: "git/gh",
     model: "haiku",
-    body: "El que redacta el commit y abre el Pull Request.",
+    body: "El que redacta el commit, abre el Pull Request y publica comentarios en Jira/GitHub.",
     detail:
-      "Cuando el trabajo está aprobado, escribe el mensaje de commit con el formato del repo (Conventional) y abre el PR con título y descripción. Corre chequeos contra git/gh antes de tocar la red. Tarea mecánica y acotada: un modelo ligero basta.",
+      "Cuando el trabajo está aprobado, escribe el mensaje de commit con el formato del repo (Conventional) y abre el PR con título y descripción. Corre chequeos contra git/gh antes de tocar la red, y publica comentarios informativos siempre con borrador previo. Tarea mecánica y acotada: un modelo ligero basta.",
   },
 ];
 
@@ -87,20 +71,20 @@ const modelColor: Record<string, string> = {
 const modelTiers = [
   {
     model: "haiku",
-    use: "Leer y explorar",
-    who: "explorer · commit-pr-pilot",
+    use: "Publicar",
+    who: "publisher",
     note: "Rápido y barato para tareas mecánicas.",
   },
   {
     model: "sonnet",
-    use: "Escribir código",
-    who: "researcher · implementer · auditor",
+    use: "Leer, escribir y auditar",
+    who: "scout · implementer · reviewer · auditor",
     note: "Equilibrio entre calidad y costo.",
   },
   {
     model: "opus",
-    use: "Decidir y revisar",
-    who: "leader · reviewer · ticket-audit",
+    use: "Decidir",
+    who: "orchestrator",
     note: "El músculo donde el criterio importa.",
   },
 ];
@@ -152,7 +136,7 @@ const glossary = [
 const tokenMechanisms = [
   {
     title: "Contexto aislado por subagente",
-    body: "Cada subagente corre en su propia ventana y devuelve solo la conclusión. El hilo del leader nunca se llena con el volcado de los archivos que leyó.",
+    body: "Cada subagente corre en su propia ventana y devuelve solo la conclusión. El hilo del orchestrator nunca se llena con el volcado de los archivos que leyó.",
   },
   {
     title: "Un modelo por rol",
@@ -160,7 +144,7 @@ const tokenMechanisms = [
   },
   {
     title: "Lectura por extractos",
-    body: "Explorer y researcher leen los fragmentos relevantes, no archivos completos. Localizan, no fotocopian.",
+    body: "Scout lee los fragmentos relevantes, no archivos completos. Localiza, no fotocopia.",
   },
   {
     title: "Skills bajo demanda",
@@ -175,7 +159,7 @@ const tokenMechanisms = [
 const engramPoints = [
   "Sobrevive a cierres de sesión y a las compactaciones de contexto.",
   "mem_save guarda decisiones, bugs con causa raíz y convenciones; mem_search los recupera al arrancar.",
-  "El protocolo se inyecta en el leader: guarda de forma proactiva, sin que se lo pidas.",
+  "El protocolo se inyecta en el orchestrator: guarda de forma proactiva, sin que se lo pidas.",
   "Va siempre con navori (always-on). No re-explicas el contexto de la semana pasada.",
 ];
 
@@ -188,7 +172,7 @@ const workspacePoints = [
 
 // Realidad de proyectos en producción y migración legacy — todo real:
 // prompts.json (modo greenfield/production/migration) + project.legacyPaths
-// inyectado a leader/implementer/reviewer/ticket-audit.
+// inyectado a orchestrator/implementer/reviewer/auditor.
 const productionPoints = [
   {
     title: "Modo del proyecto, desde el init",
@@ -196,15 +180,15 @@ const productionPoints = [
   },
   {
     title: "legacyPaths que los agentes respetan",
-    body: "Marcas las carpetas legacy y el leader, el implementer y el reviewer lo saben: ahí aplican reglas distintas y no imponen convenciones nuevas sobre código que no les toca.",
+    body: "Marcas las carpetas legacy y el orchestrator, el implementer y el reviewer lo saben: ahí aplican reglas distintas y no imponen convenciones nuevas sobre código que no les toca.",
   },
   {
-    title: "ticket-audit antes de migrar",
+    title: "auditor antes de migrar",
     body: "Ante una migración estructural (legacy → nuevo backend, monolito → microservicios), el agente diseca causa raíz, áreas afectadas y compatibilidad antes de que nadie escriba código.",
   },
   {
     title: "Skills conscientes de la migración",
-    body: "verify-before-done, loop-back-debug y review-diff detectan estados inconsistentes cuando conviven código legacy y nuevo — el error más caro de una migración a medias.",
+    body: "verify-before-done, debug-failure y review-diff detectan estados inconsistentes cuando conviven código legacy y nuevo — el error más caro de una migración a medias.",
   },
 ];
 
@@ -344,7 +328,7 @@ const creditsInspiration = [
   {
     name: "ejemplo-harness-subagentes",
     by: "betta-tech",
-    role: "El patrón Leader/Implementer/Reviewer y el estado en disco: por chat solo pasan referencias.",
+    role: "El patrón Orchestrator/Implementer/Reviewer y el estado en disco: por chat solo pasan referencias.",
     href: "https://github.com/betta-tech/ejemplo-harness-subagentes",
   },
   {
@@ -535,7 +519,7 @@ const onboarding = [
         <span class="display-italic gradient-text">no un solo hilo.</span>
       </h2>
       <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
-        El agente principal <strong>encarna al leader</strong> —el centro de
+        El agente principal <strong>encarna al orchestrator</strong> —el centro de
         gravedad—. En lugar de hacer todo en un mismo hilo, descompone la tarea
         y la reparte entre subagentes que trabajan en paralelo y devuelven solo
         su conclusión. Cada uno tiene un rol estricto y el modelo justo para él.
@@ -653,16 +637,16 @@ const onboarding = [
         class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
         style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
       >
-        el leader, en una tarea compleja
+        el orchestrator, en una tarea compleja
       </div>
       <pre
         class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
-        style="background: var(--color-night); color: rgb(226 232 240);"><code>leader › descompone el ticket en 3 subtareas
-  ├─ explorer   → mapa del módulo        (contexto propio · haiku)
-  ├─ researcher → ¿cómo se valida hoy?   (contexto propio · sonnet)
+        style="background: var(--color-night); color: rgb(226 232 240);"><code>orchestrator › descompone el ticket en 3 subtareas
+  ├─ scout       → mapa del módulo        (contexto propio · sonnet)
+  ├─ scout       → ¿cómo se valida hoy?   (contexto propio · sonnet)
   └─ implementer → aplica el cambio      → quality gate ✓  (sonnet)
-       └─ reviewer → aprueba contra CLAUDE.md            (opus)
-leader › sintetiza y delega el commit → commit-pr-pilot   (haiku)</code></pre>
+       └─ reviewer → aprueba contra CLAUDE.md            (sonnet)
+orchestrator › sintetiza y delega el commit → publisher   (haiku)</code></pre>
     </div>
   </section>
 
@@ -730,7 +714,7 @@ leader › sintetiza y delega el commit → commit-pr-pilot   (haiku)</code></pr
                    la compatibilidad legacy↔nuevo
 
 → legacyPaths: [ "src/old-api", "legacy/" ]
-  el leader, el implementer y el reviewer
+  el orchestrator, el implementer y el reviewer
   tratan esas rutas con otras reglas.</code></pre>
         </div>
       </div>
@@ -797,7 +781,7 @@ leader › sintetiza y delega el commit → commit-pr-pilot   (haiku)</code></pr
             </p>
             <p class="mt-1 text-slate-600 dark:text-slate-400">
               Los subagentes exploran en paralelo y devuelven conclusiones. El
-              leader razona sobre resúmenes, no sobre volcados. Engram guarda lo
+              orchestrator razona sobre resúmenes, no sobre volcados. Engram guarda lo
               que hay que recordar fuera del contexto.
             </p>
           </div>

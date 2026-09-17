@@ -8,13 +8,13 @@ import { getCoreRoot } from "../lib/bundled-assets.ts";
  * fits the startup channel, and every trimmed section moved to the asset that
  * owns its moment. Two risks, one suite:
  *
- *   1. SILENT LOSS. The overlap with `leader.md` was PARTIAL: several clauses
+ *   1. SILENT LOSS. The overlap with `orchestrator.md` was PARTIAL: several clauses
  *      existed only in the block (worktree reclaim, squash-merge ancestry,
  *      load-bearing re-verification, the 2-cycle cap). A naive "delete the
  *      duplicate" would have dropped them — R7 pins each one at its new home.
  *
  *   2. RE-DUPLICATION. The trim's point is that doctrine lives ONCE. A future
- *      edit that pastes a ladder section back into `leader.md` (or a depth
+ *      edit that pastes a ladder section back into `orchestrator.md` (or a depth
  *      section back into the block) recreates the drift this spec removed —
  *      R11 pins the split in both directions.
  *
@@ -27,7 +27,7 @@ const CORE_ASSETS = resolve(getCoreRoot(), "core-assets");
 const read = (rel: string): string => readFileSync(resolve(CORE_ASSETS, rel), "utf-8");
 
 const BLOCK = "managed/orquestacion.md";
-const LEADER = "agents/orchestrator.md";
+const ORCHESTRATOR = "agents/orchestrator.md";
 
 describe("el bloque conserva la regla operativa (R4)", () => {
   const block = read(BLOCK);
@@ -41,7 +41,7 @@ describe("el bloque conserva la regla operativa (R4)", () => {
   // no sobre responder. Sin esa fila, "todo pasa por el harness" se lee como
   // "delega hasta para contestar una pregunta" y se ignora entera.
   it.each([
-    ["el rol y la prohibición de delegar leader", "NEVER delegate that role"],
+    ["el rol y la prohibición de delegar orchestrator", "NEVER delegate that role"],
     ["la regla única", "Every change to source goes through"],
     ["la distinción escribir vs responder", "Delegation is about WRITING, not about answering"],
     ["la tabla señal→mecanismo (#379)", "### How much analysis does this task deserve"],
@@ -60,7 +60,7 @@ describe("la escalera retirada no vuelve sola", () => {
   const block = read(BLOCK);
 
   // La retirada es deliberada y tiene condiciones de regreso escritas en
-  // `leader.md`: el gate probado bajo una sola ruta, y "archivo fuente no
+  // `orchestrator.md`: el gate probado bajo una sola ruta, y "archivo fuente no
   // trivial" existiendo UNA vez como código compartido en vez de como prosa
   // repetida en cinco sitios. Hasta entonces, un umbral que reaparezca en el
   // bloque recrea exactamente la ambigüedad que se quitó — y lo haría en
@@ -74,15 +74,15 @@ describe("la escalera retirada no vuelve sola", () => {
     expect(block, `la escalera volvió al bloque: "${mark}"`).not.toContain(mark);
   });
 
-  it("leader.md explica por qué se retiró y qué hace falta para reponerla", () => {
-    const leader = read(LEADER);
-    expect(leader).toContain("seven places that did not agree");
-    expect(leader).toContain("shared classifier");
+  it("orchestrator.md explica por qué se retiró y qué hace falta para reponerla", () => {
+    const orchestrator = read(ORCHESTRATOR);
+    expect(orchestrator).toContain("seven places that did not agree");
+    expect(orchestrator).toContain("shared classifier");
   });
 });
 
-describe("spec 0019 — cada sección retirada vive en leader.md (R7)", () => {
-  const leader = read(LEADER);
+describe("spec 0019 — cada sección retirada vive en orchestrator.md (R7)", () => {
+  const orchestrator = read(ORCHESTRATOR);
 
   // Covers: R7
   // Las cuatro primeras existían SOLO en el bloque (verificado por conteo al
@@ -95,13 +95,13 @@ describe("spec 0019 — cada sección retirada vive en leader.md (R7)", () => {
     ["frugal delegation", "## Frugal delegation"],
     ["second opinion multi-provider", "a review from a **different provider**"],
   ])("%s está injertado", (_clause, mark) => {
-    expect(leader).toContain(mark);
+    expect(orchestrator).toContain(mark);
   });
 });
 
 describe("spec 0019 — la profundidad es alcanzable y no se duplica (R9, R11)", () => {
   const block = read(BLOCK);
-  const leader = read(LEADER);
+  const orchestrator = read(ORCHESTRATOR);
 
   it("el bloque nombra con ruta literal dónde vive la profundidad", () => {
     // Covers: R9
@@ -110,14 +110,17 @@ describe("spec 0019 — la profundidad es alcanzable y no se duplica (R9, R11)",
     expect(block).toContain(".claude/skills/solution-design/SKILL.md");
   });
 
-  it("la escalera no se repite en leader.md", () => {
+  it("la escalera no se repite en orchestrator.md", () => {
     // Covers: R11
     for (const mark of [
       "Delegation is about WRITING, not about answering",
       "### How much analysis does this task deserve",
       "### When delegation is genuinely impossible",
     ]) {
-      expect(leader, `la marca del núcleo "${mark}" reapareció en leader.md`).not.toContain(mark);
+      expect(
+        orchestrator,
+        `la marca del núcleo "${mark}" reapareció en orchestrator.md`,
+      ).not.toContain(mark);
     }
   });
 
@@ -135,14 +138,14 @@ describe("spec 0019 — la profundidad es alcanzable y no se duplica (R9, R11)",
 });
 
 describe("spec 0019 — la detección del cross-review no se auto-cumple", () => {
-  it("leader.md no nombra el id del sub-bloque que navori le inyecta", () => {
+  it("orchestrator.md no nombra el id del sub-bloque que navori le inyecta", () => {
     // Covers: R7
     // La doctrina enseñaba a detectar la opción con
     // `grep -n codex-cross-review .claude/agents/orchestrator.md`. Al mudar ese
-    // párrafo DENTRO de leader.md, el grep pasaría a acertar siempre: el
+    // párrafo DENTRO de orchestrator.md, el grep pasaría a acertar siempre: el
     // agente concluiría que hay cross-review en un repo que solo renderiza
     // Claude. `render-engine.test.ts` usa el mismo token como prueba de que el
     // sub-bloque está ausente, así que la prosa no puede contenerlo.
-    expect(read(LEADER)).not.toContain("codex-cross-review");
+    expect(read(ORCHESTRATOR)).not.toContain("codex-cross-review");
   });
 });

@@ -9,7 +9,7 @@ const lang = "en" as const;
 // (opus | sonnet | haiku, all configurable per project).
 const agents = [
   {
-    role: "Leader",
+    role: "Orchestrator",
     tag: "orchestrator",
     model: "opus",
     lead: true,
@@ -18,36 +18,20 @@ const agents = [
       "The main agent embodies it, not a separate subagent — it's the session's center of gravity. It reads the ticket, decides how many subtasks to split into, launches the workers in parallel, and finally integrates their results into one coherent solution. It uses the most capable model (opus) because its job is to reason and decide, not read files.",
   },
   {
-    role: "Explorer",
-    tag: "read-only",
-    model: "haiku",
-    body: "The map-maker: it walks an area of the code and tells you what's there and where.",
-    detail:
-      "Before a refactor or a big feature, the leader sends it to map a module: what files exist, how they connect, and where the flow enters. It reads only excerpts —not whole files— and returns a map, not a dump. It runs on a lightweight model (haiku) because reading and summarizing is cheap: the map costs few tokens and arrives fast.",
-  },
-  {
-    role: "Researcher",
+    role: "Scout",
     tag: "read-only",
     model: "sonnet",
-    body: "The one that answers a concrete question by searching the code.",
+    body: "The one that maps an area or answers one pointed question by searching the code.",
     detail:
-      "When the leader needs a fact to decide —'how is login validated today?'— it sends the researcher to dig it up in the repo. It writes its findings to a separate file instead of filling the main thread. It returns pointed answers, not open-ended exploration.",
-  },
-  {
-    role: "Ticket audit",
-    tag: "analysis",
-    model: "opus",
-    body: "The one that studies a hard ticket before anyone touches code.",
-    detail:
-      "For a bug in a critical feature or a structural migration, it dissects the ticket: root cause, which areas are affected, and how to split the work. It produces an audit doc that guides the whole implementation, so the implementer doesn't start blind.",
+      "Before a refactor or a big feature, the orchestrator sends it to map a module — what files exist, how they connect, and where the flow enters — or to dig up a fact it needs to decide, like 'how is login validated today?'. It reads only excerpts —not whole files— and writes its findings to a separate file instead of filling the main thread: a map or a pointed answer, never open-ended exploration or a dump.",
   },
   {
     role: "Auditor",
-    tag: "read-only",
+    tag: "analysis / read-only",
     model: "sonnet",
-    body: "The one that audits a module in depth with no ticket involved: what's wrong and how bad it is.",
+    body: "The one that studies a hard ticket, or audits a module in depth, before anyone touches code.",
     detail:
-      "When you want to know what debt an area carries before refactoring it, it walks the code looking for bugs, security holes, performance problems, architecture violations, and uncovered edge cases. It never edits production code: it delivers a report with a prioritized plan on disk. Security and performance are mandatory axes of its review.",
+      "It covers three encargos: auditing a ticket (root cause, affected areas, a split plan) before implementing; auditing an area with no ticket involved (bugs, security holes, performance problems, architecture violations, uncovered edge cases) before refactoring it; or challenging a spec's design in fresh context. It never edits production code: it delivers a report or verdict on disk so the implementer doesn't start blind.",
   },
   {
     role: "Implementer",
@@ -55,23 +39,23 @@ const agents = [
     model: "sonnet",
     body: "The one that writes the code: it takes ONE scoped task and finishes it.",
     detail:
-      "It receives a well-defined subtask from the leader, implements it respecting the repo's rules (CLAUDE.md), and doesn't call it done until the quality gate is green: lint and tests passing. An intermediate model (sonnet) balances code quality and cost.",
+      "It receives a well-defined subtask from the orchestrator, implements it respecting the repo's rules (CLAUDE.md), and doesn't call it done until the quality gate is green: lint and tests passing. An intermediate model (sonnet) balances code quality and cost.",
   },
   {
     role: "Reviewer",
     tag: "gate",
-    model: "opus",
+    model: "sonnet",
     body: "The one that reviews and approves or rejects. It doesn't edit: it judges.",
     detail:
       "It reviews the implementer's work against the project's rules and gates (security with semgrep, duplication with jscpd). It approves or rejects with concrete reasons. A strict second opinion before code moves on — which is why it uses a model that can judge with criteria.",
   },
   {
-    role: "Commit & PR pilot",
+    role: "Publisher",
     tag: "git/gh",
     model: "haiku",
-    body: "The one that drafts the commit and opens the Pull Request.",
+    body: "The one that drafts the commit, opens the Pull Request, and posts comments on Jira/GitHub.",
     detail:
-      "Once the work is approved, it writes the commit message in the repo's format (Conventional) and opens the PR with a title and description. It runs checks against git/gh before touching the network. A mechanical, scoped task: a lightweight model is enough.",
+      "Once the work is approved, it writes the commit message in the repo's format (Conventional) and opens the PR with a title and description. It runs checks against git/gh before touching the network, and posts informational comments always with a draft first. A mechanical, scoped task: a lightweight model is enough.",
   },
 ];
 
@@ -86,20 +70,20 @@ const modelColor: Record<string, string> = {
 const modelTiers = [
   {
     model: "haiku",
-    use: "Read & explore",
-    who: "explorer · commit-pr-pilot",
+    use: "Publish",
+    who: "publisher",
     note: "Fast and cheap for mechanical tasks.",
   },
   {
     model: "sonnet",
-    use: "Write code",
-    who: "researcher · implementer · auditor",
+    use: "Read, write & audit",
+    who: "scout · implementer · reviewer · auditor",
     note: "Balance of quality and cost.",
   },
   {
     model: "opus",
-    use: "Decide & review",
-    who: "leader · reviewer · ticket-audit",
+    use: "Decide",
+    who: "orchestrator",
     note: "The muscle where judgment matters.",
   },
 ];
@@ -150,7 +134,7 @@ const glossary = [
 const tokenMechanisms = [
   {
     title: "Isolated context per subagent",
-    body: "Each subagent runs in its own window and returns only the conclusion. The leader's thread never fills with the dump of files it read.",
+    body: "Each subagent runs in its own window and returns only the conclusion. The orchestrator's thread never fills with the dump of files it read.",
   },
   {
     title: "One model per role",
@@ -158,7 +142,7 @@ const tokenMechanisms = [
   },
   {
     title: "Excerpt-level reads",
-    body: "Explorer and researcher read the relevant fragments, not whole files. They locate — they don't photocopy.",
+    body: "Scout reads the relevant fragments, not whole files. It locates — it does not photocopy.",
   },
   {
     title: "Skills on demand",
@@ -173,7 +157,7 @@ const tokenMechanisms = [
 const engramPoints = [
   "Survives session closes and context compactions.",
   "mem_save stores decisions, root-caused bugs, and conventions; mem_search recalls them on startup.",
-  "The protocol is injected into the leader: it saves proactively, without being asked.",
+  "The protocol is injected into the orchestrator: it saves proactively, without being asked.",
   "Ships with navori by default (always-on). You never re-explain last week's context.",
 ];
 
@@ -191,15 +175,15 @@ const productionPoints = [
   },
   {
     title: "legacyPaths the agents respect",
-    body: "You flag the legacy folders and the leader, implementer, and reviewer know it: different rules apply there, and they don't impose new conventions on code that isn't theirs to touch.",
+    body: "You flag the legacy folders and the orchestrator, implementer, and reviewer know it: different rules apply there, and they don't impose new conventions on code that isn't theirs to touch.",
   },
   {
-    title: "ticket-audit before migrating",
+    title: "auditor before migrating",
     body: "Facing a structural migration (legacy → new backend, monolith → microservices), the agent dissects root cause, affected areas, and compatibility before anyone writes code.",
   },
   {
     title: "Migration-aware skills",
-    body: "verify-before-done, loop-back-debug, and review-diff catch the inconsistent states where legacy and new code coexist — the most expensive bug in a half-done migration.",
+    body: "verify-before-done, debug-failure, and review-diff catch the inconsistent states where legacy and new code coexist — the most expensive bug in a half-done migration.",
   },
 ];
 
@@ -337,7 +321,7 @@ const creditsInspiration = [
   {
     name: "ejemplo-harness-subagentes",
     by: "betta-tech",
-    role: "The Leader/Implementer/Reviewer pattern and state on disk: chat only carries references.",
+    role: "The Orchestrator/Implementer/Reviewer pattern and state on disk: chat only carries references.",
     href: "https://github.com/betta-tech/ejemplo-harness-subagentes",
   },
   {
@@ -526,7 +510,7 @@ const onboarding = [
         <span class="display-italic gradient-text">not a single thread.</span>
       </h2>
       <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
-        The main agent <strong>embodies the leader</strong> —the center of
+        The main agent <strong>embodies the orchestrator</strong> —the center of
         gravity—. Instead of doing everything in one thread, it decomposes the
         task and splits it across subagents that work in parallel and return
         only their conclusion. Each has a strict role and the right model for it.
@@ -644,16 +628,16 @@ const onboarding = [
         class="flex items-center gap-2 border-b px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400"
         style="border-color: var(--color-border-soft); background: color-mix(in oklab, var(--color-ivory-2), transparent 30%);"
       >
-        the leader, on a complex task
+        the orchestrator, on a complex task
       </div>
       <pre
         class="whitespace-pre-wrap [overflow-wrap:anywhere] p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.7]"
-        style="background: var(--color-night); color: rgb(226 232 240);"><code>leader › splits the ticket into 3 subtasks
-  ├─ explorer   → map the module        (own context · haiku)
-  ├─ researcher → how is it validated?  (own context · sonnet)
+        style="background: var(--color-night); color: rgb(226 232 240);"><code>orchestrator › splits the ticket into 3 subtasks
+  ├─ scout       → map the module        (own context · sonnet)
+  ├─ scout       → how is it validated?  (own context · sonnet)
   └─ implementer → applies the change   → quality gate ✓  (sonnet)
-       └─ reviewer → approves against CLAUDE.md          (opus)
-leader › synthesizes and delegates the commit → commit-pr-pilot  (haiku)</code></pre>
+       └─ reviewer → approves against CLAUDE.md          (sonnet)
+orchestrator › synthesizes and delegates the commit → publisher  (haiku)</code></pre>
     </div>
   </section>
 
@@ -721,7 +705,7 @@ leader › synthesizes and delegates the commit → commit-pr-pilot  (haiku)</co
                    legacy↔new compatibility
 
 → legacyPaths: [ "src/old-api", "legacy/" ]
-  the leader, implementer, and reviewer
+  the orchestrator, implementer, and reviewer
   treat those paths with different rules.</code></pre>
         </div>
       </div>
@@ -787,7 +771,7 @@ leader › synthesizes and delegates the commit → commit-pr-pilot  (haiku)</co
               with navori
             </p>
             <p class="mt-1 text-slate-600 dark:text-slate-400">
-              Subagents explore in parallel and return conclusions. The leader
+              Subagents explore in parallel and return conclusions. The orchestrator
               reasons over summaries, not dumps. Engram keeps what must be
               remembered outside the context window.
             </p>

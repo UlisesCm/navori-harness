@@ -15,4 +15,4 @@ Apply the skills according to the layer you touch:
 - `job-scheduling` — define/schedule jobs (agenda/bullmq), idempotency, retries with backoff.
 - `queue-consumers` — consume messages (amqplib/bullmq), `ack`/`nack`, dead-letter, backpressure.
 
-Logging and the ticket/PR flow are covered by the base harness (agents `leader`, `implementer`, `reviewer`, `commit-pr-pilot` and the core skills).
+Logging and the ticket/PR flow are covered by the base harness (agents `orchestrator`, `implementer`, `reviewer`, `publisher` and the core skills).

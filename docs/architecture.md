@@ -52,7 +52,7 @@ flowchart TD
     P1["computeRenderPlan()<br/>CLAUDE.md (core+preset+plugins)"]
     P2["planSettings()<br/>.claude/settings.json"]
     P3["planManagedFile()<br/>agents · skills · quality-gate hook"]
-    P4["plugin scripts + sub-block injects<br/>.claude/scripts/, engram→leader.md"]
+    P4["plugin scripts + sub-block injects<br/>.claude/scripts/, engram→orchestrator.md"]
     GATE{"--apply?"}
     PREVIEW["PREVIEW<br/>muestra el plan, no escribe"]
     WRITE["backup → writeFileAtomic (fsync)<br/>por output pendiente"]
@@ -134,7 +134,7 @@ Doc oficial: https://code.claude.com/docs/en/permission-modes
 |---|---|---|
 | `default` | reads only | every edit and every command prompts: batch them and explain before asking |
 | `acceptEdits` | reads, edits, common FS commands | edit freely; the shell still prompts outside the read-only set |
-| `plan` | reads, plus classifier-approved commands | **you do not write**: the architectural pass, `ticket-audit` and an SDD spec ARE this mode's work; leave the mode to execute |
+| `plan` | reads, plus classifier-approved commands | **you do not write**: the architectural pass, `auditor` and an SDD spec ARE this mode's work; leave the mode to execute |
 | `auto` | everything, classifier-reviewed | every shell command pays a classifier round-trip; reads, in-workspace edits and `allow`-covered MCP calls don't, so `cmd1 && cmd2` in one call beats two |
 | `dontAsk` | only what is pre-approved | `Edit`/`Write` are NOT in navori's `allow` and the mode denies `AskUserQuestion` outright: the implement/review cycle cannot run. The one mode navori does not support today — use `default`, `acceptEdits`, `plan` or `auto` |
 | `bypassPermissions` | everything | prompts are skipped and `allow` rules stop having any effect — but `deny` rules still block, in this mode as in every other, and so does the hook (`exit 2` blocks in any mode). Isolated environments only |

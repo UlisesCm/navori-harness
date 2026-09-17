@@ -19,28 +19,26 @@ más caro) — así que trabajo mecánico corre al mismo precio que trabajo de j
 
 ## Defaults recomendados
 
-Claves reales de `ModelsSchema`/`EffortSchema` (`packages/cli/src/lib/schema.ts`);
-`ticket-audit`/`commit-pr-pilot` son los ids de archivo en `core-assets/agents/`,
-`ticketAudit`/`commitPrPilot` las claves de config.
+Claves reales de `ModelsSchema`/`EffortSchema` (`packages/cli/src/lib/schema.ts`), que
+coinciden con los ids de archivo en `core-assets/agents/` — el roster canónico vive en
+`engines/shared/roster.ts` (`ROSTER_AGENTS`).
 
 | Agente | `models.<agent>` | `effort.<agent>` | Por qué |
 |---|---|---|---|
-| `leader` | `opus` | `xhigh` | Orquesta, define scope y arbitra `CHANGES_REQUESTED` — el único rol de juicio puro, no se abarata. |
+| `orchestrator` | `opus` | `xhigh` | Orquesta, define scope y arbitra `CHANGES_REQUESTED` — el único rol de juicio puro, no se abarata. |
 | `implementer` | `sonnet` | `medium` | Código desde una tarea ya acotada; sonnet rinde casi como opus en coding a una fracción del costo. |
 | `reviewer` | `sonnet` | `medium` | Revisa contra spec/quality gate — síntesis contra un contrato, no arquitectura desde cero. |
-| `researcher` | `sonnet` | `medium` | Investigación con preguntas acotadas; redacta hallazgos, no solo mapea archivos. |
-| `ticketAudit` | `sonnet` | `medium` | Lee y estructura un ticket/spec — síntesis textual. |
-| `auditor` | `sonnet` (sube a `opus` si el presupuesto alcanza) | `medium` | Auditoría arquitectural (SOLID, seguridad, performance, edge cases) — más cerca de juicio que de síntesis; el propio `auditor.md` lo señala explícito. |
-| `explorer` | `haiku` | `low` | Mapear archivos/patrones — lectura mecánica, sin síntesis. |
-| `commitPrPilot` | `haiku` | `low` | Redacta commit/PR desde un diff ya aprobado — mecánico. |
+| `scout` | `sonnet` | `medium` | Mapea y/o investiga con preguntas acotadas; redacta hallazgos, no solo lista archivos. |
+| `auditor` | `sonnet` | `medium` | Auditoría arquitectural (SOLID, seguridad, performance, edge cases) — más cerca de juicio que de síntesis; el propio `auditor.md` lo señala explícito. |
+| `publisher` | `haiku` | `low` | Redacta commit/PR/comentarios desde un diff ya aprobado — mecánico. |
 
 ## Effort sigue la misma lógica
 
 `effort.<agent>` es la otra palanca del mismo eje: modelo caro + effort alto significa
 más tokens de razonamiento y más tool calls por invocación. Un agente mecánico en
 `sonnet`/`low` sigue siendo más barato en agregado que el mismo agente en `opus`/`xhigh`
-corriendo N veces por sesión (ej. un `explorer` por sub-mapa en un fan-out). El
-`effort` de `leader` además siembra `effortLevel` de `settings.json`, porque ese rol
+corriendo N veces por sesión (ej. un `scout` por sub-mapa en un fan-out). El
+`effort` de `orchestrator` además siembra `effortLevel` de `settings.json`, porque ese rol
 es el agente principal — no se spawnea como subagente, así que no hay otro punto
 donde fijar su tier.
 

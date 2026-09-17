@@ -7,4 +7,4 @@ A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a 
 - **Not every ticket proceeds.** Legitimate outcomes besides "implement": already solved, can't reproduce, works as intended, needs splitting into N tickets, blocked on missing info. Saying so early — with evidence — beats a polished PR for the wrong fix. **None of them opens work, so none of them waits for approval:** report the verdict with its evidence and close the cycle. The human gate stays for `proceed` and `proceed-differently`, the two that open the chequebook.
 - **Size is measured, not assumed.** Before calling something small, run the command that proves it (call sites, files touched, layers crossed). A one-line description routinely hides a 13-call-site change.
 
-The `resolve-ticket` skill runs this as a pipeline; the `ticket-audit` agent produces the verdict with evidence.
+The `resolve-ticket` skill runs this as a pipeline; the `auditor` agent produces the verdict with evidence.

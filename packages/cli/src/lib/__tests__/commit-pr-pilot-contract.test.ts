@@ -455,7 +455,7 @@ describe("publisher — la única excepción es la imposibilidad declarada", () 
    * propio pilot y el minero de activación contaban cinco cosas distintas.
    *
    * Vuelve cuando vuelva el ruling, y la condición para eso está escrita en
-   * `leader.md`: "archivo fuente no trivial" tiene que existir UNA vez como
+   * `orchestrator.md`: "archivo fuente no trivial" tiene que existir UNA vez como
    * código compartido, no como prosa repetida. Mientras tanto el pilot tiene
    * exactamente dos salidas, y esto las fija.
    */

@@ -176,7 +176,7 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Diagnóstico",
-        code: "$ navori doctor\nConfig · navori.config.json\nManaged blocks · 5\n! drift: .claude/agents/leader.md editado a mano\nPróximos pasos · corre 'navori sync --interactive'",
+        code: "$ navori doctor\nConfig · navori.config.json\nManaged blocks · 5\n! drift: .claude/agents/orchestrator.md editado a mano\nPróximos pasos · corre 'navori sync --interactive'",
       },
     ],
     notes: [
@@ -605,7 +605,7 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Ver qué hay guardado",
-        code: "$ navori backup list\n│  1 backup(s) en total. Mostrando 1:\n│    · repo-2026-09-01T17-49-47-756  (recién)\n│        · .claude/agents/leader.md\n│        · CLAUDE.md\n└  Listo",
+        code: "$ navori backup list\n│  1 backup(s) en total. Mostrando 1:\n│    · repo-2026-09-01T17-49-47-756  (recién)\n│        · .claude/agents/orchestrator.md\n│        · CLAUDE.md\n└  Listo",
       },
       {
         title: "Volver atrás",
@@ -924,7 +924,7 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "Diagnose",
-        code: "$ navori doctor\nConfig · navori.config.json\nManaged blocks · 5\n! drift: .claude/agents/leader.md edited by hand\nNext steps · run 'navori sync --interactive'",
+        code: "$ navori doctor\nConfig · navori.config.json\nManaged blocks · 5\n! drift: .claude/agents/orchestrator.md edited by hand\nNext steps · run 'navori sync --interactive'",
       },
     ],
     notes: [
@@ -1355,7 +1355,7 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "See what is stored",
-        code: "$ navori backup list\n│  1 backup(s) total. Showing 1:\n│    · repo-2026-09-01T17-49-47-756  (just now)\n│        · .claude/agents/leader.md\n│        · CLAUDE.md\n└  Done",
+        code: "$ navori backup list\n│  1 backup(s) total. Showing 1:\n│    · repo-2026-09-01T17-49-47-756  (just now)\n│        · .claude/agents/orchestrator.md\n│        · CLAUDE.md\n└  Done",
       },
       {
         title: "Roll back",

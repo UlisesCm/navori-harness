@@ -4,11 +4,12 @@ description: Use when a command fails or the runtime misbehaves and you don't ha
 metadata:
   type: behavior
   # 850 y no el default de 200 (spec 0026 T14, R30): este asset fusiona tres
-  # fuentes —`debug-error` (600), `loop-back-debug` (1000) y la `systematic-debug`
-  # personal— en un solo ciclo de seis pasos, así que hereda el presupuesto
-  # combinado de las dos primeras, ajustado a la baja porque el ciclo único
-  # elimina la duplicación de "reproducir" y "root cause" que las dos skills
-  # retiradas explicaban por separado.
+  # fuentes —las dos skills retiradas de diagnóstico que precedieron a esta
+  # (600 y 1000 palabras respectivamente) y la `systematic-debug` personal—
+  # en un solo ciclo de seis pasos, así que hereda el presupuesto combinado
+  # de las dos primeras, ajustado a la baja porque el ciclo único elimina la
+  # duplicación de "reproducir" y "root cause" que las dos skills retiradas
+  # explicaban por separado.
   maxWords: 850
 ---
 

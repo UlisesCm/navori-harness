@@ -111,9 +111,9 @@ Un `plugin.json` te da hasta seis piezas, y usas sólo las que necesites:
 
 **`injectInto` es la pieza más elegante del formato.** Si tu plugin tiene doctrina para un agente
 que ya existe, la inyecta dentro de ese archivo: el agente aprende tu herramienta sin que nadie
-tenga que mantener una copia paralela. `engram` llega a cinco destinos (`leader`,
-`implementer`, `reviewer`, `ticket-audit`, `auditor`) sin aportar un solo asset nuevo —
-cinco agentes mejores por el precio de dos archivos de extensión.
+tenga que mantener una copia paralela. `engram` llega a cuatro destinos (`orchestrator`,
+`implementer`, `reviewer`, `auditor`) sin aportar un solo asset nuevo —
+cuatro agentes mejores por el precio de dos archivos de extensión.
 
 Vale la pena medirlo: el archivo **compuesto** es lo que la sesión carga, y tiene su propio techo
 (`maxWordsComposed`). Inyectar sale mucho más barato que duplicar, y ese techo está para que siga

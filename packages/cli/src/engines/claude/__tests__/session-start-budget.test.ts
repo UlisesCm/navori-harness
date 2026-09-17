@@ -169,7 +169,7 @@ describe("spec 0019 — la escalera llega, no solo cabe", () => {
       size,
       `el bloque renderizado mide ${size} caracteres y el techo es ${CEILING}: ` +
         "por encima vuelve a degradar a puntero en el arranque (la regresión de #623). " +
-        "Recorta el asset o muda la sección nueva a su dueño (leader.md / la skill del momento).",
+        "Recorta el asset o muda la sección nueva a su dueño (orchestrator.md / la skill del momento).",
     ).toBeLessThanOrEqual(CEILING);
   });
 
