@@ -109,6 +109,20 @@ describe("renderCodexEngine", () => {
     );
   });
 
+  // Covers: R10, R13
+  it("registers comment-draft-confirm as PreToolUse", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+
+    expect(existsSync(join(cwd, ".codex/hooks/comment-draft-confirm.sh"))).toBe(true);
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).toContain("comment-draft-confirm.sh");
+    // Unconditional (R10): the same registration guard-destructive gets, not
+    // the `config.qualityGate?.fast`-gated one — no plugin/config toggle owns it.
+    const matches = toml.match(/\[\[hooks\.PreToolUse\]\]/g) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+  });
+
   /**
    * Anti-drift gate (#364). Four findings in a row had the same shape: a feature
    * is wired for Claude and the Codex path arrives late, so an asset ships with

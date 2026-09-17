@@ -44,6 +44,23 @@ export function buildCodexConfigToml(
     'statusMessage = "Checking destructive command policy"',
   );
 
+  // Spec 0026 E1 (R10, R13): registered unconditionally, like guard-destructive
+  // above and unlike the quality gate — no plugin/config toggle owns this one.
+  // The script itself decides `ask` vs `deny` by `$0` (`placeHook` does not
+  // transform Codex hook commands), so THIS registration only has to name the
+  // same file Claude runs; the deny behavior lives entirely in the hook body.
+  lines.push(
+    "",
+    "[[hooks.PreToolUse]]",
+    'matcher = "^Bash$"',
+    "",
+    "[[hooks.PreToolUse.hooks]]",
+    'type = "command"',
+    `command = ${tomlString(`bash "${hookBase}/comment-draft-confirm.sh"`)}`,
+    "timeout = 10",
+    'statusMessage = "Checking for an unconfirmed comment/review draft"',
+  );
+
   if (config.qualityGate?.fast) {
     lines.push(
       "",

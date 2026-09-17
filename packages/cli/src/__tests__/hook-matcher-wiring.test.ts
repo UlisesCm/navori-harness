@@ -365,6 +365,7 @@ describe("hook wiring — matcher vs. what the script accepts (#767, #775)", () 
     expect(gates.map((h) => h.script).sort()).toEqual([
       "check-jscpd.sh",
       "check-semgrep.sh",
+      "comment-draft-confirm.sh",
       "pr-pilot-confirm.sh",
       "quality-gate-pre-commit.sh",
     ]);

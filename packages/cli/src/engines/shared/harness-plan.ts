@@ -189,6 +189,15 @@ export function resolveHarnessPlan(
       managedId: "audit-mode-close-base",
     },
   ];
+  // Spec 0026 E1 (R10). Unconditional like the guard: the draft-confirm
+  // covers ANY agent's Bash call that publishes a comment or review, and its
+  // owner is the harness itself, not a configurable agent or plugin — so
+  // there is no feature flag whose absence should silence it.
+  hooks.push({
+    id: "comment-draft-confirm",
+    assetPath: join(coreAssets, "hooks/comment-draft-confirm.sh"),
+    managedId: "comment-draft-confirm-base",
+  });
   // #705: only a repo that receives commit-pr-pilot receives its dependent
   // routing hook. The guard stays unconditional; this hook has an owner.
   if (isAgentEnabled(config, "commitPrPilot")) {
