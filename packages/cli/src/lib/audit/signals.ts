@@ -2,6 +2,7 @@ import { type HarnessCatalog, barredMcpTokens } from "./harness.ts";
 import type { AgentRun, GateExecution, SessionAudit, Signal } from "./model.ts";
 import { GATE_HOOK_NAMES, correlateGateExecutions, gateHandle, recorderWindow } from "./model.ts";
 import { compareSemver } from "../semver.ts";
+import { RETIRED_AGENTS } from "../../engines/shared/roster.ts";
 
 /**
  * Findings, as pure functions over one parsed session plus the harness it ran
@@ -14,8 +15,27 @@ import { compareSemver } from "../semver.ts";
 
 export type Lang = "es" | "en";
 
-/** Read-only agent types: candidates to run in parallel, never conflicting. */
-const READ_ONLY_AGENTS = new Set(["researcher", "explorer", "ticket-audit", "auditor"]);
+/** Current roster ids whose role never mutates shared state. */
+const CURRENT_READ_ONLY_AGENTS = new Set(["scout", "auditor"]);
+
+/**
+ * Read-only agent types: candidates to run in parallel, never conflicting.
+ *
+ * Built from `CURRENT_READ_ONLY_AGENTS` plus every `RETIRED_AGENTS` entry
+ * whose `successor` folded into one of them (spec 0026 T17, R43/R44): a
+ * historical transcript naming `researcher`/`explorer`/`ticket-audit` must
+ * keep the SAME classification its successor (`scout`/`auditor`) has today,
+ * or re-auditing an old session would silently change its findings. Before
+ * this it was a hand-copied literal set that never gained `scout` when the
+ * roster renamed `explorer`/`researcher` into it (#821) — a fresh session
+ * with `scout` runs would have missed `serial-fanout` entirely.
+ */
+const READ_ONLY_AGENTS = new Set([
+  ...CURRENT_READ_ONLY_AGENTS,
+  ...RETIRED_AGENTS.filter(
+    (retired) => retired.successor !== null && CURRENT_READ_ONLY_AGENTS.has(retired.successor),
+  ).map((retired) => retired.id),
+]);
 
 /** A gap under this between two runs means they could have been simultaneous. */
 const SERIAL_GAP_MS = 5 * 60 * 1000;
