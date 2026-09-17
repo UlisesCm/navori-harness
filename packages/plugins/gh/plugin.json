@@ -7,7 +7,7 @@
     {
       "id": "gh-protocol",
       "file": "managed/gh-protocol.md",
-      "recommendedAgent": "commit-pr-pilot"
+      "recommendedAgent": "publisher"
     }
   ],
   "externalTool": {

@@ -55,9 +55,9 @@ const KNOWN_EXCEPTIONS = new Set([
   // path in the tree (`navori render` copies packages/core/core-assets/agents/
   // -> .claude/agents/). Their relative links are written for the render
   // target, not the source depth this walk resolves against — and the
-  // rendered sibling (`.claude/agents/leader.md`) is itself tracked, so the
-  // same link is checked for real there.
-  "packages/core/core-assets/agents/leader.md -> ../../CLAUDE.md",
+  // rendered sibling (`.claude/agents/orchestrator.md`) is itself tracked, so
+  // the same link is checked for real there.
+  "packages/core/core-assets/agents/orchestrator.md -> ../../CLAUDE.md",
 ]);
 
 /** Markdown links `[text](target)`, skipping fenced code blocks. */

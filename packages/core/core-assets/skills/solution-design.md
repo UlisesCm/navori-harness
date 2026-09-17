@@ -59,8 +59,8 @@ task boundaries, so tasks written first get rewritten.
 
 ## The challenge (one round, fresh context)
 
-Hand the artifact to a `researcher` with a falsification brief — its job is to
-break the design, not to polish it:
+Hand the artifact to a fresh-context `auditor` (its challenge encargo) with a
+falsification brief — its job is to break the design, not to polish it:
 
 > What assumption is false? · What existing code contradicts it? · Which
 > requirement isn't covered? · What contract breaks? · What happens on partial

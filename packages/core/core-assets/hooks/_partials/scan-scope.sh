@@ -29,7 +29,7 @@
 # `git commit`, so a `fetch` would put a remote round-trip — and its timeouts,
 # its auth prompts, its outages — in front of every commit in the repo.
 # `origin/<base>` is kept fresh by the pre-flight of the reviewer and the
-# commit-pr-pilot, which both fetch before they work; in that cycle the ref is
+# publisher, which both fetch before they work; in that cycle the ref is
 # already current when the hook reads it. Outside it (an offline clone, a repo
 # with no remote) the fallback keeps the previous behaviour exactly.
 #

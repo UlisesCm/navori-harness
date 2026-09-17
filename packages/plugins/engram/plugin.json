@@ -29,10 +29,10 @@
   },
   "skills": [
     {
-      "id": "engram-leader-extension",
-      "file": "skills/engram-leader.md",
-      "recommendedAgent": "leader",
-      "injectInto": ".claude/agents/leader.md"
+      "id": "engram-orchestrator-extension",
+      "file": "skills/engram-orchestrator.md",
+      "recommendedAgent": "orchestrator",
+      "injectInto": ".claude/agents/orchestrator.md"
     },
     {
       "id": "engram-implementer-extension",
@@ -45,12 +45,6 @@
       "file": "skills/engram-subagent.md",
       "recommendedAgent": "reviewer",
       "injectInto": ".claude/agents/reviewer.md"
-    },
-    {
-      "id": "engram-ticket-audit-extension",
-      "file": "skills/engram-subagent.md",
-      "recommendedAgent": "ticket-audit",
-      "injectInto": ".claude/agents/ticket-audit.md"
     },
     {
       "id": "engram-auditor-extension",

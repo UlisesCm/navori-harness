@@ -168,7 +168,7 @@
     "harness": {
       "type": "object",
       "properties": {
-        "leader": {
+        "orchestrator": {
           "default": true,
           "type": "boolean"
         },
@@ -180,43 +180,33 @@
           "default": true,
           "type": "boolean"
         },
-        "researcher": {
-          "default": true,
-          "type": "boolean"
-        },
-        "ticketAudit": {
-          "default": true,
-          "type": "boolean"
-        },
-        "commitPrPilot": {
-          "default": true,
-          "type": "boolean"
-        },
-        "explorer": {
+        "scout": {
           "default": true,
           "type": "boolean"
         },
         "auditor": {
           "default": true,
           "type": "boolean"
+        },
+        "publisher": {
+          "default": true,
+          "type": "boolean"
         }
       },
       "required": [
-        "leader",
+        "orchestrator",
         "implementer",
         "reviewer",
-        "researcher",
-        "ticketAudit",
-        "commitPrPilot",
-        "explorer",
-        "auditor"
+        "scout",
+        "auditor",
+        "publisher"
       ],
       "additionalProperties": false
     },
     "models": {
       "type": "object",
       "properties": {
-        "leader": {
+        "orchestrator": {
           "type": "string",
           "enum": [
             "opus",
@@ -240,31 +230,7 @@
             "haiku"
           ]
         },
-        "researcher": {
-          "type": "string",
-          "enum": [
-            "opus",
-            "sonnet",
-            "haiku"
-          ]
-        },
-        "ticketAudit": {
-          "type": "string",
-          "enum": [
-            "opus",
-            "sonnet",
-            "haiku"
-          ]
-        },
-        "commitPrPilot": {
-          "type": "string",
-          "enum": [
-            "opus",
-            "sonnet",
-            "haiku"
-          ]
-        },
-        "explorer": {
+        "scout": {
           "type": "string",
           "enum": [
             "opus",
@@ -273,6 +239,14 @@
           ]
         },
         "auditor": {
+          "type": "string",
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku"
+          ]
+        },
+        "publisher": {
           "type": "string",
           "enum": [
             "opus",
@@ -301,7 +275,7 @@
     "effort": {
       "type": "object",
       "properties": {
-        "leader": {
+        "orchestrator": {
           "type": "string",
           "enum": [
             "low",
@@ -331,37 +305,7 @@
             "max"
           ]
         },
-        "researcher": {
-          "type": "string",
-          "enum": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ]
-        },
-        "ticketAudit": {
-          "type": "string",
-          "enum": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ]
-        },
-        "commitPrPilot": {
-          "type": "string",
-          "enum": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ]
-        },
-        "explorer": {
+        "scout": {
           "type": "string",
           "enum": [
             "low",
@@ -372,6 +316,16 @@
           ]
         },
         "auditor": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "publisher": {
           "type": "string",
           "enum": [
             "low",

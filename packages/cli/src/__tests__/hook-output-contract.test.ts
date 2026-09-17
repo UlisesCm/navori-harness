@@ -409,7 +409,7 @@ describe("contrato JSON de salida — por evento, con cita (#774)", () => {
     // The hooks that speak to the host today, one per channel shape in the tree.
     expect(emitting.map((h) => h.script).sort()).toEqual(
       expect.arrayContaining([
-        "pr-pilot-confirm.sh",
+        "pr-publisher-confirm.sh",
         "routing-watch.sh",
         "session-start-context.sh",
         "stop-verify-reminder.sh",

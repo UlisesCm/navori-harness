@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
  * Until now, "how much analytical ceremony does this task deserve?" was answered
  * by reconstructing a boundary spread over four blocks of prose. It is now one
  * signal→mechanism table in the always-on orchestration block; the five
- * mechanisms (`ticket-intake`, `ticket-audit`, `solution-design` + the
+ * mechanisms (`resolve-ticket`, `ticket-audit`, `solution-design` + the
  * architectural pass gate, SDD/`spec-bootstrap`, `auditor`) are untouched — only
  * the explanation of WHEN each fires was replaced.
  *
@@ -77,16 +77,15 @@ describe("analysis cascade — one lookup instead of four blocks (#379 B)", () =
 
   it("every mechanism it routes into is still reachable from the always-on layer", () => {
     const block = read("managed/orquestacion.md");
-    // The five mechanisms of the cascade, plus the two read-only agents whose
-    // routing sentence the table absorbed.
+    // The five mechanisms of the cascade, plus the read-only agent (`scout`,
+    // spec 0026 T12's merge of researcher+explorer) whose routing sentence the
+    // table absorbed.
     for (const mechanism of [
-      "ticket-intake",
-      "ticket-audit",
+      "resolve-ticket",
       "solution-design",
       "spec-bootstrap",
       "auditor",
-      "researcher",
-      "explorer",
+      "scout",
     ]) {
       expect(
         block,
@@ -94,7 +93,9 @@ describe("analysis cascade — one lookup instead of four blocks (#379 B)", () =
       ).toContain(mechanism);
     }
     // And the ones that are a pure lookup answer sit in the table itself.
-    for (const mechanism of ["ticket-intake", "ticket-audit", "auditor", "spec-bootstrap"]) {
+    // (ticket-audit's own row was folded into `auditor`'s ticket encargo when
+    // spec 0026 T12 merged the ticket-audit agent into auditor.)
+    for (const mechanism of ["resolve-ticket", "auditor", "spec-bootstrap"]) {
       expect(
         cascadeRows().some((l) => l.includes(mechanism)),
         `${mechanism} dropped out of the lookup table`,
@@ -130,7 +131,7 @@ describe("analysis cascade — one lookup instead of four blocks (#379 B)", () =
   it("the routing sentence it replaced survives where the work happens", () => {
     // Deleted from the always-on block: "hand the implementer the path to the
     // audit". Both agents in that handoff still carry it.
-    expect(read("agents/leader.md")).toMatch(
+    expect(read("agents/orchestrator.md")).toMatch(
       /hand the implementer the path to \*{0,2}`?\.claude\/progress\/audit_ticket_<ID>\.md/i,
     );
     expect(read("agents/implementer.md")).toContain("audit_ticket_<ID>.md");
@@ -157,7 +158,7 @@ describe("phase-2 fan-out — objective criterion, stated once (#377)", () => {
 
   it("the criterion is NOT re-litigated as a judgment call in the executing assets", () => {
     // Three copies of a criterion drift; the skill and the agent point at the row.
-    for (const asset of ["skills/ticket-intake.md", "agents/ticket-audit.md"]) {
+    for (const asset of ["skills/resolve-ticket.md", "agents/auditor.md"]) {
       const text = read(asset);
       const restated = SIGNALS.filter((s) => text.includes(s));
       expect(
@@ -171,7 +172,7 @@ describe("phase-2 fan-out — objective criterion, stated once (#377)", () => {
   });
 
   it("the skill carries the mechanics the table can't: one file per area, one synthesis", () => {
-    const skill = read("skills/ticket-intake.md");
+    const skill = read("skills/resolve-ticket.md");
     expect(skill).toContain("## Phase 2 fan-out");
     // Parallel auditors that share one filename overwrite each other.
     expect(skill).toContain("audit_ticket_<ID-area>.md");
@@ -184,7 +185,7 @@ describe("phase-2 fan-out — objective criterion, stated once (#377)", () => {
   });
 
   it("the audit agent knows its scope is ONE area and that it does not synthesize", () => {
-    const agent = read("agents/ticket-audit.md");
+    const agent = read("agents/auditor.md");
     expect(agent).toContain("audit_ticket_<ID-area>.md");
     expect(agent).toMatch(/verdict FOR YOUR AREA/i);
     expect(agent).toMatch(/synthesis is the orchestrator's/i);

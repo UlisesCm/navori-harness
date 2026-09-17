@@ -91,7 +91,7 @@ export interface SkillMeta {
    * interpolated (#683).
    *
    * A separate number from `maxWords` because they answer different questions.
-   * `maxWords` is the budget of the asset's AUTHOR: `structural-search` argues
+   * `maxWords` is the budget of the asset's AUTHOR: `locate-code` argues
    * its 600 in a comment citing spec 0020 R4, and that reasoning should not
    * evaporate because a plugin appended a rung. This one is what the SESSION
    * pays, and it is the only number that describes what gets loaded.

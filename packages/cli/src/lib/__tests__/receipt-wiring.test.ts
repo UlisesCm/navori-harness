@@ -18,7 +18,7 @@ describe("receipt wiring", () => {
   // Covers: R6, R7, R8, R9
   it("assets invoke navori receipt with --json, gate on status ok and carry no receipt shell", () => {
     const reviewer = read("agents/reviewer.md");
-    const pilot = read("agents/commit-pr-pilot.md");
+    const pilot = read("agents/publisher.md");
     for (const asset of [reviewer, pilot]) {
       expect(asset).toContain("navori receipt");
       expect(asset).toContain("--feature <feature>");

@@ -159,7 +159,7 @@ describe("spec 0019 — la escalera llega, no solo cabe", () => {
   const CEILING = 6500;
 
   it("el bloque de orquestación renderizado cabe bajo su techo", () => {
-    // Covers: R3, R6
+    // Covers: R3, R6, R26
     const cwd = renderedRepo(4600);
     const dir = join(cwd, ".claude/context");
     const file = readdirSync(dir).find((f) => f.endsWith("-orquestacion.md"));
@@ -169,7 +169,7 @@ describe("spec 0019 — la escalera llega, no solo cabe", () => {
       size,
       `el bloque renderizado mide ${size} caracteres y el techo es ${CEILING}: ` +
         "por encima vuelve a degradar a puntero en el arranque (la regresión de #623). " +
-        "Recorta el asset o muda la sección nueva a su dueño (leader.md / la skill del momento).",
+        "Recorta el asset o muda la sección nueva a su dueño (orchestrator.md / la skill del momento).",
     ).toBeLessThanOrEqual(CEILING);
   });
 

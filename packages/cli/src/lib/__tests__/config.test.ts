@@ -8,6 +8,9 @@ import {
   effectiveConfig,
   ConfigError,
   findUnknownConfigKeys,
+  checkRetiredConfigKeys,
+  RETIRED_CONFIG_KEYS,
+  type RetiredConfigKey,
 } from "../config.ts";
 import { NavoriConfigSchema } from "../schema.ts";
 import { schemaUrl } from "../schema-url.ts";
@@ -490,7 +493,7 @@ describe("config key diagnostics (#779)", () => {
         engines: ["claude"],
         preset: "custom",
         harnes: {},
-        harness: { "ticket-audit": false },
+        "gitignore-harness": "off",
         project: {
           pluginDefinedPrompt: "allowed",
           foreignHarness: { acknowleged: ["agent:global:other"] },
@@ -499,7 +502,7 @@ describe("config key diagnostics (#779)", () => {
       }),
     ).toEqual([
       { path: "harnes", suggestion: "harness" },
-      { path: "harness.ticket-audit", suggestion: "ticketAudit" },
+      { path: "gitignore-harness", suggestion: "gitignoreHarness" },
       { path: "plugins.customPlugin.enabeld", suggestion: "enabled" },
       { path: "project.foreignHarness.acknowleged", suggestion: "acknowledged" },
     ]);
@@ -521,14 +524,14 @@ describe("config key diagnostics (#779)", () => {
           engines: ["claude"],
           preset: "custom",
           futureFeature: { enabled: true },
-          harness: { "ticket-audit": false },
+          "gitignore-harness": "off",
         }),
       );
 
-      expect(readConfig(path).harness?.ticketAudit).toBe(true);
+      expect(readConfig(path).gitignoreHarness).toBe("off");
       expect(warnings.join("")).toContain("futureFeature");
-      expect(warnings.join("")).toContain("harness.ticket-audit");
-      expect(warnings.join("")).toContain("harness.ticketAudit");
+      expect(warnings.join("")).toContain("gitignore-harness");
+      expect(warnings.join("")).toContain("gitignoreHarness");
     } finally {
       stderr.mockRestore();
       rmSync(dir, { recursive: true });
@@ -576,6 +579,85 @@ describe("config key diagnostics (#779)", () => {
       expect(warnings.join("")).toContain("progress.historyFile");
     } finally {
       stderr.mockRestore();
+      rmSync(dir, { recursive: true });
+    }
+  });
+});
+
+describe("retired agent keys fail with replacement and conflicting values", () => {
+  // Covers: R40, R42
+  const SEED: RetiredConfigKey[] = [
+    { key: "leader", replacement: "orchestrator" },
+    { key: "researcher", replacement: "scout" },
+    { key: "explorer", replacement: "scout" },
+  ];
+
+  it("production registry names all five retired agent keys (spec 0026 T11)", () => {
+    // The roster rename landed in the SAME commit that removed the old keys
+    // from the schema — `RETIRED_CONFIG_KEYS` is populated from here on, not
+    // empty like it shipped in T9 (before the schema accepted the replacements).
+    expect([...RETIRED_CONFIG_KEYS].sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: "commitPrPilot", replacement: "publisher" },
+      { key: "explorer", replacement: "scout" },
+      { key: "leader", replacement: "orchestrator" },
+      { key: "researcher", replacement: "scout" },
+      { key: "ticketAudit", replacement: "auditor" },
+    ]);
+  });
+
+  it("names the single retired key and its replacement", () => {
+    expect(() => checkRetiredConfigKeys({ harness: { leader: false } }, SEED)).toThrowError(
+      /harness\.leader is retired — replace it with harness\.orchestrator/,
+    );
+  });
+
+  it("checks harness, models and effort independently", () => {
+    expect(() => checkRetiredConfigKeys({ models: { leader: "opus" } }, SEED)).toThrowError(
+      /models\.leader is retired — replace it with models\.orchestrator/,
+    );
+    expect(() => checkRetiredConfigKeys({ effort: { leader: "high" } }, SEED)).toThrowError(
+      /effort\.leader is retired — replace it with effort\.orchestrator/,
+    );
+  });
+
+  it("reports BOTH conflicting values when two retired keys share a replacement", () => {
+    try {
+      checkRetiredConfigKeys({ harness: { researcher: true, explorer: false } }, SEED);
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ConfigError);
+      const message = (err as ConfigError).message;
+      expect(message).toContain("harness.researcher");
+      expect(message).toContain("harness.explorer");
+      expect(message).toContain("harness.scout");
+      expect(message).toContain("harness.researcher=true");
+      expect(message).toContain("harness.explorer=false");
+    }
+  });
+
+  it("does nothing when no retired key is present", () => {
+    expect(() => checkRetiredConfigKeys({ harness: { implementer: true } }, SEED)).not.toThrow();
+  });
+
+  it("readConfig rejects a config carrying a real retired key (spec 0026 T11)", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      writeFileSync(
+        path,
+        JSON.stringify({
+          name: "demo",
+          engines: ["claude"],
+          preset: "custom",
+          harness: { leader: false },
+        }),
+        "utf-8",
+      );
+      // readConfig always calls the exported default (production) registry —
+      // this proves the wiring rejects the pre-rename `harness.leader` shape
+      // every one of the 28 existing repos carried before spec 0026 T11.
+      expect(() => readConfig(path)).toThrowError(ConfigError);
+    } finally {
       rmSync(dir, { recursive: true });
     }
   });

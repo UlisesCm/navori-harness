@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
   loadPlugin,
   PluginNotFoundError,
   PluginManifestError,
   RETIRED_PLUGINS,
 } from "./plugins.ts";
+import { navoriAuthorship } from "./removable.ts";
+import { RETIRED_AGENTS, RETIRED_SKILLS, RETIRED_HOOKS } from "../engines/shared/harness-assets.ts";
 import { readCliVersion } from "./bundled-assets.ts";
 import {
   computeManagedHash,
@@ -412,6 +414,106 @@ export function collectMissingPlugins(config: NavoriConfig): MissingPlugin[] {
     }
   }
   return missing;
+}
+
+export interface RetiredAssetOnDisk {
+  /** Repo-relative path of the file still on disk. */
+  path: string;
+  /** The retired id (agent, skill or hook) it belongs to. */
+  id: string;
+  /** Its successor, or null when there is none recorded. */
+  successor: string | null;
+  /** Why `render --apply` would keep it instead of pruning it — absent when
+   *  navori still owns it (the next `render --apply` removes it). */
+  reason?: "foreign" | "newer";
+}
+
+/**
+ * R41: every agent/skill/hook file still on disk for a retired id, named with
+ * its successor — `navori doctor` and `render --apply`'s own report (spec
+ * 0026 T10) share the same criterion, so neither promises "0 retired" while
+ * the other still finds one. Pure existence + authorship read: `doctor` never
+ * applies a render, so this cannot call into `renderClaudeEngine`/
+ * `renderCodexEngine`.
+ *
+ * Checks BOTH adapters' destinations, not just Claude's: `RETIRED_AGENTS`/
+ * `RETIRED_SKILLS`/`RETIRED_HOOKS` already carry a `codex` marker id
+ * precisely so this can reason about `.codex/`/`.agents/skills` symmetrically
+ * (R38's per-adapter registry exists for this, not only for `render`'s own
+ * reconciliation). Codex has no FLAT skill shape (only `.agents/skills/<id>/
+ * SKILL.md`, no `<id>.md` twin) and no `<id>-base` convention for skills/hooks
+ * — those keep the SAME `markerIdByAdapter.codex` value as `.claude`'s
+ * (`engines/codex/index.ts` reuses the shared plan's `managedId` for skills
+ * and hooks; only agents get a separate `<id>-codex-base` namespace).
+ */
+export function scanRetiredAssets(cwd: string): RetiredAssetOnDisk[] {
+  const out: RetiredAssetOnDisk[] = [];
+  const record = (path: string, id: string, successor: string | null, markerId: string): void => {
+    if (!existsSync(path)) return;
+    const authorship = navoriAuthorship(path, markerId);
+    out.push({
+      path: relative(cwd, path),
+      id,
+      successor,
+      ...(authorship === "ours" ? {} : { reason: authorship }),
+    });
+  };
+
+  for (const retired of RETIRED_AGENTS) {
+    const claudeMarker = retired.markerIdByAdapter.claude ?? `${retired.id}-base`;
+    record(
+      join(cwd, ".claude/agents", `${retired.id}.md`),
+      retired.id,
+      retired.successor,
+      claudeMarker,
+    );
+    const codexMarker = retired.markerIdByAdapter.codex ?? `${retired.id}-codex-base`;
+    record(
+      join(cwd, ".codex/agents", `${retired.id}.toml`),
+      retired.id,
+      retired.successor,
+      codexMarker,
+    );
+  }
+  for (const retired of RETIRED_SKILLS) {
+    const claudeMarker = retired.markerIdByAdapter.claude ?? retired.id;
+    record(
+      join(cwd, ".claude/skills", `${retired.id}.md`),
+      retired.id,
+      retired.successor,
+      claudeMarker,
+    );
+    record(
+      join(cwd, ".claude/skills", retired.id, "SKILL.md"),
+      retired.id,
+      retired.successor,
+      claudeMarker,
+    );
+    const codexMarker = retired.markerIdByAdapter.codex ?? claudeMarker;
+    record(
+      join(cwd, ".agents/skills", retired.id, "SKILL.md"),
+      retired.id,
+      retired.successor,
+      codexMarker,
+    );
+  }
+  for (const retired of RETIRED_HOOKS) {
+    const claudeMarker = retired.markerIdByAdapter.claude ?? `${retired.id}-base`;
+    record(
+      join(cwd, ".claude/hooks", `${retired.id}.sh`),
+      retired.id,
+      retired.successor,
+      claudeMarker,
+    );
+    const codexMarker = retired.markerIdByAdapter.codex ?? claudeMarker;
+    record(
+      join(cwd, ".codex/hooks", `${retired.id}.sh`),
+      retired.id,
+      retired.successor,
+      codexMarker,
+    );
+  }
+  return out;
 }
 
 export interface DriftReport {
@@ -879,7 +981,7 @@ function scanDuplicateMarkersAt(
 /**
  * Scan `.claude/agents/` for legacy agent files (from a hand-rolled harness that
  * predates navori) whose canonical navori replacement is active — e.g. a repo
- * shipping `sdd-leader.md` while navori manages `leader.md`. navori never deletes
+ * shipping `sdd-leader.md` while navori manages `orchestrator.md`. navori never deletes
  * them (they carry no navori marker, so they're the user's content); it surfaces
  * them so the user can archive the redundant ones instead of ending up with two
  * parallel rosters. See legacy-agents.ts.

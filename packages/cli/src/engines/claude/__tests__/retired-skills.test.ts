@@ -28,7 +28,7 @@ const CONFIG = {
   commits: "conventional-es",
 } as unknown as NavoriConfig;
 
-const RETIRED = RETIRED_SKILLS[0] as string;
+const RETIRED = RETIRED_SKILLS[0]!.id;
 
 let cwd: string;
 
@@ -92,6 +92,15 @@ describe("render — poda una skill retirada del catálogo (#702)", () => {
     expect(readFileSync(join(dir, "SKILL.md"), "utf-8")).toBe("# la mía, escrita a mano\n");
   });
 
+  // Covers: R39, R41
+  it("una skill ajena se conserva y se reporta con su motivo", () => {
+    const dir = join(cwd, ".claude/skills", RETIRED);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), "# la mía, escrita a mano\n", "utf-8");
+    const r = renderClaudeEngine(cwd, CONFIG);
+    expect(r.warnings.some((w) => w.includes("foreign") && w.includes(RETIRED))).toBe(true);
+  });
+
   it("NO la toca si el usuario reclamó el id como skill local", () => {
     const dir = seedManaged(RETIRED);
     renderClaudeEngine(cwd, {
@@ -113,13 +122,25 @@ describe("RETIRED_SKILLS — el registro en sí", () => {
     // borra en la misma pasada — o al revés, según el orden. La lista es
     // append-only, así que este es el único invariante que la sostiene.
     const active = new Set([...CORE_SKILLS, ...WORKFLOW_SKILLS]);
-    const overlap = RETIRED_SKILLS.filter((id) => active.has(id));
-    expect(overlap, `ids en RETIRED_SKILLS que el render sigue emitiendo: ${overlap}`).toEqual([]);
+    const overlap = RETIRED_SKILLS.filter((retired) => active.has(retired.id));
+    expect(
+      overlap,
+      `ids en RETIRED_SKILLS que el render sigue emitiendo: ${overlap.map((r) => r.id)}`,
+    ).toEqual([]);
   });
 
   it("registra el retiro que motivó esto", () => {
     // Anti-falso-verde: con la lista vacía, toda la suite de arriba pasaría sin
     // ejercitar una sola línea del código nuevo.
-    expect(RETIRED_SKILLS).toContain("pr-create");
+    expect(RETIRED_SKILLS.map((r) => r.id)).toContain("pr-create");
+  });
+
+  // Covers: R38
+  it("carga el marcador real por adapter, no el id pelado (spec 0026 T8)", () => {
+    // #703: pr-create era una skill WORKFLOW, cuyo marcador real ES el id
+    // pelado — a diferencia de una skill CORE (marcador `<id>-base`). El
+    // registro debe declararlo explícito, no asumirlo.
+    const retired = RETIRED_SKILLS.find((r) => r.id === "pr-create");
+    expect(retired?.markerIdByAdapter.claude).toBe("pr-create");
   });
 });

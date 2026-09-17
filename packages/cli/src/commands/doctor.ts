@@ -36,7 +36,7 @@ import { scanNestedWorktrees } from "../lib/nested-worktrees.ts";
 import { scanGlobalScope, type ManagedPolicyKey } from "../lib/global-scope.ts";
 import { scanForeignHarness, type ForeignHarnessReport } from "../lib/foreign-harness.ts";
 import { scanDistribution, type DistributionReport } from "../lib/distribution.ts";
-import { scanPermissionMode } from "../lib/health.ts";
+import { scanPermissionMode, scanRetiredAssets } from "../lib/health.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -264,6 +264,11 @@ export const doctorCommand = defineCommand({
     // stale AGENTS.md/.codex after narrowing to claude). Informational — never
     // flips `ok`; `render --prune` removes them. #312.
     const orphanedEngineOutputs = scanOrphanedEngineOutputs(cwd, config);
+    // R41 (spec 0026 T10): an agent/skill/hook file left over from a retired
+    // id, named with its successor — the same criterion `render --apply`'s own
+    // reconciliation reports (§8.7b–d), so `doctor` never says "clean" while a
+    // render still finds one.
+    const retiredAssets = scanRetiredAssets(cwd);
     // AGENTS.md is only a first-class filesystem check when an engine that emits
     // it is configured; otherwise a leftover file is surfaced as an orphan below
     // instead of a bare ✓, which contradicted the drift/orphan report (#312).
@@ -323,6 +328,7 @@ export const doctorCommand = defineCommand({
       placeholderName,
       nameMismatch,
       orphanedEngineOutputs,
+      retiredAssets,
       legacyAgents,
       excludedBlocks,
       claudeHookScripts,
@@ -393,6 +399,14 @@ export const doctorCommand = defineCommand({
         ),
       );
       p.note(lines.join("\n"), td.orphanedEngineOutputsTitle(total));
+    }
+
+    if (retiredAssets.length > 0) {
+      const lines = retiredAssets.map(
+        (r) =>
+          `  ${color.yellow(sym.update)} ${accent(r.path)}  ${grey(td.retiredAssetRow(r.successor, r.reason))}`,
+      );
+      p.note(lines.join("\n"), td.retiredAssetsTitle(retiredAssets.length));
     }
 
     if (markers.length > 0) {
@@ -1361,7 +1375,7 @@ export interface MissingOptionalTool {
 
 /**
  * Optional precision tools improve the generated harness but never gate it.
- * structural-search falls back to Grep, so doctor only warns when the binary
+ * locate-code falls back to Grep, so doctor only warns when the binary
  * is absent.
  *
  * `sg` is NOT a valid tell for ast-grep (#495), even though Homebrew installs
@@ -1418,7 +1432,7 @@ export function scanMissingOptionalTools(): MissingOptionalTool[] {
   if (binaries.some((binary) => hasBinary(binary))) return [];
   return [
     {
-      id: "structural-search",
+      id: "locate-code",
       binaries,
       install: "npm install --global @ast-grep/cli",
     },
@@ -1589,7 +1603,7 @@ function missingInvariantsAt(
       // A plugin whose ONLY output is `injectInto` sub-blocks (no CLAUDE.md
       // `managed[]` block, no plain skill file) contributes nothing to a
       // workspace's own tree under `workspaceHarness: "minimal"`: its sub-blocks
-      // target agent files (leader.md, implementer.md…) that the trim
+      // target agent files (orchestrator.md, implementer.md…) that the trim
       // deliberately does not write there — they land one directory up, at the
       // root (0018 R2, claude/index.ts `applySubBlockInject`). Checking this
       // plugin's invariants against a workspace's own render would therefore be
@@ -1964,7 +1978,7 @@ function pluginInventoryAssets(config: NavoriConfig): {
  * Per-engine harness inventory (Spec 0007 M8) for `doctor --json`, so a repo's
  * CI can assert Claude↔Codex parity after `render --all`. Only the disk engines
  * (claude, codex) carry a distinct agents/skills/scripts/hooks set; prose engines
- * are omitted. Claude includes the leader; Codex embodies it in the main thread.
+ * are omitted. Claude includes the orchestrator; Codex embodies it in the main thread.
  *
  * The result is the UNION across the repo root and every monorepo workspace: a
  * workspace may override the preset (→ different extras), and render materializes
@@ -2006,7 +2020,7 @@ export function buildEngineInventory(
     const pluginAssets = pluginInventoryAssets(loc.config);
     for (const engine of diskEngines) {
       const plan = resolveHarnessPlan(loc.config, coreAssets, preset, {
-        includeLeader: engine === "claude",
+        includeOrchestrator: engine === "claude",
       });
       const bucket = acc[engine]!;
       for (const a of plan.agents) bucket.agents.add(a.id);

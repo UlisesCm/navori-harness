@@ -361,7 +361,7 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
       // allowed.
       "jscpd --silent", // CLAUDE.md, duplication gate
       "semgrep scan --config=p/default --error --metrics=off", // CLAUDE.md, security gate
-      "git push -u origin HEAD", // commit-pr-pilot.md, PR flow step 4 (#499)
+      "git push -u origin HEAD", // publisher.md, PR flow step 4 (#499)
     ]) {
       expect(commands, `the extractor no longer finds "${known}"`).toContain(known);
     }

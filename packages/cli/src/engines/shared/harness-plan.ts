@@ -60,12 +60,12 @@ export function resolveHarnessPlan(
   config: NavoriConfig,
   coreAssets: string,
   preset: ReturnType<typeof loadPreset>,
-  options: { includeLeader?: boolean } = {},
+  options: { includeOrchestrator?: boolean } = {},
 ): HarnessPlan {
   const agents: PlannedAgent[] = [];
   for (const agent of CORE_AGENTS) {
-    // Engines whose main thread embodies the leader (Codex) leave this off.
-    if (agent.id === "leader" && options.includeLeader !== true) continue;
+    // Engines whose main thread embodies the orchestrator (Codex) leave this off.
+    if (agent.id === "orchestrator" && options.includeOrchestrator !== true) continue;
     if (!isAgentEnabled(config, agent.harnessKey)) continue;
     agents.push({
       id: agent.id,
@@ -198,13 +198,13 @@ export function resolveHarnessPlan(
     assetPath: join(coreAssets, "hooks/comment-draft-confirm.sh"),
     managedId: "comment-draft-confirm-base",
   });
-  // #705: only a repo that receives commit-pr-pilot receives its dependent
+  // #705: only a repo that receives publisher receives its dependent
   // routing hook. The guard stays unconditional; this hook has an owner.
-  if (isAgentEnabled(config, "commitPrPilot")) {
+  if (isAgentEnabled(config, "publisher")) {
     hooks.push({
-      id: "pr-pilot-confirm",
-      assetPath: join(coreAssets, "hooks/pr-pilot-confirm.sh"),
-      managedId: "pr-pilot-confirm-base",
+      id: "pr-publisher-confirm",
+      assetPath: join(coreAssets, "hooks/pr-publisher-confirm.sh"),
+      managedId: "pr-publisher-confirm-base",
     });
   }
   if (config.qualityGate?.fast) {

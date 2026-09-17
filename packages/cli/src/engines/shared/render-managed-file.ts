@@ -33,7 +33,7 @@ export interface RenderManagedFileInput {
   assetPath: string;
   /** Current content of the destination, or null if it doesn't exist. */
   existingContent: string | null;
-  /** Managed-section id (e.g. "leader-base"). */
+  /** Managed-section id (e.g. "orchestrator-base"). */
   managedId: string;
   /** Open-marker metadata (source package + version). */
   meta: { source: string; version: string };
@@ -179,7 +179,7 @@ function rerender(
   // asset owns the frontmatter — must PRESERVE the destination's header
   // verbatim: an empty header here used to be masked by the status collapse
   // below (the write never happened), and stripping it for real would tear the
-  // `description`/`tools` off `leader.md` on any sub-block update.
+  // `description`/`tools` off `orchestrator.md` on any sub-block update.
   const fmHeader =
     Object.keys(assetFm).length > 0
       ? mergeFrontmatter(assetFm, destFm).serialized + "\n"

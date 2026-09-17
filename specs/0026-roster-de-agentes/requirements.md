@@ -87,7 +87,7 @@ Solo existen 3 artefactos `solution_*.md` en los repos locales (efímeros: es un
 | `agents/leader.md:169-170` | Permite editar `docs/`, `CLAUDE.md` y `.claude/`, y saltarse una "single trivial line", contra la misma regla y su "no threshold" |
 | `agents/leader.md:26-31` | "Brainstorm gate" con el usuario como dueño del enfoque, contra `solution-design` con el orquestador como dueño del veredicto |
 | `skills/ticket-intake.md:37` | "Phase 2 is not skipped on a non-trivial task", contra la tabla de orquestación; en bonum-webapp hubo 25 `ticket-audit` por 33 `implementer` |
-| `skills/verify-before-done.md:52`, `agents/implementer.md:47` y `:81` | Línea base con `git stash` / `git stash pop` (preaprobados, `settings-base.json:16`). Según `git worktree`, *"all refs starting with refs/ are shared"* salvo `refs/bisect`, `refs/worktree` y `refs/rewritten`: el stash es común a los worktrees de agentes paralelos |
+| `skills/verify-before-done.md:9` | `maxWords: 1050`, sin la regla de atribución por ubicación del archivo en el diff (única contradicción de línea base que sigue viva; ver R31) |
 | `skills/review-diff.md:106` | Exige `{{qualityGate.fast}}`; el `reviewer` que la aplica exige `{{qualityGate.full}}` (`reviewer.md:75`) |
 | `skills/review-diff.md:66` y `skills/security-guidance.md:21` | La misma regla de cobertura de entry points de un guard, escrita dos veces |
 | `skills/loop-back-debug.md:60` | Manda preguntar al usuario desde `implementer`, un subagente sin `AskUserQuestion` |
@@ -96,6 +96,15 @@ Solo existen 3 artefactos `solution_*.md` en los repos locales (efímeros: es un
 | `skills/ticket-intake.md:24` | Fase de "2-3 `explorer` agents", un agente con 2 invocaciones en 90 días |
 | `skills/review-diff.md:36`, `agents/auditor.md:57`, `agents/ticket-audit.md:51-52`, `agents/researcher.md:42` | Recetan búsqueda por shell (`grep -rn`, "grep for the URL", `git grep`) contra el bloque `code-discovery-routing`, que manda la búsqueda textual al proveedor habilitado |
 | `docs/DIRECTION.md:76-81`, `:152-153` | Declara tgrep y codegraph retirados; `91e5fa52` (#838) los reintrodujo |
+
+**Ya resuelto, no re-litigar:** la línea base con `git stash`/`git stash pop` en
+`agents/implementer.md:47`/`:81` y `skills/verify-before-done.md:52` que citaba una versión previa
+de esta tabla ya no existe en `origin/main`. `agents/implementer.md:48` prohíbe explícitamente
+stashear o descartar el working tree compartido ("hit the `ask` permission rule... destroy other
+parallel agents' work"), y `agents/reviewer.md:189` trae la misma prohibición. `grep -n stash` sobre
+`skills/verify-before-done.md` no devuelve nada. El alcance real que queda de R31 sobre este punto
+es exclusivamente `maxWords` (hoy 1050, baja a 600) y la regla de atribución por ubicación del
+archivo en el diff — ver la fila de arriba y R31.
 
 ### 5. tgrep y codegraph no se pueden medir ni están en todos los flujos
 

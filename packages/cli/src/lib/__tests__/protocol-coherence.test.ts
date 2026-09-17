@@ -64,9 +64,10 @@ describe("SDD threshold — one formulation, and it's a proposal (F2)", () => {
 
 describe("verifying a subagent's evidence — bounded subset, after the handoff (F3)", () => {
   it("the rule names WHAT to re-check and WHEN", () => {
-    // Since spec 0019 the rule lives in `leader.md` (§ Anti-broken-telephone),
-    // the depth reference the orchestrator opens when a `done -> file` lands.
-    const block = read("agents/leader.md");
+    // Since spec 0019 the rule lives in `leader.md` (renamed `orchestrator.md`
+    // in spec 0026 T12) (§ Anti-broken-telephone), the depth reference the
+    // orchestrator opens when a `done -> file` lands.
+    const block = read("agents/orchestrator.md");
     // Scope: only the claims the next decision rests on.
     expect(block).toMatch(/load-bearing claims/i);
     // Timing: after the handoff — re-checking in flight is the duplication the
@@ -101,14 +102,14 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
   it("the pilot's own trigger list demands no clean tree either", () => {
     // The pilot reads this list FIRST; a surviving clean-tree clause here aborts
     // the normal case (a dirty tree IS the trigger) no matter what the skill says.
-    const trigger = section("agents/commit-pr-pilot.md", "When to trigger");
+    const trigger = section("agents/publisher.md", "When to trigger");
     expect(trigger).not.toMatch(/clean (working tree|status|tree)/i);
     // What replaces it: evidence over the diff that ships, not a git-state check.
     expect(trigger).toMatch(/fresh `\{\{qualityGate\.full\}\}` evidence over the shipping diff/i);
   });
 
   it("the leader's pre-flight matches orquestacion's and adds no gate re-run", () => {
-    const step = lineWith("agents/leader.md", "Pre-flight on you before invoking");
+    const step = lineWith("agents/orchestrator.md", "Pre-flight on you before invoking");
     expect(step).toContain("{{branchBase}}");
     expect(step).toContain("gh auth status");
     // In R2+ the reviewer already ran the gate over these bytes; asking the
@@ -120,7 +121,7 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
 
 describe("R1 → PR boundary — defined once, by the agent that applies it (M6)", () => {
   it("the pilot owns the PR side of the delegation rule", () => {
-    const pilot = read("agents/commit-pr-pilot.md");
+    const pilot = read("agents/publisher.md");
     expect(pilot).toMatch(/this is where the PR side of it is enforced/);
     // The criterion itself stays here — and since #502.3 there is exactly ONE
     // of them (the non-trivial-file count), defined in that same paragraph
@@ -140,7 +141,7 @@ describe("R1 → PR boundary — defined once, by the agent that applies it (M6)
     expect(
       lineWith("managed/orquestacion.md", "When delegation is genuinely impossible"),
     ).toBeTruthy();
-    expect(read("managed/orquestacion.md")).toContain("`commit-pr-pilot` will require");
+    expect(read("managed/orquestacion.md")).toContain("`publisher` will require");
   });
 });
 
@@ -154,12 +155,11 @@ describe(".claude/progress/ is created, never assumed (F9)", () => {
   });
 
   it("the audit pre-flights tolerate an absent directory", () => {
-    for (const agent of ["agents/ticket-audit.md", "agents/auditor.md"]) {
-      expect(read(agent), `${agent} pre-flight assumes the dir exists`).toContain(
-        "mkdir -p .claude/progress",
-      );
-    }
-    expect(read("agents/ticket-audit.md")).toMatch(/never a pre-flight failure/i);
+    const agent = read("agents/auditor.md");
+    expect(agent, "agents/auditor.md pre-flight assumes the dir exists").toContain(
+      "mkdir -p .claude/progress",
+    );
+    expect(agent).toMatch(/never a pre-flight failure/i);
   });
 
   it("`mkdir -p` is pre-approved — it's a verb of every handoff", () => {
@@ -183,7 +183,7 @@ describe(".claude/progress/ is created, never assumed (F9)", () => {
  * the polling loop.
  */
 describe("background-gate wait (no orphaned processes)", () => {
-  const GATE_AGENTS = ["reviewer", "implementer", "commit-pr-pilot"];
+  const GATE_AGENTS = ["reviewer", "implementer", "publisher"];
 
   it.each(GATE_AGENTS)("%s declares Monitor and TaskStop in its tools", (id) => {
     const body = read(`agents/${id}.md`);
@@ -244,5 +244,187 @@ describe("background-gate wait (no orphaned processes)", () => {
       .filter((f) => PROCESS_POLL_WAIT.test(readFileSync(f, "utf-8")))
       .map((f) => f.replace(resolve(coreAssets, "..", "..", ".."), ""));
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * Spec 0026 T12 (R24, R25) — the orchestrator playbook has no route by which
+ * the orchestrator edits source itself, and no duplicate design gate that
+ * contradicts `solution-design`'s (the orchestrator owns the verdict there,
+ * not the user).
+ */
+// Covers: R24, R25
+describe("orchestrator playbook has no inline-edit route and one design gate", () => {
+  const playbook = read("agents/orchestrator.md");
+
+  it("carries no brainstorm gate that hands approval to the user", () => {
+    expect(playbook).not.toContain("Brainstorm gate");
+    expect(playbook).not.toMatch(/Wait for approval of ONE approach/i);
+  });
+
+  it("does not let the orchestrator fix a finding itself instead of a fresh implementer", () => {
+    expect(playbook).not.toMatch(/Fix a minor finding yourself/i);
+  });
+
+  it("does not carve out docs/.claude or a single trivial line as self-editable source", () => {
+    expect(playbook).not.toMatch(/Changes in `docs\/`, `\.claude\/progress\/`, `CLAUDE\.md`/);
+    expect(playbook).not.toMatch(/A single trivial line in a known file/i);
+  });
+});
+
+/**
+ * Spec 0026 T14 (R29, R30) — `debug-failure` merges `debug-error` and
+ * `loop-back-debug` into one cycle. R30's step 6 is the fact this test pins:
+ * the escalation channel after two failed attempts depends on WHERE the skill
+ * runs, because a subagent has no `AskUserQuestion` — `loop-back-debug.md:60`
+ * used to tell `implementer` (a subagent) to ask the user directly, a route
+ * that skill literally cannot take.
+ */
+describe("debug-failure escalates through BLOCKED inside a subagent", () => {
+  const skill = read("skills/debug-failure.md");
+
+  // Covers: R29
+  it("debug-failure ships as the single core debug skill, no leftover split", () => {
+    expect(existsSync(resolve(coreAssets, "skills/debug-failure.md"))).toBe(true);
+    expect(existsSync(resolve(coreAssets, "skills/debug-error.md"))).toBe(false);
+    expect(existsSync(resolve(coreAssets, "skills/loop-back-debug.md"))).toBe(false);
+  });
+
+  // Covers: R30
+  it("names both escalation channels and ties each to where it runs", () => {
+    expect(skill).toMatch(/inside a subagent/i);
+    expect(skill).toMatch(/no `AskUserQuestion`/);
+    expect(skill).toMatch(/report `BLOCKED`/);
+    expect(skill).toMatch(/in the main agent/i);
+    expect(skill).toMatch(/ask the user directly/i);
+  });
+
+  // Covers: R30
+  it("gates escalation on two failed attempts, not one", () => {
+    expect(skill).toMatch(/two failed attempts/i);
+  });
+
+  // Covers: R30
+  it("implementer (a subagent) cites debug-failure, not the retired debug-error/loop-back-debug ids", () => {
+    const implementer = read("agents/implementer.md");
+    expect(implementer).toContain(".claude/skills/debug-failure/SKILL.md");
+    expect(implementer).not.toContain("debug-error/SKILL.md");
+    expect(implementer).not.toContain("loop-back-debug/SKILL.md");
+  });
+});
+
+/**
+ * Spec 0026 T15 (R31, R32, R33) — single-owner checklists.
+ *
+ * `verify-before-done` owns attribution by file location (never a worktree or
+ * a shared-tree stash), `review-diff` owns the three-part proof for HIGH or
+ * CRITICAL and shares its gate with `reviewer`, and `security-invariants` is
+ * the only place guard-coverage prose lives.
+ */
+describe("checklists with a single owner (T15)", () => {
+  function markdownFilesUnder(dir: string): string[] {
+    if (!existsSync(dir)) return [];
+    const out: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) out.push(...markdownFilesUnder(full));
+      else if (entry.name.endsWith(".md")) out.push(full);
+    }
+    return out;
+  }
+
+  // Covers: R31
+  it("no distributed asset measures the baseline with git stash", () => {
+    const pluginsDir = resolve(coreAssets, "..", "..", "plugins");
+    const files = [...markdownFilesUnder(coreAssets), ...markdownFilesUnder(pluginsDir)];
+    expect(files.length).toBeGreaterThan(0);
+    // Scoped to an actual recipe (`git stash push/pop/apply/save/list`), not a
+    // prose mention — `verify-before-done.md` names `git stash` in order to
+    // forbid it, which must not trip its own check.
+    const offenders = files
+      .filter((f) => /\bgit stash (push|pop|apply|save|list)\b/i.test(readFileSync(f, "utf-8")))
+      .map((f) => f.replace(resolve(coreAssets, "..", "..", ".."), ""));
+    expect(offenders).toEqual([]);
+    // The rule that replaces it must be stated, not merely absent.
+    const skill = read("skills/verify-before-done.md");
+    expect(skill).toMatch(/origin not determined/i);
+    expect(skill).toMatch(/never `git stash`/i);
+  });
+
+  // Covers: R32
+  it("review-diff and reviewer require the same gate", () => {
+    const reviewDiff = read("skills/review-diff.md");
+    const reviewer = read("agents/reviewer.md");
+    expect(reviewDiff).toContain("{{qualityGate.full}}");
+    expect(reviewer).toContain("{{qualityGate.full}}");
+  });
+
+  // Covers: R33
+  it("guard entry-point coverage lives only in security-invariants", () => {
+    const reviewDiff = read("skills/review-diff.md");
+    const security = read("skills/security-invariants.md");
+    expect(reviewDiff).not.toMatch(/enumerating every way that resource is mutated/i);
+    expect(security).toMatch(/enumerating every way that resource is mutated/i);
+    expect(reviewDiff).toMatch(/security-invariants/);
+  });
+
+  // Covers: R32
+  it("review-diff requires file-line, failure scenario and guard gap for HIGH and CRITICAL", () => {
+    const reviewDiff = read("skills/review-diff.md");
+    expect(reviewDiff).toMatch(/file:line/i);
+    expect(reviewDiff).toMatch(/failure scenario/i);
+    expect(reviewDiff).toMatch(/no existing guard/i);
+    expect(reviewDiff).toMatch(/downgrades it to MEDIUM/i);
+    expect(reviewDiff).toMatch(/Zero findings is a valid verdict/i);
+  });
+});
+
+/**
+ * Spec 0026 T16 (R34, R35, R36, R37) — phase owners.
+ *
+ * `resolve-ticket` maps its phases to the six-agent roster (no retired id),
+ * `spec-bootstrap` gates on a fresh `auditor` challenge only on critical
+ * areas, `solution-design` stays the single source of the design dimensions,
+ * and `follow-up-prs` hands a comment reply to `publisher` instead of posting
+ * it.
+ */
+describe("phase owners (T16)", () => {
+  // Covers: R34
+  it("resolve-ticket phases map to the roster", () => {
+    const skill = read("skills/resolve-ticket.md");
+    for (const agent of ["auditor", "implementer", "reviewer", "publisher"]) {
+      expect(skill).toContain(`\`${agent}\``);
+    }
+    for (const retired of ["ticket-audit", "explorer", "researcher", "commit-pr-pilot"]) {
+      expect(skill).not.toContain(retired);
+    }
+    // A tracker comment is opt-in, never a default step of the cycle.
+    expect(skill).toMatch(/only when the user asks/i);
+  });
+
+  // Covers: R35
+  it("spec-bootstrap requires a fresh challenge on critical areas", () => {
+    const skill = read("skills/spec-bootstrap.md");
+    expect(skill).toMatch(/project\.criticalAreas/);
+    expect(skill).toMatch(/fresh-context `auditor`/i);
+    expect(skill).toMatch(/challenge/i);
+  });
+
+  // Covers: R36
+  it("design dimensions live only in solution-design", () => {
+    const bootstrap = read("skills/spec-bootstrap.md");
+    const design = read("skills/solution-design.md");
+    // spec-bootstrap remits the reasoning, it doesn't restate the dimension list.
+    expect(bootstrap).toContain("solution-design");
+    expect(bootstrap).not.toMatch(/boundaries and contracts, failure modes/i);
+    expect(design).toMatch(/boundaries and contracts/i);
+  });
+
+  // Covers: R37
+  it("follow-up-prs hands replies to publisher", () => {
+    const skill = read("skills/follow-up-prs.md");
+    expect(skill).toMatch(/publisher/);
+    expect(skill).toMatch(/reply to the comment is `publisher`'s/i);
+    expect(skill).not.toMatch(/gh (pr|issue) comment/);
   });
 });

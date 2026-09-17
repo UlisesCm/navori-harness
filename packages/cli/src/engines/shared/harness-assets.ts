@@ -1,6 +1,17 @@
 import type { NavoriConfig } from "../../lib/config.ts";
 import { resolveCondition } from "../../lib/marker.ts";
 import type { PresetExtraFile } from "../../lib/presets.ts";
+import {
+  ROSTER_AGENTS,
+  ROSTER_CORE_SKILLS,
+  ROSTER_WORKFLOW_SKILLS,
+  RETIRED_AGENTS as ROSTER_RETIRED_AGENTS,
+  RETIRED_SKILLS as ROSTER_RETIRED_SKILLS,
+  RETIRED_HOOKS as ROSTER_RETIRED_HOOKS,
+  type Retired,
+} from "./roster.ts";
+
+export type { Retired, RetiredAdapter } from "./roster.ts";
 
 /**
  * `sandbox` is a property of the ROLE, not of any engine: it renders read-only
@@ -16,38 +27,32 @@ import type { PresetExtraFile } from "../../lib/presets.ts";
  * durable outputs (`progress/audit_deep_*.md`, `plan_*.md`, SDD drafts) to disk, so a
  * read-only sandbox would break its contract in Codex exactly like the sibling roles
  * (#280).
+ *
+ * Re-exported from `roster.ts` (spec 0026 T8): that file is now the canonical
+ * source, checked against every other agent-id list by `roster-parity.test.ts`.
  */
 export const CORE_AGENTS: ReadonlyArray<{
   id: string;
   harnessKey: keyof NonNullable<NavoriConfig["harness"]>;
   sandbox?: "read-only" | "workspace-write";
-}> = [
-  { id: "leader", harnessKey: "leader" },
-  { id: "implementer", harnessKey: "implementer" },
-  { id: "reviewer", harnessKey: "reviewer", sandbox: "workspace-write" },
-  { id: "researcher", harnessKey: "researcher", sandbox: "workspace-write" },
-  { id: "ticket-audit", harnessKey: "ticketAudit", sandbox: "workspace-write" },
-  { id: "commit-pr-pilot", harnessKey: "commitPrPilot" },
-  { id: "explorer", harnessKey: "explorer", sandbox: "workspace-write" },
-  { id: "auditor", harnessKey: "auditor", sandbox: "workspace-write" },
-];
+}> = ROSTER_AGENTS;
 
-export const CORE_SKILLS: ReadonlyArray<string> = [
-  "verify-before-done",
-  "loop-back-debug",
-  "review-diff",
-  "security-guidance",
-  "debug-error",
-  "structural-search",
-];
+/** Re-exported from `roster.ts` (spec 0026 T8) — see that file for the rationale. */
+export const CORE_SKILLS: ReadonlyArray<string> = ROSTER_CORE_SKILLS;
 
-export const WORKFLOW_SKILLS: ReadonlyArray<string> = [
-  "ticket-intake",
-  "solution-design",
-  "spec-bootstrap",
-  "dominio",
-  "babysit-prs",
-];
+/** Re-exported from `roster.ts` (spec 0026 T8) — see that file for the rationale. */
+export const WORKFLOW_SKILLS: ReadonlyArray<string> = ROSTER_WORKFLOW_SKILLS;
+
+/**
+ * Agent ids navori USED to ship and no longer does. Append-only, same contract
+ * as `RETIRED_SKILLS`. Empty today (spec 0026 T8): none of `CORE_AGENTS`'s
+ * eight ids has been renamed off the active catalog yet — an entry lands in
+ * the SAME commit that stops rendering it (spec 0026, lote 2).
+ *
+ * Re-exported from `roster.ts` (spec 0026 T8) — see that file.
+ */
+export const RETIRED_AGENTS: ReadonlyArray<Retired & { readonly harnessKey: string }> =
+  ROSTER_RETIRED_AGENTS;
 
 /**
  * Skill ids navori USED to ship and no longer does. Append-only: an entry is a
@@ -70,12 +75,11 @@ export const WORKFLOW_SKILLS: ReadonlyArray<string> = [
  * Removal stays marker-gated and version-gated on top of this (a user's own
  * `<id>/SKILL.md` at the same path is never touched), so the list decides WHICH
  * ids to consider, never whether a given file may be deleted.
+ *
+ * Re-exported from `roster.ts` (spec 0026 T8), which also carries the real
+ * managed-marker id per adapter (`markerIdByAdapter`) — see that file.
  */
-export const RETIRED_SKILLS: ReadonlyArray<string> = [
-  // #703: pointed at `commit-pr-pilot` to keep one owner for commit+PR, and
-  // justified itself with a reference `ticket-intake` never had. 0 invocations.
-  "pr-create",
-];
+export const RETIRED_SKILLS: ReadonlyArray<Retired> = ROSTER_RETIRED_SKILLS;
 
 /**
  * Hook ids navori USED to ship and no longer does. Append-only, same contract as
@@ -95,16 +99,10 @@ export const RETIRED_SKILLS: ReadonlyArray<string> = [
  * this, so the list decides WHICH ids to consider, never whether a given file
  * may be deleted: a user's own script at the same path is untouched, and one a
  * newer navori wrote is not ours to roll back.
+ *
+ * Re-exported from `roster.ts` (spec 0026 T8) — see that file.
  */
-export const RETIRED_HOOKS: ReadonlyArray<string> = [
-  // #774: PreCompact has no documented channel to the model — the doc's "where
-  // the reminder appears" list omits the event and says outright that Claude
-  // Code discards a PreCompact hook's `systemMessage` and `continue`. The hook
-  // emitted `additionalContext` into that void AND logged verdict `inject`, so
-  // the audit claimed an injection the host had dropped. The reminder now rides
-  // the `SessionStart(compact)` branch of `session-start-context.sh`.
-  "precompact-session-summary",
-];
+export const RETIRED_HOOKS: ReadonlyArray<Retired> = ROSTER_RETIRED_HOOKS;
 
 export function isAgentEnabled(
   config: NavoriConfig,

@@ -346,8 +346,8 @@ describe("the inventory of delete paths is complete (#496)", () => {
     "commands/render.ts": "route B — planOrphanRemoval → isRemovableNavoriFile, file by file",
     "engines/shared/execute-plan.ts": "route A — collectOrphans → isRemovableNavoriFile",
     "engines/claude/index.ts":
-      "route C — planFlat/planDirSkillRemoval and planRetiredHookRemoval (#774) → " +
-      "isRemovableNavoriFile(path, markerId). " +
+      "route C — planFlat/planDirSkillRemoval, planRetiredHookRemoval (#774) and " +
+      "planRetiredAgentRemoval (spec 0026 T10) → isRemovableNavoriFile(path, markerId). " +
       "Its other two removals (disabled-plugin scripts §8.5, retired-plugin assets §8.5-bis) " +
       "are marker-FREE by construction: a shell script carries no managed block, and the path " +
       "comes from the plugin's own manifest, so navori is its only writer",

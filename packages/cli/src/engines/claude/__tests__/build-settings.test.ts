@@ -249,9 +249,10 @@ describe("buildClaudeSettings — base shape", () => {
 });
 
 describe("buildClaudeSettings — dependent PR routing (#769)", () => {
-  it("does not register pr-pilot-confirm when commitPrPilot is disabled", () => {
+  // Covers: R27
+  it("does not register pr-publisher-confirm when publisher is disabled", () => {
     const settings = buildClaudeSettings(
-      { ...MINIMAL_CONFIG, harness: { commitPrPilot: false } } as NavoriConfig,
+      { ...MINIMAL_CONFIG, harness: { publisher: false } } as NavoriConfig,
       [],
     );
     const hooks = settings.hooks as {
@@ -261,7 +262,9 @@ describe("buildClaudeSettings — dependent PR routing (#769)", () => {
       bucket.hooks.map((hook) => hook.command),
     );
 
-    expect(commands).not.toContain('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/pr-pilot-confirm.sh"');
+    expect(commands).not.toContain(
+      'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/pr-publisher-confirm.sh"',
+    );
   });
 });
 
@@ -611,7 +614,7 @@ describe("buildClaudeSettings — hook matcher coalescing (no double PreToolUse[
     const pre = preOf(buildClaudeSettings(withQG(), [plugin]));
     const bashBuckets = pre.filter((b) => b.matcher === "Bash");
     expect(bashBuckets).toHaveLength(1);
-    // guard + comment-draft-confirm + pr-pilot-confirm + qg + plugin. Lo que
+    // guard + comment-draft-confirm + pr-publisher-confirm + qg + plugin. Lo que
     // este test sostiene es el COALESCING —un solo bucket `Bash`, arriba—, no
     // el número: cada hook PreToolUse(Bash) que el core agregue suma aquí.
     expect(bashBuckets.flatMap((b) => b.hooks)).toHaveLength(5);
@@ -695,18 +698,24 @@ describe("buildClaudeSettings — plugin merging", () => {
   });
 });
 
-describe("buildClaudeSettings — effortLevel from leader tier", () => {
-  it("writes effortLevel from config.effort.leader", () => {
-    const cfg = { ...MINIMAL_CONFIG, effort: { leader: "xhigh" } } as unknown as NavoriConfig;
+describe("buildClaudeSettings — effortLevel from orchestrator tier", () => {
+  it("writes effortLevel from config.effort.orchestrator", () => {
+    const cfg = {
+      ...MINIMAL_CONFIG,
+      effort: { orchestrator: "xhigh" },
+    } as unknown as NavoriConfig;
     expect(buildClaudeSettings(cfg, []).effortLevel).toBe("xhigh");
   });
 
-  it("omits effortLevel when no leader effort is set", () => {
+  it("omits effortLevel when no orchestrator effort is set", () => {
     expect(buildClaudeSettings(MINIMAL_CONFIG, []).effortLevel).toBeUndefined();
   });
 
-  it("skips effortLevel when leader effort is max (not accepted in settings.json)", () => {
-    const cfg = { ...MINIMAL_CONFIG, effort: { leader: "max" } } as unknown as NavoriConfig;
+  it("skips effortLevel when orchestrator effort is max (not accepted in settings.json)", () => {
+    const cfg = {
+      ...MINIMAL_CONFIG,
+      effort: { orchestrator: "max" },
+    } as unknown as NavoriConfig;
     expect(buildClaudeSettings(cfg, []).effortLevel).toBeUndefined();
   });
 });
@@ -1155,5 +1164,24 @@ describe("buildClaudeSettings — the PR flow's `git push` is pre-approved, a fo
     for (const rule of ["Bash(git push --force*)", "Bash(git push -f *)"]) {
       expect(ask).toContain(rule);
     }
+  });
+});
+
+/**
+ * Spec 0026 T11 (R19, R20) — the roster rename moved the embodied-role deny
+ * rule from `leader` to `orchestrator`, and the old id must not linger: a
+ * stale `Agent(leader)` entry denies nothing (no agent renders under that id
+ * anymore) while a missing `Agent(orchestrator)` entry would leave the new
+ * embodied role invokable as a subagent.
+ *
+ * // Covers: R19, R20
+ */
+describe("buildClaudeSettings — denies Agent(orchestrator) and not Agent(leader) (spec 0026 T11)", () => {
+  it("denies Agent(orchestrator) and carries no Agent(leader) entry", () => {
+    const settings = buildClaudeSettings(MINIMAL_CONFIG, []) as {
+      permissions: { deny: string[] };
+    };
+    expect(settings.permissions.deny).toContain("Agent(orchestrator)");
+    expect(settings.permissions.deny).not.toContain("Agent(leader)");
   });
 });

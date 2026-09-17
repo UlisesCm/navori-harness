@@ -7,7 +7,7 @@
     {
       "id": "acli-protocol",
       "file": "managed/acli-protocol.md",
-      "recommendedAgent": "researcher"
+      "recommendedAgent": "scout"
     }
   ],
   "externalTool": {

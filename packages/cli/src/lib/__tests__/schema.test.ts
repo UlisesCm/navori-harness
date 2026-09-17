@@ -41,14 +41,12 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
   it("applies harness sub-defaults (all agents on) when harness:{} is given", () => {
     const c = NavoriConfigSchema.parse({ ...MINIMAL, harness: {} });
     expect(c.harness).toEqual({
-      leader: true,
+      orchestrator: true,
       implementer: true,
       reviewer: true,
-      researcher: true,
-      ticketAudit: true,
-      commitPrPilot: true,
-      explorer: true,
+      scout: true,
       auditor: true,
+      publisher: true,
     });
   });
 

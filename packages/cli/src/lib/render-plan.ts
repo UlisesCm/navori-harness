@@ -180,10 +180,10 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     rootOnly: true,
     condition: "sdd.enabled",
   },
-  // Ticket-intake principle: the ticket's problem is the contract, its proposed
+  // Resolve-ticket principle: the ticket's problem is the contract, its proposed
   // solution is a suggestion, and "doesn't proceed" is a legitimate verdict.
   // Always-on by design — it must hold even when the agent never opens the
-  // `ticket-intake` skill. Appended last on purpose: inserting mid-array would
+  // `resolve-ticket` skill. Appended last on purpose: inserting mid-array would
   // reorder every already-rendered repo's CLAUDE.md on the next render.
   {
     id: "intake-tickets",
@@ -251,9 +251,6 @@ const NAVORI_VERSION = readCliVersion();
 export function conditionOrchestration(content: string, config: NavoriConfig): string {
   const enabled = (key: string) => {
     if (key === "sdd") return config.sdd?.enabled !== false;
-    if (key === "analyticalParallelism") {
-      return config.harness?.researcher !== false || config.harness?.explorer !== false;
-    }
     return config.harness?.[key as keyof NonNullable<NavoriConfig["harness"]>] !== false;
   };
 
@@ -261,24 +258,9 @@ export function conditionOrchestration(content: string, config: NavoriConfig): s
     body.startsWith("\n") && body.endsWith("\n") ? body.slice(1, -1) : body;
 
   return content
-    .replace(/<!-- navori:if ([\w]+) -->([\s\S]*?)<!-- \/navori:if -->/g, (_match, key, body) => {
-      const rendered = withoutMarkers(body);
-      if (key !== "analyticalParallelism") return enabled(key) ? rendered : "";
-      const researcher = enabled("researcher");
-      const explorer = enabled("explorer");
-      if (researcher && explorer) return rendered;
-      if (researcher) {
-        return rendered
-          .replace("sub-questions or sub-bugs", "scoped questions")
-          .replace("`researcher`/`explorer`", "`researcher`");
-      }
-      if (explorer) {
-        return rendered
-          .replace("sub-questions or sub-bugs", "area maps")
-          .replace("`researcher`/`explorer`", "`explorer`");
-      }
-      return "";
-    })
+    .replace(/<!-- navori:if ([\w]+) -->([\s\S]*?)<!-- \/navori:if -->/g, (_match, key, body) =>
+      enabled(key) ? withoutMarkers(body) : "",
+    )
     .replace(
       /<!-- navori:if-not ([\w]+) -->([\s\S]*?)<!-- \/navori:if-not -->/g,
       (_match, key, body) => (enabled(key) ? "" : withoutMarkers(body)),

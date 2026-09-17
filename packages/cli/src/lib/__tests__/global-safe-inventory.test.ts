@@ -177,4 +177,32 @@ describe("globalSafe is the audit, executed (#541, Spec 0010 §4)", () => {
       "{{qualityGate.full}}",
     );
   });
+
+  // Covers: R29
+  it("the spec 0026 T14 renamed skills are globally-shipped, the six retired ids are not", () => {
+    for (const id of [
+      "debug-failure",
+      "locate-code",
+      "security-invariants",
+      "resolve-ticket",
+      "follow-up-prs",
+    ]) {
+      expect(GLOBALLY_SHIPPED, `${id} should be globally shipped (it's on the roster)`).toContain(
+        id,
+      );
+    }
+    for (const id of [
+      "debug-error",
+      "loop-back-debug",
+      "structural-search",
+      "security-guidance",
+      "ticket-intake",
+      "babysit-prs",
+    ]) {
+      expect(
+        GLOBALLY_SHIPPED,
+        `${id} is retired and must not appear as globally shipped`,
+      ).not.toContain(id);
+    }
+  });
 });

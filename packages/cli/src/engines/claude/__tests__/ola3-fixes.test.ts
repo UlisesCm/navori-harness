@@ -152,27 +152,29 @@ describe("#557 — `.mcp.json` declares whether navori wrote the whole file", ()
 });
 
 describe("#215 — plugin sub-block version drift surfaces in updatesAvailable", () => {
-  it("reports a leader.md sub-block whose stamped version is older than this CLI's", () => {
+  it("reports an orchestrator.md sub-block whose stamped version is older than this CLI's", () => {
     const cwd = tempRepo();
-    // First render stamps the engram sub-block in leader.md at the current version.
+    // First render stamps the engram sub-block in orchestrator.md at the current version.
     const first = renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
-    expect(first.updatesAvailable.some((u) => u.id === "engram-leader-extension")).toBe(false);
+    expect(first.updatesAvailable.some((u) => u.id === "engram-orchestrator-extension")).toBe(
+      false,
+    );
 
-    const leaderPath = join(cwd, ".claude/agents/leader.md");
+    const leaderPath = join(cwd, ".claude/agents/orchestrator.md");
     const leader = readFileSync(leaderPath, "utf-8");
-    expect(leader).toContain('id="engram-leader-extension"');
+    expect(leader).toContain('id="engram-orchestrator-extension"');
 
     // Simulate a repo rendered by an OLDER navori: rewind the sub-block's stamped
     // version to a clearly-older one, leaving the content intact.
     const drifted = leader.replace(
-      /(id="engram-leader-extension"[^>]*version=")[^"]+(")/,
+      /(id="engram-orchestrator-extension"[^>]*version=")[^"]+(")/,
       "$10.0.1$2",
     );
     expect(drifted).not.toBe(leader);
     writeFileSync(leaderPath, drifted);
 
     const second = renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
-    const drift = second.updatesAvailable.find((u) => u.id === "engram-leader-extension");
+    const drift = second.updatesAvailable.find((u) => u.id === "engram-orchestrator-extension");
     expect(drift).toBeDefined();
     expect(drift!.fromVersion).toBe("0.0.1");
     expect(drift!.source).toContain("engram");

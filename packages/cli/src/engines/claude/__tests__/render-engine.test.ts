@@ -14,7 +14,7 @@ const CONFIG_FULL = {
   branchBase: "main",
   commits: "conventional-es",
   qualityGate: { fast: "pnpm typecheck", full: "pnpm test" },
-  models: { leader: "opus", implementer: "sonnet" },
+  models: { orchestrator: "opus", implementer: "sonnet" },
   plugins: { engram: { enabled: true } },
 } as unknown as NavoriConfig;
 
@@ -36,14 +36,12 @@ const CONFIG_AUDIT_OPT_IN = {
 const CONFIG_HARNESS_FILTERED = {
   ...CONFIG_FULL,
   harness: {
-    leader: true,
+    orchestrator: true,
     implementer: true,
     reviewer: true,
-    researcher: false,
-    ticketAudit: false,
-    commitPrPilot: false,
-    explorer: false,
+    scout: false,
     auditor: false,
+    publisher: false,
   },
 } as unknown as NavoriConfig;
 
@@ -58,31 +56,29 @@ afterEach(() => {
 });
 
 describe("renderClaudeEngine — first render with full config", () => {
-  it("creates CLAUDE.md, .claude/settings.json, 8 agents, 2 skills, qg hook", () => {
+  it("creates CLAUDE.md, .claude/settings.json, 6 agents, 2 skills, qg hook", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL);
 
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/settings.json"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/agents/explorer.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/agents/scout.md"))).toBe(true);
     // Skills materialize in directory form (`<id>/SKILL.md`) — the shape Claude
     // Code auto-discovers; a flat `<id>.md` is inert (#166).
     expect(existsSync(join(cwd, ".claude/skills/verify-before-done/SKILL.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/loop-back-debug/SKILL.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/structural-search.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/skills/debug-failure/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code.md"))).toBe(false);
     expect(existsSync(join(cwd, ".claude/hooks/quality-gate-pre-commit.sh"))).toBe(true);
 
     const agentPaths = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
     expect(agentPaths.map((w) => w.path).sort()).toEqual([
       ".claude/agents/auditor.md",
-      ".claude/agents/commit-pr-pilot.md",
-      ".claude/agents/explorer.md",
       ".claude/agents/implementer.md",
-      ".claude/agents/leader.md",
-      ".claude/agents/researcher.md",
+      ".claude/agents/orchestrator.md",
+      ".claude/agents/publisher.md",
       ".claude/agents/reviewer.md",
-      ".claude/agents/ticket-audit.md",
+      ".claude/agents/scout.md",
     ]);
     const claudeMd = r.written.find((w) => w.path === "CLAUDE.md");
     expect(claudeMd?.status).toBe("created");
@@ -122,7 +118,7 @@ describe("renderClaudeEngine — first render with full config", () => {
 
   it("agent frontmatter interpolates models.X when set, drops it when not", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
-    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(leader).toMatch(/^---[\s\S]+model: opus[\s\S]+?---/);
     // reviewer has no model in CONFIG_FULL — model: line dropped
     const reviewer = readFileSync(join(cwd, ".claude/agents/reviewer.md"), "utf-8");
@@ -185,11 +181,11 @@ describe("renderClaudeEngine — config gates", () => {
     const r = renderClaudeEngine(cwd, CONFIG_HARNESS_FILTERED);
     const agents = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
     expect(agents.map((a) => a.path)).toEqual([
-      ".claude/agents/leader.md",
+      ".claude/agents/orchestrator.md",
       ".claude/agents/implementer.md",
       ".claude/agents/reviewer.md",
     ]);
-    expect(existsSync(join(cwd, ".claude/agents/researcher.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/agents/scout.md"))).toBe(false);
   });
 });
 
@@ -451,29 +447,33 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
     // Inspected counts every managed asset processed:
     //   1 CLAUDE.md + 1 settings.json + 1 .mcp.json (engram declares an mcpServer,
-    //   #212) + 8 agents + 6 core skills + 5 workflow skills (ticket-intake,
-    //   solution-design, spec-bootstrap, dominio, babysit-prs) +
+    //   #212) + 6 agents (spec 0026 T12/T13: orchestrator, implementer, reviewer,
+    //   scout, auditor, publisher) + 5 core skills (spec 0026 T14 merges
+    //   debug-error + loop-back-debug into one debug-failure) + 5 workflow skills
+    //   (resolve-ticket, solution-design, spec-bootstrap, dominio, follow-up-prs) +
     //   1 guard hook + 1 session-start hook + 1 PR routing hook (#705) +
     //   1 comment-draft-confirm hook (spec 0026 E1) +
     //   1 lifecycle hook (subagent-stop; the PreCompact reminder was retired in
     //   #774 and its content moved into the session-start hook) + 1 qg hook +
     //   2 progress files +
-    //   5 engram sub-blocks (leader + the four subagents that reach memory,
-    //   #575) + 2 audit-mode hooks +
+    //   4 engram sub-blocks (orchestrator + implementer/reviewer/auditor, spec
+    //   0026 T13: the ticket-audit sub-block folded into auditor's, #575) +
+    //   2 audit-mode hooks +
     //   1 managed-drift watcher (#530) + 1 worktree-reclaim hook (#527) +
     //   1 routing watcher (spec 0020: the R2 notice at the moment of the
     //   decision, the second PostToolUse hook) +
     //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
-    //   the two session ceremonies and the agents index (#572) = 44.
+    //   the two session ceremonies and the agents index (#572) = 40.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(44);
-    // Written counts files actually emitted. engram-leader-extension is a
-    // sub-block injected into leader.md, not a separate file. The arithmetic:
-    // 44 inspected − the 5 engram sub-blocks = 39 files actually emitted (the 31
-    // base files + the .mcp.json + both audit-mode hooks + the drift watcher +
-    // the worktree-reclaim hook + the routing watcher of spec 0020 + the PR
-    // routing hook of #705 + the comment-draft-confirm hook of spec 0026 E1).
-    expect(first.written.length).toBe(39);
+    expect(first.inspected).toBe(40);
+    // Written counts files actually emitted. engram-orchestrator-extension is a
+    // sub-block injected into orchestrator.md, not a separate file. The
+    // arithmetic: 40 inspected − the 4 engram sub-blocks = 36 files actually
+    // emitted (the base files + the .mcp.json + both audit-mode hooks + the
+    // drift watcher + the worktree-reclaim hook + the routing watcher of spec
+    // 0020 + the PR routing hook of #705 + the comment-draft-confirm hook of
+    // spec 0026 E1).
+    expect(first.written.length).toBe(36);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -488,18 +488,19 @@ describe("renderClaudeEngine — injectInto warns when target absent (P0-fix U4)
       ...CONFIG_FULL,
       plugins: { engram: { enabled: true } },
       harness: {
-        leader: false, // target disabled
+        orchestrator: false, // target disabled
         implementer: true,
         reviewer: true,
-        researcher: false,
-        ticketAudit: false,
-        commitPrPilot: false,
-        explorer: false,
+        scout: false,
+        auditor: false,
+        publisher: false,
       },
     } as unknown as NavoriConfig;
     const r = renderClaudeEngine(cwd, cfg);
     expect(
-      r.warnings.some((w) => /engram-leader-extension.*\.claude\/agents\/leader\.md/.test(w)),
+      r.warnings.some((w) =>
+        /engram-orchestrator-extension.*\.claude\/agents\/orchestrator\.md/.test(w),
+      ),
     ).toBe(true);
   });
 });
@@ -520,19 +521,19 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
     expect(allow).toContain("Bash(git status*)");
   });
 
-  it("engram plugin injects a managed sub-block into leader.md", () => {
+  it("engram plugin injects a managed sub-block into orchestrator.md", () => {
     const cfg = {
       ...CONFIG_FULL,
       plugins: { engram: { enabled: true } },
     } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, cfg);
 
-    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
-    expect(leader).toContain('<!-- navori:managed id="engram-leader-extension"');
+    const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
+    expect(leader).toContain('<!-- navori:managed id="engram-orchestrator-extension"');
     expect(leader).toContain('source="@navori/plugin-engram"');
     expect(leader).toContain("mem_search");
     // Base block is still there
-    expect(leader).toContain('<!-- navori:managed id="leader-base"');
+    expect(leader).toContain('<!-- navori:managed id="orchestrator-base"');
   });
 
   it("removes nothing when injectInto target is missing (agent disabled in harness)", () => {
@@ -540,18 +541,17 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
       ...CONFIG_FULL,
       plugins: { engram: { enabled: true } },
       harness: {
-        leader: false,
+        orchestrator: false,
         implementer: true,
         reviewer: true,
-        researcher: false,
-        ticketAudit: false,
-        commitPrPilot: false,
-        explorer: false,
+        scout: false,
+        auditor: false,
+        publisher: false,
       },
     } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, cfg);
 
-    expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     // No crash; settings still rendered
     expect(existsSync(join(cwd, ".claude/settings.json"))).toBe(true);
   });
@@ -563,7 +563,7 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
     } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, cfg);
     const second = renderClaudeEngine(cwd, cfg);
-    const leaderWrite = second.written.find((w) => w.path === ".claude/agents/leader.md");
+    const leaderWrite = second.written.find((w) => w.path === ".claude/agents/orchestrator.md");
     expect(leaderWrite).toBeUndefined();
   });
 });
@@ -571,22 +571,24 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
 describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
-    // Dry-run still reports the would-write set, including structural-search,
+    // Dry-run still reports the would-write set, including locate-code,
     // the .mcp.json engram registration (#212), both audit-mode hooks, the
     // managed-drift watcher (#530), the worktree-reclaim hook (#527), the
     // routing watcher (spec 0020), the PR routing hook (#705), the
     // comment-draft-confirm hook (spec 0026 E1) and the orchestrator block
     // routed to `.claude/context/` (#573). One less than before #774 retired
-    // the PreCompact reminder.
-    expect(r.written).toHaveLength(39);
+    // the PreCompact reminder. 36, not 39: spec 0026 T12 shrank the roster from
+    // eight agents to six, and spec 0026 T14 merges debug-error +
+    // loop-back-debug into one debug-failure.
+    expect(r.written).toHaveLength(36);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
-    expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
   });
 });
 
-describe("renderClaudeEngine — prTarget in the commit-pr-pilot agent", () => {
-  const pilotPath = () => join(cwd, ".claude/agents/commit-pr-pilot.md");
+describe("renderClaudeEngine — prTarget in the publisher agent", () => {
+  const pilotPath = () => join(cwd, ".claude/agents/publisher.md");
 
   it("falls back to branchBase for --base when prTarget is unset", () => {
     renderClaudeEngine(cwd, CONFIG_FULL); // branchBase "main", no prTarget
@@ -862,7 +864,7 @@ describe("renderClaudeEngine — user-section preservation", () => {
 
     // Upgrade: enabling gh introduces a NEW managed block and reorders. (semgrep
     // is enabled too but no longer contributes one — #614 moved its protocol
-    // into the security-guidance skill, so `gh` is what proves the landing.)
+    // into the security-invariants skill, so `gh` is what proves the landing.)
     renderClaudeEngine(cwd, CONFIG_UPGRADED);
     const after = readFileSync(path, "utf-8");
     expect(after).toContain("## Reglas del repo");
@@ -958,7 +960,7 @@ describe("renderClaudeEngine — skills directory form + legacy migration (#166)
 
   it("writes every core/workflow skill as `<id>/SKILL.md`, never a flat `<id>.md`", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
-    for (const id of ["structural-search", "review-diff", "verify-before-done", "ticket-intake"]) {
+    for (const id of ["locate-code", "review-diff", "verify-before-done", "resolve-ticket"]) {
       expect(existsSync(join(cwd, ".claude/skills", id, "SKILL.md"))).toBe(true);
       expect(existsSync(join(cwd, ".claude/skills", `${id}.md`))).toBe(false);
     }
@@ -969,44 +971,44 @@ describe("renderClaudeEngine — skills directory form + legacy migration (#166)
     // not strip frontmatter it doesn't recognize, so wiring per-skill
     // `allowed-tools` later is a content change, not a pipeline change.
     renderClaudeEngine(cwd, CONFIG_FULL);
-    const body = readFileSync(join(cwd, ".claude/skills/structural-search/SKILL.md"), "utf-8");
-    expect(body).toContain("name: structural-search");
+    const body = readFileSync(join(cwd, ".claude/skills/locate-code/SKILL.md"), "utf-8");
+    expect(body).toContain("name: locate-code");
     expect(body).toContain("description:");
     expect(body).toContain("type:");
   });
 
   it("prunes the stale FLAT `<id>.md` when migrating a core skill to directory form", () => {
     // Core skill managed-id is `<id>-base`; workflow skills keep the bare id.
-    const flatCore = writeLegacyFlatSkill("structural-search", "structural-search-base");
+    const flatCore = writeLegacyFlatSkill("locate-code", "locate-code-base");
     const flatWorkflow = writeLegacyFlatSkill("spec-bootstrap", "spec-bootstrap");
 
     const r = renderClaudeEngine(cwd, CONFIG_FULL);
 
     // Directory form written…
-    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code/SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"))).toBe(true);
     // …and the flat twins pruned, so the model never sees the skill twice.
     expect(existsSync(flatCore)).toBe(false);
     expect(existsSync(flatWorkflow)).toBe(false);
-    expect(r.written.some((w) => w.path === ".claude/skills/structural-search.md")).toBe(true);
+    expect(r.written.some((w) => w.path === ".claude/skills/locate-code.md")).toBe(true);
     expect(r.written.some((w) => w.path === ".claude/skills/spec-bootstrap.md")).toBe(true);
   });
 
   it("never prunes a user's hand-written flat `<id>.md` (no navori marker)", () => {
-    const userOwned = join(cwd, ".claude/skills/structural-search.md");
+    const userOwned = join(cwd, ".claude/skills/locate-code.md");
     mkdirSync(join(cwd, ".claude/skills"), { recursive: true });
-    writeFileSync(userOwned, "# My own structural-search notes — not navori's\n", "utf-8");
+    writeFileSync(userOwned, "# My own locate-code notes — not navori's\n", "utf-8");
 
     renderClaudeEngine(cwd, CONFIG_FULL);
 
     // navori wrote its directory form; the user's unmarked flat file is untouched.
-    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code/SKILL.md"))).toBe(true);
     expect(existsSync(userOwned)).toBe(true);
-    expect(readFileSync(userOwned, "utf-8")).toContain("My own structural-search notes");
+    expect(readFileSync(userOwned, "utf-8")).toContain("My own locate-code notes");
   });
 
   it("second render is idempotent — no duplicate skill files, no orphans", () => {
-    writeLegacyFlatSkill("structural-search", "structural-search-base");
+    writeLegacyFlatSkill("locate-code", "locate-code-base");
     renderClaudeEngine(cwd, CONFIG_FULL); // migrates + prunes the flat
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
@@ -1014,8 +1016,8 @@ describe("renderClaudeEngine — skills directory form + legacy migration (#166)
     // No skill file re-written on the steady-state render…
     expect(second.written.some((w) => w.path.includes(".claude/skills/"))).toBe(false);
     // …the flat twin stays gone, and only the directory form remains.
-    expect(existsSync(join(cwd, ".claude/skills/structural-search.md"))).toBe(false);
-    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code/SKILL.md"))).toBe(true);
   });
 });
 
@@ -1033,7 +1035,7 @@ describe("renderClaudeEngine — Codex cross-model review advisory (#168)", () =
   it("injects the cross-review sub-block in leader.md when codex is an engine", () => {
     renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
 
-    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(leader).toContain('navori:managed id="codex-cross-review"');
     expect(leader).toContain("Cross-model review (Codex second opinion)");
     // The short prompt reuses `.codex/` and read-only sandbox; `{{prTarget}}` resolved.
@@ -1050,20 +1052,20 @@ describe("renderClaudeEngine — Codex cross-model review advisory (#168)", () =
   it("omits the block entirely when codex is NOT an engine", () => {
     renderClaudeEngine(cwd, CONFIG_FULL); // engines: ["claude"]
 
-    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(leader).not.toContain("codex-cross-review");
     expect(leader).not.toContain("Cross-model review");
   });
 
   it("strips the block when codex is later removed from engines", () => {
     renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
-    expect(readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8")).toContain(
+    expect(readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8")).toContain(
       "codex-cross-review",
     );
 
     // Re-render without codex — the advisory must be cleaned up, not orphaned.
     renderClaudeEngine(cwd, CONFIG_FULL);
-    expect(readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8")).not.toContain(
+    expect(readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8")).not.toContain(
       "codex-cross-review",
     );
   });
@@ -1071,7 +1073,7 @@ describe("renderClaudeEngine — Codex cross-model review advisory (#168)", () =
   it("is idempotent — a second render with codex does not rewrite leader.md", () => {
     renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
     const second = renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
-    expect(second.written.some((w) => w.path === ".claude/agents/leader.md")).toBe(false);
+    expect(second.written.some((w) => w.path === ".claude/agents/orchestrator.md")).toBe(false);
   });
 
   // Covers: R10, R11

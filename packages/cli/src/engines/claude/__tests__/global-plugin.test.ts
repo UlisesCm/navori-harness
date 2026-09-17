@@ -212,7 +212,7 @@ describe("global-plugin — every shipped asset resolves in the global scope", (
    */
   it("the pilot derives the quality gate instead of carrying one baked in", () => {
     const p = install("en");
-    const pilot = readFileSync(join(p.dir, "agents/commit-pr-pilot.md"), "utf-8");
+    const pilot = readFileSync(join(p.dir, "agents/publisher.md"), "utf-8");
     expect(pilot).not.toContain("{{qualityGate");
     expect(pilot).not.toContain("pnpm test:coverage"); // this repo's own gate
     expect(pilot).toContain("whichever quality gate the project declares");
@@ -222,7 +222,7 @@ describe("global-plugin — every shipped asset resolves in the global scope", (
   it("the same agent in a repo render still carries the repo's literal gate", () => {
     // The counterpart: `global` is an override, not a rewrite of the default.
     const repoCfg = { name: "x", language: "en", qualityGate: { full: "make check" } };
-    const asset = join(coreRoot, "core-assets/agents/commit-pr-pilot.md");
+    const asset = join(coreRoot, "core-assets/agents/publisher.md");
     const rendered = interpolate(
       readFileSync(asset, "utf-8"),
       repoCfg as unknown as Parameters<typeof interpolate>[1],

@@ -1,16 +1,16 @@
-# navori:managed start id="subagent-stop-handoff-base" hash="dcab45a1" version="0.8.7" source="@navori/core"
+# navori:managed start id="subagent-stop-handoff-base" hash="bf41497a" version="0.8.7" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse(`Agent`|`Task`) lifecycle hook — handoff validator.
 # Fires in the PARENT session the moment a subagent returns. The harness contract
 # is that an implementer closes with `impl_<feature>.md` and a reviewer with
 # `review_<feature>.md` under the engine's progress dir — those files ARE the
-# handoff the leader (and the commit-pr-pilot) read. A subagent that returns
+# handoff the orchestrator (and the publisher) read. A subagent that returns
 # having left an empty or structurally-broken handoff silently corrupts that
 # chain. This hook catches the obvious failure modes deterministically.
 #
 # WHY NOT SubagentStop, the event this hook is still NAMED after (#774). The
-# reader of this note is the LEADER, and SubagentStop cannot reach it: there the
+# reader of this note is the ORCHESTRATOR, and SubagentStop cannot reach it: there the
 # `additionalContext` goes to the subagent that just stopped — it keeps that
 # child running — and the host's doc names the alternative outright, "to inject
 # context into the parent session after a subagent returns, use a `PostToolUse`
@@ -29,7 +29,7 @@
 # cost the continuity of the measurement.
 #
 # DESIGN — advisory, never blocking. Emits `hookSpecificOutput.additionalContext`
-# for the leader plus a `systemMessage` so the human sees it too; it NEVER
+# for the orchestrator plus a `systemMessage` so the human sees it too; it NEVER
 # returns `decision: block`. It has no way to know WHICH subagent just
 # stopped (agent identity isn't reliably in scope for a shell hook), so it can't
 # demand a specific file — it only flags handoff files that already exist but
@@ -61,7 +61,7 @@ navori_audit_phase="PostToolUse"
 # and the move is what makes it matter more rather than less. A broken handoff
 # stays broken until somebody fixes it, so without this every later subagent
 # return in the same session re-reports it — and the note now travels through
-# `additionalContext`, i.e. it is spent out of the leader's context window, not
+# `additionalContext`, i.e. it is spent out of the orchestrator's context window, not
 # out of a UI line the host draws for free.
 #
 # Parsed with parameter expansion, never jq: this must work whether or not
@@ -518,7 +518,7 @@ printf '%s\n' "$problems" >"$navori_handoff_stamp" 2>/dev/null || true
 msg="navori: handoff(s) de subagente incompletos — ${problems}. Revisa que el reporte quedó bien escrito antes de consolidarlo."
 
 # BOTH channels, and they are not redundant: `additionalContext` is the one that
-# reaches the leader — the only reader that can act on this — while
+# reaches the orchestrator — the only reader that can act on this — while
 # `systemMessage` is what puts it in front of the human. The text is imperative
 # because it asks for an action; before #774 it went out on the user channel
 # alone, so it asked the model for something the model never heard.

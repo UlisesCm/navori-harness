@@ -12,7 +12,7 @@ import { getCoreRoot } from "../bundled-assets.ts";
  *
  * This sweep walks EVERY managed markdown asset — `agents/`, `skills/`,
  * `managed/`, `presets/`, `lib-skills/`, `progress/` — because the mandate
- * outlived #399 in a skill (`skills/ticket-intake.md`, phase 5 of the pipeline)
+ * outlived #399 in a skill (`skills/resolve-ticket.md`, phase 5 of the pipeline)
  * while the original guard only iterated `agents/`. Walking the tree also
  * covers assets added later, wherever they land.
  *

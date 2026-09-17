@@ -35,7 +35,7 @@ import { AGENTS_DIR, isInvokable, listAgentAssets } from "./helpers/agent-assets
  * in the suite, because it will not fail anywhere else.
  */
 
-const LEADER = resolve(AGENTS_DIR, "leader.md");
+const LEADER = resolve(AGENTS_DIR, "orchestrator.md");
 
 /**
  * The host's own wording for what it exempts, quoted verbatim in the assets so
@@ -94,14 +94,7 @@ describe("handoff contract — the literal path survives in every writer (#500)"
    * line altogether) empties it and every case below would pass on nothing.
    */
   it("derives the writers from disk and finds the full roster", () => {
-    expect([...WRITERS.keys()].sort()).toEqual([
-      "auditor",
-      "explorer",
-      "implementer",
-      "researcher",
-      "reviewer",
-      "ticket-audit",
-    ]);
+    expect([...WRITERS.keys()].sort()).toEqual(["auditor", "implementer", "reviewer", "scout"]);
   });
 
   for (const [id, targets] of WRITERS) {
@@ -139,9 +132,10 @@ describe("handoff contract — the literal path survives in every writer (#500)"
 
 describe("handoff contract — the delegating side ships the path (#500)", () => {
   // Spec 0019 trimmed the orchestration block to the routing ladder: the
-  // delegation FORMAT moved to `leader.md`, which is the asset the orchestrator
-  // opens at the moment it delegates. One canonical home, still asserted.
-  it.each([["agents/leader.md", LEADER]])(
+  // delegation FORMAT moved to `leader.md` (renamed `orchestrator.md` in
+  // spec 0026 T12), which is the asset the orchestrator opens at the moment
+  // it delegates. One canonical home, still asserted.
+  it.each([["agents/orchestrator.md", LEADER]])(
     "%s makes the literal path part of the delegation format",
     (_label, path) => {
       const text = read(path);
@@ -153,7 +147,7 @@ describe("handoff contract — the delegating side ships the path (#500)", () =>
     },
   );
 
-  it.each([["agents/leader.md", LEADER]])(
+  it.each([["agents/orchestrator.md", LEADER]])(
     "%s tells the orchestrator the file is a tool's input, not a report",
     (_label, path) => {
       expect(read(path)).toContain(HOST_EXEMPTION);

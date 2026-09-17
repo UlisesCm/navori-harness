@@ -15,7 +15,41 @@ import json, os, re, sys, glob
 from collections import Counter
 
 PROJECTS = os.path.expanduser("~/.claude/projects")
-SESSIONS = [s.strip() for s in open(sys.argv[1]) if s.strip()]
+
+# Roles renamed across the roster (spec 0026 T17, R43): a session mined from
+# BEFORE the rename names the OLD id, one mined AFTER names the NEW one, and
+# without this map they'd split into two Counter buckets that each look inert
+# on their own — exactly the false "0% activation" #605/#705 already burned an
+# investigation on for a different miscount. `commit-pr-pilot` → `publisher`
+# is the only rename this script's raw `subagent_type` strings can observe
+# (spec 0026 T12); the others (`leader`/`explorer`/`researcher`/`ticket-audit`)
+# don't feed a role-continuity check here because nothing in this file counts
+# them under a fixed key the way `mark("pr → review-diff/pilot", ...)` does.
+ROLE_ALIASES = {"commit-pr-pilot": "publisher"}
+
+# Same continuity problem, for `Skill` invocations (spec 0026 T14/T17, R43): a
+# session mined from before the merge/rename names the OLD skill id, and
+# `mark()`'s `skill=` argument checks membership against `used_skill` --
+# without this map, O3 (`debug-error`) and O6 (`loop-back-debug`) would
+# silently stop matching every CURRENT session, which invokes the merged
+# `debug-failure` instead, and both opportunities would read as permanently
+# inert.
+SKILL_ALIASES = {
+    "debug-error": "debug-failure",
+    "loop-back-debug": "debug-failure",
+    "structural-search": "locate-code",
+    "security-guidance": "security-invariants",
+    "ticket-intake": "resolve-ticket",
+    "babysit-prs": "follow-up-prs",
+}
+
+
+def canon_role(name):
+    return ROLE_ALIASES.get(name, name)
+
+
+def canon_skill(name):
+    return SKILL_ALIASES.get(name, name)
 
 VERIFY_CMD = re.compile(
     r"\b(pnpm|npm|yarn|bun)\s+(run\s+)?(test|lint|typecheck|type-check|build|check)"
@@ -311,16 +345,17 @@ def analyze(session, examples):
         u = t["user"].lower()
         cmds = " ; ".join(str(x["input"].get("command", "")) for x in t["tools"]
                           if x["name"] == "Bash")
-        used_skill = {str(x["input"].get("skill", "")) for x in t["tools"] if x["name"] == "Skill"}
-        used_agent = {str(x["input"].get("subagent_type", "")) for x in t["tools"]
+        used_skill = {canon_skill(str(x["input"].get("skill", ""))) for x in t["tools"]
+                      if x["name"] == "Skill"}
+        used_agent = {canon_role(str(x["input"].get("subagent_type", ""))) for x in t["tools"]
                       if x["name"] in ("Agent", "Task")}
 
         for x in t["tools"]:
             if x["name"] == "Skill":
-                s = str(x["input"].get("skill", "?"))
+                s = canon_skill(str(x["input"].get("skill", "?")))
                 (asked if (s in u) else auto)[s] += 1
             elif x["name"] in ("Agent", "Task"):
-                a = str(x["input"].get("subagent_type", "?"))
+                a = canon_role(str(x["input"].get("subagent_type", "?")))
                 (asked if a in u else auto)[a] += 1
 
         def mark(key, cond, agent=None, skill=None, note=""):
@@ -371,11 +406,11 @@ def analyze(session, examples):
         # Es un PISO, no un techo: un fallo auto-explicativo (ruta inexistente)
         # que traiga una línea de error reconocible entra igual.
         debuggable = any(is_debuggable(x) for x in t["tools"])
-        mark("debug-error", debuggable, skill="debug-error", note=t["user"][:60])
+        mark("debug-error", debuggable, skill="debug-failure", note=t["user"][:60])
 
         # O4 — se abre PR
         mark("pr → review-diff/pilot", bool(PR_CMD.search(cmds)),
-             agent="commit-pr-pilot", skill="review-diff", note=t["user"][:60])
+             agent="publisher", skill="review-diff", note=t["user"][:60])
 
         # O5 — reviewer: código fuente editado y commiteado en el mismo turno
         mark("reviewer", bool(touched) and bool(COMMIT_CMD.search(cmds)),
@@ -389,7 +424,7 @@ def analyze(session, examples):
             if len(k) < 6:
                 continue
             if failed_once.get(k):
-                mark("loop-back-debug", True, skill="loop-back-debug", note=k)
+                mark("loop-back-debug", True, skill="debug-failure", note=k)
             failed_once[k] = True
 
     sub_invoked, sub_inherited = subagent_skills(path, session)
@@ -404,6 +439,63 @@ def analyze(session, examples):
                 sub_files=len(subagent_transcripts(path, session)))
 
 
+def _selftest():
+    """Fixture del criterio 2 (spec 0026 T17, R43): una sesión sintética con un
+    `Agent`/`Task` de `subagent_type` `architect` debe producir un conteo
+    distinto de cero en AUTO o ASKED. El criterio 2 mide delegación explícita
+    hacia `architect` (R49) — sin este fixture, un regreso a cero pasaría
+    desapercibido porque el script no tiene otra suite que lo ejerza.
+
+    Construye un `~/.claude/projects`/`audits` de usar y tirar en un
+    `tempfile.TemporaryDirectory`, apunta los globals del módulo ahí, y corre
+    `analyze()` de verdad — no una copia paralela del conteo — para que el
+    fixture falle si la lógica real deja de contar `architect`.
+    """
+    import tempfile
+
+    global PROJECTS, AUDITS
+    with tempfile.TemporaryDirectory() as tmp:
+        PROJECTS = os.path.join(tmp, "projects")
+        AUDITS = os.path.join(tmp, "audits")
+        proj_dir = os.path.join(PROJECTS, "-tmp-fixture-repo")
+        os.makedirs(proj_dir)
+        session = "fixture-architect"
+        transcript = [
+            {"type": "user", "message": {"content": "usa a architect para proponer el diseño"}},
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Agent",
+                            "input": {
+                                "subagent_type": "architect",
+                                "description": "propone el diseño",
+                            },
+                        }
+                    ]
+                },
+            },
+        ]
+        with open(os.path.join(proj_dir, f"{session}.jsonl"), "w") as fh:
+            for rec in transcript:
+                fh.write(json.dumps(rec) + "\n")
+
+        examples = {k: [] for k in ["implementer", "verify-before-done", "debug-error",
+                                    "pr → review-diff/pilot", "reviewer", "loop-back-debug"]}
+        result = analyze(session, examples)
+        assert result is not None, "la sesión fixture debió parsear"
+        count = result["auto"].get("architect", 0) + result["asked"].get("architect", 0)
+        assert count != 0, f"conteo de 'architect' debió ser distinto de cero, salió {count}"
+        print(f"OK selftest: subagent_type=architect conteo={count}")
+
+
+if len(sys.argv) > 1 and sys.argv[1] == "--selftest":
+    _selftest()
+    sys.exit(0)
+
+SESSIONS = [s.strip() for s in open(sys.argv[1]) if s.strip()]
 examples = {k: [] for k in ["implementer", "verify-before-done", "debug-error",
                             "pr → review-diff/pilot", "reviewer", "loop-back-debug"]}
 rows = [r for r in (analyze(s, examples) for s in SESSIONS) if r]

@@ -19,10 +19,11 @@ import { renderCodexEngine } from "../codex/index.ts";
  * (#166 C1) — the eje that actually decides whether the model ever sees a skill.
  */
 
-/** Intentional inventory differences. leader: the main Codex thread embodies
- * the leader role, so the Codex engine deliberately emits no spawnable leader
- * agent (see resolveHarnessPlan's includeLeader option in engines/shared/harness-plan.ts). */
-const AGENT_KNOWN_DIFFS: ReadonlySet<string> = new Set(["leader"]);
+/** Intentional inventory differences. orchestrator: the main Codex thread
+ * embodies the orchestrator role, so the Codex engine deliberately emits no
+ * spawnable orchestrator agent (see resolveHarnessPlan's includeOrchestrator
+ * option in engines/shared/harness-plan.ts). */
+const AGENT_KNOWN_DIFFS: ReadonlySet<string> = new Set(["orchestrator"]);
 
 function parityConfig(): NavoriConfig {
   return NavoriConfigSchema.parse({
@@ -111,13 +112,14 @@ describe("engine inventory parity (claude ↔ codex)", () => {
     expect(codexAgents).toEqual(claudeAgents);
   });
 
-  it("keeps `leader` a REAL diff: emitted by Claude, absent from Codex", () => {
+  it("keeps `orchestrator` a REAL diff: emitted by Claude, absent from Codex", () => {
     // The exemption above is subtracted from both sides, so on its own it hides
-    // both regressions it is meant to describe: Codex growing a spawnable leader
-    // (the main thread already embodies the role) or Claude losing one. Asserted
-    // here, the entry has to keep earning its place in AGENT_KNOWN_DIFFS.
-    expect(names(join(claudeCwd, ".claude/agents"), stripMd)).toContain("leader");
-    expect(names(join(codexCwd, ".codex/agents"), stripToml)).not.toContain("leader");
+    // both regressions it is meant to describe: Codex growing a spawnable
+    // orchestrator (the main thread already embodies the role) or Claude
+    // losing one. Asserted here, the entry has to keep earning its place in
+    // AGENT_KNOWN_DIFFS.
+    expect(names(join(claudeCwd, ".claude/agents"), stripMd)).toContain("orchestrator");
+    expect(names(join(codexCwd, ".codex/agents"), stripToml)).not.toContain("orchestrator");
   });
 
   it("emits the same hook set", () => {

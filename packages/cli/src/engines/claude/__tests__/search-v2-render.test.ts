@@ -49,18 +49,18 @@ vi.mock("@clack/prompts", () => ({
 /**
  * search-v2.md §7 P2 — routing, agents and render.
  *
- * R04 correction (verified against `packages/plugins/codegraph/plugin.json`,
- * which ships exactly 5 `skills[]` entries, not 7 as an earlier draft of the
- * plan said): only `leader`, `implementer`, `reviewer`, `auditor` and
- * `ticket-audit` receive the generated `mcp__codegraph__*` family grant via
- * `injectInto`/`withAgentMcpTools`. `explorer` and `researcher` already carry
- * `mcp__codegraph__codegraph_explore` BY NAME in their own source (see
- * `core-assets/agents/explorer.md`/`researcher.md`) — giving them the
- * generated family grant instead would widen their allowlist and break the
- * by-name invariant `mcp-capability-wiring.test.ts` (#575/#761) pins.
+ * Spec 0026 T12: `codegraph`'s manifest now ships 4 `skills[]` entries (down
+ * from 5 — `ticket-audit` merged into `auditor`, which already had its own
+ * entry). `orchestrator`, `implementer`, `reviewer` and `auditor` receive the
+ * generated `mcp__codegraph__*` family grant via `injectInto`/
+ * `withAgentMcpTools`. `scout` already carries
+ * `mcp__codegraph__codegraph_explore` BY NAME in its own source (see
+ * `core-assets/agents/scout.md`) — giving it the generated family grant
+ * instead would widen its allowlist and break the by-name invariant
+ * `mcp-capability-wiring.test.ts` (#575/#761) pins.
  */
 
-const ROLE_AGENTS = ["leader", "implementer", "reviewer", "auditor", "ticket-audit"] as const;
+const ROLE_AGENTS = ["orchestrator", "implementer", "reviewer", "auditor"] as const;
 
 function baseConfig(plugins: Record<string, { enabled: boolean }> = {}): NavoriConfig {
   return NavoriConfigSchema.parse({
@@ -253,7 +253,7 @@ describe.each(COMBOS)("search v2 render matrix — combo $label", ({ codegraph, 
     expect(settings.permissions.ask).toContain("Bash(custom-risky-thing)");
   });
 
-  it("R04 — the five enabled roles get the CodeGraph grant iff enabled; explorer/researcher keep the by-name tool untouched", () => {
+  it("R04 — the four enabled roles get the CodeGraph grant iff enabled; scout keeps the by-name tool untouched", () => {
     renderClaudeEngine(cwd, cfg());
 
     for (const role of ROLE_AGENTS) {
@@ -271,15 +271,13 @@ describe.each(COMBOS)("search v2 render matrix — combo $label", ({ codegraph, 
       }
     }
 
-    // explorer/researcher are never injectInto targets: their exact-name tool
-    // lives in source, unconditionally, and never widens to the family.
-    for (const role of ["explorer", "researcher"] as const) {
-      const content = readFileSync(join(cwd, `.claude/agents/${role}.md`), "utf-8");
-      const tools = agentTools(content);
-      expect(tools).toContain("mcp__codegraph__codegraph_explore");
-      expect(tools).not.toContain("mcp__codegraph__*");
-      expect(content).not.toContain("codegraph-access-v2");
-    }
+    // scout is never an injectInto target: its exact-name tool lives in
+    // source, unconditionally, and never widens to the family.
+    const scoutContent = readFileSync(join(cwd, ".claude/agents/scout.md"), "utf-8");
+    const scoutTools = agentTools(scoutContent);
+    expect(scoutTools).toContain("mcp__codegraph__codegraph_explore");
+    expect(scoutTools).not.toContain("mcp__codegraph__*");
+    expect(scoutContent).not.toContain("codegraph-access-v2");
   });
 
   it("R05 — second render is a no-op: zero writes and byte-identical files", () => {
@@ -380,9 +378,9 @@ describe("R08 — enable/disable/enable and `navori remove` leave no orphans", (
 
   it("codegraph: true -> false -> true leaves no MCP entry, allow rule or grant orphaned; reactivation does not duplicate", () => {
     renderClaudeEngine(cwd, baseConfig(pluginsFor({ codegraph: true })));
-    const on1 = readFileSync(agentPath(cwd, "leader"), "utf-8");
+    const on1 = readFileSync(agentPath(cwd, "orchestrator"), "utf-8");
     expect(agentTools(on1)).toContain("mcp__codegraph__*");
-    expect(openBlockCount(on1, "codegraph-access-v2-leader")).toBe(1);
+    expect(openBlockCount(on1, "codegraph-access-v2-orchestrator")).toBe(1);
     expect(readMcp(cwd)?.mcpServers.codegraph).toBeDefined();
     expect(readSettings(cwd).permissions.allow).toContain("mcp__codegraph__codegraph_explore");
 
@@ -392,15 +390,15 @@ describe("R08 — enable/disable/enable and `navori remove` leave no orphans", (
     // own too, e.g. for a teammate who hand-edits the config to disable a
     // plugin without running `remove`.
     renderClaudeEngine(cwd, baseConfig(pluginsFor({ codegraph: false })));
-    const off = readFileSync(agentPath(cwd, "leader"), "utf-8");
+    const off = readFileSync(agentPath(cwd, "orchestrator"), "utf-8");
     expect(agentTools(off)).not.toContain("mcp__codegraph__*");
-    expect(off).not.toContain("codegraph-access-v2-leader");
+    expect(off).not.toContain("codegraph-access-v2-orchestrator");
     expect(readMcp(cwd)?.mcpServers.codegraph).toBeUndefined();
     expect(readSettings(cwd).permissions.allow).not.toContain("mcp__codegraph__codegraph_explore");
 
     renderClaudeEngine(cwd, baseConfig(pluginsFor({ codegraph: true })));
-    const on2 = readFileSync(agentPath(cwd, "leader"), "utf-8");
-    expect(openBlockCount(on2, "codegraph-access-v2-leader")).toBe(1);
+    const on2 = readFileSync(agentPath(cwd, "orchestrator"), "utf-8");
+    expect(openBlockCount(on2, "codegraph-access-v2-orchestrator")).toBe(1);
     expect(agentTools(on2).filter((t) => t === "mcp__codegraph__*")).toHaveLength(1);
     expect(
       readSettings(cwd).permissions.allow.filter((a) => a === "mcp__codegraph__codegraph_explore"),
@@ -433,7 +431,7 @@ describe("R08 — enable/disable/enable and `navori remove` leave no orphans", (
     writeConfig(configPath, baseConfig(pluginsFor({ codegraph: true })));
     renderClaudeEngine(cwd, baseConfig(pluginsFor({ codegraph: true })));
 
-    const on = readFileSync(agentPath(cwd, "leader"), "utf-8");
+    const on = readFileSync(agentPath(cwd, "orchestrator"), "utf-8");
     expect(agentTools(on)).toContain("mcp__codegraph__*");
     expect(readMcp(cwd)?.mcpServers.codegraph).toBeDefined();
     expect(readSettings(cwd).permissions.allow).toContain("mcp__codegraph__codegraph_explore");
@@ -448,9 +446,9 @@ describe("R08 — enable/disable/enable and `navori remove` leave no orphans", (
 
     // Phase 1's render already ran before the key was deleted, so the
     // cleanup is visible immediately after `remove` returns.
-    const offAfterRemove = readFileSync(agentPath(cwd, "leader"), "utf-8");
+    const offAfterRemove = readFileSync(agentPath(cwd, "orchestrator"), "utf-8");
     expect(agentTools(offAfterRemove)).not.toContain("mcp__codegraph__*");
-    expect(offAfterRemove).not.toContain("codegraph-access-v2-leader");
+    expect(offAfterRemove).not.toContain("codegraph-access-v2-orchestrator");
     expect(readMcp(cwd)?.mcpServers.codegraph).toBeUndefined();
     expect(readSettings(cwd).permissions.allow).not.toContain("mcp__codegraph__codegraph_explore");
 
@@ -459,9 +457,9 @@ describe("R08 — enable/disable/enable and `navori remove` leave no orphans", (
     // must stay a no-op: an absent key renders exactly as clean as
     // `{ enabled: false }` does, with no artifact left to resurface it.
     renderClaudeEngine(cwd, baseConfig(pluginsFor({})));
-    const finalLeader = readFileSync(agentPath(cwd, "leader"), "utf-8");
+    const finalLeader = readFileSync(agentPath(cwd, "orchestrator"), "utf-8");
     expect(agentTools(finalLeader)).not.toContain("mcp__codegraph__*");
-    expect(finalLeader).not.toContain("codegraph-access-v2-leader");
+    expect(finalLeader).not.toContain("codegraph-access-v2-orchestrator");
     expect(readMcp(cwd)?.mcpServers.codegraph).toBeUndefined();
     expect(readSettings(cwd).permissions.allow).not.toContain("mcp__codegraph__codegraph_explore");
   });
@@ -480,7 +478,7 @@ describe("R09 — a hand-edited or newer-version sub-block is preserved and repo
 
   it("user-modified-skipped: hand edit survives and shows up in r.skipped, not r.written", () => {
     renderClaudeEngine(cwd, baseConfig(pluginsFor({ codegraph: true })));
-    const path = agentPath(cwd, "leader");
+    const path = agentPath(cwd, "orchestrator");
     const original = readFileSync(path, "utf-8");
     const edited = original.replace(
       "Apply Code discovery routing from the project instructions.",
@@ -493,14 +491,14 @@ describe("R09 — a hand-edited or newer-version sub-block is preserved and repo
     const after = readFileSync(path, "utf-8");
     expect(after).toContain("USER-EDIT: apply routing however you like.");
 
-    const skip = r.skipped.find((s) => s.path === ".claude/agents/leader.md");
+    const skip = r.skipped.find((s) => s.path === ".claude/agents/orchestrator.md");
     expect(skip?.status).toBe("user-modified-skipped");
-    expect(r.written.some((w) => w.path === ".claude/agents/leader.md")).toBe(false);
+    expect(r.written.some((w) => w.path === ".claude/agents/orchestrator.md")).toBe(false);
   });
 
   it("downgrade-skipped: a sub-block stamped by a newer navori is preserved and reported, not overwritten", () => {
     renderClaudeEngine(cwd, baseConfig(pluginsFor({ codegraph: true })));
-    const path = agentPath(cwd, "leader");
+    const path = agentPath(cwd, "orchestrator");
     const original = readFileSync(path, "utf-8");
 
     // Bump the stamped version past this CLI's own and edit the body, so the
@@ -508,7 +506,7 @@ describe("R09 — a hand-edited or newer-version sub-block is preserved and repo
     const currentVersion = readCliVersion();
     expect(currentVersion).not.toBe("999.0.0");
     const bumped = original
-      .replace(/(id="codegraph-access-v2-leader"[^>]*version=")[^"]+(")/, "$1999.0.0$2")
+      .replace(/(id="codegraph-access-v2-orchestrator"[^>]*version=")[^"]+(")/, "$1999.0.0$2")
       .replace(
         "Apply Code discovery routing from the project instructions.",
         "Apply Code discovery routing from the project instructions (edited by a future navori).",
@@ -520,9 +518,9 @@ describe("R09 — a hand-edited or newer-version sub-block is preserved and repo
     const after = readFileSync(path, "utf-8");
     expect(after).toBe(bumped);
 
-    const skip = r.skipped.find((s) => s.path === ".claude/agents/leader.md");
+    const skip = r.skipped.find((s) => s.path === ".claude/agents/orchestrator.md");
     expect(skip?.status).toBe("downgrade-skipped");
-    expect(r.written.some((w) => w.path === ".claude/agents/leader.md")).toBe(false);
+    expect(r.written.some((w) => w.path === ".claude/agents/orchestrator.md")).toBe(false);
   });
 });
 

@@ -85,64 +85,57 @@ describe("the routing distinctions are stated where the policy actually lives", 
   });
 });
 
-describe("textual-first-universal is gone from researcher.md, replaced by routing", () => {
-  const researcher = read(coreAgent("researcher.md"));
+describe("textual-first-universal is gone from scout.md (researcher+explorer merge, spec 0026 T12), replaced by routing", () => {
+  const scout = read(coreAgent("scout.md"));
 
   it("no longer orders Grep/Glob as the universal primary method", () => {
-    expect(researcher).not.toContain(
+    expect(scout).not.toContain(
       "Primary method: the native `Grep` (content) and `Glob` (files by name/pattern) tools.",
     );
   });
 
   it("routes by the nature of the question instead", () => {
-    expect(researcher).toContain("Resolve the scoped question by following Code discovery routing");
-    expect(researcher).toContain("the enabled structural provider");
+    expect(scout).toContain("Run the search, following Code discovery routing");
+    expect(scout).toContain("the enabled structural provider");
   });
 
-  it("no longer requires structural-search as a mandatory preflight for every question", () => {
-    expect(researcher).not.toContain(
-      "For semantic questions (not just string match), apply `.claude/skills/structural-search/SKILL.md`: locate the right region and open only the confirmed span; don't read whole files by reflex.",
-    );
-    expect(researcher).toContain(
-      "Don't load `.claude/skills/structural-search/SKILL.md` as a mandatory preflight for every question",
+  it("no longer requires locate-code as a mandatory preflight for every question", () => {
+    expect(scout).not.toContain(
+      "For semantic questions (not just string match), apply `.claude/skills/locate-code/SKILL.md`: locate the right region and open only the confirmed span; don't read whole files by reflex.",
     );
   });
-});
-
-describe("mandatory entrypoint traversal is gone from explorer.md, demoted to a fallback", () => {
-  const explorer = read(coreAgent("explorer.md"));
 
   it("no longer opens with an unconditional entry-to-leaves walk", () => {
-    expect(explorer).not.toContain(
-      "Apply `.claude/skills/structural-search/SKILL.md` to locate shapes and entry points without reading whole files.",
+    expect(scout).not.toContain(
+      "Apply `.claude/skills/locate-code/SKILL.md` to locate shapes and entry points without reading whole files.",
     );
   });
 
   it("asks the structural provider for the map first, and only walks manually when none is available", () => {
-    expect(explorer).toContain("Get the map from the enabled structural provider first");
-    expect(explorer).toContain("Only when no provider is enabled/available, walk manually");
+    expect(scout).toContain("goes to the enabled structural provider first");
+    expect(scout).toContain("Only when no provider is enabled/available, walk manually");
   });
 });
 
-describe("loading structural-search unconditionally is gone from implementer.md", () => {
+describe("loading locate-code unconditionally is gone from implementer.md", () => {
   const implementer = read(coreAgent("implementer.md"));
 
-  it("no longer orders structural-search as the sole discovery step", () => {
+  it("no longer orders locate-code as the sole discovery step", () => {
     expect(implementer).not.toContain(
-      "To locate the code to touch, apply `.claude/skills/structural-search/SKILL.md`: open only the confirmed span, don't read whole files by reflex.",
+      "To locate the code to touch, apply `.claude/skills/locate-code/SKILL.md`: open only the confirmed span, don't read whole files by reflex.",
     );
   });
 
-  it("routes to the structural provider first, structural-search as its fallback", () => {
+  it("routes to the structural provider first, locate-code as its fallback", () => {
     expect(implementer).toContain("follow Code discovery routing (project instructions)");
     expect(implementer).toContain(
-      "fall back to `.claude/skills/structural-search/SKILL.md` when it's unavailable",
+      "fall back to `.claude/skills/locate-code/SKILL.md` when it's unavailable",
     );
   });
 });
 
-describe("confirm-every-result-with-another-search is gone from structural-search.md", () => {
-  const skill = read(coreSkill("structural-search.md"));
+describe("confirm-every-result-with-another-search is gone from locate-code.md", () => {
+  const skill = read(coreSkill("locate-code.md"));
 
   it("no longer carries the Rung 0-2 ladder or its escalation ritual", () => {
     expect(skill).not.toMatch(/Rung \d/);
@@ -188,20 +181,18 @@ describe("occurrence counts alone no longer stand in for structural impact evide
     );
   });
 
-  it("ticket-audit.md requires the structural provider to confirm relational size claims", () => {
-    const ticketAudit = read(coreAgent("ticket-audit.md"));
-    expect(ticketAudit).toContain(
-      "applying Code discovery routing (project instructions) before gathering evidence",
-    );
-    expect(ticketAudit).toContain(
-      "an occurrence count alone doesn't demonstrate structural impact",
-    );
+  it("auditor.md's ticket encargo requires the structural provider to confirm relational size claims (spec 0026 T12, ticket-audit merge)", () => {
+    const auditor = read(coreAgent("auditor.md"));
+    expect(auditor).toContain("confirm call sites and relationships through the routed provider");
+    expect(auditor).toContain("an occurrence count alone doesn't demonstrate structural impact");
   });
 
-  it("review-diff.md's guard/policy enumeration requires more than an occurrence count", () => {
-    const reviewDiff = read(coreSkill("review-diff.md"));
-    expect(reviewDiff).toContain("Code discovery routing's structural provider");
-    expect(reviewDiff).toContain(
+  // Spec 0026 T15 (R32, R33) — the guard/policy enumeration moved from
+  // review-diff §4 to security-invariants, its single owner.
+  it("security-invariants's guard/policy enumeration requires more than an occurrence count", () => {
+    const securityInvariants = read(coreSkill("security-invariants.md"));
+    expect(securityInvariants).toContain("Code discovery routing's structural provider");
+    expect(securityInvariants).toContain(
       "An occurrence count alone doesn't demonstrate the enumeration is complete.",
     );
   });
@@ -210,7 +201,7 @@ describe("occurrence counts alone no longer stand in for structural impact evide
 /**
  * Phase G (spec 0026 R16, R18) — tgrep and codegraph enter the routing, so no
  * distributed asset can prescribe a raw shell verb (`grep -r`, `rg PATTERN`,
- * `git grep`) as its discovery recipe, and `structural-search` must defer both
+ * `git grep`) as its discovery recipe, and `locate-code` must defer both
  * lanes to whichever provider is enabled instead of treating native search as
  * the default.
  */
@@ -224,9 +215,8 @@ describe("no distributed asset prescribes shell search as discovery", () => {
   const distributedAssets = [
     coreSkill("review-diff.md"),
     coreAgent("auditor.md"),
-    coreAgent("ticket-audit.md"),
-    coreAgent("researcher.md"),
-    coreSkill("structural-search.md"),
+    coreAgent("scout.md"),
+    coreSkill("locate-code.md"),
   ];
 
   it("no distributed asset prescribes shell search as discovery", () => {
@@ -248,9 +238,24 @@ describe("no distributed asset prescribes shell search as discovery", () => {
     expect(Buffer.byteLength(seguras, "utf-8")).toBeLessThanOrEqual(2000);
   });
 
-  it("structural-search defers both lanes to the enabled provider", () => {
+  // Covers: R43, R44
+  it("operaciones-seguras keeps its 2,000-byte cap AFTER the retired-names NFKC sweep", () => {
+    // spec 0026 T17 DoD: this file sits at 1,993 of 2,000 bytes and is inside
+    // the retired-names sweep's area (`core-assets/managed`), which
+    // NFKC-normalizes content before matching. Measure both sides explicitly
+    // instead of assuming normalization is a byte-for-byte no-op — a composed
+    // vs. decomposed accent, or a look-alike Unicode punctuation mark, can
+    // change length even with no visible edit.
+    const raw = read(coreManaged("operaciones-seguras.md"));
+    const before = Buffer.byteLength(raw, "utf-8");
+    const after = Buffer.byteLength(raw.normalize("NFKC"), "utf-8");
+    expect(before).toBeLessThanOrEqual(2000);
+    expect(after).toBeLessThanOrEqual(2000);
+  });
+
+  it("locate-code defers both lanes to the enabled provider", () => {
     // Covers: R18
-    const skill = read(coreSkill("structural-search.md"));
+    const skill = read(coreSkill("locate-code.md"));
     expect(skill).toContain("Both lanes defer to the enabled provider");
     expect(skill).toContain("the textual lane resolves through tgrep when the plugin is enabled");
     expect(skill).toContain("the structural lane through CodeGraph when its plugin is enabled");

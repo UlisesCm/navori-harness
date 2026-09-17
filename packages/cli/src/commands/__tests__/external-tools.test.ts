@@ -87,7 +87,7 @@ describe("scanMissingOptionalTools", () => {
     hasBinary.mockReturnValue(false);
     expect(scanMissingOptionalTools()).toEqual([
       {
-        id: "structural-search",
+        id: "locate-code",
         binaries: ["ast-grep"],
         install: "npm install --global @ast-grep/cli",
       },
@@ -109,7 +109,7 @@ describe("scanMissingOptionalTools", () => {
     hasBinary.mockImplementation((binary: string) => binary === "sg");
     expect(scanMissingOptionalTools()).toEqual([
       {
-        id: "structural-search",
+        id: "locate-code",
         binaries: ["ast-grep"],
         install: "npm install --global @ast-grep/cli",
       },

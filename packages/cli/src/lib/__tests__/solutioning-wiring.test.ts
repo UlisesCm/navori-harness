@@ -76,7 +76,7 @@ describe("solutioning — content invariants (spec 0012)", () => {
   });
 
   it("the ticket pipeline hands off to the solution phase and back", () => {
-    const intake = read("skills/ticket-intake.md");
+    const intake = read("skills/resolve-ticket.md");
     expect(intake).toContain("solution-design");
     // The implementer must be pointed at the artifact, or the design is paid for
     // and then dropped on the floor.
@@ -91,10 +91,11 @@ describe("solutioning — content invariants (spec 0012)", () => {
     const reviewer = read("agents/reviewer.md");
     expect(reviewer).toContain("solution_<scope>.md");
     expect(reviewer).toMatch(/do NOT re-open the design/i);
-    // Researcher: knows the falsification brief and that the verdict isn't its call.
-    const researcher = read("agents/researcher.md");
-    expect(researcher).toContain("solution_review_<scope>.md");
-    expect(researcher).toMatch(/do not issue a verdict/i);
+    // Auditor (challenge encargo, spec 0026 T12): knows the falsification
+    // brief and that the verdict isn't its call.
+    const auditor = read("agents/auditor.md");
+    expect(auditor).toContain("solution_review_<scope>.md");
+    expect(auditor).toMatch(/do not issue a verdict/i);
   });
 
   it("no core skill is orphaned — every one is named by some flow", () => {

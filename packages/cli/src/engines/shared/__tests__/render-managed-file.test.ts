@@ -190,11 +190,11 @@ describe("renderManagedFile — real core agents render array placeholders (#89)
     expect(line).toContain("src/legacy, vendor/old");
   });
 
-  it("leader.md renders project.legacyPaths and criticalAreas (not empty)", () => {
+  it("orchestrator.md renders project.legacyPaths and criticalAreas (not empty)", () => {
     const r = renderManagedFile({
-      assetPath: resolve(getCoreRoot(), "core-assets/agents/leader.md"),
+      assetPath: resolve(getCoreRoot(), "core-assets/agents/orchestrator.md"),
       existingContent: null,
-      managedId: "leader-base",
+      managedId: "orchestrator-base",
       meta: META,
       config,
     });

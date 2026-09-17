@@ -1,5 +1,5 @@
 import { assert, describe, it, expect } from "vitest";
-import { PluginManifestSchema } from "../plugins.ts";
+import { PluginManifestSchema, listKnownPluginIds, loadPlugin } from "../plugins.ts";
 
 /**
  * Schema parser tests. Containment of resolved paths (scripts.src,
@@ -168,7 +168,7 @@ describe("PluginManifestSchema — skills", () => {
           id: "engram-leader-extension",
           file: "skills/engram-leader.md",
           injectInto: "agents/leader.md",
-          recommendedAgent: "leader",
+          recommendedAgent: "orchestrator",
         },
       ],
     });
@@ -269,7 +269,11 @@ describe("PluginManifestSchema — backward compat", () => {
       description: "Persistent memory",
       version: "0.0.1",
       managed: [
-        { id: "engram-protocol", file: "managed/engram-protocol.md", recommendedAgent: "leader" },
+        {
+          id: "engram-protocol",
+          file: "managed/engram-protocol.md",
+          recommendedAgent: "orchestrator",
+        },
       ],
       externalTool: {
         name: "engram",
@@ -324,4 +328,63 @@ describe("PluginManifestSchema — mcpServer.alwaysLoad", () => {
     assert.isTrue(parsed.success, "the schema must ACCEPT an explicit alwaysLoad: false");
     expect(parsed.data.mcpServer?.alwaysLoad).toBe(false);
   });
+});
+
+/**
+ * Spec 0026 T13 (R28): a plugin that injects into an agent's managed body may
+ * add at most one sub-block PER agent file — two entries targeting the same
+ * `injectInto` collide inside that file's marker namespace. Each sub-block's
+ * id names the agent it lands in (`<skill>-<agentId>`), so a reader scanning
+ * `plugin.json` sees the target without opening the agent file.
+ */
+// Covers: R28
+describe("real plugin manifests — one sub-block per agent file, id and source named after its target", () => {
+  const pluginIds = listKnownPluginIds();
+  // Anti-vacuity: this suite is pointless if no real manifest injects into more
+  // than one agent file — assert the fixture it depends on actually exists.
+  it("at least one real plugin injects into 2+ distinct agent files", () => {
+    const injectingPlugins = pluginIds.filter((id) => {
+      const targets = new Set(
+        loadPlugin(id)
+          .skillAssets.map((s) => s.injectInto)
+          .filter((t): t is string => Boolean(t)),
+      );
+      return targets.size >= 2;
+    });
+    expect(injectingPlugins.length).toBeGreaterThan(0);
+  });
+
+  it.each(pluginIds)("%s — no two sub-blocks target the same agent file", (pluginId) => {
+    const skills = loadPlugin(pluginId).skillAssets.filter((s) => s.injectInto);
+    const byTarget = new Map<string, string[]>();
+    for (const skill of skills) {
+      const target = skill.injectInto!;
+      byTarget.set(target, [...(byTarget.get(target) ?? []), skill.id]);
+    }
+    for (const [target, ids] of byTarget) {
+      expect(
+        ids,
+        `${pluginId}: ${target} receives ${ids.length} sub-blocks (${ids.join(", ")})`,
+      ).toHaveLength(1);
+    }
+  });
+
+  it.each(pluginIds)(
+    "%s — each sub-block injected into an agent file names that agent",
+    (pluginId) => {
+      // R28 scopes the roster's agent-facing naming rule; a plugin injecting into
+      // a skill file (e.g. semgrep into `security-guidance/SKILL.md`) is out of
+      // scope here — that file has no "target agent" id to name.
+      const agentSkills = loadPlugin(pluginId).skillAssets.filter((s) =>
+        /\.claude\/agents\/[\w-]+\.md$/.test(s.injectInto ?? ""),
+      );
+      for (const skill of agentSkills) {
+        const agentId = skill.injectInto!.match(/\.claude\/agents\/([\w-]+)\.md$/)![1];
+        expect(
+          skill.id,
+          `${pluginId}: sub-block id "${skill.id}" does not name its target agent "${agentId}"`,
+        ).toContain(agentId);
+      }
+    },
+  );
 });

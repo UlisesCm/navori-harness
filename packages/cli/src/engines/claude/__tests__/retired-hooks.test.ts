@@ -39,7 +39,7 @@ const CONFIG = {
   commits: "conventional-es",
 } as unknown as NavoriConfig;
 
-const RETIRED = RETIRED_HOOKS[0] as string;
+const RETIRED = RETIRED_HOOKS[0]!.id;
 
 let cwd: string;
 
@@ -97,10 +97,26 @@ describe("render — poda un hook retirado (#774)", () => {
     expect(readFileSync(path, "utf-8")).toContain("escrito a mano");
   });
 
+  // Covers: R39, R41
+  it("un hook ajeno se conserva y se reporta con su motivo", () => {
+    const path = hookPath(RETIRED);
+    mkdirSync(join(cwd, ".claude/hooks"), { recursive: true });
+    writeFileSync(path, "#!/usr/bin/env bash\n# el mío, escrito a mano\n", "utf-8");
+    const r = renderClaudeEngine(cwd, CONFIG);
+    expect(r.warnings.some((w) => w.includes("foreign") && w.includes(RETIRED))).toBe(true);
+  });
+
   it("NO borra el que escribió un navori más nuevo (anti-rollback)", () => {
     const path = seedManaged(RETIRED, "99.0.0");
     renderClaudeEngine(cwd, CONFIG);
     expect(existsSync(path)).toBe(true);
+  });
+
+  // Covers: R39, R41
+  it("un hook de un navori más nuevo se conserva y se reporta con su motivo", () => {
+    seedManaged(RETIRED, "99.0.0");
+    const r = renderClaudeEngine(cwd, CONFIG);
+    expect(r.warnings.some((w) => w.includes("newer") && w.includes(RETIRED))).toBe(true);
   });
 
   it("no reporta nada cuando el repo nunca lo tuvo", () => {
@@ -120,15 +136,23 @@ describe("RETIRED_HOOKS — el registro en sí", () => {
         .filter((f) => f.endsWith(".sh"))
         .map((f) => f.slice(0, -".sh".length)),
     );
-    const overlap = RETIRED_HOOKS.filter((id) => shipped.has(id));
-    expect(overlap, `ids en RETIRED_HOOKS cuyo asset navori sigue enviando: ${overlap}`).toEqual(
-      [],
-    );
+    const overlap = RETIRED_HOOKS.filter((retired) => shipped.has(retired.id));
+    expect(
+      overlap,
+      `ids en RETIRED_HOOKS cuyo asset navori sigue enviando: ${overlap.map((r) => r.id)}`,
+    ).toEqual([]);
   });
 
   it("registra el retiro que motivó esto", () => {
     // Anti-falso-verde: con la lista vacía, toda la suite de arriba pasaría sin
     // ejercitar una sola línea del código nuevo.
-    expect(RETIRED_HOOKS).toContain("precompact-session-summary");
+    expect(RETIRED_HOOKS.map((r) => r.id)).toContain("precompact-session-summary");
+  });
+
+  // Covers: R38
+  it("carga el marcador `<id>-base` real, compartido por los dos adapters", () => {
+    const retired = RETIRED_HOOKS.find((r) => r.id === "precompact-session-summary");
+    expect(retired?.markerIdByAdapter.claude).toBe("precompact-session-summary-base");
+    expect(retired?.markerIdByAdapter.codex).toBe("precompact-session-summary-base");
   });
 });

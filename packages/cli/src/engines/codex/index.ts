@@ -47,7 +47,7 @@ const NAVORI_VERSION = readCliVersion();
 const SKILL_INJECT_RE = /^\.claude\/skills\/([a-z0-9-]+)(?:\/SKILL)?\.md$/;
 
 // A plugin skill can also inject into an agent (`injectInto: .claude/agents/<id>.md`).
-// The leader is embodied by the main thread (appended to AGENTS.md); other rendered
+// The orchestrator is embodied by the main thread (appended to AGENTS.md); other rendered
 // agents are covered by buildAgentToml. A target that is NEITHER — a disabled or
 // otherwise non-rendered agent — would drop silently, so we warn (#277).
 const AGENT_INJECT_RE = /^\.claude\/agents\/([a-z0-9-]+)\.md$/;
@@ -123,7 +123,7 @@ export function renderCodexEngine(
   }
 
   // Floor / safety net (#277): a plugin skill targeting an agent Codex neither
-  // renders as a `.toml` (buildAgentToml) nor embodies as the leader (appended to
+  // renders as a `.toml` (buildAgentToml) nor embodies as the orchestrator (appended to
   // AGENTS.md) is dropped silently. Warn so a disabled/unknown agent target surfaces
   // instead of vanishing — mirroring how the prose engines report their omissions.
   const renderedAgentIds = new Set(plan.agents.map((a) => a.id));
@@ -132,7 +132,8 @@ export function renderCodexEngine(
       const injectInto = skill.injectInto;
       if (injectInto === undefined) continue;
       const agentId = injectInto.match(AGENT_INJECT_RE)?.[1];
-      if (agentId === undefined || agentId === "leader" || renderedAgentIds.has(agentId)) continue;
+      if (agentId === undefined || agentId === "orchestrator" || renderedAgentIds.has(agentId))
+        continue;
       warnings.push(
         tc(lang).engine.pluginSkillNotInjected(skill.id, plugin.manifest.id, injectInto),
       );
@@ -147,10 +148,18 @@ export function renderCodexEngine(
   // appended as a managed sub-block BEFORE the single write — mirroring the
   // Claude adapter, but into Codex's `.agents/skills/<id>/SKILL.md` and adapted
   // to Codex's vocabulary. (skill→agent injectInto is handled in buildAgentToml.)
-  const { pending, removals, skipped } = collectPlan(plan, adapter, ctx, {
+  const { pending, removals, skipped, kept } = collectPlan(plan, adapter, ctx, {
     prune: presetLoadedSafely,
     lang,
   });
+  // R39/R41 (spec 0026 T10): Codex reports a kept orphan the same way Claude's
+  // §8.7b–d retirement loops do — path + reason, plain text in `warnings`,
+  // never silently skipped. Generic over every orphan scan (agents/skills/
+  // hooks), a superset of "retired ids" that stays correct once T11 starts
+  // pruning old agent ids here too.
+  for (const k of kept) {
+    warnings.push(tc(lang).engine.keptOrphanCodex(k.path, k.reason));
+  }
   for (const plugin of plugins) {
     for (const skill of plugin.skillAssets) {
       const m = skill.injectInto?.match(SKILL_INJECT_RE);
@@ -382,10 +391,10 @@ function buildAgentsMdRequest(
   const agentCatalog =
     buildAgentsIndexBlock(resolveLang(ctx.config.language), agents, { withIntro: false }) ?? "";
   let body = adaptHarnessTextForCodex(`${baseBody}\n${agentCatalog}`, ctx.config);
-  // The main thread embodies the leader in Codex (no `.codex/agents/leader.toml`),
-  // so a plugin skill injecting into `.claude/agents/leader.md` (e.g. engram's
-  // leader-extension) has no agent .toml to land in — buildAgentToml only runs for
-  // rendered agents. Append it here as a managed sub-block of AGENTS.md, the leader's
+  // The main thread embodies the orchestrator in Codex (no `.codex/agents/orchestrator.toml`),
+  // so a plugin skill injecting into a target agent (e.g. engram's
+  // orchestrator extension) has no agent .toml to land in — buildAgentToml only runs for
+  // rendered agents. Append it here as a managed sub-block of AGENTS.md, the orchestrator's
   // durable guide, mirroring buildAgentToml's per-agent injection but into prose.
   // Same managed-marker treatment as the skill sub-block loop (`@navori/plugin-<id>`
   // source) so re-render is idempotent and disabling the plugin drops it: AGENTS.md
@@ -393,7 +402,7 @@ function buildAgentsMdRequest(
   // `ctx.plugins`, so the sub-block simply isn't re-emitted (#277).
   for (const plugin of ctx.plugins) {
     for (const skill of plugin.skillAssets) {
-      if (skill.injectInto !== ".claude/agents/leader.md") continue;
+      if (skill.injectInto !== ".claude/agents/orchestrator.md") continue;
       const subBlock = adaptHarnessTextForCodex(
         interpolate(stripFrontmatter(readFileSync(skill.absPath, "utf-8")), ctx.config),
         ctx.config,

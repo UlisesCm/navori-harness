@@ -1,7 +1,8 @@
 import { type HarnessCatalog, barredMcpTokens } from "./harness.ts";
-import type { AgentRun, SessionAudit, Signal } from "./model.ts";
-import { recorderWindow } from "./model.ts";
+import type { AgentRun, GateExecution, SessionAudit, Signal } from "./model.ts";
+import { GATE_HOOK_NAMES, correlateGateExecutions, gateHandle, recorderWindow } from "./model.ts";
 import { compareSemver } from "../semver.ts";
+import { RETIRED_AGENTS } from "../../engines/shared/roster.ts";
 
 /**
  * Findings, as pure functions over one parsed session plus the harness it ran
@@ -14,8 +15,27 @@ import { compareSemver } from "../semver.ts";
 
 export type Lang = "es" | "en";
 
-/** Read-only agent types: candidates to run in parallel, never conflicting. */
-const READ_ONLY_AGENTS = new Set(["researcher", "explorer", "ticket-audit", "auditor"]);
+/** Current roster ids whose role never mutates shared state. */
+const CURRENT_READ_ONLY_AGENTS = new Set(["scout", "auditor"]);
+
+/**
+ * Read-only agent types: candidates to run in parallel, never conflicting.
+ *
+ * Built from `CURRENT_READ_ONLY_AGENTS` plus every `RETIRED_AGENTS` entry
+ * whose `successor` folded into one of them (spec 0026 T17, R43/R44): a
+ * historical transcript naming `researcher`/`explorer`/`ticket-audit` must
+ * keep the SAME classification its successor (`scout`/`auditor`) has today,
+ * or re-auditing an old session would silently change its findings. Before
+ * this it was a hand-copied literal set that never gained `scout` when the
+ * roster renamed `explorer`/`researcher` into it (#821) — a fresh session
+ * with `scout` runs would have missed `serial-fanout` entirely.
+ */
+const READ_ONLY_AGENTS = new Set([
+  ...CURRENT_READ_ONLY_AGENTS,
+  ...RETIRED_AGENTS.filter(
+    (retired) => retired.successor !== null && CURRENT_READ_ONLY_AGENTS.has(retired.successor),
+  ).map((retired) => retired.id),
+]);
 
 /** A gap under this between two runs means they could have been simultaneous. */
 const SERIAL_GAP_MS = 5 * 60 * 1000;
@@ -866,23 +886,6 @@ export function harnessRegime(
 }
 
 /**
- * The three PreToolUse(Bash) gates, which are the hooks that do multi-second
- * work and are therefore the ones a host timeout can reach. Until #797 this was
- * the single name `quality-gate-pre-commit`, and the other two were outside the
- * detector even though they run the same trap shape on the same tool call.
- */
-const GATE_HOOKS = new Set(["quality-gate-pre-commit", "check-jscpd", "check-semgrep"]);
-
-/** `name`+`toolUseId`: the three gates fire on the SAME Bash call and share its
- *  `tool_use_id`, so keying on the id alone would let one gate's `allow` cover
- *  for another gate that never finished. */
-function gateKey(event: { name: string; toolUseId?: string }): string {
-  // `\u0000` as the escape, never a raw NUL: the repo keeps its sources
-  // grep-able and diff-able (`no-nul-bytes.test.ts`).
-  return `${event.name}\u0000${event.toolUseId ?? ""}`;
-}
-
-/**
  * A gate that never delivered a verdict, by either of the two signatures a kill
  * can leave (#776, #797):
  *
@@ -903,14 +906,14 @@ function abandonedQualityGates(session: SessionAudit, lang: Lang): Signal[] {
   const events = [
     ...session.orchestrator.hookEvents,
     ...session.agents.flatMap((agent) => agent.hookEvents),
-  ].filter((event) => GATE_HOOKS.has(event.name));
+  ].filter((event) => GATE_HOOK_NAMES.has(event.name));
   const terminal = new Set(
     events
       .filter(
         (event) =>
           (event.verdict === "allow" || event.verdict === "block") && event.toolUseId !== undefined,
       )
-      .map(gateKey),
+      .map(gateHandle),
   );
   // Keyed, not counted: a killed run leaves BOTH a `gate-started` and a
   // `gate-killed` for the same invocation, and one interrupted gate must be
@@ -919,9 +922,9 @@ function abandonedQualityGates(session: SessionAudit, lang: Lang): Signal[] {
   for (const event of events) {
     if (!event.toolUseId) continue;
     if (event.verdict !== "gate-started" && event.verdict !== "gate-killed") continue;
-    if (terminal.has(gateKey(event))) continue;
-    const previous = abandoned.get(gateKey(event));
-    abandoned.set(gateKey(event), {
+    if (terminal.has(gateHandle(event))) continue;
+    const previous = abandoned.get(gateHandle(event));
+    abandoned.set(gateHandle(event), {
       name: event.name,
       toolUseId: event.toolUseId,
       killed: event.verdict === "gate-killed" || (previous?.killed ?? false),
@@ -981,4 +984,176 @@ export function detectSignals(
     ...routingNotice(session, lang),
     ...abandonedQualityGates(session, lang),
   ].sort((a, b) => order[a.severity] - order[b.severity]);
+}
+
+/** Agent types R53's single-owner contract governs: the ones the harness
+ *  instructs to run `{{qualityGate.full}}` themselves. */
+const GATE_OWNER_TYPES = new Set(["reviewer", "implementer"]);
+
+/** Milliseconds, formatted as seconds — `signals.ts` has no dependency on
+ *  `report.ts`'s `minutes()` and shouldn't grow one just for this. */
+function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/**
+ * Reviewer/implementer gate lifecycle (R53, R54 of spec 0026): correlates
+ * every session's `GateExecution`s to their owner and reports the shape a
+ * single-owner-contract violation would leave — duplicate or unknown
+ * handles, overlapping reviewer runs — plus duration/wait totals once there
+ * is enough data to say anything about them.
+ *
+ * RANGE-level, like `harnessRegime`: a duplicate or a duration figure is a
+ * statement about the whole audited range, not about one session in
+ * isolation, and R54's own sample-size floor (>=10 completed gates over >=3
+ * diffs) can only be evaluated by looking across sessions.
+ *
+ * This is a report, never a guard: it reads the transcript after the fact and
+ * states what happened. It does not claim to prevent a tool call, and no
+ * caller should read it as having done so.
+ */
+export function reviewerGateLifecycle(sessions: SessionAudit[], lang: Lang): Signal[] {
+  const executions: GateExecution[] = sessions.flatMap((s) => correlateGateExecutions(s));
+  const owned = executions.filter(
+    (e) => e.ownerAgentType !== null && GATE_OWNER_TYPES.has(e.ownerAgentType),
+  );
+  const out: Signal[] = [];
+
+  const duplicates = owned.filter((e) => e.outcome === "duplicate");
+  if (duplicates.length > 0) {
+    out.push({
+      kind: "reviewer-gate-duplicate",
+      severity: "high",
+      summary: pick(
+        lang,
+        `${duplicates.length} ejecución(es) del gate de reviewer/implementer registraron más de un veredicto terminal`,
+        `${duplicates.length} reviewer/implementer gate execution(s) recorded more than one terminal verdict`,
+      ),
+      evidence: pick(
+        lang,
+        `Detectado por handle repetido (mismo hook + tool_use_id) con 2+ eventos allow/block: ${duplicates.map((e) => e.handle.split("\u0000")[0]).join(", ")}. Esto REPORTA el hallazgo; ningún detector de esta auditoría bloquea ni previene la tool call que lo produjo.`,
+        `Detected by a repeated handle (same hook + tool_use_id) with 2+ allow/block events: ${duplicates.map((e) => e.handle.split("\u0000")[0]).join(", ")}. This REPORTS the finding; no detector in this audit blocks or prevents the tool call that produced it.`,
+      ),
+    });
+  }
+
+  const unknown = executions.filter((e) => e.outcome === "unknown");
+  if (unknown.length > 0) {
+    out.push({
+      kind: "reviewer-gate-unknown-handle",
+      severity: "warn",
+      summary: pick(
+        lang,
+        `${unknown.length} evento(s) de gate sin tool_use_id: no se pueden correlacionar a un owner`,
+        `${unknown.length} gate event(s) with no tool_use_id: they cannot be correlated to an owner`,
+      ),
+      evidence: pick(
+        lang,
+        "Registrados antes de que el payload incluyera tool_use_id, o por un hook que no lo propagó. No se les asigna un owner adivinado — se cuentan como dato faltante, no como cero.",
+        "Recorded before the payload carried tool_use_id, or by a hook that didn't propagate it. No owner is guessed for them — counted as missing data, not as zero.",
+      ),
+    });
+  }
+
+  // The direct, observable shape a single-owner violation (R53) leaves: two
+  // reviewer processes alive over the same span. Reuses `overlapsWith`
+  // (already computed from each run's [startedAt, endedAt] window) rather
+  // than re-deriving overlap here.
+  const reviewerRuns = sessions.flatMap((s) => s.agents.filter((a) => a.agentType === "reviewer"));
+  const reviewerIds = new Set(reviewerRuns.map((a) => a.agentId));
+  const overlapping = reviewerRuns.filter((a) => a.overlapsWith.some((id) => reviewerIds.has(id)));
+  if (overlapping.length > 0) {
+    out.push({
+      kind: "reviewer-gate-overlap",
+      severity: "high",
+      summary: pick(
+        lang,
+        `${overlapping.length} corrida(s) de reviewer se solaparon en el tiempo — posible violación de single-owner`,
+        `${overlapping.length} reviewer run(s) overlapped in time — a possible single-owner violation`,
+      ),
+      evidence: overlapping.map((a) => a.agentId.slice(0, 8)).join(", "),
+    });
+  }
+
+  const timeouts = owned.filter((e) => e.outcome === "timeout");
+  if (timeouts.length > 0) {
+    out.push({
+      kind: "reviewer-gate-timeout",
+      severity: "high",
+      summary: pick(
+        lang,
+        `${timeouts.length} ejecución(es) del gate de reviewer/implementer terminaron sin veredicto (timeout)`,
+        `${timeouts.length} reviewer/implementer gate execution(s) ended with no verdict (timeout)`,
+      ),
+      evidence: pick(
+        lang,
+        "Un timeout nunca equivale a éxito; el reporte no asume exit 0 para estas ejecuciones.",
+        "A timeout never equals success; the report does not assume exit 0 for these executions.",
+      ),
+    });
+  }
+
+  // R54's own floor: below it, a latency conclusion is not drawn — it is
+  // reported as inconclusive, never printed as a stable figure and never
+  // treated as zero.
+  const MIN_COMPLETED_GATES = 10;
+  const MIN_DIFFS = 3;
+  const completed = owned.filter((e) => e.outcome === "completed" && e.durationMs !== null);
+  // The audit has no independent diff identity, so a session is the proxy for
+  // one diff cycle — stated here rather than silently assumed, since it is a
+  // measured limitation, not a fact about diffs.
+  const diffProxy = sessions.length;
+  if (completed.length >= MIN_COMPLETED_GATES && diffProxy >= MIN_DIFFS) {
+    const gateMs = completed.reduce((sum, e) => sum + (e.durationMs ?? 0), 0);
+    const reviewerMs = reviewerRuns.reduce((sum, a) => sum + a.durationMs, 0);
+    // "Espera": the gap between one reviewer run ending and the next one
+    // starting, within the same session — a re-review cycle waiting on
+    // whatever came between them. Negative gaps (overlap) are excluded, not
+    // clamped to zero, since they are already reported above as overlap.
+    let waitMs = 0;
+    for (const s of sessions) {
+      const runs = s.agents
+        .filter((a) => a.agentType === "reviewer")
+        .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+      for (let i = 1; i < runs.length; i++) {
+        const gap = Date.parse(runs[i]!.startedAt) - Date.parse(runs[i - 1]!.endedAt);
+        if (Number.isFinite(gap) && gap > 0) waitMs += gap;
+      }
+    }
+    out.push({
+      kind: "reviewer-gate-duration",
+      severity: "info",
+      summary: pick(
+        lang,
+        `${completed.length} gates completados sobre ${diffProxy} sesión(es): ${seconds(gateMs)} de gate, ${seconds(reviewerMs)} de reviewer, ${seconds(waitMs)} de espera entre re-reviews`,
+        `${completed.length} completed gates over ${diffProxy} session(s): ${seconds(gateMs)} gate, ${seconds(reviewerMs)} reviewer, ${seconds(waitMs)} waiting between re-reviews`,
+      ),
+      evidence: pick(
+        lang,
+        `${reviewerRuns.length} corrida(s) de reviewer, ${completed.length} ejecuciones de gate correlacionadas a reviewer/implementer. La sesión es la unidad usada como proxy de "diff" (la auditoría no registra una identidad de diff propia). El umbral mínimo de R54 (>=${MIN_COMPLETED_GATES} gates sobre >=${MIN_DIFFS} diffs) ya se cumplió; por debajo de él este hallazgo se marca inconcluso en vez de imprimirse.`,
+        `${reviewerRuns.length} reviewer run(s), ${completed.length} gate executions correlated to reviewer/implementer. The session is the proxy used for "diff" (the audit records no independent diff identity). R54's own floor (>=${MIN_COMPLETED_GATES} gates over >=${MIN_DIFFS} diffs) is already met; below it this finding is marked inconclusive instead of being printed.`,
+      ),
+    });
+  } else if (reviewerRuns.length > 0 || owned.length > 0) {
+    // Silent when there is no reviewer/gate activity at all (nothing to say,
+    // same convention as every other detector in this file); vocal but
+    // explicitly inconclusive once there is SOME activity below the floor —
+    // that is the case R54 says must not read as zero.
+    out.push({
+      kind: "reviewer-gate-duration",
+      severity: "info",
+      summary: pick(
+        lang,
+        `Datos insuficientes para un criterio de latencia de reviewer/gate (${completed.length} gates completados sobre ${diffProxy} sesión(es); el mínimo de R54 es ${MIN_COMPLETED_GATES} sobre ${MIN_DIFFS})`,
+        `Not enough data for a reviewer/gate latency criterion (${completed.length} completed gates over ${diffProxy} session(s); R54's minimum is ${MIN_COMPLETED_GATES} over ${MIN_DIFFS})`,
+      ),
+      evidence: pick(
+        lang,
+        "Tratado como inconcluso, no como cero: la falta de datos no habilita ninguna conclusión de latencia.",
+        "Treated as inconclusive, not as zero: missing data enables no latency conclusion.",
+      ),
+    });
+  }
+
+  return out;
 }

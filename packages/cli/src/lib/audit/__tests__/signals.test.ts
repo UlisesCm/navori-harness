@@ -276,6 +276,27 @@ describe("signal: serial-fanout", () => {
     });
     expect(kinds(s, catalog())).not.toContain("serial-fanout");
   });
+
+  // Covers: R43, R44
+  it("historical logs with retired ids keep their classification", () => {
+    const s = session({
+      agents: [
+        agent({
+          agentId: "e1",
+          agentType: "explorer",
+          startedAt: "2026-08-25T10:00:00.000Z",
+          endedAt: "2026-08-25T10:02:00.000Z",
+        }),
+        agent({
+          agentId: "s1",
+          agentType: "scout",
+          startedAt: "2026-08-25T10:03:00.000Z",
+          endedAt: "2026-08-25T10:05:00.000Z",
+        }),
+      ],
+    });
+    expect(kinds(s, catalog())).toContain("serial-fanout");
+  });
 });
 
 describe("signal: permission-mode", () => {

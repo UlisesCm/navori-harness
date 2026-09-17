@@ -65,11 +65,15 @@ describe("core agent assets — shape contract", () => {
   /**
    * A derived list can go vacuous in silence: a bad `getCoreRoot()` or a build
    * that stops copying `core-assets/agents/` would leave zero ids and every
-   * case below would simply not run, reporting green. The floor is the roster
-   * as of #417 (8 agents) — raise it when the roster grows, never lower it.
+   * case below would simply not run, reporting green. The floor was the
+   * roster as of #417 (8 agents); spec 0026 T11/T12 is a deliberate RESET
+   * (leader/explorer/researcher/ticket-audit/commit-pr-pilot fold into
+   * orchestrator/scout/auditor/publisher), not organic growth, so the floor
+   * drops to 6 in the same commit that ships the new roster — raise it again
+   * when the roster grows past six.
    */
   it("derives the agent roster from the directory, and it is not empty", () => {
-    expect(AGENT_IDS.length, `no agent assets found under ${AGENTS_DIR}`).toBeGreaterThanOrEqual(8);
+    expect(AGENT_IDS.length, `no agent assets found under ${AGENTS_DIR}`).toBeGreaterThanOrEqual(6);
     expect(AGENT_IDS).toContain("auditor");
   });
 
@@ -136,10 +140,8 @@ describe("each agent declares its own handoff contract (#573)", () => {
   const CONTRACT: ReadonlyArray<readonly [string, readonly string[]]> = [
     ["implementer", ["impl_<feature>.md", "Status:"]],
     ["reviewer", ["review_<feature>.md", "APPROVED"]],
-    ["ticket-audit", ["audit_ticket_"]],
-    ["explorer", ["explore_"]],
-    ["researcher", ["research_"]],
-    ["auditor", ["audit_deep_"]],
+    ["scout", ["explore_", "research_"]],
+    ["auditor", ["audit_deep_", "audit_ticket_"]],
   ];
 
   it.each(CONTRACT.map(([id, needles]) => [id, needles] as const))(
@@ -177,8 +179,8 @@ describe("core agent assets — interpolation placeholders", () => {
     expect(anyRefs).toBe(true);
   });
 
-  it("commit-pr-pilot opens PRs against prTarget (gh pr create --base)", () => {
-    expect(readAgent("commit-pr-pilot")).toContain("--base {{prTarget}}");
+  it("publisher opens PRs against prTarget (gh pr create --base)", () => {
+    expect(readAgent("publisher")).toContain("--base {{prTarget}}");
   });
 
   it("at least one agent references project.criticalAreas", () => {
@@ -204,4 +206,81 @@ describe("core agent assets — no assignment to a zsh-special variable (#344)",
       expect(offender?.[2], `use an unambiguous name (file, rel, target) instead`).toBeUndefined();
     });
   }
+});
+
+/**
+ * Spec 0026 T12 (R51) — every roster agent declares a word cap over its
+ * MANAGED body (before the user-section sentinel, same convention
+ * `skill-meta.ts` uses for skills), fixed to the size it lands with. A
+ * missing `maxWords:` or a body that exceeds it fails here, not in a repo
+ * that onboards a silently-growing agent.
+ */
+// Covers: R51
+describe("core agent assets — declare and respect a word cap (spec 0026 T12, R51)", () => {
+  for (const id of AGENT_IDS) {
+    it(`${id} declares maxWords and stays under it`, () => {
+      const raw = readAgent(id);
+      const parsed = parseAsset(raw);
+      const capRaw = parsed.frontmatter.maxWords;
+      expect(capRaw, `${id}.md has no maxWords in its frontmatter`).toBeDefined();
+      const cap = Number(capRaw);
+      expect(Number.isFinite(cap) && cap > 0, `${id}.md's maxWords is not a positive number`).toBe(
+        true,
+      );
+      const idx = parsed.body.indexOf(SENTINEL);
+      const managed = parsed.body.slice(0, idx);
+      const words = managed.trim().split(/\s+/).filter(Boolean).length;
+      expect(
+        words,
+        `${id}.md's managed body (${words} words) exceeds its maxWords (${cap})`,
+      ).toBeLessThanOrEqual(cap);
+    });
+  }
+
+  it("fails when a budgeted asset does not exist (anti-vacuity)", () => {
+    const missing = resolve(AGENTS_DIR, "does-not-exist.md");
+    expect(existsSync(missing)).toBe(false);
+  });
+});
+
+/**
+ * Spec 0026 T12 (R21) — no subagent may declare the `Agent` tool: only the
+ * orchestrator (embodied by the main agent, never invoked as a subagent) can
+ * launch other agents. A subagent with `Agent` in its `tools:` allowlist
+ * could recurse into launching further subagents, which none of the roster's
+ * prose contracts for.
+ */
+// Covers: R21
+describe("core agent assets — no subagent declares the Agent tool (spec 0026 T12, R21)", () => {
+  for (const id of AGENT_IDS.filter((i) => i !== "orchestrator")) {
+    it(`${id} does not list Agent in tools:`, () => {
+      const parsed = parseAsset(readAgent(id));
+      const tools = (parsed.frontmatter.tools ?? "").split(",").map((t) => t.trim());
+      expect(tools, `${id}.md declares the Agent tool — only orchestrator may`).not.toContain(
+        "Agent",
+      );
+    });
+  }
+});
+
+/**
+ * Spec 0026 T12 (R22, R23) — `scout` and `auditor` cover more than one
+ * encargo each; every encargo names the literal output path its own protocol
+ * writes, so a reader (or a later grep for the path) finds where each shape
+ * lands without guessing.
+ */
+// Covers: R22, R23
+describe("core agent assets — scout and auditor declare each brief with its output file (spec 0026 T12)", () => {
+  it("scout declares both the map and the question output paths", () => {
+    const body = readAgent("scout");
+    expect(body).toContain(".claude/progress/explore_<area>.md");
+    expect(body).toContain(".claude/progress/research_<question-slug>.md");
+  });
+
+  it("auditor declares the area, ticket and challenge output paths", () => {
+    const body = readAgent("auditor");
+    expect(body).toContain(".claude/progress/audit_deep_<scope>.md");
+    expect(body).toContain(".claude/progress/audit_ticket_<ID>.md");
+    expect(body).toContain(".claude/progress/solution_review_<scope>.md");
+  });
 });

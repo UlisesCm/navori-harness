@@ -23,7 +23,7 @@ import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 // The authorship test every delete path in the product shares — see
 // lib/removable.ts. The skill prunes below pass their managed id so it answers
 // "did navori write this file AS that block?" (#496).
-import { isRemovableNavoriFile } from "../../lib/removable.ts";
+import { isRemovableNavoriFile, navoriAuthorship } from "../../lib/removable.ts";
 import {
   injectManagedSection,
   removeManagedSection,
@@ -43,6 +43,7 @@ import { stripFrontmatter } from "../../lib/frontmatter.ts";
 import { tc, resolveLang, type Lang } from "../../lib/i18n.ts";
 import {
   CORE_AGENTS,
+  RETIRED_AGENTS,
   RETIRED_HOOKS,
   RETIRED_SKILLS,
   extraConditionMet,
@@ -226,8 +227,8 @@ const AGENTS_INDEX_ID = "agentes-disponibles";
 /**
  * Build the agents index — the catalog the orchestrator (main agent) reads to
  * know which subagents exist and when to spawn each. Lists only the enabled
- * leaf agents (config.harness[key] !== false); the leader is excluded because
- * the main agent embeds that role rather than delegating to it. The prose
+ * leaf agents (config.harness[key] !== false); the orchestrator is excluded
+ * because the main agent embeds that role rather than delegating to it. The prose
  * (heading, intro, per-agent "when to reach for it") is localized and shared
  * with Codex via `buildAgentsIndexBlock` (#289). Returns null when nothing is
  * enabled so the block is stripped instead of rendered empty.
@@ -236,7 +237,7 @@ function buildAgentsIndexBody(config: NavoriConfig, lang: Lang): string | null {
   const when = tc(lang).blocks.agentsIndex.when;
   const agents: Array<{ id: string; description: string }> = [];
   for (const agent of CORE_AGENTS) {
-    if (agent.id === "leader") continue;
+    if (agent.id === "orchestrator") continue;
     if (!isAgentEnabled(config, agent.harnessKey)) continue;
     const description = when[agent.id];
     if (!description) continue;
@@ -245,11 +246,11 @@ function buildAgentsIndexBody(config: NavoriConfig, lang: Lang): string | null {
   return buildAgentsIndexBlock(lang, agents, { withIntro: true });
 }
 
-/** Managed sub-block id for the Codex cross-model review advisory in leader.md. */
+/** Managed sub-block id for the Codex cross-model review advisory in orchestrator.md. */
 const CODEX_CROSS_REVIEW_ID = "codex-cross-review";
 
 /**
- * Body of the Codex cross-model review advisory appended to `leader.md`. Short
+ * Body of the Codex cross-model review advisory appended to `orchestrator.md`. Short
  * on purpose: the actual review criteria already live in what `.codex/` renders
  * (`AGENTS.md` + `.codex/agents/reviewer.toml`), so this only tells the Claude
  * orchestrator that a second opinion from a DIFFERENT provider is one command
@@ -815,9 +816,11 @@ export function renderClaudeEngine(
   // hooks; collectPlan renders them through the Claude adapter into the SAME
   // `pending`. Claude-only work (CLAUDE.md above; settings/bootstrap/scripts/
   // injectInto/preset-hooks/reconciliation below) shares that pending and one
-  // commitWrites. `includeLeader` because Claude DOES emit leader.md.
+  // commitWrites. `includeOrchestrator` because Claude DOES emit orchestrator.md.
   const preset = loadActivePreset(config, repoRoot, warnings);
-  const fullHarnessPlan = resolveHarnessPlan(config, coreAssets, preset, { includeLeader: true });
+  const fullHarnessPlan = resolveHarnessPlan(config, coreAssets, preset, {
+    includeOrchestrator: true,
+  });
   // Under `minimal` only skills survive: they DO load in a workspace (lazily,
   // the first time Claude reads a file in that subdirectory), which is exactly
   // the behavior a monorepo wants. Agents and hooks do not (0018 R2).
@@ -993,7 +996,7 @@ export function renderClaudeEngine(
 
   // 8.4. Codex cross-model review advisory (I3/N3, #168). When this repo renders
   // the `codex` engine, the Claude orchestrator gets a managed sub-block in
-  // leader.md telling it a second opinion from a DIFFERENT provider is one
+  // orchestrator.md telling it a second opinion from a DIFFERENT provider is one
   // command away — reusing what `.codex/` already rendered (AGENTS.md +
   // reviewer.toml), so the prompt stays short. GATED ON THE ENGINE, not a
   // standalone toggle: no `codex` in engines → no `.codex/` → the block is
@@ -1002,7 +1005,7 @@ export function renderClaudeEngine(
 
   // 8.5. Reconcile DISABLED plugins. A plugin turned off (via `configure
   // plugins` or `navori remove`) still has its managed CLAUDE.md blocks stripped
-  // by computeRenderPlan, but its injectInto sub-blocks (e.g. leader.md) and its
+  // by computeRenderPlan, but its injectInto sub-blocks (e.g. orchestrator.md) and its
   // .claude/scripts/* were only ever touched on the enabled path — so they'd
   // orphan. Strip them here so disabling a plugin fully cleans up (#80).
   for (const plugin of disabledPlugins) {
@@ -1113,15 +1116,36 @@ export function renderClaudeEngine(
   // discovers skills by walking the directory, not by reading the index navori
   // renders. Codex never had the gap: its adapter declares a `skill-dir` orphan
   // scan, so the same retirement prunes there. This closes the parity.
-  for (const id of RETIRED_SKILLS) {
+  //
+  // Marker comes from `retired.markerIdByAdapter.claude` (spec 0026 T8), NOT
+  // the bare id: a retired CORE skill's real marker is `<id>-base`
+  // (`harness-plan.ts` stamps that for `CORE_SKILLS`), so matching on the bare
+  // id would see it as foreign and never prune it (`roster.ts` documents why).
+  for (const retired of RETIRED_SKILLS) {
     // The user may have reclaimed the id as their own skill — then it is theirs,
     // not a leftover. Same escape hatch §8.7 gives a deselected library.
-    if (localSkillIds.has(id)) continue;
-    for (const removal of [planFlatSkillRemoval(cwd, id, id), planDirSkillRemoval(cwd, id, id)]) {
+    if (localSkillIds.has(retired.id)) continue;
+    const markerId = retired.markerIdByAdapter.claude ?? retired.id;
+    for (const removal of [
+      planFlatSkillRemoval(cwd, retired.id, markerId),
+      planDirSkillRemoval(cwd, retired.id, markerId),
+    ]) {
       if (!removal) continue;
       inspected += 1;
       removals.push(removal);
     }
+    // R39/R41 (spec 0026 T10): whichever shape survives (foreign or a newer
+    // navori's) is reported, not silently left.
+    reportKeptRetired(
+      warnings,
+      cwd,
+      [
+        join(cwd, ".claude/skills", `${retired.id}.md`),
+        join(cwd, ".claude/skills", retired.id, "SKILL.md"),
+      ],
+      markerId,
+      retired,
+    );
   }
 
   // 8.7c. Hooks navori RETIRED (#774). Same registry-driven shape as §8.7b and
@@ -1131,15 +1155,47 @@ export function renderClaudeEngine(
   // different question (outputs of a DISABLED ENGINE) and this file belongs to
   // an engine that is very much enabled.
   //
-  // Marker-gated on the hook's own managed id (`<id>-base`, the id
-  // `harness-plan` stamped), so a user's hand-written script at the same path
-  // is never touched, and version-gated so a downgraded CLI does not delete a
-  // newer navori's file.
-  for (const id of RETIRED_HOOKS) {
-    const removal = planRetiredHookRemoval(cwd, id);
-    if (!removal) continue;
-    inspected += 1;
-    removals.push(removal);
+  // Marker-gated on the hook's own managed id (`retired.markerIdByAdapter.claude`,
+  // spec 0026 T8 — the id `harness-plan` actually stamped, not an assumed
+  // `<id>-base`), so a user's hand-written script at the same path is never
+  // touched, and version-gated so a downgraded CLI does not delete a newer
+  // navori's file.
+  for (const retired of RETIRED_HOOKS) {
+    const markerId = retired.markerIdByAdapter.claude ?? `${retired.id}-base`;
+    const removal = planRetiredHookRemoval(cwd, retired.id, markerId);
+    if (removal) {
+      inspected += 1;
+      removals.push(removal);
+    }
+    reportKeptRetired(
+      warnings,
+      cwd,
+      [join(cwd, ".claude/hooks", `${retired.id}.sh`)],
+      markerId,
+      retired,
+    );
+  }
+
+  // 8.7d. Agents navori RETIRED from the core roster (spec 0026 T10, R39/R41).
+  // Same registry-driven shape as §8.7b/c. `RETIRED_AGENTS` ships empty until
+  // the roster rename lands (spec 0026 T11), in the SAME commit that stops
+  // rendering the old id — see `roster.ts`'s JSDoc on `RETIRED_AGENTS` for why
+  // seeding it earlier would self-delete a file this same render just wrote.
+  // This loop is inert today and starts pruning the moment T11 populates it.
+  for (const retired of RETIRED_AGENTS) {
+    const markerId = retired.markerIdByAdapter.claude ?? `${retired.id}-base`;
+    const removal = planRetiredAgentRemoval(cwd, retired.id, markerId);
+    if (removal) {
+      inspected += 1;
+      removals.push(removal);
+    }
+    reportKeptRetired(
+      warnings,
+      cwd,
+      [join(cwd, ".claude/agents", `${retired.id}.md`)],
+      markerId,
+      retired,
+    );
   }
 
   // 8.8. Migrate legacy FLAT skill files to the DIRECTORY form. navori now writes
@@ -1223,14 +1279,55 @@ function planFlatSkillRemoval(cwd: string, id: string, markerId: string): Pendin
 /**
  * Prune a hook script navori no longer ships (`.claude/hooks/<id>.sh`).
  *
- * The managed id is derived the same way `harness-plan` builds it (`<id>-base`),
- * so the verdict is "navori owns this file AS the block it stamped" rather than
- * "some managed marker is in there" — a user's own `<id>.sh` survives. Returns
- * null when there is nothing (safe) to remove. (#774)
+ * `markerId` is the REAL managed id navori stamped for this hook
+ * (`retired.markerIdByAdapter.claude`, spec 0026 T8) — not assumed to be
+ * `<id>-base`, so the verdict is "navori owns this file AS the block it
+ * stamped" rather than "some managed marker is in there" — a user's own
+ * `<id>.sh` survives. Returns null when there is nothing (safe) to remove.
+ * (#774)
  */
-function planRetiredHookRemoval(cwd: string, id: string): PendingRemoval | null {
+function planRetiredHookRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
   const hookPath = join(cwd, ".claude/hooks", `${id}.sh`);
-  return isRemovableNavoriFile(hookPath, `${id}-base`) ? { path: hookPath } : null;
+  return isRemovableNavoriFile(hookPath, markerId) ? { path: hookPath } : null;
+}
+
+/**
+ * Prune an agent file navori no longer ships (`.claude/agents/<id>.md`), once
+ * `RETIRED_AGENTS` names it (spec 0026 T10, R39). Same contract as
+ * `planRetiredHookRemoval`: `markerId` is the REAL managed id navori stamped
+ * (`retired.markerIdByAdapter.claude`), not assumed — a user's own
+ * `<id>.md` at the same path is never touched.
+ */
+function planRetiredAgentRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
+  const agentPath = join(cwd, ".claude/agents", `${id}.md`);
+  return isRemovableNavoriFile(agentPath, markerId) ? { path: agentPath } : null;
+}
+
+/**
+ * R39/R41 (spec 0026 T10): a retired agent/skill/hook file that survives the
+ * removal loops above (`navoriAuthorship` says `foreign` or `newer`, not
+ * `ours`) is not silently left — the run says which path, why, and the
+ * successor id to move to. Skipped for any path already queued in
+ * `removals` (its authorship is `ours`, so `navoriAuthorship` returns that
+ * and the loop below moves past it without a warning).
+ */
+function reportKeptRetired(
+  warnings: string[],
+  cwd: string,
+  candidatePaths: readonly string[],
+  markerId: string,
+  retired: { readonly id: string; readonly successor: string | null },
+): void {
+  for (const path of candidatePaths) {
+    if (!existsSync(path)) continue;
+    const authorship = navoriAuthorship(path, markerId);
+    if (authorship === "ours") continue;
+    const successor = retired.successor ?? "none";
+    warnings.push(
+      `kept ${relative(cwd, path)} — retired id "${retired.id}" (successor: ${successor}), ` +
+        `${authorship} file, not navori's to remove`,
+    );
+  }
 }
 
 /**
@@ -1602,7 +1699,7 @@ function applyBootstrapPlan(
  * Append a plugin skill (declared with `injectInto`) as a managed sub-block
  * at the end of the target file. The sub-block is its own managed section
  * with id = skill id and source = the plugin package; it lives alongside
- * the base block (e.g. `leader-base`) and is regenerated independently.
+ * the base block (e.g. `orchestrator-base`) and is regenerated independently.
  *
  * If the target file isn't being touched this render and doesn't exist on
  * disk, the inject is skipped — there's nothing to inject into. It is reported
@@ -1647,7 +1744,7 @@ function applySubBlockInject(input: {
     // lines pointing at a config that is correct. That is how a reader learns
     // to skip these, including the day one of them is real.
     if (!input.minimalHarness) {
-      // The real case: the agent (`leader.md` and friends) is disabled in
+      // The real case: the agent (`orchestrator.md` and friends) is disabled in
       // `config.harness`, so the contribution IS lost and the user should know.
       input.warnings.push(
         tc(resolveLang(input.config.language)).engine.pluginSkillNotInjected(
@@ -1788,11 +1885,11 @@ function removeSubBlock(input: {
 
 /**
  * Inject (or strip) the Codex cross-model review advisory as a managed sub-block
- * in `leader.md`, gated on the `codex` engine (#168). Mirrors the injectInto
- * sub-block flow: operate on the pending leader.md if this render is rewriting
+ * in `orchestrator.md`, gated on the `codex` engine (#168). Mirrors the injectInto
+ * sub-block flow: operate on the pending orchestrator.md if this render is rewriting
  * it, else on the on-disk copy, so the block appears/disappears even on a no-op
- * render where leader.md itself is unchanged. No-op when leader.md is absent
- * (the `leader` role is disabled, or the engine hasn't rendered it). A hand-
+ * render where orchestrator.md itself is unchanged. No-op when orchestrator.md is absent
+ * (the `orchestrator` role is disabled, or the engine hasn't rendered it). A hand-
  * edited block is preserved by `injectManagedSection` (its output stays put),
  * so no explicit skip surface is needed here.
  */
@@ -1801,7 +1898,7 @@ function applyCodexCrossReview(
   config: NavoriConfig,
   pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>,
 ): void {
-  const targetAbs = join(cwd, ".claude/agents/leader.md");
+  const targetAbs = join(cwd, ".claude/agents/orchestrator.md");
   const pendingEntry = pending.find((p) => p.path === targetAbs);
 
   let currentContent: string;
@@ -1810,7 +1907,7 @@ function applyCodexCrossReview(
   } else if (existsSync(targetAbs)) {
     currentContent = readFileSync(targetAbs, "utf-8");
   } else {
-    return; // no leader.md to host the block
+    return; // no orchestrator.md to host the block
   }
 
   const next = config.engines.includes("codex")

@@ -70,7 +70,7 @@ const AUDIT_CLOSE_HOOK_DEST = ".claude/hooks/audit-mode-close.sh";
 const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
 const MANAGED_DRIFT_HOOK_DEST = ".claude/hooks/managed-drift-watch.sh";
 const ROUTING_WATCH_HOOK_DEST = ".claude/hooks/routing-watch.sh";
-const PR_PILOT_HOOK_DEST = ".claude/hooks/pr-pilot-confirm.sh";
+const PR_PUBLISHER_HOOK_DEST = ".claude/hooks/pr-publisher-confirm.sh";
 const COMMENT_DRAFT_HOOK_DEST = ".claude/hooks/comment-draft-confirm.sh";
 const WORKTREE_RECLAIM_HOOK_DEST = ".claude/hooks/worktree-reclaim.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
@@ -91,14 +91,15 @@ export function buildClaudeSettings(
   });
   let settings = JSON.parse(baseInterp) as Record<string, unknown>;
 
-  // The leader role is embodied by the main agent (not spawned as a subagent), so
-  // its effort tier can't take effect via agent frontmatter — it drives the
-  // session-wide default through settings.json `effortLevel`. Each subagent then
-  // overrides it with its own frontmatter `effort`. `max` is valid per-agent but
-  // NOT accepted in settings.json, so it's skipped here (session default stands).
-  const leaderEffort = config.effort?.leader;
-  if (leaderEffort && leaderEffort !== "max") {
-    settings = deepMerge(settings, { effortLevel: leaderEffort });
+  // The orchestrator role is embodied by the main agent (not spawned as a
+  // subagent), so its effort tier can't take effect via agent frontmatter — it
+  // drives the session-wide default through settings.json `effortLevel`. Each
+  // subagent then overrides it with its own frontmatter `effort`. `max` is
+  // valid per-agent but NOT accepted in settings.json, so it's skipped here
+  // (session default stands).
+  const orchestratorEffort = config.effort?.orchestrator;
+  if (orchestratorEffort && orchestratorEffort !== "max") {
+    settings = deepMerge(settings, { effortLevel: orchestratorEffort });
   }
 
   // Defensive guard hook — always registered (unlike the quality gate, it has
@@ -145,9 +146,9 @@ export function buildClaudeSettings(
     },
   });
 
-  // The PR-routing hook delegates to commit-pr-pilot, so it must disappear
+  // The PR-routing hook delegates to publisher, so it must disappear
   // with that configurable agent rather than leave a dead route (#769).
-  if (config.harness?.commitPrPilot !== false) {
+  if (config.harness?.publisher !== false) {
     settings = deepMerge(settings, {
       hooks: {
         PreToolUse: [
@@ -156,9 +157,9 @@ export function buildClaudeSettings(
             hooks: [
               {
                 type: "command",
-                command: `bash "$CLAUDE_PROJECT_DIR/${PR_PILOT_HOOK_DEST}"`,
+                command: `bash "$CLAUDE_PROJECT_DIR/${PR_PUBLISHER_HOOK_DEST}"`,
                 timeout: 10,
-                statusMessage: "navori: pr-pilot-confirm",
+                statusMessage: "navori: pr-publisher-confirm",
               },
             ],
           },

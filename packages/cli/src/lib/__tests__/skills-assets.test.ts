@@ -10,7 +10,7 @@ import { getCoreRoot } from "../bundled-assets.ts";
  * sentinel / non-empty parts.
  */
 
-const SKILL_IDS = ["verify-before-done", "loop-back-debug"] as const;
+const SKILL_IDS = ["verify-before-done", "debug-failure"] as const;
 
 const SENTINEL = "<!-- navori:user-section -->";
 

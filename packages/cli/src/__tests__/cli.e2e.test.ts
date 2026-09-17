@@ -95,41 +95,41 @@ describe("CLI e2e — happy paths", () => {
     // lectura mecánica→haiku) so subagents don't inherit Opus for mechanical work.
     expect(config.models?.implementer).toBe("sonnet");
     expect(config.models?.reviewer).toBe("sonnet");
-    expect(config.models?.explorer).toBe("haiku");
-    expect(config.models?.commitPrPilot).toBe("haiku");
+    expect(config.models?.scout).toBe("sonnet");
+    expect(config.models?.publisher).toBe("haiku");
     // ...and the frontmatter interpolates it into the agent files.
     expect(readFileSync(join(repo, ".claude/agents/implementer.md"), "utf-8")).toContain(
       "model: sonnet",
     );
-    expect(readFileSync(join(repo, ".claude/agents/explorer.md"), "utf-8")).toContain(
-      "model: haiku",
-    );
+    expect(readFileSync(join(repo, ".claude/agents/scout.md"), "utf-8")).toContain("model: sonnet");
     // Effort profile: mechanical agents drop to low, orchestrator keeps xhigh.
-    expect(config.effort?.leader).toBe("xhigh");
+    expect(config.effort?.orchestrator).toBe("xhigh");
     expect(config.effort?.implementer).toBe("medium");
-    expect(config.effort?.explorer).toBe("low");
-    expect(readFileSync(join(repo, ".claude/agents/explorer.md"), "utf-8")).toContain(
-      "effort: low",
+    expect(config.effort?.scout).toBe("medium");
+    expect(readFileSync(join(repo, ".claude/agents/scout.md"), "utf-8")).toContain(
+      "effort: medium",
     );
-    // The leader is embodied by the main agent, so its tier drives settings.json.
+    // The orchestrator is embodied by the main agent, so its tier drives settings.json.
     expect(JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8")).effortLevel).toBe(
       "xhigh",
     );
 
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
     expect(claudeMd).toContain('navori:managed id="idioma-rol"');
-    // engram's doctrine ships as a skill injected into the leader's own file
-    // (#814), not a CLAUDE.md-wide block every non-mem_* agent would also pay.
-    expect(readFileSync(join(repo, ".claude/agents/leader.md"), "utf-8")).toContain(
-      'navori:managed id="engram-leader-extension"',
+    // engram's doctrine ships as a skill injected into the orchestrator's own
+    // file (#814), not a CLAUDE.md-wide block every non-mem_* agent would also pay.
+    expect(readFileSync(join(repo, ".claude/agents/orchestrator.md"), "utf-8")).toContain(
+      'navori:managed id="engram-orchestrator-extension"',
     );
-    expect(readFileSync(join(repo, ".claude/agents/leader.md"), "utf-8")).toContain("topic_key");
+    expect(readFileSync(join(repo, ".claude/agents/orchestrator.md"), "utf-8")).toContain(
+      "topic_key",
+    );
 
     // E1c: .claude/ tree now also exists
-    expect(existsSync(join(repo, ".claude/agents/leader.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude/agents/orchestrator.md"))).toBe(true);
     expect(existsSync(join(repo, ".claude/agents/implementer.md"))).toBe(true);
     expect(existsSync(join(repo, ".claude/skills/verify-before-done/SKILL.md"))).toBe(true);
-    expect(existsSync(join(repo, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude/skills/locate-code/SKILL.md"))).toBe(true);
     expect(existsSync(join(repo, ".claude/settings.json"))).toBe(true);
 
     const settings = JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8"));
@@ -149,12 +149,12 @@ describe("CLI e2e — happy paths", () => {
     // the session model + effort (the profile is an opinionated-mode default).
     expect(config.models).toBeUndefined();
     expect(config.effort).toBeUndefined();
-    // ...and with no leader effort, settings.json carries no effortLevel override.
+    // ...and with no orchestrator effort, settings.json carries no effortLevel override.
     expect(
       JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8")).effortLevel,
     ).toBeUndefined();
-    expect(readFileSync(join(repo, ".claude/agents/leader.md"), "utf-8")).toContain(
-      'navori:managed id="engram-leader-extension"',
+    expect(readFileSync(join(repo, ".claude/agents/orchestrator.md"), "utf-8")).toContain(
+      'navori:managed id="engram-orchestrator-extension"',
     );
   });
 
@@ -448,7 +448,7 @@ describe("CLI e2e — happy paths", () => {
 
     // The 4 most-visible managed assets must NOT show placeholders
     for (const rel of [
-      ".claude/agents/leader.md",
+      ".claude/agents/orchestrator.md",
       ".claude/agents/implementer.md",
       ".claude/agents/reviewer.md",
       ".claude/skills/verify-before-done/SKILL.md",
@@ -614,7 +614,7 @@ describe("CLI e2e — happy paths", () => {
     runCli(["init", "--recommended", "--cwd", repo]);
 
     // Edit the body of leader-base WITHOUT touching the marker line.
-    const leaderPath = join(repo, ".claude/agents/leader.md");
+    const leaderPath = join(repo, ".claude/agents/orchestrator.md");
     const tampered = readFileSync(leaderPath, "utf-8").replace(
       "Your only job as orchestrator is to",
       "USER-EDIT — Your only job as orchestrator is to",
@@ -625,7 +625,7 @@ describe("CLI e2e — happy paths", () => {
     const r = runCli(["sync", "--apply", "--yes", "--cwd", repo]);
     expect(r.status).toBe(1);
     expect(r.combined).toMatch(/conflict/i);
-    expect(r.combined).toContain(".claude/agents/leader.md");
+    expect(r.combined).toContain(".claude/agents/orchestrator.md");
 
     // The user edit must be preserved (sync refused to overwrite)
     const after = readFileSync(leaderPath, "utf-8");
@@ -838,9 +838,9 @@ describe("CLI e2e — happy paths", () => {
     expect(doctrine).toContain("## Role: orchestrator");
     // The orchestration mechanics are inlined here (self-contained, auto-loaded)
     // and the main agent is told to embody the role, never delegate it — so a
-    // spawned `leader` subagent can't recreate the serialized-work regression.
+    // spawned `orchestrator` subagent can't recreate the serialized-work regression.
     expect(doctrine).toContain("you decompose, you coordinate");
-    expect(doctrine).toContain("Agent(subagent_type: leader)");
+    expect(doctrine).toContain("Agent(subagent_type: orchestrator)");
     // Organic routing (M1): the block leads with the smallest-route model, so a
     // 1–3 file mechanical change is done inline — not funneled through a
     // subagent as the old "Trivial (1 archivo) → 1 implementer" floor did.
@@ -848,7 +848,7 @@ describe("CLI e2e — happy paths", () => {
     expect(doctrine).toContain("Delegation is about WRITING");
     expect(doctrine).not.toContain("Trivial (1 archivo)");
 
-    // The agents index lists the spawnable leaf agents — but NOT the leader,
+    // The agents index lists the spawnable leaf agents — but NOT the orchestrator,
     // since the main agent embeds that role rather than delegating to it. It
     // rides the orchestrator channel too since #572: a catalog of agents you can
     // spawn is useless to an agent that cannot spawn one.
@@ -860,7 +860,7 @@ describe("CLI e2e — happy paths", () => {
     expect(agentsIndex).toContain('navori:managed id="agentes-disponibles"');
     expect(agentsIndex).toContain("- `implementer`");
     expect(agentsIndex).toContain("- `reviewer`");
-    expect(agentsIndex).not.toMatch(/^- `leader` —/m);
+    expect(agentsIndex).not.toMatch(/^- `orchestrator` —/m);
   });
 
   it("doctor reports corrupted settings.json + render --force regenerates (#4)", () => {
@@ -1007,7 +1007,7 @@ describe("CLI e2e — happy paths", () => {
     // Inject text inside the leader-base managed block WITHOUT touching the
     // marker line — the marker still claims its original hash but the body
     // now differs.
-    const leaderPath = join(repo, ".claude/agents/leader.md");
+    const leaderPath = join(repo, ".claude/agents/orchestrator.md");
     const original = readFileSync(leaderPath, "utf-8");
     const anchor = "# Orchestrator Playbook (embodied by the main agent)";
     expect(original).toContain(anchor); // guard: anchor still exists in the asset
@@ -1019,7 +1019,7 @@ describe("CLI e2e — happy paths", () => {
     const parsed = JSON.parse(r.stdout);
     const contentDrift = parsed.drifts.find(
       (d: { kind: string; filePath: string }) =>
-        d.kind === "content" && d.filePath === ".claude/agents/leader.md",
+        d.kind === "content" && d.filePath === ".claude/agents/orchestrator.md",
     );
     expect(contentDrift).toBeDefined();
     expect(contentDrift.expectedHash).toMatch(/^[a-f0-9]{8}$/);
@@ -1033,7 +1033,7 @@ describe("CLI e2e — happy paths", () => {
     runCli(["init", "--recommended", "--cwd", repo]);
 
     // Inject content drift
-    const leaderPath = join(repo, ".claude/agents/leader.md");
+    const leaderPath = join(repo, ".claude/agents/orchestrator.md");
     const original = readFileSync(leaderPath, "utf-8");
     const anchor = "# Orchestrator Playbook (embodied by the main agent)";
     expect(original).toContain(anchor); // guard: anchor still exists in the asset
@@ -1077,7 +1077,7 @@ describe("CLI e2e — happy paths", () => {
     runCli(["init", "--recommended", "--cwd", repo]);
 
     // Tamper with leader.md: replace the version="..." attr with an older one.
-    const leaderPath = join(repo, ".claude/agents/leader.md");
+    const leaderPath = join(repo, ".claude/agents/orchestrator.md");
     const tampered = readFileSync(leaderPath, "utf-8").replace(
       /version="\d+\.\d+\.\d+"/,
       'version="0.0.0"',
@@ -1089,8 +1089,8 @@ describe("CLI e2e — happy paths", () => {
     const parsed = JSON.parse(r.stdout);
     const drift = parsed.drifts.find(
       (d: { filePath: string; markerId: string; kind: string }) =>
-        d.filePath === ".claude/agents/leader.md" &&
-        d.markerId === "leader-base" &&
+        d.filePath === ".claude/agents/orchestrator.md" &&
+        d.markerId === "orchestrator-base" &&
         d.kind === "version",
     );
     expect(drift).toBeDefined();
@@ -1189,7 +1189,7 @@ describe("CLI e2e — happy paths", () => {
     const r = runCli(["render", "--apply", "--cwd", repo]);
     expect(r.status).toBe(0);
     // Both engines rendered: the .claude/ tree AND the universal AGENTS.md.
-    expect(existsSync(join(repo, ".claude/agents/leader.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude/agents/orchestrator.md"))).toBe(true);
     expect(existsSync(join(repo, "AGENTS.md"))).toBe(true);
     const agents = readFileSync(join(repo, "AGENTS.md"), "utf-8");
     expect(agents).toContain("## Idioma y rol");
@@ -1675,7 +1675,7 @@ describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {
     dirs.push(repo);
 
     runCli(["init", "--yes", "--cwd", repo]);
-    const leader = readFileSync(join(repo, ".claude/agents/leader.md"), "utf-8");
+    const leader = readFileSync(join(repo, ".claude/agents/orchestrator.md"), "utf-8");
 
     // Was `corre \`<not configured: qualityGate.fast>\`` — read like a command.
     expect(leader).not.toContain("<not configured: qualityGate");
@@ -1722,7 +1722,11 @@ function seedMigrationsHome(): string {
 
   const newer = join(root, "2026-01-02T00-00-00", "repo-new");
   mkdirSync(join(newer, ".claude", "agents"), { recursive: true });
-  writeFileSync(join(newer, ".claude", "agents", "leader.md"), "previous leader", "utf-8");
+  writeFileSync(
+    join(newer, ".claude", "agents", "orchestrator.md"),
+    "previous orchestrator",
+    "utf-8",
+  );
   writeFileSync(join(newer, "navori.config.json"), "{}", "utf-8");
 
   // `migrations list` sorts by the repo dir's mtime: pin both so "most recent"
@@ -1771,7 +1775,7 @@ describe("CLI e2e — migrations parent/subcommand dispatch (#466)", () => {
     );
     expect(r.status).toBe(0);
     expect(existsSync(join(target, "navori.config.json"))).toBe(true);
-    expect(existsSync(join(target, ".claude/agents/leader.md"))).toBe(true);
+    expect(existsSync(join(target, ".claude/agents/orchestrator.md"))).toBe(true);
     // Markers that only the list prints: its intro and the per-entry repo tag.
     expect(r.combined).not.toContain("migrations list");
     expect(r.combined).not.toContain("repo='");
@@ -2094,7 +2098,7 @@ describe("CLI e2e — global registry + render --all", () => {
 
     // Drift ONE managed .claude/ file's version so render wants to update it,
     // while every CLAUDE.md block stays byte-identical.
-    const agent = join(repo, ".claude", "agents", "leader.md");
+    const agent = join(repo, ".claude", "agents", "orchestrator.md");
     const before = readFileSync(agent, "utf-8");
     writeFileSync(agent, before.replace(/version="[0-9.]+"/, 'version="0.0.1"'));
 
@@ -2105,6 +2109,6 @@ describe("CLI e2e — global registry + render --all", () => {
 
     // --verbose lists the actual file path.
     const verbose = runCli(["render", "--all", "--verbose"], { HOME: fakeHome });
-    expect(verbose.combined).toMatch(/\.claude\/agents\/leader\.md/);
+    expect(verbose.combined).toMatch(/\.claude\/agents\/orchestrator\.md/);
   });
 });

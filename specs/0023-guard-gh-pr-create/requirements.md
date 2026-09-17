@@ -4,7 +4,7 @@
 
 ## Context
 
-El `commit-pr-pilot` es el dueño único de commit+PR según la doctrina, y el desglose por
+El `publisher` es el dueño único de commit+PR según la doctrina, y el desglose por
 repo que agregó #749 dice dónde no se cumple:
 
 | repo | sesiones | pr-opp | pr-act | tasa |
@@ -24,7 +24,7 @@ del trabajo a mano, `git push && gh pr create` en el mismo comando, y nada lo in
 ### Lo que ya se intentó, y cuánto movió
 
 **La capa que este repo ya tiene desplegada no es doctrina: es un hook.** #712 entregó
-`pr-pilot-confirm.sh`, un `PreToolUse(Bash)` que eleva a confirmación del usuario
+`pr-publisher-confirm.sh`, un `PreToolUse(Bash)` que eleva a confirmación del usuario
 (`permissionDecision: "ask"`) todo `gh pr create` que no venga de un subagente, y #716 le
 quitó el costo por llamada. Su efecto está medido sobre el propio log de audit del parque:
 
@@ -34,10 +34,10 @@ quitó el costo por llamada. Su efecto está medido sobre el propio log de audit
 | veredictos `allow` (el PR venía de un subagente) | **6** |
 | sesiones distintas en las que el hook elevó | **3** |
 | `gh pr create` del hilo principal en esas 3 sesiones | **51** |
-| invocaciones del `commit-pr-pilot` en esas 3 sesiones | **0** |
+| invocaciones del `publisher` en esas 3 sesiones | **0** |
 | `gh pr create` que el usuario negó en esas 3 sesiones | **0** |
 
-**Conversión de la capa `ask` al pilot: 0 de 26.** Las tres sesiones corrieron en modo
+**Conversión de la capa `ask` al publisher: 0 de 26.** Las tres sesiones corrieron en modo
 `auto`, y de los eventos OTel de ese periodo no se conserva ninguno correlacionable con
 esas sesiones (#763), así que **no es demostrable si la confirmación llegó a un humano o
 se resolvió sin él**. Lo que sí es dato: en las tres, el PR se abrió a mano las 51 veces y
@@ -80,7 +80,7 @@ cambia. Las 261 "oportunidades" del minero son otra cosa: cuenta turnos, no coma
 | `rollback` / `rollout` / `promote` en el título | **2** | **0.8%** |
 | PR a un repo distinto del de la sesión (`--repo`) | **3** | **1.1%** |
 | reintento del MISMO título dentro de la sesión | 10 | 3.8% |
-| **sesión donde el `commit-pr-pilot` no sería resoluble** | **0** | **0.0%** |
+| **sesión donde el `publisher` no sería resoluble** | **0** | **0.0%** |
 | `fix` / `feat` / `chore` / `docs` / progreso | 260 | 98.9% |
 
 Los tres casos que #705 nombró como el peligro —un PR de rollout, un revert, un PR de
@@ -107,7 +107,7 @@ contradice. Consecuencia directa: **R3 deja de justificarse por incidencia y pas
 fail-safe declarado**, con su clase real escrita abajo.
 
 Y la disponibilidad de la ruta alterna no es hipotética: **12 de 12 repos del parque tienen
-`commit-pr-pilot.md` rendereado**, y el descubrimiento hacia arriba lo alcanza desde cualquier
+`publisher.md` rendereado**, y el descubrimiento hacia arriba lo alcanza desde cualquier
 subdirectorio de ellos.
 
 ### El mecanismo de distinción, verificado
@@ -117,12 +117,12 @@ estable — al contrario de `SubagentStop`, donde el host manda un id fresco por
 (112 ids para 117 disparos, 102 sin resolver). Verificado de punta a punta en este store:
 el registro `allow` del hook lleva `agentId: a218173845aea2f1e`, y el propio host declara
 en `subagents/agent-a218173845aea2f1e.meta.json` que ese id es
-`{"agentType":"commit-pr-pilot"}`. En el hilo principal el host no manda el campo, y por eso
+`{"agentType":"publisher"}`. En el hilo principal el host no manda el campo, y por eso
 el recorder escribe el literal `orchestrator`.
 
 El techo de precisión es conocido y se acepta a propósito: el campo dice **algún**
 subagente, no específicamente el pilot. Coste medido de esa holgura: **6 `allow` en todo el
-store, los 6 resueltos contra el meta del host como `{"agentType":"commit-pr-pilot"}`**, 0 de
+store, los 6 resueltos contra el meta del host como `{"agentType":"publisher"}`**, 0 de
 otro subagente (`a218173845aea2f1e`, `aadf11634f0ab070b`, `ae0ed464e11d3be8f`,
 `a7e44bf66e8ee0e12`, `a3706dde38394a16c`, `a17c478de00666eea`).
 
@@ -145,7 +145,7 @@ materializa → **área crítica** por la definición de este repo.
 ### El bloqueo
 
 - **R1** — WHEN un `gh pr create` llega a `PreToolUse(Bash)` sin que el payload nombre a
-  ningún subagente, y el `commit-pr-pilot` es resoluble para esa sesión, y no hay override
+  ningún subagente, y el `publisher` es resoluble para esa sesión, y no hay override
   válido, el sistema SHALL **bloquear** la llamada y SHALL entregar al modelo un mensaje que
   nombre la ruta alterna. Sustituye al `ask` de #712, cuya conversión medida es 0 de 26.
 
@@ -153,7 +153,7 @@ materializa → **área crítica** por la definición de este repo.
   el sistema SHALL dejar pasar la llamada y SHALL registrarla como `allow`. Es lo que hace
   que el hook no se bloquee a sí mismo cuando corre dentro del sidechain del propio pilot.
 
-- **R3** — IF no existe `commit-pr-pilot.md` en ninguno de los directorios de agentes que el
+- **R3** — IF no existe `publisher.md` en ninguno de los directorios de agentes que el
   host consultaría para esa llamada —el ascenso por `.claude/agents/` desde el directorio sobre
   el que actúa el comando hasta la raíz del sistema de archivos, más `~/.claude/agents/`—, THEN
   el sistema SHALL dejar pasar la llamada y SHALL registrar el repliegue con esa razón.

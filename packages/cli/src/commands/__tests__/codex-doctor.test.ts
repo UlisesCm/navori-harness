@@ -113,15 +113,15 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
 });
 
 describe("buildEngineInventory (Spec 0007 M8)", () => {
-  it("lists agents/skills/hooks per disk engine; claude includes leader, codex omits it", () => {
+  it("lists agents/skills/hooks per disk engine; claude includes orchestrator, codex omits it", () => {
     const cwd = tempRepo();
     const inv = buildEngineInventory(config({ engines: ["claude", "codex"] }), cwd);
     expect(Object.keys(inv).sort()).toEqual(["claude", "codex"]);
     const { claude, codex } = inv;
     assert.isDefined(claude);
     assert.isDefined(codex);
-    expect(claude.agents).toContain("leader");
-    expect(codex.agents).not.toContain("leader");
+    expect(claude.agents).toContain("orchestrator");
+    expect(codex.agents).not.toContain("orchestrator");
     // Same skills + hooks set for both (parity).
     expect(codex.skills).toEqual(claude.skills);
     expect(codex.hooks).toEqual(claude.hooks);
@@ -145,14 +145,15 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     expect(claude.scripts).toEqual([]);
   });
 
-  it("folds an enabled plugin's skill into the inventory (engram → leader extension)", () => {
+  it("folds an enabled plugin's skill into the inventory (engram → orchestrator extension)", () => {
     const cwd = tempRepo();
-    // The `config()` helper enables engram, whose skill asset is engram-leader-extension.
+    // The `config()` helper enables engram, whose skill asset is
+    // engram-orchestrator-extension (spec 0026 T13).
     const { claude, codex } = buildEngineInventory(config({ engines: ["claude", "codex"] }), cwd);
     assert.isDefined(claude);
     assert.isDefined(codex);
-    expect(claude.skills).toContain("engram-leader-extension");
-    expect(codex.skills).toContain("engram-leader-extension");
+    expect(claude.skills).toContain("engram-orchestrator-extension");
+    expect(codex.skills).toContain("engram-orchestrator-extension");
   });
 
   it("folds a plugin's scripts and hooks into the inventory (jscpd)", () => {

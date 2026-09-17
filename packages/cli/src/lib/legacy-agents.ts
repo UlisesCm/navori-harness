@@ -11,27 +11,30 @@ import type { NavoriConfig } from "./config.ts";
  * Append here as new legacy names surface in real adoptions.
  */
 export const LEGACY_AGENT_ALIASES: Readonly<Record<string, string>> = {
-  "sdd-leader": "leader",
+  "sdd-leader": "orchestrator",
   "sdd-implementer": "implementer",
   "sdd-reviewer": "reviewer",
-  "sdd-explorer": "explorer",
-  "sdd-researcher": "researcher",
-  "sdd-ticket-audit": "ticket-audit",
+  "sdd-explorer": "scout",
+  "sdd-researcher": "scout",
+  "sdd-ticket-audit": "auditor",
   "deep-auditor": "auditor",
 };
 
-/** Canonical agent id (kebab, = filename) → its `config.harness` key (camel). */
-const CANONICAL_HARNESS_KEY: Readonly<Record<string, keyof NonNullable<NavoriConfig["harness"]>>> =
-  {
-    leader: "leader",
-    implementer: "implementer",
-    reviewer: "reviewer",
-    researcher: "researcher",
-    "ticket-audit": "ticketAudit",
-    "commit-pr-pilot": "commitPrPilot",
-    explorer: "explorer",
-    auditor: "auditor",
-  };
+/**
+ * Canonical agent id (kebab, = filename) → its `config.harness` key (camel).
+ * Exported (spec 0026 T8, R42) so `roster-parity.test.ts` can verify it
+ * against `engines/shared/roster.ts` without a second hand-copied mapping.
+ */
+export const CANONICAL_HARNESS_KEY: Readonly<
+  Record<string, keyof NonNullable<NavoriConfig["harness"]>>
+> = {
+  orchestrator: "orchestrator",
+  implementer: "implementer",
+  reviewer: "reviewer",
+  scout: "scout",
+  auditor: "auditor",
+  publisher: "publisher",
+};
 
 /** A legacy agent file whose canonical navori replacement is active. */
 export interface LegacyAgent {

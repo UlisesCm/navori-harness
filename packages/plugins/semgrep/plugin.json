@@ -43,7 +43,7 @@
       "id": "semgrep-review-extension",
       "file": "skills/semgrep-review.md",
       "recommendedAgent": "reviewer",
-      "injectInto": ".claude/skills/security-guidance/SKILL.md"
+      "injectInto": ".claude/skills/security-invariants/SKILL.md"
     }
   ]
 }

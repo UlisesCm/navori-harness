@@ -67,12 +67,12 @@ describe("resolveHarnessPlan — dependent assets follow their feature gate (#76
       name: "disabled-dependencies",
       engines: ["claude"],
       preset: "custom",
-      harness: { commitPrPilot: false },
+      harness: { publisher: false },
       sdd: { enabled: false },
     });
     const plan = resolveHarnessPlan(disabled, "/core", null);
 
-    expect(plan.hooks.map((hook) => hook.id)).not.toContain("pr-pilot-confirm");
+    expect(plan.hooks.map((hook) => hook.id)).not.toContain("pr-publisher-confirm");
     expect(plan.skills.map((skill) => skill.id)).not.toContain("spec-bootstrap");
   });
 });
@@ -94,12 +94,12 @@ describe("resolveHarnessPlan — comment-draft-confirm (spec 0026 E1)", () => {
 
     // Disabling every configurable agent/feature this file knows how to gate
     // (commit-pr-pilot, sdd) still leaves it in — it has no owner to disable
-    // it with, unlike `pr-pilot-confirm` above.
+    // it with, unlike `pr-publisher-confirm` above.
     const disabled = NavoriConfigSchema.parse({
       name: "disabled-dependencies-2",
       engines: ["claude"],
       preset: "custom",
-      harness: { commitPrPilot: false },
+      harness: { publisher: false },
       sdd: { enabled: false },
     });
     const plan2 = resolveHarnessPlan(disabled, "/core", null);

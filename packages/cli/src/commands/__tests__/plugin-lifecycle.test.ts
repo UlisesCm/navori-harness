@@ -45,14 +45,14 @@ describe("plugin lifecycle cleanup (#80)", () => {
   it("strips a disabled plugin's injectInto sub-block from its target file", () => {
     writeCfg({ engram: { enabled: true } });
     runRender(cwd, false);
-    const leaderPath = join(cwd, ".claude/agents/leader.md");
-    expect(readFileSync(leaderPath, "utf-8")).toContain('id="engram-leader-extension"');
+    const leaderPath = join(cwd, ".claude/agents/orchestrator.md");
+    expect(readFileSync(leaderPath, "utf-8")).toContain('id="engram-orchestrator-extension"');
 
     writeCfg({ engram: { enabled: false } });
     runRender(cwd, false);
-    expect(readFileSync(leaderPath, "utf-8")).not.toContain('id="engram-leader-extension"');
-    // The base leader block survives — only the plugin sub-block is stripped.
-    expect(readFileSync(leaderPath, "utf-8")).toContain('id="leader-base"');
+    expect(readFileSync(leaderPath, "utf-8")).not.toContain('id="engram-orchestrator-extension"');
+    // The base orchestrator block survives — only the plugin sub-block is stripped.
+    expect(readFileSync(leaderPath, "utf-8")).toContain('id="orchestrator-base"');
   });
 
   it("deletes a disabled plugin's script from .claude/scripts/", () => {

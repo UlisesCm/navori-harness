@@ -78,15 +78,20 @@ describe("M03 — tgrep contract (search-v2.md §3.3)", () => {
   });
 });
 
-describe("M04 — CodeGraph's five skill entries (search-v2.md §3.2)", () => {
+describe("M04 — CodeGraph's four skill entries (search-v2.md §3.2, spec 0026 T12)", () => {
   const skills = codegraph.manifest.skills ?? [];
   const coreAgentsDir = resolve(getCoreRoot(), "core-assets/agents");
   const knownAgentFiles = new Set(readdirSync(coreAgentsDir));
 
-  it("declares exactly 5 entries, each with a distinct injectInto target", () => {
-    expect(skills).toHaveLength(5);
+  // Spec 0026 T12 (R17): the roster shrank from 8 to 6 and the ticket-audit
+  // encargo folded into auditor, which already has its own entry — so the
+  // injection count drops from 5 to 4 (orchestrator, implementer, reviewer,
+  // auditor). `scout` gets the tool by exact name in its own frontmatter, not
+  // by injection (unchanged from researcher/explorer's prior treatment).
+  it("declares exactly 4 entries, each with a distinct injectInto target", () => {
+    expect(skills).toHaveLength(4);
     const targets = skills.map((s) => s.injectInto);
-    expect(new Set(targets).size).toBe(5);
+    expect(new Set(targets).size).toBe(4);
   });
 
   it("all 5 entries share the same source file", () => {
@@ -105,15 +110,14 @@ describe("M04 — CodeGraph's five skill entries (search-v2.md §3.2)", () => {
     }
   });
 
-  it("does not target researcher or explorer — they receive the tool by exact name, not by family (#575/#761)", () => {
+  it("does not target scout — it receives the tool by exact name, not by family (#575/#761, spec 0026 T12)", () => {
     // withAgentMcpTools widens ANY injectInto target to the wildcard family
-    // mcp__codegraph__*. researcher/explorer are read-only-by-contract roles
-    // pinned in mcp-capability-wiring.test.ts to receive MCP tools by exact
-    // name in their own `tools:` frontmatter, never via injection-driven
-    // family grants — see the NO_FAMILY cases there.
+    // mcp__codegraph__*. scout is the read-only-by-contract role pinned in
+    // mcp-capability-wiring.test.ts to receive MCP tools by exact name in its
+    // own `tools:` frontmatter, never via injection-driven family grants —
+    // see the NO_FAMILY case there.
     const targets = skills.map((s) => s.injectInto);
-    expect(targets).not.toContain(".claude/agents/researcher.md");
-    expect(targets).not.toContain(".claude/agents/explorer.md");
+    expect(targets).not.toContain(".claude/agents/scout.md");
   });
 });
 

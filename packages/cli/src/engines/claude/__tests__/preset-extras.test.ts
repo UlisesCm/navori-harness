@@ -38,7 +38,7 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
 
     // Core skills always render
     expect(existsSync(skFile(cwd, "verify-before-done"))).toBe(true);
-    expect(existsSync(skFile(cwd, "loop-back-debug"))).toBe(true);
+    expect(existsSync(skFile(cwd, "debug-failure"))).toBe(true);
 
     // Preset extras land alongside
     expect(existsSync(skFile(cwd, "medusa-modules"))).toBe(true);
@@ -57,12 +57,13 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     expect(content).not.toContain("{{qualityGate.fast}}");
   });
 
+  // Covers: R29
   it("preset 'custom' is back-compat: no extras, only core skills render", () => {
     const config = { ...BASE_CONFIG, preset: "custom" } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, config);
 
     expect(existsSync(skFile(cwd, "verify-before-done"))).toBe(true);
-    expect(existsSync(skFile(cwd, "loop-back-debug"))).toBe(true);
+    expect(existsSync(skFile(cwd, "debug-failure"))).toBe(true);
     expect(existsSync(skFile(cwd, "medusa-modules"))).toBe(false);
     expect(existsSync(skFile(cwd, "medusa-api-routes"))).toBe(false);
   });
@@ -88,9 +89,11 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         .map((w) => w.path)
         .sort(),
     ).toEqual([skRel("medusa-api-routes"), skRel("medusa-modules")]);
-    // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 8 agents + 6 core
-    // skills + 5 workflow skills (ticket-intake, solution-design, spec-bootstrap,
-    // dominio, babysit-prs) + 2 progress files + 2 medusa skills
+    // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 6 agents (spec
+    // 0026 T12/T13: orchestrator, implementer, reviewer, scout, auditor, publisher)
+    // + 5 core skills (spec 0026 T14 merges debug-error + loop-back-debug into
+    // one debug-failure) + 5 workflow skills (resolve-ticket, solution-design,
+    // spec-bootstrap, dominio, follow-up-prs) + 2 progress files + 2 medusa skills
     // + 2 CLAUDE.md managed blocks counted independently of the file + 1 guard
     // hook + 1 session-start hook + 1 lifecycle hook (subagent-stop; la de
     // PreCompact se retiro en #774) + 2 audit-mode hooks (trigger, close) +
@@ -98,14 +101,15 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // 1 routing watcher (spec 0020) + 1 PR routing hook (#705) +
     // 1 comment-draft-confirm hook (spec 0026 E1) +
     // 1 orchestrator block routed to `.claude/context/` (#573) + 2 session
-    // ceremonies + 1 agents index, same channel (#572) = 40.
+    // ceremonies + 1 agents index, same channel (#572) = 37.
     //
     // La prosa venia enumerando `pr-create` —retirada en #703— y por eso sumaba
-    // 40 contra una asercion de 39, que ahora es 40 con el hook de spec 0026 E1
-    // sumado. Un conteo a mano en cinco sitios es justo lo que #703 dejo
-    // anotado como deuda; mientras siga a mano, la enumeracion tiene que
-    // cerrar con el numero.
-    expect(r.inspected).toBe(40);
+    // 40 contra una asercion de 39, que ahora es 37 con el roster de ocho
+    // agentes reducido a seis (spec 0026 T12) y debug-error/loop-back-debug
+    // fusionados en debug-failure (spec 0026 T14). Un conteo a mano en cinco
+    // sitios es justo lo que #703 dejo anotado como deuda; mientras siga a
+    // mano, la enumeracion tiene que cerrar con el numero.
+    expect(r.inspected).toBe(37);
   });
 
   describe("bundled stack presets (B4)", () => {
@@ -148,7 +152,7 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         id: "express-mongoose",
         // mongoose + zod-validation + winston-logging are now library skills
         // (detected deps), injected via project.libraries alongside the preset's
-        // own skills. ticket-intake + pr-create are always-on workflow skills.
+        // own skills. resolve-ticket + pr-create are always-on workflow skills.
         project: { libraries: ["mongoose", "zod-validation", "winston-logging"] },
         skills: [
           ".claude/skills/express-routes.md",
@@ -158,11 +162,13 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
           ".claude/skills/winston-logging.md",
           ".claude/skills/new-resource.md",
           ".claude/skills/new-endpoint.md",
-          ".claude/skills/ticket-intake.md",
+          ".claude/skills/resolve-ticket.md",
         ],
       },
     ];
 
+    // Covers: R29 (the express-mongoose case below materializes
+    // `.claude/skills/resolve-ticket.md`, the renamed always-on workflow skill)
     for (const preset of BUNDLED) {
       it(`preset '${preset.id}' renders ${preset.skills.length} skill(s) without warnings`, () => {
         const config = {

@@ -19,24 +19,20 @@
     "mode": "always"
   },
   "models": {
-    "leader": "sonnet",
+    "orchestrator": "sonnet",
     "implementer": "sonnet",
     "reviewer": "sonnet",
-    "researcher": "haiku",
-    "ticketAudit": "sonnet",
-    "commitPrPilot": "haiku",
-    "explorer": "haiku",
-    "auditor": "sonnet"
+    "scout": "haiku",
+    "auditor": "sonnet",
+    "publisher": "haiku"
   },
   "effort": {
-    "leader": "high",
+    "orchestrator": "high",
     "implementer": "medium",
     "reviewer": "low",
-    "researcher": "high",
-    "ticketAudit": "medium",
-    "commitPrPilot": "low",
-    "explorer": "low",
-    "auditor": "medium"
+    "scout": "high",
+    "auditor": "medium",
+    "publisher": "low"
   },
   "plugins": {
     "engram": {

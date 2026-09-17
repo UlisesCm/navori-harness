@@ -673,6 +673,8 @@ interface DoctorCmdStrings {
   nameMismatch: (configName: string, dirName: string, suggestedName: string) => string;
   orphanedEngineOutputsTitle: (n: number) => string;
   orphanedEngineOutputRow: (engine: string) => string;
+  retiredAssetsTitle: (n: number) => string;
+  retiredAssetRow: (successor: string | null, reason?: "foreign" | "newer") => string;
   missingPresetFiles: (preset: string, n: number, lines: string) => string;
   missingPresetFileRow: (path: string) => string;
   missingLocalSkills: (n: number, lines: string) => string;
@@ -933,6 +935,9 @@ interface EngineCmdStrings {
   // Codex adapter
   pluginLoadFailedCodex: (id: string, reason: string) => string;
   codexTrustHint: string;
+  /** R39/R41 (spec 0026 T10): a Codex orphan-scan match kept, with its reason
+   *  — Codex's own version of the Claude engine's retired-asset report. */
+  keptOrphanCodex: (path: string, reason: KeepReason) => string;
   presetNotFoundCodex: (preset: string) => string;
   presetInvalid: (preset: string, detail: string) => string;
   // Prose-engine dispatch (render.ts)
@@ -959,7 +964,7 @@ interface BlocksCmdStrings {
   agentsIndex: {
     heading: string;
     intro: string;
-    /** "When to reach for each agent", keyed by CORE_AGENTS id (leader excluded). */
+    /** "When to reach for each agent", keyed by CORE_AGENTS id (orchestrator excluded). */
     when: Record<string, string>;
   };
   monorepo: {
@@ -1657,6 +1662,14 @@ const CMD_ES: CmdStrings = {
     // ruta y qué hará el prune — la decisión archivo por archivo la toma él.
     orphanedEngineOutputRow: (engine) =>
       `— del engine '${engine}' (no está en engines); el prune solo borra lo que lleve marcador de navori`,
+    retiredAssetsTitle: (n) =>
+      `Archivos de ids retirados en disco · ${n} ('navori render --apply' borra los que sean de ` +
+      `navori; los ajenos o de una versión más nueva se conservan)`,
+    retiredAssetRow: (successor, reason) =>
+      `— sucesor: ${successor ?? "ninguno"}` +
+      (reason
+        ? ` (se conserva: ${reason === "newer" ? "escrito por una versión más nueva" : "ajeno, sin marcador de navori"})`
+        : " (se borra en el próximo 'render --apply')"),
     missingPresetFiles: (preset, n, lines) =>
       `Extras del preset '${preset}' sin archivo (${n}) — el render ` +
       `fallará al leerlos; créalos o quítalos del manifest:\n${lines}`,
@@ -1729,7 +1742,7 @@ const CMD_ES: CmdStrings = {
       `Herramientas opcionales no instaladas (${n}) — el harness funciona con fallback, ` +
       `pero pierde precisión en estos flujos:\n${lines}`,
     optionalToolRow: (binaries, how) =>
-      `— falta ${binaries} en PATH; ${how}. Mientras tanto, structural-search cae a Grep`,
+      `— falta ${binaries} en PATH; ${how}. Mientras tanto, locate-code cae a Grep`,
     otelReceiverOk: (port) => `receptor OTel escuchando en 127.0.0.1:${port}`,
     otelReceiverDead: (port) =>
       `El LaunchAgent del receptor está cargado pero nadie responde en 127.0.0.1:${port}. ` +
@@ -2199,6 +2212,11 @@ const CMD_ES: CmdStrings = {
     pluginSkillNotInjected: (id, pid, target) =>
       `skill '${id}' (de @navori/plugin-${pid}) no inyectado: target ${target} ausente (¿agente disabled en config.harness?)`,
     pluginLoadFailedCodex: (id, reason) => `Plugin '${id}' no pudo cargarse para Codex: ${reason}.`,
+    keptOrphanCodex: (path, reason) =>
+      `conservado ${path} — ` +
+      (reason === "newer"
+        ? "lo escribió una versión de navori más nueva que este CLI; no se revierte"
+        : "no lleva marcador de navori (ajeno); nunca se borra sin probar que navori lo escribió"),
     codexTrustHint:
       "Requiere Codex CLI >= 0.145.0. Codex solo carga `.codex/` en repos confiables; revisa y autoriza " +
       "los hooks nuevos con `/hooks`.",
@@ -2226,16 +2244,12 @@ const CMD_ES: CmdStrings = {
           "Escribe código y tests para UNA tarea bien acotada. Úsalo proactivamente cuando el cambio toque 4+ archivos o 2+ no triviales.",
         reviewer:
           "Valida un diff (APPROVED / CHANGES_REQUESTED). Úsalo tras cada implementer y antes de cualquier commit, push o PR con código.",
-        researcher:
-          "Responde una pregunta concreta del repo con evidencia citada. Úsalo cuando responderla exija leer 4+ archivos.",
-        explorer:
-          "Mapea un área o módulo amplio. Úsalo cuando no sepas dónde vive algo y tendrías que abrir 4+ archivos.",
-        "ticket-audit":
-          "Analiza a fondo un ticket complejo. Úsalo cuando toque un área crítica, cruce 3+ capas o no tenga ubicación clara.",
-        "commit-pr-pilot":
-          "Escribe commits Conventional y abre el PR. Úsalo tras la aprobación del reviewer.",
+        scout:
+          "Reconocimiento de solo lectura: mapea un área o responde una pregunta acotada, con evidencia citada. Úsalo cuando una sub-pregunta convenga correr en paralelo, o una lectura convenga aislar del contexto de quien coordina.",
         auditor:
-          "Auditoría profunda de solo lectura (seguridad, rendimiento, SOLID) → reporte + plan en disco. Úsalo cuando pidan auditar un área, o antes de refactorizarla sin ticket.",
+          "Auditoría de solo lectura con veredicto: área (seguridad, rendimiento, SOLID), ticket complejo o challenge de una propuesta, sin veredicto en el challenge. Úsalo cuando toque auditar un área o un ticket crítico, o antes de refactorizar sin ticket.",
+        publisher:
+          "Escribe commits Conventional y abre el PR. Úsalo tras la aprobación del reviewer.",
       },
     },
     monorepo: {
@@ -2789,6 +2803,14 @@ const CMD_EN: CmdStrings = {
     // file-by-file decision to the prune.
     orphanedEngineOutputRow: (engine) =>
       `— from disabled engine '${engine}' (not in engines); the prune only deletes what carries navori's marker`,
+    retiredAssetsTitle: (n) =>
+      `Retired-id files still on disk · ${n} ('navori render --apply' deletes the ones navori ` +
+      `wrote; foreign ones or ones from a newer version are kept)`,
+    retiredAssetRow: (successor, reason) =>
+      `— successor: ${successor ?? "none"}` +
+      (reason
+        ? ` (kept: ${reason === "newer" ? "written by a newer version" : "foreign, no navori marker"})`
+        : " (removed on the next 'render --apply')"),
     missingPresetFiles: (preset, n, lines) =>
       `Extras of preset '${preset}' with no file (${n}) — render ` +
       `will fail reading them; create or remove them from the manifest:\n${lines}`,
@@ -2863,7 +2885,7 @@ const CMD_EN: CmdStrings = {
       `Optional tools not installed (${n}) — the harness keeps working with a fallback, ` +
       `but loses precision in these flows:\n${lines}`,
     optionalToolRow: (binaries, how) =>
-      `— missing ${binaries} in PATH; ${how}. Until then, structural-search falls back to Grep`,
+      `— missing ${binaries} in PATH; ${how}. Until then, locate-code falls back to Grep`,
     otelReceiverOk: (port) => `OTel receiver listening on 127.0.0.1:${port}`,
     otelReceiverDead: (port) =>
       `The receiver's LaunchAgent is loaded but nothing answers on 127.0.0.1:${port}. ` +
@@ -3329,6 +3351,11 @@ const CMD_EN: CmdStrings = {
       `skill '${id}' (from @navori/plugin-${pid}) not injected: target ${target} missing (agent disabled in config.harness?)`,
     pluginLoadFailedCodex: (id, reason) =>
       `Plugin '${id}' couldn't be loaded for Codex: ${reason}.`,
+    keptOrphanCodex: (path, reason) =>
+      `kept ${path} — ` +
+      (reason === "newer"
+        ? "written by a navori newer than this CLI; not rolled back"
+        : "carries no navori marker (foreign); never deleted without proof navori wrote it"),
     codexTrustHint:
       "Requires Codex CLI >= 0.145.0. Codex only loads `.codex/` in trusted repos; review and authorize " +
       "the new hooks with `/hooks`.",
@@ -3357,16 +3384,11 @@ const CMD_EN: CmdStrings = {
           "Writes code and tests for ONE well-scoped task. Use proactively when a change touches 4+ files or 2+ non-trivial ones.",
         reviewer:
           "Validates a diff (APPROVED / CHANGES_REQUESTED). Use after every implementer run and before any commit, push or PR.",
-        researcher:
-          "Answers a concrete question about the repo with cited evidence. Use when answering would take reading 4+ files.",
-        explorer:
-          "Maps a broad area or module. Use when you don't know where something lives and would otherwise open 4+ files.",
-        "ticket-audit":
-          "Deeply analyzes a complex ticket. Use when it hits a critical area, crosses 3+ layers or has no clear location.",
-        "commit-pr-pilot":
-          "Writes Conventional commits and opens the PR. Use after the reviewer approves.",
+        scout:
+          "Read-only reconnaissance: maps an area or answers a scoped question, with cited evidence. Use when a sub-question is worth running in parallel, or a read is worth isolating from the coordinator context.",
         auditor:
-          "Deep read-only audit (security, performance, SOLID) → report + prioritized plan on disk. Use when asked to audit an area, or before refactoring one with no ticket.",
+          "Read-only audit with a verdict: an area (security, performance, SOLID), a complex ticket, or a challenge of a proposed solution, no verdict on a challenge. Use when auditing an area or a critical ticket, or before refactoring one with no ticket.",
+        publisher: "Writes Conventional commits and opens the PR. Use after the reviewer approves.",
       },
     },
     monorepo: {

@@ -41,7 +41,7 @@
     "ApiResponse",
     "mongoose",
     "Types.ObjectId",
-    "ticket-intake",
+    "resolve-ticket",
     "new-resource"
   ]
 }

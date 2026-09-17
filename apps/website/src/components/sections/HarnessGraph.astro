@@ -7,7 +7,7 @@
  * between your sentence and the model? So it is not a diagram of concepts, it
  * is a ROUTE: one prompt enters at stop 1 and comes out a commit at stop 8,
  * lighting up every piece it passes through — hooks, the four context sources,
- * the leader, codegraph and tgrep, the four subagents, the guard and the
+ * the orchestrator, codegraph and tgrep, the three subagents, the guard and the
  * permission rules, semgrep/jscpd/gate/reviewer, and the memory write that
  * closes the loop back into stop 2.
  *
@@ -92,7 +92,7 @@ const STATIONS: Station[] = [
       { id: "engram", label: "engram", tone: "ctx" },
     ],
   },
-  { n: 3, x: 1030, y: ROW.a, chips: [{ id: "leader", label: "leader", tone: "agent" }] },
+  { n: 3, x: 1030, y: ROW.a, chips: [{ id: "orchestrator", label: "orchestrator", tone: "agent" }] },
   {
     n: 4,
     x: 1000,
@@ -107,8 +107,7 @@ const STATIONS: Station[] = [
     x: 420,
     y: ROW.b,
     chips: [
-      { id: "explorer", label: "explorer", tone: "agent" },
-      { id: "researcher", label: "researcher", tone: "agent" },
+      { id: "scout", label: "scout", tone: "agent" },
       { id: "implementer", label: "implementer", tone: "agent" },
       { id: "auditor", label: "auditor", tone: "agent" },
     ],

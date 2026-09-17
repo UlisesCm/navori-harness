@@ -72,7 +72,7 @@ describe("renderCodexEngine", () => {
     expect(agentsMd).toContain(".codex/progress/");
     expect(agentsMd).not.toContain(".claude/progress");
     expect(existsSync(join(cwd, ".agents/skills/verify-before-done/SKILL.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".agents/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".agents/skills/locate-code/SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, ".codex/agents/implementer.toml"))).toBe(true);
     expect(existsSync(join(cwd, ".codex/hooks/guard-destructive.sh"))).toBe(true);
 
@@ -148,22 +148,23 @@ describe("renderCodexEngine", () => {
     }
   });
 
-  it("appends a leader-targeted plugin skill to AGENTS.md as a managed sub-block (#277)", () => {
-    // engram's `engram-leader-extension` injects into `.claude/agents/leader.md`.
-    // Codex embodies the leader in the main thread (no leader.toml), so without the
-    // append the skill vanished silently. It must land in AGENTS.md, marked as a
-    // managed sub-block owned by the plugin so re-render is idempotent.
+  it("appends an orchestrator-targeted plugin skill to AGENTS.md as a managed sub-block (#277)", () => {
+    // engram's `engram-orchestrator-extension` injects into
+    // `.claude/agents/orchestrator.md`. Codex embodies the orchestrator in the
+    // main thread (no orchestrator.toml), so without the append the skill
+    // vanished silently. It must land in AGENTS.md, marked as a managed
+    // sub-block owned by the plugin so re-render is idempotent.
     const cwd = tempRepo();
     const result = renderCodexEngine(cwd, config());
     const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
 
-    // A phrase unique to the leader extension.
+    // A phrase unique to the orchestrator extension.
     expect(agentsMd).toContain("Before decomposing");
     // Marked as a managed sub-block owned by the engram plugin.
-    expect(agentsMd).toContain('id="engram-leader-extension"');
+    expect(agentsMd).toContain('id="engram-orchestrator-extension"');
     expect(agentsMd).toContain('source="@navori/plugin-engram"');
-    // No warning: the append covers the leader target.
-    expect(result.warnings.some((w) => w.includes("engram-leader-extension"))).toBe(false);
+    // No warning: the append covers the orchestrator target.
+    expect(result.warnings.some((w) => w.includes("engram-orchestrator-extension"))).toBe(false);
 
     // Re-render is byte-idempotent — the sub-block does not accrete.
     const before = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
@@ -411,8 +412,8 @@ describe("adaptHarnessTextForCodex — the vocabulary rules (#443)", () => {
     renderCodexEngine(cwd, config({ language: "en" }));
     const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
 
-    expect(agentsMd).toContain("do not invoke `spawn_agent(leader)`");
-    expect(agentsMd).not.toContain("Agent(subagent_type: leader)");
+    expect(agentsMd).toContain("do not invoke `spawn_agent(orchestrator)`");
+    expect(agentsMd).not.toContain("Agent(subagent_type: orchestrator)");
     // The harness of a Codex repo must not explain Claude's behaviour as if it
     // were its own; the instruction the clause qualifies is unchanged.
     expect(agentsMd).toContain("Codex serializes by default");
@@ -444,14 +445,14 @@ describe("adaptHarnessTextForCodex — the vocabulary rules (#443)", () => {
     }
   });
 
-  it("rewrites the leader citation's TERM and leaves the sentence around it", () => {
+  it("rewrites the orchestrator citation's TERM and leaves the sentence around it", () => {
     const out = adaptHarnessTextForCodex(
-      "**NEVER delegate it**: do not invoke `Agent(subagent_type: leader)`. `.claude/agents/leader.md` is a depth reference.",
+      "**NEVER delegate it**: do not invoke `Agent(subagent_type: orchestrator)`. `.claude/agents/orchestrator.md` is a depth reference.",
       config({ language: "en" }),
     );
 
     expect(out).toBe(
-      "**NEVER delegate it**: do not invoke `spawn_agent(leader)`. `AGENTS.md` is a depth reference.",
+      "**NEVER delegate it**: do not invoke `spawn_agent(orchestrator)`. `AGENTS.md` is a depth reference.",
     );
   });
 
@@ -500,10 +501,8 @@ describe("renderCodexEngine — manual-only skill sidecar (#823)", () => {
   it("does not emit agents/openai.yaml for an unflagged skill", () => {
     const cwd = tempRepo();
     renderCodexEngine(cwd, config());
-    // structural-search has no disable-model-invocation in its source frontmatter.
-    expect(existsSync(join(cwd, ".agents/skills/structural-search/agents/openai.yaml"))).toBe(
-      false,
-    );
+    // locate-code has no disable-model-invocation in its source frontmatter.
+    expect(existsSync(join(cwd, ".agents/skills/locate-code/agents/openai.yaml"))).toBe(false);
   });
 
   it("uses Codex's $ invocation, not the slash form, in AGENTS.md", () => {
