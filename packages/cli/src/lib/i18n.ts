@@ -935,6 +935,9 @@ interface EngineCmdStrings {
   // Codex adapter
   pluginLoadFailedCodex: (id: string, reason: string) => string;
   codexTrustHint: string;
+  /** R39/R41 (spec 0026 T10): a Codex orphan-scan match kept, with its reason
+   *  — Codex's own version of the Claude engine's retired-asset report. */
+  keptOrphanCodex: (path: string, reason: KeepReason) => string;
   presetNotFoundCodex: (preset: string) => string;
   presetInvalid: (preset: string, detail: string) => string;
   // Prose-engine dispatch (render.ts)
@@ -2209,6 +2212,11 @@ const CMD_ES: CmdStrings = {
     pluginSkillNotInjected: (id, pid, target) =>
       `skill '${id}' (de @navori/plugin-${pid}) no inyectado: target ${target} ausente (¿agente disabled en config.harness?)`,
     pluginLoadFailedCodex: (id, reason) => `Plugin '${id}' no pudo cargarse para Codex: ${reason}.`,
+    keptOrphanCodex: (path, reason) =>
+      `conservado ${path} — ` +
+      (reason === "newer"
+        ? "lo escribió una versión de navori más nueva que este CLI; no se revierte"
+        : "no lleva marcador de navori (ajeno); nunca se borra sin probar que navori lo escribió"),
     codexTrustHint:
       "Requiere Codex CLI >= 0.145.0. Codex solo carga `.codex/` en repos confiables; revisa y autoriza " +
       "los hooks nuevos con `/hooks`.",
@@ -3347,6 +3355,11 @@ const CMD_EN: CmdStrings = {
       `skill '${id}' (from @navori/plugin-${pid}) not injected: target ${target} missing (agent disabled in config.harness?)`,
     pluginLoadFailedCodex: (id, reason) =>
       `Plugin '${id}' couldn't be loaded for Codex: ${reason}.`,
+    keptOrphanCodex: (path, reason) =>
+      `kept ${path} — ` +
+      (reason === "newer"
+        ? "written by a navori newer than this CLI; not rolled back"
+        : "carries no navori marker (foreign); never deleted without proof navori wrote it"),
     codexTrustHint:
       "Requires Codex CLI >= 0.145.0. Codex only loads `.codex/` in trusted repos; review and authorize " +
       "the new hooks with `/hooks`.",

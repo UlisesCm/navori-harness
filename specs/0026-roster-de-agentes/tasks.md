@@ -181,13 +181,13 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
   `engines/shared/__tests__/roster-parity.test.ts::every active id list matches its canonical catalog`,
   con una lista divergente sembrada que debe rechazar, más `lib/__tests__/legacy-agents.test.ts` y
   `lib/__tests__/recommended.test.ts`, con `// Covers: R38, R42`
-- [ ] **T9** (R40, R42) — `lib/config.ts`: con claves retiradas bajo `harness`, `models` o `effort`,
+- [x] **T9** (R40, R42) — `lib/config.ts`: con claves retiradas bajo `harness`, `models` o `effort`,
   `readConfig` lanza `ConfigError`. El mensaje trae una línea por clave con su reemplazo, los dos
   valores cuando dos claves van al mismo reemplazo con valores distintos, y una nota de que
   `effort.orchestrator` define el effort de la sesión. · test:
   `lib/__tests__/config.test.ts::retired agent keys fail with replacement and conflicting values`
   con `// Covers: R40, R42`
-- [ ] **T10** (R39, R41) — Reconciliación.
+- [x] **T10** (R39, R41) — Reconciliación.
   - **Claude y Codex:** extienden sus patrones existentes con el marcador real por adapter;
     Claude en raíz y workspaces `full`, Codex mediante su contrato de orphan scan, sin afirmar
     regresión existente.

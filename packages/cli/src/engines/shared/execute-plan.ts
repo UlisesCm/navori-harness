@@ -10,7 +10,7 @@ import type { LoadedPlugin } from "../../lib/plugins.ts";
 import type { loadPreset } from "../../lib/presets.ts";
 import type { RenderStatus } from "../../lib/style.ts";
 // The authorship test both delete paths share — see lib/removable.ts (#496).
-import { isRemovableNavoriFile } from "../../lib/removable.ts";
+import { isRemovableNavoriFile, navoriAuthorship, type KeepReason } from "../../lib/removable.ts";
 import { tc, DEFAULT_LANG, type Lang } from "../../lib/i18n.ts";
 import { renderManagedFile } from "./render-managed-file.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "./ephemeral-paths.ts";
@@ -100,6 +100,16 @@ export interface ExecuteResult {
   backupPath: string | null;
 }
 
+/** A path an orphan scan found but did NOT remove, and why (spec 0026 T10,
+ *  R39/R41) — repo-relative, same shape `commands/render.ts`'s own
+ *  `KeptEngineOutput` uses for the disabled-engine prune (route B), so a
+ *  Codex render reports "conserved, and why" on the SAME terms as that path
+ *  and as the Claude engine's own retired-asset reconciliation (§8.7b–d). */
+export interface KeptOrphan {
+  path: string;
+  reason: KeepReason;
+}
+
 /**
  * Machine-readable skip status. Consumers (e.g. `navori sync` conflict
  * detection) branch on this stable code instead of parsing the localized
@@ -146,7 +156,13 @@ export function collectPlan(
   adapter: EngineAdapter,
   ctx: AdapterCtx,
   options: { prune?: boolean; skipReason?: SkipReason; lang?: Lang } = {},
-): { pending: PendingWrite[]; removals: PendingRemoval[]; skipped: ExecuteResult["skipped"] } {
+): {
+  pending: PendingWrite[];
+  removals: PendingRemoval[];
+  skipped: ExecuteResult["skipped"];
+  /** Orphan-scan matches that were NOT removed, with why (spec 0026 T10). */
+  kept: KeptOrphan[];
+} {
   const prune = options.prune !== false;
   const skipReason = options.skipReason ?? makeDefaultSkipReason(options.lang ?? DEFAULT_LANG);
   const pending: PendingWrite[] = [];
@@ -171,9 +187,11 @@ export function collectPlan(
 
   for (const req of requests) collectRequest(req, ctx, pending, skipped, skipReason);
 
-  const removals = prune ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd) : [];
+  const { removals, kept } = prune
+    ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd)
+    : { removals: [], kept: [] };
 
-  return { pending, removals, skipped };
+  return { pending, removals, skipped, kept };
 }
 
 export function executePlan(
@@ -181,8 +199,8 @@ export function executePlan(
   adapter: EngineAdapter,
   ctx: AdapterCtx,
   options: { dryRun?: boolean; prune?: boolean; lang?: Lang } = {},
-): ExecuteResult {
-  const { pending, removals, skipped } = collectPlan(plan, adapter, ctx, options);
+): ExecuteResult & { kept: KeptOrphan[] } {
+  const { pending, removals, skipped, kept } = collectPlan(plan, adapter, ctx, options);
   const { written, backupPath } = commitWrites({
     pending,
     removals,
@@ -192,7 +210,7 @@ export function executePlan(
     engineLabel: adapter.label ?? adapter.id,
     lang: options.lang,
   });
-  return { written, skipped, backupPath };
+  return { written, skipped, backupPath, kept };
 }
 
 /**
@@ -269,8 +287,28 @@ function collectRequest(
   pending.push({ path, relPath: req.destRelPath, content, status, chmodExec: req.chmodExec });
 }
 
-function collectOrphans(scans: readonly OrphanScan[], cwd: string): PendingRemoval[] {
+/**
+ * Not-desired-but-not-removable: a path an orphan scan matched (its NAME/shape
+ * fits, it isn't in `desired`) that `navoriAuthorship` refuses to delete —
+ * `"foreign"` (the user's own file, or navori's marker for a DIFFERENT block)
+ * or `"newer"` (a navori ahead of this CLI wrote it, anti-rollback). Reported,
+ * not silently skipped (spec 0026 T10, R39/R41 — the same "conservarlo y
+ * reportar el motivo" the Claude engine's §8.7b–d already give retired
+ * skills/hooks/agents, extended here to Codex's per-render orphan scan, which
+ * covers agents/skills/hooks uniformly rather than per retired-id registry).
+ */
+function pushKept(kept: KeptOrphan[], cwd: string, absPath: string, markerId?: string): void {
+  const authorship = navoriAuthorship(absPath, markerId);
+  if (authorship === "ours") return;
+  kept.push({ path: relative(cwd, absPath), reason: authorship });
+}
+
+function collectOrphans(
+  scans: readonly OrphanScan[],
+  cwd: string,
+): { removals: PendingRemoval[]; kept: KeptOrphan[] } {
   const removals: PendingRemoval[] = [];
+  const kept: KeptOrphan[] = [];
   for (const scan of scans) {
     const dirAbs = join(cwd, scan.dir);
     for (const entry of readDirSafe(dirAbs)) {
@@ -278,8 +316,11 @@ function collectOrphans(scans: readonly OrphanScan[], cwd: string): PendingRemov
         if (!entry.isFile() || !scan.match(entry.name)) continue;
         const relPath = `${scan.dir}/${entry.name}`;
         const absPath = join(dirAbs, entry.name);
-        if (!scan.desired.has(relPath) && isRemovableNavoriFile(absPath)) {
+        if (scan.desired.has(relPath)) continue;
+        if (isRemovableNavoriFile(absPath)) {
           removals.push({ path: absPath });
+        } else {
+          pushKept(kept, cwd, absPath);
         }
         continue;
       }
@@ -289,7 +330,12 @@ function collectOrphans(scans: readonly OrphanScan[], cwd: string): PendingRemov
         if (nestedRelPath === undefined) continue; // misconfigured scan — nothing to check
         const relPath = `${scan.dir}/${entry.name}/${nestedRelPath}`;
         const nestedAbs = join(dirAbs, entry.name, nestedRelPath);
-        if (scan.desired.has(relPath) || !isRemovableNavoriFile(nestedAbs)) continue;
+        if (scan.desired.has(relPath)) continue;
+        if (!existsSync(nestedAbs)) continue; // desired dropped, nothing on disk to judge
+        if (!isRemovableNavoriFile(nestedAbs)) {
+          pushKept(kept, cwd, nestedAbs);
+          continue;
+        }
         const parentDir = dirname(nestedAbs);
         const children = readDirSafe(parentDir);
         const onlyNested = children.length === 1 && children[0]?.name === basename(nestedRelPath);
@@ -301,13 +347,18 @@ function collectOrphans(scans: readonly OrphanScan[], cwd: string): PendingRemov
       const relPath = `${scan.dir}/${entry.name}/SKILL.md`;
       const skillDir = join(dirAbs, entry.name);
       const skillPath = join(skillDir, "SKILL.md");
-      if (scan.desired.has(relPath) || !isRemovableNavoriFile(skillPath)) continue;
+      if (scan.desired.has(relPath)) continue;
+      if (!existsSync(skillPath)) continue; // desired dropped, nothing on disk to judge
+      if (!isRemovableNavoriFile(skillPath)) {
+        pushKept(kept, cwd, skillPath);
+        continue;
+      }
       const children = readDirSafe(skillDir);
       const onlySkill = children.length === 1 && children[0]?.name === "SKILL.md";
       removals.push({ path: onlySkill ? skillDir : skillPath, recursive: onlySkill });
     }
   }
-  return removals;
+  return { removals, kept };
 }
 
 /**

@@ -147,10 +147,18 @@ export function renderCodexEngine(
   // appended as a managed sub-block BEFORE the single write — mirroring the
   // Claude adapter, but into Codex's `.agents/skills/<id>/SKILL.md` and adapted
   // to Codex's vocabulary. (skill→agent injectInto is handled in buildAgentToml.)
-  const { pending, removals, skipped } = collectPlan(plan, adapter, ctx, {
+  const { pending, removals, skipped, kept } = collectPlan(plan, adapter, ctx, {
     prune: presetLoadedSafely,
     lang,
   });
+  // R39/R41 (spec 0026 T10): Codex reports a kept orphan the same way Claude's
+  // §8.7b–d retirement loops do — path + reason, plain text in `warnings`,
+  // never silently skipped. Generic over every orphan scan (agents/skills/
+  // hooks), a superset of "retired ids" that stays correct once T11 starts
+  // pruning old agent ids here too.
+  for (const k of kept) {
+    warnings.push(tc(lang).engine.keptOrphanCodex(k.path, k.reason));
+  }
   for (const plugin of plugins) {
     for (const skill of plugin.skillAssets) {
       const m = skill.injectInto?.match(SKILL_INJECT_RE);

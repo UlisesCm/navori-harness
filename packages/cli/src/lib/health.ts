@@ -433,7 +433,18 @@ export interface RetiredAssetOnDisk {
  * its successor — `navori doctor` and `render --apply`'s own report (spec
  * 0026 T10) share the same criterion, so neither promises "0 retired" while
  * the other still finds one. Pure existence + authorship read: `doctor` never
- * applies a render, so this cannot call into `renderClaudeEngine`.
+ * applies a render, so this cannot call into `renderClaudeEngine`/
+ * `renderCodexEngine`.
+ *
+ * Checks BOTH adapters' destinations, not just Claude's: `RETIRED_AGENTS`/
+ * `RETIRED_SKILLS`/`RETIRED_HOOKS` already carry a `codex` marker id
+ * precisely so this can reason about `.codex/`/`.agents/skills` symmetrically
+ * (R38's per-adapter registry exists for this, not only for `render`'s own
+ * reconciliation). Codex has no FLAT skill shape (only `.agents/skills/<id>/
+ * SKILL.md`, no `<id>.md` twin) and no `<id>-base` convention for skills/hooks
+ * — those keep the SAME `markerIdByAdapter.codex` value as `.claude`'s
+ * (`engines/codex/index.ts` reuses the shared plan's `managedId` for skills
+ * and hooks; only agents get a separate `<id>-codex-base` namespace).
  */
 export function scanRetiredAssets(cwd: string): RetiredAssetOnDisk[] {
   const out: RetiredAssetOnDisk[] = [];
@@ -449,32 +460,58 @@ export function scanRetiredAssets(cwd: string): RetiredAssetOnDisk[] {
   };
 
   for (const retired of RETIRED_AGENTS) {
-    const markerId = retired.markerIdByAdapter.claude ?? `${retired.id}-base`;
+    const claudeMarker = retired.markerIdByAdapter.claude ?? `${retired.id}-base`;
     record(
       join(cwd, ".claude/agents", `${retired.id}.md`),
       retired.id,
       retired.successor,
-      markerId,
+      claudeMarker,
+    );
+    const codexMarker = retired.markerIdByAdapter.codex ?? `${retired.id}-codex-base`;
+    record(
+      join(cwd, ".codex/agents", `${retired.id}.toml`),
+      retired.id,
+      retired.successor,
+      codexMarker,
     );
   }
   for (const retired of RETIRED_SKILLS) {
-    const markerId = retired.markerIdByAdapter.claude ?? retired.id;
+    const claudeMarker = retired.markerIdByAdapter.claude ?? retired.id;
     record(
       join(cwd, ".claude/skills", `${retired.id}.md`),
       retired.id,
       retired.successor,
-      markerId,
+      claudeMarker,
     );
     record(
       join(cwd, ".claude/skills", retired.id, "SKILL.md"),
       retired.id,
       retired.successor,
-      markerId,
+      claudeMarker,
+    );
+    const codexMarker = retired.markerIdByAdapter.codex ?? claudeMarker;
+    record(
+      join(cwd, ".agents/skills", retired.id, "SKILL.md"),
+      retired.id,
+      retired.successor,
+      codexMarker,
     );
   }
   for (const retired of RETIRED_HOOKS) {
-    const markerId = retired.markerIdByAdapter.claude ?? `${retired.id}-base`;
-    record(join(cwd, ".claude/hooks", `${retired.id}.sh`), retired.id, retired.successor, markerId);
+    const claudeMarker = retired.markerIdByAdapter.claude ?? `${retired.id}-base`;
+    record(
+      join(cwd, ".claude/hooks", `${retired.id}.sh`),
+      retired.id,
+      retired.successor,
+      claudeMarker,
+    );
+    const codexMarker = retired.markerIdByAdapter.codex ?? claudeMarker;
+    record(
+      join(cwd, ".codex/hooks", `${retired.id}.sh`),
+      retired.id,
+      retired.successor,
+      codexMarker,
+    );
   }
   return out;
 }

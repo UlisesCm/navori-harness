@@ -1246,4 +1246,55 @@ describe("scanRetiredAssets — reports retired files with successor (spec 0026 
       reason: "newer",
     });
   });
+
+  // Covers: R38, R41
+  it("also scans the Codex destinations, using markerIdByAdapter.codex", () => {
+    // pr-create/precompact-session-summary carry the SAME marker for both
+    // adapters (skills/hooks are not split per adapter, R38) — only agents
+    // get a separate `<id>-codex-base` namespace.
+    const skillMarker = RETIRED_SKILL.markerIdByAdapter.codex ?? RETIRED_SKILL.id;
+    const skillPath = join(cwd, ".agents/skills", RETIRED_SKILL.id, "SKILL.md");
+    mkdirSync(join(cwd, ".agents/skills", RETIRED_SKILL.id), { recursive: true });
+    writeFileSync(
+      skillPath,
+      injectManagedSection("", skillMarker, "cuerpo\n", {
+        version: readCliVersion(),
+        source: "@navori/core",
+      }).output,
+      "utf-8",
+    );
+
+    const hookMarker = RETIRED_HOOK.markerIdByAdapter.codex ?? `${RETIRED_HOOK.id}-base`;
+    const hookPath = join(cwd, ".codex/hooks", `${RETIRED_HOOK.id}.sh`);
+    mkdirSync(join(cwd, ".codex/hooks"), { recursive: true });
+    writeFileSync(
+      hookPath,
+      `# navori:managed start id="${hookMarker}" hash="deadbeef" version="${readCliVersion()}" source="@navori/core"\n` +
+        `#!/usr/bin/env bash\nexit 0\n` +
+        `# navori:managed end id="${hookMarker}"\n`,
+      "utf-8",
+    );
+
+    const report = scanRetiredAssets(cwd);
+    expect(report).toContainEqual({
+      path: `.agents/skills/${RETIRED_SKILL.id}/SKILL.md`,
+      id: RETIRED_SKILL.id,
+      successor: RETIRED_SKILL.successor,
+    });
+    expect(report).toContainEqual({
+      path: `.codex/hooks/${RETIRED_HOOK.id}.sh`,
+      id: RETIRED_HOOK.id,
+      successor: RETIRED_HOOK.successor,
+    });
+  });
+
+  // Covers: R41
+  it("RETIRED_AGENTS ships empty — no false positive under .codex/agents today", () => {
+    // The seeded-mock case for the .codex/agents/<id>-codex-base path lives in
+    // retired-assets-codex.test.ts (RETIRED_AGENTS is empty in production
+    // until T11, same precedent as the .claude-side check).
+    mkdirSync(join(cwd, ".codex/agents"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/agents/leader.toml"), "# ajeno\n", "utf-8");
+    expect(scanRetiredAssets(cwd).some((r) => r.id === "leader")).toBe(false);
+  });
 });
