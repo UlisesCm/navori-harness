@@ -6,7 +6,7 @@ model: sonnet
 effort: low
 ---
 
-<!-- navori:managed id="reviewer-base" hash="cf4a7333" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="reviewer-base" hash="7da413cf" version="0.8.7" source="@navori/core" -->
 # Reviewer Agent
 
 You are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.
@@ -76,7 +76,7 @@ Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions
 pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck
 ```
 
-Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. Run it in the foreground with the Bash tool's max `timeout`; if `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` can exceed it, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its `&&`-chained steps one by one in the foreground, each under the timeout — never background it, you won't be re-woken to read the result.
+Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `commit-pr-pilot` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. You are the single owner of this gate run: the only handle that exists is this Bash call itself, correlated to the diff you're reviewing this turn — never share it with another process, and never poll `pgrep`/`ps` for it (it also matches other sessions' commands and never exits). A timeout is never a success signal. Run it in the foreground with the Bash tool's max `timeout`; if `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` can exceed it, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its `&&`-chained steps one by one in the foreground, each under the timeout — never background it (no shell `&`, no `run_in_background`, no `Monitor`), you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait.
 
 Don't gate a screen change on browser validation by default. Only if the user explicitly requested a visual/browser check and it wasn't done do you mark it incomplete — otherwise the diff + the repo's tests are the gate.
 

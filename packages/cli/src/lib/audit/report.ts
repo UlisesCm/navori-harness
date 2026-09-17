@@ -12,7 +12,7 @@ import {
   emptyTokens,
   recorderWindow,
 } from "./model.ts";
-import { harnessRegime, type Lang } from "./signals.ts";
+import { harnessRegime, reviewerGateLifecycle, type Lang } from "./signals.ts";
 
 /**
  * Renders a parsed audit into its two derived artifacts.
@@ -1298,7 +1298,14 @@ export function buildReport(
     // #778: the caveat on everything above. Computed here rather than per
     // session because the claim it makes — "these totals mix regimes" — only
     // exists at range level.
-    rangeSignals: harnessRegime(sessions, opts.harnessVersion ?? null, opts.lang ?? "en"),
+    rangeSignals: [
+      ...harnessRegime(sessions, opts.harnessVersion ?? null, opts.lang ?? "en"),
+      // R53/R54 of spec 0026: reviewer/implementer gate lifecycle — duplicate
+      // or unknown handles, overlapping reviewer runs, and duration/wait
+      // totals once there is enough data. Range-level for the same reason
+      // `harnessRegime` is: the sample-size floor is evaluated across sessions.
+      ...reviewerGateLifecycle(sessions, opts.lang ?? "en"),
+    ],
     orphanSessions: opts.orphanSessions ?? [],
   };
 }
