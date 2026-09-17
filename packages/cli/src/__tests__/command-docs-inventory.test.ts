@@ -126,6 +126,7 @@ describe("the website documents every registered subcommand (#548)", () => {
     expect(documented).toEqual(expect.arrayContaining(["init", "render", "global"]));
   });
 
+  // Covers: R1, R3, R4
   it("has a docs page or a declared exemption for each one", () => {
     expect(audit.undocumented, undocumentedMessage(audit.undocumented)).toEqual([]);
   });
