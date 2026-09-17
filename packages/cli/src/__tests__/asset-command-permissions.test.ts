@@ -282,10 +282,6 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
   ],
   ["gh auth login", "interactive credential flow — the prose addresses the human, not the agent"],
   [
-    "git grep",
-    "`git grep -O<pager>` runs an arbitrary pager — the same escape that keeps `rg --pre` and `find -exec` out of the allowlist",
-  ],
-  [
     "git worktree remove",
     "deletes a full checkout; the orchestrator block orders asking the user first, so the prompt IS the intended gate",
   ],

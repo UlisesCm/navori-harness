@@ -214,3 +214,153 @@ describe.runIf(hasPython)("mine-search-routing — las vías que nadie contaba (
     expect(run("2026-09-11 2026-09-12")).toEqual({});
   });
 });
+
+/**
+ * D19 (spec 0026 R14, R15, R52): la vía v2 (`tgrep search` CLI, `codegraph_explore`
+ * MCP tool) contra el escape (`Grep` nativo, `rg`/`grep -r` vía `shell`, `git grep`),
+ * con transcripts padre+hijo (subagente vinculado a la sesión auditada), conteos
+ * exactos y negativos, y `malformado`/`no_disponible` distintos de cero por
+ * construcción.
+ *
+ * // Covers: R14, R15, R52
+ */
+describe.runIf(hasPython)("mine-search-routing — D19: v2 contra escape (#838, spec 0026)", () => {
+  it("clasifica `tgrep search` como v2, no como el wrapper v1, y `tgrep status` no cuenta", () => {
+    expect(classify("tgrep search -n -F -- foo src")).toEqual({ "tgrep-v2": 1 });
+    expect(classify("tgrep status")).toEqual({});
+    expect(classify("tgrep --version")).toEqual({});
+    // El wrapper v1 sigue vivo para transcripts de antes de #838.
+    expect(classify("bash .claude/scripts/tgrep-search.sh -n foo")).toEqual({ wrapper: 1 });
+  });
+
+  it("cuenta las búsquedas del subagente (padre+hijo), sin duplicar la sidechain inline", () => {
+    // El hilo principal repite los records del subagente marcados `isSidechain`
+    // ADEMÁS de escribirlos en `<session>/subagents/agent-*.jsonl` — sin excluir
+    // esa marca en el padre, una sola búsqueda del subagente cuenta dos veces.
+    const root = mkdtempSync(join(tmpdir(), "navori-miner-d19-"));
+    const audits = join(root, "audits", "demo");
+    const projects = join(root, "projects", "enc");
+    const sid = "sess-d19-1";
+    const subDir = join(projects, sid, "subagents");
+    mkdirSync(audits, { recursive: true });
+    mkdirSync(subDir, { recursive: true });
+    writeFileSync(
+      join(audits, `session-${sid}.log`),
+      `${JSON.stringify({ ts: "2026-09-16T10:00:00Z", event: "start", repo: "demo" })}\n`,
+    );
+    // Hilo principal: una búsqueda propia por Grep nativo, más la sidechain del
+    // subagente repetida inline (no debe sumar).
+    const mainLines = [
+      { message: { content: [{ type: "tool_use", id: "m1", name: "Grep", input: {} }] } },
+      {
+        isSidechain: true,
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "sc1",
+              name: "Bash",
+              input: { command: "tgrep search -n -F -- foo src" },
+            },
+          ],
+        },
+      },
+    ];
+    writeFileSync(
+      join(projects, `${sid}.jsonl`),
+      `${mainLines.map((l) => JSON.stringify(l)).join("\n")}\n`,
+    );
+    // Subagente: la MISMA búsqueda tgrep, más una llamada a codegraph_explore.
+    const subLines = [
+      {
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "s1",
+              name: "Bash",
+              input: { command: "tgrep search -n -F -- foo src" },
+            },
+            {
+              type: "tool_use",
+              id: "s2",
+              name: "mcp__codegraph__codegraph_explore",
+              input: { query: "foo" },
+            },
+          ],
+        },
+      },
+    ];
+    writeFileSync(
+      join(subDir, "agent-abc123.jsonl"),
+      `${subLines.map((l) => JSON.stringify(l)).join("\n")}\n`,
+    );
+
+    const program = [
+      "import importlib.util, json",
+      `spec = importlib.util.spec_from_file_location('m', ${JSON.stringify(MINER)})`,
+      "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
+      "print(json.dumps({k: dict(v) for k, v in m.scan().items()}))",
+    ].join("\n");
+    const r = spawnSync("python3", ["-c", program], {
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        NAVORI_AUDITS_ROOT: join(root, "audits"),
+        NAVORI_TRANSCRIPTS_ROOT: join(root, "projects"),
+      },
+    });
+    const out = JSON.parse(r.stdout || "{}") as Record<string, Record<string, number>>;
+    // Exactos: una sola `tgrep-v2` (deduplicada), un `codegraph-v2`, un `nativo`.
+    expect(out.demo?.["tgrep-v2"]).toBe(1);
+    expect(out.demo?.["codegraph-v2"]).toBe(1);
+    expect(out.demo?.nativo).toBe(1);
+    // Negativo: sin escape shell en este fixture.
+    expect(out.demo?.shell ?? 0).toBe(0);
+    expect(out.demo?.["git-grep"] ?? 0).toBe(0);
+  });
+
+  it("distingue `malformado` (línea que no parsea) y `no_disponible` (sesión sin transcript) de cero", () => {
+    const root = mkdtempSync(join(tmpdir(), "navori-miner-d19-malo-"));
+    const audits = join(root, "audits", "demo");
+    const projects = join(root, "projects", "enc");
+    mkdirSync(audits, { recursive: true });
+    mkdirSync(projects, { recursive: true });
+
+    // Sesión A: transcript presente con una línea corrupta.
+    const sidA = "sess-malformado";
+    writeFileSync(
+      join(audits, `session-${sidA}.log`),
+      `${JSON.stringify({ ts: "2026-09-16T10:00:00Z", event: "start", repo: "demo" })}\n`,
+    );
+    writeFileSync(join(projects, `${sidA}.jsonl`), "{ esto no es json valido\n");
+
+    // Sesión B: auditada, pero SIN archivo `.jsonl` en absoluto (rotado/borrado).
+    const sidB = "sess-sin-transcript";
+    writeFileSync(
+      join(audits, `session-${sidB}.log`),
+      `${JSON.stringify({ ts: "2026-09-16T11:00:00Z", event: "start", repo: "demo" })}\n`,
+    );
+
+    const program = [
+      "import importlib.util, json",
+      `spec = importlib.util.spec_from_file_location('m', ${JSON.stringify(MINER)})`,
+      "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
+      "print(json.dumps({k: dict(v) for k, v in m.scan().items()}))",
+    ].join("\n");
+    const r = spawnSync("python3", ["-c", program], {
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        NAVORI_AUDITS_ROOT: join(root, "audits"),
+        NAVORI_TRANSCRIPTS_ROOT: join(root, "projects"),
+      },
+    });
+    const out = JSON.parse(r.stdout || "{}") as Record<string, Record<string, number>>;
+    expect(out.demo?.malformado).toBe(1);
+    expect(out.demo?.no_disponible).toBe(1);
+    // Ninguno de los dos se cuela en las categorías puntuadas.
+    expect(out.demo?.["tgrep-v2"] ?? 0).toBe(0);
+    expect(out.demo?.["codegraph-v2"] ?? 0).toBe(0);
+  });
+});

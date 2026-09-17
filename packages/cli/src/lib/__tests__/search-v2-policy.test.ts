@@ -206,3 +206,59 @@ describe("occurrence counts alone no longer stand in for structural impact evide
     );
   });
 });
+
+/**
+ * Phase G (spec 0026 R16, R18) — tgrep and codegraph enter the routing, so no
+ * distributed asset can prescribe a raw shell verb (`grep -r`, `rg PATTERN`,
+ * `git grep`) as its discovery recipe, and `structural-search` must defer both
+ * lanes to whichever provider is enabled instead of treating native search as
+ * the default.
+ */
+describe("no distributed asset prescribes shell search as discovery", () => {
+  // A real recipe (a command with an argument), not a bare mention of the
+  // binary's name — `operaciones-seguras.md` says "`rg` is NOT (`rg --pre
+  // <cmd>` runs arbitrary code)" as a PERMISSION caveat, not a discovery
+  // method, and must keep passing.
+  const SHELL_RECIPE = [/`grep -r[a-zA-Z]*\s/, /`rg\s+[^-]/, /`git grep/];
+
+  const distributedAssets = [
+    coreSkill("review-diff.md"),
+    coreAgent("auditor.md"),
+    coreAgent("ticket-audit.md"),
+    coreAgent("researcher.md"),
+    coreSkill("structural-search.md"),
+  ];
+
+  it("no distributed asset prescribes shell search as discovery", () => {
+    // Covers: R16
+    for (const path of distributedAssets) {
+      const content = read(path);
+      for (const pattern of SHELL_RECIPE) {
+        expect(content, `${path} matched ${pattern}`).not.toMatch(pattern);
+      }
+    }
+  });
+
+  it("operaciones-seguras keeps its rg --pre warning within its 2,000-byte cap", () => {
+    const seguras = read(coreManaged("operaciones-seguras.md"));
+    expect(seguras).toContain("`rg --pre <cmd>` runs arbitrary code");
+    for (const pattern of SHELL_RECIPE) {
+      expect(seguras).not.toMatch(pattern);
+    }
+    expect(Buffer.byteLength(seguras, "utf-8")).toBeLessThanOrEqual(2000);
+  });
+
+  it("structural-search defers both lanes to the enabled provider", () => {
+    // Covers: R18
+    const skill = read(coreSkill("structural-search.md"));
+    expect(skill).toContain("Both lanes defer to the enabled provider");
+    expect(skill).toContain("the textual lane resolves through tgrep when the plugin is enabled");
+    expect(skill).toContain("the structural lane through CodeGraph when its plugin is enabled");
+    expect(skill).toContain("Both fallbacks apply only when no provider is enabled or available");
+    // The old wording treated native search as the default lane ahead of the
+    // provider — that's exactly what R18 replaces.
+    expect(skill).not.toContain(
+      "the default lane for a literal token (name, import, config key, error string) or a filename/path pattern",
+    );
+  });
+});

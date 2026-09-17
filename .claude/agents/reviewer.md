@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
-tools: Read, Glob, Grep, Bash, Write, Monitor, TaskStop, mcp__engram__*
+tools: Read, Glob, Grep, Bash, Write, Monitor, TaskStop, mcp__engram__*, mcp__codegraph__*
 model: sonnet
 effort: low
 ---
@@ -213,6 +213,12 @@ not a session. Ending with `done -> <file>` is your report.
 
 If a memory contradicts what the code says, the code wins — fix the memory.
 <!-- /navori:managed id="engram-reviewer-extension" -->
+
+<!-- navori:managed id="codegraph-access-v2-reviewer" hash="41084677" version="0.8.7" source="@navori/plugin-codegraph" -->
+### Structural discovery access
+
+Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.
+<!-- /navori:managed id="codegraph-access-v2-reviewer" -->
 
 
 

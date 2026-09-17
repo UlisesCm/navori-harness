@@ -11,6 +11,13 @@
   "branchBase": "main",
   "gitignoreHarness": "off",
   "commits": "conventional-es",
+  "qualityGate": {
+    "fast": "cd packages/cli && pnpm lint",
+    "full": "pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck"
+  },
+  "audit": {
+    "mode": "always"
+  },
   "models": {
     "leader": "sonnet",
     "implementer": "sonnet",
@@ -31,10 +38,6 @@
     "explorer": "low",
     "auditor": "medium"
   },
-  "qualityGate": {
-    "fast": "cd packages/cli && pnpm lint",
-    "full": "pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck"
-  },
   "plugins": {
     "engram": {
       "enabled": true
@@ -46,6 +49,12 @@
       "enabled": true
     },
     "semgrep": {
+      "enabled": true
+    },
+    "tgrep": {
+      "enabled": true
+    },
+    "codegraph": {
       "enabled": true
     }
   },
@@ -67,8 +76,5 @@
       "clack"
     ],
     "libraryMigrations": []
-  },
-  "audit": {
-    "mode": "always"
   }
 }

@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
-tools: Read, Write, Edit, Glob, Grep, Bash, Monitor, TaskStop, mcp__engram__*
+tools: Read, Write, Edit, Glob, Grep, Bash, Monitor, TaskStop, mcp__engram__*, mcp__codegraph__*
 model: sonnet
 effort: medium
 ---
@@ -148,6 +148,12 @@ not a session. Ending with `done -> <file>` is your report.
 
 If a memory contradicts what the code says, the code wins — fix the memory.
 <!-- /navori:managed id="engram-implementer-extension" -->
+
+<!-- navori:managed id="codegraph-access-v2-implementer" hash="41084677" version="0.8.7" source="@navori/plugin-codegraph" -->
+### Structural discovery access
+
+Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.
+<!-- /navori:managed id="codegraph-access-v2-implementer" -->
 
 
 

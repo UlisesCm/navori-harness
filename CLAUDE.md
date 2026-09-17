@@ -166,6 +166,18 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 `gh auth status` shows whether you're authenticated. If it fails, run `gh auth login`.
 <!-- /navori:managed id="gh-protocol" -->
 
+<!-- navori:managed id="tgrep-search-v2" hash="71340512" version="0.8.7" source="@navori/plugin-tgrep" -->
+### Textual provider: tgrep
+
+Use `tgrep search -n [flags] -- PATTERN ROOT`; without `-n` piped output has no line numbers. Prefer `-F` for literals. Scope by directory or `-t TYPE`; broad queries start with `-l`, then selected files and `-C 2`. Positive `-g` forces a scan. Use `--hidden` only for intended hidden paths. Missing index can fall back to scanning. For edits that must be visible now, use `--no-index`; status is not proof of freshness. Exit 1 means no matches, 2 means error. Preserve stderr. If unavailable, use native Grep. Do not install, start servers or reindex during ordinary discovery.
+<!-- /navori:managed id="tgrep-search-v2" -->
+
+<!-- navori:managed id="codegraph-search-v2" hash="733bfc60" version="0.8.7" source="@navori/plugin-codegraph" -->
+### Structural provider: CodeGraph
+
+Use `codegraph_explore` for structural discovery when available. Pass the current checkout's absolute `projectPath`; do not substitute another worktree's index. Treat sufficient fresh verbatim source returned to this context as already read. Respect stale/disabled-watch warnings and report unresolved relationships; the graph is not proof of completeness. Never initialize an index during ordinary discovery. If this project is unindexed or the provider fails, use scoped native exploration. Do not call tgrep merely to confirm the same symbol. Source unavailable in this context is missing evidence, even if another agent saw it.
+<!-- /navori:managed id="codegraph-search-v2" -->
+
 <!-- navori:managed id="skills-index" hash="36d7b93c" version="0.8.7" source="@navori/core" -->
 ## Skills disponibles
 
