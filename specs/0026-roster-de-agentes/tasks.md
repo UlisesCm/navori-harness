@@ -116,7 +116,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
 ## Fase G · tgrep y codegraph (PR 3)
 
-- [ ] **T6** (R14, R15, R52) — Medición D19.
+- [x] **T6** (R14, R15, R52) — Medición D19.
   - **`navori.config.json` del repo:** habilita `tgrep` y `codegraph` con `navori add`; el
     espejo se re-renderiza.
   - **`scripts/mine-search-routing.py`:** cuenta `tgrep search` y `codegraph_explore` como vía v2
@@ -130,7 +130,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
   exactos y negativos, malformed y unavailable, más
   `lib/__tests__/search-v2-manifests.test.ts` sin cambios (el plugin `tgrep` sigue sin hooks ni
   scripts), con `// Covers: R14, R15, R52`
-- [ ] **T7** (R16, R18) — Assets sin recetas de búsqueda por shell:
+- [x] **T7** (R16, R18) — Assets sin recetas de búsqueda por shell:
   - `skills/review-diff.md:36`.
   - `agents/auditor.md:57`.
   - `agents/ticket-audit.md:51-52`.
