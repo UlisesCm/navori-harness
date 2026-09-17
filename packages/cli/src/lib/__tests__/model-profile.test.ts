@@ -56,19 +56,31 @@ describe("scanMissingModelProfile (#817)", () => {
       harnessKey: "scout",
       missing: ["model", "effort"],
     });
-    // The 7 core agents (orchestrator included — it's rendered for Claude;
-    // spec 0026 T19 adds `architect`, on by default in HarnessSchema).
+    // The 6 core agents on by default (orchestrator included — it's rendered
+    // for Claude). `architect` (spec 0026 T19) defaults OFF as of the phase F
+    // review (2026-09-17) — it's exercised separately below.
     expect(issues.map((i) => i.agent).sort()).toEqual(
-      [
-        "architect",
-        "auditor",
-        "implementer",
-        "orchestrator",
-        "publisher",
-        "reviewer",
-        "scout",
-      ].sort(),
+      ["auditor", "implementer", "orchestrator", "publisher", "reviewer", "scout"].sort(),
     );
+  });
+
+  // Spec 0026 F review (2026-09-17): `harness.architect` defaults to `false`,
+  // so it must NOT appear in the default scan, and must appear once a repo
+  // opts in via `harness: { architect: true }` — same pattern already pinned
+  // for `auditor`'s opt-OUT case below, mirrored for architect's opt-IN case.
+  it("architect is absent from the default scan (off by default)", () => {
+    const issues = scanMissingModelProfile(config());
+    expect(issues.some((i) => i.agent === "architect")).toBe(false);
+  });
+
+  it("architect is flagged once the repo opts in via harness.architect", () => {
+    const cfg = config({ harness: { architect: true } as NavoriConfig["harness"] });
+    const architect = scanMissingModelProfile(cfg).find((i) => i.agent === "architect");
+    expect(architect).toEqual({
+      agent: "architect",
+      harnessKey: "architect",
+      missing: ["model", "effort"],
+    });
   });
 
   it("flags only the missing half when one tier is set and the other isn't", () => {

@@ -42,8 +42,15 @@ const CONFIG_HARNESS_FILTERED = {
     scout: false,
     auditor: false,
     publisher: false,
-    architect: false,
   },
+} as unknown as NavoriConfig;
+
+// Spec 0026 F review (2026-09-17): `harness.architect` defaults to `false`,
+// so `CONFIG_FULL` (no explicit `harness` section) does NOT render it —
+// opting in needs an explicit `harness.architect: true`, exercised below.
+const CONFIG_WITH_ARCHITECT = {
+  ...CONFIG_FULL,
+  harness: { architect: true },
 } as unknown as NavoriConfig;
 
 let cwd: string;
@@ -57,7 +64,7 @@ afterEach(() => {
 });
 
 describe("renderClaudeEngine — first render with full config", () => {
-  it("creates CLAUDE.md, .claude/settings.json, 7 agents, 2 skills, qg hook", () => {
+  it("creates CLAUDE.md, .claude/settings.json, 6 agents, 2 skills, qg hook", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL);
 
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(true);
@@ -74,7 +81,6 @@ describe("renderClaudeEngine — first render with full config", () => {
 
     const agentPaths = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
     expect(agentPaths.map((w) => w.path).sort()).toEqual([
-      ".claude/agents/architect.md",
       ".claude/agents/auditor.md",
       ".claude/agents/implementer.md",
       ".claude/agents/orchestrator.md",
@@ -86,6 +92,38 @@ describe("renderClaudeEngine — first render with full config", () => {
     expect(claudeMd?.status).toBe("created");
     const settings = r.written.find((w) => w.path === ".claude/settings.json");
     expect(settings?.status).toBe("created");
+    // Spec 0026 F review (2026-09-17): `harness.architect` defaults to false,
+    // so the default render carries the `navori:if-not architect` half of the
+    // architectural-pass doctrine (the orchestrator applies the skill itself).
+    // Spec 0019 routes the orchestration block to `.claude/context/`, not
+    // inline in CLAUDE.md.
+    const orquestacionBody = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
+    expect(orquestacionBody).toContain("`solution-design` skill, applied by you");
+    expect(orquestacionBody).not.toContain("`architect` applies `solution-design` and writes");
+  });
+
+  // Spec 0026 F review (2026-09-17): the opt-in branch. `architect` renders
+  // only once `harness.architect: true` is explicit — this is the
+  // `navori:if architect` half of the doctrine; the default-off render above
+  // is the `navori:if-not architect` half every fresh repo actually gets.
+  it("renders architect.md once harness.architect is explicitly enabled", () => {
+    const r = renderClaudeEngine(cwd, CONFIG_WITH_ARCHITECT);
+    expect(existsSync(join(cwd, ".claude/agents/architect.md"))).toBe(true);
+    const agentPaths = r.written
+      .filter((w) => w.path.startsWith(".claude/agents/"))
+      .map((w) => w.path)
+      .sort();
+    expect(agentPaths).toEqual([
+      ".claude/agents/architect.md",
+      ".claude/agents/auditor.md",
+      ".claude/agents/implementer.md",
+      ".claude/agents/orchestrator.md",
+      ".claude/agents/publisher.md",
+      ".claude/agents/reviewer.md",
+      ".claude/agents/scout.md",
+    ]);
+    const orquestacionBody = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
+    expect(orquestacionBody).toContain("`architect` applies `solution-design` and writes");
   });
 
   it("writes CLAUDE.md last so a mid-loop crash leaves it intact (#71 item 10)", () => {
@@ -449,10 +487,12 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
     // Inspected counts every managed asset processed:
     //   1 CLAUDE.md + 1 settings.json + 1 .mcp.json (engram declares an mcpServer,
-    //   #212) + 7 agents (spec 0026 T12/T13/T19: orchestrator, implementer,
-    //   reviewer, scout, auditor, publisher, architect) + 5 core skills (spec
-    //   0026 T14 merges debug-error + loop-back-debug into one debug-failure) +
-    //   5 workflow skills
+    //   #212) + 6 agents (spec 0026 T12/T13: orchestrator, implementer, reviewer,
+    //   scout, auditor, publisher — `architect`, spec 0026 T19, defaults OFF as of
+    //   the phase F review 2026-09-17 and CONFIG_FULL carries no explicit
+    //   `harness.architect: true`, so it does not add to this count; see the
+    //   opt-in test below) + 5 core skills (spec 0026 T14 merges debug-error +
+    //   loop-back-debug into one debug-failure) + 5 workflow skills
     //   (resolve-ticket, solution-design, spec-bootstrap, dominio, follow-up-prs) +
     //   1 guard hook + 1 session-start hook + 1 PR routing hook (#705) +
     //   1 comment-draft-confirm hook (spec 0026 E1) +
@@ -466,17 +506,17 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   1 routing watcher (spec 0020: the R2 notice at the moment of the
     //   decision, the second PostToolUse hook) +
     //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
-    //   the two session ceremonies and the agents index (#572) = 41.
+    //   the two session ceremonies and the agents index (#572) = 40.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(41);
+    expect(first.inspected).toBe(40);
     // Written counts files actually emitted. engram-orchestrator-extension is a
     // sub-block injected into orchestrator.md, not a separate file. The
-    // arithmetic: 41 inspected − the 4 engram sub-blocks = 37 files actually
+    // arithmetic: 40 inspected − the 4 engram sub-blocks = 36 files actually
     // emitted (the base files + the .mcp.json + both audit-mode hooks + the
     // drift watcher + the worktree-reclaim hook + the routing watcher of spec
     // 0020 + the PR routing hook of #705 + the comment-draft-confirm hook of
     // spec 0026 E1).
-    expect(first.written.length).toBe(37);
+    expect(first.written.length).toBe(36);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -580,10 +620,12 @@ describe("renderClaudeEngine — dry-run", () => {
     // routing watcher (spec 0020), the PR routing hook (#705), the
     // comment-draft-confirm hook (spec 0026 E1) and the orchestrator block
     // routed to `.claude/context/` (#573). One less than before #774 retired
-    // the PreCompact reminder. 37, not 39: spec 0026 T12 shrank the roster from
-    // eight agents to six, spec 0026 T14 merges debug-error + loop-back-debug
-    // into one debug-failure, and spec 0026 T19 adds `architect` back to seven.
-    expect(r.written).toHaveLength(37);
+    // the PreCompact reminder. 36, not 39: spec 0026 T12 shrank the roster from
+    // eight agents to six, and spec 0026 T14 merges debug-error +
+    // loop-back-debug into one debug-failure. `architect` (spec 0026 T19)
+    // defaults OFF (phase F review, 2026-09-17) and CONFIG_FULL carries no
+    // explicit `harness.architect: true`, so it stays at six here too.
+    expect(r.written).toHaveLength(36);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

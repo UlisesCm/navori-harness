@@ -1,5 +1,6 @@
 import type { NavoriConfig } from "../../lib/config.ts";
 import { resolveCondition } from "../../lib/marker.ts";
+import { HARNESS_DEFAULTS } from "../../lib/schema.ts";
 import type { PresetExtraFile } from "../../lib/presets.ts";
 import {
   ROSTER_AGENTS,
@@ -104,11 +105,20 @@ export const RETIRED_SKILLS: ReadonlyArray<Retired> = ROSTER_RETIRED_SKILLS;
  */
 export const RETIRED_HOOKS: ReadonlyArray<Retired> = ROSTER_RETIRED_HOOKS;
 
+/**
+ * Whether `key`'s agent is enabled. An EXPLICIT `harness.<key>` value always
+ * wins; when it's unset (including when `config.harness` itself is entirely
+ * absent — the common case), fall back to `HARNESS_DEFAULTS` rather than
+ * assuming "unset" always means "enabled" (see `HARNESS_DEFAULTS`'s own
+ * doc — that assumption broke the moment `architect` defaulted to `false`).
+ */
 export function isAgentEnabled(
   config: NavoriConfig,
   key: keyof NonNullable<NavoriConfig["harness"]>,
 ): boolean {
-  return config.harness?.[key] !== false;
+  const explicit = config.harness?.[key];
+  if (explicit !== undefined) return explicit;
+  return HARNESS_DEFAULTS[key] ?? true;
 }
 
 export function extraConditionMet(extra: PresetExtraFile, config: NavoriConfig): boolean {
