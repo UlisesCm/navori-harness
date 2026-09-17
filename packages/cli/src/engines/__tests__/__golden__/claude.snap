@@ -10721,9 +10721,9 @@ metadata:
 
 ## When to use this skill
 
-On demand, in the CURRENT repo: you resume a session and have open PRs, or the
-`commit-pr-pilot` just reported a red check. The cycle ends at the PR URL (the pilot's
-*"your job ends with the URL"*); this skill reads what happened after it.
+On demand, in the CURRENT repo: you resume a session with open PRs, or
+`publisher` just reported a red check. The cycle ends at the PR URL; this
+skill reads what happened after it.
 
 ## Procedure
 
@@ -10758,7 +10758,8 @@ unblocks it, and don't invent a fix in the diff.
 
 **5 · Turn each finding into an encargo:** one line per `CHANGES_REQUESTED` or unanswered
 comment — `file:line`, what it asks, and the smallest change that covers it. **Implement
-nothing here**: the user picks what gets attacked.
+nothing here**: the user picks what gets attacked. **A reply to the comment is `publisher`'s
+job** — hand it the thread and the text; this skill never posts one.
 
 ## Hard rules
 
@@ -10775,7 +10776,7 @@ nothing here**: the user picks what gets attacked.
 - Every PR reported with its `reviewDecision` and check state — or the reason none could be
   read (`gh` missing, not authenticated, non-GitHub remote): say it and stop, don't guess.
 - Every red check classified `code | infra`, with its literal error line and the run URL.
-- The findings left as encargos the user chooses from; nothing was implemented off them.
+- The findings left as encargos the user chooses from; nothing implemented, no reply posted.
 <!-- /navori:managed id="follow-up-prs" -->
 
 
@@ -10858,49 +10859,45 @@ To rewrite, first test the pattern without `--rewrite`, limit paths/language and
 ===== FILE: .claude/skills/resolve-ticket/SKILL.md =====
 ---
 name: resolve-ticket
-description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 8-phase pipeline to process it with objective gates.
+description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 6-phase pipeline to process it with objective gates.
 metadata:
   type: reference
   maxWords: 600
   # Compuesto (#683): ningún plugin extiende esta skill, así que los 50 sobre el
-  # cap del asset son exactamente el margen de interpolación. Se declara porque
-  # medido daba 601 contra 600: un solo valor del proyecto la pasaba de largo.
+  # cap del asset son exactamente el margen de interpolación.
   maxWordsComposed: 650
 ---
 
 <!-- navori:managed id="resolve-ticket" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
-# resolve-ticket — 8-phase pipeline
+# resolve-ticket — 6-phase pipeline
 
 ## Pipeline
 
-navori agents and skills chained by objective gates: what one phase pays for in tokens is written down for the next. Each phase writes to `.claude/progress/`; the gate is blocking.
+Agents and skills chained by objective gates: what one phase pays for in tokens is written down for the next. Each phase writes to `.claude/progress/`; the gate is blocking. `scout` is used on demand inside any phase, not as a phase of its own.
 
 | Phase | Who covers it | Artifact / Gate |
 |---|---|---|
-| 0 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper analysis; it still goes through `implementer`. If `progress/current.md` is not idle and holds ANOTHER ticket, ask; never two in parallel. |
-| 1 · Context (opt.) | you: the tracker CLI (`acli` / `jira` / `gh issue view`) | If there's only pasted text, jump to 2 with it. |
-| 2 · AUDIT | `ticket-audit` — ONE, or one per area (fan-out below) | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. |
-| 3 · EXPLORE (opt.) | 2-3 `explorer` agents in a single message | One `explore_<dim>.md` per dimension (handler, schema, side-effects, caller). **Gate: the audit's approach is still alive.** |
-| 4 · SOLUTION (opt.) | `solution-design` skill + ONE `researcher` as fresh-context challenge | Fires on a `proceed-differently` verdict or an architectural signal (orchestration table). Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 5. |
-| 5 · IMPLEMENT | ONE `implementer` agent | Reads `audit_ticket_<ID>.md` → `solution_<scope>.md` (if phase 4 ran) → `explore_*.md` → applicable skill. Produces `impl_<feature>.md`. **Gate: `pnpm lint` green in the turn.** |
-| 6 · VERIFY | `verify-before-done` skill (run by the implementer) | `impl_<feature>.md` with "Verify run in this turn" at exit 0 + endpoint smoke. No evidence → to 5. |
-| 7 · REVIEW | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 5. `APPROVED` → continue. |
-| 8 · PR + CLOSE | `commit-pr-pilot` agent | PR created and URL to the user; then close the session per the closeout block. |
+| 1 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper phases; it still goes through `implementer`. If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel. |
+| 2 · AUDIT | `auditor` (ticket encargo) — ONE, or one per area, only when the orchestration table's disparadores fire | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. No trigger fires → straight to 4, the ticket's own text is the audit. |
+| 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table) or a `proceed-differently` verdict. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
+| 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it | Reads `audit_ticket_<ID>.md` (if 2 ran) → `solution_<scope>.md` (if 3 ran) → applicable skill. Produces `impl_<feature>.md` with fresh verification evidence at exit 0. **Gate: `pnpm lint` green in the turn.** No evidence → back here. |
+| 5 · Review | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 4. `APPROVED` → continue. |
+| 6 · Publish | `publisher` agent | PR created and its URL to the user; a tracker comment only when the user asks for one — not a default step of the cycle. Then close the session per the closeout block. |
 
 ## Phase 2 fan-out
 
-Only when the orchestration table's fan-out row fires, never on "it feels separable": three auditors on a one-file ticket cost more than the serial run they replace. Then one `ticket-audit` per area, **all the `Agent` calls in the SAME turn**, each writing `audit_ticket_<ID-area>.md` (e.g. `audit_ticket_BTBS-138-webapp.md`) so none overwrites another. **You synthesize** the N reports — contradictions and gaps included — into the single `audit_ticket_<ID>.md` every later phase reads. Never delegated.
+Only when the orchestration table's fan-out row fires, never on "it feels separable": three auditors on a one-file ticket cost more than the serial run they replace. Then one `auditor` per area, **all the `Agent` calls in the SAME turn**, each writing `audit_ticket_<ID-area>.md` (e.g. `audit_ticket_BTBS-138-webapp.md`) so none overwrites another. **You synthesize** the N reports — contradictions and gaps included — into the single `audit_ticket_<ID>.md` every later phase reads. Never delegated.
 
 ## Hard rules
 
-- **Phase 2 is not skipped on a non-trivial task** because you "already understood the ticket": the audit is for the implementer, and for you in 3 days.
+- **Phase 2 fires only on its disparadores** — never skipped because you "already understood the ticket" when it does fire, and never invented when it doesn't: the audit is for the implementer, and for you in 3 days.
 - **No PR without `APPROVED`.**
 - **A verdict that opens no work doesn't wait for approval:** report it with its evidence, leave `progress/current.md` at `idle`, stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
-- **Trivial** = earns no `ticket-audit` and no design pass. It never means skipping the `implementer`/`reviewer` cycle — nothing does.
+- **A tracker comment is opt-in, per cycle, on request** — `publisher` drafts and posts it only when the user asks; the pipeline never assumes one is wanted.
 
 ## Before declaring done
 
-- A cycle that proceeded ends with a PR via `commit-pr-pilot` and its URL to the user.
+- A cycle that proceeded ends with a PR via `publisher` and its URL to the user.
 - A cycle closed at phase 2 ends with its verdict + evidence and no PR.
 - Either way, `progress/current.md` at `idle`.
 <!-- /navori:managed id="resolve-ticket" -->
@@ -10940,6 +10937,8 @@ One line per finding, ordered CRITICAL → HIGH → MEDIUM:
 
 If it doesn't reach MEDIUM, don't report it. No "nitpick" or "consider also". (Maps to the `reviewer`: CRITICAL/HIGH = confidence ≥80, blocking; MEDIUM = informational observation 50-79.)
 
+**Three-part proof for HIGH or CRITICAL.** Every HIGH or CRITICAL finding names its `file:line`, the concrete failure scenario, and why no existing guard/check catches it. Missing any of the three downgrades it to MEDIUM, or drops it if it doesn't reach MEDIUM either. **Zero findings is a valid verdict** — it needs no excuse or padding to look thorough.
+
 ## 0. Pre-pass (before reading line by line)
 
 - Does the diff touch infra/config (`tsconfig*`, lint/build config, `.env*`, CI, `settings.json`)? Flag → validate the change is intentional.
@@ -10970,11 +10969,7 @@ If it doesn't reach MEDIUM, don't report it. No "nitpick" or "consider also". (M
 
 ## 4. Security and authorization
 
-- Secrets/tokens/credentials in code (not in config/env) → CRITICAL.
-- Authorization decision only on the client, without backend validation → HIGH.
-- Sensitive data in client storage beyond what's necessary → HIGH.
-- New or modified guard/policy (authorization, licence, rate limit) covering only some of the entry points that mutate the same resource → CRITICAL. Enumerate every one with evidence — via Code discovery routing's structural provider, or `locate-code` as fallback — and mark it covered, or justify each exclusion one by one. An occurrence count alone doesn't demonstrate the enumeration is complete.
-- Data-mutating script that falls back to a default host or credentials when its env var is missing → CRITICAL: it runs clean against the wrong target. It must refuse to start.
+`security-invariants` is the single owner of this checklist — business invariants (server-side authorization, guard coverage across every entry point that mutates a resource, IDOR, secrets, trust boundaries, PII) plus its no-scanner fallback patterns. Apply it here and report with its severities; don't restate its items in this skill.
 
 ## 5. No hardcode
 
@@ -11013,7 +11008,7 @@ Rule: if removing the abstraction leaves the code **just as correct** and shorte
 
 ## 9. Quality gate (run this turn, not assumed)
 
-- `pnpm lint` passes → CRITICAL if it fails.
+- `pnpm test && pnpm lint` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
 - Zero new errors/warnings vs baseline → HIGH if the diff adds them.
 
 ## 10. Commit and PR
@@ -11077,7 +11072,7 @@ metadata:
 <!-- navori:managed id="security-invariants-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 # Security invariants — the business security layer
 
-Feeds the `/security-review` flow. The generic web vuln patterns (XSS, SSRF, hardcoded secrets, insecure deserialization, injection) are already covered by semgrep and the built-in reviewer. What goes here is what the model **can't infer from code alone**: the authorization and trust invariants that depend on the domain.
+Feeds the `/security-review` flow and is the single owner of the security checklist for `reviewer` and `auditor`. `semgrep` is an OPT-IN plugin, not a given, so the business invariants below (authorization, IDOR, trust) sit next to a compact fallback list (§7) for the generic patterns a scanner would otherwise catch.
 
 Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `review-diff`. An authorization bypass or an exposed secret is CRITICAL.
 
@@ -11087,7 +11082,7 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 - Client guards (conditional render, in-component checks, a `useAuth()`) **are never enough on their own** — they are UX, not enforcement. A protected view that only trusts the client is CRITICAL.
 - Navigation / UI config (menus, an `allowedRoles` in the nav array) filters the UI, it does **not** control access. Adding an entry there without the corresponding server-side guard is a finding.
 - The guard must **fail closed**: no session or backend down → deny / redirect, never "let it through just in case". Don't add a path that cuts on error toward the permissive side.
-- **A guard is worth exactly what its least-covered entry point is worth.** The unit protected is the *resource*, not the handler you happened to open: introducing or changing a guard means enumerating every way that resource is mutated — sibling routes, bulk or admin variants, background jobs, queue consumers, maintenance scripts — and accounting for each one, covered or excluded with the reason written down. An unlisted entry point is not "pending", it's unprotected. A sibling endpoint reachable by the same actor and missing the guard is the very bug the guard was added to fix, still alive and now harder to see, because the diff reads as if the hole were closed.
+- **A guard is worth exactly what its least-covered entry point is worth.** The unit protected is the *resource*, not the handler you happened to open: introducing or changing a guard means enumerating every way that resource is mutated — sibling routes, bulk or admin variants, background jobs, queue consumers, maintenance scripts — and accounting for each one, covered or excluded with the reason written down. An unlisted entry point is not "pending", it's unprotected. A sibling endpoint reachable by the same actor and missing the guard is the very bug the guard was added to fix, still alive and now harder to see, because the diff reads as if the hole were closed. Enumerate with evidence — via Code discovery routing's structural provider, or `locate-code` as fallback — and mark each one covered, or justify each exclusion one by one. An occurrence count alone doesn't demonstrate the enumeration is complete.
 
 ## 2. Object access (IDOR)
 
@@ -11104,6 +11099,7 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 
 - Zero hardcoded secrets / tokens / internal URLs — **including tests and `.env.example` files** (use placeholders). A secret in code is CRITICAL.
 - Vars that are **bundled into the client** (prefixes like `NEXT_PUBLIC_`, `VITE_`, `PUBLIC_`) MUST be safe to leak: no API keys, tokens or internal URLs behind that prefix. Putting a sensitive value there is CRITICAL.
+- A data-mutating script that falls back to a default host or credentials when its env var is missing is CRITICAL — it runs clean against the wrong target; it must refuse to start.
 
 ## 5. Trust boundaries / data flow
 
@@ -11114,6 +11110,23 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 ## 6. Logging and PII
 
 - No `console.log` / print of user data, tokens, session cookies or PII (email, phone, documents) on production paths. Debug logs only behind an environment guard (e.g. `NODE_ENV === 'development'`).
+
+## 7. If no scanner is installed
+
+When the repo has no static analyzer (e.g. `semgrep`) wired in, additionally scan the diff by hand for the patterns a scanner would otherwise catch:
+
+1. Hardcoded credentials / API keys / tokens in source.
+2. SQL injection — string-concatenated queries with unsanitized input.
+3. XSS — unescaped user input rendered into HTML/DOM.
+4. Path traversal — unsanitized paths reaching the filesystem.
+5. CSRF — state-changing endpoints with no token/origin check.
+6. Auth bypass — a route reachable without the expected guard.
+7. Vulnerable dependencies — known CVEs in the manifest/lockfile.
+8. Secrets in logs — tokens, passwords or PII printed to a log sink.
+
+Plus, always (scanner or not, since it's a business invariant, not a generic pattern): **session or tokens kept in client storage** (`localStorage`/`sessionStorage`/cookies) beyond what the flow needs — a session token there is CRITICAL, an opaque non-sensitive id is not.
+
+This list is a manual substitute, not a replacement — where a scanner plugin is installed, its rung below supersedes items 1-8 for the diffs it actually runs against.
 
 ## How to use it in the review
 
@@ -11218,8 +11231,8 @@ task boundaries, so tasks written first get rewritten.
 
 ## The challenge (one round, fresh context)
 
-Hand the artifact to a `researcher` with a falsification brief — its job is to
-break the design, not to polish it:
+Hand the artifact to a fresh-context `auditor` (its challenge encargo) with a
+falsification brief — its job is to break the design, not to polish it:
 
 > What assumption is false? · What existing code contradicts it? · Which
 > requirement isn't covered? · What contract breaks? · What happens on partial
@@ -11294,6 +11307,12 @@ disable-model-invocation: true
 metadata:
   type: reference
   maxWords: 650
+  # Spec 0026 T16 (R35): the critical-areas challenge interpolates
+  # auth, permissions, payments, data integrity INSIDE the managed zone, same defect as
+  # review-diff (#683) — a verbose repo config pushes the composed file past
+  # the asset's own cap with no plugin involved. Margin measured against the
+  # skill-caps-composed.test.ts fixture.
+  maxWordsComposed: 750
 ---
 
 <!-- navori:managed id="spec-bootstrap" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -11303,14 +11322,16 @@ metadata:
 
 When SDD-scope work has been agreed with the user. The threshold and its opt-in gate live in ONE place — the **Spec Driven Development** block in `CLAUDE.md`; don't re-decide them here, and don't scaffold a spec nobody accepted.
 
-Produces `specs/<feature>/{requirements.md, design.md, tasks.md}` ready for the `leader` to decompose. The scaffolding is done by the main agent (or the `researcher`), not a nested subagent.
+Produces `specs/<feature>/{requirements.md, design.md, tasks.md}` ready to implement. The scaffolding is done by `orchestrator` (the main agent), not a nested subagent.
+
+**Challenge on critical areas.** WHEN the spec touches `auth, permissions, payments, data integrity`, a fresh-context `auditor` challenges it with `solution-design`'s falsification brief before handoff. One round, no verdict — `orchestrator` decides.
 
 ## Order
 
 1. **requirements.md first.** No clear requirements, no design. Derive from the ticket/request; each requirement is EARS with id `R<n>`.
 2. **design.md** — how to meet those `R<n>`: affected components, contracts, decisions and trade-offs. Reference the `R<n>` each decision satisfies. Design BEFORE decomposing: an architecture decision (a contract, who owns a piece of state, a migration path) moves the natural task boundaries, so tasks written first get rewritten.
 3. **tasks.md** — batches of 1-3 tasks; each task lists the `R<n>` it covers and its test(s).
-4. **`evals.md` — optional, and rare.** Only when the feature ships a new **always-on layer** (context every session pays for), where prose can't prove behavior moved: `specs/<feature>/evals.md` tabulates RED (the scenario without the layer) / GREEN (the same scenario with it) over ONE isolated variable — same ticket, same repo, same model — with named scenarios, each failure against its evidence, and inverted results kept exactly as they came out. The raw transcript dies with the session; the distilled table survives in git, which is why the artifact lives with the spec.
+4. **`evals.md` — optional, rare.** Only when the feature ships a new **always-on layer** (context every session pays for), where prose can't prove behavior moved: `specs/<feature>/evals.md` tabulates RED (without the layer) / GREEN (with it) over ONE isolated variable — same ticket, same repo, same model — with named scenarios, each failure against its evidence, and inverted results kept exactly as they came out. The raw transcript dies with the session; the distilled table survives in git.
 
 The reasoning that fills `design.md` is the `solution-design` skill — same dimensions, and it's also the lighter home for an R2-architectural change that doesn't earn a full spec.
 
@@ -11363,20 +11384,17 @@ actually raises them (an empty section is noise, not rigor):
 - **Zero unresolved placeholders.** Don't leave `<...>` in the final spec; if you don't know a value, it's a question for the user, not a hole. Same rule inside a task: "TBD", "implement later", "add appropriate error handling" or "similar to T<n>" describe nothing — name the observable behavior and the evidence expected. That is NOT a licence to dictate the code line by line; the implementer keeps its judgment.
 - **Every `R<n>` ends in ≥1 task and ≥1 test.** A requirement with no task or test isn't traceable → it doesn't enter the spec.
 - **Tracking lives in `tasks.md`, not in `TaskCreate`.** See the SDD block.
-- **Self-review before closing the scaffolding:** is each `R<n>` a single testable action? does each task point to real `R<n>`? does the design cover all the `R<n>`? If something fails, fix it before handing the spec to the `leader`.
+- **Self-review before closing the scaffolding:** is each `R<n>` a single testable action? does each task point to real `R<n>`? does the design cover all the `R<n>`? If something fails, fix it before handing the spec off.
 <!-- /navori:managed id="spec-bootstrap" -->
 
 
 ===== FILE: .claude/skills/verify-before-done/SKILL.md =====
 ---
 name: verify-before-done
-description: Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, commit-pr-pilot and any response that declares "done".
+description: Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, publisher and any response that declares "done".
 metadata:
   type: behavior
-  # 1050 y no 1000 (spec 0020, R4): entró la fila de `sed -i`, que sale 0 sin haber
-  # matcheado nada — el caso en que el exit code no es evidencia. Salió de
-  # `operaciones-seguras`, donde se pagaba en cada sesión.
-  maxWords: 1050
+  maxWords: 600
 ---
 
 <!-- navori:managed id="verify-before-done-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -11388,98 +11406,51 @@ metadata:
 NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 ```
 
-If you didn't run the verification command THIS TURN, you can't make the claim. "Should work", "previous run was green", "looks fine" are NOT evidence.
-
-## Why this skill exists
-
-The recurring bug is declaring "done" based on inference:
-
-- "I ran the check 2 changes ago, it should still be green"
-- "the code compiles, the UI should work"
-- "the adapter is fine, the render must work"
-
-Inference ≠ evidence. This skill forces rigor.
+If you didn't run the command THIS TURN, you can't make the claim. "Should work", "previous run was green" are inference, not evidence.
 
 ## Gate function
 
-BEFORE claiming any "done / ready / completed / approved":
-
-1. **IDENTIFY**: what command proves this claim?
-2. **RUN**: run the FULL command this turn (not partial, not cached).
-3. **READ**: full output, exit code, count failures.
-4. **VERIFY**: does the output confirm the claim?
-   - NO → declare the real state with evidence.
-   - YES → make the claim WITH the evidence visible.
-5. **ONLY THEN**: make the claim.
-
-Skipping any step = a lie, not verification.
+BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it → RUN it this turn → READ output, exit code, failure count → VERIFY it confirms the claim (NO → declare the real state; YES → claim it WITH the evidence visible). Skipping a step is a lie, not verification.
 
 ## Table: claim → required output → not sufficient
 
 | Claim | Required output | Not sufficient |
 |---|---|---|
-| `pnpm lint` green | Full command run this turn with exit 0 | "ran it before", "should be green", "lint passed yesterday" |
-| `pnpm test && pnpm lint` green | Same — fresh exit 0 this turn | "the dev server runs", "build passed a while ago" |
-| Zero new errors vs baseline | `git diff --name-only main` — a failure outside that file list predates you | "lint said OK" without comparing baseline |
-| UI validated in the browser (only if the user asked) | Observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in code" |
-| Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed", "the diff covers the case" |
-| Filter / feature works | Real click + description of the result | "the handler is well written" |
-| Structural migration complete | Read AND write go to the same destination in the affected flow, validated in browser or test | "I changed the service, it should work" |
+| `pnpm lint` / `pnpm test && pnpm lint` green | Full command run this turn, exit 0 | "ran it before", "should be green" |
+| Zero new errors vs baseline | `git diff --name-only main` — a failure outside that list predates you | "lint said OK", no comparison |
+| UI validated in the browser (only if asked) | Observed state via the repo's browser tool this turn | "looks fine in code" |
+| Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
 | PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status` ok, `navori receipt check --feature <feature> --json` reports `"status":"ok"`, fresh gate evidence (reviewer's Pass-2 run; on a declared-inline change, your own run). No clean working tree required — it's the trigger | "the branch has commits, we can create it" |
-| Tests pass | Suite run fresh with exit 0 this turn + test count | "we didn't touch tests", "they should still be green" |
-| Type-check clean | `tsc --noEmit` (or the runtime's equivalent) exit 0 this turn | "TS didn't complain when I saved it" |
-| A shell edit landed (`sed -i`, a `>` redirect) | Re-read the span you changed, this turn | The exit code. `sed -i` exits 0 when its pattern matches nothing, and a misdirected `>` truncates the file — both look like success |
-| Gate outlives Bash timeout, **main session** | Background (`run_in_background`), wait on its completion notification or `Monitor`; `TaskStop` unneeded tasks first | Polling (`pgrep`, `ps \| grep`) — matches other sessions' waits too |
-| Gate outlives Bash timeout, **subagent** | Run its `&&` steps one by one, foreground, each under the timeout | Backgrounding — a subagent that ends its turn is never re-woken, so the run orphans |
+| Tests / type-check clean | Suite / `tsc --noEmit` run fresh, exit 0, this turn | "should still be green" |
+| A shell edit landed (`sed -i`, a `>` redirect) | Re-read the changed span, this turn | The exit code — `sed -i` exits 0 on no match, a misdirected `>` truncates the file |
+| Gate outlives Bash timeout, main session | `run_in_background`, wait on completion or `Monitor`; `TaskStop` unneeded tasks first | Polling (`pgrep`, `ps \| grep`) — matches other sessions' waits too |
+| Gate outlives Bash timeout, subagent | Its `&&` steps one by one, foreground, under the timeout | Backgrounding — a subagent never gets re-woken, the run orphans |
+
+## Baseline attribution (triage, not proof of age)
+
+- Diff file → **introduced**. Outside the diff, no comparable baseline → **origin not determined**; only evidence over the same command/range calls it pre-existing. No location → not measured.
+- Never `git stash` to measure it — empties the shared tree while another agent reads it. Never exempts a red gate or skips review.
 
 ## Red flags (STOP)
 
-- You're about to write "done" / "ready" / "perfect" / "should work".
-- You're about to `git commit` without having run `pnpm lint` this turn.
-- You're about to mark a review `APPROVED` without having read the full diff.
-- You're tired and want to close it out.
-- "Just this once" — NO. Zero exceptions.
-- You trust a subagent's report without verifying its **load-bearing claims** (the cited `file:line`s your decision rests on, plus the diff it touched).
+- About to write "done"/"ready"/"should work", or `git commit`/`APPROVED` without a fresh `pnpm lint` run and a full diff read. "Just this once" — NO.
+- Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched) — scope defined ONCE in `.claude/agents/orchestrator.md` § Anti-broken-telephone, never a full re-read of an already-validated diff.
 
 ## Rationalization prevention
 
 | Excuse | Reality |
 |---|---|
-| "I'm confident" | Confidence ≠ evidence. |
-| "If it compiles, it runs" | TS with `strict: false` doesn't catch runtime undefined. Verify UI / runtime. |
-| "The check passed 10 min ago" | Re-run. Fresh. |
-| "It's trivial, no need" | Triviality doesn't exempt you from verification. |
-| "The subagent said done" | Look at the diff yourself. Trust but verify. |
-| "The user is in a hurry" | Hurry ≠ excuse. A quick verification is faster than a rollback. |
-| "Different wording = the rule doesn't apply" | Spirit > letter. |
+| "Confident" / "passed 10 min ago" | Confidence ≠ evidence. Re-run, fresh. |
+| "If it compiles, it runs" | `strict: false` misses runtime undefined. |
+| "Trivial" / "the subagent said done" | Doesn't exempt verification. |
 
-## When this skill is invoked
+## When invoked
 
-- **`implementer`**: before returning `done -> .claude/progress/impl_<feature>.md` (its "Evidence-based completion").
-- **`reviewer`**: before marking `APPROVED`.
-- **`commit-pr-pilot`**: in its pre-flight, before touching `gh`.
-- **Any agent**: before telling the user "done" in any code-task response.
-
-`CLAUDE.md` § Session closeout mentions `pnpm test && pnpm lint` green; this skill adds the "fresh evidence" rigor plus the UI / bug-fixed dimensions the quality gate doesn't touch.
-
-## Anti-patterns
-
-- ❌ Showing cached output from 5 messages ago and saying "it's already green" — fresh, not cached.
-- ❌ Claiming a *requested* visual check passed by reading code — it needs a real browser repro.
-- ❌ "Trust me, runs locally" — not a valid claim without evidence in the chat.
-- ❌ Making the claim BEFORE the command ("I'll run X and it should be green").
-- ❌ Marking a step of the atomic plan `[x]` without having run the verification that backs that step.
-- ❌ Accepting a subagent's report without verifying its load-bearing claims — scope defined ONCE in `.claude/agents/orchestrator.md` § Anti-broken-telephone: cited `file:line`s plus the diff it touched, never a full re-read of an already-validated diff.
+`implementer` before `done -> impl_<feature>.md`; `reviewer` before `APPROVED`; `publisher` in pre-flight; any agent before "done".
 
 ## Closing
 
-Skill **always active** during any implementation flow. It doesn't require explicit invocation — it's a principle that applies to every "done" claim.
-
-When applying it, the output to the user must include:
-
-1. The explicit claim (what was accomplished).
-2. The full output (or a reference to the run command) that backs it.
-3. If any sub-claim COULD NOT be verified (e.g. UI with no browser available), say it EXPLICITLY — don't infer.
+Always active, no explicit invocation. Include the claim, the fresh evidence, and any sub-claim that COULD NOT be verified — stated explicitly, never inferred.
 <!-- /navori:managed id="verify-before-done-base" -->
 
 ## Project-specific checks

@@ -6,7 +6,7 @@ metadata:
   maxWords: 1050
 ---
 
-<!-- navori:managed id="solution-design" hash="19eb8abb" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="solution-design" hash="b17ecd76" version="0.8.7" source="@navori/core" -->
 # solution-design — decide what to build, then try to break it
 
 ## When to use this skill
@@ -60,8 +60,8 @@ task boundaries, so tasks written first get rewritten.
 
 ## The challenge (one round, fresh context)
 
-Hand the artifact to a `researcher` with a falsification brief — its job is to
-break the design, not to polish it:
+Hand the artifact to a fresh-context `auditor` (its challenge encargo) with a
+falsification brief — its job is to break the design, not to polish it:
 
 > What assumption is false? · What existing code contradicts it? · Which
 > requirement isn't covered? · What contract breaks? · What happens on partial
