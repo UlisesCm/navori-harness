@@ -611,10 +611,10 @@ describe("buildClaudeSettings — hook matcher coalescing (no double PreToolUse[
     const pre = preOf(buildClaudeSettings(withQG(), [plugin]));
     const bashBuckets = pre.filter((b) => b.matcher === "Bash");
     expect(bashBuckets).toHaveLength(1);
-    // guard + pr-pilot-confirm + qg + plugin. Lo que este test sostiene es el
-    // COALESCING —un solo bucket `Bash`, arriba—, no el número: cada hook
-    // PreToolUse(Bash) que el core agregue suma aquí.
-    expect(bashBuckets.flatMap((b) => b.hooks)).toHaveLength(4);
+    // guard + comment-draft-confirm + pr-pilot-confirm + qg + plugin. Lo que
+    // este test sostiene es el COALESCING —un solo bucket `Bash`, arriba—, no
+    // el número: cada hook PreToolUse(Bash) que el core agregue suma aquí.
+    expect(bashBuckets.flatMap((b) => b.hooks)).toHaveLength(5);
   });
 
   it("keeps distinct matchers in separate buckets", () => {

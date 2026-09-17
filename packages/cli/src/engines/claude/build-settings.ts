@@ -71,6 +71,7 @@ const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
 const MANAGED_DRIFT_HOOK_DEST = ".claude/hooks/managed-drift-watch.sh";
 const ROUTING_WATCH_HOOK_DEST = ".claude/hooks/routing-watch.sh";
 const PR_PILOT_HOOK_DEST = ".claude/hooks/pr-pilot-confirm.sh";
+const COMMENT_DRAFT_HOOK_DEST = ".claude/hooks/comment-draft-confirm.sh";
 const WORKTREE_RECLAIM_HOOK_DEST = ".claude/hooks/worktree-reclaim.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
 const SETTINGS_BASE_REL = "core-assets/settings/settings-base.json";
@@ -114,6 +115,29 @@ export function buildClaudeSettings(
               command: `bash "$CLAUDE_PROJECT_DIR/${GUARD_HOOK_DEST}"`,
               timeout: 10,
               statusMessage: "navori: guard-destructive",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  // Spec 0026 E1 (R10): a comment/review-publishing Bash call is raised to
+  // `ask`, no matter which agent (or no agent — the main thread) issues it.
+  // Always registered, like the guard above: this is not a per-agent routing
+  // nudge with an owner to disable with, it is the human confirmation R10
+  // requires unconditionally, so no plugin/config toggle can suppress it.
+  settings = deepMerge(settings, {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "Bash",
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${COMMENT_DRAFT_HOOK_DEST}"`,
+              timeout: 10,
+              statusMessage: "navori: comment-draft-confirm",
             },
           ],
         },
