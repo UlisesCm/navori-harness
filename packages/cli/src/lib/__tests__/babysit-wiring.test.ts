@@ -54,7 +54,7 @@ describe("post-PR loop — content invariants (#337, #338)", () => {
   });
 
   it("the pilot reads the checks once, cites the skill, and forbids --watch", () => {
-    const pilot = read("agents/commit-pr-pilot.md");
+    const pilot = read("agents/publisher.md");
     expect(pilot).toContain("babysit-prs");
     // The hard rule, not just a passing mention of the flag.
     expect(pilot).toMatch(/Never `gh pr checks --watch`/i);

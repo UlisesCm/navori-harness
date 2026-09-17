@@ -14,7 +14,7 @@ const CONFIG_FULL = {
   branchBase: "main",
   commits: "conventional-es",
   qualityGate: { fast: "pnpm typecheck", full: "pnpm test" },
-  models: { leader: "opus", implementer: "sonnet" },
+  models: { orchestrator: "opus", implementer: "sonnet" },
   plugins: { engram: { enabled: true } },
 } as unknown as NavoriConfig;
 
@@ -36,14 +36,12 @@ const CONFIG_AUDIT_OPT_IN = {
 const CONFIG_HARNESS_FILTERED = {
   ...CONFIG_FULL,
   harness: {
-    leader: true,
+    orchestrator: true,
     implementer: true,
     reviewer: true,
-    researcher: false,
-    ticketAudit: false,
-    commitPrPilot: false,
-    explorer: false,
+    scout: false,
     auditor: false,
+    publisher: false,
   },
 } as unknown as NavoriConfig;
 
@@ -58,13 +56,13 @@ afterEach(() => {
 });
 
 describe("renderClaudeEngine — first render with full config", () => {
-  it("creates CLAUDE.md, .claude/settings.json, 8 agents, 2 skills, qg hook", () => {
+  it("creates CLAUDE.md, .claude/settings.json, 6 agents, 2 skills, qg hook", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL);
 
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/settings.json"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/agents/explorer.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/agents/scout.md"))).toBe(true);
     // Skills materialize in directory form (`<id>/SKILL.md`) — the shape Claude
     // Code auto-discovers; a flat `<id>.md` is inert (#166).
     expect(existsSync(join(cwd, ".claude/skills/verify-before-done/SKILL.md"))).toBe(true);
@@ -76,13 +74,11 @@ describe("renderClaudeEngine — first render with full config", () => {
     const agentPaths = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
     expect(agentPaths.map((w) => w.path).sort()).toEqual([
       ".claude/agents/auditor.md",
-      ".claude/agents/commit-pr-pilot.md",
-      ".claude/agents/explorer.md",
       ".claude/agents/implementer.md",
-      ".claude/agents/leader.md",
-      ".claude/agents/researcher.md",
+      ".claude/agents/orchestrator.md",
+      ".claude/agents/publisher.md",
       ".claude/agents/reviewer.md",
-      ".claude/agents/ticket-audit.md",
+      ".claude/agents/scout.md",
     ]);
     const claudeMd = r.written.find((w) => w.path === "CLAUDE.md");
     expect(claudeMd?.status).toBe("created");
@@ -122,7 +118,7 @@ describe("renderClaudeEngine — first render with full config", () => {
 
   it("agent frontmatter interpolates models.X when set, drops it when not", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
-    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(leader).toMatch(/^---[\s\S]+model: opus[\s\S]+?---/);
     // reviewer has no model in CONFIG_FULL — model: line dropped
     const reviewer = readFileSync(join(cwd, ".claude/agents/reviewer.md"), "utf-8");
@@ -185,11 +181,11 @@ describe("renderClaudeEngine — config gates", () => {
     const r = renderClaudeEngine(cwd, CONFIG_HARNESS_FILTERED);
     const agents = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
     expect(agents.map((a) => a.path)).toEqual([
-      ".claude/agents/leader.md",
+      ".claude/agents/orchestrator.md",
       ".claude/agents/implementer.md",
       ".claude/agents/reviewer.md",
     ]);
-    expect(existsSync(join(cwd, ".claude/agents/researcher.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/agents/scout.md"))).toBe(false);
   });
 });
 
@@ -527,7 +523,7 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
     } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, cfg);
 
-    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(leader).toContain('<!-- navori:managed id="engram-leader-extension"');
     expect(leader).toContain('source="@navori/plugin-engram"');
     expect(leader).toContain("mem_search");
@@ -540,18 +536,17 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
       ...CONFIG_FULL,
       plugins: { engram: { enabled: true } },
       harness: {
-        leader: false,
+        orchestrator: false,
         implementer: true,
         reviewer: true,
-        researcher: false,
-        ticketAudit: false,
-        commitPrPilot: false,
-        explorer: false,
+        scout: false,
+        auditor: false,
+        publisher: false,
       },
     } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, cfg);
 
-    expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     // No crash; settings still rendered
     expect(existsSync(join(cwd, ".claude/settings.json"))).toBe(true);
   });
@@ -563,7 +558,7 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
     } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, cfg);
     const second = renderClaudeEngine(cwd, cfg);
-    const leaderWrite = second.written.find((w) => w.path === ".claude/agents/leader.md");
+    const leaderWrite = second.written.find((w) => w.path === ".claude/agents/orchestrator.md");
     expect(leaderWrite).toBeUndefined();
   });
 });
@@ -580,13 +575,13 @@ describe("renderClaudeEngine — dry-run", () => {
     // the PreCompact reminder.
     expect(r.written).toHaveLength(39);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
-    expect(existsSync(join(cwd, ".claude/agents/leader.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
   });
 });
 
-describe("renderClaudeEngine — prTarget in the commit-pr-pilot agent", () => {
-  const pilotPath = () => join(cwd, ".claude/agents/commit-pr-pilot.md");
+describe("renderClaudeEngine — prTarget in the publisher agent", () => {
+  const pilotPath = () => join(cwd, ".claude/agents/publisher.md");
 
   it("falls back to branchBase for --base when prTarget is unset", () => {
     renderClaudeEngine(cwd, CONFIG_FULL); // branchBase "main", no prTarget
@@ -1033,7 +1028,7 @@ describe("renderClaudeEngine — Codex cross-model review advisory (#168)", () =
   it("injects the cross-review sub-block in leader.md when codex is an engine", () => {
     renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
 
-    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(leader).toContain('navori:managed id="codex-cross-review"');
     expect(leader).toContain("Cross-model review (Codex second opinion)");
     // The short prompt reuses `.codex/` and read-only sandbox; `{{prTarget}}` resolved.
@@ -1050,20 +1045,20 @@ describe("renderClaudeEngine — Codex cross-model review advisory (#168)", () =
   it("omits the block entirely when codex is NOT an engine", () => {
     renderClaudeEngine(cwd, CONFIG_FULL); // engines: ["claude"]
 
-    const leader = readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8");
+    const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(leader).not.toContain("codex-cross-review");
     expect(leader).not.toContain("Cross-model review");
   });
 
   it("strips the block when codex is later removed from engines", () => {
     renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
-    expect(readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8")).toContain(
+    expect(readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8")).toContain(
       "codex-cross-review",
     );
 
     // Re-render without codex — the advisory must be cleaned up, not orphaned.
     renderClaudeEngine(cwd, CONFIG_FULL);
-    expect(readFileSync(join(cwd, ".claude/agents/leader.md"), "utf-8")).not.toContain(
+    expect(readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8")).not.toContain(
       "codex-cross-review",
     );
   });
@@ -1071,7 +1066,7 @@ describe("renderClaudeEngine — Codex cross-model review advisory (#168)", () =
   it("is idempotent — a second render with codex does not rewrite leader.md", () => {
     renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
     const second = renderClaudeEngine(cwd, CONFIG_WITH_CODEX);
-    expect(second.written.some((w) => w.path === ".claude/agents/leader.md")).toBe(false);
+    expect(second.written.some((w) => w.path === ".claude/agents/orchestrator.md")).toBe(false);
   });
 
   // Covers: R10, R11

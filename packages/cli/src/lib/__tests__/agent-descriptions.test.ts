@@ -230,8 +230,10 @@ describe("spec 0020 R1 — the shipped agents declare when to fire them", () => 
   // repo keeps finding. Both trigger forms must also be live on disk: a form
   // no asset exercises is a rule nobody would notice going blind.
   it("reads the real roster and exercises both trigger forms", () => {
-    expect(AGENTS.length).toBeGreaterThanOrEqual(8);
-    expect(AGENTS.map((a) => a.id)).toContain("leader");
+    // Spec 0026 T11/T12 reset the roster from 8 to 6 ids — see
+    // agents-assets.test.ts's floor comment for the same exception.
+    expect(AGENTS.length).toBeGreaterThanOrEqual(6);
+    expect(AGENTS.map((a) => a.id)).toContain("orchestrator");
     for (const asset of AGENTS)
       expect(description(asset), `${asset.id} has no description`).not.toBe("");
 
@@ -242,7 +244,7 @@ describe("spec 0020 R1 — the shipped agents declare when to fire them", () => 
 
     // Same guard on the second channel: a language whose table came back empty
     // would make the two cases above pass over nothing.
-    expect(CATALOGUED.length).toBeGreaterThanOrEqual(7);
+    expect(CATALOGUED.length).toBeGreaterThanOrEqual(5); // 6 agents minus embodied orchestrator
     for (const lang of CATALOG_LANGS)
       expect(Object.keys(catalogWhen(lang)).length, `empty catalog for ${lang}`).toBeGreaterThan(0);
   });
@@ -353,7 +355,7 @@ describe("the rendered tree carries the triggers (what the host actually reads)"
     renderClaudeEngine(cwd, config);
     const agentsDir = join(cwd, ".claude", "agents");
     const rendered = readdirSync(agentsDir).filter((f) => f.endsWith(".md"));
-    expect(rendered.length).toBeGreaterThanOrEqual(7);
+    expect(rendered.length).toBeGreaterThanOrEqual(6);
     for (const file of rendered) {
       const raw = readFileSync(join(agentsDir, file), "utf-8");
       const description = /^description:\s*(.+)$/m.exec(raw)?.[1] ?? "";

@@ -4,6 +4,7 @@ description: Implements ONE scoped task with its tests, respects CLAUDE.md conve
 tools: Read, Write, Edit, Glob, Grep, Bash, Monitor, TaskStop
 model: {{models.implementer}}
 effort: {{effort.implementer}}
+maxWords: 1800
 ---
 
 # Implementer Agent

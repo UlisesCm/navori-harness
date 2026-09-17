@@ -31,9 +31,9 @@
   },
   "skills": [
     {
-      "id": "codegraph-access-v2-leader",
+      "id": "codegraph-access-v2-orchestrator",
       "file": "skills/codegraph-access-v2.md",
-      "injectInto": ".claude/agents/leader.md"
+      "injectInto": ".claude/agents/orchestrator.md"
     },
     {
       "id": "codegraph-access-v2-implementer",
@@ -49,11 +49,6 @@
       "id": "codegraph-access-v2-auditor",
       "file": "skills/codegraph-access-v2.md",
       "injectInto": ".claude/agents/auditor.md"
-    },
-    {
-      "id": "codegraph-access-v2-ticket-audit",
-      "file": "skills/codegraph-access-v2.md",
-      "injectInto": ".claude/agents/ticket-audit.md"
     }
   ],
   "invariants": ["codegraph_explore", "projectPath"]

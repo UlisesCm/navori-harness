@@ -150,8 +150,8 @@ describe("MCP wiring — instruction and capability ship together (#501)", () =>
     // Anti-vacuity on both inputs: an empty plugin scan, or a `toolTokens` that
     // stopped recognizing identifiers, would make every case below pass on air.
     expect(MCP_PLUGINS.map((p) => p.manifest.id).sort()).toEqual(["codegraph", "engram"]);
-    expect(INVOKABLE_AGENTS.has("researcher")).toBe(true);
-    expect(INVOKABLE_AGENTS.has("leader")).toBe(false);
+    expect(INVOKABLE_AGENTS.has("scout")).toBe(true);
+    expect(INVOKABLE_AGENTS.has("orchestrator")).toBe(false);
 
     const engram = MCP_PLUGINS.find((p) => p.manifest.id === "engram");
     expect(toolTokens(engram?.manifest ?? { id: "engram" })).toContain("mem_save");
@@ -213,7 +213,7 @@ describe("the audit reports both halves of the gap (#501)", () => {
         manifest: {
           ...bare.manifest,
           settingsFragment: { permissions: { allow: ["mcp__demo__*"] } },
-          skills: [{ file: "skills/x.md", injectInto: ".claude/agents/researcher.md" }],
+          skills: [{ file: "skills/x.md", injectInto: ".claude/agents/scout.md" }],
         },
         blockText: bare.blockText,
       }),
@@ -226,7 +226,7 @@ describe("the audit reports both halves of the gap (#501)", () => {
         manifest: {
           ...bare.manifest,
           settingsFragment: { permissions: { allow: ["mcp__demo__demo_search"] } },
-          skills: [{ file: "skills/x.md", injectInto: ".claude/agents/researcher.md" }],
+          skills: [{ file: "skills/x.md", injectInto: ".claude/agents/scout.md" }],
         },
         blockText: bare.blockText,
       }),
@@ -238,7 +238,7 @@ describe("the audit reports both halves of the gap (#501)", () => {
       manifest: {
         ...bare.manifest,
         settingsFragment: { permissions: { allow: ["mcp__demo__other_tool"] } },
-        skills: [{ file: "skills/x.md", injectInto: ".claude/agents/researcher.md" }],
+        skills: [{ file: "skills/x.md", injectInto: ".claude/agents/scout.md" }],
       },
       blockText: bare.blockText,
     });
@@ -272,8 +272,13 @@ describe("the roles that are told to use memory can reach it (#575)", () => {
     ["implementer", ["engram"]],
     ["reviewer", ["engram"]],
     ["auditor", ["engram"]],
-    ["ticket-audit", ["engram"]],
-    ["leader", ["engram"]],
+    // "orchestrator" is EXPECTED to reach engram, same as pre-rename "leader"
+    // did — but engram's own injectInto targets still say
+    // ".claude/agents/leader.md" (spec 0026 T13's scope, not T11/T12's: T13
+    // renames "skills/engram-leader.md" to "skills/engram-orchestrator.md"
+    // with a per-agent sub-block id and retargets injectInto). This case is
+    // a KNOWN red until T13 lands.
+    ["orchestrator", ["engram"]],
   ];
 
   /**
@@ -285,12 +290,11 @@ describe("the roles that are told to use memory can reach it (#575)", () => {
     // Drafts a commit and a PR from the diff and the review file: no code to
     // locate, no decision worth remembering. The Engram block already exempts a
     // toolset with no `mem_*` call by name, so the prose it receives is honest.
-    ["commit-pr-pilot", "no code to locate and nothing of its own to persist"],
-    // Read-only by contract. They DO reach memory — by tool name in their own
+    ["publisher", "no code to locate and nothing of its own to persist"],
+    // Read-only by contract. It DOES reach memory — by tool name in its own
     // asset, pinned in the #761 suite below — precisely so no injection hands
-    // them the whole writable family as a side effect.
-    ["researcher", "holds the two engram read tools by name, not by family"],
-    ["explorer", "holds the two engram read tools by name, not by family"],
+    // it the whole writable family as a side effect.
+    ["scout", "holds the two engram read tools by name, not by family"],
   ];
 
   /** Plugins that inject into `<agent>.md`, by agent id. */
@@ -355,8 +359,8 @@ describe("the roles that are told to use memory can reach it (#575)", () => {
  * reassigns the write bullets; the framing and the why live here, where they
  * cost nothing per launch.
  */
-describe("researcher and explorer read memory, and only read it (#761)", () => {
-  const READ_ONLY_AGENTS = ["researcher", "explorer"] as const;
+describe("scout reads memory, and only reads it (#761, spec 0026 T12: researcher+explorer merge)", () => {
+  const READ_ONLY_AGENTS = ["scout"] as const;
   const READ_TOOLS = ["mcp__engram__mem_search", "mcp__engram__mem_get_observation"] as const;
   /** Every mutating tool, plus the family pattern that would grant them all. */
   const WRITE_TOOLS = [
@@ -383,8 +387,8 @@ describe("researcher and explorer read memory, and only read it (#761)", () => {
   it("reads the allowlist it is about to assert on (a mute audit is not a pass)", () => {
     // Anti-vacuity: a `declaredTools` that silently returned [] would make every
     // absence below pass on air.
-    expect(declaredTools("researcher")).toContain("Read");
-    expect(declaredTools("explorer")).toContain("Grep");
+    expect(declaredTools("scout")).toContain("Read");
+    expect(declaredTools("scout")).toContain("Grep");
   });
 
   it.each(READ_ONLY_AGENTS)("%s can search memory and open what it finds", (agent) => {
@@ -409,8 +413,7 @@ describe("researcher and explorer read memory, and only read it (#761)", () => {
     // an injection nobody read as a permission change.
     const engram = MCP_PLUGINS.find((p) => p.manifest.id === "engram");
     const targets = (engram?.manifest.skills ?? []).map((skill) => skill.injectInto);
-    expect(targets).not.toContain(".claude/agents/researcher.md");
-    expect(targets).not.toContain(".claude/agents/explorer.md");
+    expect(targets).not.toContain(".claude/agents/scout.md");
   });
 });
 

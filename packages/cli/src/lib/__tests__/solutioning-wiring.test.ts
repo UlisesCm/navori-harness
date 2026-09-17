@@ -91,10 +91,11 @@ describe("solutioning — content invariants (spec 0012)", () => {
     const reviewer = read("agents/reviewer.md");
     expect(reviewer).toContain("solution_<scope>.md");
     expect(reviewer).toMatch(/do NOT re-open the design/i);
-    // Researcher: knows the falsification brief and that the verdict isn't its call.
-    const researcher = read("agents/researcher.md");
-    expect(researcher).toContain("solution_review_<scope>.md");
-    expect(researcher).toMatch(/do not issue a verdict/i);
+    // Auditor (challenge encargo, spec 0026 T12): knows the falsification
+    // brief and that the verdict isn't its call.
+    const auditor = read("agents/auditor.md");
+    expect(auditor).toContain("solution_review_<scope>.md");
+    expect(auditor).toMatch(/do not issue a verdict/i);
   });
 
   it("no core skill is orphaned — every one is named by some flow", () => {

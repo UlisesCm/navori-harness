@@ -130,7 +130,7 @@ describe("analysis cascade — one lookup instead of four blocks (#379 B)", () =
   it("the routing sentence it replaced survives where the work happens", () => {
     // Deleted from the always-on block: "hand the implementer the path to the
     // audit". Both agents in that handoff still carry it.
-    expect(read("agents/leader.md")).toMatch(
+    expect(read("agents/orchestrator.md")).toMatch(
       /hand the implementer the path to \*{0,2}`?\.claude\/progress\/audit_ticket_<ID>\.md/i,
     );
     expect(read("agents/implementer.md")).toContain("audit_ticket_<ID>.md");
@@ -157,7 +157,7 @@ describe("phase-2 fan-out — objective criterion, stated once (#377)", () => {
 
   it("the criterion is NOT re-litigated as a judgment call in the executing assets", () => {
     // Three copies of a criterion drift; the skill and the agent point at the row.
-    for (const asset of ["skills/ticket-intake.md", "agents/ticket-audit.md"]) {
+    for (const asset of ["skills/ticket-intake.md", "agents/auditor.md"]) {
       const text = read(asset);
       const restated = SIGNALS.filter((s) => text.includes(s));
       expect(
@@ -184,7 +184,7 @@ describe("phase-2 fan-out — objective criterion, stated once (#377)", () => {
   });
 
   it("the audit agent knows its scope is ONE area and that it does not synthesize", () => {
-    const agent = read("agents/ticket-audit.md");
+    const agent = read("agents/auditor.md");
     expect(agent).toContain("audit_ticket_<ID-area>.md");
     expect(agent).toMatch(/verdict FOR YOUR AREA/i);
     expect(agent).toMatch(/synthesis is the orchestrator's/i);

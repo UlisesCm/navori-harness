@@ -7,11 +7,11 @@ import { getCoreRoot } from "../bundled-assets.ts";
  * Coherence guard (#409): `.claude/progress/` is declared as a CLOSED set in two
  * canonical lists, and the harness kept producing artifacts outside it.
  *
- *   - `agents/leader.md` § Path separation — "ONLY for ephemeral agent
+ *   - `agents/orchestrator.md` § Path separation — "ONLY for ephemeral agent
  *     handoffs (`audit_*`, `plan_*`, ...)"
- *   - `agents/leader.md` — the "Expected files:" inventory
+ *   - `agents/orchestrator.md` — the "Expected files:" inventory
  *
- * Both lists live in `leader.md` since spec 0019 trimmed the orchestration
+ * Both lists live in `orchestrator.md` since spec 0019 trimmed the orchestration
  * block to the routing ladder: the synthesis doctrine that carried the first
  * list moved here, and the mechanism keeps its redundancy — two independently
  * parsed lists that a new producer must register in.
@@ -50,7 +50,7 @@ import { getCoreRoot } from "../bundled-assets.ts";
  */
 
 const CORE_ASSETS = resolve(getCoreRoot(), "core-assets");
-const LEADER = "agents/leader.md";
+const LEADER = "agents/orchestrator.md";
 /** Asset directories that PRODUCE handoffs (the declaring side is parsed apart). */
 const PRODUCER_DIRS = ["skills", "agents"] as const;
 
@@ -203,7 +203,7 @@ describe("handoff namespaces — producers vs. the canonical lists (#409)", () =
     ).toEqual([]);
   });
 
-  it("every namespace produced by a skill or agent is declared in leader.md", () => {
+  it("every namespace produced by a skill or agent is declared in orchestrator.md", () => {
     const missing = [...PRODUCERS.keys()].filter((ns) => !isCovered(ns, leader)).sort();
     expect(
       missing,

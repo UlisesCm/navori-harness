@@ -67,7 +67,7 @@ describe("resolveHarnessPlan — dependent assets follow their feature gate (#76
       name: "disabled-dependencies",
       engines: ["claude"],
       preset: "custom",
-      harness: { commitPrPilot: false },
+      harness: { publisher: false },
       sdd: { enabled: false },
     });
     const plan = resolveHarnessPlan(disabled, "/core", null);
@@ -99,7 +99,7 @@ describe("resolveHarnessPlan — comment-draft-confirm (spec 0026 E1)", () => {
       name: "disabled-dependencies-2",
       engines: ["claude"],
       preset: "custom",
-      harness: { commitPrPilot: false },
+      harness: { publisher: false },
       sdd: { enabled: false },
     });
     const plan2 = resolveHarnessPlan(disabled, "/core", null);

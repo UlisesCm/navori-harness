@@ -64,9 +64,10 @@ describe("SDD threshold — one formulation, and it's a proposal (F2)", () => {
 
 describe("verifying a subagent's evidence — bounded subset, after the handoff (F3)", () => {
   it("the rule names WHAT to re-check and WHEN", () => {
-    // Since spec 0019 the rule lives in `leader.md` (§ Anti-broken-telephone),
-    // the depth reference the orchestrator opens when a `done -> file` lands.
-    const block = read("agents/leader.md");
+    // Since spec 0019 the rule lives in `leader.md` (renamed `orchestrator.md`
+    // in spec 0026 T12) (§ Anti-broken-telephone), the depth reference the
+    // orchestrator opens when a `done -> file` lands.
+    const block = read("agents/orchestrator.md");
     // Scope: only the claims the next decision rests on.
     expect(block).toMatch(/load-bearing claims/i);
     // Timing: after the handoff — re-checking in flight is the duplication the
@@ -101,14 +102,14 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
   it("the pilot's own trigger list demands no clean tree either", () => {
     // The pilot reads this list FIRST; a surviving clean-tree clause here aborts
     // the normal case (a dirty tree IS the trigger) no matter what the skill says.
-    const trigger = section("agents/commit-pr-pilot.md", "When to trigger");
+    const trigger = section("agents/publisher.md", "When to trigger");
     expect(trigger).not.toMatch(/clean (working tree|status|tree)/i);
     // What replaces it: evidence over the diff that ships, not a git-state check.
     expect(trigger).toMatch(/fresh `\{\{qualityGate\.full\}\}` evidence over the shipping diff/i);
   });
 
   it("the leader's pre-flight matches orquestacion's and adds no gate re-run", () => {
-    const step = lineWith("agents/leader.md", "Pre-flight on you before invoking");
+    const step = lineWith("agents/orchestrator.md", "Pre-flight on you before invoking");
     expect(step).toContain("{{branchBase}}");
     expect(step).toContain("gh auth status");
     // In R2+ the reviewer already ran the gate over these bytes; asking the
@@ -120,7 +121,7 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
 
 describe("R1 → PR boundary — defined once, by the agent that applies it (M6)", () => {
   it("the pilot owns the PR side of the delegation rule", () => {
-    const pilot = read("agents/commit-pr-pilot.md");
+    const pilot = read("agents/publisher.md");
     expect(pilot).toMatch(/this is where the PR side of it is enforced/);
     // The criterion itself stays here — and since #502.3 there is exactly ONE
     // of them (the non-trivial-file count), defined in that same paragraph
@@ -154,12 +155,11 @@ describe(".claude/progress/ is created, never assumed (F9)", () => {
   });
 
   it("the audit pre-flights tolerate an absent directory", () => {
-    for (const agent of ["agents/ticket-audit.md", "agents/auditor.md"]) {
-      expect(read(agent), `${agent} pre-flight assumes the dir exists`).toContain(
-        "mkdir -p .claude/progress",
-      );
-    }
-    expect(read("agents/ticket-audit.md")).toMatch(/never a pre-flight failure/i);
+    const agent = read("agents/auditor.md");
+    expect(agent, "agents/auditor.md pre-flight assumes the dir exists").toContain(
+      "mkdir -p .claude/progress",
+    );
+    expect(agent).toMatch(/never a pre-flight failure/i);
   });
 
   it("`mkdir -p` is pre-approved — it's a verb of every handoff", () => {
@@ -183,7 +183,7 @@ describe(".claude/progress/ is created, never assumed (F9)", () => {
  * the polling loop.
  */
 describe("background-gate wait (no orphaned processes)", () => {
-  const GATE_AGENTS = ["reviewer", "implementer", "commit-pr-pilot"];
+  const GATE_AGENTS = ["reviewer", "implementer", "publisher"];
 
   it.each(GATE_AGENTS)("%s declares Monitor and TaskStop in its tools", (id) => {
     const body = read(`agents/${id}.md`);

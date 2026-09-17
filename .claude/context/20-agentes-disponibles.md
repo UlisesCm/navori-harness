@@ -1,13 +1,11 @@
-<!-- navori:managed id="agentes-disponibles" hash="4ea3fbfa" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="agentes-disponibles" hash="f28780b4" version="0.8.7" source="@navori/core" -->
 ## Agentes disponibles
 
 Subagentes que puedes lanzar con la herramienta `Agent` (tú eres el orquestador; ve "## Role: orchestrator"). La investigación y la revisión son de solo lectura → paraleliza sin miedo.
 
 - `implementer` — Escribe código y tests para UNA tarea bien acotada. Úsalo proactivamente cuando el cambio toque 4+ archivos o 2+ no triviales.
 - `reviewer` — Valida un diff (APPROVED / CHANGES_REQUESTED). Úsalo tras cada implementer y antes de cualquier commit, push o PR con código.
-- `researcher` — Responde una pregunta concreta del repo con evidencia citada. Úsalo cuando responderla exija leer 4+ archivos.
-- `ticket-audit` — Analiza a fondo un ticket complejo. Úsalo cuando toque un área crítica, cruce 3+ capas o no tenga ubicación clara.
-- `commit-pr-pilot` — Escribe commits Conventional y abre el PR. Úsalo tras la aprobación del reviewer.
-- `explorer` — Mapea un área o módulo amplio. Úsalo cuando no sepas dónde vive algo y tendrías que abrir 4+ archivos.
-- `auditor` — Auditoría profunda de solo lectura (seguridad, rendimiento, SOLID) → reporte + plan en disco. Úsalo cuando pidan auditar un área, o antes de refactorizarla sin ticket.
+- `scout` — Reconocimiento de solo lectura: mapea un área o responde una pregunta acotada, con evidencia citada. Úsalo cuando una sub-pregunta convenga correr en paralelo, o una lectura convenga aislar del contexto de quien coordina.
+- `auditor` — Auditoría de solo lectura con veredicto: área (seguridad, rendimiento, SOLID), ticket complejo o challenge de una propuesta, sin veredicto en el challenge. Úsalo cuando toque auditar un área o un ticket crítico, o antes de refactorizar sin ticket.
+- `publisher` — Escribe commits Conventional y abre el PR. Úsalo tras la aprobación del reviewer.
 <!-- /navori:managed id="agentes-disponibles" -->

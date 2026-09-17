@@ -26,7 +26,7 @@ describe("verify-before-done asset — single re-verification policy", () => {
   // Spec 0019: §Synthesis moved to the depth reference, so the skill now points
   // there. What this test guards is unchanged — the cross-reference must resolve
   // to an asset that really carries the criterion, never to a dangling name.
-  const orchestration = readCoreAsset("agents", "leader.md");
+  const orchestration = readCoreAsset("agents", "orchestrator.md");
 
   it("does not mandate a full re-read of the subagent's diff", () => {
     // Old wording that pushed a third full read of the diff:

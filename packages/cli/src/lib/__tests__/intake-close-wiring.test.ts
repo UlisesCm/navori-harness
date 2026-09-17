@@ -67,7 +67,7 @@ describe("closing verdicts don't wait for approval (#370)", () => {
   });
 
   it("the audit agent still produces the verdicts the rule dispatches on", () => {
-    const agent = read("agents/ticket-audit.md");
+    const agent = read("agents/auditor.md");
     // Vocabulary: the rule is inert if the audit stops emitting these.
     for (const verdict of ["proceed", "proceed-differently", "split", "doesn't apply", "blocked"]) {
       expect(agent, `the audit's verdict vocabulary lost "${verdict}"`).toContain(verdict);

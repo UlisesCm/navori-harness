@@ -2245,9 +2245,9 @@ const CMD_ES: CmdStrings = {
         reviewer:
           "Valida un diff (APPROVED / CHANGES_REQUESTED). Úsalo tras cada implementer y antes de cualquier commit, push o PR con código.",
         scout:
-          "Reconocimiento de solo lectura: mapea un área o responde una pregunta acotada con evidencia citada. Úsalo para sub-preguntas en paralelo o lecturas que conviene aislar del contexto de quien coordina.",
+          "Reconocimiento de solo lectura: mapea un área o responde una pregunta acotada, con evidencia citada. Úsalo cuando una sub-pregunta convenga correr en paralelo, o una lectura convenga aislar del contexto de quien coordina.",
         auditor:
-          "Auditoría profunda de solo lectura: área (seguridad, rendimiento, SOLID), ticket complejo o challenge de una propuesta → reporte con evidencia, sin veredicto en el challenge. Úsalo para auditar un área, un ticket que toque zona crítica, cruce 3+ capas o no tenga ubicación clara, o antes de refactorizar sin ticket.",
+          "Auditoría de solo lectura con veredicto: área (seguridad, rendimiento, SOLID), ticket complejo o challenge de una propuesta, sin veredicto en el challenge. Úsalo cuando toque auditar un área o un ticket crítico, o antes de refactorizar sin ticket.",
         publisher:
           "Escribe commits Conventional y abre el PR. Úsalo tras la aprobación del reviewer.",
       },
@@ -3385,9 +3385,9 @@ const CMD_EN: CmdStrings = {
         reviewer:
           "Validates a diff (APPROVED / CHANGES_REQUESTED). Use after every implementer run and before any commit, push or PR.",
         scout:
-          "Read-only reconnaissance: maps an area or answers a scoped question with cited evidence. Use for parallel sub-questions or reads worth isolating from the coordinator's context.",
+          "Read-only reconnaissance: maps an area or answers a scoped question, with cited evidence. Use when a sub-question is worth running in parallel, or a read is worth isolating from the coordinator context.",
         auditor:
-          "Deep read-only audit: an area (security, performance, SOLID), a complex ticket, or a challenge of a proposed solution → evidence-backed report, no verdict on a challenge. Use to audit an area, a ticket that hits a critical area, crosses 3+ layers or has no clear location, or before refactoring one with no ticket.",
+          "Read-only audit with a verdict: an area (security, performance, SOLID), a complex ticket, or a challenge of a proposed solution, no verdict on a challenge. Use when auditing an area or a critical ticket, or before refactoring one with no ticket.",
         publisher:
           "Writes Conventional commits and opens the PR. Use after the reviewer approves.",
       },

@@ -276,7 +276,7 @@
       "Bash(chmod -R *)"
     ],
     "deny": [
-      "Agent(leader)",
+      "Agent(orchestrator)",
       "Bash(rm -rf /)",
       "Bash(rm -rf /*)",
       "Bash(rm -rf ~)",

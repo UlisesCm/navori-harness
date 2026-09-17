@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * The prose contract of `commit-pr-pilot.md` — the agent that decides whether a
+ * The prose contract of `publisher.md` — the agent that decides whether a
  * diff reaches `{{prTarget}}` reviewed or not. These assets are instructions an
  * agent OBEYS, so an ambiguous or missing sentence is a defect exactly like a
  * missing branch in code, and the only executable check available is over the
@@ -59,7 +59,7 @@ const HERE = resolve(fileURLToPath(import.meta.url), "..");
 const REPO_ROOT = resolve(HERE, "..", "..", "..", "..", "..");
 const CORE_ASSETS = join(REPO_ROOT, "packages", "core", "core-assets");
 const PLUGINS = join(REPO_ROOT, "packages", "plugins");
-const PILOT = join(CORE_ASSETS, "agents", "commit-pr-pilot.md");
+const PILOT = join(CORE_ASSETS, "agents", "publisher.md");
 
 const pilot = readFileSync(PILOT, "utf-8");
 
@@ -70,7 +70,7 @@ const pilot = readFileSync(PILOT, "utf-8");
  */
 function region(marker: string, until: RegExp): string {
   const at = pilot.indexOf(marker);
-  expect(at, `anchor "${marker}" is gone from commit-pr-pilot.md`).toBeGreaterThan(-1);
+  expect(at, `anchor "${marker}" is gone from publisher.md`).toBeGreaterThan(-1);
   const rest = pilot.slice(at);
   const end = rest.slice(marker.length).search(until);
   return end < 0 ? rest : rest.slice(0, marker.length + end);
@@ -86,7 +86,7 @@ const DECLARED_EXCEPTION = region(
   /^#{3} /m,
 );
 
-describe("commit-pr-pilot — the PR flow publishes the branch (#499)", () => {
+describe("publisher — the PR flow publishes the branch (#499)", () => {
   // ---- anti-false-green ---------------------------------------------------
   it("reads the flow it claims to read", () => {
     expect(PR_FLOW.length, "the PR flow section came back empty").toBeGreaterThan(500);
@@ -128,7 +128,7 @@ describe("commit-pr-pilot — the PR flow publishes the branch (#499)", () => {
   });
 });
 
-describe("commit-pr-pilot — one review, chosen by name (#502.1)", () => {
+describe("publisher — one review, chosen by name (#502.1)", () => {
   /** Every mention of the broad glob, with its line number. */
   const globLines = pilot
     .split("\n")
@@ -273,7 +273,7 @@ describe("templates never hand-write what the quality gate runs (#502.2)", () =>
  */
 const THREE_DOT_TARGET = /origin\/\{\{\s*prTarget\s*\}\}\.\.\./;
 
-describe("commit-pr-pilot — the pre-flight measures the tree it was triggered by", () => {
+describe("publisher — the pre-flight measures the tree it was triggered by", () => {
   // ---- anti-false-green ---------------------------------------------------
   it("reads the pre-flight, and it carries the set definition", () => {
     expect(PRE_FLIGHT.length, "the pre-flight section came back empty").toBeGreaterThan(1000);
@@ -445,7 +445,7 @@ describe("no template line renders the fork point and the PR target together (#5
   });
 });
 
-describe("commit-pr-pilot — la única excepción es la imposibilidad declarada", () => {
+describe("publisher — la única excepción es la imposibilidad declarada", () => {
   /**
    * Este describe reemplaza al de `non-trivial` (#502.3), que protegía la
    * definición por conteo del waiver: "¿cuántos archivos con comportamiento
@@ -526,7 +526,7 @@ const GITHUB_CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s+#/i;
 const TRANSLATED_CLOSING =
   /\b(?:cierra|cierran|cerrar|corrige|resuelve|arregla|soluciona|repara)\b[^\n]{0,24}#\d/i;
 
-describe("commit-pr-pilot — the closing keyword stays in English (#563)", () => {
+describe("publisher — the closing keyword stays in English (#563)", () => {
   // ---- anti-false-green ---------------------------------------------------
   it("reads the template and the rules it judges", () => {
     expect(BODY_TEMPLATE.length, "the body template section came back empty").toBeGreaterThan(300);

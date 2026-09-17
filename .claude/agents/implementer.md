@@ -4,6 +4,7 @@ description: Implements ONE scoped task with its tests, respects CLAUDE.md conve
 tools: Read, Write, Edit, Glob, Grep, Bash, Monitor, TaskStop, mcp__engram__*, mcp__codegraph__*
 model: sonnet
 effort: medium
+maxWords: 1800
 ---
 
 <!-- navori:managed id="implementer-base" hash="d5ce2d76" version="0.8.7" source="@navori/core" -->

@@ -38,7 +38,7 @@ afterEach(() => {
 describe("#604 — `commits` reaches the doctrine that cites it", () => {
   /** Every asset that used to send the agent to read the config itself. */
   const SURFACES = [
-    ".claude/agents/commit-pr-pilot.md",
+    ".claude/agents/publisher.md",
     ".claude/agents/implementer.md",
     "CLAUDE.md",
   ];
@@ -56,12 +56,12 @@ describe("#604 — `commits` reaches the doctrine that cites it", () => {
 
   it("distinguishes two repos that declare different commit styles", () => {
     renderClaudeEngine(cwd, { ...BASE, commits: "conventional" } as unknown as NavoriConfig);
-    const english = readFileSync(join(cwd, ".claude/agents/commit-pr-pilot.md"), "utf-8");
+    const english = readFileSync(join(cwd, ".claude/agents/publisher.md"), "utf-8");
 
     const other = mkdtempSync(join(tmpdir(), "navori-604-b-"));
     try {
       renderClaudeEngine(other, { ...BASE, commits: "conventional-es" } as unknown as NavoriConfig);
-      const spanish = readFileSync(join(other, ".claude/agents/commit-pr-pilot.md"), "utf-8");
+      const spanish = readFileSync(join(other, ".claude/agents/publisher.md"), "utf-8");
       // Before #604 these two files were byte-identical: the field was declared
       // and never delivered, so both repos got the same instruction.
       expect(spanish).not.toEqual(english);
@@ -74,7 +74,7 @@ describe("#604 — `commits` reaches the doctrine that cites it", () => {
 
   it("does not prescribe Conventional commits when the configured style is free", () => {
     renderClaudeEngine(cwd, { ...BASE, commits: "free" } as unknown as NavoriConfig);
-    const pilot = readFileSync(join(cwd, ".claude/agents/commit-pr-pilot.md"), "utf-8");
+    const pilot = readFileSync(join(cwd, ".claude/agents/publisher.md"), "utf-8");
     expect(pilot).toContain("configured style (`free`)");
     expect(pilot).not.toContain("Conventional commits");
   });

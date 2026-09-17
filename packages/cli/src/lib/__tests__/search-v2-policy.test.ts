@@ -85,42 +85,35 @@ describe("the routing distinctions are stated where the policy actually lives", 
   });
 });
 
-describe("textual-first-universal is gone from researcher.md, replaced by routing", () => {
-  const researcher = read(coreAgent("researcher.md"));
+describe("textual-first-universal is gone from scout.md (researcher+explorer merge, spec 0026 T12), replaced by routing", () => {
+  const scout = read(coreAgent("scout.md"));
 
   it("no longer orders Grep/Glob as the universal primary method", () => {
-    expect(researcher).not.toContain(
+    expect(scout).not.toContain(
       "Primary method: the native `Grep` (content) and `Glob` (files by name/pattern) tools.",
     );
   });
 
   it("routes by the nature of the question instead", () => {
-    expect(researcher).toContain("Resolve the scoped question by following Code discovery routing");
-    expect(researcher).toContain("the enabled structural provider");
+    expect(scout).toContain("Run the search, following Code discovery routing");
+    expect(scout).toContain("the enabled structural provider");
   });
 
   it("no longer requires structural-search as a mandatory preflight for every question", () => {
-    expect(researcher).not.toContain(
+    expect(scout).not.toContain(
       "For semantic questions (not just string match), apply `.claude/skills/structural-search/SKILL.md`: locate the right region and open only the confirmed span; don't read whole files by reflex.",
     );
-    expect(researcher).toContain(
-      "Don't load `.claude/skills/structural-search/SKILL.md` as a mandatory preflight for every question",
-    );
   });
-});
-
-describe("mandatory entrypoint traversal is gone from explorer.md, demoted to a fallback", () => {
-  const explorer = read(coreAgent("explorer.md"));
 
   it("no longer opens with an unconditional entry-to-leaves walk", () => {
-    expect(explorer).not.toContain(
+    expect(scout).not.toContain(
       "Apply `.claude/skills/structural-search/SKILL.md` to locate shapes and entry points without reading whole files.",
     );
   });
 
   it("asks the structural provider for the map first, and only walks manually when none is available", () => {
-    expect(explorer).toContain("Get the map from the enabled structural provider first");
-    expect(explorer).toContain("Only when no provider is enabled/available, walk manually");
+    expect(scout).toContain("goes to the enabled structural provider first");
+    expect(scout).toContain("Only when no provider is enabled/available, walk manually");
   });
 });
 
@@ -188,12 +181,12 @@ describe("occurrence counts alone no longer stand in for structural impact evide
     );
   });
 
-  it("ticket-audit.md requires the structural provider to confirm relational size claims", () => {
-    const ticketAudit = read(coreAgent("ticket-audit.md"));
-    expect(ticketAudit).toContain(
-      "applying Code discovery routing (project instructions) before gathering evidence",
+  it("auditor.md's ticket encargo requires the structural provider to confirm relational size claims (spec 0026 T12, ticket-audit merge)", () => {
+    const auditor = read(coreAgent("auditor.md"));
+    expect(auditor).toContain(
+      "confirm call sites and relationships through the routed provider",
     );
-    expect(ticketAudit).toContain(
+    expect(auditor).toContain(
       "an occurrence count alone doesn't demonstrate structural impact",
     );
   });
@@ -224,8 +217,7 @@ describe("no distributed asset prescribes shell search as discovery", () => {
   const distributedAssets = [
     coreSkill("review-diff.md"),
     coreAgent("auditor.md"),
-    coreAgent("ticket-audit.md"),
-    coreAgent("researcher.md"),
+    coreAgent("scout.md"),
     coreSkill("structural-search.md"),
   ];
 

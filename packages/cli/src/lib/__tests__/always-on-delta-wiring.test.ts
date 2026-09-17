@@ -34,7 +34,7 @@ const coreAssets = resolve(here, "..", "..", "..", "..", "core", "core-assets");
 
 const read = (rel: string): string => readFileSync(resolve(coreAssets, rel), "utf-8");
 
-const PILOT = "agents/commit-pr-pilot.md";
+const PILOT = "agents/publisher.md";
 const SPEC_BOOTSTRAP = "skills/spec-bootstrap.md";
 
 /** Paths that exist in navori's own monorepo and in no repo it onboards. */

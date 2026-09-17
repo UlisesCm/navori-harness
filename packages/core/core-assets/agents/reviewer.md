@@ -4,6 +4,7 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write, Monitor, TaskStop
 model: {{models.reviewer}}
 effort: {{effort.reviewer}}
+maxWords: 2200
 ---
 
 # Reviewer Agent

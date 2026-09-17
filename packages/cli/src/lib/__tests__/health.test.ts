@@ -1289,12 +1289,16 @@ describe("scanRetiredAssets — reports retired files with successor (spec 0026 
   });
 
   // Covers: R41
-  it("RETIRED_AGENTS ships empty — no false positive under .codex/agents today", () => {
+  it("RETIRED_AGENTS is populated (spec 0026 T11) — a foreign .codex/agents/leader.toml is a real hit", () => {
     // The seeded-mock case for the .codex/agents/<id>-codex-base path lives in
-    // retired-assets-codex.test.ts (RETIRED_AGENTS is empty in production
-    // until T11, same precedent as the .claude-side check).
+    // retired-assets-codex.test.ts. RETIRED_AGENTS shipped empty until T11
+    // (see that file's history); it now carries the real leader->orchestrator
+    // entry, so a foreign, un-marked leader.toml on disk is a genuine finding.
     mkdirSync(join(cwd, ".codex/agents"), { recursive: true });
     writeFileSync(join(cwd, ".codex/agents/leader.toml"), "# ajeno\n", "utf-8");
-    expect(scanRetiredAssets(cwd).some((r) => r.id === "leader")).toBe(false);
+    const hit = scanRetiredAssets(cwd).find((r) => r.id === "leader");
+    expect(hit).toBeDefined();
+    expect(hit?.successor).toBe("orchestrator");
+    expect(hit?.reason).toBe("foreign");
   });
 });
