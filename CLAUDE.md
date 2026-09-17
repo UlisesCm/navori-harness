@@ -94,14 +94,14 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 Exception: `// any justified: <reason>` — last resort, not a shortcut. If there's no clear reason, it's not justified.
 <!-- /navori:managed id="tipado-fuerte" -->
 
-<!-- navori:managed id="operaciones-seguras" hash="f2e5fbfb" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="operaciones-seguras" hash="a7fdfad8" version="0.8.7" source="@navori/core" -->
 ## Operations on data and infrastructure
 
 Read-only by default. Before mutating data, schema, or infrastructure (DB, deploys, cloud), read and propose — no mutation without the user's explicit opt-in.
 
 - **DB / queries**: read-only by default (`SELECT`, `EXPLAIN`, `onlyRead`). `INSERT/UPDATE/DELETE/DROP/ALTER/TRUNCATE` need explicit user ask.
 - **Shell commands**: inspecting is free (`ls`, `cat`, `git status/diff/log`). Destructive ones (`rm -rf`, `git reset --hard`, force-push, `chmod -R`) route to `ask`/`deny`; `guard-destructive` hard-blocks the rest.
-- **Code search**: native `Glob`/`Grep` are read-only, pre-approved. `rg` is NOT (`rg --pre <cmd>` runs arbitrary code); `find`/`grep` cover the rest — see `structural-search`.
+- **Code search**: native `Glob`/`Grep` are read-only, pre-approved. `rg` is NOT (`rg --pre <cmd>` runs arbitrary code); `find`/`grep` cover the rest — see `locate-code`.
 - **Bash in auto mode**: `sed -i` exits 0 on no match and a misdirected `>` truncates the file — verify the result, exit code isn't evidence (`verify-before-done`). A shell rewrite of a navori-generated file is BLOCKED by the guard; use `navori render --apply`/`sync` instead.
 - **Destructive mutation, if legitimate and necessary**: explain it and let the user confirm/run it. Never disguise it via variables, subshells, or `--no-verify`.
 - **Blocked by permission/policy → STOP**: a `deny`/rejection IS the answer, **0 retries**. A missing pre-approval gets ONE alternative (different path, never repeats it); if that fails too, tell the user to run it outside the agent.
@@ -123,7 +123,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, deplo
 Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`leader`→`implementer`→`reviewer`) — lives in `spec-bootstrap`, user-invoked only: propose SDD, ask the user to run `/spec-bootstrap`.
 <!-- /navori:managed id="sdd" -->
 
-<!-- navori:managed id="intake-tickets" hash="d0d6fcbb" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="intake-tickets" hash="1e25d401" version="0.8.7" source="@navori/core" -->
 ## Tickets: problem first, proposed solution second
 
 A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a proposed solution. Treat them differently:
@@ -133,7 +133,7 @@ A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a 
 - **Not every ticket proceeds.** Legitimate outcomes besides "implement": already solved, can't reproduce, works as intended, needs splitting into N tickets, blocked on missing info. Saying so early — with evidence — beats a polished PR for the wrong fix. **None of them opens work, so none of them waits for approval:** report the verdict with its evidence and close the cycle. The human gate stays for `proceed` and `proceed-differently`, the two that open the chequebook.
 - **Size is measured, not assumed.** Before calling something small, run the command that proves it (call sites, files touched, layers crossed). A one-line description routinely hides a 13-call-site change.
 
-The `ticket-intake` skill runs this as a pipeline; the `ticket-audit` agent produces the verdict with evidence.
+The `resolve-ticket` skill runs this as a pipeline; the `ticket-audit` agent produces the verdict with evidence.
 <!-- /navori:managed id="intake-tickets" -->
 
 <!-- navori:managed id="code-discovery-routing" hash="64eb5632" version="0.8.7" source="@navori/core" -->
@@ -178,23 +178,22 @@ Use `tgrep search -n [flags] -- PATTERN ROOT`; without `-n` piped output has no 
 Use `codegraph_explore` for structural discovery when available. Pass the current checkout's absolute `projectPath`; do not substitute another worktree's index. Treat sufficient fresh verbatim source returned to this context as already read. Respect stale/disabled-watch warnings and report unresolved relationships; the graph is not proof of completeness. Never initialize an index during ordinary discovery. If this project is unindexed or the provider fails, use scoped native exploration. Do not call tgrep merely to confirm the same symbol. Source unavailable in this context is missing evidence, even if another agent saw it.
 <!-- /navori:managed id="codegraph-search-v2" -->
 
-<!-- navori:managed id="skills-index" hash="36d7b93c" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="skills-index" hash="659e6742" version="0.8.7" source="@navori/core" -->
 ## Skills disponibles
 
 Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. La nota tras el `·` dice cuándo usar cada una.
 Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido.
 
 - `verify-before-done` — navori · Use when about to declare a task done
-- `loop-back-debug` — navori · Use when a fix doesn't work the first time
+- `debug-failure` — navori · Use when a command fails or the runtime misbehaves and you don't have a root cause yet
 - `review-diff` — navori · Use when reviewing a diff (staged, branch or PR)
-- `security-guidance` — navori · Use when running /security-review or auditing security
-- `debug-error` — navori · Use when a command fails or the runtime misbehaves and you don't have a root cause yet
-- `structural-search` — navori · Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site)
-- `ticket-intake` — navori (workflow) · Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial
+- `security-invariants` — navori · Use when running /security-review or auditing security
+- `locate-code` — navori · Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site)
+- `resolve-ticket` — navori (workflow) · Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial
 - `solution-design` — navori (workflow) · Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, co…
 - `spec-bootstrap` — navori (workflow) · Use when starting a real-scope feature before writing code
 - `dominio` — navori (workflow) · Use when you discover a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cr…
-- `babysit-prs` — navori (workflow) · Use when you resume a session with open PRs of yours, or when a check went red after a push
+- `follow-up-prs` — navori (workflow) · Use when you resume a session with open PRs of yours, or when a check went red after a push
 - `zod-validation` — library (detected) · Use when creating a Zod schema or validating input at a trust boundary
 - `vitest` — library (detected) · Use when writing or fixing unit/integration tests with Vitest
 - `citty` — library (detected) · Use when adding or editing a CLI command with citty

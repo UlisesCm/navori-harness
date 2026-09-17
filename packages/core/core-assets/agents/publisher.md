@@ -175,7 +175,7 @@ Never open the PR with the gate red.
 
 6. **Output to the user**: only the PR URL + 1 line with the title. Nothing else.
 
-7. **Checks — read them ONCE, never wait**: `gh pr checks <N> --json name,bucket,state,link,workflow`. `bucket: pending` (the normal case right after creating the PR) → say so in **one extra line** and stop, no retry. `bucket: fail` → name the check in that line and point to `babysit-prs` for the diagnosis. Informative only: you never hold or revert a PR over a red check.
+7. **Checks — read them ONCE, never wait**: `gh pr checks <N> --json name,bucket,state,link,workflow`. `bucket: pending` (the normal case right after creating the PR) → say so in **one extra line** and stop, no retry. `bucket: fail` → name the check in that line and point to `follow-up-prs` for the diagnosis. Informative only: you never hold or revert a PR over a red check.
 
 8. **Confirm the close actually linked** — only when the body declares one. The body is not evidence of anything; `closingIssuesReferences` is what GitHub parsed out of it:
 

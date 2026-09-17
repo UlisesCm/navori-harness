@@ -66,7 +66,7 @@ describe("review-diff — the checklist keeps its concrete triggers", () => {
     expect(item).toMatch(/mutate the same resource/i);
     // Enumerating is the mechanical part; without evidence it degrades to a vibe.
     expect(item).toMatch(/enumerate/i);
-    expect(item).toContain("structural-search");
+    expect(item).toContain("locate-code");
     // Partial coverage is a live authorization hole, not a nit.
     expect(item).toMatch(/CRITICAL/);
     // An unexplained exclusion is the same hole with a nicer diff.
@@ -100,8 +100,8 @@ describe("review-diff — the checklist keeps its concrete triggers", () => {
 });
 
 describe("the guard-coverage invariant reaches the two agents that act on it", () => {
-  it("security-guidance §1 carries the business invariant, not just the trigger (#334)", () => {
-    const auth = section(read("skills/security-guidance.md"), "1. Authorization");
+  it("security-invariants §1 carries the business invariant, not just the trigger (#334)", () => {
+    const auth = section(read("skills/security-invariants.md"), "1. Authorization");
     expect(auth).toMatch(/least-covered entry point/i);
     // What's protected is the resource, so the enumeration is over ways to mutate it.
     expect(auth).toMatch(/enumerating every way that resource is mutated/i);

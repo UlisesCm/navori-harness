@@ -1,12 +1,12 @@
 ---
-name: security-guidance
+name: security-invariants
 description: Use when running /security-review or auditing security. Documents the BUSINESS security invariants that the static scanner (semgrep) and the built-in review can't infer from code alone — server-side authorization, object access (IDOR), secrets and env exposed to the client, trust boundaries, PII in logs. The skeleton is universal; your stack's rules go in the user-section.
 metadata:
   type: reference
   maxWords: 1200
 ---
 
-# Security guidance — the business security layer
+# Security invariants — the business security layer
 
 Feeds the `/security-review` flow. The generic web vuln patterns (XSS, SSRF, hardcoded secrets, insecure deserialization, injection) are already covered by semgrep and the built-in reviewer. What goes here is what the model **can't infer from code alone**: the authorization and trust invariants that depend on the domain.
 

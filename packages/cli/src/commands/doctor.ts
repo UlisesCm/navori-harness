@@ -1375,7 +1375,7 @@ export interface MissingOptionalTool {
 
 /**
  * Optional precision tools improve the generated harness but never gate it.
- * structural-search falls back to Grep, so doctor only warns when the binary
+ * locate-code falls back to Grep, so doctor only warns when the binary
  * is absent.
  *
  * `sg` is NOT a valid tell for ast-grep (#495), even though Homebrew installs
@@ -1432,7 +1432,7 @@ export function scanMissingOptionalTools(): MissingOptionalTool[] {
   if (binaries.some((binary) => hasBinary(binary))) return [];
   return [
     {
-      id: "structural-search",
+      id: "locate-code",
       binaries,
       install: "npm install --global @ast-grep/cli",
     },

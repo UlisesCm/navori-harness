@@ -1,13 +1,13 @@
 ---
-name: security-guidance
+name: security-invariants
 description: Use when running /security-review or auditing security. Documents the BUSINESS security invariants that the static scanner (semgrep) and the built-in review can't infer from code alone — server-side authorization, object access (IDOR), secrets and env exposed to the client, trust boundaries, PII in logs. The skeleton is universal; your stack's rules go in the user-section.
 metadata:
   type: reference
   maxWords: 1200
 ---
 
-<!-- navori:managed id="security-guidance-base" hash="ede59789" version="0.8.7" source="@navori/core" -->
-# Security guidance — the business security layer
+<!-- navori:managed id="security-invariants-base" hash="7834296e" version="0.8.7" source="@navori/core" -->
+# Security invariants — the business security layer
 
 Feeds the `/security-review` flow. The generic web vuln patterns (XSS, SSRF, hardcoded secrets, insecure deserialization, injection) are already covered by semgrep and the built-in reviewer. What goes here is what the model **can't infer from code alone**: the authorization and trust invariants that depend on the domain.
 
@@ -52,7 +52,7 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 1. Walk the diff or the area with these 6 categories as a checklist.
 2. Report with severity and `file:line`.
 3. Cross-check with the **rules specific to your stack** (below): the concrete names of your guards, error codes and env prefixes live there — without that, the review only covers the universal layer.
-<!-- /navori:managed id="security-guidance-base" -->
+<!-- /navori:managed id="security-invariants-base" -->
 
 <!-- navori:managed id="semgrep-review-extension" hash="d5aa04ca" version="0.8.7" source="@navori/plugin-semgrep" -->
 ## Local security gate (semgrep)

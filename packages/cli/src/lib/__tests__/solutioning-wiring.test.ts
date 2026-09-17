@@ -76,7 +76,7 @@ describe("solutioning — content invariants (spec 0012)", () => {
   });
 
   it("the ticket pipeline hands off to the solution phase and back", () => {
-    const intake = read("skills/ticket-intake.md");
+    const intake = read("skills/resolve-ticket.md");
     expect(intake).toContain("solution-design");
     // The implementer must be pointed at the artifact, or the design is paid for
     // and then dropped on the floor.

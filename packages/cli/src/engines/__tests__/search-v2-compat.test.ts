@@ -310,7 +310,7 @@ describe("C06 — v2 render doesn't disturb other plugins' settings/MCP/hooks fr
     const reviewSkill = readFileSync(join(cwd, ".claude/skills/review-diff/SKILL.md"), "utf-8");
     expect(reviewSkill).toContain('id="jscpd-review-extension"');
     const securitySkill = readFileSync(
-      join(cwd, ".claude/skills/security-guidance/SKILL.md"),
+      join(cwd, ".claude/skills/security-invariants/SKILL.md"),
       "utf-8",
     );
     expect(securitySkill).toContain('id="semgrep-review-extension"');

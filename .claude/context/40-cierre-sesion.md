@@ -1,4 +1,4 @@
-<!-- navori:managed id="cierre-sesion" hash="e4ef280a" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="cierre-sesion" hash="8896011f" version="0.8.7" source="@navori/core" -->
 ## Session closeout
 
 Before closing the session:
@@ -9,7 +9,7 @@ Before closing the session:
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
 5. **Commit**: atomic and in the configured style (`conventional-es`).
 6. **Park on base**: once the cycle's work is committed and its branch pushed (PR opened when the flow calls for one), leave the repo standing on the base branch, synced: `git switch main` then `git pull --ff-only`. The point is where the NEXT session starts from — a repo parked on last week's feature branch breeds branches cut from stale bases. Rules that make it safe:
-   - **Never delete the feature branch.** This is position hygiene, not history hygiene; the branch stays for its pending merge and for `babysit-prs`.
+   - **Never delete the feature branch.** This is position hygiene, not history hygiene; the branch stays for its pending merge and for `follow-up-prs`.
    - Only with a **clean working tree** and the cycle's commits pushed. Anything unpushed or uncommitted → do NOT switch; say what was left and leave parking to the user.
    - `--ff-only`, always: the base must never receive a surprise merge from a parking step. If it doesn't fast-forward, report it instead of resolving it here.
    - If another session may be alive on this same working tree (a second terminal on this repo), switching yanks the branch out from under it — when in doubt, skip and say so.

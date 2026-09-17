@@ -290,7 +290,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
 ### Lote 3 · Skills
 
-- [ ] **T14** (R29, R30) — Catálogo de skills.
+- [x] **T14** (R29, R30) — Catálogo de skills.
   - **`skills/debug-failure.md`:** el ciclo de R30, fusionando `debug-error.md`,
     `loop-back-debug.md` y `~/.claude/skills/systematic-debug/SKILL.md` según la tabla de
     `design.md`.

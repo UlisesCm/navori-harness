@@ -129,7 +129,7 @@ describe("CLI e2e — happy paths", () => {
     expect(existsSync(join(repo, ".claude/agents/orchestrator.md"))).toBe(true);
     expect(existsSync(join(repo, ".claude/agents/implementer.md"))).toBe(true);
     expect(existsSync(join(repo, ".claude/skills/verify-before-done/SKILL.md"))).toBe(true);
-    expect(existsSync(join(repo, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude/skills/locate-code/SKILL.md"))).toBe(true);
     expect(existsSync(join(repo, ".claude/settings.json"))).toBe(true);
 
     const settings = JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8"));

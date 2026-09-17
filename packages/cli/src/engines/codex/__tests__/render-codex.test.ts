@@ -72,7 +72,7 @@ describe("renderCodexEngine", () => {
     expect(agentsMd).toContain(".codex/progress/");
     expect(agentsMd).not.toContain(".claude/progress");
     expect(existsSync(join(cwd, ".agents/skills/verify-before-done/SKILL.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".agents/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".agents/skills/locate-code/SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, ".codex/agents/implementer.toml"))).toBe(true);
     expect(existsSync(join(cwd, ".codex/hooks/guard-destructive.sh"))).toBe(true);
 
@@ -501,10 +501,8 @@ describe("renderCodexEngine — manual-only skill sidecar (#823)", () => {
   it("does not emit agents/openai.yaml for an unflagged skill", () => {
     const cwd = tempRepo();
     renderCodexEngine(cwd, config());
-    // structural-search has no disable-model-invocation in its source frontmatter.
-    expect(existsSync(join(cwd, ".agents/skills/structural-search/agents/openai.yaml"))).toBe(
-      false,
-    );
+    // locate-code has no disable-model-invocation in its source frontmatter.
+    expect(existsSync(join(cwd, ".agents/skills/locate-code/agents/openai.yaml"))).toBe(false);
   });
 
   it("uses Codex's $ invocation, not the slash form, in AGENTS.md", () => {

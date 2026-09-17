@@ -123,7 +123,7 @@ describe("word cap over the composed SKILL.md (#683)", () => {
     // assertions below would pass by measuring nothing.
     const dir = join(cwd, ".claude", "skills");
     const rendered = readdirSync(dir).filter((d) => existsSync(join(dir, d, "SKILL.md")));
-    expect(rendered).toContain("structural-search");
+    expect(rendered).toContain("locate-code");
     expect(rendered).toContain("review-diff");
     expect(rendered.length).toBeGreaterThan(5);
   });

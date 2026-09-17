@@ -1,5 +1,5 @@
 ---
-name: ticket-intake
+name: resolve-ticket
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 8-phase pipeline to process it with objective gates.
 metadata:
   type: reference
@@ -10,7 +10,7 @@ metadata:
   maxWordsComposed: 650
 ---
 
-# ticket-intake — 8-phase pipeline
+# resolve-ticket — 8-phase pipeline
 
 ## Pipeline
 

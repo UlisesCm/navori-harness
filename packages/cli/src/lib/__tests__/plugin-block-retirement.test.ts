@@ -63,7 +63,7 @@ describe("#614 — the reviewer-only blocks land in the skills, not in CLAUDE.md
     // would be a silent no-op scan (#273).
     expect(reviewDiff).toContain("main...HEAD");
 
-    const security = read(".claude/skills/security-guidance/SKILL.md");
+    const security = read(".claude/skills/security-invariants/SKILL.md");
     expect(security).toContain("Local security gate (semgrep)");
     expect(security).toContain("--config=p/default");
   });

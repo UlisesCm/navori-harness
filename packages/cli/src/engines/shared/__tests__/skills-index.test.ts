@@ -25,6 +25,30 @@ describe("buildSkillRows (shared skills index) — C4", () => {
     expect(rows.some((r) => r.startsWith("- `pr-create`"))).toBe(false);
   });
 
+  // Covers: R29
+  it("lists the spec 0026 T14 catalog by its NEW ids, none of the six retired ones", () => {
+    const rows = buildSkillRows(cfg(), process.cwd(), coreAssets).join("\n");
+    for (const id of [
+      "debug-failure",
+      "locate-code",
+      "security-invariants",
+      "resolve-ticket",
+      "follow-up-prs",
+    ]) {
+      expect(rows, `${id} missing from the index`).toContain(`\`${id}\``);
+    }
+    for (const id of [
+      "debug-error",
+      "loop-back-debug",
+      "structural-search",
+      "security-guidance",
+      "ticket-intake",
+      "babysit-prs",
+    ]) {
+      expect(rows, `retired id ${id} still indexed`).not.toContain(`\`${id}\``);
+    }
+  });
+
   it("appends project-local rows only when localSkills are passed", () => {
     const withLocal = buildSkillRows(cfg(), process.cwd(), coreAssets, ["my-skill"]);
     expect(withLocal).toContain("- `my-skill` — project-local (`.claude/skills/my-skill`)");
