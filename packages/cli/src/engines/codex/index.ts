@@ -132,7 +132,8 @@ export function renderCodexEngine(
       const injectInto = skill.injectInto;
       if (injectInto === undefined) continue;
       const agentId = injectInto.match(AGENT_INJECT_RE)?.[1];
-      if (agentId === undefined || agentId === "orchestrator" || renderedAgentIds.has(agentId)) continue;
+      if (agentId === undefined || agentId === "orchestrator" || renderedAgentIds.has(agentId))
+        continue;
       warnings.push(
         tc(lang).engine.pluginSkillNotInjected(skill.id, plugin.manifest.id, injectInto),
       );

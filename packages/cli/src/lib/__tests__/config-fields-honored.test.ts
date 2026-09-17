@@ -37,11 +37,7 @@ afterEach(() => {
 
 describe("#604 — `commits` reaches the doctrine that cites it", () => {
   /** Every asset that used to send the agent to read the config itself. */
-  const SURFACES = [
-    ".claude/agents/publisher.md",
-    ".claude/agents/implementer.md",
-    "CLAUDE.md",
-  ];
+  const SURFACES = [".claude/agents/publisher.md", ".claude/agents/implementer.md", "CLAUDE.md"];
 
   it("renders the configured value, not a pointer to the config", () => {
     renderClaudeEngine(cwd, { ...BASE, commits: "conventional" } as unknown as NavoriConfig);

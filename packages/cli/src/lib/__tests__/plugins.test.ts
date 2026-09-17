@@ -269,7 +269,11 @@ describe("PluginManifestSchema — backward compat", () => {
       description: "Persistent memory",
       version: "0.0.1",
       managed: [
-        { id: "engram-protocol", file: "managed/engram-protocol.md", recommendedAgent: "orchestrator" },
+        {
+          id: "engram-protocol",
+          file: "managed/engram-protocol.md",
+          recommendedAgent: "orchestrator",
+        },
       ],
       externalTool: {
         name: "engram",

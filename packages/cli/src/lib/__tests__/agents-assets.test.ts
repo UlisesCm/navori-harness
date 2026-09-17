@@ -229,9 +229,10 @@ describe("core agent assets — declare and respect a word cap (spec 0026 T12, R
       const idx = parsed.body.indexOf(SENTINEL);
       const managed = parsed.body.slice(0, idx);
       const words = managed.trim().split(/\s+/).filter(Boolean).length;
-      expect(words, `${id}.md's managed body (${words} words) exceeds its maxWords (${cap})`).toBeLessThanOrEqual(
-        cap,
-      );
+      expect(
+        words,
+        `${id}.md's managed body (${words} words) exceeds its maxWords (${cap})`,
+      ).toBeLessThanOrEqual(cap);
     });
   }
 

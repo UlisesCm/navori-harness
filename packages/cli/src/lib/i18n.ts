@@ -3388,8 +3388,7 @@ const CMD_EN: CmdStrings = {
           "Read-only reconnaissance: maps an area or answers a scoped question, with cited evidence. Use when a sub-question is worth running in parallel, or a read is worth isolating from the coordinator context.",
         auditor:
           "Read-only audit with a verdict: an area (security, performance, SOLID), a complex ticket, or a challenge of a proposed solution, no verdict on a challenge. Use when auditing an area or a critical ticket, or before refactoring one with no ticket.",
-        publisher:
-          "Writes Conventional commits and opens the PR. Use after the reviewer approves.",
+        publisher: "Writes Conventional commits and opens the PR. Use after the reviewer approves.",
       },
     },
     monorepo: {

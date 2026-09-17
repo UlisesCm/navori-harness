@@ -183,12 +183,8 @@ describe("occurrence counts alone no longer stand in for structural impact evide
 
   it("auditor.md's ticket encargo requires the structural provider to confirm relational size claims (spec 0026 T12, ticket-audit merge)", () => {
     const auditor = read(coreAgent("auditor.md"));
-    expect(auditor).toContain(
-      "confirm call sites and relationships through the routed provider",
-    );
-    expect(auditor).toContain(
-      "an occurrence count alone doesn't demonstrate structural impact",
-    );
+    expect(auditor).toContain("confirm call sites and relationships through the routed provider");
+    expect(auditor).toContain("an occurrence count alone doesn't demonstrate structural impact");
   });
 
   it("review-diff.md's guard/policy enumeration requires more than an occurrence count", () => {
