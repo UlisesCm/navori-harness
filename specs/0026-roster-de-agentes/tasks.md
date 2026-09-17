@@ -212,7 +212,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
 ### Lote 2 · Agentes
 
-- [ ] **T11** (R19, R20) — `CORE_AGENTS` con los seis ids, y casos especiales del rol encarnado
+- [x] **T11** (R19, R20) — `CORE_AGENTS` con los seis ids, y casos especiales del rol encarnado
   movidos a `orchestrator`:
   - `engines/claude/index.ts:239`, `:1804` y `:1813`.
   - `engines/shared/harness-plan.ts:68`.
@@ -237,7 +237,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
   `engines/shared/__tests__/roster-parity.test.ts::core roster is the six agents`,
   `engines/claude/__tests__/build-settings.test.ts::denies Agent(orchestrator) and not Agent(leader)`
   y `engines/claude/__tests__/global-plugin.test.ts`, con `// Covers: R19, R20`
-- [ ] **T12** (R17, R21, R22, R23, R24, R25, R51) — Assets de agentes:
+- [x] **T12** (R17, R21, R22, R23, R24, R25, R51) — Assets de agentes:
   - **`orchestrator.md`** desde `leader.md`, sin `:26-31`, `:77` ni `:169-170`.
   - **`scout.md`** con los encargos de mapa y pregunta. Su `description` lo reserva para
     sub-preguntas en paralelo o lecturas que conviene aislar, y conserva

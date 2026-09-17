@@ -246,3 +246,27 @@ describe("background-gate wait (no orphaned processes)", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+/**
+ * Spec 0026 T12 (R24, R25) — the orchestrator playbook has no route by which
+ * the orchestrator edits source itself, and no duplicate design gate that
+ * contradicts `solution-design`'s (the orchestrator owns the verdict there,
+ * not the user).
+ */
+describe("orchestrator playbook has no inline-edit route and one design gate", () => {
+  const playbook = read("agents/orchestrator.md");
+
+  it("carries no brainstorm gate that hands approval to the user", () => {
+    expect(playbook).not.toContain("Brainstorm gate");
+    expect(playbook).not.toMatch(/Wait for approval of ONE approach/i);
+  });
+
+  it("does not let the orchestrator fix a finding itself instead of a fresh implementer", () => {
+    expect(playbook).not.toMatch(/Fix a minor finding yourself/i);
+  });
+
+  it("does not carve out docs/.claude or a single trivial line as self-editable source", () => {
+    expect(playbook).not.toMatch(/Changes in `docs\/`, `\.claude\/progress\/`, `CLAUDE\.md`/);
+    expect(playbook).not.toMatch(/A single trivial line in a known file/i);
+  });
+});

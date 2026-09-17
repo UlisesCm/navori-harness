@@ -456,3 +456,25 @@ describe("the core never orders a capability only a plugin can grant (#501)", ()
     ).toEqual([]);
   });
 });
+
+/**
+ * Spec 0026 T12 (R17) — codegraph's generated `mcp__codegraph__*` family
+ * reaches exactly the reading roster (orchestrator, implementer, reviewer,
+ * auditor) via `injectInto`, and never `publisher` (it drafts from handoff
+ * artifacts only, no code exploration).
+ */
+describe("codegraph reaches the reading roster and not publisher (spec 0026 T12, R17)", () => {
+  it("injects into orchestrator/implementer/reviewer/auditor and not publisher", () => {
+    const codegraph = MCP_PLUGINS.find((p) => p.manifest.id === "codegraph");
+    const targets = (codegraph?.manifest.skills ?? []).map((skill) => skill.injectInto).sort();
+    expect(targets).toEqual(
+      [
+        ".claude/agents/auditor.md",
+        ".claude/agents/implementer.md",
+        ".claude/agents/orchestrator.md",
+        ".claude/agents/reviewer.md",
+      ].sort(),
+    );
+    expect(targets).not.toContain(".claude/agents/publisher.md");
+  });
+});
