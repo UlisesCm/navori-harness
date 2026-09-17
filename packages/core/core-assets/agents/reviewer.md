@@ -68,7 +68,7 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 
 Does the code match the repo's conventions? Here you do review style/naming/types.
 
-Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions (types, hardcode, naming, dead code, quality gate, etc.), with severities. When the diff touches auth, permissions, object access, secrets or anything in `{{project.criticalAreas}}`, also apply `.claude/skills/security-guidance/SKILL.md`: it carries the business invariants a static scanner cannot infer from the code. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. On top of that checklist, always validate against `CLAUDE.md` and the leader's "Project rules" — plus any additional rule the leader wrote in the user-section of its prompt.
+Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions (types, hardcode, naming, dead code, quality gate, etc.), with severities. When the diff touches auth, permissions, object access, secrets or anything in `{{project.criticalAreas}}`, also apply `.claude/skills/security-invariants/SKILL.md`: it carries the business invariants a static scanner cannot infer from the code. Its CRITICAL/HIGH map to the ≥80 issues below; MEDIUM to the informational observations. On top of that checklist, always validate against `CLAUDE.md` and the leader's "Project rules" — plus any additional rule the leader wrote in the user-section of its prompt.
 
 **Quality gate** (mandatory green, run this turn):
 

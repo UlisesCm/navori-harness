@@ -1742,7 +1742,7 @@ const CMD_ES: CmdStrings = {
       `Herramientas opcionales no instaladas (${n}) — el harness funciona con fallback, ` +
       `pero pierde precisión en estos flujos:\n${lines}`,
     optionalToolRow: (binaries, how) =>
-      `— falta ${binaries} en PATH; ${how}. Mientras tanto, structural-search cae a Grep`,
+      `— falta ${binaries} en PATH; ${how}. Mientras tanto, locate-code cae a Grep`,
     otelReceiverOk: (port) => `receptor OTel escuchando en 127.0.0.1:${port}`,
     otelReceiverDead: (port) =>
       `El LaunchAgent del receptor está cargado pero nadie responde en 127.0.0.1:${port}. ` +
@@ -2885,7 +2885,7 @@ const CMD_EN: CmdStrings = {
       `Optional tools not installed (${n}) — the harness keeps working with a fallback, ` +
       `but loses precision in these flows:\n${lines}`,
     optionalToolRow: (binaries, how) =>
-      `— missing ${binaries} in PATH; ${how}. Until then, structural-search falls back to Grep`,
+      `— missing ${binaries} in PATH; ${how}. Until then, locate-code falls back to Grep`,
     otelReceiverOk: (port) => `OTel receiver listening on 127.0.0.1:${port}`,
     otelReceiverDead: (port) =>
       `The receiver's LaunchAgent is loaded but nothing answers on 127.0.0.1:${port}. ` +

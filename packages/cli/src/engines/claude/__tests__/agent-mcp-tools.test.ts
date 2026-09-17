@@ -57,7 +57,7 @@ describe("withAgentMcpTools", () => {
 
   it("leaves a skill target untouched — skills have no allowlist", () => {
     const content = agentFile("Read");
-    const target = ".claude/skills/structural-search/SKILL.md";
+    const target = ".claude/skills/locate-code/SKILL.md";
     expect(withAgentMcpTools(content, engram, target)).toBe(content);
   });
 
@@ -125,7 +125,7 @@ describe("withoutAgentMcpTools", () => {
   });
 
   it("leaves a skill target untouched — skills have no allowlist to narrow", () => {
-    const target = ".claude/skills/structural-search/SKILL.md";
+    const target = ".claude/skills/locate-code/SKILL.md";
     expect(withoutAgentMcpTools(granted, engram, target)).toBe(granted);
   });
 

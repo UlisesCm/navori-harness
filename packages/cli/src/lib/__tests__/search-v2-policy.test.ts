@@ -99,15 +99,15 @@ describe("textual-first-universal is gone from scout.md (researcher+explorer mer
     expect(scout).toContain("the enabled structural provider");
   });
 
-  it("no longer requires structural-search as a mandatory preflight for every question", () => {
+  it("no longer requires locate-code as a mandatory preflight for every question", () => {
     expect(scout).not.toContain(
-      "For semantic questions (not just string match), apply `.claude/skills/structural-search/SKILL.md`: locate the right region and open only the confirmed span; don't read whole files by reflex.",
+      "For semantic questions (not just string match), apply `.claude/skills/locate-code/SKILL.md`: locate the right region and open only the confirmed span; don't read whole files by reflex.",
     );
   });
 
   it("no longer opens with an unconditional entry-to-leaves walk", () => {
     expect(scout).not.toContain(
-      "Apply `.claude/skills/structural-search/SKILL.md` to locate shapes and entry points without reading whole files.",
+      "Apply `.claude/skills/locate-code/SKILL.md` to locate shapes and entry points without reading whole files.",
     );
   });
 
@@ -117,25 +117,25 @@ describe("textual-first-universal is gone from scout.md (researcher+explorer mer
   });
 });
 
-describe("loading structural-search unconditionally is gone from implementer.md", () => {
+describe("loading locate-code unconditionally is gone from implementer.md", () => {
   const implementer = read(coreAgent("implementer.md"));
 
-  it("no longer orders structural-search as the sole discovery step", () => {
+  it("no longer orders locate-code as the sole discovery step", () => {
     expect(implementer).not.toContain(
-      "To locate the code to touch, apply `.claude/skills/structural-search/SKILL.md`: open only the confirmed span, don't read whole files by reflex.",
+      "To locate the code to touch, apply `.claude/skills/locate-code/SKILL.md`: open only the confirmed span, don't read whole files by reflex.",
     );
   });
 
-  it("routes to the structural provider first, structural-search as its fallback", () => {
+  it("routes to the structural provider first, locate-code as its fallback", () => {
     expect(implementer).toContain("follow Code discovery routing (project instructions)");
     expect(implementer).toContain(
-      "fall back to `.claude/skills/structural-search/SKILL.md` when it's unavailable",
+      "fall back to `.claude/skills/locate-code/SKILL.md` when it's unavailable",
     );
   });
 });
 
-describe("confirm-every-result-with-another-search is gone from structural-search.md", () => {
-  const skill = read(coreSkill("structural-search.md"));
+describe("confirm-every-result-with-another-search is gone from locate-code.md", () => {
+  const skill = read(coreSkill("locate-code.md"));
 
   it("no longer carries the Rung 0-2 ladder or its escalation ritual", () => {
     expect(skill).not.toMatch(/Rung \d/);
@@ -199,7 +199,7 @@ describe("occurrence counts alone no longer stand in for structural impact evide
 /**
  * Phase G (spec 0026 R16, R18) — tgrep and codegraph enter the routing, so no
  * distributed asset can prescribe a raw shell verb (`grep -r`, `rg PATTERN`,
- * `git grep`) as its discovery recipe, and `structural-search` must defer both
+ * `git grep`) as its discovery recipe, and `locate-code` must defer both
  * lanes to whichever provider is enabled instead of treating native search as
  * the default.
  */
@@ -214,7 +214,7 @@ describe("no distributed asset prescribes shell search as discovery", () => {
     coreSkill("review-diff.md"),
     coreAgent("auditor.md"),
     coreAgent("scout.md"),
-    coreSkill("structural-search.md"),
+    coreSkill("locate-code.md"),
   ];
 
   it("no distributed asset prescribes shell search as discovery", () => {
@@ -236,9 +236,9 @@ describe("no distributed asset prescribes shell search as discovery", () => {
     expect(Buffer.byteLength(seguras, "utf-8")).toBeLessThanOrEqual(2000);
   });
 
-  it("structural-search defers both lanes to the enabled provider", () => {
+  it("locate-code defers both lanes to the enabled provider", () => {
     // Covers: R18
-    const skill = read(coreSkill("structural-search.md"));
+    const skill = read(coreSkill("locate-code.md"));
     expect(skill).toContain("Both lanes defer to the enabled provider");
     expect(skill).toContain("the textual lane resolves through tgrep when the plugin is enabled");
     expect(skill).toContain("the structural lane through CodeGraph when its plugin is enabled");

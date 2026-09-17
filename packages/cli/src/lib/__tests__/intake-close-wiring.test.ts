@@ -27,7 +27,7 @@ const read = (rel: string): string => readFileSync(resolve(coreAssets, rel), "ut
 
 /** The phase-2 row of the intake pipeline table. */
 function phase2Row(): string {
-  const line = read("skills/ticket-intake.md")
+  const line = read("skills/resolve-ticket.md")
     .split("\n")
     .find((l) => l.startsWith("| 2 · AUDIT"));
   expect(line, "the intake pipeline lost its phase-2 row").toBeDefined();
@@ -51,11 +51,11 @@ describe("closing verdicts don't wait for approval (#370)", () => {
     expect(row).toMatch(/opens no work/i);
     // The unconditional wording is exactly what produced the un-completable
     // pipeline; it must not come back.
-    expect(read("skills/ticket-intake.md")).not.toMatch(/Gate: the user approves the VERDICT/i);
+    expect(read("skills/resolve-ticket.md")).not.toMatch(/Gate: the user approves the VERDICT/i);
   });
 
   it("closing the cycle is defined as an ACTION, not just an absence of waiting", () => {
-    const skill = read("skills/ticket-intake.md");
+    const skill = read("skills/resolve-ticket.md");
     // Report the verdict + evidence, park the session state, stop.
     // Repo-relative path, not the bare filename: #507 found the skill's phase-0
     // `cat current.md` failing from the repo root, where the file is

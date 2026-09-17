@@ -270,3 +270,44 @@ describe("orchestrator playbook has no inline-edit route and one design gate", (
     expect(playbook).not.toMatch(/A single trivial line in a known file/i);
   });
 });
+
+/**
+ * Spec 0026 T14 (R29, R30) — `debug-failure` merges `debug-error` and
+ * `loop-back-debug` into one cycle. R30's step 6 is the fact this test pins:
+ * the escalation channel after two failed attempts depends on WHERE the skill
+ * runs, because a subagent has no `AskUserQuestion` — `loop-back-debug.md:60`
+ * used to tell `implementer` (a subagent) to ask the user directly, a route
+ * that skill literally cannot take.
+ */
+describe("debug-failure escalates through BLOCKED inside a subagent", () => {
+  const skill = read("skills/debug-failure.md");
+
+  // Covers: R29
+  it("debug-failure ships as the single core debug skill, no leftover split", () => {
+    expect(existsSync(resolve(coreAssets, "skills/debug-failure.md"))).toBe(true);
+    expect(existsSync(resolve(coreAssets, "skills/debug-error.md"))).toBe(false);
+    expect(existsSync(resolve(coreAssets, "skills/loop-back-debug.md"))).toBe(false);
+  });
+
+  // Covers: R30
+  it("names both escalation channels and ties each to where it runs", () => {
+    expect(skill).toMatch(/inside a subagent/i);
+    expect(skill).toMatch(/no `AskUserQuestion`/);
+    expect(skill).toMatch(/report `BLOCKED`/);
+    expect(skill).toMatch(/in the main agent/i);
+    expect(skill).toMatch(/ask the user directly/i);
+  });
+
+  // Covers: R30
+  it("gates escalation on two failed attempts, not one", () => {
+    expect(skill).toMatch(/two failed attempts/i);
+  });
+
+  // Covers: R30
+  it("implementer (a subagent) cites debug-failure, not the retired debug-error/loop-back-debug ids", () => {
+    const implementer = read("agents/implementer.md");
+    expect(implementer).toContain(".claude/skills/debug-failure/SKILL.md");
+    expect(implementer).not.toContain("debug-error/SKILL.md");
+    expect(implementer).not.toContain("loop-back-debug/SKILL.md");
+  });
+});

@@ -279,7 +279,7 @@ export const auditCommand = defineCommand({
 
     // --arm / --disarm (#597): activation WITHOUT passing through the model's
     // attention. "Do it in audit mode" inside a task prompt loses to the task —
-    // measured in the field: the agent loaded ticket-intake and started the
+    // measured in the field: the agent loaded resolve-ticket and started the
     // pipeline, and the user had to interrupt to get `--start` run. Arming is
     // explicit and happens OUTSIDE the session (a terminal command before
     // opening it), so it does not resurrect the natural-language detection R3

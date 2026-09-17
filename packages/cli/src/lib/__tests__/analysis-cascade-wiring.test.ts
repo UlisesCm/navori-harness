@@ -157,7 +157,7 @@ describe("phase-2 fan-out — objective criterion, stated once (#377)", () => {
 
   it("the criterion is NOT re-litigated as a judgment call in the executing assets", () => {
     // Three copies of a criterion drift; the skill and the agent point at the row.
-    for (const asset of ["skills/ticket-intake.md", "agents/auditor.md"]) {
+    for (const asset of ["skills/resolve-ticket.md", "agents/auditor.md"]) {
       const text = read(asset);
       const restated = SIGNALS.filter((s) => text.includes(s));
       expect(
@@ -171,7 +171,7 @@ describe("phase-2 fan-out — objective criterion, stated once (#377)", () => {
   });
 
   it("the skill carries the mechanics the table can't: one file per area, one synthesis", () => {
-    const skill = read("skills/ticket-intake.md");
+    const skill = read("skills/resolve-ticket.md");
     expect(skill).toContain("## Phase 2 fan-out");
     // Parallel auditors that share one filename overwrite each other.
     expect(skill).toContain("audit_ticket_<ID-area>.md");

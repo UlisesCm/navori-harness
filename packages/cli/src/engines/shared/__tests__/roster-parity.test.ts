@@ -41,6 +41,30 @@ describe("roster-parity", () => {
     ).not.toThrow();
   });
 
+  // Covers: R29
+  it("core skills are exactly the catalog", () => {
+    // R29 names ONE flat list of 10 ids — it doesn't distinguish core vs.
+    // workflow, that split is an internal marker-shape detail (`<id>-base` vs.
+    // bare id, see roster.ts's `Retired` JSDoc). The union of the two roster
+    // lists must equal it exactly.
+    assertRosterIds(
+      "R29 core skill catalog",
+      [
+        "spec-bootstrap",
+        "resolve-ticket",
+        "solution-design",
+        "dominio",
+        "follow-up-prs",
+        "locate-code",
+        "verify-before-done",
+        "debug-failure",
+        "review-diff",
+        "security-invariants",
+      ],
+      [...ROSTER_CORE_SKILLS, ...ROSTER_WORKFLOW_SKILLS],
+    );
+  });
+
   // Covers: R19, R20
   it("core roster is the six agents — every active id list matches its canonical catalog", () => {
     assertRosterIds(

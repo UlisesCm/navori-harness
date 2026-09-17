@@ -66,9 +66,9 @@ describe("renderClaudeEngine — first render with full config", () => {
     // Skills materialize in directory form (`<id>/SKILL.md`) — the shape Claude
     // Code auto-discovers; a flat `<id>.md` is inert (#166).
     expect(existsSync(join(cwd, ".claude/skills/verify-before-done/SKILL.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/loop-back-debug/SKILL.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/skills/structural-search.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/skills/debug-failure/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code.md"))).toBe(false);
     expect(existsSync(join(cwd, ".claude/hooks/quality-gate-pre-commit.sh"))).toBe(true);
 
     const agentPaths = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
@@ -447,8 +447,8 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
     // Inspected counts every managed asset processed:
     //   1 CLAUDE.md + 1 settings.json + 1 .mcp.json (engram declares an mcpServer,
-    //   #212) + 8 agents + 6 core skills + 5 workflow skills (ticket-intake,
-    //   solution-design, spec-bootstrap, dominio, babysit-prs) +
+    //   #212) + 8 agents + 6 core skills + 5 workflow skills (resolve-ticket,
+    //   solution-design, spec-bootstrap, dominio, follow-up-prs) +
     //   1 guard hook + 1 session-start hook + 1 PR routing hook (#705) +
     //   1 comment-draft-confirm hook (spec 0026 E1) +
     //   1 lifecycle hook (subagent-stop; the PreCompact reminder was retired in
@@ -566,7 +566,7 @@ describe("renderClaudeEngine — plugin settingsFragment + injectInto (F2)", () 
 describe("renderClaudeEngine — dry-run", () => {
   it("reports the plan without writing anything", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL, { dryRun: true });
-    // Dry-run still reports the would-write set, including structural-search,
+    // Dry-run still reports the would-write set, including locate-code,
     // the .mcp.json engram registration (#212), both audit-mode hooks, the
     // managed-drift watcher (#530), the worktree-reclaim hook (#527), the
     // routing watcher (spec 0020), the PR routing hook (#705), the
@@ -857,7 +857,7 @@ describe("renderClaudeEngine — user-section preservation", () => {
 
     // Upgrade: enabling gh introduces a NEW managed block and reorders. (semgrep
     // is enabled too but no longer contributes one — #614 moved its protocol
-    // into the security-guidance skill, so `gh` is what proves the landing.)
+    // into the security-invariants skill, so `gh` is what proves the landing.)
     renderClaudeEngine(cwd, CONFIG_UPGRADED);
     const after = readFileSync(path, "utf-8");
     expect(after).toContain("## Reglas del repo");
@@ -953,7 +953,7 @@ describe("renderClaudeEngine — skills directory form + legacy migration (#166)
 
   it("writes every core/workflow skill as `<id>/SKILL.md`, never a flat `<id>.md`", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
-    for (const id of ["structural-search", "review-diff", "verify-before-done", "ticket-intake"]) {
+    for (const id of ["locate-code", "review-diff", "verify-before-done", "resolve-ticket"]) {
       expect(existsSync(join(cwd, ".claude/skills", id, "SKILL.md"))).toBe(true);
       expect(existsSync(join(cwd, ".claude/skills", `${id}.md`))).toBe(false);
     }
@@ -964,44 +964,44 @@ describe("renderClaudeEngine — skills directory form + legacy migration (#166)
     // not strip frontmatter it doesn't recognize, so wiring per-skill
     // `allowed-tools` later is a content change, not a pipeline change.
     renderClaudeEngine(cwd, CONFIG_FULL);
-    const body = readFileSync(join(cwd, ".claude/skills/structural-search/SKILL.md"), "utf-8");
-    expect(body).toContain("name: structural-search");
+    const body = readFileSync(join(cwd, ".claude/skills/locate-code/SKILL.md"), "utf-8");
+    expect(body).toContain("name: locate-code");
     expect(body).toContain("description:");
     expect(body).toContain("type:");
   });
 
   it("prunes the stale FLAT `<id>.md` when migrating a core skill to directory form", () => {
     // Core skill managed-id is `<id>-base`; workflow skills keep the bare id.
-    const flatCore = writeLegacyFlatSkill("structural-search", "structural-search-base");
+    const flatCore = writeLegacyFlatSkill("locate-code", "locate-code-base");
     const flatWorkflow = writeLegacyFlatSkill("spec-bootstrap", "spec-bootstrap");
 
     const r = renderClaudeEngine(cwd, CONFIG_FULL);
 
     // Directory form written…
-    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code/SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"))).toBe(true);
     // …and the flat twins pruned, so the model never sees the skill twice.
     expect(existsSync(flatCore)).toBe(false);
     expect(existsSync(flatWorkflow)).toBe(false);
-    expect(r.written.some((w) => w.path === ".claude/skills/structural-search.md")).toBe(true);
+    expect(r.written.some((w) => w.path === ".claude/skills/locate-code.md")).toBe(true);
     expect(r.written.some((w) => w.path === ".claude/skills/spec-bootstrap.md")).toBe(true);
   });
 
   it("never prunes a user's hand-written flat `<id>.md` (no navori marker)", () => {
-    const userOwned = join(cwd, ".claude/skills/structural-search.md");
+    const userOwned = join(cwd, ".claude/skills/locate-code.md");
     mkdirSync(join(cwd, ".claude/skills"), { recursive: true });
-    writeFileSync(userOwned, "# My own structural-search notes — not navori's\n", "utf-8");
+    writeFileSync(userOwned, "# My own locate-code notes — not navori's\n", "utf-8");
 
     renderClaudeEngine(cwd, CONFIG_FULL);
 
     // navori wrote its directory form; the user's unmarked flat file is untouched.
-    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code/SKILL.md"))).toBe(true);
     expect(existsSync(userOwned)).toBe(true);
-    expect(readFileSync(userOwned, "utf-8")).toContain("My own structural-search notes");
+    expect(readFileSync(userOwned, "utf-8")).toContain("My own locate-code notes");
   });
 
   it("second render is idempotent — no duplicate skill files, no orphans", () => {
-    writeLegacyFlatSkill("structural-search", "structural-search-base");
+    writeLegacyFlatSkill("locate-code", "locate-code-base");
     renderClaudeEngine(cwd, CONFIG_FULL); // migrates + prunes the flat
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
@@ -1009,8 +1009,8 @@ describe("renderClaudeEngine — skills directory form + legacy migration (#166)
     // No skill file re-written on the steady-state render…
     expect(second.written.some((w) => w.path.includes(".claude/skills/"))).toBe(false);
     // …the flat twin stays gone, and only the directory form remains.
-    expect(existsSync(join(cwd, ".claude/skills/structural-search.md"))).toBe(false);
-    expect(existsSync(join(cwd, ".claude/skills/structural-search/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/skills/locate-code/SKILL.md"))).toBe(true);
   });
 });
 

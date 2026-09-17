@@ -4,8 +4,9 @@
  * Several core skills ship a managed body plus an empty user-section for the
  * repo's own rules. The skill says so itself: "without the rules specific to
  * your stack (below), the review only covers the universal layer". Measured in
- * the field on the most obvious security ticket imaginable, `security-guidance`
- * contributed nothing, because its stack section was still the blank template.
+ * the field on the most obvious security ticket imaginable, `security-invariants`
+ * (then named `security-guidance`) contributed nothing, because its stack
+ * section was still the blank template.
  *
  * That is worse than not installing the skill: it costs a read and buys a false
  * sense of coverage. Filling it is each repo's job — but navori can SEE that

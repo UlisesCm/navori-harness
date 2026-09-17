@@ -172,13 +172,13 @@ describe("doctor --json — warning-level checks", () => {
     // check fires on the very first doctor run.
     const before = doctorJson(repo).emptyUserSections;
     expect(before).toContainEqual({
-      id: "security-guidance",
-      path: ".claude/skills/security-guidance/SKILL.md",
+      id: "security-invariants",
+      path: ".claude/skills/security-invariants/SKILL.md",
     });
 
     // Filling it clears the finding — this is what proves the array is computed
     // rather than a constant.
-    const skill = join(repo, ".claude/skills/security-guidance/SKILL.md");
+    const skill = join(repo, ".claude/skills/security-invariants/SKILL.md");
     writeFileSync(
       skill,
       `${readFileSync(skill, "utf-8")}\n- Authorization goes through requireRole([...]).\n`,
@@ -186,7 +186,7 @@ describe("doctor --json — warning-level checks", () => {
     );
 
     const after = doctorJson(repo).emptyUserSections;
-    expect(after.map((s) => s.id)).not.toContain("security-guidance");
+    expect(after.map((s) => s.id)).not.toContain("security-invariants");
     expect(after.length).toBe(before.length - 1);
   });
 
@@ -287,7 +287,7 @@ describe("doctor --json over a monorepo (#395)", () => {
     // The four checks are computed over the monorepo root too — `emptyUserSections`
     // carries real rows (the freshly rendered skills), which is what makes this a
     // content assertion and not a key-presence one.
-    expect(report.emptyUserSections.map((s) => s.id)).toContain("security-guidance");
+    expect(report.emptyUserSections.map((s) => s.id)).toContain("security-invariants");
     expect(report.gateReadiness).toEqual([]);
     expect(report.interpolationArtifacts).toEqual([]);
     expect(report.diskUsage).toEqual([]);
