@@ -19,15 +19,14 @@ function fixture(): ReceiptOptions {
   workspaces.push(root);
   const remote = join(root, "remote.git");
   const cwd = join(root, "repo");
-  git(root, "init", "--bare", remote);
+  git(root, "init", "--bare", "-b", "main", remote);
   mkdirSync(cwd);
-  git(cwd, "init");
+  git(cwd, "init", "-b", "main");
   git(cwd, "config", "user.email", "test@example.com");
   git(cwd, "config", "user.name", "Test");
   writeFileSync(join(cwd, "base.txt"), "base\n");
   git(cwd, "add", ".");
   git(cwd, "commit", "-m", "base");
-  git(cwd, "branch", "-M", "main");
   git(cwd, "remote", "add", "origin", remote);
   git(cwd, "push", "-u", "origin", "main");
   return { cwd, feature: "receipt-test", target: "main", dir: ".claude/progress" };
