@@ -76,3 +76,33 @@ describe("resolveHarnessPlan — dependent assets follow their feature gate (#76
     expect(plan.skills.map((skill) => skill.id)).not.toContain("spec-bootstrap");
   });
 });
+
+// Covers: R10, R52
+describe("resolveHarnessPlan — comment-draft-confirm (spec 0026 E1)", () => {
+  it("comment-draft-confirm is planned without plugin conditions", () => {
+    // No plugin enabled at all (not even the ones that talk to gh/acli/Jira):
+    // R10 requires the hook regardless of which plugins are on, because the
+    // Bash call it gates does not come from a plugin's own tool surface.
+    const noPlugins = NavoriConfigSchema.parse({
+      name: "no-plugins",
+      engines: ["claude"],
+      preset: "custom",
+      plugins: {},
+    });
+    const plan = resolveHarnessPlan(noPlugins, "/core", null);
+    expect(plan.hooks.map((hook) => hook.id)).toContain("comment-draft-confirm");
+
+    // Disabling every configurable agent/feature this file knows how to gate
+    // (commit-pr-pilot, sdd) still leaves it in — it has no owner to disable
+    // it with, unlike `pr-pilot-confirm` above.
+    const disabled = NavoriConfigSchema.parse({
+      name: "disabled-dependencies-2",
+      engines: ["claude"],
+      preset: "custom",
+      harness: { commitPrPilot: false },
+      sdd: { enabled: false },
+    });
+    const plan2 = resolveHarnessPlan(disabled, "/core", null);
+    expect(plan2.hooks.map((hook) => hook.id)).toContain("comment-draft-confirm");
+  });
+});
