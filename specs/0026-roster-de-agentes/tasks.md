@@ -2,7 +2,7 @@
 
 **Status:** proposed · **Requirements:** [`requirements.md`](./requirements.md) · **Design:**
 [`design.md`](./design.md) · **Referencias:** [`references.md`](./references.md) · **Base:**
-`5a0bbc34`
+`fbd4450f` (revalidar contra `origin/main`, incluido #854 `7da709df`, antes de ejecutar)
 
 Un PR por fase, en el orden de `design.md` (Approach): B, E1 y G antes de R; R en un release
 seguido del reset del parque; E2 y F después. Antes de implementar cada fase, se sincroniza la
@@ -24,7 +24,9 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
       `GIT_OPTIONAL_LOCKS=0`.
   - **`commands/receipt.ts`:** registrado en `index.ts`, con su `CommandDoc` es y en en
     `apps/website/src/content/commands.ts`.
-  - **Formato de `receipt.txt`:** idéntico al actual.
+  - **Formato de `receipt.txt`:** idéntico al actual; `lstat` acepta solo regular. Tipos no
+    soportados, incluidos symlink válido/roto, cambio a symlink y gitlink, fallan `ERROR` sin
+    dereferenciar ni convertir a `deleted`; un `sign` fallido preserva el receipt anterior.
 
   · test: `lib/__tests__/receipt.test.ts::sign`, con estos casos:
   - Archivos nuevos, borrados y renombrados (la ruta vieja queda como `deleted`).
@@ -36,21 +38,25 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
   - git fuera de `PATH` → 1.
   - Ruta con salto de línea → 1.
   - Un `diff.external` configurado no altera el conjunto.
+  - Symlink válido/roto, cambio de regular a symlink, gitlink y diff solo de modo → 1/`ERROR`,
+    sin `DRIFT` ni receipt mutado.
 
   Además, `__tests__/command-docs-inventory.test.ts`, con `// Covers: R1, R3, R4`
-- [ ] **T2** (R2, R3, R5) — `check` con salida de texto y `--json` (`formatVersion`, target, SHA
-  del target, SHA de `HEAD`, `status`), y códigos 0, 2 y 1. · test:
-  `lib/__tests__/receipt.test.ts::check`, con estos casos:
+- [ ] **T2** (R2, R3, R5) — `sign --json` y `check --json` comparten schema (`formatVersion`,
+  target, SHA nullable en error temprano, `status`, findings y `error`) y `check` conserva salida de
+  texto y códigos 0, 2 y 1. · test: `lib/__tests__/receipt.test.ts::sign and check json`, con éxito y
+  error temprano (SHA nullable y `error`), y `::check`, con estos casos:
   - Sin cambios → 0 y `"status": "ok"` con los campos del contrato.
   - Modificado, desaparecido o borrado que vuelve → 2 con `DRIFT` y su `kind`.
   - Fuera del receipt → 2 con `UNCOVERED`.
-  - Receipt ausente o archivo ilegible → 1 sin `DRIFT`.
+  - Receipt ausente, archivo ilegible o diff solo de modo → 1 sin `DRIFT`, preservando receipt.
   - El comando de inspección impreso produce el diff.
 
   con `// Covers: R2, R3, R5`
 - [ ] **T3** (R6, R7, R8, R9) — `agents/reviewer.md` y `agents/commit-pr-pilot.md` invocan
-  `navori receipt sign|check --target {{prTarget}} --dir .claude/progress --json` y conservan solo
-  el juicio:
+  `navori receipt sign|check --feature <feature> --target {{prTarget}} --dir .claude/progress --json`,
+  donde `<feature>` es el id recibido en el handoff de implementer/reviewer, y conservan solo el
+  juicio:
   - Firmar solo en `APPROVED`.
   - Rutear un `DRIFT` explicado a delta re-sign y uno inexplicado a revisión completa.
   - Continuar solo con `"status": "ok"`.
@@ -74,18 +80,20 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 - [ ] **T4** (R10, R11, R12, R52) — `packages/core/core-assets/hooks/comment-draft-confirm.sh`:
   - Ruta rápida sin forks.
   - Detección de las filas del contrato de `design.md`, incluidos `gh api -F clave=@archivo` y
-    las mutaciones de `graphql`.
+    los `add*` y `update*` de GraphQL; extrae variable/campo `body`, no el `query`.
   - Cuerpo desde archivo con la ruta en la razón; texto de nodos para ADF; truncado a 1,500
     caracteres con conteo.
   - Razón de cuerpo en línea.
-  - `ask` con razón fija sin cuerpo.
+  - `ask` con razón fija sin cuerpo, lectura fallida o parser ausente, sin ejecutar shell ni leer
+    stdin.
   - JSON con `jq`, luego `node`, luego `printf`.
   - Registro en audit.
   - Alta sin condición en `engines/shared/harness-plan.ts` y registro en
     `engines/claude/build-settings.ts`.
 
   · test: `lib/__tests__/comment-draft-confirm.test.ts`, con estos casos:
-  - Una fila del contrato por payload, incluidos `--edit-last` y `acli … create --jql`.
+  - Una fila del contrato por payload, incluidos creación y edición GraphQL, `--edit-last` y
+    `acli … create --jql`.
   - Cuerpo en línea con `;`, `|` y saltos de línea.
   - ADF por `-F` y por `--body-adf`.
   - Archivo ilegible.
@@ -98,7 +106,10 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
   Además, `engines/__tests__/harness-plan-id.test.ts::comment-draft-confirm is planned without plugin conditions`
   y `lib/__tests__/hook-claims-vs-scripts.test.ts`, con `// Covers: R10, R11, R12, R52`
 - [ ] **T5** (R10, R13) — Registro en `engines/codex/build-config-toml.ts`; el hook decide por `$0`
-  y bajo `.codex/hooks/` devuelve `deny` con archivo y comando. · test:
+  y bajo `.codex/hooks/` devuelve `deny`: nombra archivo solo si existe, para inline/stdin indica
+  que no existe y entrega el comando. El fallback `deny` aplica aun sin `jq`/`node`; se prueban
+  Claude `ask` (auto >=2.1.211) y Codex como render/registro vs capa+hash confiados, sin simular
+  una garantía que el host no expone. · test:
   `lib/__tests__/comment-draft-confirm.test.ts::installed under .codex/hooks it denies with draft path and command`
   y `engines/codex/__tests__/render-codex.test.ts::registers comment-draft-confirm as PreToolUse`
   con `// Covers: R10, R13`
@@ -109,13 +120,14 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
   - **`navori.config.json` del repo:** habilita `tgrep` y `codegraph` con `navori add`; el
     espejo se re-renderiza.
   - **`scripts/mine-search-routing.py`:** cuenta `tgrep search` y `codegraph_explore` como vía v2
-    y `Grep` nativo, `rg`, `grep -r` y `git grep` como escape, y conserva `tgrep-search.sh` para
-    transcripts de v1.
-  - **`docs/DIRECTION.md:76-81` y `:152-153`:** dejan de declarar tgrep y codegraph como
-    retirados.
+    y `Grep` nativo, `rg`, `grep -r` y `git grep` como escape; incluye subagents vinculados al
+    transcript padre, deduplica por identidad y separa unavailable/malformed de cero. Conserva
+    `tgrep-search.sh` para transcripts v1.
+  - **`docs/DIRECTION.md`:** elimina la afirmación ya corregida por #852; no lista como pendiente
+    que tgrep/codegraph estén retirados.
 
-  · test: fixture de transcript con `tgrep search -n -F -- foo src` y una llamada a
-  `codegraph_explore`, cuyo conteo de vía v2 una prueba exige distinto de cero, más
+  · test: fixtures padre+hijo con `tgrep search -n -F -- foo src` y `codegraph_explore`, conteos
+  exactos y negativos, malformed y unavailable, más
   `lib/__tests__/search-v2-manifests.test.ts` sin cambios (el plugin `tgrep` sigue sin hooks ni
   scripts), con `// Covers: R14, R15, R52`
 - [ ] **T7** (R16, R18) — Assets sin recetas de búsqueda por shell:
@@ -139,31 +151,34 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
 - [ ] **T8** (R38, R42) — Registros y catálogos.
   - **Registros de retirados:** `RETIRED_AGENTS` (nuevo) y `RETIRED_SKILLS` / `RETIRED_HOOKS` pasan
-    a `{ id, successor, markerId }`.
-    - `markerId` es `<id>-base` para agentes y para las skills core `debug-error`,
-      `loop-back-debug`, `structural-search` y `security-guidance`.
+    a `{ id, successor, markerIdByAdapter }`.
+    - `markerIdByAdapter` declara el marcador real por clase y adapter: agentes Claude
+      `<id>-base` y Codex `<id>-codex-base`; skills/workflow conservan el suyo explícito. No se
+      presupone falla del orphan scan genérico.
     - Es el id sin sufijo para `babysit-prs`, `ticket-intake`, `pr-pilot-confirm` y los retirados
       previos (`pr-create`, `precompact-session-summary`, sin sucesor).
   - **Catálogo canónico:** `engines/shared/roster.ts`. Se derivan de él o se verifican contra él
     `CORE_AGENTS`, `CORE_SKILLS`, `AGENT_ROLE_KEYS`, `AGENT_ROLES`, `CANONICAL_HARNESS_KEY`, los
     valores de `LEGACY_AGENT_ALIASES`, `RECOMMENDED_MODELS`, `RECOMMENDED_EFFORT` y las claves de
     `agentsIndex.when`.
-  - **Recomendados:** `orchestrator` = los de `leader`, `scout` = los de `researcher`,
-    `publisher` = los de `commitPrPilot`.
+  - **Config/golden:** actualizar el `navori.config.json` raíz y golden en este release antes del
+    reset del parque. `orchestrator` hereda `leader`, `publisher` `commitPrPilot`; para `scout`,
+    elegir y documentar valores concretos si `researcher`/`explorer` difieren, sin herencia muda.
 
   · test:
   `engines/shared/__tests__/roster-parity.test.ts::every active id list matches its canonical catalog`,
   con una lista divergente sembrada que debe rechazar, más `lib/__tests__/legacy-agents.test.ts` y
   `lib/__tests__/recommended.test.ts`, con `// Covers: R38, R42`
-- [ ] **T9** (R40) — `lib/config.ts`: con claves retiradas bajo `harness`, `models` o `effort`,
+- [ ] **T9** (R40, R42) — `lib/config.ts`: con claves retiradas bajo `harness`, `models` o `effort`,
   `readConfig` lanza `ConfigError`. El mensaje trae una línea por clave con su reemplazo, los dos
   valores cuando dos claves van al mismo reemplazo con valores distintos, y una nota de que
   `effort.orchestrator` define el effort de la sesión. · test:
   `lib/__tests__/config.test.ts::retired agent keys fail with replacement and conflicting values`
-  con `// Covers: R40`
+  con `// Covers: R40, R42`
 - [ ] **T10** (R39, R41) — Reconciliación.
-  - **Claude:** §8.7b y §8.7c de `engines/claude/index.ts` reciben el `markerId` del registro y
-    reconcilian también `RETIRED_AGENTS`, en la raíz y en workspaces `full`.
+  - **Claude y Codex:** extienden sus patrones existentes con el marcador real por adapter;
+    Claude en raíz y workspaces `full`, Codex mediante su contrato de orphan scan, sin afirmar
+    regresión existente.
   - **Reporte:** lo conservado se reporta con su `KeepReason` (`lib/removable.ts:157-166`) en la
     salida de `render`. Codex reporta igual en sus orphan scans.
   - **Doctor:** `lib/health.ts` y `commands/doctor.ts` listan los retirados en disco con su
@@ -171,8 +186,8 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
   - **Paridad de borrado:** las rutas nuevas se declaran en `lib/__tests__/removal-parity.test.ts`.
 
   · test: `engines/claude/__tests__/retired-assets.test.ts`, con estos casos:
-  - Fixtures `id="<id>-base"` para agentes y skills core, e id sin sufijo para `babysit-prs`,
-    `ticket-intake` y el hook: se borran con backup en Claude, Codex y workspace `full`.
+  - Fixtures reales por adapter: Claude `id="<id>-base"`, Codex `id="<id>-codex-base"`, e id
+    sin sufijo donde aplica; raíz y workspace `full` se borran con backup.
   - Ajeno, más nuevo y con otro marcador: se conservan con motivo reportado.
 
   Además:
@@ -274,7 +289,8 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 - [ ] **T15** (R31, R32, R33) — Checklists con dueño único:
   - **`verify-before-done.md`:**
     - Se condensa y baja `maxWords` de 1050 a 600 en el mismo PR.
-    - Atribución de errores por archivo, sin `git stash`.
+    - Atribución: archivo en diff = introducido; fuera sin baseline comparable = origen no
+      determinado; no usa `git stash` ni exime el gate verde.
     - `agents/implementer.md:47` y `:81` remiten a ella.
   - **`review-diff.md`:**
     - Exige `{{qualityGate.full}}`.
@@ -353,8 +369,10 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 
 - [ ] **T18** (R45, R46) — `agents/publisher.md` suma el contrato de comentarios:
   - Cuerpo en un archivo del directorio de progreso.
-  - Publicación solo con `--body-file`, o `--body-adf` en `acli jira workitem comment update`.
-  - Reporte de URL o id.
+  - Por canal: `gh pr/issue comment` y review con `--body-file`; `gh api` con `--input` o
+    `-F body=@archivo`/campo GraphQL; `acli` con `--body-file` o `--body-adf` ADF.
+  - En Codex entrega borrador y comando para humano, sin URL/id no publicado; de ejecutar, reporta
+    URL o id.
   - Contenido tomado solo de artefactos de handoff.
 
   Los plugins `acli` y `gh` suman un sub-bloque `injectInto: .claude/agents/publisher.md`; el de
@@ -391,3 +409,18 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
   - `engines/claude/__tests__/session-start-budget.test.ts`.
 
   con `// Covers: R49, R50`
+
+## Fase R · Lifecycle y medición del reviewer (dentro del PR 4)
+
+- [ ] **T21** (R53, R54) — Reutilizar #854 (`7da709df`) tras verificar si ya está en la base; no
+  duplicar su fix. `reviewer.md` define un owner único y handle estable por ejecución de gate/diff,
+  sin reintento mientras vive, sin `pgrep`/`ps` global; timeout no es éxito y host sin handle async
+  usa foreground observable o `BLOCKED`. Extender `lib/audit/model.ts`, `report.ts` y `signals.ts`
+  para correlacionar reviewer, gate, espera y re-reviews sin PII; reportar solapes y ausencia de
+  datos sin atribuir el remanente a razonamiento.
+
+  · test: `lib/audit/__tests__/reviewer-lifecycle.test.ts` con estados terminales, handle/diff
+  correlacionado, duplicate/unknown/timeout, solapes y datos faltantes, y
+  `lib/__tests__/reviewer-gate-ownership.test.ts`; detectan/reportan violaciones sin afirmar que
+  previenen tool calls. Los criterios usan >=10 gates completados sobre >=3 diffs.
+  `// Covers: R53, R54`
