@@ -19,18 +19,18 @@ metadata:
 
 When SDD-scope work has been agreed with the user. The threshold and its opt-in gate live in ONE place — the **Spec Driven Development** block in `CLAUDE.md`; don't re-decide them here, and don't scaffold a spec nobody accepted.
 
-Produces `{{sdd.specsDir}}/<feature>/{requirements.md, design.md, tasks.md}` ready to implement. The scaffolding is done by `orchestrator` (the main agent), not a nested subagent.
+Produces `{{sdd.specsDir}}/<feature>/{requirements.md, design.md, tasks.md}` ready to implement. Scaffolding is done by `orchestrator`, not a nested subagent.
 
 **Challenge on critical areas.** WHEN the spec touches `{{project.criticalAreas}}`, a fresh-context `auditor` challenges it with `solution-design`'s falsification brief before handoff. One round, no verdict — `orchestrator` decides.
 
 ## Order
 
 1. **requirements.md first.** No clear requirements, no design. Derive from the ticket/request; each requirement is EARS with id `R<n>`.
-2. **design.md** — how to meet those `R<n>`: affected components, contracts, decisions and trade-offs. Reference the `R<n>` each decision satisfies. Design BEFORE decomposing: an architecture decision (a contract, who owns a piece of state, a migration path) moves the natural task boundaries, so tasks written first get rewritten.
+2. **design.md** — how to meet those `R<n>`: affected components, contracts, decisions and trade-offs. Reference the `R<n>` each decision satisfies. Design BEFORE decomposing: an architecture decision (e.g. a contract or a migration path) moves task boundaries, so tasks written first get rewritten.
 3. **tasks.md** — batches of 1-3 tasks; each task lists the `R<n>` it covers and its test(s).
 4. **`evals.md` — optional, rare.** Only when the feature ships a new **always-on layer** (context every session pays for), where prose can't prove behavior moved: `{{sdd.specsDir}}/<feature>/evals.md` tabulates RED (without the layer) / GREEN (with it) over ONE isolated variable — same ticket, same repo, same model — with named scenarios, each failure against its evidence, and inverted results kept exactly as they came out. The raw transcript dies with the session; the distilled table survives in git.
 
-The reasoning that fills `design.md` is the `solution-design` skill — same dimensions, and it's also the lighter home for an R2-architectural change that doesn't earn a full spec.
+The reasoning that fills `design.md` is the `solution-design` skill — also the lighter home for an R2-architectural change that skips a full spec.
 
 ## Templates
 
@@ -48,7 +48,7 @@ The reasoning that fills `design.md` is the `solution-design` skill — same dim
 ```
 
 `design.md` — the first three sections always; the rest ONLY when the feature
-actually raises them (an empty section is noise, not rigor):
+raises them (an empty section is noise, not rigor):
 ```md
 # <Feature> — Design
 
@@ -78,7 +78,8 @@ actually raises them (an empty section is noise, not rigor):
 
 ## Hard rules
 
-- **Zero unresolved placeholders.** Don't leave `<...>` in the final spec; if you don't know a value, it's a question for the user, not a hole. Same rule inside a task: "TBD", "implement later", "add appropriate error handling" or "similar to T<n>" describe nothing — name the observable behavior and the evidence expected. That is NOT a licence to dictate the code line by line; the implementer keeps its judgment.
+- **Zero unresolved placeholders.** Don't leave `<...>`; an unknown value is a question for the user, not a hole. Same rule inside a task: "TBD", "implement later" or "similar to T<n>" describe nothing — name the observable behavior and the evidence expected. That is NOT a licence to dictate the code line by line; the implementer keeps its judgment.
+- **Cite a stable anchor, not a line number:** `file` + symbol name, heading, or managed-block id — never `file:line`. Lines drift before implementation; a stale one skips real sites.
 - **Every `R<n>` ends in ≥1 task and ≥1 test.** A requirement with no task or test isn't traceable → it doesn't enter the spec.
 - **Tracking lives in `tasks.md`, not in `TaskCreate`.** See the SDD block.
 - **Self-review before closing the scaffolding:** is each `R<n>` a single testable action? does each task point to real `R<n>`? does the design cover all the `R<n>`? If something fails, fix it before handing the spec off.
