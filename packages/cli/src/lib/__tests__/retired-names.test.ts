@@ -2,16 +2,22 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { retiredIds, sweepRetiredNames } from "../retired-names.ts";
+import { retiredIds, sweepRetiredNames, sweepRoots } from "../retired-names.ts";
 
 /**
  * spec 0026 T17 (R43, R44) — no distributed asset (content OR path) may still
  * name a retired id, in `core-assets/agents`, `core-assets/skills`,
- * `core-assets/managed`, `core-assets/presets` or `packages/plugins`,
- * including their JSON files. The R38 registries (`roster.ts`'s
- * `RETIRED_AGENTS`/`RETIRED_SKILLS`/`RETIRED_HOOKS`) are the one place a
- * retired id is SUPPOSED to live forever, so `sweepRetiredNames` never reads
- * them as a swept area — only as the id list it sweeps everything else for.
+ * `core-assets/managed`, `core-assets/hooks`, `core-assets/lib-skills`,
+ * `core-assets/settings`, `core-assets/progress`, `core-assets/presets` or
+ * `packages/plugins`, including their JSON files. The R38 registries
+ * (`roster.ts`'s `RETIRED_AGENTS`/`RETIRED_SKILLS`/`RETIRED_HOOKS`) are the
+ * one place a retired id is SUPPOSED to live forever, so `sweepRetiredNames`
+ * never reads them as a swept area — only as the id list it sweeps
+ * everything else for.
+ *
+ * `core-assets/prompts.json` is a deliberate gap (see the comment on
+ * `sweepRoots` in `retired-names.ts`): it is a single file, never copied into
+ * a target repo, only read in-process to build the `init` wizard's questions.
  */
 
 let scratch: string[] = [];
@@ -41,6 +47,33 @@ describe("sweepRetiredNames", () => {
     // throw and an empty-but-successful sweep look identical from the outer
     // `expect(violations).toEqual([])` alone.
     expect(() => sweepRetiredNames()).not.toThrow();
+  });
+
+  // The 4 areas #868 found uncovered (core-assets/hooks, lib-skills,
+  // settings, progress). Each is seeded through the REAL `sweepRoots()` path
+  // (not a fixture dir), so this pins that the area is actually reachable
+  // from the production sweep, not just that the generic content/path
+  // matching works. `pr-pilot-confirm` and `explorer` are real retired ids
+  // (roster.ts), never expected to collide with real asset content.
+  it.each([
+    ["core-assets/hooks", ".sh"],
+    ["core-assets/lib-skills", ".md"],
+    ["core-assets/settings", ".json"],
+    ["core-assets/progress", ".md"],
+  ] as const)("catches a retired id seeded (content AND path) in %s", (label, ext) => {
+    const root = sweepRoots().find((r) => r.label === label);
+    if (!root) throw new Error(`no sweep root labeled "${label}"`);
+    const dir = join(root.path, "explorer-retired-names-fixture");
+    const file = join(dir, `fixture${ext}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, "References the retired pr-pilot-confirm hook.");
+    try {
+      const violations = sweepRetiredNames();
+      expect(violations).toContainEqual({ file, id: "explorer", kind: "path" });
+      expect(violations).toContainEqual({ file, id: "pr-pilot-confirm", kind: "content" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("catches a retired id seeded in a file's CONTENT", () => {
