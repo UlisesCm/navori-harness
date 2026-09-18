@@ -4,6 +4,9 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     environment: "node",
+    // Vitest 5 changes this default to true. Keep the Vitest 4 behavior so
+    // existing specs retain control of mock lifecycle explicitly.
+    clearMocks: false,
     // Build the CLI once before the suite: the e2e specs spawn dist/index.js,
     // so a stale/missing dist would fail them for environmental reasons.
     globalSetup: ["./vitest.globalSetup.ts"],

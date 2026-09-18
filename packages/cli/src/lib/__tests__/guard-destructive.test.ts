@@ -32,8 +32,15 @@ const guardPath = (() => {
   return p;
 })();
 
+const resolvedBins = new Map<string, string>();
+
 function resolveBin(name: string): string {
-  return execFileSync("bash", ["-c", `command -v ${name}`], { encoding: "utf-8" }).trim();
+  const cached = resolvedBins.get(name);
+  if (cached !== undefined) return cached;
+
+  const resolved = execFileSync("bash", ["-c", `command -v ${name}`], { encoding: "utf-8" }).trim();
+  resolvedBins.set(name, resolved);
+  return resolved;
 }
 
 /** Run the guard with `command` on stdin; returns its exit code. */
