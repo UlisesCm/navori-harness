@@ -20,20 +20,24 @@
     "mode": "always"
   },
   "models": {
-    "orchestrator": "sonnet",
+    "orchestrator": "opus",
     "implementer": "sonnet",
     "reviewer": "sonnet",
     "scout": "haiku",
     "auditor": "sonnet",
-    "publisher": "haiku"
+    "publisher": "haiku",
+    "scribe": "haiku",
+    "architect": "opus"
   },
   "effort": {
-    "orchestrator": "high",
+    "orchestrator": "medium",
     "implementer": "medium",
     "reviewer": "low",
     "scout": "high",
     "auditor": "medium",
-    "publisher": "low"
+    "publisher": "low",
+    "scribe": "low",
+    "architect": "high"
   },
   "plugins": {
     "engram": {

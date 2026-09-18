@@ -33,6 +33,7 @@ export const AGENT_ROLE_KEYS = [
   "scout",
   "auditor",
   "publisher",
+  "scribe",
   "architect",
 ] as const;
 

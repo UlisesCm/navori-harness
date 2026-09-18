@@ -165,6 +165,7 @@ const HarnessSchema = z.object({
   scout: z.boolean().default(true),
   auditor: z.boolean().default(true),
   publisher: z.boolean().default(true),
+  scribe: z.boolean().default(true),
   // Spec 0026 F (R47): default OFF, unlike the rest of the roster. Reviewed
   // in the phase F review (2026-09-17): enabling a 7th agent on every repo's
   // next `navori update` would change everyone's harness surface without
@@ -199,6 +200,7 @@ const ModelsSchema = z.object({
   scout: z.enum(MODELS).optional(),
   auditor: z.enum(MODELS).optional(),
   publisher: z.enum(MODELS).optional(),
+  scribe: z.enum(MODELS).optional(),
   architect: z.enum(MODELS).optional(),
   // Codex maps each Claude tier to a concrete model id. Override the built-in
   // gpt-5.6-* map here when OpenAI renames faster than a navori release ships
@@ -227,6 +229,7 @@ const EffortSchema = z.object({
   scout: z.enum(EFFORTS).optional(),
   auditor: z.enum(EFFORTS).optional(),
   publisher: z.enum(EFFORTS).optional(),
+  scribe: z.enum(EFFORTS).optional(),
   architect: z.enum(EFFORTS).optional(),
 });
 

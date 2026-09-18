@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -75,6 +75,43 @@ afterEach(() => {
 });
 
 describe("engine inventory parity (claude ↔ codex)", () => {
+  // Covers: R1, R2, R3
+  it("renders scribe with the equivalent Claude/Codex tier and preserves the requested profiles", () => {
+    const config = NavoriConfigSchema.parse({
+      name: "scribe-profile-parity",
+      engines: ["claude", "codex"],
+      preset: "custom",
+      branchBase: "main",
+      qualityGate: { fast: "pnpm test", full: "pnpm test" },
+      harness: { architect: true },
+      models: { orchestrator: "opus", architect: "opus", scribe: "haiku" },
+      effort: { orchestrator: "medium", architect: "high", scribe: "low" },
+    });
+    const claude = mkdtempSync(join(tmpdir(), "navori-scribe-claude-"));
+    const codex = mkdtempSync(join(tmpdir(), "navori-scribe-codex-"));
+    try {
+      renderClaudeEngine(claude, config);
+      renderCodexEngine(codex, config);
+
+      const claudeScribe = readFileSync(join(claude, ".claude/agents/scribe.md"), "utf-8");
+      const claudeArchitect = readFileSync(join(claude, ".claude/agents/architect.md"), "utf-8");
+      const codexScribe = readFileSync(join(codex, ".codex/agents/scribe.toml"), "utf-8");
+      const codexArchitect = readFileSync(join(codex, ".codex/agents/architect.toml"), "utf-8");
+
+      expect(claudeScribe).toContain("model: haiku");
+      expect(claudeScribe).toContain("effort: low");
+      expect(codexScribe).toContain('model = "gpt-5.6-luna"');
+      expect(codexScribe).toContain('model_reasoning_effort = "low"');
+      expect(claudeArchitect).toContain("model: opus");
+      expect(claudeArchitect).toContain("effort: high");
+      expect(codexArchitect).toContain('model = "gpt-5.6-sol"');
+      expect(codexArchitect).toContain('model_reasoning_effort = "high"');
+    } finally {
+      rmSync(claude, { recursive: true, force: true });
+      rmSync(codex, { recursive: true, force: true });
+    }
+  });
+
   it("emits the same skill set", () => {
     // Both engines materialize skills as `<id>/SKILL.md` directories now, so
     // read directory names on both sides (a flat `<id>.md` would NOT count).
