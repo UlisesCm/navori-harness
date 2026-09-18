@@ -43,6 +43,12 @@ Dos trampas reales dentro de ese comando:
 Por qué `jscpd`/`semgrep` están en el gate y cómo funcionan sus excepciones contra `ci.yml`:
 [why](CONTRIBUTING.md).
 
+**`navori` global vs. `receipt` (apaño temporal, #872)**: el `navori` global instalado es la
+versión publicada y no trae el subcomando `receipt` (self-hosted aquí desde la fase B de la spec
+0026). Para invocarlo en este repo usa el build local: `node packages/cli/dist/index.js receipt ...`
+(`pnpm --filter navori build` si el `dist` está desactualizado). Retira esta nota cuando se publique
+una versión con `receipt`.
+
 ## Engram
 Protocolo global activo. En este repo:
 - `mem_save` proactivo tras decisiones de diseño/arquitectura.
