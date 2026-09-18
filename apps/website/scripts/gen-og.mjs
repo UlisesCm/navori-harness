@@ -10,9 +10,10 @@
  *   node apps/website/scripts/gen-og.mjs
  *
  * That keeps `sharp` out of the website's dependency graph for an asset that
- * changes maybe twice a year. sharp is already present in the pnpm store (Astro
- * pulls it for its image pipeline, and `pnpm-workspace.yaml` allows its build),
- * so this resolves it from there instead of declaring a dependency of its own.
+ * changes maybe twice a year. sharp is already present in bun's store (Astro
+ * pulls it for its image pipeline, and the root `package.json`'s
+ * `trustedDependencies` allows its build), so this resolves it from there
+ * instead of declaring a dependency of its own.
  * If that resolution ever fails, the script says so and exits non-zero rather
  * than silently leaving the old PNGs in place.
  *
@@ -51,20 +52,20 @@ const C = {
   slate: "#64748b",
 };
 
-/** Resolve sharp out of the pnpm store without declaring a dependency. */
+/** Resolve sharp out of bun's store without declaring a dependency. */
 function loadSharp() {
   const require = createRequire(import.meta.url);
   try {
     return require("sharp");
   } catch {
-    // Not hoisted — reach into the store directly.
-    const matches = globSync("node_modules/.pnpm/sharp@*/node_modules/sharp/package.json", {
+    // Not hoisted — reach into bun's store directly.
+    const matches = globSync("node_modules/.bun/sharp@*/node_modules/sharp/package.json", {
       cwd: REPO_ROOT,
     });
     if (matches.length === 0) {
       throw new Error(
-        "sharp not found. Run `pnpm install` at the repo root, or install it temporarily:\n" +
-          "  pnpm add -w -D sharp && node apps/website/scripts/gen-og.mjs && pnpm remove -w sharp",
+        "sharp not found. Run `bun install` at the repo root, or install it temporarily:\n" +
+          "  bun add -D sharp && node apps/website/scripts/gen-og.mjs && bun remove sharp",
       );
     }
     const pkgPath = resolve(REPO_ROOT, matches.sort().at(-1));

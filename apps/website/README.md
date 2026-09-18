@@ -6,16 +6,16 @@ Landing + docs de navori. Astro + Tailwind v4, bilingüe es/en, deploy a GitHub 
 
 ```bash
 # desde la raíz del monorepo
-pnpm install
-pnpm --filter @navori/website dev
+bun install
+bun run --filter @navori/website dev
 # abre http://localhost:4321
 ```
 
 ## Build
 
 ```bash
-pnpm --filter @navori/website build
-pnpm --filter @navori/website preview
+bun run --filter @navori/website build
+bun run --filter @navori/website preview
 ```
 
 ## Estructura
