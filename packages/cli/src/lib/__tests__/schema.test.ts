@@ -38,6 +38,7 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
     });
   });
 
+  // Covers: R1, R2, R3
   it("applies harness sub-defaults when harness:{} is given (all agents on except architect)", () => {
     const c = NavoriConfigSchema.parse({ ...MINIMAL, harness: {} });
     expect(c.harness).toEqual({
@@ -47,6 +48,7 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
       scout: true,
       auditor: true,
       publisher: true,
+      scribe: true,
       // Spec 0026 F review (2026-09-17): opt-in, not on-by-default like the
       // rest of the roster — see HARNESS_DEFAULTS's doc in schema.ts.
       architect: false,

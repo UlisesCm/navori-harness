@@ -21,6 +21,7 @@ export const AGENT_ROLES = [
   "scout",
   "auditor",
   "publisher",
+  "scribe",
   "architect",
 ] as const;
 

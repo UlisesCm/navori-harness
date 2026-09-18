@@ -87,6 +87,7 @@ export const RECOMMENDED_MODELS = {
   scout: "sonnet",
   auditor: "sonnet",
   publisher: "haiku",
+  scribe: "haiku",
   // Spec 0026 F (design.md "Tier de architect"): design work reads a lot of
   // code and reasons about tradeoffs, so it keeps the orchestrator's tier
   // rather than dropping to the sonnet synthesis tier.
@@ -109,6 +110,7 @@ export const RECOMMENDED_EFFORT = {
   scout: "medium",
   auditor: "medium",
   publisher: "low",
+  scribe: "low",
   architect: "high",
 } as const;
 

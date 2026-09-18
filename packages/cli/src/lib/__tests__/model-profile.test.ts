@@ -34,6 +34,7 @@ describe("scanMissingModelProfile (#817)", () => {
         scout: "sonnet",
         auditor: "sonnet",
         publisher: "haiku",
+        scribe: "haiku",
         architect: "opus",
       },
       effort: {
@@ -43,6 +44,7 @@ describe("scanMissingModelProfile (#817)", () => {
         scout: "medium",
         auditor: "medium",
         publisher: "low",
+        scribe: "low",
         architect: "high",
       },
     });
@@ -56,11 +58,11 @@ describe("scanMissingModelProfile (#817)", () => {
       harnessKey: "scout",
       missing: ["model", "effort"],
     });
-    // The 6 core agents on by default (orchestrator included — it's rendered
+    // The 7 core agents on by default (orchestrator included — it's rendered
     // for Claude). `architect` (spec 0026 T19) defaults OFF as of the phase F
     // review (2026-09-17) — it's exercised separately below.
     expect(issues.map((i) => i.agent).sort()).toEqual(
-      ["auditor", "implementer", "orchestrator", "publisher", "reviewer", "scout"].sort(),
+      ["auditor", "implementer", "orchestrator", "publisher", "reviewer", "scout", "scribe"].sort(),
     );
   });
 

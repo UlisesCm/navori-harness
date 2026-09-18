@@ -65,8 +65,9 @@ describe("roster-parity", () => {
     );
   });
 
-  // Covers: R19, R20, R47
-  it("core roster is exactly the seven agents — every active id list matches its canonical catalog", () => {
+  // Covers: R1, R2, R3
+  it("core roster includes scribe and every active id list matches its canonical catalog", () => {
+    expect(rosterIds).toContain("scribe");
     assertRosterIds(
       "harness-assets.CORE_AGENTS",
       rosterIds,

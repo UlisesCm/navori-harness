@@ -34,6 +34,7 @@ export const CANONICAL_HARNESS_KEY: Readonly<
   scout: "scout",
   auditor: "auditor",
   publisher: "publisher",
+  scribe: "scribe",
   architect: "architect",
 };
 
