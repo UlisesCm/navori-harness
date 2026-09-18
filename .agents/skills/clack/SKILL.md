@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-<!-- navori:managed id="clack" hash="f97d8d12" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="clack" hash="d7d72b23" version="0.8.7" source="@navori/core" -->
 # Clack prompts — interactive CLI
 
 ## When to use this skill
@@ -80,7 +80,7 @@ p.outro("Done");
 - Every prompt is `await`ed and followed by `isCancel` (or inside a `group` with `onCancel`).
 - Every spinner is stopped; `intro`/`outro` bracket the flow.
 - `select`/`multiselect` consume `value`, not label.
-- `cd packages/cli && pnpm lint` green.
+- `cd packages/cli && bun lint` green.
 <!-- /navori:managed id="clack" -->
 
 ## This repo's prompts (your domain)

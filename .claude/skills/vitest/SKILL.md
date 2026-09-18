@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-<!-- navori:managed id="vitest" hash="2279bc63" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="vitest" hash="3b0e07a2" version="0.8.7" source="@navori/core" -->
 # Vitest — conventions
 
 ## When to use this skill
@@ -66,5 +66,5 @@ describe('getUser', () => {
 - Every async assertion is awaited; no unhandled-rejection warnings.
 - Mocks reset between tests; environment matches the code under test (DOM vs node).
 - No sprawling snapshots; assertions target real values.
-- `cd packages/cli && pnpm lint` green.
+- `cd packages/cli && bun lint` green.
 <!-- /navori:managed id="vitest" -->

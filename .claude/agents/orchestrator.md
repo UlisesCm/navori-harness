@@ -7,7 +7,7 @@ effort: high
 maxWords: 2850
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="20bf2cc1" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="orchestrator-base" hash="67442692" version="0.8.7" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
@@ -147,8 +147,8 @@ And never take a merged PR as proof on its own: **squash merge leaves no ancestr
 ## Quality gate
 
 ```bash
-cd packages/cli && pnpm lint    # fast gate — pre-step to the reviewer
-pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck    # full gate — before closing the session / creating the PR
+cd packages/cli && bun lint    # fast gate — pre-step to the reviewer
+bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck    # full gate — before closing the session / creating the PR
 ```
 
 If the repo has no test suite, the `implementer` still can't claim "done" without fresh evidence (a correct diff plus whatever checks exist) — but browser/visual validation stays **on-request only, never automatic**. The `verify-before-done` skill enforces the "fresh evidence rule" over any "done" claim.
