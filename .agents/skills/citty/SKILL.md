@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-<!-- navori:managed id="citty" hash="68d15811" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="citty" hash="680d607e" version="0.8.7" source="@navori/core" -->
 # Citty — command definitions
 
 ## When to use this skill
@@ -73,7 +73,7 @@ runMain(main);
 - Every arg has a `type` and `description`; enums carry `options`; user flags have defaults.
 - Built-in `--help`/`--version` still work (no shadowing alias).
 - No side effects at import time; `cleanup` is idempotent.
-- `cd packages/cli && pnpm lint` green.
+- `cd packages/cli && bun lint` green.
 <!-- /navori:managed id="citty" -->
 
 ## This repo's CLI (your domain)

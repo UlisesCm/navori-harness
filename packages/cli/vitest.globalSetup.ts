@@ -27,15 +27,16 @@ const pkgRoot = dirname(fileURLToPath(import.meta.url));
  *    (a real leak) from another repo's (a concurrent session, #656).
  */
 export default function setup(): () => void {
-  const r = spawnSync("pnpm", ["build"], {
+  const r = spawnSync("bun", ["run", "build"], {
     cwd: pkgRoot,
     stdio: "inherit",
-    // pnpm resolves through a shell shim on Windows CI.
-    shell: process.platform === "win32",
+    // Unlike pnpm/npm (JS shims that need a shell to resolve as `.cmd` on
+    // Windows), bun installs as a native binary on every platform (see
+    // oven-sh/setup-bun in CI), so no shell is needed here.
   });
   if (r.status !== 0) {
     throw new Error(
-      `vitest globalSetup: 'pnpm build' failed (exit ${r.status ?? "signal"}). ` +
+      `vitest globalSetup: 'bun run build' failed (exit ${r.status ?? "signal"}). ` +
         `The e2e suite runs against ${resolve(pkgRoot, "dist/index.js")}.`,
     );
   }

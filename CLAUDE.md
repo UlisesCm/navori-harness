@@ -7,7 +7,7 @@
 ## Qué es este proyecto
 Paquete npm (CLI) para replicar harness multi-agente + SDD en múltiples proyectos con soporte multi-engine (Claude Code, AGENTS.md universal, Cursor, Copilot).
 
-**Estado actual**: MVP funcional. Monorepo pnpm con `packages/cli` (publicado a npm como `navori`, binario `navori`) + `@navori/core` (managed assets) + `apps/website` (landing/docs). Los subcomandos registrados viven en [`packages/cli/src/index.ts`](packages/cli/src/index.ts) (`subCommands`) — fuente de verdad, no se listan aquí.
+**Estado actual**: MVP funcional. Monorepo bun con `packages/cli` (publicado a npm como `navori`, binario `navori`) + `@navori/core` (managed assets) + `apps/website` (landing/docs). Los subcomandos registrados viven en [`packages/cli/src/index.ts`](packages/cli/src/index.ts) (`subCommands`) — fuente de verdad, no se listan aquí.
 
 > **Fuente de verdad de objetivo y dirección: [`docs/DIRECTION.md`](docs/DIRECTION.md).** Léela ANTES de proponer cambios de dirección o tocar navori — define metas, no-metas e invariantes que no se re-litigan sin una spec. Colaboradores humanos: `CONTRIBUTING.md`.
 
@@ -32,12 +32,12 @@ Revisar engram + `git log` para el contexto vigente. Decisiones nuevas se docume
 
 ## Quality gate
 El comando vive en **un solo lugar**: `qualityGate.full` en `navori.config.json`. No lo copies a
-mano en otro sitio. Corre desde la raíz con `pnpm check`.
+mano en otro sitio. Corre desde la raíz con `bun check`.
 
 Dos trampas reales dentro de ese comando:
-- **`pnpm format:check`** (biome) corre en la raíz, no bajo `packages/cli` — es el paso que más se
-  olvida. Se arregla con `pnpm format`.
-- **`pnpm test:coverage`, no `pnpm test`.** Solo la primera corre `check-coverage-floor.mjs`, que
+- **`bun run format:check`** (biome) corre en la raíz, no bajo `packages/cli` — es el paso que más se
+  olvida. Se arregla con `bun run format`.
+- **`bun run test:coverage`, no `bun test`.** Solo la primera corre `check-coverage-floor.mjs`, que
   caza además una entrada obsoleta en `KNOWN_ZERO`.
 
 Por qué `jscpd`/`semgrep` están en el gate y cómo funcionan sus excepciones contra `ci.yml`:
@@ -46,7 +46,7 @@ Por qué `jscpd`/`semgrep` están en el gate y cómo funcionan sus excepciones c
 **`navori` global vs. `receipt` (apaño temporal, #872)**: el `navori` global instalado es la
 versión publicada y no trae el subcomando `receipt` (self-hosted aquí desde la fase B de la spec
 0026). Para invocarlo en este repo usa el build local: `node packages/cli/dist/index.js receipt ...`
-(`pnpm --filter navori build` si el `dist` está desactualizado). Retira esta nota cuando se publique
+(`bun run --filter navori build` si el `dist` está desactualizado). Retira esta nota cuando se publique
 una versión con `receipt`.
 
 ## Engram

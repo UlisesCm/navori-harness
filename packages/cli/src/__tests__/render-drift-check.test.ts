@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 /**
- * #421 — the harness-mirror drift guard (`pnpm check:render` → this repo's
+ * #421 — the harness-mirror drift guard (`bun check:render` → this repo's
  * `scripts/check-render.mjs`).
  *
  * navori dogfoods itself: `.claude/` + `CLAUDE.md` here are RENDER OUTPUT. When
@@ -81,7 +81,7 @@ function seedRenderedRepo(): string {
 describe("check-render — harness mirror drift guard (#421)", () => {
   beforeAll(() => {
     if (!existsSync(CLI)) {
-      throw new Error(`CLI not built at ${CLI}. Run 'pnpm build' before tests.`);
+      throw new Error(`CLI not built at ${CLI}. Run 'bun run build' before tests.`);
     }
     if (!existsSync(CHECK_SCRIPT)) {
       throw new Error(`check script missing at ${CHECK_SCRIPT}`);
@@ -124,8 +124,8 @@ describe("check-render — harness mirror drift guard (#421)", () => {
     // binary is what taught the build-less chain in the first place: the CLI
     // reads dist/assets/core, a build-time copy, so without a rebuild the fix
     // compares against the old assets and silently does nothing (or reverts).
-    expect(check.combined).toContain("pnpm --filter navori build && node");
-    expect(check.combined).toContain("pnpm render:apply");
+    expect(check.combined).toContain("bun run --filter navori build && node");
+    expect(check.combined).toContain("bun run render:apply");
     // The guard previews: it must never write while auditing.
     expect(readFileSync(hook, "utf-8")).toBe(beforeCheck);
   });
@@ -195,7 +195,7 @@ describe("check-render — harness mirror drift guard (#421)", () => {
  * on `main` @ 416d39e: 4 files would have been reverted, dropping the
  * `### Always-on delta` section of #480 and the engram block of #401.
  *
- * `pnpm check:render` already chains the build (`package.json`); the fix is that
+ * `bun check:render` already chains the build (`package.json`); the fix is that
  * the WRITE side gets the same treatment as a named script, so it can't be
  * copy-pasted half.
  */
@@ -208,13 +208,13 @@ describe("the documented re-render command always carries its build (#421 follow
     const renderApply = pkg.scripts?.["render:apply"];
 
     expect(renderApply, "root package.json must define a `render:apply` script").toBeDefined();
-    expect(renderApply).toContain("pnpm --filter navori build");
+    expect(renderApply).toContain("bun run --filter navori build");
     expect(renderApply).toContain("render --apply");
     // The build must come FIRST; the whole defect is rendering before building.
     expect((renderApply as string).indexOf("build")).toBeLessThan(
       (renderApply as string).indexOf("render --apply"),
     );
-    expect(pkg.scripts?.["check:render"]).toContain("pnpm --filter navori build");
+    expect(pkg.scripts?.["check:render"]).toContain("bun run --filter navori build");
   });
 
   it("never documents the build-less binary invocation", () => {
@@ -223,7 +223,9 @@ describe("the documented re-render command always carries its build (#421 follow
     for (const file of ["CONTRIBUTING.md", "README.md"]) {
       const offenders = readRoot(file)
         .split("\n")
-        .filter((line) => line.includes(BUILDLESS) && !line.includes("pnpm --filter navori build"));
+        .filter(
+          (line) => line.includes(BUILDLESS) && !line.includes("bun run --filter navori build"),
+        );
       expect(offenders, `${file} teaches a render --apply with no build`).toEqual([]);
     }
   });

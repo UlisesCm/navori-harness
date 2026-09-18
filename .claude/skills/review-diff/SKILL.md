@@ -10,7 +10,7 @@ metadata:
   maxWordsComposed: 1450
 ---
 
-<!-- navori:managed id="review-diff-base" hash="cf363399" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="review-diff-base" hash="d93f3e11" version="0.8.7" source="@navori/core" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
@@ -102,7 +102,7 @@ Rule: if removing the abstraction leaves the code **just as correct** and shorte
 
 ## 9. Quality gate (run this turn, not assumed)
 
-- `pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
+- `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
 - Zero new errors/warnings vs baseline → HIGH if the diff adds them.
 
 ## 10. Commit and PR

@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-<!-- navori:managed id="zod-validation" hash="4fe628f6" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="zod-validation" hash="88a1b53a" version="0.8.7" source="@navori/core" -->
 # Zod Validation — the canonical pattern
 
 One schema per resource (`<resource>.schema.ts`), a generic validate middleware, and the DTO from `z.infer`.
@@ -77,5 +77,5 @@ if (!parsed.success) return res.status(400).json({ error: z.prettifyError(parsed
 
 - Every hard rule above holds for the code you touched.
 - APIs match the installed major — no `z.nativeEnum` on v4, no `z.prettifyError` on v3.
-- `cd packages/cli && pnpm lint` green.
+- `cd packages/cli && bun lint` green.
 <!-- /navori:managed id="zod-validation" -->

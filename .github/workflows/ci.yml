@@ -28,19 +28,30 @@ jobs:
           # check skip itself in silence — the blind spot #421 is about.
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+
+      # actions/setup-node has no `cache: bun` (only npm/yarn/pnpm), and bun
+      # doesn't ship with Node — install it explicitly, then cache its store
+      # keyed on bun.lock so a clean install still reuses the download cache.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       # Build first: the e2e suite runs against dist/index.js + bundled assets.
       - name: Build
-        run: pnpm --filter navori build
+        run: bun run --filter navori build
 
       # #508 — `apps/website` was built ONLY by the deploy workflow, which runs
       # after the merge, so a change that breaks the site (an Astro/Tailwind
@@ -51,10 +62,10 @@ jobs:
         env:
           SITE_URL: ${{ vars.SITE_URL || format('https://{0}.github.io', github.repository_owner) }}
           SITE_BASE: ${{ vars.SITE_BASE || format('/{0}/', github.event.repository.name) }}
-        run: pnpm --filter @navori/website build
+        run: bun run --filter @navori/website build
 
       - name: Bundle size guard
-        run: pnpm --filter navori check:size
+        run: bun run --filter navori check:size
 
       # #421: this repo dogfoods navori — `.claude/` + `CLAUDE.md` are the OUTPUT
       # of `navori render` over @navori/core. A PR that touches a managed asset
@@ -65,7 +76,7 @@ jobs:
       # against the OLD core and passes in silence) — don't "optimize" the rebuild
       # away just because the Build step above already ran.
       - name: Harness mirror up to date
-        run: pnpm check:render
+        run: bun run check:render
 
       # #490 — an asset that orders `navori <cmd>` resolves the PUBLISHED binary,
       # so a PR landing a subcommand plus an asset calling it ships an asset that
@@ -76,10 +87,10 @@ jobs:
       # CAN compare against one, so a skip here means that setup regressed — and
       # a check that skipped itself must never read as a check that passed.
       - name: Assets cite released subcommands
-        run: pnpm check:assets:ci
+        run: bun run check:assets:ci
 
       - name: Lint
-        run: pnpm --filter navori lint
+        run: bun run --filter navori lint
 
       # #461: the build is esbuild, which strips types WITHOUT checking them, so
       # until this step existed nothing verified the strict typing CLAUDE.md
@@ -87,22 +98,22 @@ jobs:
       # `tsc` report LIVE code as unreachable. Added only after the tree reached
       # zero, so it can never be "temporarily" skipped.
       - name: Typecheck
-        run: pnpm --filter navori typecheck
+        run: bun run --filter navori typecheck
 
       - name: Format check
-        run: pnpm format:check
+        run: bun run format:check
 
       # #819 — nothing else in this job walks the repo's `.md` files;
       # `format:check` above covers only `packages/cli/src` and `apps/website/src`.
       - name: Dead link check
-        run: pnpm check:links
+        run: bun run check:links
 
       # #815 — root `CLAUDE.md` and the managed blocks under
       # `packages/core/core-assets/managed/*.md` render into every session, so
       # an unbounded one grows by accretion. Extends the `SKILL_TYPE_CAPS`
       # word-cap primitive to that prose.
       - name: Doc word budgets
-        run: pnpm check:doc-budgets
+        run: bun run check:doc-budgets
 
       # The hook suites run under bash AND zsh (#391) — the hooks execute with
       # whatever shell the host wires in — and ubuntu-latest ships without zsh.
@@ -129,4 +140,4 @@ jobs:
       # moment the gate can change anything. The suite is the same either way;
       # instrumentation costs seconds.
       - name: Test + coverage gate
-        run: pnpm --filter navori test:coverage
+        run: bun run --filter navori test:coverage

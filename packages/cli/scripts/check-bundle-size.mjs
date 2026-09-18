@@ -28,8 +28,19 @@ import { dirname, resolve } from "node:path";
  * If a third raise ever gets proposed for first-party growth, the guard has
  * stopped measuring what it claims to: at that point split the check in two —
  * a hard ceiling for bundled deps and a soft trend line for our own code.
+ *
+ * Raised 1000 -> 1200 by the pnpm -> bun migration, and NOT for first-party
+ * growth (zero lines of `src/` changed): moving off `pnpm-lock.yaml` to a
+ * fresh `bun.lock` re-resolved every `^`-ranged dependency against today's
+ * registry instead of reusing the versions pnpm had pinned. `zod` alone moved
+ * 4.4.3 -> 4.6.5 (still inside `^4.4.3`, so semver-legitimate) and that one
+ * bump is the whole difference: 984KB -> 1107KB. Pinning zod to dodge it was
+ * considered and rejected — it would silently freeze a dependency range this
+ * repo does not otherwise pin, for a metric's sake, and the same re-resolution
+ * will happen again at the next `bun install` regardless. Measured at 1107KB;
+ * restores ~93KB of headroom.
  */
-const LIMIT_KB = 1000;
+const LIMIT_KB = 1200;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundle = resolve(here, "..", "dist", "index.js");
@@ -38,7 +49,7 @@ let sizeKb;
 try {
   sizeKb = statSync(bundle).size / 1024;
 } catch {
-  console.error(`✗ bundle not found at ${bundle} — run 'pnpm build' first`);
+  console.error(`✗ bundle not found at ${bundle} — run 'bun run build' first`);
   process.exit(1);
 }
 

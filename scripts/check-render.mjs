@@ -27,7 +27,7 @@ import { dirname, resolve } from "node:path";
  * a build-time COPY of `packages/core/core-assets` (see copy-assets.mjs), and
  * the CLI prefers that copy over the live sources — so rendering with a stale
  * `dist/` compares against the OLD core and passes in silence. That's why the
- * entry point is `pnpm check:render`, which rebuilds first, and why CI calls
+ * entry point is `bun check:render`, which rebuilds first, and why CI calls
  * that script rather than this file directly.
  *
  * Usage: node scripts/check-render.mjs [--cwd <repo>]
@@ -58,7 +58,7 @@ const { target, explicit } = parseTarget(process.argv.slice(2));
 // A missing binary must be RED, never a silent pass: a check that can't run is
 // exactly the blind spot #421 is about.
 if (!existsSync(CLI)) {
-  fail(`navori CLI not built at ${CLI} — run 'pnpm --filter navori build' first`);
+  fail(`navori CLI not built at ${CLI} — run 'bun run --filter navori build' first`);
 }
 
 const run = spawnSync(process.execPath, [CLI, "render", "--json", "--cwd", target], {
@@ -151,9 +151,9 @@ if (stale.length > 0) {
   lines.push(
     ``,
     `  re-render the mirror from the repo root:`,
-    `    pnpm --filter navori build && node ${CLI_REL} render --apply${cwdArg}`,
+    `    bun run --filter navori build && node ${CLI_REL} render --apply${cwdArg}`,
     ``,
-    `  in THIS monorepo that whole chain is one script: pnpm render:apply${cwdArg}`,
+    `  in THIS monorepo that whole chain is one script: bun run render:apply${cwdArg}`,
     ``,
     `  the build half is NOT optional: ${CLI_REL} reads dist/assets/core, a build-time`,
     `  COPY of packages/core — skip it and render compares against the OLD assets,`,
