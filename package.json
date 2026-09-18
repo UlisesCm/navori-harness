@@ -2,27 +2,36 @@
   "name": "navori-monorepo",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@12.3.4",
+  "packageManager": "bun@1.4.2",
+  "workspaces": [
+    "packages/*",
+    "packages/plugins/*",
+    "apps/*"
+  ],
+  "trustedDependencies": [
+    "esbuild",
+    "sharp"
+  ],
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "build": "pnpm -r build",
-    "dev": "pnpm -r dev",
+    "build": "bun run --filter '*' build",
+    "dev": "bun run --filter '*' dev",
     "lint": "oxlint packages/cli/src",
-    "gen:schemas": "pnpm --filter navori gen:schemas",
+    "gen:schemas": "bun run --filter navori gen:schemas",
     "format": "biome format --write packages/cli/src apps/website/src",
     "format:check": "biome format packages/cli/src apps/website/src",
     "check:links": "node scripts/check-links.mjs",
-    "check:render": "pnpm --filter navori build && node scripts/check-render.mjs",
+    "check:render": "bun run --filter navori build && node scripts/check-render.mjs",
     "check:assets": "node scripts/check-asset-commands.mjs",
     "check:assets:ci": "node scripts/check-asset-commands.mjs --strict",
     "check:doc-budgets": "node packages/cli/scripts/check-doc-budgets.mjs",
     "jscpd:check": "bash .claude/scripts/check-jscpd.sh </dev/null",
     "semgrep:check": "bash .claude/scripts/check-semgrep.sh </dev/null",
     "hooks:install": "node scripts/install-git-hooks.mjs",
-    "render:apply": "pnpm --filter navori build && node packages/cli/dist/index.js render --apply",
-    "check": "pnpm format:check && pnpm check:links && pnpm check:render && pnpm check:assets && pnpm check:doc-budgets && pnpm jscpd:check && pnpm semgrep:check && cd packages/cli && pnpm check:size && pnpm test:coverage && pnpm lint && pnpm typecheck"
+    "render:apply": "bun run --filter navori build && node packages/cli/dist/index.js render --apply",
+    "check": "bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.5",

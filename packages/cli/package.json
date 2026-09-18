@@ -43,7 +43,7 @@
     "typecheck": "tsc --noEmit --allowImportingTsExtensions",
     "gen:schemas": "node scripts/gen-schemas.mjs",
     "check:size": "node scripts/check-bundle-size.mjs",
-    "prepack": "pnpm build"
+    "prepack": "bun run build"
   },
   "devDependencies": {
     "@clack/prompts": "^0.10.0",
