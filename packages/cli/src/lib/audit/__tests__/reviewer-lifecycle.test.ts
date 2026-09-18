@@ -176,7 +176,7 @@ describe("reviewerGateLifecycle — reporting, not preventing", () => {
     expect(reviewerGateLifecycle([s], "en")).toEqual([]);
   });
 
-  it("draws a duration/wait conclusion once >=10 completed gates span >=3 sessions", () => {
+  it("draws a duration/wait conclusion once >=10 completed gates span >=3 distinct branches", () => {
     const sessions: SessionAudit[] = [];
     for (let i = 0; i < 3; i++) {
       const reviewers = [0, 1, 2, 3].map((j) =>
@@ -185,13 +185,35 @@ describe("reviewerGateLifecycle — reporting, not preventing", () => {
           hookEvents: [started(`tool-${i}-${j}`), terminal(`tool-${i}-${j}`)],
         }),
       );
-      sessions.push(session({ sessionId: `s${i}`, agents: reviewers }));
+      sessions.push(session({ sessionId: `s${i}`, gitBranch: `feature-${i}`, agents: reviewers }));
     }
-    // 3 sessions x 4 reviewer runs each = 12 completed gates over 3 sessions.
+    // 3 sessions x 4 reviewer runs each = 12 completed gates over 3 branches.
     const found = reviewerGateLifecycle(sessions, "en").find(
       (sig) => sig.kind === "reviewer-gate-duration",
     );
-    expect(found?.summary).toMatch(/12 completed gates over 3 session/);
+    expect(found?.summary).toMatch(/12 completed gates over 3 branch/);
     expect(found?.summary).not.toMatch(/Not enough data/);
+  });
+
+  it("does NOT draw a conclusion when >=10 gates span only 2 distinct branches", () => {
+    // Same 12 completed gates as the passing case above, but two of the three
+    // sessions share a branch — this is what R54's amended floor exists to
+    // catch: 12 gates that are really only 2 independent units of work, not 3.
+    const sessions: SessionAudit[] = [];
+    for (let i = 0; i < 3; i++) {
+      const reviewers = [0, 1, 2, 3].map((j) =>
+        agent({
+          agentId: `s${i}-r${j}`,
+          hookEvents: [started(`tool-${i}-${j}`), terminal(`tool-${i}-${j}`)],
+        }),
+      );
+      const branch = i === 2 ? "feature-1" : `feature-${i}`;
+      sessions.push(session({ sessionId: `s${i}`, gitBranch: branch, agents: reviewers }));
+    }
+    const found = reviewerGateLifecycle(sessions, "en").find(
+      (sig) => sig.kind === "reviewer-gate-duration",
+    );
+    expect(found?.summary).toMatch(/Not enough data/);
+    expect(found?.summary).toMatch(/12 completed gates over 2 branch/);
   });
 });

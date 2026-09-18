@@ -421,5 +421,32 @@ Público: el operador del harness. Áreas críticas tocadas:
   duración total del reviewer, gate, espera y número de reviews/ejecuciones correlacionadas; SHALL
   distinguir intervalos solapados, duplicate/unknown/timeout y datos faltantes, sin atribuir el
   resto a razonamiento. Todo criterio de latencia SHALL usar mínimo 10 gates completados sobre >=3
-  diffs y tratar datos incompletos como inconclusos; no cambia `qualityGate.full` ni la revisión
-  independiente.
+  ramas de git distintas (`gitBranch` de `SessionAudit`) y tratar datos incompletos como
+  inconclusos; no cambia `qualityGate.full` ni la revisión independiente.
+
+  > **Enmienda (#870).** El texto original decía "sobre >=3 diffs". La implementación
+  > (`reviewerGateLifecycle()` en `lib/audit/signals.ts`) usaba `sessions.length` como proxy,
+  > porque `SessionAudit` no tiene identidad de diff — el par (base, head) del receipt es efímero
+  > (el publisher lo borra tras commitear) y nunca se persiste, y de 45 audits grabados ninguno
+  > tiene receipt asociado. Contar sesiones cuenta unidades de trabajo repetidas (implementer,
+  > reviewer, implementer otra vez sobre EL MISMO diff) como si fueran diffs distintos, dejando el
+  > piso más laxo que lo que R54 pretende proteger — que la muestra abarque varias unidades de
+  > trabajo independientes, no una sola repetida 10 veces.
+  >
+  > Se evaluaron tres rutas (`.claude/progress/research_870_diff_identity.md` y
+  > `challenge_870_diff_identity.md`): (1) capturar el par (base, head) en el propio audit —
+  > descartada, el challenge encontró 3 BLOCKERs: HEAD es mutable dentro de una sesión, un rebase
+  > cambia el par sin que sea "un diff nuevo", y no hay un momento limpio del ciclo de vida del
+  > hook para capturarlo sin la ceremonia deliberada que hoy solo tiene el receipt; (2) contar
+  > tipos de agente distintos (>=2) en el rango — descartada, 10 gates de implementer+reviewer
+  > dentro de UNA sola sesión ya cumplen ese criterio sin que la muestra deje de ser una sola
+  > unidad de trabajo; (3) dejar el código igual y solo cambiar el texto a "sesiones" — descartada
+  > por bajar el piso formalmente en vez de corregir la discrepancia.
+  >
+  > La ruta elegida cuenta ramas de git distintas (`gitBranch`, ya presente en `SessionAudit`):
+  > dos sesiones sobre la misma rama son el mismo ciclo de revisión; ramas distintas se asumen
+  > unidades independientes. Tiene fallas conocidas y aceptadas — trabajo directo sobre `main`
+  > (trunk-based) o una rama larga con varios cambios no relacionados colapsan a menos unidades de
+  > las reales — pero ambas solo pueden hacer el piso MÁS difícil de alcanzar, nunca más laxo, que
+  > es la dirección que R54 exige. Una sesión sin `gitBranch` se agrupa junto con las demás sin
+  > rama en un único bucket "desconocido", por la misma razón: subcontar es seguro, sobrecontar no.
