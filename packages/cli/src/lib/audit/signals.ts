@@ -1006,7 +1006,7 @@ function seconds(ms: number): string {
  * RANGE-level, like `harnessRegime`: a duplicate or a duration figure is a
  * statement about the whole audited range, not about one session in
  * isolation, and R54's own sample-size floor (>=10 completed gates over >=3
- * diffs) can only be evaluated by looking across sessions.
+ * distinct git branches) can only be evaluated by looking across sessions.
  *
  * This is a report, never a guard: it reads the transcript after the fact and
  * states what happened. It does not claim to prevent a tool call, and no
@@ -1097,13 +1097,26 @@ export function reviewerGateLifecycle(sessions: SessionAudit[], lang: Lang): Sig
   // reported as inconclusive, never printed as a stable figure and never
   // treated as zero.
   const MIN_COMPLETED_GATES = 10;
-  const MIN_DIFFS = 3;
+  const MIN_DIFF_UNITS = 3;
   const completed = owned.filter((e) => e.outcome === "completed" && e.durationMs !== null);
-  // The audit has no independent diff identity, so a session is the proxy for
-  // one diff cycle — stated here rather than silently assumed, since it is a
-  // measured limitation, not a fact about diffs.
-  const diffProxy = sessions.length;
-  if (completed.length >= MIN_COMPLETED_GATES && diffProxy >= MIN_DIFFS) {
+  // The audit has no independent diff identity — no (base, head) pair survives
+  // past the ephemeral receipt (deleted by the publisher after commit; see
+  // spec 0026 R54 amendment) — so a distinct git branch is used as the
+  // observable proxy for "an independent unit of work". Two sessions on the
+  // same branch are the same review cycle (implementer, then reviewer, then
+  // implementer again); sessions on different branches are assumed
+  // independent. This undercounts trunk-based work (everything lands on the
+  // same branch, e.g. `main`) and long-lived branches carrying several
+  // unrelated changes — both collapse to fewer units than reality, which can
+  // only make the floor harder to reach, never easier. A missing gitBranch is
+  // bucketed under one shared "unknown" key rather than counted per session,
+  // for the same reason: undercounting here is safe, overcounting is not.
+  const knownBranches = new Set(
+    sessions.filter((s) => s.gitBranch !== null).map((s) => s.gitBranch),
+  );
+  const hasUnknownBranch = sessions.some((s) => s.gitBranch === null);
+  const diffUnits = knownBranches.size + (hasUnknownBranch ? 1 : 0);
+  if (completed.length >= MIN_COMPLETED_GATES && diffUnits >= MIN_DIFF_UNITS) {
     const gateMs = completed.reduce((sum, e) => sum + (e.durationMs ?? 0), 0);
     const reviewerMs = reviewerRuns.reduce((sum, a) => sum + a.durationMs, 0);
     // "Espera": the gap between one reviewer run ending and the next one
@@ -1125,13 +1138,13 @@ export function reviewerGateLifecycle(sessions: SessionAudit[], lang: Lang): Sig
       severity: "info",
       summary: pick(
         lang,
-        `${completed.length} gates completados sobre ${diffProxy} sesión(es): ${seconds(gateMs)} de gate, ${seconds(reviewerMs)} de reviewer, ${seconds(waitMs)} de espera entre re-reviews`,
-        `${completed.length} completed gates over ${diffProxy} session(s): ${seconds(gateMs)} gate, ${seconds(reviewerMs)} reviewer, ${seconds(waitMs)} waiting between re-reviews`,
+        `${completed.length} gates completados sobre ${diffUnits} rama(s): ${seconds(gateMs)} de gate, ${seconds(reviewerMs)} de reviewer, ${seconds(waitMs)} de espera entre re-reviews`,
+        `${completed.length} completed gates over ${diffUnits} branch(es): ${seconds(gateMs)} gate, ${seconds(reviewerMs)} reviewer, ${seconds(waitMs)} waiting between re-reviews`,
       ),
       evidence: pick(
         lang,
-        `${reviewerRuns.length} corrida(s) de reviewer, ${completed.length} ejecuciones de gate correlacionadas a reviewer/implementer. La sesión es la unidad usada como proxy de "diff" (la auditoría no registra una identidad de diff propia). El umbral mínimo de R54 (>=${MIN_COMPLETED_GATES} gates sobre >=${MIN_DIFFS} diffs) ya se cumplió; por debajo de él este hallazgo se marca inconcluso en vez de imprimirse.`,
-        `${reviewerRuns.length} reviewer run(s), ${completed.length} gate executions correlated to reviewer/implementer. The session is the proxy used for "diff" (the audit records no independent diff identity). R54's own floor (>=${MIN_COMPLETED_GATES} gates over >=${MIN_DIFFS} diffs) is already met; below it this finding is marked inconclusive instead of being printed.`,
+        `${reviewerRuns.length} corrida(s) de reviewer, ${completed.length} ejecuciones de gate correlacionadas a reviewer/implementer. La rama de git es la unidad usada como proxy de "diff" (la auditoría no registra una identidad de diff propia; sesiones en la misma rama cuentan como un solo diff). El umbral mínimo de R54 (>=${MIN_COMPLETED_GATES} gates sobre >=${MIN_DIFF_UNITS} ramas de git distintas) ya se cumplió; por debajo de él este hallazgo se marca inconcluso en vez de imprimirse.`,
+        `${reviewerRuns.length} reviewer run(s), ${completed.length} gate executions correlated to reviewer/implementer. The git branch is the proxy used for "diff" (the audit records no independent diff identity; sessions on the same branch count as one diff). R54's own floor (>=${MIN_COMPLETED_GATES} gates over >=${MIN_DIFF_UNITS} distinct git branches) is already met; below it this finding is marked inconclusive instead of being printed.`,
       ),
     });
   } else if (reviewerRuns.length > 0 || owned.length > 0) {
@@ -1144,8 +1157,8 @@ export function reviewerGateLifecycle(sessions: SessionAudit[], lang: Lang): Sig
       severity: "info",
       summary: pick(
         lang,
-        `Datos insuficientes para un criterio de latencia de reviewer/gate (${completed.length} gates completados sobre ${diffProxy} sesión(es); el mínimo de R54 es ${MIN_COMPLETED_GATES} sobre ${MIN_DIFFS})`,
-        `Not enough data for a reviewer/gate latency criterion (${completed.length} completed gates over ${diffProxy} session(s); R54's minimum is ${MIN_COMPLETED_GATES} over ${MIN_DIFFS})`,
+        `Datos insuficientes para un criterio de latencia de reviewer/gate (${completed.length} gates completados sobre ${diffUnits} rama(s); el mínimo de R54 es ${MIN_COMPLETED_GATES} sobre ${MIN_DIFF_UNITS})`,
+        `Not enough data for a reviewer/gate latency criterion (${completed.length} completed gates over ${diffUnits} branch(es); R54's minimum is ${MIN_COMPLETED_GATES} over ${MIN_DIFF_UNITS})`,
       ),
       evidence: pick(
         lang,
