@@ -1,69 +1,49 @@
 # Sesión actual
 
-**Estado: idle.** Programa de 22 issues de la auditoría de 6 harnesses (2026-09-15, #804–#825)
-en ejecución — 1 PR por issue, ciclo `implementer → reviewer → commit-pr-pilot`. **15 de 22
-cerrados** (mergeados o PR abierta y aprobada). Ver `progress/history.md` para el detalle completo
-de la sesión.
+**Estado: idle.** El lote de 6 issues abiertos por la fase R de la spec 0026 (#867–#872) quedó
+cerrado: 6 de 6 mergeados, sin issues ni PRs abiertos en el repo. Detalle completo en
+`progress/history.md` (entrada del 2026-09-17).
 
-## Mapeo issue → PR
+## Qué entró a main
 
-**Fase 0 — seguridad/doctrina en área crítica (los 4, mergeados):**
-#804→#827 · #806→#828 · #807→#829 · #805→#830
+#867→#874 (flake de `gate-hook-kill`) · #868→#876 (4 áreas al barrido de ids retirados) ·
+#869→#877 (alias de `mine-activation.py` derivados del registro) · #872→#878 (fallback del
+receipt) · #871→#879 (anclas por símbolo en specs) · #870→#880 (piso medible de R54).
 
-**Fase 1 — higiene barata (los 4, mergeados):**
-#822→#831 · #817→#832 · #810→#833 · #824→#834
+## Deuda conocida, sin issue abierto
 
-**Fase 2 — poda de `CLAUDE.md` (7 de 8):**
-#816→#835 (mergeado) · #811→#836 (mergeado) · #813→#837 (mergeado) · #814→#841 (mergeado,
-2 rebases + 3 rondas de review) · #812→#842 (abierta, aprobada) · #808→#843 (abierta, aprobada) ·
-#818→#844 (abierta, aprobada — **auto-verificada**: el propio ciclo reviewer/commit-pr-pilot
-recortado se usó para revisar y commitear su propio PR, sin encontrar carencias)
+Ninguna bloquea nada; se listan para que la próxima sesión decida si merecen ticket propio.
 
-**Pendiente, sin empezar:**
-- **#815** (gate de techo de palabras) — va DESPUÉS de la poda, que ya terminó. Es el siguiente
-  natural.
-- **Fase 3**: #820 (partir `qualityGate` por superficie), #819 (gate de enlaces muertos — mejor
-  después de #820).
-- **Fase 4**: #809 (Auto Memory vs engram — **necesita decisión del usuario**, no autoasignable),
-  #823 (paths/disable-model-invocation/when_to_use en skills, spec 0025), #821 (registro de
-  capacidades por motor), #825 (política de retiro de `.claude/progress/`).
+- **Presupuestos de doctrina casi agotados**: `CLAUDE.md` 2493/2500 (margen 7),
+  `spec-bootstrap.md` 647/650 (margen 3), `sdd.md` margen 1, `code-discovery-routing.md` margen 9.
+  Cualquier doctrina nueva exige podar antes. Los márgenes exactos salen de
+  `node packages/cli/scripts/check-doc-budgets.mjs --list`.
+- **Fixtures de #868 en el árbol fuente**: los tests de `retired-names` siembran violaciones en
+  `packages/core/core-assets/<área>/explorer-retired-names-fixture/`. El `finally` limpia en fallo
+  normal, pero un SIGKILL dejaría residuo commiteable que además pondría en rojo la corrida
+  siguiente.
+- **Carrera latente en el mismo test**: hoy todos los llamadores de `sweepRetiredNames` viven en un
+  solo archivo y vitest los corre en serie. Un segundo llamador en otro archivo introduciría flake.
+- **La nota de #872 en `CLAUDE.md` es un apaño temporal** atado a ese issue: se retira cuando se
+  publique una versión de navori con el subcomando `receipt`. Hoy el global (0.8.7) no lo trae y
+  hay que usar `node packages/cli/dist/index.js receipt ...`.
+- **Flakes por carga concurrente**: con varios `pnpm check` a la vez aparecen timeouts que pasan
+  56/56 en aislamiento (vistos en el ciclo de #871, ajenos a ese diff). Distinto del flake de #867,
+  que sí se arregló. Candidato a issue si reaparece.
+- **Cicatrices menores en la historia de main**: el commit de #880 quedó con "piso measurable"
+  (spanglish) y con `Co-Authored-By: Claude Haiku 4.5`, que no corresponde al modelo de la sesión.
+  No se reescribió historia por eso.
 
-## Hallazgo sin resolver, fuera de alcance de esta sesión
+## Notas de operación para la próxima sesión
 
-**#838 revirtió la retirada de tgrep/codegraph de #803**, mergeado a mitad de esta sesión. Esto
-deja **desactualizados** dos PRs ya mergeados de este mismo programa:
-- **#822** (`docs/DIRECTION.md`) documentó tgrep/codegraph como "retirados permanentemente" en su
-  tabla de superficie — ya no es cierto.
-- **#824** (`structural-search.md`) escribió la doctrina de fallback asumiendo que tgrep/codegraph
-  no existen.
-
-Ninguno de los dos se corrigió en esta sesión (fuera de alcance de los issues que los originaron).
-**Recomendación**: abrir un issue nuevo, o un PR de ajuste directo sobre ambos docs, antes de que
-alguien más cite la tabla de retirados como vigente.
-
-## Otras notas para retomar
-
-- **El binario `navori` global instalado es v0.8.7 obsoleto.** Para cualquier cambio self-hosted en
-  este repo, usar el build local: `pnpm --filter navori build && node packages/cli/dist/index.js
-  <comando>`.
-- **`docs/recipes/skill-authoring.md`** todavía documenta el formato de frontmatter viejo
-  (top-level `type`/`maxWords`) tras #810 (que lo movió a `metadata:`) — seguimiento pendiente,
-  señalado en el PR #833.
-- **`gh-protocol`** (y posiblemente `skills-index`) son candidatos a migrar a skill si `CLAUDE.md`
-  vuelve a crecer sobre 200 líneas — señalado en #808/PR #843, no ejecutado (refactor no trivial).
-- **Riesgo de concurrencia confirmado**: los subagentes (`implementer`/`reviewer`/
-  `commit-pr-pilot`) comparten el mismo working directory que la sesión principal — durante #814 un
-  `git stash`/`reset --hard` de un subagente casi pisa el trabajo de otro (nada se perdió,
-  recuperado vía `git stash list`/reflog). Además hay OTRA sesión activa en este mismo repo dejando
-  un archivo sin trackear (`docs/research/propuesta-simplificacion-agentes.md`) — no tocarlo, no es
-  de este programa.
-- **`main` se movió muy rápido durante toda la sesión** (PRs mergeándose en minutos) — 4 de los 11
-  issues cerrados necesitaron rebase a mitad de ciclo, dos de ellos con conflicto real de merge
-  resuelto por el implementer con criterio (nunca a mano por el orquestador).
+- **El registro de agentes queda fijado al checkout principal al arrancar.** Si el worktree trae un
+  roster más nuevo (fase R: `orchestrator`/`scout`/`publisher`), sólo se pueden despachar los
+  nombres viejos. `implementer`, `reviewer` y `auditor` existen en ambos rosters.
+- **`main` se mueve rápido.** Al reapuntar la base de una rama, revisar si aparecen archivos
+  modificados fuera del alcance del ticket: son reversiones del trabajo ajeno, no ruido.
+- **Rama sin commits propios no necesita rebase**: `git reset origin/main` mueve el puntero sin
+  tocar el árbol de trabajo. Evita el stash, que en worktrees comparte stack con otras sesiones.
 
 ## Próximo paso explícito
 
-1. Confirmar merge de #842/#843/#844 (o revisar si hay feedback).
-2. Seguir con **#815** (gate de techo de palabras), luego Fase 3 y Fase 4 en el orden del plan
-   original.
-3. Decidir si se abre el issue de seguimiento por el hallazgo de #838 vs #822/#824.
+Ninguno asignado. El repo queda sin issues ni PRs abiertos.
