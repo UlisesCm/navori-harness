@@ -24,24 +24,33 @@ código; no la metas en un PR suelto.
 3. Pregúntate: ¿es lo más simple? ¿legible en 6 meses? ¿mantiene el patrón existente?
    Simplicidad > cleverness.
 
+## Instalar dependencias
+
+`bun install` desde la raíz. El `package.json` raíz declara
+`"trustedDependencies": ["esbuild", "sharp"]` — sin eso bun ignora sus scripts de postinstall (y
+ahí es donde antes, con pnpm, saltaba un error en vez de un warning). Ambos necesitan el suyo:
+esbuild descarga su binario nativo (del que dependen tsup y vitest) y sharp compila contra libvips
+para el sitio Astro. Se listan explícitamente y se comitean para que un clon fresco instale sin que
+nadie tenga que aprobar nada a mano.
+
 ## Quality gate (obligatorio antes de cerrar cambios en `packages/cli`)
 
 Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
 
-1. **`pnpm check` desde la raíz del monorepo.** Es un alias de `qualityGate.full` en
+1. **`bun check` desde la raíz del monorepo.** Es un alias de `qualityGate.full` en
    `navori.config.json`, que es **el único lugar** donde vive el gate: de ahí salen los bloques
    managed de `CLAUDE.md` y el comando que corre el `commit-pr-pilot`. No lo transcribas aquí ni
    en ningún otro archivo — una segunda copia es una copia que se desincroniza, y ya pasó
    (`repo-config-gate.test.ts` existe por eso; ver el detalle al final de esta sección).
 
    Dos trampas dentro de ese comando:
-   - **`pnpm test:coverage`, no `pnpm test`.** Corre la misma suite más
+   - **`bun run test:coverage`, no `bun test`.** Corre la misma suite más
      `check-coverage-floor.mjs`, que además del umbral caza una entrada obsoleta en `KNOWN_ZERO`
-     (los módulos que navori envía sin tests). Correr sólo `pnpm test` lo deja pasar, y ya costó
+     (los módulos que navori envía sin tests). Correr sólo `bun test` lo deja pasar, y ya costó
      un CI rojo con el gate verde.
-   - **`pnpm format:check` (biome) NO está bajo `packages/cli`**: corre en la raíz, y es el paso
+   - **`bun run format:check` (biome) NO está bajo `packages/cli`**: corre en la raíz, y es el paso
      que más se olvida. Biome expande objetos de una línea y parte llamadas largas. Se arregla
-     con `pnpm format`.
+     con `bun run format`.
 
    **`jscpd:check` y `semgrep:check`** entraron al gate en #777: son los mismos scripts que corren
    como hook de `git commit` con stdin cerrado, para que la revisión prediga el commit — antes, el
@@ -49,10 +58,10 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
    Comparten receta y cache de contenido con el hook (#402), así que el re-escaneo tras un gate
    verde es un cache-hit, no un segundo escaneo; el hook queda como backstop. Si la herramienta no
    está instalada, el paso sale `⊘ … not installed` y exit 0 — opcional local, no dependencia dura.
-2. **Si tocaste cualquier cosa que alimente el render**: `pnpm check:render` desde la raíz. Este
+2. **Si tocaste cualquier cosa que alimente el render**: `bun run check:render` desde la raíz. Este
    repo se auto-hospeda —`.claude/` y `CLAUDE.md` son salida de `navori render`—, así que el PR
-   debe incluir el re-render del espejo (`pnpm render:apply` desde la raíz, que es exactamente
-   `pnpm --filter navori build && node packages/cli/dist/index.js render --apply`) o el
+   debe incluir el re-render del espejo (`bun run render:apply` desde la raíz, que es exactamente
+   `bun run --filter navori build && node packages/cli/dist/index.js render --apply`) o el
    job `quality` queda en rojo (#421). **El build de esa cadena NO es opcional**: sin él el
    render compara contra los assets del último build, no contra tu árbol de trabajo — te dice
    `unchanged` y un `--apply` llega a *revertir* el espejo. Por eso existe el alias: para que no
@@ -76,18 +85,18 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
    Dos reglas que solo se descubren cuando ya te mordieron (#435):
 
    - **El re-render caduca cuando la base se mueve.** Tras cualquier rebase o merge de `main`,
-     vuelve a correr `pnpm render:apply`: tu espejo se generó contra los assets de antes, y si
+     vuelve a correr `bun run render:apply`: tu espejo se generó contra los assets de antes, y si
      entre medias entró otro PR de assets, el tuyo ya está viejo. Pasó tres veces seguidas
      mientras se construía #421.
    - **Nunca resuelvas a mano un conflicto dentro de un bloque managed.** Toma la versión de la
-     base y regenera con `pnpm render:apply`. El motivo importa: cada bloque lleva el `hash` de su
+     base y regenera con `bun run render:apply`. El motivo importa: cada bloque lleva el `hash` de su
      propio contenido, así que editarlo a mano lo marca como *modificado por el usuario* y
      `render --apply` **deja de pisarlo** — pasa a `user-modified-skipped`, la clase de drift
      que ya solo arregla `navori sync`. Es la trampa fácil: ante un conflicto de git el reflejo
      es editar, y aquí ese reflejo convierte un problema de un comando en uno que exige entender
      el modelo de marcadores.
 3. **Si el paso 2 aplicó, el golden snapshot del árbol renderizado también se mueve**:
-   regenéralo con `cd packages/cli && pnpm test:golden` (~1 s) y **lee el diff** antes de
+   regenéralo con `cd packages/cli && bun run test:golden` (~1 s) y **lee el diff** antes de
    commitearlo. Son cinco fixtures, uno por engine, en
    `packages/cli/src/engines/__tests__/__golden__/<engine>.snap`; existen porque los ~11 tests de
    wiring apuntan a tokens sueltos y nadie ve el output completo (#394). Un cambio que no sepas
@@ -110,7 +119,7 @@ razón obligatoria por entrada y anti-staleness en ambos sentidos. Hoy están ex
   estricto de `check:assets`, y ninguna de las otras dos herramientas está en el lockfile — un paso
   de CI que las invocara se saltaría a sí mismo y saldría verde en falso.
 
-Cambios **doc-only** (.md): basta `pnpm lint` + `pnpm format:check`; no necesitas la suite
+Cambios **doc-only** (.md): basta `bun run lint` + `bun run format:check`; no necesitas la suite
 completa.
 **"Doc-only" son los docs del repo, no los assets**: un `.md` bajo `packages/core/core-assets/`
 o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara los pasos 2 y 3

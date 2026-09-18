@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
  * (8%). One was real code rot, not a typo:
  * `docs/architecture.md -> ../packages/cli/src/engines/claude/render-managed-file.ts`
  * — the file exists, but moved to `engines/shared/`; the doc kept pointing at
- * the old path. `pnpm format:check` does not cover markdown (only
+ * the old path. `bun run format:check` does not cover markdown (only
  * `packages/cli/src` and `apps/website/src`), so nothing else in the gate
  * would have caught this either.
  *

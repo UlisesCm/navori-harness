@@ -113,27 +113,27 @@ navori-harness/
 │  └─ plugins/        # engram · acli · gh · jscpd · semgrep
 ├─ apps/
 │  └─ website/        # landing + docs (Astro, deploy a GitHub Pages)
-└─ pnpm-workspace.yaml
+└─ package.json      # workspaces + trustedDependencies (bun)
 ```
 
 `@navori/core` y los plugins se **empaquetan dentro del CLI** en build (no se publican por separado): un solo `npm i -g navori` trae todo.
 
 ## Desarrollo
 
-Requiere **Node ≥ 22** y **pnpm**.
+Requiere **Node ≥ 22** y **bun 1.4.2**.
 
 ```bash
-pnpm install
-pnpm -r build                 # build de todos los paquetes
+bun install
+bun run build                 # build de todos los paquetes
 
-pnpm check                    # quality gate completo (lo mismo que valida CI)
-pnpm hooks:install            # instala el pre-push versionado que corre ese mismo gate
+bun check                     # quality gate completo (lo mismo que valida CI)
+bun hooks:install             # instala el pre-push versionado que corre ese mismo gate
 
 # probar el binario local sin publicar:
 node packages/cli/dist/index.js init --cwd /ruta/a/un/repo
 ```
 
-**Quality gate**: `pnpm check` desde la raíz. Es un alias de `qualityGate.full` en
+**Quality gate**: `bun check` desde la raíz. Es un alias de `qualityGate.full` en
 `navori.config.json`, que es **el único lugar** donde vive el gate — de ahí salen los bloques
 managed de `CLAUDE.md` y el comando que corre el `commit-pr-pilot`. No lo copies a otro archivo:
 una segunda copia es una copia que se desincroniza.
@@ -152,12 +152,12 @@ release hasta que ya aterrizó.
 1. Bump de la versión en `packages/cli/package.json`.
 2. **Re-render obligatorio del espejo** (no es opcional ni un detalle):
    ```bash
-   pnpm --filter navori build && node packages/cli/dist/index.js render --apply
+   bun run --filter navori build && node packages/cli/dist/index.js render --apply
    ```
    El marcador de cada bloque managed estampa la versión del CLI, así que el bump del paso 1
    desfasa el espejo renderizado de este repo **entero**: medido en 0.6.0 → 0.6.1, **30 archivos**
    entre `.claude/` y `CLAUDE.md`. Saltarte este paso deja el tag puesto sobre un árbol
-   inconsistente y pone en rojo el primer CI de `main` posterior al release (`pnpm check:render`,
+   inconsistente y pone en rojo el primer CI de `main` posterior al release (`bun run check:render`,
    #421). Yendo por PR eso se ve antes de aterrizar; era justo el punto ciego del push directo.
 3. Commit `chore(release): navori vX.Y.Z` — incluye el bump **y** el re-render del paso 2.
 4. Tag `vX.Y.Z` — **automático desde 0.8.6**. `release-tag.yml` se dispara cuando

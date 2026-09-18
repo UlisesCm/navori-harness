@@ -6,7 +6,7 @@
 # less) than the gate that reviewers and commit-pr-pilot use.
 set -euo pipefail
 
-# `pnpm check` exercises Git pushes in its fixtures. A nested hook invocation
+# `bun check` exercises Git pushes in its fixtures. A nested hook invocation
 # must not recursively restart the full gate from inside that gate.
 if [[ "${NAVORI_PRE_PUSH_RUNNING:-}" == "1" ]]; then
   exit 0
@@ -17,4 +17,4 @@ cd "$ROOT"
 
 echo "▶ pre-push: running qualityGate.full…"
 export NAVORI_PRE_PUSH_RUNNING=1
-exec pnpm check
+exec bun check
