@@ -65,7 +65,7 @@ const EXEMPT_FROM_LOCAL_GATE = new Map<string, string>([
     // #820 part A: CI's `quality:` job already runs this (see the "CI builds
     // the website" test below, `#508.4`) and CI is a strict superset of the
     // local gate for this step — nothing is skipped, only NOT repeated on
-    // every local `pnpm check`. Measured cost in isolation was ~2.8s (warm
+    // every local `bun check`. Measured cost in isolation was ~2.8s (warm
     // cache), so this is about not paying it twice per push, not about speed.
     "CI's `quality:` job already builds the website (#508.4); running it again locally repeats a check CI is a strict superset for",
   ],
@@ -117,7 +117,7 @@ const EXEMPT_FROM_CI = new Map<string, string>([
   ],
 ]);
 
-/** The versioned pre-push delegates to pnpm check, so no gate step is exempt. */
+/** The versioned pre-push delegates to bun check, so no gate step is exempt. */
 const EXEMPT_FROM_PRE_PUSH = new Map<string, string>();
 
 /** Checks in `required` that `covered` lacks and no exemption excuses. */
@@ -131,8 +131,8 @@ function uncovered(
 
 /**
  * Identify a check independently of WHICH package script carries it: the gate
- * reaches the CLI's scripts as `cd packages/cli && pnpm <s>` and CI as
- * `pnpm --filter navori <s>`, so both must reduce to `<s>`. A script in any
+ * reaches the CLI's scripts as `cd packages/cli && bun <s>` and CI as
+ * `bun run --filter navori <s>`, so both must reduce to `<s>`. A script in any
  * OTHER workspace package keeps its filter, because running it is a genuinely
  * distinct command — collapsing it would let `--filter @navori/website build`
  * hide behind the CLI's own `build` and stay out of the gate unnoticed.
@@ -143,7 +143,13 @@ function checkKey(match: RegExpMatchArray): string {
   return !filter || filter === "navori" ? script : `${filter} ${script}`;
 }
 
-const PNPM_INVOCATION = /\bpnpm\s+(?:--filter\s+(\S+)\s+)?(?:run\s+)?([a-z][\w:.-]*)/g;
+// bun puts `--filter` AFTER `run` (unlike pnpm, which put it before the
+// script and needed no `run` at all): `bun run --filter navori <s>` vs the old
+// `pnpm --filter navori <s>`. This repo is bun-only now (detect.ts's pnpm
+// support is a SEPARATE concern — navori still detects pnpm in repos it
+// scaffolds for), so the pattern targets bun directly instead of staying
+// generic over every package manager it could ever see here.
+const BUN_INVOCATION = /\bbun\s+(?:run\s+(?:--filter\s+(\S+)\s+)?)?([a-z][\w:.-]*)/g;
 
 /** The `quality:` job's body, sliced out of the workflow by indentation. */
 function qualityJobBody(): string {
@@ -160,7 +166,7 @@ function ciChecks(): Set<string> {
   const runs = [...qualityJobBody().matchAll(/^\s*run: (.+)$/gm)].flatMap((m) => m[1] ?? []);
   const checks = new Set<string>();
   for (const run of runs) {
-    for (const m of run.matchAll(PNPM_INVOCATION)) checks.add(checkKey(m));
+    for (const m of run.matchAll(BUN_INVOCATION)) checks.add(checkKey(m));
   }
   return checks;
 }
@@ -169,7 +175,7 @@ function ciChecks(): Set<string> {
 function gateChecks(command: string): Set<string> {
   const checks = new Set<string>();
   for (const segment of command.split("&&")) {
-    for (const m of segment.trim().matchAll(PNPM_INVOCATION)) checks.add(checkKey(m));
+    for (const m of segment.trim().matchAll(BUN_INVOCATION)) checks.add(checkKey(m));
   }
   return checks;
 }
@@ -225,7 +231,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
     // Without this, a comparison that silently matched everything would report
     // "CI covers the gate" forever — the vacuous green both directions guard
     // against. The fake gate names a check no workflow runs.
-    const fake = gateChecks("pnpm format:check && pnpm sast:scan");
+    const fake = gateChecks("bun run format:check && bun run sast:scan");
     expect(uncovered(fake, ci, EXEMPT_FROM_CI)).toEqual(["sast:scan"]);
     // …and an exemption silences exactly that one, nothing else.
     expect(uncovered(fake, ci, new Map([["sast:scan", "fixture"]]))).toEqual([]);
@@ -250,7 +256,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
 
   it("the root `check` script runs the same thing the gate declares", () => {
     // Before #508 this was a THIRD hand-written list, shorter than both the
-    // gate and CI. One string, two consumers (humans type `pnpm check`, agents
+    // gate and CI. One string, two consumers (humans type `bun check`, agents
     // read the gate) — so they must be the same string.
     const rootPkg = JSON.parse(
       readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"),
@@ -265,7 +271,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
     ) as RootPackageJson;
     const prePush = gateChecks(rootPkg.scripts?.check ?? "");
 
-    expect(hook).toContain("exec pnpm check");
+    expect(hook).toContain("exec bun check");
     expect(hook).toContain("NAVORI_PRE_PUSH_RUNNING");
     expect(
       uncovered(gate, prePush, EXEMPT_FROM_PRE_PUSH),
@@ -363,7 +369,7 @@ describe("the gate runs the scans before the approval (#777)", () => {
     const name = runners[0]?.[0] ?? "";
     expect(
       [...gate],
-      `\`pnpm ${name}\` is missing from qualityGate.full: ${scanner} would first see the diff at commit time, after APPROVED`,
+      `\`bun run ${name}\` is missing from qualityGate.full: ${scanner} would first see the diff at commit time, after APPROVED`,
     ).toContain(name);
   });
 
