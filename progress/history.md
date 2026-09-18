@@ -10,6 +10,50 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-17 21:50 — orchestrator — lote de 6 issues (#867–#872) cerrado: 6/6 mergeados, 3 tickets reformulados por evidencia
+
+- **Cambios**: 6 issues resueltos vía `implementer → reviewer → commit-pr-pilot`, 1 PR por issue,
+  todos mergeados: #867→#874 (flake de `gate-hook-kill`), #868→#876 (4 áreas al barrido de ids
+  retirados), #869→#877 (alias derivados del registro), #872→#878 (fallback del receipt),
+  #871→#879 (anclas por símbolo en specs), #870→#880 (piso medible de R54).
+- **Quality gate**: ✅ verde en cada ciclo, corrido de forma independiente por el reviewer en su
+  Pass 2. Flakes preexistentes por carga concurrente (timeouts que pasan en aislamiento) y un
+  falso positivo del `~/.navori isolation guard` causado por otra sesión activa en el repo,
+  confirmados como ajenos a estos diffs y nunca atribuidos a ellos.
+- **Notas**:
+  - **En 3 de 6 tickets la solución propuesta no sobrevivió al contacto con el código**, aunque el
+    problema sí era real. #872 pedía documentar el fallback "en los assets": habría enviado a cada
+    usuario una ruta (`node packages/cli/dist/index.js`) que no existe en su repo — verificado
+    desempaquetando `navori@0.8.7`, que invoca el comando `navori receipt` 0 veces, así que ningún
+    usuario estaba roto y el problema era exclusivo del self-hosting. #869 pedía "como mínimo" una
+    prueba de paridad registro-vs-script que habría fallado el día 1, porque `ROLE_ALIASES` omite 4
+    agentes retirados a propósito y con razón escrita. #870 proponía reusar el par base+head del
+    receipt: inviable, el receipt es efímero por diseño (el publisher lo borra tras commitear) y
+    sus SHAs nunca se persisten.
+  - **#870 necesitó un pase de diseño formal** (research + challenge en contexto fresco). La
+    propuesta alternativa del orquestador —que el audit capturara su propio par (base, head)— murió
+    con 3 BLOCKERs; el fatal: los pares de git no distinguen "3 diffs independientes" de "3 rebases
+    del mismo diff", la misma confusión que el issue denuncia, movida de sitio. Se resolvió
+    corrigiendo R54 para pedir algo medible (ramas distintas, `gitBranch`), con enmienda registrada
+    en la spec. Garantía verificada: `diffUnits <= sessions.length` siempre, por construcción.
+  - **`Cierra #<n>` no cierra nada**: GitHub sólo parsea `Closes`/`Fixes`/`Resolves`. El harness ya
+    prescribía la forma correcta en `publisher.md` (plantilla + checklist + paso de verificación);
+    el orquestador derivó la convención de un PR histórico (#863) y se la impuso al pilot contra su
+    propia plantilla. Barrido de los 490 PRs mergeados: 43 issues se cerraron a mano por esto, 0
+    quedaron atascados.
+  - **Casi se cuela una reversión silenciosa**: la rama de #868 se creó antes de que #874 mergeara;
+    al reapuntar la base, el árbol tenía la versión vieja de `gate-hook-kill.test.ts`, o sea el PR
+    de #868 habría revertido el fix de #867 dentro de un diff que nadie iba a mirar. Restaurado y
+    verificado antes de review.
+  - **Deuda anotada, no perseguida**: presupuestos de doctrina casi agotados (`CLAUDE.md` margen 7,
+    `spec-bootstrap.md` margen 3, `sdd.md` margen 1 — ver márgenes con
+    `node packages/cli/scripts/check-doc-budgets.mjs --list`); los fixtures de #868 se siembran en
+    el árbol fuente y un SIGKILL fuera del `finally` dejaría residuo commiteable; carrera latente
+    si `sweepRetiredNames` gana un segundo llamador en paralelo; la nota de #872 en `CLAUDE.md`
+    depende de que alguien recuerde retirarla al publicar; el commit de #880 quedó con "piso
+    measurable" (spanglish) y una atribución `Co-Authored-By` incorrecta, ya en la historia de main.
+- **Commit / PR**: #874, #876, #877, #878, #879, #880 (todos mergeados).
+
 ## 2026-09-16 13:45 — orchestrator — programa de 22 issues de la auditoría: 15/22 cerrados, dos rebases con conflicto real resueltos en vivo
 
 - **Cambios**: 15 issues resueltos vía `implementer → reviewer → commit-pr-pilot`, 1 PR por issue.
