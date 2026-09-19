@@ -6,6 +6,7 @@ import {
   readdirSync,
   writeFileSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -53,6 +54,30 @@ function config(overrides: Partial<NavoriConfigInput> = {}): NavoriConfig {
 }
 
 describe("renderCodexEngine", () => {
+  // Covers: R3, R4, R5, R6, R7
+  it("registers the Astra-only SessionStart advisor without changing agent profiles", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf8");
+    expect(toml).toContain("[[hooks.SessionStart]]");
+    expect(toml).toMatch(/model-advisor\.sh\\" codex-session-start/);
+    const hook = readFileSync(join(cwd, ".codex/hooks/model-advisor.sh"), "utf8");
+    expect(hook).toContain('payload.model !== "gpt-6-astra"');
+    expect(hook).toContain("eficiencia de tokens");
+    expect(hook).toContain("`/model`");
+    expect(hook).not.toContain("gpt-5.6-sol/high");
+    expect(
+      execFileSync("bash", [join(cwd, ".codex/hooks/model-advisor.sh"), "codex-session-start"], {
+        cwd,
+        input: JSON.stringify({ model: "gpt-6-astra" }),
+        encoding: "utf8",
+      }),
+    ).toContain("Modelo recomendado disponible");
+    expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf8")).toContain(
+      'model_reasoning_effort = "high"',
+    );
+  });
   it("creates a full Codex harness using the v0.145 project paths", () => {
     const cwd = tempRepo();
     const result = renderCodexEngine(cwd, config());

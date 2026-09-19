@@ -132,6 +132,10 @@ const CLAIMLESS_HOOKS = new Map<string, string>([
     "subagent-stop-handoff.sh",
     "su matcher `Agent|Task` es el claim: valida el handoff DESPUÉS de que un subagente termina (#774), y las herramientas de escritura no terminan subagentes — entregárselas lo haría correr miles de veces sin nada que validar",
   ],
+  [
+    "model-advisor.sh",
+    "no decide por herramienta ni comando: sus tres entradas son transiciones de modelo/sesión y un único PreToolUse amplio para mostrar una recomendación pendiente una vez; declarar cobertura por tool inventaría una semántica que el hook no tiene",
+  ],
 ]);
 
 interface HookBucket {
