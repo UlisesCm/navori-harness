@@ -550,13 +550,13 @@ describe("hooks del host vs conteo de subagentes (#693)", () => {
 
 describe("schema (#0013)", () => {
   // Covers: R17
-  it("declares schemaVersion 8", () => {
+  it("declares schemaVersion 9", () => {
     const report = buildReport([session([])], {
       repo: "demo",
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.schemaVersion).toBe(8);
+    expect(report.schemaVersion).toBe(9);
     // Same contract for the bump to 8 (#778): `rangeSignals` is a scope the
     // payload never carried, so a consumer must be able to tell it exists
     // rather than read its absence as "the range has no caveat".
