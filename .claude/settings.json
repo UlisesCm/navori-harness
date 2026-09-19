@@ -46,6 +46,52 @@
             "statusMessage": "navori/semgrep: security scan"
           }
         ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\" claude-pre-tool-use",
+            "timeout": 10,
+            "statusMessage": "navori: model advisor"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\" claude-session-start",
+            "timeout": 10,
+            "statusMessage": "navori: model advisor"
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.sh\"",
+            "timeout": 15,
+            "statusMessage": "navori: session context"
+          }
+        ]
+      }
+    ],
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\" claude-post-model-switch",
+            "timeout": 10,
+            "statusMessage": "navori: model advisor"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -79,19 +125,6 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-stop-handoff.sh\"",
             "timeout": 15,
             "statusMessage": "navori: handoff check"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "matcher": "startup|resume|clear|compact|fork",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.sh\"",
-            "timeout": 15,
-            "statusMessage": "navori: session context"
           }
         ]
       }

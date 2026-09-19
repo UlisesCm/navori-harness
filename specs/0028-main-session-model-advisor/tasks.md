@@ -1,0 +1,6 @@
+# Main-session model advisor — Tasks
+
+- [x] **T1** (R1, R2, R3, R5, R7) — Record verified host contracts and implement/test the pure advisor classifier.
+- [x] **T2** (R1, R2, R4, R5, R6) — Render and test Claude session-model state plus first-main-tool advisory hook.
+- [x] **T3** (R3, R4, R5, R6) — Render and test Codex SessionStart Astra advisory hook.
+- [x] **T4** (R1–R7) — Add localized copy and regression tests proving subagent profiles remain unchanged.

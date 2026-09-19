@@ -437,7 +437,10 @@ describe("plugin hooks — SessionStart (spec 0017)", () => {
       expect.stringContaining("session-start-context.sh"),
     ]);
     const pluginBucket = buckets.find((b) => b.matcher === undefined);
-    expect(pluginBucket?.hooks.map((h) => h.command)).toEqual([PLUGIN_COMMAND]);
+    expect(pluginBucket?.hooks.map((h) => h.command)).toEqual([
+      expect.stringContaining("model-advisor.sh"),
+      PLUGIN_COMMAND,
+    ]);
   });
 
   it("leaves the codex render byte-identical (it consumes no plugin hooks)", () => {

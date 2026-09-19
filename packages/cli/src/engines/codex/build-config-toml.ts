@@ -44,6 +44,19 @@ export function buildCodexConfigToml(
     'statusMessage = "Checking destructive command policy"',
   );
 
+  // Spec 0028: Codex documents the active model at SessionStart but not active
+  // effort, therefore this advice intentionally covers only gpt-6-astra.
+  lines.push(
+    "",
+    "[[hooks.SessionStart]]",
+    "",
+    "[[hooks.SessionStart.hooks]]",
+    'type = "command"',
+    `command = ${tomlString(`bash "${hookBase}/model-advisor.sh" codex-session-start`)}`,
+    "timeout = 10",
+    'statusMessage = "navori: model advisor"',
+  );
+
   // Spec 0026 E1 (R10, R13): registered unconditionally, like guard-destructive
   // above and unlike the quality gate — no plugin/config toggle owns this one.
   // The script itself decides `ask` vs `deny` by `$0` (`placeHook` does not

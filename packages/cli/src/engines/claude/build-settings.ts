@@ -65,6 +65,7 @@ import { deepMerge } from "./deep-merge.ts";
 const QG_HOOK_DEST = ".claude/hooks/quality-gate-pre-commit.sh";
 const GUARD_HOOK_DEST = ".claude/hooks/guard-destructive.sh";
 const SESSION_START_HOOK_DEST = ".claude/hooks/session-start-context.sh";
+const MODEL_ADVISOR_HOOK_DEST = ".claude/hooks/model-advisor.sh";
 const AUDIT_TRIGGER_HOOK_DEST = ".claude/hooks/audit-mode-trigger.sh";
 const AUDIT_CLOSE_HOOK_DEST = ".claude/hooks/audit-mode-close.sh";
 const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
@@ -116,6 +117,51 @@ export function buildClaudeSettings(
               command: `bash "$CLAUDE_PROJECT_DIR/${GUARD_HOOK_DEST}"`,
               timeout: 10,
               statusMessage: "navori: guard-destructive",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  // Spec 0028: all three registrations are advisory-only. The hook stores only
+  // session scratch state and prints the documented user-visible systemMessage;
+  // `/model` remains the user's explicit model/effort selector.
+  settings = deepMerge(settings, {
+    hooks: {
+      SessionStart: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${MODEL_ADVISOR_HOOK_DEST}" claude-session-start`,
+              timeout: 10,
+              statusMessage: "navori: model advisor",
+            },
+          ],
+        },
+      ],
+      PostModelSwitch: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${MODEL_ADVISOR_HOOK_DEST}" claude-post-model-switch`,
+              timeout: 10,
+              statusMessage: "navori: model advisor",
+            },
+          ],
+        },
+      ],
+      PreToolUse: [
+        {
+          matcher: ".*",
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${MODEL_ADVISOR_HOOK_DEST}" claude-pre-tool-use`,
+              timeout: 10,
+              statusMessage: "navori: model advisor",
             },
           ],
         },

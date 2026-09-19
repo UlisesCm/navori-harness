@@ -125,6 +125,11 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/session-start-context.sh"),
       managedId: "session-start-context-base",
     },
+    {
+      id: "model-advisor",
+      assetPath: join(coreAssets, "hooks/model-advisor.sh"),
+      managedId: "model-advisor-base",
+    },
     // Lifecycle hook (N1). Unconditional: advisory and near-silent, so there's
     // no reason to gate it. It rides PostToolUse(`Agent|Task`) since #774 — the
     // id keeps its original spelling because it is a managed-block id stamped

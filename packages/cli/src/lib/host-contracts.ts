@@ -216,6 +216,36 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       "with an `agent_id`-carrying payload and pins that it records delegation " +
       "instead of notifying.",
   },
+  {
+    id: "claude-model-advisor-payload",
+    claim:
+      "Claude Code SessionStart may include `model`, PreToolUse includes `effort.level`, " +
+      "and PostModelSwitch includes `to_model`; `systemMessage` is user-visible.",
+    source:
+      "https://code.claude.com/docs/en/hooks — the Hooks reference documents the " +
+      "SessionStart, PreToolUse, PostModelSwitch payload fields and user-visible systemMessage output.",
+    provedBy:
+      "Spec 0028 — model advice must depend only on host fields documented for the event " +
+      "that owns them, not inferred session state.",
+    enforcedBy:
+      "model-advisor.test.ts pins the supported tuple policy; rendered-hook tests pin " +
+      "the event registrations and no automatic switch output.",
+  },
+  {
+    id: "codex-model-advisor-payload",
+    claim:
+      "Codex SessionStart input includes the active `model`, and `/model` changes the " +
+      "session model or reasoning effort.",
+    source:
+      "https://developers.openai.com/es-419/docs/hooks and " +
+      "https://developers.openai.com/es-419/docs/models.",
+    provedBy:
+      "Spec 0028 — Codex exposes model but not active reasoning effort to the documented " +
+      "SessionStart contract, so Sol/high+ is intentionally excluded.",
+    enforcedBy:
+      "model-advisor.test.ts excludes gpt-5.6-sol/high; rendered-hook tests pin only " +
+      "the Astra SessionStart registration.",
+  },
 ] as const;
 
 /** Look up a contract by id, or null when the id is unknown. */

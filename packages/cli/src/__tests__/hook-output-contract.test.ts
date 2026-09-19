@@ -128,6 +128,13 @@ const CONTRACT: Readonly<Record<string, EventContract>> = {
       reloadSkills: CITE.sessionStart,
     },
   },
+  PostModelSwitch: {
+    topLevel: UNIVERSAL,
+    hookSpecificOutput: {
+      ...EVENT_NAME,
+      additionalContext: CITE.sessionStart,
+    },
+  },
   UserPromptSubmit: {
     topLevel: { ...UNIVERSAL, ...DECISION },
     hookSpecificOutput: { ...EVENT_NAME, additionalContext: CITE.additionalContextEvents },
