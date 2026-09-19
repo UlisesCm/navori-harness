@@ -73,6 +73,200 @@ describe("parse: tolerance", () => {
   });
 });
 
+describe("parse: observed artifact writes", () => {
+  function transcript(lines: unknown[]): string {
+    const dir = mkdtempSync(join(tmpdir(), "navori-artifact-writes-"));
+    const file = join(dir, "session.jsonl");
+    writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n"), "utf-8");
+    return file;
+  }
+
+  it("keeps only a safe repo-relative path and correlates the exact tool result", () => {
+    const s = parseSession(
+      transcript([
+        {
+          type: "assistant",
+          timestamp: "2026-09-18T12:00:00.000Z",
+          cwd: "/workspace/repo",
+          message: {
+            content: [
+              {
+                type: "tool_use",
+                id: "write-ok",
+                name: "Write",
+                input: { file_path: "docs/receipt.md" },
+              },
+              {
+                type: "tool_use",
+                id: "edit-failed",
+                name: "Edit",
+                input: { file_path: "src/a.ts" },
+              },
+              {
+                type: "tool_use",
+                id: "no-result",
+                name: "Write",
+                input: { file_path: "src/b.ts" },
+              },
+            ],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            content: [
+              { type: "tool_result", tool_use_id: "write-ok", is_error: false, content: "ok" },
+              {
+                type: "tool_result",
+                tool_use_id: "edit-failed",
+                is_error: true,
+                content: "not found",
+              },
+              { type: "tool_result", tool_use_id: "unrelated", is_error: false, content: "ok" },
+            ],
+          },
+        },
+      ]),
+    );
+    expect(s.observedArtifactWrites).toEqual([
+      {
+        actor: "orchestrator",
+        at: "2026-09-18T12:00:00.000Z",
+        source: "native-write",
+        outcome: "success",
+        location: { state: "repo-relative", path: "docs/receipt.md" },
+      },
+      {
+        actor: "orchestrator",
+        at: "2026-09-18T12:00:00.000Z",
+        source: "native-edit",
+        outcome: "failed",
+        location: { state: "repo-relative", path: "src/a.ts" },
+      },
+      {
+        actor: "orchestrator",
+        at: "2026-09-18T12:00:00.000Z",
+        source: "native-write",
+        outcome: "unknown",
+        location: { state: "repo-relative", path: "src/b.ts" },
+      },
+    ]);
+  });
+
+  it("uses notebook_path for NotebookEdit and correlates success, failure, and unknown results", () => {
+    const s = parseSession(
+      transcript([
+        {
+          type: "assistant",
+          timestamp: "2026-09-18T12:00:00.000Z",
+          cwd: "/workspace/repo",
+          message: {
+            content: [
+              {
+                type: "tool_use",
+                id: "notebook-ok",
+                name: "NotebookEdit",
+                input: { notebook_path: "notebooks/analysis.ipynb" },
+              },
+              {
+                type: "tool_use",
+                id: "notebook-failed",
+                name: "NotebookEdit",
+                input: { notebook_path: "notebooks/missing.ipynb" },
+              },
+              {
+                type: "tool_use",
+                id: "notebook-unknown",
+                name: "NotebookEdit",
+                input: { notebook_path: "notebooks/pending.ipynb" },
+              },
+            ],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            content: [
+              { type: "tool_result", tool_use_id: "notebook-ok", is_error: false, content: "ok" },
+              {
+                type: "tool_result",
+                tool_use_id: "notebook-failed",
+                is_error: true,
+                content: "not found",
+              },
+            ],
+          },
+        },
+      ]),
+    );
+    expect(s.observedArtifactWrites).toEqual([
+      {
+        actor: "orchestrator",
+        at: "2026-09-18T12:00:00.000Z",
+        source: "native-notebook-edit",
+        outcome: "success",
+        location: { state: "repo-relative", path: "notebooks/analysis.ipynb" },
+      },
+      {
+        actor: "orchestrator",
+        at: "2026-09-18T12:00:00.000Z",
+        source: "native-notebook-edit",
+        outcome: "failed",
+        location: { state: "repo-relative", path: "notebooks/missing.ipynb" },
+      },
+      {
+        actor: "orchestrator",
+        at: "2026-09-18T12:00:00.000Z",
+        source: "native-notebook-edit",
+        outcome: "unknown",
+        location: { state: "repo-relative", path: "notebooks/pending.ipynb" },
+      },
+    ]);
+  });
+
+  it("does not persist traversal, external, control-character, or secret-shaped paths", () => {
+    const files = [
+      "../outside.md",
+      "..\\outside.md",
+      "docs/..\\..\\outside.md",
+      "docs\\..\\../outside.md",
+      "/private/tmp/outside.md",
+      "docs/unsafe\u0000.md",
+      "docs/gho_abcdefghijklmnopqrstuvwxyz.md",
+    ];
+    const s = parseSession(
+      transcript([
+        {
+          type: "assistant",
+          timestamp: "2026-09-18T12:00:00.000Z",
+          cwd: "/workspace/repo",
+          message: {
+            content: files.map((file_path, index) => ({
+              type: "tool_use",
+              id: `write-${index}`,
+              name: "Write",
+              input: { file_path },
+            })),
+          },
+        },
+      ]),
+    );
+    expect(s.observedArtifactWrites?.map((event) => event.location)).toEqual([
+      { state: "outside-workspace" },
+      { state: "outside-workspace" },
+      { state: "outside-workspace" },
+      { state: "outside-workspace" },
+      { state: "outside-workspace" },
+      { state: "redacted" },
+      { state: "redacted" },
+    ]);
+    const serializedWrites = JSON.stringify(s.observedArtifactWrites);
+    expect(serializedWrites).not.toContain("gho_");
+    expect(serializedWrites).not.toContain("outside.md");
+    expect(serializedWrites).not.toContain("..\\outside.md");
+  });
+});
+
 describe("parse: session shape", () => {
   const s = parseSession(FIXTURE);
 

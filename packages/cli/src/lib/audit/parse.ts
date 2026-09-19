@@ -1,10 +1,11 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   type AgentRun,
   type HookEvent,
   type InjectedContext,
   type PermissionDecisions,
+  type ObservedArtifactWrite,
   type SessionAudit,
   type SkillSource,
   type SkillUse,
@@ -203,6 +204,90 @@ function toolUses(lines: Rec[]): Rec[] {
     }
   }
   return out;
+}
+
+const SECRET_PATH_PATTERN =
+  /(?:gh[opsu]_[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{8,}|(?:api[_-]?key|token|password|secret)\s*[:=])/i;
+
+/** Projects a requested native path into a report-safe workspace location. */
+function hasControlCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  });
+}
+
+function safeArtifactLocation(
+  rawPath: unknown,
+  cwd: string | null,
+): ObservedArtifactWrite["location"] {
+  if (typeof rawPath !== "string" || rawPath.length === 0 || rawPath.length > 1024) {
+    return { state: "redacted" };
+  }
+  if (hasControlCharacter(rawPath) || SECRET_PATH_PATTERN.test(rawPath) || !cwd) {
+    return { state: "redacted" };
+  }
+  const normalizedPath = rawPath.replaceAll("\\", "/");
+  const absolute = resolve(cwd, normalizedPath);
+  const relativePath = relative(cwd, absolute);
+  if (
+    relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${"/"}`) ||
+    isAbsolute(relativePath)
+  ) {
+    return { state: "outside-workspace" };
+  }
+  return { state: "repo-relative", path: relativePath.replaceAll("\\", "/") };
+}
+
+/** Collect native write requests and correlate each only with its matching result. */
+function observedArtifactWrites(
+  lines: Rec[],
+  cwd: string | null,
+  actor: ObservedArtifactWrite["actor"],
+): ObservedArtifactWrite[] {
+  const results = new Map<string, "success" | "failed">();
+  for (const line of lines) {
+    if (str(line.type) !== "user") continue;
+    for (const block of arr(path(line, "message", "content"))) {
+      if (!isRec(block) || str(block.type) !== "tool_result") continue;
+      const id = str(block.tool_use_id) ?? str(block.toolUseId);
+      if (id) results.set(id, block.is_error === true ? "failed" : "success");
+    }
+  }
+
+  const writes: ObservedArtifactWrite[] = [];
+  for (const line of lines) {
+    if (str(line.type) !== "assistant") continue;
+    for (const block of arr(path(line, "message", "content"))) {
+      if (!isRec(block) || str(block.type) !== "tool_use") continue;
+      const name = str(block.name);
+      const source =
+        name === "Write"
+          ? "native-write"
+          : name === "Edit"
+            ? "native-edit"
+            : name === "NotebookEdit"
+              ? "native-notebook-edit"
+              : null;
+      if (!source) continue;
+      const toolId = str(block.id);
+      writes.push({
+        actor,
+        at: str(line.timestamp),
+        source,
+        outcome: toolId ? (results.get(toolId) ?? "unknown") : "unknown",
+        location: safeArtifactLocation(
+          name === "NotebookEdit"
+            ? path(block, "input", "notebook_path")
+            : path(block, "input", "file_path"),
+          cwd,
+        ),
+      });
+    }
+  }
+  return writes;
 }
 
 /**
@@ -929,6 +1014,7 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
     .find((m): m is string => m !== null);
 
   const skills = collectSkills(uses, lines);
+  const cwd = str(lines.find((l) => str(l.cwd))?.cwd);
   return {
     agentId,
     agentType,
@@ -957,6 +1043,7 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
     repeatedCommands: repeatedCommands(uses),
     classifierExemptBash: countClassifierExemptBash(uses),
     verdict: findVerdict(lines),
+    observedArtifactWrites: observedArtifactWrites(lines, cwd, agentId),
   };
 }
 
@@ -1067,6 +1154,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
 
   const skills = collectSkills(uses, lines);
   const byMode = countByMode(lines);
+  const cwd = str(lines.find((l) => str(l.cwd))?.cwd);
   return {
     sessionId,
     startedAt: first,
@@ -1079,7 +1167,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
       queuedSystem: queuedSystemPrompts,
     },
     gitBranch: str(lines.find((l) => str(l.gitBranch))?.gitBranch),
-    cwd: str(lines.find((l) => str(l.cwd))?.cwd),
+    cwd,
     ccVersions,
     // Filled by `attachHookEvents` from the log's `start` record: the transcript
     // never names navori, only the host.
@@ -1116,6 +1204,10 @@ export function parseSession(mainJsonl: string): SessionAudit {
     permissions: emptyPermissionDecisions(),
     toolErrorTypes: {},
     hostSkills: [],
+    observedArtifactWrites: [
+      ...observedArtifactWrites(lines, cwd, "orchestrator"),
+      ...agents.flatMap((agent) => agent.observedArtifactWrites ?? []),
+    ],
     parseErrors,
     linesRead,
   };

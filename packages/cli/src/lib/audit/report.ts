@@ -947,6 +947,34 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
       );
     }
 
+    const observedWrites = s.observedArtifactWrites;
+    if (observedWrites === undefined) {
+      out.push(
+        "",
+        t(
+          lang,
+          "**Artifacts observados:** no disponible — esta sesión se serializó antes de que el parser conservara observaciones de Write/Edit.",
+          "**Observed artifacts:** unavailable — this session was serialized before the parser retained Write/Edit observations.",
+        ),
+      );
+    } else {
+      const successful = observedWrites.filter((event) => event.outcome === "success").length;
+      const failed = observedWrites.filter((event) => event.outcome === "failed").length;
+      const unknown = observedWrites.length - successful - failed;
+      const outside = observedWrites.filter(
+        (event) => event.location.state === "outside-workspace",
+      ).length;
+      const redacted = observedWrites.filter((event) => event.location.state === "redacted").length;
+      out.push(
+        "",
+        t(
+          lang,
+          `**Artifacts observados:** ${observedWrites.length} solicitudes nativas (éxito ${successful}, fallidas ${failed}, resultado desconocido ${unknown}); rutas fuera del workspace ${outside}, redactadas ${redacted}. Esto observa llamadas Write/Edit; no declara handoffs, feature, consumidor ni estado.`,
+          `**Observed artifacts:** ${observedWrites.length} native requests (success ${successful}, failed ${failed}, outcome unknown ${unknown}); outside-workspace paths ${outside}, redacted ${redacted}. This observes Write/Edit calls; it does not declare a handoff, feature, consumer, or status.`,
+        ),
+      );
+    }
+
     out.push(
       "",
       `### ${t(lang, "En qué se fueron los tokens", "Where the tokens went")}`,
@@ -1270,7 +1298,7 @@ export function buildReport(
     .sort();
 
   return {
-    schemaVersion: 8,
+    schemaVersion: 9,
     generatedBy: `navori@${opts.version}`,
     generatedAt: (opts.now ?? new Date()).toISOString(),
     repo: opts.repo,

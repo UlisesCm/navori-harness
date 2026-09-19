@@ -117,6 +117,23 @@ export interface AgentRun {
   classifierExemptBash: number;
   /** Verdict string found in the run's output, when the agent emits one. */
   verdict: "APPROVED" | "CHANGES_REQUESTED" | null;
+  /** Native file writes observed in this run's Claude transcript. */
+  observedArtifactWrites?: ObservedArtifactWrite[];
+}
+
+/** A safe projection of a native Claude file-write request.
+ *
+ * This is deliberately not a handoff declaration: transcripts do not state a
+ * feature, consumer, or review status. Paths are retained only after resolving
+ * them beneath the transcript's cwd; command text and tool arguments never
+ * enter the audit model.
+ */
+export interface ObservedArtifactWrite {
+  actor: "orchestrator" | string;
+  at: string | null;
+  source: "native-write" | "native-edit" | "native-notebook-edit";
+  outcome: "success" | "failed" | "unknown";
+  location: { state: "repo-relative"; path: string } | { state: "outside-workspace" | "redacted" };
 }
 
 /**
@@ -541,6 +558,13 @@ export interface SessionAudit {
    * alternative is a filter that shrinks the list in silence.
    */
   hostSkills: SkillUse[];
+  /**
+   * Native Write/Edit requests Claude's transcript could correlate to a tool
+   * result. Undefined means this source was unavailable (for example a legacy
+   * serialized session); an empty array means Claude was parsed and observed
+   * no native artifact writes.
+   */
+  observedArtifactWrites?: ObservedArtifactWrite[];
   /** Unparseable or unknown lines, counted instead of thrown. */
   parseErrors: number;
   /** Total lines seen, so `parseErrors` can be read as a ratio. */
@@ -821,8 +845,10 @@ export interface AuditReport {
    *  `signals` because their scope is different — the first one qualifies every
    *  aggregate in the report, and a consumer has to be able to tell "this
    *  session did X" from "these totals mix harness versions".
+   *  Bumped to 9 with `observedArtifactWrites`, a safe native Write/Edit
+   *  observation that distinguishes an unavailable source from zero writes.
    *  A reader can tell the shapes apart by this number alone. */
-  schemaVersion: 8;
+  schemaVersion: 9;
   generatedBy: string;
   /**
    * When this report was built, ISO-8601.
