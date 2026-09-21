@@ -286,6 +286,27 @@ describe("core agent assets — scout and auditor declare each brief with its ou
 });
 
 /**
+ * #900 — the scope-boundary obligation ("What I did NOT look at") lived only
+ * in the artifact template, so a scout/auditor answering inline (no artifact)
+ * had no safeguard against a false universal negative. The hard rule must
+ * name the exact scope (paths + pattern) and say it applies inline too.
+ */
+describe("core agent assets — scout and auditor forbid universal negatives (#900)", () => {
+  it("scout's hard rule requires naming the searched scope and applies inline", () => {
+    const body = readAgent("scout");
+    expect(body).not.toContain('say "I didn\'t find X in the repo"');
+    expect(body).toContain("a negative is never universal");
+    expect(body).toContain("whether you write an artifact or answer inline");
+  });
+
+  it("auditor's hard rule requires naming the searched scope and applies inline", () => {
+    const body = readAgent("auditor");
+    expect(body).toContain("A negative finding is never universal");
+    expect(body).toContain("whether you write an artifact or answer inline");
+  });
+});
+
+/**
  * Spec 0026 T19 (R47, R48, R51) — `architect` proposes what to build and why
  * (`solution-design`'s method), but never issues the READY/CONCERNS/BLOCKED
  * verdict, never decomposes into implementer tasks, and stays within its own
