@@ -62,6 +62,7 @@ export const ROSTER_CORE_SKILLS: ReadonlyArray<string> = [
   "debug-failure",
   "review-diff",
   "security-invariants",
+  "secure-by-design",
   "locate-code",
 ];
 
@@ -75,6 +76,7 @@ export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
   "spec-bootstrap",
   "dominio",
   "follow-up-prs",
+  "quality-attributes",
 ];
 
 /** The two adapters that place a managed marker, and so can retire one. */

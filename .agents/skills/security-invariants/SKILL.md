@@ -6,7 +6,7 @@ metadata:
   maxWords: 1200
 ---
 
-<!-- navori:managed id="security-invariants-base" hash="d70de375" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="security-invariants-base" hash="8a08c119" version="0.9.0" source="@navori/core" -->
 # Security invariants — the business security layer
 
 Feeds the `/security-review` flow and is the single owner of the security checklist for `reviewer` and `auditor`. `semgrep` is an OPT-IN plugin, not a given, so the business invariants below (authorization, IDOR, trust) sit next to a compact fallback list (§7) for the generic patterns a scanner would otherwise catch.
@@ -29,8 +29,8 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 
 ## 3. Auth error handling
 
-- Authentication / authorization errors (expired session, locked account, 401/403) are handled **globally and fail-closed** (logout / redirect), not swallowed locally nor shown inline as a form error.
-- Define the backend's error-code contract (e.g. 401 session, 423 lock, 429 rate-limit) and respect it. Custom handling of those codes in a one-off component is a finding.
+- A **401** means authentication is missing or invalid: handle it globally and fail closed (session reset / redirect). A **403** means an authenticated principal lacks permission: preserve the valid session, deny the action, and show/route the access outcome without retrying as another identity. Do not collapse them into logout behavior.
+- Define the backend's error-code contract (for example 401 session, 403 authorization, 423 lock, 429 rate-limit) and respect it. Custom handling of those codes in a one-off component is a finding.
 
 ## 4. Secrets and environment variables
 
@@ -72,25 +72,24 @@ This list is a manual substitute, not a replacement — where a scanner plugin i
 3. Cross-check with the **rules specific to your stack** (below): the concrete names of your guards, error codes and env prefixes live there — without that, the review only covers the universal layer.
 <!-- /navori:managed id="security-invariants-base" -->
 
-<!-- navori:managed id="semgrep-review-extension" hash="d5aa04ca" version="0.8.7" source="@navori/plugin-semgrep" -->
+<!-- navori:managed id="semgrep-review-extension" hash="5ef278f1" version="0.9.0" source="@navori/plugin-semgrep" -->
 ## Local security gate (semgrep)
 
-Before closing a relevant change (auth, RBAC, secrets, input validation), run semgrep over the diff.
+Before closing a relevant change (auth, RBAC, secrets, input validation), run
+the repository's canonical gate command:
 
-- Quick diff scan:
-  ```
-  git diff --name-only main...HEAD | xargs semgrep scan --config=p/default --error --metrics=off
-  ```
-- Full project scan (slower, opt-in):
-  ```
-  semgrep scan --config=p/default --error --metrics=off
-  ```
-- `p/default` (not `auto`) on purpose: deterministic and telemetry-off — mirrors the plugin's check script.
+```
+bun run semgrep:check
+```
+
+The script diffs `main...HEAD` and scans it with
+`--config=p/default --error --metrics=off` (deterministic, telemetry-off) —
+do not recreate that scoping or those flags with a manual `xargs` command.
 - Custom rules: see `.semgrep.yml` at the repo root if it exists.
 - Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
 
 The commit/push gate runs this for you (`PreToolUse`), so this text is the
-reasoning and the manual command — not the mechanism.
+reasoning and the canonical command — not a second mechanism.
 <!-- /navori:managed id="semgrep-review-extension" -->
 
 ## Your stack's security invariants

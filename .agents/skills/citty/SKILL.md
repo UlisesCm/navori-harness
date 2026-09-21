@@ -1,11 +1,12 @@
 ---
 name: citty
-description: Use when adding or editing a CLI command with citty — defineCommand, runMain, typed args (positional/string/boolean/enum), subCommands, and run/setup/cleanup hooks.
+description: Use when adding or editing a CLI command with citty 0.1 — defineCommand, runMain, typed positional/string/boolean args, subCommands, and run/setup/cleanup hooks.
 metadata:
   type: reference
+  maxWords: 550
 ---
 
-<!-- navori:managed id="citty" hash="680d607e" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="citty" hash="383d4338" version="0.9.0" source="@navori/core" -->
 # Citty — command definitions
 
 ## When to use this skill
@@ -23,12 +24,14 @@ const build = defineCommand({
   meta: { name: "build", description: "Build the project" },
   args: {
     entry: { type: "positional", required: true, description: "Entry file" },
-    mode: { type: "enum", options: ["dev", "prod"], default: "dev" },
+    mode: { type: "string", default: "dev", description: "dev or prod" },
     minify: { type: "boolean", description: "Minify output" },
     out: { type: "string", alias: ["o"], valueHint: "dir" },
   },
   run({ args }) {
-    // args.entry, args.mode, args.minify, args.out (kebab also → camelCase)
+    if (args.mode !== "dev" && args.mode !== "prod") {
+      throw new Error("--mode must be dev or prod");
+    }
   },
 });
 
@@ -52,7 +55,7 @@ runMain(main);
 
 1. One `defineCommand` per file, exported; wire the tree in the entrypoint, `runMain` once.
 2. Declare every input in `args` with an explicit `type` and `description` — never read `rawArgs` by hand.
-3. `enum` args always carry `options`; give user flags a `default` so `run` never sees `undefined`.
+3. Citty 0.1 supports only `positional`, `string`, and `boolean`; validate constrained strings in `run`.
 4. Lazy-load heavy subcommands: `sub: () => import("./sub.ts").then((m) => m.default)`.
 5. Side effects (fs, network) live in `run`, never at module top level — imports stay pure.
 6. Use `required: true` for mandatory input; let citty throw rather than validating presence yourself.
@@ -63,7 +66,7 @@ runMain(main);
 |---|---|
 | Named flag | `{ type: "string", alias: ["o"] }` |
 | Yes/no flag | `{ type: "boolean" }` (`--no-x` negates) |
-| Constrained choice | `{ type: "enum", options: [...] }` |
+| Constrained choice | `{ type: "string" }` plus validation in `run` |
 | Required arg | `{ type: "positional", required: true }` |
 | Nested command | `subCommands: { build }` |
 | Lazy subcommand | `() => import("./x.ts").then((m) => m.default)` |

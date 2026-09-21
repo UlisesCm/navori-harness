@@ -363,8 +363,8 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
       // The permission rule for it stays in settings.json — the operator still
       // runs it by hand — but this canary tracks what ASSETS order, not what is
       // allowed.
-      "jscpd --silent", // CLAUDE.md, duplication gate
-      "semgrep scan --config=p/default --error --metrics=off", // CLAUDE.md, security gate
+      "bun run jscpd:check", // review-diff skill (#614), duplication gate
+      "bun run semgrep:check", // security-invariants skill (#614), security gate
       "git push -u origin HEAD", // publisher.md, PR flow step 4 (#499)
     ]) {
       expect(commands, `the extractor no longer finds "${known}"`).toContain(known);

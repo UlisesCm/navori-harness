@@ -28,8 +28,8 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 
 ## 3. Auth error handling
 
-- Authentication / authorization errors (expired session, locked account, 401/403) are handled **globally and fail-closed** (logout / redirect), not swallowed locally nor shown inline as a form error.
-- Define the backend's error-code contract (e.g. 401 session, 423 lock, 429 rate-limit) and respect it. Custom handling of those codes in a one-off component is a finding.
+- A **401** means authentication is missing or invalid: handle it globally and fail closed (session reset / redirect). A **403** means an authenticated principal lacks permission: preserve the valid session, deny the action, and show/route the access outcome without retrying as another identity. Do not collapse them into logout behavior.
+- Define the backend's error-code contract (for example 401 session, 403 authorization, 423 lock, 429 rate-limit) and respect it. Custom handling of those codes in a one-off component is a finding.
 
 ## 4. Secrets and environment variables
 

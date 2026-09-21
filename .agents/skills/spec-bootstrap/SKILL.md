@@ -12,7 +12,7 @@ metadata:
   maxWordsComposed: 750
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="0c8833d8" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="spec-bootstrap" hash="0c8833d8" version="0.9.0" source="@navori/core" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## When to use this skill

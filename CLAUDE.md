@@ -60,7 +60,7 @@ Protocolo global activo. En este repo:
 - **El harness se auto-hospeda en este repo** (commitea `.claude/` + `CLAUDE.md` + `navori.config.json`; excepción `/bonum`, donde va gitignored) ([why](docs/DIRECTION.md)). Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
 - Branch base: definir cuando se inicialice el repo git.
 
-<!-- navori:managed id="idioma-rol" hash="5d83b387" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="idioma-rol" hash="5d83b387" version="0.9.0" source="@navori/core" -->
 ## Idioma y rol
 
 - Código y comentarios (JSDoc/docstrings): inglés. Chat: español MX.
@@ -70,7 +70,7 @@ Protocolo global activo. En este repo:
 - Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones, coloquialismos) en artefactos — eso es exclusivo del chat.
 <!-- /navori:managed id="idioma-rol" -->
 
-<!-- navori:managed id="formato-respuesta" hash="3c6c3b24" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="formato-respuesta" hash="3c6c3b24" version="0.9.0" source="@navori/core" -->
 ## Concisión (aplica a todo: chat y subagentes)
 
 - Lidera con el resultado: la primera línea responde "qué pasó / qué encontré", no el preámbulo.
@@ -92,7 +92,7 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 **Commits**: atómicos y en el estilo configurado por `commits`.
 <!-- /navori:managed id="formato-respuesta" -->
 
-<!-- navori:managed id="tipado-fuerte" hash="775c6205" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="tipado-fuerte" hash="775c6205" version="0.9.0" source="@navori/core" -->
 ## Strong typing
 
 `any` is forbidden. Use `unknown` + narrowing. Type explicitly: parameters, returns, callbacks, events, props, hooks, and service responses.
@@ -100,7 +100,7 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 Exception: `// any justified: <reason>` — last resort, not a shortcut. If there's no clear reason, it's not justified.
 <!-- /navori:managed id="tipado-fuerte" -->
 
-<!-- navori:managed id="operaciones-seguras" hash="a7fdfad8" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="operaciones-seguras" hash="a7fdfad8" version="0.9.0" source="@navori/core" -->
 ## Operations on data and infrastructure
 
 Read-only by default. Before mutating data, schema, or infrastructure (DB, deploys, cloud), read and propose — no mutation without the user's explicit opt-in.
@@ -117,7 +117,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, deplo
 **The permission mode decides what you CAN do — read it before planning how.** The host sets it, you never change it. `dontAsk` isn't supported today (`Edit`/`Write` aren't pre-approved, so the implement/review cycle can't run). Reference: https://code.claude.com/docs/en/permission-modes
 <!-- /navori:managed id="operaciones-seguras" -->
 
-<!-- navori:managed id="sdd" hash="e3a0474f" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="sdd" hash="e3a0474f" version="0.9.0" source="@navori/core" -->
 ## Spec Driven Development (SDD)
 
 **When to PROPOSE a spec**: real scope — a complete new feature, changes to auth/security/permissions, adapters or models with sensitive data, or scope > ~2 days. UI bugfixes, a new field in a form, isolated refactors, or copy tweaks go straight in. Crossing it makes SDD a **recommendation you put to the user**: the route is opt-in, so the spec starts only on their explicit request or accepted proposal.
@@ -129,7 +129,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, deplo
 Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`orchestrator`→`implementer`→`reviewer`) — lives in `spec-bootstrap`, user-invoked only: propose SDD, ask the user to run `/spec-bootstrap`.
 <!-- /navori:managed id="sdd" -->
 
-<!-- navori:managed id="intake-tickets" hash="071e0101" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="intake-tickets" hash="071e0101" version="0.9.0" source="@navori/core" -->
 ## Tickets: problem first, proposed solution second
 
 A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a proposed solution. Treat them differently:
@@ -142,7 +142,7 @@ A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a 
 The `resolve-ticket` skill runs this as a pipeline; the `auditor` agent produces the verdict with evidence.
 <!-- /navori:managed id="intake-tickets" -->
 
-<!-- navori:managed id="code-discovery-routing" hash="64eb5632" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="code-discovery-routing" hash="64eb5632" version="0.9.0" source="@navori/core" -->
 ## Code discovery routing
 
 Choose by the missing information, not by keywords or a fixed tool sequence.
@@ -157,7 +157,7 @@ Choose by the missing information, not by keywords or a fixed tool sequence.
 - Validate changes with the project's compiler, linter and tests; discovery is not validation.
 <!-- /navori:managed id="code-discovery-routing" -->
 
-<!-- navori:managed id="gh-protocol" hash="b2d02c0b" version="0.8.7" source="@navori/plugin-gh" -->
+<!-- navori:managed id="gh-protocol" hash="b2d02c0b" version="0.9.0" source="@navori/plugin-gh" -->
 ## GitHub CLI (gh)
 
 To interact with GitHub (issues, PRs, repos) use **gh**:
@@ -172,19 +172,19 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 `gh auth status` shows whether you're authenticated. If it fails, run `gh auth login`.
 <!-- /navori:managed id="gh-protocol" -->
 
-<!-- navori:managed id="tgrep-search-v2" hash="71340512" version="0.8.7" source="@navori/plugin-tgrep" -->
+<!-- navori:managed id="tgrep-search-v2" hash="71340512" version="0.9.0" source="@navori/plugin-tgrep" -->
 ### Textual provider: tgrep
 
 Use `tgrep search -n [flags] -- PATTERN ROOT`; without `-n` piped output has no line numbers. Prefer `-F` for literals. Scope by directory or `-t TYPE`; broad queries start with `-l`, then selected files and `-C 2`. Positive `-g` forces a scan. Use `--hidden` only for intended hidden paths. Missing index can fall back to scanning. For edits that must be visible now, use `--no-index`; status is not proof of freshness. Exit 1 means no matches, 2 means error. Preserve stderr. If unavailable, use native Grep. Do not install, start servers or reindex during ordinary discovery.
 <!-- /navori:managed id="tgrep-search-v2" -->
 
-<!-- navori:managed id="codegraph-search-v2" hash="733bfc60" version="0.8.7" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-search-v2" hash="733bfc60" version="0.9.0" source="@navori/plugin-codegraph" -->
 ### Structural provider: CodeGraph
 
 Use `codegraph_explore` for structural discovery when available. Pass the current checkout's absolute `projectPath`; do not substitute another worktree's index. Treat sufficient fresh verbatim source returned to this context as already read. Respect stale/disabled-watch warnings and report unresolved relationships; the graph is not proof of completeness. Never initialize an index during ordinary discovery. If this project is unindexed or the provider fails, use scoped native exploration. Do not call tgrep merely to confirm the same symbol. Source unavailable in this context is missing evidence, even if another agent saw it.
 <!-- /navori:managed id="codegraph-search-v2" -->
 
-<!-- navori:managed id="skills-index" hash="659e6742" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="skills-index" hash="7d36ba07" version="0.9.0" source="@navori/core" -->
 ## Skills disponibles
 
 Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. La nota tras el `·` dice cuándo usar cada una.
@@ -194,20 +194,22 @@ Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido
 - `debug-failure` — navori · Use when a command fails or the runtime misbehaves and you don't have a root cause yet
 - `review-diff` — navori · Use when reviewing a diff (staged, branch or PR)
 - `security-invariants` — navori · Use when running /security-review or auditing security
+- `secure-by-design` — navori · Use when a change is security-sensitive
 - `locate-code` — navori · Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site)
 - `resolve-ticket` — navori (workflow) · Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial
 - `solution-design` — navori (workflow) · Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, co…
 - `spec-bootstrap` — navori (workflow) · Use when starting a real-scope feature before writing code
 - `dominio` — navori (workflow) · Use when you discover a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cr…
 - `follow-up-prs` — navori (workflow) · Use when you resume a session with open PRs of yours, or when a check went red after a push
+- `quality-attributes` — navori (workflow) · Use when a task carries a non-functional requirement or architecture signal
 - `zod-validation` — library (detected) · Use when creating a Zod schema or validating input at a trust boundary
 - `vitest` — library (detected) · Use when writing or fixing unit/integration tests with Vitest
-- `citty` — library (detected) · Use when adding or editing a CLI command with citty
+- `citty` — library (detected) · Use when adding or editing a CLI command with citty 0.1
 - `clack` — library (detected) · Use when building interactive CLI prompts with @clack/prompts
 - `playwright-cli` — project-local · Automate browser interactions, test web pages and work with Playwright tests
 <!-- /navori:managed id="skills-index" -->
 
-<!-- navori:managed id="contexto-proyecto" hash="b1ef1c95" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="contexto-proyecto" hash="b1ef1c95" version="0.9.0" source="@navori/core" -->
 ## Contexto del proyecto
 
 Reglas activas derivadas de tu config (`project.*`). Aplican a todos los agentes.

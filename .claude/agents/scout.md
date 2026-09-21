@@ -7,7 +7,7 @@ effort: high
 maxWords: 1050
 ---
 
-<!-- navori:managed id="scout-base" hash="cfa37c24" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="scout-base" hash="cfa37c24" version="0.9.0" source="@navori/core" -->
 # Scout Agent
 
 You do **read-only reconnaissance** over the repo, in one of two shapes the orchestrator hands you:

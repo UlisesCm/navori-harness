@@ -3,7 +3,11 @@ name: solution-design
 description: Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, concurrency, critical area, hard-to-reverse decision) — decide WHAT to build and challenge it before decomposing into tasks.
 metadata:
   type: reference
-  maxWords: 1050
+  # 1090 y no el default de 500 (spec 0003 §3.2.1): esta skill ya cargaba el
+  # ciclo completo propose/challenge/verdict antes de spec 0029; el wiring
+  # hacia `secure-by-design`/`quality-attributes` (R3/R4) que esa spec agrega
+  # no cabía en los 3 palabras de margen que quedaban.
+  maxWords: 1090
 ---
 
 # solution-design — decide what to build, then try to break it
@@ -19,6 +23,10 @@ This answers **what to build and why** — not the implementation plan (*what fi
 in what order*), not code review (*did the code do what we agreed*). Design before
 decomposing: a contract, a state owner or a migration path moves task boundaries,
 so tasks written first get rewritten.
+
+A security-sensitive signal also routes through `secure-by-design`; a
+non-functional-requirement signal routes through `quality-attributes` for its
+evidence matrix. Neither replaces this skill's verdict.
 
 **Who does what (spec 0026 F, R49/R50).** Three roles, never collapsed: `architect`
 **proposes** (applies this skill, writes the artifact) when `harness.architect` is

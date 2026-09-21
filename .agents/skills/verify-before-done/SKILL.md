@@ -6,7 +6,7 @@ metadata:
   maxWords: 600
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="6803db04" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="e7b2b1c6" version="0.9.0" source="@navori/core" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -29,7 +29,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it �
 | Zero new errors vs baseline | `git diff --name-only main` — a failure outside that list predates you | "lint said OK", no comparison |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
-| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status` ok, `navori receipt check --feature <feature> --json` reports `"status":"ok"`, fresh gate evidence (reviewer's Pass-2 run; on a declared-inline change, your own run). No clean working tree required — it's the trigger | "the branch has commits, we can create it" |
+| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); declared-inline change, your own run. No clean working tree required | "the branch has commits, we can create it" |
 | Tests / type-check clean | Suite / `tsc --noEmit` run fresh, exit 0, this turn | "should still be green" |
 | A shell edit landed (`sed -i`, a `>` redirect) | Re-read the changed span, this turn | The exit code — `sed -i` exits 0 on no match, a misdirected `>` truncates the file |
 | Gate outlives Bash timeout, main session | `run_in_background`, wait on completion or `Monitor`; `TaskStop` unneeded tasks first | Polling (`pgrep`, `ps \| grep`) — matches other sessions' waits too |

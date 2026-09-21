@@ -3,9 +3,10 @@ name: vitest
 description: Use when writing or fixing unit/integration tests with Vitest — describe/it/expect, vi.mock hoisting, jsdom vs node env, coverage, fake timers.
 metadata:
   type: reference
+  maxWords: 550
 ---
 
-<!-- navori:managed id="vitest" hash="3b0e07a2" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="vitest" hash="43a8962a" version="0.9.0" source="@navori/core" -->
 # Vitest — conventions
 
 ## When to use this skill
@@ -35,7 +36,7 @@ describe('getUser', () => {
 
 ## Gotchas that bite
 
-- **`vi.mock` is hoisted above imports.** It runs before any `import`, so the factory cannot reference file-scope variables, and `vi` must come from `vitest`. Share a fn via `vi.hoisted`: `const { send } = vi.hoisted(() => ({ send: vi.fn() }))`.
+- **`vi.mock` is hoisted above imports.** It runs before any `import`, so the factory cannot reference file-scope variables, and `vi` must come from `vitest`. Share a fn via `vi.hoisted`: `const { send } = vi.hoisted(() => ({ send: vi.fn() }))`. Use `vi.doMock` only when a test deliberately needs a non-hoisted dynamic import.
 - **Wrong `environment` = `document is not defined` or a slow suite.** Default is `node`; use `environment: 'jsdom'` (or `'happy-dom'`) for DOM, or `// @vitest-environment jsdom` per file.
 - **Unawaited async assertions pass silently.** `expect(p).resolves.toBe(x)` without `await`/`return` is a false green. Always `await expect(...).resolves` / `.rejects`.
 - **Fake timers must be paired.** `vi.useFakeTimers()` in setup, `vi.useRealTimers()` in teardown; advance with `await vi.advanceTimersByTimeAsync(ms)`, or callbacks never flush.

@@ -3,6 +3,7 @@ name: zod-validation
 description: Use when creating a Zod schema or validating input at a trust boundary — an HTTP body/query/params, but equally a config file, CLI args or env. Per-resource schemas, a generic validate middleware, inferred DTOs.
 metadata:
   type: reference
+  maxWords: 600
 ---
 
 # Zod Validation — the canonical pattern
@@ -30,6 +31,21 @@ export const createResourceSchema = z.object({
 export const updateResourceSchema = createResourceSchema.partial();
 export type CreateResourceDto = z.infer<typeof createResourceSchema>;
 ```
+
+For query strings and route params, reject repeated values before coercion:
+
+```ts
+const paginationQuery = z.object({
+  page: z
+    .string()
+    .optional()
+    .transform((value) => (value === undefined ? 1 : Number(value)))
+    .pipe(z.number().int().positive()),
+});
+```
+
+`z.string()` rejects a `string[]` before transformation; `z.coerce` is not a
+parser for arbitrary request shapes.
 
 Route: `router.post('/', validate(createResourceSchema, 'body'), ...)`. The controller's `req.body as CreateResourceDto` cast is safe: already parsed.
 

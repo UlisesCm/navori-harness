@@ -18,7 +18,7 @@ metadata:
   maxWordsComposed: 700
 ---
 
-<!-- navori:managed id="locate-code-base" hash="ce861fbd" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="locate-code-base" hash="ce861fbd" version="0.9.0" source="@navori/core" -->
 # locate-code — bounded reading and AST shapes
 
 Read the minimum correct amount: confirm the region before opening it, and use `ast-grep` only for genuine syntactic shapes — it is not a call-graph.

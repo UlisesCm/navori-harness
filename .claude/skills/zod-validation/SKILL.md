@@ -3,9 +3,10 @@ name: zod-validation
 description: Use when creating a Zod schema or validating input at a trust boundary — an HTTP body/query/params, but equally a config file, CLI args or env. Per-resource schemas, a generic validate middleware, inferred DTOs.
 metadata:
   type: reference
+  maxWords: 600
 ---
 
-<!-- navori:managed id="zod-validation" hash="88a1b53a" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="zod-validation" hash="e77d43b3" version="0.9.0" source="@navori/core" -->
 # Zod Validation — the canonical pattern
 
 One schema per resource (`<resource>.schema.ts`), a generic validate middleware, and the DTO from `z.infer`.
@@ -31,6 +32,21 @@ export const createResourceSchema = z.object({
 export const updateResourceSchema = createResourceSchema.partial();
 export type CreateResourceDto = z.infer<typeof createResourceSchema>;
 ```
+
+For query strings and route params, reject repeated values before coercion:
+
+```ts
+const paginationQuery = z.object({
+  page: z
+    .string()
+    .optional()
+    .transform((value) => (value === undefined ? 1 : Number(value)))
+    .pipe(z.number().int().positive()),
+});
+```
+
+`z.string()` rejects a `string[]` before transformation; `z.coerce` is not a
+parser for arbitrary request shapes.
 
 Route: `router.post('/', validate(createResourceSchema, 'body'), ...)`. The controller's `req.body as CreateResourceDto` cast is safe: already parsed.
 
