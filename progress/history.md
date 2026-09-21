@@ -1899,3 +1899,52 @@ palanca no es `navori add tgrep`, es `render --apply`.
 **Gate**: verde en el último ciclo (#742) — 218 archivos, 3,773 tests, bundle 939.9KB de 1000,
 coverage floor con 69 módulos. Sin código editado después de esa corrida.
 
+
+## 2026-09-21 14:48 orchestrator — engram recortado en vez de reemplazado: dos PRs, y tres mediciones que tumbaron la hipótesis inicial
+
+**Cerrado**: PR #896 (mergeado) y PR #898 (abierto, CI verde). Issue #895 abierto.
+
+**La spec que no se escribió.** La sesión empezó con el encargo de redactar la spec 0030 para
+recortar la huella de contexto de engram. No existe, y es el resultado correcto: la medición la
+dejó sin objeto. Tres sondas idénticas variando solo el `tools:` de un subagente —19 herramientas,
+1, ninguna— dieron el mismo contexto dentro de ±71 tokens. Los 24.808 chars de esquemas MCP llegan
+deferidos y no se pagan. El ahorro teórico de ~68 KB era cero, y el comentario de `deriveMcpTools`
+que defendía el wildcard llevaba razón.
+
+**El cambio se hizo igual, con otra justificación.** `tools:` no ahorra contexto pero es la única
+capa exigible: la prosa del protocolo de engram es ajena y ordena guardar siempre, así que pedir
+moderación por escrito competía contra ella. `skills[].mcpTools` (opcional, ausente = wildcard de
+antes) reparte el servidor por rol: escriben orchestrator y auditor; implementer y reviewer quedan
+en solo lectura. Control de capacidad, no ahorro — el PR lo dice explícitamente para que nadie
+herede la afirmación falsa.
+
+**No se cambió de herramienta, y la investigación lo respalda.** mem0 quedó descartado con
+evidencia: su MCP oficial archivado, OpenMemory deprecado, ruta vigente cloud con API key, y una
+llamada a LLM por escritura. Ninguna alternativa (Letta, Zep/Graphiti, Cognee, Basic Memory) cumple
+local-first + binario único + multi-engine + instalable por CLI. Y el bug que más duele
+—`multiple active runtime sessions`— es del adaptador de Claude Code: se mudaría con nosotros.
+
+**El ruido era de datos, no de contexto.** 175 de 178 `session_summary` tenían título genérico —453
+KB invisibles para una búsqueda que lidera con el título—, 23 `passive` en ráfagas truncadas, 220
+de 927 con tipo `manual`. Purgadas 198 con soft-delete, tras respaldo verificado de la DB (52 MB,
+`integrity_check ok`). Enum de tipos cerrado en las skills, que es la única capa donde se puede:
+engram no valida `type` server-side.
+
+**Permisos: una regla que parecía protección y no lo era.** Abrir `engram save` exigía red de
+protección para el resto del binario. El patrón inicial `Bash(engram delete * --hard*)` no
+bloqueaba nada: el `*` intercalado es carácter literal en el matching del repo, y todas las reglas
+del archivo son prefijo fijo + `*` final. Se colapsó en un `deny` amplio sobre `engram delete`;
+el costo, aceptado por Ulises, es que purgar memoria pasa a ser manual.
+
+**Cinco ciclos de revisión, cinco hallazgos, ninguno cazable por los tests.** La asimetría
+grant/revoke en `withoutAgentMcpTools`, una afirmación falsa de rol (originada en un encargo mío),
+el patrón de permisos inerte, y dos fallos de alcance. Dos de los cinco los introduje yo al
+redactar encargos sin verificar lo que afirmaba.
+
+**Deuda declarada**: `docs/research/model-tier-token-savings-proposal.md` entró en `main` colado en
+#896; `.tgrep/` (16 MB) quedó sin ignorar al sacarlo del alcance de #898; el reordenamiento del
+gate (`lint`/`typecheck` antes de `test:coverage`, que convierte 171s en 3s ante un fallo mecánico)
+sigue sin registrar.
+
+**Gate**: verde en el Pass 2 del reviewer sobre el diff final de #898 — 246 archivos, 4395 tests,
+receipt firmado. Sin código editado después. CI de #898 en verde (2m13s).

@@ -34,6 +34,10 @@ coverage/
 # build artifacts
 **/*.tsbuildinfo
 
+# pnpm's local package store created when installing deps on this machine —
+# machine-local cache, not a repo artifact.
+.pnpm-store/
+
 # editor
 .vscode/
 .idea/
@@ -44,3 +48,7 @@ coverage/
 # gestiona esta entrada (salió de `CUBO_A_ENTRIES`); esta es de este repo, y
 # sobra el día que el directorio se borre.
 .codegraph/
+
+# Local textual-search index for the tgrep provider (see "Textual provider:
+# tgrep" in CLAUDE.md) — machine-local cache, rebuilt on demand.
+.tgrep/
