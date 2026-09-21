@@ -40,7 +40,10 @@ describe("#212 — .mcp.json materialization for Claude", () => {
     const parsed = JSON.parse(readFileSync(mcpPath, "utf-8"));
     expect(parsed.mcpServers.engram).toEqual({
       command: "engram",
-      args: ["mcp", "--tools=agent"],
+      args: [
+        "mcp",
+        "--tools=mem_search,mem_get_observation,mem_context,mem_save,mem_session_summary,mem_update,mem_judge",
+      ],
     });
     // stdio is the default → no `type` field emitted.
     expect(parsed.mcpServers.engram.type).toBeUndefined();

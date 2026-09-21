@@ -123,6 +123,14 @@ const SkillEntrySchema = z.object({
    * inside the target file instead of writing a standalone skill. Used
    * when a plugin extends an agent (e.g. engram → orchestrator.md). */
   injectInto: safeRelPath.optional(),
+  /**
+   * Narrows the `tools:` grant this skill's `injectInto` target receives to
+   * these tool names (bare, no `mcp__<id>__` prefix) instead of the whole
+   * server. Only meaningful alongside `injectInto` + the plugin's `mcpServer`;
+   * ignored otherwise. Omit to keep the wildcard grant — existing manifests
+   * need no change.
+   */
+  mcpTools: z.array(z.string().min(1)).optional(),
 });
 
 const PromptSelectOptionSchema = z.object({
@@ -191,6 +199,7 @@ export interface LoadedPlugin {
     absPath: string;
     recommendedAgent?: AgentRole;
     injectInto?: string;
+    mcpTools?: string[];
   }>;
 }
 
@@ -371,6 +380,7 @@ export function loadPlugin(pluginId: string): LoadedPlugin {
     absPath: containAgainstRoot(entry.file, "skills.file"),
     recommendedAgent: entry.recommendedAgent,
     injectInto: entry.injectInto,
+    mcpTools: entry.mcpTools,
   }));
 
   return { manifest, packageRoot, managedAssets, scriptAssets, skillAssets };

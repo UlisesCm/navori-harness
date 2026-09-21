@@ -17,7 +17,7 @@
     "command": "engram",
     "args": [
       "mcp",
-      "--tools=agent"
+      "--tools=mem_search,mem_get_observation,mem_context,mem_save,mem_session_summary,mem_update,mem_judge"
     ]
   },
   "settingsFragment": {
@@ -32,25 +32,36 @@
       "id": "engram-orchestrator-extension",
       "file": "skills/engram-orchestrator.md",
       "recommendedAgent": "orchestrator",
-      "injectInto": ".claude/agents/orchestrator.md"
+      "injectInto": ".claude/agents/orchestrator.md",
+      "mcpTools": [
+        "mem_search",
+        "mem_get_observation",
+        "mem_context",
+        "mem_save",
+        "mem_session_summary",
+        "mem_update"
+      ]
     },
     {
       "id": "engram-implementer-extension",
-      "file": "skills/engram-subagent.md",
+      "file": "skills/engram-subagent-readonly.md",
       "recommendedAgent": "implementer",
-      "injectInto": ".claude/agents/implementer.md"
+      "injectInto": ".claude/agents/implementer.md",
+      "mcpTools": ["mem_search", "mem_get_observation"]
     },
     {
       "id": "engram-reviewer-extension",
-      "file": "skills/engram-subagent.md",
+      "file": "skills/engram-subagent-readonly.md",
       "recommendedAgent": "reviewer",
-      "injectInto": ".claude/agents/reviewer.md"
+      "injectInto": ".claude/agents/reviewer.md",
+      "mcpTools": ["mem_search", "mem_get_observation"]
     },
     {
       "id": "engram-auditor-extension",
       "file": "skills/engram-subagent.md",
       "recommendedAgent": "auditor",
-      "injectInto": ".claude/agents/auditor.md"
+      "injectInto": ".claude/agents/auditor.md",
+      "mcpTools": ["mem_search", "mem_get_observation", "mem_save"]
     }
   ],
   "invariants": [
