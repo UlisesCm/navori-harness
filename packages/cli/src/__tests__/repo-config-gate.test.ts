@@ -412,3 +412,14 @@ describe("project.criticalAreas describes THIS product (#508.2)", () => {
     ).toEqual([]);
   });
 });
+
+describe("this repo's models/effort tiers (spec 0027-scribe-agent T1)", () => {
+  // Covers: R3
+  it("sets architect to opus/high and orchestrator to opus/medium", () => {
+    const config = readConfig(CONFIG_PATH);
+    expect(config.models?.architect).toBe("opus");
+    expect(config.effort?.architect).toBe("high");
+    expect(config.models?.orchestrator).toBe("opus");
+    expect(config.effort?.orchestrator).toBe("medium");
+  });
+});
