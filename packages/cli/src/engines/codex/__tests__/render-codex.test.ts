@@ -506,19 +506,57 @@ describe("adaptHarnessTextForCodex — the vocabulary rules (#443)", () => {
   });
 });
 
+/**
+ * #892 dropped `disable-model-invocation` from `spec-bootstrap.md` — the only
+ * asset in the whole catalog that ever declared it, and the fixture the
+ * manual-only sidecar tests below relied on. No real skill triggers this
+ * Codex mechanism anymore (kept as a general engine capability per #892's
+ * decision), so these tests now build a SYNTHETIC skill via a local preset
+ * (`.navori/presets/<id>/<id>.json`, resolved local-first by `loadPreset`)
+ * that still declares the flag, purely to keep the sidecar generation/pruning
+ * logic covered.
+ */
+function manualOnlyPresetConfig(cwd: string): NavoriConfig {
+  const presetId = "manual-only-fixture";
+  const presetDir = join(cwd, ".navori/presets", presetId);
+  mkdirSync(presetDir, { recursive: true });
+  writeFileSync(
+    join(presetDir, "manual-only-demo.md"),
+    "---\nname: manual-only-demo\ndescription: Use when testing the manual-only sidecar.\ndisable-model-invocation: true\nmetadata:\n  type: reference\n---\n\n# manual-only-demo\n\nSynthetic fixture skill, not shipped to any real repo.\n",
+  );
+  writeFileSync(
+    join(presetDir, `${presetId}.json`),
+    JSON.stringify({
+      id: presetId,
+      displayName: "Manual-only fixture",
+      extends: "core",
+      extras: {
+        skills: [
+          {
+            id: "manual-only-demo",
+            relPath: "manual-only-demo.md",
+            destRelPath: "skills/manual-only-demo.md",
+          },
+        ],
+      },
+    }),
+  );
+  return config({ preset: presetId });
+}
+
 describe("renderCodexEngine — manual-only skill sidecar (#823)", () => {
   it("does not copy disable-model-invocation into the rendered SKILL.md", () => {
     const cwd = tempRepo();
-    renderCodexEngine(cwd, config());
-    const skill = readFileSync(join(cwd, ".agents/skills/spec-bootstrap/SKILL.md"), "utf-8");
+    renderCodexEngine(cwd, manualOnlyPresetConfig(cwd));
+    const skill = readFileSync(join(cwd, ".agents/skills/manual-only-demo/SKILL.md"), "utf-8");
     expect(skill).not.toContain("disable-model-invocation");
   });
 
-  it("emits agents/openai.yaml for a flagged skill (spec-bootstrap)", () => {
+  it("emits agents/openai.yaml for a flagged skill", () => {
     const cwd = tempRepo();
-    renderCodexEngine(cwd, config());
+    renderCodexEngine(cwd, manualOnlyPresetConfig(cwd));
     const yaml = readFileSync(
-      join(cwd, ".agents/skills/spec-bootstrap/agents/openai.yaml"),
+      join(cwd, ".agents/skills/manual-only-demo/agents/openai.yaml"),
       "utf-8",
     );
     expect(yaml).toContain("policy:");
@@ -527,7 +565,7 @@ describe("renderCodexEngine — manual-only skill sidecar (#823)", () => {
 
   it("does not emit agents/openai.yaml for an unflagged skill", () => {
     const cwd = tempRepo();
-    renderCodexEngine(cwd, config());
+    renderCodexEngine(cwd, manualOnlyPresetConfig(cwd));
     // locate-code has no disable-model-invocation in its source frontmatter.
     expect(existsSync(join(cwd, ".agents/skills/locate-code/agents/openai.yaml"))).toBe(false);
   });
@@ -542,20 +580,18 @@ describe("renderCodexEngine — manual-only skill sidecar (#823)", () => {
 
   it("prunes a stale openai.yaml once the skill stops declaring disable-model-invocation", () => {
     const cwd = tempRepo();
-    renderCodexEngine(cwd, config());
-    const yamlPath = join(cwd, ".agents/skills/spec-bootstrap/agents/openai.yaml");
+    const withFlag = manualOnlyPresetConfig(cwd);
+    renderCodexEngine(cwd, withFlag);
+    const yamlPath = join(cwd, ".agents/skills/manual-only-demo/agents/openai.yaml");
     expect(existsSync(yamlPath)).toBe(true);
 
-    // Simulate the flag being dropped from the source asset between renders by
-    // hand-editing the rendered SKILL.md's disabled state is not representative
-    // (the source asset is what `isManualOnlySkill` reads) — instead, disable
-    // the harness's spec-bootstrap altogether via `sdd.enabled: false`, which
-    // removes the skill from the plan and must prune BOTH its SKILL.md and the
-    // now-orphaned sidecar.
-    const withoutSdd = config({ sdd: { enabled: false } });
-    renderCodexEngine(cwd, withoutSdd);
+    // Simulate the flag being dropped between renders by removing the skill
+    // from the plan entirely (switching back to the flag-free "custom"
+    // preset) — the orphan scan re-reads each skill's own frontmatter, so it
+    // must prune BOTH the stale SKILL.md and the now-orphaned sidecar.
+    renderCodexEngine(cwd, config());
 
     expect(existsSync(yamlPath)).toBe(false);
-    expect(existsSync(join(cwd, ".agents/skills/spec-bootstrap/SKILL.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".agents/skills/manual-only-demo/SKILL.md"))).toBe(false);
   });
 });
