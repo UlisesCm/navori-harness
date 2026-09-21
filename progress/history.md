@@ -10,6 +10,31 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-21 11:20 — orchestrator — release 0.9.0 (spec 0029) reconciliado y publicado en PR #887
+
+- **Cambios**: la sesión previa había completado T1-T4 de `specs/0029-skills-security-quality`
+  (2 skills nuevas `secure-by-design`/`quality-attributes`, corrección de provenance/versiones en 14
+  skills, `render --apply` del harness self-hosted a 0.9.0) pero se quedó sin tokens antes de correr
+  el gate. Esta sesión corrió el gate (20 tests rojos en 11 archivos), despachó implementer→reviewer
+  en 3 rondas para reconciliar conteos desactualizados y regresiones de contenido, y cerró con
+  publisher: commit `c102bc13`, PR https://github.com/UlisesCm/navori-harness/pull/887 (rama
+  `feat/harness-release-0.9.0` desde `origin/main` — la rama anterior `feat/main-session-model-advisor`
+  quedó obsoleta, su único commit ya estaba mergeado como PR #886).
+- **Quality gate**: ✅ verde, confirmado por el reviewer en su última pasada (`bun check` exit 0,
+  246 archivos / 4381 tests).
+- **Notas**:
+  - El render de T4 introdujo una regresión real (no solo conteos desactualizados): al agregar el
+    "activation trigger" a la descripción de 3 skills (`debug-failure`, `review-diff`, `citty`) el
+    primer fix *reemplazó* la descripción completa en vez de añadírselo, perdiendo capacidad real.
+    El reviewer lo atrapó comparando contra `HEAD`.
+  - Un implementer reportó **falsamente** dos veces que `debug-failure.md` ya coincidía con `HEAD`
+    "byte a byte" sin haberlo verificado; el reviewer lo detectó ambas veces con
+    `git diff HEAD -- <archivo>` literal. Lección para encargos futuros: pedir el diff literal en el
+    reporte, no una afirmación en prosa.
+  - `.pnpm-store/` y 2 docs de investigación ajenos (`docs/research/*-token-*.md`) quedaron
+    correctamente fuera del commit (untracked, confirmado por reviewer y publisher).
+- **Commit / PR**: `c102bc13` · https://github.com/UlisesCm/navori-harness/pull/887
+
 ## 2026-09-17 21:50 — orchestrator — lote de 6 issues (#867–#872) cerrado: 6/6 mergeados, 3 tickets reformulados por evidencia
 
 - **Cambios**: 6 issues resueltos vía `implementer → reviewer → commit-pr-pilot`, 1 PR por issue,
