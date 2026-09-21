@@ -1,4 +1,5 @@
-import { basename, join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { NavoriError } from "../errors.ts";
 import { safeHomedir } from "../home.ts";
 
@@ -37,16 +38,57 @@ export function auditsRoot(): string {
 }
 
 /**
+ * Directory-entry markers checked, in order, while walking up from a cwd to
+ * find its project root. `navori.config.json` comes first: it's this domain's
+ * OWN root marker, placed deliberately only where a project actually adopted
+ * navori, so it can't be fooled by an unrelated `.git` that happens to sit
+ * closer to the cwd (e.g. a docs-only sub-repo vendored inside a monorepo).
+ * `.git` is the fallback, since it covers every git repo navori runs
+ * against even without navori config — but in a worktree checkout `.git` is
+ * a FILE (a `gitdir:` pointer), not a directory, so the check below must
+ * accept either and not assume a directory entry.
+ */
+const PROJECT_ROOT_MARKERS = ["navori.config.json", ".git"];
+
+/**
+ * Walks up from `startDir` (inclusive) for the nearest ancestor containing
+ * one of `PROJECT_ROOT_MARKERS`. Returns `undefined` when none is found
+ * before reaching the filesystem root, so the caller can fall back instead
+ * of misattributing an unrelated ancestor.
+ */
+function findProjectRoot(startDir: string): string | undefined {
+  let dir = startDir;
+  for (;;) {
+    if (PROJECT_ROOT_MARKERS.some((marker) => existsSync(join(dir, marker)))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+/**
  * Resolves the audit repo name from a working directory path.
  *
- * If `cwd` is inside an agent worktree (`/.claude/worktrees/<agent-id>`),
- * the path is truncated at `/.claude/worktrees` to attribute the session
- * to the parent repository rather than creating a phantom repo directory
- * named after the agent (#764).
+ * Two steps, in this order:
+ * 1. If `cwd` is inside an agent worktree (`/.claude/worktrees/<agent-id>`),
+ *    the path is truncated at `/.claude/worktrees` to attribute the session
+ *    to the parent repository rather than creating a phantom repo directory
+ *    named after the agent (#764). This runs FIRST because a worktree
+ *    checkout can carry its own root marker (its own `.git` file), which
+ *    would otherwise stop the walk below one level too early.
+ * 2. From the truncated cwd, walk up to the nearest project root marker
+ *    (see `findProjectRoot`) so a session opened from ANY subdirectory —
+ *    not just the worktree case — is attributed to the project root instead
+ *    of that subdirectory's own basename (#897). When no marker is found
+ *    (a cwd outside any project), fall back to today's behavior: the
+ *    basename of the cwd itself.
  */
 export function repoFromCwd(cwd: string): string {
-  const cleanCwd = cwd.replace(/[/\\]\.claude[/\\]worktrees(?:[/\\].*)?$/, "");
-  return basename(resolve(cleanCwd));
+  const cleanCwd = resolve(cwd.replace(/[/\\]\.claude[/\\]worktrees(?:[/\\].*)?$/, ""));
+  const projectRoot = findProjectRoot(cleanCwd);
+  return basename(projectRoot ?? cleanCwd);
 }
 
 /**

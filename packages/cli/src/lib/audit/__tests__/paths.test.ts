@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { rangeReportDir, repoFromCwd, sessionReportDir } from "../paths.ts";
 import { NavoriError } from "../../errors.ts";
 
@@ -93,5 +93,71 @@ describe("repoFromCwd (#764)", () => {
     expect(repoFromCwd("/Users/u/dev/navori-harness/.claude/worktrees-backup")).toBe(
       "worktrees-backup",
     );
+  });
+});
+
+/**
+ * #897: a session opened with `cwd` in a subdirectory of the project (e.g.
+ * `packages/cli`) must attribute to the project root, not to the
+ * subdirectory's own basename. These use REAL fixture directories (not the
+ * fake `/Users/u/...` paths above) so `findProjectRoot`'s `existsSync` walk
+ * has real markers to find.
+ */
+describe("repoFromCwd — project root resolution (#897)", () => {
+  let projectDir: string;
+
+  beforeEach(() => {
+    projectDir = mkdtempSync(join(tmpdir(), "navori-repo-root-"));
+  });
+
+  afterEach(() => {
+    rmSync(projectDir, { recursive: true, force: true });
+  });
+
+  it("attributes a cwd at the project root itself", () => {
+    writeFileSync(join(projectDir, "navori.config.json"), "{}");
+    expect(repoFromCwd(projectDir)).toBe(basename(projectDir));
+  });
+
+  it("attributes a cwd in a nested subdirectory to the project root (navori.config.json marker)", () => {
+    writeFileSync(join(projectDir, "navori.config.json"), "{}");
+    const nested = join(projectDir, "packages", "cli");
+    mkdirSync(nested, { recursive: true });
+    expect(repoFromCwd(nested)).toBe(basename(projectDir));
+  });
+
+  it("attributes a cwd in a nested subdirectory to the project root (.git marker, dir form)", () => {
+    mkdirSync(join(projectDir, ".git"));
+    const nested = join(projectDir, "packages", "cli");
+    mkdirSync(nested, { recursive: true });
+    expect(repoFromCwd(nested)).toBe(basename(projectDir));
+  });
+
+  it("attributes a cwd in a nested subdirectory to the project root (.git marker, file form — worktree checkout)", () => {
+    // In a git worktree, .git is a file with a `gitdir:` pointer, not a directory.
+    writeFileSync(join(projectDir, ".git"), "gitdir: /elsewhere/.git/worktrees/x\n");
+    const nested = join(projectDir, "packages", "cli");
+    mkdirSync(nested, { recursive: true });
+    expect(repoFromCwd(nested)).toBe(basename(projectDir));
+  });
+
+  it("truncates an agent worktree cwd first, then resolves the parent repo root (#764 regression)", () => {
+    mkdirSync(join(projectDir, ".git"));
+    const worktreeNested = join(
+      projectDir,
+      ".claude",
+      "worktrees",
+      "agent-a2a999b59fde9ce6c",
+      "packages",
+      "cli",
+    );
+    mkdirSync(worktreeNested, { recursive: true });
+    expect(repoFromCwd(worktreeNested)).toBe(basename(projectDir));
+  });
+
+  it("falls back to the cwd basename when no project root marker is found", () => {
+    const orphan = join(projectDir, "no-marker-here");
+    mkdirSync(orphan, { recursive: true });
+    expect(repoFromCwd(orphan)).toBe("no-marker-here");
   });
 });
