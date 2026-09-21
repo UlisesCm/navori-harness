@@ -192,20 +192,23 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ✅ Be concrete: cite `file:line`. No generic feedback.
 <!-- /navori:managed id="reviewer-base" -->
 
-<!-- navori:managed id="engram-reviewer-extension" hash="ccb6a2bd" version="0.9.0" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-reviewer-extension" hash="6a83d0ee" version="0.9.0" source="@navori/plugin-engram" -->
 ## Engram, from a subagent (read-only)
 
-**Pre-flight, before you read code:** `mem_search` with the task's keywords. A
-previous decision, an audit of the same area or a root cause someone already
-found is context you would otherwise rediscover file by file. What memory gives
-you is a REGION and a hypothesis — confirm the signature, the line and the call
-sites in the code before acting on either.
+**Pre-flight, before you read code:** `mem_search` with the task's keywords
+and `response_format: "compact"` — bounded previews; search is nearly the
+only thing this read-only role does against engram. A previous decision, an
+audit of the same area or a root cause someone found is context you'd
+otherwise rediscover file by file. Memory gives you a REGION and a
+hypothesis — confirm the signature, line and call sites before acting.
+`mem_get_observation` with its id for the full body if a preview falls
+short.
 
 **You cannot write to memory** — this role has no `mem_save`, on purpose:
 saving is reserved for the agent that owns the session or the audit. If you
 surface something durable (a root cause, a convention, a decision), put it in
-your handoff report instead of trying to persist it yourself; the agent that
-reads your report saves it.
+your handoff report instead of persisting it yourself; the agent that reads
+your report saves it.
 
 The session ceremonies are not yours either — `mem_session_summary` and the
 curation that follows belong to the agent that owns the session. Ending with
