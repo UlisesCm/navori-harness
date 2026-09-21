@@ -179,23 +179,27 @@ The orchestrator (or the human) reads the report from disk and executes from the
 <!-- navori:managed id="engram-auditor-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
 ## Engram, from a subagent
 
-**Pre-flight, before reading code:** `mem_search` the task's keywords. A prior
-decision, audit or root cause is context you'd otherwise rediscover file by
-file. Memory gives you a REGION and a hypothesis — confirm signature, line and
-call sites in the code before acting on either.
+**Pre-flight, before reading code:** `mem_search` the task's keywords with
+`response_format: "compact"` — bounded previews. `mem_get_observation` with
+its id for the full body if a preview falls short. Memory gives you a REGION
+and a hypothesis — confirm signature, line and call sites before acting.
 
 **Save only what outlives this task**: a root cause with its evidence, a
 convention that got established, a decision and why it beat the alternative.
 Use `type` from this closed list only — `decision, architecture, bugfix,
-pattern, config, discovery` — never `manual` or a synonym: an off-list type
-fragments search. Use a stable `topic_key` so the topic evolves instead of
-piling up snapshots. Always pass a descriptive `title` — a generic or missing
-one forces the next reader to open the entry just to learn what it's about.
-Never persist line numbers, signatures or call-site lists — those go stale.
+pattern, config, discovery` — never `manual` or a synonym. Use a stable
+`topic_key`, reuse it rather than snapshotting. Always pass a descriptive
+`title`. Never persist line numbers, signatures or call-site lists — those
+go stale.
+
+**If `mem_save` fails with `multiple active runtime sessions match the
+current project and directory`**: upstream bug, not your content — don't
+retry. Use the CLI: `engram save "<title>" "<content>" --project <project>
+--type <type> --topic <topic_key>`. Closing the other session also fixes it.
 
 **Session ceremonies are not yours.** `mem_session_summary` and its curation
-belong to the agent that owns the session; you are closing a task, not a
-session. Ending with `done -> <file>` is your report.
+belong to the agent that owns the session. Ending with `done -> <file>` is
+your report.
 
 If a memory contradicts the code, the code wins — fix the memory.
 <!-- /navori:managed id="engram-auditor-extension" -->
@@ -342,17 +346,20 @@ Never return the diff in chat. The orchestrator reads it from disk if it needs i
 <!-- navori:managed id="engram-implementer-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
 ## Engram, from a subagent (read-only)
 
-**Pre-flight, before you read code:** `mem_search` with the task's keywords. A
-previous decision, an audit of the same area or a root cause someone already
-found is context you would otherwise rediscover file by file. What memory gives
-you is a REGION and a hypothesis — confirm the signature, the line and the call
-sites in the code before acting on either.
+**Pre-flight, before you read code:** `mem_search` with the task's keywords
+and `response_format: "compact"` — bounded previews; search is nearly the
+only thing this read-only role does against engram. A previous decision, an
+audit of the same area or a root cause someone found is context you'd
+otherwise rediscover file by file. Memory gives you a REGION and a
+hypothesis — confirm the signature, line and call sites before acting.
+`mem_get_observation` with its id for the full body if a preview falls
+short.
 
 **You cannot write to memory** — this role has no `mem_save`, on purpose:
 saving is reserved for the agent that owns the session or the audit. If you
 surface something durable (a root cause, a convention, a decision), put it in
-your handoff report instead of trying to persist it yourself; the agent that
-reads your report saves it.
+your handoff report instead of persisting it yourself; the agent that reads
+your report saves it.
 
 The session ceremonies are not yours either — `mem_session_summary` and the
 curation that follows belong to the agent that owns the session. Ending with
@@ -544,12 +551,13 @@ If the task is a pure reading / conceptual question → answer directly, no suba
 ## Engram (persistent memory)
 
 - **Session start:** engram's `SessionStart` hook covers `startup`/`clear`/`compact`, not `resume`. Where memory is already injected, `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.
-- Before decomposing: `mem_search` the ticket's keywords. Read a prior decision before dispatching the `implementer`.
-- After each decision: `mem_save` with a descriptive `title`, a stable `topic_key` — reuse it, don't snapshot — and `type` from this closed list only: `decision, architecture, bugfix, pattern, config, discovery`. Never `manual` or a synonym — an off-list type fragments search. If a memory contradicts the code, fix it with `mem_update`.
-- `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with a **descriptive `title`** (never the generic "Session summary: `<project>`") plus `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos).
+- Before decomposing: `mem_search` the ticket's keywords with `response_format: "compact"`; `mem_get_observation` for the full body. Read a prior decision before dispatching the `implementer`.
+- After each decision: `mem_save` with a descriptive `title`, a stable `topic_key`, and `type` from `decision, architecture, bugfix, pattern, config, discovery`. If a memory contradicts the code, fix it with `mem_update`.
+- **`mem_save` fails with `multiple active runtime sessions match the current project and directory`**: upstream bug, not your content. Use the CLI: `engram save "<title>" "<content>" --project <project> --type <type> --topic <topic_key>`.
+- `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with a **descriptive `title`** plus `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos).
 - **Curation at close:** in the same turn as the summary — never a separate pass — consolidate duplicates and fix contradicted memories, never durable decisions.
 - **Lean close**: the summary and the curation step are exempt; `mem_save` is not.
-- **Auto Memory vs. engram**: Claude Code's native Auto Memory (default on, machine-local — https://code.claude.com/docs/en/memory) holds personal preferences; engram holds durable engineering knowledge (decisions, bugfixes, architecture, discoveries) shared across engines. Route "remember X" accordingly — never write the same fact to both.
+- **Auto Memory vs. engram**: Auto Memory holds personal preferences; engram holds durable knowledge. Never write the same fact to both.
 <!-- /navori:managed id="engram-orchestrator-extension" -->
 
 <!-- navori:managed id="codex-cross-review" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -1118,17 +1126,20 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 <!-- navori:managed id="engram-reviewer-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
 ## Engram, from a subagent (read-only)
 
-**Pre-flight, before you read code:** `mem_search` with the task's keywords. A
-previous decision, an audit of the same area or a root cause someone already
-found is context you would otherwise rediscover file by file. What memory gives
-you is a REGION and a hypothesis — confirm the signature, the line and the call
-sites in the code before acting on either.
+**Pre-flight, before you read code:** `mem_search` with the task's keywords
+and `response_format: "compact"` — bounded previews; search is nearly the
+only thing this read-only role does against engram. A previous decision, an
+audit of the same area or a root cause someone found is context you'd
+otherwise rediscover file by file. Memory gives you a REGION and a
+hypothesis — confirm the signature, line and call sites before acting.
+`mem_get_observation` with its id for the full body if a preview falls
+short.
 
 **You cannot write to memory** — this role has no `mem_save`, on purpose:
 saving is reserved for the agent that owns the session or the audit. If you
 surface something durable (a root cause, a convention, a decision), put it in
-your handoff report instead of trying to persist it yourself; the agent that
-reads your report saves it.
+your handoff report instead of persisting it yourself; the agent that reads
+your report saves it.
 
 The session ceremonies are not yours either — `mem_session_summary` and the
 curation that follows belong to the agent that owns the session. Ending with
@@ -10864,6 +10875,7 @@ esac
       "Bash(navori dominio list:*)",
       "Bash(navori dominio show:*)",
       "Bash(navori dominio doctor:*)",
+      "Bash(engram save:*)",
       "Bash(acli jira workitem view*)",
       "Bash(acli jira workitem search*)",
       "Bash(acli jira workitem comment list*)",
@@ -10926,10 +10938,12 @@ esac
       "Bash(git branch --delete*)",
       "Bash(git stash drop*)",
       "Bash(git stash clear*)",
-      "Bash(chmod -R *)"
+      "Bash(chmod -R *)",
+      "Bash(engram import *)"
     ],
     "deny": [
       "Agent(orchestrator)",
+      "Bash(engram delete *)",
       "Bash(rm -rf /)",
       "Bash(rm -rf /*)",
       "Bash(rm -rf ~)",
