@@ -7,7 +7,7 @@ effort: medium
 maxWords: 2850
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="67442692" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="orchestrator-base" hash="03408b65" version="0.9.0" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
@@ -125,9 +125,10 @@ Expected files:
 
 When `.claude/progress/review_<feature>.md` contains `APPROVED`:
 
-1. Invoke `publisher` to draft the title + body following the repo's format and open the PR.
-2. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `main`, `gh auth status` ok. No clean working tree (the publisher's trigger IS the uncommitted diff) and no gate re-run on you: the publisher owns both that commit and the PR gate, with the reviewer's Pass-2 evidence behind it.
-3. Return to the user only the PR URL + title.
+1. **Before** invoking `publisher`: apply `cierre-sesion`'s History + Clear current steps now — that commit must land inside this PR, per that block's timing rule (and its no-PR exception).
+2. Invoke `publisher` to draft the title + body following the repo's format and open the PR.
+3. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `main`, `gh auth status` ok. No clean working tree (the publisher's trigger IS the uncommitted diff, now including `progress/`) and no gate re-run on you: the publisher owns both that commit and the PR gate, with the reviewer's Pass-2 evidence behind it.
+4. Return to the user only the PR URL + title.
 
 If the review returned `CHANGES_REQUESTED`, do NOT invoke `publisher`: launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the publisher.
 
