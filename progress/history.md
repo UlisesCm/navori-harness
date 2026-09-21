@@ -10,6 +10,27 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-21 16:24 — orchestrator — #891: el cierre de sesión ya no genera un PR suelto (opción A)
+
+- **Cambios**: `packages/core/core-assets/managed/cierre-sesion.md` (paso 5, dueño único de la regla
+  de timing) y `packages/core/core-assets/agents/orchestrator.md` ("Closing the cycle": nuevo paso 1
+  que aplica History + Clear current ANTES de invocar `publisher`). Renders regenerados con
+  `navori render --apply` (`.claude/context/40-cierre-sesion.md`, `.claude/agents/orchestrator.md`,
+  `AGENTS.md`) + 5 goldens.
+- **Quality gate**: ✅ verde (`bun check`). Nota: el run combinado tuvo 1 archivo rojo
+  (`no-voseo.test.ts`, ENOENT en `explorer-retired-names-fixture/`) por una race de paralelismo
+  entre ese walk y las escrituras de fixture de `retired-names.test.ts`; `bun run test:coverage`
+  aislado da 245 archivos verdes. Preexistente, ajeno a este diff.
+- **Notas**: se evaluaron las dos opciones del issue. Ulises eligió primero B (gitignorear
+  `progress/`), pidió recomendación y cambió a **A** — `progress/` sigue versionado, solo cambia el
+  timing del commit. B revertía una decisión documentada tres veces y rompía la premisa sobre la que
+  `packages/cli/src/lib/tickets.ts:1-23` construyó la doctrina anti-telephone-game.
+  Costo aceptado de A: esta entrada no puede citar el número de PR, porque aún no existe.
+  Deuda detectada: los presupuestos quedaron en 449/450 y 2846/2850 palabras — margen de 1 y 4
+  palabras, sin subir ceilings. El fixture de 4,596 bytes que el issue advertía NO acopla nada:
+  `session-start-budget.test.ts` usa un repo temporal, no lee el `progress/current.md` real.
+- **Commit / PR**: pendiente en este commit (rama `fix/891-progress-sin-pr-suelto`).
+
 ## 2026-09-21 11:20 — orchestrator — release 0.9.0 (spec 0029) reconciliado y publicado en PR #887
 
 - **Cambios**: la sesión previa había completado T1-T4 de `specs/0029-skills-security-quality`
