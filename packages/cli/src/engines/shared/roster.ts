@@ -64,6 +64,7 @@ export const ROSTER_CORE_SKILLS: ReadonlyArray<string> = [
   "security-invariants",
   "secure-by-design",
   "locate-code",
+  "scoped-gate",
 ];
 
 /**

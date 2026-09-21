@@ -184,7 +184,7 @@ Use `tgrep search -n [flags] -- PATTERN ROOT`; without `-n` piped output has no 
 Use `codegraph_explore` for structural discovery when available. Pass the current checkout's absolute `projectPath`; do not substitute another worktree's index. Treat sufficient fresh verbatim source returned to this context as already read. Respect stale/disabled-watch warnings and report unresolved relationships; the graph is not proof of completeness. Never initialize an index during ordinary discovery. If this project is unindexed or the provider fails, use scoped native exploration. Do not call tgrep merely to confirm the same symbol. Source unavailable in this context is missing evidence, even if another agent saw it.
 <!-- /navori:managed id="codegraph-search-v2" -->
 
-<!-- navori:managed id="skills-index" hash="7d36ba07" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="skills-index" hash="ad449acc" version="0.9.0" source="@navori/core" -->
 ## Skills disponibles
 
 Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. La nota tras el `·` dice cuándo usar cada una.
@@ -196,6 +196,7 @@ Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido
 - `security-invariants` — navori · Use when running /security-review or auditing security
 - `secure-by-design` — navori · Use when a change is security-sensitive
 - `locate-code` — navori · Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site)
+- `scoped-gate` — navori · Use when a repo-wide quality gate never turns green because of preexisting debt the diff never touches
 - `resolve-ticket` — navori (workflow) · Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial
 - `solution-design` — navori (workflow) · Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, co…
 - `spec-bootstrap` — navori (workflow) · Use when starting a real-scope feature before writing code

@@ -7,7 +7,7 @@ effort: medium
 maxWords: 1800
 ---
 
-<!-- navori:managed id="implementer-base" hash="4544ab6a" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="implementer-base" hash="19d43616" version="0.9.0" source="@navori/core" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -52,7 +52,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 - **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see the SDD block in `CLAUDE.md`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
 - If a tool fails weirdly (e.g. tsc breaks with no apparent diff), **don't improvise a workaround**: note `Status: BLOCKED` + the reason in `.claude/progress/impl_<feature>.md` and stop.
-- **While iterating, run only the tests of the area you touch** (filter by the runner's path). The full gate in step 4 runs at the end, not on each iteration — saves time and context. Never run the full `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` suite yourself: that's the `reviewer`'s Pass 2 job, and it commonly outlives Bash's timeout.
+- **While iterating, run only the tests of the area you touch** (filter by the runner's path). The full gate in step 4 runs at the end, not on each iteration — saves time and context. Never run the full `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` suite yourself: that's the `reviewer`'s Pass 2 job, and it commonly outlives Bash's timeout. If this repo has a diff-scoped fast check (`scoped-gate`), it's hygiene for iterating, never a substitute for step 4.
 - **Silent reporters on intermediate runs.** Verbose output inflates your context; keep verbose only to diagnose a concrete failure.
 
 ## Restraint (YAGNI)
