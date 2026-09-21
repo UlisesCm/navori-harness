@@ -7,7 +7,7 @@ effort: medium
 maxWords: 2850
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="67442692" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="orchestrator-base" hash="67442692" version="0.9.0" source="@navori/core" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
@@ -165,13 +165,13 @@ Restates nothing already in "## Role: orchestrator" (edit source, write source, 
 If the task is a pure reading / conceptual question → answer directly, no subagents. Everything else that touches source goes through `implementer` → `reviewer` — see the top of this file: there is no size or path exception.
 <!-- /navori:managed id="orchestrator-base" -->
 
-<!-- navori:managed id="codegraph-access-v2-orchestrator" hash="41084677" version="0.8.7" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-access-v2-orchestrator" hash="41084677" version="0.9.0" source="@navori/plugin-codegraph" -->
 ### Structural discovery access
 
 Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.
 <!-- /navori:managed id="codegraph-access-v2-orchestrator" -->
 
-<!-- navori:managed id="codex-cross-review" hash="3b75baab" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="codex-cross-review" hash="3b75baab" version="0.9.0" source="@navori/core" -->
 ## Cross-model review (Codex second opinion)
 
 This repo renders the `codex` engine, so a second opinion from a **different provider** is one command away. After your `reviewer` approves a non-trivial diff — or on any change touching a critical area — you MAY have Codex review the SAME diff against this repo's own standards (already rendered in `AGENTS.md` + `.codex/agents/reviewer.toml`):
@@ -188,7 +188,7 @@ CODEX_HOME=$(pwd)/.codex codex exec --sandbox read-only "revisa el diff origin/m
 Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user asks for a cross-check — not on every trivial diff.
 <!-- /navori:managed id="codex-cross-review" -->
 
-<!-- navori:managed id="engram-orchestrator-extension" hash="38b4ec7d" version="0.8.7" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-orchestrator-extension" hash="38b4ec7d" version="0.9.0" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
 - **Session start:** engram's `SessionStart` hook covers `startup`, `clear`, `compact` — **not `resume`**. Where memory is already injected, work with it — `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.

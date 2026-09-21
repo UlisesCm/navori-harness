@@ -7,19 +7,18 @@ metadata:
 
 ## Local security gate (semgrep)
 
-Before closing a relevant change (auth, RBAC, secrets, input validation), run semgrep over the diff.
+Before closing a relevant change (auth, RBAC, secrets, input validation), run
+the repository's canonical gate command:
 
-- Quick diff scan:
-  ```
-  git diff --name-only {{branchBase}}...HEAD | xargs semgrep scan --config=p/default --error --metrics=off
-  ```
-- Full project scan (slower, opt-in):
-  ```
-  semgrep scan --config=p/default --error --metrics=off
-  ```
-- `p/default` (not `auto`) on purpose: deterministic and telemetry-off — mirrors the plugin's check script.
+```
+bun run semgrep:check
+```
+
+The script diffs `{{branchBase}}...HEAD` and scans it with
+`--config=p/default --error --metrics=off` (deterministic, telemetry-off) —
+do not recreate that scoping or those flags with a manual `xargs` command.
 - Custom rules: see `.semgrep.yml` at the repo root if it exists.
 - Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
 
 The commit/push gate runs this for you (`PreToolUse`), so this text is the
-reasoning and the manual command — not the mechanism.
+reasoning and the canonical command — not a second mechanism.

@@ -60,6 +60,8 @@ describe("roster-parity", () => {
         "debug-failure",
         "review-diff",
         "security-invariants",
+        "secure-by-design",
+        "quality-attributes",
       ],
       [...ROSTER_CORE_SKILLS, ...ROSTER_WORKFLOW_SKILLS],
     );

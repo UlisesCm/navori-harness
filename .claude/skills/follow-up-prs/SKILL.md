@@ -3,9 +3,11 @@ name: follow-up-prs
 description: Use when you resume a session with open PRs of yours, or when a check went red after a push — collect review feedback, inline comments and CI status, and turn each finding into an encargo.
 metadata:
   type: reference
+  maxWords: 550
+  maxWordsComposed: 550
 ---
 
-<!-- navori:managed id="follow-up-prs" hash="ca8e9f05" version="0.8.7" source="@navori/core" -->
+<!-- navori:managed id="follow-up-prs" hash="d60d723e" version="0.9.0" source="@navori/core" -->
 # follow-up-prs — pick up what happened after the PR
 
 ## When to use this skill
@@ -27,13 +29,15 @@ That single response carries `reviewDecision` **and** every check's state. Detai
 **5 PRs** (newest `updatedAt` first) and say so when you truncate.
 
 **2 · Inline comments** — only for a PR with `CHANGES_REQUESTED` or activity you haven't seen:
-`gh api repos/{owner}/{repo}/pulls/<N>/comments`. `gh pr view --json comments` does **not**
-return them (issue-level comments only), so `gh api` is the only route; the first call asks for
+`gh api --paginate repos/{owner}/{repo}/pulls/<N>/comments`. `gh pr view --json comments` does **not**
+return them (issue-level comments only), so paginate the REST endpoint; the first call asks for
 permission — that's expected, not an error.
 
 **3 · Checks** — the state is already in `statusCheckRollup`, no extra call to know something
-is red. For a red one, take the run id from its `detailsUrl`
-(`…/actions/runs/<id>/job/…`): `gh run view <id> --log-failed`.
+is red. For a GitHub Actions check, take the run id from its `detailsUrl`
+(`…/actions/runs/<id>/job/…`): `gh run view <id> --log-failed`. For an external
+check without an Actions run id, retain its name, state, and `detailsUrl`; do not
+pretend `gh run view` can fetch its logs.
 
 **4 · Classify the red — code or infra.**
 

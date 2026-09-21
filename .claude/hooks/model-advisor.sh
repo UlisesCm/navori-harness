@@ -1,4 +1,4 @@
-# navori:managed start id="model-advisor-base" hash="389dcba5" version="0.8.7" source="@navori/core"
+# navori:managed start id="model-advisor-base" hash="389dcba5" version="0.9.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Advisory-only main-session model recommendation. The hook reads only payload

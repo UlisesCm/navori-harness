@@ -3,13 +3,14 @@ name: clack
 description: Use when building interactive CLI prompts with @clack/prompts — intro/outro, text/select/confirm/multiselect, spinner, isCancel, and group flows.
 metadata:
   type: reference
+  maxWords: 550
 ---
 
 # Clack prompts — interactive CLI
 
 ## When to use this skill
 
-When building interactive flows: prompting the user (`text`/`select`/`confirm`/`multiselect`), bracketing a session with `intro`/`outro`, showing progress with `spinner`, or bundling steps with `group`. `@clack/prompts` is the UI layer; every prompt is `await`ed and can be cancelled.
+When building interactive flows: prompting the user (`text`/`password`/`select`/`confirm`/`multiselect`), bracketing a session with `intro`/`outro`, showing progress with `spinner`, or bundling steps with `group`. `@clack/prompts` is the UI layer; every prompt is `await`ed and can be cancelled.
 
 ## The pattern
 
@@ -57,17 +58,19 @@ p.outro("Done");
 ## Hard rules
 
 1. `intro` opens and `outro` closes every flow — matched pair.
-2. `isCancel` after every standalone prompt; on cancel, `p.cancel(msg)` then `process.exit(0)`.
+2. `isCancel` after every standalone prompt; on cancel, roll back any completed side effects, call `p.cancel(msg)`, then exit.
 3. Prefer `group({...}, { onCancel })` for multi-step flows — one cancel handler, typed `results`.
 4. Every `spinner().start()` has a matching `.stop()`, even on error (try/finally).
 5. `select`/`multiselect` options are `{ value, label, hint? }`; consume `value`, never the label.
 6. `validate` returns an error string or `undefined`; keep prompts `await`ed — they're all async.
+7. Keep CI/non-interactive paths separate: accept validated flags or stdin and never open a prompt when `CI` is set.
 
 ## Quick table
 
 | Need | Use |
 |---|---|
 | Free text | `await p.text({ message })` |
+| Hidden secret | `await p.password({ message })` |
 | One of many | `await p.select({ message, options })` |
 | Several | `await p.multiselect({ message, options })` |
 | Yes/no | `await p.confirm({ message })` |

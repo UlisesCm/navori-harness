@@ -1,0 +1,6 @@
+# Skills de seguridad y calidad — Tasks
+
+- [x] **T1** (R1, R2, R5) — Corregir provenance, versiones y guidance de las 14 skills del inventario cerrado; alinear `citty`, `clack`, `vitest`, `zod-validation`, gates, GitHub checks y 401/403 · test: fixtures de cada mismatch y suites de assets/skills con `// Covers: R1, R2, R5`.
+- [x] **T2** (R3, R4, R5, R6) — Crear `secure-by-design` en core roster y `quality-attributes` en workflow roster, con triggers exclusivos, output mínimo verificable, referencias progresivas y caps compuestos · test: roster Claude/Codex, metadata, negativos de trigger, matriz fixture y caps con `// Covers: R3, R4, R5, R6`.
+- [x] **T3** (R7) — Crear `docs/references/skills-security-quality.md` y registrar el piloto fixture-only de skills OpenAI y estándares externos, incluyendo rollback y garantía de que roster/config no cambian · test: provenance/license/pilot fixture con `// Covers: R7`.
+- [x] **T4** (R8) — Bump único a 0.9.0, build CLI, ejecutar `node packages/cli/dist/index.js render --apply`, revisar markers no normalizados/indexes, snapshots semánticos y flujo de release de `README.md`, después ejecutar el full gate · test: render-drift, release-marker y metadata con `// Covers: R8`; verificado con build/render, `check:render`, `check:doc-budgets` y el test de metadata/marker.

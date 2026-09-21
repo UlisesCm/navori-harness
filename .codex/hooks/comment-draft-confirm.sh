@@ -1,4 +1,4 @@
-# navori:managed start id="comment-draft-confirm-base" hash="7f03774e" version="0.8.7" source="@navori/core"
+# navori:managed start id="comment-draft-confirm-base" hash="7f03774e" version="0.9.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a call that PUBLISHES a comment or review — `gh pr/issue

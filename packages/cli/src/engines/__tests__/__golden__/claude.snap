@@ -11212,6 +11212,8 @@ name: follow-up-prs
 description: Use when you resume a session with open PRs of yours, or when a check went red after a push — collect review feedback, inline comments and CI status, and turn each finding into an encargo.
 metadata:
   type: reference
+  maxWords: 550
+  maxWordsComposed: 550
 ---
 
 <!-- navori:managed id="follow-up-prs" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -11236,13 +11238,15 @@ That single response carries `reviewDecision` **and** every check's state. Detai
 **5 PRs** (newest `updatedAt` first) and say so when you truncate.
 
 **2 · Inline comments** — only for a PR with `CHANGES_REQUESTED` or activity you haven't seen:
-`gh api repos/{owner}/{repo}/pulls/<N>/comments`. `gh pr view --json comments` does **not**
-return them (issue-level comments only), so `gh api` is the only route; the first call asks for
+`gh api --paginate repos/{owner}/{repo}/pulls/<N>/comments`. `gh pr view --json comments` does **not**
+return them (issue-level comments only), so paginate the REST endpoint; the first call asks for
 permission — that's expected, not an error.
 
 **3 · Checks** — the state is already in `statusCheckRollup`, no extra call to know something
-is red. For a red one, take the run id from its `detailsUrl`
-(`…/actions/runs/<id>/job/…`): `gh run view <id> --log-failed`.
+is red. For a GitHub Actions check, take the run id from its `detailsUrl`
+(`…/actions/runs/<id>/job/…`): `gh run view <id> --log-failed`. For an external
+check without an Actions run id, retain its name, state, and `detailsUrl`; do not
+pretend `gh run view` can fetch its logs.
 
 **4 · Classify the red — code or infra.**
 
@@ -11352,6 +11356,48 @@ To rewrite, first test the pattern without `--rewrite`, limit paths/language and
 ## The project's structural patterns
 
 <!-- user: document here proven ast-grep patterns, frequent languages and paths. Save reusable patterns; don't paste results nor current lines. -->
+
+
+===== FILE: .claude/skills/quality-attributes/SKILL.md =====
+---
+name: quality-attributes
+description: Use when a task carries a non-functional requirement or architecture signal.
+metadata:
+  type: behavior
+  maxWords: 450
+  maxWordsComposed: 500
+---
+
+<!-- navori:managed id="quality-attributes" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+# Quality attributes
+
+Use only when `solution-design` identifies architecture or a non-functional
+requirement. This complements design; it does not create a dispatcher, replace
+tests, or override `review-diff` and `verify-before-done`.
+
+## Matrix
+
+Select only relevant attributes (for example performance, reliability,
+security, maintainability, accessibility, or compatibility) and write:
+
+| Attribute | Measurable criterion | Evidence source | Test | Owner |
+|---|---|---|---|---|
+| <selected attribute> | <threshold or observable outcome> | <command/metric> | <named test> | <role> |
+
+Use ISO/IEC 25010:2023 only as a reference model. Do not reproduce its text,
+tables, or proprietary checklist; use project-specific criteria in your own
+words. Put the matrix in the solution or spec artifact so it is reviewed with
+the design.
+
+## Rules
+
+- Every selected row has a measurable criterion and an evidence source.
+- A test belongs to the row when executable validation is feasible; otherwise
+  state why and name the review evidence.
+- Keep the matrix to the decision's active risks. Do not invent quality goals
+  for a local, reversible change.
+- Security rows route through `secure-by-design` and `security-invariants`.
+<!-- /navori:managed id="quality-attributes" -->
 
 
 ===== FILE: .claude/skills/resolve-ticket/SKILL.md =====
@@ -11534,17 +11580,22 @@ Pay extra attention if the diff touches `auth, permissions, payments, data integ
 <!-- navori:managed id="jscpd-review-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-jscpd" -->
 ## Code duplication (jscpd)
 
-Before approving a change, run jscpd over the diff vs the base branch.
+Before approving a change, run the repository's canonical gate command:
 
-- Only over modified files:
-  ```
-  git diff --name-only main...HEAD | grep -E '\.(ts|tsx|js|jsx)$' | xargs jscpd --silent
-  ```
+```
+bun run jscpd:check
+```
+
+The script diffs `main...HEAD` for changed TS/TSX files and scans
+only those — do not recreate that scoping (nor the pinned binary or the
+configured threshold) with a hand-written `xargs` command. A literal
+`$BRANCH_BASE` here would be a silent no-op scan (#273): the script resolves
+it from the repo's own config, not from this doc.
 - If it reports clones >0 with the project's threshold: **do not approve** the change without justification (reviewers must ask for a refactor or extraction).
 - Silent skip if `jscpd` is not in `PATH` (don't block if the dev doesn't have the tool installed).
 
 The commit gate runs this for you (`PreToolUse` on `git commit`), so this text is
-the reasoning and the manual command — not the mechanism.
+the reasoning and the canonical command — not a second mechanism.
 <!-- /navori:managed id="jscpd-review-extension" -->
 
 ## Repo-specific rules
@@ -11556,6 +11607,63 @@ the reasoning and the manual command — not the mechanism.
      - Repo anti-patterns that are auto-CRITICAL.
      - Critical areas with their own rules: auth, permissions, payments, data integrity.
 -->
+
+
+===== FILE: .claude/skills/secure-by-design/SKILL.md =====
+---
+name: secure-by-design
+description: Use when a change is security-sensitive.
+metadata:
+  type: behavior
+  maxWords: 600
+  maxWordsComposed: 650
+---
+
+<!-- navori:managed id="secure-by-design-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+# Secure by design
+
+This is a thin router, not a second security checklist. It composes with
+`security-invariants` (business rules), `review-diff` (diff review), and
+`verify-before-done` (fresh evidence); none of their gates are replaced.
+
+## Trigger
+
+Use only when the task changes authentication, authorization, a trust boundary,
+sensitive data, web/API input, secrets, cryptography, uploads, an external
+integration, or a dependency. For ordinary code, do not load this skill.
+
+## Route
+
+1. State the asset, actor, boundary, and unwanted outcome in 1–3 lines.
+2. Load `security-invariants`; enumerate every mutating entry point when a
+   guard or policy changes. Its server-side rules remain authoritative.
+3. Select only applicable controls from the versioned reference record:
+   OWASP ASVS 5.0.0, NIST SSDF 1.1, and SLSA. Link the selected control ids and
+   explain the local implementation; never copy their checklists into a task.
+4. Add an executable test or other reproducible evidence for each selected
+   mitigation. Inputs and authorization need negative cases, not only happy
+   paths.
+5. Send the finished diff through `review-diff` and `verify-before-done`.
+
+## Minimum handoff
+
+```
+Security scope: <asset / boundary / actor>
+Threat: <unwanted outcome>
+Controls: <versioned references and ids>
+Evidence: <test or command and result>
+Residual risk: <accepted risk or none>
+```
+
+## Guardrails
+
+- Do not install a vendor skill, plugin, hook, or dependency from this router.
+  Adoption follows the reversible pilot record in `docs/references/skills-security-quality.md`.
+- Do not treat a static scan as authorization evidence; business invariants and
+  tests remain required.
+- Keep threat modeling proportional: one boundary and its concrete abuse cases,
+  not a generic taxonomy dump.
+<!-- /navori:managed id="secure-by-design-base" -->
 
 
 ===== FILE: .claude/skills/security-invariants/SKILL.md =====
@@ -11590,8 +11698,8 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 
 ## 3. Auth error handling
 
-- Authentication / authorization errors (expired session, locked account, 401/403) are handled **globally and fail-closed** (logout / redirect), not swallowed locally nor shown inline as a form error.
-- Define the backend's error-code contract (e.g. 401 session, 423 lock, 429 rate-limit) and respect it. Custom handling of those codes in a one-off component is a finding.
+- A **401** means authentication is missing or invalid: handle it globally and fail closed (session reset / redirect). A **403** means an authenticated principal lacks permission: preserve the valid session, deny the action, and show/route the access outcome without retrying as another identity. Do not collapse them into logout behavior.
+- Define the backend's error-code contract (for example 401 session, 403 authorization, 423 lock, 429 rate-limit) and respect it. Custom handling of those codes in a one-off component is a finding.
 
 ## 4. Secrets and environment variables
 
@@ -11636,22 +11744,21 @@ This list is a manual substitute, not a replacement — where a scanner plugin i
 <!-- navori:managed id="semgrep-review-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-semgrep" -->
 ## Local security gate (semgrep)
 
-Before closing a relevant change (auth, RBAC, secrets, input validation), run semgrep over the diff.
+Before closing a relevant change (auth, RBAC, secrets, input validation), run
+the repository's canonical gate command:
 
-- Quick diff scan:
-  ```
-  git diff --name-only main...HEAD | xargs semgrep scan --config=p/default --error --metrics=off
-  ```
-- Full project scan (slower, opt-in):
-  ```
-  semgrep scan --config=p/default --error --metrics=off
-  ```
-- `p/default` (not `auto`) on purpose: deterministic and telemetry-off — mirrors the plugin's check script.
+```
+bun run semgrep:check
+```
+
+The script diffs `main...HEAD` and scans it with
+`--config=p/default --error --metrics=off` (deterministic, telemetry-off) —
+do not recreate that scoping or those flags with a manual `xargs` command.
 - Custom rules: see `.semgrep.yml` at the repo root if it exists.
 - Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
 
 The commit/push gate runs this for you (`PreToolUse`), so this text is the
-reasoning and the manual command — not the mechanism.
+reasoning and the canonical command — not a second mechanism.
 <!-- /navori:managed id="semgrep-review-extension" -->
 
 ## Your stack's security invariants
@@ -11672,7 +11779,11 @@ name: solution-design
 description: Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, concurrency, critical area, hard-to-reverse decision) — decide WHAT to build and challenge it before decomposing into tasks.
 metadata:
   type: reference
-  maxWords: 1050
+  # 1090 y no el default de 500 (spec 0003 §3.2.1): esta skill ya cargaba el
+  # ciclo completo propose/challenge/verdict antes de spec 0029; el wiring
+  # hacia `secure-by-design`/`quality-attributes` (R3/R4) que esa spec agrega
+  # no cabía en los 3 palabras de margen que quedaban.
+  maxWords: 1090
 ---
 
 <!-- navori:managed id="solution-design" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -11689,6 +11800,10 @@ This answers **what to build and why** — not the implementation plan (*what fi
 in what order*), not code review (*did the code do what we agreed*). Design before
 decomposing: a contract, a state owner or a migration path moves task boundaries,
 so tasks written first get rewritten.
+
+A security-sensitive signal also routes through `secure-by-design`; a
+non-functional-requirement signal routes through `quality-attributes` for its
+evidence matrix. Neither replaces this skill's verdict.
 
 **Who does what (spec 0026 F, R49/R50).** Three roles, never collapsed: `architect`
 **proposes** (applies this skill, writes the artifact) when `harness.architect` is
@@ -11924,7 +12039,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it �
 | Zero new errors vs baseline | `git diff --name-only main` — a failure outside that list predates you | "lint said OK", no comparison |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
-| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status` ok, `navori receipt check --feature <feature> --json` reports `"status":"ok"`, fresh gate evidence (reviewer's Pass-2 run; on a declared-inline change, your own run). No clean working tree required — it's the trigger | "the branch has commits, we can create it" |
+| PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); declared-inline change, your own run. No clean working tree required | "the branch has commits, we can create it" |
 | Tests / type-check clean | Suite / `tsc --noEmit` run fresh, exit 0, this turn | "should still be green" |
 | A shell edit landed (`sed -i`, a `>` redirect) | Re-read the changed span, this turn | The exit code — `sed -i` exits 0 on no match, a misdirected `>` truncates the file |
 | Gate outlives Bash timeout, main session | `run_in_background`, wait on completion or `Monitor`; `TaskStop` unneeded tasks first | Polling (`pgrep`, `ps \| grep`) — matches other sessions' waits too |
@@ -11974,6 +12089,7 @@ name: vitest
 description: Use when writing or fixing unit/integration tests with Vitest — describe/it/expect, vi.mock hoisting, jsdom vs node env, coverage, fake timers.
 metadata:
   type: reference
+  maxWords: 550
 ---
 
 <!-- navori:managed id="vitest" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -12006,7 +12122,7 @@ describe('getUser', () => {
 
 ## Gotchas that bite
 
-- **`vi.mock` is hoisted above imports.** It runs before any `import`, so the factory cannot reference file-scope variables, and `vi` must come from `vitest`. Share a fn via `vi.hoisted`: `const { send } = vi.hoisted(() => ({ send: vi.fn() }))`.
+- **`vi.mock` is hoisted above imports.** It runs before any `import`, so the factory cannot reference file-scope variables, and `vi` must come from `vitest`. Share a fn via `vi.hoisted`: `const { send } = vi.hoisted(() => ({ send: vi.fn() }))`. Use `vi.doMock` only when a test deliberately needs a non-hoisted dynamic import.
 - **Wrong `environment` = `document is not defined` or a slow suite.** Default is `node`; use `environment: 'jsdom'` (or `'happy-dom'`) for DOM, or `// @vitest-environment jsdom` per file.
 - **Unawaited async assertions pass silently.** `expect(p).resolves.toBe(x)` without `await`/`return` is a false green. Always `await expect(...).resolves` / `.rejects`.
 - **Fake timers must be paired.** `vi.useFakeTimers()` in setup, `vi.useRealTimers()` in teardown; advance with `await vi.advanceTimersByTimeAsync(ms)`, or callbacks never flush.
@@ -12056,6 +12172,7 @@ name: zod-validation
 description: Use when creating a Zod schema or validating input at a trust boundary — an HTTP body/query/params, but equally a config file, CLI args or env. Per-resource schemas, a generic validate middleware, inferred DTOs.
 metadata:
   type: reference
+  maxWords: 600
 ---
 
 <!-- navori:managed id="zod-validation" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -12084,6 +12201,21 @@ export const createResourceSchema = z.object({
 export const updateResourceSchema = createResourceSchema.partial();
 export type CreateResourceDto = z.infer<typeof createResourceSchema>;
 ```
+
+For query strings and route params, reject repeated values before coercion:
+
+```ts
+const paginationQuery = z.object({
+  page: z
+    .string()
+    .optional()
+    .transform((value) => (value === undefined ? 1 : Number(value)))
+    .pipe(z.number().int().positive()),
+});
+```
+
+`z.string()` rejects a `string[]` before transformation; `z.coerce` is not a
+parser for arbitrary request shapes.
 
 Route: `router.post('/', validate(createResourceSchema, 'body'), ...)`. The controller's `req.body as CreateResourceDto` cast is safe: already parsed.
 
@@ -12296,12 +12428,14 @@ Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/S
 - `debug-failure` — navori · Use when a command fails or the runtime misbehaves and you don't have a root cause yet
 - `review-diff` — navori · Use when reviewing a diff (staged, branch or PR)
 - `security-invariants` — navori · Use when running /security-review or auditing security
+- `secure-by-design` — navori · Use when a change is security-sensitive
 - `locate-code` — navori · Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site)
 - `resolve-ticket` — navori (workflow) · Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial
 - `solution-design` — navori (workflow) · Use when a task shows an architectural signal (new shared abstraction, ownership change, shared contract, migration, co…
 - `spec-bootstrap` — navori (workflow) · Use when starting a real-scope feature before writing code
 - `dominio` — navori (workflow) · Use when you discover a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cr…
 - `follow-up-prs` — navori (workflow) · Use when you resume a session with open PRs of yours, or when a check went red after a push
+- `quality-attributes` — navori (workflow) · Use when a task carries a non-functional requirement or architecture signal
 - `zod-validation` — library (detected) · Use when creating a Zod schema or validating input at a trust boundary
 - `vitest` — library (detected) · Use when writing or fixing unit/integration tests with Vitest
 <!-- /navori:managed id="skills-index" -->
@@ -12345,4 +12479,4 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 -->
 
 
-===== END: 42 files =====
+===== END: 44 files =====
