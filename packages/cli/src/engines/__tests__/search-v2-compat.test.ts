@@ -89,8 +89,9 @@ describe("C01 — grant lifecycle: retire on disable, foreign grants survive, ha
       baseConfig(["claude"], { codegraph: { enabled: true }, engram: { enabled: true } }),
     );
     const leaderOn = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
+    // engram's orchestrator skill narrows its grant via `mcpTools` — no wildcard.
     expect(agentTools(leaderOn)).toEqual(
-      expect.arrayContaining(["mcp__codegraph__*", "mcp__engram__*"]),
+      expect.arrayContaining(["mcp__codegraph__*", "mcp__engram__mem_search"]),
     );
     expect(readMcp(cwd)?.mcpServers.engram).toBeDefined();
 
@@ -101,7 +102,7 @@ describe("C01 — grant lifecycle: retire on disable, foreign grants survive, ha
     const leaderOff = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(agentTools(leaderOff)).not.toContain("mcp__codegraph__*");
     // Engram's grant on the SAME agent is untouched by codegraph's retirement.
-    expect(agentTools(leaderOff)).toContain("mcp__engram__*");
+    expect(agentTools(leaderOff)).toContain("mcp__engram__mem_search");
     expect(readMcp(cwd)?.mcpServers.codegraph).toBeUndefined();
     expect(readMcp(cwd)?.mcpServers.engram).toBeDefined();
     expect(readSettings(cwd).permissions.allow).toContain("mcp__engram__*");
@@ -302,7 +303,7 @@ describe("C06 — v2 render doesn't disturb other plugins' settings/MCP/hooks fr
     const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(leader).toContain('id="engram-orchestrator-extension"');
     expect(agentTools(leader)).toEqual(
-      expect.arrayContaining(["mcp__engram__*", "mcp__codegraph__*"]),
+      expect.arrayContaining(["mcp__engram__mem_search", "mcp__codegraph__*"]),
     );
 
     expect(existsSync(join(cwd, ".claude/scripts/check-jscpd.sh"))).toBe(true);
@@ -330,7 +331,7 @@ describe("C06 — v2 render doesn't disturb other plugins' settings/MCP/hooks fr
     const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     // engram carries no CLAUDE.md-wide block (#814); check its own fragment survives instead.
     expect(leader).toContain('id="engram-orchestrator-extension"');
-    expect(agentTools(leader)).toContain("mcp__engram__*");
+    expect(agentTools(leader)).toContain("mcp__engram__mem_search");
     expect(agentTools(leader)).not.toContain("mcp__codegraph__*");
 
     expect(existsSync(join(cwd, ".claude/scripts/check-jscpd.sh"))).toBe(true);

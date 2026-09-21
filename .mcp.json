@@ -8,7 +8,7 @@
       "command": "engram",
       "args": [
         "mcp",
-        "--tools=agent"
+        "--tools=mem_search,mem_get_observation,mem_context,mem_save,mem_session_summary,mem_update,mem_judge"
       ]
     },
     "codegraph": {

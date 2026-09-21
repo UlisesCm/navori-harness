@@ -108,7 +108,9 @@ describe("renderCodexEngine", () => {
       'name = "implementer"',
     );
     expect(toml).toContain('[mcp_servers."engram"]');
-    expect(toml).toContain('args = ["mcp", "--tools=agent"]');
+    expect(toml).toContain(
+      'args = ["mcp", "--tools=mem_search,mem_get_observation,mem_context,mem_save,mem_session_summary,mem_update,mem_judge"]',
+    );
     expect(toml).toContain("[[hooks.PreToolUse]]");
     expect(agentsMd).toContain("topic_key");
     // M6: Codex has no engram start hook, so the protocol makes the mem_context

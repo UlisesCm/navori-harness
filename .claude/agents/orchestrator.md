@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Do NOT invoke as a subagent, never and under no condition. Orchestration playbook that the main agent EMBODIES (the "## Role: orchestrator" block, delivered to the session by the SessionStart hook); open it as a depth reference instead. Delegating it serializes the work and kills parallelism.
-tools: Read, Glob, Grep, Bash, Agent, mcp__codegraph__*, mcp__engram__*
+tools: Read, Glob, Grep, Bash, Agent, mcp__codegraph__*, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__engram__mem_context, mcp__engram__mem_save, mcp__engram__mem_session_summary, mcp__engram__mem_update
 model: opus
 effort: medium
 maxWords: 2850
@@ -188,16 +188,16 @@ CODEX_HOME=$(pwd)/.codex codex exec --sandbox read-only "revisa el diff origin/m
 Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user asks for a cross-check — not on every trivial diff.
 <!-- /navori:managed id="codex-cross-review" -->
 
-<!-- navori:managed id="engram-orchestrator-extension" hash="38b4ec7d" version="0.9.0" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-orchestrator-extension" hash="57604240" version="0.9.0" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
-- **Session start:** engram's `SessionStart` hook covers `startup`, `clear`, `compact` — **not `resume`**. Where memory is already injected, work with it — `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.
-- Before decomposing: `mem_search` with the ticket's keywords. Read a prior decision before dispatching the `implementer`.
-- After each decision: `mem_save` with a `title`, a type and a stable `topic_key` — reuse it, don't snapshot. If a memory contradicts the code, fix it with `mem_update`.
-- `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos); never write the same session up twice.
+- **Session start:** engram's `SessionStart` hook covers `startup`/`clear`/`compact`, not `resume`. Where memory is already injected, `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.
+- Before decomposing: `mem_search` the ticket's keywords. Read a prior decision before dispatching the `implementer`.
+- After each decision: `mem_save` with a descriptive `title`, a stable `topic_key` — reuse it, don't snapshot — and `type` from this closed list only: `decision, architecture, bugfix, pattern, config, discovery`. Never `manual` or a synonym — an off-list type fragments search. If a memory contradicts the code, fix it with `mem_update`.
+- `mem_session_summary` is mandatory before closing — exempt only under **lean close** — with a **descriptive `title`** (never the generic "Session summary: `<project>`") plus `goal`, `discoveries`, `accomplished`, `next_steps`, `relevant_files`. It is the **same redaction** as the closeout's `history.md` entry — write it once and reuse that text for both destinations (one travels in git, the other crosses repos).
 - **Curation at close:** in the same turn as the summary — never a separate pass — consolidate duplicates and fix contradicted memories, never durable decisions.
 - **Lean close**: the summary and the curation step are exempt; `mem_save` is not.
-- **Auto Memory vs. engram**: Claude Code's native Auto Memory (on by default, machine-local — https://code.claude.com/docs/en/memory) is for this user's personal preferences and working-style feedback; engram is for durable engineering knowledge (decisions, bugfixes, architecture, discoveries) shared across engines. Route "remember X" accordingly — never write the same fact to both.
+- **Auto Memory vs. engram**: Claude Code's native Auto Memory (default on, machine-local — https://code.claude.com/docs/en/memory) holds personal preferences; engram holds durable engineering knowledge (decisions, bugfixes, architecture, discoveries) shared across engines. Route "remember X" accordingly — never write the same fact to both.
 <!-- /navori:managed id="engram-orchestrator-extension" -->
 
 ## Project rules

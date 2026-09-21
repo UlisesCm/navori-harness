@@ -992,6 +992,23 @@ describe("CLI e2e — happy paths", () => {
     rmSync(join(repo, ".agents"), { recursive: true, force: true });
     rmSync(join(repo, ".codex/agents"), { recursive: true, force: true });
 
+    // `.codex/config.toml` names its curated `--tools=` grant by tool, so
+    // "mem_save"/"mem_session_summary" now survive verbatim in that ONE file
+    // even with every guidance location gone (the earlier `--tools=agent`
+    // placeholder never carried these substrings). That is real signal, not
+    // noise — the capability the invariant guards for genuinely still ships,
+    // just from the MCP registration instead of the agent prose. Gut it the
+    // same way the sibling test above gets rid of every OTHER surviving
+    // mention, so this test keeps proving doctor catches the drift it was
+    // written for instead of a coincidence of the current tool list.
+    const configTomlPath = join(repo, ".codex/config.toml");
+    writeFileSync(
+      configTomlPath,
+      readFileSync(configTomlPath, "utf-8")
+        .replaceAll("mem_save", "XXX")
+        .replaceAll("mem_session_summary", "YYY"),
+    );
+
     const broken = runCli(["doctor", "--json", "--cwd", repo]);
     const report = JSON.parse(broken.stdout);
     const missing = report.missingInvariants.map((item: { invariant: string }) => item.invariant);

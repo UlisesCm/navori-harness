@@ -1812,7 +1812,12 @@ function applySubBlockInject(input: {
   // Layer 3 of the MCP wiring: the prose just injected is worthless to an agent
   // whose `tools:` allowlist omits the server's tools. Grant them here so the
   // instruction and the capability always ship together.
-  const finalContent = withAgentMcpTools(result.output, input.plugin, input.skill.injectInto!);
+  const finalContent = withAgentMcpTools(
+    result.output,
+    input.plugin,
+    input.skill.injectInto!,
+    input.skill.mcpTools,
+  );
 
   // An up-to-date sub-block does NOT imply an up-to-date frontmatter: a repo
   // rendered before this fix has the prose and lacks the tools, and returning
@@ -1873,6 +1878,7 @@ function removeSubBlock(input: {
     removeManagedSection(currentContent, input.skill.id, "html"),
     input.plugin,
     input.skill.injectInto!,
+    input.skill.mcpTools,
   );
   if (stripped === currentContent) return; // nothing of this plugin left here
 

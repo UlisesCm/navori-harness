@@ -175,6 +175,29 @@ describe("PluginManifestSchema — skills", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts a sub-block skill that narrows its MCP grant with mcpTools", () => {
+    const result = PluginManifestSchema.safeParse({
+      ...MINIMAL,
+      skills: [
+        {
+          id: "engram-implementer-extension",
+          file: "skills/engram-subagent-readonly.md",
+          injectInto: "agents/implementer.md",
+          mcpTools: ["mem_search", "mem_get_observation"],
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("omitting mcpTools stays valid — the wildcard grant is unchanged (backward compat)", () => {
+    const result = PluginManifestSchema.safeParse({
+      ...MINIMAL,
+      skills: [{ id: "x", file: "skills/x.md", injectInto: "agents/leader.md" }],
+    });
+    expect(result.success).toBe(true);
+  });
+
   it("rejects recommendedAgent not in the known roles", () => {
     const result = PluginManifestSchema.safeParse({
       ...MINIMAL,

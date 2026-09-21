@@ -45,6 +45,21 @@ describe("deriveMcpTools", () => {
   it("grants nothing for a plugin that ships no server", () => {
     expect(deriveMcpTools(plugin("jscpd", false))).toEqual([]);
   });
+
+  it("grants a curated list by name when the manifest names one, not the wildcard", () => {
+    expect(deriveMcpTools(plugin("engram", true), ["mem_search", "mem_get_observation"])).toEqual([
+      "mcp__engram__mem_search",
+      "mcp__engram__mem_get_observation",
+    ]);
+  });
+
+  it("falls back to the wildcard when the curated list is empty — omitted, not narrowed to nothing", () => {
+    expect(deriveMcpTools(plugin("engram", true), [])).toEqual(["mcp__engram__*"]);
+  });
+
+  it("grants nothing for a plugin with no server even when a curated list is given", () => {
+    expect(deriveMcpTools(plugin("jscpd", false), ["some_tool"])).toEqual([]);
+  });
 });
 
 describe("withAgentMcpTools", () => {
@@ -86,6 +101,34 @@ describe("withAgentMcpTools", () => {
       "---",
     ]);
     expect(out).toContain("# Researcher");
+  });
+
+  it("appends a curated list by name instead of the wildcard when the manifest names one", () => {
+    const out = withAgentMcpTools(agentFile("Read"), engram, AGENT, [
+      "mem_search",
+      "mem_get_observation",
+    ]);
+    expect(out).toContain("tools: Read, mcp__engram__mem_search, mcp__engram__mem_get_observation");
+    expect(out).not.toContain("mcp__engram__*");
+  });
+
+  it("retires a leftover wildcard from an earlier render once the manifest narrows to a curated list", () => {
+    const wide = withAgentMcpTools(agentFile("Read"), engram, AGENT); // pre-existing mcp__engram__*
+    const narrowed = withAgentMcpTools(wide, engram, AGENT, ["mem_search", "mem_get_observation"]);
+    expect(narrowed).toContain(
+      "tools: Read, mcp__engram__mem_search, mcp__engram__mem_get_observation",
+    );
+    expect(narrowed).not.toContain("mcp__engram__*");
+  });
+
+  it("narrowing is idempotent once the wildcard is gone", () => {
+    const once = withAgentMcpTools(agentFile("Read"), engram, AGENT, [
+      "mem_search",
+      "mem_get_observation",
+    ]);
+    expect(withAgentMcpTools(once, engram, AGENT, ["mem_search", "mem_get_observation"])).toBe(
+      once,
+    );
   });
 
   it("rewrites the frontmatter even when the body repeats it verbatim", () => {
@@ -161,10 +204,49 @@ describe("withoutAgentMcpTools", () => {
     expect(withoutAgentMcpTools(readOnly, engram, AGENT)).toBe(readOnly);
   });
 
+  /**
+   * The revoke side of the same supersede case `withAgentMcpTools` already
+   * handles on grant: an agent still carrying `mcp__engram__*` from a render
+   * that predates the manifest's `mcpTools` must not keep it as an orphan when
+   * the plugin is disabled. `navori remove engram` calls this with the
+   * manifest's CURRENT (narrow) `mcpTools` — the wildcard is nowhere in that
+   * list by name, so without this the entry survives the revoke and a later
+   * re-install inherits it instead of starting clean.
+   */
+  it("retires a leftover wildcard on revoke too, not just on grant", () => {
+    const staleWildcard = agentFile("Read, Glob, mcp__engram__*");
+    const revoked = withoutAgentMcpTools(staleWildcard, engram, AGENT, [
+      "mem_search",
+      "mem_get_observation",
+    ]);
+    expect(revoked).toBe(agentFile("Read, Glob"));
+  });
+
+  it("a wildcard-revoke call (no curated list) still leaves an unrelated stale wildcard alone if absent", () => {
+    // Sanity companion: without a curated `mcpTools`, the supersede branch
+    // never engages — the wildcard-only path above (line ~194) already covers
+    // that a plain family revoke works; this just pins that passing `undefined`
+    // does not accidentally widen what gets dropped.
+    const content = agentFile("Read, Glob, mcp__engram__mem_search");
+    expect(withoutAgentMcpTools(content, engram, AGENT)).toBe(content);
+  });
+
   // search-v2.md §7 C01 — same grant/revoke machinery, exercised with the real
   // production ids: retiring the CodeGraph v2 grant must never touch Engram's
   // (or vice versa). This is the generic layer this suite already pins for
   // synthetic ids; here it pins it for the two ids that actually ship together.
+  it("takes a curated list back out the same way it was granted, by name", () => {
+    const grantedNarrow = withAgentMcpTools(agentFile("Read, Glob"), engram, AGENT, [
+      "mem_search",
+      "mem_get_observation",
+    ]);
+    const revoked = withoutAgentMcpTools(grantedNarrow, engram, AGENT, [
+      "mem_search",
+      "mem_get_observation",
+    ]);
+    expect(revoked).toBe(agentFile("Read, Glob"));
+  });
+
   it("C01 — retiring the codegraph grant leaves engram's grant on the same agent untouched", () => {
     const codegraph = plugin("codegraph", true);
     const both = withAgentMcpTools(
