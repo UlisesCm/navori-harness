@@ -31,7 +31,7 @@ El resultado buscado no es un número de bytes aislado: es menos `input + cache_
 | El presupuesto debe medir el render, no assets fuente. | `packages/cli/src/engines/claude/__tests__/claude-md-budget.test.ts` renderiza con todos los plugins y cuenta el resultado real. | El inventario partirá del render por engine/configuración, con hashes reproducibles. |
 | Claude tiene un límite de 200 líneas para `CLAUDE.md` renderizado. | Mismo test: `LINE_BUDGET = 200` y diagnóstico por bloques managed. | `always-on` reportará líneas y bytes, y conservará este guard. |
 | El hook de arranque puede perder contexto si se rebasa la entrega real. | `packages/cli/src/engines/claude/__tests__/session-start-budget.test.ts`: `BUDGET = 8000`, `DELIVERY_CEILING = 8800`, inline o puntero. | `hook` se medirá sobre el payload emitido, no sobre el script ni archivo persistido. |
-| Ya hay techos por bloque always-on. | `packages/cli/scripts/doc-budgets.manifest.json` y `check-doc-budgets.mjs`. | El reporte complementa esos techos; no los sustituye. |
+| Ya hay techos por bloque always-on. | `packages/cli/src/lib/doc-budgets.ts` y `check-doc-budgets.mjs`. | El reporte complementa esos techos; no los sustituye. |
 | El catálogo de agentes es residente y ya se limita. | `packages/cli/src/lib/__tests__/agent-descriptions.test.ts` declara máximo de 340 caracteres por descripción y explica que ocho descripciones se cargan cada sesión. | El reporte separará catálogo/descripciones de cuerpos de rol. |
 | Las skills ya tienen carga diferida y caps. | `packages/cli/src/lib/__tests__/skill-caps.test.ts` exige trigger y límite de listado; `claude-md-budget.test.ts` indica que el cuerpo carga sólo al usarlo. | Se distinguirán `lazy-metadata` de `lazy-body`. |
 | Los punteros no son una pérdida silenciosa. | `session-start-budget.test.ts` exige que cada bloque llegue inline o como puntero. | El inventario registrará `handoff/pointer` y no eliminará su fallback. |
@@ -96,7 +96,7 @@ Configuraciones mínimas: Claude y Codex; plugins conocidos habilitados y config
 - `packages/core/core-assets/managed/*.md`
 - `packages/core/core-assets/agents/{implementer,reviewer,publisher,orchestrator}.md`
 - `packages/core/core-assets/skills/*.md`
-- `packages/cli/scripts/doc-budgets.manifest.json`
+- `packages/cli/src/lib/doc-budgets.ts`
 - presupuestos/tests de Claude y Codex afectados.
 
 **Métricas.** Delta de bytes/líneas de `always-on`, `role` y `hook`; cobertura de invariantes; regresión de activación de agentes/skills.

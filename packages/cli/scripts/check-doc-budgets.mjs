@@ -3,30 +3,46 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  COMPUTED_BLOCKS_WITHOUT_BUDGET,
+  DOC_BUDGETS,
+  MANAGED_ASSET_PATHSPECS,
+  countWords,
+} from "../src/lib/doc-budgets.ts";
+
 /**
  * #815 — extends the word-cap primitive from `SKILL_TYPE_CAPS`
  * (`packages/cli/src/lib/skill-meta.ts`) to the prose that grows unchecked:
- * root `CLAUDE.md` and the managed blocks under
- * `packages/core/core-assets/managed/*.md`. Both render into every session,
- * so an unbounded one grows by accretion — a session that learns something
- * appends, and none of them prune.
+ * root `CLAUDE.md` and every managed block navori ships. All of them render
+ * into a session, so an unbounded one grows by accretion — a session that
+ * learns something appends, and none of them prune.
  *
- * `countWords` below is a deliberate duplicate of `skill-meta.ts`'s function,
- * not an import: that module is TypeScript compiled by tsup, and this script
- * runs as plain Node before any build step (`check:doc-budgets` has no build
- * dependency, same as `check-links.mjs`). Keep both in sync by hand if either
- * changes — they are one line each, so the drift risk is small next to
- * bundling a whole build step just to reuse it.
+ * #917 — the ceilings moved from `doc-budgets.manifest.json` to
+ * `src/lib/doc-budgets.ts`, and `countWords` is now imported from there
+ * instead of duplicated here. Two reasons, in order: npm publishes only
+ * `["dist", "README.md"]`, so `doctor` could never read a manifest under
+ * `scripts/` in a consumer repo; and the duplicate word counter was a
+ * knowingly-accepted drift risk. Node strips the types at import time (same
+ * pattern as `scripts/gen-schemas.mjs`), so this still runs with no build
+ * step — `check:doc-budgets` keeps its zero build dependency.
+ *
+ * Discovery spans every pathspec in `MANAGED_ASSET_PATHSPECS`: core blocks,
+ * preset `stack.md` blocks and plugin blocks. Before #917 it swept only
+ * `core-assets/managed/`, which left 18 static assets — the ones that vary
+ * from consumer to consumer — with no ceiling at all.
  *
  * Three fail modes:
  *  1. A budgeted file exceeds its ceiling.
  *  2. A budgeted file no longer exists — you cannot dodge the ceiling by
- *     renaming or deleting; update the manifest in the SAME change instead.
- *  3. A managed `.md` under `core-assets/managed/` is missing from the
- *     manifest entirely. Deliberate: an unbudgeted managed block is a ceiling
- *     nobody set, which is how a NEW block ships unchecked from day one.
- *     `CLAUDE.md` itself is not auto-discovered (it is not under
- *     `core-assets/managed/`) — it is required in the manifest below instead.
+ *     renaming or deleting; update `src/lib/doc-budgets.ts` in the SAME change.
+ *  3. A discovered managed `.md` is missing from `DOC_BUDGETS` entirely.
+ *     Deliberate: an unbudgeted managed block is a ceiling nobody set, which
+ *     is how a NEW block ships unchecked from day one. `CLAUDE.md` itself is
+ *     not auto-discovered (it matches no pathspec) — it is listed explicitly.
+ *
+ * The three COMPUTED blocks (`COMPUTED_BLOCKS_WITHOUT_BUDGET`) are out of
+ * scope here by design: they have no source file to measure, and their size
+ * scales with the consumer's own config. See that constant for the why.
  *
  * Usage:
  *   node packages/cli/scripts/check-doc-budgets.mjs           # fail on violation
@@ -50,33 +66,24 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..", "..");
-const MANIFEST_PATH = resolve(HERE, "doc-budgets.manifest.json");
-const MANAGED_DIR = resolve(REPO_ROOT, "packages/core/core-assets/managed");
+const BUDGETS_MODULE = "packages/cli/src/lib/doc-budgets.ts";
 
-/** Word counter mirrored from `skill-meta.ts`'s `countWords` — see the docblock above. */
-function countWords(body) {
-  const trimmed = body.trim();
-  return trimmed === "" ? 0 : trimmed.split(/\s+/).length;
-}
+const budgetedPaths = new Set(Object.keys(DOC_BUDGETS));
 
-const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf-8"));
-const manifestPaths = new Set(Object.keys(manifest));
-
-const managedFiles = execFileSync("git", ["ls-files", "*.md"], {
-  cwd: MANAGED_DIR,
+const managedFiles = execFileSync("git", ["ls-files", "--", ...MANAGED_ASSET_PATHSPECS], {
+  cwd: REPO_ROOT,
   encoding: "utf-8",
 })
   .split("\n")
-  .filter(Boolean)
-  .map((rel) => `packages/core/core-assets/managed/${rel}`);
+  .filter(Boolean);
 
-const unbudgeted = managedFiles.filter((rel) => !manifestPaths.has(rel)).sort();
+const unbudgeted = managedFiles.filter((rel) => !budgetedPaths.has(rel)).sort();
 
 const rows = [];
 const overBudget = [];
 const missing = [];
 
-for (const [rel, ceiling] of Object.entries(manifest)) {
+for (const [rel, ceiling] of Object.entries(DOC_BUDGETS)) {
   const abs = resolve(REPO_ROOT, rel);
   if (!existsSync(abs)) {
     missing.push(rel);
@@ -94,13 +101,16 @@ if (listMode) {
   for (const { rel, words, ceiling, margin } of rows.sort((a, b) => a.rel.localeCompare(b.rel))) {
     console.log(`${rel}: ${words}/${ceiling} words (margin ${margin})`);
   }
+  console.log(
+    `(${COMPUTED_BLOCKS_WITHOUT_BUDGET.length} computed block(s) have no ceiling by design: ${COMPUTED_BLOCKS_WITHOUT_BUDGET.join(", ")})`,
+  );
   process.exit(0);
 }
 
 if (missing.length > 0) {
   console.error(`✗ doc budgets: ${missing.length} budgeted file(s) no longer exist:`);
   for (const rel of missing) {
-    console.error(`    ${rel} (renamed or deleted? update packages/cli/scripts/doc-budgets.manifest.json in the same change)`);
+    console.error(`    ${rel} (renamed or deleted? update ${BUDGETS_MODULE} in the same change)`);
   }
   process.exit(1);
 }
@@ -108,7 +118,7 @@ if (missing.length > 0) {
 if (unbudgeted.length > 0) {
   console.error(`✗ doc budgets: ${unbudgeted.length} managed file(s) missing from the manifest:`);
   for (const rel of unbudgeted) {
-    console.error(`    ${rel} (add it to packages/cli/scripts/doc-budgets.manifest.json with a ceiling)`);
+    console.error(`    ${rel} (add it to ${BUDGETS_MODULE} with a ceiling)`);
   }
   process.exit(1);
 }
