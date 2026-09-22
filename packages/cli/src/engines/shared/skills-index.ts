@@ -27,6 +27,30 @@ import { CORE_SKILLS, WORKFLOW_SKILLS, extraConditionMet } from "./harness-asset
  * the bare path when the skill isn't on disk.
  * Returns the rows only; each engine wraps them with its own header (Claude
  * references `.claude/skills/<id>/SKILL.md`, the prose engines don't).
+ *
+ * #908: `includeTrigger` defaults to `true` and is set to `false` only by the
+ * `claude` engine's caller. Claude Code has its own always-on native skill
+ * listing built from each skill's `description`/`when_to_use` frontmatter
+ * (`SKILL_LISTING_CHAR_CAP`, `packages/cli/src/lib/skill-meta.ts:141`,
+ * https://code.claude.com/docs/en/skills) — it already tells the model WHEN to
+ * use each of the 18 skills, so repeating the trigger in CLAUDE.md for that one
+ * engine is pure duplication (measured: 395/2548 words of the file, #908
+ * audit). The prose engines (`agents-md`, `cursor`, `copilot`, `codex`) have NO
+ * native listing — the model never sees `description`/`when_to_use` any other
+ * way — so for them the trigger in this index is the only place a "when to use"
+ * ever reaches the model, and it must stay.
+ *
+ * This applies to project-local rows too, WITH a real `description` on disk:
+ * Claude Code's native listing loads `.claude/skills/<id>/SKILL.md` the same
+ * as any other skill, so it surfaces the project-local `description` to the
+ * model too — verified directly (the `playwright-cli` project-local skill
+ * appears in this session's own native listing with its full description).
+ * `includeTrigger: false` therefore drops the `· <trigger>` from a
+ * project-local row exactly like every other row. The DEGRADED row — no
+ * description on disk, or the skill missing entirely — is the one exception,
+ * in BOTH modes: it isn't a trigger navori chose to omit, it's the signal that
+ * navori couldn't read the file, and the host's native listing won't have it
+ * either (nothing to load).
  */
 export function buildSkillRows(
   config: NavoriConfig,
@@ -37,11 +61,14 @@ export function buildSkillRows(
    * from `repoRoot` on a monorepo WORKSPACE render, where the CLAUDE.md (and
    * its skills) live in the workspace dir while presets resolve from the root. */
   localSkillsRoot: string = repoRoot,
+  /** Emit the `· <trigger>` suffix for managed rows. `false` only for the
+   * `claude` engine — see the docblock above for why. */
+  includeTrigger: boolean = true,
 ): string[] {
   const rows: string[] = [];
   const listed = new Set<string>();
   const row = (id: string, tag: string, assetPath: string): string => {
-    const trigger = readSkillTrigger(assetPath);
+    const trigger = includeTrigger ? readSkillTrigger(assetPath) : null;
     return trigger ? `- \`${id}\` — ${tag} · ${trigger}` : `- \`${id}\` — ${tag}`;
   };
 
@@ -95,13 +122,21 @@ export function buildSkillRows(
     // on disk — or declares no description — the row degrades to the path, which
     // is also what a checkout without `.claude/skills/` renders.
     const rel = resolveLocalSkillPath(localSkillsRoot, name);
+    // Read the trigger regardless of `includeTrigger` — it's how we tell "has a
+    // description, just not shown" (drop to a plain tag row) apart from
+    // "nothing to read" (drop to the degraded path row), which must stay the
+    // same in both modes (#908 review).
     const trigger = rel ? readSkillTrigger(join(localSkillsRoot, rel)) : null;
     const safeTrigger = trigger ? sanitizeProjectValue(trigger) : "";
-    rows.push(
-      safeTrigger !== ""
-        ? `- \`${safeName}\` — project-local · ${safeTrigger}`
-        : `- \`${safeName}\` — project-local (\`.claude/skills/${safeName}\`)`,
-    );
+    if (safeTrigger === "") {
+      rows.push(`- \`${safeName}\` — project-local (\`.claude/skills/${safeName}\`)`);
+    } else {
+      rows.push(
+        includeTrigger
+          ? `- \`${safeName}\` — project-local · ${safeTrigger}`
+          : `- \`${safeName}\` — project-local`,
+      );
+    }
     listed.add(name);
   }
   return rows;

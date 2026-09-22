@@ -65,6 +65,50 @@ describe("buildSkillRows (shared skills index) — C4", () => {
     expect(reviewRows[0]).toContain("navori");
   });
 
+  // #908: the claude engine passes `includeTrigger: false` — the host's native
+  // skill listing already surfaces `description`/`when_to_use` to the model,
+  // so repeating the trigger in CLAUDE.md is pure duplication for that engine.
+  it("omits the trigger when includeTrigger is false, keeping id + tag", () => {
+    const withTrigger = buildSkillRows(cfg(), process.cwd(), coreAssets);
+    const withoutTrigger = buildSkillRows(
+      cfg(),
+      process.cwd(),
+      coreAssets,
+      [],
+      process.cwd(),
+      false,
+    );
+
+    const triggerRow = withTrigger.find((r) => r.startsWith("- `verify-before-done`"))!;
+    const noTriggerRow = withoutTrigger.find((r) => r.startsWith("- `verify-before-done`"))!;
+    expect(triggerRow).toContain(" · ");
+    expect(noTriggerRow).toBe("- `verify-before-done` — navori");
+    expect(noTriggerRow).not.toContain(" · ");
+  });
+
+  // The prose engines (agents-md, cursor, copilot, codex) have no native skill
+  // listing, so `buildSkillsSection` (prose-harness.ts) must keep calling
+  // `buildSkillRows` with the default `includeTrigger: true` — this is the
+  // asymmetry the #908 docblock documents.
+  it("keeps the default includeTrigger=true, the mode prose engines rely on", () => {
+    const rows = buildSkillRows(cfg(), process.cwd(), coreAssets);
+    expect(rows.some((r) => r.includes(" · "))).toBe(true);
+  });
+
+  it("degraded project-local row (no description on disk) is unaffected by includeTrigger", () => {
+    const withTrigger = buildSkillRows(cfg(), process.cwd(), coreAssets, ["my-skill"]);
+    const withoutTrigger = buildSkillRows(
+      cfg(),
+      process.cwd(),
+      coreAssets,
+      ["my-skill"],
+      process.cwd(),
+      false,
+    );
+    expect(withTrigger).toContain("- `my-skill` — project-local (`.claude/skills/my-skill`)");
+    expect(withoutTrigger).toContain("- `my-skill` — project-local (`.claude/skills/my-skill`)");
+  });
+
   it("sanitizes a hostile project-local skill id so it can't forge a marker (#264)", () => {
     // localSkills is `z.array(z.string())` with no regex — an untrusted id could
     // otherwise smuggle an HTML-comment marker / newline into the managed block.
@@ -115,6 +159,23 @@ describe("buildSkillRows — project-local trigger (#327)", () => {
     );
     const rows = buildSkillRows(cfg(), process.cwd(), coreAssets, ["bundle-cost"], root);
     expect(rows).toContain("- `bundle-cost` — project-local · Use when adding a dependency");
+  });
+
+  // #908 review gap: a project-local skill WITH a real description on disk
+  // must lose its trigger under `includeTrigger: false`, same as any other
+  // row — Claude Code's native listing loads `.claude/skills/<id>/SKILL.md`
+  // the same as a core/workflow skill, so it already surfaces this
+  // description to the model. Neither the unit test nor the golden snapshot
+  // previously covered a project-local row WITH a description, which is why
+  // the loop's missed `includeTrigger` check shipped unnoticed.
+  it("drops the trigger for a project-local skill WITH a description when includeTrigger is false", () => {
+    skill(
+      "bundle-cost",
+      "Use when adding a dependency — the repo's bundle budget and how to measure it.",
+    );
+    const rows = buildSkillRows(cfg(), process.cwd(), coreAssets, ["bundle-cost"], root, false);
+    expect(rows).toContain("- `bundle-cost` — project-local");
+    expect(rows.some((r) => r.includes("`bundle-cost`") && r.includes(" · "))).toBe(false);
   });
 
   it("NO indexa un `<id>.md` plano: el host no lo carga, y anunciarlo es mentir (#626)", () => {
