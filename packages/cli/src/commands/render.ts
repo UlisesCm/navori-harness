@@ -3,7 +3,11 @@ import * as p from "@clack/prompts";
 import { existsSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
-import { scanOrphanedEngineOutputs, type OrphanedEngineOutput } from "../lib/health.ts";
+import {
+  measureDocBudgetFile,
+  scanOrphanedEngineOutputs,
+  type OrphanedEngineOutput,
+} from "../lib/health.ts";
 import { planOrphanRemoval, removeEmptyDirs, type OrphanRemovalPlan } from "../lib/removable.ts";
 import { createBackup, purgeOldBackups } from "../lib/backup.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render-plan.ts";
@@ -717,6 +721,13 @@ export const renderCommand = defineCommand({
       process.exit(1);
     }
 
+    // #917: the startup budget BEFORE this render, so the warning below can be
+    // about the CROSSING and nothing else. A fixed informational line here is
+    // exactly what this must not become: `render --all` sweeps the 30 repos of
+    // the registry and already emits backups, drift and removals. `doctor` is
+    // where a user goes to ASK the number; `render` only says it just broke.
+    const budgetBefore = measureDocBudgetFile(resolve(cwd, "CLAUDE.md"));
+
     const result = runRender(cwd, {
       dryRun: preview,
       force: Boolean(args.force),
@@ -863,6 +874,17 @@ export const renderCommand = defineCommand({
     const allDowngrades = result.downgrades.concat(...result.workspaces.map((w) => w.downgrades));
     const downgradeWarn = formatDowngradeWarning(allDowngrades, result.language);
     if (downgradeWarn) p.log.warn(downgradeWarn);
+
+    // #917: the budget crossing, and ONLY the crossing — a repo that was already
+    // over stays silent here, because repeating a number the user can't act on
+    // in this run is how a warning becomes wallpaper. Skipped on a preview: no
+    // bytes changed, so nothing crossed.
+    if (!preview && budgetBefore.overBy === 0) {
+      const budgetAfter = measureDocBudgetFile(result.filePath);
+      if (budgetAfter.overBy > 0) {
+        p.log.warn(tr.docBudgetCrossed(budgetAfter.managedWords, budgetAfter.ceiling));
+      }
+    }
 
     // In preview mode `written` means "would write" — the engine populates it
     // with pending changes without touching disk.
