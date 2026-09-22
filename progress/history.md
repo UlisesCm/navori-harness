@@ -289,7 +289,7 @@ lado — la válvula que el propio bloque de orquestación define para ese caso.
 
 ## 2026-09-11 00:15 — claude — La hipótesis de cuatro releases queda refutada, y la primera doctrina pasa a mecanismo
 
-- Cambios: `docs/research/activacion-subagentes-y-skills.md`, `progress/`, `scripts/mine-search-routing.py`, `packages/plugins/tgrep/{plugin.json,scripts/guard-search-routing.sh}`, `packages/cli/src/lib/__tests__/{guard-search-routing,plugins}.test.ts`, espejo. Más `~/.claude/skills/` y los dos repos de alertaciudadana.
+- Cambios: `docs/research/activacion-subagentes-y-skills.md`, `progress/`, `scripts/py/mine-search-routing.py`, `packages/plugins/tgrep/{plugin.json,scripts/guard-search-routing.sh}`, `packages/cli/src/lib/__tests__/{guard-search-routing,plugins}.test.ts`, espejo. Más `~/.claude/skills/` y los dos repos de alertaciudadana.
 - Quality gate: ✅ `pnpm check` exit 0 — 207 archivos / 3,551 tests, espejo sin drift, bundle 913.7KB/1000KB. CI verde en los tres PRs.
 - PRs: #677 (Fase 0), #678 (instrumento), #679 (Fase 1) · issues #673, #674, #675, #676.
 
@@ -385,7 +385,7 @@ migración. **La causa raíz es de proceso**: dos jornadas seguidas cerraron su 
 
 ## 2026-09-10 17:00 — claude — La spec 0020 cierra 9/9, el contrato de tgrep, y un squash que dejó un CRÍTICO en `main`
 
-- Cambios: `packages/core/core-assets/` (managed, agents, skills, presets), `packages/plugins/tgrep/`, `packages/cli/src/lib/audit/`, `commands/{render,doctor}.ts`, `scripts/mine-search-routing.py` y `scripts/classify-activation-arm.py`, `specs/0020-delegacion-por-mecanismo-nativo/`. 92 archivos, +4800/−420.
+- Cambios: `packages/core/core-assets/` (managed, agents, skills, presets), `packages/plugins/tgrep/`, `packages/cli/src/lib/audit/`, `commands/{render,doctor}.ts`, `scripts/py/mine-search-routing.py` y `scripts/py/classify-activation-arm.py`, `specs/0020-delegacion-por-mecanismo-nativo/`. 92 archivos, +4800/−420.
 - Quality gate: ✅ verde en cada PR.
 - Commits / PRs: #650, #651, #652, #654, #657, #658, #659, #660, #663, #664, #665, #666, #667, #668 · issue #661 abierto a propósito.
 
@@ -432,9 +432,9 @@ alcance quedó documentado en el issue. Un dato del mismo issue que no arregla n
 **Instrumental que quedó listo**, y existe porque una medición que no se puede repetir es una
 anécdota:
 
-- `scripts/mine-search-routing.py` — wrapper / nativo / shell por repo, con la línea base en su
+- `scripts/py/mine-search-routing.py` — wrapper / nativo / shell por repo, con la línea base en su
   docstring (3.7% global; 7–10% donde tgrep está activo, 0% donde no está instalado).
-- `scripts/classify-activation-arm.py` + `mine-activation.py` — el brazo antes/después de
+- `scripts/py/classify-activation-arm.py` + `mine-activation.py` — el brazo antes/después de
   activación, clasificando por lo que el host **inyectó**, no por lo que el hook imprimió.
 - La señal `routing-notice` del audit (0020 R5).
 
@@ -640,7 +640,7 @@ completo al baseline y se retira el follow-up de "partir el bloque".
 
 ## 2026-08-31 22:55 — claude — Harness global: auditoría del F1, plan por fases y 3 de las 5 unidades de FA cerradas
 
-- **Cambios:** `specs/0010-global-harness.md` (§8 rehecha), `engines/claude/global-render.ts`,
+- **Cambios:** `specs/0010-global-harness/design.md` (§8 rehecha), `engines/claude/global-render.ts`,
   `commands/global.ts`, `lib/global-config.ts`, `lib/render-plan.ts`, `lib/i18n.ts`,
   `core-assets/managed/idioma-rol.md`, +2 suites nuevas. Tests 2873 → 2902.
 - **Quality gate:** ✅ verde en los 3 PRs; CI verde en los 3 (#549 1m57s, #550 2m36s, #551 1m51s).
@@ -713,7 +713,7 @@ en fases FA/FB/FC/FD.
 ## 2026-08-25 23:05 — claude — Los 3 issues del audit, cerrados: uno refutó su propia premisa
 
 - **Cambios:** `commands/{audit,global}.ts` + `index.ts` (una sola `readCliVersion`),
-  `scripts/check-asset-commands.mjs` (nuevo) + `ci.yml` (`fetch-depth: 0`),
+  `scripts/js/check-asset-commands.mjs` (nuevo) + `ci.yml` (`fetch-depth: 0`),
   `lib/audit/{parse,model,report,discovery}.ts`, `audit-mode-trigger.sh` (graba `transcript_path`),
   suites nuevas de versión y del check, espejo renderizado y golden snapshots.
 - **Quality gate:** ✅ `pnpm format:check` · 2124 tests · `pnpm lint` · `pnpm typecheck` ·
@@ -1307,7 +1307,7 @@ diff del release fue 33 archivos / 53 líneas, **todas bumps de versión**: ning
 asset cambió. Deploy del website verde.
 
 **El tag `v0.6.2` nunca se había creado, y no era cosmético.** `check:assets` resuelve la versión
-publicada con `latestTag()` (`scripts/check-asset-commands.mjs:84`) — lee **tags de git, no npm**, así
+publicada con `latestTag()` (`scripts/js/check-asset-commands.mjs:84`) — lee **tags de git, no npm**, así
 que llevaba un día avisando que los assets citan `navori audit` contra "v0.6.1", un subcomando que
 0.6.2 ya había publicado. Creados `v0.6.2` (sobre `833b55a`) y `v0.6.3`; el aviso se apagó solo.
 
@@ -1350,7 +1350,7 @@ día en `main` sin llegar a ningún repo. `0.6.4` publica el follow-up de #523 y
 jornada. Tags `v0.6.2` (retroactivo), `v0.6.3` y `v0.6.4`; deploy del website verde en ambos.
 
 **El tag `v0.6.2` faltante no era cosmético.** `check:assets` resuelve la versión publicada con
-`latestTag()` (`scripts/check-asset-commands.mjs:84`) — lee **tags de git, no npm**. Sin el tag llevaba
+`latestTag()` (`scripts/js/check-asset-commands.mjs:84`) — lee **tags de git, no npm**. Sin el tag llevaba
 un día avisando que los assets citan `navori audit` contra "v0.6.1", un subcomando que 0.6.2 ya había
 publicado. El paso "tag" del release le da la verdad a un gate; no es ceremonia.
 
@@ -1475,7 +1475,7 @@ contenido — el diff es 56 inserciones / 56 borrados, todas de marcador). Commi
 
 **Hallazgo del release: el paquete ya estaba publicado en npm ANTES de existir el commit y el tag.**
 `npm view navori dist-tags` daba `{ latest: '0.6.5' }` mientras `git log` seguía en `d3a0f80` y el último
-tag era `v0.6.4`, con el bump sin commitear. No es cosmético: `scripts/check-asset-commands.mjs` (el paso
+tag era `v0.6.4`, con el bump sin commitear. No es cosmético: `scripts/js/check-asset-commands.mjs` (el paso
 `check:assets`) no lee `package.json` — resuelve `latestTag()` con `git tag --sort=-creatordate` y lee
 `git show <tag>:src/index.ts`. Sin el tag, el check medía los assets contra **v0.6.4**, o sea contra una
 versión más vieja que la que los usuarios ya estaban instalando, invirtiendo justo el propósito de #490.

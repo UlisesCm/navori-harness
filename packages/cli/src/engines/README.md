@@ -5,8 +5,8 @@ el formato de una herramienta concreta: `.claude/` para Claude Code, `.codex/` +
 `AGENTS.md` para Codex, `AGENTS.md`/`.cursor/`/`.github/` para los prose engines.
 
 Este documento es el contrato que un proveedor N+1 debe implementar y el checklist
-para llegar ahí. Es el resultado de las Specs [0007](../../../../specs/0007-render-plan-unificado.md)
-(spine compartido) y [0008](../../../../specs/0008-fase-c-claude-spine.md) (Claude sobre el spine).
+para llegar ahí. Es el resultado de las Specs [0007](../../../../specs/0007-render-plan-unificado/design.md)
+(spine compartido) y [0008](../../../../specs/0008-fase-c-claude-spine/design.md) (Claude sobre el spine).
 
 ## Las 3 capas (todo engine de disco las comparte)
 

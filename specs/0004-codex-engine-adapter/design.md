@@ -3,7 +3,7 @@
 **Status:** ✅ **EJECUTADA 2026-07-24** (`620c791` — `feat(codex): agrega adapter nativo completo`) — `renderCodexEngine` cableado en `commands/render.ts` y cubierto por `engines/codex/__tests__/`. Correcciones posteriores de paridad en `#289`, `#290` y `#299`.
 **Date:** 2026-07-24
 **Driver:** Ulises Ciprés
-**Depends on:** [Spec 0002](./0002-claude-engine-adapter.md) — reutiliza sus helpers (`renderManagedFile`, `injectManagedSection`, `loadPreset`, `librarySkillById`).
+**Depends on:** [Spec 0002](../0002-claude-engine-adapter/design.md) — reutiliza sus helpers (`renderManagedFile`, `injectManagedSection`, `loadPreset`, `librarySkillById`).
 **Objetivo:** que `navori render` produzca en un repo un harness Codex **equivalente en comportamiento** al que hoy produce para Claude Code, y que la spec sea tan prescriptiva que un agente de baja capacidad la ejecute sin tomar decisiones propias.
 
 > **Cómo leer esta spec (agente ejecutor):** ejecuta las fases **en orden**. No saltes fases. Cada fase termina con un bloque **VERIFICAR** con comandos exactos; **no avances** a la siguiente fase hasta que todos los comandos de VERIFICAR pasen. Los diffs se dan con `ANTES` / `DESPUÉS` literales — aplica el cambio exacto. Si un comando de VERIFICAR falla, **detente y reporta**, no improvises.

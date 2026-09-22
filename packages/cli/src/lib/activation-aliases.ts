@@ -2,7 +2,7 @@ import { RETIRED_AGENTS, RETIRED_SKILLS, type Retired } from "../engines/shared/
 
 /**
  * One retired-with-a-successor id's classification for
- * `scripts/mine-activation.py`'s continuity accounting (#869): does the
+ * `scripts/py/mine-activation.py`'s continuity accounting (#869): does the
  * miner's `canon_role`/`canon_skill` need to fold the old id into the new one,
  * or is there a documented reason it must not?
  *

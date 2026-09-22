@@ -15,7 +15,7 @@
 > **fricción de descubrimiento** — de ahí salió `mcpServer.alwaysLoad` (spec 0017
 > T7/R13), que bajó las tools diferidas de 68 a 67 y arrancó el servidor cargado.
 > Los números, la mecánica y el orden en que conviene reimplementar están en
-> [`docs/research/tgrep-como-funcionaba.md`](../docs/research/tgrep-como-funcionaba.md)
+> [`docs/research/tgrep-como-funcionaba.md`](../../docs/research/tgrep-como-funcionaba.md)
 > (§7 y §9).
 >
 > El usuario va a reimplementar codegraph y tgrep con una integración pensada

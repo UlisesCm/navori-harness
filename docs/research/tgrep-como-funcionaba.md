@@ -211,7 +211,7 @@ Por qué así:
 2. **En modo `auto` las reglas `allow` estrechas de Bash resuelven ANTES del clasificador**,
    así que la llamada no paga round-trip. Medido, el reparto de costo es: nativas/MCP
    ~0.08–0.13s contra ~0.20s (p75 1.83s) por shell, más la batería de hooks y la salida
-   completa al contexto en cada Bash (`specs/0016-paridad-modos-permiso.md:26,42`;
+   completa al contexto en cada Bash (`specs/0016-paridad-modos-permiso/design.md:26,42`;
    la misma cifra la imprime `packages/cli/src/lib/audit/signals.ts:542`).
 3. **La invocación canónica es relativa** (`bash .claude/scripts/tgrep-search.sh …`). La regla
    es un literal con prefijo: cualquier otra escritura —absoluta, `cd … &&`,
@@ -357,7 +357,7 @@ calculado.
 | Cifra | Valor | Fuente |
 |---|---|---|
 | Búsqueda de contenido por shell | **95.6%** (5,399 llamadas) contra 2.7% del wrapper (154) y 0.1% del `Grep` nativo (6) | issue #661, 48 sesiones / 11 repos, 2026-08-25→09-10 |
-| Adopción publicada (denominador inflado) | **4.0%** | `scripts/mine-search-routing.py:21` |
+| Adopción publicada (denominador inflado) | **4.0%** | `scripts/py/mine-search-routing.py:21` |
 | Reparto del denominador viejo | 46.2% filtros (`… \| grep`), 22.3% extracciones, **31.5%** búsquedas reales — sobre 8,562 invocaciones | `mine-search-routing.py:17-19` |
 | Misma medición sobre búsquedas reales | **6.4%** | `mine-search-routing.py:22` |
 | **Línea base corregida** (10 repos auditados, 2026-09-11) | **7.4%** — 2,761 búsquedas: wrapper 197 · nativo 6 · shell 2,558; fuera del cociente 3,958 filtros y 2,053 extracciones | `mine-search-routing.py:52-57` |
@@ -381,7 +381,7 @@ que importa: comparar contra una base calculada con el minero viejo mediría el 
 | moonar | 26.2% | **35.5%** |
 | **TOTAL parque** | **6.6%** | **40.7%** |
 
-Fuente: `scripts/mine-search-routing.py:75-79`, PR #742, `progress/history.md:1739-1742`.
+Fuente: `scripts/py/mine-search-routing.py:75-79`, PR #742, `progress/history.md:1739-1742`.
 
 **Re-corrida hoy (2026-09-15) con el mismo instrumento**, para este documento — el "antes" es
 estable y el "después" se mueve porque siguen entrando sesiones:
@@ -489,7 +489,7 @@ es el error que este repo cometió dos veces (§6).
 | wrapper (regla `allow` estrecha) | 0.111s medido hoy, reindex incluido | no |
 | búsqueda por shell | ~0.20s, **p75 1.83s** | sí, salvo regla estrecha; más batería de hooks y salida completa al contexto |
 
-Fuente: `specs/0016-paridad-modos-permiso.md:26,42`; `packages/cli/src/lib/audit/signals.ts:542`.
+Fuente: `specs/0016-paridad-modos-permiso/design.md:26,42`; `packages/cli/src/lib/audit/signals.ts:542`.
 
 ---
 

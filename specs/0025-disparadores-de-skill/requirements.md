@@ -150,7 +150,7 @@ hasta aquí*. Lo que queda es **satisfacible y con puerta**: la condición de
 reevaluación se cumple cuando #775 aterrice o `memory-watch` reporte.
 
 Lo que sí se entrega es el **instrumento** que convierte esa conclusión en algo
-re-verificable. La razón es la misma que `scripts/mine-search-routing.py` escribió
+re-verificable. La razón es la misma que `scripts/py/mine-search-routing.py` escribió
 para sí mismo: *"una medición que no se puede repetir no es una línea base, es una
 anécdota."* El argumento completo, con los descartes, vive en `design.md`
 § *Por qué no se construye todavía* y § *Veredicto*.

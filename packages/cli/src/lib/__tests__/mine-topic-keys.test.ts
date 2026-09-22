@@ -25,6 +25,7 @@ const MINER = resolve(
   "..",
   "..",
   "scripts",
+  "py",
   "mine-topic-keys.py",
 );
 

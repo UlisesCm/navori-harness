@@ -4,7 +4,7 @@
 **Date:** 2026-06-10
 **Driver:** Ulises Ciprés
 **Validation case:** `~/Documents/dev/moonar/moonar-medusa-monorepo` (caso real con config v1, generación incompleta del harness)
-**Depends on:** [Spec 0001](./0001-monorepo-render-per-workspace.md) — ortogonal, esta spec asume render single-workspace
+**Depends on:** [Spec 0001](../0001-monorepo-render-per-workspace/design.md) — ortogonal, esta spec asume render single-workspace
 
 ## Problema
 

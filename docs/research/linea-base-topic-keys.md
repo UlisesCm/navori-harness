@@ -2,7 +2,7 @@
 
 > Congelada el **2026-09-13 19:42 CST**, commit **`16c9dc8`**, antes de que ningún
 > cambio de conducta de #760 toque el repo. Instrumento:
-> [`scripts/mine-topic-keys.py`](../../scripts/mine-topic-keys.py).
+> [`scripts/py/mine-topic-keys.py`](../../scripts/py/mine-topic-keys.py).
 
 ## Por qué existe este archivo
 
@@ -184,10 +184,10 @@ supone. **Éste es el fix de verdad, y es upstream** (Tarea B del plan de #760).
 ## Cómo reproducir
 
 ```bash
-python3 scripts/mine-topic-keys.py navori-harness   # la línea base de arriba
-python3 scripts/mine-topic-keys.py                  # el parque completo
-python3 scripts/mine-topic-keys.py --top 30         # más claves irreusables
-ENGRAM_DB=/ruta/a/otra.db python3 scripts/mine-topic-keys.py
+python3 scripts/py/mine-topic-keys.py navori-harness   # la línea base de arriba
+python3 scripts/py/mine-topic-keys.py                  # el parque completo
+python3 scripts/py/mine-topic-keys.py --top 30         # más claves irreusables
+ENGRAM_DB=/ruta/a/otra.db python3 scripts/py/mine-topic-keys.py
 ```
 
 **Qué lee, y qué no.** La DB está en 644 (world-readable) y guarda los prompts

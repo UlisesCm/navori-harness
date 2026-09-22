@@ -60,7 +60,7 @@ export type PathKind =
  * The rules, in order — FIRST MATCH WINS, so order is part of the definition.
  *
  * They are LITERALS, and their `.source` is what gets handed to the consumer that
- * is not TypeScript: `scripts/mine-activation.py` reads the generated JSON and
+ * is not TypeScript: `scripts/py/mine-activation.py` reads the generated JSON and
  * applies them with Python's `re`. Both engines agree on this subset — character
  * classes, alternation, anchors, and the `\/` escape a JS literal produces — but
  * NOT on lookbehind, named groups or backreferences. A rule that needs one of

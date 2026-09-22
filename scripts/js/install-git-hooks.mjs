@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const source = resolve(here, "git-hooks", "pre-push");
+const source = resolve(here, "..", "git-hooks", "pre-push");
 const marker = "# navori pre-push gate";
 
 function git(...args) {

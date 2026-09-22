@@ -110,7 +110,7 @@ navori-harness/
 ├─ packages/
 │  ├─ cli/            # el CLI `navori` (publicado a npm)
 │  ├─ core/           # @navori/core — managed assets (agentes, skills, presets, hooks), bundleados al CLI
-│  └─ plugins/        # engram · acli · gh · jscpd · semgrep
+│  └─ plugins/        # acli · codegraph · engram · gh · jscpd · semgrep · tgrep
 ├─ apps/
 │  └─ website/        # landing + docs (Astro, deploy a GitHub Pages)
 └─ package.json      # workspaces + trustedDependencies (bun)

@@ -41,7 +41,7 @@ describe("clause (a) — carries behavior, decided from the path", () => {
       "un hook es ejecutable, y romperlo rompe el guard",
     ],
     [
-      "scripts/check-asset-commands.mjs",
+      "scripts/js/check-asset-commands.mjs",
       "source",
       "un script del gate lleva comportamiento: romperlo pone el CI en rojo",
     ],
@@ -194,7 +194,7 @@ describe("las reglas son portables a otro lenguaje", () => {
 });
 
 describe("el JSON que lee Python no puede quedarse atrás del módulo", () => {
-  it("scripts/source-classify.rules.json coincide con CLASSIFY_RULES", () => {
+  it("scripts/py/source-classify.rules.json coincide con CLASSIFY_RULES", () => {
     // Mismo patrón que los JSON Schemas: se regenera en memoria y se compara.
     // Sin esto, el archivo checked-in es una SEGUNDA definición que deriva en
     // silencio — que es exactamente cómo este término llegó a significar tres

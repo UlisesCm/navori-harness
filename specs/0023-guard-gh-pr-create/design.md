@@ -253,7 +253,7 @@ la palanca hizo su trabajo. El 30% de B es el punto donde el override deja de se
 excepción y empieza a ser la vía: casi uno de cada tres bloqueos.
 
 **Secundario, y solo secundario**: `pr-act/pr-opp` de `navori-harness` en
-`python3 scripts/mine-activation.py`, desde la línea base de **1/117 (0%)**. Es el número que
+`python3 scripts/py/mine-activation.py`, desde la línea base de **1/117 (0%)**. Es el número que
 importa a largo plazo, pero su denominador depende de cuántas sesiones haya —y la revisión
 del 2026-09-13 ya mostró que con 4 sesiones no se puede concluir nada—, así que no es el
 criterio de salida.

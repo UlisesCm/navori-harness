@@ -22,7 +22,7 @@ Este runbook es el entregable que sí cabe en un PR: convierte una decisión abi
 informado**. Trae el estado medido, el procedimiento ordenado de menor a mayor riesgo, y las guardas
 escritas donde la evidencia dice que hacen falta.
 
-**Y ya se había escrito una vez.** `specs/0005-search-efficiency-layer.md:137` rotuló esta misma
+**Y ya se había escrito una vez.** `specs/0005-search-efficiency-layer/design.md:137` rotuló esta misma
 operación **"Higiene one-time del store personal (acción, no feature de navori)"**, y `:206` la dejó
 como decisión abierta literal: *"¿Ejecutar la higiene one-time del store personal (§5.3) ahora,
 aparte del plan?"*. #761 decisión 1 **es esa misma pregunta, redescubierta por otro camino meses
@@ -292,7 +292,7 @@ Empezar por los dos pares confirmados, verificados vivos en esta corrida:
 de arriba son dos pares del mismo hecho. Cada par difiere en `type` *y* en `topic_key` —una clave con
 convención `<area>/<slug>`, la otra con el mes embebido—, así que ninguna regla determinista los
 agrupa. **Un script no puede encontrar esto; un agente leyendo título y contenido sí.**
-`specs/0005-search-efficiency-layer.md:129-130` ya lo había resuelto igual: *"Es juicio → agente, no
+`specs/0005-search-efficiency-layer/design.md:129-130` ya lo había resuelto igual: *"Es juicio → agente, no
 hook mecánico (un script no sabe qué es 'importante')"*.
 
 `engram conflicts scan --project navori-harness --dry-run --semantic` está documentado en
@@ -360,7 +360,7 @@ respuesta para `~/.navori/audits`, hay que decidir si aplica igual a `~/.engram/
 
 ### El precedente que ya respeta el criterio
 
-`scripts/mine-topic-keys.py` —entregado en la **PR
+`scripts/py/mine-topic-keys.py` —entregado en la **PR
 [#784](https://github.com/UlisesCm/navori-harness/pull/784)**, mergeada el 2026-09-14— es el
 instrumento que ya lee esta misma DB bajo estas mismas reglas, y sirve de plantilla:
 
@@ -401,7 +401,7 @@ Pierde por cuatro razones, cada una suficiente:
 3. **No puede hacer la parte que importa.** Los dos pares duplicados del paso 3 tienen `topic_key`
    distinto y `normalized_hash` distinto — medido: 0 y 0. El duplicado semántico es **invisible a
    cualquier regla determinista**.
-4. **Ya estaba resuelto.** `specs/0005-search-efficiency-layer.md:129-130`: *"Es juicio → agente, no
+4. **Ya estaba resuelto.** `specs/0005-search-efficiency-layer/design.md:129-130`: *"Es juicio → agente, no
    hook mecánico"*.
 
 Lo único que un script podría aportar —la lista de candidatos: sin título, tipo raro, `review_after`
@@ -488,7 +488,7 @@ teclea a medias.
 
 - `.claude/progress/audit_ticket_761.md` — la auditoría que produjo este runbook, con la evidencia
   `file:line` completa.
-- `specs/0005-search-efficiency-layer.md` §5.2 (`:116-135`), §5.3 (`:137-148`), §9 (`:199-206`).
+- `specs/0005-search-efficiency-layer/design.md` §5.2 (`:116-135`), §5.3 (`:137-148`), §9 (`:199-206`).
 - `specs/0025-disparadores-de-skill/design.md:234-239` — la moratoria de doctrina.
 - `packages/plugins/engram/managed/engram-protocol.md` — el protocolo que se renderiza a `CLAUDE.md`.
 - [#761](https://github.com/UlisesCm/navori-harness/issues/761) · [#728](https://github.com/UlisesCm/navori-harness/issues/728) · [#768](https://github.com/UlisesCm/navori-harness/pull/768) · [#784](https://github.com/UlisesCm/navori-harness/pull/784)

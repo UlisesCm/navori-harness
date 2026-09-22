@@ -522,7 +522,7 @@ Sin eso, mover el directorio de UI convierte el gate en un ✓ permanente sobre
 cero archivos.
 
 > **Lectura nuestra, no cita**: este concepto **ya lo tenemos**, verificado en
-> frío. `scripts/check-asset-commands.mjs:143-150` falla explícitamente cuando
+> frío. `scripts/js/check-asset-commands.mjs:143-150` falla explícitamente cuando
 > caminó cero assets — *"Zero assets walked is not 'no violations': a renamed
 > or unbuilt asset layout would otherwise print a ✓ over an empty scan (same
 > family as #454's '0 files to scan')"* — y `:79` hace lo mismo si no puede
@@ -1163,7 +1163,7 @@ que el issue todavía no existe, no que el ítem se haya descartado.
 |---|---|
 | Techo de palabras con gate (skills) | `packages/cli/src/lib/skill-meta.ts:58-65`, `:112-115`, `:134-138`; `skill-caps.test.ts` |
 | Techo de bytes con política de subida | `packages/cli/scripts/check-bundle-size.mjs` |
-| Anti-atrofia por glob vacío | `scripts/check-asset-commands.mjs:79`, `:143-150` |
+| Anti-atrofia por glob vacío | `scripts/js/check-asset-commands.mjs:79`, `:143-150` |
 | Artefacto generado con drift test | `packages/cli/scripts/gen-schemas.mjs`, `packages/cli/src/lib/__tests__/schema-publish.test.ts` |
 | El render como disposer | `packages/cli/src/commands/remove.ts:73-106` |
 | Gate anclado contra CI | `repo-config-gate.test.ts`, `subcommand-inventory.test.ts` |

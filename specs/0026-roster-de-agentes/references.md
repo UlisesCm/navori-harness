@@ -132,9 +132,9 @@ git show 5a0bbc34:<ruta> | sed -n '<desde>,<hasta>p'
 | Contradicciones del playbook | `core-assets/agents/leader.md:26-31`, `:73`, `:77`, `:169-170`; "operator" como el humano en `core-assets/managed/orquestacion.md:64` |
 | Skills citadas | `skills/ticket-intake.md:24`, `:37`; `verify-before-done.md:52`, `:57`; `review-diff.md:36`, `:66`, `:106`; `security-guidance.md:21`; `loop-back-debug.md:60`; `spec-bootstrap.md:15`; `babysit-prs.md:47-49` |
 | Auditor, ticket-audit y researcher | `core-assets/agents/auditor.md:56-62`, `:57`; `ticket-audit.md:51-52`; `researcher.md:42` (`git grep`); `implementer.md:47`, `:81` (`git stash`) |
-| Minero de búsqueda | `scripts/mine-search-routing.py:113` |
+| Minero de búsqueda | `scripts/py/mine-search-routing.py:113` |
 | Precedente de `navori` invocado por un hook | `core-assets/hooks/audit-mode-trigger.sh:103`; `settings/settings-base.json:74-79` |
-| Aviso de citty con código 0 | `scripts/check-asset-commands.mjs:15-17` |
+| Aviso de citty con código 0 | `scripts/js/check-asset-commands.mjs:15-17` |
 | Presupuesto del bloque de orquestación | `engines/claude/__tests__/session-start-budget.test.ts:159` (`CEILING = 6500`); `.claude/context/10-orquestacion.md` mide 6,324 caracteres (6,400 bytes) |
 | Marcadores de retirados (hallazgo B1 del challenge v2) | `engines/claude/index.ts:1120` (`planFlatSkillRemoval(cwd, id, id)`), `:1200` (comentario: `<id>-base` en core); `lib/removable.ts:141` (`openingTagFor` exacto); `.claude/skills/debug-error/SKILL.md` (`id="debug-error-base"`) |
 | Reporte de lo conservado | `lib/removable.ts:157-166` (`KeepReason`); `engines/codex/index.ts:124-126` (`prune: presetLoadedSafely`) |
@@ -171,7 +171,7 @@ Para contar los commits del receipt: `git log --oneline | grep -ciE "receipt|dri
 | `docs/research/search-v2-results.md` | §4.4, §6.3, §6.7 | Estado de search v2, decisión #761 (tools MCP por nombre exacto), benchmark §9 sin correr, rollback |
 | `docs/research/activacion-subagentes-y-skills.md` | "La remedición (2026-09-11, n=16)" | Evidencia detrás de la moratoria |
 | `progress/history.md`, `specs/0023-guard-gh-pr-create/design.md:39`, `specs/0024-nudge-espejo-busqueda/requirements.md:35` | Moratoria de doctrina | Estaba en `progress/current.md` hasta `3f0fceb0`; #845 reescribió ese archivo |
-| `search-v2.md` (raíz) | D02 (`:14`), manifest de tgrep (`:106`), M03 (`:374`), §9.5 D19, `:653` | Sin hooks ni scripts en tgrep; métrica de campo pre-registrada (≥ 25% en dos semanas); no expandir con hooks antes de medir |
+| `docs/research/search-v2.md` | D02 (`:14`), manifest de tgrep (`:106`), M03 (`:374`), §9.5 D19, `:653` | Sin hooks ni scripts en tgrep; métrica de campo pre-registrada (≥ 25% en dos semanas); no expandir con hooks antes de medir |
 | `docs/DIRECTION.md` | Invariantes (9: "navori genera, no ejecuta"), `:76-81`, `:152-153` | Invariante y la mención desactualizada de tgrep y codegraph |
 | `specs/0012-solutioning/design.md` | `:14-17`, `:176` | Rechazo de `solution-architect` que F enmienda |
 | `specs/0017-tgrep-search-layer/design.md` | `:237-238` | *"re-evaluar solo si el audit post-rollout muestra que el wrapper no se usa"* |

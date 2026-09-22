@@ -135,7 +135,7 @@ Con el guard en `main`, medir contra el pre-registro de T1 —y contra nada más
 
 ```
 python3 scripts/mine-pr-routing.py                       # el embudo
-python3 scripts/mine-activation.py sessions.txt          # pr-opp / pr-act por repo
+python3 scripts/py/mine-activation.py sessions.txt          # pr-opp / pr-act por repo
 ```
 
 Ventana: 20 bloqueos o 14 días, lo que ocurra primero. El resultado se escribe en

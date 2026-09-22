@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
  * Usage: node scripts/check-links.mjs   (run from anywhere; resolves paths off git)
  */
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** Conservatively below the 89 links present when this gate was added. */
 const MIN_LINKS_DISCOVERED = 70;
