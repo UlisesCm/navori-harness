@@ -3,6 +3,8 @@ import type { AgentRun, GateExecution, SessionAudit, Signal } from "./model.ts";
 import { GATE_HOOK_NAMES, correlateGateExecutions, gateHandle, recorderWindow } from "./model.ts";
 import { compareSemver } from "../semver.ts";
 import { RETIRED_AGENTS } from "../../engines/shared/roster.ts";
+import { MAIN_THREAD_ONLY_HOOKS } from "../../engines/shared/harness-plan.ts";
+import { ORCHESTRATOR_OWNER } from "./parse.ts";
 
 /**
  * Findings, as pure functions over one parsed session plus the harness it ran
@@ -1227,4 +1229,78 @@ export function reviewerGateLifecycle(sessions: SessionAudit[], lang: Lang): Sig
   }
 
   return out;
+}
+
+/**
+ * Hooks that fired where they cannot do anything (#924).
+ *
+ * Both hosts run tool hooks inside subagents, so every `PreToolUse` of every
+ * delegated agent spawns the whole matching set. For a hook declared
+ * `mainThreadOnly` that spawn produces nothing by the hook's own code — and it
+ * is not a rounding error: over this repo's store 80% of all hook firings come
+ * from subagents, `model-advisor` alone at 3,649 of its 4,679.
+ *
+ * RANGE-level on purpose, like `harnessRegime`. One session shows a handful of
+ * firings and reads as noise; the shape only exists across the range, and the
+ * card of each agent already prints its own list.
+ *
+ * WHAT IT DOES NOT CLAIM: latency. Removing one hook from `PreToolUse` buys
+ * roughly the gap to the next-slowest hook of the same event (~3ms measured),
+ * because they all start at once — the whole point of the per-event toll in
+ * `report.ts`. The cost here is a process spawn per tool call, and the summary
+ * says so rather than letting a reader convert firings into seconds. #922 was
+ * argued on latency grounds this instrument no longer supports.
+ *
+ * SILENCE, NEVER ZERO, when the store cannot answer. Only events that CARRY an
+ * `agentId` are counted: Claude Code documents the field on subagent tool
+ * events, Codex documents it on `SubagentStart`/`SubagentStop` and not on the
+ * tool phases (`codex-hook-parallelism`). Counting the absence as
+ * main-thread would publish "0 misfires" about a host whose logs never say.
+ * Attribution by time window — which `ownerOf` legitimately uses for OTHER
+ * purposes — is exactly what must not decide a finding.
+ *
+ * Plugin hooks are out of reach: their `mainThreadOnly` lives in a manifest the
+ * audit does not read, so only the core declaration is evaluated.
+ */
+export function hookMisfires(sessions: SessionAudit[], lang: Lang): Signal[] {
+  const inSubagent = new Map<string, number>();
+  const total = new Map<string, number>();
+  const withOwner = new Map<string, number>();
+
+  for (const session of sessions) {
+    const events = [
+      ...session.orchestrator.hookEvents,
+      ...session.agents.flatMap((a) => a.hookEvents),
+    ];
+    for (const e of events) {
+      if (!MAIN_THREAD_ONLY_HOOKS.has(e.name)) continue;
+      total.set(e.name, (total.get(e.name) ?? 0) + 1);
+      if (!e.agentId) continue;
+      withOwner.set(e.name, (withOwner.get(e.name) ?? 0) + 1);
+      if (e.agentId === ORCHESTRATOR_OWNER) continue;
+      inSubagent.set(e.name, (inSubagent.get(e.name) ?? 0) + 1);
+    }
+  }
+
+  return [...inSubagent.entries()]
+    .sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
+    .map(([name, misfired]) => {
+      const fired = total.get(name) ?? misfired;
+      const attributed = withOwner.get(name) ?? misfired;
+      const share = Math.round((misfired / attributed) * 100);
+      return {
+        kind: "hook-misfire",
+        severity: "info" as const,
+        summary: pick(
+          lang,
+          `${name}: ${misfired} de ${attributed} disparos ocurrieron dentro de un subagente (${share}%), donde el hook está declarado main-thread-only y no puede hacer nada`,
+          `${name}: ${misfired} of ${attributed} firings happened inside a subagent (${share}%), where the hook is declared main-thread-only and can do nothing`,
+        ),
+        evidence: pick(
+          lang,
+          `${fired} disparos registrados en el rango, ${attributed} con dueño declarado por el host. El costo es un spawn por tool call, NO latencia: los hooks de un evento arrancan en paralelo, así que retirar uno ahorra la diferencia con el siguiente más lento (ver "peaje por evento"). La declaración vive en MAIN_THREAD_ONLY_HOOKS (engines/shared/harness-plan.ts) y se exige que el propio script pruebe la inercia. Los disparos sin agentId no se cuentan en ningún lado: hay hosts que no documentan el campo en las fases de tool.`,
+          `${fired} firings recorded over the range, ${attributed} with an owner the host declared. The cost is one spawn per tool call, NOT latency: an event's hooks start in parallel, so dropping one saves the gap to the next-slowest (see "per-event toll"). The declaration lives in MAIN_THREAD_ONLY_HOOKS (engines/shared/harness-plan.ts) and requires the hook's own script to prove the inertness. Firings with no agentId count on neither side: some hosts do not document the field on tool phases.`,
+        ),
+      };
+    });
 }

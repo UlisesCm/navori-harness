@@ -12,7 +12,7 @@ import {
   emptyTokens,
   recorderWindow,
 } from "./model.ts";
-import { harnessRegime, reviewerGateLifecycle, type Lang } from "./signals.ts";
+import { harnessRegime, hookMisfires, reviewerGateLifecycle, type Lang } from "./signals.ts";
 
 /**
  * Renders a parsed audit into its two derived artifacts.
@@ -1563,6 +1563,10 @@ export function buildReport(
       // totals once there is enough data. Range-level for the same reason
       // `harnessRegime` is: the sample-size floor is evaluated across sessions.
       ...reviewerGateLifecycle(sessions, opts.lang ?? "en"),
+      // #924: a hook declared main-thread-only that fired inside a subagent.
+      // Range-level because one session's handful of firings reads as noise —
+      // the 80% share only exists across the range.
+      ...hookMisfires(sessions, opts.lang ?? "en"),
     ],
     orphanSessions: opts.orphanSessions ?? [],
   };
