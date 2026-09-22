@@ -143,6 +143,7 @@ y se tratan distinto a propósito.
 | Bloques computados (`skills-index`, `contexto-proyecto`, `agentes-disponibles`) | navori, desde la config del consumidor | **Sí**, fórmula `base + k · filas` | `navori doctor` (reporta) |
 | Prosa propia del consumidor, fuera de los marcadores | el dueño del repo | **No, nunca** | se reporta y ya |
 | `.claude/context/*.md` | navori | **No todavía** (#919) | `navori doctor` (reporta) |
+| `AGENTS.md` (engines prosa) | navori | **No** — se reporta contra el cap del host | `navori doctor` (aviso amarillo desde el 80 %) |
 
 Los techos viven en un solo lugar: `packages/cli/src/lib/doc-budgets.ts`. Está bajo `src/lib/` y no
 en un JSON bajo `scripts/` porque npm publica `["dist", "README.md"]`: `doctor` tiene que leer esos
@@ -170,6 +171,17 @@ el cociente reporta un exceso que inventó la métrica. Medido en el `CLAUDE.md`
 `bonum-webapp`: `engram-protocol` (497) + `codegraph-protocol` (255) eran **752 de 1207** del
 exceso reportado, el 62 %. Se cuentan aparte y se nombran en su propia línea, no se esconden.
 
+La superficie prosa (`AGENTS.md`, que comparten `codex`, `agents-md`, `cursor` y `copilot`) se
+mide en **bytes**, no en palabras, y por una razón: el único límite que existe ahí es del host.
+Codex concatena de la raíz hacia abajo y **deja de agregar archivos** al llegar a
+`project_doc_max_bytes` (32 KiB por defecto), sin avisar — truncamiento silencioso, que ningún
+techo de palabras detecta. navori reporta su parte y nada más: la cadena suma el
+`~/.codex/AGENTS.md` del usuario y los `AGENTS.md` anidados, así que lo medido es una **cota
+inferior**. Tampoco se mide bloque a bloque: `AGENTS.md` renderiza como un solo bloque
+`navori-agents`, y un reporte por bloque ahí daría `ceiling 0, overBy 0` — una línea que no puede
+fallar nunca. Darle diagnóstico por bloque cambiaría la topología de markers de un archivo ya
+desplegado (área crítica): eso es una spec aparte.
+
 Y la distinción que decide qué hacer con el aviso: **"tu archivo está gordo" no es lo mismo que "tu
 archivo es viejo"**. Un `CLAUDE.md` rendereado por una versión anterior arrastra bloques que ya
 adelgazaron — en `bonum-webapp` un `navori render --apply` recorta 1175 palabras (−37 %) sin que su
@@ -180,7 +192,9 @@ Un último número que el reporte nombra y conviene tener presente al escribir p
 subagente recarga `CLAUDE.md` + las project rules desde cero** en su propio contexto (Claude Code,
 "What loads at startup"; solo `omitClaudeMd` lo evita). No hay multiplicador fijo —el ticket decide
 cuántos agentes corren— pero un ciclo implementer→reviewer→publisher paga ese archivo una vez por
-agente, además de la sesión principal.
+agente, además de la sesión principal. **Es un hecho de Claude, no portable**: un subagente de
+Codex se lanza desde su propio archivo de agente con `developer_instructions` obligatorias, así que
+el reporte omite esa línea cuando `engines` no incluye `claude`.
 
 ## Commits y PRs
 
