@@ -131,6 +131,50 @@ completa.
 o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara los pasos 2 y 3
 (espejo y golden) aunque su extensión diga lo contrario.
 
+## Presupuesto de prosa: qué se capea y qué solo se reporta
+
+Toda la prosa que navori envía vive en el contexto residente de cada sesión, así que crece por
+acumulación: cada sesión que aprende algo agrega, ninguna poda. Hay **dos superficies de arranque**
+y se tratan distinto a propósito.
+
+| Superficie | Quién la escribe | ¿Techo? | Quién lo vigila |
+|---|---|---|---|
+| Assets managed (`core-assets/managed/`, `presets/*/managed/`, `plugins/*/managed/`) | navori | **Sí**, por archivo | `bun run check:doc-budgets` en el gate |
+| Bloques computados (`skills-index`, `contexto-proyecto`, `agentes-disponibles`) | navori, desde la config del consumidor | **Sí**, fórmula `base + k · filas` | `navori doctor` (reporta) |
+| Prosa propia del consumidor, fuera de los marcadores | el dueño del repo | **No, nunca** | se reporta y ya |
+| `.claude/context/*.md` | navori | **No todavía** (#919) | `navori doctor` (reporta) |
+
+Los techos viven en un solo lugar: `packages/cli/src/lib/doc-budgets.ts`. Está bajo `src/lib/` y no
+en un JSON bajo `scripts/` porque npm publica `["dist", "README.md"]`: `doctor` tiene que leer esos
+mismos números dentro del repo de un consumidor, y solo puede si van en el bundle. Política: cada
+techo carga **≥5 % de margen** sobre lo medido, y la subida se justifica en el cambio que la pide —
+poner el número exacto que pasa es cómo `CLAUDE.md` llegó a 2548/2550.
+
+Tres decisiones que no son obvias:
+
+- **La prosa del consumidor no se capea.** navori no tiene standing para ponerle techo al
+  `CLAUDE.md` de otro repo; este mismo repo tiene 536 palabras propias contra 1771 managed. Se
+  reporta separada ("X tuyas, Y de navori") y punto.
+- **Los bloques computados no pueden tener constante.** `contexto-proyecto` mide 54 palabras aquí y
+  335 en `bonum-dashboard` — 6.2x — solo porque ese repo declara más entradas en `project.*`, que es
+  usar la herramienta como debe usarse. La `k` está calibrada **generosa** a propósito: el bloque
+  cobra lo que cuesta cada entrada de config, no castiga tenerlas.
+- **El reporte de `doctor` no mueve `ok` ni falla `--strict`.** Hay 30 repos en el registry global;
+  engancharlo al veredicto los pone en rojo el día del bump por prosa legítima. `render` tampoco
+  imprime una línea informativa fija: solo avisa cuando el techo **se cruza en esa ejecución**.
+
+Y la distinción que decide qué hacer con el aviso: **"tu archivo está gordo" no es lo mismo que "tu
+archivo es viejo"**. Un `CLAUDE.md` rendereado por una versión anterior arrastra bloques que ya
+adelgazaron — en `bonum-webapp` un `navori render --apply` recorta 1175 palabras (−37 %) sin que su
+dueño decida nada. `doctor` reporta primero la staleness por eso: es la única palanca que no pide
+ninguna decisión.
+
+Un último número que el reporte nombra y conviene tener presente al escribir prosa managed: **cada
+subagente recarga `CLAUDE.md` + las project rules desde cero** en su propio contexto (Claude Code,
+"What loads at startup"; solo `omitClaudeMd` lo evita). No hay multiplicador fijo —el ticket decide
+cuántos agentes corren— pero un ciclo implementer→reviewer→publisher paga ese archivo una vez por
+agente, además de la sesión principal.
+
 ## Commits y PRs
 
 - Commits: Conventional, español MX, atómicos (`feat|fix|chore|docs(scope): mensaje`).
