@@ -61,6 +61,17 @@ export interface HarnessCatalog {
    */
   managedSkills: string[];
   sections: DeclaredSection[];
+  /**
+   * The repo `CLAUDE.md` in ESTIMATED TOKENS (`length / 4`), for attributing
+   * model cost per agent run.
+   *
+   * Deliberately not the same number as `doctor`'s startup budget
+   * (`scanDocBudget`, #917), which counts WORDS against the ceilings navori
+   * ships per managed block: 4104 here against 2307 there for this repo's own
+   * file. Different units for different questions — see that function's
+   * docblock for the full split. Do not "unify" them by making one call the
+   * other; the reconciliation that matters is that each states its unit.
+   */
   claudeMdTokens: number;
   /**
    * The `~/.claude/CLAUDE.md` layer a subagent also loads at startup, per the

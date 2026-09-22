@@ -493,7 +493,8 @@ export function extractManagedContent(
   return match ? match.content : null;
 }
 
-interface LocatedBlock {
+/** A managed block's id and its byte span, markers included. */
+export interface LocatedBlock {
   id: string;
   openStart: number;
   closeEnd: number;
@@ -659,7 +660,7 @@ export function proseLines(
  * `splitUserSection` slices on (which used to sweep the real user zone into
  * `managed` and inject a duplicate `user-start`, #285).
  */
-function locateManagedBlocks(content: string, style: CommentStyle): LocatedBlock[] {
+export function locateManagedBlocks(content: string, style: CommentStyle): LocatedBlock[] {
   const syntax = syntaxFor(style);
   const openRegex = openRegexFor(syntax);
   const blocks: LocatedBlock[] = [];

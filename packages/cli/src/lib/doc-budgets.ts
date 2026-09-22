@@ -17,8 +17,8 @@
  *
  * Being under `src/lib/` is what MAKES that possible, not what achieves it:
  * tsup bundles from `src/index.ts` and tree-shakes, so these ceilings land in
- * `dist/index.js` the moment phase 2's `doctor` imports them. Adding a second
- * tsup entry now would publish an artifact with no reader.
+ * `dist/index.js` the moment phase 2's `doctor` imports them — which it now
+ * does (`commands/doctor.ts`, `scanDocBudget`).
  */
 
 export { countWords } from "./skill-meta.ts";
@@ -80,8 +80,8 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
  * config: `contexto-proyecto` measured 54 words in this repo and 335 in
  * `bonum-dashboard` (6.2x) purely because that repo declares more
  * `criticalAreas` — legitimate use of the tool, which a constant ceiling would
- * punish. Phase 2 of #917 derives the formula and REPORTS against it; nothing
- * here fails a build over them.
+ * punish. `COMPUTED_BLOCK_FORMULAS` below carries the `base + k · rows` version
+ * `doctor` reports against; nothing here fails a build over them.
  */
 export const COMPUTED_BLOCKS_WITHOUT_BUDGET = [
   "skills-index",
@@ -99,3 +99,134 @@ export const MANAGED_ASSET_PATHSPECS: readonly string[] = [
   "packages/core/core-assets/presets/*/managed/*.md",
   "packages/plugins/*/managed/*.md",
 ];
+
+/**
+ * Words the marker PAIR adds to a block once rendered, on top of its source
+ * asset. The ceilings above are measured on the source `.md`, which carries no
+ * markers; a rendered block carries both.
+ *
+ * Measured, not estimated — the overhead is a constant because `openMarker`
+ * always writes the same four attributes: this repo's `CLAUDE.md` renders
+ * `tipado-fuerte` at 51 words against a 40-word source, `operaciones-seguras`
+ * at 297 against 286, `idioma-rol` at 138 against 127 and
+ * `code-discovery-routing` at 162 against 151. Four blocks, `+11` every time.
+ * Without it every rendered block reads ~11 words over its ceiling and the
+ * report is nothing but false positives.
+ */
+export const MARKER_PAIR_WORDS = 11;
+
+/**
+ * Characters the SessionStart hook will deliver before it degrades a section to
+ * a one-line pointer (`NAVORI_CTX_BUDGET`,
+ * `packages/core/core-assets/hooks/session-start-context.sh`).
+ *
+ * This is the ceiling `.claude/context/` ACTUALLY has today, and it is not a
+ * word budget: past it the host hands the model a preview and writes the rest
+ * to a file nobody opens (#623), so the hook emits the pointer instead. `doctor`
+ * reports the surface against it; capping `.claude/context/` by words is #919.
+ * Mirrored here rather than parsed out of a shell script — a test asserts the
+ * hook asset still declares the same number.
+ */
+export const SESSION_CONTEXT_DELIVERY_BUDGET_CHARS = 8000;
+
+/**
+ * Codex's hard cap on the concatenated project instructions, in BYTES
+ * (`project_doc_max_bytes`, default 32 KiB). Verified live against
+ * `https://learn.chatgpt.com/docs/agent-configuration/agents-md` on 2026-09-22:
+ *
+ *   "Codex concatenates files from the root down, joining them with blank
+ *    lines. […] Codex skips empty files and stops adding files once the
+ *    combined size reaches the limit defined by `project_doc_max_bytes`
+ *    (32 KiB by default)."
+ *
+ * Two things make this unlike every other number in this module. It is in
+ * BYTES, not words — a word ceiling, however well calibrated, cannot detect
+ * this condition. And its failure mode is SILENT TRUNCATION: Codex stops adding
+ * files and says nothing, so the guidance that never arrived looks exactly like
+ * guidance the model chose to ignore.
+ *
+ * The chain also includes files navori does not write — the user's
+ * `~/.codex/AGENTS.md` and any nested `AGENTS.md` — so a repo's own share is a
+ * LOWER bound on what is consumed. That is precisely why this is REPORTED and
+ * never capped: navori knows its own contribution, not the total.
+ */
+export const CODEX_PROJECT_DOC_MAX_BYTES = 32768;
+
+/**
+ * Share of `CODEX_PROJECT_DOC_MAX_BYTES` at which the report turns the
+ * `AGENTS.md` line yellow. Advisory only — it never reaches the health verdict.
+ *
+ * 80% is a deliberate choice, not a round number picked for looks: navori's own
+ * `AGENTS.md` measures 26927 bytes = 82.2% of the cap today, so this repo is the
+ * first one the warning fires in. A threshold that spared the author would be a
+ * threshold nobody validated.
+ */
+export const CODEX_PROJECT_DOC_WARN_RATIO = 0.8;
+
+/** A ceiling that cannot be a constant: `base + perRow · rows`. */
+export interface ComputedBlockFormula {
+  /** Heading, intro and the marker pair — everything that doesn't scale. */
+  base: number;
+  /** Ceiling per `- …` row of the rendered block. */
+  perRow: number;
+}
+
+/**
+ * Ceilings for the three blocks navori COMPUTES from the consumer's config.
+ *
+ * The unit is a rendered ROW (`- …` line), which is countable from the file
+ * alone — no config resolution, no guessing which knob produced which line.
+ *
+ * Calibrated GENEROUSLY on purpose (#917): this block reports what each config
+ * entry COSTS, it does not punish a repo for using the tool. Every `k` sits
+ * above the most expensive row navori can emit for that block, measured today:
+ *
+ * - `skills-index` — rows measured at 4-5 words (`- \`id\` — tag`, no trigger:
+ *   the `claude` engine drops it since #908). Base measured at 68 here (header
+ *   + marker pair) for 18 rows / 150 words; `bonum-webapp` renders 32 rows /
+ *   208 words, i.e. 4.4 per row. `80 + 7·rows` clears both by ~40%.
+ * - `contexto-proyecto` — the priciest row is `migrationRow`, 42 (es) / 43 (en)
+ *   words with one-word arguments (`i18n.ts`, `blocks.projectContext`), so `k`
+ *   is that worst case plus room for the user's own words. Base is heading (4)
+ *   + intro (12) + marker pair (11). `bonum-dashboard` renders 9 rows / 335
+ *   words against a 435 ceiling — the case the user ruled LEGITIMATE, so the
+ *   formula must not flag it.
+ * - `agentes-disponibles` — 6 rows / 210 words in this repo, priciest row 37
+ *   words. Renders to `.claude/context/`, which `doctor` REPORTS and does not
+ *   cap (#919 owns that ceiling); the formula exists so the report can price an
+ *   agent row there too.
+ */
+export const COMPUTED_BLOCK_FORMULAS: Readonly<Record<string, ComputedBlockFormula>> = {
+  "skills-index": { base: 80, perRow: 7 },
+  "contexto-proyecto": { base: 30, perRow: 45 },
+  "agentes-disponibles": { base: 60, perRow: 40 },
+};
+
+/** Ceiling for a computed block at `rows` rows, or null when it isn't one. */
+export function computedBlockCeiling(id: string, rows: number): number | null {
+  const formula = COMPUTED_BLOCK_FORMULAS[id];
+  return formula ? formula.base + formula.perRow * rows : null;
+}
+
+/** `packages/core/core-assets/presets/<preset>/managed/stack.md`. */
+const PRESET_STACK_RE = /^packages\/core\/core-assets\/presets\/([^/]+)\/managed\/stack\.md$/;
+/** Any other budgeted managed asset — its basename IS the block id. */
+const MANAGED_ASSET_RE = /\/managed\/([^/]+)\.md$/;
+
+/**
+ * Ceiling per RENDERED managed-block id, derived from `DOC_BUDGETS` — never a
+ * second table. The block id is the asset's basename for core and plugin
+ * blocks (`operaciones-seguras.md` → `operaciones-seguras`) and `stack-<preset>`
+ * for a preset's `stack.md`, which is how every `presets/*.json` declares it.
+ *
+ * `MARKER_PAIR_WORDS` is added here, once, so callers compare like with like.
+ */
+export function managedBlockCeilings(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [path, ceiling] of Object.entries(DOC_BUDGETS)) {
+    const preset = PRESET_STACK_RE.exec(path);
+    const id = preset ? `stack-${preset[1]}` : MANAGED_ASSET_RE.exec(path)?.[1];
+    if (id) out[id] = ceiling + MARKER_PAIR_WORDS;
+  }
+  return out;
+}

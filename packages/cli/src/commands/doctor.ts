@@ -6,7 +6,13 @@ import { basename, join, resolve, relative } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
 import { CLAUDE_COMPUTED_BLOCK_IDS } from "../engines/claude/index.ts";
-import { getCoreRoot } from "../lib/bundled-assets.ts";
+import { getCoreRoot, readCliVersion } from "../lib/bundled-assets.ts";
+import {
+  CODEX_PROJECT_DOC_MAX_BYTES,
+  CODEX_PROJECT_DOC_WARN_RATIO,
+  countWords,
+  SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
+} from "../lib/doc-budgets.ts";
 import { isDowngrade } from "../lib/semver.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
 import { loadPlugin, loadEnabledPlugins } from "../lib/plugins.ts";
@@ -50,6 +56,8 @@ import {
   ENGINE_OUTPUTS,
   PLUGIN_BLOCK_ENGINES,
   scanDuplicateMarkers,
+  measureDocBudgetFile,
+  type ManagedBlockMeasure,
   type MissingPlugin,
   type DuplicateMarker,
 } from "../lib/health.ts";
@@ -214,6 +222,10 @@ export const doctorCommand = defineCommand({
     // The other half of #313: what MUST be versioned isn't ignored (specs/) and
     // what's ephemeral is (.claude/progress|worktrees). Null outside git. #325.
     const gitHygiene = scanGitHygiene(cwd, config);
+    // #917: what every session of this repo pays before its first prompt.
+    // Warning-level and deliberately outside `computeHealthVerdict` — see the
+    // scanner for why 30 repos depend on it staying that way.
+    const docBudget = scanDocBudget(cwd, config);
     // #778: the git axis nothing else looks at — rendered but not committed,
     // committed but not pushed, pushed onto a branch the base never merged, and
     // a checkout left behind by the base. Advisory and NETWORK-FREE (local refs
@@ -336,6 +348,10 @@ export const doctorCommand = defineCommand({
       gitignoreHealth,
       prettierIgnoreHealth,
       gitHygiene,
+      // #917. Serialized whole — a `--json` consumer is the reader who can plot
+      // the surface over time, and it is the only reader that sees every block,
+      // not just the ones over their ceiling.
+      docBudget,
       // Serialized like every other warning-level check (#479): a CI job or an
       // agent reading `--json` is exactly the reader who can act on "this
       // harness was never pushed", and it was the only one blind to it.
@@ -826,6 +842,14 @@ export const doctorCommand = defineCommand({
       if (gh.length > 0) p.note(gh.join("\n"), td.gitHygieneTitle);
     }
 
+    // #917: the startup surface. Always one summary line — `doctor` is the
+    // command a user runs to ask "how am I doing", so the number it exists to
+    // answer is not hidden behind a failure. The lines below it appear only
+    // when there is something to DO.
+    if (docBudget) {
+      p.note(docBudgetLines(docBudget, td).join("\n"), td.docBudgetTitle);
+    }
+
     // #778: distribution. Advisory on the same terms as git hygiene above — the
     // remedy is a commit, a push or a merge, which navori never performs.
     if (distribution) {
@@ -1029,6 +1053,101 @@ const MAX_DISTRIBUTION_SAMPLE = 3;
  * would have ended the two weeks of measuring a harness that existed on one
  * machine, and it has to be asserted somewhere.
  */
+/**
+ * Render the startup-surface report (#917).
+ *
+ * Order is the point: the summary first (what a session costs), then the
+ * diagnosis with the highest measured yield. "Your file is OLD" comes before
+ * "your file is FAT" because a re-render is the only lever that asks the user
+ * to decide nothing — and today it explains the whole gap observed in the wild.
+ * Every over-budget line names its knob; a bare "2001/1890" is noise.
+ */
+export function docBudgetLines(
+  report: DocBudgetReport,
+  td: ReturnType<typeof tc>["doctor"],
+): string[] {
+  const lines: string[] = [];
+  // Omitted whole — not printed as zeros — on a repo with no `CLAUDE.md`: a
+  // prose-engine repo does not have a smaller Claude surface, it has none.
+  if (report.managedWords !== null) {
+    lines.push(
+      `  ${grey(sym.bullet)} ${td.docBudgetSummary(
+        report.totalWords ?? 0,
+        // Same number `render`'s crossing notice prints, and for the same
+        // reason: the blocks with no ceiling are counted on their own line, so
+        // showing them here too made the two commands disagree about one fact.
+        report.managedWords - (report.unbudgetedWords ?? 0),
+        report.ceiling ?? 0,
+        report.ownWords ?? 0,
+      )}`,
+    );
+  }
+  // Claude-only by construction (see `perSubagentWords`): a Codex subagent
+  // carries its own `developer_instructions`, so the reload is not a fact about
+  // every host that renders a harness.
+  if (report.perSubagentWords !== null) {
+    lines.push(`  ${grey(sym.bullet)} ${td.docBudgetSubagents(report.perSubagentWords)}`);
+  }
+  // Named on their own line instead of folded into the summary: a block with no
+  // ceiling is a different fact from a block over one, and the two fixes differ
+  // (a re-render drops a retired block; a trim shrinks a live one).
+  if ((report.unbudgetedWords ?? 0) > 0) {
+    const ids = report.blocks.filter((b) => b.kind === "unbudgeted").map((b) => b.id);
+    lines.push(
+      `  ${grey(sym.bullet)} ${td.docBudgetUnbudgeted(report.unbudgetedWords ?? 0, ids.join(", "))}`,
+    );
+  }
+  if (report.contextFiles.length > 0) {
+    lines.push(
+      `  ${grey(sym.bullet)} ${td.docBudgetContext(
+        report.contextFiles.length,
+        report.contextWords,
+        report.contextChars,
+        report.contextDeliveryBudget,
+      )}`,
+    );
+  }
+  // Codex's surface: reported against the host's BYTE cap, never capped by
+  // navori — same doctrine as `ownWords` and `.claude/context/`. Yellow past the
+  // warn ratio because the failure mode is silent truncation, but never red: it
+  // does not reach `computeHealthVerdict` and cannot fail `--strict`.
+  if (report.agentsMd) {
+    const ratio = report.agentsMd.chars / report.agentsMdMaxBytes;
+    const pct = Math.round(ratio * 100);
+    lines.push(
+      ratio >= CODEX_PROJECT_DOC_WARN_RATIO
+        ? `  ${color.yellow(sym.update)} ${td.docBudgetAgentsMdNear(
+            report.agentsMd.words,
+            report.agentsMd.chars,
+            pct,
+            report.agentsMdMaxBytes,
+          )}`
+        : `  ${grey(sym.bullet)} ${td.docBudgetAgentsMd(
+            report.agentsMd.words,
+            report.agentsMd.chars,
+            pct,
+            report.agentsMdMaxBytes,
+          )}`,
+    );
+  }
+  if (report.staleBlocks > 0) {
+    lines.push(
+      `  ${color.yellow(sym.update)} ${td.docBudgetStale(report.staleBlocks, report.cliVersion)}`,
+    );
+  }
+  for (const block of report.blocks.filter((b) => b.over)) {
+    lines.push(
+      `  ${color.yellow(sym.update)} ${td.docBudgetOverBlock(
+        accent(block.id),
+        block.words,
+        block.ceiling ?? 0,
+        td.docBudgetLever[block.lever],
+      )}`,
+    );
+  }
+  return lines;
+}
+
 export function distributionLines(
   report: DistributionReport,
   td: ReturnType<typeof tc>["doctor"],
@@ -1943,6 +2062,223 @@ export function scanGitHygiene(cwd: string, config: NavoriConfig): GitHygieneRep
 /** Drop a trailing slash so a configured `specsDir` works with or without one. */
 function trimSlash(path: string): string {
   return path.endsWith("/") ? path.slice(0, -1) : path;
+}
+
+/** The config knob that shrinks a given block, ordered by measured yield (#917). */
+export type DocBudgetLever = "project-context" | "local-skills" | "preset" | "plugins" | "core";
+
+/** A measured block plus the knob that shrinks it. */
+export type DocBudgetBlock = ManagedBlockMeasure & { lever: DocBudgetLever };
+
+/** A file of the startup surface, in both units that bound it. */
+export interface DocBudgetFile {
+  path: string;
+  words: number;
+  chars: number;
+}
+
+/**
+ * What every session of this repo pays before its first prompt (#917).
+ *
+ * The surfaces are reported together and treated differently on purpose, and
+ * WHICH of them a repo has depends on its engines:
+ * - `CLAUDE.md` — the only one navori CAPS, block by block.
+ * - `.claude/context/` — delivered by the SessionStart hook, REPORTED ONLY; its
+ *   own ceiling needs a justified number of its own (#919).
+ *
+ * NOT the same measurement as `lib/audit/harness.ts`'s `readHarnessCatalog`,
+ * and the two must not be collapsed into one (#917 / #926). Same file, three
+ * differences that make one number unable to serve the other's question:
+ *
+ * - UNIT. This report counts WORDS (and bytes for `AGENTS.md`), because that is
+ *   the unit `DOC_BUDGETS` is calibrated in and the unit Codex's cap is stated
+ *   in. The catalog estimates TOKENS as `length / 4`, because it attributes
+ *   model cost per agent run. Measured here today: 2307 words against 4104
+ *   estimated tokens for the same `CLAUDE.md` — both right, neither comparable.
+ * - SCOPE. The catalog reads the GLOBAL `~/.claude/CLAUDE.md` too, and declares
+ *   `AGENTS.md` under `notObserved`. This report is the mirror image: it prices
+ *   `AGENTS.md`, and never touches the global layer, which navori does not
+ *   render and which is machine-scoped, not repo-scoped. They are complements.
+ * - QUESTION. "Is what navori renders here within the ceilings navori ships?"
+ *   versus "which instructions did this session pay for and not reach?". The
+ *   second needs per-agent attribution and `omitClaudeMd`; the first needs a
+ *   per-block ceiling. Neither decomposition answers the other.
+ *
+ * Every `CLAUDE.md` field is nullable because a repo on a prose engine
+ * (`agents-md`, `codex`, `cursor`, `copilot`) legitimately has no such file.
+ * Reporting nothing there was the previous behaviour and it was wrong: a panel
+ * titled "what every session pays" that goes silent on a repo whose ENTIRE
+ * startup cost is one file is not conservative, it is false by omission.
+ */
+export interface DocBudgetReport {
+  /** `CLAUDE.md`, whole file. Null when the repo has none. */
+  totalWords: number | null;
+  /** Words inside managed blocks — the only half with a ceiling. */
+  managedWords: number | null;
+  /** The user's own prose. Reported, never capped. */
+  ownWords: number | null;
+  /** Words in blocks navori ships no ceiling for — out of the `overBy` quotient. */
+  unbudgetedWords: number | null;
+  /** Σ of the ceilings of the blocks this repo ACTUALLY renders. */
+  ceiling: number | null;
+  /** `managedWords - unbudgetedWords - ceiling`, 0 when within budget. */
+  overBy: number | null;
+  /** Empty when there is no `CLAUDE.md` — never a block from another surface. */
+  blocks: DocBudgetBlock[];
+  /** Blocks whose marker version differs from the running navori. */
+  staleBlocks: number;
+  cliVersion: string;
+  contextFiles: DocBudgetFile[];
+  contextWords: number;
+  contextChars: number;
+  /** The hook's own delivery ceiling in characters — not a word budget. */
+  contextDeliveryBudget: number;
+  /**
+   * `AGENTS.md` — the prose engines' whole startup surface, and the one navori
+   * does NOT measure block by block. It renders as a single `navori-agents`
+   * block, so a per-block report there would be `ceiling 0, unbudgeted 100%,
+   * overBy 0`: a line that can never fail is noise, not signal. What IS real
+   * there is the host's byte cap, so that is what gets reported. Null when the
+   * repo has no such file.
+   */
+  agentsMd: DocBudgetFile | null;
+  /** Codex's `project_doc_max_bytes` default — reported against, never capped. */
+  agentsMdMaxBytes: number;
+  /**
+   * Words each subagent reloads from scratch. It is the WHOLE `CLAUDE.md`, not
+   * the managed half: a non-fork subagent starts with a fresh context window
+   * that carries "every level of the CLAUDE.md hierarchy the main conversation
+   * loads, including project rules" (Claude Code docs, "What loads at startup",
+   * verified 2026-09-22), unless its definition sets `omitClaudeMd`.
+   *
+   * `.claude/context/` is deliberately NOT in this number: it arrives through a
+   * SessionStart hook, and a subagent is not a session start.
+   *
+   * No multiplier is published with it, because there isn't one: how many
+   * agents a ticket spends is a property of the ticket. The honest report is
+   * the unit cost plus "once per agent"; a constant would be invented.
+   *
+   * NULL when `engines` does not include `claude`, because the reload is a
+   * Claude fact and NOT a portable one. Codex spawns subagents from a custom
+   * agent file whose REQUIRED fields are `name`, `description` and
+   * `developer_instructions` (`learn.chatgpt.com/docs/agent-configuration/subagents`,
+   * verified live 2026-09-22); what a Codex subagent inherits from its parent is
+   * the model, the sandbox policy and the tool set — the doc documents no
+   * re-concatenation of `AGENTS.md` per subagent. Printing the Claude number in
+   * a Codex-only repo would be inventing a cost.
+   */
+  perSubagentWords: number | null;
+}
+
+/** Which knob shrinks this block — keyed off what RENDERED it, not its name. */
+function leverFor(id: string, source: string | null): DocBudgetLever {
+  if (id === "contexto-proyecto") return "project-context";
+  if (id === "skills-index") return "local-skills";
+  if (id.startsWith("stack-")) return "preset";
+  if (source?.startsWith("@navori/plugin-")) return "plugins";
+  return "core";
+}
+
+/**
+ * Price this repo's startup surface against the ceilings navori ships (#917).
+ *
+ * Measures the files ON DISK, which is what the session actually pays — nothing
+ * here predicts a render from the config. Returns null only when the repo has
+ * NONE of the startup surfaces: a repo with just an `AGENTS.md` still gets its
+ * report, because that file is its whole startup cost.
+ *
+ * WARNING-LEVEL BY CONSTRUCTION, and this is the load-bearing property: the
+ * result never reaches `computeHealthVerdict`, so it cannot flip `ok` and
+ * cannot fail `--strict`. Thirty repos are in the global registry; wiring a
+ * word count into their CI turns them all red on the day of a bump, over prose
+ * their owners wrote legitimately. Same reasoning `check-doc-budgets.mjs`
+ * already carries for the gate's own warnings.
+ */
+export function scanDocBudget(cwd: string, config: NavoriConfig): DocBudgetReport | null {
+  const claudeMdPath = join(cwd, "CLAUDE.md");
+  const hasClaudeMd = existsSync(claudeMdPath);
+  const contextFiles = readContextSurface(cwd);
+  if (!hasClaudeMd && contextFiles.length === 0 && !existsSync(join(cwd, "AGENTS.md"))) return null;
+
+  // ONE read of the markers, two uses (the lever map and the staleness count).
+  // The second `listMarkers` call re-read and re-parsed the same file for
+  // nothing; with more surfaces to come it would have multiplied.
+  const agentsMd = readWholeSurface(cwd, "AGENTS.md");
+  const claudeMarkers = hasClaudeMd ? listMarkers(claudeMdPath) : [];
+  const measure = hasClaudeMd ? measureDocBudgetFile(claudeMdPath) : null;
+  const cliVersion = readCliVersion();
+  const sourceById = new Map(claudeMarkers.map((m) => [m.id, m.source]));
+  const blocks: DocBudgetBlock[] = (measure?.blocks ?? []).map((b) => ({
+    ...b,
+    lever: leverFor(b.id, sourceById.get(b.id) ?? null),
+  }));
+
+  // A block rendered by another navori is the "your file is OLD" diagnosis, and
+  // it is a different defect from "your file is FAT" with a different fix: a
+  // re-render recovered 1175 words (−37%) in `bonum-webapp` without its owner
+  // deciding anything. Counted across BOTH files of the surface, since a stale
+  // repo is stale in all of them.
+  const staleBlocks = [...claudeMarkers, ...listContextMarkers(cwd)].filter(
+    (m) => m.version !== null && m.version !== cliVersion,
+  ).length;
+
+  return {
+    totalWords: measure?.totalWords ?? null,
+    managedWords: measure?.managedWords ?? null,
+    ownWords: measure?.ownWords ?? null,
+    unbudgetedWords: measure?.unbudgetedWords ?? null,
+    ceiling: measure?.ceiling ?? null,
+    overBy: measure?.overBy ?? null,
+    blocks,
+    staleBlocks,
+    cliVersion,
+    contextFiles,
+    contextWords: contextFiles.reduce((sum, f) => sum + f.words, 0),
+    contextChars: contextFiles.reduce((sum, f) => sum + f.chars, 0),
+    contextDeliveryBudget: SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
+    agentsMd,
+    agentsMdMaxBytes: CODEX_PROJECT_DOC_MAX_BYTES,
+    perSubagentWords: config.engines.includes("claude") ? (measure?.totalWords ?? null) : null,
+  };
+}
+
+/**
+ * One whole file of the startup surface, or null when it isn't there.
+ *
+ * `chars` carries BYTES here, not characters: `project_doc_max_bytes` is a byte
+ * cap and this prose is UTF-8 with accents, so a character count would
+ * undercount exactly the repos closest to the limit.
+ */
+function readWholeSurface(cwd: string, rel: string): DocBudgetFile | null {
+  const abs = join(cwd, rel);
+  if (!existsSync(abs)) return null;
+  try {
+    const content = readFileSync(abs, "utf-8");
+    return { path: rel, words: countWords(content), chars: Buffer.byteLength(content, "utf-8") };
+  } catch {
+    return null;
+  }
+}
+
+/** `.claude/context/*.md` measured in words and characters, in delivery order. */
+function readContextSurface(cwd: string): DocBudgetFile[] {
+  const dir = join(cwd, ".claude", "context");
+  if (!existsSync(dir)) return [];
+  try {
+    return readdirSync(dir)
+      .filter((name) => name.endsWith(".md"))
+      .sort()
+      .map((name) => {
+        const content = readFileSync(join(dir, name), "utf-8");
+        return {
+          path: `.claude/context/${name}`,
+          words: countWords(content),
+          chars: content.length,
+        };
+      });
+  } catch {
+    return [];
+  }
 }
 
 export interface EngineInventory {

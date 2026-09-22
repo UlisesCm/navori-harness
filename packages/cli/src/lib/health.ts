@@ -12,9 +12,11 @@ import { readCliVersion } from "./bundled-assets.ts";
 import {
   computeManagedHash,
   extractManagedContent,
+  locateManagedBlocks,
   proseLines,
   reorderManagedBlocks,
 } from "./marker.ts";
+import { computedBlockCeiling, countWords, managedBlockCeilings } from "./doc-budgets.ts";
 import { canonicalManagedOrder, EXCLUDABLE_BLOCK_IDS, CORE_BLOCK_IDS } from "./render-plan.ts";
 import { detectClaudeInfra } from "./claude-infra.ts";
 import { detectLegacyAgents, type LegacyAgent } from "./legacy-agents.ts";
@@ -108,6 +110,142 @@ export function listMarkers(filePath: string): MarkerInfo[] {
  */
 export function listMarkersRaw(filePath: string): MarkerInfo[] {
   return markersInLines(readFileOrEmpty(filePath).split("\n"));
+}
+
+/** One managed block, measured against the ceiling navori ships for it. */
+export interface ManagedBlockMeasure {
+  id: string;
+  /** Words of the block, marker pair included. */
+  words: number;
+  /** Top-level `- …` rows — what a computed block's ceiling scales by. */
+  rows: number;
+  /** Null when navori ships no ceiling for this id (a block it doesn't own). */
+  ceiling: number | null;
+  /**
+   * `static` — the source asset's ceiling; `computed` — the `base + k·rows`
+   * formula; `unbudgeted` — navori ships NO ceiling for this id, so the block is
+   * measured and reported but never compared (a retired block still sitting in
+   * a stale file, or one written by something that isn't navori).
+   */
+  kind: "static" | "computed" | "unbudgeted";
+  over: boolean;
+}
+
+/** A rendered managed file priced against the ceilings navori ships (#917). */
+export interface DocBudgetMeasure {
+  totalWords: number;
+  /** Words inside managed blocks — the half navori can be held to a ceiling. */
+  managedWords: number;
+  /**
+   * Words outside every managed block: the user's own prose. REPORTED, never
+   * capped — navori has no standing over the `CLAUDE.md` of another repo, and
+   * this repo's own 536 words of it are the proof that the number is legitimate.
+   */
+  ownWords: number;
+  /**
+   * Words in blocks navori ships NO ceiling for. Part of `managedWords` — the
+   * session pays them — but deliberately OUT of the `overBy` quotient below.
+   */
+  unbudgetedWords: number;
+  /** Σ of the ceilings of the blocks the file ACTUALLY carries. */
+  ceiling: number;
+  /**
+   * `managedWords - unbudgetedWords - ceiling`, 0 when within budget.
+   *
+   * The subtraction is the whole point (#917 review): an unbudgeted block adds
+   * to `managedWords` and contributes ZERO to `ceiling`, so leaving it in
+   * compares apples to oranges and the excess is an artifact of the metric, not
+   * prose. Measured on the real `bonum-webapp` file: `engram-protocol` (497) +
+   * `codegraph-protocol` (255) = 752 of a 1207 `overBy` — 62% of the reported
+   * excess was two retired blocks navori never budgeted. They are not hidden:
+   * `unbudgetedWords` publishes them and the report names them on their own line.
+   */
+  overBy: number;
+  blocks: ManagedBlockMeasure[];
+}
+
+/**
+ * Price a rendered managed file block by block (#917 phase 2).
+ *
+ * Built on `locateManagedBlocks`, the same fence-aware parser the WRITE path
+ * uses, so a marker quoted inside a ```fence``` is not measured as a block —
+ * the discrepancy #285/#432/#452 closed for every other reader.
+ *
+ * The ceiling is DERIVED, never a constant for the whole file: it is the sum of
+ * the ceilings of the blocks this repo actually renders, so a repo on a bigger
+ * preset or more plugins gets a bigger allowance instead of a false positive.
+ * A block navori ships no ceiling for is measured and reported, never guessed.
+ *
+ * PRECONDITION — the sum below is only additive over blocks that DO NOT NEST,
+ * and managed blocks nest for real: `AGENTS.md` in this repo carries
+ * `engram-orchestrator-extension` and `codegraph-access-v2-orchestrator` INSIDE
+ * `navori-agents`. Adding a nested body to `managedWords` counts it twice and
+ * drives `ownWords = total - managed` NEGATIVE — a number nobody catches by
+ * looking, only when a consumer reports something absurd.
+ *
+ * Today the precondition holds for a reason stronger than the shape of the
+ * files: `proseLines` treats a managed body as OPAQUE and jumps past its close,
+ * so `locateManagedBlocks` emits TOP-LEVEL blocks only (measured: that
+ * `AGENTS.md` yields exactly one block, `navori-agents`). The `containedIn`
+ * guard below therefore changes no current result — it exists so that the
+ * invariant is enforced here instead of being borrowed from a parser this
+ * function does not own, with #930 about to point a measurement at that very
+ * file.
+ *
+ * Pure: takes text, touches no disk, flips no verdict.
+ */
+export function measureDocBudget(content: string): DocBudgetMeasure {
+  const ceilings = managedBlockCeilings();
+  const blocks: ManagedBlockMeasure[] = [];
+  let managedWords = 0;
+  let unbudgetedWords = 0;
+  let ceiling = 0;
+  // End of the last block counted at top level. A block that opens before it is
+  // nested inside that one and its words are already in the outer body — skip
+  // it rather than count it twice. Cheap and local: spans come out in document
+  // order, so one number is the whole bookkeeping, and nothing here has to know
+  // how the parser found the markers.
+  let topLevelEnd = 0;
+  for (const located of locateManagedBlocks(content, "html")) {
+    if (located.openStart < topLevelEnd) continue;
+    topLevelEnd = located.closeEnd;
+    const body = content.slice(located.openStart, located.closeEnd);
+    const words = countWords(body);
+    const rows = body.split("\n").filter((line) => line.startsWith("- ")).length;
+    const staticCeiling = ceilings[located.id] ?? null;
+    const computed = computedBlockCeiling(located.id, rows);
+    const blockCeiling = staticCeiling ?? computed;
+    managedWords += words;
+    if (blockCeiling === null) unbudgetedWords += words;
+    else ceiling += blockCeiling;
+    blocks.push({
+      id: located.id,
+      words,
+      rows,
+      ceiling: blockCeiling,
+      kind: staticCeiling !== null ? "static" : computed !== null ? "computed" : "unbudgeted",
+      over: blockCeiling !== null && words > blockCeiling,
+    });
+  }
+  // Additive: a block span starts at the first character of its open marker line
+  // and ends at the last of its close, so no slice cuts a token in half; and the
+  // spans are disjoint by the guard above, so `total - managed` is exactly the
+  // prose in between and can never go negative.
+  const totalWords = countWords(content);
+  return {
+    totalWords,
+    managedWords,
+    ownWords: totalWords - managedWords,
+    unbudgetedWords,
+    ceiling,
+    overBy: Math.max(0, managedWords - unbudgetedWords - ceiling),
+    blocks,
+  };
+}
+
+/** `measureDocBudget` for a path. An absent file prices as all zeros. */
+export function measureDocBudgetFile(filePath: string): DocBudgetMeasure {
+  return measureDocBudget(readFileOrEmpty(filePath));
 }
 
 function collectFilesRecursive(

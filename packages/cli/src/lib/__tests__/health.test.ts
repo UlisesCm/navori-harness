@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  measureDocBudget,
   suggestNextSteps,
   collectMissingPlugins,
   scanManagedDrift,
@@ -1300,5 +1301,54 @@ describe("scanRetiredAssets — reports retired files with successor (spec 0026 
     expect(hit).toBeDefined();
     expect(hit?.successor).toBe("orchestrator");
     expect(hit?.reason).toBe("foreign");
+  });
+});
+
+/**
+ * #917 — the additivity `measureDocBudget` relies on only holds over blocks
+ * that do not nest, and managed blocks DO nest: this repo's `AGENTS.md` carries
+ * `engram-orchestrator-extension` and `codegraph-access-v2-orchestrator` inside
+ * `navori-agents`. Counting a nested body twice drives `ownWords` negative, a
+ * defect nobody sees by looking.
+ *
+ * The parser makes managed bodies opaque, so today it emits top-level blocks
+ * only and these pass either way. That is exactly why they are here: the
+ * invariant belongs to this function, not borrowed from a parser it does not
+ * own — and #930 is about to point a measurement at the file that nests.
+ */
+describe("measureDocBudget: nested managed blocks are counted once (#917)", () => {
+  const managed = (id: string, body: string): string =>
+    [
+      `<!-- navori:managed id="${id}" hash="h" version="0.9.0" source="@navori/core" -->`,
+      body,
+      `<!-- /navori:managed id="${id}" -->`,
+    ].join("\n");
+
+  const words = (n: number): string => Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
+
+  it("never lets a nested body inflate managedWords or sink ownWords", () => {
+    const content = `${words(20)}\n\n${managed(
+      "navori-agents",
+      `${words(50)}\n${managed("engram-orchestrator-extension", words(40))}`,
+    )}\n`;
+    const measure = measureDocBudget(content);
+
+    expect(measure.ownWords).toBeGreaterThanOrEqual(0);
+    expect(measure.ownWords).toBe(20);
+    expect(measure.managedWords).toBe(measure.totalWords - 20);
+    // The outer block is reported once, with the nested body inside its own
+    // word count — not as a second block charged a second time.
+    expect(measure.blocks.map((b) => b.id)).toEqual(["navori-agents"]);
+    expect(measure.blocks[0]!.words).toBe(measure.managedWords);
+  });
+
+  it("keeps two SIBLING blocks counted separately", () => {
+    const content = `${managed("tipado-fuerte", words(10))}\n\n${managed(
+      "idioma-rol",
+      words(10),
+    )}\n`;
+    const measure = measureDocBudget(content);
+    expect(measure.blocks.map((b) => b.id)).toEqual(["tipado-fuerte", "idioma-rol"]);
+    expect(measure.ownWords).toBe(0);
   });
 });

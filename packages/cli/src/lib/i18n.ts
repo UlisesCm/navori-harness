@@ -607,6 +607,9 @@ interface RenderCmdStrings {
   coreSource: (root: string, bundled: boolean) => string;
   /** Freshness hint: the bundled asset copy is older than `source` (dev-only). */
   staleCoreBundle: (source: string) => string;
+  /** #917: this render is what pushed CLAUDE.md past its derived ceiling. Only
+   *  on the crossing — never a fixed informational line. */
+  docBudgetCrossed: (file: string, managed: number, ceiling: number) => string;
   /** Outro lead when the only thing that happened is a refusal to overwrite. */
   skippedWord: string;
   /** Outro tail naming how many files render refused to write. */
@@ -801,6 +804,29 @@ interface DoctorCmdStrings {
   gitHygieneEphemeralNotIgnored: (path: string) => string;
   /** An ephemeral agent path the index still tracks (#646). */
   gitHygieneEphemeralTracked: (path: string) => string;
+  /** Note title for the startup-surface budget section (#917). */
+  docBudgetTitle: string;
+  /** What a session pays: whole file, managed half vs its ceiling, user prose. */
+  docBudgetSummary: (total: number, managed: number, ceiling: number, own: number) => string;
+  /** Claude-only: every subagent reloads the whole CLAUDE.md. No invented multiplier. */
+  docBudgetSubagents: (words: number) => string;
+  /** Blocks navori ships no ceiling for: counted, but out of the quotient. */
+  docBudgetUnbudgeted: (words: number, ids: string) => string;
+  /** `AGENTS.md` against Codex's byte cap — reported, never capped. */
+  docBudgetAgentsMd: (words: number, bytes: number, pct: number, max: number) => string;
+  /** Same, past the warn ratio: the failure mode there is silent truncation. */
+  docBudgetAgentsMdNear: (words: number, bytes: number, pct: number, max: number) => string;
+  /** `.claude/context/` — reported, never capped (#919 owns its ceiling). */
+  docBudgetContext: (files: number, words: number, chars: number, budget: number) => string;
+  /** "Your file is OLD": blocks rendered by an earlier navori. */
+  docBudgetStale: (blocks: number, version: string) => string;
+  /** "Your file is FAT": one block over its ceiling, with the knob that shrinks it. */
+  docBudgetOverBlock: (id: string, words: number, ceiling: number, lever: string) => string;
+  /** The knob per block family, named so the warning is actionable. */
+  docBudgetLever: Record<
+    "project-context" | "local-skills" | "preset" | "plugins" | "core",
+    string
+  >;
   /** Note title for the distribution section (#778). */
   distributionTitle: string;
   /** Harness files rendered on disk that were never committed. */
@@ -1598,6 +1624,10 @@ const CMD_ES: CmdStrings = {
       `build, no contra tu árbol de trabajo — puede decir 'unchanged' de más, y un --apply ` +
       `llega a revertir el espejo. Corre 'pnpm --filter navori build' (o 'pnpm render:apply', ` +
       `que ya lo encadena) y vuelve a renderizar.`,
+    docBudgetCrossed: (file, managed, ceiling) =>
+      `Este render cruzó el presupuesto de arranque: '${file}' queda con ${managed} palabras de ` +
+      `bloques con techo contra un techo derivado de ${ceiling}. Corre 'navori doctor' para ver ` +
+      `qué bloque lo cruzó y con qué palanca se recorta.`,
     skippedWord: "Con omisiones",
     skippedOutro: (count) =>
       `${count} archivo(s) que render se negó a sobrescribir — el espejo NO está al día; ` +
@@ -1901,6 +1931,43 @@ const CMD_ES: CmdStrings = {
       `'${path}' no está ignorado — son artefactos efímeros de agentes; agrégalo al .gitignore (o usa gitignoreHarness)`,
     gitHygieneEphemeralTracked: (path) =>
       `'${path}' sigue trackeado por git — el .gitignore no destrackea lo que el índice ya tenía, así que el árbol queda sucio en cada sesión y el archivo se cuela en commits ajenos; destráckealo con 'git rm --cached' (agrega '-r' si es un directorio) y commitea`,
+    docBudgetTitle: "Presupuesto de arranque (lo que cada sesión paga antes del primer prompt)",
+    docBudgetSummary: (total, managed, ceiling, own) =>
+      `CLAUDE.md: ${total} palabras — ${managed} managed contra un techo derivado de ${ceiling}, ` +
+      `${own} de prosa tuya (se reporta, no se capea)`,
+    docBudgetSubagents: (words) =>
+      `en Claude, cada subagente recarga CLAUDE.md entero (${words} palabras): un ciclo ` +
+      `implementer→reviewer→publisher lo paga una vez por agente, además de la sesión principal ` +
+      `(no hay multiplicador fijo: los agentes los pone el ticket). No aplica a Codex, cuyos ` +
+      `subagentes llevan sus propias 'developer_instructions'`,
+    docBudgetUnbudgeted: (words, ids) =>
+      `${words} palabras en bloques sin techo (${ids}): se cuentan en el total pero quedan FUERA ` +
+      `de la comparación — navori no envía techo para ellos, y casi siempre son bloques retirados ` +
+      `que un 'navori render --apply' quita solo`,
+    docBudgetAgentsMd: (words, bytes, pct, max) =>
+      `AGENTS.md: ${words} palabras (${bytes} bytes, ${pct}% del cap de ${max} que Codex ` +
+      `concatena) — se reporta, no se capea: navori ve su parte, no la cadena completa`,
+    docBudgetAgentsMdNear: (words, bytes, pct, max) =>
+      `AGENTS.md: ${words} palabras (${bytes} bytes, ${pct}% del cap de ${max} de Codex). Al ` +
+      `llegar al tope Codex DEJA DE AGREGAR archivos sin avisar, y la cadena suma además tu ` +
+      `~/.codex/AGENTS.md y los AGENTS.md anidados — sube 'project_doc_max_bytes' o parte las ` +
+      `instrucciones en directorios anidados`,
+    docBudgetContext: (files, words, chars, budget) =>
+      `.claude/context/: ${files} archivo(s), ${words} palabras (${chars} caracteres) que entrega ` +
+      `el hook SessionStart — se reporta, no se capea; su límite real es de ENTREGA ` +
+      `(${budget} caracteres), pasado el cual el hook manda un puntero en vez del cuerpo`,
+    docBudgetStale: (blocks, version) =>
+      `${blocks} bloque(s) los renderizó una versión anterior de navori (la actual es ${version}): tu archivo no está gordo, está viejo — corre 'navori render --apply' y vuelve a medir antes de recortar nada`,
+    docBudgetOverBlock: (id, words, ceiling, lever) =>
+      `'${id}': ${words} palabras contra un techo de ${ceiling} — ${lever}`,
+    docBudgetLever: {
+      "project-context":
+        "recorta 'project.criticalAreas' / 'legacyPaths' / 'libraryMigrations' en navori.config.json",
+      "local-skills": "poda 'project.localSkills' (~7 palabras por entrada)",
+      preset: "cambia o quita el preset ('preset' en navori.config.json)",
+      plugins: "deshabilita los plugins que no uses ('plugins' en navori.config.json)",
+      core: "es un bloque core de navori: repórtalo como issue, no es tuyo de recortar",
+    },
     distributionTitle: "Distribución (lo que git comparte vs lo que hay en disco)",
     distributionUncommitted: (files, sample) =>
       `${files} archivo(s) del harness con cambios sin commitear (${sample}) — el render existe solo en esta máquina: quien clone, y el CI, reciben el harness anterior`,
@@ -2769,6 +2836,10 @@ const CMD_EN: CmdStrings = {
       `build, not against your working tree — it can report 'unchanged' wrongly, and an --apply ` +
       `can even revert the mirror. Run 'pnpm --filter navori build' (or 'pnpm render:apply', ` +
       `which chains both) and render again.`,
+    docBudgetCrossed: (file, managed, ceiling) =>
+      `This render crossed the startup budget: '${file}' now carries ${managed} words of ` +
+      `budgeted blocks against a derived ceiling of ${ceiling}. Run 'navori doctor' to see which ` +
+      `block crossed it and which lever trims it.`,
     skippedWord: "Files skipped",
     skippedOutro: (count) =>
       `${count} file(s) render refused to overwrite — the mirror is NOT up to date; ` +
@@ -3074,6 +3145,43 @@ const CMD_EN: CmdStrings = {
       `'${path}' is not ignored — these are ephemeral agent artifacts; add it to .gitignore (or use gitignoreHarness)`,
     gitHygieneEphemeralTracked: (path) =>
       `'${path}' is still tracked by git — .gitignore never untracks what the index already held, so the tree is dirty every session and the file rides into unrelated commits; untrack it with 'git rm --cached' (add '-r' for a directory) and commit`,
+    docBudgetTitle: "Startup budget (what every session pays before its first prompt)",
+    docBudgetSummary: (total, managed, ceiling, own) =>
+      `CLAUDE.md: ${total} words — ${managed} managed against a derived ceiling of ${ceiling}, ` +
+      `${own} of your own prose (reported, not capped)`,
+    docBudgetSubagents: (words) =>
+      `on Claude, every subagent reloads the whole CLAUDE.md (${words} words): an ` +
+      `implementer→reviewer→publisher cycle pays it once per agent, on top of the main session ` +
+      `(no fixed multiplier: the ticket decides how many agents run). Not true of Codex, whose ` +
+      `subagents carry their own 'developer_instructions'`,
+    docBudgetUnbudgeted: (words, ids) =>
+      `${words} words in blocks with no ceiling (${ids}): counted in the total but kept OUT of ` +
+      `the comparison — navori ships no ceiling for them, and they are almost always retired ` +
+      `blocks a 'navori render --apply' removes on its own`,
+    docBudgetAgentsMd: (words, bytes, pct, max) =>
+      `AGENTS.md: ${words} words (${bytes} bytes, ${pct}% of the ${max} cap Codex concatenates ` +
+      `against) — reported, not capped: navori sees its share, not the whole chain`,
+    docBudgetAgentsMdNear: (words, bytes, pct, max) =>
+      `AGENTS.md: ${words} words (${bytes} bytes, ${pct}% of Codex's ${max} cap). At the limit ` +
+      `Codex STOPS ADDING files with no warning, and the chain also carries your ` +
+      `~/.codex/AGENTS.md and any nested AGENTS.md — raise 'project_doc_max_bytes' or split the ` +
+      `instructions across nested directories`,
+    docBudgetContext: (files, words, chars, budget) =>
+      `.claude/context/: ${files} file(s), ${words} words (${chars} chars) delivered by the ` +
+      `SessionStart hook — reported, not capped; its real limit is DELIVERY (${budget} chars), ` +
+      `past which the hook sends a pointer instead of the body`,
+    docBudgetStale: (blocks, version) =>
+      `${blocks} block(s) were rendered by an earlier navori (current is ${version}): your file isn't fat, it's old — run 'navori render --apply' and measure again before trimming anything`,
+    docBudgetOverBlock: (id, words, ceiling, lever) =>
+      `'${id}': ${words} words against a ${ceiling} ceiling — ${lever}`,
+    docBudgetLever: {
+      "project-context":
+        "trim 'project.criticalAreas' / 'legacyPaths' / 'libraryMigrations' in navori.config.json",
+      "local-skills": "prune 'project.localSkills' (~7 words per entry)",
+      preset: "change or drop the preset ('preset' in navori.config.json)",
+      plugins: "disable the plugins you don't use ('plugins' in navori.config.json)",
+      core: "this is a navori core block: report it as an issue, it isn't yours to trim",
+    },
     distributionTitle: "Distribution (what git shares vs what is on disk)",
     distributionUncommitted: (files, sample) =>
       `${files} harness file(s) with uncommitted changes (${sample}) — the render exists only on this machine: whoever clones, and CI, get the previous harness`,
