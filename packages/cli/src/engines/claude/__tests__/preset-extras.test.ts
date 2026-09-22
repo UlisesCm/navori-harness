@@ -94,24 +94,25 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // — `architect`, spec 0026 T19, defaults OFF as of the phase F
     // review 2026-09-17 and BASE_CONFIG carries no `harness.architect: true`,
     // so it does not add to this count)
-    // + 6 core skills (spec 0026 T14 merges debug-error + loop-back-debug into
-    // one debug-failure; spec 0029 T2 adds `secure-by-design`) + 6 workflow
-    // skills (resolve-ticket, solution-design, spec-bootstrap, dominio,
-    // follow-up-prs, and spec 0029 T2's `quality-attributes`) + 2 progress
-    // files + 2 medusa skills + 2 CLAUDE.md managed blocks counted
-    // independently of the file + 1 guard hook + 1 session-start hook +
-    // 1 lifecycle hook (subagent-stop; la de PreCompact se retiro en #774) +
-    // 2 audit-mode hooks (trigger, close) + 1 managed-drift watcher (#530) +
-    // 1 worktree-reclaim hook (#527) + 1 routing watcher (spec 0020) +
-    // 1 PR routing hook (#705) + 1 comment-draft-confirm hook (spec 0026 E1) +
-    // 1 orchestrator block routed to `.claude/context/` (#573) + 2 session
-    // ceremonies + 1 agents index, same channel (#572) = 40.
+    // + 7 core skills (spec 0026 T14 merges debug-error + loop-back-debug into
+    // one debug-failure; spec 0029 T2 adds `secure-by-design`; #901 adds
+    // `scoped-gate`) + 6 workflow skills (resolve-ticket, solution-design,
+    // spec-bootstrap, dominio, follow-up-prs, and spec 0029 T2's
+    // `quality-attributes`) + 2 progress files + 2 medusa skills + 2 CLAUDE.md
+    // managed blocks counted independently of the file + 1 guard hook +
+    // 1 session-start hook + 1 lifecycle hook (subagent-stop; la de
+    // PreCompact se retiro en #774) + 2 audit-mode hooks (trigger, close) +
+    // 1 managed-drift watcher (#530) + 1 worktree-reclaim hook (#527) +
+    // 1 routing watcher (spec 0020) + 1 PR routing hook (#705) +
+    // 1 comment-draft-confirm hook (spec 0026 E1) + 1 orchestrator block
+    // routed to `.claude/context/` (#573) + 2 session ceremonies + 1 agents
+    // index, same channel (#572) = 41.
     //
     // `architect` (spec 0026 T19) no suma aqui: default OFF desde la revision
     // de fase F (2026-09-17). Un conteo a mano en cinco sitios es justo lo que
     // #703 dejo anotado como deuda; mientras siga a mano, la enumeracion tiene
     // que cerrar con el numero.
-    expect(r.inspected).toBe(41);
+    expect(r.inspected).toBe(42);
   });
 
   describe("bundled stack presets (B4)", () => {
