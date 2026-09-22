@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,7 +46,7 @@ vi.mock("@clack/prompts", () => ({
 }));
 
 const { runCommand } = await import("citty");
-const { configureCommand, migrateRepoConfig } = await import("../configure.ts");
+const { configureCommand, migrateRepoConfig, migrateAllRepos } = await import("../configure.ts");
 
 /** The shape all 17 blocked repos carry: 10 retired keys, ambiguous scout. */
 const BLOCKED_CONFIG = {
@@ -180,6 +188,60 @@ describe("navori configure migrate — CLI", () => {
     expect(readFileSync(join(cwd, "navori.config.json"), "utf-8")).not.toMatch(
       /leader|researcher|explorer|ticketAudit|commitPrPilot/,
     );
+  });
+
+  it("--all reports every repo and writes only the ones it can resolve", async () => {
+    // One repo whose effort clash has no flag, one the flag resolves, one
+    // already clean, and a registry entry whose repo no longer exists.
+    const repos = ["blocked", "scout-only", "clean"].map((name) => {
+      const dir = join(cwd, name);
+      mkdirSync(dir, { recursive: true });
+      return { name, path: dir };
+    });
+    writeFileSync(
+      join(repos[0]!.path, "navori.config.json"),
+      JSON.stringify({ ...BLOCKED_CONFIG, name: "blocked" }),
+      "utf-8",
+    );
+    writeFileSync(
+      join(repos[1]!.path, "navori.config.json"),
+      JSON.stringify({
+        name: "scout-only",
+        engines: ["claude"],
+        preset: "custom",
+        models: { researcher: "sonnet", explorer: "haiku" },
+      }),
+      "utf-8",
+    );
+    writeFileSync(
+      join(repos[2]!.path, "navori.config.json"),
+      JSON.stringify({ name: "clean", engines: ["claude"], preset: "custom" }),
+      "utf-8",
+    );
+    mkdirSync(join(home.dir, ".navori"), { recursive: true });
+    writeFileSync(
+      join(home.dir, ".navori", "registry.json"),
+      JSON.stringify({ repos: [...repos, { name: "gone", path: join(cwd, "gone") }] }),
+      "utf-8",
+    );
+
+    const before = readFileSync(join(repos[1]!.path, "navori.config.json"), "utf-8");
+    const rows = migrateAllRepos({
+      apply: true,
+      // Only the models side is resolved: the effort clash has no flag, so the
+      // ambiguous repo must stay untouched rather than be half-guessed.
+      choices: { "models.scout": "sonnet" },
+    });
+
+    expect(rows.map((r) => `${r.name}:${r.status}`)).toEqual([
+      "blocked:needs-decision",
+      "scout-only:migrated",
+      "clean:clean",
+      "gone:error",
+    ]);
+    // A broken repo never aborts the sweep — the clean one after it still ran.
+    expect(readFileSync(join(repos[0]!.path, "navori.config.json"), "utf-8")).toContain("leader");
+    expect(readFileSync(join(repos[1]!.path, "navori.config.json"), "utf-8")).not.toBe(before);
   });
 
   it("exits 1 without writing when --yes runs into an unresolved clash", async () => {

@@ -10,10 +10,11 @@ import {
   type RetiredKeyRename,
 } from "../lib/config.ts";
 import { createBackup } from "../lib/backup.ts";
+import { listRegistryRepos, registryPath } from "../lib/registry.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
 import { EXCLUDABLE_BLOCK_IDS } from "../lib/render-plan.ts";
-import { brand, dim } from "../lib/style.ts";
+import { accent, brand, dim } from "../lib/style.ts";
 import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
 
 const ENGINE_OPTIONS = [
@@ -584,6 +585,78 @@ async function askForDecisions(
   return chosen;
 }
 
+/**
+ * `configure migrate --all`: sweep every repo in the global registry. Resilient
+ * per repo, exactly like `render --all` — one broken config never aborts the
+ * pass. Never prompts: `--all` is a rollout, so an ambiguous repo without a
+ * flag is REPORTED, never guessed (R40).
+ */
+export function migrateAllRepos(opts: {
+  apply: boolean;
+  choices: Readonly<Record<string, unknown>>;
+}): MigrateRepoResult[] {
+  return listRegistryRepos().map((entry) => {
+    try {
+      const result = migrateRepoConfig(entry.path, opts);
+      return entry.name ? { ...result, name: entry.name } : result;
+    } catch (err) {
+      return {
+        name: entry.name ?? entry.path,
+        path: entry.path,
+        status: "error" as const,
+        renamed: [],
+        dropped: [],
+        decisions: [],
+        error: (err as Error).message,
+      };
+    }
+  });
+}
+
+/** One compact line per repo for the `--all` report. */
+function sweepLine(result: MigrateRepoResult): string {
+  const changes = result.renamed.length + result.dropped.length;
+  switch (result.status) {
+    case "clean":
+      return `${result.name}: up-to-date`;
+    case "migrated":
+      return `${result.name}: ${changes} migrated`;
+    case "would-migrate":
+      return `${result.name}: ${changes} would migrate`;
+    case "needs-decision":
+      return `${result.name}: undecided → ${result.decisions.map((d) => d.target).join(", ")}`;
+    default:
+      return `${result.name}: ${result.error ?? "error"}`;
+  }
+}
+
+async function runMigrateAll(
+  choices: Record<string, unknown>,
+  apply: boolean,
+  tcfg: ConfigureStrings,
+): Promise<void> {
+  p.intro(brand(`configure migrate ${accent("--all")}`));
+  const repos = listRegistryRepos();
+  p.log.info(tcfg.migrateAllHeader(repos.length, registryPath()));
+  if (!apply) p.log.info(tcfg.migrateAllPreviewHint);
+
+  const rows = migrateAllRepos({ apply, choices });
+  if (rows.length > 0) p.log.message(rows.map(sweepLine).join("\n"));
+
+  const count = (status: MigrateStatus): number => rows.filter((r) => r.status === status).length;
+  const changed = count(apply ? "migrated" : "would-migrate");
+  const pending = count("needs-decision");
+  const failed = count("error");
+  const summary = tcfg.migrateAllSummary(changed, count("clean"), pending, failed);
+
+  if (pending > 0) p.log.info(tcfg.migrateDecisionHint);
+  if (pending > 0 || failed > 0) {
+    p.outro(`${summary}`);
+    process.exit(1);
+  }
+  p.outro(apply ? summary : `${summary} · ${tcfg.migrateDryRun}`);
+}
+
 const migrateSubCommand = defineCommand({
   meta: {
     name: "migrate",
@@ -591,6 +664,8 @@ const migrateSubCommand = defineCommand({
   },
   args: {
     cwd: { type: "string", description: "Directory (default: cwd)" },
+    all: { type: "boolean", description: "Every repo in the global registry (preview by default)" },
+    apply: { type: "boolean", description: "With --all: write (default is preview)" },
     "dry-run": { type: "boolean", description: "Show the plan without writing" },
     yes: { type: "boolean", description: "Skip the confirmation (non-interactive)" },
     scout: { type: "string", description: "Value for models.scout when researcher/explorer clash" },
@@ -604,12 +679,19 @@ const migrateSubCommand = defineCommand({
     const tcommon = tc(lang).common;
     const dryRun = Boolean(args["dry-run"]);
 
-    p.intro(brand("configure migrate"));
-
     const choices = choicesFromFlags(
       args.scout as string | undefined,
       args["scout-effort"] as string | undefined,
     );
+
+    if (args.all) {
+      // `--apply` is the explicit opt-in to writing across the whole park;
+      // `--dry-run` keeps preview even if both are passed.
+      await runMigrateAll(choices, Boolean(args.apply) && !dryRun, tcfg);
+      return;
+    }
+
+    p.intro(brand("configure migrate"));
     let preview = migrateRepoConfig(cwd, { apply: false, choices });
 
     if (preview.status === "needs-decision" && !args.yes) {
