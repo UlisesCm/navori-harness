@@ -137,6 +137,87 @@ export const MARKER_PAIR_WORDS = 11;
  */
 export const SESSION_CONTEXT_DELIVERY_BUDGET_CHARS = 8000;
 
+/** One `.claude/context/*.md` file, as measured before delivery is decided. */
+export interface ContextDeliveryFile {
+  /** Repo-relative path, e.g. `.claude/context/10-orquestacion.md`. */
+  path: string;
+  /** Body length in code points — what the hook's `${#body}` counts under a
+   *  UTF-8 locale, not bytes. `content.length` on a JS string matches this for
+   *  the accented BMP prose these files carry. */
+  chars: number;
+}
+
+/** Whether the SessionStart hook delivered a section's body, or replaced it
+ *  with a one-line pointer to the file (`add_bounded`). */
+export type ContextDeliveryStatus = "inline" | "pointer";
+
+/** A `ContextDeliveryFile` plus the delivery decision `simulateContextDelivery` made for it. */
+export interface ContextDeliveryResult extends ContextDeliveryFile {
+  delivered: ContextDeliveryStatus;
+  /**
+   * Characters already queued by everything AHEAD of this file in delivery
+   * order (their bodies or pointers, plus one separator char each) at the
+   * moment this file's own fit is decided. This is what attributes the
+   * degradation correctly (#919): the file that shows as `pointer` is rarely
+   * the one whose growth caused it — it is whichever file EARLIER in the
+   * order consumed the budget this file needed.
+   */
+  ctxCharsBefore: number;
+}
+
+/**
+ * The exact text `add_bounded` emits in place of a section that doesn't fit
+ * (`session-start-context.sh`'s pointer branch), needed to keep the running
+ * total this function tracks equal to the hook's own `ctx` — a pointer is
+ * shorter than most bodies, so a later file's fit can flip back to `inline`
+ * once an earlier one degrades, and only the hook's own text length predicts
+ * that correctly.
+ */
+function contextPointerChars(path: string, bodyChars: number): number {
+  return `[navori] '${path}' no cabe en el contexto de arranque (${bodyChars} caracteres). LÉELO con Read antes de decidir cómo abordar la tarea: contiene doctrina que ninguna otra vía te entrega.`
+    .length;
+}
+
+/**
+ * Reproduces `add_bounded` (`session-start-context.sh:403-410`) in TypeScript,
+ * so the delivery decision it makes once per session (silently, at runtime)
+ * can be reported at gate/`doctor` time instead (#919).
+ *
+ * Two properties this MUST preserve to stay a faithful mirror, not a second,
+ * driftable implementation of the same rule:
+ *
+ * - ACCUMULATIVE, IN ORDER: `files` must already be in delivery order (the
+ *   hook's plain alphabetical glob over `.claude/context/*.md`, which the
+ *   numeric filename prefix turns into `ORCHESTRATOR_CONTEXT_ORDER`,
+ *   `engines/claude/index.ts`). This function does not re-sort or re-derive
+ *   that order — sort your input the same way the hook globs it.
+ * - THE SEPARATOR COUNTS: the hook calls `add ""` before every `add_bounded`
+ *   (a blank line between sections), which appends one character to `ctx`
+ *   BEFORE the fit check for that file runs. Skipping it would let a file at
+ *   exactly the boundary come out `inline` here while the hook ships it as
+ *   `pointer`.
+ */
+export function simulateContextDelivery(
+  files: readonly ContextDeliveryFile[],
+  budgetChars: number = SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
+): ContextDeliveryResult[] {
+  let ctx = 0;
+  const results: ContextDeliveryResult[] = [];
+  for (const file of files) {
+    ctx += 1; // `add ""` — the blank separator line the hook writes before every section
+    const ctxCharsBefore = ctx;
+    if (ctx + file.chars <= budgetChars) {
+      results.push({ ...file, delivered: "inline", ctxCharsBefore });
+      ctx += file.chars + 1; // `add "$body"` appends a trailing newline
+    } else {
+      const pointerChars = contextPointerChars(file.path, file.chars);
+      results.push({ ...file, delivered: "pointer", ctxCharsBefore });
+      ctx += pointerChars + 1; // `add "$pointer"`, same trailing newline
+    }
+  }
+  return results;
+}
+
 /**
  * Codex's hard cap on the concatenated project instructions, in BYTES
  * (`project_doc_max_bytes`, default 32 KiB). Verified live against
