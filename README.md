@@ -73,7 +73,7 @@ ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un
 | `render` | Genera los archivos nativos de cada engine configurado (preview por default; `--apply` escribe). `--all` renderea **todos** los repos del registro global de una — el rollout tras un bump de navori en un comando |
 | `registry` | Registro global de tus repos con navori (`ls` / `scan <dir>` / `add` / `remove` / `prune`). `init` y `update` te dan de alta solos; `scan` puebla lo que ya existía |
 | `sync` | Refresca todos los engines configurados con conflict resolution + backups |
-| `add` / `remove` / `configure` | Activa un plugin / lo desactiva limpiando sus bloques y scripts / ajusta una sección del config sin re-init |
+| `add` / `remove` / `configure` | Activa un plugin / lo desactiva limpiando sus bloques y scripts / ajusta una sección del config sin re-init. `configure migrate` renombra las claves retiradas que dejan el config sin cargar (`--all` para todo el registro) |
 | `doctor` / `status` / `audit` | Audita config + drift (`--strict` para CI) / snapshot rápido / mide cómo se usó el harness en tus sesiones |
 | `adopt` | Toma bajo gestión de navori un archivo del harness que escribiste a mano (envuelve, no reescribe) |
 | `workspace` / `ticket` / `dominio` | Config y tickets cross-repo, y la base de conocimiento durable del workspace |
