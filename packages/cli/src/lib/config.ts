@@ -92,26 +92,22 @@ export function checkRetiredConfigKeys(
   }
   if (byReplacement.size === 0) return;
 
+  // Localized off the RAW `language` key: this fires before the schema parses,
+  // so there is no validated config to read it from yet.
+  const strings = tc(resolveLang(raw.language)).common;
   const lines = [...byReplacement.entries()].map(([replacementPath, entries]) => {
-    const keys = entries.map((e) => e.path).join(" and ");
+    const keys = entries.map((e) => e.path).join(", ");
     // `effort.orchestrator` doubles as the session-wide `effortLevel` default
     // (build-settings.ts, spec 0026 T11) — the embodied role has no
     // subagent frontmatter to carry it, so a user fixing this key needs to
     // know it drives more than its own agent's tier.
     const note =
-      replacementPath === "effort.orchestrator"
-        ? " (effort.orchestrator also sets the session's default effort level)"
-        : "";
-    if (entries.length === 1) {
-      return `${keys} is retired — replace it with ${replacementPath}${note}`;
-    }
+      replacementPath === "effort.orchestrator" ? strings.retiredEffortOrchestratorNote : "";
+    if (entries.length === 1) return strings.retiredKeyOne(keys, replacementPath, note);
     const values = entries.map((e) => `${e.path}=${JSON.stringify(e.value)}`).join(", ");
-    return (
-      `${keys} are retired and both map to ${replacementPath} — they carry different values ` +
-      `(${values}); choose one and set ${replacementPath} yourself, it is not inferred${note}`
-    );
+    return strings.retiredKeyAmbiguous(keys, replacementPath, values, note);
   });
-  throw new ConfigError(`Retired config keys: ${lines.join("; ")}`);
+  throw new ConfigError(strings.retiredConfigKeys(lines.join("; ")));
 }
 
 /** A retired key that was renamed onto its replacement, both fully qualified. */

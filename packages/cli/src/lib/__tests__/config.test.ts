@@ -608,16 +608,30 @@ describe("retired agent keys fail with replacement and conflicting values", () =
 
   it("names the single retired key and its replacement", () => {
     expect(() => checkRetiredConfigKeys({ harness: { leader: false } }, SEED)).toThrowError(
-      /harness\.leader is retired — replace it with harness\.orchestrator/,
+      /harness\.leader está retirada — reemplázala por harness\.orchestrator/,
     );
   });
 
   it("checks harness, models and effort independently", () => {
     expect(() => checkRetiredConfigKeys({ models: { leader: "opus" } }, SEED)).toThrowError(
-      /models\.leader is retired — replace it with models\.orchestrator/,
+      /models\.leader está retirada — reemplázala por models\.orchestrator/,
     );
     expect(() => checkRetiredConfigKeys({ effort: { leader: "high" } }, SEED)).toThrowError(
-      /effort\.leader is retired — replace it with effort\.orchestrator/,
+      /effort\.leader está retirada — reemplázala por effort\.orchestrator/,
+    );
+  });
+
+  it("speaks the repo's language and names the repair command (#920)", () => {
+    // The message is built before the schema parses, so the locale comes off
+    // the RAW `language` key. Default (no key) is DEFAULT_LANG = es.
+    expect(() =>
+      checkRetiredConfigKeys({ language: "en", models: { leader: "opus" } }, SEED),
+    ).toThrowError(/models\.leader is retired — replace it with models\.orchestrator/);
+    expect(() =>
+      checkRetiredConfigKeys({ language: "en", models: { leader: "opus" } }, SEED),
+    ).toThrowError(/Run 'navori configure migrate'/);
+    expect(() => checkRetiredConfigKeys({ models: { leader: "opus" } }, SEED)).toThrowError(
+      /Corre 'navori configure migrate'/,
     );
   });
 

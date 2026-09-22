@@ -544,6 +544,12 @@ interface CommonCmdStrings {
   unknownConfigKeys: (list: string) => string;
   deadProgressKeys: (list: string) => string;
   deprecatedConfigKeys: (list: string) => string;
+  // lib/config.ts R40 hard error (throws, never a warning). Localized off the
+  // RAW `language` key: it fires before the schema has parsed anything.
+  retiredConfigKeys: (lines: string) => string;
+  retiredKeyOne: (path: string, replacement: string, note: string) => string;
+  retiredKeyAmbiguous: (paths: string, replacement: string, values: string, note: string) => string;
+  retiredEffortOrchestratorNote: string;
   // lib/marker.ts user-zone placeholder (emitted into a fresh CLAUDE.md).
   userSectionPlaceholder: string;
   // lib/placeholders.ts soft fallback for `{{qualityGate.fast|full}}` — published
@@ -1123,6 +1129,21 @@ interface ConfigureCmdStrings {
   blocksUpdated: (values: string) => string;
   blocksCleared: string;
   blocksRenderHint: string;
+  // `configure migrate` — the repair path for retired keys (#920).
+  migrateNothingToDo: string;
+  migratePlanHeader: string;
+  migrateRenamedLine: (from: string, to: string) => string;
+  migrateDroppedLine: (from: string, to: string) => string;
+  migrateScoutPrompt: (target: string) => string;
+  migrateDecisionPending: (targets: string) => string;
+  migrateDecisionHint: string;
+  migrateConfirm: (count: number) => string;
+  migrateDryRun: string;
+  migrateApplied: (count: number) => string;
+  migrateRenderHint: string;
+  migrateAllHeader: (count: number, path: string) => string;
+  migrateAllPreviewHint: string;
+  migrateAllSummary: (migrated: number, clean: number, pending: number, failed: number) => string;
 }
 
 interface WorkspaceCmdStrings {
@@ -1474,6 +1495,15 @@ const CMD_ES: CmdStrings = {
       `navori: claves obsoletas ignoradas en "progress" (puedes borrarlas del navori.config.json): ${list}`,
     deprecatedConfigKeys: (list) =>
       `navori: perillas obsoletas sin efecto completo en runtime (puedes borrarlas del navori.config.json): ${list}`,
+    retiredConfigKeys: (lines) =>
+      `Claves de config retiradas: ${lines}. Corre 'navori configure migrate' para migrarlas.`,
+    retiredKeyOne: (path, replacement, note) =>
+      `${path} está retirada — reemplázala por ${replacement}${note}`,
+    retiredKeyAmbiguous: (paths, replacement, values, note) =>
+      `${paths} están retiradas y ambas mapean a ${replacement} — llevan valores distintos ` +
+      `(${values}); elige uno y pon ${replacement} tú mismo, no se infiere${note}`,
+    retiredEffortOrchestratorNote:
+      " (effort.orchestrator además fija el nivel de esfuerzo por defecto de la sesión)",
     userSectionPlaceholder:
       "<!-- Escribe aquí el dominio y las convenciones específicas de tu repo. " +
       "navori preserva intacto todo lo que esté entre estos marcadores en cada render. -->",
@@ -2090,6 +2120,23 @@ const CMD_ES: CmdStrings = {
     blocksCleared: "blocks.exclude limpio — se renderizan todos los bloques Core",
     blocksRenderHint:
       "Corre 'navori render --apply' o 'navori sync' para aplicar (los bloques excluidos se eliminan).",
+    migrateNothingToDo: "No hay claves retiradas: el navori.config.json ya está al día.",
+    migratePlanHeader: "Cambios a aplicar en navori.config.json:",
+    migrateRenamedLine: (from, to) => `${from} → ${to}`,
+    migrateDroppedLine: (from, to) => `${from} se descarta (${to} ya está puesta)`,
+    migrateScoutPrompt: (target) => `Dos claves retiradas mapean a ${target}. ¿Cuál valor gana?`,
+    migrateDecisionPending: (targets) =>
+      `Falta decidir el valor de: ${targets}. No se infiere (R40), así que no se escribió nada.`,
+    migrateDecisionHint:
+      "Pásalo con --scout=<modelo> y --scout-effort=<nivel>, o corre el comando sin --yes para elegir.",
+    migrateConfirm: (count) => `¿Reescribir navori.config.json con ${count} cambio(s)?`,
+    migrateDryRun: "Dry-run: no se escribió nada.",
+    migrateApplied: (count) => `navori.config.json migrado (${count} cambio(s)).`,
+    migrateRenderHint: "Ahora corre 'navori render --apply' o 'navori sync'.",
+    migrateAllHeader: (count, path) => `${count} repo(s) del registry (${path})`,
+    migrateAllPreviewHint: "Preview (no se toca ningún archivo) — usa --apply para escribir.",
+    migrateAllSummary: (migrated, clean, pending, failed) =>
+      `${migrated} migrado(s) · ${clean} al día · ${pending} sin decidir · ${failed} con error`,
   },
   workspace: {
     invalidName: (name) => `El nombre del workspace debe estar en kebab-case: ${name}`,
@@ -2626,6 +2673,15 @@ const CMD_EN: CmdStrings = {
       `navori: obsolete keys ignored in "progress" (you can delete them from navori.config.json): ${list}`,
     deprecatedConfigKeys: (list) =>
       `navori: deprecated knobs without a complete runtime effect (you can delete them from navori.config.json): ${list}`,
+    retiredConfigKeys: (lines) =>
+      `Retired config keys: ${lines}. Run 'navori configure migrate' to migrate them.`,
+    retiredKeyOne: (path, replacement, note) =>
+      `${path} is retired — replace it with ${replacement}${note}`,
+    retiredKeyAmbiguous: (paths, replacement, values, note) =>
+      `${paths} are retired and both map to ${replacement} — they carry different values ` +
+      `(${values}); choose one and set ${replacement} yourself, it is not inferred${note}`,
+    retiredEffortOrchestratorNote:
+      " (effort.orchestrator also sets the session's default effort level)",
     userSectionPlaceholder:
       "<!-- Write your repo's domain and specific conventions here. " +
       "navori preserves everything between these markers verbatim on every render. -->",
@@ -3234,6 +3290,23 @@ const CMD_EN: CmdStrings = {
     blocksCleared: "blocks.exclude cleared — all Core blocks render",
     blocksRenderHint:
       "Run 'navori render --apply' or 'navori sync' to apply (excluded blocks are removed).",
+    migrateNothingToDo: "No retired keys: navori.config.json is already up to date.",
+    migratePlanHeader: "Changes to apply to navori.config.json:",
+    migrateRenamedLine: (from, to) => `${from} → ${to}`,
+    migrateDroppedLine: (from, to) => `${from} dropped (${to} is already set)`,
+    migrateScoutPrompt: (target) => `Two retired keys map to ${target}. Which value wins?`,
+    migrateDecisionPending: (targets) =>
+      `Still undecided: ${targets}. It is not inferred (R40), so nothing was written.`,
+    migrateDecisionHint:
+      "Pass it with --scout=<model> and --scout-effort=<level>, or run the command without --yes to choose.",
+    migrateConfirm: (count) => `Rewrite navori.config.json with ${count} change(s)?`,
+    migrateDryRun: "Dry-run: nothing was written.",
+    migrateApplied: (count) => `navori.config.json migrated (${count} change(s)).`,
+    migrateRenderHint: "Now run 'navori render --apply' or 'navori sync'.",
+    migrateAllHeader: (count, path) => `${count} repo(s) from the registry (${path})`,
+    migrateAllPreviewHint: "Preview (no file touched) — use --apply to write.",
+    migrateAllSummary: (migrated, clean, pending, failed) =>
+      `${migrated} migrated · ${clean} up to date · ${pending} undecided · ${failed} failed`,
   },
   workspace: {
     invalidName: (name) => `Workspace name must be kebab-case: ${name}`,
