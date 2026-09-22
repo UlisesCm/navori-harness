@@ -63,7 +63,7 @@ function config(overrides: Partial<NavoriConfigInput> = {}): NavoriConfig {
 
 describe("scanDocBudget (#917)", () => {
   it("returns null only when the repo has NO startup surface at all", () => {
-    expect(scanDocBudget(tempRepo())).toBeNull();
+    expect(scanDocBudget(tempRepo(), config())).toBeNull();
   });
 
   /**
@@ -75,7 +75,7 @@ describe("scanDocBudget (#917)", () => {
   it("still reports when there is no CLAUDE.md but another surface exists", () => {
     const cwd = tempRepo();
     writeContext(cwd, "10-orquestacion.md", words(900));
-    const report = scanDocBudget(cwd)!;
+    const report = scanDocBudget(cwd, config())!;
     expect(report).not.toBeNull();
     expect(report.totalWords).toBeNull();
     expect(report.managedWords).toBeNull();
@@ -89,7 +89,7 @@ describe("scanDocBudget (#917)", () => {
   it("omits the CLAUDE.md lines entirely instead of printing them as zeros", () => {
     const cwd = tempRepo();
     writeContext(cwd, "10-orquestacion.md", words(900));
-    const lines = docBudgetLines(scanDocBudget(cwd)!, tc("es").doctor);
+    const lines = docBudgetLines(scanDocBudget(cwd, config())!, tc("es").doctor);
     expect(lines.some((l) => l.includes("CLAUDE.md"))).toBe(false);
     expect(lines.some((l) => l.includes(".claude/context/"))).toBe(true);
   });
@@ -99,7 +99,7 @@ describe("scanDocBudget (#917)", () => {
   it("reports a file inside its budget with no violation", () => {
     const cwd = tempRepo();
     writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
-    const report = scanDocBudget(cwd)!;
+    const report = scanDocBudget(cwd, config())!;
     expect(report.ceiling).toBe(61);
     expect(report.overBy).toBe(0);
     expect(report.blocks.map((b) => [b.id, b.kind, b.over])).toEqual([
@@ -110,7 +110,7 @@ describe("scanDocBudget (#917)", () => {
   it("reports a file over its budget, naming the block and its lever", () => {
     const cwd = tempRepo();
     writeClaudeMd(cwd, block("tipado-fuerte", words(200)));
-    const report = scanDocBudget(cwd)!;
+    const report = scanDocBudget(cwd, config())!;
     expect(report.overBy).toBeGreaterThan(0);
     const over = report.blocks.filter((b) => b.over);
     expect(over.map((b) => b.id)).toEqual(["tipado-fuerte"]);
@@ -126,7 +126,7 @@ describe("scanDocBudget (#917)", () => {
   it("reports large user prose without ever marking a violation", () => {
     const cwd = tempRepo();
     writeClaudeMd(cwd, `${words(800)}\n\n${block("tipado-fuerte", words(20))}`);
-    const report = scanDocBudget(cwd)!;
+    const report = scanDocBudget(cwd, config())!;
     expect(report.ownWords).toBe(800);
     expect(report.managedWords!).toBeLessThan(report.ceiling!);
     expect(report.overBy).toBe(0);
@@ -147,7 +147,7 @@ describe("scanDocBudget (#917)", () => {
         "\n\n",
       ),
     );
-    const report = scanDocBudget(cwd)!;
+    const report = scanDocBudget(cwd, config())!;
     expect(report.staleBlocks).toBe(2);
     expect(report.cliVersion).toBe(CURRENT);
   });
@@ -155,7 +155,7 @@ describe("scanDocBudget (#917)", () => {
   it("does not call a current file stale", () => {
     const cwd = tempRepo();
     writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
-    expect(scanDocBudget(cwd)!.staleBlocks).toBe(0);
+    expect(scanDocBudget(cwd, config())!.staleBlocks).toBe(0);
   });
 
   /**
@@ -168,7 +168,7 @@ describe("scanDocBudget (#917)", () => {
     const cwd = tempRepo();
     const rows = Array.from({ length: 9 }, () => `- ${words(30)}`).join("\n");
     writeClaudeMd(cwd, block("contexto-proyecto", rows));
-    const report = scanDocBudget(cwd)!;
+    const report = scanDocBudget(cwd, config())!;
     const block0 = report.blocks[0]!;
     expect(block0.kind).toBe("computed");
     expect(block0.rows).toBe(9);
@@ -180,7 +180,7 @@ describe("scanDocBudget (#917)", () => {
   it("measures a block navori ships no ceiling for without inventing one", () => {
     const cwd = tempRepo();
     writeClaudeMd(cwd, block("some-retired-block", words(400)));
-    const block0 = scanDocBudget(cwd)!.blocks[0]!;
+    const block0 = scanDocBudget(cwd, config())!.blocks[0]!;
     expect(block0.kind).toBe("unbudgeted");
     expect(block0.ceiling).toBeNull();
     expect(block0.over).toBe(false);
@@ -199,13 +199,34 @@ describe("scanDocBudget (#917)", () => {
       cwd,
       [block("tipado-fuerte", words(20)), block("engram-protocol", words(497))].join("\n\n"),
     );
-    const report = scanDocBudget(cwd)!;
+    const report = scanDocBudget(cwd, config())!;
     // Body + the marker pair, which is exactly the constant the ceilings add.
     expect(report.unbudgetedWords).toBe(497 + MARKER_PAIR_WORDS);
     expect(report.managedWords!).toBeGreaterThan(report.ceiling!);
     // …and yet nothing is over budget: the only budgeted block fits.
     expect(report.overBy).toBe(0);
     expect(report.blocks.some((b) => b.over)).toBe(false);
+  });
+
+  /**
+   * The reload is a CLAUDE fact, not a portable one. A Codex subagent is
+   * spawned from a custom agent file whose required fields include its own
+   * `developer_instructions`; the doc documents no re-concatenation of
+   * `AGENTS.md` per subagent (verified live, 2026-09-22). Printing the Claude
+   * number in a Codex-only repo would be inventing a cost.
+   */
+  it("does not claim the subagent reload on a repo without the claude engine", () => {
+    const cwd = tempRepo();
+    writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
+    const codexOnly = config({ engines: ["codex"] });
+    expect(scanDocBudget(cwd, codexOnly)!.perSubagentWords).toBeNull();
+    expect(scanDocBudget(cwd, config())!.perSubagentWords).not.toBeNull();
+
+    const lines = docBudgetLines(scanDocBudget(cwd, codexOnly)!, tc("es").doctor);
+    expect(lines.some((l) => l.includes("subagente"))).toBe(false);
+    // The rest of the Claude surface is still reported: the repo does have a
+    // CLAUDE.md, it just isn't Claude that spawns its subagents.
+    expect(lines.some((l) => l.includes("CLAUDE.md"))).toBe(true);
   });
 
   /**
@@ -219,7 +240,7 @@ describe("scanDocBudget (#917)", () => {
   it("reports AGENTS.md in bytes against Codex's cap, without capping it", () => {
     const cwd = tempRepo();
     writeFileSync(join(cwd, "AGENTS.md"), `${words(100)}\n`);
-    const report = scanDocBudget(cwd)!;
+    const report = scanDocBudget(cwd, config())!;
     expect(report.agentsMd?.words).toBe(100);
     expect(report.agentsMd?.chars).toBe(Buffer.byteLength(`${words(100)}\n`, "utf-8"));
     expect(report.agentsMdMaxBytes).toBe(CODEX_PROJECT_DOC_MAX_BYTES);
@@ -231,14 +252,14 @@ describe("scanDocBudget (#917)", () => {
   it("turns the AGENTS.md line yellow past the warn ratio, never red", () => {
     const small = tempRepo();
     writeFileSync(join(small, "AGENTS.md"), "a".repeat(1000));
-    const under = docBudgetLines(scanDocBudget(small)!, tc("es").doctor);
+    const under = docBudgetLines(scanDocBudget(small, config())!, tc("es").doctor);
     expect(under.some((l) => l.includes("DEJA DE AGREGAR"))).toBe(false);
     expect(under.some((l) => l.includes("AGENTS.md"))).toBe(true);
 
     const big = tempRepo();
     const bytes = Math.ceil(CODEX_PROJECT_DOC_MAX_BYTES * CODEX_PROJECT_DOC_WARN_RATIO) + 1;
     writeFileSync(join(big, "AGENTS.md"), "a".repeat(bytes));
-    const over = docBudgetLines(scanDocBudget(big)!, tc("es").doctor);
+    const over = docBudgetLines(scanDocBudget(big, config())!, tc("es").doctor);
     expect(over.some((l) => l.includes("DEJA DE AGREGAR"))).toBe(true);
     // Yellow, never red: the verdict of a repo whose AGENTS.md is past the
     // threshold is identical to one whose file is tiny.
@@ -255,7 +276,7 @@ describe("scanDocBudget (#917)", () => {
         `<!-- /navori:managed id="gh-protocol" -->`,
       ].join("\n"),
     );
-    expect(scanDocBudget(cwd)!.blocks[0]!.lever).toBe("plugins");
+    expect(scanDocBudget(cwd, config())!.blocks[0]!.lever).toBe("plugins");
   });
 
   /**
@@ -269,7 +290,7 @@ describe("scanDocBudget (#917)", () => {
     writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
     writeContext(cwd, "10-orquestacion.md", words(900));
     writeContext(cwd, "40-cierre-sesion.md", words(400));
-    const report = scanDocBudget(cwd)!;
+    const report = scanDocBudget(cwd, config())!;
     expect(report.contextFiles.map((f) => f.path)).toEqual([
       ".claude/context/10-orquestacion.md",
       ".claude/context/40-cierre-sesion.md",
@@ -292,7 +313,7 @@ describe("scanDocBudget (#917)", () => {
     const cwd = tempRepo();
     writeClaudeMd(cwd, `${words(100)}\n\n${block("tipado-fuerte", words(20))}`);
     writeContext(cwd, "10-orquestacion.md", words(900));
-    const report = scanDocBudget(cwd)!;
+    const report = scanDocBudget(cwd, config())!;
     expect(report.perSubagentWords).toBe(report.totalWords);
     expect(report.perSubagentWords!).toBeLessThan(report.totalWords! + report.contextWords);
   });
@@ -321,8 +342,8 @@ describe("the doc budget never moves the health verdict (#917)", () => {
     const small = repoWith(block("tipado-fuerte", words(20)));
     const huge = repoWith(block("tipado-fuerte", words(5000)));
 
-    expect(scanDocBudget(small.cwd)!.overBy).toBe(0);
-    expect(scanDocBudget(huge.cwd)!.overBy).toBeGreaterThan(4000);
+    expect(scanDocBudget(small.cwd, config())!.overBy).toBe(0);
+    expect(scanDocBudget(huge.cwd, config())!.overBy).toBeGreaterThan(4000);
 
     const smallVerdict = computeHealthVerdict(small.cwd, config());
     const hugeVerdict = computeHealthVerdict(huge.cwd, config());

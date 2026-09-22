@@ -808,7 +808,7 @@ interface DoctorCmdStrings {
   docBudgetTitle: string;
   /** What a session pays: whole file, managed half vs its ceiling, user prose. */
   docBudgetSummary: (total: number, managed: number, ceiling: number, own: number) => string;
-  /** The same file is reloaded whole by every subagent — no invented multiplier. */
+  /** Claude-only: cada subagente recarga CLAUDE.md entero. Sin multiplicador inventado. */
   docBudgetSubagents: (words: number) => string;
   /** Blocks navori ships no ceiling for: contados, fuera del cociente. */
   docBudgetUnbudgeted: (words: number, ids: string) => string;
@@ -1936,9 +1936,10 @@ const CMD_ES: CmdStrings = {
       `CLAUDE.md: ${total} palabras — ${managed} managed contra un techo derivado de ${ceiling}, ` +
       `${own} de prosa tuya (se reporta, no se capea)`,
     docBudgetSubagents: (words) =>
-      `cada subagente recarga el archivo entero (${words} palabras): un ciclo ` +
+      `en Claude, cada subagente recarga CLAUDE.md entero (${words} palabras): un ciclo ` +
       `implementer→reviewer→publisher lo paga una vez por agente, además de la sesión principal ` +
-      `(no hay multiplicador fijo: los agentes los pone el ticket)`,
+      `(no hay multiplicador fijo: los agentes los pone el ticket). No aplica a Codex, cuyos ` +
+      `subagentes llevan sus propias 'developer_instructions'`,
     docBudgetUnbudgeted: (words, ids) =>
       `${words} palabras en bloques sin techo (${ids}): se cuentan en el total pero quedan FUERA ` +
       `de la comparación — navori no envía techo para ellos, y casi siempre son bloques retirados ` +
@@ -3149,9 +3150,10 @@ const CMD_EN: CmdStrings = {
       `CLAUDE.md: ${total} words — ${managed} managed against a derived ceiling of ${ceiling}, ` +
       `${own} of your own prose (reported, not capped)`,
     docBudgetSubagents: (words) =>
-      `every subagent reloads the whole file (${words} words): an ` +
+      `on Claude, every subagent reloads the whole CLAUDE.md (${words} words): an ` +
       `implementer→reviewer→publisher cycle pays it once per agent, on top of the main session ` +
-      `(no fixed multiplier: the ticket decides how many agents run)`,
+      `(no fixed multiplier: the ticket decides how many agents run). Not true of Codex, whose ` +
+      `subagents carry their own 'developer_instructions'`,
     docBudgetUnbudgeted: (words, ids) =>
       `${words} words in blocks with no ceiling (${ids}): counted in the total but kept OUT of ` +
       `the comparison — navori ships no ceiling for them, and they are almost always retired ` +

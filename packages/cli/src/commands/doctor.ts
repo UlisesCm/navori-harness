@@ -225,7 +225,7 @@ export const doctorCommand = defineCommand({
     // #917: what every session of this repo pays before its first prompt.
     // Warning-level and deliberately outside `computeHealthVerdict` — see the
     // scanner for why 30 repos depend on it staying that way.
-    const docBudget = scanDocBudget(cwd);
+    const docBudget = scanDocBudget(cwd, config);
     // #778: the git axis nothing else looks at — rendered but not committed,
     // committed but not pushed, pushed onto a branch the base never merged, and
     // a checkout left behind by the base. Advisory and NETWORK-FREE (local refs
@@ -1081,7 +1081,12 @@ export function docBudgetLines(
         report.ownWords ?? 0,
       )}`,
     );
-    lines.push(`  ${grey(sym.bullet)} ${td.docBudgetSubagents(report.perSubagentWords ?? 0)}`);
+  }
+  // Claude-only by construction (see `perSubagentWords`): a Codex subagent
+  // carries its own `developer_instructions`, so the reload is not a fact about
+  // every host that renders a harness.
+  if (report.perSubagentWords !== null) {
+    lines.push(`  ${grey(sym.bullet)} ${td.docBudgetSubagents(report.perSubagentWords)}`);
   }
   // Named on their own line instead of folded into the summary: a block with no
   // ceiling is a different fact from a block over one, and the two fixes differ
@@ -2134,6 +2139,15 @@ export interface DocBudgetReport {
    * No multiplier is published with it, because there isn't one: how many
    * agents a ticket spends is a property of the ticket. The honest report is
    * the unit cost plus "once per agent"; a constant would be invented.
+   *
+   * NULL when `engines` does not include `claude`, because the reload is a
+   * Claude fact and NOT a portable one. Codex spawns subagents from a custom
+   * agent file whose REQUIRED fields are `name`, `description` and
+   * `developer_instructions` (`learn.chatgpt.com/docs/agent-configuration/subagents`,
+   * verified live 2026-09-22); what a Codex subagent inherits from its parent is
+   * the model, the sandbox policy and the tool set — the doc documents no
+   * re-concatenation of `AGENTS.md` per subagent. Printing the Claude number in
+   * a Codex-only repo would be inventing a cost.
    */
   perSubagentWords: number | null;
 }
@@ -2162,7 +2176,7 @@ function leverFor(id: string, source: string | null): DocBudgetLever {
  * their owners wrote legitimately. Same reasoning `check-doc-budgets.mjs`
  * already carries for the gate's own warnings.
  */
-export function scanDocBudget(cwd: string): DocBudgetReport | null {
+export function scanDocBudget(cwd: string, config: NavoriConfig): DocBudgetReport | null {
   const claudeMdPath = join(cwd, "CLAUDE.md");
   const hasClaudeMd = existsSync(claudeMdPath);
   const contextFiles = readContextSurface(cwd);
@@ -2206,7 +2220,7 @@ export function scanDocBudget(cwd: string): DocBudgetReport | null {
     contextDeliveryBudget: SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
     agentsMd,
     agentsMdMaxBytes: CODEX_PROJECT_DOC_MAX_BYTES,
-    perSubagentWords: measure?.totalWords ?? null,
+    perSubagentWords: config.engines.includes("claude") ? (measure?.totalWords ?? null) : null,
   };
 }
 
